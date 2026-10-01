@@ -87,7 +87,12 @@ function recordType(folderId, type) {
   }
 }
 
+// A planned shutdown leaves every folder paused, so the next start sends nothing
+// before the election has decided; from its start, no write unpauses one.
+const SHUTDOWN_REFUSAL = Object.freeze({ status: 'error', data: { message: 'this node is shutting down: its folders stay paused' } });
+
 async function patchNow(folderId, fields) {
+  if (globalState.shutdownInProgress && fields.paused === false) return SHUTDOWN_REFUSAL;
   const response = await syncthingService.adjustConfigFolders('patch', fields, folderId);
   if (response.status === 'success' && fields.type) recordType(folderId, fields.type);
   return response;
@@ -105,6 +110,7 @@ function putFolders(folders) {
     return Promise.reject(new Error(`folder config without a type would be written as syncthing's default: ${untyped.join(', ')}`));
   }
   return exclusive(folders.map((folder) => folder.id), async () => {
+    if (globalState.shutdownInProgress) return SHUTDOWN_REFUSAL;
     const response = await syncthingService.adjustConfigFolders('put', folders);
     if (response.status === 'success') folders.forEach((folder) => recordType(folder.id, folder.type));
     return response;
@@ -134,6 +140,23 @@ function deleteFolder(folderId) {
     }
     return response;
   });
+}
+
+/**
+ * Pauses every folder syncthing holds, each in its turn behind the writes
+ * already queued for it.
+ * @returns {Promise<{paused: string[], failed: string[]}>} Folder ids
+ */
+async function pauseAllFolders() {
+  const folders = await syncthingService.getConfigFolders();
+  const results = await Promise.all(folders.map(async (folder) => {
+    const response = await patchFolder(folder.id, { paused: true }).catch((error) => ({ status: 'error', data: { message: error.message } }));
+    return { id: folder.id, paused: response.status === 'success' };
+  }));
+  return {
+    paused: results.filter((result) => result.paused).map((result) => result.id),
+    failed: results.filter((result) => !result.paused).map((result) => result.id),
+  };
 }
 
 /**
@@ -176,6 +199,19 @@ async function folderTypeSettles(folderPath, folderType, settleMs) {
 }
 
 /**
+ * A folder's config as syncthing holds it.
+ * @param {string} folderId
+ * @returns {Promise<object|null>} null when syncthing holds no such folder or
+ *   cannot be read
+ */
+async function folderConfig(folderId) {
+  const folderPath = `${appsFolder}${folderId}`;
+  const folders = await syncthingService.getConfigFolders().catch(() => null);
+  if (!Array.isArray(folders)) return null;
+  return folders.find((f) => f.path === folderPath) ?? null;
+}
+
+/**
  * Scans a folder whose type is about to change, and answers whether syncthing
  * confirmed the scan finished. The folder is not held while it scans: a scan
  * writes no config.
@@ -213,9 +249,13 @@ async function scannedBeforeChange(folderId, folderType) {
  *   A scan syncthing does not confirm finished leaves the type unchanged.
  * @param {() => boolean} [options.abandonIf] Asked once the folder is held; true
  *   writes nothing and fails the change.
+ * @param {boolean} [options.unpause] Unpause the folder in the same write; a
+ *   paused folder of the type is then written too.
  * @returns {Promise<boolean>} - true if the folder has the type
  */
-async function changeSyncthingFolderType(folderId, folderType, { settleMs = 0, scanFirst = false, abandonIf = () => false } = {}) {
+async function changeSyncthingFolderType(folderId, folderType, {
+  settleMs = 0, scanFirst = false, abandonIf = () => false, unpause = false,
+} = {}) {
   if (scanFirst && !(await scannedBeforeChange(folderId, folderType))) return false;
   return exclusive([folderId], async () => {
     try {
@@ -233,13 +273,13 @@ async function changeSyncthingFolderType(folderId, folderType, { settleMs = 0, s
 
       // The election asserts a folder's type on every pass, so an unchanged
       // folder is the common case and says nothing worth logging.
-      if (folder.type === folderType) {
+      if (folder.type === folderType && !(unpause && folder.paused)) {
         return true;
       }
 
-      log.info(`Changing syncthing folder ${folderId} to ${folderType} mode`);
+      log.info(`Changing syncthing folder ${folderId} to ${folderType} mode${unpause ? ', unpaused' : ''}`);
 
-      const patchData = { type: folderType, ...OWNED_FOLDER_SETTINGS };
+      const patchData = { type: folderType, ...OWNED_FOLDER_SETTINGS, ...(unpause ? { paused: false } : {}) };
       const updateResponse = await patchNow(folder.id, patchData);
 
       if (updateResponse.status === 'success') {
@@ -266,6 +306,8 @@ async function changeSyncthingFolderType(folderId, folderType, { settleMs = 0, s
 module.exports = {
   FOLDER_TYPE_SETTLE_MS,
   changeSyncthingFolderType,
+  folderConfig,
+  pauseAllFolders,
   putFolders,
   patchFolder,
   deleteFolder,

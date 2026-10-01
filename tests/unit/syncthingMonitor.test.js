@@ -33,6 +33,7 @@ const syncthingServiceMock = {
   adjustConfigFolders: sinon.stub().resolves(),
   getFolderIdErrors: sinon.stub(),
   systemRestart: sinon.stub().resolves(),
+  systemResume: sinon.stub().resolves(),
   getDbStatus: sinon.stub(),
 };
 
@@ -178,6 +179,8 @@ describe('syncthingMonitor tests', () => {
     syncthingServiceMock.adjustConfigFolders.reset();
     syncthingServiceMock.getFolderIdErrors.reset();
     syncthingServiceMock.systemRestart.reset();
+    syncthingServiceMock.systemResume.reset();
+    syncthingServiceMock.systemResume.resolves();
     fluxNetworkHelperMock.getLocalSocketAddress.reset();
     dockerServiceMock.dockerContainerInspect.reset();
     dockerServiceMock.appDockerStart.reset();
@@ -304,6 +307,68 @@ describe('syncthingMonitor tests', () => {
       await runOnePass();
 
       expect([...globalState.promotedFolderIds]).to.deep.equal(['fluxcomp_heldapp']);
+    });
+  });
+
+  // A syncthing started paused pauses every device, and only the monitor
+  // resumes them.
+  describe('resuming paused devices', () => {
+    // eslint-disable-next-line global-require
+    const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+
+    const runOnePass = async () => {
+      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+      );
+      await clock.tickAsync(10000);
+    };
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('resumes every paused peer device, and leaves running ones and its own alone', async () => {
+      const published = sinon.spy(fluxEventBus, 'publish');
+      syncthingServiceMock.getConfigDevices.resolves([
+        { deviceID: 'DEVICE-ID', paused: true },
+        { deviceID: 'PEER-PAUSED-1', paused: true },
+        { deviceID: 'PEER-RUNNING', paused: false },
+        { deviceID: 'PEER-PAUSED-2', paused: true },
+      ]);
+
+      await runOnePass();
+
+      expect(syncthingServiceMock.systemResume.args.map(([id]) => id)).to.have.members(['PEER-PAUSED-1', 'PEER-PAUSED-2']);
+      const event = published.getCalls().find((call) => call.args[0] === 'syncthing:devicesResumed');
+      expect(event?.args[1]).to.deep.equal({ devices: ['PEER-PAUSED-1', 'PEER-PAUSED-2'] });
+    });
+
+    it('resumes nothing and says nothing when no device is paused', async () => {
+      const published = sinon.spy(fluxEventBus, 'publish');
+      syncthingServiceMock.getConfigDevices.resolves([{ deviceID: 'PEER-RUNNING', paused: false }]);
+
+      await runOnePass();
+
+      sinon.assert.notCalled(syncthingServiceMock.systemResume);
+      expect(published.getCalls().filter((call) => call.args[0] === 'syncthing:devicesResumed')).to.have.lengthOf(0);
+    });
+
+    it('resumes the others and goes on with the pass when one resume fails', async () => {
+      const published = sinon.spy(fluxEventBus, 'publish');
+      syncthingServiceMock.getConfigDevices.resolves([
+        { deviceID: 'PEER-STUCK', paused: true },
+        { deviceID: 'PEER-PAUSED', paused: true },
+      ]);
+      syncthingServiceMock.systemResume.withArgs('PEER-STUCK').rejects(new Error('syncthing refused'));
+
+      await runOnePass();
+
+      const event = published.getCalls().find((call) => call.args[0] === 'syncthing:devicesResumed');
+      expect(event?.args[1]).to.deep.equal({ devices: ['PEER-PAUSED'] });
+      sinon.assert.called(syncthingHealthMonitorMock.monitorFolderHealth);
     });
   });
 
@@ -1281,6 +1346,23 @@ describe('syncthingMonitor tests', () => {
 
     // A g: folder's type is its primary role's: the monitor names one only to
     // create the folder, and otherwise changes only the fields it owns.
+    // The returning-primary decision tells "no other holder" from "the records
+    // could not be read"; the read it is handed must not collapse the two.
+    it('hands the state machine a location read that fails when the records cannot be read', async () => {
+      writesAFolder();
+      dbHelperMock.databaseConnection.throws(new Error('database unavailable'));
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      const params = syncthingFolderStateMachineMock.manageFolderSyncState.firstCall?.args[0];
+      expect(params, 'the state machine was not reached, so this asserts nothing').to.not.equal(undefined);
+      expect(await params.appLocation('testapp'), 'the tolerant read').to.deep.equal([]);
+      let failure = null;
+      await params.readAppLocation('testapp').catch((error) => { failure = error; });
+      expect(failure?.message).to.equal('database unavailable');
+    });
+
     describe('the type of a g: folder', () => {
       const folderCalls = () => syncthingServiceMock.adjustConfigFolders.getCalls()
         .filter((c) => c.args[0] === 'put' || c.args[0] === 'patch');

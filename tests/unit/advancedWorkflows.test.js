@@ -579,6 +579,7 @@ describe('advancedWorkflows tests', () => {
     let syncthingServiceStub;
     let syncthingCompletionStub;
     let syncthingDeviceStatsStub;
+    let syncthingStatusStub;
     let syncthingDevicesStub;
     let axiosGetStub;
     let recursionCounter;
@@ -669,6 +670,8 @@ describe('advancedWorkflows tests', () => {
       syncthingDevicesStub = sinon.stub(syncthingServiceModule, 'getConfigDevices').resolves([]);
       // default: this node's syncthing has never been connected to any peer
       syncthingDeviceStatsStub = sinon.stub(syncthingServiceModule, 'getDeviceStats').resolves({});
+      // this node's syncthing started before any connection the tests close
+      syncthingStatusStub = sinon.stub(syncthingServiceModule, 'getSystemStatus').resolves({ startTime: '2026-09-25T13:00:00Z' });
       globalState.syncthingDevicesIDCache.clear();
       const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
       sinon.stub(fluxCommunication, 'peerResponsiveness').returns({ responding: 4, total: 4 });
@@ -1814,6 +1817,70 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
+    // A syncthing started paused disconnects every device itself, until the monitor
+    // resumes them. The closed connection is this node's doing, not the peer's.
+    it('will not start beside a silent peer whose device this node\'s syncthing has paused', async () => {
+      const appName = 'pausedpeerapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      syncthingDevicesStub.resolves([{ name: '192.168.1.90:16127', deviceID: 'DEVICE-192.168.1.90:16127', paused: true }]);
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    // A syncthing that has just started has reconnected to nobody. A connection
+    // that closed before it started says nothing about the peer now.
+    it('will not start beside a silent peer whose connection closed before this node\'s syncthing started', async () => {
+      const appName = 'restartedsyncthingapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      syncthingStatusStub.resolves({ startTime: '2026-09-25T14:00:30Z' });
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('will not start beside a silent peer when this node cannot read when its syncthing started', async () => {
+      const appName = 'statusunreadableapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      syncthingStatusStub.rejects(new Error('syncthing did not answer'));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('will not start beside a silent peer when this node cannot read whether its syncthing paused it', async () => {
+      const appName = 'devicesunreadableapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      syncthingDevicesStub.rejects(new Error('syncthing did not answer'));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
     it('will not start beside a silent peer when this node cannot read whether its syncthing ever saw it', async () => {
       const appName = 'statsunreadableapp';
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
@@ -2131,6 +2198,26 @@ describe('advancedWorkflows tests', () => {
 
     // Directly behind a primary FDM has dropped, a node's turn is due at once. The
     // node further down may already have taken the component, so it is asked too.
+    // A standby whose folder came back paused asks the node FDM names whether it
+    // runs the component, at the address its location record gives.
+    it('lets a standby\'s paused folder ask the node FDM names as primary, at its recorded address', async () => {
+      const appName = 'fdmholderapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(log, 'info');
+      const hold = sinon.stub(primaryRole, 'holdAsStandby').resolves(false);
+      const runPass = electionFixture(appName, ['192.168.1.90:16137']);
+      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+
+      await runPass();
+
+      sinon.assert.calledOnce(hold);
+      const { othersHold } = hold.firstCall.args[2];
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+      expect(await othersHold()).to.equal('running');
+      expect(axiosGetStub.getCalls().map((call) => call.args[0])).to.deep.equal(['http://192.168.1.90:16137/apps/heldcomponents']);
+    });
+
     it('does not take over from a departed primary while a node further down the order holds it', async () => {
       const appName = 'takeoverbelowapp';
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
@@ -3924,6 +4011,21 @@ describe('advancedWorkflows tests', () => {
       sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'delete');
     });
 
+    it('leaves a folder it found paused paused, and archives it held still', async () => {
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: { isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000 },
+        reason: 'ok',
+      });
+      const folders = sinon.stub(syncthingService, 'getConfigFolders').resolves([{ id: folderId, path: `${appsFolder}${folderId}`, type: 'sendreceive', paused: true }]);
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+      expect(result).to.equal(true);
+      sinon.assert.called(folders);
+      sinon.assert.calledOnce(IOUtils.createTarGz);
+      sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
+    });
+
     it('refuses when the pause is denied, instead of reading denial as absence', async () => {
       // ERR_BAD_REQUEST spans every 4xx, so the axios code cannot tell a 404
       // (no such folder - nothing to hold) from a 403 (a stale api key - the
@@ -4385,6 +4487,15 @@ describe('advancedWorkflows tests', () => {
         sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'delete');
       });
 
+      it('leaves a folder it found paused paused', async () => {
+        syncthingService.getConfigFolders.resolves([{ id: folderId, path: `${appsFolder}${folderId}`, type: 'sendreceive', paused: true }]);
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.calledOnce(IOUtils.untarFile);
+        sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
+      });
+
       it('leaves the folder paused when a failed restore cannot demote it', async () => {
         // The folder holds partial data. Demoted it heals from the peers;
         // resumed while still sendreceive it hands the deletions and the
@@ -4422,7 +4533,11 @@ describe('advancedWorkflows tests', () => {
         await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
 
         sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { type: 'receiveonly' }, folderId);
-        sinon.assert.notCalled(syncthingService.getConfigFolders);
+        const pause = syncthingService.adjustConfigFolders.getCalls().find((call) => call.args[1]?.paused === true);
+        expect(
+          syncthingService.getConfigFolders.getCalls().filter((call) => call.callId > pause.callId),
+          'the config was read between the pause and the demotion',
+        ).to.have.lengthOf(0);
         sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
       });
 

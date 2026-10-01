@@ -139,6 +139,22 @@ export async function getFileInfo(client, folderId, file) {
   return api(client, `/rest/db/file?folder=${encodeURIComponent(folderId)}&file=${encodeURIComponent(file)}`);
 }
 
+// Whether the daemon's index holds a version of a file that the cluster would
+// pull: a global record that is neither invalid nor deleted. A receive-only
+// folder announces its local changes as invalid, which no peer pulls. `file` is
+// relative to the folder root.
+export async function holdsValidVersion(client, folderId, file) {
+  const key = await apiKey(client);
+  const r = await execInContainer(client.container,
+    `curl -sS -w '\\n%{http_code}' -H "X-API-Key: ${key}" "http://127.0.0.1:8384/rest/db/file?folder=${encodeURIComponent(folderId)}&file=${encodeURIComponent(file)}"`);
+  const lines = r.stdout.trimEnd().split('\n');
+  const status = lines.pop();
+  if (status === '404') return false;
+  if (status !== '200') throw new Error(`syncthing-real: index read for ${file} answered ${status || r.output}`);
+  const { global } = JSON.parse(lines.join('\n'));
+  return !!global && !global.invalid && !global.deleted;
+}
+
 // What each running syncthing process resolves owners against: the sha256 of
 // its /etc/passwd followed by its /etc/group, as that process sees them - the
 // value numericIdTables.js calls TABLES_SHA256 when they are the numeric id
@@ -160,8 +176,11 @@ export async function readPath(client, path) {
 
 // Start the node's own daemon again after something stopped it, the way the OS
 // starts it, and wait until it answers.
-export async function startDaemon(client, { timeout = 60000, interval = 1000 } = {}) {
-  const r = await execInContainer(client.container, '/flux/test-infra/start-syncthing.sh');
+// `paused` true or false starts it with or without --paused whatever the node
+// was built with; left out, as the node's OS would.
+export async function startDaemon(client, { timeout = 60000, interval = 1000, paused } = {}) {
+  const pausedEnv = paused === undefined ? '' : `FLUX_SYNCTHING_PAUSED=${paused ? '1' : ''} `;
+  const r = await execInContainer(client.container, `${pausedEnv}/flux/test-infra/start-syncthing.sh`);
   if (r.exitCode !== 0) throw new Error(`syncthing-real: could not start the daemon: ${r.output}`);
   const start = Date.now();
   while (Date.now() - start < timeout) {
@@ -207,3 +226,38 @@ export async function getDeviceStats(client) {
 export async function getConfigDevices(client) {
   return api(client, '/rest/config/devices');
 }
+
+// The command line of every syncthing process on the node, each as one string.
+export async function syncthingCommandLines(client) {
+  const r = await execInContainer(client.container,
+    'for p in $(pgrep -x syncthing); do tr "\\0" " " < /proc/$p/cmdline; echo; done');
+  return r.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
+}
+
+// Wait for an event in the daemon's own stream, the one `match` accepts, after
+// `since` (an event id of this daemon; ids restart with it). Reads the stream by
+// long poll, so it returns once syncthing has recorded the event, not on a
+// schedule. Answers the event.
+export async function waitForDaemonEvent(client, match, { since = 0, timeout = 120000, label = 'a daemon event' } = {}) {
+  const deadline = Date.now() + timeout;
+  let after = since;
+  while (Date.now() < deadline) {
+    const waitS = Math.max(1, Math.min(30, Math.floor((deadline - Date.now()) / 1000)));
+    // eslint-disable-next-line no-await-in-loop
+    const events = await api(client, `/rest/events?since=${after}&timeout=${waitS}`).catch(() => []);
+    const found = events.find(match);
+    if (found) return found;
+    if (events.length) after = events[events.length - 1].id;
+  }
+  throw new Error(`syncthing-real: no ${label} within ${timeout}ms`);
+}
+
+// The daemon recording a folder config with these fields, e.g.
+// { type: 'receiveonly', paused: false }.
+export const folderSaved = (folderId, fields) => (event) => event.type === 'ConfigSaved'
+  && (event.data?.folders || []).some((f) => f.id === folderId && Object.entries(fields).every(([key, value]) => f[key] === value));
+
+// The daemon finishing one file: pulled onto this node ('update') or removed
+// from it ('delete'), without an error.
+export const itemFinished = (folderId, item, action) => (event) => event.type === 'ItemFinished'
+  && event.data?.folder === folderId && event.data?.item === item && event.data?.action === action && !event.data?.error;

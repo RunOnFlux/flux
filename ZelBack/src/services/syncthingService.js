@@ -1377,6 +1377,14 @@ async function getDeviceStats() {
 }
 
 /**
+ * Syncthing's own status: startTime is when this syncthing process started.
+ * @returns {Promise<{myID: string, startTime: string}>}
+ */
+async function getSystemStatus() {
+  return request('get', '/rest/system/status');
+}
+
+/**
  * Scans a folder now. Syncthing answers once the scan is done, so this resolves
  * when it is, and rejects when syncthing refuses it (the folder is missing,
  * paused or restarting) or the scan outlasts the call's timeout. The watcher
@@ -2068,10 +2076,12 @@ async function ensureSyncthingRunning(installed) {
   // a descendant of FluxOS. pm2 stops and restarts FluxOS by signalling every
   // process in its tree, and syncthing has to keep running through that: across
   // a restart, and through the drain FluxOS runs over it while it shuts down.
+  // Started paused: every folder and device waits for the monitor, which resumes
+  // the devices and unpauses each folder once its role is decided.
   childProcess.spawn(
     // Quoted: every path comes from SYNCTHING_PATH, and this runs through a shell.
     `sudo nohup unshare --mount --propagation slave sh -c '${NUMERIC_ID_SYNCTHING}' syncthing '${tables.passwd}' '${tables.group}' `
-    + `--logfile '${logFile}' --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home '${syncthingHome}' >/dev/null 2>&1 </dev/null &`,
+    + `--logfile '${logFile}' --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --paused --home '${syncthingHome}' >/dev/null 2>&1 </dev/null &`,
     { shell: true },
   ).unref();
 
@@ -2974,6 +2984,7 @@ module.exports = {
   startSyncthingSentinel,
   stopSyncthingSentinel,
   getDeviceId,
+  getSystemStatus,
   getDeviceIdApi,
   probeSyncthing,
   refreshSyncthingHealth,

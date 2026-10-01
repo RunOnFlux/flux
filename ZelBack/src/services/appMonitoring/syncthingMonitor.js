@@ -235,15 +235,29 @@ function syncingFolderOwnerIds(appsInstalled) {
   return ownerIds;
 }
 
-// Helper function to get app locations
+/**
+ * An app's location records. Throws when they cannot be read, so a caller that
+ * must tell "no other holder" from "unknown" can.
+ * @param {string} appName
+ * @returns {Promise<Array<object>>}
+ */
+async function readAppLocation(appName) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const query = { name: appName };
+  const projection = { _id: 0 };
+  const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+  return results || [];
+}
+
+/**
+ * An app's location records, or none when they cannot be read.
+ * @param {string} appName
+ * @returns {Promise<Array<object>>}
+ */
 async function appLocation(appName) {
   try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    const query = { name: appName };
-    const projection = { _id: 0 };
-    const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
-    return results || [];
+    return await readAppLocation(appName);
   } catch (error) {
     log.error(`Error getting app location for ${appName}: ${error.message}`);
     return [];
@@ -346,6 +360,7 @@ async function processContainerData(params) {
       syncthingAppsFirstRun: state.syncthingAppsFirstRun,
       receiveOnlySyncthingAppsCache: state.receiveOnlySyncthingAppsCache,
       appLocation,
+      readAppLocation,
       localSocketAddr,
       syncthingFolder,
       installedAppName,
@@ -594,6 +609,27 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
         log.error('syncthingAppsCore - Failed to get Syncthing devices configuration: malformed response');
       }
       return;
+    }
+
+    // A syncthing started paused pauses every device, and nothing else resumes
+    // one: the nudge resumes only the device it paused, and a device write
+    // reaches only a device that is new. Resumed here, before anything in the
+    // pass reads a connection; the folders stay paused until each is written.
+    const pausedDeviceIds = allDevices
+      .filter((device) => device.paused && device.deviceID !== localDeviceId)
+      .map((device) => device.deviceID);
+    if (pausedDeviceIds.length) {
+      const resumed = await Promise.all(pausedDeviceIds.map((deviceId) => syncthingService.systemResume(deviceId)
+        .then(() => deviceId)
+        .catch((error) => {
+          log.error(`syncthingAppsCore - device ${deviceId.substring(0, 7)} is paused and could not be resumed: ${error.message}`);
+          return null;
+        })));
+      const resumedIds = resumed.filter(Boolean);
+      if (resumedIds.length) {
+        log.info(`syncthingAppsCore - resumed ${resumedIds.length} paused device(s)`);
+        fluxEventBus.publish('syncthing:devicesResumed', { devices: resumedIds });
+      }
     }
 
     // Syncthing itself is up and its configuration readable - that, and only

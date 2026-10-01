@@ -10,8 +10,9 @@ import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, waitForUp, waitForDown } from '../framework/wait.js';
 import {
-  isDaemonUp, isFolderSynced, getFolderConfig, getFolderStatus, getDeviceId, getDeviceStats, getConfigDevices,
-  statPath, readPath, scanFolder, stopDaemon, startDaemon, getDaemonEvents, lastDaemonEventId,
+  isDaemonUp, isFolderSynced, getFolderConfig, getDeviceId, getDeviceStats, getConfigDevices,
+  statPath, readPath, scanFolder, stopDaemon, startDaemon, getDaemonEvents, holdsValidVersion,
+  waitForDaemonEvent, folderSaved,
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { authenticate } from '../auth.js';
@@ -175,34 +176,46 @@ describe('single-writer election on real syncthing', function () {
     expect((await getFolderConfig(client(LATE), folder)).type, 'the late holder\'s folder').to.equal('receiveonly');
   });
 
-  it('brings the old primary back as a standby, scanning its copy before it stops sending', async function () {
+  it('brings the old primary back as a standby, sending nothing it wrote while it was down', async function () {
     this.timeout(420000);
     await unblockPeerAccess(client(FIRST).container, [client(LATE).ip], API_PORT);
     await unblockTraffic(client(LATE).container, [client(FIRST).ip], SYNCTHING_PORT);
 
-    // The daemon comes back first and scans every folder, as on a boot. The mark
-    // is taken once that is over, so a scan after it is FluxOS's.
-    await startDaemon(client(FIRST));
-    await waitFor(async () => (await getFolderStatus(client(FIRST), folder)).state === 'idle', {
-      timeout: 120000, interval: 1000, label: 'the old primary\'s daemon finished its start-up scan',
-    });
-    expect((await getFolderConfig(client(FIRST), folder)).type, 'fixture: the old primary still sends').to.equal('sendreceive');
-    const mark = await lastDaemonEventId(client(FIRST));
+    // Written on the old primary after it went down: nothing its peers have.
+    const stray = `${root}/appdata/written-while-down.txt`;
+    const wrote = await execInContainer(client(FIRST).container,
+      `printf 'never sent' > ${stray} && chown ${APP_UID}:${APP_UID} ${stray}`);
+    expect(wrote.exitCode, `fixture: ${wrote.output}`).to.equal(0);
 
+    // Its syncthing comes back paused, as the OS unit starts it after a crash.
+    await startDaemon(client(FIRST), { paused: true });
+    expect((await getFolderConfig(client(FIRST), folder)), 'fixture: the old primary\'s folder').to.include({ type: 'sendreceive', paused: true });
+
+    const returned = client(FIRST).getLastEventId();
     await releaseFluxos(client(FIRST).container);
-    await waitFor(async () => {
-      await oneWriterAtMost();
-      return (await getFolderConfig(client(FIRST), folder))?.type === 'receiveonly';
-    }, { timeout: 300000, interval: 2000, label: 'the old primary stops sending' });
+    // The old primary's folder is receiving and unpaused, however it got there.
+    await waitForDaemonEvent(client(FIRST), folderSaved(folder, { type: 'receiveonly', paused: false }), {
+      timeout: 300000, label: 'the old primary\'s folder unpaused, receiving',
+    });
+    // Every config the old primary's daemon held since it started: never one in
+    // which the folder sent unpaused.
+    const sentUnpaused = (await getDaemonEvents(client(FIRST), { events: ['ConfigSaved'] }))
+      .filter((e) => (e.data?.folders || []).some((f) => f.id === folder && f.type === 'sendreceive' && !f.paused));
+    expect(sentUnpaused, 'a config in which the old primary\'s folder sent').to.deep.equal([]);
 
-    const events = await getDaemonEvents(client(FIRST), { since: mark, events: ['StateChanged', 'ConfigSaved'] });
-    const demoted = events.find((e) => e.type === 'ConfigSaved'
-      && (e.data?.folders || []).some((f) => f.id === folder && f.type === 'receiveonly'));
-    expect(demoted, 'the demotion in the daemon\'s event log').to.not.equal(undefined);
-    const scanned = events.find((e) => e.type === 'StateChanged' && e.data?.folder === folder
-      && e.data?.to === 'scanning' && e.id < demoted.id);
-    expect(scanned, 'the folder was scanned before it stopped sending').to.not.equal(undefined);
+    const decision = await client(FIRST).waitForEvent('primaryRole:returned', () => true, 60000, { afterId: returned });
+    expect(decision.data, 'what the old primary decided').to.deep.equal({ identifier, outcome: 'discarded' });
+    // syncthing answers a revert once it is done, and the event follows the answer.
+    await client(FIRST).waitForEvent('syncthing:localChangesReverted', (d) => d.folder === folder && d.files > 0, 300000, { afterId: returned });
+    await oneWriterAtMost();
 
+    expect(await readPath(client(FIRST), stray), 'the unsent write on the old primary').to.equal(null);
+    for (const i of [SECOND, LATE]) {
+      // eslint-disable-next-line no-await-in-loop
+      expect(await readPath(client(i), stray), `the unsent write on node ${i}`).to.equal(null);
+      // eslint-disable-next-line no-await-in-loop
+      expect(await holdsValidVersion(client(i), folder, 'appdata/written-while-down.txt'), `a version of the unsent write on node ${i}`).to.equal(false);
+    }
     expect(await runners(), 'the writer').to.deep.equal([SECOND]);
   });
 

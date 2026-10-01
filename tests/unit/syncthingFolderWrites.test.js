@@ -41,6 +41,53 @@ describe('changeSyncthingFolderType', () => {
     sinon.assert.notCalled(adjust);
   });
 
+  describe('unpausing in the same write', () => {
+    it('writes the type and paused:false together', async () => {
+      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+        { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive', paused: true },
+      ]);
+      const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+      const changed = await syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'receiveonly', { unpause: true });
+
+      expect(changed).to.equal(true);
+      sinon.assert.calledOnceWithExactly(adjust, 'patch', { type: 'receiveonly', ...OWNED_FOLDER_SETTINGS, paused: false }, 'fluxprobe_app');
+    });
+
+    it('unpauses a paused folder that already has the type', async () => {
+      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+        { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'receiveonly', paused: true },
+      ]);
+      const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+      expect(await syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'receiveonly', { unpause: true })).to.equal(true);
+
+      sinon.assert.calledOnceWithExactly(adjust, 'patch', { type: 'receiveonly', ...OWNED_FOLDER_SETTINGS, paused: false }, 'fluxprobe_app');
+    });
+
+    it('writes nothing for an unpaused folder that already has the type', async () => {
+      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+        { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'receiveonly', paused: false },
+      ]);
+      const adjust = sinon.stub(syncthingService, 'adjustConfigFolders');
+
+      expect(await syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'receiveonly', { unpause: true })).to.equal(true);
+
+      sinon.assert.notCalled(adjust);
+    });
+
+    it('leaves the pause alone without the option', async () => {
+      sinon.stub(syncthingService, 'getConfigFolders').resolves([
+        { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive', paused: true },
+      ]);
+      const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+      await syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'receiveonly');
+
+      sinon.assert.calledOnceWithExactly(adjust, 'patch', { type: 'receiveonly', ...OWNED_FOLDER_SETTINGS }, 'fluxprobe_app');
+    });
+  });
+
   describe('a write syncthing did not answer', () => {
     const unanswered = { status: 'error', data: { code: 'ECONNABORTED', httpStatus: null } };
     const folderOfType = (type) => [{ id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type }];
@@ -341,5 +388,113 @@ describe('syncthing folder writes', () => {
 
       expect(syncthingFolderWrites.typesRecordedSince(mark)).to.deep.equal([['fluxother_app', 'sendreceive']]);
     });
+  });
+});
+
+describe('folderConfig', () => {
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  it('answers the folder syncthing holds at the app folder path', async () => {
+    const folder = { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive', paused: true };
+    sinon.stub(syncthingService, 'getConfigFolders').resolves([
+      { id: 'fluxother_app', path: `${appsFolder}fluxother_app`, type: 'receiveonly' }, folder,
+    ]);
+
+    expect(await syncthingFolderWrites.folderConfig('fluxprobe_app')).to.deep.equal(folder);
+  });
+
+  it('answers null for a folder syncthing does not hold', async () => {
+    sinon.stub(syncthingService, 'getConfigFolders').resolves([]);
+
+    expect(await syncthingFolderWrites.folderConfig('fluxprobe_app')).to.equal(null);
+  });
+
+  it('answers null when syncthing cannot be read', async () => {
+    sinon.stub(syncthingService, 'getConfigFolders').rejects(new Error('syncthing did not answer'));
+
+    expect(await syncthingFolderWrites.folderConfig('fluxprobe_app')).to.equal(null);
+  });
+});
+
+describe('a planned shutdown', () => {
+  let shuttingDown;
+
+  beforeEach(() => {
+    shuttingDown = sinon.stub(globalState, 'shutdownInProgress').get(() => true);
+  });
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  it('refuses a write that unpauses a folder, and sends nothing', async () => {
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    const response = await syncthingFolderWrites.patchFolder('fluxprobe_app', { paused: false });
+
+    expect(response.status).to.equal('error');
+    sinon.assert.notCalled(adjust);
+  });
+
+  it('refuses a type change that would unpause', async () => {
+    sinon.stub(syncthingService, 'getConfigFolders').resolves([
+      { id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type: 'sendreceive', paused: true },
+    ]);
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    expect(await syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'receiveonly', { unpause: true })).to.equal(false);
+    sinon.assert.notCalled(adjust);
+  });
+
+  it('refuses a whole-folder write, which carries paused:false', async () => {
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    const response = await syncthingFolderWrites.putFolders([{ id: 'fluxprobe_app', type: 'receiveonly', paused: false }]);
+
+    expect(response.status).to.equal('error');
+    sinon.assert.notCalled(adjust);
+  });
+
+  it('still makes a write that pauses, or leaves the pause alone', async () => {
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    await syncthingFolderWrites.patchFolder('fluxprobe_app', { paused: true });
+    await syncthingFolderWrites.patchFolder('fluxprobe_app', { devices: [] });
+
+    sinon.assert.calledTwice(adjust);
+  });
+
+  it('unpauses as before when the node is not shutting down', async () => {
+    shuttingDown.get(() => false);
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+
+    await syncthingFolderWrites.patchFolder('fluxprobe_app', { paused: false });
+    await syncthingFolderWrites.putFolders([{ id: 'fluxprobe_app', type: 'receiveonly', paused: false }]);
+
+    sinon.assert.calledTwice(adjust);
+  });
+});
+
+describe('pauseAllFolders', () => {
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  it('pauses every folder syncthing holds, and names those it could not', async () => {
+    sinon.stub(syncthingService, 'getConfigFolders').resolves([{ id: 'fluxa_one' }, { id: 'fluxb_two' }, { id: 'fluxc_three' }]);
+    const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+    adjust.withArgs('patch', { paused: true }, 'fluxb_two').resolves({ status: 'error', data: { message: 'refused' } });
+    adjust.withArgs('patch', { paused: true }, 'fluxc_three').rejects(new Error('no answer'));
+
+    const result = await syncthingFolderWrites.pauseAllFolders();
+
+    expect(result).to.deep.equal({ paused: ['fluxa_one'], failed: ['fluxb_two', 'fluxc_three'] });
+    expect(adjust.getCalls().map((call) => call.args)).to.have.deep.members([
+      ['patch', { paused: true }, 'fluxa_one'],
+      ['patch', { paused: true }, 'fluxb_two'],
+      ['patch', { paused: true }, 'fluxc_three'],
+    ]);
   });
 });

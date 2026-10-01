@@ -5,6 +5,11 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
+const globalState = require('../../ZelBack/src/services/utils/globalState');
+const peerComponent = require('../../ZelBack/src/services/appMonitoring/peerComponent');
+
+const { PeerComponent } = peerComponent;
+
 const APP = 'n8n_n8napp';
 const FOLDER = 'fluxn8n_n8napp';
 
@@ -13,7 +18,7 @@ const FOLDER = 'fluxn8n_n8napp';
  * the calls it makes is what these tests are about, so every collaborator writes
  * to one shared log.
  */
-function loadRole({ primary = false, changeType } = {}) {
+function loadRole({ primary = false, changeType, folder = null } = {}) {
   const calls = [];
   const note = (name) => (...args) => { calls.push([name, ...args]); };
   const reconciler = {
@@ -35,11 +40,12 @@ function loadRole({ primary = false, changeType } = {}) {
   const folderWrites = {
     changeSyncthingFolderType: sinon.spy((id, type, options = {}) => {
       if (options.abandonIf?.()) return Promise.resolve(false);
-      const { scanFirst } = options;
-      calls.push(['folder', id, type, ...(scanFirst ? ['scanFirst'] : [])]);
+      const { scanFirst, unpause } = options;
+      calls.push(['folder', id, type, ...(scanFirst ? ['scanFirst'] : []), ...(unpause ? ['unpause'] : [])]);
       return changeType ? changeType(id, type) : Promise.resolve(true);
     }),
     patchFolder: sinon.spy(async (id, fields) => { note('patch')(id, fields); return { status: 'success' }; }),
+    folderConfig: sinon.stub().resolves(folder),
     FOLDER_TYPE_SETTLE_MS: 60000,
   };
   const bus = {
@@ -55,6 +61,7 @@ function loadRole({ primary = false, changeType } = {}) {
     '../appMonitoring/appReconciler': reconciler,
     '../appMonitoring/syncthingFolderWrites': folderWrites,
     './primaryRoleChanges': changes,
+    '../appMonitoring/peerComponent': peerComponent,
   });
   const roleEvents = () => bus.publish.getCalls().filter((c) => c.args[0] === 'primaryRole:changed').map((c) => c.args[1]);
   return {
@@ -283,6 +290,113 @@ describe('primaryRole', () => {
         held.answer(true);
         await t.role.whenSettled(APP);
       });
+    });
+  });
+
+  describe('a primary returning with its folder paused', () => {
+    const PAUSED_SENDING = { id: FOLDER, type: 'sendreceive', paused: true };
+    const returned = (t) => t.bus.publish.getCalls().filter((c) => c.args[0] === 'primaryRole:returned').map((c) => c.args[1]);
+
+    afterEach(() => {
+      globalState.finishBackup('n8napp');
+      globalState.finishRestore('n8napp');
+    });
+
+    it('discards what it holds when another holder runs the component: receives, unpaused, unscanned, in one write', async () => {
+      const t = loadRole({ folder: PAUSED_SENDING });
+
+      expect(await t.role.holdAsStandby(APP, FOLDER, { othersHold: async () => PeerComponent.RUNNING })).to.equal(true);
+
+      expect(t.calls).to.deep.equal([['folder', FOLDER, 'receiveonly', 'unpause']]);
+      expect(returned(t)).to.deep.equal([{ identifier: APP, outcome: 'discarded' }]);
+    });
+
+    it('keeps what it holds when no other holder runs the component: unpaused, then scanned and made to receive', async () => {
+      const t = loadRole({ folder: PAUSED_SENDING });
+
+      expect(await t.role.holdAsStandby(APP, FOLDER, { othersHold: async () => PeerComponent.NOT_RUNNING })).to.equal(true);
+
+      expect(t.calls).to.deep.equal([
+        ['patch', FOLDER, { paused: false }],
+        ['folder', FOLDER, 'receiveonly', 'scanFirst'],
+      ]);
+      expect(returned(t)).to.deep.equal([{ identifier: APP, outcome: 'kept' }]);
+    });
+
+    it('stays paused while a holder cannot be ruled out', async () => {
+      const t = loadRole({ folder: PAUSED_SENDING });
+
+      expect(await t.role.holdAsStandby(APP, FOLDER, { othersHold: async () => PeerComponent.UNKNOWN })).to.equal(false);
+
+      expect(t.calls).to.deep.equal([]);
+      sinon.assert.calledWith(t.bus.count, 'primaryRole:returned', APP, 'heldPaused');
+    });
+
+    it('stays paused when its caller cannot ask the other holders', async () => {
+      const t = loadRole({ folder: PAUSED_SENDING });
+
+      expect(await t.role.holdAsStandby(APP, FOLDER)).to.equal(false);
+
+      expect(t.calls).to.deep.equal([]);
+    });
+
+    ['tryStartBackup', 'tryStartRestore'].forEach((claim) => {
+      it(`stays paused while ${claim === 'tryStartBackup' ? 'a backup' : 'a restore'} holds the app`, async () => {
+        const t = loadRole({ folder: PAUSED_SENDING });
+        globalState[claim]('n8napp');
+
+        expect(await t.role.holdAsStandby(APP, FOLDER, { othersHold: async () => PeerComponent.RUNNING })).to.equal(false);
+
+        expect(t.calls).to.deep.equal([]);
+      });
+    });
+
+    it('writes nothing when this node became the primary while it asked', async () => {
+      const t = loadRole({ folder: PAUSED_SENDING });
+
+      const othersHold = async () => { t.reconciler.committed = [APP]; return PeerComponent.RUNNING; };
+      expect(await t.role.holdAsStandby(APP, FOLDER, { othersHold })).to.equal(false);
+
+      expect(t.calls).to.deep.equal([]);
+    });
+
+    it('writes nothing when a promotion began while it asked', async () => {
+      const t = loadRole({ folder: PAUSED_SENDING });
+
+      const othersHold = async () => { t.role.promote(APP, FOLDER); return PeerComponent.RUNNING; };
+      expect(await t.role.holdAsStandby(APP, FOLDER, { othersHold })).to.equal(false);
+      await t.role.whenSettled(APP);
+
+      expect(t.calls.filter(([name]) => name === 'folder')).to.deep.equal([['folder', FOLDER, 'sendreceive']]);
+    });
+
+    it('does not make the folder receive when the unpause fails', async () => {
+      const t = loadRole({ folder: PAUSED_SENDING });
+      t.folderWrites.patchFolder = sinon.stub().resolves({ status: 'error' });
+
+      expect(await t.role.holdAsStandby(APP, FOLDER, { othersHold: async () => PeerComponent.NOT_RUNNING })).to.equal(false);
+
+      expect(t.calls).to.deep.equal([]);
+      expect(returned(t)).to.deep.equal([]);
+    });
+
+    it('does not ask the other holders about a folder that is not paused', async () => {
+      const t = loadRole({ folder: { ...PAUSED_SENDING, paused: false } });
+      const othersHold = sinon.stub().resolves(PeerComponent.RUNNING);
+
+      expect(await t.role.holdAsStandby(APP, FOLDER, { othersHold })).to.equal(true);
+
+      sinon.assert.notCalled(othersHold);
+      expect(t.calls).to.deep.equal([['folder', FOLDER, 'receiveonly', 'scanFirst']]);
+    });
+
+    it('does not ask the other holders about a paused folder that already receives', async () => {
+      const t = loadRole({ folder: { ...PAUSED_SENDING, type: 'receiveonly' } });
+      const othersHold = sinon.stub().resolves(PeerComponent.RUNNING);
+
+      await t.role.holdAsStandby(APP, FOLDER, { othersHold });
+
+      sinon.assert.notCalled(othersHold);
     });
   });
 

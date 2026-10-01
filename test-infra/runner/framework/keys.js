@@ -11,5 +11,8 @@ function loadKey(name) {
 
 export const nodeKey = (num) => loadKey(`node-${String(num).padStart(2, '0')}`);
 export const appOwnerKey = () => loadKey('app-owner');
+// Owners other than appOwnerKey, for suites whose apps must belong to
+// different people.
+export const otherOwnerKeys = () => [loadKey('app-owner-2'), loadKey('app-owner-3')];
 export const fluxTeamKey = () => loadKey('flux-team');
 export const userKey = () => loadKey('user');
