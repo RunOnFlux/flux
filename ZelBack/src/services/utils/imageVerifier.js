@@ -301,21 +301,16 @@ class ImageVerifier {
   }
 
   async #handleAxiosError(endpointUrl, error) {
-    // No HTTP response at all. ETIMEDOUT is what a far node without IPv6 gets when every
-    // registry address times out on connect; without it here, that was logged as
-    // "Bad HTTP Status undefined" and cached for 6 hours as a permanent error.
-    const connectionErrors = [
-      'ECONNREFUSED',
-      'ECONNABORTED',
-      'ECONNRESET',
-      'ERR_CANCELED',
-      'ENETUNREACH',
-      'EHOSTUNREACH',
-      'ETIMEDOUT',
-      'EAI_AGAIN',
-    ];
+    // NO HTTP RESPONSE AT ALL is a connection error, whatever the code: ECONNREFUSED,
+    // ECONNRESET, ENETUNREACH, EHOSTUNREACH, EAI_AGAIN, ENOTFOUND, a TLS failure, an abort
+    // (ECONNABORTED / ERR_CANCELED), or ETIMEDOUT, which is what a far node without IPv6
+    // gets when every registry address times out on connect (see networkDefaults). This was
+    // a fixed list of four codes; anything else fell through to "Bad HTTP Status undefined"
+    // and was cached for 6 hours as a permanent error. An error without a code is not a
+    // network failure and still falls through.
+    const isConnectionError = !error.response && typeof error.code === 'string' && error.code !== '';
 
-    if (connectionErrors.includes(error.code)) {
+    if (isConnectionError) {
       this.#lookupErrorDetail = `Connection Error ${error.code}: ${this.rawImageTag} not available`;
       this.#lookupErrorMeta = {
         httpStatus: null,

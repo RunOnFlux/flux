@@ -696,6 +696,42 @@ describe('imageVerifier tests', () => {
       expect(() => verifier.throwIfError()).to.throw(`Connection Error ETIMEDOUT: ${repotag} not available`);
     });
 
+    ['ENOTFOUND', 'EPROTO', 'ERR_SSL_WRONG_VERSION_NUMBER'].forEach((code) => {
+      it(`should populate errorMeta with network error type for any error without a response (${code})`, async () => {
+        const repotag = 'megachips/ipshow:web';
+
+        const error = new Error('no response');
+        error.code = code;
+
+        axiosInstanceStub.returns({
+          get: sinon.stub().rejects(error),
+          interceptors: { request: { use: sinon.stub() } },
+        });
+
+        const verifier = new ImageVerifier(repotag);
+        await verifier.verifyImage();
+
+        expect(verifier.errorMeta.errorType).to.equal('network');
+        expect(verifier.errorMeta.errorCode).to.equal(code);
+        expect(() => verifier.throwIfError()).to.throw(`Connection Error ${code}: ${repotag} not available`);
+      });
+    });
+
+    it('should not treat an error without a code or a response as a network error', async () => {
+      const repotag = 'megachips/ipshow:web';
+
+      axiosInstanceStub.returns({
+        get: sinon.stub().rejects(new Error('something else went wrong')),
+        interceptors: { request: { use: sinon.stub() } },
+      });
+
+      const verifier = new ImageVerifier(repotag);
+      await verifier.verifyImage();
+
+      expect(verifier.errorMeta.errorType).to.equal('http_error');
+      expect(() => verifier.throwIfError()).to.throw(`Bad HTTP Status undefined: ${repotag} not available`);
+    });
+
     it('should populate errorMeta with rate_limit error type for 429', async () => {
       const repotag = 'megachips/ipshow:web';
 

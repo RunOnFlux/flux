@@ -8,6 +8,8 @@
  */
 
 const { parentPort } = require('worker_threads');
+// This thread has its own node:net; see networkDefaults for why far nodes need this.
+require('../utils/networkDefaults').setConnectAttemptTimeout();
 // eslint-disable-next-line import/no-unresolved
 const { JWT } = require('google-auth-library');
 
