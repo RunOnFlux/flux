@@ -301,11 +301,18 @@ class ImageVerifier {
   }
 
   async #handleAxiosError(endpointUrl, error) {
+    // No HTTP response at all. ETIMEDOUT is what a far node without IPv6 gets when every
+    // registry address times out on connect; without it here, that was logged as
+    // "Bad HTTP Status undefined" and cached for 6 hours as a permanent error.
     const connectionErrors = [
       'ECONNREFUSED',
       'ECONNABORTED',
+      'ECONNRESET',
       'ERR_CANCELED',
       'ENETUNREACH',
+      'EHOSTUNREACH',
+      'ETIMEDOUT',
+      'EAI_AGAIN',
     ];
 
     if (connectionErrors.includes(error.code)) {

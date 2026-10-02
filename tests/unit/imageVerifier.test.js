@@ -670,6 +670,32 @@ describe('imageVerifier tests', () => {
       expect(verifier.errorMeta.httpStatus).to.be.null;
     });
 
+    it('should populate errorMeta with network error type for a connect timeout on every address', async () => {
+      const repotag = 'indifferentbroccoli/runescape-dragonwilds-server-docker:latest';
+
+      // What axios throws on a far node with no IPv6 route: Happy Eyeballs gives up on every
+      // address (an AggregateError with code ETIMEDOUT), and there is no response at all.
+      // This used to be logged as "Bad HTTP Status undefined" and cached as permanent.
+      const timeoutError = new Error('');
+      timeoutError.name = 'AggregateError';
+      timeoutError.code = 'ETIMEDOUT';
+      timeoutError.errors = [new Error('connect ETIMEDOUT 54.83.85.171:443')];
+
+      axiosInstanceStub.returns({
+        get: sinon.stub().rejects(timeoutError),
+        interceptors: { request: { use: sinon.stub() } },
+      });
+
+      const verifier = new ImageVerifier(repotag);
+      await verifier.verifyImage();
+
+      expect(verifier.errorMeta.errorType).to.equal('network');
+      expect(verifier.errorMeta.errorCode).to.equal('ETIMEDOUT');
+      expect(verifier.errorMeta.httpStatus).to.be.null;
+      // Checked last: throwIfError resets the errors, errorMeta included.
+      expect(() => verifier.throwIfError()).to.throw(`Connection Error ETIMEDOUT: ${repotag} not available`);
+    });
+
     it('should populate errorMeta with rate_limit error type for 429', async () => {
       const repotag = 'megachips/ipshow:web';
 

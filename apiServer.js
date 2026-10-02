@@ -15,6 +15,7 @@ if (typeof AbortController === 'undefined') {
 const fs = require('node:fs');
 const http = require('node:http');
 const https = require('node:https');
+const net = require('node:net');
 const path = require('node:path');
 
 const axios = require('axios').default;
@@ -102,6 +103,23 @@ async function createDnsCache(userCache) {
   } catch (error) {
     log.error(error);
   }
+}
+
+/**
+ * How long one connect attempt may take before Node moves on to the next address of a
+ * host (Happy Eyeballs). Node's default is 250 ms, which is shorter than one round trip
+ * from Australia to the US East registries (270-310 ms measured). A node there without an
+ * IPv6 route then fails every IPv4 address too, and every Docker Hub image check ends in
+ * ETIMEDOUT with no HTTP response, so no Docker Hub app can ever be spawned on it. Raising
+ * the limit only matters when the first address does not answer in time; a fast first
+ * address connects exactly as before.
+ */
+const CONNECT_ATTEMPT_TIMEOUT_MS = 2_000;
+
+function setConnectAttemptTimeout() {
+  if (typeof net.setDefaultAutoSelectFamilyAttemptTimeout !== 'function') return;
+  net.setDefaultAutoSelectFamilyAttemptTimeout(CONNECT_ATTEMPT_TIMEOUT_MS);
+  log.info(`Connect attempt timeout per address set to ${CONNECT_ATTEMPT_TIMEOUT_MS}ms`);
 }
 
 function setAxiosDefaults(socketIoServers) {
@@ -239,6 +257,8 @@ async function initiate() {
 
     logErrorAndExit(err, { exitCode: 1 });
   });
+
+  setConnectAttemptTimeout();
 
   await createDnsCache();
 
@@ -494,4 +514,6 @@ module.exports = {
   initiate,
   isSystemShuttingDown,
   resetCacheable,
+  setConnectAttemptTimeout,
+  CONNECT_ATTEMPT_TIMEOUT_MS,
 };
