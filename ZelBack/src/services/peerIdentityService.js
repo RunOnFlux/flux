@@ -319,7 +319,12 @@ async function judgeAnswer(dialled, challenge, answer, purpose = IDENTITY_PURPOS
     return { verdict: IdentityVerdict.UNVERIFIABLE, reason: 'the answer is not signed for this call' };
   }
 
-  const atDialled = await fluxNetworkHelper.verifySignedFluxnodeMessage(answer, { socketAddress: dialled });
+  // A node is its key AND its address: one key can be listed at many addresses,
+  // so the key alone proves only that the answer came from one of them. Which one
+  // is the address the answer signs.
+  const answeredAs = normalizeSocketAddress(answer.socketAddress);
+  const atDialled = socketAddressesMatch(answeredAs, dialled)
+    && await fluxNetworkHelper.verifySignedFluxnodeMessage(answer, { socketAddress: dialled });
   if (atDialled) {
     return {
       verdict: IdentityVerdict.VERIFIED,
@@ -332,7 +337,6 @@ async function judgeAnswer(dialled, challenge, answer, purpose = IDENTITY_PURPOS
   // A dialled address missing from the list is an address change the list has
   // not caught up with, and the node answering may well be the one that moved.
   const dialledListed = await fluxCommunicationUtils.socketAddressInFluxList(dialled);
-  const answeredAs = normalizeSocketAddress(answer.socketAddress);
   const signedAtClaim = !socketAddressesMatch(answeredAs, dialled)
     && await fluxNetworkHelper.verifySignedFluxnodeMessage(answer, { socketAddress: answeredAs });
 

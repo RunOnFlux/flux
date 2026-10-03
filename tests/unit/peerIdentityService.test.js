@@ -232,6 +232,29 @@ describe('peerIdentityService', () => {
       expect(result.identity, 'a misrouted answer yields nothing to act on').to.equal(undefined);
     });
 
+    // One operator's nodes behind one router, all on one key: the node beside B
+    // answers truthfully as itself, with the key B is listed under.
+    it('is MISROUTED when a node sharing the dialled node\'s key answers as itself', async () => {
+      list.set(pub.b, [ADDR.b, ADDR.c]);
+      peerAnswers((challenge) => signedAnswer('b', { challenge, socketAddress: ADDR.c, deviceId: 'DEVICE-C' }));
+
+      const result = await peerIdentityService.verifyPeer(ADDR.b);
+
+      expect(result.verdict).to.equal(IdentityVerdict.MISROUTED);
+      expect(result.answeredAs).to.equal(ADDR.c);
+      expect(result.identity, 'the neighbour\'s device is never taken as the dialled node\'s').to.equal(undefined);
+    });
+
+    it('is VERIFIED when a node sharing its key with others answers as itself at the dialled address', async () => {
+      list.set(pub.b, [ADDR.b, ADDR.c]);
+      peerAnswers((challenge) => signedAnswer('b', { challenge }));
+
+      const result = await peerIdentityService.verifyPeer(ADDR.b);
+
+      expect(result.verdict).to.equal(IdentityVerdict.VERIFIED);
+      expect(result.identity).to.deep.equal({ socketAddress: ADDR.b, pubKey: pub.b, deviceId: 'DEVICE-B' });
+    });
+
     it('is MISROUTED when the call comes back to this very node', async () => {
       peerAnswers((challenge) => signedAnswer('a', { challenge }));
 
@@ -559,9 +582,9 @@ describe('peerIdentityService', () => {
      * A question as the node holding `key` answers it, over the challenge the
      * call carried.
      */
-    const signs = (key, challenge, fields, purpose = AnswerPurpose.HELD_COMPONENTS) => {
+    const signs = (key, challenge, fields, purpose = AnswerPurpose.HELD_COMPONENTS, at = ADDR[key]) => {
       const answer = {
-        ...fields, purpose, socketAddress: ADDR[key], pubKey: pub[key], challenge,
+        ...fields, purpose, socketAddress: at, pubKey: pub[key], challenge,
       };
       return { ...answer, signature: verificationHelper.signMessage(JSON.stringify(answer), KEYS[key]) };
     };
@@ -623,6 +646,15 @@ describe('peerIdentityService', () => {
       expect(result).to.deep.equal({ verdict: IdentityVerdict.MISROUTED, answeredAs: ADDR.c });
       expect(later).to.deep.equal(result);
       expect(post.callCount, 'the misroute is held, not asked again').to.equal(asks);
+    });
+
+    it('is MISROUTED when a node sharing the dialled node\'s key signs the answer as itself', async () => {
+      list.set(pub.b, [ADDR.b, ADDR.c]);
+      node({ held: (challenge) => success(signs('b', challenge, { held: [] }, AnswerPurpose.HELD_COMPONENTS, ADDR.c)) });
+
+      const result = await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+
+      expect(result).to.deep.equal({ verdict: IdentityVerdict.MISROUTED, answeredAs: ADDR.c });
     });
 
     // THE CASE THIS EXISTS FOR. The address was proven a moment ago; this reply
