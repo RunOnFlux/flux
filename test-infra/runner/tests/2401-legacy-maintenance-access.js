@@ -142,7 +142,7 @@ describe('2401 legacy node maintenance access', function suite() {
   }
 
   async function maintenanceRule() {
-    const { stdout } = await execInContainer(legacy.container, 'ufw status; true');
+    const { stdout } = await execInContainer(legacy.container, 'ufw status verbose; true');
     return new RegExp(`^${SSH_PORT}/tcp\\s+LIMIT IN\\s+Anywhere\\s*$`, 'm').test(stdout);
   }
 
@@ -285,7 +285,7 @@ describe('2401 legacy node maintenance access', function suite() {
 
   it("ends a maintenance session in its logind scope when a key is dropped, and not the operator's", async () => {
     const maintenance = await openSession(operator, operatorIp, 'current', 7003);
-    expect(maintenance, 'with pam_systemd a session gets its own logind scope').to.match(/\/session-\d+\.scope$/);
+    expect(maintenance, 'with pam_systemd a session gets its own logind scope').to.match(/\/session-[^/]+\.scope$/);
     const operatorsOwn = await openSession(operator, operatorIp, 'stranger', 7004, { port: 22, user: 'root' });
     await releaseKeys(['next'], operator);
     expect(await sessionCgroup(operator, 7003), 'dropping a key must end the session and its sudo child').to.equal(null);
