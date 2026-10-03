@@ -10,6 +10,8 @@ const log = require('../../ZelBack/src/lib/log');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const numericIdTables = require('../../ZelBack/src/services/utils/numericIdTables');
+const volumeService = require('../../ZelBack/src/services/utils/volumeService');
+const { appsFolderPath } = require('../../ZelBack/src/services/utils/appConstants');
 
 // Testing imports
 const chai = require('chai');
@@ -345,6 +347,7 @@ describe('syncthingService tests', () => {
     let fakeGet;
     let fakePost;
     let completion;
+    let mounted;
     beforeEach(() => {
       syncthingService.getAxiosCache().reset();
       syncthingService.resetDeviceIdCache();
@@ -352,6 +355,7 @@ describe('syncthingService tests', () => {
       sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '' });
       sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
       sinon.stub(serviceHelper, 'delay').resolves();
+      mounted = sinon.stub(volumeService, 'isPathMounted').resolves(true);
       fakeGet = sinon.fake(async (reqPath) => {
         if (reqPath === '/meta.js') return { status: 'success', data: metaBody };
         if (reqPath === '/rest/noauth/health') return { status: 'success', data: { status: 'OK' } };
@@ -396,6 +400,31 @@ describe('syncthingService tests', () => {
       const incomplete = await syncthingService.drainFoldersToPeers(50);
 
       expect(incomplete).to.deep.equal(['fluxa_app']);
+    });
+
+    // A scan over a volume that is not mounted finds its files gone, and sends
+    // their deletion to every peer.
+    it('scanFolder asks syncthing nothing for a folder whose volume is not mounted, and says why', async () => {
+      mounted.resolves(false);
+
+      let refused = null;
+      await syncthingService.scanFolder('fluxa_app').catch((error) => { refused = error; });
+
+      sinon.assert.notCalled(fakePost);
+      expect(refused?.code).to.equal('VOLUME_NOT_MOUNTED');
+      sinon.assert.calledOnceWithExactly(mounted, path.join(appsFolderPath, 'fluxa_app'));
+    });
+
+    it('scans no folder in a drain whose volume is not mounted, and still waits on its peers', async () => {
+      completion = () => ({ needBytes: 0, needItems: 0, needDeletes: 0 });
+      mounted.resolves(false);
+      const warn = sinon.stub(log, 'warn');
+
+      const incomplete = await syncthingService.drainFoldersToPeers(1000);
+
+      expect(incomplete).to.deep.equal([]);
+      sinon.assert.notCalled(fakePost);
+      sinon.assert.calledWithMatch(warn, /fluxa_app was not scanned: its volume is not mounted/);
     });
 
     it('scanFolder gives the scan the time it is allowed, and the client\'s own timeout otherwise', async () => {

@@ -13,6 +13,7 @@ const { FluxController } = require('./utils/fluxController');
 const fluxEventBus = require('./utils/fluxEventBus');
 const { appsFolderPath } = require('./utils/appConstants');
 const { passwdTable, groupTable } = require('./utils/numericIdTables');
+const volumeService = require('./utils/volumeService');
 const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
@@ -962,6 +963,10 @@ async function getDeviceStats() {
  * paused or restarting) or the scan outlasts the call's timeout. The watcher
  * batches changes for ten seconds, so a file written inside that window is
  * unknown to syncthing, and to every peer, until something scans it.
+ *
+ * Never a folder whose app volume is not mounted: a scan there finds the
+ * volume's files gone and sends their deletion to every peer. Rejects with code
+ * VOLUME_NOT_MOUNTED instead, and asks syncthing nothing.
  * @param {string} folderId Folder id
  * @param {object} [options]
  * @param {number} [options.timeoutMs] How long the scan may take; the client's
@@ -969,6 +974,9 @@ async function getDeviceStats() {
  * @returns {Promise<object>} Syncthing's reply
  */
 async function scanFolder(folderId, { timeoutMs } = {}) {
+  if (!(await volumeService.isPathMounted(path.join(appsFolderPath, folderId)))) {
+    throw Object.assign(new Error(`${folderId} was not scanned: its volume is not mounted`), { code: 'VOLUME_NOT_MOUNTED' });
+  }
   return request('post', `/rest/db/scan?folder=${encodeURIComponent(folderId)}`, undefined, timeoutMs ? { timeout: timeoutMs } : undefined);
 }
 
