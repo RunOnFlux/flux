@@ -363,12 +363,90 @@ function isUrlSafe(inputUrl, options = {}) {
   }
 }
 
+/**
+ * The error a blocked address raises. Coded so a consumer can tell it apart from
+ * a genuine connectivity failure: the host resolved fine, we refused to talk to
+ * it, and retrying will never change that.
+ */
+const BLOCKED_ADDRESS_CODE = 'EBLOCKEDADDRESS';
+
+function blockedAddressError(hostname, address) {
+  const error = new Error(`Refusing to connect to ${hostname}: ${address} is a private or reserved address`);
+  error.code = BLOCKED_ADDRESS_CODE;
+  return error;
+}
+
+/**
+ * Whether a host is a literal IP address that must not be dialled.
+ *
+ * The Agent `lookup` guard below never sees these: Node resolves nothing when
+ * the host is already an address, so it connects straight out. A literal cannot
+ * rebind either, so checking it once — before any request is built — is both
+ * necessary and sufficient.
+ *
+ * @param {string} host hostname or address, without a port
+ * @returns {boolean}
+ */
+function isBlockedAddressLiteral(host) {
+  return Boolean(host) && net.isIP(host) !== 0 && isBlockedIP(host);
+}
+
+/**
+ * A `lookup` for an http/https Agent that refuses private and reserved
+ * addresses at CONNECT time.
+ *
+ * Checking a URL before the request is not enough on its own: between the check
+ * and the connection the name can resolve to something else (DNS rebinding), and
+ * the connection is what actually matters. Node calls this immediately before
+ * connecting and uses the address it returns, so what is checked is what is
+ * dialled.
+ *
+ * @param {string} hostname
+ * @param {object|Function} options dns.lookup options, or the callback
+ * @param {Function} [callback]
+ */
+function guardedLookup(hostname, options, callback) {
+  const done = typeof options === 'function' ? options : callback;
+  const opts = typeof options === 'function' ? {} : (options || {});
+
+  dns.lookup(hostname, opts, (error, address, family) => {
+    if (error) {
+      done(error);
+      return;
+    }
+
+    // With `all`, Node asks for every address and picks among them - so drop the
+    // blocked ones and fail only if nothing safe is left. Otherwise a host with
+    // one public and one loopback record would be a coin toss.
+    if (opts.all) {
+      const permitted = address.filter((entry) => !isBlockedIP(entry.address));
+      if (!permitted.length) {
+        done(blockedAddressError(hostname, address.map((entry) => entry.address).join(', ')));
+        return;
+      }
+      done(null, permitted);
+      return;
+    }
+
+    if (isBlockedIP(address)) {
+      done(blockedAddressError(hostname, address));
+      return;
+    }
+
+    done(null, address, family);
+  });
+}
+
 module.exports = {
   validateUrl,
   validateUrlWithDns,
   isUrlSafe,
   isBlockedIP,
   isBlockedHostname,
+  guardedLookup,
+  isBlockedAddressLiteral,
+  blockedAddressError,
+  BLOCKED_ADDRESS_CODE,
   // Helper functions for testing
   normalizeIpString,
   ipv6MappedToIpv4,

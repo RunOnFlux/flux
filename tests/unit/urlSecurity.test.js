@@ -1,5 +1,6 @@
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
+const proxyquire = require('proxyquire');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -11,6 +12,7 @@ const {
   isBlockedHostname,
   normalizeIpString,
   ipv6MappedToIpv4,
+  isBlockedAddressLiteral,
 } = require('../../ZelBack/src/services/utils/urlSecurity');
 
 describe('urlSecurity', () => {
@@ -340,6 +342,106 @@ describe('urlSecurity', () => {
 
       it('should block URLs with IPv6-mapped metadata addresses', () => {
         expect(() => validateUrl('http://[::ffff:169.254.169.254]/')).to.throw('private/internal IP');
+      });
+    });
+  });
+
+  describe('isBlockedAddressLiteral', () => {
+    // The Agent lookup guard never sees these: Node resolves nothing when the
+    // host is already an address, so it dials straight out. This is the check
+    // that catches them, and it has to run before a request is built.
+    it('blocks private and reserved literals', () => {
+      expect(isBlockedAddressLiteral('127.0.0.1')).to.equal(true);
+      expect(isBlockedAddressLiteral('10.0.0.5')).to.equal(true);
+      expect(isBlockedAddressLiteral('192.168.1.1')).to.equal(true);
+      expect(isBlockedAddressLiteral('169.254.169.254')).to.equal(true);
+      expect(isBlockedAddressLiteral('::1')).to.equal(true);
+    });
+
+    it('permits a public literal', () => {
+      expect(isBlockedAddressLiteral('8.8.8.8')).to.equal(false);
+      expect(isBlockedAddressLiteral('1.1.1.1')).to.equal(false);
+    });
+
+    it('says nothing about hostnames - those are the lookup guard\'s job', () => {
+      // Answering true here for a name would refuse it before it was resolved,
+      // and answering on a guess is exactly what the connect-time check avoids.
+      expect(isBlockedAddressLiteral('registry-1.docker.io')).to.equal(false);
+      expect(isBlockedAddressLiteral('localhost')).to.equal(false);
+      expect(isBlockedAddressLiteral('')).to.equal(false);
+      expect(isBlockedAddressLiteral(undefined)).to.equal(false);
+    });
+  });
+
+  describe('guardedLookup', () => {
+    // A fake resolver throughout: the point is what the guard does with an
+    // answer, and a real lookup would make these assertions depend on DNS.
+    function withResolver(impl) {
+      return proxyquire('../../ZelBack/src/services/utils/urlSecurity', {
+        dns: { lookup: impl },
+      }).guardedLookup;
+    }
+
+    it('passes a public address through untouched', (done) => {
+      const lookup = withResolver((host, opts, cb) => cb(null, '93.184.216.34', 4));
+      lookup('example.com', {}, (err, address, family) => {
+        expect(err).to.equal(null);
+        expect(address).to.equal('93.184.216.34');
+        expect(family).to.equal(4);
+        done();
+      });
+    });
+
+    it('refuses a name that resolves into a private range', (done) => {
+      // This is the rebinding case: the name looks fine, the answer does not.
+      const lookup = withResolver((host, opts, cb) => cb(null, '10.1.2.3', 4));
+      lookup('sneaky.example.com', {}, (err) => {
+        expect(err.code).to.equal('EBLOCKEDADDRESS');
+        expect(err.message).to.include('10.1.2.3');
+        done();
+      });
+    });
+
+    it('keeps the safe answers when asked for all of them', (done) => {
+      // Node picks among these, so a host with one public and one loopback
+      // record would otherwise be a coin toss.
+      const lookup = withResolver((host, opts, cb) => cb(null, [
+        { address: '127.0.0.1', family: 4 },
+        { address: '93.184.216.34', family: 4 },
+      ]));
+      lookup('mixed.example.com', { all: true }, (err, addresses) => {
+        expect(err).to.equal(null);
+        expect(addresses).to.deep.equal([{ address: '93.184.216.34', family: 4 }]);
+        done();
+      });
+    });
+
+    it('refuses when every answer is blocked', (done) => {
+      const lookup = withResolver((host, opts, cb) => cb(null, [
+        { address: '127.0.0.1', family: 4 },
+        { address: '::1', family: 6 },
+      ]));
+      lookup('all-private.example.com', { all: true }, (err) => {
+        expect(err.code).to.equal('EBLOCKEDADDRESS');
+        done();
+      });
+    });
+
+    it('passes a resolver failure straight back', (done) => {
+      const notFound = Object.assign(new Error('nope'), { code: 'ENOTFOUND' });
+      const lookup = withResolver((host, opts, cb) => cb(notFound));
+      lookup('nowhere.example.com', {}, (err) => {
+        expect(err.code).to.equal('ENOTFOUND');
+        done();
+      });
+    });
+
+    it('accepts the options-omitted call signature', (done) => {
+      const lookup = withResolver((host, opts, cb) => cb(null, '8.8.8.8', 4));
+      lookup('dns.example.com', (err, address) => {
+        expect(err).to.equal(null);
+        expect(address).to.equal('8.8.8.8');
+        done();
       });
     });
   });

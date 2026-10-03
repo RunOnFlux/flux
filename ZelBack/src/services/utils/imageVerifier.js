@@ -1,4 +1,8 @@
+const https = require('node:https');
 const serviceHelper = require('../serviceHelper');
+const {
+  guardedLookup, isBlockedAddressLiteral, BLOCKED_ADDRESS_CODE,
+} = require('./urlSecurity');
 
 /**
  * Docker Architecture
@@ -86,6 +90,20 @@ class ImageVerifier {
 
     this.#parseDockerTag();
 
+    // A host that is already an address never reaches the Agent's lookup — Node
+    // resolves nothing when there is nothing to resolve — so the literal case is
+    // refused here, before any request exists. Hostnames are handled at connect
+    // time, where a name that resolves private cannot slip past a stale check.
+    if (!this.parseError && isBlockedAddressLiteral(String(this.provider).split(':')[0])) {
+      this.#lookupErrorDetail = `Refused: ${this.rawImageTag} points at a private or reserved address`;
+      this.#lookupErrorMeta = {
+        httpStatus: null,
+        errorCode: BLOCKED_ADDRESS_CODE,
+        errorType: 'invalid_format',
+      };
+      return;
+    }
+
     if (!this.parseError) this.#createAxiosInstance();
   }
 
@@ -151,6 +169,14 @@ class ImageVerifier {
       timeout: 20_000,
       signal: this.#abortController.signal,
       headers: { Accept: ImageVerifier.supportedMediaTypes.join(', ') },
+      // A registry host is attacker-chosen: an image reference carries its own
+      // hostname, and the reference grammar accepts `10.0.0.5:2375/x/y:t` and
+      // `localhost:8080/x/y:t` as readily as a real registry. Without this the
+      // node would dial whatever it was handed and report back whether the port
+      // answered - an internal port scanner driven by a spec. The guard runs at
+      // CONNECT time rather than as a pre-check, so a name that resolves public
+      // and then private cannot slip through the gap.
+      httpsAgent: new https.Agent({ lookup: guardedLookup }),
     });
   }
 
@@ -307,6 +333,21 @@ class ImageVerifier {
       'ERR_CANCELED',
       'ENETUNREACH',
     ];
+
+    // A refused address is not a connectivity problem: the name resolved, we
+    // declined to talk to it, and no amount of retrying changes that. Classify it
+    // permanent before the network branch below, or a spec pointing at a private
+    // address would be retried forever as though the registry were flaky.
+    const blocked = error.code === BLOCKED_ADDRESS_CODE || error.cause?.code === BLOCKED_ADDRESS_CODE;
+    if (blocked) {
+      this.#lookupErrorDetail = `Refused: ${this.rawImageTag} resolves to a private or reserved address`;
+      this.#lookupErrorMeta = {
+        httpStatus: null,
+        errorCode: BLOCKED_ADDRESS_CODE,
+        errorType: 'invalid_format',
+      };
+      return { data: null };
+    }
 
     if (connectionErrors.includes(error.code)) {
       this.#lookupErrorDetail = `Connection Error ${error.code}: ${this.rawImageTag} not available`;

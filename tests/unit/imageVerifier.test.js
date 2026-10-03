@@ -784,4 +784,38 @@ describe('imageVerifier tests', () => {
       expect(verifier.errorMeta).to.be.null;
     });
   });
+
+  describe('SSRF guard', () => {
+    // No axios stub here on purpose: the guard is in the transport itself, so
+    // stubbing it would test nothing. Nor is any connection attempted - an
+    // address literal is refused before a request exists, which is the point.
+    it('refuses a registry that resolves to a loopback address', async () => {
+      const verifier = new ImageVerifier('127.0.0.1:9999/ns/repo:tag');
+
+      const result = await verifier.verifyImage();
+
+      expect(result).to.equal(false);
+      expect(() => verifier.throwIfError()).to.throw(/private or reserved address/);
+    });
+
+    it('refuses a private-range registry', async () => {
+      const verifier = new ImageVerifier('10.0.0.5:5000/ns/repo:tag');
+
+      await verifier.verifyImage();
+
+      expect(verifier.error).to.equal(true);
+      expect(verifier.errorDetail).to.match(/private or reserved address/);
+    });
+
+    it('classes a refusal permanent, so it is never retried as a flaky registry', async () => {
+      // The name resolved and we declined to dial it. Reading that as a network
+      // blip would retry a spec pointing at an internal address forever.
+      const verifier = new ImageVerifier('169.254.169.254:80/ns/repo:tag');
+
+      await verifier.verifyImage();
+
+      expect(verifier.errorMeta.errorType).to.equal('invalid_format');
+      expect(verifier.errorMeta.errorCode).to.equal('EBLOCKEDADDRESS');
+    });
+  });
 });
