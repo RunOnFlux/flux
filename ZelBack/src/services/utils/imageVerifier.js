@@ -206,6 +206,13 @@ class ImageVerifier {
       },
     } = match;
 
+    const port = provider?.match(/:(\d+)$/)?.[1];
+
+    if (port !== undefined && (Number(port) < 1 || Number(port) > 65535)) {
+      this.#parseErrorDetail = `Image tag: ${this.rawImageTag} has registry port ${port}, which is not in 1-65535`;
+      return;
+    }
+
     this.provider = provider || ImageVerifier.defaultDockerRegistry;
 
     // Without doing a lookup against the dockerhub library, no way to know if a single string is

@@ -322,6 +322,14 @@ describe('imageManager tests', () => {
       expect(await storedRetryHours('test/app:latest')).to.equal(6);
     });
 
+    it('should refuse an image whose registry port is out of range without asking the registry', async () => {
+      const outcome = await imageManager.verifyRepository('ghcr.io:99999/a/b:1').then(() => 'resolved', (error) => error.message);
+
+      expect(outcome).to.equal('Image tag: ghcr.io:99999/a/b:1 has registry port 99999, which is not in 1-65535');
+      expect(cacheSet.firstCall.args[2].ttl / FluxCacheManager.oneHour).to.equal(6);
+      sinon.assert.notCalled(registryGet);
+    });
+
     it('should retry a malformed image tag after 6 hours without asking the registry', async () => {
       expect(await storedRetryHours('test/app with space:latest')).to.equal(6);
       sinon.assert.notCalled(registryGet);

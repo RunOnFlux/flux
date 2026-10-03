@@ -25,6 +25,24 @@ describe('imageVerifier tests', () => {
       expect(verifier.tag).to.eql('latest');
     });
 
+    ['example.repository.com:1/a/b:1', 'example.repository.com:65535/a/b:1', 'localhost:5000/a/b:1'].forEach((repotag) => {
+      it(`should accept a registry port in 1-65535 (${repotag})`, () => {
+        const verifier = new ImageVerifier(repotag);
+
+        expect(verifier.parseError).to.equal(false);
+      });
+    });
+
+    [['example.repository.com:0/a/b:1', '0'], ['example.repository.com:65536/a/b:1', '65536'],
+      ['ghcr.io:99999/a/b:1', '99999'], ['localhost:0/a/b:1', '0']].forEach(([repotag, port]) => {
+      it(`should reject a registry port outside 1-65535 as a parse error (${repotag})`, () => {
+        const verifier = new ImageVerifier(repotag);
+
+        expect(verifier.parseError).to.equal(true);
+        expect(verifier.errorDetail).to.equal(`Image tag: ${repotag} has registry port ${port}, which is not in 1-65535`);
+      });
+    });
+
     it('should parse basic repository correctly', async () => {
       const repotag = 'runonflux/website:latest';
 
