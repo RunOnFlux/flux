@@ -306,47 +306,39 @@ describe('uplinkService tests', () => {
     const interfaces = (bindings) => Object.fromEntries(Object.entries(bindings)
       .map(([name, address]) => [name, [{ family: 'IPv4', address, internal: name === 'lo' }]]));
 
-    it('reads an address on the default-route interface as bound there', async () => {
+    it('reads an address on the egress device as bound there', () => {
       sinon.stub(os, 'networkInterfaces').returns(interfaces({ lo: '127.0.0.1', ens18: '38.247.82.141' }));
-      sinon.stub(fluxNetworkHelper, 'getDefaultRoutes').resolves([{ iface: 'ens18', gateway: '38.247.82.1', metric: 0 }]);
-      expect(await uplinkService.publicIpBinding('38.247.82.141', null)).to.eql({ bound: true, elsewhere: false });
+      expect(uplinkService.publicIpBinding('38.247.82.141', 'ens18')).to.eql({ bound: true, elsewhere: false });
     });
 
-    it('reads an address bound off the default route as elsewhere', async () => {
+    it('reads an address bound off the egress device as elsewhere', () => {
       sinon.stub(os, 'networkInterfaces').returns(interfaces({ lo: '178.79.183.164', ens18: '172.16.16.61' }));
-      sinon.stub(fluxNetworkHelper, 'getDefaultRoutes').resolves([{ iface: 'ens18', gateway: '172.16.16.1', metric: 0 }]);
-      expect(await uplinkService.publicIpBinding('178.79.183.164', null)).to.eql({ bound: true, elsewhere: true });
+      expect(uplinkService.publicIpBinding('178.79.183.164', 'ens18')).to.eql({ bound: true, elsewhere: true });
     });
 
-    it('reads an address on a label of the default-route device as bound there', async () => {
+    it('reads an address on a label of the egress device as bound there', () => {
       sinon.stub(os, 'networkInterfaces').returns(interfaces({ lo: '127.0.0.1', eth0: '10.0.0.5', 'eth0:1': '203.0.113.7' }));
-      sinon.stub(fluxNetworkHelper, 'getDefaultRoutes').resolves([{ iface: 'eth0', gateway: '10.0.0.1', metric: 0 }]);
-      expect(await uplinkService.publicIpBinding('203.0.113.7', null)).to.eql({ bound: true, elsewhere: false });
+      expect(uplinkService.publicIpBinding('203.0.113.7', 'eth0')).to.eql({ bound: true, elsewhere: false });
     });
 
-    it('reads an address on a label of another device as elsewhere', async () => {
+    it('reads an address on a label of another device as elsewhere', () => {
       sinon.stub(os, 'networkInterfaces').returns(interfaces({ eth0: '10.0.0.5', 'eth1:1': '203.0.113.7' }));
-      sinon.stub(fluxNetworkHelper, 'getDefaultRoutes').resolves([{ iface: 'eth0', gateway: '10.0.0.1', metric: 0 }]);
-      expect(await uplinkService.publicIpBinding('203.0.113.7', null)).to.eql({ bound: true, elsewhere: true });
+      expect(uplinkService.publicIpBinding('203.0.113.7', 'eth0')).to.eql({ bound: true, elsewhere: true });
     });
 
-    it('reads an address behind a gateway as not bound', async () => {
-      sinon.stub(os, 'networkInterfaces').returns(interfaces({ lo: '127.0.0.1', ens18: '172.16.16.61' }));
-      expect(await uplinkService.publicIpBinding('178.79.183.164', null)).to.eql({ bound: false, elsewhere: false });
-    });
-
-    it('compares against the egress device rather than the default route', async () => {
+    it('reads an address on the physical device as elsewhere when the traffic leaves by a tunnel', () => {
       sinon.stub(os, 'networkInterfaces').returns(interfaces({ eth0: '203.0.113.7', wg0: '10.66.0.2' }));
-      const routes = sinon.stub(fluxNetworkHelper, 'getDefaultRoutes').resolves([{ iface: 'eth0', gateway: '203.0.113.1', metric: 0 }]);
-      expect(await uplinkService.publicIpBinding('203.0.113.7', 'wg0')).to.eql({ bound: true, elsewhere: true });
-      expect(await uplinkService.publicIpBinding('203.0.113.7', 'eth0')).to.eql({ bound: true, elsewhere: false });
-      sinon.assert.notCalled(routes);
+      expect(uplinkService.publicIpBinding('203.0.113.7', 'wg0')).to.eql({ bound: true, elsewhere: true });
     });
 
-    it('makes no claim when the routes cannot be read', async () => {
+    it('reads an address behind a gateway as not bound', () => {
+      sinon.stub(os, 'networkInterfaces').returns(interfaces({ lo: '127.0.0.1', ens18: '172.16.16.61' }));
+      expect(uplinkService.publicIpBinding('178.79.183.164', 'ens18')).to.eql({ bound: false, elsewhere: false });
+    });
+
+    it('makes no claim when the egress device is unknown', () => {
       sinon.stub(os, 'networkInterfaces').returns(interfaces({ lo: '178.79.183.164', ens18: '172.16.16.61' }));
-      sinon.stub(fluxNetworkHelper, 'getDefaultRoutes').rejects(new Error('EACCES'));
-      expect(await uplinkService.publicIpBinding('178.79.183.164', null)).to.eql({ bound: true, elsewhere: false });
+      expect(uplinkService.publicIpBinding('178.79.183.164', null)).to.eql({ bound: true, elsewhere: false });
     });
   });
 
