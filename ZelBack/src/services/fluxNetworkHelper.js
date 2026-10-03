@@ -154,19 +154,31 @@ async function isInterfaceUp(interfaceName) {
 }
 
 /**
- * Gets the first routable IPv4 address assigned to a network interface. An
- * interface can carry a private primary and a public secondary; stopping at
- * the first non-internal address would answer for whichever the kernel lists
- * first rather than for the interface.
+ * The device an os.networkInterfaces() entry is bound on. A labelled address
+ * is listed under its label (`eth0:1`), and a label always begins with its
+ * device's name followed by a colon.
+ * @param {string} name - An os.networkInterfaces() key
+ * @returns {string} The device name
+ */
+function interfaceDevice(name) {
+  return name.split(':')[0];
+}
+
+/**
+ * Gets the first routable IPv4 address assigned to a network interface,
+ * including addresses bound under a label on it. An interface can carry a
+ * private primary and a public secondary; stopping at the first non-internal
+ * address would answer for whichever the kernel lists first rather than for
+ * the interface.
  * @param {string} interfaceName - The name of the network interface
  * @returns {string|null} The routable IPv4 address or null if none is bound
  */
 function getInterfaceIp(interfaceName) {
-  const interfaces = os.networkInterfaces();
-  const iface = interfaces[interfaceName];
-  if (!iface) return null;
+  const addresses = Object.entries(os.networkInterfaces())
+    .filter(([name]) => interfaceDevice(name) === interfaceName)
+    .flatMap(([, entries]) => entries);
 
-  for (const addr of iface) {
+  for (const addr of addresses) {
     if (addr.family === 'IPv4' && !addr.internal && !serviceHelper.isNonRoutableAddress(addr.address)) {
       return addr.address;
     }
@@ -2760,6 +2772,7 @@ module.exports = {
   setDOSStateApi,
   getNumberOfPeers,
   getDefaultRoutes,
+  interfaceDevice,
   hasPublicIpOnInterface,
   denyPort,
   deleteAllowPortRule,

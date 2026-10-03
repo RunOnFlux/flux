@@ -357,16 +357,16 @@ async function findTunnelInterfaces() {
 /**
  * @param {string} publicIp
  * @returns {Promise<{bound: boolean, elsewhere: boolean}>} Whether the public
- *   address is bound on this node, and whether on an interface other than the
- *   one its traffic leaves by.
+ *   address is bound on this node, and whether on a device other than the one
+ *   its traffic leaves by.
  */
 async function publicIpBinding(publicIp) {
-  const iface = Object.entries(os.networkInterfaces())
+  const name = Object.entries(os.networkInterfaces())
     .find(([, addresses]) => addresses.some((a) => a.family === 'IPv4' && a.address === publicIp))?.[0] ?? null;
-  if (!iface) return { bound: false, elsewhere: false };
+  if (!name) return { bound: false, elsewhere: false };
   const routes = await fluxNetworkHelper.getDefaultRoutes().catch(() => null);
   const leavesBy = routes?.[0]?.iface ?? null;
-  return { bound: true, elsewhere: leavesBy !== null && iface !== leavesBy };
+  return { bound: true, elsewhere: leavesBy !== null && fluxNetworkHelper.interfaceDevice(name) !== leavesBy };
 }
 
 /**
