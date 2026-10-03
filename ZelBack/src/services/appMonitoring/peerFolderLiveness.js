@@ -363,10 +363,12 @@ async function peerSyncthingConnection(folderId, peerIp) {
 
   // A connection closed before this syncthing started - or never open, which
   // syncthing records as 1970 - says nothing about the peer now: a syncthing
-  // that has just started has not reconnected to anyone.
+  // that has just started has not reconnected to anyone. Both times are rounded
+  // down to the second, so one closed as the previous syncthing stopped can read
+  // the same second as this one's start; only a later second is evidence.
   const status = await syncthingService.getSystemStatus().catch(() => null);
   const startedAt = Date.parse(status?.startTime);
-  return startedAt > 0 && lastSeen >= startedAt ? PeerConnection.DISCONNECTED : PeerConnection.UNKNOWN;
+  return startedAt > 0 && lastSeen > startedAt ? PeerConnection.DISCONNECTED : PeerConnection.UNKNOWN;
 }
 
 /**
