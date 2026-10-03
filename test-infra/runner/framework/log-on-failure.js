@@ -5,7 +5,9 @@ import { activeTestEnvs } from './test-env.js';
 import { execInContainer } from './container.js';
 import { SYNCTHING_HOME } from './syncthing-real.js';
 
-const LOG_ROOT = join(process.cwd(), 'test-logs');
+// Under the run's own log directory when it has one, so two runs in one clone
+// never overwrite each other's evidence.
+const LOG_ROOT = join(process.env.E2E_LOG_DIR || process.cwd(), 'test-logs');
 
 function sanitize(label) {
   return (label || 'unknown').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120);
