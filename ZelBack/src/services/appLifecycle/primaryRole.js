@@ -12,8 +12,7 @@ const changes = require('./primaryRoleChanges');
 // is made of - the folder, which syncthing owns, and the container, which the
 // reconciler owns. Becoming primary, the folder sends before the container is
 // asked to run. Standing down, the container stops before the folder stops
-// sending, and the folder is scanned first so what the primary wrote goes out as
-// its own version.
+// sending, and the folder is not scanned: what it had not yet sent is discarded.
 //
 // One change per component at a time. A request to become primary while one is in
 // progress, or while this node already is, is refused, so an election pass that
@@ -28,7 +27,7 @@ const changes = require('./primaryRoleChanges');
 //   ------------------------------------------+----------------------------+--------------+----------------
 //   folder created on this node               | receiveonly                | -            | (monitor)
 //   elected primary                           | sendreceive, first         | then running | promote
-//   another node elected                      | receiveonly, scanned, last | stopped      | standDown
+//   another node elected                      | receiveonly, no scan, last | stopped      | standDown
 //   primary runs here, folder receives        | sendreceive                | -            | holdAsPrimary
 //   not primary here, folder sends            | receiveonly, scanned       | -            | holdAsStandby
 //   unsafe mount / restore left partial data  | receiveonly, first, no scan| stopped      | demoteForSafety
@@ -108,6 +107,12 @@ async function sendThenRun(identifier, appId, change) {
   return Role.PRIMARY;
 }
 
+// A stand-down ends an error: FDM names another node only once that node runs
+// the component, so this node and that one have both been writing it - a network
+// split, or two nodes starting it at once. The elected node's copy is kept. This
+// node's folder receives as soon as its container has stopped, unscanned, so
+// what it had not yet sent is discarded rather than sent over the elected copy,
+// and from then on one folder sends.
 async function stopThenReceive(identifier, appId) {
   await appReconciler.setControllerDesiredAndWait(identifier, 'stopped', 'masterSlave standby');
   // Docker unreachable and a state it cannot read both answer running: false, and
@@ -117,8 +122,8 @@ async function stopThenReceive(identifier, appId) {
     log.warn(`primaryRole - ${identifier} is not confirmed stopped; its folder keeps sending until it is`);
     return { to: Role.PRIMARY, reason: 'the container is not confirmed stopped' };
   }
-  if (!(await syncthingFolderWrites.changeSyncthingFolderType(appId, 'receiveonly', { scanFirst: true }))) {
-    return { to: Role.STANDBY, reason: 'the folder still sends: it was not scanned, or not changed' };
+  if (!(await syncthingFolderWrites.changeSyncthingFolderType(appId, 'receiveonly'))) {
+    return { to: Role.STANDBY, reason: 'the folder still sends: it was not changed' };
   }
   return Role.STANDBY;
 }

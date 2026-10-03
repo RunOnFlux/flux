@@ -175,7 +175,9 @@ describe('primaryRole', () => {
   });
 
   describe('standing down', () => {
-    it('stops the container, then makes the folder receive, scanned first', async () => {
+    // Another node runs it, so both have been writing: what this one had not yet
+    // sent is discarded, never sent over the elected copy.
+    it('stops the container, then makes the folder receive, unscanned', async () => {
       const t = loadRole({ primary: true });
 
       expect(t.role.standDown(APP, FOLDER, { running: true })).to.equal(true);
@@ -183,7 +185,7 @@ describe('primaryRole', () => {
 
       expect(t.calls).to.deep.equal([
         ['setControllerDesiredAndWait', APP, 'stopped'],
-        ['folder', FOLDER, 'receiveonly', 'scanFirst'],
+        ['folder', FOLDER, 'receiveonly'],
       ]);
       expect(t.roleEvents()).to.deep.equal([
         { identifier: APP, from: 'primary', to: 'demoting' },
@@ -198,7 +200,7 @@ describe('primaryRole', () => {
       await t.role.whenSettled(APP);
 
       expect(t.roleEvents().at(-1)).to.deep.equal({
-        identifier: APP, from: 'demoting', to: 'standby', reason: 'the folder still sends: it was not scanned, or not changed',
+        identifier: APP, from: 'demoting', to: 'standby', reason: 'the folder still sends: it was not changed',
       });
     });
 
@@ -272,7 +274,7 @@ describe('primaryRole', () => {
 
       sinon.assert.calledWith(t.reconciler.setControllerDesiredAndWait, APP, 'stopped');
       expect(t.reconciler.committed, 'still the primary').to.deep.equal([]);
-      expect(t.calls.filter(([name]) => name === 'folder').at(-1)).to.deep.equal(['folder', FOLDER, 'receiveonly', 'scanFirst']);
+      expect(t.calls.filter(([name]) => name === 'folder').at(-1)).to.deep.equal(['folder', FOLDER, 'receiveonly']);
       expect(t.roleEvents().map(({ from, to }) => `${from}->${to}`)).to.deep.equal([
         'standby->promoting', 'promoting->primary', 'primary->demoting', 'demoting->standby',
       ]);
