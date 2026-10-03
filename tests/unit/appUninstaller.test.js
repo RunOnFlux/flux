@@ -6,6 +6,41 @@ const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileg
 const { RemovalOutcome } = require('../../ZelBack/src/services/utils/removalOutcome');
 
 describe('appUninstaller tests', () => {
+  describe('cleanupPorts tests', () => {
+    let appUninstallerPorts;
+    let firewallStub;
+    let upnpStub;
+
+    beforeEach(() => {
+      firewallStub = { isFirewallActive: sinon.stub().resolves(true), deleteAllowPortRule: sinon.stub().resolves(true) };
+      upnpStub = { isUPNP: sinon.stub().returns(true), removeMapUpnpPort: sinon.stub().resolves(true) };
+      appUninstallerPorts = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        '../fluxNetworkHelper': firewallStub,
+        '../upnpService': upnpStub,
+        '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
+      });
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('removes app port mappings from the router and touches no host firewall rule', async () => {
+      await appUninstallerPorts.cleanupPorts({ ports: [31000, 31001] }, 'myapp', null, 'myapp');
+
+      expect(firewallStub.deleteAllowPortRule.called).to.be.false;
+      expect(upnpStub.removeMapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
+      expect(upnpStub.removeMapUpnpPort.calledWith(31001, 'Flux_App_myapp')).to.be.true;
+    });
+
+    it('removes a v1 app port mapping and touches no host firewall rule', async () => {
+      await appUninstallerPorts.cleanupPorts({ port: 31000 }, 'myapp', null, 'myapp');
+
+      expect(firewallStub.deleteAllowPortRule.called).to.be.false;
+      expect(upnpStub.removeMapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
+    });
+  });
+
   let appUninstaller;
   let verificationHelperStub;
   let messageHelperStub;

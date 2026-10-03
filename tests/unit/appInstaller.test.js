@@ -1588,6 +1588,41 @@ describe('appInstaller tests', () => {
     });
   });
 
+  describe('setupApplicationPorts tests', () => {
+    let appInstallerPorts;
+    let firewallStub;
+    let upnpStub;
+
+    beforeEach(() => {
+      firewallStub = { isFirewallActive: sinon.stub().resolves(true), allowPort: sinon.stub().resolves({ status: true }) };
+      upnpStub = { isUPNP: sinon.stub().returns(true), mapUpnpPort: sinon.stub().resolves(true) };
+      appInstallerPorts = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        '../fluxNetworkHelper': firewallStub,
+        '../upnpService': upnpStub,
+        '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
+      });
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('maps app ports on the router and writes no host firewall rule for them', async () => {
+      await appInstallerPorts.setupApplicationPorts({ ports: [31000, 31001] }, 'myapp', false, null);
+
+      expect(firewallStub.allowPort.called).to.be.false;
+      expect(upnpStub.mapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
+      expect(upnpStub.mapUpnpPort.calledWith(31001, 'Flux_App_myapp')).to.be.true;
+    });
+
+    it('maps a v1 app port and writes no host firewall rule for it', async () => {
+      await appInstallerPorts.setupApplicationPorts({ port: 31000 }, 'myapp', false, null);
+
+      expect(firewallStub.allowPort.called).to.be.false;
+      expect(upnpStub.mapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
+    });
+  });
+
   describe('ensureAppDockerNetwork tests', () => {
     let appInstallerNet;
     let dockerServiceStub;

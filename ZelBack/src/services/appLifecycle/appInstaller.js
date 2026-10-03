@@ -109,28 +109,6 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
   }
 
   if (!test && appSpecifications.ports) {
-    const firewallActive = await fluxNetworkHelper.isFirewallActive();
-    if (firewallActive) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of appSpecifications.ports) {
-        // eslint-disable-next-line no-await-in-loop
-        const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
-        if (portResponse.status === true) {
-          const portStatus = {
-            status: `Port ${port} OK`,
-          };
-          log.info(portStatus);
-          if (res) {
-            res.write(serviceHelper.ensureString(portStatus));
-            if (res.flush) res.flush();
-          }
-        } else {
-          throw new Error(`Error: Port ${port} FAILed to open.`);
-        }
-      }
-    } else {
-      log.info('Firewall not active, application ports are open');
-    }
     const isUPNP = upnpService.isUPNP();
     if (isUPNP) {
       log.info('Custom port specified, mapping ports');
@@ -154,24 +132,6 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
     }
   } else if (!test && appSpecifications.port) {
     // v1 compatibility
-    const firewallActive = await fluxNetworkHelper.isFirewallActive();
-    if (firewallActive) {
-      const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
-      if (portResponse.status === true) {
-        const portStatus = {
-          status: `Port ${appSpecifications.port} OK`,
-        };
-        log.info(portStatus);
-        if (res) {
-          res.write(serviceHelper.ensureString(portStatus));
-          if (res.flush) res.flush();
-        }
-      } else {
-        throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
-      }
-    } else {
-      log.info('Firewall not active, application ports are open');
-    }
     const isUPNP = upnpService.isUPNP();
     if (isUPNP) {
       log.info('Custom port specified, mapping ports');
@@ -1418,4 +1378,5 @@ module.exports = {
   checkAppRequirements,
   testAppInstall,
   setOnInstallComplete,
+  setupApplicationPorts,
 };

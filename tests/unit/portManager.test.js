@@ -524,12 +524,14 @@ describe('portManager tests', () => {
       portManager.upnpMapFailures.clear();
     });
 
-    it('should setup firewall for app ports when active', async () => {
+    it('should write no host firewall rule for app ports, even with the firewall active', async () => {
       fluxNetworkHelper.isFirewallActive.resolves(true);
+      upnpService.isUPNP.returns(true);
 
       await portManager.restoreAppsPortsSupport();
 
-      sinon.assert.called(fluxNetworkHelper.allowPort);
+      sinon.assert.notCalled(fluxNetworkHelper.allowPort);
+      sinon.assert.called(upnpService.mapUpnpPort);
     });
 
     it('should setup UPNP for app ports when active', async () => {
@@ -541,7 +543,8 @@ describe('portManager tests', () => {
     });
 
     it('should handle errors gracefully', async () => {
-      fluxNetworkHelper.allowPort.rejects(new Error('Firewall error'));
+      upnpService.isUPNP.returns(true);
+      upnpService.mapUpnpPort.rejects(new Error('UPnP error'));
 
       // Should not throw
       await portManager.restoreAppsPortsSupport();
