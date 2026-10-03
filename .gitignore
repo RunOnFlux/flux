@@ -398,3 +398,5 @@ test-infra/runner/.image-cache/
 # it inside the container at boot; it never belongs in the repo.
 ZelBack/config/local.js
 ZelBack/config/local-*.js
+# static busybox for app containers a suite needs tools inside (built via test-infra/busybox-fixture/build.sh)
+test-infra/busybox-fixture/busybox

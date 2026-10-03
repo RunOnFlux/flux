@@ -139,10 +139,13 @@ export async function pushImage(repo, tag, markerContent = 'v1') {
 
 // Path to the compiled configurable test-app binary (see test-infra/test-app).
 const TEST_APP_BIN = join(__dirname, '..', '..', 'test-app', 'test-app');
+// Path to the static busybox binary (see test-infra/busybox-fixture) used by app
+// containers a suite needs tools inside (docker exec /bin/busybox ...).
+const BUSYBOX_BIN = join(__dirname, '..', '..', 'busybox-fixture', 'busybox');
 
 function buildBinaryLayerTar(binPath, binName, markerContent) {
   if (!existsSync(binPath)) {
-    throw new Error(`test-app binary not found at ${binPath}. Build it once: bash test-infra/test-app/build.sh`);
+    throw new Error(`fixture binary not found at ${binPath}. Build it once (see the matching test-infra/<fixture>/build.sh)`);
   }
   const binEntry = tarEntry(`bin/${binName}`, readFileSync(binPath));
   const markerEntry = tarEntry('marker', Buffer.from(markerContent), '0100644');
@@ -524,6 +527,52 @@ export async function mirrorExecutorImage() {
   // still resolves over the network.
   const pin = publishedExecutorPin();
   return mirrorImage(pin.image, null, { digest: pin.indexId ?? null });
+}
+
+// Push a static-busybox image (entrypoint sleeps so the container stays up), for
+// an app container a suite needs tools inside: file inspection, network probes.
+// The freestanding pause/test-app images have neither.
+export async function pushBusybox(repo, tag = 'v1', markerContent = 'busybox') {
+  const gzippedLayer = buildBinaryLayerTar(BUSYBOX_BIN, 'busybox', markerContent);
+  const layerDigest = await uploadBlob(repo, gzippedLayer);
+
+  const uncompressedLayer = zlib.gunzipSync(gzippedLayer);
+  const diffId = `sha256:${sha256(uncompressedLayer)}`;
+
+  const configObj = {
+    architecture: 'amd64',
+    os: 'linux',
+    config: { Entrypoint: ['/bin/busybox', 'sleep', '2147483647'] },
+    rootfs: { type: 'layers', diff_ids: [diffId] },
+  };
+  const configBuf = Buffer.from(JSON.stringify(configObj));
+  const configDigest = await uploadBlob(repo, configBuf);
+
+  const manifest = {
+    schemaVersion: 2,
+    mediaType: 'application/vnd.docker.distribution.manifest.v2+json',
+    config: {
+      mediaType: 'application/vnd.docker.container.image.v1+json',
+      size: configBuf.length,
+      digest: configDigest,
+    },
+    layers: [{
+      mediaType: 'application/vnd.docker.image.rootfs.diff.tar.gzip',
+      size: gzippedLayer.length,
+      digest: layerDigest,
+    }],
+  };
+
+  const manifestRes = await registryClient.put(
+    `/v2/${repo}/manifests/${tag}`,
+    JSON.stringify(manifest),
+    {
+      headers: { 'Content-Type': 'application/vnd.docker.distribution.manifest.v2+json' },
+      validateStatus: (s) => s === 201,
+    },
+  );
+
+  return manifestRes.headers['docker-content-digest'];
 }
 
 export async function pushUpdatedImage(repo, tag) {
