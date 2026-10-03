@@ -279,7 +279,10 @@ describe('uplinkService tests', () => {
       wg0: { type: '65534', mtu: '1420', uevent: 'DEVTYPE=wireguard\nINTERFACE=wg0\n' },
       tun0: { type: '65534', mtu: '1500', tun_flags: '0x1001' },
       tap0: { type: '1', mtu: '1500', tun_flags: '0x1002' },
-      gre1: { type: '778', mtu: '1476' },
+      gre1: { type: '778', mtu: '1476', operstate: 'unknown\n' },
+      tunl0: { type: '768', mtu: '1480', operstate: 'down\n' },
+      sit0: { type: '776', mtu: '1480', operstate: 'down\n' },
+      tun1: { type: '65534', mtu: '1500', tun_flags: '0x1001', operstate: 'down\n' },
     };
 
     beforeEach(() => {
@@ -292,7 +295,7 @@ describe('uplinkService tests', () => {
       });
     });
 
-    it('names each tunnel by kind and leaves ordinary interfaces out', async () => {
+    it('names each tunnel that is not down by kind, and leaves ordinary interfaces out', async () => {
       expect(await uplinkService.findTunnelInterfaces()).to.eql([
         { name: 'wg0', kind: 'wireguard', mtu: 1420 },
         { name: 'tun0', kind: 'tun', mtu: 1500 },

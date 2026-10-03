@@ -302,7 +302,10 @@ async function measureDistance(publicIp, apiPort) {
 
 /**
  * @returns {Promise<Array<{name: string, kind: string, mtu: number}>|null>}
- *   This node's tunnel interfaces, or null when the interfaces cannot be read.
+ *   This node's tunnel interfaces that are not down, or null when the
+ *   interfaces cannot be read. A down device carries nothing; the kernel's
+ *   fallback devices (tunl0, sit0, gre0, ip6tnl0) sit down in every namespace
+ *   once their modules are loaded.
  */
 async function findTunnelInterfaces() {
   let names;
@@ -317,12 +320,15 @@ async function findTunnelInterfaces() {
   for (const name of names) {
     const dir = `/sys/class/net/${name}`;
     // eslint-disable-next-line no-await-in-loop
-    const [type, uevent, mtu, tunFlags] = await Promise.all([
+    const [type, uevent, mtu, tunFlags, operstate] = await Promise.all([
       fs.readFile(`${dir}/type`, 'utf8').catch(() => null),
       fs.readFile(`${dir}/uevent`, 'utf8').catch(() => ''),
       fs.readFile(`${dir}/mtu`, 'utf8').catch(() => null),
       fs.readFile(`${dir}/tun_flags`, 'utf8').catch(() => null),
+      fs.readFile(`${dir}/operstate`, 'utf8').catch(() => null),
     ]);
+    // eslint-disable-next-line no-continue
+    if (operstate?.trim() === 'down') continue;
     const linkType = Number(type);
     let kind = null;
     if (/^DEVTYPE=wireguard$/m.test(uevent)) kind = 'wireguard';
