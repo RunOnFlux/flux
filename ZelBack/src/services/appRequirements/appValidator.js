@@ -16,6 +16,7 @@ const globalState = require('../utils/globalState');
 // eslint-disable-next-line no-unused-vars
 const {
   supportedArchitectures, enterpriseRequiredArchitectures, APP_NAME_REGEX, APP_NAME_REGEX_LEGACY,
+  MAX_APP_NAME_LENGTH, MAX_COMPONENT_NAME_LENGTH, MAX_APP_COMPONENTS,
 } = require('../utils/appConstants');
 const { specificationFormatter, findCommonArchitectures } = require('../utils/appUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
@@ -564,7 +565,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
     throw new Error('Flux App message version specification is invalid');
   }
   // Version 8+ allows up to 63 characters to align with FQDN label standards (RFC 1035)
-  const maxNameLength = appSpecifications.version >= 8 ? 63 : 32;
+  const maxNameLength = appSpecifications.version >= 8 ? MAX_APP_NAME_LENGTH : 32;
   if (appSpecifications.name.length > maxNameLength) {
     throw new Error(`Flux App name is too long. Maximum ${maxNameLength} characters allowed`);
   }
@@ -672,7 +673,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
     if (appSpecifications.compose.length < 1) {
       throw new Error('Flux App does not contain any composition');
     }
-    let maxComponents = 10;
+    let maxComponents = MAX_APP_COMPONENTS;
     if (height < config.fluxapps.appSpecsEnforcementHeights[6]) {
       maxComponents = 5;
     }
@@ -693,7 +694,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
         throw new Error('Please provide a valid Flux App Component name');
       }
       // Version 8+ allows up to 63 characters to align with FQDN label standards (RFC 1035)
-      const maxComponentNameLength = appSpecifications.version >= 8 ? 63 : 32;
+      const maxComponentNameLength = appSpecifications.version >= 8 ? MAX_COMPONENT_NAME_LENGTH : 32;
       if (appComponent.name.length > maxComponentNameLength) {
         throw new Error(`Flux App component name is too long. Maximum ${maxComponentNameLength} characters allowed`);
       }

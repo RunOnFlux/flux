@@ -1,6 +1,7 @@
 // Set NODE_CONFIG_DIR before any requires
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
+const http = require('node:http');
 const { expect } = require('chai');
 const sinon = require('sinon');
 const axios = require('axios');
@@ -12,6 +13,8 @@ const syncthingService = require('../../ZelBack/src/services/syncthingService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const nodeSignerModule = require('../../ZelBack/src/services/utils/nodeSigner');
 const peerIdentityService = require('../../ZelBack/src/services/peerIdentityService');
+const messageHelper = require('../../ZelBack/src/services/messageHelper');
+const { MAX_APP_NAME_LENGTH, MAX_COMPONENT_NAME_LENGTH, MAX_APP_COMPONENTS } = require('../../ZelBack/src/services/utils/appConstants');
 const { makePeerIdentityDouble } = require('./peerIdentityTestDouble');
 
 const { IdentityVerdict, IDENTITY_PURPOSE, AnswerPurpose } = peerIdentityService;
@@ -323,6 +326,16 @@ describe('peerIdentityService', () => {
 
       expect(result.verdict).to.equal(IdentityVerdict.UNVERIFIABLE);
       expect(result.reason).to.match(/cannot sign/);
+    });
+
+    it('is UNVERIFIABLE, not UNREACHABLE, when the answer is refused for its size', async () => {
+      sinon.stub(axios, 'post').rejects(Object.assign(new Error('maxContentLength size of 16384 exceeded'), {
+        code: axios.AxiosError.ERR_BAD_RESPONSE,
+      }));
+
+      const result = await peerIdentityService.verifyPeer(ADDR.b);
+
+      expect(result.verdict).to.equal(IdentityVerdict.UNVERIFIABLE);
     });
 
     it('is UNREACHABLE when nothing answers', async () => {
@@ -739,6 +752,57 @@ describe('peerIdentityService', () => {
       const result = await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
 
       expect(result).to.deep.equal({ verdict: IdentityVerdict.MISROUTED, answeredAs: ADDR.c });
+    });
+
+    // The largest answer an honest node can give: promotedfolders, from a node
+    // holding maxAppsPerNode apps of MAX_APP_COMPONENTS components with the
+    // longest names a specification allows, every folder held, inside the
+    // envelope a reply carries.
+    const largestHonestReply = () => {
+      const ids = [];
+      for (let app = 0; app < config.fluxapps.maxAppsPerNode; app += 1) {
+        for (let component = 0; component < MAX_APP_COMPONENTS; component += 1) {
+          const appName = `${app}`.padEnd(MAX_APP_NAME_LENGTH, 'a');
+          const componentName = `${component}`.padEnd(MAX_COMPONENT_NAME_LENGTH, 'c');
+          ids.push(`flux${componentName}_${appName}`);
+        }
+      }
+      const answer = {
+        ready: true,
+        folders: ids,
+        holding: Object.fromEntries(ids.map((id) => [id, { bytes: Number.MAX_SAFE_INTEGER, newestModified: Number.MAX_SAFE_INTEGER }])),
+        purpose: AnswerPurpose.PROMOTED_FOLDERS,
+        socketAddress: '255.255.255.255:65535',
+        pubKey: pub.b,
+        challenge: CHALLENGE,
+      };
+      answer.signature = verificationHelper.signMessage(JSON.stringify(answer), KEYS.b);
+      return JSON.stringify(messageHelper.createDataMessage(answer));
+    };
+
+    it('bounds the answer at no less than the largest an honest node can give', async () => {
+      const post = node({ held: (challenge) => success(signs('b', challenge, { held: [] })) });
+
+      await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+
+      expect(post.firstCall.args[2].maxContentLength).to.equal(peerIdentityService.MAX_SIGNED_ANSWER_BYTES);
+      expect(Buffer.byteLength(largestHonestReply())).to.be.at.most(peerIdentityService.MAX_SIGNED_ANSWER_BYTES);
+    });
+
+    it('reads an answer larger than any honest node gives as unverifiable, and nothing in it as readable', async () => {
+      const server = http.createServer((_req, res) => {
+        res.setHeader('Content-Type', 'application/json');
+        res.end(`"${'x'.repeat(peerIdentityService.MAX_SIGNED_ANSWER_BYTES - 1)}"`);
+      });
+      await new Promise((resolve) => { server.listen(0, '127.0.0.1', resolve); });
+      try {
+        const result = await peerIdentityService.askSigned(`127.0.0.1:${server.address().port}`, HELD, AnswerPurpose.HELD_COMPONENTS);
+
+        expect(result.verdict).to.equal(IdentityVerdict.UNVERIFIABLE);
+        expect(result.mayReadUnsigned).to.equal(false);
+      } finally {
+        server.close();
+      }
     });
 
     it('is UNREACHABLE when nothing replies', async () => {

@@ -31,6 +31,7 @@ const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const syncthingService = require('./syncthingService');
 const fluxEventBus = require('./utils/fluxEventBus');
 const nodeSigner = require('./utils/nodeSigner');
+const { MAX_APP_NAME_LENGTH, MAX_COMPONENT_NAME_LENGTH, MAX_APP_COMPONENTS } = require('./utils/appConstants');
 const {
   extractIp, extractPort, normalizeSocketAddress, socketAddressesMatch,
 } = require('./utils/socketAddressUtils');
@@ -108,6 +109,27 @@ const INTRODUCTION_VALIDITY_MS = 60 * 1000;
 // An identity answer is a few hundred bytes. Bounded because this address is
 // only as trustworthy as whatever is answering on it.
 const MAX_ANSWER_BYTES = 16 * 1024;
+
+// A signed answer lists what the peer holds: at most maxAppsPerNode apps of
+// MAX_APP_COMPONENTS components each. The longest is promotedfolders, which
+// names each folder twice - in `folders`, and as a `holding` key with its
+// record. Its envelope is the identity answer's fields, which MAX_ANSWER_BYTES
+// already bounds.
+const MAX_FOLDER_ID_JSON = JSON.stringify(`flux${'c'.repeat(MAX_COMPONENT_NAME_LENGTH)}_${'a'.repeat(MAX_APP_NAME_LENGTH)}`).length + 1;
+const MAX_HOLDING_JSON = JSON.stringify({ bytes: Number.MAX_SAFE_INTEGER, newestModified: Number.MAX_SAFE_INTEGER }).length + 1;
+const MAX_SIGNED_ANSWER_BYTES = MAX_ANSWER_BYTES
+  + config.fluxapps.maxAppsPerNode * MAX_APP_COMPONENTS * (2 * MAX_FOLDER_ID_JSON + MAX_HOLDING_JSON);
+
+/**
+ * Whether a call that failed reached something that replied: it answered a
+ * status, or its reply was refused, for its size or its form, before it was
+ * read.
+ * @param {Error} error What axios rejected with.
+ * @returns {boolean}
+ */
+function replied(error) {
+  return Boolean(error.response) || error.code === axios.AxiosError.ERR_BAD_RESPONSE;
+}
 
 /**
  * @returns {number}
@@ -370,6 +392,7 @@ async function askIdentity(dialled) {
     if (error.response) {
       return { verdict: IdentityVerdict.UNVERIFIABLE, reason: `answered ${error.response.status}` };
     }
+    if (replied(error)) return { verdict: IdentityVerdict.UNVERIFIABLE, reason: error.message };
     return { verdict: IdentityVerdict.UNREACHABLE, reason: error.message };
   }
 
@@ -489,9 +512,13 @@ async function askSigned(socketAddress, path, purpose, body = {}, options = {}) 
   const fields = typeof body === 'function' ? await body(challenge) : body;
   let response;
   try {
-    response = await axios.post(url, { ...fields, challenge }, { timeout: options.timeout ?? TIMEOUT_MS });
+    response = await axios.post(url, { ...fields, challenge }, {
+      timeout: options.timeout ?? TIMEOUT_MS,
+      maxContentLength: MAX_SIGNED_ANSWER_BYTES,
+    });
   } catch (error) {
-    if (!error.response) return { verdict: IdentityVerdict.UNREACHABLE, reason: error.message };
+    if (!replied(error)) return { verdict: IdentityVerdict.UNREACHABLE, reason: error.message };
+    if (!error.response) return { verdict: IdentityVerdict.UNVERIFIABLE, reason: error.message, mayReadUnsigned: false };
     return unprovenReply(dialled, { status: error.response.status, data: error.response.data });
   }
 
@@ -524,6 +551,7 @@ module.exports = {
   IDENTITY_PURPOSE,
   INTRODUCTION_PURPOSE,
   IdentityVerdict,
+  MAX_SIGNED_ANSWER_BYTES,
   acceptIntroduction,
   answerSealer,
   askSigned,
