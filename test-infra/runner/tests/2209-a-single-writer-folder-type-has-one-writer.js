@@ -34,6 +34,7 @@ const HELD_PASSES = 3;
 
 // Checkpoints, declared in fluxEventBus.Checkpoint.
 const BEFORE_START = 'masterSlave:beforeStart';
+const BEFORE_RUN = 'masterSlave:beforeRun';
 const AFTER_FOLDER_READ = 'syncthing:afterFolderRead';
 const BEFORE_FOLDER_WRITE = 'syncthing:beforeFolderWrite';
 
@@ -198,6 +199,45 @@ describe('a single-writer folder type has one writer', function () {
     expect(eventsSince(target, from, 'reconciler:actuated', (d) => d.identifier === a.identifier && d.action === 'started'),
       'the component started over the unsafe volume').to.deep.equal([]);
     expect(await isUp(client, a.appName)).to.equal(false);
+  });
+
+  // Two nodes can race for one app; FDM naming the other while this one is
+  // promoting is what stands this one down, and it must hold at any point of
+  // the promotion - here, its folder sending and covered, the container not yet
+  // asked for.
+  it('runs no container on a node stood down once its folder sends and before it asks to run it', async function () {
+    this.timeout(900000);
+    const a = await settle(`e2eraced${stamp}`);
+    const [target, other] = a.standbys;
+    const client = env.clients[target];
+    const from = client.getLastEventId();
+
+    await client.holdCheckpoint(BEFORE_RUN, a.identifier);
+    try {
+      await electMaster(a.appName, client.ip);
+      await client.waitForEvent('checkpoint:held', (d) => d.name === BEFORE_RUN && d.key === a.identifier, 300000, { afterId: from });
+      expect((await getFolderConfig(ipOf(target), a.folder))?.type, 'fixture: the promoting folder sends').to.equal('sendreceive');
+
+      const observed = await electionCount(target, a.appName, 'primaryObserved');
+      await electMaster(a.appName, env.clients[other].ip);
+      // A pass that reads the other node off FDM stands this one down in it.
+      await waitFor(async () => (await electionCount(target, a.appName, 'primaryObserved')) > observed, {
+        timeout: 180000, interval: 1000, label: 'the promoting node read the other node off FDM',
+      });
+    } finally {
+      await client.releaseCheckpoint(BEFORE_RUN, a.identifier)
+        .catch((err) => console.warn(`cleanup: checkpoint release failed: ${err.message}`));
+    }
+
+    const ended = await client.waitForEvent('primaryRole:changed',
+      (d) => d.identifier === a.identifier && d.from === 'promoting', 120000, { afterId: from });
+    expect(ended.data.to, 'the promotion was not stood down').to.equal('standby');
+    expect(ended.data.reason).to.equal('stood down before it ran');
+    await passesFromNow([target], (i) => electionCount(i, a.appName, 'evaluated'), 'election');
+    expect(eventsSince(target, from, 'reconciler:actuated', (d) => d.identifier === a.identifier && d.action === 'started'),
+      'the stood-down node started the component').to.deep.equal([]);
+    expect(await isUp(client, a.appName)).to.equal(false);
+    expect((await getFolderConfig(ipOf(target), a.folder))?.type, 'the stood-down node\'s folder').to.equal('receiveonly');
   });
 
   // The scans that cover a promoted folder's restart write no config, and the

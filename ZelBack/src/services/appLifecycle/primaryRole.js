@@ -92,10 +92,17 @@ async function sendThenRun(identifier, appId, change) {
     log.error(`primaryRole - the folder of ${identifier} could not be made to send; not starting it`);
     return { to: Role.STANDBY, reason: 'the folder did not send' };
   }
-  // An operator stop given while the folder was turning keeps the component
-  // down: it stays held by the lock, its folder sending, until the election
-  // decides an operator start.
-  if (!(await appReconciler.setRunningUnlessOperatorStopped(identifier, 'masterSlave primary'))) {
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.MASTERSLAVE_BEFORE_RUN, identifier);
+  // A stand-down given while this waited for the reconciler's slot is read in
+  // it, so the container is never asked to run.
+  if (!(await appReconciler.setRunningUnlessOperatorStopped(identifier, 'masterSlave primary', { unless: () => change.standDown }))) {
+    if (change.standDown) {
+      await syncthingFolderWrites.changeSyncthingFolderType(appId, 'receiveonly');
+      return { to: Role.STANDBY, reason: 'stood down before it ran' };
+    }
+    // An operator stop given while the folder was turning keeps the component
+    // down: it stays held by the lock, its folder sending, until the election
+    // decides an operator start.
     return { to: Role.STANDBY, reason: 'its operator stopped it' };
   }
   return Role.PRIMARY;
@@ -145,7 +152,12 @@ function promote(identifier, appId) {
   if (changes.get(identifier) || isPrimary(identifier)) return false;
   fluxEventBus.publish('masterSlave:started', { identifier });
   fluxEventBus.count('masterSlave:decision', identifier, 'started');
-  begin(identifier, appId, Role.PROMOTING, Role.STANDBY, (change) => sendThenRun(identifier, appId, change));
+  const change = begin(identifier, appId, Role.PROMOTING, Role.STANDBY, (promoting) => sendThenRun(identifier, appId, promoting));
+  // A stand-down given once the container was asked to run is carried out the
+  // moment the promotion ends, so one given at any point of it is honoured.
+  change.done.then(() => {
+    if (change.standDown && isPrimary(identifier)) standDown(identifier, appId, { running: true });
+  });
   return true;
 }
 

@@ -13,18 +13,23 @@ const FOLDER = 'fluxn8n_n8napp';
  * the calls it makes is what these tests are about, so every collaborator writes
  * to one shared log.
  */
-function loadRole({ primary = false, changeType, operatorStopped = false } = {}) {
+function loadRole({
+  primary = false, changeType, operatorStopped = false, inSlot = async () => {}, afterRun = () => {},
+} = {}) {
   const calls = [];
   const note = (name) => (...args) => { calls.push([name, ...args]); };
   const reconciler = {
     committed: primary ? [APP] : [],
     committedIdentifiers: sinon.spy(() => reconciler.committed),
-    // Writes the desire to run only when the operator has not stopped the
-    // component, as the reconciler decides it in its per-key slot.
-    setRunningUnlessOperatorStopped: sinon.spy(async (id) => {
+    // Writes the desire to run only when the caller's `unless` and the operator
+    // allow it, as the reconciler decides it in its per-key slot. `inSlot` runs
+    // once the slot is held, `afterRun` once the desire is written.
+    setRunningUnlessOperatorStopped: sinon.spy(async (id, _reason, { unless = () => false } = {}) => {
       note('setRunningUnlessOperatorStopped')(id, { operatorStopped });
-      if (operatorStopped) return false;
+      await inSlot();
+      if (unless() || operatorStopped) return false;
       reconciler.committed = [id];
+      afterRun();
       return true;
     }),
     setControllerDesiredAndWait: sinon.spy(async (id, state) => {
@@ -50,7 +55,7 @@ function loadRole({ primary = false, changeType, operatorStopped = false } = {})
     publish: sinon.stub(),
     count: sinon.stub(),
     checkpoint: sinon.spy(async (name, key) => { note('checkpoint')(name, key); }),
-    Checkpoint: { MASTERSLAVE_BEFORE_START: 'masterSlave:beforeStart' },
+    Checkpoint: { MASTERSLAVE_BEFORE_START: 'masterSlave:beforeStart', MASTERSLAVE_BEFORE_RUN: 'masterSlave:beforeRun' },
   };
   const changes = proxyquire('../../ZelBack/src/services/appLifecycle/primaryRoleChanges', {});
   const role = proxyquire('../../ZelBack/src/services/appLifecycle/primaryRole', {
@@ -86,6 +91,7 @@ describe('primaryRole', () => {
       expect(t.calls).to.deep.equal([
         ['checkpoint', 'masterSlave:beforeStart', APP],
         ['folder', FOLDER, 'sendreceive'],
+        ['checkpoint', 'masterSlave:beforeRun', APP],
         ['setRunningUnlessOperatorStopped', APP, { operatorStopped: false }],
       ]);
       expect(t.roleEvents()).to.deep.equal([
@@ -108,6 +114,7 @@ describe('primaryRole', () => {
       expect(t.calls).to.deep.equal([
         ['checkpoint', 'masterSlave:beforeStart', APP],
         ['folder', FOLDER, 'sendreceive'],
+        ['checkpoint', 'masterSlave:beforeRun', APP],
         ['setRunningUnlessOperatorStopped', APP, { operatorStopped: true }],
       ]);
       expect(t.roleEvents()).to.deep.equal([
@@ -234,6 +241,41 @@ describe('primaryRole', () => {
       expect(t.roleEvents().at(-1)).to.deep.equal({
         identifier: APP, from: 'promoting', to: 'standby', reason: 'stood down before it ran',
       });
+    });
+
+    it('asks for no container when it is stood down while the start waits for the reconciler', async () => {
+      let t;
+      t = loadRole({ inSlot: async () => { t.role.standDown(APP, FOLDER); } });
+
+      t.role.promote(APP, FOLDER);
+      await t.role.whenSettled(APP);
+
+      sinon.assert.calledOnce(t.reconciler.setRunningUnlessOperatorStopped);
+      expect(t.reconciler.committed, 'the container was asked to run').to.deep.equal([]);
+      expect(t.calls.filter(([name]) => name === 'folder')).to.deep.equal([
+        ['folder', FOLDER, 'sendreceive'],
+        ['folder', FOLDER, 'receiveonly'],
+      ]);
+      expect(t.roleEvents().at(-1)).to.deep.equal({
+        identifier: APP, from: 'promoting', to: 'standby', reason: 'stood down before it ran',
+      });
+    });
+
+    it('stands down the moment the promotion ends when it is stood down once the container was asked to run', async () => {
+      let t;
+      t = loadRole({ afterRun: () => { expect(t.role.standDown(APP, FOLDER), 'a promotion in progress was not stood down').to.equal(true); } });
+
+      t.role.promote(APP, FOLDER);
+      await t.role.whenSettled(APP);
+      await new Promise((resolve) => { setImmediate(resolve); });
+      await t.role.whenSettled(APP);
+
+      sinon.assert.calledWith(t.reconciler.setControllerDesiredAndWait, APP, 'stopped');
+      expect(t.reconciler.committed, 'still the primary').to.deep.equal([]);
+      expect(t.calls.filter(([name]) => name === 'folder').at(-1)).to.deep.equal(['folder', FOLDER, 'receiveonly', 'scanFirst']);
+      expect(t.roleEvents().map(({ from, to }) => `${from}->${to}`)).to.deep.equal([
+        'standby->promoting', 'promoting->primary', 'primary->demoting', 'demoting->standby',
+      ]);
     });
 
     it('has the folder write of a promotion abandoned once it is stood down', async () => {

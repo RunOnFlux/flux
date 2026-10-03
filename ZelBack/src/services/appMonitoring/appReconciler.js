@@ -1437,13 +1437,17 @@ async function setControllerDesiredAndWait(rawIdentifier, state, reason) {
  * the stop clears it, or the stop lands first and this writes nothing.
  * @param {string} rawIdentifier Component identifier.
  * @param {string} reason Why, for the log and the event.
+ * @param {object} [options]
+ * @param {() => boolean} [options.unless] Asked once the slot is held; true
+ *   writes nothing.
  * @returns {Promise<boolean>} Whether the desire was written.
  * @throws When the lock cannot be read: an unread lock is not an absent one.
  */
-async function setRunningUnlessOperatorStopped(rawIdentifier, reason) {
+async function setRunningUnlessOperatorStopped(rawIdentifier, reason, { unless = () => false } = {}) {
   const identifier = canonical(rawIdentifier);
   let written = false;
   await applyIntent(identifier, async () => {
+    if (unless()) return;
     if (await appsRuntimeState.operatorStoppedOrThrow(identifier)) return;
     controllerDesired.set(identifier, 'running');
     log.info(`appReconciler - controllerDesired[${identifier}] = running (${reason})`);

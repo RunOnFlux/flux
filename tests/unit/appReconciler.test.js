@@ -2009,6 +2009,26 @@ describe('appReconciler tests', () => {
       expect(appReconciler.committedIdentifiers()).to.not.include('www_App');
     });
 
+    it('writes nothing when its caller withdraws once the slot is held, asked only then', async () => {
+      let asked = 0;
+      let release;
+      const held = new Promise((resolve) => { release = resolve; });
+      const before = appReconciler.applyIntent('www_App', () => held);
+      let withdrawn = false;
+      const running = appReconciler.setRunningUnlessOperatorStopped('www_App', 'test', {
+        unless: () => { asked += 1; return withdrawn; },
+      });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(asked, 'asked before the slot was held').to.equal(0);
+      withdrawn = true;
+      release();
+      await before;
+
+      expect(await running).to.equal(false);
+      expect(asked).to.equal(1);
+      expect(appReconciler.committedIdentifiers()).to.not.include('www_App');
+    });
+
     it('throws, writing nothing, when the lock cannot be read', async () => {
       stubs.appsRuntimeState.operatorStoppedOrThrow.rejects(new Error('no primary available'));
 
