@@ -2385,14 +2385,14 @@ const containerBlockedNetworks = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16
 /**
  * The DOCKER-USER chain, as `iptables -S DOCKER-USER` prints it. Rules match the
  * bridge a packet comes from, not its source address, so a container cannot
- * leave them by forging one. Traffic towards a bridge returns to Docker, whose
- * own isolation keeps one app network from another; DNS stays open to every
- * private address, for a node owner who runs their own resolver.
+ * leave them by forging one. App networks sit inside 172.16.0.0/12, so one app
+ * network is dropped from another; containers on one network reach each other
+ * without passing through FORWARD. DNS stays open to every private address, for
+ * a node owner who runs their own resolver.
  * @returns {string[]}
  */
 function containerEgressRules() {
   const rules = ['-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN'];
-  containerBridges.forEach((bridge) => rules.push(`-A DOCKER-USER -o ${bridge} -j RETURN`));
   containerBridges.forEach((bridge) => {
     ['udp', 'tcp'].forEach((proto) => rules.push(`-A DOCKER-USER -i ${bridge} -p ${proto} -m ${proto} --dport 53 -j RETURN`));
   });
