@@ -584,6 +584,7 @@ describe('advancedWorkflows tests', () => {
     let serviceHelperDelayStub;
     let fluxNetworkHelperStub;
     let registryManagerStub;
+    let shuttingDownNodesStub;
     let dockerServiceStub;
     let syncthingServiceStub;
     let syncthingCompletionStub;
@@ -644,6 +645,8 @@ describe('advancedWorkflows tests', () => {
 
       const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
       registryManagerStub = sinon.stub(registryManager, 'appLocation');
+      // default: no node has announced a shutdown
+      shuttingDownNodesStub = sinon.stub(registryManager, 'shuttingDownNodes').resolves([]);
 
       const dockerService = require('../../ZelBack/src/services/dockerService');
       dockerServiceStub = sinon.stub(dockerService, 'getAppIdentifier');
@@ -2221,6 +2224,54 @@ describe('advancedWorkflows tests', () => {
 
       expect(linesMatching(logInfo, 'the component is free there')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+    });
+
+    // A clean shutdown closes the connection too. The network gives a rebooting
+    // node SIGTERM_EXPIRY_MS to come back before its locations expire, and a node
+    // back within it keeps what it holds.
+    it('will not start beside a silent peer that announced a shutdown and has not passed its expiry', async () => {
+      const appName = 'rebootingpeerapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      shuttingDownNodesStub.resolves(['192.168.1.90:16127']);
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'it announced a shutdown and may still come back from it')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('starts beside a silent peer when another node at its IP announced a shutdown', async () => {
+      const appName = 'neighbourrebootingapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      shuttingDownNodesStub.resolves(['192.168.1.90:16137']);
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'the component is free there')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+    });
+
+    it('will not start beside a silent peer when this node cannot read which nodes announced a shutdown', async () => {
+      const appName = 'shutdownsunreadableapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      shuttingDownNodesStub.rejects(new Error('database unavailable'));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
     it('resolves a dead peer\'s device from this node\'s own syncthing when the cache never learned it', async () => {

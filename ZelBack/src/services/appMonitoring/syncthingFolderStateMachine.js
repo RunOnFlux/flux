@@ -804,6 +804,11 @@ async function holderIsGone(appId, holderIp, liveness) {
     fluxEventBus.publish('syncthing:holderRetained', { folder: appId, holder: holderIp, reason: 'noEvidence' });
     return false;
   }
+  if (verdict === SilenceVerdict.RESTARTING) {
+    log.info(`holderIsGone - ${extractIp(holderIp)} is unreachable, but it announced a shutdown and may still come back from it, for ${appId}; keeping it`);
+    fluxEventBus.publish('syncthing:holderRetained', { folder: appId, holder: holderIp, reason: 'restarting' });
+    return false;
+  }
   if (verdict === SilenceVerdict.LOCALLY_ISOLATED) {
     const { responding, total } = liveness.localConnectivity();
     log.info(`holderIsGone - ${extractIp(holderIp)} is unreachable, but only ${responding} of this node's ${total} peers are answering; treating this node as the isolated one`);

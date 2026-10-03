@@ -20,9 +20,10 @@ const log = require('../../lib/log');
 const fluxCommunication = require('../fluxCommunication');
 const syncthingService = require('../syncthingService');
 const globalState = require('../utils/globalState');
-const { extractIp, extractPort } = require('../utils/socketAddressUtils');
+const { extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
 const { nodeSigner } = require('../utils/nodeSigner');
 const peerIdentityService = require('../peerIdentityService');
+const registryManager = require('../appDatabase/registryManager');
 const { SIGTERM_EXPIRY_MS } = require('../utils/appConstants');
 
 // Bounded because this runs on the pass a node is about to promote, and a slow
@@ -298,14 +299,28 @@ const PeerConnection = Object.freeze({
 
 /**
  * Why this node cannot hear a peer. `GONE` is the only answer that authorises
- * acting on the silence; the other three are reasons to leave the peer alone.
+ * acting on the silence; the others are reasons to leave the peer alone.
  */
 const SilenceVerdict = Object.freeze({
   GONE: 'gone',
   CONNECTION_ALIVE: 'connectionAlive',
   NO_EVIDENCE: 'noEvidence',
+  RESTARTING: 'restarting',
   LOCALLY_ISOLATED: 'locallyIsolated',
 });
+
+/**
+ * Whether a peer announced a shutdown less than SIGTERM_EXPIRY_MS ago and has
+ * not announced its apps running since: the time the network gives it to come
+ * back from a reboot, before its locations expire.
+ * @param {string} peerIp The peer's socket address
+ * @returns {Promise<boolean|null>} null when the announcements cannot be read
+ */
+async function announcedShutdown(peerIp) {
+  const departing = await registryManager.shuttingDownNodes().catch(() => null);
+  if (!Array.isArray(departing)) return null;
+  return departing.some((address) => socketAddressesMatch(address, peerIp));
+}
 
 /**
  * The syncthing device id this node knows the peer by, or null.
@@ -423,6 +438,11 @@ async function peerSyncthingConnection(folderId, peerIp) {
  * whose peers have all gone quiet is the one that fell over, and the peer is
  * very likely still serving on the other side of the split.
  *
+ * A peer that announced its shutdown is rebooting until SIGTERM_EXPIRY_MS has
+ * passed: its closed connection is the reboot, and a node back within that
+ * time keeps what it holds. Once it has passed, the closed connection is
+ * evidence again.
+ *
  * @param {string} folderId
  * @param {string} peerIp
  * @param {Object} liveness This pass's peer view
@@ -432,6 +452,9 @@ async function silenceVerdict(folderId, peerIp, liveness) {
   const connection = await peerSyncthingConnection(folderId, peerIp);
   if (connection === PeerConnection.CONNECTED) return SilenceVerdict.CONNECTION_ALIVE;
   if (connection === PeerConnection.UNKNOWN) return SilenceVerdict.NO_EVIDENCE;
+  const shutdown = await announcedShutdown(peerIp);
+  if (shutdown === null) return SilenceVerdict.NO_EVIDENCE;
+  if (shutdown) return SilenceVerdict.RESTARTING;
   if (!liveness.localConnectivity().connected) return SilenceVerdict.LOCALLY_ISOLATED;
   return SilenceVerdict.GONE;
 }

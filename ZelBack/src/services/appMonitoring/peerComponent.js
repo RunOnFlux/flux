@@ -28,6 +28,7 @@ const PEER_PROBE_TIMEOUT_MS = 10 * 1000;
 const SILENCE_REASONS = Object.freeze({
   [SilenceVerdict.CONNECTION_ALIVE]: "this node's syncthing still holds a live connection to it",
   [SilenceVerdict.NO_EVIDENCE]: 'this node\'s own syncthing has never been connected to it or cannot be asked',
+  [SilenceVerdict.RESTARTING]: 'it announced a shutdown and may still come back from it',
   [SilenceVerdict.LOCALLY_ISOLATED]: 'this node cannot see the fleet either',
 });
 

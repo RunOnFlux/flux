@@ -146,8 +146,10 @@ const dirent = (name, isFile = true) => ({
 // machine is handed this same mocked copy: a second, unmocked one would reach the
 // real syncthing service and answer every evidence question with silence.
 const peerIdentityMock = makePeerIdentityDouble({ post: axiosMock.post });
+const registryManagerMock = { shuttingDownNodes: sinon.stub() };
 const peerFolderLivenessMock = proxyquire('../../ZelBack/src/services/appMonitoring/peerFolderLiveness', {
   '../peerIdentityService': peerIdentityMock,
+  '../appDatabase/registryManager': registryManagerMock,
   '../fluxCommunication': fluxCommunicationMock,
   '../syncthingService': syncthingServiceMock,
   '../utils/globalState': globalStateMock,
@@ -218,6 +220,9 @@ describe('syncthingFolderStateMachine tests', () => {
     // this node's syncthing started before any connection the tests close
     syncthingServiceMock.getSystemStatus.reset();
     syncthingServiceMock.getSystemStatus.resolves({ startTime: '2026-09-25T13:00:00Z' });
+    // no node has announced a shutdown
+    registryManagerMock.shuttingDownNodes.reset();
+    registryManagerMock.shuttingDownNodes.resolves([]);
     syncthingServiceMock.systemPause.reset();
     syncthingServiceMock.systemPause.resolves({ status: 'success' });
     syncthingServiceMock.systemResume.reset();
@@ -1338,6 +1343,41 @@ describe('syncthingFolderStateMachine tests', () => {
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
+      expect(result.syncthingFolder.type).to.not.equal('sendreceive');
+      expect(result.cache.designationPending).to.not.equal(true);
+      expect(result.cache.designatedLeader).to.not.equal(true);
+    });
+
+    it('leaves a holder that announced a shutdown in the election until its expiry has passed', async () => {
+      // A clean shutdown closes the holder's connection as surely as a death,
+      // and a node back from a reboot within SIGTERM_EXPIRY_MS keeps what it holds.
+      mockParams.localSocketAddr = '10.0.0.2:16127';
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      axiosMock.get.rejects(new Error('connect ECONNREFUSED'));
+      fluxCommunicationMock.peerResponsiveness.returns({ responding: 8, total: 8 });
+      globalStateMock.syncthingDevicesIDCache.set('10.0.0.1:16127', 'HOLDER-DEVICE-ID');
+      syncthingServiceMock.getDbCompletion.resolves({ remoteState: 'unknown', completion: 0, globalBytes: 0 });
+      syncthingServiceMock.getDeviceStats.resolves({ 'HOLDER-DEVICE-ID': { lastSeen: '2026-09-25T14:00:00Z' } });
+      // an empty folder, so no route to sendreceive exists except winning the
+      // election - which requires the holder's exclusion
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+      });
+      registryManagerMock.shuttingDownNodes.resolves(['10.0.0.1:16127']);
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      // the holder's closed connection was read, and only its shutdown kept it
+      // in the election, which this node therefore did not win
+      expect(registryManagerMock.shuttingDownNodes.called).to.be.true;
       expect(result.syncthingFolder.type).to.not.equal('sendreceive');
       expect(result.cache.designationPending).to.not.equal(true);
       expect(result.cache.designatedLeader).to.not.equal(true);
