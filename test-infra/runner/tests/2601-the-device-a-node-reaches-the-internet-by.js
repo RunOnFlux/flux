@@ -153,11 +153,11 @@ describe('The device a node reaches the internet by', function () {
           .to.eql({ tunnel: expected.tunnel, reason: expected.reason });
       });
 
-      it('lists the tunnel devices it was given', function () {
-        const wireguard = uplinks[index].tunnelInterfaces
-          .filter((device) => device.kind === 'wireguard')
-          .map((device) => device.name);
-        expect(wireguard).to.have.members(expected.tunnels);
+      // Exactly these: the kernel's fallback tunnel devices (tunl0, sit0 and
+      // the rest) are in every namespace on a host with their modules loaded,
+      // and sit down, so they are left out.
+      it('lists exactly the tunnel devices it was given', function () {
+        expect(uplinks[index].tunnelInterfaces.map((device) => device.name)).to.have.members(expected.tunnels);
       });
 
       it('times its own address over TCP and finds it near', function () {
