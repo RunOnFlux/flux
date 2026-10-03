@@ -34,6 +34,7 @@ const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper'
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const { requireMongo } = require('./dbTestHelper');
 const upnpService = require('../../ZelBack/src/services/upnpService');
 const geolocationService = require('../../ZelBack/src/services/geolocationService');
@@ -3148,10 +3149,12 @@ describe('fluxNetworkHelper tests', () => {
   describe('container egress rules tests', () => {
     const iptablesCall = (params) => sinon.match({ runAsRoot: true, params });
     let runCommandStub;
+    let publishStub;
     let written;
 
     beforeEach(() => {
       runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '', stderr: '' });
+      publishStub = sinon.stub(fluxEventBus, 'publish');
       sinon.stub(fs, 'writeFile').callsFake(async (file, content) => { written = content; });
       written = null;
     });
@@ -3195,6 +3198,7 @@ describe('fluxNetworkHelper tests', () => {
       expect(res).to.equal(true);
       sinon.assert.calledWith(runCommandStub, 'iptables-restore', sinon.match({ runAsRoot: true, params: sinon.match.array.startsWith(['--noflush']) }));
       expect(written.split('\n')).to.deep.equal(['*filter', ':DOCKER-USER - [0:0]', ...fluxNetworkHelper.containerEgressRules(), 'COMMIT', '']);
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:containerEgressApplied', {});
     });
 
     it('writes nothing when the chain already matches', async () => {
@@ -3204,6 +3208,7 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(res).to.equal(true);
       sinon.assert.neverCalledWith(runCommandStub, 'iptables-restore');
+      sinon.assert.notCalled(publishStub);
     });
 
     it('reports failure when the restore fails', async () => {
@@ -3212,6 +3217,7 @@ describe('fluxNetworkHelper tests', () => {
       const res = await fluxNetworkHelper.applyContainerEgressRules();
 
       expect(res).to.equal(false);
+      sinon.assert.notCalled(publishStub);
     });
 
     it('puts back a missing FORWARD jump to DOCKER-USER, and only then', async () => {
