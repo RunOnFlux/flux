@@ -34,10 +34,6 @@ describe('fluxadmService tests', () => {
   let runCommandStub;
   let systemdStub;
 
-  before(() => {
-    globalThis.userconfig = { initial: {} };
-  });
-
   beforeEach(() => {
     runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ ...cmdOk });
     systemdStub = sinon.stub(fsSync, 'existsSync').callThrough();
@@ -92,6 +88,19 @@ describe('fluxadmService tests', () => {
   });
 
   describe('fluxadmPort getFluxadmSshPort tests', () => {
+    let originalUserConfig;
+    let originalApiPort;
+
+    beforeEach(() => {
+      originalUserConfig = globalThis.userconfig;
+      originalApiPort = testConfig.server.apiport;
+    });
+
+    afterEach(() => {
+      globalThis.userconfig = originalUserConfig;
+      testConfig.server.apiport = originalApiPort;
+    });
+
     it('should return null when no keys are configured', () => {
       const res = fluxadmPort.getFluxadmSshPort();
 
@@ -117,12 +126,21 @@ describe('fluxadmService tests', () => {
 
     it('should follow a custom apiport from userconfig', () => {
       testConfig.fluxadm.sshAuthorizedKeys = testKeys;
-      globalThis.userconfig = { initial: { apiport: 16137 } };
+      globalThis.userconfig = { initial: { ...originalUserConfig.initial, apiport: 16137 } };
 
       const res = fluxadmPort.getFluxadmSshPort();
 
       expect(res).to.equal(16132);
-      globalThis.userconfig = { initial: {} };
+    });
+
+    it('should fall back to the configured apiport when userconfig sets none', () => {
+      testConfig.fluxadm.sshAuthorizedKeys = testKeys;
+      testConfig.server.apiport = 16147;
+      globalThis.userconfig = { initial: { ...originalUserConfig.initial, apiport: undefined } };
+
+      const res = fluxadmPort.getFluxadmSshPort();
+
+      expect(res).to.equal(16142);
     });
   });
 
