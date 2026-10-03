@@ -141,9 +141,11 @@ describe('2401 legacy node maintenance access', function suite() {
     return stdout.trim() || null;
   }
 
+  // Whether the maintenance port's limit rule is in the firewall, with the status
+  // it was read from for the assertion message.
   async function maintenanceRule() {
     const { stdout } = await execInContainer(legacy.container, 'ufw status verbose; true');
-    return new RegExp(`^${SSH_PORT}/tcp\\s+LIMIT IN\\s+Anywhere\\s*$`, 'm').test(stdout);
+    return { present: new RegExp(`^${SSH_PORT}/tcp\\s+LIMIT IN\\s+Anywhere\\s*$`, 'm').test(stdout), status: stdout };
   }
 
   async function port22Listening(client) {
@@ -298,7 +300,8 @@ describe('2401 legacy node maintenance access', function suite() {
   });
 
   it('rate-limits the maintenance port in the firewall', async () => {
-    expect(await maintenanceRule()).to.equal(true);
+    const { present, status } = await maintenanceRule();
+    expect(present, status).to.equal(true);
   });
 
   it('runs the maintenance sshd as its own unit, on apiport - 5', async () => {
@@ -352,7 +355,8 @@ describe('2401 legacy node maintenance access', function suite() {
     await openSession(legacy, legacyIp, 'next', 7002);
     await releaseKeys([]);
     expect(await sessionCgroup(legacy, 7002), 'emptying the list must end the session').to.equal(null);
-    expect(await maintenanceRule(), 'emptying the list must remove the firewall rule').to.equal(false);
+    const rule = await maintenanceRule();
+    expect(rule.present, `emptying the list must remove the firewall rule:\n${rule.status}`).to.equal(false);
     await waitFor(async () => !(await login('next')), {
       timeout: CONVERGE_TIMEOUT_MS, interval: 3000, label: 'login refused after the list emptied',
     });
