@@ -227,10 +227,14 @@ function heldByOperation(identifier) {
  * other holders are doing with the component decides whether it may:
  *
  *   another holder runs it     | discarded: receives, unpaused, in one write,
- *                              | unscanned; the standby revert removes what is local
+ *                              | unscanned; the standby revert removes what
+ *                              | syncthing had not yet scanned
  *   no other holder runs it    | kept: unpaused, then scanned and made to receive
  *   one cannot be ruled out,   | stays paused for a later pass
  *   or the caller cannot ask   |
+ *
+ * What syncthing scanned before the stop is in its index, which receiving does
+ * not withdraw: it reaches the other holders once the folder is unpaused.
  *
  * A folder a backup or restore holds stays paused.
  * @param {string} identifier `<component>_<app>`
@@ -253,7 +257,7 @@ async function holdAsStandby(identifier, appId, { othersHold } = {}) {
       return false;
     }
     if (others === PeerComponent.RUNNING) {
-      log.warn(`primaryRole - ${identifier} returned as primary while another holder runs it; its unsent changes are discarded`);
+      log.warn(`primaryRole - ${identifier} returned as primary while another holder runs it; its unscanned changes are discarded`);
       const discarded = await syncthingFolderWrites.changeSyncthingFolderType(appId, 'receiveonly', { unpause: true });
       if (discarded) fluxEventBus.publish('primaryRole:returned', { identifier, outcome: 'discarded' });
       return discarded;
