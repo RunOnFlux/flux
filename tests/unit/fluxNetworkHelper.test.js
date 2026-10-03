@@ -13,6 +13,8 @@ globalThis.userconfig = {
   },
 };
 
+const dgram = require('dgram');
+const { EventEmitter } = require('events');
 const chai = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire');
@@ -3564,6 +3566,74 @@ describe('fluxNetworkHelper tests', () => {
 
     it('names an unlabelled interface as itself', () => {
       expect(fluxNetworkHelper.interfaceDevice('enp3s0')).to.equal('enp3s0');
+    });
+  });
+
+  describe('egressDevice', () => {
+    let socket;
+
+    /**
+     * A UDP socket whose connect resolves to a source address, or fails.
+     */
+    function fakeUdpSocket({ source = null, error = null }) {
+      const fake = new EventEmitter();
+      fake.connect = sinon.spy(function connect() {
+        setImmediate(function settle() {
+          if (error) fake.emit('error', error);
+          else fake.emit('connect');
+        });
+      });
+      fake.address = function address() { return { address: source, family: 'IPv4', port: 40000 }; };
+      fake.close = sinon.spy();
+      return fake;
+    }
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('names the device holding the source address the kernel chose', async () => {
+      socket = fakeUdpSocket({ source: '10.66.0.2' });
+      sinon.stub(dgram, 'createSocket').returns(socket);
+      sinon.stub(os, 'networkInterfaces').returns({
+        eth0: [{ family: 'IPv4', internal: false, address: '10.0.0.5' }],
+        wg0: [{ family: 'IPv4', internal: false, address: '10.66.0.2' }],
+      });
+
+      expect(await fluxNetworkHelper.egressDevice('1.1.1.1')).to.equal('wg0');
+      sinon.assert.calledWith(socket.connect, sinon.match.number, '1.1.1.1');
+      sinon.assert.calledOnce(socket.close);
+    });
+
+    it('names the device when the source address is bound under a label', async () => {
+      socket = fakeUdpSocket({ source: '203.0.113.7' });
+      sinon.stub(dgram, 'createSocket').returns(socket);
+      sinon.stub(os, 'networkInterfaces').returns({
+        eth0: [{ family: 'IPv4', internal: false, address: '10.0.0.5' }],
+        'eth0:1': [{ family: 'IPv4', internal: false, address: '203.0.113.7' }],
+      });
+
+      expect(await fluxNetworkHelper.egressDevice('1.1.1.1')).to.equal('eth0');
+    });
+
+    it('is null when the source address is on no listed interface', async () => {
+      socket = fakeUdpSocket({ source: '10.8.0.2' });
+      sinon.stub(dgram, 'createSocket').returns(socket);
+      sinon.stub(os, 'networkInterfaces').returns({
+        eth0: [{ family: 'IPv4', internal: false, address: '10.0.0.5' }],
+      });
+
+      expect(await fluxNetworkHelper.egressDevice('1.1.1.1')).to.equal(null);
+    });
+
+    it('is null, and closes the socket, when there is no route', async () => {
+      socket = fakeUdpSocket({ error: Object.assign(new Error('connect ENETUNREACH'), { code: 'ENETUNREACH' }) });
+      sinon.stub(dgram, 'createSocket').returns(socket);
+      const interfaces = sinon.stub(os, 'networkInterfaces');
+
+      expect(await fluxNetworkHelper.egressDevice('1.1.1.1')).to.equal(null);
+      sinon.assert.calledOnce(socket.close);
+      sinon.assert.notCalled(interfaces);
     });
   });
 });

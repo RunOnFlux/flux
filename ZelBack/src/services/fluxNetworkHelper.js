@@ -6,7 +6,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const os = require('os');
 const dgram = require('dgram');
-const { EventEmitter } = require('events');
+const { EventEmitter, once } = require('events');
 const net = require('net');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
@@ -162,6 +162,32 @@ async function isInterfaceUp(interfaceName) {
  */
 function interfaceDevice(name) {
   return name.split(':')[0];
+}
+
+/**
+ * The device this node's traffic to an address leaves by, as the kernel routes
+ * it, every policy rule and routing table included. A UDP connect resolves the
+ * route and fixes the source address without sending a packet; the source
+ * address names the device.
+ * @param {string} target - An IPv4 address
+ * @returns {Promise<string|null>} The device, or null when the route cannot be
+ *   resolved or its source address is on no running interface.
+ */
+async function egressDevice(target) {
+  const socket = dgram.createSocket('udp4');
+  try {
+    // Any port: nothing is sent.
+    socket.connect(53, target);
+    await once(socket, 'connect');
+    const source = socket.address().address;
+    const name = Object.entries(os.networkInterfaces())
+      .find(([, addresses]) => addresses.some((a) => a.family === 'IPv4' && a.address === source))?.[0];
+    return name ? interfaceDevice(name) : null;
+  } catch {
+    return null;
+  } finally {
+    socket.close();
+  }
 }
 
 /**
@@ -2772,6 +2798,7 @@ module.exports = {
   setDOSStateApi,
   getNumberOfPeers,
   getDefaultRoutes,
+  egressDevice,
   interfaceDevice,
   hasPublicIpOnInterface,
   denyPort,

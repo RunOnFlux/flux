@@ -6,8 +6,9 @@
  * - Distance. A node at its public address reaches that address through its
  *   own router, well under a millisecond away. A node tunnelled through a
  *   remote box reaches it across the tunnel. Tunnel settings cannot shorten it.
- * - The node itself: a tunnel interface, or the public address bound on an
- *   interface the node's traffic does not leave by.
+ * - The node itself: its traffic leaving by a tunnel interface, or the public
+ *   address bound on an interface the traffic does not leave by. A tunnel
+ *   interface the traffic does not use is listed and decides nothing.
  *
  * Packet size is recorded and decides nothing. Under 1500 proves a layer of
  * encapsulation somewhere on the path, which a PPPoE line or a cloud network
@@ -64,7 +65,8 @@ const TCP_OVERHEAD = 52;
 // Unrelated anycast networks: a limit near this node caps all of them, one at a
 // target's end caps only that target, so the largest result is this node's.
 const PROBE_TARGETS = ['1.1.1.1', '8.8.8.8', '9.9.9.9'];
-const HOP_WALK_TARGET = '1.1.1.1';
+// The address whose path the hop walk times and the egress device leads to.
+const PATH_TARGET = '1.1.1.1';
 const MAX_HOPS = 10;
 // Fewer distinct peers than this and one peer's own small link could set the
 // highest segment size seen.
@@ -106,6 +108,7 @@ function emptyRecord() {
       firstPublicHopRttMs: null,
     },
     publicIpLocal: null,
+    egressDevice: null,
     tunnelInterfaces: null,
   };
 }
@@ -309,7 +312,7 @@ async function measureDistance(publicIp, apiPort) {
 async function firstPublicHopRtt() {
   for (let ttl = 1; ttl <= MAX_HOPS; ttl += 1) {
     // eslint-disable-next-line no-await-in-loop
-    const text = await runTool('ping', ['-n', '-c', 1, '-W', 2, '-t', ttl, HOP_WALK_TARGET]);
+    const text = await runTool('ping', ['-n', '-c', 1, '-W', 2, '-t', ttl, PATH_TARGET]);
     const reached = /bytes from (\d+\.\d+\.\d+\.\d+)/.exec(text);
     const hop = /^From (\d+\.\d+\.\d+\.\d+)/m.exec(text)?.[1] ?? reached?.[1] ?? null;
     if (hop && !serviceHelper.isNonRoutableAddress(hop)) {
@@ -356,26 +359,32 @@ async function findTunnelInterfaces() {
 
 /**
  * @param {string} publicIp
+ * @param {string|null} egress The device this node's traffic leaves by; when
+ *   null, the main table's best default route stands in.
  * @returns {Promise<{bound: boolean, elsewhere: boolean}>} Whether the public
  *   address is bound on this node, and whether on a device other than the one
  *   its traffic leaves by.
  */
-async function publicIpBinding(publicIp) {
+async function publicIpBinding(publicIp, egress) {
   const name = Object.entries(os.networkInterfaces())
     .find(([, addresses]) => addresses.some((a) => a.family === 'IPv4' && a.address === publicIp))?.[0] ?? null;
   if (!name) return { bound: false, elsewhere: false };
-  const routes = await fluxNetworkHelper.getDefaultRoutes().catch(() => null);
-  const leavesBy = routes?.[0]?.iface ?? null;
+  let leavesBy = egress;
+  if (leavesBy === null) {
+    const routes = await fluxNetworkHelper.getDefaultRoutes().catch(() => null);
+    leavesBy = routes?.[0]?.iface ?? null;
+  }
   return { bound: true, elsewhere: leavesBy !== null && fluxNetworkHelper.interfaceDevice(name) !== leavesBy };
 }
 
 /**
  * @param {{rttMs: number|null, firstPublicHopRttMs: number|null,
- *   tunnelInterfaces: Array|null, publicIpElsewhere: boolean}} evidence
+ *   tunnelInterfaces: Array|null, egressDevice: string|null,
+ *   publicIpElsewhere: boolean}} evidence
  * @returns {{tunnel: string, reason: string|null}}
  */
 function decide(evidence) {
-  if (evidence.tunnelInterfaces?.length) return { tunnel: Tunnel.LIKELY, reason: Reason.INTERFACE };
+  if (evidence.tunnelInterfaces?.some((iface) => iface.name === evidence.egressDevice)) return { tunnel: Tunnel.LIKELY, reason: Reason.INTERFACE };
   if (evidence.publicIpElsewhere) return { tunnel: Tunnel.LIKELY, reason: Reason.LOCAL_PUBLIC_IP };
   const distance = evidence.rttMs ?? evidence.firstPublicHopRttMs;
   if (distance === null) return { tunnel: Tunnel.UNKNOWN, reason: null };
@@ -408,13 +417,15 @@ async function measure(socketAddress) {
   const mtu = combinedMtu(probe, tcpMss);
   const distance = await measureDistance(publicIp, extractPort(socketAddress));
   const firstPublicHopRttMs = await firstPublicHopRtt();
-  const binding = await publicIpBinding(publicIp);
+  const egressDevice = await fluxNetworkHelper.egressDevice(PATH_TARGET);
+  const binding = await publicIpBinding(publicIp, egressDevice);
   const tunnelInterfaces = await findTunnelInterfaces();
 
   const { tunnel, reason } = decide({
     rttMs: distance.rttMs,
     firstPublicHopRttMs,
     tunnelInterfaces,
+    egressDevice,
     publicIpElsewhere: binding.elsewhere,
   });
 
@@ -434,6 +445,7 @@ async function measure(socketAddress) {
       firstPublicHopRttMs,
     },
     publicIpLocal: binding.bound,
+    egressDevice,
     tunnelInterfaces,
   };
 }

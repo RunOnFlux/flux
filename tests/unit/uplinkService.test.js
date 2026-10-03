@@ -214,16 +214,30 @@ describe('uplinkService tests', () => {
 
   describe('decide', () => {
     const clean = {
-      rttMs: 0.19, firstPublicHopRttMs: 0.47, tunnelInterfaces: [], publicIpElsewhere: false,
+      rttMs: 0.19, firstPublicHopRttMs: 0.47, tunnelInterfaces: [], egressDevice: 'ens18', publicIpElsewhere: false,
     };
+    const wireguard = { name: 'wg0', kind: 'wireguard', mtu: 1420 };
+    const tailscale = { name: 'tailscale0', kind: 'tun', mtu: 1280 };
 
     it('reads a node at its public address as no tunnel', () => {
       expect(uplinkService.decide(clean)).to.eql({ tunnel: Tunnel.NONE, reason: null });
     });
 
-    it('calls a tunnel interface on the node', () => {
-      expect(uplinkService.decide({ ...clean, tunnelInterfaces: [{ name: 'wg0', kind: 'wireguard', mtu: 1420 }] }))
+    it('calls a tunnel interface the traffic leaves by', () => {
+      expect(uplinkService.decide({ ...clean, tunnelInterfaces: [tailscale, wireguard], egressDevice: 'wg0' }))
         .to.eql({ tunnel: Tunnel.LIKELY, reason: Reason.INTERFACE });
+    });
+
+    it('leaves a tunnel interface the traffic does not use to the distance', () => {
+      expect(uplinkService.decide({ ...clean, tunnelInterfaces: [tailscale] }))
+        .to.eql({ tunnel: Tunnel.NONE, reason: null });
+      expect(uplinkService.decide({ ...clean, tunnelInterfaces: [tailscale], rttMs: 18.6 }))
+        .to.eql({ tunnel: Tunnel.LIKELY, reason: Reason.DISTANCE });
+    });
+
+    it('leaves tunnel interfaces to the distance when the egress device is unknown', () => {
+      expect(uplinkService.decide({ ...clean, tunnelInterfaces: [wireguard], egressDevice: null }))
+        .to.eql({ tunnel: Tunnel.NONE, reason: null });
     });
 
     it('calls a public address bound off the default route', () => {
@@ -324,42 +338,51 @@ describe('uplinkService tests', () => {
     it('reads an address on the default-route interface as bound there', async () => {
       sinon.stub(os, 'networkInterfaces').returns(interfaces({ lo: '127.0.0.1', ens18: '38.247.82.141' }));
       sinon.stub(fluxNetworkHelper, 'getDefaultRoutes').resolves([{ iface: 'ens18', gateway: '38.247.82.1', metric: 0 }]);
-      expect(await uplinkService.publicIpBinding('38.247.82.141')).to.eql({ bound: true, elsewhere: false });
+      expect(await uplinkService.publicIpBinding('38.247.82.141', null)).to.eql({ bound: true, elsewhere: false });
     });
 
     it('reads an address bound off the default route as elsewhere', async () => {
       sinon.stub(os, 'networkInterfaces').returns(interfaces({ lo: '178.79.183.164', ens18: '172.16.16.61' }));
       sinon.stub(fluxNetworkHelper, 'getDefaultRoutes').resolves([{ iface: 'ens18', gateway: '172.16.16.1', metric: 0 }]);
-      expect(await uplinkService.publicIpBinding('178.79.183.164')).to.eql({ bound: true, elsewhere: true });
+      expect(await uplinkService.publicIpBinding('178.79.183.164', null)).to.eql({ bound: true, elsewhere: true });
     });
 
     it('reads an address on a label of the default-route device as bound there', async () => {
       sinon.stub(os, 'networkInterfaces').returns(interfaces({ lo: '127.0.0.1', eth0: '10.0.0.5', 'eth0:1': '203.0.113.7' }));
       sinon.stub(fluxNetworkHelper, 'getDefaultRoutes').resolves([{ iface: 'eth0', gateway: '10.0.0.1', metric: 0 }]);
-      expect(await uplinkService.publicIpBinding('203.0.113.7')).to.eql({ bound: true, elsewhere: false });
+      expect(await uplinkService.publicIpBinding('203.0.113.7', null)).to.eql({ bound: true, elsewhere: false });
     });
 
     it('reads an address on a label of another device as elsewhere', async () => {
       sinon.stub(os, 'networkInterfaces').returns(interfaces({ eth0: '10.0.0.5', 'eth1:1': '203.0.113.7' }));
       sinon.stub(fluxNetworkHelper, 'getDefaultRoutes').resolves([{ iface: 'eth0', gateway: '10.0.0.1', metric: 0 }]);
-      expect(await uplinkService.publicIpBinding('203.0.113.7')).to.eql({ bound: true, elsewhere: true });
+      expect(await uplinkService.publicIpBinding('203.0.113.7', null)).to.eql({ bound: true, elsewhere: true });
     });
 
     it('reads an address behind a gateway as not bound', async () => {
       sinon.stub(os, 'networkInterfaces').returns(interfaces({ lo: '127.0.0.1', ens18: '172.16.16.61' }));
-      expect(await uplinkService.publicIpBinding('178.79.183.164')).to.eql({ bound: false, elsewhere: false });
+      expect(await uplinkService.publicIpBinding('178.79.183.164', null)).to.eql({ bound: false, elsewhere: false });
+    });
+
+    it('compares against the egress device rather than the default route', async () => {
+      sinon.stub(os, 'networkInterfaces').returns(interfaces({ eth0: '203.0.113.7', wg0: '10.66.0.2' }));
+      const routes = sinon.stub(fluxNetworkHelper, 'getDefaultRoutes').resolves([{ iface: 'eth0', gateway: '203.0.113.1', metric: 0 }]);
+      expect(await uplinkService.publicIpBinding('203.0.113.7', 'wg0')).to.eql({ bound: true, elsewhere: true });
+      expect(await uplinkService.publicIpBinding('203.0.113.7', 'eth0')).to.eql({ bound: true, elsewhere: false });
+      sinon.assert.notCalled(routes);
     });
 
     it('makes no claim when the routes cannot be read', async () => {
       sinon.stub(os, 'networkInterfaces').returns(interfaces({ lo: '178.79.183.164', ens18: '172.16.16.61' }));
       sinon.stub(fluxNetworkHelper, 'getDefaultRoutes').rejects(new Error('EACCES'));
-      expect(await uplinkService.publicIpBinding('178.79.183.164')).to.eql({ bound: true, elsewhere: false });
+      expect(await uplinkService.publicIpBinding('178.79.183.164', null)).to.eql({ bound: true, elsewhere: false });
     });
   });
 
   describe('measuring and the readers', () => {
     beforeEach(() => {
       sinon.stub(os, 'networkInterfaces').returns({ ens18: [{ family: 'IPv4', address: '172.16.16.61', internal: false }] });
+      sinon.stub(fluxNetworkHelper, 'egressDevice').resolves('ens18');
       sinon.stub(fsPromises, 'readdir').resolves(['ens18']);
       sinon.stub(fsPromises, 'readFile').callsFake(async (file) => {
         if (file.endsWith('/type')) return '1';
@@ -393,10 +416,52 @@ describe('uplinkService tests', () => {
         },
         distance: { rttMs: 18.73, method: 'icmp', firstPublicHopRttMs: 19.086 },
         publicIpLocal: false,
+        egressDevice: 'ens18',
         tunnelInterfaces: [],
       });
       expect(record.measuredAt).to.be.a('string');
       expect(uplinkService.getUplinkSummary()).to.eql({ tunnel: Tunnel.LIKELY, mtu: 1420, rttMs: 18.73 });
+    });
+
+    it('calls a node whose traffic leaves by its WireGuard interface', async () => {
+      fluxNetworkHelper.egressDevice.resolves('wg0');
+      fsPromises.readdir.resolves(['ens18', 'wg0']);
+      fsPromises.readFile.callsFake(async (file) => {
+        if (file === '/sys/class/net/wg0/uevent') return 'DEVTYPE=wireguard\nINTERFACE=wg0\n';
+        if (file.endsWith('/type')) return file.includes('wg0') ? '65534' : '1';
+        if (file.endsWith('/mtu')) return file.includes('wg0') ? '1420' : '1500';
+        throw new Error('ENOENT');
+      });
+      stubTools({ probe: pingPath({ pathMtu: 1420, namesSize: true }), ss: MULE_PEERS, ownIp: () => RTT_LINE(2.1) });
+
+      await uplinkService.noteAddress('203.0.113.21:16127');
+
+      expect(uplinkService.getUplink()).to.deep.include({
+        tunnel: Tunnel.LIKELY,
+        reason: Reason.INTERFACE,
+        egressDevice: 'wg0',
+        tunnelInterfaces: [{ name: 'wg0', kind: 'wireguard', mtu: 1420 }],
+      });
+    });
+
+    it('does not call a node whose tunnel interface its traffic does not use', async () => {
+      fsPromises.readdir.resolves(['ens18', 'tailscale0']);
+      fsPromises.readFile.callsFake(async (file) => {
+        if (file === '/sys/class/net/tailscale0/tun_flags') return '0x1002';
+        if (file.endsWith('/type')) return file.includes('tailscale0') ? '65534' : '1';
+        if (file.endsWith('/mtu')) return file.includes('tailscale0') ? '1280' : '1500';
+        throw new Error('ENOENT');
+      });
+      stubTools({ probe: pingPath({ pathMtu: 1500, namesSize: false }), ss: MULE_PEERS, ownIp: () => RTT_LINE(0.31) });
+
+      await uplinkService.noteAddress('203.0.113.22:16127');
+
+      expect(uplinkService.getUplink()).to.deep.include({
+        tunnel: Tunnel.NONE,
+        reason: null,
+        egressDevice: 'ens18',
+        tunnelInterfaces: [{ name: 'tailscale0', kind: 'tun', mtu: 1280 }],
+      });
     });
 
     it('does not call an encapsulated path whose public address is near', async () => {
@@ -438,6 +503,7 @@ describe('uplinkService tests', () => {
     }
 
     beforeEach(() => {
+      sinon.stub(fluxNetworkHelper, 'egressDevice').resolves(null);
       sinon.stub(fsPromises, 'readdir').resolves([]);
       sinon.stub(net, 'connect').callsFake(() => fakeSocket({ connects: false }));
     });
