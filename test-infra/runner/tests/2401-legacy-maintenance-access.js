@@ -11,13 +11,14 @@
 // node on the new list. Every wait is for the login itself to change, never for a
 // file, because a login is what the feature is for.
 //
-// The keypairs under test-infra/fixtures/fluxadm are test-only and grant nothing
-// outside a harness fleet.
+// Each run generates its keypairs on the runner and deletes them at teardown; no
+// key is stored in the repo.
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
-import { readFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
 import { setSystemSecure } from '../framework/daemon-control.js';
@@ -29,8 +30,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 const LEGACY = 0;
 const ARCANE = 1;
 
-const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures', 'fluxadm');
-const publicKey = (name) => readFileSync(join(FIXTURES, `${name}.pub`), 'utf-8').trim();
+const KEY_NAMES = ['current', 'next', 'stranger'];
 
 // apiport 16127 - 5
 const SSH_PORT = 16122;
@@ -58,7 +58,20 @@ describe('2401 legacy node maintenance access', function suite() {
   let legacy;
   let arcane;
   let legacyIp;
+  let keyDir;
+  const publicKeys = {};
   dumpLogsOnFailure(() => env);
+
+  function generateKeys() {
+    keyDir = mkdtempSync(join(tmpdir(), 'flux-e2e-fluxadm-'));
+    for (const name of KEY_NAMES) {
+      const keyPath = join(keyDir, name);
+      execFileSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', `flux-e2e-fluxadm-${name}`, '-f', keyPath]);
+      publicKeys[name] = readFileSync(`${keyPath}.pub`, 'utf-8').trim();
+    }
+  }
+
+  const publicKey = (name) => publicKeys[name];
 
   // The command's own result, so a refusal and a success are both facts: the
   // remote prints the uid sudo runs as, which is 0 only when the login, the key
@@ -103,6 +116,7 @@ describe('2401 legacy node maintenance access', function suite() {
   }
 
   before(async function hook() {
+    generateKeys();
     env = await createTestEnv({
       hookCtx: this,
       nodes: 2,
@@ -115,10 +129,13 @@ describe('2401 legacy node maintenance access', function suite() {
     arcane = env.clients[ARCANE];
     legacyIp = subnet.nodeIp(LEGACY + 1);
 
-    const install = await execInContainer(arcane.container,
-      `install -d -m 700 ${CLIENT_KEY_DIR} && for k in current next stranger; do `
-      + `install -m 600 /flux/test-infra/fixtures/fluxadm/$k ${CLIENT_KEY_DIR}/$k; done`);
-    expect(install.exitCode, `client key install failed: ${install.stderr}`).to.equal(0);
+    const keyDirMade = await execInContainer(arcane.container, `install -d -m 700 ${CLIENT_KEY_DIR}`);
+    expect(keyDirMade.exitCode, `client key dir failed: ${keyDirMade.stderr}`).to.equal(0);
+    await arcane.container.copyContentToContainer(KEY_NAMES.map((name) => ({
+      content: readFileSync(join(keyDir, name)),
+      target: `${CLIENT_KEY_DIR}/${name}`,
+      mode: 0o600,
+    })));
 
     // Every node boots attested, so the boot's own pass skipped. Marked legacy and
     // restarted, the node's next start is its first pass as a legacy node.
@@ -128,6 +145,7 @@ describe('2401 legacy node maintenance access', function suite() {
 
   after(async () => {
     await env?.teardown();
+    if (keyDir) rmSync(keyDir, { recursive: true, force: true });
   });
 
   it('boots both nodes with systemd as init and FluxOS as a unit', async () => {
