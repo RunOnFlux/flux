@@ -35,6 +35,9 @@ const Checkpoint = Object.freeze({
   // A start decision is about to ask a peer what it holds. Keyed by the peer's
   // socket address.
   MASTERSLAVE_BEFORE_PEER_PROBE: 'masterSlave:beforePeerProbe',
+  // A receive-only folder has read its sync status as synced and has not yet
+  // checked the disk holds what that status claims. Keyed by folder id.
+  SYNCTHING_BEFORE_PROMOTION_CHECK: 'syncthing:beforePromotionCheck',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.

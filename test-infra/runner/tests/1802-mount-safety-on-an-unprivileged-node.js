@@ -4,7 +4,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, getAppContainerStatus } from '../framework/container.js';
 import {
   setSyncState, setSynced, setSyncing, getSyncthingState, resetSyncState,
-  injectSyncthingEvent,
+  injectSyncthingEvent, setStatusUnreadable,
 } from '../framework/syncthing-control.js';
 import {
   waitFor, waitForReconcilerDesiredChanged, assertNoEvent,
@@ -33,6 +33,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // difference under test is the node's own account.
 
 const subnet = getSubnetConfig();
+const BEFORE_PROMOTION_CHECK = 'syncthing:beforePromotionCheck';
 
 const appId = (name) => `flux${name}_${name}`;
 const appDir = (name) => `/mnt/appdata/flux-apps/${appId(name)}`;
@@ -166,5 +167,31 @@ describe('mount safety decides on what a node can actually read', function () {
     // synced" index would otherwise let the receiveonly machinery re-promote
     await setSyncing({ ip: ip0, folder, percent: 40 });
     await waitFor(async () => !(await isUp(client, name)), { timeout: 60000, interval: 2000, label: 'app container held (stopped)' });
+  });
+
+  // The disk is judged against the status the folder was found synced on. Read
+  // again, a status that failed in between said there was nothing to check, and the
+  // empty volume was promoted - its missing files sent to every peer as deletions.
+  // The second read is made to fail at the moment between the two, held open.
+  it('does not promote the empty volume when the sync status cannot be read between finding it synced and checking the disk', async function () {
+    this.timeout(240000);
+    const client = env.clients[0];
+    const afterId = client.getLastEventId();
+    expect(await folderType(ip0, folder), 'fixture: the folder receives').to.equal('receiveonly');
+    await client.holdCheckpoint(BEFORE_PROMOTION_CHECK, folder);
+    try {
+      await claimsFilesOnDisk({ onDisk: false });
+      await client.waitForEvent('checkpoint:held', (d) => d.name === BEFORE_PROMOTION_CHECK && d.key === folder, 120000, { afterId });
+      await setStatusUnreadable({ ip: ip0, folder });
+    } finally {
+      await client.releaseCheckpoint(BEFORE_PROMOTION_CHECK, folder);
+    }
+
+    const released = client.getLastEventId();
+    await waitFor(() => client.getEventBuffer().filter((e) => e.id > released && e.event === 'syncthing:passComplete').length >= 2, {
+      timeout: 120000, interval: 1000, label: 'two monitor passes once the promotion check was let go',
+    });
+    expect(await folderType(ip0, folder), 'the empty volume was promoted').to.equal('receiveonly');
+    await assertNoEvent(client, 'reconciler:desiredChanged', (d) => d.identifier === identifier && d.state === 'running', 0, { afterId });
   });
 });

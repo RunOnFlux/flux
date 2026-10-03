@@ -1503,6 +1503,7 @@ async function handleReceiveOnlyTransition(params) {
       // Same pre-flip verification as the seed above: completion metrics come
       // from the index, and an index can be stale - promotion requires the disk
       // to actually hold the data the index claims.
+      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_PROMOTION_CHECK, appId);
       const promoteSafety = await verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs || [], { syncStatus });
       if (!promoteSafety.isSafe) {
         log.warn(`handleReceiveOnlyTransition - ${appId} is synced but not safe to promote (${promoteSafety.reason}); staying receiveonly`);
