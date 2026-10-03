@@ -255,6 +255,7 @@ describe('a single-writer folder type has one writer', function () {
     const scansBefore = (await scansOf(target, a.folder)).length;
     await setScanDuration({ ip: ipOf(target), folder: a.folder, ms: COVER_SCAN_MS });
     let unmountedAt;
+    let afterUnmount;
     try {
       await electMaster(a.appName, client.ip);
       const sends = await writeSince(target, a.folder, writesBefore, (w) => w.body?.type === 'sendreceive',
@@ -267,6 +268,7 @@ describe('a single-writer folder type has one writer', function () {
         `umount -l ${dir} && chattr -i ${dir} && rm -f /mnt/appdata/${a.folder}FLUXFSVOL`);
       expect(unmount.exitCode, `fixture: the volume could not be taken away: ${unmount.output}`).to.equal(0);
       unmountedAt = Date.now();
+      afterUnmount = client.getLastEventId();
       await injectSyncthingEvent({ ip: ipOf(target), type: 'FolderErrors', data: { folder: a.folder, errors: [{ error: 'folder marker missing' }] } });
 
       const demote = await writeSince(target, a.folder, writesBefore, (w) => w.body?.type === 'receiveonly',
@@ -288,9 +290,61 @@ describe('a single-writer folder type has one writer', function () {
     await passesFromNow([target], (i) => folderPasses(i, a.appName), 'folder');
     const scans = (await scansOf(target, a.folder)).slice(scansBefore);
     expect(scans.filter((scan) => scan.arrivedAt >= unmountedAt), 'a scan asked of the folder once its volume had gone').to.deep.equal([]);
-    expect(eventsSince(target, from, 'reconciler:actuated', (d) => d.identifier === a.identifier && d.action === 'started'),
+    await waitFor(async () => !(await isUp(client, a.appName)), {
+      timeout: 120000, interval: 2000, label: 'the component over the unsafe volume is stopped',
+    });
+    expect(eventsSince(target, afterUnmount, 'reconciler:actuated', (d) => d.identifier === a.identifier && d.action === 'started'),
       'the component started over the unsafe volume').to.deep.equal([]);
-    expect(await isUp(client, a.appName)).to.equal(false);
+  });
+
+  // A file written before the second cover scan starts is found by it, and one
+  // written after is the watcher's, whatever the app does meanwhile: nothing
+  // waits for the scans.
+  it('runs a promoted component while the scans covering its folder\'s restart are still under way', async function () {
+    this.timeout(900000);
+    const a = await settle(`e2ecoverrun${stamp}`);
+    const target = a.standbys[0];
+    const client = env.clients[target];
+    const writesBefore = (await writesTo(target, a.folder)).length;
+    await setScanDuration({ ip: ipOf(target), folder: a.folder, ms: COVER_SCAN_MS });
+    try {
+      await electMaster(a.appName, client.ip);
+      const sends = await writeSince(target, a.folder, writesBefore, (w) => w.body?.type === 'sendreceive',
+        'the promotion makes the folder send');
+      await waitFor(async () => isUp(client, a.appName), {
+        timeout: COVER_SCAN_MS / 2, interval: 1000, label: 'the promoted component runs within half a cover scan',
+      });
+      const covering = (await getPendingFolderScans(ipOf(target))).filter((scan) => scan.id === a.folder && scan.arrivedSeq > sends.seq);
+      expect(covering, 'the component ran only once the scans covering its folder\'s restart had ended').to.have.lengthOf(1);
+    } finally {
+      await setScanDuration({ ip: ipOf(target), folder: a.folder, ms: 0 });
+    }
+  });
+
+  it('runs a component again after its backup while the scans covering its folder\'s restart are still under way', async function () {
+    this.timeout(900000);
+    const a = await settle(`e2ecoverbackup${stamp}`);
+    const client = env.clients[a.primary];
+    await electMaster(a.appName, client.ip);
+    const writesBefore = (await writesTo(a.primary, a.folder)).length;
+    await setScanDuration({ ip: ipOf(a.primary), folder: a.folder, ms: COVER_SCAN_MS });
+    try {
+      const auth = await authenticate(client.url, appOwnerKey());
+      const started = Date.now();
+      const body = await client.appendBackupTask(a.appName, [a.appName], auth.zelidauth);
+      expect(body, 'fixture: the backup failed').to.not.match(/Unauthorized|error/i);
+      expect(Date.now() - started, 'the backup waited on the scans covering its folder\'s restart').to.be.below(COVER_SCAN_MS);
+
+      const resumed = await writeSince(a.primary, a.folder, writesBefore, (w) => w.body?.paused === false,
+        'the backup resumes the folder');
+      const covering = (await getPendingFolderScans(ipOf(a.primary))).filter((scan) => scan.id === a.folder && scan.arrivedSeq > resumed.seq);
+      expect(covering, 'fixture: no scan covers the resumed folder\'s restart').to.have.lengthOf(1);
+      await waitFor(async () => isUp(client, a.appName), {
+        timeout: 120000, interval: 2000, label: 'the component runs again after its backup',
+      });
+    } finally {
+      await setScanDuration({ ip: ipOf(a.primary), folder: a.folder, ms: 0 });
+    }
   });
 
   it('stops the primary\'s folder sending when a restore leaves partial data', async function () {
