@@ -297,6 +297,7 @@ async function processContainerData(params) {
   const markerReady = await ensureStfolderExists(folder);
   if (!markerReady) {
     log.warn(`processContainerData - ${appId} volume not mounted; skipping syncthing configuration this cycle`);
+    fluxEventBus.count('syncthing:folderPass', appId, 'volumeNotMounted');
     return;
   }
 

@@ -405,6 +405,22 @@ describe('syncthing folder writes', () => {
       sinon.assert.neverCalledWith(count, 'syncthing:restartCover', 'fluxprobe_app', 'covered');
     });
 
+    it('ends a cover whose volume has gone, counting the scan it did not ask for', async () => {
+      sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+      const scan = sinon.stub(syncthingService, 'scanFolder');
+      scan.onFirstCall().resolves({ status: 'success' });
+      scan.rejects(Object.assign(new Error('fluxprobe_app was not scanned: its volume is not mounted'), { code: 'VOLUME_NOT_MOUNTED' }));
+      const count = sinon.spy(fluxEventBus, 'count');
+      globalState.promotedFolderIds.add('fluxprobe_app');
+
+      await syncthingFolderWrites.patchFolder('fluxprobe_app', { devices: [] });
+      await syncthingFolderWrites.whenCovered('fluxprobe_app');
+
+      sinon.assert.calledTwice(scan);
+      sinon.assert.calledWith(count, 'syncthing:restartCover', 'fluxprobe_app', 'volumeNotMounted');
+      sinon.assert.neverCalledWith(count, 'syncthing:restartCover', 'fluxprobe_app', 'unfinished');
+    });
+
     it('covers a type change syncthing did not answer that applied later', async () => {
       const folders = sinon.stub(syncthingService, 'getConfigFolders');
       folders.onFirstCall().resolves(folderOf('receiveonly'));

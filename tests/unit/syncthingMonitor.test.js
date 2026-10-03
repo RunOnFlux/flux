@@ -4,6 +4,7 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const eventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 // Create mocks for all dependencies
 const dbHelperMock = {
@@ -1616,6 +1617,27 @@ describe('syncthingMonitor tests', () => {
       await clock.tickAsync(100);
 
       sinon.assert.notCalled(syncthingIgnorePolicyMock.ensureStignoreCovers);
+    });
+
+    it('counts each pass that skips a folder whose volume is not mounted', async () => {
+      const count = sinon.spy(eventBus, 'count');
+      syncthingMonitorHelpersMock.getContainerDataFlags.returns('g');
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingMonitorHelpersMock.ensureStfolderExists.resolves(false);
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'sendreceive' }]);
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      try {
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        sinon.assert.calledWith(count, 'syncthing:folderPass', 'testapp', 'volumeNotMounted');
+      } finally {
+        count.restore();
+      }
     });
   });
 

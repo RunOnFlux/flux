@@ -157,13 +157,19 @@ function publishWritable(writable) {
 //
 // A scan that fails or does not finish is logged and counted, and the write still
 // stands: a primary that could not start its app is worse than a gap the
-// periodic rescan closes.
+// periodic rescan closes. A folder whose volume has gone is not scanned at all,
+// and the cover ends there.
 async function coverRestart(folderId) {
   for (const step of ['first', 'second']) {
     try {
       // eslint-disable-next-line no-await-in-loop
       await syncthingService.scanFolder(folderId, { timeoutMs: FOLDER_SCAN_TIMEOUT_MS });
     } catch (error) {
+      if (error.code === 'VOLUME_NOT_MOUNTED') {
+        log.warn(`the ${step} scan covering the restart of ${folderId} was not asked for: its volume is not mounted`);
+        fluxEventBus.count('syncthing:restartCover', folderId, 'volumeNotMounted');
+        return;
+      }
       log.warn(`the ${step} scan covering the restart of ${folderId} did not finish: ${error.message}; a file written as it restarted reaches peers at the next periodic rescan`);
       fluxEventBus.count('syncthing:restartCover', folderId, 'unfinished');
       return;
