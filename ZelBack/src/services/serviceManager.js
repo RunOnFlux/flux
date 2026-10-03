@@ -264,6 +264,9 @@ async function startFluxFunctions() {
     // Hard dependencies — nothing starts until these are confirmed.
     await dbHelper.waitForMongo();
     await dockerService.waitForDocker();
+    // Before anything reads or changes the firewall: a node whose ufw defaults
+    // file is broken has no firewall until this repairs it.
+    await fluxNetworkHelper.ensureUfwDefaults().catch((error) => log.error(error));
 
     // Check and update CloudUI if needed (for legacy nodes without watchdog)
     log.info('Checking CloudUI installation...');

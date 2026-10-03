@@ -2226,6 +2226,65 @@ async function allowPortApi(req, res) {
   return res.json(message);
 }
 
+const ufwDefaultsPath = '/etc/default/ufw';
+// /etc/default/ufw exactly as the ufw package ships it on Ubuntu 20.04 to 26.04.
+const ufwDefaultsSource = path.join(__dirname, '../../../helpers/ufw/default');
+// ufw refuses to run, and ufw-init refuses to start the firewall at boot, when
+// any of these is missing.
+const ufwPolicies = ['INPUT', 'OUTPUT', 'FORWARD', 'APPLICATION'];
+
+/**
+ * Keeps /etc/default/ufw whole and its outbound policy ACCEPT. A file missing
+ * any policy is replaced by ufw's own defaults; one that denies outbound has
+ * that line set to ACCEPT. The new file is renamed over the old, so it is never
+ * seen part-written, and an enabled firewall is reloaded to take it up - which
+ * also starts one that could not start at boot. ufw's own `default` command
+ * rewrites the file in place and is never used.
+ * @returns {Promise<void>}
+ */
+async function ensureUfwDefaults() {
+  const ufwConf = await fs.readFile('/etc/ufw/ufw.conf', 'utf8').catch(() => null);
+  if (ufwConf === null) return;
+  const current = await fs.readFile(ufwDefaultsPath, 'utf8').catch(() => '');
+
+  const whole = ufwPolicies.every((policy) => new RegExp(`^DEFAULT_${policy}_POLICY=`, 'm').test(current));
+  let desired;
+  if (!whole) {
+    desired = await fs.readFile(ufwDefaultsSource, 'utf8');
+  } else if (!/^DEFAULT_OUTPUT_POLICY="ACCEPT"$/m.test(current)) {
+    desired = current.replace(/^DEFAULT_OUTPUT_POLICY=.*$/m, 'DEFAULT_OUTPUT_POLICY="ACCEPT"');
+  } else {
+    return;
+  }
+
+  const staged = `${ufwDefaultsPath}.flux-new`;
+  let tempDir = null;
+  try {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-ufw-'));
+    const source = path.join(tempDir, 'ufw');
+    await fs.writeFile(source, desired, { mode: 0o644 });
+    const { error: stageError } = await serviceHelper.runCommand('install', {
+      runAsRoot: true, logError: false, params: ['-m', '0644', '-o', 'root', '-g', 'root', source, staged],
+    });
+    const { error: renameError } = stageError ? { error: stageError } : await serviceHelper.runCommand('mv', {
+      runAsRoot: true, logError: false, params: ['-f', staged, ufwDefaultsPath],
+    });
+    if (renameError) {
+      log.error(`Firewall defaults not written: ${renameError.message}`);
+      return;
+    }
+  } finally {
+    if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+  log.info(whole ? 'Firewall outbound policy set to ACCEPT' : 'Firewall defaults restored');
+
+  if (/^ENABLED=yes$/m.test(ufwConf)) {
+    const { error } = await serviceHelper.runCommand('ufw', { runAsRoot: true, logError: false, params: ['reload'] });
+    if (error) log.error(`Firewall not reloaded: ${error.message}`);
+  }
+  fluxEventBus.publish('firewall:defaultsWritten', { restored: !whole });
+}
+
 /**
  * To check if a firewall is active.
  * @returns {Promise<boolean>} True if a firewall is active. Otherwise false.
@@ -2299,13 +2358,6 @@ async function adjustFirewall() {
       return !error;
     };
 
-    // ufw rewrites /etc/default/ufw and reloads every rule on each `default`
-    // call, an unchanged one included; a stop during that write leaves the file
-    // empty, and the node then boots without a firewall. Set only when needed.
-    const { stdout: verbose } = await serviceHelper.runCommand('ufw', { runAsRoot: true, logError: false, params: ['status', 'verbose'] });
-    if (!/^Default:.*\ballow \(outgoing\)/m.test(serviceHelper.ensureString(verbose))) {
-      await ufw(['default', 'allow', 'outgoing']);
-    }
     const outboundRemoved = await removeOutboundRules();
     // remove inbound DNS traffic
     await ufw(['delete', 'allow', 'in', 'proto', 'udp', 'to', 'any', 'port', '53']);
@@ -2580,6 +2632,7 @@ module.exports = {
   deleteAllowPortRule,
   allowPortApi,
   adjustFirewall,
+  ensureUfwDefaults,
   purgeUFW,
   closeConnection,
   closeIncomingConnection,

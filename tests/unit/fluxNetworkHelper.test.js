@@ -21,6 +21,7 @@ const path = require('path');
 const chaiAsPromised = require('chai-as-promised');
 const fs = require('fs').promises;
 const os = require('os');
+const crypto = require('crypto');
 const util = require('util');
 const config = require('config');
 const log = require('../../ZelBack/src/lib/log');
@@ -2829,24 +2830,12 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledWith(runCommandStub, 'ufw', ufwCall(['insert', '1', 'allow', 'from', '192.168.1.1', 'to', 'any', 'proto', 'udp']));
     });
 
-    it('should leave an outgoing policy that already allows alone', async () => {
+    it('should never set a default policy', async () => {
       firewallStatus('Status: active');
-      runCommandStub.withArgs('ufw', ufwCall(['status', 'verbose']))
-        .resolves({ error: null, stdout: 'Status: active\nDefault: deny (incoming), allow (outgoing), deny (routed)\n', stderr: '' });
 
       await fluxNetworkHelper.adjustFirewall();
 
-      sinon.assert.neverCalledWith(runCommandStub, 'ufw', ufwCall(['default', 'allow', 'outgoing']));
-    });
-
-    it('should set the outgoing policy to allow when it denies', async () => {
-      firewallStatus('Status: active');
-      runCommandStub.withArgs('ufw', ufwCall(['status', 'verbose']))
-        .resolves({ error: null, stdout: 'Status: active\nDefault: deny (incoming), deny (outgoing), deny (routed)\n', stderr: '' });
-
-      await fluxNetworkHelper.adjustFirewall();
-
-      sinon.assert.calledWith(runCommandStub, 'ufw', ufwCall(['default', 'allow', 'outgoing']));
+      sinon.assert.neverCalledWith(runCommandStub, 'ufw', sinon.match({ params: sinon.match.array.startsWith(['default']) }));
     });
 
     it('should change nothing when the firewall is not active', async () => {
@@ -3147,6 +3136,140 @@ describe('fluxNetworkHelper tests', () => {
       expect(response.status).to.equal('success');
       expect(response.data.source).to.equal('none');
       expect(response.data.offset).to.equal(null);
+    });
+  });
+
+  describe('ensureUfwDefaults tests', () => {
+    const wholeFile = (outputPolicy = 'ACCEPT') => [
+      'IPV6=yes',
+      'DEFAULT_INPUT_POLICY="DROP"',
+      `DEFAULT_OUTPUT_POLICY="${outputPolicy}"`,
+      'DEFAULT_FORWARD_POLICY="ACCEPT"',
+      'DEFAULT_APPLICATION_POLICY="SKIP"',
+      '',
+    ].join('\n');
+    let runCommandStub;
+    let readFileStub;
+    let publishStub;
+    let written;
+
+    const files = ({ conf = 'ENABLED=yes\n', defaults }) => {
+      readFileStub.withArgs('/etc/ufw/ufw.conf').callsFake(async () => {
+        if (conf === null) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+        return conf;
+      });
+      readFileStub.withArgs('/etc/default/ufw').callsFake(async () => {
+        if (defaults === null) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+        return defaults;
+      });
+    };
+    const renamed = () => sinon.assert.calledWith(runCommandStub, 'mv', sinon.match({ runAsRoot: true, params: ['-f', '/etc/default/ufw.flux-new', '/etc/default/ufw'] }));
+    const reloaded = () => runCommandStub.calledWith('ufw', sinon.match({ params: ['reload'] }));
+
+    beforeEach(() => {
+      runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '', stderr: '' });
+      readFileStub = sinon.stub(fs, 'readFile').callThrough();
+      sinon.stub(fs, 'writeFile').callsFake(async (file, content) => { written = content; });
+      publishStub = sinon.stub(fluxEventBus, 'publish');
+      written = null;
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('does nothing on a node without ufw', async () => {
+      files({ conf: null, defaults: null });
+
+      await fluxNetworkHelper.ensureUfwDefaults();
+
+      sinon.assert.notCalled(runCommandStub);
+      sinon.assert.notCalled(publishStub);
+    });
+
+    it('leaves a whole file that allows outbound alone', async () => {
+      files({ defaults: wholeFile() });
+
+      await fluxNetworkHelper.ensureUfwDefaults();
+
+      sinon.assert.notCalled(runCommandStub);
+      sinon.assert.notCalled(publishStub);
+    });
+
+    it('restores ufw\'s own defaults over an empty file, by rename, and reloads an enabled firewall', async () => {
+      files({ defaults: '' });
+
+      await fluxNetworkHelper.ensureUfwDefaults();
+
+      expect(written).to.match(/^DEFAULT_INPUT_POLICY="DROP"$/m);
+      expect(written).to.match(/^DEFAULT_OUTPUT_POLICY="ACCEPT"$/m);
+      expect(written).to.match(/^DEFAULT_FORWARD_POLICY="DROP"$/m);
+      expect(written).to.match(/^DEFAULT_APPLICATION_POLICY="SKIP"$/m);
+      // the file the ufw package ships on Ubuntu 20.04 to 26.04, byte for byte
+      expect(crypto.createHash('md5').update(written).digest('hex')).to.equal('a921dd9d167380b04de4bc911915ea44');
+      sinon.assert.calledWith(runCommandStub, 'install', sinon.match({ runAsRoot: true, params: sinon.match.array.endsWith(['/etc/default/ufw.flux-new']) }));
+      renamed();
+      expect(reloaded()).to.equal(true);
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:defaultsWritten', { restored: true });
+    });
+
+    it('restores a missing file, and reloads nothing when the firewall is not enabled', async () => {
+      files({ conf: 'ENABLED=no\n', defaults: null });
+
+      await fluxNetworkHelper.ensureUfwDefaults();
+
+      expect(written).to.match(/^DEFAULT_INPUT_POLICY="DROP"$/m);
+      renamed();
+      expect(reloaded()).to.equal(false);
+    });
+
+    it('restores a file missing any one policy', async () => {
+      files({ defaults: wholeFile().replace(/^DEFAULT_APPLICATION_POLICY=.*\n/m, '') });
+
+      await fluxNetworkHelper.ensureUfwDefaults();
+
+      expect(written).to.match(/^DEFAULT_APPLICATION_POLICY="SKIP"$/m);
+      expect(written).to.match(/^DEFAULT_FORWARD_POLICY="DROP"$/m);
+    });
+
+    it('sets only the outbound policy of a whole file that denies outbound', async () => {
+      files({ defaults: wholeFile('DROP') });
+
+      await fluxNetworkHelper.ensureUfwDefaults();
+
+      expect(written).to.equal(wholeFile());
+      renamed();
+      expect(reloaded()).to.equal(true);
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:defaultsWritten', { restored: false });
+    });
+
+    it('never runs ufw default', async () => {
+      files({ defaults: wholeFile('DROP') });
+
+      await fluxNetworkHelper.ensureUfwDefaults();
+
+      sinon.assert.neverCalledWith(runCommandStub, 'ufw', sinon.match({ params: sinon.match.array.startsWith(['default']) }));
+    });
+
+    it('neither renames nor reloads when the staged copy cannot be written', async () => {
+      files({ defaults: '' });
+      runCommandStub.withArgs('install').resolves({ error: new Error('install failed'), stdout: '', stderr: '' });
+
+      await fluxNetworkHelper.ensureUfwDefaults();
+
+      sinon.assert.neverCalledWith(runCommandStub, 'mv');
+      expect(reloaded()).to.equal(false);
+      sinon.assert.notCalled(publishStub);
+    });
+
+    it('reloads nothing when the rename fails', async () => {
+      files({ defaults: '' });
+      runCommandStub.withArgs('mv').resolves({ error: new Error('mv failed'), stdout: '', stderr: '' });
+
+      await fluxNetworkHelper.ensureUfwDefaults();
+
+      expect(reloaded()).to.equal(false);
+      sinon.assert.notCalled(publishStub);
     });
   });
 
