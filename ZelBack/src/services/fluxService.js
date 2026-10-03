@@ -230,6 +230,15 @@ async function runNewCode(before, { always = false } = {}) {
 // The multitool registers new nodes with the same value.
 const PM2_KILL_TIMEOUT_MS = 60000;
 
+// pm2's commands wait on its daemon with no time limit of their own, so a daemon
+// that has stopped answering holds a command, and whatever waits on it, for good.
+// How long pm2 has to list its processes.
+const PM2_LIST_TIMEOUT_MS = 30000;
+// How long FluxOS waits for pm2 to restart it with the new kill timeout: the
+// longest a working pm2 takes to stop it, which is under the new kill timeout,
+// and its own command around that.
+const PM2_RESTART_WAIT_MS = PM2_KILL_TIMEOUT_MS + 30000;
+
 // Where FluxOS records the machine boot on which it last asked pm2 for the
 // kill timeout, as that boot's id.
 const PM2_KILL_TIMEOUT_REQUEST = path.join(os.homedir(), '.flux-pm2-kill-timeout-request');
@@ -245,7 +254,10 @@ const BOOT_ID = '/proc/sys/kernel/random/boot_id';
  * carries it. The restart ends this process and pm2 kills its process tree, so
  * the command runs in a new session re-parented away from it, and this does
  * not resolve while the restart is under way. A restart that fails signals
- * this process with SIGUSR2, and FluxOS boots on with the kill timeout it has.
+ * this process with SIGUSR2, and one pm2 has not carried out within
+ * PM2_RESTART_WAIT_MS is left to it: either way FluxOS boots on with the kill
+ * timeout it has. A pm2 that does not list its processes within
+ * PM2_LIST_TIMEOUT_MS is left alone.
  *
  * pm2 is asked once per machine boot: a FluxOS that finds its kill timeout
  * still short on the boot it asked on boots on with it. A registration that
@@ -260,7 +272,7 @@ async function ensurePm2KillTimeout() {
     log.warn(`pm2 id ${pm2Id} is not a number; leaving FluxOS's pm2 registration alone`);
     return;
   }
-  const { stdout, error } = await serviceHelper.runCommand('pm2', { params: ['jlist'], maxBuffer: 16 * 1024 * 1024 });
+  const { stdout, error } = await serviceHelper.runCommand('pm2', { params: ['jlist'], maxBuffer: 16 * 1024 * 1024, timeout: PM2_LIST_TIMEOUT_MS });
   let killTimeout;
   try {
     if (error) throw error;
@@ -269,6 +281,7 @@ async function ensurePm2KillTimeout() {
     killTimeout = own.pm2_env?.kill_timeout ?? null;
   } catch (err) {
     log.warn(`Could not read FluxOS's pm2 registration, leaving it alone: ${err.message}`);
+    fluxEventBus.publish('pm2:registrationUnread', { error: err.message });
     return;
   }
   if (Number(killTimeout) >= PM2_KILL_TIMEOUT_MS) return;
@@ -287,16 +300,27 @@ async function ensurePm2KillTimeout() {
   await fs.writeFile(PM2_KILL_TIMEOUT_REQUEST, bootId);
 
   log.info(`FluxOS's pm2 kill timeout is ${killTimeout ?? "pm2's default"}; re-registering process ${pm2Id} with ${PM2_KILL_TIMEOUT_MS}ms`);
-  await new Promise((resolve) => {
-    process.once('SIGUSR2', resolve);
+  let failed;
+  let unanswered;
+  const outcome = await new Promise((resolve) => {
+    failed = () => resolve('failed');
+    process.once('SIGUSR2', failed);
+    unanswered = setTimeout(() => resolve('unanswered'), PM2_RESTART_WAIT_MS);
     const reregister = `if pm2 restart ${pm2Id} --kill-timeout ${PM2_KILL_TIMEOUT_MS}; then pm2 save; else kill -USR2 ${process.pid}; fi`;
     const child = childProcess.spawn('sh', ['-c', `setsid sh -c '${reregister}' >/dev/null 2>&1 </dev/null &`], {
       detached: true,
       stdio: 'ignore',
     });
-    child.on('error', resolve);
+    child.on('error', failed);
     child.unref();
   });
+  clearTimeout(unanswered);
+  process.removeListener('SIGUSR2', failed);
+  if (outcome === 'unanswered') {
+    log.error(`pm2 did not restart FluxOS within ${PM2_RESTART_WAIT_MS}ms to raise its kill timeout from ${killTimeout ?? "pm2's default"}; FluxOS boots with it`);
+    fluxEventBus.publish('pm2:killTimeoutRaiseUnanswered', { killTimeout });
+    return;
+  }
   log.error(`pm2 could not restart FluxOS to raise its kill timeout from ${killTimeout ?? "pm2's default"}; FluxOS boots with it`);
   fluxEventBus.publish('pm2:killTimeoutRaiseFailed', { killTimeout });
 }
@@ -2284,6 +2308,8 @@ module.exports = {
   runNewCode,
   ensurePm2KillTimeout,
   PM2_KILL_TIMEOUT_MS,
+  PM2_LIST_TIMEOUT_MS,
+  PM2_RESTART_WAIT_MS,
   adjustAPIPort,
   adjustKadenaAccount,
   adjustRouterIP,

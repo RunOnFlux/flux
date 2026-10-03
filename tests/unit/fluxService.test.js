@@ -3535,6 +3535,31 @@ describe('fluxService tests', () => {
       sinon.assert.calledWithMatch(error, /pm2 could not restart FluxOS to raise its kill timeout from 1600/);
     });
 
+    it('boots on, and says so, when pm2 has not restarted it within its wait', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      runCmdStub.resolves({ stdout: registration(1600), error: null });
+      const error = sinon.stub(log, 'error');
+      const pending = fluxService.ensurePm2KillTimeout();
+      await returnedBy(pending);
+
+      await clock.tickAsync(fluxService.PM2_RESTART_WAIT_MS - 1);
+      expect(await returnedBy(pending), 'returned before its wait was over').to.equal(false);
+      await clock.tickAsync(1);
+
+      expect(await returnedBy(pending)).to.equal(true);
+      sinon.assert.calledWithExactly(publishStub, 'pm2:killTimeoutRaiseUnanswered', { killTimeout: 1600 });
+      sinon.assert.calledWithMatch(error, /pm2 did not restart FluxOS within 90000ms to raise its kill timeout from 1600/);
+      expect(process.listenerCount('SIGUSR2'), 'a SIGUSR2 listener left behind').to.equal(0);
+    });
+
+    it('lists pm2\'s processes within its own time limit', async () => {
+      runCmdStub.resolves({ stdout: registration(fluxService.PM2_KILL_TIMEOUT_MS), error: null });
+
+      await fluxService.ensurePm2KillTimeout();
+
+      sinon.assert.calledWithMatch(runCmdStub, 'pm2', { params: ['jlist'], timeout: fluxService.PM2_LIST_TIMEOUT_MS });
+    });
+
     it('boots on when the command that asks pm2 cannot be started', async () => {
       const pending = fluxService.ensurePm2KillTimeout();
       await returnedBy(pending);
@@ -3604,11 +3629,12 @@ describe('fluxService tests', () => {
       sinon.assert.notCalled(spawnStub);
     });
 
-    it('leaves the registration alone when pm2 cannot list it', async () => {
+    it('leaves the registration alone, and says so, when pm2 cannot list it', async () => {
       runCmdStub.resolves({ stdout: '', error: new Error('pm2 not found') });
 
       await fluxService.ensurePm2KillTimeout();
       sinon.assert.notCalled(spawnStub);
+      sinon.assert.calledWithExactly(publishStub, 'pm2:registrationUnread', { error: 'pm2 not found' });
     });
 
     it('leaves the registration alone when pm2 lists no process with this id', async () => {

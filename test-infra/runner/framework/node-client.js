@@ -258,6 +258,8 @@ export function nodeClient(nodeNum) {
         'syncthing:localChangesReverted',
         'pm2:killTimeoutRaiseFailed',
         'pm2:killTimeoutUnchanged',
+        'pm2:killTimeoutRaiseUnanswered',
+        'pm2:registrationUnread',
         'system:packages-checked',
         'system:apt-command',
         'spawner:blocked',
