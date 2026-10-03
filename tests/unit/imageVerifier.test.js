@@ -713,17 +713,22 @@ describe('imageVerifier tests', () => {
       expect(() => verifier.throwIfError()).to.throw(`Connection Error ETIMEDOUT: ${repotag} not available`);
     });
 
-    [...ImageVerifier.networkErrorCodes, 'ERR_SSL_WRONG_VERSION_NUMBER'].forEach((code) => {
-      it(`should populate errorMeta with network error type for a network error code without a response (${code})`, async () => {
-        const repotag = 'megachips/ipshow:web';
+    function rejectWith(error) {
+      axiosInstanceStub.returns({
+        get: sinon.stub().rejects(error),
+        interceptors: { request: { use: sinon.stub() } },
+      });
+    }
 
+    // A coded connection error is a network error even when it fails before axios has a
+    // request object, as an abort before sending does.
+    ['ECONNREFUSED', 'ECONNABORTED', 'ERR_CANCELED', 'ENETUNREACH', 'ETIMEDOUT', 'ECONNRESET',
+      'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH'].forEach((code) => {
+      it(`should populate errorMeta with network error type for a coded connection error (${code})`, async () => {
+        const repotag = 'megachips/ipshow:web';
         const error = new Error('no response');
         error.code = code;
-
-        axiosInstanceStub.returns({
-          get: sinon.stub().rejects(error),
-          interceptors: { request: { use: sinon.stub() } },
-        });
+        rejectWith(error);
 
         const verifier = new ImageVerifier(repotag);
         await verifier.verifyImage();
@@ -734,45 +739,52 @@ describe('imageVerifier tests', () => {
       });
     });
 
-    // Codes a request fails with before any response that the network path did not cause: a
-    // registry port out of range, and port 0.
-    ['ERR_INVALID_URL', 'EADDRNOTAVAIL'].forEach((code) => {
-      it(`should not treat a code the network path did not cause as a network error (${code})`, async () => {
+    // A request that was sent and got no response is a network error whatever the code: the
+    // TLS handshake failures among them.
+    ['CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'ERR_TLS_CERT_ALTNAME_INVALID', 'EPROTO',
+      'ERR_SSL_WRONG_VERSION_NUMBER'].forEach((code) => {
+      it(`should populate errorMeta with network error type for a request sent without a response (${code})`, async () => {
         const repotag = 'megachips/ipshow:web';
-
         const error = new Error('no response');
         error.code = code;
-
-        axiosInstanceStub.returns({
-          get: sinon.stub().rejects(error),
-          interceptors: { request: { use: sinon.stub() } },
-        });
+        error.request = {};
+        rejectWith(error);
 
         const verifier = new ImageVerifier(repotag);
         await verifier.verifyImage();
 
-        expect(verifier.errorMeta.errorType).to.equal('http_error');
-        expect(() => verifier.throwIfError()).to.throw(`Bad HTTP Status undefined: ${repotag} not available`);
+        expect(verifier.errorMeta.errorType).to.equal('network');
+        expect(verifier.errorMeta.errorCode).to.equal(code);
       });
     });
 
-    it('should not treat a network error code that came with a response as a network error', async () => {
+    it('should not treat a request that could not be made as a network error', async () => {
+      // What axios throws for a registry port out of range: no request was ever sent.
       const repotag = 'megachips/ipshow:web';
-
-      const error = new Error('bad gateway');
-      error.code = 'ECONNRESET';
-      error.response = { status: 502, headers: {} };
-
-      axiosInstanceStub.returns({
-        get: sinon.stub().rejects(error),
-        interceptors: { request: { use: sinon.stub() } },
-      });
+      const error = new Error('Invalid URL');
+      error.code = 'ERR_INVALID_URL';
+      rejectWith(error);
 
       const verifier = new ImageVerifier(repotag);
       await verifier.verifyImage();
 
-      expect(verifier.errorMeta.errorType).to.equal('server_error');
-      expect(() => verifier.throwIfError()).to.throw(`Bad HTTP Status 502: ${repotag} not available`);
+      expect(verifier.errorMeta.errorType).to.equal('http_error');
+      expect(() => verifier.throwIfError()).to.throw(`Bad HTTP Status undefined: ${repotag} not available`);
+    });
+
+    it('should not treat a request the registry answered as a network error', async () => {
+      const repotag = 'megachips/ipshow:web';
+      const error = new Error('Request failed with status code 404');
+      error.code = 'ERR_BAD_REQUEST';
+      error.request = {};
+      error.response = { status: 404, headers: {} };
+      rejectWith(error);
+
+      const verifier = new ImageVerifier(repotag);
+      await verifier.verifyImage();
+
+      expect(verifier.errorMeta.errorType).to.equal('http_error');
+      expect(() => verifier.throwIfError()).to.throw(`Bad HTTP Status 404: ${repotag} not available`);
     });
 
     it('should not treat an error without a code or a response as a network error', async () => {
