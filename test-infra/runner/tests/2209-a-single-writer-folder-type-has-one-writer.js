@@ -38,8 +38,7 @@ const BEFORE_RUN = 'masterSlave:beforeRun';
 const AFTER_FOLDER_READ = 'syncthing:afterFolderRead';
 const BEFORE_FOLDER_WRITE = 'syncthing:beforeFolderWrite';
 
-// FluxOS's timeout on a syncthing call, and a time well past it.
-const FLUXOS_CALL_TIMEOUT_MS = 5000;
+// A time well past FluxOS's timeout on a syncthing call.
 const SLOW_MS = 8000;
 // A scan of a large folder: longer than any wait below allows a demotion.
 const COVER_SCAN_MS = 90000;
@@ -466,16 +465,25 @@ describe('a single-writer folder type has one writer', function () {
     expect(writesAtEnd, 'a pass rewrote a folder syncthing already held as the monitor would write it').to.deep.equal(writesAtStart);
   });
 
-  it('stops a folder sending only once the scan before it has finished', async function () {
+  // FDM names another node only once it runs the component, so a stand-down
+  // ends two nodes writing it. The node standing down sends nothing more: its
+  // folder receives at once, unscanned, however long a scan of it would take.
+  it('stops a folder sending at once, unscanned, when another node is named while both run it', async function () {
     this.timeout(900000);
     const a = await settle(`e2escan${stamp}`);
     const client = env.clients[a.primary];
+    const other = a.standbys[0];
     const from = client.getLastEventId();
     const writesBefore = (await writesTo(a.primary, a.folder)).length;
     const scansBefore = (await scansOf(a.primary, a.folder)).length;
-    await setScanDuration({ ip: ipOf(a.primary), folder: a.folder, ms: SLOW_MS });
+    await setScanDuration({ ip: ipOf(a.primary), folder: a.folder, ms: COVER_SCAN_MS });
+    let named;
     try {
-      await electMaster(a.appName, env.clients[a.standbys[0]].ip);
+      await electMaster(a.appName, env.clients[other].ip);
+      named = Date.now();
+      await waitFor(async () => isUp(env.clients[other], a.appName), {
+        timeout: 240000, interval: 1000, label: 'fixture: the named node runs the component beside the primary',
+      });
       const ended = await client.waitForEvent('primaryRole:changed',
         (d) => d.identifier === a.identifier && d.from === 'demoting', 300000, { afterId: from });
       expect(ended.data.to, `the stand-down did not finish: ${ended.data.reason ?? ''}`).to.equal('standby');
@@ -484,15 +492,11 @@ describe('a single-writer folder type has one writer', function () {
       await setScanDuration({ ip: ipOf(a.primary), folder: a.folder, ms: 0 });
     }
 
-    // The stub records a scan once it has finished.
-    let scan;
-    await waitFor(async () => {
-      [scan] = (await scansOf(a.primary, a.folder)).slice(scansBefore);
-      return !!scan;
-    }, { timeout: 120000, interval: 1000, label: 'the folder is scanned' });
-    expect(scan.at - scan.arrivedAt, 'fixture: the scan took less than FluxOS waits for a syncthing call').to.be.above(FLUXOS_CALL_TIMEOUT_MS);
     const demote = await writeSince(a.primary, a.folder, writesBefore, (w) => w.body?.type === 'receiveonly',
       'a FluxOS write stops the folder sending');
-    expect(demote.arrivedSeq, 'the folder stopped sending before its scan finished').to.be.above(scan.seq);
+    expect(demote.arrivedAt - named, 'the folder went on sending for as long as a scan of it').to.be.below(COVER_SCAN_MS);
+    expect((await scansOf(a.primary, a.folder)).slice(scansBefore), 'a scan sent what the stood-down node had not').to.deep.equal([]);
+    expect((await getPendingFolderScans(ipOf(a.primary))).filter((scan) => scan.id === a.folder), 'a scan of the stood-down folder is under way').to.deep.equal([]);
+    expect(await isUp(client, a.appName), 'the stood-down node runs the component').to.equal(false);
   });
 });
