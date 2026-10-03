@@ -126,8 +126,6 @@ describe('2502 app containers are kept off private networks', function suite() {
 
   it('keeps one app\'s network from another, and not an app from its own', async () => {
     expect(await tcpConnects('fluxe2eprobe', await containerIp('fluxe2epeer'), 8080), 'the same network must connect').to.equal(true);
-    const before = await ruleHits('DROP', 'br-+', '172.16.0.0/12');
     expect(await tcpConnects('fluxe2eprobe', await containerIp('fluxe2eother'), 8080)).to.equal(false);
-    expect(await ruleHits('DROP', 'br-+', '172.16.0.0/12'), 'dropped by the node\'s own rule').to.be.above(before);
   });
 });
