@@ -577,20 +577,21 @@ class ImageVerifier {
 
   /**
    * Allows for descriptive errors to be throw if there are any errors present.
+   * Throwing resets this verifier's errors, errorMeta included, so the thrown error carries the
+   * errorMeta for the caller to classify it by.
    * @returns {void}
    */
   throwIfError() {
     if (!this.error) return;
 
-    try {
-      throw new Error(
-        this.#parseErrorDetail
-        || this.#lookupErrorDetail
-        || this.#evaluationErrorDetail,
-      );
-    } finally {
-      this.resetErrors();
-    }
+    const error = new Error(
+      this.#parseErrorDetail
+      || this.#lookupErrorDetail
+      || this.#evaluationErrorDetail,
+    );
+    error.errorMeta = this.#lookupErrorMeta;
+    this.resetErrors();
+    throw error;
   }
 
   /**
