@@ -9,7 +9,7 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { execInContainer } from '../framework/container.js';
+import { execInContainer, restartFluxos } from '../framework/container.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const LEGACY = 0;
@@ -98,5 +98,28 @@ describe('2501 firewalled nodes', function suite() {
 
   it('keeps ufw off on a node the switch does not name', async () => {
     expect(await ufwStatus(UNFIREWALLED)).to.match(/^Status: inactive$/m);
+  });
+
+  // The state a node boots into when /etc/default/ufw was left empty: ufw-init
+  // refuses to start, so no ufw chain is loaded and INPUT accepts everything.
+  it('restores an emptied ufw defaults file and its firewall when FluxOS next starts', async () => {
+    const node = env.clients[LEGACY];
+    const inputChain = async () => (await execInContainer(node.container, 'iptables -S INPUT')).stdout;
+    await execInContainer(node.container, '/lib/ufw/ufw-init flush-all >/dev/null 2>&1; : > /etc/default/ufw; iptables -P INPUT ACCEPT; ip6tables -P INPUT ACCEPT');
+    const { stdout: broken } = await execInContainer(node.container, 'ufw status 2>&1; true');
+    expect(broken, 'ufw must be broken before FluxOS starts').to.match(/Missing policy/);
+    expect(await inputChain()).to.not.match(/ufw-/);
+
+    const afterId = node.getLastEventId();
+    await restartFluxos(node.container);
+    const { data } = await node.waitForEvent('firewall:defaultsWritten', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId });
+
+    expect(data.restored).to.equal(true);
+    const { stdout: md5 } = await execInContainer(node.container, 'md5sum /etc/default/ufw');
+    expect(md5.split(' ')[0], 'the file the ufw package ships').to.equal('a921dd9d167380b04de4bc911915ea44');
+    expect(await ufwStatus(LEGACY)).to.match(/^Status: active$/m);
+    const input = await inputChain();
+    expect(input).to.match(/^-P INPUT DROP$/m);
+    expect(input).to.match(/^-A INPUT -j ufw-before-input$/m);
   });
 });
