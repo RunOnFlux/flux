@@ -142,9 +142,13 @@ function publishWritable(writable) {
 // same folder takes to run - both walk the same tree - and that case the
 // periodic rescan still covers.
 //
-// The folder is held for both scans, so the next write to it waits, and so does
-// a promotion: its container starts only once its folder's restart is covered,
-// and the app's first writes land where syncthing will see them. A receiving
+// The scans run once the write has let the folder go: they write no config, so
+// the next write to the folder waits only for this one, never for its scans -
+// a safety demotion included. The write's caller waits for them, so a
+// promotion's container starts only once its folder's restart is covered, and
+// the app's first writes land where syncthing will see them. A later write that
+// restarts the folder cuts a scan short; if it leaves the folder sending it
+// covers that restart itself, with scans of the whole folder. A receiving
 // folder is not covered - nothing written there leaves this node - nor is a
 // paused one, which syncthing does not scan.
 //
@@ -175,7 +179,6 @@ function leavesSending(folderId, fields) {
 async function patchNow(folderId, fields) {
   const response = await syncthingService.adjustConfigFolders('patch', fields, folderId);
   if (response.status === 'success' && fields.type) recordType(folderId, fields.type);
-  if (response.status === 'success' && leavesSending(folderId, fields)) await coverRestart(folderId);
   return response;
 }
 
@@ -185,19 +188,20 @@ async function patchNow(folderId, fields) {
  * @param {object[]} folders Complete folder configs
  * @returns {Promise<object>} syncthing's response
  */
-function putFolders(folders) {
+async function putFolders(folders) {
   const untyped = folders.filter((folder) => !folder.type).map((folder) => folder.id);
   if (untyped.length) {
     return Promise.reject(new Error(`folder config without a type would be written as syncthing's default: ${untyped.join(', ')}`));
   }
-  return exclusive(folders.map((folder) => folder.id), async () => {
-    const response = await syncthingService.adjustConfigFolders('put', folders);
-    if (response.status === 'success') {
-      folders.forEach((folder) => recordType(folder.id, folder.type));
-      await Promise.all(folders.filter((folder) => leavesSending(folder.id, folder)).map((folder) => coverRestart(folder.id)));
-    }
-    return response;
+  const response = await exclusive(folders.map((folder) => folder.id), async () => {
+    const put = await syncthingService.adjustConfigFolders('put', folders);
+    if (put.status === 'success') folders.forEach((folder) => recordType(folder.id, folder.type));
+    return put;
   });
+  if (response.status === 'success') {
+    await Promise.all(folders.filter((folder) => leavesSending(folder.id, folder)).map((folder) => coverRestart(folder.id)));
+  }
+  return response;
 }
 
 /**
@@ -206,8 +210,10 @@ function putFolders(folders) {
  * @param {object} fields
  * @returns {Promise<object>} syncthing's response - 404 for a folder it does not know
  */
-function patchFolder(folderId, fields) {
-  return exclusive([folderId], () => patchNow(folderId, fields));
+async function patchFolder(folderId, fields) {
+  const response = await exclusive([folderId], () => patchNow(folderId, fields));
+  if (response.status === 'success' && leavesSending(folderId, fields)) await coverRestart(folderId);
+  return response;
 }
 
 /**
@@ -281,6 +287,12 @@ async function scannedBeforeChange(folderId, folderType) {
     await syncthingService.scanFolder(folderId, { timeoutMs: FOLDER_SCAN_TIMEOUT_MS });
     return true;
   } catch (error) {
+    // Nothing on a volume that is not mounted is this node's to announce, and a
+    // folder over it is safest receiving.
+    if (error.code === 'VOLUME_NOT_MOUNTED' && folderType === 'receiveonly') {
+      log.warn(`${folderId} becomes receiveonly unscanned: its volume is not mounted`);
+      return true;
+    }
     log.warn(`scan of ${folderId} before it becomes ${folderType} did not finish: ${error.message}; its type is unchanged`);
     return false;
   }
@@ -306,7 +318,8 @@ async function scannedBeforeChange(folderId, folderType) {
  */
 async function changeSyncthingFolderType(folderId, folderType, { settleMs = 0, scanFirst = false, abandonIf = () => false } = {}) {
   if (scanFirst && !(await scannedBeforeChange(folderId, folderType))) return false;
-  return exclusive([folderId], async () => {
+  let covers = false;
+  const changed = await exclusive([folderId], async () => {
     try {
       if (abandonIf()) return false;
       const folders = await syncthingService.getConfigFolders();
@@ -333,6 +346,7 @@ async function changeSyncthingFolderType(folderId, folderType, { settleMs = 0, s
 
       if (updateResponse.status === 'success') {
         log.info(`Successfully changed syncthing folder ${folderId} to ${folderType} mode`);
+        covers = leavesSending(folderId, patchData);
         return true;
       }
       if (settleMs > 0 && updateResponse.data?.httpStatus === null) {
@@ -340,7 +354,7 @@ async function changeSyncthingFolderType(folderId, folderType, { settleMs = 0, s
         if (await folderTypeSettles(folderPath, folderType, settleMs)) {
           log.info(`Syncthing folder ${folderId} is in ${folderType} mode`);
           recordType(folderId, folderType);
-          if (leavesSending(folderId, patchData)) await coverRestart(folderId);
+          covers = leavesSending(folderId, patchData);
           return true;
         }
       }
@@ -351,6 +365,8 @@ async function changeSyncthingFolderType(folderId, folderType, { settleMs = 0, s
       return false;
     }
   });
+  if (covers) await coverRestart(folderId);
+  return changed;
 }
 
 module.exports = {
