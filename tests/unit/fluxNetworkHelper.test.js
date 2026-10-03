@@ -2756,6 +2756,7 @@ describe('fluxNetworkHelper tests', () => {
     const ufwCall = (params) => sinon.match({ runAsRoot: true, params });
     let runCommandStub;
     let logSpy;
+    let publishStub;
 
     const firewallStatus = (status) => {
       sinon.stub(util, 'promisify').returns(sinon.fake.resolves(status));
@@ -2765,6 +2766,7 @@ describe('fluxNetworkHelper tests', () => {
       runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '', stderr: '' });
       runCommandStub.withArgs('ip').resolves({ error: null, stdout: 'default via 192.168.1.1 dev eth0\n10.0.0.0/8 dev eth1\n', stderr: '' });
       logSpy = sinon.spy(log, 'info');
+      publishStub = sinon.stub(fluxEventBus, 'publish');
     });
 
     afterEach(() => {
@@ -2810,6 +2812,7 @@ describe('fluxNetworkHelper tests', () => {
         .filter((call) => call.args[0] === 'ufw' && call.args[1].params[1] === 'delete')
         .map((call) => call.args[1].params[2]);
       expect(deletes).to.deep.equal(['13', '12', '3', '1']);
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 4 });
     });
 
     it('should log the ports it could not allow', async () => {
@@ -2871,6 +2874,7 @@ describe('fluxNetworkHelper tests', () => {
 
       sinon.assert.neverCalledWith(runCommandStub, 'ufw');
       sinon.assert.calledWith(logSpy, 'Firewall is not active. Adjusting not applied');
+      sinon.assert.notCalled(publishStub);
     });
   });
 

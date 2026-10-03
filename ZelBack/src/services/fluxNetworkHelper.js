@@ -2241,13 +2241,13 @@ async function isFirewallActive() {
  * Outbound traffic is governed by the default policy alone: every outbound
  * rule, whoever added it, is deleted. Deleted highest number first, so the
  * numbers still to delete stay valid.
- * @returns {Promise<void>}
+ * @returns {Promise<number>} The number of outbound rules found to delete.
  */
 async function removeOutboundRules() {
   const { stdout, error } = await serviceHelper.runCommand('ufw', { runAsRoot: true, logError: false, params: ['status', 'numbered'] });
   if (error) {
     log.warn(`Firewall outbound rules not read: ${error.message}`);
-    return;
+    return 0;
   }
   const numbers = serviceHelper.ensureString(stdout).split('\n')
     .map((line) => line.match(/^\[\s*(\d+)\].*\b(?:ALLOW|DENY|REJECT|LIMIT) OUT\b/))
@@ -2261,6 +2261,7 @@ async function removeOutboundRules() {
     if (deleteError) log.warn(`Firewall outbound rule ${number} not deleted: ${deleteError.message}`);
   }
   if (numbers.length) log.info(`Firewall outbound rules removed: ${numbers.length}`);
+  return numbers.length;
 }
 
 /**
@@ -2296,7 +2297,7 @@ async function adjustFirewall() {
     if (!/^Default:.*\ballow \(outgoing\)/m.test(serviceHelper.ensureString(verbose))) {
       await ufw(['default', 'allow', 'outgoing']);
     }
-    await removeOutboundRules();
+    const outboundRemoved = await removeOutboundRules();
     // remove inbound DNS traffic
     await ufw(['delete', 'allow', 'in', 'proto', 'udp', 'to', 'any', 'port', '53']);
     log.info('Firewall adjusted for DNS traffic');
@@ -2328,6 +2329,7 @@ async function adjustFirewall() {
         log.info(`Failed to adjust Firewall for port ${port}`);
       }
     }
+    fluxEventBus.publish('firewall:adjusted', { outboundRemoved });
   } catch (error) {
     log.error(error);
   }

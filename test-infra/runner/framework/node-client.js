@@ -200,6 +200,7 @@ export function nodeClient(nodeNum) {
         'daemon:unreachable',
         'dos:changed',
         'explorer:ready',
+        'firewall:adjusted',
         'firewall:containerEgressApplied',
         'fileops:recovered',
         'messageCapability:changed',
