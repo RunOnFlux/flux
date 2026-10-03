@@ -59,15 +59,15 @@ describe('2501 firewalled nodes', function suite() {
     expect(status).to.match(/^Default: deny \(incoming\), allow \(outgoing\)/m);
     expect(status).to.match(/^22\/tcp\s+ALLOW IN\s+Anywhere\s*$/m);
     expect(status).to.match(/^16100:16199\/tcp\s+ALLOW IN\s+Anywhere\s*$/m);
-    expect(status).to.match(/^22\/tcp\s+LIMIT IN\s+Anywhere\s*$/m);
     expect(status).to.match(/^53\s+ALLOW OUT\s+Anywhere\s*$/m);
+    expect(status, 'without openssh-server there is no OpenSSH profile to limit').to.not.match(/OpenSSH/);
   });
 
   it('boots an Arcane node with the ISO\'s firewall', async () => {
     const status = await ufwStatus(ARCANE);
     expect(status).to.match(/^Status: active$/m);
     expect(status).to.match(/^Default: deny \(incoming\), allow \(outgoing\), deny \(routed\)$/m);
-    expect(status).to.match(/^22\/tcp\s+LIMIT IN\s+Anywhere\s*$/m);
+    expect(status).to.match(/^22\/tcp \(OpenSSH\)\s+LIMIT IN\s+Anywhere\s*$/m);
     expect(status, 'the legacy installer\'s port range is not the ISO\'s').to.not.match(/16100:16199/);
   });
 
