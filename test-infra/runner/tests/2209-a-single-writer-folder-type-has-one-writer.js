@@ -9,7 +9,7 @@ import { execInContainer, getAppContainerStatus } from '../framework/container.j
 import { electMaster, resetFdm } from '../framework/fdm-control.js';
 import {
   setSynced, resetSyncState, getFolderWrites, getFolderScans, getFolderConfig, setFolderConfig,
-  getPendingFolderWrites, setFolderPatchDelay, setScanDuration, injectSyncthingEvent,
+  getPendingFolderWrites, setFolderPatchDelay, setScanDuration, injectSyncthingEvent, getPendingFolderScans,
 } from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import {
@@ -40,6 +40,8 @@ const BEFORE_FOLDER_WRITE = 'syncthing:beforeFolderWrite';
 // FluxOS's timeout on a syncthing call, and a time well past it.
 const FLUXOS_CALL_TIMEOUT_MS = 5000;
 const SLOW_MS = 8000;
+// A scan of a large folder: longer than any wait below allows a demotion.
+const COVER_SCAN_MS = 90000;
 
 async function isUp(client, appName) {
   const status = await getAppContainerStatus(client.container, appName);
@@ -193,6 +195,59 @@ describe('a single-writer folder type has one writer', function () {
     await passesFromNow([target], (i) => electionCount(i, a.appName, 'evaluated'), 'election');
     expect((await writesTo(target, a.folder)).slice(writesBefore).map((w) => w.body?.type),
       'the folder over the unsafe volume was made to send').to.not.include('sendreceive');
+    expect(eventsSince(target, from, 'reconciler:actuated', (d) => d.identifier === a.identifier && d.action === 'started'),
+      'the component started over the unsafe volume').to.deep.equal([]);
+    expect(await isUp(client, a.appName)).to.equal(false);
+  });
+
+  // The scans that cover a promoted folder's restart write no config, and the
+  // demotion of a folder whose volume goes unsafe does not wait for them. A scan
+  // over the unmounted directory is what would tell every peer its files are
+  // gone, so none is asked for once the volume has gone.
+  it('stops a promotion\'s folder sending at once when its volume goes unsafe during the scans that cover its restart, and scans it no more', async function () {
+    this.timeout(900000);
+    const a = await settle(`e2ecover${stamp}`);
+    const target = a.standbys[0];
+    const client = env.clients[target];
+    const dir = `/mnt/appdata/flux-apps/${a.folder}`;
+    const from = client.getLastEventId();
+    const writesBefore = (await writesTo(target, a.folder)).length;
+    const scansBefore = (await scansOf(target, a.folder)).length;
+    await setScanDuration({ ip: ipOf(target), folder: a.folder, ms: COVER_SCAN_MS });
+    let unmountedAt;
+    try {
+      await electMaster(a.appName, client.ip);
+      const sends = await writeSince(target, a.folder, writesBefore, (w) => w.body?.type === 'sendreceive',
+        'the promotion makes the folder send');
+      await waitFor(async () => (await getPendingFolderScans(ipOf(target)))
+        .some((scan) => scan.id === a.folder && scan.arrivedSeq > sends.seq), {
+        timeout: 60000, interval: 500, label: 'a scan covering the folder\'s restart is under way',
+      });
+      const unmount = await execInContainer(client.container,
+        `umount -l ${dir} && chattr -i ${dir} && rm -f /mnt/appdata/${a.folder}FLUXFSVOL`);
+      expect(unmount.exitCode, `fixture: the volume could not be taken away: ${unmount.output}`).to.equal(0);
+      unmountedAt = Date.now();
+      await injectSyncthingEvent({ ip: ipOf(target), type: 'FolderErrors', data: { folder: a.folder, errors: [{ error: 'folder marker missing' }] } });
+
+      const demote = await writeSince(target, a.folder, writesBefore, (w) => w.body?.type === 'receiveonly',
+        'the folder over the unsafe volume stops sending');
+      await waitForReconcilerDesiredChanged(client, a.identifier, 'stopped', 120000, { afterId: from });
+
+      // Read while the slow scan still runs: the stub records a scan once it ends.
+      const ended = (await scansOf(target, a.folder)).slice(scansBefore);
+      expect(ended, 'fixture: the cover scan ended before the demotion was asked for').to.deep.equal([]);
+      expect(demote.arrivedAt - unmountedAt, 'the demotion waited on the cover scan').to.be.below(COVER_SCAN_MS);
+    } finally {
+      await setScanDuration({ ip: ipOf(target), folder: a.folder, ms: 0 });
+    }
+
+    // The scan already under way ends; nothing after it is asked of the folder.
+    await waitFor(async () => (await scansOf(target, a.folder)).length > scansBefore, {
+      timeout: COVER_SCAN_MS + 60000, interval: 2000, label: 'the cover scan under way ends',
+    });
+    await passesFromNow([target], (i) => folderPasses(i, a.appName), 'folder');
+    const scans = (await scansOf(target, a.folder)).slice(scansBefore);
+    expect(scans.filter((scan) => scan.arrivedAt >= unmountedAt), 'a scan asked of the folder once its volume had gone').to.deep.equal([]);
     expect(eventsSince(target, from, 'reconciler:actuated', (d) => d.identifier === a.identifier && d.action === 'started'),
       'the component started over the unsafe volume').to.deep.equal([]);
     expect(await isUp(client, a.appName)).to.equal(false);

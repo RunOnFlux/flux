@@ -72,6 +72,8 @@ function recordFolderWrite(state, pending) {
   state.folderWrites.push({ ...pending, seq: nextSeq(), at: Date.now() });
 }
 function recordFolderScan(state, id, arrivedSeq, arrivedAt) {
+  const pending = state.pendingFolderScans.findIndex((scan) => scan.arrivedSeq === arrivedSeq);
+  if (pending >= 0) state.pendingFolderScans.splice(pending, 1);
   state.folderScans.push({
     id, arrivedSeq, arrivedAt, seq: nextSeq(), at: Date.now(),
   });
@@ -93,6 +95,8 @@ function nodeState(ip) {
       folderWrites: [],
       pendingFolderWrites: [],
       folderScans: [],
+      // scans asked for and not yet answered: { id, arrivedSeq, arrivedAt }
+      pendingFolderScans: [],
       // folder id -> when its restart after a config change ends
       restartingUntil: new Map(),
       // settles when the config change this node applied last has taken effect
@@ -826,6 +830,7 @@ app.post('/rest/db/scan', async (req, res) => {
   if (notRunning) return res.status(500).type('text/plain').send(notRunning);
   const arrivedSeq = nextSeq();
   const arrivedAt = Date.now();
+  state.pendingFolderScans.push({ id: folder, arrivedSeq, arrivedAt });
   const ms = scanDuration(clientIp(req), folder);
   if (ms > 0) await sleep(ms);
   recordFolderScan(state, folder, arrivedSeq, arrivedAt);
@@ -963,6 +968,7 @@ control.get('/state', (req, res) => {
       folderWrites: s.folderWrites,
       pendingFolderWrites: s.pendingFolderWrites,
       folderScans: s.folderScans,
+      pendingFolderScans: s.pendingFolderScans,
     })),
   });
 });

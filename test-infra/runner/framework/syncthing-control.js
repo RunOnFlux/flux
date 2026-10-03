@@ -82,6 +82,12 @@ export async function getFolderScans(ip) {
   return node ? node.folderScans : [];
 }
 
+// The scans this node has asked for that are still running: { id, arrivedSeq, arrivedAt }.
+export async function getPendingFolderScans(ip) {
+  const state = await getSyncthingState();
+  return state.nodes.find((n) => n.ip === ip)?.pendingFolderScans ?? [];
+}
+
 // What one node's syncthing reports as a device's lastSeen. `lastSeen` is a Date
 // or ISO string, or null for a device the node has never been connected to.
 // Omit viewerIp to set it for every node.
