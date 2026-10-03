@@ -10,6 +10,7 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, restartFluxos } from '../framework/container.js';
+import { BUSYBOX_BIN } from '../framework/registry-helper.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const LEGACY = 0;
@@ -110,9 +111,19 @@ describe('2501 firewalled nodes', function suite() {
     expect(broken, 'ufw must be broken before FluxOS starts').to.match(/Missing policy/);
     expect(await inputChain()).to.not.match(/ufw-/);
 
+    // Every change made in /etc/default while FluxOS repairs the file: one line
+    // per event, its letters, the directory, and the file it touched.
+    await node.container.copyFilesToContainer([{ source: BUSYBOX_BIN, target: '/usr/local/bin/busybox', mode: 0o755 }]);
+    await execInContainer(node.container, '/usr/local/bin/busybox inotifyd - /etc/default:cwnydm > /tmp/etc-default-events 2>&1 & echo $! > /tmp/etc-default-watch.pid');
+
     const afterId = node.getLastEventId();
     await restartFluxos(node.container);
     const { data } = await node.waitForEvent('firewall:defaultsWritten', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId });
+
+    const { stdout: events } = await execInContainer(node.container, 'kill "$(cat /tmp/etc-default-watch.pid)"; cat /tmp/etc-default-events');
+    const touching = (file) => events.split('\n').map((line) => line.split('\t')).filter((fields) => fields[2] === file).map((fields) => fields[0]);
+    expect(touching('ufw'), `/etc/default/ufw must change only by a rename into place:\n${events}`).to.deep.equal(['y']);
+    expect(touching('ufw.flux-new'), `the repair was not seen staging its copy:\n${events}`).to.include('n');
 
     expect(data.restored).to.equal(true);
     const { stdout: md5 } = await execInContainer(node.container, 'md5sum /etc/default/ufw');

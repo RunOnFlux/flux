@@ -141,7 +141,7 @@ export async function pushImage(repo, tag, markerContent = 'v1') {
 const TEST_APP_BIN = join(__dirname, '..', '..', 'test-app', 'test-app');
 // Path to the static busybox binary (see test-infra/busybox-fixture) used by app
 // containers a suite needs tools inside (docker exec /bin/busybox ...).
-const BUSYBOX_BIN = join(__dirname, '..', '..', 'busybox-fixture', 'busybox');
+export const BUSYBOX_BIN = join(__dirname, '..', '..', 'busybox-fixture', 'busybox');
 
 function buildBinaryLayerTar(binPath, binName, markerContent) {
   if (!existsSync(binPath)) {
