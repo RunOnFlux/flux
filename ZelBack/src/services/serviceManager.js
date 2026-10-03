@@ -59,6 +59,7 @@ const cloudUIUpdateService = require('./cloudUIUpdateService');
 const appTamperingBlocklistService = require('./appTamperingBlocklistService');
 const residentialNodeDosService = require('./residentialNodeDosService');
 const peerSetStabilityService = require('./peerSetStabilityService');
+const uplinkService = require('./uplinkService');
 const nodeConfirmationService = require('./nodeConfirmationService');
 const appTamperingDetectionService = require('./appTamperingDetectionService');
 const appsRuntimeState = require('./appManagement/appsRuntimeState');
@@ -638,6 +639,7 @@ async function startFluxFunctions() {
     }).catch((err) => {
       log.error(`residentialNodeDos start error: ${err.message}`);
     });
+    uplinkService.start();
     log.info('Flux checks operational');
     fluxCommunication.initializeDiscovery();
     await nodeConfirmationService.start();

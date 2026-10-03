@@ -52,6 +52,12 @@ export function dbClient(nodeNum) {
       return { total, resolved, missing, notFound };
     },
 
+    // The node's own geolocation record: what it decided about its address.
+    async nodeGeolocation() {
+      const localDb = await db('local');
+      return localDb.collection('geolocation').findOne({ _id: 'nodeGeolocation' });
+    },
+
     async explorerHeight() {
       const explorerDb = await db('explorer');
       const doc = await explorerDb.collection('scannedheight').findOne({});
