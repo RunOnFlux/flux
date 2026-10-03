@@ -5,7 +5,8 @@
 // creates an app's (fluxDockerNetwork_<app>, a 172.23.x.0/24 bridge), from a
 // static busybox image so an app can make the connections under test. The rules
 // match the bridge a packet comes from, so a bridge made this way is the bridge an
-// installed app sits on.
+// installed app sits on. The node runs with its firewall on, as nodes do, so an
+// app reaches fluxnode.service through the node's own firewall rules.
 //
 // A private destination answers nothing on the fleet network, so "blocked" is read
 // from the DROP rule's own packet counter rather than from a timeout, and every
@@ -26,6 +27,8 @@ const OTHER_NETWORK = { name: 'fluxDockerNetwork_e2eother', octet: 251 };
 // Inside 10.0.0.0/8; nothing on the fleet network holds it.
 const PRIVATE_TARGET = '10.255.255.1';
 const FLUX_NODE_SERVICE = '169.254.43.43:16101';
+// Link-local, not on the node: the cloud metadata address.
+const LINK_LOCAL_TARGET = '169.254.169.254';
 
 const subnet = getSubnetConfig();
 
@@ -58,7 +61,9 @@ describe('2502 app containers are kept off private networks', function suite() {
   }
 
   before(async function hook() {
-    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false });
+    env = await createTestEnv({
+      hookCtx: this, nodes: 1, firewall: [NODE], tickerAutostart: false,
+    });
     node = env.clients[NODE];
     await pushBusybox(IMAGE_REPO, 'v1');
     const image = `${REGISTRY_REPO_HOST}/${IMAGE_REPO}:v1`;
@@ -104,6 +109,12 @@ describe('2502 app containers are kept off private networks', function suite() {
     await inApp('fluxe2eprobe', `sh -c 'echo | /bin/busybox nc -u -w 1 ${PRIVATE_TARGET} 53'`);
     expect(await ruleHits('RETURN', 'br-+', 'udp dpt:53')).to.be.above(dnsBefore);
     expect(await ruleHits('DROP', 'br-+', '10.0.0.0/8')).to.equal(dropBefore);
+  });
+
+  it('drops an app\'s connection to a link-local address off the node', async () => {
+    const before = await ruleHits('DROP', 'br-+', '169.254.0.0/16');
+    expect(await tcpConnects('fluxe2eprobe', LINK_LOCAL_TARGET, 80)).to.equal(false);
+    expect(await ruleHits('DROP', 'br-+', '169.254.0.0/16')).to.be.above(before);
   });
 
   it('still lets an app reach fluxnode.service on the node', async () => {
