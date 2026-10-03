@@ -2,6 +2,8 @@
 // file runs as an entry point of its own under `require.main === module`, so it settles
 // the environment rather than relying on whoever required it having done so.
 require('./ZelBack/pinEnvironment');
+// Before anything connects: how this thread opens outbound connections.
+require('./ZelBack/src/services/utils/networkDefaults').applyNetworkDefaults();
 
 const configManager = require('./ZelBack/src/services/utils/configManager');
 
@@ -36,7 +38,6 @@ const messageStore = require('./ZelBack/src/services/appMessaging/messageStore')
 const { AppSyncOrchestrator } = require('./ZelBack/src/services/appMessaging/appSyncOrchestrator');
 const { SIGTERM_EXPIRY_MS } = require('./ZelBack/src/services/utils/appConstants');
 const verifyPool = require('./ZelBack/src/services/utils/verifyPool');
-const networkDefaults = require('./ZelBack/src/services/utils/networkDefaults');
 
 const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = +apiPort + 1;
@@ -240,11 +241,6 @@ async function initiate() {
 
     logErrorAndExit(err, { exitCode: 1 });
   });
-
-  // Far nodes without IPv6 could not reach Docker Hub at Node's 250 ms per address.
-  if (networkDefaults.setConnectAttemptTimeout()) {
-    log.info(`Connect attempt timeout per address set to ${networkDefaults.CONNECT_ATTEMPT_TIMEOUT_MS}ms`);
-  }
 
   await createDnsCache();
 
