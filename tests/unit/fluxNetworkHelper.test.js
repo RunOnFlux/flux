@@ -3523,5 +3523,47 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(result).to.equal(true);
     });
+
+    it('finds a public address bound under a label on the default-route interface', async () => {
+      const routeTable = 'Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n'
+        + 'eth0\t00000000\t0101A8C0\t0003\t0\t0\t0\t00000000\t0\t0\t0\n';
+      const readFile = sinon.stub(fs, 'readFile');
+      readFile.withArgs('/proc/net/route', 'utf8').resolves(routeTable);
+      readFile.withArgs('/sys/class/net/eth0/operstate', 'utf8').resolves('up\n');
+      sinon.stub(os, 'networkInterfaces').returns({
+        eth0: [{ family: 'IPv4', internal: false, address: '192.168.1.50' }],
+        'eth0:1': [{ family: 'IPv4', internal: false, address: '203.0.113.7' }],
+      });
+
+      const result = await fluxNetworkHelper.hasPublicIpOnInterface();
+
+      expect(result).to.equal(true);
+    });
+
+    it('does not count a public address on a label of another interface', async () => {
+      const routeTable = 'Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n'
+        + 'eth0\t00000000\t0101A8C0\t0003\t0\t0\t0\t00000000\t0\t0\t0\n';
+      const readFile = sinon.stub(fs, 'readFile');
+      readFile.withArgs('/proc/net/route', 'utf8').resolves(routeTable);
+      readFile.withArgs('/sys/class/net/eth0/operstate', 'utf8').resolves('up\n');
+      sinon.stub(os, 'networkInterfaces').returns({
+        eth0: [{ family: 'IPv4', internal: false, address: '192.168.1.50' }],
+        'eth01:1': [{ family: 'IPv4', internal: false, address: '203.0.113.7' }],
+      });
+
+      const result = await fluxNetworkHelper.hasPublicIpOnInterface();
+
+      expect(result).to.equal(false);
+    });
+  });
+
+  describe('interfaceDevice', () => {
+    it('names the device a labelled address is bound on', () => {
+      expect(fluxNetworkHelper.interfaceDevice('eth0:1')).to.equal('eth0');
+    });
+
+    it('names an unlabelled interface as itself', () => {
+      expect(fluxNetworkHelper.interfaceDevice('enp3s0')).to.equal('enp3s0');
+    });
   });
 });
