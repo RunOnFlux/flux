@@ -10,7 +10,6 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
-import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const LEGACY = 0;
@@ -32,12 +31,8 @@ describe('2501 firewalled nodes', function suite() {
     return stdout;
   }
 
-  // Port 80 inbound is opened by FluxOS's adjustFirewall and by neither baseline.
-  async function waitForFluxosRules(index) {
-    await waitFor(async () => /^80\s+ALLOW IN\s+Anywhere\s*$/m.test(await ufwStatus(index)), {
-      timeout: FLUXOS_RULES_TIMEOUT_MS, interval: 3000, label: `FluxOS's own firewall rules on node ${index}`,
-    });
-  }
+  // Published once FluxOS has applied its rules to an active firewall.
+  const firewallAdjusted = (index) => env.clients[index].waitForEvent('firewall:adjusted', () => true, FLUXOS_RULES_TIMEOUT_MS);
 
   before(async function hook() {
     env = await createTestEnv({
@@ -71,15 +66,20 @@ describe('2501 firewalled nodes', function suite() {
   });
 
   it('lets FluxOS add its own rules on both', async () => {
-    await waitForFluxosRules(LEGACY);
-    await waitForFluxosRules(ARCANE);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const index of [LEGACY, ARCANE]) {
+      // eslint-disable-next-line no-await-in-loop
+      await firewallAdjusted(index);
+      // Port 80 inbound is opened by FluxOS's adjustFirewall and by neither baseline.
+      // eslint-disable-next-line no-await-in-loop
+      expect(await ufwStatus(index), `FluxOS's own rules on node ${index}`).to.match(/^80\s+ALLOW IN\s+Anywhere\s*$/m);
+    }
   });
 
   it('leaves no outbound rule once FluxOS has run, the default allow governing outbound', async () => {
-    await waitForFluxosRules(LEGACY);
-    await waitFor(() => env.nodeHasLog(LEGACY, /Firewall outbound rules removed: [1-9]/), {
-      timeout: FLUXOS_RULES_TIMEOUT_MS, interval: 3000, label: 'the legacy installer\'s outbound rules removed',
-    });
+    const { data } = await firewallAdjusted(LEGACY);
+    expect(data.outboundRemoved, 'the legacy installer\'s outbound rules removed').to.be.above(0);
+    await firewallAdjusted(ARCANE);
     // eslint-disable-next-line no-restricted-syntax
     for (const index of [LEGACY, ARCANE]) {
       // eslint-disable-next-line no-await-in-loop
@@ -90,9 +90,9 @@ describe('2501 firewalled nodes', function suite() {
   });
 
   it('opens the maintenance port by its FluxadmSSH profile on the Arcane node only', async () => {
-    await waitFor(async () => new RegExp(`^${FLUXADM_PORT}/tcp \\(FluxadmSSH\\)\\s+ALLOW IN`, 'm').test(await ufwStatus(ARCANE)), {
-      timeout: FLUXOS_RULES_TIMEOUT_MS, interval: 3000, label: 'the FluxadmSSH rule on the Arcane node',
-    });
+    await firewallAdjusted(ARCANE);
+    await firewallAdjusted(LEGACY);
+    expect(await ufwStatus(ARCANE)).to.match(new RegExp(`^${FLUXADM_PORT}/tcp \\(FluxadmSSH\\)\\s+ALLOW IN`, 'm'));
     expect(await ufwStatus(LEGACY)).to.not.match(/FluxadmSSH/);
   });
 
