@@ -8,9 +8,12 @@ const nodecmd = require('node-cmd');
 const util = require('util');
 
 const log = require('../lib/log');
+const fluxadmPort = require('./fluxadmPort');
 const { Privilege, authOf } = require('./utils/privileges');
 
 const client = new natUpnp.Client();
+
+const FLUXADM_MAPPING_DESCRIPTION = 'Flux_Fluxadm_SSH';
 
 if (config.upnp.gatewayUrl) {
   // eslint-disable-next-line global-require
@@ -165,6 +168,41 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
 }
 
 /**
+ * Maps the maintenance sshd's port (apiport - 5) while maintenance access is
+ * configured on this node, and otherwise removes a mapping of that port only
+ * when this code made it - a node owner's own mapping of the same port keeps.
+ * ArcaneOS maps its own and is never touched. A failure here is logged and
+ * never fails the core mapping it runs beside.
+ * @param {number|string} apiport
+ * @returns {Promise<void>}
+ */
+async function reconcileFluxadmMapping(apiport) {
+  if (fluxadmPort.isArcane) return;
+  const port = fluxadmPort.sshPortFor(apiport);
+  try {
+    if (fluxadmPort.accessConfigured()) {
+      await client.createMapping({
+        public: port,
+        private: port,
+        ttl: 0,
+        description: FLUXADM_MAPPING_DESCRIPTION,
+      });
+      return;
+    }
+    const mappings = await client.getMappings();
+    const ours = mappings.some((mapping) => mapping.local
+      && mapping.public.port === port
+      && mapping.description === FLUXADM_MAPPING_DESCRIPTION);
+    if (ours) {
+      await client.removeMapping({ public: port, protocol: 'TCP' });
+      log.info(`fluxadm access - UPnP mapping for port ${port} removed`);
+    }
+  } catch (error) {
+    log.error(`fluxadm access - UPnP mapping for port ${port} failed: ${error.message}`);
+  }
+}
+
+/**
  * To set up UPnP (Universal Plug and Play) support.
  * @param {number} apiport Port number.
  * @returns {Promise<boolean>} True if port mappings can be set. Otherwise false.
@@ -206,6 +244,8 @@ async function setupUPNP(apiport = config.server.apiport) {
     });
 
     await serviceHelper.delay(500);
+
+    await reconcileFluxadmMapping(apiport);
 
     return true;
   } catch (error) {

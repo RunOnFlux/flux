@@ -1,0 +1,24 @@
+[Unit]
+# The unit carries the production unit's name.
+Description=FluxOS (harness node, systemd mode)
+After=dockerd.service
+Wants=dockerd.service
+
+[Service]
+# User= is what makes systemd set HOME, and a legacy node finds its install at
+# $HOME/zelflux (the image links /root/zelflux to /flux).
+User=root
+WorkingDirectory=/flux
+# Container env does not cross into systemd services (the manager
+# environment arrives empty) — the entrypoint dumps it here before
+# exec'ing systemd.
+EnvironmentFile=/etc/fluxos-harness.env
+# Mirror the legacy entrypoint's gate: FluxOS boots only once the inner
+# dockerd answers.
+ExecStartPre=/bin/bash -c 'for i in $$(seq 1 30); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; echo "dockerd not ready" >&2; exit 1'
+ExecStart=/usr/bin/node app.js
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

@@ -23,6 +23,9 @@ module.exports = {
     apiport: 16127, // homeport is -1, ssl port is +1
     fluxNodeServiceAddress: '169.254.43.43',
   },
+  fluxadm: {
+    sshAuthorizedKeys: [],
+  },
   database: {
     url: database,
     port: 27017,

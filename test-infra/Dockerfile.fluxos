@@ -45,6 +45,9 @@ RUN set -eu; \
     socat \
     iptables \
     e2fsprogs \
+    systemd \
+    dbus \
+    openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 RUN install -m 0755 -d /etc/apt/keyrings \
@@ -97,7 +100,7 @@ RUN gpg --dearmor -o /usr/share/keyrings/syncthing-archive-keyring.gpg /tmp/sync
     && apt-get update \
     && apt-get install -y --no-install-recommends dpkg-dev apt-utils \
     && rm -rf /var/cache/apt/archives/*.deb \
-    && apt-get install -y --download-only chrony syncthing netcat-openbsd \
+    && apt-get install -y --download-only chrony syncthing netcat-openbsd openssh-server libpam-systemd \
     && chmod +x /usr/local/bin/build-apt-repo.sh \
     && /usr/local/bin/build-apt-repo.sh /opt/flux-apt-repo
 
@@ -120,7 +123,12 @@ COPY --from=debcache /opt/flux-apt-repo /opt/flux-apt-repo
 # config, so the keyring fetch, the source write and apt's HTTP transport are
 # all exercised as they are on a node.
 #
-# Seeded here, so a normal fleet boots into the steady state.
+# Seeded here, so a normal fleet boots into the steady state. openssh-server is
+# served but never seeded: a legacy node installs it itself when maintenance
+# access is configured, and that install is part of what the suite exercises.
+# libpam-systemd is served but never seeded either: a node without it keeps an
+# ssh session in the sshd unit's cgroup, a node with it gives the session its
+# own logind scope, and a suite installs it where it needs the second shape.
 RUN rm -f /etc/apt/sources.list.d/* /etc/apt/sources.list \
     && cp /opt/flux-apt-repo/keyring.gpg /usr/share/keyrings/flux-e2e-archive-keyring.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/flux-e2e-archive-keyring.gpg] file:///opt/flux-apt-repo ubuntu main" \

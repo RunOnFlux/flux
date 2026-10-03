@@ -93,6 +93,11 @@ export function dumpLogsOnFailure(getEnv) {
     const cgroupsByEnv = await Promise.all(envs.map((env) => cgroupState(env).catch(
       (err) => `cgroup probe failed: ${err.message}\n`,
     )));
+    // A systemd-mode node's FluxOS writes to its journal, never to the container
+    // stream the log collectors read; see env.nodeJournals.
+    const journalsByEnv = await Promise.all(envs.map((env) => env.nodeJournals().catch(
+      (err) => [{ index: 0, text: `journal read failed: ${err.message}\n` }],
+    )));
 
     const written = [];
     envs.forEach((env, e) => {
@@ -125,6 +130,12 @@ export function dumpLogsOnFailure(getEnv) {
         const file = join(dir, `${prefix}node-${String(index).padStart(2, '0')}.log`);
         writeFileSync(file, `${parts.join('\n')}\n`);
         written.push(`${file} (${lines.length} lines, ${events.length} events)`);
+      }
+      for (const { index, text } of journalsByEnv[e]) {
+        if (!text.trim()) continue;
+        const file = join(dir, `${prefix}node-${String(index).padStart(2, '0')}-journal.log`);
+        writeFileSync(file, text.endsWith('\n') ? text : `${text}\n`);
+        written.push(`${file} (${text.trimEnd().split('\n').length} lines)`);
       }
     });
 

@@ -195,6 +195,7 @@ export function nodeClient(nodeNum) {
         'dos:changed',
         'explorer:ready',
         'firewall:adjusted',
+        'fluxadm:pass',
         'firewall:containerEgressApplied',
         'firewall:defaultsWritten',
         'fileops:recovered',
