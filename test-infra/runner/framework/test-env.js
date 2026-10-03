@@ -313,6 +313,7 @@ class StaticIpContainer extends GenericContainer {
       // does not serve ends up.
       this.hostConfig.Dns = [this.#dnsServer];
     }
+    if (this.#stopSignal) this.createOpts.StopSignal = this.#stopSignal;
     if (this.#staticIp && this.#networkName) {
       this.createOpts.NetworkingConfig = {
         EndpointsConfig: {
