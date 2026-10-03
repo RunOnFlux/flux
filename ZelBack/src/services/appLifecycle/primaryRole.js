@@ -12,7 +12,8 @@ const changes = require('./primaryRoleChanges');
 // is made of - the folder, which syncthing owns, and the container, which the
 // reconciler owns. Becoming primary, the folder sends before the container is
 // asked to run. Standing down, the container stops before the folder stops
-// sending, and the folder is not scanned: what it had not yet sent is discarded.
+// sending, and the folder is not scanned: what syncthing had not yet scanned is
+// discarded.
 //
 // One change per component at a time. A request to become primary while one is in
 // progress, or while this node already is, is refused, so an election pass that
@@ -111,8 +112,10 @@ async function sendThenRun(identifier, appId, change) {
 // the component, so this node and that one have both been writing it - a network
 // split, or two nodes starting it at once. The elected node's copy is kept. This
 // node's folder receives as soon as its container has stopped, unscanned, so
-// what it had not yet sent is discarded rather than sent over the elected copy,
-// and from then on one folder sends.
+// what syncthing had not yet scanned is discarded rather than sent over the
+// elected copy, and from then on one folder sends. A change it had already
+// scanned is in its index, which receiving does not withdraw: it reaches the
+// elected copy when the two reconnect.
 async function stopThenReceive(identifier, appId) {
   await appReconciler.setControllerDesiredAndWait(identifier, 'stopped', 'masterSlave standby');
   // Docker unreachable and a state it cannot read both answer running: false, and
