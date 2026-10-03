@@ -8,6 +8,8 @@ const { expect } = chai;
 const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
 const { FluxPeerManager, peerManager } = require('../../ZelBack/src/services/utils/FluxPeerManager');
 const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+const log = require('../../ZelBack/src/lib/log');
 const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
 const { NetworkHealthMonitor } = require('../../ZelBack/src/services/utils/NetworkHealthMonitor');
 // Loaded for its side effect: the transport declares the routing table as it loads, and the
@@ -1912,6 +1914,166 @@ describe('FluxPeerManager tests', () => {
 
       expect(manager.has('8.8.8.8:16127')).to.equal(true);
     });
+
+    // Both ends dialed at once: this node holds its own outbound dial to the peer
+    // when the peer's dial arrives. The pair keeps the one the lower address dialed.
+    describe('an inbound dial crossing a held outbound one', () => {
+      let held;
+      let crossing;
+
+      beforeEach(() => {
+        manager.numberOfFluxNodes = 10000;
+        held = createMockWs('8.8.8.8', '16127');
+        manager.add(held, '8.8.8.8', '16127', { source: PEER_SOURCE.DETERMINISTIC });
+        expect(manager.get('8.8.8.8:16127').direction, 'the held connection is this node\'s dial').to.equal(DIRECTION.OUTBOUND);
+        crossing = createMockWs('8.8.8.8', '16127');
+      });
+
+      it('replaces the held outbound when the peer has the lower address', () => {
+        manager.setOwnSocketAddress('9.9.9.9:16127');
+        const resolve = sinon.spy(manager, 'resolveCrossing');
+
+        manager.validateAndAddInbound(crossing, '16127', createMockReq('8.8.8.8'));
+
+        sinon.assert.calledOnceWithExactly(resolve, sinon.match({ key: '8.8.8.8:16127' }), DIRECTION.INBOUND);
+
+        expect(manager.get('8.8.8.8:16127').direction).to.equal(DIRECTION.INBOUND);
+        expect(manager.outboundCount).to.equal(0);
+        expect(manager.inboundCount).to.equal(1);
+        sinon.assert.calledWith(held.close, CLOSE_CODES.DUPLICATE_PEER);
+        sinon.assert.notCalled(crossing.close);
+      });
+
+      it('refuses the inbound when this node has the lower address', (done) => {
+        manager.setOwnSocketAddress('1.1.1.1:16127');
+        const resolve = sinon.spy(manager, 'resolveCrossing');
+
+        manager.validateAndAddInbound(crossing, '16127', createMockReq('8.8.8.8'));
+
+        sinon.assert.calledOnceWithExactly(resolve, sinon.match({ key: '8.8.8.8:16127' }), DIRECTION.INBOUND);
+
+        setTimeout(() => {
+          sinon.assert.calledWith(crossing.close, CLOSE_CODES.DUPLICATE_PEER, sinon.match(/already connected/));
+          sinon.assert.notCalled(held.close);
+          expect(manager.get('8.8.8.8:16127').direction).to.equal(DIRECTION.OUTBOUND);
+          done();
+        }, 1100);
+      });
+
+      it('keeps the held outbound while this node does not know its own address', (done) => {
+        manager.setOwnSocketAddress(null);
+
+        manager.validateAndAddInbound(crossing, '16127', createMockReq('8.8.8.8'));
+
+        setTimeout(() => {
+          sinon.assert.calledWith(crossing.close, CLOSE_CODES.DUPLICATE_PEER, sinon.match(/already connected/));
+          sinon.assert.notCalled(held.close);
+          expect(manager.get('8.8.8.8:16127').direction).to.equal(DIRECTION.OUTBOUND);
+          done();
+        }, 1100);
+      });
+    });
+  });
+
+  describe('the crossing tie-break', () => {
+    const peer = (direction, alive = true) => ({ key: '8.8.8.8:16127', direction, isAlive: alive });
+
+    it('keeps the connection this node dialed when this node has the lower address', () => {
+      manager.setOwnSocketAddress('1.1.1.1:16127');
+      expect(manager.crossingSurvivor('8.8.8.8:16127')).to.equal(DIRECTION.OUTBOUND);
+    });
+
+    it('keeps the connection the peer dialed when the peer has the lower address', () => {
+      manager.setOwnSocketAddress('9.9.9.9:16127');
+      expect(manager.crossingSurvivor('8.8.8.8:16127')).to.equal(DIRECTION.INBOUND);
+    });
+
+    it('orders two nodes on one IP by port', () => {
+      manager.setOwnSocketAddress('8.8.8.8:16137');
+      expect(manager.crossingSurvivor('8.8.8.8:16127')).to.equal(DIRECTION.INBOUND);
+    });
+
+    it('names no survivor while this node does not know its own address', () => {
+      manager.setOwnSocketAddress(null);
+      expect(manager.crossingSurvivor('8.8.8.8:16127')).to.equal(null);
+    });
+
+    it('lets a newcomer replace a held connection that is no longer alive', () => {
+      manager.setOwnSocketAddress(null);
+      expect(manager.newcomerReplaces(peer(DIRECTION.INBOUND, false), DIRECTION.INBOUND)).to.equal(true);
+      expect(manager.newcomerReplaces(peer(DIRECTION.OUTBOUND, false), DIRECTION.INBOUND)).to.equal(true);
+    });
+
+    it('never lets a newcomer replace a live held connection in the same direction', () => {
+      manager.setOwnSocketAddress('1.1.1.1:16127');
+      expect(manager.newcomerReplaces(peer(DIRECTION.OUTBOUND), DIRECTION.OUTBOUND)).to.equal(false);
+      expect(manager.newcomerReplaces(peer(DIRECTION.INBOUND), DIRECTION.INBOUND)).to.equal(false);
+    });
+
+    it('settles a crossing on the same connection at both ends', () => {
+      // This node at 1.1.1.1 and the peer at 8.8.8.8 each hold one of the two
+      // connections when the other arrives, in either order: both keep 1.1.1.1's dial.
+      manager.setOwnSocketAddress('1.1.1.1:16127');
+      expect(manager.newcomerReplaces(peer(DIRECTION.INBOUND), DIRECTION.OUTBOUND), 'here, own dial beats the held inbound').to.equal(true);
+      expect(manager.newcomerReplaces(peer(DIRECTION.OUTBOUND), DIRECTION.INBOUND), 'here, the held own dial stays').to.equal(false);
+      const far = new FluxPeerManager();
+      far.setOwnSocketAddress('8.8.8.8:16127');
+      const nearPeer = (direction) => ({ key: '1.1.1.1:16127', direction, isAlive: true });
+      expect(far.newcomerReplaces(nearPeer(DIRECTION.OUTBOUND), DIRECTION.INBOUND), 'there, 1.1.1.1\'s dial beats the held own dial').to.equal(true);
+      expect(far.newcomerReplaces(nearPeer(DIRECTION.INBOUND), DIRECTION.OUTBOUND), 'there, the held 1.1.1.1 dial stays').to.equal(false);
+    });
+  });
+
+  describe('resolveCrossing: one report per crossing', () => {
+    const held = (direction, alive = true) => ({ key: '8.8.8.8:16127', direction, isAlive: alive });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    // Every way a crossing settles: which path decides it, and which side of the
+    // peer this node's address falls on.
+    const outcomes = [
+      { own: '1.1.1.1:16127', newcomer: DIRECTION.OUTBOUND, held: DIRECTION.INBOUND, replaces: true, kept: DIRECTION.OUTBOUND },
+      { own: '1.1.1.1:16127', newcomer: DIRECTION.INBOUND, held: DIRECTION.OUTBOUND, replaces: false, kept: DIRECTION.OUTBOUND },
+      { own: '9.9.9.9:16127', newcomer: DIRECTION.INBOUND, held: DIRECTION.OUTBOUND, replaces: true, kept: DIRECTION.INBOUND },
+      { own: '9.9.9.9:16127', newcomer: DIRECTION.OUTBOUND, held: DIRECTION.INBOUND, replaces: false, kept: DIRECTION.INBOUND },
+    ];
+    outcomes.forEach((o) => {
+      it(`reports once when the ${o.newcomer} path keeps the ${o.kept} connection`, () => {
+        manager.setOwnSocketAddress(o.own);
+        const info = sinon.stub(log, 'info');
+        const count = sinon.stub(fluxEventBus, 'count');
+
+        expect(manager.resolveCrossing(held(o.held), o.newcomer)).to.equal(o.replaces);
+
+        sinon.assert.calledOnceWithExactly(info, `Crossing connections with 8.8.8.8:16127: keeping the ${o.kept} one, dialed by the lower address`);
+        sinon.assert.calledOnceWithExactly(count, 'peers:crossing', o.kept);
+      });
+    });
+
+    it('says why the held connection stays while this node does not know its own address', () => {
+      manager.setOwnSocketAddress(null);
+      const info = sinon.stub(log, 'info');
+      const count = sinon.stub(fluxEventBus, 'count');
+
+      expect(manager.resolveCrossing(held(DIRECTION.INBOUND), DIRECTION.OUTBOUND)).to.equal(false);
+
+      sinon.assert.calledOnceWithExactly(info, 'Crossing connections with 8.8.8.8:16127: keeping the inbound one, held, as this node does not know its own address');
+      sinon.assert.calledOnceWithExactly(count, 'peers:crossing', DIRECTION.INBOUND);
+    });
+
+    it('reports nothing when the two are not a crossing', () => {
+      manager.setOwnSocketAddress('1.1.1.1:16127');
+      const info = sinon.stub(log, 'info');
+      const count = sinon.stub(fluxEventBus, 'count');
+
+      expect(manager.resolveCrossing(held(DIRECTION.INBOUND, false), DIRECTION.OUTBOUND), 'a dead held connection is replaced').to.equal(true);
+      expect(manager.resolveCrossing(held(DIRECTION.INBOUND), DIRECTION.INBOUND), 'a live one in the same direction stays').to.equal(false);
+
+      sinon.assert.notCalled(info);
+      sinon.assert.notCalled(count);
+    });
   });
 
   describe('getReconnectCandidates', () => {
@@ -2215,6 +2377,51 @@ describe('FluxPeerManager tests', () => {
 
       const current = manager.get('8.8.8.8:16127');
       expect(current.ws).to.equal(ws2);
+    });
+
+    it('keeps a slow existing connection when the peer closes the one it dialed', (done) => {
+      // A crossing: this node at 1.1.1.1 holds its own dial, and the peer's
+      // reconnect dial arrives. The existing connection is alive but its pong is
+      // late; the peer, holding this node's dial, keeps it and closes its own.
+      manager.numberOfFluxNodes = 10000;
+      manager.setOwnSocketAddress('1.1.1.1:16127');
+      const held = createMockWs('8.8.8.8', '16127');
+      manager.add(held, '8.8.8.8', '16127', { source: PEER_SOURCE.DETERMINISTIC });
+      const original = manager.get('8.8.8.8:16127');
+      const ownPongListeners = held.listenerCount('pong');
+
+      const dial = createMockWs('8.8.8.8', '16127');
+      manager.validateAndAddInbound(dial, '16127', createMockReq('8.8.8.8', { 'x-flux-reconnect': 'true' }));
+      sinon.assert.calledOnce(held.ping);
+      setTimeout(() => dial.emit('close', CLOSE_CODES.DUPLICATE_PEER), 50);
+
+      setTimeout(() => {
+        expect(manager.get('8.8.8.8:16127')).to.equal(original);
+        expect(original.ws).to.equal(held);
+        sinon.assert.notCalled(held.close);
+        expect(held.listenerCount('pong'), 'the late pong finds nothing waiting').to.equal(ownPongListeners);
+        done();
+      }, 1200);
+    });
+
+    it('stops listening to the new socket once the existing connection answers', (done) => {
+      manager.numberOfFluxNodes = 10000;
+      const ws1 = createMockWs('8.8.8.8', '16127');
+      manager.add(ws1, '8.8.8.8', '16127', { source: PEER_SOURCE.INBOUND });
+      const ownPongListeners = ws1.listenerCount('pong');
+
+      const ws2 = createMockWs('8.8.8.8', '16127');
+      manager.validateAndAddInbound(ws2, '16127', createMockReq('8.8.8.8', { 'x-flux-reconnect': 'true' }));
+      expect(ws2.listenerCount('close'), 'waiting on the peer\'s verdict').to.equal(1);
+      expect(ws1.listenerCount('pong'), 'waiting on the pong').to.equal(ownPongListeners + 1);
+      ws1.emit('pong');
+
+      expect(ws2.listenerCount('close')).to.equal(0);
+      expect(ws1.listenerCount('pong')).to.equal(ownPongListeners);
+      setTimeout(() => {
+        expect(manager.get('8.8.8.8:16127').ws).to.equal(ws1);
+        done();
+      }, 1200);
     });
 
     it('should reject immediately when no X-Flux-Reconnect header', () => {
