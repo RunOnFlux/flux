@@ -3,6 +3,7 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
 const { expect } = require('chai');
 const sinon = require('sinon');
+const { performance } = require('perf_hooks');
 const { resetGlobalState } = require('./fixtures/globalState');
 const axios = require('axios');
 const config = require('config');
@@ -20,6 +21,7 @@ const primaryRole = require('../../ZelBack/src/services/appLifecycle/primaryRole
 const primaryRoleChanges = require('../../ZelBack/src/services/appLifecycle/primaryRoleChanges');
 const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
 const syncthingFolderStateMachine = require('../../ZelBack/src/services/appMonitoring/syncthingFolderStateMachine');
+const { RECONNECT_GRACE_MS } = require('../../ZelBack/src/services/appMonitoring/peerFolderLiveness');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 // The operator stop lock as appsRuntimeState.operatorStopState answers it.
@@ -2325,6 +2327,88 @@ describe('advancedWorkflows tests', () => {
       await runPass();
 
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+    });
+
+    // A syncthing that started after a peer's connection closed has no closing
+    // of its own to read; the peer counts as gone once it has stayed away for
+    // the grace, measured on this FluxOS's own clock from when it first read
+    // that syncthing.
+    describe('a silent peer this node\'s syncthing has not seen since it started', () => {
+      const PEER = '192.168.1.90:16127';
+      let monotonicNow;
+
+      beforeEach(() => {
+        monotonicNow = sinon.stub(performance, 'now').returns(1000);
+      });
+
+      const restartedAfterThePeerClosed = (appName, startTime, options) => {
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        peerSyncthingSays(PEER, 'unknown', options);
+        syncthingStatusStub.resolves({ startTime });
+        return runPass;
+      };
+
+      it('starts once the peer has not reconnected for longer than the grace', async () => {
+        const logInfo = sinon.stub(log, 'info');
+        const runPass = restartedAfterThePeerClosed('gracepassedapp', '2026-09-25T14:00:30Z');
+
+        await runPass();
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+
+        monotonicNow.returns(1000 + RECONNECT_GRACE_MS + 1);
+        await runPass();
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+      });
+
+      it('will not start while the grace has not passed', async () => {
+        const logInfo = sinon.stub(log, 'info');
+        const runPass = restartedAfterThePeerClosed('graceheldapp', '2026-09-25T14:01:30Z');
+
+        await runPass();
+        monotonicNow.returns(1000 + RECONNECT_GRACE_MS);
+        await runPass();
+
+        expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(2);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      });
+
+      it('counts the grace from when this FluxOS first read the syncthing, not from its start time', async () => {
+        const logInfo = sinon.stub(log, 'info');
+        monotonicNow.returns(1000 + 10 * RECONNECT_GRACE_MS);
+        const runPass = restartedAfterThePeerClosed('gracefromfirstreadapp', '2026-09-25T14:02:30Z');
+
+        await runPass();
+
+        expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      });
+
+      it('starts the grace again when syncthing restarts again', async () => {
+        const logInfo = sinon.stub(log, 'info');
+        const runPass = restartedAfterThePeerClosed('gracerestartedapp', '2026-09-25T14:03:30Z');
+
+        await runPass();
+        monotonicNow.returns(1000 + RECONNECT_GRACE_MS + 1);
+        syncthingStatusStub.resolves({ startTime: '2026-09-25T14:09:30Z' });
+        await runPass();
+
+        expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(2);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      });
+
+      it('will not start beside a peer this node\'s syncthing was never connected to, however long it waits', async () => {
+        const logInfo = sinon.stub(log, 'info');
+        const runPass = restartedAfterThePeerClosed('gracenevermetapp', '2026-09-25T14:04:30Z', { everConnected: false });
+
+        await runPass();
+        monotonicNow.returns(1000 + 10 * RECONNECT_GRACE_MS);
+        await runPass();
+
+        expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(2);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      });
     });
 
     it('will not start beside a silent peer when this node cannot read when its syncthing started', async () => {

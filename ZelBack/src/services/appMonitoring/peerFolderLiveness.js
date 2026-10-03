@@ -14,6 +14,7 @@
 // is the one thing here that must not be remembered: carried into the next pass
 // it would report a recovered holder as dead, or a dead one as serving, which is
 // the judgement this whole path exists to make.
+const { performance } = require('perf_hooks');
 const axios = require('axios');
 const log = require('../../lib/log');
 const fluxCommunication = require('../fluxCommunication');
@@ -22,6 +23,7 @@ const globalState = require('../utils/globalState');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 const { nodeSigner } = require('../utils/nodeSigner');
 const peerIdentityService = require('../peerIdentityService');
+const { SIGTERM_EXPIRY_MS } = require('../utils/appConstants');
 
 // Bounded because this runs on the pass a node is about to promote, and a slow
 // peer must not hold the promotion open.
@@ -265,6 +267,29 @@ function createPeerFolderLiveness() {
   };
 }
 
+// How long this node's syncthing must have been up before a peer it was once
+// connected to, and has not reconnected to since, counts as gone: the time the
+// network gives a node to come back from a restart. A live peer redials within
+// a minute or two.
+const RECONNECT_GRACE_MS = SIGTERM_EXPIRY_MS;
+
+// The syncthing start time this FluxOS last read, and when it first read it on
+// its own monotonic clock: never earlier than that syncthing started, and not
+// moved when the system clock is stepped, as it is on a node that booted with
+// a wrong clock and then synced it.
+let observedSyncthing = { startTime: null, atMs: 0 };
+
+/**
+ * How long this FluxOS has known the syncthing that started at `startTime`.
+ * @param {string} startTime syncthing's own start time, as it reports it
+ * @returns {number} milliseconds
+ */
+function msSinceSyncthingObserved(startTime) {
+  const now = performance.now();
+  if (observedSyncthing.startTime !== startTime) observedSyncthing = { startTime, atMs: now };
+  return now - observedSyncthing.atMs;
+}
+
 const PeerConnection = Object.freeze({
   CONNECTED: 'connected',
   DISCONNECTED: 'disconnected',
@@ -326,8 +351,10 @@ async function peerDeviceId(peerIp) {
  * yet, and reading that as a closed connection would let it start beside a
  * primary whose FluxOS is only restarting. Nor does a connection this node's
  * syncthing closed by pausing the device, as a syncthing started paused does
- * with every device until the monitor resumes them, nor one that closed before
- * this node's syncthing last started.
+ * with every device until the monitor resumes them. A connection that closed
+ * before this node's syncthing last started is 'disconnected' only once this
+ * FluxOS has known that syncthing for RECONNECT_GRACE_MS and the peer has not
+ * reconnected to it.
  * Collapsing 'unknown' into 'disconnected' would let the one node with the
  * least knowledge authorise a second writer.
  *
@@ -361,14 +388,23 @@ async function peerSyncthingConnection(folderId, peerIp) {
   const stats = await syncthingService.getDeviceStats().catch(() => null);
   const lastSeen = Date.parse(stats?.[deviceId]?.lastSeen);
 
-  // A connection closed before this syncthing started - or never open, which
-  // syncthing records as 1970 - says nothing about the peer now: a syncthing
-  // that has just started has not reconnected to anyone. Both times are rounded
-  // down to the second, so one closed as the previous syncthing stopped can read
-  // the same second as this one's start; only a later second is evidence.
+  // Both times are rounded down to the second, so a connection closed as the
+  // previous syncthing stopped can read the same second as this one's start;
+  // only a later second is a closing this syncthing saw.
   const status = await syncthingService.getSystemStatus().catch(() => null);
   const startedAt = Date.parse(status?.startTime);
-  return startedAt > 0 && lastSeen > startedAt ? PeerConnection.DISCONNECTED : PeerConnection.UNKNOWN;
+  if (!(startedAt > 0)) return PeerConnection.UNKNOWN;
+  if (lastSeen > startedAt) return PeerConnection.DISCONNECTED;
+
+  // One that closed before this syncthing started says nothing at first: a
+  // syncthing that has just started has not reconnected to anyone. A peer that
+  // has still not reconnected once the grace has passed is gone. One never
+  // connected, which syncthing records as 1970, may be a node placed minutes
+  // ago that has not reached this one yet.
+  if (lastSeen > 0 && msSinceSyncthingObserved(status.startTime) > RECONNECT_GRACE_MS) {
+    return PeerConnection.DISCONNECTED;
+  }
+  return PeerConnection.UNKNOWN;
 }
 
 /**
@@ -406,4 +442,5 @@ module.exports = {
   SilenceVerdict,
   PROBE_TIMEOUT_MS,
   MIN_RESPONDING_PEER_FRACTION,
+  RECONNECT_GRACE_MS,
 };
