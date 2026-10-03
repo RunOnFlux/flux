@@ -142,15 +142,18 @@ function publishWritable(writable) {
 // same folder takes to run - both walk the same tree - and that case the
 // periodic rescan still covers.
 //
-// The scans run once the write has let the folder go: they write no config, so
-// the next write to the folder waits only for this one, never for its scans -
-// a safety demotion included. The write's caller waits for them, so a
-// promotion's container starts only once its folder's restart is covered, and
-// the app's first writes land where syncthing will see them. A later write that
-// restarts the folder cuts a scan short; if it leaves the folder sending it
-// covers that restart itself, with scans of the whole folder. A receiving
-// folder is not covered - nothing written there leaves this node - nor is a
-// paused one, which syncthing does not scan.
+// Nothing waits for the scans. They write no config, so the next write to the
+// folder - a safety demotion included - waits only for the write before it. And
+// the guarantee does not depend on what the app does meanwhile: a file written
+// before the second scan starts is found by it, and one written after is the
+// watcher's. So a write returns once syncthing has it, and an app restarts on its
+// folder at once.
+//
+// One cover runs per folder. A restart while one runs is covered by one more,
+// after it: each scans the whole folder. A later write that restarts the folder
+// cuts a scan short, which is logged and counted as unfinished, and is covered
+// by the cover that follows. A receiving folder is not covered - nothing written
+// there leaves this node - nor is a paused one, which syncthing does not scan.
 //
 // A scan that fails or does not finish is logged and counted, and the write still
 // stands: a primary that could not start its app is worse than a gap the
@@ -167,6 +170,50 @@ async function coverRestart(folderId) {
     }
   }
   fluxEventBus.count('syncthing:restartCover', folderId, 'covered');
+}
+
+// folder id -> { again, done } for the cover running on it
+const covers = new Map();
+
+async function coverUntilQuiet(folderId, cover) {
+  try {
+    do {
+      // eslint-disable-next-line no-param-reassign
+      cover.again = false;
+      // eslint-disable-next-line no-await-in-loop
+      await coverRestart(folderId);
+    } while (cover.again);
+  } finally {
+    covers.delete(folderId);
+  }
+}
+
+/**
+ * Covers a folder's restart in the background: starts a cover, or has the one
+ * running on the folder followed by one more.
+ * @param {string} folderId
+ * @returns {void}
+ */
+function coverInBackground(folderId) {
+  const running = covers.get(folderId);
+  if (running) {
+    running.again = true;
+    return;
+  }
+  const cover = { again: false };
+  covers.set(folderId, cover);
+  cover.done = coverUntilQuiet(folderId, cover).catch((error) => {
+    log.error(`covering the restart of ${folderId} failed: ${error.message}`);
+  });
+}
+
+/**
+ * Resolves once no cover runs on the folder.
+ * @param {string} folderId
+ * @returns {Promise<void>}
+ */
+function whenCovered(folderId) {
+  return covers.get(folderId)?.done ?? Promise.resolve();
 }
 
 // Whether a write that syncthing accepted leaves the folder sending and running,
@@ -199,7 +246,7 @@ async function putFolders(folders) {
     return put;
   });
   if (response.status === 'success') {
-    await Promise.all(folders.filter((folder) => leavesSending(folder.id, folder)).map((folder) => coverRestart(folder.id)));
+    folders.filter((folder) => leavesSending(folder.id, folder)).forEach((folder) => coverInBackground(folder.id));
   }
   return response;
 }
@@ -212,7 +259,7 @@ async function putFolders(folders) {
  */
 async function patchFolder(folderId, fields) {
   const response = await exclusive([folderId], () => patchNow(folderId, fields));
-  if (response.status === 'success' && leavesSending(folderId, fields)) await coverRestart(folderId);
+  if (response.status === 'success' && leavesSending(folderId, fields)) coverInBackground(folderId);
   return response;
 }
 
@@ -318,7 +365,7 @@ async function scannedBeforeChange(folderId, folderType) {
  */
 async function changeSyncthingFolderType(folderId, folderType, { settleMs = 0, scanFirst = false, abandonIf = () => false } = {}) {
   if (scanFirst && !(await scannedBeforeChange(folderId, folderType))) return false;
-  let covers = false;
+  let covered = false;
   const changed = await exclusive([folderId], async () => {
     try {
       if (abandonIf()) return false;
@@ -346,7 +393,7 @@ async function changeSyncthingFolderType(folderId, folderType, { settleMs = 0, s
 
       if (updateResponse.status === 'success') {
         log.info(`Successfully changed syncthing folder ${folderId} to ${folderType} mode`);
-        covers = leavesSending(folderId, patchData);
+        covered = leavesSending(folderId, patchData);
         return true;
       }
       if (settleMs > 0 && updateResponse.data?.httpStatus === null) {
@@ -354,7 +401,7 @@ async function changeSyncthingFolderType(folderId, folderType, { settleMs = 0, s
         if (await folderTypeSettles(folderPath, folderType, settleMs)) {
           log.info(`Syncthing folder ${folderId} is in ${folderType} mode`);
           recordType(folderId, folderType);
-          covers = leavesSending(folderId, patchData);
+          covered = leavesSending(folderId, patchData);
           return true;
         }
       }
@@ -365,7 +412,7 @@ async function changeSyncthingFolderType(folderId, folderType, { settleMs = 0, s
       return false;
     }
   });
-  if (covers) await coverRestart(folderId);
+  if (covered) coverInBackground(folderId);
   return changed;
 }
 
@@ -378,4 +425,5 @@ module.exports = {
   mark,
   publishWritable,
   typesRecordedSince,
+  whenCovered,
 };

@@ -295,7 +295,7 @@ describe('syncthing folder writes', () => {
   describe('covering a folder restart', () => {
     const folderOf = (type) => [{ id: 'fluxprobe_app', path: `${appsFolder}fluxprobe_app`, type }];
 
-    it('scans a folder it turns sending twice, the second once the first has answered, before the change returns', async () => {
+    it('covers a folder it turns sending with two scans, the second once the first has answered, and returns without waiting for them', async () => {
       sinon.stub(syncthingService, 'getConfigFolders').resolves(folderOf('receiveonly'));
       sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
       const first = heldWrite();
@@ -304,15 +304,11 @@ describe('syncthing folder writes', () => {
       scan.resolves({ status: 'success' });
       const count = sinon.spy(fluxEventBus, 'count');
 
-      let returned = false;
-      const change = syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'sendreceive').then((r) => { returned = true; return r; });
-      await tick();
+      expect(await syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'sendreceive')).to.equal(true);
       sinon.assert.calledOnce(scan);
-      expect(returned, 'the change returned before its restart was covered').to.equal(false);
 
       first.answer();
-      expect(await change).to.equal(true);
-      sinon.assert.calledTwice(scan);
+      await syncthingFolderWrites.whenCovered('fluxprobe_app');
       expect(scan.getCalls().map((c) => c.args[0])).to.deep.equal(['fluxprobe_app', 'fluxprobe_app']);
       sinon.assert.calledWith(count, 'syncthing:restartCover', 'fluxprobe_app', 'covered');
     });
@@ -324,6 +320,7 @@ describe('syncthing folder writes', () => {
       globalState.promotedFolderIds.add('fluxprobe_app');
 
       await syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'receiveonly');
+      await syncthingFolderWrites.whenCovered('fluxprobe_app');
 
       sinon.assert.notCalled(scan);
     });
@@ -334,10 +331,12 @@ describe('syncthing folder writes', () => {
       globalState.promotedFolderIds.add('fluxprobe_app');
 
       await syncthingFolderWrites.patchFolder('fluxprobe_app', { devices: [] });
+      await syncthingFolderWrites.whenCovered('fluxprobe_app');
       sinon.assert.calledTwice(scan);
 
       scan.resetHistory();
       await syncthingFolderWrites.patchFolder('fluxprobe_app', { paused: true });
+      await syncthingFolderWrites.whenCovered('fluxprobe_app');
       sinon.assert.notCalled(scan);
     });
 
@@ -349,71 +348,47 @@ describe('syncthing folder writes', () => {
         { id: 'fluxsends_app', type: 'sendreceive' },
         { id: 'fluxreceives_app', type: 'receiveonly' },
       ]);
+      await Promise.all(['fluxsends_app', 'fluxreceives_app'].map((id) => syncthingFolderWrites.whenCovered(id)));
 
       expect(scan.getCalls().map((c) => c.args[0])).to.deep.equal(['fluxsends_app', 'fluxsends_app']);
     });
 
-    // The scans write no config. A write waiting on them would leave a safety
-    // demotion queued behind up to two full scans while the folder sends.
-    it('lets the next write to the folder in while the last one\'s scans still run', async () => {
+    // A file written before the second scan starts is found by it, and one written
+    // after is the watcher's, whatever the app does meanwhile - so nothing waits.
+    it('returns from a write, and lets the next write to the folder in, while its scans still run', async () => {
       const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
-      const held = heldWrite();
-      const scan = sinon.stub(syncthingService, 'scanFolder');
-      scan.onSecondCall().returns(held.promise);
-      scan.resolves({ status: 'success' });
-      globalState.promotedFolderIds.add('fluxprobe_app');
-
-      const first = syncthingFolderWrites.patchFolder('fluxprobe_app', { devices: [] });
-      await tick();
-      await tick();
-      sinon.assert.calledTwice(scan);
-      await syncthingFolderWrites.patchFolder('fluxprobe_app', { paused: true });
-
-      sinon.assert.calledTwice(adjust);
-      held.answer();
-      await first;
-    });
-
-    it('returns from a write only once its restart is covered', async () => {
-      sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
-      const held = heldWrite();
-      const scan = sinon.stub(syncthingService, 'scanFolder');
-      scan.onSecondCall().returns(held.promise);
-      scan.resolves({ status: 'success' });
-      globalState.promotedFolderIds.add('fluxprobe_app');
-      let returned = false;
-
-      const write = syncthingFolderWrites.patchFolder('fluxprobe_app', { devices: [] }).then(() => { returned = true; });
-      await tick();
-      await tick();
-      expect(returned, 'returned before its second scan answered').to.equal(false);
-
-      held.answer();
-      await write;
-      expect(returned).to.equal(true);
-    });
-
-    it('lets a safety demotion land while a promotion\'s scans run, and the promotion waits for them still', async () => {
-      const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
-      sinon.stub(syncthingService, 'getConfigFolders').resolves(folderOf('receiveonly'));
       const held = heldWrite();
       const scan = sinon.stub(syncthingService, 'scanFolder');
       scan.onFirstCall().returns(held.promise);
       scan.resolves({ status: 'success' });
       globalState.promotedFolderIds.add('fluxprobe_app');
-      let promoted = false;
 
-      const promotion = syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'sendreceive')
-        .then((done) => { promoted = done; });
-      await tick();
-      await tick();
+      await syncthingFolderWrites.patchFolder('fluxprobe_app', { devices: [] });
       sinon.assert.calledOnce(scan);
       await syncthingFolderWrites.patchFolder('fluxprobe_app', { type: 'receiveonly' });
 
+      sinon.assert.calledTwice(adjust);
       expect(adjust.secondCall.args[1]).to.deep.equal({ type: 'receiveonly' });
-      expect(promoted, 'the promotion returned before its scans').to.equal(false);
       held.answer();
-      await promotion;
+      await syncthingFolderWrites.whenCovered('fluxprobe_app');
+    });
+
+    it('runs one cover on a folder at a time, and covers restarts during it with one more', async () => {
+      sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+      const held = heldWrite();
+      const scan = sinon.stub(syncthingService, 'scanFolder');
+      scan.onFirstCall().returns(held.promise);
+      scan.resolves({ status: 'success' });
+      globalState.promotedFolderIds.add('fluxprobe_app');
+
+      await syncthingFolderWrites.patchFolder('fluxprobe_app', { devices: [] });
+      await syncthingFolderWrites.patchFolder('fluxprobe_app', { label: 'one' });
+      await syncthingFolderWrites.patchFolder('fluxprobe_app', { label: 'two' });
+      sinon.assert.calledOnce(scan);
+
+      held.answer();
+      await syncthingFolderWrites.whenCovered('fluxprobe_app');
+      expect(scan.callCount, 'two covers of two scans each').to.equal(4);
     });
 
     it('stands the write when a scan does not finish, and makes no second scan', async () => {
@@ -423,6 +398,7 @@ describe('syncthing folder writes', () => {
       const count = sinon.spy(fluxEventBus, 'count');
 
       expect(await syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'sendreceive')).to.equal(true);
+      await syncthingFolderWrites.whenCovered('fluxprobe_app');
 
       sinon.assert.calledOnce(scan);
       sinon.assert.calledWith(count, 'syncthing:restartCover', 'fluxprobe_app', 'unfinished');
@@ -437,6 +413,7 @@ describe('syncthing folder writes', () => {
       const scan = sinon.stub(syncthingService, 'scanFolder').resolves({ status: 'success' });
 
       expect(await syncthingFolderWrites.changeSyncthingFolderType('fluxprobe_app', 'sendreceive', { settleMs: 5000 })).to.equal(true);
+      await syncthingFolderWrites.whenCovered('fluxprobe_app');
 
       sinon.assert.calledTwice(scan);
     });
