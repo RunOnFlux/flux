@@ -3,6 +3,7 @@
 const chai = require('chai');
 const natUpnp = require('@runonflux/nat-upnp');
 const sinon = require('sinon');
+const util = require('util');
 const proxyquire = require('proxyquire');
 const log = require('../../ZelBack/src/lib/log');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
@@ -30,6 +31,33 @@ const upnpService = proxyquire(
 );
 
 describe('upnpService tests', () => {
+  describe('adjustFirewallForUPNP tests', () => {
+    let originalUserConfig;
+
+    beforeEach(() => {
+      originalUserConfig = globalThis.userconfig;
+      globalThis.userconfig = { initial: { ...originalUserConfig.initial, routerIP: '192.168.1.1' } };
+    });
+
+    afterEach(() => {
+      globalThis.userconfig = originalUserConfig;
+      sinon.restore();
+    });
+
+    it('should allow UDP in from the router and write no outbound rule', async () => {
+      const commands = [];
+      sinon.stub(util, 'promisify').returns(async (cmd) => {
+        commands.push(cmd);
+        return cmd.includes('grep Status') ? 'Status: active' : '';
+      });
+
+      await upnpService.adjustFirewallForUPNP();
+
+      expect(commands).to.include('LANG="en_US.UTF-8" && sudo ufw insert 1 allow from 192.168.1.1 to any proto udp > /dev/null 2>&1');
+      expect(commands.filter((cmd) => /\bout\b/.test(cmd))).to.deep.equal([]);
+    });
+  });
+
   describe('verifyUPNPsupport tests', () => {
     let logSpy;
 

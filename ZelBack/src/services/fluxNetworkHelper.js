@@ -2084,36 +2084,7 @@ async function allowPort(port) {
     cmdStat.message = 'Port needs to be a number';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw allow ${port} && sudo ufw allow out ${port}`;
-  const cmdres = await cmdAsync(exec);
-  cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
-    cmdStat.status = true;
-  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
-    cmdStat.status = true;
-    cmdStat.message = 'existing';
-  } else {
-    cmdStat.status = false;
-  }
-  return cmdStat;
-}
-
-/**
- * To allow out a port.
- * @param {string} port Port.
- * @returns {object} Command status.
- */
-async function allowOutPort(port) {
-  const cmdAsync = util.promisify(nodecmd.run);
-  const cmdStat = {
-    status: false,
-    message: null,
-  };
-  if (Number.isNaN(+port)) {
-    cmdStat.message = 'Port needs to be a number';
-    return cmdStat;
-  }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw allow out ${port}`;
+  const exec = `LANG="en_US.UTF-8" && sudo ufw allow ${port}`;
   const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
@@ -2147,7 +2118,7 @@ async function denyPort(port) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw deny ${port} && sudo ufw deny out ${port}`;
+  const exec = `LANG="en_US.UTF-8" && sudo ufw deny ${port}`;
   const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
@@ -2181,7 +2152,7 @@ async function deleteAllowPortRule(port) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw delete allow ${port} && sudo ufw delete allow out ${port}`;
+  const exec = `LANG="en_US.UTF-8" && sudo ufw delete allow ${port}`;
   const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
@@ -2212,38 +2183,7 @@ async function deleteDenyPortRule(port) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw delete deny ${port} && sudo ufw delete deny out ${port}`;
-  const cmdres = await cmdAsync(exec);
-  cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
-    cmdStat.status = true;
-  } else {
-    cmdStat.status = false;
-  }
-  return cmdStat;
-}
-
-/**
- * To delete a ufw allow rule on port.
- * @param {string} port Port.
- * @returns {object} Command status.
- */
-async function deleteAllowOutPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.run);
-  const cmdStat = {
-    status: false,
-    message: null,
-  };
-  if (Number.isNaN(+port)) {
-    cmdStat.message = 'Port needs to be a number';
-    return cmdStat;
-  }
-  const portBanned = isPortBanned(+port);
-  if (portBanned || +port < config.fluxapps.portMin || +port > config.fluxapps.portMax) {
-    cmdStat.message = 'Port out of deletable app ports range';
-    return cmdStat;
-  }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw delete allow out ${port}`;
+  const exec = `LANG="en_US.UTF-8" && sudo ufw delete deny ${port}`;
   const cmdres = await cmdAsync(exec);
   cmdStat.message = cmdres;
   if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
@@ -2307,6 +2247,32 @@ async function isFirewallActive() {
 }
 
 /**
+ * Outbound traffic is governed by the default policy alone: every outbound
+ * rule, whoever added it, is deleted. Deleted highest number first, so the
+ * numbers still to delete stay valid.
+ * @returns {Promise<void>}
+ */
+async function removeOutboundRules() {
+  const { stdout, error } = await serviceHelper.runCommand('ufw', { runAsRoot: true, logError: false, params: ['status', 'numbered'] });
+  if (error) {
+    log.warn(`Firewall outbound rules not read: ${error.message}`);
+    return;
+  }
+  const numbers = serviceHelper.ensureString(stdout).split('\n')
+    .map((line) => line.match(/^\[\s*(\d+)\].*\b(?:ALLOW|DENY|REJECT|LIMIT) OUT\b/))
+    .filter(Boolean)
+    .map((match) => Number(match[1]))
+    .sort((a, b) => b - a);
+  // eslint-disable-next-line no-restricted-syntax
+  for (const number of numbers) {
+    // eslint-disable-next-line no-await-in-loop
+    const { error: deleteError } = await serviceHelper.runCommand('ufw', { runAsRoot: true, logError: false, params: ['--force', 'delete', String(number)] });
+    if (deleteError) log.warn(`Firewall outbound rule ${number} not deleted: ${deleteError.message}`);
+  }
+  if (numbers.length) log.info(`Firewall outbound rules removed: ${numbers.length}`);
+}
+
+/**
  * To adjust a firewall to allow ports for Flux. Each rule is applied on its
  * own: one that fails is logged and the rest are still applied.
  */
@@ -2339,14 +2305,9 @@ async function adjustFirewall() {
     if (!/^Default:.*\ballow \(outgoing\)/m.test(serviceHelper.ensureString(verbose))) {
       await ufw(['default', 'allow', 'outgoing']);
     }
-    // allow speedtests
-    await ufw(['insert', '1', 'allow', 'out', '5060']);
-    await ufw(['insert', '1', 'allow', 'out', '8080']);
+    await removeOutboundRules();
     // remove inbound DNS traffic
     await ufw(['delete', 'allow', 'in', 'proto', 'udp', 'to', 'any', 'port', '53']);
-    // allow outgoing DNS traffic
-    await ufw(['insert', '1', 'allow', 'out', 'proto', 'udp', 'to', 'any', 'port', '53']);
-    await ufw(['insert', '1', 'allow', 'out', 'proto', 'tcp', 'to', 'any', 'port', '53']);
     log.info('Firewall adjusted for DNS traffic');
 
     // fix up for ssh being misteriously removed (needs tracing)
@@ -2364,7 +2325,6 @@ async function adjustFirewall() {
     if (serviceHelper.validIpv4Address(routerIP)
       && (routerIP.startsWith('192.168.') || routerIP.startsWith('10.') || routerIP.startsWith('172.16.')
         || routerIP.startsWith('100.64.') || routerIP.startsWith('198.18.') || routerIP.startsWith('169.254.'))) {
-      await ufw(['insert', '1', 'allow', 'out', 'from', 'any', 'to', routerIP, 'proto', 'tcp']);
       await ufw(['insert', '1', 'allow', 'from', routerIP, 'to', 'any', 'proto', 'udp']);
       log.info(`Firewall adjusted for comms with router on local ip ${routerIP}`);
     }
@@ -2375,13 +2335,6 @@ async function adjustFirewall() {
         log.info(`Firewall adjusted for port ${port}`);
       } else {
         log.info(`Failed to adjust Firewall for port ${port}`);
-      }
-
-      // eslint-disable-next-line no-await-in-loop
-      if (await ufw(['allow', 'out', String(port)])) {
-        log.info(`Firewall out adjusted for port ${port}`);
-      } else {
-        log.info(`Failed to adjust Firewall out for port ${port}`);
       }
     }
   } catch (error) {
@@ -2419,19 +2372,6 @@ async function purgeUFW() {
       } else {
         log.info('No UFW deny on ports rules found');
       }
-      const execDelDenyA = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 10.0.0.0/8';
-      const execDelDenyB = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 172.16.0.0/12';
-      const execDelDenyC = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 192.168.0.0/16';
-      const execDelDenyD = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 100.64.0.0/10';
-      const execDelDenyE = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 198.18.0.0/15';
-      const execDelDenyF = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 169.254.0.0/16';
-      await cmdAsync(execDelDenyA);
-      await cmdAsync(execDelDenyB);
-      await cmdAsync(execDelDenyC);
-      await cmdAsync(execDelDenyD);
-      await cmdAsync(execDelDenyE);
-      await cmdAsync(execDelDenyF);
-      log.info('UFW app deny netscans rules purged');
     } else {
       log.info('Firewall is not active. Purging UFW not necessary');
     }
@@ -2724,7 +2664,6 @@ module.exports = {
   hasPublicIpOnInterface,
   denyPort,
   deleteAllowPortRule,
-  deleteAllowOutPortRule,
   allowPortApi,
   adjustFirewall,
   purgeUFW,
@@ -2736,7 +2675,6 @@ module.exports = {
   adjustExternalIP,
   setOnAddressChanged,
   allowPort,
-  allowOutPort,
   isFirewallActive,
   // Exports for testing purposes
   resetNtpSource,

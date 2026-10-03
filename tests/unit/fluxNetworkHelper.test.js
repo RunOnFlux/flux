@@ -2465,6 +2465,56 @@ describe('fluxNetworkHelper tests', () => {
     }).timeout(5000);
   });
 
+  describe('port rule commands', () => {
+    let command;
+    beforeEach(() => {
+      sinon.stub(util, 'promisify').returns((cmd) => {
+        command = cmd;
+        return Promise.resolve('Rules updated\nRule deleted');
+      });
+    });
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should allow a port inbound only', async () => {
+      await fluxNetworkHelper.allowPort(31000);
+      expect(command).to.equal('LANG="en_US.UTF-8" && sudo ufw allow 31000');
+    });
+
+    it('should deny a port inbound only', async () => {
+      await fluxNetworkHelper.denyPort(31000);
+      expect(command).to.equal('LANG="en_US.UTF-8" && sudo ufw deny 31000');
+    });
+
+    it('should delete only the inbound allow rule of a port', async () => {
+      await fluxNetworkHelper.deleteAllowPortRule(31000);
+      expect(command).to.equal('LANG="en_US.UTF-8" && sudo ufw delete allow 31000');
+    });
+
+  });
+
+  describe('purgeUFW tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should delete only the inbound deny rule of each denied port, and no outbound rule', async () => {
+      const commands = [];
+      sinon.stub(util, 'promisify').returns(async (cmd) => {
+        commands.push(cmd);
+        if (cmd.includes('grep Status')) return 'Status: active';
+        if (cmd.includes("grep 'DENY'")) return '31000                      DENY        Anywhere\n';
+        return 'Rule deleted';
+      });
+
+      await fluxNetworkHelper.purgeUFW();
+
+      expect(commands).to.include('LANG="en_US.UTF-8" && sudo ufw delete deny 31000');
+      expect(commands.filter((cmd) => /\bout\b/.test(cmd))).to.deep.equal([]);
+    });
+  });
+
   describe('denyPort tests', () => {
     const port = '32111';
 
@@ -2702,7 +2752,7 @@ describe('fluxNetworkHelper tests', () => {
       sinon.restore();
     });
 
-    it('should allow every flux port in and out', async () => {
+    it('should allow every flux port in, and write no outbound rule', async () => {
       firewallStatus('Status: active');
 
       await fluxNetworkHelper.adjustFirewall();
@@ -2710,10 +2760,37 @@ describe('fluxNetworkHelper tests', () => {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
         sinon.assert.calledWith(runCommandStub, 'ufw', ufwCall(['allow', String(port)]));
-        sinon.assert.calledWith(runCommandStub, 'ufw', ufwCall(['allow', 'out', String(port)]));
         sinon.assert.calledWith(logSpy, `Firewall adjusted for port ${port}`);
-        sinon.assert.calledWith(logSpy, `Firewall out adjusted for port ${port}`);
       }
+      sinon.assert.neverCalledWith(runCommandStub, 'ufw', sinon.match({ params: sinon.match.some(sinon.match((value) => value === 'out')) }));
+    });
+
+    it('should delete every outbound rule, highest number first, and no inbound rule', async () => {
+      firewallStatus('Status: active');
+      runCommandStub.withArgs('ufw', ufwCall(['status', 'numbered'])).resolves({
+        error: null,
+        stdout: [
+          'Status: active',
+          '',
+          '     To                         Action      From',
+          '     --                         ------      ----',
+          '[ 1] 8080                       ALLOW OUT   Anywhere                   (out)',
+          '[ 2] OpenSSH                    LIMIT IN    Anywhere',
+          '[ 3] 172.16.16.1 16197/udp      ALLOW OUT   Anywhere                   (out)',
+          '[ 4] 16187                      ALLOW IN    Anywhere',
+          '[12] 16187 (v6)                 ALLOW OUT   Anywhere (v6)              (out)',
+          '[13] 10.0.0.0/8                 DENY OUT    Anywhere                   (out)',
+          '',
+        ].join('\n'),
+        stderr: '',
+      });
+
+      await fluxNetworkHelper.adjustFirewall();
+
+      const deletes = runCommandStub.getCalls()
+        .filter((call) => call.args[0] === 'ufw' && call.args[1].params[1] === 'delete')
+        .map((call) => call.args[1].params[2]);
+      expect(deletes).to.deep.equal(['13', '12', '3', '1']);
     });
 
     it('should log the ports it could not allow', async () => {
@@ -2723,7 +2800,7 @@ describe('fluxNetworkHelper tests', () => {
       await fluxNetworkHelper.adjustFirewall();
 
       sinon.assert.calledWith(logSpy, 'Failed to adjust Firewall for port 16127');
-      sinon.assert.calledWith(logSpy, 'Firewall out adjusted for port 16127');
+      sinon.assert.calledWith(logSpy, 'Firewall adjusted for port 16126');
     });
 
     it('should still allow every flux port when an earlier rule fails', async () => {
@@ -2740,12 +2817,11 @@ describe('fluxNetworkHelper tests', () => {
       }
     });
 
-    it('should allow traffic with the router named by the first route', async () => {
+    it('should allow inbound UDP from the router named by the first route', async () => {
       firewallStatus('Status: active');
 
       await fluxNetworkHelper.adjustFirewall();
 
-      sinon.assert.calledWith(runCommandStub, 'ufw', ufwCall(['insert', '1', 'allow', 'out', 'from', 'any', 'to', '192.168.1.1', 'proto', 'tcp']));
       sinon.assert.calledWith(runCommandStub, 'ufw', ufwCall(['insert', '1', 'allow', 'from', '192.168.1.1', 'to', 'any', 'proto', 'udp']));
     });
 
