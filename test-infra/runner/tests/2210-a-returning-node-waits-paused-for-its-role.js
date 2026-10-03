@@ -31,8 +31,10 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //   - A syncthing started paused has its devices resumed, and each folder
 //     unpaused with the role it has.
 //   - A restart of FluxOS alone pauses nothing.
-//   - A planned shutdown pauses every folder. The node returns, another holder
-//     has taken over, and what it wrote while down is discarded, unsent.
+//   - A planned shutdown pauses every folder. A node back within its shutdown
+//     announcement keeps its role: the other holder waits for it.
+//   - A primary that crashed returns paused, another holder has taken over,
+//     and what it wrote while down is discarded, unsent.
 //   - A primary returning while the other holder cannot be judged stays paused.
 //     Once no other holder runs the component, what it wrote goes out. Each
 //     holder's calls to the other reach the third node instead, which is what
@@ -45,6 +47,10 @@ const API_PORT = 16127;
 // How long an identity verdict is held, so a redirect put in or taken out is
 // noticed within a pass or two.
 const IDENTITY_TTL_MS = 5000;
+// A shutdown announcement long enough to reboot inside, and locations that
+// outlive every return below.
+const SIGTERM_EXPIRY_S = 120;
+const LOCATION_TTL_S = 600;
 
 describe('a returning node waits paused until its role is decided', function () {
   let env;
@@ -118,6 +124,8 @@ describe('a returning node waits paused until its role is decided', function () 
           minIncoming: 1,
           peerIdentityVerifiedTtlMs: IDENTITY_TTL_MS,
           peerIdentityMisroutedTtlMs: IDENTITY_TTL_MS,
+          sigtermExpiryS: SIGTERM_EXPIRY_S,
+          locationTtlS: LOCATION_TTL_S,
         },
       },
     });
@@ -236,23 +244,53 @@ describe('a returning node waits paused until its role is decided', function () 
     });
   });
 
-  it('pauses every folder on a planned shutdown, and discards what the node wrote while away once another holder runs it', async function () {
-    this.timeout(900000);
+  it('pauses every folder on a planned shutdown, and keeps the role of a node back within its announcement', async function () {
+    this.timeout(600000);
     const mark = client(ARCANE).getLastEventId();
     const standbyMark = client(LEGACY).getLastEventId();
+    const restartingFrom = await client(LEGACY).getDecisionCount('peer:silenceVerdict', identifier, 'restarting');
     // The syncthing the next boot starts has no --paused, as on the fleet before
     // the ISO carries it: the pause the shutdown left is all that holds it.
     await shutdownFluxosGracefully(client(ARCANE).container, { hold: true, stopSyncthingAfter: true });
     const paused = await fluxEvent(ARCANE, 'shutdown:paused', () => true, mark, 10000);
     expect(paused.data.paused, 'the folders the shutdown paused').to.include(folder);
+    await waitFor(async () => await client(LEGACY).getDecisionCount('peer:silenceVerdict', identifier, 'restarting') > restartingFrom, {
+      timeout: 60000, interval: 2000, label: 'the other holder waiting for the node that announced its shutdown',
+    });
 
-    await becamePrimary(LEGACY, standbyMark, 600000);
-
-    // Written on the node that left, after it left: nothing peers have.
-    await writeAsApp(ARCANE, 'written-while-away.txt', 'never sent');
     await startDaemon(client(ARCANE), { paused: false });
     expect(await folderIs(ARCANE, { type: 'sendreceive', paused: true }), 'fixture: the folder the shutdown paused').to.equal(true);
-    expect(await pausedPeerDevices(ARCANE), 'fixture: peer devices paused on a start without --paused').to.deep.equal([]);
+    const since = await lastDaemonEventId(client(ARCANE));
+    await releaseFluxos(client(ARCANE).container);
+    // Its folder sends again, unpaused - whether its election or its paused return
+    // reaches the folder first.
+    await waitForDaemonEvent(client(ARCANE), folderSaved(folder, { type: 'sendreceive', paused: false }), {
+      since, timeout: 300000, label: 'the returned node\'s folder sending again',
+    });
+    await waitFor(async () => (await runners()).includes(ARCANE), {
+      timeout: 180000, interval: 2000, label: 'the returned node runs the app again',
+    });
+
+    expect(client(LEGACY).getEventBuffer().filter((e) => e.event === 'primaryRole:changed' && e.id > standbyMark
+      && e.data?.identifier === identifier && e.data?.to === 'primary'), 'the other holder taking over from a rebooting node').to.deep.equal([]);
+    expect(await runners(), 'the writer').to.deep.equal([ARCANE]);
+  });
+
+  it('discards what a crashed primary wrote while away once another holder runs it', async function () {
+    this.timeout(900000);
+    const standbyMark = client(LEGACY).getLastEventId();
+    // The whole machine, with no announcement: the process, the container and the
+    // daemon.
+    await crashFluxos(client(ARCANE).container, { hold: true });
+    await execInContainer(client(ARCANE).container, `docker kill flux${identifier}`);
+    await stopDaemon(client(ARCANE));
+    await becamePrimary(LEGACY, standbyMark, 600000);
+
+    // Written on the node that went, after it went: nothing peers have.
+    await writeAsApp(ARCANE, 'written-while-away.txt', 'never sent');
+    // As the ISO unit starts it.
+    await startDaemon(client(ARCANE), { paused: true });
+    expect(await folderIs(ARCANE, { type: 'sendreceive', paused: true }), 'fixture: the folder came back paused').to.equal(true);
 
     const returned = client(ARCANE).getLastEventId();
     await releaseFluxos(client(ARCANE).container);
