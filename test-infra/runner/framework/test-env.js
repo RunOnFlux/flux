@@ -646,10 +646,11 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCent
             },
             // The value the node answers with during boot, before its first
             // lookup completes and setNodeGeolocation recomputes both from the
-            // routing table and the classifier. Driven by the same declaration
-            // as the route below, so the seed and the recompute cannot disagree
-            // - which is the state that made this seed look like a control while
-            // being silently overwritten.
+            // device its traffic leaves by and the classifier. Driven by the
+            // same declaration as the route below, so the seed and the
+            // recompute agree unless a network shape moves that traffic. The
+            // seed carries no staticIpState: one on this record was written by
+            // the node.
             staticIp, dataCenter,
             lastIpChangeDate: null, updatedAt: Date.now(),
           },
@@ -745,10 +746,15 @@ export async function createTestEnv({
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
   geolocation = {}, locationTable = null, staticIp = true, policy = null, policySeeds = null,
-  awaitPolicy = true,
+  awaitPolicy = true, networkShapes = {},
 } = {}) {
   if (syncthing !== 'stub' && syncthing !== 'binary') {
     throw new Error(`createTestEnv: syncthing must be 'stub' or 'binary', got '${syncthing}'`);
+  }
+  // A shape rebuilds a static node's routes (test-infra/network-shapes.sh), so
+  // it needs the gateway a static node is given.
+  if (Object.keys(networkShapes).length && !staticIp) {
+    throw new Error('createTestEnv: networkShapes needs staticIp: true');
   }
   // WHICH NODES ARE ALREADY PART OF THE NETWORK, rather than joining it.
   //
@@ -989,7 +995,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, networkShapes);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -1018,7 +1024,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, networkShapes = {}) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -1300,6 +1306,8 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       // Present for a node declared static, absent for one behind NAT. The
       // entrypoint installs it before FluxOS starts; see the note there.
       ...(staticIp ? { FLUX_E2E_DEFAULT_ROUTE: subnet.gateway } : {}),
+      // Built by the entrypoint after the default route, before FluxOS starts.
+      ...(networkShapes[i] ? { FLUX_E2E_NETWORK_SHAPE: networkShapes[i] } : {}),
     };
     if (syncthing === 'binary') {
       // the node runs its own daemon and binds apiport+2 itself, so there is

@@ -8,9 +8,10 @@ ip addr add 169.254.43.43/32 dev lo 2>/dev/null || true
 #
 # The harness network is created Internal, so docker gives the container no
 # default route at all. FluxOS decides whether this node holds a fixed public
-# address by looking for one (fluxNetworkHelper.hasPublicIpOnInterface reads
-# /proc/net/route), so left to the wiring EVERY node reads DYNAMIC - which is how
-# suite 21's static_ip deferrals silently stopped firing.
+# address by asking which device its internet traffic leaves by
+# (fluxNetworkHelper.hasPublicIpOnInterface), so left to the wiring there is no
+# such device, EVERY node reads UNKNOWN, and suite 21's static_ip deferrals
+# never fire.
 #
 # This restores the FACT, not connectivity: an internal network's gateway
 # forwards nothing outward, so the fleet stays exactly as isolated as Internal
@@ -24,7 +25,17 @@ ip addr add 169.254.43.43/32 dev lo 2>/dev/null || true
 if [ -n "$FLUX_E2E_DEFAULT_ROUTE" ]; then
   if ! ip route replace default via "$FLUX_E2E_DEFAULT_ROUTE"; then
     echo "ERROR: could not install default route via $FLUX_E2E_DEFAULT_ROUTE;" \
-         "this node would read DYNAMIC and any static-IP assertion would fail" >&2
+         "this node would not read STATIC and any static-IP assertion would fail" >&2
+    exit 1
+  fi
+fi
+
+# A named network shape (test-infra/network-shapes.sh), declared per node by the
+# suite. Not swallowed, for the reason above: a shape that failed to build would
+# leave a plain static node answering for it.
+if [ -n "${FLUX_E2E_NETWORK_SHAPE:-}" ]; then
+  if ! /flux/test-infra/network-shapes.sh "$FLUX_E2E_NETWORK_SHAPE"; then
+    echo "ERROR: could not build network shape $FLUX_E2E_NETWORK_SHAPE" >&2
     exit 1
   fi
 fi
