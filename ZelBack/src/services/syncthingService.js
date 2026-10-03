@@ -981,6 +981,10 @@ async function getDeviceStats() {
  * About 0.15 ms per file checked, plus about 0.9 ms per new small file or
  * 205 MB/s of new data. A folder of a million files cannot be scanned from
  * scratch inside ten minutes.
+ *
+ * A caller that stops waiting does not stop the scan: syncthing runs it to the
+ * end and records what it has scanned as it goes, so a later scan of the same
+ * folder checks rather than reads what this one covered.
  * @param {string} folderId Folder id
  * @param {object} [options]
  * @param {number} [options.timeoutMs] How long the scan may take; the client's
