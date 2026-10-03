@@ -33,25 +33,14 @@ function pingPath({ pathMtu, namesSize, reportedBy = '172.16.16.1' }) {
  * Routes runCommand by tool and arguments to the answers a test sets.
  */
 function stubTools({
-  probe = () => '', ss = '', ownIp = () => '', hops = [], hopRtt = () => '',
+  probe = () => '', ss = '', ownIp = () => '',
 } = {}) {
   return sinon.stub(serviceHelper, 'runCommand').callsFake(async (cmd, { params }) => {
     if (cmd === 'ss') return { stdout: ss, stderr: '', error: null };
     const args = params.map(String);
     const sizeAt = args.indexOf('-s');
     if (sizeAt !== -1) return { stdout: probe(Number(args[sizeAt + 1]), args[args.length - 1]), stderr: '', error: null };
-    const ttlAt = args.indexOf('-t');
-    if (ttlAt !== -1) {
-      const hop = hops[Number(args[ttlAt + 1]) - 1];
-      if (!hop) return { stdout: '', stderr: '', error: null };
-      const text = hop.reached
-        ? `64 bytes from ${hop.ip}: icmp_seq=1 ttl=57 time=20 ms`
-        : `From ${hop.ip} icmp_seq=1 Time to live exceeded`;
-      return { stdout: text, stderr: '', error: null };
-    }
-    const target = args[args.length - 1];
-    if (args[args.indexOf('-c') + 1] === '5') return { stdout: ownIp(target), stderr: '', error: null };
-    return { stdout: hopRtt(target), stderr: '', error: null };
+    return { stdout: ownIp(args[args.length - 1]), stderr: '', error: null };
   });
 }
 
@@ -214,7 +203,7 @@ describe('uplinkService tests', () => {
 
   describe('decide', () => {
     const clean = {
-      rttMs: 0.19, firstPublicHopRttMs: 0.47, tunnelInterfaces: [], egressDevice: 'ens18', publicIpElsewhere: false,
+      rttMs: 0.19, tunnelInterfaces: [], egressDevice: 'ens18', publicIpElsewhere: false,
     };
     const wireguard = { name: 'wg0', kind: 'wireguard', mtu: 1420 };
     const tailscale = { name: 'tailscale0', kind: 'tun', mtu: 1280 };
@@ -250,13 +239,9 @@ describe('uplinkService tests', () => {
         .to.eql({ tunnel: Tunnel.LIKELY, reason: Reason.DISTANCE });
     });
 
-    it('falls back to the first public hop when the address cannot be timed', () => {
-      expect(uplinkService.decide({ ...clean, rttMs: null, firstPublicHopRttMs: 20.7 }))
-        .to.eql({ tunnel: Tunnel.LIKELY, reason: Reason.DISTANCE });
-    });
 
     it('does not decide on a full-size path with no distance', () => {
-      expect(uplinkService.decide({ ...clean, rttMs: null, firstPublicHopRttMs: null }))
+      expect(uplinkService.decide({ ...clean, rttMs: null }))
         .to.eql({ tunnel: Tunnel.UNKNOWN, reason: null });
     });
   });
@@ -285,20 +270,6 @@ describe('uplinkService tests', () => {
     });
   });
 
-  describe('firstPublicHopRtt', () => {
-    it('times the first routable hop past the private ones', async () => {
-      stubTools({
-        hops: [{ ip: '172.16.32.1' }, { ip: '172.27.232.1' }, { ip: '10.207.7.133' }, { ip: '109.74.207.101' }],
-        hopRtt: (target) => (target === '109.74.207.101' ? RTT_LINE(20.698) : ''),
-      });
-      expect(await uplinkService.firstPublicHopRtt()).to.equal(20.698);
-    });
-
-    it('is null when the walk reaches the target through private hops only', async () => {
-      stubTools({ hops: [{ ip: '192.168.1.1' }, { ip: '10.0.0.1', reached: true }] });
-      expect(await uplinkService.firstPublicHopRtt()).to.equal(null);
-    });
-  });
 
   describe('findTunnelInterfaces', () => {
     const sysfs = {
@@ -401,8 +372,6 @@ describe('uplinkService tests', () => {
         probe: pingPath({ pathMtu: 1420, namesSize: true }),
         ss: MULE_PEERS,
         ownIp: () => RTT_LINE(18.73),
-        hops: [{ ip: '172.16.16.1' }, { ip: '10.11.13.1' }, { ip: '109.74.207.101' }],
-        hopRtt: () => RTT_LINE(19.086),
       });
 
       await uplinkService.noteAddress('178.79.183.164:16187');
@@ -414,7 +383,7 @@ describe('uplinkService tests', () => {
         mtu: {
           value: 1420, probe: 1420, probeMethod: ProbeMethod.FRAG_NEEDED, tcpMss: 1368,
         },
-        distance: { rttMs: 18.73, method: 'icmp', firstPublicHopRttMs: 19.086 },
+        distance: { rttMs: 18.73, method: 'icmp' },
         publicIpLocal: false,
         egressDevice: 'ens18',
         tunnelInterfaces: [],
@@ -462,6 +431,22 @@ describe('uplinkService tests', () => {
         egressDevice: 'ens18',
         tunnelInterfaces: [{ name: 'tailscale0', kind: 'tun', mtu: 1280 }],
       });
+    });
+
+    it('does not decide when the node cannot time its own address, and walks no path', async () => {
+      sinon.stub(net, 'connect').callsFake(() => fakeSocket({ connects: false }));
+      const tools = stubTools({ probe: pingPath({ pathMtu: 1500, namesSize: false }), ss: MULE_PEERS });
+
+      await uplinkService.noteAddress('203.0.113.23:16127');
+
+      expect(uplinkService.getUplink()).to.deep.include({
+        tunnel: Tunnel.UNKNOWN,
+        reason: null,
+        distance: { rttMs: null, method: null },
+      });
+      const pings = tools.getCalls().filter((call) => call.args[0] === 'ping').map((call) => call.args[1].params.map(String));
+      expect(pings.some((args) => args.at(-1) === '203.0.113.23')).to.equal(true);
+      expect(pings.filter((args) => args.includes('-t'))).to.eql([]);
     });
 
     it('does not call an encapsulated path whose public address is near', async () => {
