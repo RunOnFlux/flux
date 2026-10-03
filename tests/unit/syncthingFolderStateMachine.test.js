@@ -166,6 +166,7 @@ const PeerComponent = Object.freeze({ RUNNING: 'running', NOT_RUNNING: 'notRunni
 const peerComponentMock = {
   PeerComponent,
   componentStateOnPeers: sinon.stub(),
+  componentStateOnOtherHolders: sinon.stub(),
 };
 
 const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingFolderStateMachine', {
@@ -189,6 +190,7 @@ describe('syncthingFolderStateMachine tests', () => {
     peerIdentityMock.reset();
     primaryRoleMock.holdAsStandby.resetHistory();
     peerComponentMock.componentStateOnPeers.reset();
+    peerComponentMock.componentStateOnOtherHolders.reset();
     // Reset only this file's own stubs (NOT a global sinon.reset(), which would
     // wipe stub behaviour set up by other test files in the same mocha process)
     syncthingServiceMock.getDbStatus.reset();
@@ -995,28 +997,20 @@ describe('syncthingFolderStateMachine tests', () => {
         expect(result.syncthingFolder).to.not.have.property('paused');
       });
 
-      it('asks every other holder the location records name, and not itself', async () => {
-        mockParams.readAppLocation = sinon.stub().resolves([
-          { ip: '10.0.0.1:16127' }, { ip: '10.0.0.2:16127' }, { ip: '10.0.0.3:16137' },
-        ]);
-        peerComponentMock.componentStateOnPeers.resolves(PeerComponent.RUNNING);
+      // The election asks the same question of the same holders, through the
+      // same function, so whichever reaches the folder first answers alike.
+      it('asks every other holder its location records name', async () => {
+        mockParams.readAppLocation = sinon.stub().resolves([]);
+        peerComponentMock.componentStateOnOtherHolders.resolves(PeerComponent.RUNNING);
 
         const { othersHold } = await demote();
 
         expect(await othersHold()).to.equal(PeerComponent.RUNNING);
-        sinon.assert.calledWith(mockParams.readAppLocation, 'test-app');
-        const [peers, ctx] = peerComponentMock.componentStateOnPeers.firstCall.args;
-        expect(peers.map((peer) => peer.ip)).to.deep.equal(['10.0.0.2:16127', '10.0.0.3:16137']);
+        const [readLocations, localSocketAddr, ctx, options] = peerComponentMock.componentStateOnOtherHolders.firstCall.args;
+        expect(readLocations).to.equal(mockParams.readAppLocation);
+        expect(localSocketAddr).to.equal(mockParams.localSocketAddr);
         expect(ctx).to.include({ appId: 'test-app', identifier: 'app_test', appName: 'test-app' });
-      });
-
-      it('answers that a holder cannot be ruled out when the location records cannot be read', async () => {
-        mockParams.readAppLocation = sinon.stub().rejects(new Error('database unavailable'));
-
-        const { othersHold } = await demote();
-
-        expect(await othersHold()).to.equal(PeerComponent.UNKNOWN);
-        sinon.assert.notCalled(peerComponentMock.componentStateOnPeers);
+        expect(options, 'a node FDM names').to.equal(undefined);
       });
     });
 

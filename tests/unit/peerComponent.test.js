@@ -5,7 +5,7 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const axios = require('axios');
 const peerIdentityService = require('../../ZelBack/src/services/peerIdentityService');
-const { PeerComponent, componentStateOnPeers } = require('../../ZelBack/src/services/appMonitoring/peerComponent');
+const { PeerComponent, componentStateOnPeers, componentStateOnOtherHolders } = require('../../ZelBack/src/services/appMonitoring/peerComponent');
 
 describe('peerComponent tests', () => {
   const appId = 'fluxw_a';
@@ -31,6 +31,40 @@ describe('peerComponent tests', () => {
 
   afterEach(() => {
     sinon.restore();
+  });
+
+  // The question a primary returning paused asks, from the election and from
+  // the folder monitor alike: what every other holder is doing with it.
+  describe('componentStateOnOtherHolders', () => {
+    const SELF = '1.1.1.1:16127';
+    const asked = () => axios.get.getCalls().map((call) => call.args[0].split('/')[2]).sort();
+
+    it('asks every other holder its locations name, and not this node', async () => {
+      peersAnswer({ '2.2.2.2:16127': { held: [] }, '3.3.3.3:16137': { held: [appId] } });
+      const read = sinon.stub().resolves([{ ip: SELF }, { ip: '2.2.2.2:16127' }, { ip: '3.3.3.3:16137' }]);
+
+      expect(await componentStateOnOtherHolders(read, SELF, ctx)).to.equal(PeerComponent.RUNNING);
+      sinon.assert.calledOnceWithExactly(read, 'a');
+      expect(asked()).to.deep.equal(['2.2.2.2:16127', '3.3.3.3:16137']);
+    });
+
+    // FDM names a node by IP alone.
+    it('asks a node FDM names that no location shares an IP with, and a listed one once, at its recorded address', async () => {
+      peersAnswer({ '2.2.2.2:16137': { held: [] }, '4.4.4.4:16127': { held: [] } });
+      const read = sinon.stub().resolves([{ ip: SELF }, { ip: '2.2.2.2:16137' }]);
+
+      expect(await componentStateOnOtherHolders(read, SELF, ctx, { also: ['4.4.4.4', '2.2.2.2', '1.1.1.1'] }))
+        .to.equal(PeerComponent.NOT_RUNNING);
+      expect(asked()).to.deep.equal(['2.2.2.2:16137', '4.4.4.4:16127']);
+    });
+
+    it('answers UNKNOWN, asking no one, when the locations cannot be read', async () => {
+      const probe = sinon.stub(axios, 'get').rejects(new Error('no peer should be probed'));
+      const read = sinon.stub().rejects(new Error('database unavailable'));
+
+      expect(await componentStateOnOtherHolders(read, SELF, ctx, { also: ['4.4.4.4:16127'] })).to.equal(PeerComponent.UNKNOWN);
+      sinon.assert.notCalled(probe);
+    });
   });
 
   describe('componentStateOnPeers', () => {

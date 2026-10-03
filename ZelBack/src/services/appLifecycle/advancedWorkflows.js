@@ -42,7 +42,9 @@ const syncthingFolderWrites = require('../appMonitoring/syncthingFolderWrites');
 const primaryRole = require('./primaryRole');
 const primaryRoleChanges = require('./primaryRoleChanges');
 const { createPeerFolderLiveness } = require('../appMonitoring/peerFolderLiveness');
-const { PeerComponent, peerComponentState, componentStateOnPeers } = require('../appMonitoring/peerComponent');
+const {
+  PeerComponent, peerComponentState, componentStateOnPeers, componentStateOnOtherHolders,
+} = require('../appMonitoring/peerComponent');
 const syncthingFolderStateMachine = require('../appMonitoring/syncthingFolderStateMachine');
 const syncthingServiceModule = require('../syncthingService');
 const registryManagerModule = require('../appDatabase/registryManager');
@@ -5372,14 +5374,16 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // A standby's folder receives and never sends: what it holds is the
                   // primary's, and anything written here is a local change for the
                   // primary's copy to overwrite. A folder that returned paused asks
-                  // the node FDM names whether it runs the component.
-                  const othersHold = async () => {
-                    const locations = await registryManagerModule.appLocation(installedApp.name).catch(() => []);
-                    const named = locations.find((location) => ipsMatch(location.ip, ip));
-                    return componentStateOnPeers([{ ip: named?.ip ?? `${extractIp(ip)}:${extractPort(ip)}`, label: 'FDM primary' }], {
+                  // every other holder whether it runs the component, as the monitor
+                  // does, and the node FDM names as well.
+                  const othersHold = () => componentStateOnOtherHolders(
+                    (name) => registryManagerModule.appLocation(name),
+                    localSocketAddr,
+                    {
                       appId, identifier, appName: installedApp.name, liveness, logPrefix: 'masterSlaveApps',
-                    });
-                  };
+                    },
+                    { also: [ip] },
+                  );
                   // eslint-disable-next-line no-await-in-loop
                   await primaryRole.holdAsStandby(identifier, appId, { othersHold });
                 }

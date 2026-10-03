@@ -2,7 +2,9 @@ const axios = require('axios');
 const log = require('../../lib/log');
 const fluxEventBus = require('../utils/fluxEventBus');
 const peerIdentityService = require('../peerIdentityService');
-const { extractIp, extractPort } = require('../utils/socketAddressUtils');
+const {
+  extractIp, extractPort, socketAddressesMatch, ipsMatch,
+} = require('../utils/socketAddressUtils');
 const { silenceVerdict, SilenceVerdict } = require('./peerFolderLiveness');
 
 /**
@@ -221,8 +223,40 @@ async function componentStateOnPeers(peers, ctx) {
   return PeerComponent.NOT_RUNNING;
 }
 
+/**
+ * What every other holder of a component is doing with it, read from its app
+ * locations: the one question a primary returning paused asks before its unsent
+ * changes go out or are discarded, whichever pass reaches the folder first.
+ * @param {(appName: string) => Promise<Array<{ip: string}>>} readLocations
+ * @param {string} localSocketAddr This node, never asked.
+ * @param {object} ctx As peerComponentState, without `label`.
+ * @param {object} [options]
+ * @param {string[]} [options.also] Nodes asked as well when no location shares
+ *   their IP - the node FDM names, by IP alone, which can run the component
+ *   before its location reaches this node. Asked at the default port.
+ * @returns {Promise<string>} As componentStateOnPeers; UNKNOWN when the
+ *   locations cannot be read.
+ */
+async function componentStateOnOtherHolders(readLocations, localSocketAddr, ctx, { also = [] } = {}) {
+  let locations;
+  try {
+    locations = await readLocations(ctx.appName);
+  } catch (error) {
+    log.warn(`${ctx.logPrefix} - ${ctx.appId}: the other holders cannot be read: ${error.message}`);
+    return PeerComponent.UNKNOWN;
+  }
+  const peers = (locations || [])
+    .filter((location) => location?.ip && !socketAddressesMatch(location.ip, localSocketAddr))
+    .map((location) => ({ ip: location.ip, label: 'holder' }));
+  also
+    .filter((ip) => !ipsMatch(ip, localSocketAddr) && !peers.some((peer) => ipsMatch(peer.ip, ip)))
+    .forEach((ip) => peers.push({ ip: `${extractIp(ip)}:${extractPort(ip)}`, label: 'FDM primary' }));
+  return componentStateOnPeers(peers, ctx);
+}
+
 module.exports = {
   PeerComponent,
   peerComponentState,
   componentStateOnPeers,
+  componentStateOnOtherHolders,
 };

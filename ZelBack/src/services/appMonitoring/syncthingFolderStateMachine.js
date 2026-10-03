@@ -30,7 +30,7 @@ const { isPathMounted } = require('../utils/volumeService');
 const globalState = require('../utils/globalState');
 const { isSyncedRootName } = require('../appSystem/volumeReservedNames');
 const primaryRole = require('../appLifecycle/primaryRole');
-const { PeerComponent, componentStateOnPeers } = require('./peerComponent');
+const { componentStateOnOtherHolders } = require('./peerComponent');
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
@@ -1836,21 +1836,9 @@ async function manageFolderSyncState(params) {
     // its process, and what it holds must not go out until the election says
     // it is primary again.
     log.info(`manageFolderSyncState - ${appId} is sendreceive and not held here, demoting until the election decides`);
-    const othersHold = async () => {
-      let locations;
-      try {
-        locations = await readAppLocation(installedAppName);
-      } catch (error) {
-        log.warn(`manageFolderSyncState - ${appId}: the other holders cannot be read: ${error.message}`);
-        return PeerComponent.UNKNOWN;
-      }
-      const peers = locations
-        .filter((location) => location?.ip && !socketAddressesMatch(location.ip, localSocketAddr))
-        .map((location) => ({ ip: location.ip, label: 'holder' }));
-      return componentStateOnPeers(peers, {
-        appId, identifier, appName: installedAppName, liveness, logPrefix: 'manageFolderSyncState',
-      });
-    };
+    const othersHold = () => componentStateOnOtherHolders(readAppLocation, localSocketAddr, {
+      appId, identifier, appName: installedAppName, liveness, logPrefix: 'manageFolderSyncState',
+    });
     await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_STANDBY_HOLD, appId);
     await primaryRole.holdAsStandby(identifier, appId, { othersHold });
     return { syncthingFolder, cache: { restarted: false, numberOfExecutions: 0 } };

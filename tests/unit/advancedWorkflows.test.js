@@ -2674,14 +2674,16 @@ describe('advancedWorkflows tests', () => {
 
     // Directly behind a primary FDM has dropped, a node's turn is due at once. The
     // node further down may already have taken the component, so it is asked too.
-    // A standby whose folder came back paused asks the node FDM names whether it
-    // runs the component, at the address its location record gives.
-    it('lets a standby\'s paused folder ask the node FDM names as primary, at its recorded address', async () => {
+    // A standby whose folder came back paused asks every other holder whether it
+    // runs the component, as the folder monitor does, and the node FDM names as
+    // well - each at the address its location record gives. FDM lags a move, so
+    // the node it names may not be the one running it.
+    it('lets a standby\'s paused folder ask every other holder, not only the node FDM names', async () => {
       const appName = 'fdmholderapp';
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       sinon.stub(log, 'info');
       const hold = sinon.stub(primaryRole, 'holdAsStandby').resolves(false);
-      const runPass = electionFixture(appName, ['192.168.1.90:16137']);
+      const runPass = electionFixture(appName, ['192.168.1.90:16137', '192.168.1.91:16127']);
       serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
 
       await runPass();
@@ -2689,9 +2691,13 @@ describe('advancedWorkflows tests', () => {
       sinon.assert.calledOnce(hold);
       const { othersHold } = hold.firstCall.args[2];
       axiosGetStub.resetBehavior();
-      axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+      // The node FDM names holds nothing; the other holder runs it.
+      axiosGetStub.callsFake((url) => Promise.resolve({ data: { data: url.includes('192.168.1.91') ? [`flux${appName}`] : [] } }));
       expect(await othersHold()).to.equal('running');
-      expect(axiosGetStub.getCalls().map((call) => call.args[0])).to.deep.equal(['http://192.168.1.90:16137/apps/heldcomponents']);
+      expect(axiosGetStub.getCalls().map((call) => call.args[0]).sort()).to.deep.equal([
+        'http://192.168.1.90:16137/apps/heldcomponents',
+        'http://192.168.1.91:16127/apps/heldcomponents',
+      ]);
     });
 
     it('does not take over from a departed primary while a node further down the order holds it', async () => {
