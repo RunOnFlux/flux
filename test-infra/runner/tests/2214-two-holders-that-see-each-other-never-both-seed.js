@@ -7,13 +7,15 @@ import {
 import {
   setSyncState, setNoPeerData, resetSyncState, getFolderConfig,
 } from '../framework/syncthing-control.js';
-import { resetFdm } from '../framework/fdm-control.js';
+import { resetFdm, electMaster } from '../framework/fdm-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor, waitHolding } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { syncthingSeedIndex } from '../framework/g-app-placement.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { pushImage } from '../framework/registry-helper.js';
+import { authenticate } from '../auth.js';
+import { fluxTeamKey } from '../framework/keys.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // Two holders of a cold-start app, each elected to seed it by its own view of the
@@ -33,6 +35,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 const subnet = getSubnetConfig();
 const BEFORE_DECISION = 'syncthing:beforeSeedDecision';
 const BEFORE_RECORD = 'syncthing:beforeSeedRecord';
+const ELECTION = 'masterSlave:beforeDecision';
 const SETTLE_PASSES = 3;
 
 async function isUp(client, appName) {
@@ -93,15 +96,15 @@ describe('two holders that can reach each other never both seed', function () {
 
   // A fresh cold-start app on the split field, with the given checkpoints held on the
   // given nodes before it is installed, so its first decision meets them.
-  const placeSplitApp = async (tag, holds) => {
+  const placeSplitApp = async (tag, holds, mode = 'r') => {
     const name = `e2eseed${tag}${stamp}`;
     const folder = `flux${name}_${name}`;
     await pushImage(name, 'v1');
-    const spec = await buildSeedableSyncthingApp({ name, mode: 'r' });
+    const spec = await buildSeedableSyncthingApp({ name, mode });
     await pinColdStart(holders, folder);
     await pinHolding(holder, folder, holdingBytes);
     const from = Object.fromEntries(holders.map((i) => [i, client(i).getLastEventId()]));
-    await Promise.all(holds.map(([i, checkpoint]) => client(i).holdCheckpoint(checkpoint, folder)));
+    await Promise.all(holds.map(([i, checkpoint, key = folder]) => client(i).holdCheckpoint(checkpoint, key)));
     await installOnNodes(env, spec, holders);
     return { name, folder, from };
   };
@@ -224,5 +227,36 @@ describe('two holders that can reach each other never both seed', function () {
       timeout: 60000, interval: 1000, label: 'the holder decides nothing on its slow pass',
     });
     await settlesOnTheHolder(app);
+  });
+
+  // A single-writer app's seed decision is the folder monitor's, and who runs the
+  // app is the election's. Decided here and then run elsewhere, the decision is
+  // withdrawn, so a holder reaching a cold start later does not stand aside for a
+  // node that will never seed.
+  it('withdraws a seed decision of a single-writer app once the election names another node', async function () {
+    this.timeout(600000);
+    const identifier = (app) => `${app.name}_${app.name}`;
+    const name = `e2eseedgwithdraw${stamp}`;
+    const app = await placeSplitApp('gwithdraw', [[holder, ELECTION, `${name}_${name}`]], 'g');
+    const team = (await authenticate(client(holder).url, fluxTeamKey())).zelidauth;
+    // The seed decisions a node publishes go to a node or the Flux team, on the POST
+    // form of the route; the open GET carries none.
+    const seeding = async () => (await client(holder).post('/apps/promotedfolders', {}, { zelidauth: team }))?.data?.seeding?.[app.folder];
+    try {
+      await heldAt(holder, ELECTION, { ...app, folder: identifier(app) });
+      await waitFor(async () => (await seeding())?.stage === 'decided', {
+        timeout: 240000, interval: 1000, label: 'the holder decides to seed, its election held',
+      });
+
+      await electMaster(app.name, client(lowest).ip);
+    } finally {
+      await release(holder, ELECTION, { ...app, folder: identifier(app) });
+    }
+
+    await waitFor(async () => (await client(holder).getDecisionCount('syncthing:seedMark', app.folder, 'withdrawn')) >= 1, {
+      timeout: 120000, interval: 1000, label: 'the holder withdraws its seed decision',
+    });
+    expect(await seeding(), 'the seed decision the holder published').to.equal(undefined);
+    expect(await runners(app.name), 'a holder runs the app').to.deep.equal([]);
   });
 });
