@@ -2317,8 +2317,9 @@ async function adjustFirewall() {
     }
 
     const ufw = async (params) => {
+      const rule = params.join(' ');
       const { error } = await serviceHelper.runCommand('ufw', { runAsRoot: true, logError: false, params });
-      if (error) log.warn(`Firewall rule not applied: ufw ${params.join(' ')}: ${error.message}`);
+      if (error) log.warn(`Firewall rule not applied: ufw ${rule}: ${error.message}`);
       return !error;
     };
 
