@@ -673,13 +673,20 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       // syncthing app", not a failure. The normal receiveonly machinery
       // re-promotes once the mount is healthy.
       // eslint-disable-next-line no-restricted-syntax
+      const unreadableIds = new Set(unreadableFolderEntries.map(({ appId }) => appId));
       for (const { appId, reason } of unmountedApps) {
         unsafeFolderIds.add(appId);
+        // The container is the other writer over the bad mount, and holding it
+        // asks nothing of syncthing: a component that syncs the folder, or one
+        // whose spec cannot be read to say it does not, is held before the
+        // demotion, whatever the demotion does.
+        const held = ownerIds.has(appId) || unreadableIds.has(appId);
+        if (held) appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${reason}`);
         // eslint-disable-next-line no-await-in-loop
         const patchResponse = await primaryRole.demoteForSafety(appId);
         if (patchResponse.status === 'success') {
           log.error(`syncthingAppsCore - SAFETY BLOCK: ${appId} folder over an unsafe mount (${reason}); switched to receiveonly and holding the container`);
-          appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${reason}`);
+          if (!held) appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${reason}`);
           // A demoted folder re-enters the promotion machinery from the start.
           // Leaving the count where it stood would let a folder that was
           // moments from promotion resume there once the mount returns, on a
@@ -692,12 +699,10 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
           if (ownerIds.has(appId)) {
             // An installed syncing component owns this id, so "no such folder"
             // is a contradiction, not an answer: the demotion could not be
-            // applied, so the flag stays standing for the next pass. The mount
-            // is unsafe either way, so the container is held now. Nothing is
+            // applied, so the flag stays standing for the next pass. Nothing is
             // recreated from here - the level loop rebuilds the folder once the
             // mount is healthy, under the normal receiveonly machinery.
             log.error(`syncthingAppsCore - SAFETY BLOCK: ${appId} folder over an unsafe mount (${reason}) is unknown to syncthing though an installed component syncs it; holding the container, flag stands`);
-            appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${reason}`);
           } else {
             // no installed component syncs this id - there is nothing to demote
             // and nothing left to act on
@@ -706,7 +711,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
         } else {
           // transient failure: the flag stays standing and the next pass
           // retries the demotion - loudly, never silently
-          log.error(`syncthingAppsCore - SAFETY BLOCK FAILED for ${appId} (${reason}): ${patchResponse.data?.message || 'unknown error'}; retrying next pass`);
+          log.error(`syncthingAppsCore - SAFETY BLOCK FAILED for ${appId} (${reason}): ${patchResponse.data?.message || 'unknown error'}; ${held ? 'holding the container, ' : ''}retrying next pass`);
         }
       }
     }

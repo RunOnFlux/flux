@@ -807,6 +807,51 @@ describe('syncthingMonitor tests', () => {
       });
     });
 
+    // The container writes over the bad mount too, and holding it needs nothing
+    // from syncthing.
+    describe('the container of a component that syncs the folder', () => {
+      const unsafeSyncingApp = () => {
+        mockInstalledAppsFn.resolves({
+          status: 'success',
+          data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
+        });
+        syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+        syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['testapp']);
+        syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'unmounted_with_content' });
+        volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+        syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+        fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      };
+      const demotion = () => syncthingServiceMock.adjustConfigFolders.getCalls()
+        .find((call) => call.args[0] === 'patch' && call.args[2] === 'testapp' && call.args[1].type === 'receiveonly');
+
+      it('is held before the folder is demoted', async function () {
+        unsafeSyncingApp();
+        syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        const hold = appReconcilerMock.setControllerDesired.getCalls().find((call) => call.args[0] === 'testapp' && call.args[1] === 'stopped');
+        expect(hold, 'the container was held').to.not.equal(undefined);
+        expect(demotion(), 'the folder was demoted').to.not.equal(undefined);
+        expect(hold.calledBefore(demotion()), 'held before the demotion').to.equal(true);
+        expect(appReconcilerMock.setControllerDesired.getCalls().filter((call) => call.args[0] === 'testapp'), 'held once').to.have.lengthOf(1);
+      });
+
+      it('is held when the demotion fails', async function () {
+        unsafeSyncingApp();
+        syncthingServiceMock.adjustConfigFolders.resolves({ status: 'error', data: { code: 'ECONNREFUSED', message: 'connect ECONNREFUSED 127.0.0.1:8384' } });
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        expect(demotion(), 'the demotion was attempted').to.not.equal(undefined);
+        sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'testapp', 'stopped');
+        sinon.assert.notCalled(syncthingEventsConsumerMock.resolveMountVerify);
+      });
+    });
+
     it('keeps the flag standing when the demotion fails, so the next pass retries', async function () {
       // the exact defect class this design exists for: the one pass with the
       // signal hits a transient failure - under the old drained-edge contract
