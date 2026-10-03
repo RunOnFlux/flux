@@ -2749,6 +2749,26 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledWith(runCommandStub, 'ufw', ufwCall(['insert', '1', 'allow', 'from', '192.168.1.1', 'to', 'any', 'proto', 'udp']));
     });
 
+    it('should leave an outgoing policy that already allows alone', async () => {
+      firewallStatus('Status: active');
+      runCommandStub.withArgs('ufw', ufwCall(['status', 'verbose']))
+        .resolves({ error: null, stdout: 'Status: active\nDefault: deny (incoming), allow (outgoing), deny (routed)\n', stderr: '' });
+
+      await fluxNetworkHelper.adjustFirewall();
+
+      sinon.assert.neverCalledWith(runCommandStub, 'ufw', ufwCall(['default', 'allow', 'outgoing']));
+    });
+
+    it('should set the outgoing policy to allow when it denies', async () => {
+      firewallStatus('Status: active');
+      runCommandStub.withArgs('ufw', ufwCall(['status', 'verbose']))
+        .resolves({ error: null, stdout: 'Status: active\nDefault: deny (incoming), deny (outgoing), deny (routed)\n', stderr: '' });
+
+      await fluxNetworkHelper.adjustFirewall();
+
+      sinon.assert.calledWith(runCommandStub, 'ufw', ufwCall(['default', 'allow', 'outgoing']));
+    });
+
     it('should change nothing when the firewall is not active', async () => {
       firewallStatus('Status: inactive');
 
