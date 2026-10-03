@@ -273,6 +273,11 @@ if [ "$FLUX_SYSTEMD_MODE" = "true" ]; then
     exit 1
   fi
 
+  # The Ubuntu base image's policy-rc.d refuses every service start a package
+  # install asks for. A host has none, so a package installed here starts its
+  # service as it does on a node.
+  rm -f /usr/sbin/policy-rc.d
+
   # Container env does not cross into systemd services (the manager
   # environment arrives empty), so dump it for the
   # units' EnvironmentFile. node writes C-style-quoted values, which keeps
