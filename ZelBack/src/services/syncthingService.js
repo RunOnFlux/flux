@@ -967,6 +967,20 @@ async function getDeviceStats() {
  * Never a folder whose app volume is not mounted: a scan there finds the
  * volume's files gone and sends their deletion to every peer. Rejects with code
  * VOLUME_NOT_MOUNTED instead, and asks syncthing nothing.
+ *
+ * What a scan costs: every file is checked, and only new or changed ones are
+ * read and hashed. Measured with syncthing 2.0.15 on a Ryzen 7 1700 node's app
+ * disk, page cache dropped:
+ *
+ *   files      | data     | nothing changed | every file new
+ *   10,000     | 40 MB    | 1.3-1.6 s       | 9.2 s
+ *   100,000    | 0.41 GB  | 14-17 s         | 96 s
+ *   1,000,000  | 1 GB     | 142-178 s       | 1,049 s
+ *   10         | 10 GB    | 0.04 s          | 49 s
+ *
+ * About 0.15 ms per file checked, plus about 0.9 ms per new small file or
+ * 205 MB/s of new data. A folder of a million files cannot be scanned from
+ * scratch inside ten minutes.
  * @param {string} folderId Folder id
  * @param {object} [options]
  * @param {number} [options.timeoutMs] How long the scan may take; the client's
@@ -988,7 +1002,9 @@ async function scanFolder(folderId, { timeoutMs } = {}) {
  *
  * The scans spend the drain's own time, and each folder's settles on its own: a
  * folder whose scan failed or ran out of time is still waited on, for what its
- * peers hold of everything written before.
+ * peers hold of everything written before. From around 350,000 files even a
+ * scan that finds nothing changed outlasts the shutdown budget (apiServer.js
+ * SHUTDOWN_BUDGET_MS) - see scanFolder.
  * @param {number} timeoutMs How long the whole drain may take, its scans included
  * @returns {Promise<string[]>} Ids of the folders a connected peer had not completed at the deadline
  */
