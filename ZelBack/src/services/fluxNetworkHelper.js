@@ -116,42 +116,15 @@ let localSocketAddress = null;
 // clock step never serves the cache stale or expires it early.
 let localSocketAddressFreshUntil = 0n;
 const LOCAL_SOCKET_ADDRESS_TTL_NS = 60n * 1_000_000_000n;
+// An address on the internet: the route to it is the route this node's
+// traffic takes.
+const EGRESS_TARGET = '1.1.1.1';
 // The last address this node learned. A benchmark that does not answer clears
 // localSocketAddress but gives the node no new address, so this keeps it.
 let lastKnownSocketAddress = null;
 // Emits 'change' with the new address when the node learns one that differs
 // from lastKnownSocketAddress.
 const localSocketAddressEvents = new EventEmitter();
-
-/**
- * Converts a hexadecimal IP address (as found in /proc/net/route) to dotted decimal format.
- * The hex format is little-endian, so bytes are reversed.
- * @param {string} hex - Hexadecimal IP address (8 characters)
- * @returns {string} Dotted decimal IP address
- */
-function hexToIp(hex) {
-  const bytes = [];
-  for (let i = 0; i < 8; i += 2) {
-    bytes.push(parseInt(hex.substring(i, i + 2), 16));
-  }
-  // Reverse because the hex is little-endian
-  return bytes.reverse().join('.');
-}
-
-/**
- * Checks if a network interface is operationally up by reading its sysfs operstate.
- * @param {string} interfaceName - The name of the network interface
- * @returns {Promise<boolean>} True if the interface is up
- */
-async function isInterfaceUp(interfaceName) {
-  try {
-    const operstatePath = `/sys/class/net/${interfaceName}/operstate`;
-    const state = await fs.readFile(operstatePath, 'utf8');
-    return state.trim() === 'up';
-  } catch {
-    return false;
-  }
-}
 
 /**
  * The device an os.networkInterfaces() entry is bound on. A labelled address
@@ -169,11 +142,11 @@ function interfaceDevice(name) {
  * it, every policy rule and routing table included. A UDP connect resolves the
  * route and fixes the source address without sending a packet; the source
  * address names the device.
- * @param {string} target - An IPv4 address
+ * @param {string} [target] - An IPv4 address; by default one on the internet
  * @returns {Promise<string|null>} The device, or null when the route cannot be
  *   resolved or its source address is on no running interface.
  */
-async function egressDevice(target) {
+async function egressDevice(target = EGRESS_TARGET) {
   const socket = dgram.createSocket('udp4');
   try {
     // Any port: nothing is sent.
@@ -213,79 +186,21 @@ function getInterfaceIp(interfaceName) {
 }
 
 /**
- * The IPv4 default routes whose interface is operationally up, best metric
- * first. The first is the route this node's traffic leaves by.
- * @returns {Promise<Array<{iface: string, gateway: string, metric: number}>>}
- * @throws When the routing table cannot be read.
- */
-async function getDefaultRoutes() {
-  const routeData = await fs.readFile('/proc/net/route', 'utf8');
-  const lines = routeData.trim().split('\n');
-
-  const defaultRoutes = [];
-  // The first line is the header.
-  for (let i = 1; i < lines.length; i += 1) {
-    const fields = lines[i].split('\t');
-    if (fields.length < 11) {
-      // eslint-disable-next-line no-continue
-      continue;
-    }
-
-    const [iface, destination, gateway, flags, , , metric] = fields;
-
-    // A default route has destination 0.0.0.0, and is up (flag 0x1) with a
-    // gateway (flag 0x2).
-    // eslint-disable-next-line no-bitwise
-    const flagsNum = parseInt(flags, 16);
-    // eslint-disable-next-line no-bitwise
-    if (destination === '00000000' && (flagsNum & 0x1) && (flagsNum & 0x2)) {
-      defaultRoutes.push({
-        iface,
-        gateway: hexToIp(gateway),
-        metric: parseInt(metric, 10),
-      });
-    }
-  }
-
-  defaultRoutes.sort((a, b) => a.metric - b.metric);
-
-  const up = [];
-  for (const route of defaultRoutes) {
-    // eslint-disable-next-line no-await-in-loop
-    if (await isInterfaceUp(route.iface)) up.push(route);
-  }
-  return up;
-}
-
-/**
- * Checks if the node has a public IP directly configured on the default route interface.
- * This is a strong indicator of a static IP (data center/VPS/dedicated server).
- * @returns {Promise<boolean|null>} True if a public IP is configured on the
- *   default route interface, false if none is, null if the routing table could
- *   not be read - which is not the same answer as "there is none".
+ * Whether this node holds a public address on the device its traffic leaves by:
+ * directly connected, with no NAT between it and the internet.
+ * @returns {Promise<boolean|null>} Null when the device cannot be named - no
+ *   route out, or its source address on no running interface - which is not
+ *   the same answer as "there is none".
  */
 async function hasPublicIpOnInterface() {
-  try {
-    const defaultRoutes = await getDefaultRoutes();
-
-    for (const route of defaultRoutes) {
-      const ip = getInterfaceIp(route.iface);
-      if (ip) {
-        log.info(`Public IP ${ip} found on default route interface ${route.iface}`);
-        return true;
-      }
-    }
-
-    return false;
-  } catch (error) {
-    // Null, not false. "There is no public address on any interface" is a fact
-    // about the node; "I could not read the routing table" is a fact about this
-    // process, and answering the second with the first asserts NAT on a node
-    // that may well hold a public address. The one caller that decides anything
-    // on this treats null as unknown.
-    log.error(`Failed to check network interfaces via routing table: ${error.message}`);
+  const device = await egressDevice();
+  if (device === null) {
+    log.error('hasPublicIpOnInterface - cannot name the device this node\'s traffic leaves by');
     return null;
   }
+  const ip = getInterfaceIp(device);
+  if (ip) log.info(`Public IP ${ip} found on ${device}, the device this node's traffic leaves by`);
+  return ip !== null;
 }
 
 /**
@@ -2797,7 +2712,6 @@ module.exports = {
   getDOSState,
   setDOSStateApi,
   getNumberOfPeers,
-  getDefaultRoutes,
   egressDevice,
   interfaceDevice,
   hasPublicIpOnInterface,

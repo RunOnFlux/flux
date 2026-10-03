@@ -65,8 +65,6 @@ const TCP_OVERHEAD = 52;
 // Unrelated anycast networks: a limit near this node caps all of them, one at a
 // target's end caps only that target, so the largest result is this node's.
 const PROBE_TARGETS = ['1.1.1.1', '8.8.8.8', '9.9.9.9'];
-// The address whose route names the device this node's traffic leaves by.
-const PATH_TARGET = '1.1.1.1';
 // Fewer distinct peers than this and one peer's own small link could set the
 // highest segment size seen.
 const MIN_TCP_PEERS = 3;
@@ -337,22 +335,16 @@ async function findTunnelInterfaces() {
 
 /**
  * @param {string} publicIp
- * @param {string|null} egress The device this node's traffic leaves by; when
- *   null, the main table's best default route stands in.
- * @returns {Promise<{bound: boolean, elsewhere: boolean}>} Whether the public
- *   address is bound on this node, and whether on a device other than the one
- *   its traffic leaves by.
+ * @param {string|null} egress The device this node's traffic leaves by.
+ * @returns {{bound: boolean, elsewhere: boolean}} Whether the public address is
+ *   bound on this node, and whether on a device other than the one its traffic
+ *   leaves by; never elsewhere when that device is unknown.
  */
-async function publicIpBinding(publicIp, egress) {
+function publicIpBinding(publicIp, egress) {
   const name = Object.entries(os.networkInterfaces())
     .find(([, addresses]) => addresses.some((a) => a.family === 'IPv4' && a.address === publicIp))?.[0] ?? null;
   if (!name) return { bound: false, elsewhere: false };
-  let leavesBy = egress;
-  if (leavesBy === null) {
-    const routes = await fluxNetworkHelper.getDefaultRoutes().catch(() => null);
-    leavesBy = routes?.[0]?.iface ?? null;
-  }
-  return { bound: true, elsewhere: leavesBy !== null && fluxNetworkHelper.interfaceDevice(name) !== leavesBy };
+  return { bound: true, elsewhere: egress !== null && fluxNetworkHelper.interfaceDevice(name) !== egress };
 }
 
 /**
@@ -392,8 +384,8 @@ async function measure(socketAddress) {
   const tcpMss = await peerTcpMss();
   const mtu = combinedMtu(probe, tcpMss);
   const distance = await measureDistance(publicIp, extractPort(socketAddress));
-  const egressDevice = await fluxNetworkHelper.egressDevice(PATH_TARGET);
-  const binding = await publicIpBinding(publicIp, egressDevice);
+  const egressDevice = await fluxNetworkHelper.egressDevice();
+  const binding = publicIpBinding(publicIp, egressDevice);
   const tunnelInterfaces = await findTunnelInterfaces();
 
   const { tunnel, reason } = decide({
