@@ -23,6 +23,7 @@ const sshdConfigPath = '/etc/ssh/fluxadm_sshd_config';
 const sshdBinaryPath = '/usr/sbin/sshd';
 const serviceName = 'fluxadm-sshd.service';
 const serviceUnitPath = `/etc/systemd/system/${serviceName}`;
+const ufwBinaryPath = '/usr/sbin/ufw';
 // The openssh-server package's own units: a general-purpose sshd on port 22.
 const distroSshdUnits = ['ssh.service', 'ssh.socket'];
 
@@ -409,19 +410,22 @@ async function ensureSshdInstance(port) {
 /**
  * Rate-limited firewall opening for the maintenance sshd port.
  * @param {number} port
- * @returns {Promise<void>}
+ * @returns {Promise<boolean>} False when the rule could not be added.
  */
 async function ensureFirewall(port) {
   const firewallActive = await fluxNetworkHelper.isFirewallActive();
-  if (!firewallActive) return;
+  if (!firewallActive) return true;
 
-  const { error } = await serviceHelper.runCommand('ufw', {
+  const { error, stderr } = await serviceHelper.runCommand('ufw', {
     runAsRoot: true,
+    logError: false,
     params: ['limit', `${port}/tcp`],
   });
   if (error) {
-    log.warn(`fluxadm access - failed to add ufw limit rule for port ${port}`);
+    log.error(`fluxadm access - could not add the ufw limit rule for port ${port}: ${serviceHelper.ensureString(stderr).trim() || error.message}`);
+    return false;
   }
+  return true;
 }
 
 /**
@@ -463,11 +467,21 @@ async function removeAccess() {
 
   if (!ours) return;
 
-  await serviceHelper.runCommand('ufw', {
-    runAsRoot: true,
-    logError: false,
-    params: ['delete', 'limit', `${fluxadmPort.currentSshPort()}/tcp`],
-  });
+  // ufw exits 0 for a rule that is already gone, so only a real failure keeps
+  // the drop-in, and with it the retry on the next pass
+  const ufwPresent = await fs.access(ufwBinaryPath).then(() => true).catch(() => false);
+  if (ufwPresent) {
+    const port = fluxadmPort.currentSshPort();
+    const { error: ufwError, stderr } = await serviceHelper.runCommand('ufw', {
+      runAsRoot: true,
+      logError: false,
+      params: ['delete', 'limit', `${port}/tcp`],
+    });
+    if (ufwError) {
+      log.error(`fluxadm access - could not delete the ufw limit rule for port ${port}, retrying on the next pass: ${serviceHelper.ensureString(stderr).trim() || ufwError.message}`);
+      return;
+    }
+  }
 
   const { error: idError } = await serviceHelper.runCommand('id', {
     logError: false,
@@ -525,7 +539,7 @@ async function ensureFluxadmAccess() {
 
     const port = fluxadmPort.getFluxadmSshPort();
     if (!(await ensureSshdInstance(port))) return 'failed';
-    await ensureFirewall(port);
+    if (!(await ensureFirewall(port))) return 'failed';
 
     return 'reconciled';
   } catch (error) {
