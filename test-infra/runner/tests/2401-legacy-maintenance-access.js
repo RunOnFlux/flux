@@ -94,14 +94,26 @@ describe('2401 legacy node maintenance access', function suite() {
   // The command's own result, so a refusal and a success are both facts: the
   // remote prints the uid sudo runs as, which is 0 only when the login, the key
   // and the sudoers drop-in all worked.
-  async function login(keyName, { ip = legacyIp, port = SSH_PORT, user = 'fluxadm' } = {}) {
-    const { stdout, exitCode } = await execInContainer(arcane.container, [
+  async function loginResult(keyName, { ip = legacyIp, port = SSH_PORT, user = 'fluxadm' } = {}) {
+    const result = await execInContainer(arcane.container, [
       'ssh', '-i', `${CLIENT_KEY_DIR}/${keyName}`, '-p', String(port),
       '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'ConnectTimeout=5',
       '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'LogLevel=ERROR',
       `${user}@${ip}`, 'sudo -n id -u',
     ]);
-    return exitCode === 0 && stdout.trim() === '0';
+    return { ...result, ok: result.exitCode === 0 && result.stdout.trim() === '0' };
+  }
+
+  async function login(keyName, options) {
+    return (await loginResult(keyName, options)).ok;
+  }
+
+  // For a wait on a login that must succeed: a failed attempt throws what the
+  // remote said, which the wait reports if it times out.
+  async function loginOrThrow(keyName, options) {
+    const { ok, exitCode, stdout, stderr } = await loginResult(keyName, options);
+    if (!ok) throw new Error(`login exit ${exitCode}, stdout ${JSON.stringify(stdout)}, stderr ${JSON.stringify(stderr)}`);
+    return true;
   }
 
   // An ssh session held open from the client, running a uniquely numbered sleep
@@ -160,7 +172,7 @@ describe('2401 legacy node maintenance access', function suite() {
       'sh', publicKey('stranger'),
     ]);
     expect(exitCode, `operator sshd install failed: ${stderr}`).to.equal(0);
-    await waitFor(() => login('stranger', { ip: operatorIp, port: 22, user: 'root' }), {
+    await waitFor(() => loginOrThrow('stranger', { ip: operatorIp, port: 22, user: 'root' }), {
       timeout: CONVERGE_TIMEOUT_MS, interval: 3000, label: "a root login on the operator's sshd",
     });
   }
