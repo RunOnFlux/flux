@@ -4,6 +4,7 @@ const proxyquire = require('proxyquire').noCallThru();
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
 const primaryRoleChanges = require('../../ZelBack/src/services/appLifecycle/primaryRoleChanges');
+const sharedState = require('../../ZelBack/src/services/utils/globalState');
 
 describe('appQueryService tests', () => {
   let appQueryService;
@@ -577,6 +578,34 @@ describe('appQueryService tests', () => {
     // What a peer mid-election is told this node owns. Answering short here is not
     // a stale reading - it is a second container started on a volume this node is
     // already writing, which corrupts it.
+    let sendingBefore;
+    beforeEach(() => {
+      sendingBefore = sharedState.promotedFolderIds;
+      sharedState.promotedFolderIds = new Set();
+    });
+    afterEach(() => {
+      sharedState.promotedFolderIds = sendingBefore;
+    });
+
+    // A primary back from a stop: its folder still sends, paused, and nothing runs
+    // or is committed while it decides whether another holder took over.
+    it('reports a component whose folder sends here, with nothing running, committed or stopped', async () => {
+      sharedState.promotedFolderIds = new Set(['fluxwww_App']);
+
+      const result = await held();
+
+      expect(result).to.deep.equal(['fluxwww_App']);
+    });
+
+    it('answers that it cannot say yet before the monitor has read which folders send', async () => {
+      sharedState.promotedFolderIds = null;
+      messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
+
+      const result = await held({ running: ['fluxdb_App'] });
+
+      expect(result.status).to.equal('error');
+      expect(result.data.message).to.equal('Which folders send here is not known yet');
+    });
     // The three sources, each independently switchable, because the point of every
     // case below is which one carried the answer.
     const held = async ({
@@ -676,7 +705,14 @@ describe('appQueryService tests', () => {
     const res = () => ({ json: sinon.stub().returnsArg(0) });
     const sealWith = (seal) => peerIdentityServiceStub.answerSealer.returns(seal);
 
+    let sendingBefore;
+    afterEach(() => {
+      sharedState.promotedFolderIds = sendingBefore;
+    });
+
     beforeEach(() => {
+      sendingBefore = sharedState.promotedFolderIds;
+      sharedState.promotedFolderIds = new Set();
       nowNs += 10n ** 10n;
       sinon.stub(process.hrtime, 'bigint').callsFake(() => nowNs);
       dockerServiceStub.dockerListContainers.resolves([{ Names: ['/fluxwww_App'] }]);
@@ -754,6 +790,18 @@ describe('appQueryService tests', () => {
       account({ stopped: ['probe_gsyncprobe'] });
 
       expect(await appQueryService.holdsComponent('fluxprobe_gsyncprobe')).to.equal(true);
+    });
+
+    it('does not count a folder that sends here: that is what it asks about', async () => {
+      const sendingBefore = sharedState.promotedFolderIds;
+      sharedState.promotedFolderIds = new Set(['fluxprobe_gsyncprobe']);
+      try {
+        account();
+
+        expect(await appQueryService.holdsComponent('fluxprobe_gsyncprobe')).to.equal(false);
+      } finally {
+        sharedState.promotedFolderIds = sendingBefore;
+      }
     });
 
     it('does not hold a component that is neither running, committed nor stopped here', async () => {

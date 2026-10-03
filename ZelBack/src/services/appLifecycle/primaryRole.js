@@ -229,7 +229,7 @@ function heldByOperation(identifier) {
  *   another holder runs it     | discarded: receives, unpaused, in one write,
  *                              | unscanned; the standby revert removes what
  *                              | syncthing had not yet scanned
- *   no other holder runs it    | kept: unpaused, then scanned and made to receive
+ *   no other holder runs it    | kept: unpaused, and resumes as primary
  *   one cannot be ruled out,   | stays paused for a later pass
  *   or the caller cannot ask   |
  *
@@ -262,10 +262,14 @@ async function holdAsStandby(identifier, appId, { othersHold } = {}) {
       if (discarded) fluxEventBus.publish('primaryRole:returned', { identifier, outcome: 'discarded' });
       return discarded;
     }
-    log.info(`primaryRole - ${identifier} returned as primary and no other holder runs it; its changes go out before it receives`);
+    // It is the component's writer, and no other holder has taken over: it goes
+    // on as the primary. Its folder never stops sending, so a peer asking meanwhile
+    // reads it holding the component.
+    log.info(`primaryRole - ${identifier} returned as primary and no other holder runs it; it resumes as primary`);
     const unpaused = await syncthingFolderWrites.patchFolder(appId, { paused: false });
     if (unpaused?.status !== 'success') return false;
     fluxEventBus.publish('primaryRole:returned', { identifier, outcome: 'kept' });
+    return promote(identifier, appId);
   }
   return syncthingFolderWrites.changeSyncthingFolderType(appId, 'receiveonly', { scanFirst: true });
 }

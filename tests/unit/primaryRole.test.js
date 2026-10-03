@@ -381,15 +381,17 @@ describe('primaryRole', () => {
       expect(returned(t)).to.deep.equal([{ identifier: APP, outcome: 'discarded' }]);
     });
 
-    it('keeps what it holds when no other holder runs the component: unpaused, then scanned and made to receive', async () => {
+    it('resumes as primary when no other holder runs the component: unpaused, sending, then asked to run', async () => {
       const t = loadRole({ folder: PAUSED_SENDING });
 
       expect(await t.role.holdAsStandby(APP, FOLDER, { othersHold: async () => PeerComponent.NOT_RUNNING })).to.equal(true);
+      await t.role.whenSettled(APP);
 
-      expect(t.calls).to.deep.equal([
-        ['patch', FOLDER, { paused: false }],
-        ['folder', FOLDER, 'receiveonly', 'scanFirst'],
-      ]);
+      expect(t.calls[0]).to.deep.equal(['patch', FOLDER, { paused: false }]);
+      expect(t.calls.filter((c) => c[0] === 'folder' && c[2] === 'receiveonly'), 'the folder made to receive').to.deep.equal([]);
+      expect(t.calls.map((c) => c[0])).to.include('setRunningUnlessOperatorStopped');
+      expect(t.role.inTransition(APP)).to.equal(null);
+      expect(t.reconciler.committed).to.deep.equal([APP]);
       expect(returned(t)).to.deep.equal([{ identifier: APP, outcome: 'kept' }]);
     });
 

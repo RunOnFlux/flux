@@ -16,6 +16,7 @@ const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 const networkStateService = require('../networkStateService');
 const peerIdentityService = require('../peerIdentityService');
 const primaryRoleChanges = require('../appLifecycle/primaryRoleChanges');
+const sharedState = require('../utils/globalState');
 const log = require('../../lib/log');
 
 // Database collections
@@ -307,12 +308,12 @@ async function listRunningAppsApi(req, res) {
 }
 
 /**
- * Component identifiers this node holds: running here, committed to running and
- * not started yet, or deliberately stopped here by the operator.
+ * Component identifiers this node holds by its own account: running here,
+ * committed to running and not started yet, or deliberately stopped here by the
+ * operator.
  *
- * The question a primary election actually asks a peer, and the answer is about
- * OWNERSHIP, not about what is up. Three sources, because no one of them answers
- * it on its own:
+ * The answer is about OWNERSHIP, not about what is up. Three sources, because no
+ * one of them answers it on its own:
  *
  * - Running containers miss a node becoming the primary, which makes its folder
  *   send before it starts anything. For that whole window the node has decided
@@ -324,18 +325,44 @@ async function listRunningAppsApi(req, res) {
  *   being the primary.
  * - The operator stop lock is the durable one. `appstop` writes it to hold the
  *   component down HERE - the election skips this node and the reconciler will
- *   not restart it - and until this endpoint reported it, that intent never left
- *   the node. A peer saw no container and no commitment, concluded the component
- *   was free, and elected a new primary over an owner who had stopped theirs to
- *   work on it. Whether that happened at all turned on whether this node's FluxOS
- *   had restarted since it was elected, which is not something an owner can see.
- *   A lock holds the component only on the node that was its primary when it was
- *   stopped - see appsRuntimeState.operatorHeldIdentifiers.
+ *   not restart it. A lock holds the component only on the node that was its
+ *   primary when it was stopped - see appsRuntimeState.operatorHeldIdentifiers.
  *
- * Not filtered to g: components. The list answers "is this component mine", which
- * is true of a stopped component whatever its storage mode, and the only caller
- * asks about g: components alone - so filtering would cost a spec lookup to leave
- * out entries nobody looks up.
+ * Throws when the lock store cannot be read.
+ * @returns {Promise<string[]>} container-name identifiers
+ */
+async function ownHoldings() {
+  const containers = await dockerService.dockerListContainers(false);
+  const running = containers
+    .map((container) => (container.Names?.[0] || '').replace(/^\//, ''))
+    .filter((name) => name.slice(0, 3) === 'zel' || name.slice(0, 4) === 'flux');
+
+  // eslint-disable-next-line global-require
+  const appReconciler = require('../appMonitoring/appReconciler');
+  const committed = [...appReconciler.committedIdentifiers(), ...primaryRoleChanges.promotingIdentifiers()]
+    .map((identifier) => dockerService.getAppIdentifier(identifier));
+
+  const operatorHeld = (await appsRuntimeState.operatorHeldIdentifiers())
+    .map((identifier) => dockerService.getAppIdentifier(identifier));
+
+  return [...new Set([...running, ...committed, ...operatorHeld])];
+}
+
+/**
+ * Component identifiers this node holds, as a peer is told: its own account,
+ * and every component whose folder sends here. The question a primary election
+ * asks a peer, and FDM's last way to name a primary.
+ *
+ * A sending folder is a writer. A primary back from a stop has its folder still
+ * sending, paused, and no container or commitment until it has decided whether
+ * another holder took over; read without its folder, it answers that it holds
+ * nothing, and the holder asking starts the component beside it. Until the
+ * monitor's first pass after a start this node does not know which folders send,
+ * so it answers that it cannot say yet rather than that it holds nothing.
+ *
+ * Not filtered to g: components. The list answers "is this component mine", and
+ * the callers ask about g: components alone - so filtering would cost a spec
+ * lookup to leave out entries nobody looks up.
  *
  * Cached for one second at the route, not the fifteen listrunningapps takes: long
  * enough to bound an anonymous caller to one pass of this work per second, short
@@ -348,20 +375,12 @@ async function listRunningAppsApi(req, res) {
  */
 async function heldComponents(req, res) {
   try {
-    const containers = await dockerService.dockerListContainers(false);
-    const running = containers
-      .map((container) => (container.Names?.[0] || '').replace(/^\//, ''))
-      .filter((name) => name.slice(0, 3) === 'zel' || name.slice(0, 4) === 'flux');
-
-    // eslint-disable-next-line global-require
-    const appReconciler = require('../appMonitoring/appReconciler');
-    const committed = [...appReconciler.committedIdentifiers(), ...primaryRoleChanges.promotingIdentifiers()]
-      .map((identifier) => dockerService.getAppIdentifier(identifier));
-
-    const operatorHeld = (await appsRuntimeState.operatorHeldIdentifiers())
-      .map((identifier) => dockerService.getAppIdentifier(identifier));
-
-    const held = [...new Set([...running, ...committed, ...operatorHeld])];
+    const sending = sharedState.promotedFolderIds;
+    if (sending === null) {
+      const notReady = messageHelper.createErrorMessage('Which folders send here is not known yet', 'ServiceUnavailable', 503);
+      return res ? res.json(notReady) : notReady;
+    }
+    const held = [...new Set([...await ownHoldings(), ...sending])];
     const response = messageHelper.createDataMessage(held);
     return res ? res.json(response) : response;
   } catch (error) {
@@ -376,16 +395,20 @@ async function heldComponents(req, res) {
 }
 
 /**
- * Whether this node holds a component, by the same account heldComponents gives
- * a peer: running here, committed to start here, or stopped here by its owner.
+ * Whether this node holds a component by its own account - running here,
+ * committed to start here, or stopped here by its owner. Not its folder: this
+ * asks whether a folder that sends here has anything behind it.
  *
  * @param {string} identifier - The component's container name, e.g. fluxcomp_app
  * @returns {Promise<boolean|null>} null when the account cannot be read
  */
 async function holdsComponent(identifier) {
-  const response = await heldComponents();
-  if (response.status !== 'success') return null;
-  return response.data.includes(identifier);
+  try {
+    return (await ownHoldings()).includes(identifier);
+  } catch (error) {
+    log.error(error);
+    return null;
+  }
 }
 
 // Peers ask what this node holds on every election pass, unauthenticated and
