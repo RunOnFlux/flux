@@ -725,6 +725,13 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCent
 // and /id/loginphrase needs the mongo connection, which comes up after express
 // starts answering /flux/version. During that window the route returns 200 with
 // an error body, so readiness must validate the body, not just res.ok.
+// The node whose key node `num` signs with. `sharedKeys` maps a node number to
+// another's, both 1-based: distinct nodes, with their own collateral and
+// address, on one key - as one operator's nodes often are.
+function keyNumber(sharedKeys, num) {
+  return Number(sharedKeys[num] ?? num);
+}
+
 function nodeReadyWaitStrategy(nodeIp) {
   const validate = async (res) => {
     if (!res.ok) return false;
@@ -747,7 +754,7 @@ export async function createTestEnv({
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
   geolocation = {}, locationTable = null, staticIp = true, policy = null, policySeeds = null,
-  awaitPolicy = true, pm2Nodes = {}, rejoinOnRestart = true,
+  awaitPolicy = true, pm2Nodes = {}, sharedKeys = {}, rejoinOnRestart = true,
 } = {}) {
   if (syncthing !== 'stub' && syncthing !== 'binary') {
     throw new Error(`createTestEnv: syncthing must be 'stub' or 'binary', got '${syncthing}'`);
@@ -759,6 +766,9 @@ export async function createTestEnv({
     const index = Number(key);
     if (!legacyNodes.includes(index)) throw new Error(`createTestEnv: pm2 node ${index} is not a legacy node`);
     if (unprivilegedNodes.includes(index)) throw new Error(`createTestEnv: pm2 node ${index} cannot also be unprivileged`);
+  }
+  for (const [nodeNumber, keyOf] of Object.entries(sharedKeys)) {
+    if (sharedKeys[keyOf] !== undefined) throw new Error(`createTestEnv: node ${nodeNumber} shares the key of node ${keyOf}, which itself shares another's`);
   }
   // WHICH NODES ARE ALREADY PART OF THE NETWORK, rather than joining it.
   //
@@ -1000,7 +1010,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, sharedKeys);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -1029,7 +1039,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, sharedKeys = {}) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -1096,7 +1106,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   // fixture, addresses from subnet-config (the single source of truth for node IPs).
   // POST before any node boots; /set-node-list also resets the stub's restore/reset
   // baseline. A no-op-equivalent when base === '198.18'.
-  const runNodeList = deterministicList.slice(0, nodes).map((n, idx) => ({ ...n, ip: subnet.nodeIp(idx + 1) }));
+  const runNodeList = deterministicList.slice(0, nodes).map((n, idx) => ({
+    ...n, ip: subnet.nodeIp(idx + 1), pubkey: nodeKey(keyNumber(sharedKeys, idx + 1)).pubkey,
+  }));
+  env.nodeKeyOf = (num) => nodeKey(keyNumber(sharedKeys, num));
   await fetch(`http://${DAEMON_IP}:18232/set-node-list`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1297,7 +1310,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     const nodeEnv = {
       NODE_CONFIG_DIR: `/flux/test-infra/config/node-${num}`,
       FLUXD_PATH: '/dat/var/lib/fluxd',
-      FLUXD_CONFIG_PATH: `/flux/test-infra/fixtures/conf/flux-${num}.conf`,
+      FLUXD_CONFIG_PATH: `/flux/test-infra/fixtures/conf/flux-${String(keyNumber(sharedKeys, i + 1)).padStart(2, '0')}.conf`,
       SYNCTHING_PATH: '/dat/usr/lib/syncthing',
       FLUXBENCH_PATH: '/dat/usr/lib/fluxbenchd',
       FLUX_WATCHDOG_PATH: '/dat/usr/lib/fluxwatchdog',
@@ -1477,7 +1490,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
 
   for (const stubIdx of stubPeers) {
     const nodeIp = subnet.nodeIp(stubIdx + 1);
-    const key = nodeKey(stubIdx + 1);
+    const key = nodeKey(keyNumber(sharedKeys, stubIdx + 1));
 
     const stub = await new StaticIpContainer(image('flux-e2e-peer-stub'))
       .withStaticIp(networkName, nodeIp)
