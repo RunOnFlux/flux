@@ -1064,6 +1064,93 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'operator-stopped')).to.have.lengthOf(2);
     });
 
+    // A node that decided to seed a folder publishes that, and every holder
+    // reaching its own cold start stands aside for it. Once the election runs
+    // the folder's component on another node, this one will not seed.
+    describe('this node\'s mark that it seeds the folder', () => {
+      const PEER = '192.168.1.90:16127';
+      let promote;
+
+      beforeEach(() => {
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+        promote = sinon.stub(primaryRole, 'promote').returns(true);
+        sinon.stub(primaryRole, 'holdAsStandby').resolves(true);
+        sinon.stub(primaryRole, 'standDown').returns(false);
+      });
+
+      const decided = (appName) => globalState.seedMarks.set(`flux${appName}`, { stage: 'decided', bytes: 0, newestModified: 0 });
+      const mark = (appName) => globalState.seedMarks.get(`flux${appName}`);
+      afterEach(() => globalState.seedMarks.clear());
+
+      it('is withdrawn when FDM names another node its primary', async () => {
+        const appName = 'seedfdmother';
+        const runPass = electionFixture(appName, [PEER]);
+        decided(appName);
+        serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+
+        await runPass();
+
+        expect(mark(appName)).to.equal(undefined);
+      });
+
+      it('is withdrawn when a peer holds the component', async () => {
+        const appName = 'seedpeerholds';
+        const runPass = electionFixture(appName, [PEER]);
+        decided(appName);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+
+        await runPass();
+
+        sinon.assert.notCalled(promote);
+        expect(mark(appName)).to.equal(undefined);
+      });
+
+      it('is withdrawn when the primary FDM last named has gone from FDM and still runs the component', async () => {
+        const appName = 'seedpreviousruns';
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+        await runPass();
+        decided(appName);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+
+        await runPass();
+
+        expect(mark(appName)).to.equal(undefined);
+      });
+
+      it('stands while a peer cannot be ruled out, since the decision is still open', async () => {
+        const appName = 'seedpeerunknown';
+        const runPass = electionFixture(appName, [PEER]);
+        decided(appName);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.rejects(new Error('connect ETIMEDOUT'));
+
+        await runPass();
+
+        sinon.assert.notCalled(promote);
+        expect(mark(appName)?.stage).to.equal('decided');
+      });
+
+      it('stands while this node starts the component, whose folder sending clears it', async () => {
+        const appName = 'seedstartshere';
+        const runPass = electionFixture(appName, [PEER]);
+        decided(appName);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        sinon.assert.calledOnce(promote);
+        expect(mark(appName)?.stage).to.equal('decided');
+      });
+    });
+
     // An owner start of a stopped g: component leaves the stop lock on - it is what
     // holds the component on this node - and the election lifts it once it has
     // decided: starting it here, or finding another node runs it. A pass that

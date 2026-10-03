@@ -2575,6 +2575,22 @@ function startAsPrimary(identifier, appId) {
 }
 
 /**
+ * Withdraws this node's mark that it seeds a folder, once the election has
+ * decided another node runs the folder's component. The mark tells a holder
+ * reaching its own cold start to stand aside, and this node will not seed.
+ * Becoming the primary here needs no withdrawal: a folder that sends clears its
+ * mark (syncthingFolderWrites).
+ * @param {string} appId Syncthing folder id
+ * @param {string} outcome What the election decided, for the log.
+ * @returns {void}
+ */
+function withdrawSeedMark(appId, outcome) {
+  if (!globalState.seedMarks.delete(appId)) return;
+  log.info(`masterSlaveApps: withdrew this node's mark that it seeds ${appId} - ${outcome}`);
+  fluxEventBus.count('syncthing:seedMark', appId, 'withdrawn');
+}
+
+/**
  * Lifts the stop lock of a g: component its operator has started, once the
  * election has decided who runs it - see appsRuntimeState.requestOperatorStart.
  *
@@ -5341,6 +5357,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // One peer that cannot be ruled out holds the start on its own:
                   // every other peer answering "not me" says nothing about that one.
                   if (states.includes(PeerComponent.RUNNING)) {
+                    withdrawSeedMark(appId, 'a peer holds it');
                     if (resuming) await settleOperatorStart(identifier, 'a peer holds it');
                     return PeerComponent.RUNNING;
                   }
@@ -5395,6 +5412,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // eslint-disable-next-line no-await-in-loop
                   const previousMasterState = await peerComponentState(previousMasterAddr, { ...probeCtx, label: 'previous primary' });
                   if (previousMasterState !== PeerComponent.NOT_RUNNING) {
+                    if (previousMasterState === PeerComponent.RUNNING) withdrawSeedMark(appId, 'the previous primary runs it');
                     if (resuming && previousMasterState === PeerComponent.RUNNING) {
                       // eslint-disable-next-line no-await-in-loop
                       await settleOperatorStart(identifier, 'the previous primary runs it');
@@ -5539,6 +5557,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 timeTostartNewMasterApp.delete(identifier);
               }
               if (!ipsMatch(localSocketAddr, ip)) {
+                withdrawSeedMark(appId, `FDM names ${ip} its primary`);
                 if (resuming) {
                   // eslint-disable-next-line no-await-in-loop
                   await settleOperatorStart(identifier, `FDM names ${ip} its primary`);
