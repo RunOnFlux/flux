@@ -2683,14 +2683,18 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('adjustFirewall tests', () => {
-    before(function () { if (process.platform !== 'linux') this.skip(); });
-
-    let utilStub;
-    let funcStub;
-    let logSpy;
     const ports = [16127, 16126, 16128, 16129, 80, 443, 16125, 11, 13];
+    const ufwCall = (params) => sinon.match({ runAsRoot: true, params });
+    let runCommandStub;
+    let logSpy;
+
+    const firewallStatus = (status) => {
+      sinon.stub(util, 'promisify').returns(sinon.fake.resolves(status));
+    };
+
     beforeEach(() => {
-      utilStub = sinon.stub(util, 'promisify');
+      runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '', stderr: '' });
+      runCommandStub.withArgs('ip').resolves({ error: null, stdout: 'default via 192.168.1.1 dev eth0\n10.0.0.0/8 dev eth1\n', stderr: '' });
       logSpy = sinon.spy(log, 'info');
     });
 
@@ -2698,59 +2702,59 @@ describe('fluxNetworkHelper tests', () => {
       sinon.restore();
     });
 
-    it('should adjust firewall ports for the whole list of ports - all are active', async () => {
-      funcStub = sinon.fake(async (command) => (command.includes('grep Status') ? 'Status: active' : 'updated'));
-      utilStub.returns(funcStub);
+    it('should allow every flux port in and out', async () => {
+      firewallStatus('Status: active');
 
       await fluxNetworkHelper.adjustFirewall();
 
-      sinon.assert.calledWith(funcStub, 'LANG="en_US.UTF-8" && sudo ufw status | grep Status');
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
-        sinon.assert.calledWith(funcStub, `LANG="en_US.UTF-8" && sudo ufw allow ${port}`);
+        sinon.assert.calledWith(runCommandStub, 'ufw', ufwCall(['allow', String(port)]));
+        sinon.assert.calledWith(runCommandStub, 'ufw', ufwCall(['allow', 'out', String(port)]));
         sinon.assert.calledWith(logSpy, `Firewall adjusted for port ${port}`);
+        sinon.assert.calledWith(logSpy, `Firewall out adjusted for port ${port}`);
       }
+    });
+
+    it('should log the ports it could not allow', async () => {
+      firewallStatus('Status: active');
+      runCommandStub.withArgs('ufw', ufwCall(['allow', '16127'])).resolves({ error: new Error('ufw failed'), stdout: '', stderr: '' });
+
+      await fluxNetworkHelper.adjustFirewall();
+
+      sinon.assert.calledWith(logSpy, 'Failed to adjust Firewall for port 16127');
+      sinon.assert.calledWith(logSpy, 'Firewall out adjusted for port 16127');
+    });
+
+    it('should still allow every flux port when an earlier rule fails', async () => {
+      firewallStatus('Status: active');
+      runCommandStub.withArgs('ufw', ufwCall(['insert', '1', 'limit', 'to', 'any', 'app', 'OpenSSH']))
+        .resolves({ error: new Error('ERROR: Could not find a profile matching \'OpenSSH\''), stdout: '', stderr: '' });
+
+      await fluxNetworkHelper.adjustFirewall();
+
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
-        sinon.assert.calledWith(funcStub, `LANG="en_US.UTF-8" && sudo ufw allow out ${port}`);
+        sinon.assert.calledWith(runCommandStub, 'ufw', ufwCall(['allow', String(port)]));
         sinon.assert.calledWith(logSpy, `Firewall adjusted for port ${port}`);
       }
     });
 
-    it('should log info if ports were not able to be adjusted', async () => {
-      funcStub = sinon.fake(async (command) => (command.includes('grep Status') ? 'Status: active' : 'failure'));
-      utilStub.returns(funcStub);
+    it('should allow traffic with the router named by the first route', async () => {
+      firewallStatus('Status: active');
 
       await fluxNetworkHelper.adjustFirewall();
 
-      sinon.assert.calledWith(funcStub, 'LANG="en_US.UTF-8" && sudo ufw status | grep Status');
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of ports) {
-        sinon.assert.calledWith(funcStub, `LANG="en_US.UTF-8" && sudo ufw allow ${port}`);
-        sinon.assert.calledWith(logSpy, `Failed to adjust Firewall for port ${port}`);
-      }
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of ports) {
-        sinon.assert.calledWith(funcStub, `LANG="en_US.UTF-8" && sudo ufw allow out ${port}`);
-        sinon.assert.calledWith(logSpy, `Failed to adjust Firewall for port ${port}`);
-      }
+      sinon.assert.calledWith(runCommandStub, 'ufw', ufwCall(['insert', '1', 'allow', 'out', 'from', 'any', 'to', '192.168.1.1', 'proto', 'tcp']));
+      sinon.assert.calledWith(runCommandStub, 'ufw', ufwCall(['insert', '1', 'allow', 'from', '192.168.1.1', 'to', 'any', 'proto', 'udp']));
     });
 
-    it('should log info if ports were not able to be adjusted', async () => {
-      funcStub = sinon.fake(async (command) => (command.includes('grep Status') ? 'Status: not active' : 'failure'));
-      utilStub.returns(funcStub);
+    it('should change nothing when the firewall is not active', async () => {
+      firewallStatus('Status: inactive');
 
       await fluxNetworkHelper.adjustFirewall();
 
-      sinon.assert.calledWith(funcStub, 'LANG="en_US.UTF-8" && sudo ufw status | grep Status');
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of ports) {
-        sinon.assert.neverCalledWith(funcStub, `LANG="en_US.UTF-8" && sudo ufw allow ${port}`);
-      }
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of ports) {
-        sinon.assert.neverCalledWith(funcStub, `LANG="en_US.UTF-8" && sudo ufw allow out ${port}`);
-      }
+      sinon.assert.neverCalledWith(runCommandStub, 'ufw');
       sinon.assert.calledWith(logSpy, 'Firewall is not active. Adjusting not applied');
     });
   });

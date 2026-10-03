@@ -2307,11 +2307,11 @@ async function isFirewallActive() {
 }
 
 /**
- * To adjust a firewall to allow ports for Flux.
+ * To adjust a firewall to allow ports for Flux. Each rule is applied on its
+ * own: one that fails is logged and the rest are still applied.
  */
 async function adjustFirewall() {
   try {
-    const cmdAsync = util.promisify(nodecmd.run);
     const apiPort = userconfig.initial.apiport || config.server.apiport;
     const homePort = +apiPort - 1;
     const apiSSLPort = +apiPort + 1;
@@ -2320,71 +2320,63 @@ async function adjustFirewall() {
     const fluxCommunicationPorts = config.server.allowedPorts;
     ports = ports.concat(fluxCommunicationPorts);
     const firewallActive = await isFirewallActive();
-    if (firewallActive) {
-      // set default allow outgoing
-      const execAllowA = 'LANG="en_US.UTF-8" && sudo ufw default allow outgoing';
-      await cmdAsync(execAllowA);
-      // allow speedtests
-      const execAllowB = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out 5060';
-      const execAllowC = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out 8080';
-      await cmdAsync(execAllowB);
-      await cmdAsync(execAllowC);
-      // remove inbound DNS traffic
-      const removeInboundDns = 'LANG="en_US.UTF-8" && sudo ufw delete allow in proto udp to any port 53 > /dev/null 2>&1';
-      await cmdAsync(removeInboundDns);
-      // allow outgoing DNS traffic
-      const execAllowE = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out proto udp to any port 53';
-      const execAllowF = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out proto tcp to any port 53';
-      await cmdAsync(execAllowE);
-      await cmdAsync(execAllowF);
-      log.info('Firewall adjusted for DNS traffic');
-
-      // fix up for ssh being misteriously removed (needs tracing)
-      if (isArcane) {
-        // this should also be limit, but existing nodes use allow (needs to be updated)
-        const execAllowFluxadmSsh = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow to any app FluxadmSSH > /dev/null 2>&1';
-        await cmdAsync(execAllowFluxadmSsh);
-      }
-
-      const execAllowOpenSsh = 'LANG="en_US.UTF-8" && sudo ufw insert 1 limit to any app OpenSSH > /dev/null 2>&1';
-      await cmdAsync(execAllowOpenSsh);
-
-      const commandGetRouterIP = 'ip rout | head -n1 | awk \'{print $3}\'';
-      let routerIP = await cmdAsync(commandGetRouterIP);
-      routerIP = routerIP.replace(/(\r\n|\n|\r)/gm, '');
-      log.info(`Router IP: ${routerIP}`);
-      if (serviceHelper.validIpv4Address(routerIP)
-        && (routerIP.startsWith('192.168.') || routerIP.startsWith('10.') || routerIP.startsWith('172.16.')
-          || routerIP.startsWith('100.64.') || routerIP.startsWith('198.18.') || routerIP.startsWith('169.254.'))) {
-        const execRouterAllowA = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow out from any to ${routerIP} proto tcp > /dev/null 2>&1`;
-        const execRouterAllowB = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow from ${routerIP} to any proto udp > /dev/null 2>&1`;
-        await cmdAsync(execRouterAllowA);
-        await cmdAsync(execRouterAllowB);
-        log.info(`Firewall adjusted for comms with router on local ip ${routerIP}`);
-      }
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of ports) {
-        const execB = `LANG="en_US.UTF-8" && sudo ufw allow ${port}`;
-        const execC = `LANG="en_US.UTF-8" && sudo ufw allow out ${port}`;
-
-        // eslint-disable-next-line no-await-in-loop
-        const cmdresB = await cmdAsync(execB);
-        if (serviceHelper.ensureString(cmdresB).includes('updated') || serviceHelper.ensureString(cmdresB).includes('existing') || serviceHelper.ensureString(cmdresB).includes('added')) {
-          log.info(`Firewall adjusted for port ${port}`);
-        } else {
-          log.info(`Failed to adjust Firewall for port ${port}`);
-        }
-
-        // eslint-disable-next-line no-await-in-loop
-        const cmdresC = await cmdAsync(execC);
-        if (serviceHelper.ensureString(cmdresC).includes('updated') || serviceHelper.ensureString(cmdresC).includes('existing') || serviceHelper.ensureString(cmdresC).includes('added')) {
-          log.info(`Firewall out adjusted for port ${port}`);
-        } else {
-          log.info(`Failed to adjust Firewall out for port ${port}`);
-        }
-      }
-    } else {
+    if (!firewallActive) {
       log.info('Firewall is not active. Adjusting not applied');
+      return;
+    }
+
+    const ufw = async (params) => {
+      const { error } = await serviceHelper.runCommand('ufw', { runAsRoot: true, logError: false, params });
+      if (error) log.warn(`Firewall rule not applied: ufw ${params.join(' ')}: ${error.message}`);
+      return !error;
+    };
+
+    // set default allow outgoing
+    await ufw(['default', 'allow', 'outgoing']);
+    // allow speedtests
+    await ufw(['insert', '1', 'allow', 'out', '5060']);
+    await ufw(['insert', '1', 'allow', 'out', '8080']);
+    // remove inbound DNS traffic
+    await ufw(['delete', 'allow', 'in', 'proto', 'udp', 'to', 'any', 'port', '53']);
+    // allow outgoing DNS traffic
+    await ufw(['insert', '1', 'allow', 'out', 'proto', 'udp', 'to', 'any', 'port', '53']);
+    await ufw(['insert', '1', 'allow', 'out', 'proto', 'tcp', 'to', 'any', 'port', '53']);
+    log.info('Firewall adjusted for DNS traffic');
+
+    // fix up for ssh being misteriously removed (needs tracing)
+    if (isArcane) {
+      // this should also be limit, but existing nodes use allow (needs to be updated)
+      await ufw(['insert', '1', 'allow', 'to', 'any', 'app', 'FluxadmSSH']);
+    }
+
+    // the OpenSSH profile exists only where openssh-server is installed
+    await ufw(['insert', '1', 'limit', 'to', 'any', 'app', 'OpenSSH']);
+
+    const { stdout: routes } = await serviceHelper.runCommand('ip', { logError: false, params: ['route'] });
+    const routerIP = serviceHelper.ensureString(routes).split('\n')[0].trim().split(/\s+/)[2] || '';
+    log.info(`Router IP: ${routerIP}`);
+    if (serviceHelper.validIpv4Address(routerIP)
+      && (routerIP.startsWith('192.168.') || routerIP.startsWith('10.') || routerIP.startsWith('172.16.')
+        || routerIP.startsWith('100.64.') || routerIP.startsWith('198.18.') || routerIP.startsWith('169.254.'))) {
+      await ufw(['insert', '1', 'allow', 'out', 'from', 'any', 'to', routerIP, 'proto', 'tcp']);
+      await ufw(['insert', '1', 'allow', 'from', routerIP, 'to', 'any', 'proto', 'udp']);
+      log.info(`Firewall adjusted for comms with router on local ip ${routerIP}`);
+    }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const port of ports) {
+      // eslint-disable-next-line no-await-in-loop
+      if (await ufw(['allow', String(port)])) {
+        log.info(`Firewall adjusted for port ${port}`);
+      } else {
+        log.info(`Failed to adjust Firewall for port ${port}`);
+      }
+
+      // eslint-disable-next-line no-await-in-loop
+      if (await ufw(['allow', 'out', String(port)])) {
+        log.info(`Firewall out adjusted for port ${port}`);
+      } else {
+        log.info(`Failed to adjust Firewall out for port ${port}`);
+      }
     }
   } catch (error) {
     log.error(error);
