@@ -659,6 +659,17 @@ describe('syncthingService tests', () => {
       sinon.restore();
     });
 
+    it('holds no device id until the sentinel has read one, then the one it read - and never asks syncthing itself', async () => {
+      expect(syncthingService.heldDeviceId()).to.equal(null);
+      expect(fakeMeta.callCount, 'reading what is held asked syncthing').to.equal(0);
+
+      await syncthingService.refreshSyncthingHealth();
+      const asked = fakeMeta.callCount;
+
+      expect(syncthingService.heldDeviceId()).to.equal(deviceId);
+      expect(fakeMeta.callCount, 'reading what is held asked syncthing').to.equal(asked);
+    });
+
     it('caches the device id - a second read does not re-probe syncthing', async () => {
       const first = await syncthingService.getDeviceId();
       const second = await syncthingService.getDeviceId();

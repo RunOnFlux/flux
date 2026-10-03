@@ -15,6 +15,8 @@ const nodeSignerModule = require('../../ZelBack/src/services/utils/nodeSigner');
 const peerIdentityService = require('../../ZelBack/src/services/peerIdentityService');
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
 const { MAX_APP_NAME_LENGTH, MAX_COMPONENT_NAME_LENGTH, MAX_APP_COMPONENTS } = require('../../ZelBack/src/services/utils/appConstants');
+const { DEVICE_ID_REQUEST_TIMEOUT_MS } = require('../../ZelBack/src/services/appMonitoring/syncthingMonitorConstants');
+const shipped = require('../../ZelBack/config/default');
 const { makePeerIdentityDouble } = require('./peerIdentityTestDouble');
 
 const { IdentityVerdict, IDENTITY_PURPOSE, AnswerPurpose } = peerIdentityService;
@@ -76,6 +78,7 @@ describe('peerIdentityService', () => {
       pubKey: pub.a,
       sign: (message) => verificationHelper.signMessage(message, KEYS.a),
     });
+    sinon.stub(syncthingService, 'heldDeviceId').returns('DEVICE-A');
     sinon.stub(syncthingService, 'getDeviceId').resolves('DEVICE-A');
     list = new Map([[pub.a, [ADDR.a]], [pub.b, [ADDR.b]], [pub.c, [ADDR.c]]]);
     sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').callsFake(async ({ filter }) => (list.get(filter) || [])
@@ -107,13 +110,24 @@ describe('peerIdentityService', () => {
       expect(verificationHelper.verifyMessage(JSON.stringify(signed), pub.a, signature)).to.equal(true);
     });
 
-    it('still answers while its syncthing is down, with no device', async () => {
-      syncthingService.getDeviceId.rejects(new Error('syncthing is not running'));
+    it('still answers while its syncthing has not answered, with no device', async () => {
+      syncthingService.heldDeviceId.returns(null);
 
       const answer = await peerIdentityService.identityAnswer({ challenge: CHALLENGE });
 
       expect(answer.deviceId).to.equal(null);
       expect(answer.signature).to.be.a('string');
+    });
+
+    // Anyone may ask, so an answer that read syncthing would let any caller drive
+    // this node's syncthing, and a slow syncthing would outlast the caller's wait.
+    it('answers with the device it holds, and never asks syncthing for it', async () => {
+      syncthingService.heldDeviceId.returns('DEVICE-HELD');
+
+      const answer = await peerIdentityService.identityAnswer({ challenge: CHALLENGE });
+
+      expect(answer.deviceId).to.equal('DEVICE-HELD');
+      sinon.assert.notCalled(syncthingService.getDeviceId);
     });
 
     [
@@ -211,6 +225,12 @@ describe('peerIdentityService', () => {
       expect(second.args[1].challenge, 'a challenge reused is a recording accepted').to.not.equal(first.args[1].challenge);
       expect(first.args[2].timeout).to.equal(config.fluxapps.peerIdentityTimeoutMs);
       expect(first.args[2].maxContentLength).to.be.a('number').and.to.be.below(1024 * 1024);
+    });
+
+    // The monitor asks this on every pass, for every peer it configures a device
+    // for, in place of the unsigned device id request.
+    it('waits no longer for an identity, as shipped, than for the device id request it stands in for', () => {
+      expect(shipped.fluxapps.peerIdentityTimeoutMs).to.be.at.most(DEVICE_ID_REQUEST_TIMEOUT_MS);
     });
 
     it('dials the default port for a bare address, and judges it as that address', async () => {

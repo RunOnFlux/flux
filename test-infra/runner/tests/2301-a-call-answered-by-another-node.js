@@ -80,7 +80,7 @@ describe('a call to one node answered by another', function () {
     await env?.teardown();
   });
 
-  it('has every node answer who it is, signed by its own key over the caller\'s challenge', async function () {
+  it('has every node answer who it is, signed by its own key over the caller\'s challenge, with its own device', async function () {
     this.timeout(60000);
     await Promise.all(env.clients.map(async (client, i) => {
       const challenge = crypto.randomBytes(16).toString('hex');
@@ -92,6 +92,9 @@ describe('a call to one node answered by another', function () {
       expect(signed.challenge, 'an answer to some other challenge is a recording').to.equal(challenge);
       expect(signed.socketAddress).to.equal(addr(i));
       expect(signed.pubKey).to.equal(nodeKey(client.num).pubkey);
+      const device = await client.get('/syncthing/deviceid');
+      expect(device.data, `node ${i} has no syncthing device to compare`).to.be.a('string').and.not.equal('');
+      expect(signed.deviceId, `node ${i} signed another device than its syncthing's`).to.equal(device.data);
       expect(verifyBtcMessage(JSON.stringify(signed), signature, nodeKey(client.num).pubkey),
         `node ${i}'s signature does not verify against its own key`).to.equal(true);
     }));

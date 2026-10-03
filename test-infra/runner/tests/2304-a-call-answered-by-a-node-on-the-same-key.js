@@ -73,11 +73,14 @@ describe('a call to one node answered by another node on the same key', function
       expect(res.status, `node ${i} refused: ${JSON.stringify(res.data)}`).to.equal('success');
       const { signature, ...signed } = res.data;
       expect(signed.socketAddress).to.equal(addr(i));
+      expect(signed.deviceId, `node ${i} signed another device than its syncthing's`)
+        .to.equal((await env.clients[i].get('/syncthing/deviceid')).data);
       expect(verifyBtcMessage(JSON.stringify(signed), signature, env.nodeKeyOf(env.clients[i].num).pubkey),
         `node ${i}'s signature does not verify against the key it is listed under`).to.equal(true);
       return signed;
     }));
     expect(answers[0].pubKey, 'B and C are on one key').to.equal(answers[1].pubKey);
+    expect(answers[0].deviceId, 'B and C are two nodes, with a syncthing each').to.not.equal(answers[1].deviceId);
   });
 
   it('has A verify B and C each at its own address', async function () {

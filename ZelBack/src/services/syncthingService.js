@@ -1363,6 +1363,16 @@ async function configureDirectories() {
   }
 }
 
+/**
+ * The node's own syncthing device id as already read, without asking syncthing.
+ * The sentinel reads it on every pass; null until syncthing has first answered,
+ * and again from a stop until it answers after it.
+ * @returns {string|null}
+ */
+function heldDeviceId() {
+  return cachedDeviceId;
+}
+
 // Syncthing's graceful stop sends each peer connection a close message and
 // waits up to protocol.CloseTimeout - ten seconds - for it to go out, so a
 // stop given less than that can find it still running.
@@ -2608,6 +2618,7 @@ module.exports = {
   getDeviceIdApi,
   probeSyncthing,
   refreshSyncthingHealth,
+  heldDeviceId,
   supervisesSyncthing,
   ownsSyncthing,
   getMeta,

@@ -82,7 +82,7 @@ const IdentityVerdict = Object.freeze({
   UNREACHABLE: 'unreachable',
 });
 
-const TIMEOUT_MS = config.fluxapps.peerIdentityTimeoutMs ?? 10 * 1000;
+const TIMEOUT_MS = config.fluxapps.peerIdentityTimeoutMs ?? 5 * 1000;
 
 // How long each verdict is reused. A verified identity changes only when the
 // address changes hands, so it is held longest. A misroute is rechecked soon,
@@ -243,9 +243,11 @@ async function identityAnswer(body) {
   const signer = await nodeSigner.nodeSigner();
   if (!signer) throw new Error('This node cannot sign as itself');
 
-  // Null while this node's syncthing has not answered. The identity stands
-  // without it; a caller that needs the device asks again later.
-  const deviceId = await syncthingService.getDeviceId().catch(() => null);
+  // What the sentinel holds, never a read of syncthing: anyone may ask this, and
+  // the answer has to come back well inside a caller's timeout. Null while
+  // syncthing has not answered; the identity stands without it, and a caller
+  // that needs the device asks again later.
+  const deviceId = syncthingService.heldDeviceId();
 
   await acceptIntroduction(body.introduction).catch((error) => {
     log.warn(`identityAnswer - could not judge the caller's introduction: ${error.message}`);
