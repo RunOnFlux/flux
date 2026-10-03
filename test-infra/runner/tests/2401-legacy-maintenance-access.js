@@ -2,9 +2,12 @@
 // fluxadm account, its passwordless sudo, the configured keys and a dedicated sshd
 // unit on apiport - 5, reached over the fleet network with a real ssh client.
 //
-// The node under test is legacy (no FLUXOS_PATH, and the daemon stub reports it
-// as not attested). Its peer is an Arcane node with the same key list configured,
-// which must end up with none of it, and which doubles as the ssh client.
+// Two legacy nodes (no FLUXOS_PATH, and the daemon stub reports them as not
+// attested): one with no sshd, which installs openssh-server for the feature and
+// must not start the sshd the package ships, and one whose operator already runs
+// sshd on port 22, which must be left exactly as it was. Their peer is an Arcane
+// node with the same key list configured, which must end up with none of it, and
+// which doubles as the ssh client.
 //
 // Keys are changed the way a release changes them: the node's config is rewritten
 // and FluxOS restarted, and the reconcile pass that runs at start converges the
@@ -28,7 +31,8 @@ import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const LEGACY = 0;
-const ARCANE = 1;
+const OPERATOR_SSHD = 1;
+const ARCANE = 2;
 
 const KEY_NAMES = ['current', 'next', 'stranger'];
 
@@ -41,7 +45,7 @@ const MANAGED_FILES = [
   '/etc/ssh/fluxadm_sshd_config',
   '/etc/systemd/system/fluxadm-sshd.service',
   '/etc/sudoers.d/fluxadm',
-  '/home/fluxadm/.ssh/authorized_keys',
+  '/etc/ssh/fluxadm_authorized_keys',
 ];
 
 // The first pass installs openssh-server through the node's apt queue, behind
@@ -56,9 +60,12 @@ describe('2401 legacy node maintenance access', function suite() {
 
   let env;
   let legacy;
+  let operator;
   let arcane;
   let legacyIp;
+  let operatorIp;
   let keyDir;
+  let operatorSshdBefore;
   const publicKeys = {};
   dumpLogsOnFailure(() => env);
 
@@ -76,14 +83,44 @@ describe('2401 legacy node maintenance access', function suite() {
   // The command's own result, so a refusal and a success are both facts: the
   // remote prints the uid sudo runs as, which is 0 only when the login, the key
   // and the sudoers drop-in all worked.
-  async function login(keyName) {
+  async function login(keyName, { ip = legacyIp, port = SSH_PORT, user = 'fluxadm' } = {}) {
     const { stdout, exitCode } = await execInContainer(arcane.container, [
-      'ssh', '-i', `${CLIENT_KEY_DIR}/${keyName}`, '-p', String(SSH_PORT),
+      'ssh', '-i', `${CLIENT_KEY_DIR}/${keyName}`, '-p', String(port),
       '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'ConnectTimeout=5',
       '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'LogLevel=ERROR',
-      `fluxadm@${legacyIp}`, 'sudo -n id -u',
+      `${user}@${ip}`, 'sudo -n id -u',
     ]);
     return exitCode === 0 && stdout.trim() === '0';
+  }
+
+  async function port22Listening(client) {
+    const { stdout } = await execInContainer(client.container, "ss -Hltn 'sport = :22'");
+    return stdout.trim() !== '';
+  }
+
+  // The operator's sshd as the operator sees it: its units, its running process,
+  // its config and its port.
+  async function operatorSshdState() {
+    const { stdout } = await execInContainer(operator.container,
+      'systemctl is-enabled ssh.service ssh.socket; systemctl is-active ssh.service ssh.socket; '
+      + "systemctl show -p MainPID --value ssh.service; sha256sum /etc/ssh/sshd_config; ss -Hltn 'sport = :22'; true");
+    return stdout.trim();
+  }
+
+  // The operator's own sshd, installed and running before FluxOS ever treats the
+  // node as legacy, with the stranger key authorized for root: a login on port 22
+  // that must keep working, and that proves port 22 is reachable at all.
+  async function startOperatorSshd() {
+    const { exitCode, stderr } = await execInContainer(operator.container, [
+      'sh', '-c',
+      'DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y openssh-server'
+      + ' && install -d -m 700 /root/.ssh && printf \'%s\\n\' "$1" > /root/.ssh/authorized_keys',
+      'sh', publicKey('stranger'),
+    ]);
+    expect(exitCode, `operator sshd install failed: ${stderr}`).to.equal(0);
+    await waitFor(() => login('stranger', { ip: operatorIp, port: 22, user: 'root' }), {
+      timeout: CONVERGE_TIMEOUT_MS, interval: 3000, label: "a root login on the operator's sshd",
+    });
   }
 
   async function passCount() {
@@ -119,15 +156,17 @@ describe('2401 legacy node maintenance access', function suite() {
     generateKeys();
     env = await createTestEnv({
       hookCtx: this,
-      nodes: 2,
-      legacyNodes: [LEGACY],
+      nodes: 3,
+      legacyNodes: [LEGACY, OPERATOR_SSHD],
       systemdMode: true,
       tickerAutostart: false,
       configOverrides: { fluxadm: { sshAuthorizedKeys: [publicKey('current')] } },
     });
     legacy = env.clients[LEGACY];
+    operator = env.clients[OPERATOR_SSHD];
     arcane = env.clients[ARCANE];
     legacyIp = subnet.nodeIp(LEGACY + 1);
+    operatorIp = subnet.nodeIp(OPERATOR_SSHD + 1);
 
     const keyDirMade = await execInContainer(arcane.container, `install -d -m 700 ${CLIENT_KEY_DIR}`);
     expect(keyDirMade.exitCode, `client key dir failed: ${keyDirMade.stderr}`).to.equal(0);
@@ -137,10 +176,15 @@ describe('2401 legacy node maintenance access', function suite() {
       mode: 0o600,
     })));
 
+    await startOperatorSshd();
+    operatorSshdBefore = await operatorSshdState();
+
     // Every node boots attested, so the boot's own pass skipped. Marked legacy and
-    // restarted, the node's next start is its first pass as a legacy node.
-    await setSystemSecure(legacyIp, false);
-    await restartFluxos(legacy.container);
+    // restarted, each node's next start is its first pass as a legacy node.
+    for (const [client, ip] of [[legacy, legacyIp], [operator, operatorIp]]) {
+      await setSystemSecure(ip, false);
+      await restartFluxos(client.container);
+    }
   });
 
   after(async () => {
@@ -148,8 +192,8 @@ describe('2401 legacy node maintenance access', function suite() {
     if (keyDir) rmSync(keyDir, { recursive: true, force: true });
   });
 
-  it('boots both nodes with systemd as init and FluxOS as a unit', async () => {
-    for (const client of [legacy, arcane]) {
+  it('boots every node with systemd as init and FluxOS as a unit', async () => {
+    for (const client of [legacy, operator, arcane]) {
       const { stdout } = await execInContainer(client.container, 'cat /proc/1/comm');
       expect(stdout.trim()).to.equal('systemd');
       expect(await unitState(client.container, 'fluxos')).to.equal('active');
@@ -160,6 +204,28 @@ describe('2401 legacy node maintenance access', function suite() {
     await waitFor(() => login('current'), {
       timeout: FIRST_ACCESS_TIMEOUT_MS, interval: 3000, label: 'login with the configured key',
     });
+  });
+
+  it('installs openssh-server without starting the sshd it ships', async () => {
+    const { stdout } = await execInContainer(legacy.container,
+      'test -x /usr/sbin/sshd && echo installed; '
+      + 'systemctl is-enabled ssh.service ssh.socket; systemctl is-active ssh.service ssh.socket; true');
+    expect(stdout.trim().split('\n')).to.deep.equal(['installed', 'disabled', 'disabled', 'inactive', 'inactive']);
+    expect(await port22Listening(legacy), 'nothing may listen on port 22').to.equal(false);
+  });
+
+  it('lets the configured key in on a node whose operator runs sshd', async () => {
+    await waitFor(() => login('current', { ip: operatorIp }), {
+      timeout: CONVERGE_TIMEOUT_MS, interval: 3000, label: "login with the configured key beside the operator's sshd",
+    });
+  });
+
+  it("leaves the operator's sshd as it was, and the maintenance key off it", async () => {
+    expect(await operatorSshdState()).to.equal(operatorSshdBefore);
+    expect(await port22Listening(operator), "the operator's sshd must still listen on port 22").to.equal(true);
+    expect(await login('stranger', { ip: operatorIp, port: 22, user: 'root' }),
+      "the operator's own login on port 22 must still work").to.equal(true);
+    expect(await login('current', { ip: operatorIp, port: 22 })).to.equal(false);
   });
 
   it('refuses a key that is not configured', async () => {
@@ -207,14 +273,15 @@ describe('2401 legacy node maintenance access', function suite() {
     expect(await login('next'), 'the incoming key must still log in').to.equal(true);
   });
 
-  it('refuses every key once the list is empty, and stops the sshd', async () => {
+  it('refuses every key once the list is empty, and removes the sshd and its keys', async () => {
     expect(await login('next'), 'the key must log in before the list is emptied').to.equal(true);
     await releaseKeys([]);
     await waitFor(async () => !(await login('next')), {
       timeout: CONVERGE_TIMEOUT_MS, interval: 3000, label: 'login refused after the list emptied',
     });
     const { stdout } = await execInContainer(legacy.container,
-      `test -e /etc/systemd/system/fluxadm-sshd.service && echo unit; ss -Hltn 'sport = :${SSH_PORT}' | grep -q . && echo listener; true`);
+      'test -e /etc/systemd/system/fluxadm-sshd.service && echo unit; test -e /etc/ssh/fluxadm_authorized_keys && echo keys; '
+      + `ss -Hltn 'sport = :${SSH_PORT}' | grep -q . && echo listener; true`);
     expect(stdout.trim()).to.equal('');
   });
 });
