@@ -15,6 +15,8 @@
 const { URL } = require('url');
 const dns = require('dns');
 const net = require('net');
+const http = require('http');
+const https = require('https');
 const { promisify } = require('util');
 
 const dnsLookup = promisify(dns.lookup);
@@ -437,6 +439,36 @@ function guardedLookup(hostname, options, callback) {
   });
 }
 
+/**
+ * A follow-redirects `beforeRedirect` hook that refuses a redirect to a private or reserved
+ * address literal. A redirect to a hostname is resolved through the agent's guardedLookup; a
+ * literal is not resolved at all, so this is the one place a literal target can be refused.
+ *
+ * @param {{hostname?: string}} options the options of the request about to be made
+ */
+function refuseBlockedRedirect(options) {
+  const host = String(options.hostname ?? '').replace(/^\[|\]$/g, '');
+  if (isBlockedAddressLiteral(host)) throw blockedAddressError(host, host);
+}
+
+/**
+ * axios options that keep a request off private and reserved addresses on every hop: both the
+ * http and the https agent resolve through guardedLookup, so a redirect from one scheme to the
+ * other is guarded too, and a redirect to a blocked address literal is refused.
+ *
+ * Every request whose destination someone else chooses - a registry named in an app spec, or a
+ * URL such a registry hands back - is made with these.
+ *
+ * @returns {{httpAgent: http.Agent, httpsAgent: https.Agent, beforeRedirect: Function}}
+ */
+function guardedRequestOptions() {
+  return {
+    httpAgent: new http.Agent({ lookup: guardedLookup }),
+    httpsAgent: new https.Agent({ lookup: guardedLookup }),
+    beforeRedirect: refuseBlockedRedirect,
+  };
+}
+
 module.exports = {
   validateUrl,
   validateUrlWithDns,
@@ -444,6 +476,8 @@ module.exports = {
   isBlockedIP,
   isBlockedHostname,
   guardedLookup,
+  guardedRequestOptions,
+  refuseBlockedRedirect,
   isBlockedAddressLiteral,
   blockedAddressError,
   BLOCKED_ADDRESS_CODE,

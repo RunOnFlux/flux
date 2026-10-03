@@ -1,7 +1,6 @@
-const https = require('node:https');
 const serviceHelper = require('../serviceHelper');
 const {
-  guardedLookup, isBlockedAddressLiteral, BLOCKED_ADDRESS_CODE,
+  guardedRequestOptions, isBlockedAddressLiteral, BLOCKED_ADDRESS_CODE,
 } = require('./urlSecurity');
 
 /**
@@ -95,12 +94,7 @@ class ImageVerifier {
     // refused here, before any request exists. Hostnames are handled at connect
     // time, where a name that resolves private cannot slip past a stale check.
     if (!this.parseError && isBlockedAddressLiteral(String(this.provider).split(':')[0])) {
-      this.#lookupErrorDetail = `Refused: ${this.rawImageTag} points at a private or reserved address`;
-      this.#lookupErrorMeta = {
-        httpStatus: null,
-        errorCode: BLOCKED_ADDRESS_CODE,
-        errorType: 'invalid_format',
-      };
+      this.#refuseBlockedAddress(`Refused: ${this.rawImageTag} points at a private or reserved address`);
       return;
     }
 
@@ -175,8 +169,9 @@ class ImageVerifier {
       // node would dial whatever it was handed and report back whether the port
       // answered - an internal port scanner driven by a spec. The guard runs at
       // CONNECT time rather than as a pre-check, so a name that resolves public
-      // and then private cannot slip through the gap.
-      httpsAgent: new https.Agent({ lookup: guardedLookup }),
+      // and then private cannot slip through the gap, and it covers every
+      // redirect the registry answers with.
+      ...guardedRequestOptions(),
     });
   }
 
@@ -289,15 +284,25 @@ class ImageVerifier {
       return;
     }
 
-    // For Bearer auth (Docker Hub, etc.), do token exchange
+    // For Bearer auth (Docker Hub, etc.), do token exchange. The realm is a URL the registry
+    // hands back, so it is as attacker-chosen as the registry host and guarded the same way:
+    // a literal refused up front, everything else at connect time and on every redirect.
+    const realmHost = URL.canParse(realm) ? new URL(realm).hostname.replace(/^\[|\]$/g, '') : '';
+    if (isBlockedAddressLiteral(realmHost)) {
+      this.#refuseBlockedAddress(`Refused: authentication for ${this.rawImageTag} points at a private or reserved address`);
+      return;
+    }
+
     const {
       data: { token },
     } = await serviceHelper
-      .axiosGet(`${realm}?service=${service}&scope=${scope}`, { auth: this.credentials })
+      .axiosGet(`${realm}?service=${service}&scope=${scope}`, { auth: this.credentials, ...guardedRequestOptions() })
       .catch((err) => {
         const status = err?.response?.status;
 
-        if (status === 401) {
+        if (ImageVerifier.isBlockedAddressError(err)) {
+          this.#refuseBlockedAddress(`Refused: authentication for ${this.rawImageTag} resolves to a private or reserved address`);
+        } else if (status === 401) {
           this.#lookupErrorDetail = `Authentication rejected for: ${this.rawImageTag}`;
           this.#lookupErrorMeta = {
             httpStatus: 401,
@@ -326,6 +331,36 @@ class ImageVerifier {
     });
   }
 
+  /**
+   * Whether a request was refused for a private or reserved address. The refusal can arrive
+   * wrapped: axios wraps what the transport raised, and a refused redirect is wrapped again by
+   * the redirect library, so the whole cause chain is searched.
+   * @param {Error & {code?: string, cause?: Error}} error
+   * @returns {boolean}
+   */
+  static isBlockedAddressError(error) {
+    let current = error;
+    for (let depth = 0; current && depth < 8; depth += 1) {
+      if (current.code === BLOCKED_ADDRESS_CODE) return true;
+      current = current.cause;
+    }
+    return false;
+  }
+
+  /**
+   * Records a refusal to dial a private or reserved address. It is permanent: the address is
+   * what the spec, or the registry it names, chose, and retrying does not change it.
+   * @param {string} detail
+   */
+  #refuseBlockedAddress(detail) {
+    this.#lookupErrorDetail = detail;
+    this.#lookupErrorMeta = {
+      httpStatus: null,
+      errorCode: BLOCKED_ADDRESS_CODE,
+      errorType: 'invalid_format',
+    };
+  }
+
   async #handleAxiosError(endpointUrl, error) {
     const connectionErrors = [
       'ECONNREFUSED',
@@ -338,14 +373,8 @@ class ImageVerifier {
     // declined to talk to it, and no amount of retrying changes that. Classify it
     // permanent before the network branch below, or a spec pointing at a private
     // address would be retried forever as though the registry were flaky.
-    const blocked = error.code === BLOCKED_ADDRESS_CODE || error.cause?.code === BLOCKED_ADDRESS_CODE;
-    if (blocked) {
-      this.#lookupErrorDetail = `Refused: ${this.rawImageTag} resolves to a private or reserved address`;
-      this.#lookupErrorMeta = {
-        httpStatus: null,
-        errorCode: BLOCKED_ADDRESS_CODE,
-        errorType: 'invalid_format',
-      };
+    if (ImageVerifier.isBlockedAddressError(error)) {
+      this.#refuseBlockedAddress(`Refused: ${this.rawImageTag} resolves to a private or reserved address`);
       return { data: null };
     }
 
