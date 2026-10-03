@@ -1,7 +1,9 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { isAppContainerRunning, shutdownFluxosGracefully, releaseFluxos } from '../framework/container.js';
+import {
+  execInContainer, isAppContainerRunning, shutdownFluxosGracefully, releaseFluxos, crashFluxos,
+} from '../framework/container.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
@@ -10,7 +12,9 @@ import {
 } from '../framework/daemon-control.js';
 import { loadSharedConfig, PON_SPEED_MULTIPLIER } from '../framework/coupled-knobs.js';
 import { waitFor, waitForUp, waitForAppRemoved } from '../framework/wait.js';
-import { isDaemonUp, isFolderSynced } from '../framework/syncthing-real.js';
+import {
+  isDaemonUp, isFolderSynced, stopDaemon, startDaemon,
+} from '../framework/syncthing-real.js';
 import { dbClient } from '../framework/db-client.js';
 import { socketAddr } from '../framework/state-events.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
@@ -32,8 +36,10 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const APP_UID = 1000;
 // The shutdown's window, widened from the fleet's 30s so that a trim pass driven
-// after the announcement lands inside it; still below the location lifetime.
-const SIGTERM_EXPIRY_S = 55;
+// after the announcement lands inside it and the primary is back before it ends;
+// the location lifetime is widened above it so the ordering holds.
+const SIGTERM_EXPIRY_S = 120;
+const LOCATION_TTL_S = 600;
 // The trim pass runs on the heights divisible by this (explorerService).
 const TRIM_PERIOD = loadSharedConfig().fluxapps.removeFluxAppsPeriod * PON_SPEED_MULTIPLIER;
 
@@ -77,6 +83,16 @@ describe('a surplus trim waits for a peer that is leaving', function () {
     await client(SURPLUS).waitForEvent('block:processed', (d) => d.height >= currentHeight, 120000, { afterId });
   };
 
+  // Leaves the chain one block past a trim-pass height, so the next pass is a whole
+  // period of blocks away.
+  const alignPastTrimPass = async () => {
+    let { currentHeight } = await getState();
+    while (currentHeight % TRIM_PERIOD !== 1) {
+      // eslint-disable-next-line no-await-in-loop
+      ({ currentHeight } = await advanceBlock());
+    }
+  };
+
   before(async function () {
     this.timeout(900000);
     env = await createTestEnv({
@@ -86,7 +102,7 @@ describe('a surplus trim waits for a peer that is leaving', function () {
       tickerAutostart: false,
       configOverrides: {
         fluxapps: {
-          minOutgoing: 1, minIncoming: 1, sigtermExpiryS: SIGTERM_EXPIRY_S,
+          minOutgoing: 1, minIncoming: 1, sigtermExpiryS: SIGTERM_EXPIRY_S, locationTtlS: LOCATION_TTL_S,
         },
       },
     });
@@ -162,14 +178,10 @@ describe('a surplus trim waits for a peer that is leaving', function () {
   });
 
   it('trims the returning copy once no holder is leaving, and never stops the writer', async function () {
-    this.timeout(600000);
-    // The shutdown hands the writer to the surplus holder, and the primary is held
-    // down until it has, so it comes back as a standby and its copy is the one over
-    // the count. Its full peer is the new writer, which is not leaving, so its
-    // pass may trim.
-    await client(SURPLUS).waitForEvent('primaryRole:changed',
-      (d) => d.identifier === `${appName}_${appName}` && d.to === 'primary', 300000, { afterId: shutdownFrom });
-    await waitForUp(client(SURPLUS), appName, 'the surplus holder runs the app', { timeout: 180000, interval: 2000 });
+    this.timeout(900000);
+    const identifier = `${appName}_${appName}`;
+    // Back within its announcement, the primary keeps the app: the surplus holder
+    // never took it over.
     await releaseFluxos(client(PRIMARY).container);
     await waitFor(async () => {
       const events = await dbClient(SURPLUS + 1).getAppStateEvents({ ip: socketAddr(PRIMARY + 1) });
@@ -177,6 +189,42 @@ describe('a surplus trim waits for a peer that is leaving', function () {
       const running = events.find((e) => e.type === 'apprunning');
       return running && (!sigterm || running.broadcastedAt > sigterm.broadcastedAt);
     }, { timeout: 180000, interval: 2000, label: 'the returning node reported the app after its shutdown' });
+    await waitForUp(client(PRIMARY), appName, 'the primary runs the app again', { timeout: 180000, interval: 2000 });
+    expect(client(SURPLUS).getEventBuffer().filter((e) => e.event === 'primaryRole:changed' && e.id > shutdownFrom
+      && e.data?.identifier === identifier && e.data?.to === 'primary'), 'fixture: the surplus holder took over from a rebooting primary')
+      .to.deep.equal([]);
+
+    // A crash, with no announcement, hands the writer to the surplus holder. The
+    // node returns inside its location lifetime still holding its copy, now the
+    // one over the count, and its full peer is the new writer, which is not
+    // leaving, so its pass may trim.
+    const crashFrom = client(SURPLUS).getLastEventId();
+    await crashFluxos(client(PRIMARY).container, { hold: true });
+    await execInContainer(client(PRIMARY).container, `docker kill ${folder}`);
+    await stopDaemon(client(PRIMARY));
+    await client(SURPLUS).waitForEvent('primaryRole:changed',
+      (d) => d.identifier === identifier && d.to === 'primary', 300000, { afterId: crashFrom });
+    await waitForUp(client(SURPLUS), appName, 'the surplus holder runs the app', { timeout: 180000, interval: 2000 });
+    const crashedAt = Date.now();
+    // Blocks move only when this suite drives them, and a returning node syncs its
+    // state once it has processed one. They are driven one at a time from just past
+    // a trim-pass height, so none of them runs the pass the test asks for below.
+    await alignPastTrimPass();
+    await startDaemon(client(PRIMARY), { paused: true });
+    const returned = client(PRIMARY).getLastEventId();
+    await releaseFluxos(client(PRIMARY).container);
+    await waitFor(async () => {
+      if (client(PRIMARY).getEventBuffer().some((e) => e.id > returned && e.event === 'hashSync:complete')) return true;
+      const { currentHeight } = await getState();
+      expect((currentHeight + 1) % TRIM_PERIOD, 'fixture: the next block would run a trim pass').to.not.equal(0);
+      await advanceBlock();
+      return false;
+    }, { timeout: 120000, interval: 2000, label: 'the returned node syncs its state' });
+    await waitFor(async () => {
+      const events = await dbClient(SURPLUS + 1).getAppStateEvents({ ip: socketAddr(PRIMARY + 1) });
+      const running = events.find((e) => e.type === 'apprunning');
+      return running && running.broadcastedAt.getTime() > crashedAt;
+    }, { timeout: 180000, interval: 2000, label: 'the crashed node reported the app on its return' });
     expect(await isAppContainerRunning(client(SURPLUS).container, appName), 'fixture: the writer moved to the surplus holder')
       .to.equal(true);
     expect(await isAppContainerRunning(client(PRIMARY).container, appName), 'fixture: the returning node runs nothing')
