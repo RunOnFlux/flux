@@ -1,4 +1,3 @@
-const { EventEmitter } = require('node:events');
 const fsPromises = require('node:fs/promises');
 const net = require('node:net');
 const os = require('node:os');
@@ -60,17 +59,6 @@ const MULE_PEERS = ssLines([
   ['169.254.43.43:16187', '169.254.43.43:41000', 32768],
   ['172.16.16.61:41001', '172.16.16.9:16127', 1448],
 ]);
-
-/**
- * A socket that completes its handshake, or never answers.
- */
-function fakeSocket({ connects }) {
-  const socket = new EventEmitter();
-  socket.setTimeout = sinon.stub();
-  socket.destroy = sinon.stub();
-  setImmediate(() => socket.emit(connects ? 'connect' : 'error', new Error('ECONNREFUSED')));
-  return socket;
-}
 
 describe('uplinkService tests', () => {
   afterEach(() => {
@@ -249,24 +237,15 @@ describe('uplinkService tests', () => {
   describe('measureDistance', () => {
     it('times a ping to the public address', async () => {
       stubTools({ ownIp: () => RTT_LINE(18.73) });
+      expect(await uplinkService.measureDistance('178.79.183.164')).to.equal(18.73);
+    });
+
+    it('is null when the address does not answer, and times nothing else', async () => {
+      const tools = stubTools({ ownIp: () => '100% packet loss' });
       const connect = sinon.stub(net, 'connect');
-      expect(await uplinkService.measureDistance('178.79.183.164', 16187)).to.eql({ rttMs: 18.73, method: 'icmp' });
+      expect(await uplinkService.measureDistance('178.79.183.164')).to.equal(null);
+      sinon.assert.calledWith(tools, 'ping');
       sinon.assert.notCalled(connect);
-    });
-
-    it('times a handshake with its own API port when the ping goes unanswered', async () => {
-      stubTools({ ownIp: () => '100% packet loss' });
-      const connect = sinon.stub(net, 'connect').callsFake(() => fakeSocket({ connects: true }));
-      const distance = await uplinkService.measureDistance('178.79.183.164', 16187);
-      expect(distance.method).to.equal('tcp');
-      expect(distance.rttMs).to.be.a('number');
-      sinon.assert.calledWith(connect, { host: '178.79.183.164', port: 16187 });
-    });
-
-    it('is null when neither answers', async () => {
-      stubTools({ ownIp: () => '100% packet loss' });
-      sinon.stub(net, 'connect').callsFake(() => fakeSocket({ connects: false }));
-      expect(await uplinkService.measureDistance('178.79.183.164', 16187)).to.eql({ rttMs: null, method: null });
     });
   });
 
@@ -378,7 +357,7 @@ describe('uplinkService tests', () => {
         mtu: {
           value: 1420, probe: 1420, probeMethod: ProbeMethod.FRAG_NEEDED, tcpMss: 1368,
         },
-        distance: { rttMs: 18.73, method: 'icmp' },
+        distance: { rttMs: 18.73 },
         publicIpLocal: false,
         egressDevice: 'ens18',
         tunnelInterfaces: [],
@@ -429,7 +408,6 @@ describe('uplinkService tests', () => {
     });
 
     it('does not decide when the node cannot time its own address, and walks no path', async () => {
-      sinon.stub(net, 'connect').callsFake(() => fakeSocket({ connects: false }));
       const tools = stubTools({ probe: pingPath({ pathMtu: 1500, namesSize: false }), ss: MULE_PEERS });
 
       await uplinkService.noteAddress('203.0.113.23:16127');
@@ -437,7 +415,7 @@ describe('uplinkService tests', () => {
       expect(uplinkService.getUplink()).to.deep.include({
         tunnel: Tunnel.UNKNOWN,
         reason: null,
-        distance: { rttMs: null, method: null },
+        distance: { rttMs: null },
       });
       const pings = tools.getCalls().filter((call) => call.args[0] === 'ping').map((call) => call.args[1].params.map(String));
       expect(pings.some((args) => args.at(-1) === '203.0.113.23')).to.equal(true);
@@ -485,7 +463,6 @@ describe('uplinkService tests', () => {
     beforeEach(() => {
       sinon.stub(fluxNetworkHelper, 'egressDevice').resolves(null);
       sinon.stub(fsPromises, 'readdir').resolves([]);
-      sinon.stub(net, 'connect').callsFake(() => fakeSocket({ connects: false }));
     });
 
     it('shares a run in progress rather than starting another', async () => {

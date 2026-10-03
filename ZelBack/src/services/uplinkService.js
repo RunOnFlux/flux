@@ -23,14 +23,13 @@
  */
 
 const fs = require('node:fs/promises');
-const net = require('node:net');
 const os = require('node:os');
 const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
-const { bareIp, extractIp, extractPort } = require('./utils/socketAddressUtils');
+const { bareIp, extractIp } = require('./utils/socketAddressUtils');
 const { Privilege, authOf } = require('./utils/privileges');
 
 const Tunnel = Object.freeze({
@@ -70,7 +69,6 @@ const PROBE_TARGETS = ['1.1.1.1', '8.8.8.8', '9.9.9.9'];
 const MIN_TCP_PEERS = 3;
 // Further from its own public address than this, a node is not at it.
 const DISTANCE_CUTOFF_MS = 5;
-const TCP_CONNECT_TIMEOUT_MS = 3_000;
 const COMMAND_TIMEOUT_MS = 30_000;
 const REMEASURE_INTERVAL_MS = 3 * 60 * 60 * 1000;
 
@@ -101,7 +99,6 @@ function emptyRecord() {
     },
     distance: {
       rttMs: null,
-      method: null,
     },
     publicIpLocal: null,
     egressDevice: null,
@@ -258,46 +255,13 @@ async function peerTcpMss() {
 }
 
 /**
- * @param {string} ip
- * @param {number} port
- * @returns {Promise<number|null>} Time to complete a TCP handshake in ms, or
- *   null when it did not.
- */
-function connectTime(ip, port) {
-  return new Promise((resolve) => {
-    const started = process.hrtime.bigint();
-    const socket = net.connect({ host: ip, port });
-    socket.setTimeout(TCP_CONNECT_TIMEOUT_MS);
-    function finish(ms) {
-      socket.destroy();
-      resolve(ms);
-    }
-    socket.once('connect', () => finish(Number(process.hrtime.bigint() - started) / 1e6));
-    socket.once('timeout', () => finish(null));
-    socket.once('error', () => finish(null));
-  });
-}
-
-/**
- * Round trip from this node to its own public address: a ping, or when that
- * goes unanswered, a TCP handshake with its own API port, which must be
- * reachable for the node to be a node.
+ * Round trip from this node to its own public address, timed by ping itself.
  * @param {string} publicIp
- * @param {number} apiPort
- * @returns {Promise<{rttMs: number|null, method: string|null}>}
+ * @returns {Promise<number|null>} Milliseconds, or null when the address does
+ *   not answer.
  */
-async function measureDistance(publicIp, apiPort) {
-  const icmp = parsePingRtt(await runTool('ping', ['-n', '-c', 5, '-i', '0.2', '-W', 2, publicIp]));
-  if (icmp !== null) return { rttMs: icmp, method: 'icmp' };
-
-  let best = null;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    // eslint-disable-next-line no-await-in-loop
-    const ms = await connectTime(publicIp, apiPort);
-    if (ms !== null && (best === null || ms < best)) best = ms;
-  }
-  if (best !== null) return { rttMs: Math.round(best * 1000) / 1000, method: 'tcp' };
-  return { rttMs: null, method: null };
+async function measureDistance(publicIp) {
+  return parsePingRtt(await runTool('ping', ['-n', '-c', 5, '-i', '0.2', '-W', 2, publicIp]));
 }
 
 /**
@@ -389,13 +353,13 @@ async function measure(socketAddress) {
   const probe = await probePathMtu();
   const tcpMss = await peerTcpMss();
   const mtu = combinedMtu(probe, tcpMss);
-  const distance = await measureDistance(publicIp, extractPort(socketAddress));
+  const rttMs = await measureDistance(publicIp);
   const egressDevice = await fluxNetworkHelper.egressDevice();
   const binding = publicIpBinding(publicIp, egressDevice);
   const tunnelInterfaces = await findTunnelInterfaces();
 
   const { tunnel, reason } = decide({
-    rttMs: distance.rttMs,
+    rttMs,
     tunnelInterfaces,
     egressDevice,
     publicIpElsewhere: binding.elsewhere,
@@ -412,8 +376,7 @@ async function measure(socketAddress) {
       tcpMss,
     },
     distance: {
-      rttMs: distance.rttMs,
-      method: distance.method,
+      rttMs,
     },
     publicIpLocal: binding.bound,
     egressDevice,
