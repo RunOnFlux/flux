@@ -290,7 +290,7 @@ describe('upnpService tests', () => {
     it('should keep a mapping of the same port that it did not make', async () => {
       createMappingSpy.returns(true);
       getMappingsStub.resolves([
-        fluxadmMapping({ description: 'operator ssh' }),
+        fluxadmMapping({ description: 'node owner ssh' }),
         fluxadmMapping({ local: false }),
       ]);
 

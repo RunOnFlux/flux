@@ -467,7 +467,7 @@ describe('fluxadmService tests', () => {
       });
     });
 
-    it('should leave an sshd the operator already has untouched', async () => {
+    it('should leave an sshd the node owner already has untouched', async () => {
       sinon.stub(fs, 'access').resolves();
       sinon.stub(fs, 'readFile').resolves(null);
       const upgradeStub = sinon.stub(systemService, 'upgradePackage').resolves(false);

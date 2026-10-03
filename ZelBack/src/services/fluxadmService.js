@@ -13,11 +13,11 @@ const isArcane = Boolean(process.env.FLUXOS_PATH);
 
 const fluxadmUser = 'fluxadm';
 // Outside every user's home, so only the dedicated instance, which names it,
-// reads it: the operator's sshd looks up keys under the user's home.
+// reads it: the node owner's sshd looks up keys under the user's home.
 const authorizedKeysPath = '/etc/ssh/fluxadm_authorized_keys';
 const sudoersPath = `/etc/sudoers.d/${fluxadmUser}`;
 // Deliberately NOT under /etc/ssh/sshd_config.d - that directory is pulled
-// into the operator's sshd via the distro Include glob. This file must only
+// into the node owner's sshd via the distro Include glob. This file must only
 // ever be read by our dedicated instance.
 const sshdConfigPath = '/etc/ssh/fluxadm_sshd_config';
 const sshdBinaryPath = '/usr/sbin/sshd';
@@ -156,7 +156,7 @@ async function ensureSudoers() {
 /**
  * Ensures the fluxadm user exists. A pre-existing fluxadm user that we did
  * not create (no sudoers drop-in) is refused rather than adopted - taking
- * over an operator's account would replace their authorized_keys.
+ * over a node owner's account would replace their authorized_keys.
  * @returns {Promise<boolean>} True if the user exists and is ours to manage.
  */
 async function ensureUser() {
@@ -238,7 +238,7 @@ async function ensureAuthorizedKeys(keys) {
 
 /**
  * Config for the dedicated maintenance sshd instance. Key-only auth for the
- * fluxadm user exclusively - the operator's accounts (and their password
+ * fluxadm user exclusively - the node owner's accounts (and their password
  * policy, root login setting etc) do not exist on this port. Algorithms are
  * pinned to a strong set that openssh 8.2 (Ubuntu 20.04) still supports.
  * @param {number} port
@@ -246,7 +246,7 @@ async function ensureAuthorizedKeys(keys) {
  */
 function buildSshdConfig(port) {
   return `# Managed by FluxOS. Dedicated maintenance SSH instance for the ${fluxadmUser} user.
-# The operator's own sshd and its configuration are never touched.
+# The node owner's own sshd and its configuration are never touched.
 Port ${port}
 PidFile /run/fluxadm-sshd.pid
 HostKey /etc/ssh/ssh_host_ed25519_key
@@ -273,7 +273,7 @@ Subsystem sftp internal-sftp
  * Unit for the maintenance sshd. /run/sshd (privilege separation dir) is
  * created with an ExecStartPre instead of RuntimeDirectory=sshd on purpose:
  * RuntimeDirectory is removed on unit stop, which would break new connections
- * on the operator's own sshd sharing that directory. KillMode=process keeps
+ * on the node owner's own sshd sharing that directory. KillMode=process keeps
  * established sessions alive across restarts of the instance.
  * @returns {string}
  */
@@ -334,7 +334,7 @@ async function installOpensshServer() {
 
 /**
  * Ensures the sshd instance config, unit file and running state. An sshd the
- * operator already has is left exactly as it is; openssh-server is installed
+ * node owner already has is left exactly as it is; openssh-server is installed
  * only where there is none.
  * @param {number} port
  * @returns {Promise<boolean>}
@@ -433,7 +433,7 @@ async function ensureFirewall(port) {
  * session, removes the maintenance sshd and its key file, then the firewall
  * rule, the fluxadm user and its sudoers drop-in. The drop-in marks the user as
  * ours, so it goes last: a pass that fails part way resumes on the next one
- * instead of finding a user it would refuse as the operator's. Converges to a
+ * instead of finding a user it would refuse as the node owner's. Converges to a
  * no-op: once removed (or never installed) nothing runs.
  * @returns {Promise<void>}
  */

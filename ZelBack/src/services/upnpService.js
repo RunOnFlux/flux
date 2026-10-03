@@ -145,7 +145,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
 /**
  * Maps the maintenance sshd's port (apiport - 5) while maintenance access is
  * configured on this node, and otherwise removes a mapping of that port only
- * when this code made it - an operator's own mapping of the same port keeps.
+ * when this code made it - a node owner's own mapping of the same port keeps.
  * ArcaneOS maps its own and is never touched. A failure here is logged and
  * never fails the core mapping it runs beside.
  * @param {number|string} apiport

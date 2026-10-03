@@ -4,7 +4,7 @@
 //
 // Two legacy nodes (no FLUXOS_PATH, and the daemon stub reports them as not
 // attested): one with no sshd, which installs openssh-server for the feature and
-// must not start the sshd the package ships, and one whose operator already runs
+// must not start the sshd the package ships, and one whose node owner already runs
 // sshd on port 22, which must be left exactly as it was. Their peer is an Arcane
 // node with the same key list configured, which must end up with none of it, and
 // which doubles as the ssh client.
@@ -21,8 +21,8 @@
 //
 // A list that drops a key ends every open maintenance session, together with what
 // it runs through sudo. The node without sshd has no pam_systemd, so its sessions
-// stay in the maintenance unit's cgroup; the operator's node installs
-// libpam-systemd with its sshd, so its sessions get their own logind scope. Each
+// stay in the maintenance unit's cgroup; the node with the node owner's sshd
+// installs libpam-systemd with it, so its sessions get their own logind scope. Each
 // node proves one of the two ways a session is ended.
 //
 // Each run generates its keypairs on the runner and deletes them at teardown; no
@@ -42,7 +42,7 @@ import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const LEGACY = 0;
-const OPERATOR_SSHD = 1;
+const NODE_OWNER_SSHD = 1;
 const ARCANE = 2;
 
 const KEY_NAMES = ['current', 'next', 'stranger'];
@@ -71,12 +71,12 @@ describe('2401 legacy node maintenance access', function suite() {
 
   let env;
   let legacy;
-  let operator;
+  let owner;
   let arcane;
   let legacyIp;
-  let operatorIp;
+  let ownerIp;
   let keyDir;
-  let operatorSshdBefore;
+  let ownerSshdBefore;
   const publicKeys = {};
   dumpLogsOnFailure(() => env);
 
@@ -153,29 +153,29 @@ describe('2401 legacy node maintenance access', function suite() {
     return stdout.trim() !== '';
   }
 
-  // The operator's sshd as the operator sees it: its units, its running process,
+  // The node owner's sshd as the node owner sees it: its units, its running process,
   // its config and its port.
-  async function operatorSshdState() {
-    const { stdout } = await execInContainer(operator.container,
+  async function ownerSshdState() {
+    const { stdout } = await execInContainer(owner.container,
       'systemctl is-enabled ssh.service ssh.socket; systemctl is-active ssh.service ssh.socket; '
       + "systemctl show -p MainPID --value ssh.service; sha256sum /etc/ssh/sshd_config; ss -Hltn 'sport = :22'; true");
     return stdout.trim();
   }
 
-  // The operator's own sshd, installed with libpam-systemd as on a server and
+  // The node owner's own sshd, installed with libpam-systemd as on a server and
   // running before FluxOS ever treats the node as legacy, with the stranger key
   // authorized for root: a login on port 22 that must keep working, and that
   // proves port 22 is reachable at all.
-  async function startOperatorSshd() {
-    const { exitCode, stderr } = await execInContainer(operator.container, [
+  async function startOwnerSshd() {
+    const { exitCode, stderr } = await execInContainer(owner.container, [
       'sh', '-c',
       'DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y openssh-server libpam-systemd'
       + ' && install -d -m 700 /root/.ssh && printf \'%s\\n\' "$1" > /root/.ssh/authorized_keys',
       'sh', publicKey('stranger'),
     ]);
-    expect(exitCode, `operator sshd install failed: ${stderr}`).to.equal(0);
-    await waitFor(() => loginOrThrow('stranger', { ip: operatorIp, port: 22, user: 'root' }), {
-      timeout: CONVERGE_TIMEOUT_MS, interval: 3000, label: "a root login on the operator's sshd",
+    expect(exitCode, `node owner's sshd install failed: ${stderr}`).to.equal(0);
+    await waitFor(() => loginOrThrow('stranger', { ip: ownerIp, port: 22, user: 'root' }), {
+      timeout: CONVERGE_TIMEOUT_MS, interval: 3000, label: "a root login on the node owner's sshd",
     });
   }
 
@@ -213,17 +213,17 @@ describe('2401 legacy node maintenance access', function suite() {
     env = await createTestEnv({
       hookCtx: this,
       nodes: 3,
-      legacyNodes: [LEGACY, OPERATOR_SSHD],
+      legacyNodes: [LEGACY, NODE_OWNER_SSHD],
       firewall: [LEGACY],
       systemdMode: true,
       tickerAutostart: false,
       configOverrides: { fluxadm: { sshAuthorizedKeys: [publicKey('current')] } },
     });
     legacy = env.clients[LEGACY];
-    operator = env.clients[OPERATOR_SSHD];
+    owner = env.clients[NODE_OWNER_SSHD];
     arcane = env.clients[ARCANE];
     legacyIp = subnet.nodeIp(LEGACY + 1);
-    operatorIp = subnet.nodeIp(OPERATOR_SSHD + 1);
+    ownerIp = subnet.nodeIp(NODE_OWNER_SSHD + 1);
 
     const keyDirMade = await execInContainer(arcane.container, `install -d -m 700 ${CLIENT_KEY_DIR}`);
     expect(keyDirMade.exitCode, `client key dir failed: ${keyDirMade.stderr}`).to.equal(0);
@@ -233,12 +233,12 @@ describe('2401 legacy node maintenance access', function suite() {
       mode: 0o600,
     })));
 
-    await startOperatorSshd();
-    operatorSshdBefore = await operatorSshdState();
+    await startOwnerSshd();
+    ownerSshdBefore = await ownerSshdState();
 
     // Every node boots attested, so the boot's own pass skipped. Marked legacy and
     // restarted, each node's next start is its first pass as a legacy node.
-    for (const [client, ip] of [[legacy, legacyIp], [operator, operatorIp]]) {
+    for (const [client, ip] of [[legacy, legacyIp], [owner, ownerIp]]) {
       await setSystemSecure(ip, false);
       await restartFluxos(client.container);
     }
@@ -250,7 +250,7 @@ describe('2401 legacy node maintenance access', function suite() {
   });
 
   it('boots every node with systemd as init and FluxOS as a unit', async () => {
-    for (const client of [legacy, operator, arcane]) {
+    for (const client of [legacy, owner, arcane]) {
       const { stdout } = await execInContainer(client.container, 'cat /proc/1/comm');
       expect(stdout.trim()).to.equal('systemd');
       expect(await unitState(client.container, 'fluxos')).to.equal('active');
@@ -271,27 +271,27 @@ describe('2401 legacy node maintenance access', function suite() {
     expect(await port22Listening(legacy), 'nothing may listen on port 22').to.equal(false);
   });
 
-  it('lets the configured key in on a node whose operator runs sshd', async () => {
-    await waitFor(() => login('current', { ip: operatorIp }), {
-      timeout: CONVERGE_TIMEOUT_MS, interval: 3000, label: "login with the configured key beside the operator's sshd",
+  it('lets the configured key in on a node whose node owner runs sshd', async () => {
+    await waitFor(() => login('current', { ip: ownerIp }), {
+      timeout: CONVERGE_TIMEOUT_MS, interval: 3000, label: "login with the configured key beside the node owner's sshd",
     });
   });
 
-  it("leaves the operator's sshd as it was, and the maintenance key off it", async () => {
-    expect(await operatorSshdState()).to.equal(operatorSshdBefore);
-    expect(await port22Listening(operator), "the operator's sshd must still listen on port 22").to.equal(true);
-    expect(await login('stranger', { ip: operatorIp, port: 22, user: 'root' }),
-      "the operator's own login on port 22 must still work").to.equal(true);
-    expect(await login('current', { ip: operatorIp, port: 22 })).to.equal(false);
+  it("leaves the node owner's sshd as it was, and the maintenance key off it", async () => {
+    expect(await ownerSshdState()).to.equal(ownerSshdBefore);
+    expect(await port22Listening(owner), "the node owner's sshd must still listen on port 22").to.equal(true);
+    expect(await login('stranger', { ip: ownerIp, port: 22, user: 'root' }),
+      "the node owner's own login on port 22 must still work").to.equal(true);
+    expect(await login('current', { ip: ownerIp, port: 22 })).to.equal(false);
   });
 
-  it("ends a maintenance session in its logind scope when a key is dropped, and not the operator's", async () => {
-    const maintenance = await openSession(operator, operatorIp, 'current', 7003);
+  it("ends a maintenance session in its logind scope when a key is dropped, and not the node owner's", async () => {
+    const maintenance = await openSession(owner, ownerIp, 'current', 7003);
     expect(maintenance, 'with pam_systemd a session gets its own logind scope').to.match(/\/session-[^/]+\.scope$/);
-    const operatorsOwn = await openSession(operator, operatorIp, 'stranger', 7004, { port: 22, user: 'root' });
-    await releaseKeys(['next'], operator);
-    expect(await sessionCgroup(operator, 7003), 'dropping a key must end the session and its sudo child').to.equal(null);
-    expect(await sessionCgroup(operator, 7004), "the operator's own session must survive").to.equal(operatorsOwn);
+    const ownersOwn = await openSession(owner, ownerIp, 'stranger', 7004, { port: 22, user: 'root' });
+    await releaseKeys(['next'], owner);
+    expect(await sessionCgroup(owner, 7003), 'dropping a key must end the session and its sudo child').to.equal(null);
+    expect(await sessionCgroup(owner, 7004), "the node owner's own session must survive").to.equal(ownersOwn);
   });
 
   it('refuses a key that is not configured', async () => {
