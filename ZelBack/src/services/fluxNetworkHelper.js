@@ -2449,9 +2449,18 @@ const containerBlockedNetworks = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16
  * leave them by forging one. App networks sit inside 172.16.0.0/12, so on Docker
  * before 28 these rules drop one app network from another. From Docker 28 a
  * packet for a container that arrives off its own bridge is dropped in the raw
- * table, before FORWARD, so these rules never see it. Containers on one network
- * reach each other without passing through FORWARD. DNS stays open to every
+ * table, before FORWARD, so these rules never see it. DNS stays open to every
  * private address, for a node owner who runs their own resolver.
+ *
+ * Nodes run without the br_netfilter kernel module. That module sends traffic
+ * switched inside a bridge - between containers on one network - through
+ * iptables; without it that traffic never reaches FORWARD, so these rules
+ * cannot cut an app's own containers off from each other. Kubernetes needs it,
+ * and Docker loads it for a network created with inter-container traffic off
+ * (icc=false). On a node that loads it, that traffic enters FORWARD from its
+ * own bridge to a 172.23.x.x address and meets the 172.16.0.0/12 drop. Running
+ * with it on needs a RETURN ahead of the drops for traffic that stays on its
+ * own bridge (bridged, not routed between bridges), so app networks stay apart.
  * @returns {string[]}
  */
 function containerEgressRules() {
