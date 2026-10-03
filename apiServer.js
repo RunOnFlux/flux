@@ -2,6 +2,8 @@
 // file runs as an entry point of its own under `require.main === module`, so it settles
 // the environment rather than relying on whoever required it having done so.
 require('./ZelBack/pinEnvironment');
+// Before anything connects: how this thread opens outbound connections.
+require('./ZelBack/src/services/utils/networkDefaults').applyNetworkDefaults();
 
 const configManager = require('./ZelBack/src/services/utils/configManager');
 

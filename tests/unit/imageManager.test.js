@@ -10,6 +10,8 @@ const imageVerifier = require('../../ZelBack/src/services/utils/imageVerifier');
 const policyStore = require('../../ZelBack/src/services/policyStore');
 const { RemovalOutcome } = require('../../ZelBack/src/services/utils/removalOutcome');
 const { requireMongo } = require('./dbTestHelper');
+const fluxCaching = require('../../ZelBack/src/services/utils/cacheManager').default;
+const { FluxCacheManager } = require('../../ZelBack/src/services/utils/cacheManager');
 
 describe('imageManager tests', () => {
   before(requireMongo);
@@ -246,79 +248,91 @@ describe('imageManager tests', () => {
       expect(fluxCaching.dockerHubVerificationCache.get(amd64Key)).to.not.be.undefined;
       expect(fluxCaching.dockerHubVerificationCache.get(arm64Key)).to.not.be.undefined;
     });
+  });
 
-    it('should classify network errors with 1 hour TTL', async () => {
-      const networkError = new Error('Connection Error');
+  describe('retry interval tests', () => {
+    // The real ImageVerifier, with only its HTTP client stubbed, so the error imageManager
+    // classifies is the one throwIfError() actually throws.
+    let registryGet;
+    let tokenGet;
+    let cacheSet;
 
-      ImageVerifierStub.returns({
-        verifyImage: sinon.stub().resolves(),
-        throwIfError: sinon.stub().throws(networkError),
-        errorMeta: {
-          errorType: 'network',
-          errorCode: 'ECONNREFUSED',
-          httpStatus: null,
-        },
-      });
-
-      try {
-        await imageManager.verifyRepository('test/app:latest');
-      } catch (error) {
-        // Expected
-      }
-
-      // The error should be logged with "1 hour" in the message
-      // We can't directly test TTL without waiting, but we test classification logic
-      // eslint-disable-next-line global-require
-      const { FluxCacheManager } = require('../../ZelBack/src/services/utils/cacheManager');
-      expect(FluxCacheManager.oneHour).to.equal(3600000); // 1 hour in ms
+    beforeEach(() => {
+      registryGet = sinon.stub();
+      tokenGet = sinon.stub(serviceHelper, 'axiosGet');
+      sinon.stub(serviceHelper, 'axiosInstance').returns({ get: registryGet, interceptors: { request: { use: sinon.stub() } } });
+      cacheSet = sinon.spy(fluxCaching.dockerHubVerificationCache, 'set');
     });
 
-    it('should classify rate limit errors with 2 hour TTL', async () => {
-      const rateLimitError = new Error('Too many requests');
+    function responseError(status, headers = {}) {
+      const error = new Error(`Request failed with status code ${status}`);
+      error.response = { status, headers };
+      return error;
+    }
 
-      ImageVerifierStub.returns({
-        verifyImage: sinon.stub().resolves(),
-        throwIfError: sinon.stub().throws(rateLimitError),
-        errorMeta: {
-          errorType: 'rate_limit',
-          errorCode: null,
-          httpStatus: 429,
-        },
-      });
+    function connectError(code) {
+      const error = new Error('');
+      error.code = code;
+      return error;
+    }
 
-      try {
-        await imageManager.verifyRepository('test/app:latest');
-      } catch (error) {
-        // Expected
-      }
+    async function storedRetryHours(repotag) {
+      const outcome = await imageManager.verifyRepository(repotag).then(() => 'resolved', () => 'rejected');
+      expect(outcome).to.equal('rejected');
+      sinon.assert.calledOnce(cacheSet);
+      return cacheSet.firstCall.args[2].ttl / FluxCacheManager.oneHour;
+    }
 
-      // eslint-disable-next-line global-require
-      const { FluxCacheManager } = require('../../ZelBack/src/services/utils/cacheManager');
-      expect(2 * FluxCacheManager.oneHour).to.equal(7200000); // 2 hours in ms
+    it('should retry a registry that could not be reached after 1 hour', async () => {
+      registryGet.rejects(connectError('ETIMEDOUT'));
+
+      expect(await storedRetryHours('test/app:latest')).to.equal(1);
     });
 
-    it('should classify permanent errors with 7 day TTL', async () => {
-      const permanentError = new Error('Image size exceeds allowed maximum');
+    it('should retry a rate-limited registry after 2 hours', async () => {
+      registryGet.rejects(responseError(429));
 
-      ImageVerifierStub.returns({
-        verifyImage: sinon.stub().resolves(),
-        throwIfError: sinon.stub().throws(permanentError),
-        errorMeta: {
-          errorType: 'size_limit',
-          errorCode: null,
-          httpStatus: null,
-        },
-      });
+      expect(await storedRetryHours('test/app:latest')).to.equal(2);
+    });
 
-      try {
-        await imageManager.verifyRepository('test/app:latest');
-      } catch (error) {
-        // Expected
-      }
+    it('should retry a registry answering 5xx after 3 hours', async () => {
+      registryGet.rejects(responseError(503));
 
-      // eslint-disable-next-line global-require
-      const { FluxCacheManager } = require('../../ZelBack/src/services/utils/cacheManager');
-      expect(7 * FluxCacheManager.oneDay).to.equal(604800000); // 7 days in ms
+      expect(await storedRetryHours('test/app:latest')).to.equal(3);
+    });
+
+    it('should retry a registry whose token service could not be reached after 2 hours', async () => {
+      registryGet.rejects(responseError(401, {
+        'www-authenticate': 'Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:test/app:pull"',
+      }));
+      tokenGet.rejects(connectError('ETIMEDOUT'));
+
+      expect(await storedRetryHours('test/app:latest')).to.equal(2);
+    });
+
+    it('should retry an image the registry does not have after 6 hours', async () => {
+      registryGet.rejects(responseError(404));
+
+      expect(await storedRetryHours('test/app:latest')).to.equal(6);
+    });
+
+    it('should retry a registry whose auth challenge cannot be read after 6 hours', async () => {
+      registryGet.rejects(responseError(401, { 'www-authenticate': 'Negotiate' }));
+
+      expect(await storedRetryHours('test/app:latest')).to.equal(6);
+    });
+
+    it('should refuse an image whose registry port is out of range without asking the registry', async () => {
+      const outcome = await imageManager.verifyRepository('ghcr.io:99999/a/b:1').then(() => 'resolved', (error) => error.message);
+
+      expect(outcome).to.equal('Image tag: ghcr.io:99999/a/b:1 has registry port 99999, which is not in 1-65535');
+      expect(cacheSet.firstCall.args[2].ttl / FluxCacheManager.oneHour).to.equal(6);
+      sinon.assert.notCalled(registryGet);
+    });
+
+    it('should retry a malformed image tag after 6 hours without asking the registry', async () => {
+      expect(await storedRetryHours('test/app with space:latest')).to.equal(6);
+      sinon.assert.notCalled(registryGet);
     });
   });
 
