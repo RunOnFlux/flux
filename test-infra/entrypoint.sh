@@ -111,6 +111,68 @@ if [ "$FLUX_APT_BAD_SOURCE" = "true" ]; then
     > /etc/apt/sources.list.d/flux-e2e-unreachable.list
 fi
 
+# A firewalled node boots with ufw active as its install leaves it, before
+# dockerd and FluxOS start, so FluxOS meets an active firewall and adds its own
+# rules on top exactly as it does on a node.
+#
+# Legacy: fluxnode-multitool install_pro.sh, rule for rule, with this node's ssh
+# port (22). Arcane: the ISO (flux_iso flux_fs/conf/user.rules - ufw's stock
+# policies and a limit on OpenSSH) plus the FluxadmSSH profile flux_configd
+# writes (config_builder.py, FluxadmSshUfwConfig), which FluxOS then allows.
+# flux_configd's own runtime rules - its config webserver, the app profiles it
+# manages and the SSDP reply rule behind NAT - are not reproduced: nothing here
+# runs flux_configd.
+#
+# The OpenSSH profile comes with openssh-server. The ISO ships it, so an Arcane
+# node gets the profile the package installs. The legacy installer's
+# `ufw limit OpenSSH` fails silently where openssh-server is absent, so a legacy
+# node carries that rule only when the profile exists.
+#
+# NOT swallowed: a node that should be firewalled and is not would pass every
+# assertion about a firewall it does not have.
+if [ "$FLUX_FIREWALL" = "true" ]; then
+  if [ -n "$FLUXOS_PATH" ]; then
+    cat > /etc/ufw/applications.d/openssh-server <<PROFILE
+[OpenSSH]
+title=Secure shell server, an rshd replacement
+description=OpenSSH is a free implementation of the Secure Shell protocol.
+ports=22/tcp
+PROFILE
+    cat > /etc/ufw/applications.d/fluxadm-ssh <<PROFILE
+[FluxadmSSH]
+title=Fluxadm admin ssh port
+description=Temporary debug port until we get decent error reporting
+ports=$((${FLUX_API_PORT:-16127} - 5))/tcp
+PROFILE
+    ufw_baseline="logging low
+limit OpenSSH"
+  else
+    ufw_baseline="allow 22/tcp
+logging on
+default deny incoming
+allow out from any to any port 123
+allow out to any port 80
+allow out to any port 443
+allow out to any port 53
+allow 16100:16199/tcp"
+    if [ -f /etc/ufw/applications.d/openssh-server ]; then
+      ufw_baseline="$ufw_baseline
+limit OpenSSH"
+    fi
+  fi
+  while IFS= read -r rule; do
+    # shellcheck disable=SC2086
+    if ! ufw $rule >/dev/null; then
+      echo "ERROR: ufw $rule failed; this node would boot without the firewall it was asked for" >&2
+      exit 1
+    fi
+  done <<< "$ufw_baseline"
+  if ! ufw --force enable >/dev/null; then
+    echo "ERROR: ufw would not enable; this node would boot without the firewall it was asked for" >&2
+    exit 1
+  fi
+fi
+
 # cgroup v2: move this container's processes into an init sub-cgroup so the root
 # can hand its controllers down (same approach as official docker:dind). A group
 # holding processes is refused permission to delegate, so the move has to leave

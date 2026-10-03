@@ -270,26 +270,15 @@ async function restoreFluxPortsSupport() {
 }
 
 /**
- * Restores applications firewall, UPNP rules
+ * Restores applications' UPnP mappings. App ports need no host firewall rule:
+ * Docker forwards a published port to its container ahead of ufw's inbound
+ * rules.
  * @returns {Promise<void>}
  */
 async function restoreAppsPortsSupport() {
   try {
     const currentAppsPorts = await assignedPortsInstalledApps();
     const isUPNP = upnpService.isUPNP();
-
-    const firewallActive = await fluxNetworkHelper.isFirewallActive();
-    // setup UFW for apps
-    if (firewallActive) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const application of currentAppsPorts) {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const port of application.ports) {
-          // eslint-disable-next-line no-await-in-loop
-          await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
-        }
-      }
-    }
 
     // UPNP
     if (isUPNP) {

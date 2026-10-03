@@ -622,14 +622,6 @@ async function cleanupPorts(appSpecifications, appName, res, entityName) {
   }
 
   if (appSpecifications.ports) {
-    const firewallActive = await fluxNetworkHelper.isFirewallActive();
-    if (firewallActive) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of appSpecifications.ports) {
-        // eslint-disable-next-line no-await-in-loop
-        await fluxNetworkHelper.deleteAllowPortRule(serviceHelper.ensureNumber(port));
-      }
-    }
     const isUPNP = upnpService.isUPNP();
     if (isUPNP) {
       // eslint-disable-next-line no-restricted-syntax
@@ -640,10 +632,6 @@ async function cleanupPorts(appSpecifications, appName, res, entityName) {
     }
   } else if (appSpecifications.port) {
     // v1 compatibility
-    const firewallActive = await fluxNetworkHelper.isFirewallActive();
-    if (firewallActive) {
-      await fluxNetworkHelper.deleteAllowPortRule(serviceHelper.ensureNumber(appSpecifications.port));
-    }
     const isUPNP = upnpService.isUPNP();
     if (isUPNP) {
       await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);

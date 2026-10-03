@@ -264,6 +264,9 @@ async function startFluxFunctions() {
     // Hard dependencies — nothing starts until these are confirmed.
     await dbHelper.waitForMongo();
     await dockerService.waitForDocker();
+    // Before anything reads or changes the firewall: a node whose ufw defaults
+    // file is broken has no firewall until this repairs it.
+    await fluxNetworkHelper.ensureUfwDefaults().catch((error) => log.error(error));
 
     // Check and update CloudUI if needed (for legacy nodes without watchdog)
     log.info('Checking CloudUI installation...');
@@ -468,6 +471,13 @@ async function startFluxFunctions() {
 
     // Read boot context early — determines startup behavior for container management.
     const bootContext = await AppSyncOrchestrator.readBootContext();
+
+    // Before any app container starts: an app must never run without the rules
+    // that keep it off private networks. Rechecked so a removed chain returns.
+    await fluxNetworkHelper.applyContainerEgressRules();
+    setInterval(() => {
+      fluxNetworkHelper.applyContainerEgressRules().catch((error) => log.error(error));
+    }, 10 * 60 * 1000);
 
     // App startup manager owns all boot-time container lifecycle decisions:
     // Locations expired → remove all. Otherwise wait for daemon/DB, then reconcile.
@@ -723,8 +733,6 @@ async function startFluxFunctions() {
     // await throughput.start();
 
     setTimeout(async () => {
-      const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
-      await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
       log.info('Rechecking firewall app rules');
       await fluxNetworkHelper.purgeUFW();
     }, bootDelay(30 * 1000));
