@@ -236,7 +236,12 @@ async function setAppOperatorStopped(appname, stopped, { awaitPass = false, forc
       // would be held by nothing until the election next ran, and a standby
       // could take it in between. See appsRuntimeState.requestOperatorStart.
       awaitsElection = !stopped && id === electedId && await appsRuntimeState.requestOperatorStart(id);
-      if (!awaitsElection) await appsRuntimeState.setOperatorStopped(id, stopped, { force });
+      // Read inside the slot, so no pass moves the container between this read
+      // and the lock. A container docker cannot read is not one known to run.
+      const lockOptions = stopped && id === electedId
+        ? { force, asPrimary: appReconciler.committedIdentifiers().includes(id) || (await appReconciler.dockerActual(id)).running === true }
+        : { force };
+      if (!awaitsElection) await appsRuntimeState.setOperatorStopped(id, stopped, lockOptions);
       // Raised inside the same slot as the lock, so a pass cannot read one
       // without the other and bounce a container the operator meant to keep down.
       if (alsoRestart) await appsRuntimeState.requestRestart(id);

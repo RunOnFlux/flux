@@ -26,6 +26,7 @@ const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const UNLOCKED = { stopped: false, startRequested: false, force: false };
 const LOCKED = { stopped: true, startRequested: false, force: false };
 const START_REQUESTED = { stopped: true, startRequested: true, force: false };
+const START_REQUESTED_AS_PRIMARY = { ...START_REQUESTED, asPrimary: true };
 
 describe('advancedWorkflows tests', () => {
   afterEach(() => {
@@ -1131,7 +1132,74 @@ describe('advancedWorkflows tests', () => {
         expect(settled()).to.deep.equal([{ identifier: appName, outcome: 'it starts here' }]);
       });
 
-      it('lifts the lock without starting when a peer runs it', async () => {
+      // Every node the owner stopped the app on is started together; the one that
+      // was its primary when it was stopped takes it back, whatever its place.
+      describe('on the node that was its primary when it was stopped', () => {
+        const BELOW_INDEX_0 = { selfRunningSince: '2026-01-01T00:02:00.000Z' };
+
+        it('starts it at once, from below index 0, when no peer holds it', async () => {
+          const appName = 'opstartresumes';
+          appsRuntimeState.operatorStopState.resolves(START_REQUESTED_AS_PRIMARY);
+          const count = sinon.stub(fluxEventBus, 'count');
+          const runPass = electionFixture(appName, [PEER], BELOW_INDEX_0);
+          serviceHelperStub.resolves(fdmNoPrimary());
+          axiosGetStub.resetBehavior();
+          axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+          await runPass();
+
+          sinon.assert.calledOnceWithExactly(promote, appName, `flux${appName}`);
+          sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'primaryResumed');
+          sinon.assert.neverCalledWith(count, 'masterSlave:decision', appName, 'staggerBooked');
+          expect(settled()).to.deep.equal([{ identifier: appName, outcome: 'it starts here' }]);
+        });
+
+        it('waits for its turn instead on a node that was not', async () => {
+          const appName = 'opstartwaitsturn';
+          const count = sinon.stub(fluxEventBus, 'count');
+          const runPass = electionFixture(appName, [PEER], BELOW_INDEX_0);
+          serviceHelperStub.resolves(fdmNoPrimary());
+          axiosGetStub.resetBehavior();
+          axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+          await runPass();
+
+          sinon.assert.notCalled(promote);
+          sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'staggerBooked');
+          expect(settled()).to.deep.equal([]);
+        });
+
+        it('does not start it over a peer that holds it, and lifts its lock', async () => {
+          const appName = 'opstartresumepeerholds';
+          appsRuntimeState.operatorStopState.resolves(START_REQUESTED_AS_PRIMARY);
+          const runPass = electionFixture(appName, [PEER], BELOW_INDEX_0);
+          serviceHelperStub.resolves(fdmNoPrimary());
+          axiosGetStub.resetBehavior();
+          axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+
+          await runPass();
+
+          sinon.assert.notCalled(promote);
+          expect(settled()).to.deep.equal([{ identifier: appName, outcome: 'a peer holds it' }]);
+        });
+
+        it('keeps the lock and starts nothing while a peer cannot be ruled out', async () => {
+          const appName = 'opstartresumeunknown';
+          appsRuntimeState.operatorStopState.resolves(START_REQUESTED_AS_PRIMARY);
+          const runPass = electionFixture(appName, [PEER], BELOW_INDEX_0);
+          serviceHelperStub.resolves(fdmNoPrimary());
+          axiosGetStub.resetBehavior();
+          axiosGetStub.rejects(new Error('connect ETIMEDOUT'));
+
+          await runPass();
+
+          sinon.assert.notCalled(promote);
+          sinon.assert.notCalled(releaseOperatorStart);
+          expect(settled()).to.deep.equal([]);
+        });
+      });
+
+      it('lifts the lock without starting when a peer holds it', async () => {
         const appName = 'opstartpeerruns';
         const runPass = electionFixture(appName, [PEER]);
         serviceHelperStub.resolves(fdmNoPrimary());
@@ -1145,10 +1213,10 @@ describe('advancedWorkflows tests', () => {
         sinon.assert.calledOnce(applyIntent);
         expect(applyIntent.firstCall.args[0], 'lifted through the slot the operator writes through').to.equal(appName);
         sinon.assert.callOrder(applyIntent, releaseOperatorStart);
-        expect(settled()).to.deep.equal([{ identifier: appName, outcome: 'a peer runs it' }]);
+        expect(settled()).to.deep.equal([{ identifier: appName, outcome: 'a peer holds it' }]);
       });
 
-      it('announces nothing when a peer runs it and the lock was not lifted', async () => {
+      it('announces nothing when a peer holds it and the lock was not lifted', async () => {
         const appName = 'opstartpeerrunsrestopped';
         releaseOperatorStart.resolves(false);
         const runPass = electionFixture(appName, [PEER]);

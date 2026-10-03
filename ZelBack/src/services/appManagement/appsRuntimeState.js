@@ -113,8 +113,17 @@ async function setFields(rawIdentifier, fields) {
  * renaming it is a migration: without one, that query stops matching on upgrade
  * and every live stop lock releases at once.
  *
+ * A lock records whether this node was the component's primary when it was
+ * stopped - running it, or committed to running it - and keeps that through a
+ * second stop of a component already locked. A start the operator then asks
+ * for keeps this node holding it only if it was; see operatorHeldIdentifiers.
+ *
  * @param {string} identifier
  * @param {boolean} stopped
+ * @param {object} [opts]
+ * @param {boolean} [opts.force] A hard kill, not a graceful stop.
+ * @param {boolean} [opts.asPrimary] This node runs the component, or is
+ *   committed to running it, as it is stopped.
  */
 async function setOperatorStopped(identifier, stopped, opts = {}) {
   // No catch: the lock is the contract that the reconciler will not restart the
@@ -128,8 +137,12 @@ async function setOperatorStopped(identifier, stopped, opts = {}) {
     // the write and the stop cannot quietly downgrade "kill now" to a drain that
     // waits for the app to finish what it is doing.
     fields.operatorStopForce = opts.force === true;
+    const held = opts.asPrimary === true ? null : await readLock(canonical(identifier));
+    fields.operatorStoppedAsPrimary = opts.asPrimary === true
+      || (held?.operatorStopped === true && held.operatorStoppedAsPrimary === true);
   } else {
     fields.operatorStopForce = false;
+    fields.operatorStoppedAsPrimary = false;
     fields.restartHistory = [];
     fields.autoRestartWindow = [];
   }
@@ -144,7 +157,7 @@ function readLock(identifier) {
     collection(),
     appsRuntimeState,
     { identifier },
-    { projection: { _id: 0, operatorStopped: 1, operatorStartRequested: 1 } },
+    { projection: { _id: 0, operatorStopped: 1, operatorStartRequested: 1, operatorStoppedAsPrimary: 1 } },
   );
 }
 
@@ -284,10 +297,11 @@ async function isOperatorStopped(identifier) {
  * stop the reconciler performs.
  *
  * `startRequested` is a start the operator has asked for and the election has
- * not yet decided; the lock stands until it has.
+ * not yet decided; the lock stands until it has. `asPrimary` is whether this
+ * node was the component's primary when it was stopped.
  *
  * @param {string} identifier
- * @returns {Promise<{stopped: boolean, force: boolean, startRequested: boolean}>}
+ * @returns {Promise<{stopped: boolean, force: boolean, startRequested: boolean, asPrimary: boolean}>}
  */
 async function operatorStopState(identifier) {
   const state = await getState(identifier);
@@ -295,16 +309,25 @@ async function operatorStopState(identifier) {
     stopped: state?.operatorStopped === true,
     startRequested: state?.operatorStopped === true && state.operatorStartRequested === true,
     force: state?.operatorStopForce === true,
+    asPrimary: state?.operatorStopped === true && state.operatorStoppedAsPrimary === true,
   };
 }
 
 /**
- * Every component identifier on this node the operator has deliberately stopped.
+ * Every component identifier on this node that its operator stop lock holds
+ * here: every lock, save one whose start the operator has asked for on a node
+ * that was not the component's primary when it was stopped.
  *
- * One query rather than isOperatorStopped per component. The caller is the
- * held-components answer, served on an unauthenticated route a peer reads
- * mid-election, so a findOne apiece would scale its cost with the number of
- * components installed here.
+ * That one waits for the election to decide its start, and is not who runs the
+ * component. When an owner starts an app stopped on every node, the node that
+ * was its primary is then the only one holding it: it starts, and the others
+ * stand aside for it. Were every such lock held, each node would see another
+ * holding the component, and none would start it.
+ *
+ * One query rather than a read per component. The caller is the held-components
+ * answer, served on an unauthenticated route a peer reads mid-election, so a
+ * findOne apiece would scale its cost with the number of components installed
+ * here.
  *
  * Throws where getState swallows, and the difference is the point. getState's
  * callers ask about one component and act on this node: a read failure there
@@ -316,12 +339,15 @@ async function operatorStopState(identifier) {
  *
  * @returns {Promise<string[]>} bare component identifiers, unprefixed
  */
-async function operatorStoppedIdentifiers() {
+async function operatorHeldIdentifiers() {
   const database = collection();
   const docs = await dbHelper.findInDatabase(
     database,
     appsRuntimeState,
-    { operatorStopped: true },
+    {
+      operatorStopped: true,
+      $or: [{ operatorStartRequested: { $ne: true } }, { operatorStoppedAsPrimary: true }],
+    },
     { projection: { _id: 0, identifier: 1 } },
   );
   return docs.map((doc) => doc.identifier).filter(Boolean);
@@ -736,7 +762,7 @@ module.exports = {
   operatorStoppedOrThrow,
   isOperatorStopped,
   operatorStopState,
-  operatorStoppedIdentifiers,
+  operatorHeldIdentifiers,
   recordRestart,
   requestRestart,
   recordRestartGeneration,

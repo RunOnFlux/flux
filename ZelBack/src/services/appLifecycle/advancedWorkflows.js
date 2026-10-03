@@ -5341,14 +5341,31 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // One peer that cannot be ruled out holds the start on its own:
                   // every other peer answering "not me" says nothing about that one.
                   if (states.includes(PeerComponent.RUNNING)) {
-                    if (resuming) await settleOperatorStart(identifier, 'a peer runs it');
+                    if (resuming) await settleOperatorStart(identifier, 'a peer holds it');
                     return PeerComponent.RUNNING;
                   }
                   if (states.includes(PeerComponent.UNKNOWN)) return PeerComponent.UNKNOWN;
                   return PeerComponent.NOT_RUNNING;
                 };
 
-                if (index === 0 && !mastersRunningGSyncthingApps.has(identifier)) {
+                if (resuming && operatorStop.asPrimary) {
+                  // Its owner started an app this node was the primary of when it
+                  // was stopped. The start returns it here, whatever this node's
+                  // place in the order: every other node that was stopped with it
+                  // reads this one as holding it, and stands aside.
+                  // eslint-disable-next-line no-await-in-loop
+                  const peerState = await checkPeersRunning();
+                  if (peerState !== PeerComponent.NOT_RUNNING) {
+                    log.info(`masterSlaveApps: not resuming app:${installedApp.name} as its primary - a peer ${peerState === PeerComponent.RUNNING ? 'holds it' : 'could not be ruled out'}`);
+                  } else {
+                    // eslint-disable-next-line no-await-in-loop
+                    if (await start()) {
+                      fluxEventBus.count('masterSlave:decision', identifier, 'primaryResumed');
+                      log.info(`masterSlaveApps: resuming docker component:${identifier} as its primary, index: ${index}`);
+                    }
+                  }
+                  timeTostartNewMasterApp.delete(identifier);
+                } else if (index === 0 && !mastersRunningGSyncthingApps.has(identifier)) {
                   // Index 0 with no history starts - but only once no peer is
                   // already running it. Without this probe the start is issued
                   // blind, and FDM's registration lag makes "FDM says no primary"

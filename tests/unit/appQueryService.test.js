@@ -585,7 +585,7 @@ describe('appQueryService tests', () => {
       dockerServiceStub.dockerListContainers.resolves(running.map((name) => ({ Names: [`/${name}`] })));
       sinon.stub(appReconciler, 'committedIdentifiers').returns(committed);
       sinon.stub(primaryRoleChanges, 'promotingIdentifiers').returns(promoting);
-      sinon.stub(appsRuntimeState, 'operatorStoppedIdentifiers').resolves(stopped);
+      sinon.stub(appsRuntimeState, 'operatorHeldIdentifiers').resolves(stopped);
       messageHelperStub.createDataMessage.returnsArg(0);
       return appQueryService.heldComponents();
     };
@@ -658,7 +658,7 @@ describe('appQueryService tests', () => {
       // node that answered nothing.
       dockerServiceStub.dockerListContainers.resolves([{ Names: ['/fluxwww_App'] }]);
       sinon.stub(appReconciler, 'committedIdentifiers').returns([]);
-      sinon.stub(appsRuntimeState, 'operatorStoppedIdentifiers').rejects(new Error('no primary available'));
+      sinon.stub(appsRuntimeState, 'operatorHeldIdentifiers').rejects(new Error('no primary available'));
       messageHelperStub.createErrorMessage.returns({ status: 'error' });
 
       const result = await appQueryService.heldComponents();
@@ -681,7 +681,7 @@ describe('appQueryService tests', () => {
       sinon.stub(process.hrtime, 'bigint').callsFake(() => nowNs);
       dockerServiceStub.dockerListContainers.resolves([{ Names: ['/fluxwww_App'] }]);
       sinon.stub(appReconciler, 'committedIdentifiers').returns([]);
-      sinon.stub(appsRuntimeState, 'operatorStoppedIdentifiers').resolves([]);
+      sinon.stub(appsRuntimeState, 'operatorHeldIdentifiers').resolves([]);
       messageHelperStub.createDataMessage.callsFake((data) => ({ status: 'success', data }));
       messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
       sealWith((fields) => Promise.resolve({ ...fields, sealed: true }));
@@ -718,12 +718,12 @@ describe('appQueryService tests', () => {
     });
 
     it('passes a failed account on as the error it is, unsigned and not remembered', async () => {
-      appsRuntimeState.operatorStoppedIdentifiers.rejects(new Error('no primary available'));
+      appsRuntimeState.operatorHeldIdentifiers.rejects(new Error('no primary available'));
       const seal = sinon.spy((fields) => Promise.resolve(fields));
       sealWith(seal);
 
       const answer = await appQueryService.heldComponentsAnswer({}, res());
-      appsRuntimeState.operatorStoppedIdentifiers.resolves([]);
+      appsRuntimeState.operatorHeldIdentifiers.resolves([]);
       const next = await appQueryService.heldComponentsAnswer({}, res());
 
       expect(answer.status).to.equal('error');
@@ -746,7 +746,7 @@ describe('appQueryService tests', () => {
     const account = ({ running = [], stopped = [] } = {}) => {
       dockerServiceStub.dockerListContainers.resolves(running.map((name) => ({ Names: [`/${name}`] })));
       sinon.stub(appReconciler, 'committedIdentifiers').returns([]);
-      sinon.stub(appsRuntimeState, 'operatorStoppedIdentifiers').resolves(stopped);
+      sinon.stub(appsRuntimeState, 'operatorHeldIdentifiers').resolves(stopped);
       messageHelperStub.createDataMessage.callsFake((data) => ({ status: 'success', data }));
     };
 

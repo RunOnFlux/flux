@@ -303,14 +303,48 @@ describe('appController tests', () => {
         expect(res.json.firstCall.args[0].data).to.equal('Application GApp will be started: waiting for the election');
       });
 
-      it('still takes the lock when the operator stops it', async () => {
+      it('still takes the lock when the operator stops it, as the primary\'s when it runs here', async () => {
         stubInstalledApp(gApp);
         sinon.stub(appReconciler, 'clearControllerDesired');
 
         await appController.appStop({ params: { appname: 'game_GApp' }, query: {} }, { json: sinon.fake((param) => param) });
 
         sinon.assert.notCalled(requestOperatorStart);
-        sinon.assert.calledOnceWithExactly(appsRuntimeState.setOperatorStopped, 'game_GApp', true, { force: false });
+        sinon.assert.calledOnceWithExactly(appsRuntimeState.setOperatorStopped, 'game_GApp', true, { force: false, asPrimary: true });
+      });
+
+      it('takes the lock as the primary\'s on a node committed to running it whose container is down', async () => {
+        stubInstalledApp(gApp);
+        sinon.stub(appReconciler, 'clearControllerDesired');
+        appReconciler.dockerActual.resolves({ reachable: true, exists: true, running: false });
+        sinon.stub(appReconciler, 'committedIdentifiers').returns(['game_GApp']);
+
+        await appController.appStop({ params: { appname: 'game_GApp' }, query: {} }, { json: sinon.fake((param) => param) });
+
+        sinon.assert.calledOnceWithExactly(appsRuntimeState.setOperatorStopped, 'game_GApp', true, { force: false, asPrimary: true });
+      });
+
+      it('takes the lock as not the primary\'s on a node that neither runs it nor is committed to', async () => {
+        stubInstalledApp(gApp);
+        sinon.stub(appReconciler, 'clearControllerDesired');
+        appReconciler.dockerActual.resolves({ reachable: true, exists: true, running: false });
+        sinon.stub(appReconciler, 'committedIdentifiers').returns([]);
+
+        await appController.appStop({ params: { appname: 'game_GApp' }, query: {} }, { json: sinon.fake((param) => param) });
+
+        sinon.assert.calledOnceWithExactly(appsRuntimeState.setOperatorStopped, 'game_GApp', true, { force: false, asPrimary: false });
+      });
+
+      it('records nothing about the primary on the components the election does not decide', async () => {
+        stubInstalledApp(gApp);
+        sinon.stub(appReconciler, 'clearControllerDesired');
+
+        await appController.appStop({ params: { appname: 'GApp' }, query: {} }, { json: sinon.fake((param) => param) });
+
+        const options = Object.fromEntries(appsRuntimeState.setOperatorStopped.args.map(([id, , opts]) => [id, opts]));
+        expect(options).to.deep.equal({
+          web_GApp: { force: false }, game_GApp: { force: false, asPrimary: true }, db_GApp: { force: false },
+        });
       });
     });
 
