@@ -14,6 +14,11 @@
 // node on the new list. Every wait is for the login itself to change, never for a
 // file, because a login is what the feature is for.
 //
+// The node without sshd is firewalled as the legacy installer leaves a node, so
+// the maintenance port's own rate-limit rule is installed and removed for real.
+// The installer already allows the whole 16100-16199 range, so a login says
+// nothing about that rule: the rule itself is what is asserted.
+//
 // A list that drops a key ends every open maintenance session, together with what
 // it runs through sudo. The node without sshd has no pam_systemd, so its sessions
 // stay in the maintenance unit's cgroup; the operator's node installs
@@ -124,6 +129,11 @@ describe('2401 legacy node maintenance access', function suite() {
     return stdout.trim() || null;
   }
 
+  async function maintenanceRule() {
+    const { stdout } = await execInContainer(legacy.container, 'ufw status; true');
+    return new RegExp(`^${SSH_PORT}/tcp\\s+LIMIT IN\\s+Anywhere\\s*$`, 'm').test(stdout);
+  }
+
   async function port22Listening(client) {
     const { stdout } = await execInContainer(client.container, "ss -Hltn 'sport = :22'");
     return stdout.trim() !== '';
@@ -190,6 +200,7 @@ describe('2401 legacy node maintenance access', function suite() {
       hookCtx: this,
       nodes: 3,
       legacyNodes: [LEGACY, OPERATOR_SSHD],
+      firewall: [LEGACY],
       systemdMode: true,
       tickerAutostart: false,
       configOverrides: { fluxadm: { sshAuthorizedKeys: [publicKey('current')] } },
@@ -274,6 +285,10 @@ describe('2401 legacy node maintenance access', function suite() {
     expect(await login('stranger')).to.equal(false);
   });
 
+  it('rate-limits the maintenance port in the firewall', async () => {
+    expect(await maintenanceRule()).to.equal(true);
+  });
+
   it('runs the maintenance sshd as its own unit, on apiport - 5', async () => {
     expect(await unitState(legacy.container, 'fluxadm-sshd.service')).to.equal('active');
     const { stdout } = await execInContainer(legacy.container, `ss -Hltn 'sport = :${SSH_PORT}'`);
@@ -325,6 +340,7 @@ describe('2401 legacy node maintenance access', function suite() {
     await openSession(legacy, legacyIp, 'next', 7002);
     await releaseKeys([]);
     expect(await sessionCgroup(legacy, 7002), 'emptying the list must end the session').to.equal(null);
+    expect(await maintenanceRule(), 'emptying the list must remove the firewall rule').to.equal(false);
     await waitFor(async () => !(await login('next')), {
       timeout: CONVERGE_TIMEOUT_MS, interval: 3000, label: 'login refused after the list emptied',
     });
