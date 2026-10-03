@@ -2323,8 +2323,13 @@ async function adjustFirewall() {
       return !error;
     };
 
-    // set default allow outgoing
-    await ufw(['default', 'allow', 'outgoing']);
+    // ufw rewrites /etc/default/ufw and reloads every rule on each `default`
+    // call, an unchanged one included; a stop during that write leaves the file
+    // empty, and the node then boots without a firewall. Set only when needed.
+    const { stdout: verbose } = await serviceHelper.runCommand('ufw', { runAsRoot: true, logError: false, params: ['status', 'verbose'] });
+    if (!/^Default:.*\ballow \(outgoing\)/m.test(serviceHelper.ensureString(verbose))) {
+      await ufw(['default', 'allow', 'outgoing']);
+    }
     // allow speedtests
     await ufw(['insert', '1', 'allow', 'out', '5060']);
     await ufw(['insert', '1', 'allow', 'out', '8080']);
