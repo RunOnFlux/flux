@@ -1023,6 +1023,33 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(globalStateMock.folderHoldings.has('other-app'), 'another folder\'s claim is not this folder\'s to withdraw').to.equal(true);
     });
 
+    // The status read for the decision is the one the disk is judged against. Read
+    // a second time, a status that failed or read empty in between paired this
+    // reading's "synced" with that one's "nothing to check", and an empty volume
+    // was promoted - its missing files sent to every peer as deletions.
+    it('does not promote a synced folder over an empty disk when syncthing\'s status reads empty a moment later', async () => {
+      fsMock.promises.readdir.resolves([]);
+      mockParams.containerDataFlags = 'r';
+      mockParams.syncFolder = { id: 'test-app', type: 'receiveonly' };
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: false, numberOfExecutions: 1 });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.0:16127', runningSince: '2026-01-01T00:00:00Z', broadcastedAt: 1000 },
+        { ip: '10.0.0.1:16127', runningSince: '2026-01-01T00:01:00Z', broadcastedAt: 1000 },
+      ]);
+      syncthingServiceMock.getDbStatus.resetBehavior();
+      syncthingServiceMock.getDbStatus.resolves({
+        globalBytes: 0, globalFiles: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+      });
+      syncthingServiceMock.getDbStatus.onFirstCall().resolves({
+        globalBytes: 500000, globalFiles: 12, inSyncBytes: 500000, state: 'idle', receiveOnlyChangedFiles: 0,
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type, 'the empty volume was promoted').to.equal('receiveonly');
+      sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
+    });
+
     it('should elect leader and start immediately', async () => {
       // A cold start holds nothing, so the volume is empty too - the seed guard reads
       // the disk, and the suite default puts files there for verifyFolderMountSafety.
@@ -2655,6 +2682,22 @@ describe('syncthingFolderStateMachine tests', () => {
   });
 
   describe('verifySendReceiveFolderSafety', () => {
+    it('judges the disk against the status it is given, and asks syncthing for none of its own', async () => {
+      fsMock.promises.readdir.resolves([]);
+      syncthingServiceMock.getDbStatus.resetHistory();
+      syncthingServiceMock.getDbStatus.resolves({ globalBytes: 0, inSyncBytes: 0, state: 'idle' });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app', [], {
+        syncStatus: {
+          globalBytes: 500000, globalFiles: 12, inSyncBytes: 500000, isSynced: true,
+        },
+      });
+
+      expect(result.isSafe).to.be.false;
+      expect(result.reason).to.equal('phantom_index_empty_disk');
+      sinon.assert.notCalled(syncthingServiceMock.getDbStatus);
+    });
+
     it('is unsafe when the index claims files and the disk holds none of them', async () => {
       // stale ("phantom") index over a wiped volume: the mount structure FluxOS built
       // it from is still there, as it is after any wipe, and not one of the files the

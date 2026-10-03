@@ -468,15 +468,23 @@ async function verifyFolderMountSafety(appId, folderPath) {
  * broadcasts them, gutting the healthy peers (the deletion-propagation
  * failure mode observed live 2026-07-01). A legitimately empty folder
  * (globalBytes 0, e.g. a cold-start seed) does not trip this.
+ *
+ * A caller deciding on a sync status passes the status it decided on, and the
+ * disk is judged against that one: read again, a status that changed or failed
+ * in between would pair one reading's "synced" with another's "nothing to
+ * check". Read here only when the caller has none.
  * @param {string} appId - App ID (also the syncthing folder id)
  * @param {string} folderPath - Syncthing folder path
+ * @param {string[]} [unsyncedSubdirs]
+ * @param {object} [options]
+ * @param {object} [options.syncStatus] The status the caller decided on.
  * @returns {Promise<{isSafe: boolean, reason: string, isMounted: boolean, hasContent: boolean}>}
  */
-async function verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs = []) {
+async function verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs = [], { syncStatus: decidedOn } = {}) {
   const result = await verifyFolderMountSafety(appId, folderPath);
   if (!result.isSafe) return result;
 
-  const syncStatus = await getFolderSyncCompletion(appId);
+  const syncStatus = decidedOn === undefined ? await getFolderSyncCompletion(appId) : decidedOn;
   if (!syncStatus || syncStatus.globalBytes === 0) return result;
 
   // The index claims bytes held in files, so it is answered by files with bytes on
@@ -1391,7 +1399,7 @@ async function handleReceiveOnlyTransition(params) {
     // over an empty disk); an unmounted dir, or a stale index claiming bytes
     // over an empty volume, must never seed: sendreceive would broadcast the
     // missing files as deletions.
-    const seedSafety = await verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs || []);
+    const seedSafety = await verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs || [], { syncStatus });
     if (!seedSafety.isSafe) {
       log.warn(`handleReceiveOnlyTransition - ${appId} elected leader but not safe to seed (${seedSafety.reason}); staying receiveonly`);
       syncthingFolder.type = 'receiveonly';
@@ -1481,7 +1489,7 @@ async function handleReceiveOnlyTransition(params) {
       // Same pre-flip verification as the seed above: completion metrics come
       // from the index, and an index can be stale - promotion requires the disk
       // to actually hold the data the index claims.
-      const promoteSafety = await verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs || []);
+      const promoteSafety = await verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs || [], { syncStatus });
       if (!promoteSafety.isSafe) {
         log.warn(`handleReceiveOnlyTransition - ${appId} is synced but not safe to promote (${promoteSafety.reason}); staying receiveonly`);
         return { syncthingFolder, cache };
