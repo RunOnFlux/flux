@@ -28,6 +28,7 @@ const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
+const verificationHelper = require('./verificationHelper');
 const syncthingService = require('./syncthingService');
 const fluxEventBus = require('./utils/fluxEventBus');
 const nodeSigner = require('./utils/nodeSigner');
@@ -146,6 +147,16 @@ const verdicts = new Map();
 
 // One request per address in flight, however many callers ask at once.
 const inFlight = new Map();
+
+/**
+ * address -> the key the node list held at it when an answer from there last
+ * proved itself by the list. A node dropped from the list goes on answering,
+ * signed by that key, while it takes its apps down; its answers are its own
+ * for as long as a VERIFIED verdict is held. Only the list writes here, so
+ * an answer accepted by this key never extends it.
+ * @type {Map<string, {pubKey: string, at: number}>}
+ */
+const provenKeys = new Map();
 
 /**
  * Introducer's address -> { identity, at }. What partners have proven about
@@ -329,6 +340,36 @@ async function identityAnswerAPI(req, res) {
 }
 
 /**
+ * Whether the key the node list holds at `dialled` signed `answer`, recording
+ * that key as the one proven there.
+ * @param {string} dialled
+ * @param {object} answer
+ * @returns {Promise<boolean>}
+ */
+async function provenByList(dialled, answer) {
+  if (!await fluxNetworkHelper.verifySignedFluxnodeMessage(answer, { socketAddress: dialled })) return false;
+  provenKeys.set(dialled, { pubKey: answer.pubKey, at: monotonicMs() });
+  return true;
+}
+
+/**
+ * Whether `answer` is signed by the key last proven at `dialled` by the list,
+ * while that proof is no older than a VERIFIED verdict is held.
+ * @param {string} dialled
+ * @param {object} answer
+ * @returns {boolean}
+ */
+function signedByProvenKey(dialled, answer) {
+  const proven = provenKeys.get(dialled);
+  if (!proven || proven.pubKey !== answer.pubKey
+    || monotonicMs() - proven.at >= TTL_MS[IdentityVerdict.VERIFIED]) {
+    return false;
+  }
+  const { signature, ...signed } = answer;
+  return verificationHelper.verifyMessage(JSON.stringify(signed), answer.pubKey, signature) === true;
+}
+
+/**
  * Judge one answer against the address it was asked of.
  *
  * @param {string} dialled The address that was dialled.
@@ -348,7 +389,7 @@ async function judgeAnswer(dialled, challenge, answer, purpose = IDENTITY_PURPOS
   // is the address the answer signs.
   const answeredAs = normalizeSocketAddress(answer.socketAddress);
   const atDialled = socketAddressesMatch(answeredAs, dialled)
-    && await fluxNetworkHelper.verifySignedFluxnodeMessage(answer, { socketAddress: dialled });
+    && (await provenByList(dialled, answer) || signedByProvenKey(dialled, answer));
   if (atDialled) {
     return {
       verdict: IdentityVerdict.VERIFIED,
@@ -545,6 +586,7 @@ async function askSigned(socketAddress, path, purpose, body = {}, options = {}) 
 function clearVerdicts() {
   verdicts.clear();
   inFlight.clear();
+  provenKeys.clear();
   introductions.clear();
 }
 

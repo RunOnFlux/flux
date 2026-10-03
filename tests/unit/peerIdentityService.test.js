@@ -690,6 +690,69 @@ describe('peerIdentityService', () => {
       expect(result).to.deep.equal({ verdict: IdentityVerdict.MISROUTED, answeredAs: ADDR.c });
     });
 
+    // A node that loses its confirmation drops off the list and takes its apps
+    // down; until the other nodes evict its locations they still ask it.
+    describe('a node the list has dropped since it proved itself', () => {
+      const identity = (challenge) => success(signedAnswer('b', { challenge }));
+      let held;
+      beforeEach(() => {
+        held = ['fluxweb_app'];
+        node({ held: (challenge) => success(signs('b', challenge, { held })), identity });
+      });
+
+      it('goes on accepting its answers, signed by the key the list proved at its address', async () => {
+        const before = await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+        list.delete(pub.b);
+        held = [];
+
+        const after = await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+
+        expect(before.verdict, 'proven while listed').to.equal(IdentityVerdict.VERIFIED);
+        expect(after.verdict).to.equal(IdentityVerdict.VERIFIED);
+        expect(after.answer.held, 'its own word that it has stopped').to.deep.equal([]);
+      });
+
+      it('accepts no other key at that address', async () => {
+        await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+        list.delete(pub.b);
+        axios.post.restore();
+        node({ held: (challenge) => success(signs('c', challenge, { held: [] }, AnswerPurpose.HELD_COMPONENTS, ADDR.b)), identity });
+
+        const result = await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+
+        expect(result.verdict).to.equal(IdentityVerdict.UNVERIFIABLE);
+        expect(result.mayReadUnsigned).to.equal(false);
+      });
+
+      it('accepts it for as long as a verdict is held from the list\'s proof, however often it answers meanwhile', async () => {
+        const clock = sinon.useFakeTimers({ toFake: ['hrtime'] });
+        try {
+          await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+          list.delete(pub.b);
+          clock.tick(config.fluxapps.peerIdentityVerifiedTtlMs - 1);
+          const last = await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+          clock.tick(1);
+
+          const after = await peerIdentityService.askSigned(ADDR.b, HELD, AnswerPurpose.HELD_COMPONENTS);
+
+          expect(last.verdict, 'inside the window').to.equal(IdentityVerdict.VERIFIED);
+          expect(after.verdict).to.equal(IdentityVerdict.UNVERIFIABLE);
+        } finally {
+          clock.restore();
+        }
+      });
+
+      it('goes on verifying who it is', async () => {
+        await peerIdentityService.verifyPeer(ADDR.b);
+        list.delete(pub.b);
+
+        const result = await peerIdentityService.verifyPeer(ADDR.b, { fresh: true });
+
+        expect(result.verdict).to.equal(IdentityVerdict.VERIFIED);
+        expect(result.identity.pubKey).to.equal(pub.b);
+      });
+    });
+
     // THE CASE THIS EXISTS FOR. The address was proven a moment ago; this reply
     // is from whatever answers there now.
     it('does not let a verified identity vouch for a reply that is not signed', async () => {
