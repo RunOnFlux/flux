@@ -37,7 +37,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
 import { setSystemSecure } from '../framework/daemon-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
-import { restartFluxos, unitState, journalCount } from '../framework/systemd-control.js';
+import { restartFluxos, unitState } from '../framework/systemd-control.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -50,7 +50,6 @@ const KEY_NAMES = ['current', 'next', 'stranger'];
 // apiport 16127 - 5
 const SSH_PORT = 16122;
 const CLIENT_KEY_DIR = '/root/.fluxadm-keys';
-const PASS_RECONCILED = 'fluxadm access - reconcile pass reconciled';
 
 const MANAGED_FILES = [
   '/etc/ssh/fluxadm_sshd_config',
@@ -59,9 +58,9 @@ const MANAGED_FILES = [
   '/etc/ssh/fluxadm_authorized_keys',
 ];
 
-// The first pass installs openssh-server through the node's apt queue, behind
-// whatever the boot's own package checks still have queued.
-const FIRST_ACCESS_TIMEOUT_MS = 300000;
+// A ceiling for a pass that never reports: a pass deferred while the legacy
+// confirmation is pending retries five minutes later.
+const PASS_TIMEOUT_MS = 360000;
 const CONVERGE_TIMEOUT_MS = 180000;
 
 const subnet = getSubnetConfig();
@@ -77,6 +76,8 @@ describe('2401 legacy node maintenance access', function suite() {
   let ownerIp;
   let keyDir;
   let ownerSshdBefore;
+  // Each legacy node's last event before the restart that made it legacy.
+  const legacyStartedAfter = new Map();
   const publicKeys = {};
   dumpLogsOnFailure(() => env);
 
@@ -179,15 +180,18 @@ describe('2401 legacy node maintenance access', function suite() {
     });
   }
 
-  async function passCount(client) {
-    return journalCount(client.container, 'fluxos', PASS_RECONCILED, { processOnly: true });
+  // The node's first fluxadm pass after afterId that was not deferred. A pass
+  // that did not reconcile fails the test at once, naming the step it stopped at.
+  async function reconciledPass(client, afterId) {
+    const { data } = await client.waitForEvent('fluxadm:pass', (d) => d.outcome !== 'deferred', PASS_TIMEOUT_MS, { afterId });
+    expect(data.outcome, `fluxadm pass ${data.outcome}${data.step ? ` at ${data.step}` : ''}`).to.equal('reconciled');
   }
 
   // A release that ships a new key list: the config FluxOS reads at start is
   // rewritten, and FluxOS restarts. Returns once a pass has completed on it.
   async function releaseKeys(names, client = legacy) {
     const keys = JSON.stringify(names.map(publicKey));
-    const before = await passCount(client);
+    const afterId = client.getLastEventId();
     const write = await execInContainer(client.container, [
       'node', '-e',
       'const f = "/flux/ZelBack/config/local.js"; const c = require(f);'
@@ -197,9 +201,7 @@ describe('2401 legacy node maintenance access', function suite() {
     ]);
     expect(write.exitCode, `config rewrite failed: ${write.stderr}`).to.equal(0);
     await restartFluxos(client.container);
-    await waitFor(async () => (await passCount(client)) > before, {
-      timeout: CONVERGE_TIMEOUT_MS, interval: 2000, label: 'a reconcile pass on the new key list',
-    });
+    await reconciledPass(client, afterId);
   }
 
   async function managedState() {
@@ -240,6 +242,7 @@ describe('2401 legacy node maintenance access', function suite() {
     // restarted, each node's next start is its first pass as a legacy node.
     for (const [client, ip] of [[legacy, legacyIp], [owner, ownerIp]]) {
       await setSystemSecure(ip, false);
+      legacyStartedAfter.set(client, client.getLastEventId());
       await restartFluxos(client.container);
     }
   });
@@ -258,9 +261,8 @@ describe('2401 legacy node maintenance access', function suite() {
   });
 
   it('lets a configured key in, with passwordless sudo', async () => {
-    await waitFor(() => login('current'), {
-      timeout: FIRST_ACCESS_TIMEOUT_MS, interval: 3000, label: 'login with the configured key',
-    });
+    await reconciledPass(legacy, legacyStartedAfter.get(legacy));
+    await loginOrThrow('current');
   });
 
   it('installs openssh-server without starting the sshd it ships', async () => {
@@ -272,9 +274,8 @@ describe('2401 legacy node maintenance access', function suite() {
   });
 
   it('lets the configured key in on a node whose node owner runs sshd', async () => {
-    await waitFor(() => login('current', { ip: ownerIp }), {
-      timeout: CONVERGE_TIMEOUT_MS, interval: 3000, label: "login with the configured key beside the node owner's sshd",
-    });
+    await reconciledPass(owner, legacyStartedAfter.get(owner));
+    await loginOrThrow('current', { ip: ownerIp });
   });
 
   it("leaves the node owner's sshd as it was, and the maintenance key off it", async () => {
@@ -334,9 +335,7 @@ describe('2401 legacy node maintenance access', function suite() {
       .to.match(/\/fluxadm-sshd\.service$/);
     await releaseKeys(['current', 'next']);
     expect(await sessionCgroup(legacy, 7001), 'adding a key must not end an open session').to.equal(cgroup);
-    await waitFor(() => login('next'), {
-      timeout: CONVERGE_TIMEOUT_MS, interval: 3000, label: 'login with the incoming key',
-    });
+    await loginOrThrow('next');
     expect(await login('current'), 'the outgoing key must still log in during the overlap').to.equal(true);
   });
 
@@ -344,9 +343,7 @@ describe('2401 legacy node maintenance access', function suite() {
     expect(await sessionCgroup(legacy, 7001), 'the session must be open before the key is dropped').to.not.equal(null);
     await releaseKeys(['next']);
     expect(await sessionCgroup(legacy, 7001), 'dropping a key must end the session and its sudo child').to.equal(null);
-    await waitFor(async () => !(await login('current')), {
-      timeout: CONVERGE_TIMEOUT_MS, interval: 3000, label: 'the outgoing key refused',
-    });
+    expect(await login('current'), 'the outgoing key must be refused').to.equal(false);
     expect(await login('next'), 'the incoming key must still log in').to.equal(true);
   });
 
@@ -357,9 +354,7 @@ describe('2401 legacy node maintenance access', function suite() {
     expect(await sessionCgroup(legacy, 7002), 'emptying the list must end the session').to.equal(null);
     const rule = await maintenanceRule();
     expect(rule.present, `emptying the list must remove the firewall rule:\n${rule.status}`).to.equal(false);
-    await waitFor(async () => !(await login('next')), {
-      timeout: CONVERGE_TIMEOUT_MS, interval: 3000, label: 'login refused after the list emptied',
-    });
+    expect(await login('next'), 'login must be refused once the list is empty').to.equal(false);
     const { stdout } = await execInContainer(legacy.container,
       'test -e /etc/systemd/system/fluxadm-sshd.service && echo unit; test -e /etc/ssh/fluxadm_authorized_keys && echo keys; '
       + 'id fluxadm >/dev/null 2>&1 && echo user; test -e /home/fluxadm && echo home; test -e /etc/sudoers.d/fluxadm && echo sudoers; '

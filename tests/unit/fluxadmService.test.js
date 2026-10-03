@@ -11,6 +11,7 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const systemService = require('../../ZelBack/src/services/systemService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 const testKeys = ['ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITESTKEYONLYFORTESTS fluxteam-legacy'];
 
@@ -724,6 +725,43 @@ describe('fluxadmService tests', () => {
       sinon.assert.neverCalledWith(runCommandStub, 'install');
       sinon.assert.neverCalledWith(runCommandStub, 'systemctl');
       sinon.assert.neverCalledWith(runCommandStub, 'ufw');
+    });
+
+    it('should publish each pass, naming the step a failed pass stopped at', async () => {
+      testConfig.fluxadm.sshAuthorizedKeys = testKeys;
+      sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'success', data: { systemsecure: false } });
+      runCommandStub.withArgs('id').resolves({ ...cmdOk, stdout: '1001' });
+      runCommandStub.withArgs('cat').resolves({ ...cmdFail });
+      const publishStub = sinon.stub(fluxEventBus, 'publish');
+      const clock = sinon.useFakeTimers();
+
+      try {
+        fluxadmService.start();
+        await clock.tickAsync(0);
+      } finally {
+        fluxadmService.stop();
+        clock.restore();
+      }
+
+      sinon.assert.calledOnceWithExactly(publishStub, 'fluxadm:pass', { outcome: 'failed', step: 'user' });
+    });
+
+    it('should publish a pass that reconciled without a step', async () => {
+      sinon.stub(fs, 'access').rejects(new Error('missing'));
+      sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'success', data: { systemsecure: false } });
+      runCommandStub.withArgs('cat').resolves({ ...cmdFail });
+      const publishStub = sinon.stub(fluxEventBus, 'publish');
+      const clock = sinon.useFakeTimers();
+
+      try {
+        fluxadmService.start();
+        await clock.tickAsync(0);
+      } finally {
+        fluxadmService.stop();
+        clock.restore();
+      }
+
+      sinon.assert.calledOnceWithExactly(publishStub, 'fluxadm:pass', { outcome: 'reconciled' });
     });
 
     it('should fail the pass when the firewall rule cannot be added', async () => {

@@ -7,6 +7,7 @@ const benchmarkService = require('./benchmarkService');
 const systemService = require('./systemService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const fluxadmPort = require('./fluxadmPort');
+const fluxEventBus = require('./utils/fluxEventBus');
 const log = require('../lib/log');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -506,6 +507,51 @@ async function removeAccess() {
 }
 
 /**
+ * One reconcile pass: its outcome, and for a failed pass the step that failed.
+ * @returns {Promise<{outcome: 'reconciled' | 'skipped' | 'deferred' | 'failed', step?: string}>}
+ */
+async function reconcileAccess() {
+  if (isArcane) return { outcome: 'skipped' };
+
+  try {
+    // every path below mutates the system, so nothing - including removal -
+    // runs without an explicit legacy confirmation
+    const legacyConfirmed = await confirmedLegacyNode();
+    if (legacyConfirmed === null) return { outcome: 'deferred' };
+    if (legacyConfirmed === false) return { outcome: 'skipped' };
+
+    if (!fluxadmPort.bootedWithSystemd()) {
+      log.warn('fluxadm access - systemd is not this node\'s init, maintenance access unavailable');
+      return { outcome: 'skipped' };
+    }
+
+    const keys = fluxadmPort.getConfiguredKeys();
+    if (!keys.length) {
+      await removeAccess();
+      return { outcome: 'reconciled' };
+    }
+
+    const port = fluxadmPort.getFluxadmSshPort();
+    const steps = [
+      ['user', () => ensureUser()],
+      ['sudoers', () => ensureSudoers()],
+      ['authorized keys', () => ensureAuthorizedKeys(keys)],
+      ['sshd', () => ensureSshdInstance(port)],
+      ['firewall', () => ensureFirewall(port)],
+    ];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const [step, ensure] of steps) {
+      // eslint-disable-next-line no-await-in-loop
+      if (!(await ensure())) return { outcome: 'failed', step };
+    }
+    return { outcome: 'reconciled' };
+  } catch (error) {
+    log.error(`fluxadm access - reconcile failed: ${error.message}`);
+    return { outcome: 'failed', step: error.message };
+  }
+}
+
+/**
  * Reconciles fluxadm maintenance access on legacy nodes: system user with
  * passwordless sudo, the configured ed25519 keys, and a dedicated hardened
  * sshd instance on apiport - 5. Never runs on ArcaneOS, which provisions the
@@ -513,39 +559,7 @@ async function removeAccess() {
  * @returns {Promise<'reconciled' | 'skipped' | 'deferred' | 'failed'>}
  */
 async function ensureFluxadmAccess() {
-  if (isArcane) return 'skipped';
-
-  try {
-    // every path below mutates the system, so nothing - including removal -
-    // runs without an explicit legacy confirmation
-    const legacyConfirmed = await confirmedLegacyNode();
-    if (legacyConfirmed === null) return 'deferred';
-    if (legacyConfirmed === false) return 'skipped';
-
-    if (!fluxadmPort.bootedWithSystemd()) {
-      log.warn('fluxadm access - systemd is not this node\'s init, maintenance access unavailable');
-      return 'skipped';
-    }
-
-    const keys = fluxadmPort.getConfiguredKeys();
-    if (!keys.length) {
-      await removeAccess();
-      return 'reconciled';
-    }
-
-    if (!(await ensureUser())) return 'failed';
-    if (!(await ensureSudoers())) return 'failed';
-    if (!(await ensureAuthorizedKeys(keys))) return 'failed';
-
-    const port = fluxadmPort.getFluxadmSshPort();
-    if (!(await ensureSshdInstance(port))) return 'failed';
-    if (!(await ensureFirewall(port))) return 'failed';
-
-    return 'reconciled';
-  } catch (error) {
-    log.error(`fluxadm access - reconcile failed: ${error.message}`);
-    return 'failed';
-  }
+  return (await reconcileAccess()).outcome;
 }
 
 /**
@@ -558,8 +572,9 @@ function start() {
   if (reconcileTimer) return;
 
   const runCycle = async () => {
-    const outcome = await ensureFluxadmAccess();
-    log.info(`fluxadm access - reconcile pass ${outcome}`);
+    const { outcome, step } = await reconcileAccess();
+    log.info(`fluxadm access - reconcile pass ${outcome}${step ? ` at ${step}` : ''}`);
+    fluxEventBus.publish('fluxadm:pass', step ? { outcome, step } : { outcome });
     const delay = outcome === 'deferred' ? reconcileRetryIntervalMs : reconcileIntervalMs;
     reconcileTimer = setTimeout(runCycle, delay);
   };
