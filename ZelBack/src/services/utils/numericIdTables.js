@@ -1,5 +1,5 @@
 // The user and group tables syncthing resolves owners against: every id from 0
-// to 65535 named by its own decimal number.
+// to 65535 named by its own decimal number, and id 0 named root as well.
 //
 // syncthing sends a file's owner as its uid and gid together with the names the
 // sending host gives them, and the receiver applies the NAME when it has one.
@@ -10,6 +10,12 @@
 // different ids always have different names, so a change of owner alone is a
 // change. A host without the tables has no user named `999`, and falls back to
 // the number.
+//
+// root is id 0 on every host, so naming it maps nothing wrongly, and it is the
+// owner a node that resolves host names sends most. Without it, every such
+// lookup reads both tables to the end; on the second line it is found at once.
+// A lookup by id meets `0` first, so these tables still send every id as its
+// number.
 //
 // The bytes are the contract. The Arcane image builds the same tables by the
 // same rule, and both check them against TABLES_SHA256.
@@ -26,7 +32,7 @@ const ID_ORDER = Object.freeze([
 ]);
 
 // sha256 over the passwd bytes followed by the group bytes.
-const TABLES_SHA256 = 'c46c6f336e4b46caec4238e2956a72a12427569d5890ea6a34aaf996b50eee49';
+const TABLES_SHA256 = '1f43784b37b17684e792b706cd6741db458eea62a97deaba74fc6ef94a8264b7';
 
 /**
  * Every id the tables name, in the order they are written.
@@ -42,19 +48,19 @@ function orderedIds() {
 }
 
 /**
- * The passwd table: `<id>:x:<id>:<id>:::` per id.
+ * The passwd table: `<id>:x:<id>:<id>:::` per id, and `root:x:0:0:::` after id 0.
  * @returns {string}
  */
 function passwdTable() {
-  return orderedIds().map((id) => `${id}:x:${id}:${id}:::\n`).join('');
+  return orderedIds().map((id) => `${id}:x:${id}:${id}:::\n${id === 0 ? 'root:x:0:0:::\n' : ''}`).join('');
 }
 
 /**
- * The group table: `<id>:x:<id>:` per id.
+ * The group table: `<id>:x:<id>:` per id, and `root:x:0:` after id 0.
  * @returns {string}
  */
 function groupTable() {
-  return orderedIds().map((id) => `${id}:x:${id}:\n`).join('');
+  return orderedIds().map((id) => `${id}:x:${id}:\n${id === 0 ? 'root:x:0:\n' : ''}`).join('');
 }
 
 /**
