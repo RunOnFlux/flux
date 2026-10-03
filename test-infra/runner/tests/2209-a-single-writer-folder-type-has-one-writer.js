@@ -15,7 +15,7 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import {
   waitFor, electionDecisionCount, waitForReconcilerDesiredChanged,
 } from '../framework/wait.js';
-import { bootAndPeer, placeGAppInOrder } from '../framework/reconciler-suite.js';
+import { bootAndPeer, placeGAppInOrder, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // A single-writer (g:) folder's syncthing type has one writer, the primary role
@@ -252,9 +252,10 @@ describe('a single-writer folder type has one writer', function () {
     const from = client.getLastEventId();
     const writesBefore = (await writesTo(target, a.folder)).length;
     const scansBefore = (await scansOf(target, a.folder)).length;
+    const coverRefusedFrom = await client.getDecisionCount('syncthing:restartCover', a.folder, 'volumeNotMounted');
     await setScanDuration({ ip: ipOf(target), folder: a.folder, ms: COVER_SCAN_MS });
     let unmountedAt;
-    let afterUnmount;
+    let heldStopped;
     try {
       await electMaster(a.appName, client.ip);
       const sends = await writeSince(target, a.folder, writesBefore, (w) => w.body?.type === 'sendreceive',
@@ -267,12 +268,12 @@ describe('a single-writer folder type has one writer', function () {
         `umount -l ${dir} && chattr -i ${dir} && rm -f /mnt/appdata/${a.folder}FLUXFSVOL`);
       expect(unmount.exitCode, `fixture: the volume could not be taken away: ${unmount.output}`).to.equal(0);
       unmountedAt = Date.now();
-      afterUnmount = client.getLastEventId();
       await injectSyncthingEvent({ ip: ipOf(target), type: 'FolderErrors', data: { folder: a.folder, errors: [{ error: 'folder marker missing' }] } });
 
       const demote = await writeSince(target, a.folder, writesBefore, (w) => w.body?.type === 'receiveonly',
         'the folder over the unsafe volume stops sending');
-      await waitForReconcilerDesiredChanged(client, a.identifier, 'stopped', 120000, { afterId: from });
+      // The node's own account of the volume going: from here it starts nothing.
+      heldStopped = await waitForReconcilerDesiredChanged(client, a.identifier, 'stopped', 120000, { afterId: from });
 
       // Read while the slow scan still runs: the stub records a scan once it ends.
       const ended = (await scansOf(target, a.folder)).slice(scansBefore);
@@ -282,17 +283,23 @@ describe('a single-writer folder type has one writer', function () {
       await setScanDuration({ ip: ipOf(target), folder: a.folder, ms: 0 });
     }
 
-    // The scan already under way ends; nothing after it is asked of the folder.
-    await waitFor(async () => (await scansOf(target, a.folder)).length > scansBefore, {
-      timeout: COVER_SCAN_MS + 60000, interval: 2000, label: 'the cover scan under way ends',
+    // The scan under way ends, and the cover's next scan is refused before it
+    // reaches syncthing; then a monitor pass skips the folder. Those are the two
+    // things that could scan it, and both have decided.
+    await waitFor(async () => (await client.getDecisionCount('syncthing:restartCover', a.folder, 'volumeNotMounted')) > coverRefusedFrom, {
+      timeout: COVER_SCAN_MS + 60000, interval: 2000, label: 'the cover asks no scan of the folder once its volume has gone',
     });
-    await passesFromNow([target], (i) => folderPasses(i, a.appName), 'folder');
+    const skippedFrom = await client.getDecisionCount('syncthing:folderPass', a.folder, 'volumeNotMounted');
+    await waitFor(async () => (await client.getDecisionCount('syncthing:folderPass', a.folder, 'volumeNotMounted')) > skippedFrom, {
+      timeout: 60000, interval: 1000, label: 'a monitor pass skips the folder once its volume has gone',
+    });
     const scans = (await scansOf(target, a.folder)).slice(scansBefore);
+    expect(scans, 'fixture: the scan under way when the volume went').to.have.lengthOf.at.least(1);
     expect(scans.filter((scan) => scan.arrivedAt >= unmountedAt), 'a scan asked of the folder once its volume had gone').to.deep.equal([]);
     await waitFor(async () => !(await isUp(client, a.appName)), {
       timeout: 120000, interval: 2000, label: 'the component over the unsafe volume is stopped',
     });
-    expect(eventsSince(target, afterUnmount, 'reconciler:actuated', (d) => d.identifier === a.identifier && d.action === 'started'),
+    expect(eventsSince(target, heldStopped.id, 'reconciler:actuated', (d) => d.identifier === a.identifier && d.action === 'started'),
       'the component started over the unsafe volume').to.deep.equal([]);
   });
 
@@ -325,13 +332,16 @@ describe('a single-writer folder type has one writer', function () {
     const a = await settle(`e2ecoverbackup${stamp}`);
     const client = env.clients[a.primary];
     await electMaster(a.appName, client.ip);
+    // A backup is taken of a copy that holds the data its index claims.
+    await seedSyncScopedData(env, a.appName, a.primary);
+    await setSynced({ ip: ipOf(a.primary), folder: a.folder });
     const writesBefore = (await writesTo(a.primary, a.folder)).length;
     await setScanDuration({ ip: ipOf(a.primary), folder: a.folder, ms: COVER_SCAN_MS });
     try {
       const auth = await authenticate(client.url, appOwnerKey());
       const started = Date.now();
       const body = await client.appendBackupTask(a.appName, [a.appName], auth.zelidauth);
-      expect(body, 'fixture: the backup failed').to.not.match(/Unauthorized|error/i);
+      expect(body, 'the backup ran to its end').to.include('Finalizing');
       expect(Date.now() - started, 'the backup waited on the scans covering its folder\'s restart').to.be.below(COVER_SCAN_MS);
 
       const resumed = await writeSince(a.primary, a.folder, writesBefore, (w) => w.body?.paused === false,
