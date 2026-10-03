@@ -2430,6 +2430,7 @@ async function applyContainerEgressRules() {
         return false;
       }
       log.info('IPTABLES: DOCKER-USER rules applied');
+      fluxEventBus.publish('firewall:containerEgressApplied', {});
     } finally {
       if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }

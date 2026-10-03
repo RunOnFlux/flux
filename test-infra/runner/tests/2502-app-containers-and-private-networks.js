@@ -16,7 +16,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
 import { pushBusybox } from '../framework/registry-helper.js';
 import { REGISTRY_REPO_HOST, REGISTRY_PORT, getSubnetConfig } from '../framework/subnet-config.js';
-import { waitFor } from '../framework/wait.js';
+import { waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const NODE = 0;
@@ -26,8 +26,6 @@ const OTHER_NETWORK = { name: 'fluxDockerNetwork_e2eother', octet: 251 };
 // Inside 10.0.0.0/8; nothing on the fleet network holds it.
 const PRIVATE_TARGET = '10.255.255.1';
 const FLUX_NODE_SERVICE = '169.254.43.43:16101';
-// Logged by the app startup manager just before it starts any app container.
-const RECONCILING_APPS = 'appStartupManager - Daemon, DB, and node confirmed, reconciling apps';
 
 const subnet = getSubnetConfig();
 
@@ -60,11 +58,7 @@ describe('2502 app containers are kept off private networks', function suite() {
   }
 
   before(async function hook() {
-    // An established node, so its app startup manager reaches the point where it
-    // would start apps without waiting out the block fallback.
-    env = await createTestEnv({
-      hookCtx: this, nodes: 1, syncedNodes: [NODE], tickerAutostart: false,
-    });
+    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false });
     node = env.clients[NODE];
     await pushBusybox(IMAGE_REPO, 'v1');
     const image = `${REGISTRY_REPO_HOST}/${IMAGE_REPO}:v1`;
@@ -82,15 +76,12 @@ describe('2502 app containers are kept off private networks', function suite() {
     await env?.teardown();
   });
 
-  it('applies the rules before the app startup manager starts any app', async () => {
-    await waitFor(() => env.nodeHasLog(NODE, RECONCILING_APPS), {
-      timeout: 180000, interval: 2000, label: 'the app startup manager reaching its app reconcile',
-    });
-    const lines = env.nodeLogLines(NODE);
-    const applied = lines.findIndex((l) => l.includes('IPTABLES: DOCKER-USER rules applied'));
-    const reconciling = lines.findIndex((l) => l.includes(RECONCILING_APPS));
-    expect(applied, 'the rules were never applied').to.be.at.least(0);
-    expect(applied).to.be.below(reconciling);
+  // Every app container start at boot waits for boot:settled.
+  it('applies the rules before the node lets any app container start', async () => {
+    const settled = await waitForBootSettled(node, 180000);
+    const applied = node.getEventBuffer().find((e) => e.event === 'firewall:containerEgressApplied');
+    expect(applied, 'the rules were never applied').to.not.equal(undefined);
+    expect(applied.id).to.be.below(settled.id);
   });
 
   it('matches app traffic by the bridge it comes from, not its source address', async () => {
