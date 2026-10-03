@@ -42,6 +42,7 @@ RUN set -eu; \
     cron \
     gnupg \
     iproute2 \
+    iputils-ping \
     socat \
     iptables \
     e2fsprogs \
