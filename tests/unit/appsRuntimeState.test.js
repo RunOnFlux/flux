@@ -26,10 +26,11 @@ describe('appsRuntimeState tests', () => {
       // wrong projection answers [] to an election in production while every
       // test stays green.
       findInDatabase: async (_db, _coll, query = {}, options = {}) => {
-        // $or and $ne as mongo reads them: $ne matches a field that is absent.
+        // $or, $ne and $exists as mongo reads them: $ne matches a field that is absent.
         const matches = (doc, clause) => Object.entries(clause).every(([field, value]) => {
           if (field === '$or') return value.some((alternative) => matches(doc, alternative));
           if (value && typeof value === 'object' && '$ne' in value) return doc[field] !== value.$ne;
+          if (value && typeof value === 'object' && '$exists' in value) return (field in doc) === value.$exists;
           return doc[field] === value;
         });
         const docs = [...store.values()].filter((doc) => matches(doc, query));
@@ -157,8 +158,8 @@ describe('appsRuntimeState tests', () => {
     // owns, so it is read on an unauthenticated route at election cadence.
     describe('operatorHeldIdentifiers', () => {
       it('lists only the components carrying the lock', async () => {
-        await appsRuntimeState.setOperatorStopped('www_App', true);
-        await appsRuntimeState.setOperatorStopped('db_App', true);
+        await appsRuntimeState.setOperatorStopped('www_App', true, { asPrimary: true });
+        await appsRuntimeState.setOperatorStopped('db_App', true, { asPrimary: true });
         await appsRuntimeState.recordRestart('api_App'); // a row, but no lock
 
         const held = await appsRuntimeState.operatorHeldIdentifiers();
@@ -166,18 +167,29 @@ describe('appsRuntimeState tests', () => {
         expect(held.sort()).to.deep.equal(['db_App', 'www_App']);
       });
 
-      // Started together after a stop on every node: only the node that was the
-      // primary holds it, so it starts and the rest stand aside for it.
-      it('holds a component whose start is asked for only on the node that was its primary', async () => {
+      // Stopped on every node and started on every node, the starts arriving one
+      // node at a time: only the node that was the primary holds it, before its
+      // start arrives and after, so it starts and the rest stand aside for it.
+      it('holds a component only on the node that was its primary, whether or not its start has arrived', async () => {
         await appsRuntimeState.setOperatorStopped('www_App', true, { asPrimary: true });
         await appsRuntimeState.requestOperatorStart('www_App');
+        await appsRuntimeState.setOperatorStopped('web_App', true, { asPrimary: true });
         await appsRuntimeState.setOperatorStopped('db_App', true);
         await appsRuntimeState.requestOperatorStart('db_App');
         await appsRuntimeState.setOperatorStopped('api_App', true);
 
         const held = await appsRuntimeState.operatorHeldIdentifiers();
 
-        expect(held.sort()).to.deep.equal(['api_App', 'www_App']);
+        expect(held.sort()).to.deep.equal(['web_App', 'www_App']);
+      });
+
+      it('holds a lock taken before the lock recorded whether this node was the primary, until its start is asked for', async () => {
+        store.set('www_App', { identifier: 'www_App', operatorStopped: true });
+        store.set('db_App', { identifier: 'db_App', operatorStopped: true, operatorStartRequested: true });
+
+        const held = await appsRuntimeState.operatorHeldIdentifiers();
+
+        expect(held).to.deep.equal(['www_App']);
       });
 
       it('is empty when nothing is stopped, and distinguishes that from unreadable', async () => {
@@ -185,7 +197,7 @@ describe('appsRuntimeState tests', () => {
       });
 
       it('drops a component whose lock was lifted', async () => {
-        await appsRuntimeState.setOperatorStopped('www_App', true);
+        await appsRuntimeState.setOperatorStopped('www_App', true, { asPrimary: true });
         await appsRuntimeState.setOperatorStopped('www_App', false);
 
         expect(await appsRuntimeState.operatorHeldIdentifiers()).to.deep.equal([]);

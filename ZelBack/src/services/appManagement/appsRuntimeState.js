@@ -115,8 +115,8 @@ async function setFields(rawIdentifier, fields) {
  *
  * A lock records whether this node was the component's primary when it was
  * stopped - running it, or committed to running it - and keeps that through a
- * second stop of a component already locked. A start the operator then asks
- * for keeps this node holding it only if it was; see operatorHeldIdentifiers.
+ * second stop of a component already locked. Only such a lock holds the
+ * component on this node; see operatorHeldIdentifiers.
  *
  * @param {string} identifier
  * @param {boolean} stopped
@@ -315,14 +315,17 @@ async function operatorStopState(identifier) {
 
 /**
  * Every component identifier on this node that its operator stop lock holds
- * here: every lock, save one whose start the operator has asked for on a node
- * that was not the component's primary when it was stopped.
+ * here: a lock taken while this node was the component's primary.
  *
- * That one waits for the election to decide its start, and is not who runs the
- * component. When an owner starts an app stopped on every node, the node that
- * was its primary is then the only one holding it: it starts, and the others
- * stand aside for it. Were every such lock held, each node would see another
- * holding the component, and none would start it.
+ * A lock on any other node keeps the component down there and owns nothing.
+ * When an owner stops an app on every node and starts it on every node, the
+ * starts arrive one node at a time, and the node that was its primary is the
+ * only one holding it whichever arrives first: it starts, and the others stand
+ * aside for it. A standby's lock held as well would read to the primary as a
+ * peer holding the component until that standby's own start arrived.
+ *
+ * A lock taken before the lock recorded this is held until its start is asked
+ * for, as every lock then was.
  *
  * One query rather than a read per component. The caller is the held-components
  * answer, served on an unauthenticated route a peer reads mid-election, so a
@@ -346,7 +349,10 @@ async function operatorHeldIdentifiers() {
     appsRuntimeState,
     {
       operatorStopped: true,
-      $or: [{ operatorStartRequested: { $ne: true } }, { operatorStoppedAsPrimary: true }],
+      $or: [
+        { operatorStoppedAsPrimary: true },
+        { operatorStoppedAsPrimary: { $exists: false }, operatorStartRequested: { $ne: true } },
+      ],
     },
     { projection: { _id: 0, identifier: 1 } },
   );

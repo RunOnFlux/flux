@@ -329,9 +329,8 @@ async function listRunningAppsApi(req, res) {
  *   was free, and elected a new primary over an owner who had stopped theirs to
  *   work on it. Whether that happened at all turned on whether this node's FluxOS
  *   had restarted since it was elected, which is not something an owner can see.
- *   A lock whose start the owner has asked for holds the component only on the
- *   node that was its primary when it was stopped - see
- *   appsRuntimeState.operatorHeldIdentifiers.
+ *   A lock holds the component only on the node that was its primary when it was
+ *   stopped - see appsRuntimeState.operatorHeldIdentifiers.
  *
  * Not filtered to g: components. The list answers "is this component mine", which
  * is true of a stopped component whatever its storage mode, and the only caller
