@@ -35,16 +35,6 @@ if [ -n "$FLUX_E2E_DEFAULT_ROUTE" ]; then
   fi
 fi
 
-# A named network shape (test-infra/network-shapes.sh), declared per node by the
-# suite. Not swallowed, for the reason above: a shape that failed to build would
-# leave a plain static node answering for it.
-if [ -n "${FLUX_E2E_NETWORK_SHAPE:-}" ]; then
-  if ! /flux/test-infra/network-shapes.sh "$FLUX_E2E_NETWORK_SHAPE"; then
-    echo "ERROR: could not build network shape $FLUX_E2E_NETWORK_SHAPE" >&2
-    exit 1
-  fi
-fi
-
 # App installs mount each app's FLUXFSVOL via `mount -o loop`. Loop devices are a
 # shared host-kernel resource (not namespaced); the kernel default pool (max_loop,
 # typically 8) is small and on-demand creation races under concurrent installs, so a
@@ -223,6 +213,20 @@ until docker info > /dev/null 2>&1; do
   ELAPSED=$((ELAPSED + 1))
 done
 echo "dockerd is ready (took ${ELAPSED}s)"
+
+# A named network shape (test-infra/network-shapes.sh), declared per node by the
+# suite, built before FluxOS starts because a node reads its network at boot.
+# Built after dockerd is up, as a VPN comes up after docker on a host: dockerd
+# refuses to start when every private range it could give its bridge overlaps a
+# route, and the def1 split routes overlap them all. Not swallowed, for the
+# reason given for the default route: a shape that failed to build would leave a
+# plain static node answering for it.
+if [ -n "${FLUX_E2E_NETWORK_SHAPE:-}" ]; then
+  if ! /flux/test-infra/network-shapes.sh "$FLUX_E2E_NETWORK_SHAPE"; then
+    echo "ERROR: could not build network shape $FLUX_E2E_NETWORK_SHAPE" >&2
+    exit 1
+  fi
+fi
 
 # Write boot_id for test harness control.
 # FLUX_BOOT_ID is set per-container by the test harness.
