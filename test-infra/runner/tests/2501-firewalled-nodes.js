@@ -59,7 +59,6 @@ describe('2501 firewalled nodes', function suite() {
     expect(status).to.match(/^Default: deny \(incoming\), allow \(outgoing\)/m);
     expect(status).to.match(/^22\/tcp\s+ALLOW IN\s+Anywhere\s*$/m);
     expect(status).to.match(/^16100:16199\/tcp\s+ALLOW IN\s+Anywhere\s*$/m);
-    expect(status).to.match(/^53\s+ALLOW OUT\s+Anywhere\s*$/m);
     expect(status, 'without openssh-server there is no OpenSSH profile to limit').to.not.match(/OpenSSH/);
   });
 
@@ -74,6 +73,20 @@ describe('2501 firewalled nodes', function suite() {
   it('lets FluxOS add its own rules on both', async () => {
     await waitForFluxosRules(LEGACY);
     await waitForFluxosRules(ARCANE);
+  });
+
+  it('leaves no outbound rule once FluxOS has run, the default allow governing outbound', async () => {
+    await waitForFluxosRules(LEGACY);
+    await waitFor(() => env.nodeHasLog(LEGACY, /Firewall outbound rules removed: [1-9]/), {
+      timeout: FLUXOS_RULES_TIMEOUT_MS, interval: 3000, label: 'the legacy installer\'s outbound rules removed',
+    });
+    // eslint-disable-next-line no-restricted-syntax
+    for (const index of [LEGACY, ARCANE]) {
+      // eslint-disable-next-line no-await-in-loop
+      const status = await ufwStatus(index);
+      expect(status).to.match(/^Default: [^\n]*allow \(outgoing\)/m);
+      expect(status.split('\n').filter((line) => /\bOUT\b/.test(line)), `outbound rules on node ${index}`).to.deep.equal([]);
+    }
   });
 
   it('opens the maintenance port by its FluxadmSSH profile on the Arcane node only', async () => {
