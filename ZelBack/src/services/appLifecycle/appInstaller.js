@@ -242,11 +242,9 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
  * (docker prune, daemon restart) must be re-created before any container can be
  * re-created onto it.
  *
- * When the network already exists this returns EARLY - no allocation and, crucially,
- * no firewall work: its interface is already in the node-wide DOCKER-USER rules, so
- * re-running removeDockerContainerAccessToNonRoutable here would flush and rebuild
- * the whole chain on every heal recreate for no gain (briefly dropping RFC1918
- * protection for every flux container on the node).
+ * When the network already exists this returns EARLY, with no allocation. No
+ * firewall work happens either way: the node-wide DOCKER-USER rules match every
+ * docker bridge, a new one included.
  *
  * Allocation is deterministic (lowest free octet) but collision-safe: many heals can
  * run concurrently after a mass prune, so a create that loses its octet to another
@@ -310,15 +308,6 @@ async function ensureAppDockerNetwork(appName, res) {
     throw new Error(`Flux App network of ${appName} failed to initiate. Not possible to create docker application network.`);
   }
   log.info(serviceHelper.ensureString(fluxNet));
-  const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
-  const accessRemoved = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
-  const accessRemovedRes = {
-    status: accessRemoved ? `Private network access removed for ${appName}` : `Error removing private network access for ${appName}`,
-  };
-  if (res) {
-    res.write(serviceHelper.ensureString(accessRemovedRes));
-    if (res.flush) res.flush();
-  }
   const fluxNetResponse = {
     status: `Docker network of ${appName} initiated.`,
   };

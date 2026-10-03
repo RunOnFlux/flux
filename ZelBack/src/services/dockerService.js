@@ -1984,22 +1984,6 @@ async function getFluxDockerNetworks() {
  *
  * @returns {Promise<string[]>}
  */
-async function getFluxDockerNetworkPhysicalInterfaceNames() {
-  const fluxNetworks = await getFluxDockerNetworks();
-
-  const interfaceNames = fluxNetworks.map((network) => {
-    // the physical interface name is br-<first 12 chars of Id>
-    const intName = `br-${network.Id.slice(0, 12)}`;
-    return intName;
-  });
-
-  return interfaceNames;
-}
-
-/**
- *
- * @returns {Promise<string[]>}
- */
 async function getFluxDockerNetworkSubnets() {
   const fluxNetworks = await getFluxDockerNetworks();
   const subnets = fluxNetworks.map((network) => network.IPAM.Config[0].Subnet);
@@ -2492,7 +2476,6 @@ module.exports = {
   getDockerContainer,
   getDockerContainerByIdOrName,
   getDockerContainerOnly,
-  getFluxDockerNetworkPhysicalInterfaceNames,
   getFluxDockerNetworkSubnets,
   getFreeFluxAppNetworkOctet,
   migrateContainerRestartPolicies,

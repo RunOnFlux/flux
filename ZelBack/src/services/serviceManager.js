@@ -480,6 +480,13 @@ async function startFluxFunctions() {
     // Read boot context early — determines startup behavior for container management.
     const bootContext = await AppSyncOrchestrator.readBootContext();
 
+    // Before any app container starts: an app must never run without the rules
+    // that keep it off private networks. Rechecked so a removed chain returns.
+    await fluxNetworkHelper.applyContainerEgressRules();
+    setInterval(() => {
+      fluxNetworkHelper.applyContainerEgressRules().catch((error) => log.error(error));
+    }, 10 * 60 * 1000);
+
     // App startup manager owns all boot-time container lifecycle decisions:
     // Locations expired → remove all. Otherwise wait for daemon/DB, then reconcile.
     appStartupManager.manageAppsOnBoot(bootContext).catch((error) => {
@@ -740,8 +747,6 @@ async function startFluxFunctions() {
     // await throughput.start();
 
     setTimeout(async () => {
-      const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
-      await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
       log.info('Rechecking firewall app rules');
       await fluxNetworkHelper.purgeUFW();
     }, bootDelay(30 * 1000));
