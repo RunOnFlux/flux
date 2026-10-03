@@ -38,6 +38,9 @@ const Checkpoint = Object.freeze({
   // A receive-only folder has read its sync status as synced and has not yet
   // checked the disk holds what that status claims. Keyed by folder id.
   SYNCTHING_BEFORE_PROMOTION_CHECK: 'syncthing:beforePromotionCheck',
+  // The elected leader has read its sync status and has not yet checked the disk
+  // it would seed from holds what that status claims. Keyed by folder id.
+  SYNCTHING_BEFORE_SEED_CHECK: 'syncthing:beforeSeedCheck',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.

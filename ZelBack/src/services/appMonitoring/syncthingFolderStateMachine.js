@@ -1413,9 +1413,11 @@ async function handleReceiveOnlyTransition(params) {
     // over an empty disk); an unmounted dir, or a stale index claiming bytes
     // over an empty volume, must never seed: sendreceive would broadcast the
     // missing files as deletions.
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_SEED_CHECK, appId);
     const seedSafety = await verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs || [], { syncStatus });
     if (!seedSafety.isSafe) {
       log.warn(`handleReceiveOnlyTransition - ${appId} elected leader but not safe to seed (${seedSafety.reason}); staying receiveonly`);
+      fluxEventBus.count('syncthing:seedRefused', appId, seedSafety.reason);
       syncthingFolder.type = 'receiveonly';
       return { syncthingFolder, cache };
     }
@@ -1507,6 +1509,7 @@ async function handleReceiveOnlyTransition(params) {
       const promoteSafety = await verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs || [], { syncStatus });
       if (!promoteSafety.isSafe) {
         log.warn(`handleReceiveOnlyTransition - ${appId} is synced but not safe to promote (${promoteSafety.reason}); staying receiveonly`);
+        fluxEventBus.count('syncthing:promotionRefused', appId, promoteSafety.reason);
         return { syncthingFolder, cache };
       }
       // A single-writer folder sends only while the elected primary runs here;
