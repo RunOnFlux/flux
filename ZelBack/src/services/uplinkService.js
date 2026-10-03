@@ -65,9 +65,8 @@ const TCP_OVERHEAD = 52;
 // Unrelated anycast networks: a limit near this node caps all of them, one at a
 // target's end caps only that target, so the largest result is this node's.
 const PROBE_TARGETS = ['1.1.1.1', '8.8.8.8', '9.9.9.9'];
-// The address whose path the hop walk times and the egress device leads to.
+// The address whose route names the device this node's traffic leaves by.
 const PATH_TARGET = '1.1.1.1';
-const MAX_HOPS = 10;
 // Fewer distinct peers than this and one peer's own small link could set the
 // highest segment size seen.
 const MIN_TCP_PEERS = 3;
@@ -105,7 +104,6 @@ function emptyRecord() {
     distance: {
       rttMs: null,
       method: null,
-      firstPublicHopRttMs: null,
     },
     publicIpLocal: null,
     egressDevice: null,
@@ -305,26 +303,6 @@ async function measureDistance(publicIp, apiPort) {
 }
 
 /**
- * Walks the path one hop at a time to the first routable address and times a
- * round trip to it.
- * @returns {Promise<number|null>} Null when no routable hop answers.
- */
-async function firstPublicHopRtt() {
-  for (let ttl = 1; ttl <= MAX_HOPS; ttl += 1) {
-    // eslint-disable-next-line no-await-in-loop
-    const text = await runTool('ping', ['-n', '-c', 1, '-W', 2, '-t', ttl, PATH_TARGET]);
-    const reached = /bytes from (\d+\.\d+\.\d+\.\d+)/.exec(text);
-    const hop = /^From (\d+\.\d+\.\d+\.\d+)/m.exec(text)?.[1] ?? reached?.[1] ?? null;
-    if (hop && !serviceHelper.isNonRoutableAddress(hop)) {
-      // eslint-disable-next-line no-await-in-loop
-      return parsePingRtt(await runTool('ping', ['-n', '-c', 3, '-i', '0.2', '-W', 2, hop]));
-    }
-    if (reached) return null;
-  }
-  return null;
-}
-
-/**
  * @returns {Promise<Array<{name: string, kind: string, mtu: number}>|null>}
  *   This node's tunnel interfaces, or null when the interfaces cannot be read.
  */
@@ -378,17 +356,15 @@ async function publicIpBinding(publicIp, egress) {
 }
 
 /**
- * @param {{rttMs: number|null, firstPublicHopRttMs: number|null,
- *   tunnelInterfaces: Array|null, egressDevice: string|null,
- *   publicIpElsewhere: boolean}} evidence
+ * @param {{rttMs: number|null, tunnelInterfaces: Array|null,
+ *   egressDevice: string|null, publicIpElsewhere: boolean}} evidence
  * @returns {{tunnel: string, reason: string|null}}
  */
 function decide(evidence) {
   if (evidence.tunnelInterfaces?.some((iface) => iface.name === evidence.egressDevice)) return { tunnel: Tunnel.LIKELY, reason: Reason.INTERFACE };
   if (evidence.publicIpElsewhere) return { tunnel: Tunnel.LIKELY, reason: Reason.LOCAL_PUBLIC_IP };
-  const distance = evidence.rttMs ?? evidence.firstPublicHopRttMs;
-  if (distance === null) return { tunnel: Tunnel.UNKNOWN, reason: null };
-  if (distance > DISTANCE_CUTOFF_MS) return { tunnel: Tunnel.LIKELY, reason: Reason.DISTANCE };
+  if (evidence.rttMs === null) return { tunnel: Tunnel.UNKNOWN, reason: null };
+  if (evidence.rttMs > DISTANCE_CUTOFF_MS) return { tunnel: Tunnel.LIKELY, reason: Reason.DISTANCE };
   return { tunnel: Tunnel.NONE, reason: null };
 }
 
@@ -416,14 +392,12 @@ async function measure(socketAddress) {
   const tcpMss = await peerTcpMss();
   const mtu = combinedMtu(probe, tcpMss);
   const distance = await measureDistance(publicIp, extractPort(socketAddress));
-  const firstPublicHopRttMs = await firstPublicHopRtt();
   const egressDevice = await fluxNetworkHelper.egressDevice(PATH_TARGET);
   const binding = await publicIpBinding(publicIp, egressDevice);
   const tunnelInterfaces = await findTunnelInterfaces();
 
   const { tunnel, reason } = decide({
     rttMs: distance.rttMs,
-    firstPublicHopRttMs,
     tunnelInterfaces,
     egressDevice,
     publicIpElsewhere: binding.elsewhere,
@@ -442,7 +416,6 @@ async function measure(socketAddress) {
     distance: {
       rttMs: distance.rttMs,
       method: distance.method,
-      firstPublicHopRttMs,
     },
     publicIpLocal: binding.bound,
     egressDevice,
@@ -567,7 +540,6 @@ module.exports = {
   probePathMtu,
   peerTcpMss,
   measureDistance,
-  firstPublicHopRtt,
   findTunnelInterfaces,
   publicIpBinding,
   measure,
