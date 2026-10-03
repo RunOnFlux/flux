@@ -491,12 +491,23 @@ describe('fluxadmService tests', () => {
     it('should add a rate-limited rule when the firewall is active', async () => {
       sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
 
-      await fluxadmService.ensureFirewall(16122);
+      const res = await fluxadmService.ensureFirewall(16122);
 
+      expect(res).to.equal(true);
       sinon.assert.calledWithExactly(runCommandStub, 'ufw', {
         runAsRoot: true,
+        logError: false,
         params: ['limit', '16122/tcp'],
       });
+    });
+
+    it('should report a rule it could not add', async () => {
+      sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
+      runCommandStub.withArgs('ufw').resolves({ ...cmdFail, stderr: 'ERROR: problem running ufw-init' });
+
+      const res = await fluxadmService.ensureFirewall(16122);
+
+      expect(res).to.equal(false);
     });
   });
 
@@ -537,6 +548,29 @@ describe('fluxadmService tests', () => {
         call('userdel', ['-r', 'fluxadm']),
         call('rm', ['-f', '/etc/sudoers.d/fluxadm']),
       );
+    });
+
+    it('should keep the user and the drop-in when the firewall rule cannot be deleted', async () => {
+      sinon.stub(fs, 'access').resolves();
+      runCommandStub.withArgs('cat', sudoersRead).resolves({ ...cmdOk, stdout: 'fluxadm ALL=(ALL) NOPASSWD:ALL\n' });
+      runCommandStub.withArgs('ufw').resolves({ ...cmdFail });
+
+      await fluxadmService.removeAccess();
+
+      sinon.assert.neverCalledWith(runCommandStub, 'userdel');
+      sinon.assert.neverCalledWith(runCommandStub, 'rm', sinon.match({ params: ['-f', '/etc/sudoers.d/fluxadm'] }));
+    });
+
+    it('should remove the user of a node without ufw', async () => {
+      sinon.stub(fs, 'access').resolves()
+        .withArgs('/usr/sbin/ufw').rejects(new Error('missing'));
+      runCommandStub.withArgs('cat', sudoersRead).resolves({ ...cmdOk, stdout: 'fluxadm ALL=(ALL) NOPASSWD:ALL\n' });
+
+      await fluxadmService.removeAccess();
+
+      sinon.assert.neverCalledWith(runCommandStub, 'ufw');
+      sinon.assert.calledWith(runCommandStub, 'userdel', sinon.match({ params: ['-r', 'fluxadm'] }));
+      sinon.assert.calledWith(runCommandStub, 'rm', sinon.match({ params: ['-f', '/etc/sudoers.d/fluxadm'] }));
     });
 
     it('should keep the drop-in when the user cannot be removed', async () => {
@@ -690,6 +724,32 @@ describe('fluxadmService tests', () => {
       sinon.assert.neverCalledWith(runCommandStub, 'install');
       sinon.assert.neverCalledWith(runCommandStub, 'systemctl');
       sinon.assert.neverCalledWith(runCommandStub, 'ufw');
+    });
+
+    it('should fail the pass when the firewall rule cannot be added', async () => {
+      testConfig.fluxadm.sshAuthorizedKeys = testKeys;
+      sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'success', data: { systemsecure: false } });
+      sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
+      sinon.stub(fs, 'mkdtemp').resolves('/tmp/fluxadm-test');
+      sinon.stub(fs, 'writeFile').resolves();
+      sinon.stub(fs, 'rm').resolves();
+      sinon.stub(fs, 'access').resolves();
+      sinon.stub(fs, 'readFile')
+        .withArgs('/etc/ssh/fluxadm_authorized_keys', 'utf-8').rejects(new Error('missing'))
+        .withArgs('/etc/ssh/fluxadm_sshd_config', 'utf-8').resolves(fluxadmService.buildSshdConfig(16122))
+        .withArgs('/etc/systemd/system/fluxadm-sshd.service', 'utf-8').resolves(fluxadmService.buildServiceUnit());
+      runCommandStub.withArgs('id').resolves({ ...cmdFail });
+      runCommandStub.withArgs('cat').resolves({ ...cmdFail });
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-enabled', 'fluxadm-sshd.service'] }))
+        .resolves({ ...cmdOk, stdout: 'disabled\n' });
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-active', 'fluxadm-sshd.service'] }))
+        .resolves({ ...cmdOk, stdout: 'inactive\n' });
+
+      runCommandStub.withArgs('ufw').resolves({ ...cmdFail });
+
+      const res = await fluxadmService.ensureFluxadmAccess();
+
+      expect(res).to.equal('failed');
     });
 
     it('should reconcile user, sudoers, keys, sshd and firewall on a confirmed legacy node', async () => {
