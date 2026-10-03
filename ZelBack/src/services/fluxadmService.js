@@ -12,8 +12,9 @@ const log = require('../lib/log');
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
 const fluxadmUser = 'fluxadm';
-const fluxadmHome = `/home/${fluxadmUser}`;
-const authorizedKeysPath = `${fluxadmHome}/.ssh/authorized_keys`;
+// Outside every user's home, so only the dedicated instance, which names it,
+// reads it: the operator's sshd looks up keys under the user's home.
+const authorizedKeysPath = '/etc/ssh/fluxadm_authorized_keys';
 const sudoersPath = `/etc/sudoers.d/${fluxadmUser}`;
 // Deliberately NOT under /etc/ssh/sshd_config.d - that directory is pulled
 // into the operator's sshd via the distro Include glob. This file must only
@@ -22,6 +23,8 @@ const sshdConfigPath = '/etc/ssh/fluxadm_sshd_config';
 const sshdBinaryPath = '/usr/sbin/sshd';
 const serviceName = 'fluxadm-sshd.service';
 const serviceUnitPath = `/etc/systemd/system/${serviceName}`;
+// The openssh-server package's own units: a general-purpose sshd on port 22.
+const distroSshdUnits = ['ssh.service', 'ssh.socket'];
 
 const reconcileIntervalMs = 60 * 60 * 1000;
 // used when the ArcaneOS confirmation is indeterminate (fluxbenchd not up yet)
@@ -57,7 +60,7 @@ async function confirmedLegacyNode() {
 }
 
 /**
- * Reads a file only root can read (sudoers, authorized_keys).
+ * Reads a file only root can read (the sudoers drop-in).
  * @param {string} filePath
  * @returns {Promise<string | null>} Content, or null if unreadable / missing.
  */
@@ -70,6 +73,19 @@ async function readFileAsRoot(filePath) {
 
   if (error) return null;
   return stdout;
+}
+
+/**
+ * Reads a world-readable file natively.
+ * @param {string} filePath
+ * @returns {Promise<string | null>} Content, or null if missing.
+ */
+async function readFileIfExists(filePath) {
+  try {
+    return await fs.readFile(filePath, 'utf-8');
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -185,20 +201,10 @@ async function ensureUser() {
 async function ensureAuthorizedKeys(keys) {
   const desired = keys.length ? `${keys.join('\n')}\n` : '';
 
-  const current = await readFileAsRoot(authorizedKeysPath);
+  const current = await readFileIfExists(authorizedKeysPath);
   if (current !== null && current.trim() === desired.trim()) return true;
 
-  const { error: dirError } = await serviceHelper.runCommand('install', {
-    runAsRoot: true,
-    params: ['-d', '-o', fluxadmUser, '-g', fluxadmUser, '-m', '0700', path.dirname(authorizedKeysPath)],
-  });
-  if (dirError) return false;
-
-  const installed = await installFileAsRoot(desired, authorizedKeysPath, {
-    mode: '0600',
-    owner: fluxadmUser,
-    group: fluxadmUser,
-  });
+  const installed = await installFileAsRoot(desired, authorizedKeysPath, { mode: '0644' });
   if (installed) log.info(`fluxadm access - authorized_keys updated (${keys.length} key(s))`);
   return installed;
 }
@@ -220,7 +226,7 @@ HostKey /etc/ssh/ssh_host_ed25519_key
 AllowUsers ${fluxadmUser}
 AuthenticationMethods publickey
 PubkeyAuthentication yes
-AuthorizedKeysFile .ssh/authorized_keys
+AuthorizedKeysFile ${authorizedKeysPath}
 PasswordAuthentication no
 ChallengeResponseAuthentication no
 PermitRootLogin no
@@ -264,32 +270,51 @@ WantedBy=multi-user.target
 }
 
 /**
- * Reads a world-readable file natively.
- * @param {string} filePath
- * @returns {Promise<string | null>} Content, or null if missing.
+ * Installs openssh-server for the sshd binary and host keys the maintenance
+ * instance needs, leaving the package's own sshd installed but disabled. Its
+ * units are masked across the install so the package cannot start them, then
+ * unmasked and disabled; any failure leaves them masked, so port 22 never opens.
+ * @returns {Promise<boolean>}
  */
-async function readFileIfExists(filePath) {
-  try {
-    return await fs.readFile(filePath, 'utf-8');
-  } catch {
-    return null;
+async function installOpensshServer() {
+  const systemctl = (params) => serviceHelper.runCommand('systemctl', { runAsRoot: true, params });
+  const leftMasked = `${distroSshdUnits.join(' and ')} left masked`;
+
+  const { error: maskError } = await systemctl(['mask', ...distroSshdUnits]);
+  if (maskError) {
+    log.error('fluxadm access - cannot mask the openssh-server units, not installing it');
+    return false;
   }
+
+  const installError = await systemService.upgradePackage('openssh-server');
+  if (installError) {
+    log.error(`fluxadm access - openssh-server is not installable, cannot start maintenance sshd; ${leftMasked}`);
+    return false;
+  }
+
+  const { error: unmaskError } = await systemctl(['unmask', ...distroSshdUnits]);
+  if (!unmaskError) {
+    const { error: disableError } = await systemctl(['disable', ...distroSshdUnits]);
+    if (!disableError) {
+      log.info('fluxadm access - openssh-server installed, its own sshd left disabled');
+      return true;
+    }
+    await systemctl(['mask', ...distroSshdUnits]);
+  }
+  log.error(`fluxadm access - openssh-server installed, ${leftMasked}`);
+  return false;
 }
 
 /**
- * Ensures the sshd instance config, unit file and running state.
+ * Ensures the sshd instance config, unit file and running state. An sshd the
+ * operator already has is left exactly as it is; openssh-server is installed
+ * only where there is none.
  * @param {number} port
  * @returns {Promise<boolean>}
  */
 async function ensureSshdInstance(port) {
   const sshdPresent = await fs.access(sshdBinaryPath).then(() => true).catch(() => false);
-  if (!sshdPresent) {
-    const installError = await systemService.upgradePackage('openssh-server');
-    if (installError) {
-      log.error('fluxadm access - openssh-server is not installable, cannot start maintenance sshd');
-      return false;
-    }
-  }
+  if (!sshdPresent && !(await installOpensshServer())) return false;
 
   const desiredConfig = buildSshdConfig(port);
   const currentConfig = await readFileIfExists(sshdConfigPath);
@@ -375,16 +400,15 @@ async function ensureFirewall(port) {
 
 /**
  * Revocation path for an empty configured key list: removes the maintenance
- * sshd instance installed by a previous release and empties authorized_keys.
- * The key file must be emptied too, as the operator's own sshd would still
- * accept the key for the fluxadm user on their port. Only ever touches a
- * fluxadm user carrying our sudoers drop-in, never an operator's own user.
- * Converges to a no-op: once removed (or never installed) nothing runs.
+ * sshd instance and its key file. Converges to a no-op: once removed (or never
+ * installed) nothing runs.
  * @returns {Promise<void>}
  */
 async function removeAccess() {
-  const unitPresent = await fs.access(serviceUnitPath).then(() => true).catch(() => false);
-  const configPresent = await fs.access(sshdConfigPath).then(() => true).catch(() => false);
+  const present = async (filePath) => fs.access(filePath).then(() => true).catch(() => false);
+  const unitPresent = await present(serviceUnitPath);
+  const configPresent = await present(sshdConfigPath);
+  const keysPresent = await present(authorizedKeysPath);
 
   if (unitPresent) {
     await serviceHelper.runCommand('systemctl', {
@@ -394,28 +418,15 @@ async function removeAccess() {
     });
   }
 
-  if (unitPresent || configPresent) {
+  if (unitPresent || configPresent || keysPresent) {
     await serviceHelper.runCommand('rm', {
       runAsRoot: true,
-      params: ['-f', serviceUnitPath, sshdConfigPath],
+      params: ['-f', serviceUnitPath, sshdConfigPath, authorizedKeysPath],
     });
     if (unitPresent) {
       await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['daemon-reload'] });
     }
-    log.info('fluxadm access - no keys configured, maintenance sshd removed');
-  }
-
-  const oursMarker = await readFileAsRoot(sudoersPath);
-  if (oursMarker === null) return;
-
-  const currentKeys = await readFileAsRoot(authorizedKeysPath);
-  if (currentKeys !== null && currentKeys.trim()) {
-    await installFileAsRoot('', authorizedKeysPath, {
-      mode: '0600',
-      owner: fluxadmUser,
-      group: fluxadmUser,
-    });
-    log.info('fluxadm access - no keys configured, authorized_keys emptied');
+    log.info('fluxadm access - no keys configured, maintenance sshd and its keys removed');
   }
 }
 

@@ -267,7 +267,8 @@ describe('fluxadmService tests', () => {
     });
 
     it('should not rewrite authorized_keys when content already matches', async () => {
-      runCommandStub.withArgs('cat').resolves({ ...cmdOk, stdout: `${testKeys[0]}\n` });
+      sinon.stub(fs, 'readFile')
+        .withArgs('/etc/ssh/fluxadm_authorized_keys', 'utf-8').resolves(`${testKeys[0]}\n`);
 
       const res = await fluxadmService.ensureAuthorizedKeys(testKeys);
 
@@ -275,19 +276,15 @@ describe('fluxadmService tests', () => {
       sinon.assert.neverCalledWith(runCommandStub, 'install');
     });
 
-    it('should create the .ssh dir and install the key file when different', async () => {
-      runCommandStub.withArgs('cat').resolves({ ...cmdFail });
+    it('should install a root-owned key file outside the user\'s home when different', async () => {
+      sinon.stub(fs, 'readFile').rejects(new Error('missing'));
 
       const res = await fluxadmService.ensureAuthorizedKeys(testKeys);
 
       expect(res).to.equal(true);
-      sinon.assert.calledWithExactly(runCommandStub, 'install', {
+      sinon.assert.calledOnceWithExactly(runCommandStub, 'install', {
         runAsRoot: true,
-        params: ['-d', '-o', 'fluxadm', '-g', 'fluxadm', '-m', '0700', '/home/fluxadm/.ssh'],
-      });
-      sinon.assert.calledWithExactly(runCommandStub, 'install', {
-        runAsRoot: true,
-        params: ['-o', 'fluxadm', '-g', 'fluxadm', '-m', '0600', '/tmp/fluxadm-test/authorized_keys', '/home/fluxadm/.ssh/authorized_keys'],
+        params: ['-o', 'root', '-g', 'root', '-m', '0644', '/tmp/fluxadm-test/fluxadm_authorized_keys', '/etc/ssh/fluxadm_authorized_keys'],
       });
     });
   });
@@ -354,15 +351,83 @@ describe('fluxadmService tests', () => {
       sinon.assert.neverCalledWith(runCommandStub, 'install');
     });
 
-    it('should attempt to install openssh-server when sshd is missing', async () => {
-      sinon.stub(fs, 'access').rejects(new Error('missing'));
+    describe('when sshd is missing', () => {
+      const distroUnits = ['ssh.service', 'ssh.socket'];
+      const systemctlCall = (verb) => sinon.match({ runAsRoot: true, params: [verb, ...distroUnits] });
+      let upgradeStub;
+
+      beforeEach(() => {
+        sinon.stub(fs, 'access').rejects(new Error('missing'));
+        sinon.stub(fs, 'readFile')
+          .withArgs('/etc/ssh/fluxadm_sshd_config', 'utf-8').resolves(fluxadmService.buildSshdConfig(16122))
+          .withArgs('/etc/systemd/system/fluxadm-sshd.service', 'utf-8').resolves(fluxadmService.buildServiceUnit());
+        runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-enabled', 'fluxadm-sshd.service'] }))
+          .resolves({ ...cmdOk, stdout: 'enabled\n' });
+        runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-active', 'fluxadm-sshd.service'] }))
+          .resolves({ ...cmdOk, stdout: 'active\n' });
+        upgradeStub = sinon.stub(systemService, 'upgradePackage').resolves(false);
+      });
+
+      it('should mask the package\'s own units across the install, then leave them disabled', async () => {
+        const res = await fluxadmService.ensureSshdInstance(16122);
+
+        expect(res).to.equal(true);
+        const mask = runCommandStub.withArgs('systemctl', systemctlCall('mask'));
+        const unmask = runCommandStub.withArgs('systemctl', systemctlCall('unmask'));
+        const disable = runCommandStub.withArgs('systemctl', systemctlCall('disable'));
+        sinon.assert.calledWithExactly(upgradeStub, 'openssh-server');
+        sinon.assert.callOrder(mask, upgradeStub, unmask, disable);
+        sinon.assert.calledOnce(mask);
+      });
+
+      it('should not install when the units cannot be masked', async () => {
+        runCommandStub.withArgs('systemctl', systemctlCall('mask')).resolves({ ...cmdFail });
+
+        const res = await fluxadmService.ensureSshdInstance(16122);
+
+        expect(res).to.equal(false);
+        sinon.assert.notCalled(upgradeStub);
+      });
+
+      it('should leave the units masked when the install fails', async () => {
+        upgradeStub.resolves(true);
+
+        const res = await fluxadmService.ensureSshdInstance(16122);
+
+        expect(res).to.equal(false);
+        sinon.assert.neverCalledWith(runCommandStub, 'systemctl', systemctlCall('unmask'));
+      });
+
+      it('should not disable units it could not unmask', async () => {
+        runCommandStub.withArgs('systemctl', systemctlCall('unmask')).resolves({ ...cmdFail });
+
+        const res = await fluxadmService.ensureSshdInstance(16122);
+
+        expect(res).to.equal(false);
+        sinon.assert.neverCalledWith(runCommandStub, 'systemctl', systemctlCall('disable'));
+      });
+
+      it('should mask the units again when they cannot be disabled', async () => {
+        runCommandStub.withArgs('systemctl', systemctlCall('disable')).resolves({ ...cmdFail });
+
+        const res = await fluxadmService.ensureSshdInstance(16122);
+
+        expect(res).to.equal(false);
+        const mask = runCommandStub.withArgs('systemctl', systemctlCall('mask'));
+        sinon.assert.calledTwice(mask);
+        sinon.assert.callOrder(runCommandStub.withArgs('systemctl', systemctlCall('disable')), mask);
+      });
+    });
+
+    it('should leave an sshd the operator already has untouched', async () => {
+      sinon.stub(fs, 'access').resolves();
       sinon.stub(fs, 'readFile').resolves(null);
-      const upgradeStub = sinon.stub(systemService, 'upgradePackage').resolves(true);
+      const upgradeStub = sinon.stub(systemService, 'upgradePackage').resolves(false);
 
-      const res = await fluxadmService.ensureSshdInstance(16122);
+      await fluxadmService.ensureSshdInstance(16122);
 
-      expect(res).to.equal(false);
-      sinon.assert.calledWithExactly(upgradeStub, 'openssh-server');
+      sinon.assert.notCalled(upgradeStub);
+      sinon.assert.neverCalledWith(runCommandStub, 'systemctl', sinon.match({ params: sinon.match.some(sinon.match(/^ssh\./)) }));
     });
   });
 
@@ -388,18 +453,8 @@ describe('fluxadmService tests', () => {
   });
 
   describe('removeAccess tests', () => {
-    beforeEach(() => {
-      sinon.stub(fs, 'mkdtemp').resolves('/tmp/fluxadm-test');
-      sinon.stub(fs, 'writeFile').resolves();
-      sinon.stub(fs, 'rm').resolves();
-    });
-
-    it('should disable the unit, remove its files and empty authorized_keys when present', async () => {
+    it('should disable the unit and remove its files and the key file when present', async () => {
       sinon.stub(fs, 'access').resolves();
-      runCommandStub.withArgs('cat', sinon.match({ params: ['/etc/sudoers.d/fluxadm'] }))
-        .resolves({ ...cmdOk, stdout: 'fluxadm ALL=(ALL) NOPASSWD:ALL\n' });
-      runCommandStub.withArgs('cat', sinon.match({ params: ['/home/fluxadm/.ssh/authorized_keys'] }))
-        .resolves({ ...cmdOk, stdout: `${testKeys[0]}\n` });
 
       await fluxadmService.removeAccess();
 
@@ -410,39 +465,39 @@ describe('fluxadmService tests', () => {
       });
       sinon.assert.calledWithExactly(runCommandStub, 'rm', {
         runAsRoot: true,
-        params: ['-f', '/etc/systemd/system/fluxadm-sshd.service', '/etc/ssh/fluxadm_sshd_config'],
+        params: ['-f', '/etc/systemd/system/fluxadm-sshd.service', '/etc/ssh/fluxadm_sshd_config', '/etc/ssh/fluxadm_authorized_keys'],
       });
       sinon.assert.calledWithExactly(runCommandStub, 'systemctl', {
         runAsRoot: true,
         params: ['daemon-reload'],
       });
-      sinon.assert.calledWithExactly(runCommandStub, 'install', {
-        runAsRoot: true,
-        params: ['-o', 'fluxadm', '-g', 'fluxadm', '-m', '0600', '/tmp/fluxadm-test/authorized_keys', '/home/fluxadm/.ssh/authorized_keys'],
-      });
+    });
+
+    it('should remove a key file left without its unit', async () => {
+      sinon.stub(fs, 'access').rejects(new Error('missing'))
+        .withArgs('/etc/ssh/fluxadm_authorized_keys').resolves();
+
+      await fluxadmService.removeAccess();
+
+      sinon.assert.calledWith(runCommandStub, 'rm', sinon.match({ params: sinon.match.some(sinon.match('/etc/ssh/fluxadm_authorized_keys')) }));
+      sinon.assert.neverCalledWith(runCommandStub, 'systemctl');
     });
 
     it('should do nothing on a node that never had access installed', async () => {
       sinon.stub(fs, 'access').rejects(new Error('missing'));
-      runCommandStub.withArgs('cat').resolves({ ...cmdFail });
 
       await fluxadmService.removeAccess();
 
       sinon.assert.neverCalledWith(runCommandStub, 'systemctl');
       sinon.assert.neverCalledWith(runCommandStub, 'rm');
-      sinon.assert.neverCalledWith(runCommandStub, 'install');
     });
+  });
 
-    it('should never touch the keys of a fluxadm user without our sudoers drop-in', async () => {
-      sinon.stub(fs, 'access').rejects(new Error('missing'));
-      runCommandStub.withArgs('cat', sinon.match({ params: ['/etc/sudoers.d/fluxadm'] }))
-        .resolves({ ...cmdFail });
-      runCommandStub.withArgs('cat', sinon.match({ params: ['/home/fluxadm/.ssh/authorized_keys'] }))
-        .resolves({ ...cmdOk, stdout: 'ssh-ed25519 AAAA operator-own-key\n' });
+  describe('buildSshdConfig tests', () => {
+    it('should read keys only from the root-owned key file', () => {
+      const lines = fluxadmService.buildSshdConfig(16122).split('\n');
 
-      await fluxadmService.removeAccess();
-
-      sinon.assert.neverCalledWith(runCommandStub, 'install');
+      expect(lines.filter((line) => line.startsWith('AuthorizedKeysFile'))).to.deep.equal(['AuthorizedKeysFile /etc/ssh/fluxadm_authorized_keys']);
     });
   });
 
@@ -542,6 +597,7 @@ describe('fluxadmService tests', () => {
       sinon.stub(fs, 'rm').resolves();
       sinon.stub(fs, 'access').resolves();
       sinon.stub(fs, 'readFile')
+        .withArgs('/etc/ssh/fluxadm_authorized_keys', 'utf-8').rejects(new Error('missing'))
         .withArgs('/etc/ssh/fluxadm_sshd_config', 'utf-8').resolves(fluxadmService.buildSshdConfig(16122))
         .withArgs('/etc/systemd/system/fluxadm-sshd.service', 'utf-8').resolves(fluxadmService.buildServiceUnit());
       runCommandStub.withArgs('id').resolves({ ...cmdFail });
