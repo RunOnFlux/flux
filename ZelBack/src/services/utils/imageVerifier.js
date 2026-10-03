@@ -12,6 +12,32 @@ class ImageVerifier {
 
   static wwwAuthHeaderPattern = /(?<scheme>Bearer|Basic)\s+realm="(?<realm>[^"]+)"(?:,\s*service="(?<service>[^"]+)")?(?:,\s*scope="(?<scope>[^"]+)")?/;
 
+  /**
+   * Codes for a request that never got an HTTP response because the path from this node to the
+   * registry failed: no route or no answer, name resolution, the TLS handshake, or the request
+   * being aborted. These are retried sooner than other failures, since the same request can
+   * succeed later or from another node. Any other code is a request that cannot succeed as made
+   * (a registry address that is not a valid URL, say), and is treated like any other failure.
+   */
+  static networkErrorCodes = new Set([
+    'ETIMEDOUT', 'ECONNREFUSED', 'ECONNRESET', 'EPIPE',
+    'ENETUNREACH', 'EHOSTUNREACH', 'ENETDOWN', 'EHOSTDOWN',
+    'EAI_AGAIN', 'ENOTFOUND',
+    'EPROTO', 'CERT_HAS_EXPIRED', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+    'SELF_SIGNED_CERT_IN_CHAIN', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'ERR_TLS_CERT_ALTNAME_INVALID',
+    'ECONNABORTED', 'ERR_CANCELED',
+  ]);
+
+  /**
+   * @param {Error & {code?: string, response?: object}} error A failed axios request
+   * @returns {boolean} true if the request failed on the network path, before any HTTP response;
+   *   OpenSSL's `ERR_SSL_*` codes are TLS handshake failures too
+   */
+  static isNetworkError(error) {
+    if (error.response || typeof error.code !== 'string') return false;
+    return ImageVerifier.networkErrorCodes.has(error.code) || error.code.startsWith('ERR_SSL_');
+  }
+
   static supportedMediaTypes = [
     'application/vnd.oci.image.index.v1+json',
     'application/vnd.docker.distribution.manifest.v2+json',
@@ -301,16 +327,7 @@ class ImageVerifier {
   }
 
   async #handleAxiosError(endpointUrl, error) {
-    // NO HTTP RESPONSE AT ALL is a connection error, whatever the code: ECONNREFUSED,
-    // ECONNRESET, ENETUNREACH, EHOSTUNREACH, EAI_AGAIN, ENOTFOUND, a TLS failure, an abort
-    // (ECONNABORTED / ERR_CANCELED), or ETIMEDOUT, which is what a far node without IPv6
-    // gets when every registry address times out on connect (see networkDefaults). This was
-    // a fixed list of four codes; anything else fell through to "Bad HTTP Status undefined"
-    // and was cached for 6 hours as a permanent error. An error without a code is not a
-    // network failure and still falls through.
-    const isConnectionError = !error.response && typeof error.code === 'string' && error.code !== '';
-
-    if (isConnectionError) {
+    if (ImageVerifier.isNetworkError(error)) {
       this.#lookupErrorDetail = `Connection Error ${error.code}: ${this.rawImageTag} not available`;
       this.#lookupErrorMeta = {
         httpStatus: null,

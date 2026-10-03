@@ -673,9 +673,8 @@ describe('imageVerifier tests', () => {
     it('should populate errorMeta with network error type for a connect timeout on every address', async () => {
       const repotag = 'indifferentbroccoli/runescape-dragonwilds-server-docker:latest';
 
-      // What axios throws on a far node with no IPv6 route: Happy Eyeballs gives up on every
-      // address (an AggregateError with code ETIMEDOUT), and there is no response at all.
-      // This used to be logged as "Bad HTTP Status undefined" and cached as permanent.
+      // What axios throws when no address completes its TCP handshake in time: an
+      // AggregateError with code ETIMEDOUT, and no response at all.
       const timeoutError = new Error('');
       timeoutError.name = 'AggregateError';
       timeoutError.code = 'ETIMEDOUT';
@@ -696,8 +695,8 @@ describe('imageVerifier tests', () => {
       expect(() => verifier.throwIfError()).to.throw(`Connection Error ETIMEDOUT: ${repotag} not available`);
     });
 
-    ['ENOTFOUND', 'EPROTO', 'ERR_SSL_WRONG_VERSION_NUMBER'].forEach((code) => {
-      it(`should populate errorMeta with network error type for any error without a response (${code})`, async () => {
+    [...ImageVerifier.networkErrorCodes, 'ERR_SSL_WRONG_VERSION_NUMBER'].forEach((code) => {
+      it(`should populate errorMeta with network error type for a network error code without a response (${code})`, async () => {
         const repotag = 'megachips/ipshow:web';
 
         const error = new Error('no response');
@@ -715,6 +714,47 @@ describe('imageVerifier tests', () => {
         expect(verifier.errorMeta.errorCode).to.equal(code);
         expect(() => verifier.throwIfError()).to.throw(`Connection Error ${code}: ${repotag} not available`);
       });
+    });
+
+    // Codes a request fails with before any response that the network path did not cause: a
+    // registry port out of range, and port 0.
+    ['ERR_INVALID_URL', 'EADDRNOTAVAIL'].forEach((code) => {
+      it(`should not treat a code the network path did not cause as a network error (${code})`, async () => {
+        const repotag = 'megachips/ipshow:web';
+
+        const error = new Error('no response');
+        error.code = code;
+
+        axiosInstanceStub.returns({
+          get: sinon.stub().rejects(error),
+          interceptors: { request: { use: sinon.stub() } },
+        });
+
+        const verifier = new ImageVerifier(repotag);
+        await verifier.verifyImage();
+
+        expect(verifier.errorMeta.errorType).to.equal('http_error');
+        expect(() => verifier.throwIfError()).to.throw(`Bad HTTP Status undefined: ${repotag} not available`);
+      });
+    });
+
+    it('should not treat a network error code that came with a response as a network error', async () => {
+      const repotag = 'megachips/ipshow:web';
+
+      const error = new Error('bad gateway');
+      error.code = 'ECONNRESET';
+      error.response = { status: 502, headers: {} };
+
+      axiosInstanceStub.returns({
+        get: sinon.stub().rejects(error),
+        interceptors: { request: { use: sinon.stub() } },
+      });
+
+      const verifier = new ImageVerifier(repotag);
+      await verifier.verifyImage();
+
+      expect(verifier.errorMeta.errorType).to.equal('server_error');
+      expect(() => verifier.throwIfError()).to.throw(`Bad HTTP Status 502: ${repotag} not available`);
     });
 
     it('should not treat an error without a code or a response as a network error', async () => {
