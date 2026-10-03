@@ -29,6 +29,8 @@ const { TABLES_SHA256 } = numericIdTables;
 //   - A host that cannot give syncthing a private mount namespace gets no
 //     syncthing at all rather than one that resolves the host's names, and gets
 //     one as soon as it can.
+//   - The mount that holds the app volumes has to be shared for a volume mounted
+//     later to reach syncthing's namespace. Where it is not, FluxOS makes it so.
 //
 // The two holders give the same names different ids, as hosts do, so a name
 // that travelled would land on the wrong id. A third node holds nothing: a node
@@ -202,6 +204,26 @@ describe('a legacy node\'s syncthing takes the numeric id tables before any owne
     }
 
     await client(LEGACY).waitForEvent('syncthing:ownersByNumber', () => true, 240000, { afterId: mark });
+    const views = await syncthingIdTables(client(LEGACY));
+    expect(views.length && views.every((v) => v.tables === TABLES_SHA256), `the syncthing it started: ${JSON.stringify(views)}`).to.equal(true);
+    await waitFor(async () => (await getFolderStatus(client(LEGACY), folder))?.state === 'idle', {
+      timeout: 120000, interval: 2000, label: 'the folder is back',
+    });
+  });
+
+  it('makes the mount that holds the app volumes shared where it is not, and starts syncthing with the tables', async function () {
+    this.timeout(600000);
+    const target = (await sh(LEGACY, `findmnt -no TARGET -T ${data}/..`)).stdout.trim();
+    expect(target, 'fixture: the mount that holds the app volumes').to.not.equal('');
+    const made = await sh(LEGACY, `mount --make-rprivate ${target} && findmnt -no PROPAGATION ${target}`);
+    expect(made.stdout.trim(), `fixture: ${made.output}`).to.equal('private');
+
+    const mark = client(LEGACY).getLastEventId();
+    await stopDaemon(client(LEGACY));
+    await client(LEGACY).waitForEvent('syncthing:ownersByNumber', () => true, 400000, { afterId: mark });
+
+    expect((await sh(LEGACY, `findmnt -no PROPAGATION ${target}`)).stdout.trim(), 'the mount that holds the app volumes')
+      .to.include('shared');
     const views = await syncthingIdTables(client(LEGACY));
     expect(views.length && views.every((v) => v.tables === TABLES_SHA256), `the syncthing it started: ${JSON.stringify(views)}`).to.equal(true);
     await waitFor(async () => (await getFolderStatus(client(LEGACY), folder))?.state === 'idle', {

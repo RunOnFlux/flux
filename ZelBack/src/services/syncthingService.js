@@ -1462,7 +1462,8 @@ async function stopSyncthingSentinel() {
 //
 // The namespace is a slave of the host's, so an app volume mounted after
 // syncthing starts reaches it, and its own binds reach nothing else. A slave
-// receives only from a shared mount, which systemd makes of every mount at boot.
+// receives only from a shared mount, which systemd makes of every mount at boot
+// and FluxOS makes of the one holding the app volumes where it is not.
 const NUMERIC_ID_SYNCTHING = 'mount --bind "$1" /etc/passwd && mount --bind "$2" /etc/group && shift 2 && exec syncthing "$@"';
 
 let numericIdTableContent = null;
@@ -1572,16 +1573,46 @@ async function nearestExistingPath(target) {
 }
 
 /**
- * How the mount that holds, or will hold, the app volumes propagates: shared
- * when a volume mounted on it later reaches a namespace that is its slave.
- * @returns {Promise<string|null>} findmnt's PROPAGATION field, or null when unreadable
+ * The mount that holds, or will hold, the app volumes, and how it propagates:
+ * shared when a volume mounted on it later reaches a namespace that is its
+ * slave.
+ * @returns {Promise<{target: string, propagation: string}|null>} findmnt's
+ *   TARGET and PROPAGATION fields, or null when unreadable
  */
-async function appVolumesPropagation() {
+async function appVolumesMount() {
   const { stdout, error } = await serviceHelper.runCommand('findmnt', {
-    params: ['-no', 'PROPAGATION', '-T', await nearestExistingPath(appsFolderPath)],
+    params: ['-J', '-o', 'TARGET,PROPAGATION', '-T', await nearestExistingPath(appsFolderPath)],
     logError: false,
   });
-  return error ? null : (stdout ?? '').trim();
+  if (error) return null;
+  try {
+    const [mount] = JSON.parse(stdout).filesystems;
+    return mount?.target ? { target: mount.target, propagation: mount.propagation ?? '' } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The mount that holds the app volumes, made shared when it is not: on every
+ * node that can mount an app volume, FluxOS has the privilege to.
+ * @returns {Promise<{target: string, propagation: string}|null>} as appVolumesMount
+ */
+async function sharedAppVolumesMount() {
+  const isShared = (mount) => Boolean(mount?.propagation.split(',').includes('shared'));
+  const mount = await appVolumesMount();
+  if (!mount || isShared(mount)) return mount;
+  const { error } = await serviceHelper.runCommand('mount', {
+    runAsRoot: true,
+    params: ['--make-rshared', mount.target],
+    logError: false,
+  });
+  if (error) {
+    log.warn(`The mount ${mount.target} propagates as '${mount.propagation}' and could not be made shared: ${error.message}`);
+    return mount;
+  }
+  log.info(`Made the mount ${mount.target} shared, from '${mount.propagation}', so app volumes mounted after syncthing starts reach it`);
+  return appVolumesMount();
 }
 
 /**
@@ -1614,7 +1645,8 @@ async function ensureSyncthingRunning(installed) {
 
   // A syncthing that cannot see the volumes mounted after it starts would sync
   // the bare mountpoints beneath them.
-  const propagation = await appVolumesPropagation();
+  const appVolumes = await sharedAppVolumesMount();
+  const propagation = appVolumes?.propagation;
   if (!propagation?.split(',').includes('shared')) {
     fluxEventBus.count('syncthing:launchFailed');
     log.error(`Syncthing is not started: the mount holding ${appsFolderPath} propagates as '${propagation ?? 'unreadable'}', not shared, so app volumes mounted after syncthing starts would never reach it`);

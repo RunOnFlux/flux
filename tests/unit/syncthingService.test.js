@@ -1327,7 +1327,7 @@ describe('syncthingService tests', () => {
         } if (cmd === 'syncthing') {
           return { stdout: 'syncthing installed' };
         } if (cmd === 'findmnt') {
-          return { stdout: 'shared\n' };
+          return { stdout: '{"filesystems":[{"target":"/","propagation":"shared"}]}' };
         }
         return { error: null };
       });
@@ -1374,7 +1374,7 @@ describe('syncthingService tests', () => {
         } if (cmd === 'syncthing') {
           return { stdout: 'syncthing installed' };
         } if (cmd === 'findmnt') {
-          return { stdout: 'shared\n' };
+          return { stdout: '{"filesystems":[{"target":"/","propagation":"shared"}]}' };
         }
         return { error: null };
       });
@@ -1409,7 +1409,7 @@ describe('syncthingService tests', () => {
       runCmdStub.callsFake(async (cmd) => {
         if (cmd === 'pgrep') return { stdout: '' };
         if (cmd === 'syncthing') return { stdout: 'syncthing installed' };
-        if (cmd === 'findmnt') return { stdout: 'shared\n' };
+        if (cmd === 'findmnt') return { stdout: '{"filesystems":[{"target":"/","propagation":"shared"}]}' };
         return { error: null };
       });
 
@@ -1458,7 +1458,7 @@ describe('syncthingService tests', () => {
           if (cmd === 'pgrep') return { stdout: '' };
           if (cmd === 'stat') return { stdout: identities() };
           if (cmd === 'syncthing') return { stdout: 'syncthing installed' };
-          if (cmd === 'findmnt') return { stdout: 'shared\n' };
+          if (cmd === 'findmnt') return { stdout: '{"filesystems":[{"target":"/","propagation":"shared"}]}' };
           return { error: null };
         });
       });
@@ -1558,7 +1558,7 @@ describe('syncthingService tests', () => {
         runCmdStub.callsFake(async (cmd, options) => {
           if (cmd === 'pgrep') return { stdout: '' };
           if (cmd === 'syncthing') return { stdout: 'syncthing installed' };
-          if (cmd === 'findmnt') return { stdout: 'shared\n' };
+          if (cmd === 'findmnt') return { stdout: '{"filesystems":[{"target":"/","propagation":"shared"}]}' };
           if (cmd === 'unshare') {
             unshareOptions = options;
             return { error: new Error('unshare: unshare failed: Operation not permitted') };
@@ -1581,17 +1581,56 @@ describe('syncthingService tests', () => {
         sinon.assert.neverCalledWith(publishStub, 'syncthing:ownersByNumber');
       });
 
-      it('starts no syncthing when the mount that holds the app volumes is not shared', async () => {
-        fakeMeta.rejects(Error('Fake Meta Error'));
-        runCmdStub.callsFake(async (cmd) => {
+      // A mount findmnt reads with the propagation given, and how mount answers a
+      // request to make it shared: by changing it, or by refusing.
+      const appsMount = ({ propagation, makeShared }) => {
+        let current = propagation;
+        runCmdStub.callsFake(async (cmd, opts) => {
           if (cmd === 'pgrep') return { stdout: '' };
           if (cmd === 'syncthing') return { stdout: 'syncthing installed' };
-          if (cmd === 'findmnt') return { stdout: 'private,slave\n' };
+          if (cmd === 'findmnt') return { stdout: JSON.stringify({ filesystems: [{ target: '/srv', propagation: current }] }) };
+          if (cmd === 'mount' && opts.params[0] === '--make-rshared') {
+            if (!makeShared) return { error: new Error('mount: /srv: permission denied') };
+            current = 'shared';
+          }
           return { error: null };
         });
+      };
+
+      it('makes the mount that holds the app volumes shared when it is not, and starts syncthing', async () => {
+        const clock = sinon.useFakeTimers();
+        fakeMeta.rejects(Error('Fake Meta Error'));
+        appsMount({ propagation: 'private', makeShared: true });
+
+        const promise = syncthingService.runSyncthingSentinel();
+        await clock.tickAsync(5000);
+        await promise;
+
+        sinon.assert.calledWithMatch(runCmdStub, 'mount', { runAsRoot: true, params: ['--make-rshared', '/srv'] });
+        sinon.assert.calledOnce(spawnStub);
+        sinon.assert.neverCalledWithMatch(errorStub, /not shared/);
+      });
+
+      it('leaves a mount that is already shared as it is', async () => {
+        const clock = sinon.useFakeTimers();
+        fakeMeta.rejects(Error('Fake Meta Error'));
+        appsMount({ propagation: 'shared', makeShared: true });
+
+        const promise = syncthingService.runSyncthingSentinel();
+        await clock.tickAsync(5000);
+        await promise;
+
+        sinon.assert.neverCalledWithMatch(runCmdStub, 'mount', { params: ['--make-rshared', sinon.match.any] });
+        sinon.assert.calledOnce(spawnStub);
+      });
+
+      it('starts no syncthing when the mount that holds the app volumes cannot be made shared', async () => {
+        fakeMeta.rejects(Error('Fake Meta Error'));
+        appsMount({ propagation: 'private,slave', makeShared: false });
 
         await syncthingService.runSyncthingSentinel();
 
+        sinon.assert.calledWithMatch(runCmdStub, 'mount', { params: ['--make-rshared', '/srv'] });
         sinon.assert.notCalled(spawnStub);
         sinon.assert.calledWithExactly(countStub, 'syncthing:launchFailed');
         sinon.assert.calledWithMatch(errorStub, /propagates as 'private,slave', not shared, so app volumes mounted after syncthing starts would never reach it/);
