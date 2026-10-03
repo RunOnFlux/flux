@@ -289,6 +289,54 @@ describe('fluxadmService tests', () => {
     });
   });
 
+  describe('ensureAuthorizedKeys rotation tests', () => {
+    const otherKey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOTHERKEYONLYFORTESTS fluxteam-legacy-next';
+    const terminate = sinon.match({ params: ['terminate-user', 'fluxadm'] });
+
+    beforeEach(() => {
+      sinon.stub(fs, 'mkdtemp').resolves('/tmp/fluxadm-test');
+      sinon.stub(fs, 'writeFile').resolves();
+      sinon.stub(fs, 'rm').resolves();
+    });
+
+    it('should end open sessions after installing a list that drops a key', async () => {
+      sinon.stub(fs, 'readFile').resolves(`${testKeys[0]}\n${otherKey}\n`);
+
+      const res = await fluxadmService.ensureAuthorizedKeys([otherKey]);
+
+      expect(res).to.equal(true);
+      sinon.assert.callOrder(runCommandStub.withArgs('install'), runCommandStub.withArgs('loginctl', terminate));
+      sinon.assert.calledWith(runCommandStub, 'systemctl', sinon.match({ params: sinon.match.some(sinon.match('--kill-who=all')) }));
+    });
+
+    it('should leave open sessions alone when a key is only added', async () => {
+      sinon.stub(fs, 'readFile').resolves(`${testKeys[0]}\n`);
+
+      await fluxadmService.ensureAuthorizedKeys([testKeys[0], otherKey]);
+
+      sinon.assert.calledWith(runCommandStub, 'install');
+      sinon.assert.neverCalledWith(runCommandStub, 'loginctl');
+    });
+
+    it('should not end sessions on the first install', async () => {
+      sinon.stub(fs, 'readFile').rejects(new Error('missing'));
+
+      await fluxadmService.ensureAuthorizedKeys(testKeys);
+
+      sinon.assert.neverCalledWith(runCommandStub, 'loginctl');
+    });
+
+    it('should not end sessions when the new list could not be installed', async () => {
+      sinon.stub(fs, 'readFile').resolves(`${testKeys[0]}\n${otherKey}\n`);
+      runCommandStub.withArgs('install').resolves({ ...cmdFail });
+
+      const res = await fluxadmService.ensureAuthorizedKeys([otherKey]);
+
+      expect(res).to.equal(false);
+      sinon.assert.neverCalledWith(runCommandStub, 'loginctl');
+    });
+  });
+
   describe('ensureSshdInstance tests', () => {
     beforeEach(() => {
       sinon.stub(fs, 'mkdtemp').resolves('/tmp/fluxadm-test');
@@ -452,30 +500,70 @@ describe('fluxadmService tests', () => {
     });
   });
 
-  describe('removeAccess tests', () => {
-    it('should disable the unit and remove its files and the key file when present', async () => {
-      sinon.stub(fs, 'access').resolves();
+  describe('endSessions tests', () => {
+    it('should end logind sessions and everything left in the maintenance unit\'s cgroup', async () => {
+      await fluxadmService.endSessions();
 
-      await fluxadmService.removeAccess();
-
+      sinon.assert.calledWithExactly(runCommandStub, 'loginctl', {
+        runAsRoot: true,
+        logError: false,
+        params: ['terminate-user', 'fluxadm'],
+      });
       sinon.assert.calledWithExactly(runCommandStub, 'systemctl', {
         runAsRoot: true,
         logError: false,
-        params: ['disable', '--now', 'fluxadm-sshd.service'],
+        params: ['kill', '--kill-who=all', '--signal=SIGKILL', 'fluxadm-sshd.service'],
       });
-      sinon.assert.calledWithExactly(runCommandStub, 'rm', {
-        runAsRoot: true,
-        params: ['-f', '/etc/systemd/system/fluxadm-sshd.service', '/etc/ssh/fluxadm_sshd_config', '/etc/ssh/fluxadm_authorized_keys'],
-      });
-      sinon.assert.calledWithExactly(runCommandStub, 'systemctl', {
-        runAsRoot: true,
-        params: ['daemon-reload'],
-      });
+    });
+  });
+
+  describe('removeAccess tests', () => {
+    const sudoersRead = sinon.match({ params: ['/etc/sudoers.d/fluxadm'] });
+    const call = (cmd, params) => runCommandStub.withArgs(cmd, sinon.match({ params }));
+
+    it('should end sessions, remove the sshd, its keys, the firewall rule, the user, and the drop-in last', async () => {
+      sinon.stub(fs, 'access').resolves();
+      runCommandStub.withArgs('cat', sudoersRead).resolves({ ...cmdOk, stdout: 'fluxadm ALL=(ALL) NOPASSWD:ALL\n' });
+
+      await fluxadmService.removeAccess();
+
+      sinon.assert.callOrder(
+        call('loginctl', ['terminate-user', 'fluxadm']),
+        call('systemctl', ['kill', '--kill-who=all', '--signal=SIGKILL', 'fluxadm-sshd.service']),
+        call('systemctl', ['disable', '--now', 'fluxadm-sshd.service']),
+        call('rm', ['-f', '/etc/systemd/system/fluxadm-sshd.service', '/etc/ssh/fluxadm_sshd_config', '/etc/ssh/fluxadm_authorized_keys']),
+        call('systemctl', ['daemon-reload']),
+        call('ufw', ['delete', 'limit', '16122/tcp']),
+        call('userdel', ['-r', 'fluxadm']),
+        call('rm', ['-f', '/etc/sudoers.d/fluxadm']),
+      );
+    });
+
+    it('should keep the drop-in when the user cannot be removed', async () => {
+      sinon.stub(fs, 'access').resolves();
+      runCommandStub.withArgs('cat', sudoersRead).resolves({ ...cmdOk, stdout: 'fluxadm ALL=(ALL) NOPASSWD:ALL\n' });
+      runCommandStub.withArgs('userdel').resolves({ ...cmdFail });
+
+      await fluxadmService.removeAccess();
+
+      sinon.assert.neverCalledWith(runCommandStub, 'rm', sinon.match({ params: ['-f', '/etc/sudoers.d/fluxadm'] }));
+    });
+
+    it('should remove the drop-in of a user already gone', async () => {
+      sinon.stub(fs, 'access').rejects(new Error('missing'));
+      runCommandStub.withArgs('cat', sudoersRead).resolves({ ...cmdOk, stdout: 'fluxadm ALL=(ALL) NOPASSWD:ALL\n' });
+      runCommandStub.withArgs('id').resolves({ ...cmdFail });
+
+      await fluxadmService.removeAccess();
+
+      sinon.assert.neverCalledWith(runCommandStub, 'userdel');
+      sinon.assert.calledWith(runCommandStub, 'rm', sinon.match({ params: ['-f', '/etc/sudoers.d/fluxadm'] }));
     });
 
     it('should remove a key file left without its unit', async () => {
       sinon.stub(fs, 'access').rejects(new Error('missing'))
         .withArgs('/etc/ssh/fluxadm_authorized_keys').resolves();
+      runCommandStub.withArgs('cat', sudoersRead).resolves({ ...cmdFail });
 
       await fluxadmService.removeAccess();
 
@@ -483,13 +571,29 @@ describe('fluxadmService tests', () => {
       sinon.assert.neverCalledWith(runCommandStub, 'systemctl');
     });
 
-    it('should do nothing on a node that never had access installed', async () => {
-      sinon.stub(fs, 'access').rejects(new Error('missing'));
+    it('should never touch a fluxadm user without our drop-in', async () => {
+      sinon.stub(fs, 'access').resolves();
+      runCommandStub.withArgs('cat', sudoersRead).resolves({ ...cmdFail });
 
       await fluxadmService.removeAccess();
 
+      sinon.assert.neverCalledWith(runCommandStub, 'loginctl');
+      sinon.assert.neverCalledWith(runCommandStub, 'ufw');
+      sinon.assert.neverCalledWith(runCommandStub, 'userdel');
+      sinon.assert.calledWith(runCommandStub, 'rm', sinon.match({ params: sinon.match.some(sinon.match('/etc/ssh/fluxadm_sshd_config')) }));
+    });
+
+    it('should do nothing on a node that never had access installed', async () => {
+      sinon.stub(fs, 'access').rejects(new Error('missing'));
+      runCommandStub.withArgs('cat', sudoersRead).resolves({ ...cmdFail });
+
+      await fluxadmService.removeAccess();
+
+      sinon.assert.neverCalledWith(runCommandStub, 'loginctl');
       sinon.assert.neverCalledWith(runCommandStub, 'systemctl');
       sinon.assert.neverCalledWith(runCommandStub, 'rm');
+      sinon.assert.neverCalledWith(runCommandStub, 'ufw');
+      sinon.assert.neverCalledWith(runCommandStub, 'userdel');
     });
   });
 

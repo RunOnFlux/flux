@@ -50,22 +50,30 @@ function accessConfigured() {
 }
 
 /**
- * The port the maintenance sshd listens on, or null when access is not
- * configured on this node.
- * @returns {number | null}
+ * The maintenance sshd's port for this node's current api port.
+ * @returns {number}
  */
-function getFluxadmSshPort() {
-  if (!accessConfigured()) return null;
-
+function currentSshPort() {
   const { userconfig } = globalThis;
   const apiPort = userconfig.initial.apiport || config.server.apiport;
 
   return sshPortFor(apiPort);
 }
 
+/**
+ * The port the maintenance sshd listens on, or null when access is not
+ * configured on this node.
+ * @returns {number | null}
+ */
+function getFluxadmSshPort() {
+  if (!accessConfigured()) return null;
+  return currentSshPort();
+}
+
 module.exports = {
   accessConfigured,
   bootedWithSystemd,
+  currentSshPort,
   getConfiguredKeys,
   getFluxadmSshPort,
   isArcane,

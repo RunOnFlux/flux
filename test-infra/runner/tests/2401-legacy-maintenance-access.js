@@ -14,6 +14,12 @@
 // node on the new list. Every wait is for the login itself to change, never for a
 // file, because a login is what the feature is for.
 //
+// A list that drops a key ends every open maintenance session, together with what
+// it runs through sudo. The node without sshd has no pam_systemd, so its sessions
+// stay in the maintenance unit's cgroup; the operator's node installs
+// libpam-systemd with its sshd, so its sessions get their own logind scope. Each
+// node proves one of the two ways a session is ended.
+//
 // Each run generates its keypairs on the runner and deletes them at teardown; no
 // key is stored in the repo.
 import { describe, it, before, after } from 'mocha';
@@ -93,6 +99,31 @@ describe('2401 legacy node maintenance access', function suite() {
     return exitCode === 0 && stdout.trim() === '0';
   }
 
+  // An ssh session held open from the client, running a uniquely numbered sleep
+  // through sudo on the node. Returns that root process's cgroup once it runs.
+  async function openSession(client, ip, keyName, tag, { port = SSH_PORT, user = 'fluxadm' } = {}) {
+    const started = await execInContainer(arcane.container, [
+      'setsid', '-f', 'ssh', '-n', '-i', `${CLIENT_KEY_DIR}/${keyName}`, '-p', String(port),
+      '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'ConnectTimeout=5',
+      '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'LogLevel=ERROR',
+      `${user}@${ip}`, `sudo -n sleep ${tag}`,
+    ]);
+    expect(started.exitCode, `session ${tag} did not start: ${started.stderr}`).to.equal(0);
+    let cgroup = null;
+    await waitFor(async () => {
+      cgroup = await sessionCgroup(client, tag);
+      return cgroup !== null;
+    }, { timeout: 30000, interval: 1000, label: `session ${tag} running` });
+    return cgroup;
+  }
+
+  // The cgroup of a session's sudo child, or null once it no longer runs.
+  async function sessionCgroup(client, tag) {
+    const { stdout } = await execInContainer(client.container,
+      `p=$(pgrep -x -f 'sleep ${tag}' | head -1); test -n "$p" && cat /proc/$p/cgroup; true`);
+    return stdout.trim() || null;
+  }
+
   async function port22Listening(client) {
     const { stdout } = await execInContainer(client.container, "ss -Hltn 'sport = :22'");
     return stdout.trim() !== '';
@@ -107,13 +138,14 @@ describe('2401 legacy node maintenance access', function suite() {
     return stdout.trim();
   }
 
-  // The operator's own sshd, installed and running before FluxOS ever treats the
-  // node as legacy, with the stranger key authorized for root: a login on port 22
-  // that must keep working, and that proves port 22 is reachable at all.
+  // The operator's own sshd, installed with libpam-systemd as on a server and
+  // running before FluxOS ever treats the node as legacy, with the stranger key
+  // authorized for root: a login on port 22 that must keep working, and that
+  // proves port 22 is reachable at all.
   async function startOperatorSshd() {
     const { exitCode, stderr } = await execInContainer(operator.container, [
       'sh', '-c',
-      'DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y openssh-server'
+      'DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y openssh-server libpam-systemd'
       + ' && install -d -m 700 /root/.ssh && printf \'%s\\n\' "$1" > /root/.ssh/authorized_keys',
       'sh', publicKey('stranger'),
     ]);
@@ -123,16 +155,16 @@ describe('2401 legacy node maintenance access', function suite() {
     });
   }
 
-  async function passCount() {
-    return journalCount(legacy.container, 'fluxos', PASS_RECONCILED, { processOnly: true });
+  async function passCount(client) {
+    return journalCount(client.container, 'fluxos', PASS_RECONCILED, { processOnly: true });
   }
 
   // A release that ships a new key list: the config FluxOS reads at start is
   // rewritten, and FluxOS restarts. Returns once a pass has completed on it.
-  async function releaseKeys(names) {
+  async function releaseKeys(names, client = legacy) {
     const keys = JSON.stringify(names.map(publicKey));
-    const before = await passCount();
-    const write = await execInContainer(legacy.container, [
+    const before = await passCount(client);
+    const write = await execInContainer(client.container, [
       'node', '-e',
       'const f = "/flux/ZelBack/config/local.js"; const c = require(f);'
       + ' c.fluxadm = { ...(c.fluxadm ?? {}), sshAuthorizedKeys: JSON.parse(process.argv[1]) };'
@@ -140,8 +172,8 @@ describe('2401 legacy node maintenance access', function suite() {
       keys,
     ]);
     expect(write.exitCode, `config rewrite failed: ${write.stderr}`).to.equal(0);
-    await restartFluxos(legacy.container);
-    await waitFor(async () => (await passCount()) > before, {
+    await restartFluxos(client.container);
+    await waitFor(async () => (await passCount(client)) > before, {
       timeout: CONVERGE_TIMEOUT_MS, interval: 2000, label: 'a reconcile pass on the new key list',
     });
   }
@@ -228,6 +260,15 @@ describe('2401 legacy node maintenance access', function suite() {
     expect(await login('current', { ip: operatorIp, port: 22 })).to.equal(false);
   });
 
+  it("ends a maintenance session in its logind scope when a key is dropped, and not the operator's", async () => {
+    const maintenance = await openSession(operator, operatorIp, 'current', 7003);
+    expect(maintenance, 'with pam_systemd a session gets its own logind scope').to.match(/\/session-\d+\.scope$/);
+    const operatorsOwn = await openSession(operator, operatorIp, 'stranger', 7004, { port: 22, user: 'root' });
+    await releaseKeys(['next'], operator);
+    expect(await sessionCgroup(operator, 7003), 'dropping a key must end the session and its sudo child').to.equal(null);
+    expect(await sessionCgroup(operator, 7004), "the operator's own session must survive").to.equal(operatorsOwn);
+  });
+
   it('refuses a key that is not configured', async () => {
     expect(await login('current'), 'the configured key must still log in').to.equal(true);
     expect(await login('stranger')).to.equal(false);
@@ -257,30 +298,39 @@ describe('2401 legacy node maintenance access', function suite() {
     expect(await login('current')).to.equal(true);
   });
 
-  it('lets both keys in while a rotation overlaps them', async () => {
+  it('lets both keys in while a rotation overlaps them, and keeps open sessions', async () => {
+    const cgroup = await openSession(legacy, legacyIp, 'current', 7001);
+    expect(cgroup, "without pam_systemd a session stays in the maintenance unit's cgroup")
+      .to.match(/\/fluxadm-sshd\.service$/);
     await releaseKeys(['current', 'next']);
+    expect(await sessionCgroup(legacy, 7001), 'adding a key must not end an open session').to.equal(cgroup);
     await waitFor(() => login('next'), {
       timeout: CONVERGE_TIMEOUT_MS, interval: 3000, label: 'login with the incoming key',
     });
     expect(await login('current'), 'the outgoing key must still log in during the overlap').to.equal(true);
   });
 
-  it('refuses the old key once the rotation completes', async () => {
+  it('refuses the old key once the rotation completes, and ends open sessions', async () => {
+    expect(await sessionCgroup(legacy, 7001), 'the session must be open before the key is dropped').to.not.equal(null);
     await releaseKeys(['next']);
+    expect(await sessionCgroup(legacy, 7001), 'dropping a key must end the session and its sudo child').to.equal(null);
     await waitFor(async () => !(await login('current')), {
       timeout: CONVERGE_TIMEOUT_MS, interval: 3000, label: 'the outgoing key refused',
     });
     expect(await login('next'), 'the incoming key must still log in').to.equal(true);
   });
 
-  it('refuses every key once the list is empty, and removes the sshd and its keys', async () => {
+  it('refuses every key once the list is empty, and removes everything it installed', async () => {
     expect(await login('next'), 'the key must log in before the list is emptied').to.equal(true);
+    await openSession(legacy, legacyIp, 'next', 7002);
     await releaseKeys([]);
+    expect(await sessionCgroup(legacy, 7002), 'emptying the list must end the session').to.equal(null);
     await waitFor(async () => !(await login('next')), {
       timeout: CONVERGE_TIMEOUT_MS, interval: 3000, label: 'login refused after the list emptied',
     });
     const { stdout } = await execInContainer(legacy.container,
       'test -e /etc/systemd/system/fluxadm-sshd.service && echo unit; test -e /etc/ssh/fluxadm_authorized_keys && echo keys; '
+      + 'id fluxadm >/dev/null 2>&1 && echo user; test -e /home/fluxadm && echo home; test -e /etc/sudoers.d/fluxadm && echo sudoers; '
       + `ss -Hltn 'sport = :${SSH_PORT}' | grep -q . && echo listener; true`);
     expect(stdout.trim()).to.equal('');
   });

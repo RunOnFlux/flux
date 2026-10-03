@@ -192,9 +192,31 @@ async function ensureUser() {
 }
 
 /**
+ * Ends every fluxadm session, together with whatever it runs through sudo. A
+ * session lives in its own logind scope where pam_systemd registers it, and
+ * otherwise in the maintenance unit's cgroup, so both are cleared; the unit's
+ * daemon goes with its cgroup and systemd restarts it.
+ * @returns {Promise<void>}
+ */
+async function endSessions() {
+  await serviceHelper.runCommand('loginctl', {
+    runAsRoot: true,
+    logError: false,
+    params: ['terminate-user', fluxadmUser],
+  });
+  await serviceHelper.runCommand('systemctl', {
+    runAsRoot: true,
+    logError: false,
+    params: ['kill', '--kill-who=all', '--signal=SIGKILL', serviceName],
+  });
+  log.info('fluxadm access - fluxadm sessions ended');
+}
+
+/**
  * Reconciles authorized_keys to exactly the configured key set. This is the
  * key roll mechanism: shipping a FluxOS release with a changed key list
- * rotates the whole legacy fleet.
+ * rotates the whole legacy fleet. A list that drops a key also ends every open
+ * session, so a removed key keeps no access it already had.
  * @param {string[]} keys
  * @returns {Promise<boolean>}
  */
@@ -205,15 +227,19 @@ async function ensureAuthorizedKeys(keys) {
   if (current !== null && current.trim() === desired.trim()) return true;
 
   const installed = await installFileAsRoot(desired, authorizedKeysPath, { mode: '0644' });
-  if (installed) log.info(`fluxadm access - authorized_keys updated (${keys.length} key(s))`);
-  return installed;
+  if (!installed) return false;
+  log.info(`fluxadm access - authorized_keys updated (${keys.length} key(s))`);
+
+  const currentKeys = (current ?? '').split('\n').map((key) => key.trim()).filter(Boolean);
+  if (currentKeys.some((key) => !keys.includes(key))) await endSessions();
+  return true;
 }
 
 /**
  * Config for the dedicated maintenance sshd instance. Key-only auth for the
  * fluxadm user exclusively - the operator's accounts (and their password
  * policy, root login setting etc) do not exist on this port. Algorithms are
- * pinned to a strong set that openssh 7.6 (Ubuntu 18.04) still supports.
+ * pinned to a strong set that openssh 8.2 (Ubuntu 20.04) still supports.
  * @param {number} port
  * @returns {string}
  */
@@ -399,9 +425,12 @@ async function ensureFirewall(port) {
 }
 
 /**
- * Revocation path for an empty configured key list: removes the maintenance
- * sshd instance and its key file. Converges to a no-op: once removed (or never
- * installed) nothing runs.
+ * Revocation path for an empty configured key list: ends every fluxadm
+ * session, removes the maintenance sshd and its key file, then the firewall
+ * rule, the fluxadm user and its sudoers drop-in. The drop-in marks the user as
+ * ours, so it goes last: a pass that fails part way resumes on the next one
+ * instead of finding a user it would refuse as the operator's. Converges to a
+ * no-op: once removed (or never installed) nothing runs.
  * @returns {Promise<void>}
  */
 async function removeAccess() {
@@ -409,6 +438,9 @@ async function removeAccess() {
   const unitPresent = await present(serviceUnitPath);
   const configPresent = await present(sshdConfigPath);
   const keysPresent = await present(authorizedKeysPath);
+  const ours = (await readFileAsRoot(sudoersPath)) !== null;
+
+  if (ours) await endSessions();
 
   if (unitPresent) {
     await serviceHelper.runCommand('systemctl', {
@@ -428,6 +460,35 @@ async function removeAccess() {
     }
     log.info('fluxadm access - no keys configured, maintenance sshd and its keys removed');
   }
+
+  if (!ours) return;
+
+  await serviceHelper.runCommand('ufw', {
+    runAsRoot: true,
+    logError: false,
+    params: ['delete', 'limit', `${fluxadmPort.currentSshPort()}/tcp`],
+  });
+
+  const { error: idError } = await serviceHelper.runCommand('id', {
+    logError: false,
+    params: ['-u', fluxadmUser],
+  });
+  if (!idError) {
+    const { error: userdelError } = await serviceHelper.runCommand('userdel', {
+      runAsRoot: true,
+      params: ['-r', fluxadmUser],
+    });
+    if (userdelError) {
+      log.error(`fluxadm access - could not remove user ${fluxadmUser}, retrying on the next pass`);
+      return;
+    }
+  }
+
+  const { error: rmError } = await serviceHelper.runCommand('rm', {
+    runAsRoot: true,
+    params: ['-f', sudoersPath],
+  });
+  if (!rmError) log.info(`fluxadm access - user ${fluxadmUser} and its sudoers drop-in removed`);
 }
 
 /**
@@ -511,6 +572,7 @@ module.exports = {
   buildServiceUnit,
   buildSshdConfig,
   confirmedLegacyNode,
+  endSessions,
   ensureAuthorizedKeys,
   ensureFirewall,
   ensureSshdInstance,

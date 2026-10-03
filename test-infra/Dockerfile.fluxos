@@ -105,7 +105,7 @@ RUN test -n "$SYNCTHING_VERSION" \
     && apt-get update \
     && apt-get install -y --no-install-recommends dpkg-dev apt-utils \
     && rm -rf /var/cache/apt/archives/*.deb \
-    && apt-get install -y --download-only chrony netcat-openbsd openssh-server \
+    && apt-get install -y --download-only chrony netcat-openbsd openssh-server libpam-systemd \
     && chmod +x /usr/local/bin/fetch-syncthing-deb.sh /usr/local/bin/build-apt-repo.sh \
     && /usr/local/bin/fetch-syncthing-deb.sh "$SYNCTHING_VERSION" /var/cache/apt/archives \
     && /usr/local/bin/build-apt-repo.sh /opt/flux-apt-repo
@@ -132,6 +132,9 @@ COPY --from=debcache /opt/flux-apt-repo /opt/flux-apt-repo
 # Seeded here, so a normal fleet boots into the steady state. openssh-server is
 # served but never seeded: a legacy node installs it itself when maintenance
 # access is configured, and that install is part of what the suite exercises.
+# libpam-systemd is served but never seeded either: a node without it keeps an
+# ssh session in the sshd unit's cgroup, a node with it gives the session its
+# own logind scope, and a suite installs it where it needs the second shape.
 RUN rm -f /etc/apt/sources.list.d/* /etc/apt/sources.list \
     && cp /opt/flux-apt-repo/keyring.gpg /usr/share/keyrings/flux-e2e-archive-keyring.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/flux-e2e-archive-keyring.gpg] file:///opt/flux-apt-repo ubuntu main" \
