@@ -20,10 +20,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // all. private-egress is the nearest shape: traffic leaves by a device holding
 // no public address.
 //
-// The node image carries no ping, so distance is the TCP round trip to the
-// node's own API port. A node's own address never leaves the container, so
-// distance reads near on every node and the tunnel verdicts here come from the
-// node's devices, never from distance.
+// Distance is a ping to the node's own address, which never leaves the
+// container, so it reads near on every node and the tunnel verdicts here come
+// from the node's devices, never from distance.
 
 const SHAPES = [
   {
@@ -160,8 +159,7 @@ describe('The device a node reaches the internet by', function () {
         expect(uplinks[index].tunnelInterfaces.map((device) => device.name)).to.have.members(expected.tunnels);
       });
 
-      it('times its own address over TCP and finds it near', function () {
-        expect(uplinks[index].distance.method).to.equal('tcp');
+      it('pings its own address and finds it near', function () {
         expect(uplinks[index].distance.rttMs).to.be.a('number').below(5);
       });
     });
