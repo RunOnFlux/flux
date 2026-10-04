@@ -164,7 +164,11 @@ chmod 755 "$p"`);
     const unanswered = await client(PM2).waitForEvent('pm2:killTimeoutRaiseUnanswered', () => true, 240000, { afterId: mark });
     expect(unanswered.data, 'the kill timeout FluxOS boots with').to.deep.equal({ killTimeout: SHORT_MS });
     await client(PM2).waitForEvent('syncthing:ownersByNumber', () => true, 180000, { afterId: unanswered.id });
+
+    // The request still out fails once its pm2 command ends, and signals FluxOS.
     await endHungCommand();
+    const late = await client(PM2).waitForEvent('pm2:killTimeoutRaiseFailedLate', () => true, 60000, { afterId: unanswered.id });
+    expect(late.data, 'the kill timeout FluxOS runs with').to.deep.equal({ killTimeout: SHORT_MS });
 
     await holdsStill(restarts);
   });

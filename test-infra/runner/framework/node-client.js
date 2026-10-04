@@ -259,6 +259,7 @@ export function nodeClient(nodeNum) {
         'pm2:killTimeoutRaiseFailed',
         'pm2:killTimeoutUnchanged',
         'pm2:killTimeoutRaiseUnanswered',
+        'pm2:killTimeoutRaiseFailedLate',
         'pm2:registrationUnread',
         'system:packages-checked',
         'system:apt-command',

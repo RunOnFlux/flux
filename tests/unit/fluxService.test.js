@@ -3549,7 +3549,36 @@ describe('fluxService tests', () => {
       expect(await returnedBy(pending)).to.equal(true);
       sinon.assert.calledWithExactly(publishStub, 'pm2:killTimeoutRaiseUnanswered', { killTimeout: 1600 });
       sinon.assert.calledWithMatch(error, /pm2 did not restart FluxOS within 90000ms to raise its kill timeout from 1600/);
-      expect(process.listenerCount('SIGUSR2'), 'a SIGUSR2 listener left behind').to.equal(0);
+      expect(process.listenerCount('SIGUSR2'), 'listeners for the request still out').to.equal(1);
+      process.removeAllListeners('SIGUSR2');
+    });
+
+    it('records a restart that fails after its wait, and keeps running', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      runCmdStub.resolves({ stdout: registration(1600), error: null });
+      const error = sinon.stub(log, 'error');
+      const pending = fluxService.ensurePm2KillTimeout();
+      await returnedBy(pending);
+      await clock.tickAsync(fluxService.PM2_RESTART_WAIT_MS);
+      expect(await returnedBy(pending), 'fixture: the wait is over').to.equal(true);
+
+      process.emit('SIGUSR2', 'SIGUSR2');
+
+      sinon.assert.calledWithExactly(publishStub, 'pm2:killTimeoutRaiseFailedLate', { killTimeout: 1600 });
+      sinon.assert.calledWithMatch(error, /pm2 could not restart FluxOS to raise its kill timeout from 1600, after FluxOS had booted on with it/);
+      expect(process.listenerCount('SIGUSR2'), 'a listener left after the one failure the request can send').to.equal(0);
+    });
+
+    it('leaves no SIGUSR2 listener once the restart has failed within its wait', async () => {
+      runCmdStub.resolves({ stdout: registration(1600), error: null });
+      sinon.stub(log, 'error');
+      const pending = fluxService.ensurePm2KillTimeout();
+      await returnedBy(pending);
+
+      process.emit('SIGUSR2', 'SIGUSR2');
+
+      expect(await returnedBy(pending)).to.equal(true);
+      expect(process.listenerCount('SIGUSR2')).to.equal(0);
     });
 
     it('lists pm2\'s processes within its own time limit', async () => {

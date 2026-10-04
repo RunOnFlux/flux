@@ -256,7 +256,8 @@ const BOOT_ID = '/proc/sys/kernel/random/boot_id';
  * not resolve while the restart is under way. A restart that fails signals
  * this process with SIGUSR2, and one pm2 has not carried out within
  * PM2_RESTART_WAIT_MS is left to it: either way FluxOS boots on with the kill
- * timeout it has. A pm2 that does not list its processes within
+ * timeout it has. A restart left to pm2 that fails later still signals this
+ * process, and is recorded rather than ending it. A pm2 that does not list its processes within
  * PM2_LIST_TIMEOUT_MS is left alone.
  *
  * pm2 is asked once per machine boot: a FluxOS that finds its kill timeout
@@ -317,6 +318,11 @@ async function ensurePm2KillTimeout() {
   clearTimeout(unanswered);
   process.removeListener('SIGUSR2', failed);
   if (outcome === 'unanswered') {
+    // The request is still out, and SIGUSR2 with no listener ends the process.
+    process.once('SIGUSR2', () => {
+      log.error(`pm2 could not restart FluxOS to raise its kill timeout from ${killTimeout ?? "pm2's default"}, after FluxOS had booted on with it`);
+      fluxEventBus.publish('pm2:killTimeoutRaiseFailedLate', { killTimeout });
+    });
     log.error(`pm2 did not restart FluxOS within ${PM2_RESTART_WAIT_MS}ms to raise its kill timeout from ${killTimeout ?? "pm2's default"}; FluxOS boots with it`);
     fluxEventBus.publish('pm2:killTimeoutRaiseUnanswered', { killTimeout });
     return;
