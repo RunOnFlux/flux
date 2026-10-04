@@ -232,7 +232,8 @@ describe('two holders that can reach each other never both seed', function () {
   // A single-writer app's seed decision is the folder monitor's, and who runs the
   // app is the election's. Decided here and then run elsewhere, the decision is
   // withdrawn, so a holder reaching a cold start later does not stand aside for a
-  // node that will never seed.
+  // node that will never seed: the lowest address, standing aside for the holder's
+  // decision, seeds it as the primary FDM names.
   it('withdraws a seed decision of a single-writer app once the election names another node', async function () {
     this.timeout(600000);
     const identifier = (app) => `${app.name}_${app.name}`;
@@ -257,6 +258,17 @@ describe('two holders that can reach each other never both seed', function () {
       timeout: 120000, interval: 1000, label: 'the holder withdraws its seed decision',
     });
     expect(await seeding(), 'the seed decision the holder published').to.equal(undefined);
-    expect(await runners(app.name), 'a holder runs the app').to.deep.equal([]);
+
+    await waitHolding(async () => {
+      const now = await runners(app.name);
+      expect(now, `the holder runs ${app.name}, its seed decision withdrawn`).to.not.include(holder);
+      return now.includes(lowest);
+    }, { timeout: 120000, interval: 1000, label: `the lowest address seeds ${app.name} as FDM's primary` });
+    const from = await Promise.all(holders.map((i) => folderPasses(i, app.folder)));
+    await waitHolding(async () => {
+      expect(await runners(app.name), `who runs ${app.name}`).to.deep.equal([lowest]);
+      const passes = await Promise.all(holders.map((i) => folderPasses(i, app.folder)));
+      return passes.every((n, k) => n >= from[k] + SETTLE_PASSES);
+    }, { timeout: 120000, interval: 1000, label: `${SETTLE_PASSES} folder passes on every holder of ${app.name}` });
   });
 });
