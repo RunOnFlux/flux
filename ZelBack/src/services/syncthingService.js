@@ -12,7 +12,9 @@ const { AsyncLock } = require('./utils/asyncLock');
 const { FluxController } = require('./utils/fluxController');
 const fluxEventBus = require('./utils/fluxEventBus');
 const { appsFolderPath } = require('./utils/appConstants');
-const { passwdTable, groupTable } = require('./utils/numericIdTables');
+const {
+  passwdTable, groupTable, tablesSha256, TABLES_SHA256,
+} = require('./utils/numericIdTables');
 const volumeService = require('./utils/volumeService');
 const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
@@ -82,6 +84,13 @@ let sentinelStarted = false;
  * number. Stopping syncthing clears it, so each new process is announced.
  */
 let ownersByNumberAnnounced = false;
+
+/**
+ * Whether this process has checked the numeric id tables on disk. Only FluxOS
+ * writes them, so they are checked once on the sentinel's first pass and again
+ * before every launch of syncthing.
+ */
+let numericIdTablesChecked = false;
 
 /**
  * What this node knows about syncthing, which is three answers and not two:
@@ -1466,8 +1475,6 @@ async function stopSyncthingSentinel() {
 // and FluxOS makes of the one holding the app volumes where it is not.
 const NUMERIC_ID_SYNCTHING = 'mount --bind "$1" /etc/passwd && mount --bind "$2" /etc/group && shift 2 && exec syncthing "$@"';
 
-let numericIdTableContent = null;
-
 /**
  * Where this node keeps the numeric id tables syncthing is given.
  * @returns {{dir: string, passwd: string, group: string}}
@@ -1478,21 +1485,24 @@ function numericIdTablePaths() {
 }
 
 /**
- * Writes the numeric id tables where either is missing or differs.
- * @returns {Promise<{dir: string, passwd: string, group: string}>}
+ * Writes the numeric id tables unless both are already on disk as
+ * TABLES_SHA256 names them.
+ * @param {'start'|'launch'} moment The sentinel's first pass, or a launch of syncthing
+ * @returns {Promise<void>}
  */
-async function ensureNumericIdTables() {
-  numericIdTableContent ??= { passwd: passwdTable(), group: groupTable() };
+async function ensureNumericIdTables(moment) {
   const tables = numericIdTablePaths();
   await fs.mkdir(tables.dir, { recursive: true });
-  // eslint-disable-next-line no-restricted-syntax
-  for (const table of ['passwd', 'group']) {
-    // eslint-disable-next-line no-await-in-loop
-    const written = await fs.readFile(tables[table], 'utf8').catch(() => null);
-    // eslint-disable-next-line no-await-in-loop
-    if (written !== numericIdTableContent[table]) await fs.writeFile(tables[table], numericIdTableContent[table]);
+  const [passwd, group] = await Promise.all([
+    fs.readFile(tables.passwd, 'utf8').catch(() => null),
+    fs.readFile(tables.group, 'utf8').catch(() => null),
+  ]);
+  if (passwd === null || group === null || tablesSha256(passwd, group) !== TABLES_SHA256) {
+    await fs.writeFile(tables.passwd, passwdTable());
+    await fs.writeFile(tables.group, groupTable());
   }
-  return tables;
+  numericIdTablesChecked = true;
+  fluxEventBus.count('syncthing:idTablesChecked', moment);
 }
 
 /**
@@ -1623,7 +1633,11 @@ async function sharedAppVolumesMount() {
  * @returns {Promise<void>}
  */
 async function ensureSyncthingRunning(installed) {
-  const tables = await ensureNumericIdTables();
+  const tables = numericIdTablePaths();
+  // The owner view below compares syncthing's passwd and group with these
+  // files, so they exist before it is first read.
+  const checkedAtStart = !numericIdTablesChecked;
+  if (checkedAtStart) await ensureNumericIdTables('start');
   if (installed && (await probeSyncthing()).ok) {
     const view = await syncthingOwnerView();
     if (view === 'numeric') {
@@ -1652,6 +1666,8 @@ async function ensureSyncthingRunning(installed) {
     log.error(`Syncthing is not started: the mount holding ${appsFolderPath} propagates as '${propagation ?? 'unreadable'}', not shared, so app volumes mounted after syncthing starts would never reach it`);
     return;
   }
+
+  if (!checkedAtStart) await ensureNumericIdTables('launch');
 
   log.info('Spawning Syncthing instance...');
 
@@ -1698,6 +1714,7 @@ async function runSyncthingSentinel() {
   try {
     if (fluxosSupervisesSyncthing) {
       await ensureSyncthingRunning(installed);
+      fluxEventBus.count('syncthing:supervisionPass');
     }
 
     // The health signal is maintained here, deliberately, on every node type -
@@ -1777,6 +1794,14 @@ function setSyncthingUnmeasured() {
   lastHealthyProbeAt = null;
   lastReportedHealth = SYNCTHING_HEALTH.UNMEASURED;
   sentinelStarted = false;
+}
+
+/**
+ * Test helper: sets whether this process has checked the numeric id tables.
+ * @param {boolean} value
+ */
+function setNumericIdTablesChecked(value) {
+  numericIdTablesChecked = value;
 }
 
 /**
@@ -2626,6 +2651,7 @@ module.exports = {
   installSyncthingIdempotently,
   setSyncthingRunningState,
   setSyncthingUnmeasured,
+  setNumericIdTablesChecked,
   setOwnersByNumberAnnounced,
   resetDeviceIdCache,
   adjustSyncthing,

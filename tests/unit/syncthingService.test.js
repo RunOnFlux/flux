@@ -266,9 +266,10 @@ describe('syncthingService tests', () => {
       sinon.stub(fs, 'readFile').resolves().resolves(syncthingFixtures.configFile);
       // the apps folder the launch asks the propagation of
       sinon.stub(fs, 'stat').resolves({});
-      // the numeric id tables the launch writes
+      // the numeric id tables the sentinel writes
       sinon.stub(fs, 'mkdir').resolves();
       sinon.stub(fs, 'writeFile').resolves();
+      syncthingService.setNumericIdTablesChecked(false);
 
       fakeMeta = sinon.stub().resolves({
         status: 'success', data: `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`,
@@ -1107,9 +1108,10 @@ describe('syncthingService tests', () => {
       sinon.stub(fs, 'readFile').resolves().resolves(syncthingFixtures.configFile);
       // the apps folder the launch asks the propagation of
       sinon.stub(fs, 'stat').resolves({});
-      // the numeric id tables the launch writes
+      // the numeric id tables the sentinel writes
       sinon.stub(fs, 'mkdir').resolves();
       sinon.stub(fs, 'writeFile').resolves();
+      syncthingService.setNumericIdTablesChecked(false);
 
       fakeMeta = sinon.stub().resolves({
         status: 'success', data: `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`,
@@ -1467,7 +1469,9 @@ describe('syncthingService tests', () => {
         syncthingService.setOwnersByNumberAnnounced(false);
       });
 
-      it('writes the tables where they differ, and leaves them where they are already right', async () => {
+      const tableReads = () => fs.readFile.getCalls().filter((call) => String(call.args[0]).startsWith(`${TABLES}/`));
+
+      it('checks the tables on the first pass, and writes both where either differs', async () => {
         const { passwdTable, groupTable } = numericIdTables;
         fs.readFile.withArgs(`${TABLES}/passwd`, 'utf8').resolves(passwdTable());
         fs.readFile.withArgs(`${TABLES}/group`, 'utf8').resolves('stale');
@@ -1475,8 +1479,73 @@ describe('syncthingService tests', () => {
         await syncthingService.runSyncthingSentinel();
 
         sinon.assert.calledWith(fs.mkdir, TABLES, { recursive: true });
-        sinon.assert.calledOnce(fs.writeFile);
+        sinon.assert.calledTwice(fs.writeFile);
+        sinon.assert.calledWithExactly(fs.writeFile, `${TABLES}/passwd`, passwdTable());
         sinon.assert.calledWithExactly(fs.writeFile, `${TABLES}/group`, groupTable());
+        sinon.assert.calledWithExactly(countStub, 'syncthing:idTablesChecked', 'start');
+      });
+
+      it('leaves the tables as they are when both are already right', async () => {
+        const { passwdTable, groupTable } = numericIdTables;
+        fs.readFile.withArgs(`${TABLES}/passwd`, 'utf8').resolves(passwdTable());
+        fs.readFile.withArgs(`${TABLES}/group`, 'utf8').resolves(groupTable());
+
+        await syncthingService.runSyncthingSentinel();
+
+        expect(tableReads().length, 'the first pass reads both tables').to.equal(2);
+        sinon.assert.notCalled(fs.writeFile);
+      });
+
+      it('reads the tables on no later pass while syncthing runs with them', async () => {
+        await syncthingService.runSyncthingSentinel();
+        expect(tableReads().length, 'fixture: the first pass reads both tables').to.equal(2);
+        sinon.assert.calledWith(publishStub, 'syncthing:ownersByNumber');
+
+        await syncthingService.runSyncthingSentinel();
+        await syncthingService.runSyncthingSentinel();
+
+        expect(tableReads().length).to.equal(2);
+        sinon.assert.calledOnceWithExactly(countStub.withArgs('syncthing:idTablesChecked'), 'syncthing:idTablesChecked', 'start');
+        sinon.assert.calledThrice(countStub.withArgs('syncthing:supervisionPass'));
+      });
+
+      it('checks the tables again before a later launch, and writes them where they differ', async () => {
+        const clock = sinon.useFakeTimers();
+        const { passwdTable, groupTable } = numericIdTables;
+        fs.readFile.withArgs(`${TABLES}/passwd`, 'utf8').resolves(passwdTable());
+        fs.readFile.withArgs(`${TABLES}/group`, 'utf8').resolves(groupTable());
+        await syncthingService.runSyncthingSentinel();
+        expect(tableReads().length, 'fixture: the first pass reads both tables').to.equal(2);
+        sinon.assert.notCalled(spawnStub);
+        sinon.assert.notCalled(fs.writeFile);
+
+        fs.readFile.withArgs(`${TABLES}/group`, 'utf8').rejects(new Error('ENOENT'));
+        seen = ['8:7', '8:101'];
+        spawnStub.callsFake(() => {
+          seen = ['8:100', '8:101'];
+          return { unref: unrefStub };
+        });
+        const promise = syncthingService.runSyncthingSentinel();
+        await clock.tickAsync(5000);
+        await promise;
+
+        expect(tableReads().length, 'both tables read again for the launch').to.equal(4);
+        sinon.assert.calledWithExactly(fs.writeFile, `${TABLES}/group`, groupTable());
+        sinon.assert.callOrder(fs.writeFile, spawnStub);
+        sinon.assert.calledWithExactly(countStub, 'syncthing:idTablesChecked', 'launch');
+      });
+
+      it('checks the tables once on a first pass that launches syncthing', async () => {
+        const clock = sinon.useFakeTimers();
+        fakeMeta.rejects(Error('Fake Meta Error'));
+
+        const promise = syncthingService.runSyncthingSentinel();
+        await clock.tickAsync(5000);
+        await promise;
+
+        sinon.assert.calledOnce(spawnStub);
+        expect(tableReads().length).to.equal(2);
+        sinon.assert.calledOnceWithExactly(countStub.withArgs('syncthing:idTablesChecked'), 'syncthing:idTablesChecked', 'start');
       });
 
       it('announces a syncthing whose every process has the tables as its passwd and group, and leaves it running', async () => {

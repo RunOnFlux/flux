@@ -31,6 +31,8 @@ const { TABLES_SHA256 } = numericIdTables;
 //     one as soon as it can.
 //   - The mount that holds the app volumes has to be shared for a volume mounted
 //     later to reach syncthing's namespace. Where it is not, FluxOS makes it so.
+//   - Only FluxOS writes the tables, so it checks them on the sentinel's first
+//     pass and before each launch of syncthing, and on no pass between.
 //
 // The two holders give the same names different ids, as hosts do, so a name
 // that travelled would land on the wrong id. A third node holds nothing: a node
@@ -226,6 +228,59 @@ describe('a legacy node\'s syncthing takes the numeric id tables before any owne
       .to.include('shared');
     const views = await syncthingIdTables(client(LEGACY));
     expect(views.length && views.every((v) => v.tables === TABLES_SHA256), `the syncthing it started: ${JSON.stringify(views)}`).to.equal(true);
+    await waitFor(async () => (await getFolderStatus(client(LEGACY), folder))?.state === 'idle', {
+      timeout: 120000, interval: 2000, label: 'the folder is back',
+    });
+  });
+
+  it('checks the tables on its first pass and before a launch, and on no pass between', async function () {
+    this.timeout(900000);
+    const TABLES_DIR = 'D="$(getent passwd root | cut -d: -f6)/.config/syncthing/numeric-ids"; ';
+    const tablesOnDisk = async () => (await sh(LEGACY, `${TABLES_DIR}cat "$D/passwd" "$D/group" 2>/dev/null | sha256sum | cut -c1-64`)).stdout.trim();
+    const counters = async () => (await client(LEGACY).getTestCounters()) ?? {};
+    const checked = async (moment) => (await counters())['syncthing:idTablesChecked']?.[moment] ?? 0;
+    const passes = async () => (await counters())['syncthing:supervisionPass'] ?? 0;
+    const numeric = async () => {
+      const views = await syncthingIdTables(client(LEGACY));
+      return views.length > 0 && views.every((v) => v.tables === TABLES_SHA256);
+    };
+    expect(await numeric(), 'fixture: syncthing runs with the tables').to.equal(true);
+
+    // A FluxOS starting over a deleted table: its first pass writes it back, and
+    // the syncthing still holding the deleted file is replaced by one bound to it.
+    await crashFluxos(client(LEGACY).container, { hold: true });
+    const removed = await sh(LEGACY, `${TABLES_DIR}rm "$D/group" && test ! -e "$D/group"`);
+    expect(removed.exitCode, `fixture: ${removed.output}`).to.equal(0);
+    const restarted = client(LEGACY).getLastEventId();
+    await releaseFluxos(client(LEGACY).container);
+
+    await waitFor(async () => (await checked('start')) === 1, {
+      timeout: 300000, interval: 2000, label: 'the first pass checked the tables',
+    });
+    expect(await tablesOnDisk(), 'the tables the first pass left on disk').to.equal(TABLES_SHA256);
+    const replaced = await client(LEGACY).waitForEvent('syncthing:namesVisible', () => true, 240000, { afterId: restarted });
+    const reopened = await client(LEGACY).waitForEvent('syncthing:ownersByNumber', () => true, 240000, { afterId: replaced.id });
+    expect(reopened.id).to.be.greaterThan(replaced.id);
+    expect(await numeric(), 'the syncthing it started').to.equal(true);
+
+    // Ordinary passes leave the tables alone.
+    const passed = await passes();
+    await waitFor(async () => (await passes()) >= passed + 3, {
+      timeout: 400000, interval: 3000, label: 'three more sentinel passes',
+    });
+    expect(await checked('start'), 'checks on the first pass').to.equal(1);
+    expect(await checked('launch'), 'checks before a launch').to.equal(0);
+
+    // A launch checks them, and writes back what is missing.
+    const removedAgain = await sh(LEGACY, `${TABLES_DIR}rm "$D/passwd" && test ! -e "$D/passwd"`);
+    expect(removedAgain.exitCode, `fixture: ${removedAgain.output}`).to.equal(0);
+    const mark = client(LEGACY).getLastEventId();
+    await stopDaemon(client(LEGACY));
+    await client(LEGACY).waitForEvent('syncthing:ownersByNumber', () => true, 400000, { afterId: mark });
+    expect(await checked('launch'), 'checks before a launch').to.equal(1);
+    expect(await checked('start'), 'checks on the first pass').to.equal(1);
+    expect(await tablesOnDisk(), 'the tables the launch left on disk').to.equal(TABLES_SHA256);
+    expect(await numeric(), 'the syncthing it started').to.equal(true);
     await waitFor(async () => (await getFolderStatus(client(LEGACY), folder))?.state === 'idle', {
       timeout: 120000, interval: 2000, label: 'the folder is back',
     });
