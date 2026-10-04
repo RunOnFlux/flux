@@ -259,6 +259,7 @@ module.exports = {
     maxBlocksAllowance: 264000, // app can be registered up for a maximum of this blocks ~ 1 year
     postPonMaxBlocksAllowance: 1056000, // after PON fork, chain works 4x faster, so max blocks is 4x higher ~ 1 year
     daemonPONFork: 2020000, // block height where PON (Proof of Node) fork activates - chain works 4x faster after this block
+    expiredAppUpdatesIgnoredBlock: 3000000, // below the heights the tests use for the new rule, above the legacy ones
     blocksAllowanceInterval: 1000, // ap differences can be in 1000s - more than 1 day
     removeBlocksAllowanceIntervalBlock: 1625000, // after this block we can start having app updates without extending subscription - block expected in April 19th 2024
     ownerAppAllowance: 1000, // in case of node owner installing some app, the app will run for this amount of blocks

@@ -1071,4 +1071,25 @@ describe('appHashSyncService tests', () => {
     });
   });
 
+
+  describe('findPrevSpec', () => {
+    // eslint-disable-next-line global-require
+    const { findPrevSpec } = require('../../ZelBack/src/services/appMessaging/appHashSyncService');
+    const list = [
+      { hash: 'reg', height: 500, timestamp: 10 },
+      { hash: 'upd', height: 500, timestamp: 20 },
+      { hash: 'next', height: 600, timestamp: 5 },
+    ];
+
+    it('should find the message right before one in (height, timestamp) order', () => {
+      expect(findPrevSpec(list, 500, 20).hash).to.equal('reg');
+      expect(findPrevSpec(list, 600, 5).hash).to.equal('upd');
+      expect(findPrevSpec(list, 700).hash).to.equal('next');
+    });
+
+    it('should leave the whole block out when no timestamp is given', () => {
+      expect(findPrevSpec(list, 500)).to.equal(null);
+      expect(findPrevSpec(list, 600).hash).to.equal('upd');
+    });
+  });
 });

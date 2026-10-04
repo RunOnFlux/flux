@@ -865,6 +865,14 @@ class AppSyncOrchestrator {
     try {
       const result = await appHashSyncService.syncMissingHashes({ currentHeight: this.#lastBlockHeight });
       this.#nextHashRetryHeight = result.nextRetryHeight ?? (this.#lastBlockHeight + FALLBACK_RECHECK_BLOCKS);
+      // A retry stores the messages it resolves without promoting them, so nothing else applies
+      // them: a renewal fetched here would never reach globalAppsInformation, and the app would
+      // expire on this node alone. Rebuild from the log, as the initial sync does - not awaited,
+      // since removing the apps it ends waits a minute per app; it skips itself if one is running.
+      if (result.resolved > 0) {
+        registryManager.reindexGlobalAppsInformation()
+          .catch((error) => log.error(`AppSyncOrchestrator - Rebuild after hash retry failed: ${error.message}`));
+      }
       if (result.missing > 0) {
         log.info(`AppSyncOrchestrator - Hash retry: ${result.resolved} resolved, ${result.missing} remaining, next check at block ${this.#nextHashRetryHeight}`);
       }

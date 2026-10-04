@@ -8,6 +8,7 @@ const mongodb = require('mongodb');
 const config = require('config');
 
 const serviceHelper = require('./serviceHelper');
+const { appExpirationHeight, governingAppMessage } = require('./utils/appMessageChain');
 
 const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
@@ -590,6 +591,91 @@ function expireHeightExpr(heightField, expireField) {
 }
 
 /**
+ * The message in force for every app alive at scannedHeight, decided from the message log. Per
+ * app name it is appMessageChain.governingAppMessage - the same rule block-by-block promotion
+ * applies - not simply the newest message: an update that confirmed after its app had expired
+ * does not bring it back. Reads only the few fields that decision needs, one app at a time; the
+ * specifications themselves are fetched for the winners only (liveAppSpecsFromMessages).
+ * @param {mongodb.Db} appsGlobalDb
+ * @param {string} appsMessagesCol mongo collection name
+ * @param {number} scannedHeight
+ * @returns {AsyncGenerator<{hash: string, height: number}>}
+ */
+async function* liveAppMessagesInForce(appsGlobalDb, appsMessagesCol, scannedHeight) {
+  const collection = appsGlobalDb.collection(appsMessagesCol);
+  await collection.createIndex(
+    { 'appSpecifications.name': 1, height: -1 },
+    { name: 'sortAppMessagesForGroupBy' },
+  );
+  const cursor = collection
+    .find({}, {
+      projection: {
+        _id: 0, type: 1, hash: 1, height: 1, timestamp: 1, 'appSpecifications.name': 1, 'appSpecifications.expire': 1,
+      },
+      allowDiskUse: true,
+    })
+    .sort({ 'appSpecifications.name': 1, height: -1 });
+
+  const inForce = (messages) => {
+    const governing = governingAppMessage(messages);
+    if (!governing || !governing.appSpecifications) return null;
+    if (!(appExpirationHeight(governing.height, governing.appSpecifications.expire) > scannedHeight)) return null;
+    return governing;
+  };
+
+  let name;
+  let group = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for await (const message of cursor) {
+    const messageName = message.appSpecifications ? message.appSpecifications.name : undefined;
+    if (group.length && messageName !== name) {
+      const governing = inForce(group);
+      if (governing) yield governing;
+      group = [];
+    }
+    name = messageName;
+    group.push(message);
+  }
+  if (group.length) {
+    const governing = inForce(group);
+    if (governing) yield governing;
+  }
+}
+
+/**
+ * Every app alive at scannedHeight, as globalAppsInformation stores it: the specifications of
+ * the messages liveAppMessagesInForce picks, extended with their hash and height, fetched by
+ * hash in batches.
+ * @param {mongodb.Db} appsGlobalDb
+ * @param {string} appsMessagesCol mongo collection name
+ * @param {number} scannedHeight
+ * @returns {AsyncGenerator<object>}
+ */
+async function* liveAppSpecsFromMessages(appsGlobalDb, appsMessagesCol, scannedHeight) {
+  const collection = appsGlobalDb.collection(appsMessagesCol);
+  const batchSize = 500;
+  let batch = [];
+  const fetch = async (governing) => {
+    const docs = await collection
+      .find({ hash: { $in: governing.map((m) => m.hash) } }, { projection: { _id: 0, hash: 1, appSpecifications: 1 } })
+      .toArray();
+    const specs = new Map(docs.map((doc) => [doc.hash, doc.appSpecifications]));
+    return governing
+      .filter((m) => specs.has(m.hash))
+      .map((m) => ({ ...specs.get(m.hash), hash: m.hash, height: m.height }));
+  };
+  // eslint-disable-next-line no-restricted-syntax
+  for await (const governing of liveAppMessagesInForce(appsGlobalDb, appsMessagesCol, scannedHeight)) {
+    batch.push(governing);
+    if (batch.length >= batchSize) {
+      yield* await fetch(batch);
+      batch = [];
+    }
+  }
+  if (batch.length) yield* await fetch(batch);
+}
+
+/**
  *
  * @param {mongodb.Db} appsGlobalDb
  * @param {string} appsMessagesCol mongo collection name
@@ -603,32 +689,6 @@ async function isReindexAppsInformationRequired(
   appsInformationCol,
   scannedHeight,
 ) {
-  const appsMessagesPipeline = [
-    { $sort: { 'appSpecifications.name': 1, height: -1 } },
-    {
-      $group: {
-        _id: '$appSpecifications.name',
-        maxHeightMsg: { $first: '$$ROOT' },
-      },
-    },
-    {
-      $match: {
-        $expr: {
-          $gt: [
-            expireHeightExpr(
-              '$maxHeightMsg.height',
-              '$maxHeightMsg.appSpecifications.expire',
-            ),
-            scannedHeight,
-          ],
-        },
-      },
-    },
-    {
-      $count: 'count',
-    },
-  ];
-
   const appsInformationPipeline = [
     {
       $set: {
@@ -646,22 +706,13 @@ async function isReindexAppsInformationRequired(
   ];
 
   try {
-    await appsGlobalDb
-      .collection(appsMessagesCol)
-      .createIndex(
-        {
-          'appSpecifications.name': 1,
-          height: -1,
-        },
-        { name: 'sortAppMessagesForGroupBy' },
-      );
+    let liveFromMessages = 0;
+    // eslint-disable-next-line no-restricted-syntax, no-unused-vars
+    for await (const governing of liveAppMessagesInForce(appsGlobalDb, appsMessagesCol, scannedHeight)) {
+      liveFromMessages += 1;
+    }
+    const appsFromMessages = liveFromMessages ? { count: liveFromMessages } : null;
 
-    const messagesCursor = await aggregateInDatabase(
-      appsGlobalDb,
-      appsMessagesCol,
-      appsMessagesPipeline,
-      { returnArray: false },
-    );
     const informationCursor = await aggregateInDatabase(
       appsGlobalDb,
       appsInformationCol,
@@ -669,7 +720,6 @@ async function isReindexAppsInformationRequired(
       { returnArray: false },
     );
 
-    const appsFromMessages = await messagesCursor.next();
     const appsFromInformation = await informationCursor.next();
 
     if (!appsFromMessages) {
@@ -761,13 +811,11 @@ async function syncAppsInformationCollection(
 }
 
 /**
- * Drops the appsInformation collection and rebuilds it from appsMessages in a
- * single mongo aggregation + chunked bulk inserts. Also clears the install
- * errors collection (1-hour TTL anyway, no useful state to preserve through
- * a full rebuild).
+ * Drops the appsInformation collection and rebuilds it from appsMessages, one
+ * app at a time (liveAppSpecsFromMessages) + chunked bulk inserts.
  *
- * Filtering for currently-alive apps happens inside the aggregation via
- * expireHeightExpr (full PON fork rate adjustment), so there is no separate
+ * Only apps alive at scannedHeight are written, and per app the message in force
+ * is the one appMessageChain.governingAppMessage picks, so there is no separate
  * expire pass.
  *
  * @param {mongodb.Db} appsGlobalDb
@@ -804,46 +852,7 @@ async function reindexGlobalAppsInformation(
     { key: { hash: 1 }, name: 'query for getting zelapp based on last hash' },
   ]);
 
-  const pipeline = [
-    { $sort: { 'appSpecifications.name': 1, height: -1 } },
-    {
-      $group: {
-        _id: '$appSpecifications.name',
-        maxHeightMsg: { $first: '$$ROOT' },
-      },
-    },
-    {
-      $match: {
-        $expr: {
-          $gt: [
-            expireHeightExpr(
-              '$maxHeightMsg.height',
-              '$maxHeightMsg.appSpecifications.expire',
-            ),
-            scannedHeight,
-          ],
-        },
-      },
-    },
-    {
-      $replaceWith: {
-        $mergeObjects: [
-          '$maxHeightMsg.appSpecifications',
-          {
-            hash: '$maxHeightMsg.hash',
-            height: '$maxHeightMsg.height',
-          },
-        ],
-      },
-    },
-  ];
-
-  const resultCursor = await aggregateInDatabase(
-    appsGlobalDb,
-    globalAppsMessagesCol,
-    pipeline,
-    { returnArray: false },
-  );
+  const resultCursor = liveAppSpecsFromMessages(appsGlobalDb, globalAppsMessagesCol, scannedHeight);
 
   const appsToRemove = await syncAppsInformationCollection(
     resultCursor,

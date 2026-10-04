@@ -10,6 +10,8 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession } = require('../utils/enterpriseHelper');
 const { specificationFormatter, updateToLatestAppSpecifications } = require('../utils/appUtilities');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
+const { AsyncLock } = require('../utils/asyncLock');
+const appMessageChain = require('../utils/appMessageChain');
 const mountParser = require('../utils/mountParser');
 const {
   SIGTERM_EXPIRY_MS,
@@ -1484,41 +1486,25 @@ async function expireGlobalApplications() {
       },
     };
     const results = await dbHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
-    const appsToExpire = [];
-    results.forEach((appSpecs) => {
-      // Determine default expire based on whether app was registered after PON fork
-      const defaultExpire = appSpecs.height >= config.fluxapps.daemonPONFork
-        ? config.fluxapps.blocksLasting * 4
-        : config.fluxapps.blocksLasting;
-      const expireIn = appSpecs.expire || defaultExpire;
-      let actualExpirationHeight = appSpecs.height + expireIn;
-
-      // If app was registered before fork block and we are past fork block
-      // the chain moves 4x faster, so we need to adjust the expiration
-      if (appSpecs.height < config.fluxapps.daemonPONFork && explorerHeight >= config.fluxapps.daemonPONFork) {
-        const originalExpirationHeight = appSpecs.height + expireIn;
-        if (originalExpirationHeight > config.fluxapps.daemonPONFork) {
-          // Calculate blocks that were supposed to live after fork block
-          const blocksAfterFork = originalExpirationHeight - config.fluxapps.daemonPONFork;
-          // Multiply by 4 to account for 4x faster chain
-          const adjustedBlocksAfterFork = blocksAfterFork * 4;
-          // New expiration = fork block + adjusted blocks
-          actualExpirationHeight = config.fluxapps.daemonPONFork + adjustedBlocksAfterFork;
-        }
-      }
-
-      if (actualExpirationHeight < explorerHeight) { // registered/updated on height, expires in expireIn is lower than current height
-        appsToExpire.push(appSpecs);
-      }
-    });
-    const appNamesToExpire = appsToExpire.map((res) => res.name);
-    // remove appNamesToExpire apps from global database
+    // registered/updated on height, expires in expireIn is lower than current height
+    const appsToExpire = results.filter((appSpecs) => appMessageChain.appExpirationHeight(appSpecs.height, appSpecs.expire) < explorerHeight);
+    const appNamesToExpire = [];
+    // remove expired apps from global database
     // eslint-disable-next-line no-restricted-syntax
     for (const app of appsToExpire) {
-      log.info(`Expiring application ${app.name}`);
-      const queryDeleteApp = { name: app.name };
+      // Delete the spec that was read as expired, not whatever holds the name now. Block
+      // promotions run concurrently with this pass, and a renewal confirming right at the
+      // expiry block can be stored between the read above and this delete - deleting by name
+      // alone threw that paid renewal away on this node only.
       // eslint-disable-next-line no-await-in-loop
-      await dbHelper.findOneAndDeleteInDatabase(databaseApps, globalAppsInformation, queryDeleteApp, projectionApps);
+      const deleted = await dbHelper.findOneAndDeleteInDatabase(databaseApps, globalAppsInformation, { name: app.name, hash: app.hash }, projectionApps);
+      if (!deleted) {
+        log.info(`Application ${app.name} was updated while expiring, keeping it`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      log.info(`Expiring application ${app.name}`);
+      appNamesToExpire.push(app.name);
 
       const queryDeleteAppErrors = { name: app.name };
       // eslint-disable-next-line no-await-in-loop
@@ -1538,6 +1524,7 @@ async function expireGlobalApplications() {
     const appsInstalled = installedAppsRes.data;
     // remove any installed app which height is lower (or not present) but is not infinite app
     const appsToRemove = [];
+    const locallyExpired = [];
     appsInstalled.forEach((app) => {
       if (appNamesToExpire.includes(app.name)) {
         appsToRemove.push(app);
@@ -1545,33 +1532,36 @@ async function expireGlobalApplications() {
         appsToRemove.push(app);
       } else if (app.height === 0) {
         // do nothing, forever lasting local app
-      } else {
-        // Determine default expire based on whether app was registered after PON fork
-        const defaultExpire = app.height >= config.fluxapps.daemonPONFork
-          ? config.fluxapps.blocksLasting * 4
-          : config.fluxapps.blocksLasting;
-        const expireIn = app.expire || defaultExpire;
-        let actualExpirationHeight = app.height + expireIn;
-
-        // If app was registered before fork block and we are past fork block
-        // the chain moves 4x faster, so we need to adjust the expiration
-        if (app.height < config.fluxapps.daemonPONFork && explorerHeight >= config.fluxapps.daemonPONFork) {
-          const originalExpirationHeight = app.height + expireIn;
-          if (originalExpirationHeight > config.fluxapps.daemonPONFork) {
-            // Calculate blocks that were supposed to live after fork block
-            const blocksAfterFork = originalExpirationHeight - config.fluxapps.daemonPONFork;
-            // Multiply by 4 to account for 4x faster chain
-            const adjustedBlocksAfterFork = blocksAfterFork * 4;
-            // New expiration = fork block + adjusted blocks
-            actualExpirationHeight = config.fluxapps.daemonPONFork + adjustedBlocksAfterFork;
-          }
-        }
-
-        if (actualExpirationHeight < explorerHeight) {
-          appsToRemove.push(app);
-        }
+      } else if (appMessageChain.appExpirationHeight(app.height, app.expire) < explorerHeight) {
+        locallyExpired.push(app);
       }
     });
+    // The installed record is only refreshed from a renewal by reinstallOldApplications, every
+    // 16-36 blocks, so for a while after a renewal it still carries the old expiry. Ask the
+    // global spec before uninstalling: removing an app the network has just renewed deletes
+    // its data on this node for nothing.
+    if (locallyExpired.length) {
+      const globalSpecs = await dbHelper.findInDatabase(
+        databaseApps,
+        globalAppsInformation,
+        { name: { $in: locallyExpired.map((app) => app.name) } },
+        {
+          projection: {
+            _id: 0, name: 1, owner: 1, expire: 1, height: 1,
+          },
+        },
+      );
+      locallyExpired.forEach((app) => {
+        const globalSpec = globalSpecs.find((spec) => spec.name === app.name);
+        // the same owner's app, not a re-registration of its released name by someone else
+        if (globalSpec && globalSpec.owner === app.owner
+          && appMessageChain.appExpirationHeight(globalSpec.height, globalSpec.expire) >= explorerHeight) {
+          log.info(`Application ${app.name} is expired locally but renewed on the network, keeping it`);
+          return;
+        }
+        appsToRemove.push(app);
+      });
+    }
     const appsToRemoveNames = appsToRemove.map((app) => app.name);
 
     // remove appsToRemoveNames apps from locally running
@@ -1592,11 +1582,32 @@ async function expireGlobalApplications() {
   }
 }
 
+// Every write of a global app spec reads what is stored, then decides. Promotions run
+// concurrently (the block scanner schedules them without awaiting, and a message fetched from
+// peers is promoted on its own), so two of them for one app could both read, and the older could
+// write last - or, with the app missing, both upsert and leave two documents for one name.
+// Serialised here: each write is a couple of quick queries.
+const appSpecWriteLock = new AsyncLock();
+
+async function withAppSpecWriteLock(write) {
+  await appSpecWriteLock.enable();
+  try {
+    return await write();
+  } finally {
+    appSpecWriteLock.disable();
+  }
+}
+
 /**
  * To update app specifications.
  * @param {object} appSpecs App specifications.
  */
 async function insertAppSpecifications(appSpecs) {
+  // eslint-disable-next-line no-use-before-define
+  return withAppSpecWriteLock(() => insertAppSpecificationsUnlocked(appSpecs));
+}
+
+async function insertAppSpecificationsUnlocked(appSpecs) {
   try {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
@@ -1614,15 +1625,115 @@ async function insertAppSpecifications(appSpecs) {
   }
 }
 
+/**
+ * Whether a permanent message is the one that governs its app: the newest on chain, as the
+ * reindex takes it, with a same-block tie broken by timestamp as getPreviousAppSpecifications
+ * does. A message fetched late (missing-hash sync) must not end an app that a newer
+ * message already decided.
+ * @param {string} appName
+ * @param {string} hash
+ * @returns {Promise<boolean>}
+ */
+async function isNewestAppMessage(appName, hash) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const newest = await dbHelper.findOneInDatabase(
+    database,
+    globalAppsMessages,
+    { 'appSpecifications.name': appName },
+    { projection: { _id: 0, hash: 1 }, sort: { height: -1, timestamp: -1 } },
+  );
+  return Boolean(newest) && newest.hash === hash;
+}
+
+/**
+ * Whether an update confirmed at this block carries its app on, judged from the message log
+ * (appMessageChain) rather than from globalAppsInformation: whether this node still holds an app
+ * that expired just before the update confirmed depends on when its expiry pass last ran, so
+ * asking it split the network - some nodes applied a renewal that others had no app for.
+ * @param {string} appName
+ * @param {number} height block the update confirmed in
+ * @returns {Promise<boolean>}
+ */
+async function governingAppMessageFor(appName) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const messages = await dbHelper.findInDatabase(
+    database,
+    globalAppsMessages,
+    { 'appSpecifications.name': appName },
+    { projection: { _id: 0, type: 1, hash: 1, height: 1, timestamp: 1, 'appSpecifications.expire': 1 } },
+  );
+  return appMessageChain.governingAppMessage(messages);
+}
+
+async function isAppUpdateInForce(appName, height, timestamp) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const messages = await dbHelper.findInDatabase(
+    database,
+    globalAppsMessages,
+    { 'appSpecifications.name': appName },
+    { projection: { _id: 0, type: 1, height: 1, timestamp: 1, 'appSpecifications.expire': 1 } },
+  );
+  return appMessageChain.isUpdateInForce(messages, height, timestamp);
+}
+
+/**
+ * Refuses an update of an app that has expired, or that is so close to expiring that a paid
+ * update could confirm too late. Judged from the message log by the rule the network applies
+ * (appMessageChain), not from this node's globalAppsInformation, whose content depends on when
+ * its expiry pass and promotions last ran.
+ * @param {string} appName
+ * @param {number} daemonHeight current block
+ * @returns {Promise<object>} the governing message
+ * @throws {Error} when it may not be updated
+ */
+async function getAppForUpdate(appName, daemonHeight) {
+  // eslint-disable-next-line no-use-before-define
+  const governing = await governingAppMessageFor(appName);
+  const expire = governing && governing.appSpecifications ? governing.appSpecifications.expire : undefined;
+  if (!governing || appMessageChain.appExpirationHeight(governing.height, expire) < daemonHeight) {
+    throw new Error(`Flux App ${appName} does not exist or has expired, and cannot be updated`);
+  }
+  appMessageChain.assertUpdateConfirmsBeforeExpiry({ name: appName, height: governing.height, expire }, daemonHeight);
+  return governing;
+}
+
 async function updateAppSpecifications(appSpecs) {
+  // eslint-disable-next-line no-use-before-define
+  return withAppSpecWriteLock(() => updateAppSpecificationsUnlocked(appSpecs));
+}
+
+async function updateAppSpecificationsUnlocked(appSpecs) {
   try {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     const query = { name: appSpecs.name };
     const projection = { projection: { _id: 0 } };
     const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-    if (!appInfo || appInfo.height >= appSpecs.height) return true;
-    await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, { upsert: false });
+    if (appInfo && appInfo.height > appSpecs.height) return true;
+    if (!appInfo || appInfo.height === appSpecs.height) {
+      // Decided by the rule the rebuild applies (appMessageChain), so this node ends up where a
+      // rebuild would put it:
+      // - a same-block tie goes to the message the rule picks, not to whichever was processed
+      //   first;
+      // - an app missing here is stored only when this update is the message in force and the
+      //   app is alive now. That is an update confirmed in time but promoted after this node's
+      //   expiry pass had already removed the app it renewed (promotion can trail its block by
+      //   minutes). An update that confirmed after the expiry is never in force, so an expired
+      //   app stays expired.
+      // eslint-disable-next-line no-use-before-define
+      const governing = await governingAppMessageFor(appSpecs.name);
+      if (!governing || governing.hash !== appSpecs.hash) return true;
+      if (!appInfo) {
+        const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+        const currentHeight = syncStatus && syncStatus.data ? syncStatus.data.height : 0;
+        if (appMessageChain.appExpirationHeight(appSpecs.height, appSpecs.expire) < currentHeight) return true;
+        log.info(`updateAppSpecifications - ${appSpecs.name} was removed here before update ${appSpecs.hash}, in force since block ${appSpecs.height}, was promoted. Storing it.`);
+      }
+    }
+    await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, { upsert: !appInfo });
     fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, { name: appSpecs.name });
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsBroadcasts, { 'data.name': appSpecs.name });
@@ -1669,14 +1780,17 @@ async function reindexGlobalAppsInformation() {
       scannedHeightResult.generalScannedHeight,
     );
 
-    const appsToRemove = await dbHelper.reindexGlobalAppsInformation(
+    // Under the spec write lock: the rebuild empties the collection and refills it, and a
+    // promotion landing in between would find no app, or be overwritten by the refill.
+    // eslint-disable-next-line no-use-before-define
+    const appsToRemove = await withAppSpecWriteLock(() => dbHelper.reindexGlobalAppsInformation(
       appsGlobalDb,
       appsLocalDb,
       globalAppsMessages,
       globalAppsInformation,
       localAppsInformation,
       scannedHeight,
-    );
+    ));
 
     log.info('Reindexing of global application list finished.');
 
@@ -2073,37 +2187,14 @@ async function reindexGlobalAppsInformationAPI(req, res) {
  * @returns {Promise<boolean>} True if successful
  */
 async function rescanGlobalAppsInformation(height = 0, removeLastInformation = false) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    await dbHelper.dropCollection(database, globalAppsInformation).catch((error) => {
-      if (error.message !== 'ns not found') {
-        throw error;
-      }
-    });
-
-    const query = { height: { $gte: height } };
-    const projection = { projection: { _id: 0 } };
-    const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
-
-    if (removeLastInformation === true) {
-      await dbHelper.removeDocumentsFromCollection(database, globalAppsInformation, query);
-    }
-
-    // eslint-disable-next-line no-restricted-syntax
-    for (const message of results) {
-      const updateForSpecifications = message.appSpecifications;
-      updateForSpecifications.hash = message.hash;
-      updateForSpecifications.height = message.height;
-      // eslint-disable-next-line no-await-in-loop
-      await updateAppSpecsForRescanReindex(updateForSpecifications);
-    }
-    return true;
-  } catch (error) {
-    log.error(error);
-    throw error;
-  }
+  // Rebuilt from the whole message log by the same rule as the reindex. Replaying the messages
+  // from a height one by one let the newest message win, which brought back apps whose renewal
+  // confirmed after they had expired, and lost every app not updated since that height.
+  log.info(`rescanGlobalAppsInformation - rebuilding from the full message log (requested from ${height}, removeLastInformation ${removeLastInformation})`);
+  // eslint-disable-next-line no-use-before-define
+  const result = await reindexGlobalAppsInformation();
+  if (result !== true) throw new Error(result || 'Rescan could not run');
+  return true;
 }
 
 /**
@@ -2171,10 +2262,13 @@ async function rescanGlobalAppsInformationAPI(req, res) {
  * accurate source. Lives here (not in advancedWorkflows) so message verification
  * does not depend on the lifecycle layer — that was a require cycle.
  * @param {object} specifications App specifications.
- * @param {object} verificationTimestamp Message timestamp.
+ * @param {number} [beforeHeight] Block of the message being verified, when it is on chain
+ *   (promotion, replay). Omitted for a live submission, which builds on the newest message.
+ * @param {number} [beforeTimestamp] Its timestamp: a message in the same block signed earlier
+ *   (a registration paid in the same block as its first update) counts as before it.
  * @returns {object|null} App specifications or null if not found.
  */
-async function getPreviousAppSpecifications(specifications, verificationTimestamp) {
+async function getPreviousAppSpecifications(specifications, beforeHeight, beforeTimestamp) {
   // we may not have the application in global apps. This can happen when we receive the message
   // after the app has already expired AND we need to get message right before our message.
   // Thus using messages system that is accurate
@@ -2189,22 +2283,29 @@ async function getPreviousAppSpecifications(specifications, verificationTimestam
     'appSpecifications.name': specifications.name,
   };
   const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+  // The previous spec is the message right below ours ON CHAIN: the highest height under the
+  // block ours confirmed in (in that block, one signed before ours), or, for a live submission
+  // not yet on chain, the newest one. The
+  // same rule the bulk hash sync replays history with (appHashSyncService findPrevSpec), so a
+  // node that synced in bulk and one that followed live judge a message the same way.
+  //
+  // Never by timestamp. Messages confirm out of signing order (an update signed at 00:52 paid
+  // for after one signed at 01:01), and the timestamp is the signer's to choose: a former owner
+  // could backdate an update to before the transfer that took the app from them and be checked
+  // against their own old spec. Nor by the order Mongo returns documents in, or two nodes
+  // holding the same messages disagree on whether one is valid. A same-block tie goes to the
+  // later timestamp.
+  const validTypes = ['zelappregister', 'fluxappregister', 'zelappupdate', 'fluxappupdate'];
+  const below = beforeHeight === undefined || beforeHeight === null ? Infinity : beforeHeight;
+  const signedBefore = beforeTimestamp === undefined || beforeTimestamp === null ? -Infinity : beforeTimestamp;
   let latestPermanentRegistrationMessage;
   permanentAppMessage.forEach((foundMessage) => {
-    // has to be registration message
-    const validTypes = ['zelappregister', 'fluxappregister', 'zelappupdate', 'fluxappupdate'];
-    if (validTypes.includes(foundMessage.type)) {
-      if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= verificationTimestamp) {
-        // no message and found message is not newer than our message
-        latestPermanentRegistrationMessage = foundMessage;
-      } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) {
-        // we have some message and the message is quite new
-        if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp
-          && foundMessage.timestamp <= verificationTimestamp) {
-          // but our message is newer. foundMessage has to have lower timestamp than our new message
-          latestPermanentRegistrationMessage = foundMessage;
-        }
-      }
+    if (!validTypes.includes(foundMessage.type) || !appMessageChain.isBefore(foundMessage, below, signedBefore)) return;
+    const latest = latestPermanentRegistrationMessage;
+    if (!latest
+      || (foundMessage.height || 0) > (latest.height || 0)
+      || ((foundMessage.height || 0) === (latest.height || 0) && foundMessage.timestamp > latest.timestamp)) {
+      latestPermanentRegistrationMessage = foundMessage;
     }
   });
   if (!latestPermanentRegistrationMessage) {
@@ -2254,6 +2355,9 @@ module.exports = {
   checkApplicationRegistrationNameConflicts,
   insertAppSpecifications,
   updateAppSpecifications,
+  isNewestAppMessage,
+  isAppUpdateInForce,
+  getAppForUpdate,
   updateAppSpecsForRescanReindex,
   storeAppSpecificationInPermanentStorage,
   getAppSpecificationFromDb,

@@ -105,7 +105,7 @@ function policySpec({ name, owner = ORDINARY_OWNER, nodes = [], datacenter, ente
     // One, because one node is the whole eligible pool: the placement gate runs after the
     // validator and would refuse a larger count for a reason this suite is not about.
     // v8 may ask for one above minimumInstancesV8Block, and the harness chain starts at
-    // 2952000 (chain-start.cjs), well above it.
+    // 3060000 (chain-start.cjs), well above it.
     instances: 1,
     contacts: [],
     geolocation: [],

@@ -20,6 +20,7 @@ const { CLOSE_CODES } = require('../utils/FluxPeerSocket');
 const { appSyncEvents, EVENTS } = require('../utils/appSyncEvents');
 const { HASH_EXPIRY_BLOCKS, HASH_RETRY_BACKOFF } = require('../utils/appConstants');
 const log = require('../../lib/log');
+const { isBefore } = require('../utils/appMessageChain');
 const { invalidMessages } = require('../invalidMessages');
 const { Privilege, authOf } = require('../utils/privileges');
 
@@ -35,12 +36,16 @@ const EPHEMERAL_PEERS_COUNT = config.fluxapps.hashSyncEphemeralPeers ?? 5;
 
 let syncRunning = false;
 
-function findPrevSpec(specs, height) {
+// The message right before one in the log, in (height, timestamp) order - the order
+// getPreviousAppSpecifications and appMessageChain use, so a registration and an update paid in
+// one block are in the same order for a bulk-synced node as for a live one. specs is sorted by
+// (height, timestamp).
+function findPrevSpec(specs, height, timestamp = -Infinity) {
   let lo = 0;
   let hi = specs.length;
   while (lo < hi) {
     const mid = (lo + hi) >>> 1;
-    if (specs[mid].height < height) lo = mid + 1;
+    if (isBefore(specs[mid], height, timestamp)) lo = mid + 1;
     else hi = mid;
   }
   return lo > 0 ? specs[lo - 1] : null;
@@ -232,7 +237,8 @@ async function processMessages(messages, onProgress) {
   let skipped = 0;
   let failed = 0;
 
-  messages.sort((a, b) => a.height - b.height);
+  // (height, timestamp): the order findPrevSpec searches, and the one a same-block pair confirmed in
+  messages.sort((a, b) => (a.height - b.height) || ((a.timestamp || 0) - (b.timestamp || 0)));
   const filtered = messages.filter((app) => app.valueSat !== null);
 
   const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
@@ -280,7 +286,8 @@ async function processMessages(messages, onProgress) {
       const prevDocs = await appsGlobalDb.collection(globalAppsMessages)
         .find({ 'appSpecifications.name': { $in: [...updateNames] } })
         .project({ _id: 0 })
-        .sort({ height: 1 })
+        // a same-block tie in the order getPreviousAppSpecifications and appMessageChain use
+        .sort({ height: 1, timestamp: 1 })
         .toArray();
       for (const doc of prevDocs) {
         const name = doc.appSpecifications?.name;
@@ -341,7 +348,7 @@ async function processMessages(messages, onProgress) {
           );
         } else {
           const prevSpecsList = prevSpecsMap.get(appSpecFormatted.name);
-          const prevMsg = prevSpecsList ? findPrevSpec(prevSpecsList, height) : null;
+          const prevMsg = prevSpecsList ? findPrevSpec(prevSpecsList, height, messageTimestamp) : null;
           if (!prevMsg) {
             failed += 1;
             continue;
@@ -387,7 +394,10 @@ async function processMessages(messages, onProgress) {
         // Verified — add to batch and update map for subsequent messages
         permInserts.push(permMsg);
         if (!prevSpecsMap.has(appSpecFormatted.name)) prevSpecsMap.set(appSpecFormatted.name, []);
-        prevSpecsMap.get(appSpecFormatted.name).push(permMsg);
+        // kept sorted, as findPrevSpec searches it: a gap filled late lands mid-list, not at its end
+        const prevList = prevSpecsMap.get(appSpecFormatted.name);
+        const at = prevList.indexOf(findPrevSpec(prevList, height, messageTimestamp)) + 1;
+        prevList.splice(at, 0, permMsg);
 
         hashMarkOps.push({
           updateOne: { filter: { hash: appMessage.hash }, update: { $set: { message: true, messageNotFound: false } } },
@@ -758,6 +768,7 @@ async function resetHashSyncForUpgrade(currentHeight) {
 }
 
 module.exports = {
+  findPrevSpec,
   syncMissingHashes,
   getMissingHashes,
   resetHashSyncForUpgrade,

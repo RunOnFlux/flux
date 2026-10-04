@@ -159,6 +159,7 @@ describe('messageVerifier tests', () => {
     let updateAppSpecificationsStub;
     let updateOneInDatabaseStub;
     let verifierWithStubs;
+    let buildVerifier;
 
     beforeEach(() => {
       getPreviousAppSpecsStub = sinon.stub();
@@ -177,7 +178,7 @@ describe('messageVerifier tests', () => {
         axiosGet: sinon.stub().resolves(),
       };
 
-      verifierWithStubs = proxyquire('../../ZelBack/src/services/appMessaging/messageVerifier', {
+      buildVerifier = ({ tempMessage, dbHelperOverrides = {}, registryManagerOverrides = {} } = {}) => proxyquire('../../ZelBack/src/services/appMessaging/messageVerifier', {
         config: {
           ...configStub,
           database: {
@@ -195,7 +196,7 @@ describe('messageVerifier tests', () => {
           databaseConnection: sinon.stub().returns(mockDb),
           findOneInDatabase: sinon.stub()
             .onFirstCall().resolves(null) // checkAppMessageExistence — not in permanent
-            .onSecondCall().resolves({ // checkAppTemporaryMessageExistence — found in temp
+            .onSecondCall().resolves(tempMessage || { // checkAppTemporaryMessageExistence — found in temp
               type: 'fluxappupdate',
               version: 1,
               appSpecifications: { name: 'testapp', version: 8, owner: 'newOwner' },
@@ -206,6 +207,7 @@ describe('messageVerifier tests', () => {
           findInDatabase: sinon.stub().resolves([]),
           updateOneInDatabase: updateOneInDatabaseStub,
           insertOneToDatabase: sinon.stub().resolves(),
+          ...dbHelperOverrides,
         },
         '../serviceHelper': fullServiceHelperStub,
         '../../lib/log': logStub,
@@ -226,6 +228,9 @@ describe('messageVerifier tests', () => {
         '../appDatabase/registryManager': {
           updateAppSpecifications: updateAppSpecificationsStub,
           getPreviousAppSpecifications: getPreviousAppSpecsStub,
+          isNewestAppMessage: sinon.stub().resolves(true),
+          isAppUpdateInForce: sinon.stub().resolves(true),
+          ...registryManagerOverrides,
         },
         './messageStore': {
           storeAppPermanentMessage: storeAppPermanentMessageStub,
@@ -265,6 +270,7 @@ describe('messageVerifier tests', () => {
           validateAddress: sinon.stub().resolves({ data: { isvalid: true } }),
         },
       });
+      verifierWithStubs = buildVerifier();
     });
 
     it('should refuse promotion when signature re-verification fails (ownership change race)', async () => {
@@ -289,6 +295,91 @@ describe('messageVerifier tests', () => {
       await verifierWithStubs.checkAndRequestApp('hash123', 'txid123', 2000000, 200000000);
 
       expect(storeAppPermanentMessageStub.called).to.be.true;
+      // re-verified against what was below its own block, never by its signer's timestamp
+      sinon.assert.calledWith(getPreviousAppSpecsStub, sinon.match({ name: 'testapp' }), 2000000, sinon.match.number);
+    });
+
+    describe('an update that confirmed after its app expired', () => {
+      beforeEach(() => {
+        getPreviousAppSpecsStub.resolves({ owner: 'correctOwner', version: 8 });
+      });
+
+      it('should keep it in the log but never apply it', async () => {
+        const inForce = sinon.stub().resolves(false);
+        const verifier = buildVerifier({ registryManagerOverrides: { isAppUpdateInForce: inForce } });
+
+        const result = await verifier.checkAndRequestApp('hash123', 'txid123', 2000000, 200000000);
+
+        expect(result).to.be.true;
+        expect(storeAppPermanentMessageStub.called).to.be.true;
+        sinon.assert.calledWith(inForce, 'testapp', 2000000, sinon.match.number);
+        expect(updateAppSpecificationsStub.called).to.be.false;
+        expect(logStub.warn.lastCall.args[0]).to.include('after the app had expired');
+      });
+
+      it('should go on to price and apply an update made while the app was alive', async () => {
+        const inForce = sinon.stub().resolves(true);
+        const verifier = buildVerifier({ registryManagerOverrides: { isAppUpdateInForce: inForce } });
+
+        await verifier.checkAndRequestApp('hash123', 'txid123', 2000000, 200000000);
+
+        sinon.assert.calledWith(inForce, 'testapp', 2000000);
+        // reached the price check, which looks up the previous permanent message
+        expect(logStub.error.lastCall.args[0]).to.include('Last permanent message for testapp not found');
+      });
+    });
+
+    describe('an update that has expired by itself', () => {
+      // stored at 1999000 with expire 10: long expired at daemon height 2000000
+      const expiredUpdate = {
+        type: 'fluxappupdate',
+        version: 1,
+        appSpecifications: {
+          name: 'testapp', version: 8, owner: 'correctOwner', expire: 10,
+        },
+        hash: 'oldhash',
+        timestamp: Date.now(),
+        signature: 'sig123',
+      };
+      let findOneAndDeleteStub;
+
+      let findOne;
+
+      beforeEach(() => {
+        getPreviousAppSpecsStub.resolves({ owner: 'correctOwner', version: 8 });
+        findOneAndDeleteStub = sinon.stub().resolves();
+        findOne = sinon.stub();
+        findOne.onCall(0).resolves(null); // not in permanent storage
+        findOne.onCall(1).resolves(expiredUpdate); // found in temporary storage
+        findOne.onCall(2).resolves({ name: 'testapp' }); // still in globalAppsInformation
+        findOne.onCall(3).resolves(null); // not installed locally
+      });
+
+      it('should not end an app that a newer message keeps alive (old message fetched late)', async () => {
+        const isNewest = sinon.stub().resolves(false);
+        const verifier = buildVerifier({
+          dbHelperOverrides: { findOneInDatabase: findOne, findOneAndDeleteInDatabase: findOneAndDeleteStub },
+          registryManagerOverrides: { isNewestAppMessage: isNewest },
+        });
+
+        const result = await verifier.checkAndRequestApp('oldhash', 'txid123', 1999000, 200000000);
+
+        expect(result).to.be.true;
+        sinon.assert.calledWith(isNewest, 'testapp', 'oldhash');
+        expect(storeAppPermanentMessageStub.called).to.be.true;
+        expect(findOneAndDeleteStub.called).to.be.false;
+      });
+
+      it('should clean up the app when it is the newest message', async () => {
+        const verifier = buildVerifier({
+          dbHelperOverrides: { findOneInDatabase: findOne, findOneAndDeleteInDatabase: findOneAndDeleteStub },
+          registryManagerOverrides: { isNewestAppMessage: sinon.stub().resolves(true) },
+        });
+
+        await verifier.checkAndRequestApp('oldhash', 'txid123', 1999000, 200000000);
+
+        expect(findOneAndDeleteStub.calledOnce).to.be.true;
+      });
     });
   });
 

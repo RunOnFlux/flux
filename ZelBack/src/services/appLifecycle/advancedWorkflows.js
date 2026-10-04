@@ -3495,29 +3495,38 @@ async function updateAppGlobaly(params) {
   if (!appInfo) {
     throw new Error('Flux App update received but application to update does not exist!');
   }
+  // An update confirmed after its app expired is never applied (appMessageChain), so one that
+  // might be is refused now, before it is paid for.
+  // eslint-disable-next-line global-require
+  const registryManager = require('../appDatabase/registryManager');
+  await registryManager.getAppForUpdate(appSpecFormatted.name, daemonHeight);
   if (appInfo.version <= 3 && appSpecFormatted.version <= 3 && appInfo.repotag !== appSpecFormatted.repotag) {
     throw new Error('Flux App update of repotag is not allowed');
   }
-  const appOwner = appInfo.owner;
 
   const isEnterprise = Boolean(appSpecObj.version >= 8 && appSpecObj.enterprise);
   const toVerify = isEnterprise ? specificationFormatter(appSpecObj) : appSpecFormatted;
 
-  // appInfo comes from globalAppsInformation, where enterprise specs are stored with
-  // compose/contacts stripped to []. verifyAppMessageUpdateSignature expects the previous
-  // spec already decrypted (callers own the decryption) so its usersToExtend expire-only
-  // comparison sees the real compose/contacts. Decrypt here, mirroring the broadcast path's
-  // getPreviousAppSpecifications. Without this, enterprise subscription renewals signed by a
-  // usersToExtend address are rejected on secure nodes.
-  let previousAppSpec = appInfo;
-  if (appInfo.version >= 8 && appInfo.enterprise) {
-    try {
-      const decryptedPreviousSpec = await checkAndDecryptAppSpecs(appInfo, { daemonHeight: appInfo.height });
-      previousAppSpec = specificationFormatter(decryptedPreviousSpec);
-    } catch {
-      previousAppSpec = specificationFormatter(appInfo);
+  // Verify against the same previous spec every peer will use when this message reaches it
+  // (storeAppTemporaryMessage and the promotion re-check both call
+  // getPreviousAppSpecifications). Verifying against anything else lets this node accept a
+  // message its peers then refuse: the broadcast never comes back and the caller is told
+  // "Unable to update application on the network" with no reason. It returns the spec already
+  // decrypted, which verifyAppMessageUpdateSignature needs for the usersToExtend expire-only
+  // comparison of an enterprise app (globalAppsInformation holds compose/contacts stripped).
+  let previousAppSpec = await registryManager.getPreviousAppSpecifications(appSpecFormatted);
+  if (!previousAppSpec) {
+    previousAppSpec = appInfo;
+    if (appInfo.version >= 8 && appInfo.enterprise) {
+      try {
+        const decryptedPreviousSpec = await checkAndDecryptAppSpecs(appInfo, { daemonHeight: appInfo.height });
+        previousAppSpec = specificationFormatter(decryptedPreviousSpec);
+      } catch {
+        previousAppSpec = specificationFormatter(appInfo);
+      }
     }
   }
+  const appOwner = previousAppSpec.owner;
 
   // eslint-disable-next-line global-require
   const appMessaging = require('../appMessaging/messageVerifier');
@@ -3525,16 +3534,16 @@ async function updateAppGlobaly(params) {
 
   // Enforce version upgrade policy
   const { latestSupportedSpecVersion } = config.fluxapps;
-  if (appInfo.version !== appSpecFormatted.version && appSpecFormatted.version !== latestSupportedSpecVersion) {
+  if (previousAppSpec.version !== appSpecFormatted.version && appSpecFormatted.version !== latestSupportedSpecVersion) {
     throw new Error(
       `Application update rejected: Version changes are only allowed when updating to version ${latestSupportedSpecVersion} (current latest supported version). `
-      + `Current version: ${appInfo.version}, Attempted version: ${appSpecFormatted.version}. `
+      + `Current version: ${previousAppSpec.version}, Attempted version: ${appSpecFormatted.version}. `
       + `To update this application, please use version ${latestSupportedSpecVersion} specifications.`,
     );
   }
 
-  // Validate structural compatibility
-  await validateApplicationUpdateCompatibility(appSpecFormatted, appInfo);
+  // Validate structural compatibility, against the same previous spec as the peers
+  await validateApplicationUpdateCompatibility(appSpecFormatted, previousAppSpec);
 
   // placement feasibility applies to updates too: a narrowed geolocation,
   // raised instance count or grown sizing must not buy a spec the network

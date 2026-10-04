@@ -39,6 +39,92 @@ describe('registryManager tests', () => {
       const result = await registryManager.getPreviousAppSpecifications(specifications, verificationTimestamp);
       expect(result).to.be.null;
     });
+
+    // dragonwilds1790467903997: an extension signed at 00:52 was paid for at height 3003381,
+    // after an update signed at 01:01 had confirmed at 3003310. The spec in force is the one
+    // at 3003381, and every node must pick it whatever order Mongo returns the messages in.
+    const specLabelled = (description) => ({
+      version: 1,
+      name: 'OutOfOrderApp',
+      description,
+      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+      repotag: 'test/image:latest',
+      port: 30001,
+      containerPort: 7396,
+      enviromentParameters: [],
+      commands: [],
+      containerData: '/data',
+      cpu: 0.5,
+      ram: 500,
+      hdd: 5,
+      tiered: false,
+    });
+    const outOfOrderMessages = [
+      {
+        type: 'fluxappregister', height: 100, timestamp: 1000, appSpecifications: specLabelled('registration'),
+      },
+      {
+        type: 'fluxappupdate', height: 300, timestamp: 3000, appSpecifications: specLabelled('signed last, confirmed first'),
+      },
+      {
+        type: 'fluxappupdate', height: 371, timestamp: 2500, appSpecifications: specLabelled('signed first, confirmed last'),
+      },
+    ];
+
+    [
+      ['insertion order', outOfOrderMessages],
+      ['reverse order', [...outOfOrderMessages].reverse()],
+      ['shuffled order', [outOfOrderMessages[2], outOfOrderMessages[0], outOfOrderMessages[1]]],
+    ].forEach(([label, messages]) => {
+      it(`should pick the newest message on chain, not the newest signed (${label})`, async () => {
+        sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+        sinon.stub(dbHelper, 'findInDatabase').resolves(messages);
+
+        // a live submission builds on the newest message on chain
+        const result = await registryManager.getPreviousAppSpecifications({ name: 'OutOfOrderApp' });
+        expect(result.description).to.equal('signed first, confirmed last');
+      });
+    });
+
+    it('should check a message on chain against the one right below its block', async () => {
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findInDatabase').resolves(outOfOrderMessages);
+
+      // the renewal at 371 was below nothing but the 01:01 update at 300, whatever it was signed after
+      const atRenewal = await registryManager.getPreviousAppSpecifications({ name: 'OutOfOrderApp' }, 371);
+      expect(atRenewal.description).to.equal('signed last, confirmed first');
+      // re-checking the 300 update later must not see the renewal that confirmed after it
+      const atUpdate = await registryManager.getPreviousAppSpecifications({ name: 'OutOfOrderApp' }, 300);
+      expect(atUpdate.description).to.equal('registration');
+      expect(await registryManager.getPreviousAppSpecifications({ name: 'OutOfOrderApp' }, 100)).to.equal(null);
+    });
+
+    it('should see a registration paid in the same block as the update being checked', async () => {
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findInDatabase').resolves([
+        { type: 'fluxappregister', height: 500, timestamp: 10, appSpecifications: specLabelled('registration') },
+        { type: 'fluxappupdate', height: 500, timestamp: 20, appSpecifications: specLabelled('update') },
+      ]);
+
+      const previous = await registryManager.getPreviousAppSpecifications({ name: 'OutOfOrderApp' }, 500, 20);
+      expect(previous.description).to.equal('registration');
+      // without its timestamp the whole block is left out
+      expect(await registryManager.getPreviousAppSpecifications({ name: 'OutOfOrderApp' }, 500)).to.equal(null);
+    });
+
+    it('should not let a backdated update be checked against the spec before a transfer', async () => {
+      const alice = '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC';
+      const bob = '1Q9sjqQcR2jSFt8pdaF7fhv9ozqD4qLnHu';
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findInDatabase').resolves([
+        { type: 'fluxappregister', height: 100, timestamp: 1000, appSpecifications: { ...specLabelled('alice'), owner: alice } },
+        { type: 'fluxappupdate', height: 200, timestamp: 2000, appSpecifications: { ...specLabelled('transfer'), owner: bob } },
+      ]);
+
+      // nothing about a signer-chosen timestamp can reach back past the transfer
+      const previous = await registryManager.getPreviousAppSpecifications({ name: 'OutOfOrderApp' });
+      expect(previous.owner).to.equal(bob);
+    });
   });
 
   describe('getApplicationOwner tests', () => {
@@ -630,7 +716,295 @@ describe('registryManager tests', () => {
     });
   });
 
+  describe('expireGlobalApplications tests', () => {
+    // heights well past the PON fork, so expiry is plain height + expire
+    const tip = 3008000;
+    const { appsInformation } = config.database.appsglobal.collections;
+    const owner = '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC';
+    let installed;
+    let removeAppLocallyStub;
+
+    beforeEach(async () => {
+      const daemonDb = db.db(config.database.daemon.database);
+      await daemonDb.collection(config.database.daemon.collections.scannedHeight).deleteMany({});
+      await daemonDb.collection(config.database.daemon.collections.scannedHeight).insertOne({ generalScannedHeight: tip });
+      await database.collection(appsInformation).deleteMany({});
+      installed = [];
+      // eslint-disable-next-line global-require
+      sinon.stub(require('../../ZelBack/src/services/appQuery/appQueryService'), 'installedApps').callsFake(async () => ({ status: 'success', data: installed }));
+      // eslint-disable-next-line global-require
+      removeAppLocallyStub = sinon.stub(require('../../ZelBack/src/services/appLifecycle/appUninstaller'), 'removeAppLocally').resolves();
+      // eslint-disable-next-line global-require
+      sinon.stub(require('../../ZelBack/src/services/serviceHelper'), 'delay').resolves();
+    });
+
+    const spec = (name, hash, height, expire) => ({
+      name, owner, version: 3, hash, height, expire,
+    });
+
+    it('should expire an app past its expiry and keep a live one', async () => {
+      await database.collection(appsInformation).insertMany([spec('DeadApp', 'd', 3000000, 100), spec('LiveApp', 'l', 3000000, 88000)]);
+      installed = [spec('DeadApp', 'd', 3000000, 100), spec('LiveApp', 'l', 3000000, 88000)];
+
+      await registryManager.expireGlobalApplications();
+
+      const left = await database.collection(appsInformation).find({}).toArray();
+      expect(left.map((a) => a.name)).to.deep.equal(['LiveApp']);
+      sinon.assert.calledOnce(removeAppLocallyStub);
+      sinon.assert.calledWith(removeAppLocallyStub, 'DeadApp');
+    });
+
+    it('should keep a renewal stored between reading the expired spec and deleting it', async () => {
+      // the renewal confirmed right at the expiry block and replaced the spec mid-pass
+      await database.collection(appsInformation).insertOne(spec('RenewedApp', 'renewal', 3003381, 88072));
+      const realFind = dbHelper.findInDatabase;
+      sinon.stub(dbHelper, 'findInDatabase').callsFake(async (dbase, collection, query, options) => {
+        if (collection === appsInformation && Object.keys(query).length === 0) return [spec('RenewedApp', 'cancel', 3003310, 56)];
+        return realFind(dbase, collection, query, options);
+      });
+      installed = [spec('RenewedApp', 'cancel', 3003310, 56)];
+
+      await registryManager.expireGlobalApplications();
+
+      const left = await database.collection(appsInformation).findOne({ name: 'RenewedApp' });
+      expect(left.hash).to.equal('renewal');
+      sinon.assert.notCalled(removeAppLocallyStub);
+    });
+
+    it('should still uninstall it when the live spec is a re-registration of its name by someone else', async () => {
+      await database.collection(appsInformation).insertOne({ ...spec('TakenApp', 'newowner', 3007900, 88000), owner: '1Q9sjqQcR2jSFt8pdaF7fhv9ozqD4qLnHu' });
+      installed = [spec('TakenApp', 'old', 3003310, 56)];
+
+      await registryManager.expireGlobalApplications();
+
+      sinon.assert.calledOnce(removeAppLocallyStub);
+      sinon.assert.calledWith(removeAppLocallyStub, 'TakenApp');
+    });
+
+    it('should not uninstall an app whose installed record is stale but the network renewed', async () => {
+      await database.collection(appsInformation).insertOne(spec('RenewedApp', 'renewal', 3003381, 88072));
+      // reinstallOldApplications has not refreshed the installed record yet
+      installed = [spec('RenewedApp', 'cancel', 3003310, 56), spec('GoneApp', 'g', 3003310, 56)];
+
+      await registryManager.expireGlobalApplications();
+
+      sinon.assert.calledOnce(removeAppLocallyStub);
+      sinon.assert.calledWith(removeAppLocallyStub, 'GoneApp');
+    });
+  });
+
+  describe('rescanGlobalAppsInformation tests', () => {
+    it('should rebuild by the same rule as the reindex, so a late renewal does not bring an app back', async () => {
+      const { appsMessages, appsInformation } = config.database.appsglobal.collections;
+      const daemonDb = db.db(config.database.daemon.database);
+      await daemonDb.collection(config.database.daemon.collections.scannedHeight).deleteMany({});
+      await daemonDb.collection(config.database.daemon.collections.scannedHeight).insertOne({ generalScannedHeight: 3008000 });
+      await database.collection(appsMessages).deleteMany({});
+      await database.collection(appsInformation).deleteMany({});
+      // nothing installed here, so the rebuild has nothing to uninstall
+      await db.db(config.database.appslocal.database).collection(config.database.appslocal.collections.appsInformation).deleteMany({});
+      const message = (type, hash, height, expire) => ({
+        type, hash, height, timestamp: height, appSpecifications: { name: 'RescanApp', version: 3, owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', expire },
+      });
+      await database.collection(appsMessages).insertMany([
+        message('fluxappregister', 'reg', 3003000, 300),
+        message('fluxappupdate', 'late', 3003381, 88072),
+      ]);
+
+      await registryManager.rescanGlobalAppsInformation(3003000);
+
+      expect(await database.collection(appsInformation).findOne({ name: 'RescanApp' })).to.equal(null);
+    });
+  });
+
   describe('updateAppSpecifications tests', () => {
+    const { appsMessages } = config.database.appsglobal.collections;
+
+    async function storeMessages(name, messages) {
+      await database.collection(appsMessages).deleteMany({ 'appSpecifications.name': name });
+      await database.collection(config.database.appsglobal.collections.appsInformation).deleteMany({ name });
+      await database.collection(appsMessages).insertMany(messages.map((m) => ({
+        type: 'fluxappupdate', timestamp: m.height, ...m, appSpecifications: { name, version: 3, owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC' },
+      })));
+    }
+
+    it('should break a same-block tie by timestamp when deciding the newest message', async () => {
+      await storeMessages('SameBlockApp', [
+        { hash: 'first', height: 371, timestamp: 1000 },
+        { hash: 'second', height: 371, timestamp: 2000 },
+      ]);
+
+      expect(await registryManager.isNewestAppMessage('SameBlockApp', 'second')).to.equal(true);
+      expect(await registryManager.isNewestAppMessage('SameBlockApp', 'first')).to.equal(false);
+      expect(await registryManager.isNewestAppMessage('NoSuchApp', 'second')).to.equal(false);
+    });
+
+    it('should never let an older update promoted concurrently overwrite a newer one', async () => {
+      await database.collection(config.database.appsglobal.collections.appsInformation).deleteMany({ name: 'ConcurrentApp' });
+      await registryManager.insertAppSpecifications({
+        name: 'ConcurrentApp', version: 3, owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', height: 100, hash: 'h100',
+      });
+      const update = (height) => registryManager.updateAppSpecifications({
+        name: 'ConcurrentApp', version: 3, owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', height, hash: `h${height}`,
+      });
+      // Force the dangerous interleaving: each read of the stored spec waits (up to 100 ms) for
+      // the other one, so without serialisation both read height 100 before either writes, and
+      // the second - the older update - writes last.
+      const realFindOne = dbHelper.findOneInDatabase;
+      let reads = 0;
+      sinon.stub(dbHelper, 'findOneInDatabase').callsFake(async (dbase, collection, query, options) => {
+        const result = await realFindOne(dbase, collection, query, options);
+        if (collection === config.database.appsglobal.collections.appsInformation && query.name === 'ConcurrentApp') {
+          reads += 1;
+          const mine = reads;
+          for (let waited = 0; reads < 2 && waited < 100; waited += 5) {
+            // eslint-disable-next-line no-await-in-loop
+            await new Promise((resolve) => { setTimeout(resolve, 5); });
+          }
+          if (mine === 2) await new Promise((resolve) => { setTimeout(resolve, 20); });
+        }
+        return result;
+      });
+
+      await Promise.all([update(371), update(300)]);
+
+      const stored = await database.collection(config.database.appsglobal.collections.appsInformation).find({ name: 'ConcurrentApp' }).toArray();
+      expect(stored.map((a) => a.hash)).to.deep.equal(['h371']);
+    });
+
+    describe('an app this node no longer holds', () => {
+      const owner = '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC';
+      const store = async (name, messages) => {
+        await database.collection(appsMessages).deleteMany({ 'appSpecifications.name': name });
+        await database.collection(config.database.appsglobal.collections.appsInformation).deleteMany({ name });
+        await database.collection(appsMessages).insertMany(messages.map((m) => ({
+          timestamp: m.height, ...m, appSpecifications: { name, version: 3, owner, expire: m.expire },
+        })));
+      };
+      const stored = (name) => database.collection(config.database.appsglobal.collections.appsInformation).findOne({ name });
+
+      it('should not bring it back for an update that confirmed after it expired', async () => {
+        sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 3003400 } });
+        await store('LateApp', [
+          { type: 'fluxappregister', hash: 'reg', height: 3003000, expire: 300 },
+          { type: 'fluxappupdate', hash: 'late', height: 3003381, expire: 88072 },
+        ]);
+
+        await registryManager.updateAppSpecifications({
+          name: 'LateApp', version: 3, owner, height: 3003381, hash: 'late', expire: 88072,
+        });
+
+        expect(await stored('LateApp')).to.equal(null);
+      });
+
+      it('should store an update in force that was promoted after the expiry pass removed the app', async () => {
+        // confirmed at 3003290, 10 blocks before the app ran out; promoted at 3003400
+        sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 3003400 } });
+        await store('RenewedLateApp', [
+          { type: 'fluxappregister', hash: 'reg', height: 3003000, expire: 300 },
+          { type: 'fluxappupdate', hash: 'renewal', height: 3003290, expire: 88000 },
+        ]);
+
+        await registryManager.updateAppSpecifications({
+          name: 'RenewedLateApp', version: 3, owner, height: 3003290, hash: 'renewal', expire: 88000,
+        });
+
+        expect((await stored('RenewedLateApp')).hash).to.equal('renewal');
+      });
+
+      it('should not store an update a newer message superseded', async () => {
+        sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 3003400 } });
+        await store('SupersededApp', [
+          { type: 'fluxappregister', hash: 'reg', height: 3003000, expire: 88000 },
+          { type: 'fluxappupdate', hash: 'renewal', height: 3003290, expire: 88000 },
+          { type: 'fluxappupdate', hash: 'cancel', height: 3003300, expire: 1 },
+        ]);
+
+        await registryManager.updateAppSpecifications({
+          name: 'SupersededApp', version: 3, owner, height: 3003290, hash: 'renewal', expire: 88000,
+        });
+
+        expect(await stored('SupersededApp')).to.equal(null);
+      });
+
+      it('should settle a same-block tie by the rule, not by which update was processed first', async () => {
+        await store('TieApp', [
+          { type: 'fluxappregister', hash: 'reg', height: 3003000, expire: 88000 },
+          { type: 'fluxappupdate', hash: 'later', height: 3003500, timestamp: 2, expire: 88000 },
+          { type: 'fluxappupdate', hash: 'earlier', height: 3003500, timestamp: 1, expire: 88000 },
+        ]);
+        await database.collection(config.database.appsglobal.collections.appsInformation).insertOne({
+          name: 'TieApp', version: 3, owner, height: 3003500, hash: 'earlier', expire: 88000,
+        });
+        const update = (hash) => registryManager.updateAppSpecifications({
+          name: 'TieApp', version: 3, owner, height: 3003500, hash, expire: 88000,
+        });
+
+        await update('later');
+        expect((await stored('TieApp')).hash).to.equal('later');
+        await update('earlier');
+        expect((await stored('TieApp')).hash).to.equal('later');
+      });
+    });
+
+    describe('isAppUpdateInForce', () => {
+      // dragonwilds1790467903997: expire 56 at 3003310 ends the app at 3003366; the renewal
+      // confirmed at 3003381
+      const incident = [
+        { type: 'fluxappregister', hash: 'reg', height: 2985989, expire: 20160 },
+        { type: 'fluxappupdate', hash: 'paid', height: 2986064, expire: 108135 },
+        { type: 'fluxappupdate', hash: 'cancel', height: 3003260, expire: 100 },
+        { type: 'fluxappupdate', hash: 'cancel2', height: 3003310, expire: 56 },
+        { type: 'fluxappupdate', hash: 'late', height: 3003381, expire: 88072 },
+      ];
+
+      beforeEach(async () => {
+        await database.collection(appsMessages).deleteMany({ 'appSpecifications.name': 'IncidentApp' });
+        await database.collection(appsMessages).insertMany(incident.map((m) => ({
+          type: m.type, hash: m.hash, height: m.height, timestamp: m.height, appSpecifications: { name: 'IncidentApp', expire: m.expire },
+        })));
+      });
+
+      it('should refuse an update that confirmed after its app expired', async () => {
+        expect(await registryManager.isAppUpdateInForce('IncidentApp', 3003381)).to.equal(false);
+      });
+
+      it('should accept updates that confirmed while the app was alive, up to its last block', async () => {
+        expect(await registryManager.isAppUpdateInForce('IncidentApp', 3003310)).to.equal(true);
+        expect(await registryManager.isAppUpdateInForce('IncidentApp', 3003366)).to.equal(true);
+        expect(await registryManager.isAppUpdateInForce('IncidentApp', 3003367)).to.equal(false);
+      });
+
+      it('should refuse an update of an app that never existed', async () => {
+        expect(await registryManager.isAppUpdateInForce('NeverRegisteredApp', 3003381)).to.equal(false);
+      });
+    });
+
+    describe('getAppForUpdate', () => {
+      beforeEach(async () => {
+        // judged from the message log: registered at 3003260 for 1000 blocks, alive until 3004260
+        await database.collection(appsMessages).deleteMany({ 'appSpecifications.name': 'UpdatableApp' });
+        await database.collection(appsMessages).insertOne({
+          type: 'fluxappregister', hash: 'reg', height: 3003260, timestamp: 1, appSpecifications: { name: 'UpdatableApp', expire: 1000 },
+        });
+      });
+
+      it('should return the app while enough blocks are left for an update to confirm', async () => {
+        const governing = await registryManager.getAppForUpdate('UpdatableApp', 3004260 - 150);
+        expect(governing.hash).to.equal('reg');
+      });
+
+      it('should refuse an update that could confirm after the app expires', async () => {
+        await registryManager.getAppForUpdate('UpdatableApp', 3004260 - 149)
+          .then(() => expect.fail('should have refused'), (error) => expect(error.message).to.include('can no longer be updated or renewed'));
+      });
+
+      it('should refuse an update of an expired app', async () => {
+        await registryManager.getAppForUpdate('ExpiredGoneApp', 3004000)
+          .then(() => expect.fail('should have refused'), (error) => expect(error.message).to.include('does not exist or has expired'));
+      });
+    });
+
     it('should update app specifications', async () => {
       const initialSpecs = {
         name: 'UpdateTestApp',
