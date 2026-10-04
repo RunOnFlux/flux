@@ -824,18 +824,28 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       }),
     ];
 
-    // A device configured to auto-accept folders is set not to. See
-    // syncthingMonitorHelpers: FluxOS creates every folder itself.
-    const acceptingDevices = allDevices.filter(
-      (syncthingDevice) => syncthingDevice.autoAcceptFolders && syncthingDevice.deviceID !== localDeviceId
-        && !nonUsedDevices.includes(syncthingDevice),
-    );
-    cleanupPromises.push(...acceptingDevices.map(async (device) => {
-      const response = await syncthingService.adjustConfigDevices('patch', { autoAcceptFolders: false }, device.deviceID);
+    // A kept device is given the settings FluxOS configures a new one with, in
+    // one write: syncthing writes back the whole device a PATCH read, so two
+    // writes to one device can undo each other. It auto-accepts no folders
+    // (FluxOS creates every folder itself), and it is reached over TCP alone
+    // (see peerSyncthingAddresses).
+    const correctedDevices = allDevices
+      .filter((syncthingDevice) => syncthingDevice.deviceID !== localDeviceId && !nonUsedDevices.includes(syncthingDevice))
+      .map((syncthingDevice) => {
+        const patch = {};
+        if (syncthingDevice.autoAcceptFolders) patch.autoAcceptFolders = false;
+        const addresses = syncthingDevice.addresses ?? [];
+        const tcp = addresses.filter((address) => address.startsWith('tcp://'));
+        if (tcp.length && tcp.length !== addresses.length) patch.addresses = tcp;
+        return { deviceID: syncthingDevice.deviceID, patch };
+      })
+      .filter(({ patch }) => Object.keys(patch).length);
+    cleanupPromises.push(...correctedDevices.map(async ({ deviceID, patch }) => {
+      const response = await syncthingService.adjustConfigDevices('patch', patch, deviceID);
       if (response?.status === 'success') {
-        log.info(`syncthingAppsCore - Syncthing device ${device.deviceID} no longer auto-accepts folders`);
+        log.info(`syncthingAppsCore - Syncthing device ${deviceID} corrected: ${JSON.stringify(patch)}`);
       } else {
-        log.error(`Failed to stop device ${device.deviceID} auto-accepting folders: ${response?.data?.message || 'unknown error'}`);
+        log.error(`Failed to correct Syncthing device ${deviceID} with ${JSON.stringify(patch)}: ${response?.data?.message || 'unknown error'}`);
       }
     }));
 

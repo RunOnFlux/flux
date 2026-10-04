@@ -97,6 +97,20 @@ function sortRunningAppList(runningAppList) {
 }
 
 /**
+ * The addresses a peer's syncthing is reached at: TCP alone. Every node
+ * publishes its syncthing port for TCP, and the network's check of a node
+ * requires it. Over QUIC, syncthing learns that the peer which dialled a
+ * connection has stopped only at QUIC's idle timeout, 30 s, and until then
+ * this node reads the peer as running and its own turn as not yet due.
+ * @param {string} ip Peer IP
+ * @param {number} port Peer API port
+ * @returns {string[]}
+ */
+function peerSyncthingAddresses(ip, port) {
+  return [`tcp://${ip}:${port + 2}`];
+}
+
+/**
  * Build device configuration from locations
  * @param {Array} locations - App locations
  * @param {string} localSocketAddr - Current node socket address
@@ -122,7 +136,7 @@ async function buildDeviceConfiguration(
   const devicePromises = locations.map(async (appInstance) => {
     const ip = extractIp(appInstance.ip);
     const port = extractPort(appInstance.ip);
-    const addresses = [`tcp://${ip}:${port + 2}`, `quic://${ip}:${port + 2}`];
+    const addresses = peerSyncthingAddresses(ip, port);
     const name = `${ip}:${port}`;
 
     const deviceID = await getDeviceIDCached(name, deviceCache);

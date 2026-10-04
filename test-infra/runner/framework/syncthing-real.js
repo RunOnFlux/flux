@@ -80,6 +80,20 @@ export async function getConnectedDevices(client) {
     .map(([id]) => id);
 }
 
+// This node's live connections, each with the transport syncthing reports for it
+// (tcp-client, tcp-server, quic-client, quic-server, relay-...).
+export async function getConnections(client) {
+  const conns = await api(client, '/rest/system/connections');
+  return Object.entries(conns.connections || {})
+    .filter(([, c]) => c.connected)
+    .map(([deviceID, c]) => ({ deviceID, type: c.type }));
+}
+
+// The addresses this node's syncthing listens on.
+export async function getListenAddresses(client) {
+  return (await api(client, '/rest/config/options')).listenAddresses;
+}
+
 // Ask the daemon to look at the folder NOW. Without this a test that writes into a
 // volume waits on syncthing's own rescan interval, which is an hour by default - so
 // "the daemon has not noticed yet" reads identically to "the write never landed".

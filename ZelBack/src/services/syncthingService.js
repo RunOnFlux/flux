@@ -1285,7 +1285,8 @@ async function adjustSyncthing() {
       globalAnnounceEnabled: false,
       localAnnounceEnabled: false,
       natEnabled: false, // let flux handle upnp and nat port mapping
-      listenAddresses: [`tcp://:${myPort}`, `quic://:${myPort}`],
+      // TCP alone - see syncthingMonitorHelpers.peerSyncthingAddresses.
+      listenAddresses: [`tcp://:${myPort}`],
     };
     const newConfigDefaultFolders = {
       syncOwnership: true,

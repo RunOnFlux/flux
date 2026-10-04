@@ -10,7 +10,7 @@ import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, waitForUp } from '../framework/wait.js';
 import {
   isDaemonUp, isFolderSynced, getFolderConfig, getFolderStatus, scanFolder, statPath,
-  getFileInfo, syncthingIdTables, startDaemon, stopDaemon,
+  getFileInfo, syncthingIdTables, startDaemon, stopDaemon, getConnections, getListenAddresses,
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -241,6 +241,19 @@ describe('owners travel by number on real syncthing', function () {
     expect(record.global.platform.Unix, 'the owner the cluster agreed on').to.include({
       UID: 4101, GID: 4002, OwnerName: '4101', GroupName: '4002',
     });
+  });
+
+  it('connects every holder to the others over TCP alone', async function () {
+    this.timeout(120000);
+    for (const i of HOLDERS) {
+      // eslint-disable-next-line no-await-in-loop
+      const connections = await getConnections(client(i));
+      expect(connections.length, `fixture: node ${i} is connected to another holder`).to.be.greaterThan(0);
+      expect(connections.filter((c) => !c.type?.startsWith('tcp-')), `node ${i}'s connections not over TCP`).to.deep.equal([]);
+      // eslint-disable-next-line no-await-in-loop
+      const listening = await getListenAddresses(client(i));
+      expect(listening.filter((address) => !address.startsWith('tcp://')), `what node ${i}'s syncthing listens on besides TCP`).to.deep.equal([]);
+    }
   });
 
   it('carries a change of owner alone from the primary to every standby', async function () {

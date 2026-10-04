@@ -19,6 +19,7 @@ const chai = require('chai');
 const { expect } = chai;
 const proxyquire = require('proxyquire');
 const sinon = require('sinon');
+const config = require('config');
 const syncthingFixtures = require('./data/syncthingFixtures');
 
 // Fakes
@@ -866,6 +867,35 @@ describe('syncthingService tests', () => {
       await syncthingService.getDeviceId();
 
       expect(fakeMeta.callCount).to.equal(2);
+    });
+  });
+
+  describe('adjustSyncthing listen addresses', () => {
+    let patch;
+
+    beforeEach(() => {
+      syncthingService.getAxiosCache().reset();
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+      sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
+      const get = sinon.fake(async (reqPath) => {
+        if (reqPath === '/rest/config/options') return { data: syncthingFixtures.configOptions };
+        return { data: {} };
+      });
+      patch = sinon.fake.resolves({ data: {} });
+      sinon.stub(axios, 'create').returns({ get, patch, put: sinon.fake.resolves({ data: {} }) });
+    });
+
+    afterEach(() => {
+      syncthingService.getAxiosCache().reset();
+      sinon.restore();
+    });
+
+    it('has syncthing listen over TCP alone', async () => {
+      await syncthingService.adjustSyncthing();
+
+      const options = patch.getCalls().find((call) => call.args[0] === '/rest/config/options');
+      expect(options, 'the options written').to.not.equal(undefined);
+      expect(options.args[1].listenAddresses).to.deep.equal([`tcp://:${+config.server.apiport + 2}`]);
     });
   });
 

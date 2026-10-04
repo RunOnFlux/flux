@@ -745,8 +745,36 @@ describe('syncthingMonitor tests', () => {
         sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
       });
 
+      it('reaches a configured peer device over TCP alone', async function () {
+        aPeerDeviceIsKept({ deviceID: 'PEER-DEVICE', autoAcceptFolders: false, addresses: ['tcp://10.0.0.2:16129', 'quic://10.0.0.2:16129'] });
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        sinon.assert.calledWith(syncthingServiceMock.adjustConfigDevices, 'patch', { addresses: ['tcp://10.0.0.2:16129'] }, 'PEER-DEVICE');
+      });
+
+      it('corrects a peer device in one write when it auto-accepts and is reached over QUIC', async function () {
+        aPeerDeviceIsKept({ deviceID: 'PEER-DEVICE', autoAcceptFolders: true, addresses: ['tcp://10.0.0.2:16129', 'quic://10.0.0.2:16129'] });
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        const patches = syncthingServiceMock.adjustConfigDevices.getCalls().filter((call) => call.args[0] === 'patch' && call.args[2] === 'PEER-DEVICE');
+        expect(patches.map((call) => call.args[1])).to.deep.equal([{ autoAcceptFolders: false, addresses: ['tcp://10.0.0.2:16129'] }]);
+      });
+
+      it('leaves a peer device with no TCP address as it is', async function () {
+        aPeerDeviceIsKept({ deviceID: 'PEER-DEVICE', autoAcceptFolders: false, addresses: ['dynamic'] });
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'patch', sinon.match.any, 'PEER-DEVICE');
+      });
+
       it('writes nothing for a peer device that does not auto-accept', async function () {
-        aPeerDeviceIsKept({ deviceID: 'PEER-DEVICE', autoAcceptFolders: false });
+        aPeerDeviceIsKept({ deviceID: 'PEER-DEVICE', autoAcceptFolders: false, addresses: ['tcp://10.0.0.2:16129'] });
 
         monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
         await clock.tickAsync(100);
