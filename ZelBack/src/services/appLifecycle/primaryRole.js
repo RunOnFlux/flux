@@ -223,8 +223,13 @@ function heldByOperation(identifier) {
  * as this node's own version and the next primary pulls it.
  *
  * A folder found sending and paused is a primary returning from a stop, whose
- * syncthing came back paused: nothing written here since has gone out. What the
- * other holders are doing with the component decides whether it may:
+ * syncthing came back paused: nothing written here since has gone out. It comes
+ * back paused after a planned shutdown, which pauses every folder, and wherever
+ * syncthing starts with `--paused`: FluxOS starts it so on a legacy node, and the
+ * ArcaneOS unit from the release that passes it. An ArcaneOS syncthing started
+ * without it after a crash sends before FluxOS runs, and what it sent is not
+ * this decision's to discard. What the other holders are doing with the
+ * component decides whether it may:
  *
  *   another holder runs it     | discarded: receives, unpaused, in one write,
  *                              | unscanned; the standby revert removes what
