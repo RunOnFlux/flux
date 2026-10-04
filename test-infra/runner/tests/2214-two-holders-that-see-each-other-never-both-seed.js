@@ -170,7 +170,10 @@ describe('two holders that can reach each other never both seed', function () {
 
     await settlesOnTheHolder(app);
     expect(await decisions(holder, app.folder, 'seeded'), 'the holder recorded its seed').to.be.at.least(1);
-    expect(await decisions(lowest, app.folder, 'yieldedToRank'), 'the lowest address yielded to the holder\'s claim').to.be.at.least(1);
+    // Released together, the lowest address reads the holder either still deciding
+    // or already decided; the two cases after this one hold each order.
+    const yielded = await decisions(lowest, app.folder, 'yieldedToRank') + await decisions(lowest, app.folder, 'yieldedToDecided');
+    expect(yielded, 'the lowest address yielded to the holder').to.be.at.least(1);
     expect(await decisions(lowest, app.folder, 'seeded'), 'the lowest address recorded a seed').to.equal(0);
   });
 
