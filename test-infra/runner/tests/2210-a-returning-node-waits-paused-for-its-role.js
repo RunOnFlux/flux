@@ -17,6 +17,7 @@ import {
   waitForDaemonEvent, folderSaved, itemFinished,
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
+import { electMaster, clearMaster } from '../framework/fdm-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // fleet: 3
@@ -39,6 +40,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //     Once no other holder runs the component, what it wrote goes out. Each
 //     holder's calls to the other reach the third node instead, which is what
 //     keeps either from judging the other.
+//   - A primary that crashed returns paused while FDM still names a node that
+//     does not run the component. The election, not only the folder monitor,
+//     asks every other holder, finds the one that took over, and discards.
 //
 // Throughout, at most one node runs the component.
 
@@ -413,5 +417,52 @@ describe('a returning node waits paused until its role is decided', function () 
       const primary = await Promise.any(HOLDERS.map((i) => becamePrimary(i, marks[i], 600000).then(() => i)));
       expect(await readPath(client(primary), `${data}/written-while-down.txt`), 'the write on the node that runs the app').to.equal('sent once it is safe');
     });
+  });
+
+  it('discards from the election too, which asks every other holder and not only the node FDM names', async function () {
+    this.timeout(900000);
+    await waitFor(async () => (await runners()).length === 1, {
+      timeout: 300000, interval: 2000, label: 'fixture: one node runs the component',
+    });
+    const [primary] = await runners();
+    const [standby] = HOLDERS.filter((i) => i !== primary);
+    const standbyMark = client(standby).getLastEventId();
+
+    // The whole machine, with no announcement: the process, the container and the
+    // daemon.
+    await crashFluxos(client(primary).container, { hold: true });
+    await execInContainer(client(primary).container, `docker kill flux${identifier}`);
+    await stopDaemon(client(primary));
+    await becamePrimary(standby, standbyMark, 600000);
+    await writeAsApp(primary, 'written-before-fdm-caught-up.txt', 'never sent');
+
+    // FDM names a node that does not run the component. The node that took over
+    // does not act on it, and the returning node's folder monitor is held from its
+    // start, so only its election decides.
+    await client(standby).holdCheckpoint('masterSlave:beforeDecision', identifier);
+    try {
+      await electMaster(appName, client(BYSTANDER).ip);
+      // On Arcane the OS starts syncthing, with --paused; on a legacy node FluxOS
+      // starts it so.
+      if (primary === ARCANE) await startDaemon(client(ARCANE), { paused: true });
+      const returned = client(primary).getLastEventId();
+      await releaseFluxos(client(primary).container, {
+        checkpointHolds: [{ name: 'syncthing:beforeStandbyHold', key: folder }],
+      });
+
+      await fluxEvent(primary, 'checkpoint:held', (d) => d.name === 'syncthing:beforeStandbyHold' && d.key === folder, returned);
+      const decision = await fluxEvent(primary, 'primaryRole:returned', () => true, returned);
+      expect(decision.data, 'what the returning node\'s election decided').to.deep.equal({ identifier, outcome: 'discarded' });
+      await client(primary).releaseCheckpoint('syncthing:beforeStandbyHold', folder);
+
+      await fluxEvent(primary, 'syncthing:localChangesReverted', (d) => d.folder === folder && d.files > 0, returned);
+      expect(await readPath(client(primary), `${data}/written-before-fdm-caught-up.txt`), 'the unsent write on the returned node').to.equal(null);
+      expect(await holdsValidVersion(client(standby), folder, 'appdata/written-before-fdm-caught-up.txt'), 'a version of the unsent write on the node that took over').to.equal(false);
+      expect(await runners(), 'the writer').to.deep.equal([standby]);
+    } finally {
+      await clearMaster(appName);
+      await client(standby).releaseCheckpoint('masterSlave:beforeDecision', identifier);
+      await client(primary).releaseAllCheckpoints().catch(() => {});
+    }
   });
 });
