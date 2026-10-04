@@ -46,9 +46,12 @@ async function getRegistryStatus(_req, res) {
     const dbopen = dbHelper.databaseConnection();
     const appsDatabase = dbopen.db(config.database.appsglobal.database);
     const daemonDatabase = dbopen.db(config.database.daemon.database);
+    // The totals count the _id index rather than reading every document; the
+    // missing count is answered by the message index.
+    const wholeCollection = { hint: { _id: 1 } };
     const [apps, transactions, missingMessages] = await Promise.all([
-      dbHelper.countInDatabase(appsDatabase, globalAppsInformation, {}),
-      dbHelper.countInDatabase(daemonDatabase, appsHashesCollection, {}),
+      dbHelper.countInDatabase(appsDatabase, globalAppsInformation, {}, wholeCollection),
+      dbHelper.countInDatabase(daemonDatabase, appsHashesCollection, {}, wholeCollection),
       dbHelper.countInDatabase(daemonDatabase, appsHashesCollection, { message: false }),
     ]);
     const status = {

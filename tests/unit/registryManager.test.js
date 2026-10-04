@@ -263,6 +263,16 @@ describe('registryManager tests', () => {
       expect(result.data.missingMessages).to.equal(0);
     });
 
+    it('counts both totals from the _id index rather than reading every document', async () => {
+      const count = sinon.spy(dbHelper, 'countInDatabase');
+
+      await registryManager.getRegistryStatus(undefined, undefined);
+
+      const totals = count.getCalls().filter((call) => Object.keys(call.args[2]).length === 0);
+      expect(totals.map((call) => call.args[1])).to.have.members([infoCollection, hashesCollection]);
+      totals.forEach((call) => expect(call.args[3]).to.deep.equal({ hint: { _id: 1 } }));
+    });
+
     it('reports a database failure as an error, not as counts', async () => {
       sinon.stub(dbHelper, 'databaseConnection').throws(new Error('Database error'));
       const res = { json: sinon.fake((param) => param) };
