@@ -33,13 +33,6 @@ const syncthingServiceMock = {
     const entry = syncthingService.nonFileEntryBytesForVersion(this.syncthingVersion);
     return syncthingService.statusInFileBytes(await this.getDbStatus(folder), entry);
   },
-  async getDbCompletionInFileBytes({ folder, device }) {
-    const entry = syncthingService.nonFileEntryBytesForVersion(this.syncthingVersion);
-    const completion = await this.getDbCompletion({ folder, device });
-    // A test about a peer's completion need not say what the folder holds.
-    const status = (await this.getDbStatus(folder)) || {};
-    return syncthingService.completionInFileBytes(completion, status, entry);
-  },
 };
 
 // The device cache the veto reads, owned by this suite and cleared between
@@ -114,6 +107,7 @@ const peerHoldsTheData = () => {
     folders: [{ id: 'test-app', type: 'receiveonly', devices: [{ deviceID: 'LOCAL-DEVICE' }, { deviceID: 'PEER-DEVICE' }] }],
   });
   syncthingServiceMock.getDbCompletion.resolves({ completion: 100, globalBytes: 4096, remoteState: 'valid' });
+  syncthingServiceMock.getDbStatus.resolves({ globalBytes: 4096, globalFiles: 1, inSyncBytes: 0, state: 'idle' });
 };
 
 // an entry as syncthing's /rest/db/localchanged returns it. Directories carry the
@@ -1975,7 +1969,7 @@ describe('syncthingFolderStateMachine tests', () => {
         { ip: '10.0.0.2:16127', runningSince: 2000, broadcastedAt: 1000 },
       ]);
       syncthingServiceMock.getDbStatus.resolves({
-        globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 1,
+        globalBytes: 4096, globalFiles: 1, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 1,
       });
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
@@ -2255,7 +2249,9 @@ describe('syncthingFolderStateMachine tests', () => {
         { ip: '10.0.0.0:16127', runningSince: null, broadcastedAt: 900 },
         { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
       ]);
-      syncthingServiceMock.getDbStatus.resolves({ globalBytes: 1000, inSyncBytes: 500, state: 'idle' });
+      // The folder's total is the one figure every peer's completion carries.
+      const globalBytes = completionData?.globalBytes ?? 1000;
+      syncthingServiceMock.getDbStatus.resolves({ globalBytes, inSyncBytes: Math.min(500, globalBytes), state: 'idle' });
       syncthingServiceMock.getConfig = sinon.stub().resolves({ folders: [{ id: 'test-app', type: 'receiveonly', devices: [{ deviceID: 'DEVICE123' }] }] });
       syncthingServiceMock.getDbCompletion = sinon.stub().resolves(completionData ?? { completion: 100, globalBytes: 1000, remoteState: 'valid' });
     }
@@ -3049,6 +3045,10 @@ describe('syncthingFolderStateMachine tests', () => {
   });
 
   describe('findSyncedPeer skips a peer the caller rules out', () => {
+    beforeEach(() => {
+      syncthingServiceMock.getDbStatus.resolves({ globalBytes: 4096, globalFiles: 1 });
+    });
+
     it('passes over an excluded peer and accepts the next full one', async () => {
       syncthingServiceMock.getConfig.resolves({
         folders: [{ id: 'fluxappone', devices: [{ deviceID: 'LOCAL-DEVICE' }, { deviceID: 'LEAVING' }, { deviceID: 'STAYING' }] }],
@@ -3067,6 +3067,64 @@ describe('syncthingFolderStateMachine tests', () => {
       syncthingServiceMock.getDbCompletion.resolves({ completion: 100, globalBytes: 4096, remoteState: 'valid' });
 
       expect(await stateMachine.findSyncedPeer('fluxappone', { exclude: new Set(['LEAVING']) })).to.equal(null);
+    });
+  });
+
+  // What the folder holds is one figure for the cluster; only completion and
+  // connection differ by peer.
+  describe('findSyncedPeer reads the folder once and each peer\'s completion', () => {
+    const peers = (...ids) => syncthingServiceMock.getConfig.resolves({
+      folders: [{ id: 'fluxappone', devices: [{ deviceID: 'LOCAL-DEVICE' }, ...ids.map((deviceID) => ({ deviceID }))] }],
+    });
+    const completionOf = (byPeer) => syncthingServiceMock.getDbCompletion.callsFake(async ({ device }) => byPeer[device]);
+
+    beforeEach(() => {
+      syncthingServiceMock.getDbStatus.resolves({ globalBytes: 4096, globalFiles: 1 });
+    });
+
+    it('reads the folder\'s status once for a walk over several peers', async () => {
+      peers('GONE', 'BEHIND', 'FULL');
+      completionOf({
+        GONE: { completion: 100, globalBytes: 4096, remoteState: 'notSharing' },
+        BEHIND: { completion: 40, globalBytes: 4096, remoteState: 'valid' },
+        FULL: { completion: 100, globalBytes: 4096, remoteState: 'valid' },
+      });
+
+      const peer = await stateMachine.findSyncedPeer('fluxappone');
+
+      expect(peer).to.deep.equal({ deviceID: 'FULL', globalBytes: 4096 });
+      sinon.assert.calledOnce(syncthingServiceMock.getDbStatus);
+      sinon.assert.calledThrice(syncthingServiceMock.getDbCompletion);
+    });
+
+    it('asks about no peer when the folder holds no file bytes', async () => {
+      syncthingServiceMock.getDbStatus.resolves({ globalBytes: 0 });
+      peers('FULL');
+      completionOf({ FULL: { completion: 100, globalBytes: 0, remoteState: 'valid' } });
+
+      expect(await stateMachine.findSyncedPeer('fluxappone')).to.equal(null);
+      sinon.assert.notCalled(syncthingServiceMock.getDbCompletion);
+    });
+
+    it('stops at the first peer that is complete and connected', async () => {
+      peers('FIRST', 'SECOND');
+      completionOf({
+        FIRST: { completion: 100, globalBytes: 4096, remoteState: 'valid' },
+        SECOND: { completion: 100, globalBytes: 4096, remoteState: 'valid' },
+      });
+
+      const peer = await stateMachine.findSyncedPeer('fluxappone');
+
+      expect(peer.deviceID).to.equal('FIRST');
+      sinon.assert.calledOnce(syncthingServiceMock.getDbCompletion);
+    });
+
+    it('finds no peer when the folder\'s status cannot be read', async () => {
+      syncthingServiceMock.getDbStatus.rejects(new Error('syncthing unavailable'));
+      peers('FULL');
+      completionOf({ FULL: { completion: 100, globalBytes: 4096, remoteState: 'valid' } });
+
+      expect(await stateMachine.findSyncedPeer('fluxappone')).to.equal(null);
     });
   });
 
@@ -3114,6 +3172,7 @@ describe('syncthingFolderStateMachine tests', () => {
       syncthingServiceMock.getConfig.resolves({
         folders: [{ id: 'fluxappone', devices: [{ deviceID: 'LOCAL-DEVICE' }] }],
       });
+      syncthingServiceMock.getDbStatus.resolves({ globalBytes: 4096, globalFiles: 1 });
     });
 
     it('does not accept this node\'s own copy as a peer holding the data', async () => {

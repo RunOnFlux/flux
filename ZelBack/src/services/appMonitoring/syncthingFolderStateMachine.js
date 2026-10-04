@@ -1051,6 +1051,19 @@ async function findSyncedPeer(folderId, { exclude = new Set() } = {}) {
       return null;
     }
 
+    // What the folder holds is one figure for the whole cluster, the same
+    // whichever peer is asked about, so it is read once. Syncthing reports
+    // completion 100 for an empty folder, so a peer of a folder with no file
+    // bytes is never a source: one that synced empty or wrong data from a bad
+    // seed would otherwise count as holding it, and the caller would remove the
+    // good local copy in its favour. Bytes in FILES: before syncthing v2.1.2 a
+    // folder of empty directories carries bytes of its own.
+    const { globalFileBytes: globalBytes = 0 } = await syncthingService.getDbStatusInFileBytes(folderId);
+    if (globalBytes <= 0) {
+      log.warn(`findSyncedPeer - ${folderId}: the folder holds no file bytes; no peer is a synced source`);
+      return null;
+    }
+
     // Every folder's device list BEGINS with this node's own device - see
     // syncthingMonitorHelpers, `const devices = [{ deviceID: myDeviceId }]` -
     // and this walk had no self-exclusion, so it asked /rest/db/completion
@@ -1083,30 +1096,23 @@ async function findSyncedPeer(folderId, { exclude = new Set() } = {}) {
       }
       try {
         // eslint-disable-next-line no-await-in-loop
-        const { completion = 0, globalFileBytes: globalBytes = 0, remoteState = 'unknown' } = await syncthingService.getDbCompletionInFileBytes({
+        const { completion = 0, remoteState = 'unknown' } = await syncthingService.getDbCompletion({
           folder: folderId,
           device: device.deviceID,
         });
-        // A peer is a safe source only if it is CONNECTED (remoteState 'valid'),
-        // reports 100%, AND actually holds data:
-        // - db/completion is computed from the peer's last-known index, so a dead or
-        //   offline peer still reports completion 100. Trusting that stale figure
-        //   turns a source-node reboot into followers deleting their partial copies.
-        //   remoteState is the connectivity discriminator ('valid' iff connected);
-        //   when absent, there is no evidence and the peer must not be trusted.
-        // - Syncthing reports completion 100 for an empty folder too, so without the
-        //   bytes check a peer that synced empty/wrong data from a bad seed would
-        //   falsely satisfy "peers are synced" and we would remove the good local copy
-        //   in favour of an empty one (data loss). Bytes in FILES: before syncthing
-        //   v2.1.2 a folder of empty directories carries bytes of its own.
-        if (remoteState === 'valid' && completion === 100 && globalBytes > 0) {
+        // A peer is a safe source only if it is CONNECTED (remoteState 'valid') and
+        // reports 100%. db/completion is computed from the peer's last-known index,
+        // so a dead or offline peer still reports completion 100. Trusting that
+        // stale figure turns a source-node reboot into followers deleting their
+        // partial copies. remoteState is the connectivity discriminator ('valid' iff
+        // connected); when absent, there is no evidence and the peer must not be
+        // trusted.
+        if (remoteState === 'valid' && completion === 100) {
           log.info(`findSyncedPeer - Found synced peer for ${folderId}: device ${device.deviceID.substring(0, 7)}... at ${completion}% (${globalBytes} bytes, connected)`);
           return { deviceID: device.deviceID, globalBytes };
         }
-        if (completion === 100 && remoteState !== 'valid') {
+        if (completion === 100) {
           log.warn(`findSyncedPeer - ${folderId}: device ${device.deviceID.substring(0, 7)}... reports 100% but is not connected (remoteState ${remoteState}); stale index, not a synced source`);
-        } else if (completion === 100) {
-          log.warn(`findSyncedPeer - ${folderId}: device ${device.deviceID.substring(0, 7)}... reports 100% but 0 bytes (empty); not treating it as a synced source`);
         }
       } catch (deviceError) {
         // a failed completion read silently skipping the device would read as

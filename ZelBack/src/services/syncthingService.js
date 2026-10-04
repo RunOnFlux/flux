@@ -818,22 +818,6 @@ function statusInFileBytes(status, entry) {
 }
 
 /**
- * db/completion with the global index's bytes in FILES (globalFileBytes). Completion
- * carries no entry counts, so the folder's own are used: both describe the same
- * global index.
- * @param {object} completion db/completion for a device.
- * @param {object} status the folder's db/status.
- * @param {{directory: number, symlink: number}} entry from nonFileEntryBytes
- * @returns {object}
- */
-function completionInFileBytes(completion, status, entry) {
-  return {
-    ...completion,
-    globalFileBytes: fileBytesOf(completion.globalBytes, status.globalDirectories, status.globalSymlinks, entry),
-  };
-}
-
-/**
  * A folder's status, with what its indexes hold in FILES.
  *
  * syncthing's globalBytes, needBytes and inSyncBytes include a synthetic size for
@@ -851,22 +835,6 @@ function completionInFileBytes(completion, status, entry) {
 async function getDbStatusInFileBytes(folder) {
   const status = await getDbStatus(folder);
   return statusInFileBytes(status, await nonFileEntryBytes());
-}
-
-/**
- * How complete a folder is as one device sees it, with the global index's bytes in
- * FILES (globalFileBytes) - see getDbStatusInFileBytes. Read in the same order, for
- * the same reason.
- * @param {object} selector Selector.
- * @param {string} selector.folder Folder ID.
- * @param {string} selector.device Device ID.
- * @returns {Promise<object>} db/completion, plus globalFileBytes.
- * @throws What getDbCompletion and getDbStatus throw, and when the version cannot be read.
- */
-async function getDbCompletionInFileBytes({ folder, device }) {
-  const completion = await getDbCompletion({ folder, device });
-  const status = await getDbStatus(folder);
-  return completionInFileBytes(completion, status, await nonFileEntryBytes());
 }
 
 /**
@@ -2621,11 +2589,9 @@ module.exports = {
   setFolderIgnores,
   getDbStatus,
   getDbStatusInFileBytes,
-  getDbCompletionInFileBytes,
   nonFileEntryBytes,
   nonFileEntryBytesForVersion,
   statusInFileBytes,
-  completionInFileBytes,
   getDbLocalChanged,
   eachDbLocalChanged,
   dbRevert,

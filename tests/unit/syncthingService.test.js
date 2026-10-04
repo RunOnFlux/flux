@@ -480,7 +480,6 @@ describe('syncthingService tests', () => {
     const folder = 'fluxapp_app';
     let version;
     let status;
-    let completion;
     let get;
 
     beforeEach(() => {
@@ -491,7 +490,6 @@ describe('syncthingService tests', () => {
       get = sinon.fake(async (reqPath) => {
         if (reqPath === '/rest/system/version') return { data: { version } };
         if (reqPath.startsWith('/rest/db/status')) return { data: status };
-        if (reqPath.startsWith('/rest/db/completion')) return { data: completion };
         return {};
       });
       sinon.stub(axios, 'create').returns({ get });
@@ -577,18 +575,6 @@ describe('syncthingService tests', () => {
       const result = await syncthingService.getDbStatusInFileBytes(folder).catch((err) => err);
 
       expect(result).to.be.an('error');
-    });
-
-    it('gives a peer\'s completion in file bytes, from the folder\'s entry counts', async () => {
-      version = 'v2.0.15';
-      status = { globalBytes: 256, globalDirectories: 2, globalFiles: 1 };
-      completion = { completion: 100, globalBytes: 256, remoteState: 'valid' };
-
-      const result = await syncthingService.getDbCompletionInFileBytes({ folder, device: 'PEER' });
-
-      expect(result).to.include({ globalFileBytes: 0, completion: 100, remoteState: 'valid' });
-      const asked = get.getCalls().map((call) => call.args[0]).filter((p) => p.startsWith('/rest/'));
-      expect(asked.indexOf('/rest/system/version'), 'the release is read last').to.equal(asked.length - 1);
     });
   });
 
