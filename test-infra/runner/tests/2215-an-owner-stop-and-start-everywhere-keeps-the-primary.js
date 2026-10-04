@@ -41,10 +41,12 @@ describe('an owner stop and start everywhere keeps the primary', function () {
   // Placed in this order, so the election ranks them in it. A fourth node
   // holds nothing and keeps the discovery ring whole.
   const FIRST = 0;
-  const PRIMARY = 1;
-  const THIRD = 2;
-  const HOLDERS = [FIRST, PRIMARY, THIRD];
-  const STANDBYS = [FIRST, THIRD];
+  const HOLDERS = [0, 1, 2];
+  // Whichever of the other two holders takes the app over from the first, and the
+  // one that does not: both rank below the first.
+  let PRIMARY;
+  let THIRD;
+  let STANDBYS;
   let app;
 
   const client = (i) => env.clients[i];
@@ -140,7 +142,7 @@ describe('an owner stop and start everywhere keeps the primary', function () {
     // order is the placement order.
     await installOnNodes(env, app, [FIRST]);
     await waitForUp(client(FIRST), appName, 'the first holder runs the app', { timeout: 300000, interval: 3000 });
-    for (const i of [PRIMARY, THIRD]) {
+    for (const i of HOLDERS.filter((h) => h !== FIRST)) {
       // eslint-disable-next-line no-await-in-loop
       await installOnNodes(env, app, [i]);
       // eslint-disable-next-line no-await-in-loop
@@ -149,14 +151,18 @@ describe('an owner stop and start everywhere keeps the primary', function () {
       });
     }
 
-    // The first holder dies whole - process, container and daemon - and the
-    // second takes the app over.
+    // The first holder dies whole - process, container and daemon - and another
+    // takes the app over. Which one is the first to see the first holder's
+    // connection close, not the election order.
     await crashFluxos(client(FIRST).container, { hold: true });
     await execInContainer(client(FIRST).container, `docker kill ${folder}`);
     await stopDaemon(client(FIRST));
-    await waitHolding(async () => (await oneWriterAtMost()).includes(PRIMARY), {
-      timeout: 300000, interval: 3000, label: 'the second holder takes the app over',
+    await waitHolding(async () => (await oneWriterAtMost()).some((i) => i !== FIRST), {
+      timeout: 300000, interval: 3000, label: 'another holder takes the app over',
     });
+    [PRIMARY] = await runners();
+    [THIRD] = HOLDERS.filter((i) => i !== FIRST && i !== PRIMARY);
+    STANDBYS = [FIRST, THIRD];
 
     // Then it comes back, as a standby still ranked ahead of the primary.
     await startDaemon(client(FIRST));
@@ -179,7 +185,7 @@ describe('an owner stop and start everywhere keeps the primary', function () {
     this.timeout(180000);
     expect(await runners(), 'the primary').to.deep.equal([PRIMARY]);
     expect(await electionIndexOf(env, appName, FIRST), 'the first holder\'s place').to.equal(0);
-    expect(await electionIndexOf(env, appName, PRIMARY), 'the primary\'s place').to.equal(1);
+    expect(await electionIndexOf(env, appName, PRIMARY), 'the primary\'s place').to.be.above(0);
   });
 
   it('brings the app back on its primary when its owner stops it everywhere and starts it everywhere', async function () {
