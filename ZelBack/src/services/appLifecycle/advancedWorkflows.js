@@ -3887,8 +3887,6 @@ async function checkAndRemoveApplicationInstance() {
     const evacuationSafety = require('./appEvacuationSafety');
     // eslint-disable-next-line global-require
     const residentialNodeDosService = require('../residentialNodeDosService');
-    // eslint-disable-next-line global-require
-    const { findSyncedPeer } = require('../appMonitoring/syncthingFolderStateMachine');
 
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
     if (!localSocketAddr) {
@@ -4029,7 +4027,7 @@ async function checkAndRemoveApplicationInstance() {
       const safety = await evacuationSafety.canSafelyRemoveApp(installedApp.name, {
         appLocation: registryManager.appLocation,
         getApplicationGlobalSpecifications: registryManager.getApplicationGlobalSpecifications,
-        findSyncedPeer,
+        findSyncedPeer: syncthingFolderStateMachine.findSyncedPeer,
         isElectedPrimary: (name) => isElectedPrimaryHere(name, localSocketAddr),
         isComponentRunningLocally,
         shuttingDownDevices,

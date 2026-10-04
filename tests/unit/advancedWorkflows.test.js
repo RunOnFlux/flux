@@ -18,6 +18,7 @@ const syncthingService = require('../../ZelBack/src/services/syncthingService');
 const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
 const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
 const { OWNED_FOLDER_SETTINGS } = require('../../ZelBack/src/services/appMonitoring/syncthingMonitorHelpers');
+const syncthingFolderStateMachine = require('../../ZelBack/src/services/appMonitoring/syncthingFolderStateMachine');
 
 describe('advancedWorkflows tests', () => {
   afterEach(() => {
@@ -5777,6 +5778,15 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       // that has named another node are the difference between keeping a
       // volume and deleting it out from under its writer.
       expect(isElectedPrimary('appone')).to.equal(null);
+    });
+
+    it('gives the safety gate the walk that finds a connected peer holding the data', async () => {
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      const { findSyncedPeer } = evacuationSafety.canSafelyRemoveApp.firstCall.args[1];
+      expect(findSyncedPeer).to.equal(syncthingFolderStateMachine.findSyncedPeer);
     });
 
     it('tells the safety gate which components are running on this node', async () => {
