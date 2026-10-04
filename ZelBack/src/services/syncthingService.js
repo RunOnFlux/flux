@@ -1590,6 +1590,7 @@ async function sharedAppVolumesMount() {
     return mount;
   }
   log.info(`Made the mount ${mount.target} shared, from '${mount.propagation}', so app volumes mounted after syncthing starts reach it`);
+  fluxEventBus.count('syncthing:appVolumesMountShared');
   return appVolumesMount();
 }
 

@@ -1662,6 +1662,7 @@ describe('syncthingService tests', () => {
         await promise;
 
         sinon.assert.calledWithMatch(runCmdStub, 'mount', { runAsRoot: true, params: ['--make-rshared', '/srv'] });
+        sinon.assert.calledWithExactly(countStub, 'syncthing:appVolumesMountShared');
         sinon.assert.calledOnce(spawnStub);
         sinon.assert.neverCalledWithMatch(errorStub, /not shared/);
       });
@@ -1676,6 +1677,7 @@ describe('syncthingService tests', () => {
         await promise;
 
         sinon.assert.neverCalledWithMatch(runCmdStub, 'mount', { params: ['--make-rshared', sinon.match.any] });
+        sinon.assert.neverCalledWith(countStub, 'syncthing:appVolumesMountShared');
         sinon.assert.calledOnce(spawnStub);
       });
 

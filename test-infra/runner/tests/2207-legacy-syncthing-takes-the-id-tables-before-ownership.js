@@ -215,13 +215,19 @@ describe('a legacy node\'s syncthing takes the numeric id tables before any owne
 
   it('makes the mount that holds the app volumes shared where it is not, and starts syncthing with the tables', async function () {
     this.timeout(600000);
-    const target = (await sh(LEGACY, `findmnt -no TARGET -T ${data}/..`)).stdout.trim();
+    // The mount the apps folder is on, where every app volume is mounted.
+    const target = (await sh(LEGACY, `findmnt -no TARGET -T ${data}/../..`)).stdout.trim();
     expect(target, 'fixture: the mount that holds the app volumes').to.not.equal('');
     const made = await sh(LEGACY, `mount --make-rprivate ${target} && findmnt -no PROPAGATION ${target}`);
     expect(made.stdout.trim(), `fixture: ${made.output}`).to.equal('private');
 
+    const madeShared = async () => (await client(LEGACY).getTestCounters())?.['syncthing:appVolumesMountShared'] ?? 0;
+    const sharedBefore = await madeShared();
     const mark = client(LEGACY).getLastEventId();
     await stopDaemon(client(LEGACY));
+    await waitFor(async () => (await madeShared()) > sharedBefore, {
+      timeout: 400000, interval: 3000, label: 'FluxOS made the mount that holds the app volumes shared',
+    });
     await client(LEGACY).waitForEvent('syncthing:ownersByNumber', () => true, 400000, { afterId: mark });
 
     expect((await sh(LEGACY, `findmnt -no PROPAGATION ${target}`)).stdout.trim(), 'the mount that holds the app volumes')
