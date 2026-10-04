@@ -10,6 +10,7 @@ const registryManager = require('../../ZelBack/src/services/appDatabase/registry
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const globalState = require('../../ZelBack/src/services/utils/globalState');
 const { requireMongo } = require('./dbTestHelper');
 
 describe('registryManager tests', () => {
@@ -187,6 +188,86 @@ describe('registryManager tests', () => {
       sinon.stub(dbHelper, 'databaseConnection').throws(new Error('Database error'));
 
       const result = await registryManager.getAppHashes(undefined, res);
+
+      expect(result.status).to.equal('error');
+      expect(result.data.message).to.include('Database error');
+    });
+  });
+
+  describe('getRegistryStatus tests', () => {
+    const infoCollection = config.database.appsglobal.collections.appsInformation;
+    const hashesCollection = config.database.daemon.collections.appsHashes;
+    let daemonDatabase;
+    let readyBefore;
+
+    const hashRecord = (i, message) => ({
+      txid: `tx${i}`, height: 1000 + i, hash: `hash${i}`, value: 100000000, message,
+    });
+
+    beforeEach(async () => {
+      daemonDatabase = db.db(config.database.daemon.database);
+      await database.collection(infoCollection).deleteMany({});
+      await daemonDatabase.collection(hashesCollection).deleteMany({});
+      readyBefore = globalState.dbReady;
+    });
+
+    afterEach(async () => {
+      globalState.dbReady = readyBefore;
+      await database.collection(infoCollection).deleteMany({});
+      await daemonDatabase.collection(hashesCollection).deleteMany({});
+    });
+
+    it('counts the registry, the recorded transactions and those without a message', async () => {
+      await database.collection(infoCollection).insertMany([
+        { name: 'AppOne', owner: 'o1' }, { name: 'AppTwo', owner: 'o2' }, { name: 'AppThree', owner: 'o3' },
+      ]);
+      await daemonDatabase.collection(hashesCollection).insertMany([
+        hashRecord(1, true), hashRecord(2, true), hashRecord(3, false), hashRecord(4, true), hashRecord(5, false),
+      ]);
+      globalState.dbReady = true;
+      const res = { json: sinon.fake((param) => param) };
+
+      const result = await registryManager.getRegistryStatus(undefined, res);
+
+      sinon.assert.calledOnce(res.json);
+      expect(result).to.deep.equal({
+        status: 'success',
+        data: {
+          ready: true, apps: 3, transactions: 5, missingMessages: 2,
+        },
+      });
+    });
+
+    it('answers while the registry is not ready, saying so', async () => {
+      await daemonDatabase.collection(hashesCollection).insertMany([hashRecord(1, false), hashRecord(2, false)]);
+      globalState.dbReady = false;
+
+      const result = await registryManager.getRegistryStatus(undefined, undefined);
+
+      expect(result).to.deep.equal({
+        status: 'success',
+        data: {
+          ready: false, apps: 0, transactions: 2, missingMessages: 2,
+        },
+      });
+    });
+
+    it('does not count a record whose message is unknown rather than missing', async () => {
+      await daemonDatabase.collection(hashesCollection).insertMany([
+        hashRecord(1, true), { txid: 'tx2', height: 1002, hash: 'hash2', value: 100000000 },
+      ]);
+
+      const result = await registryManager.getRegistryStatus(undefined, undefined);
+
+      expect(result.data.transactions).to.equal(2);
+      expect(result.data.missingMessages).to.equal(0);
+    });
+
+    it('reports a database failure as an error, not as counts', async () => {
+      sinon.stub(dbHelper, 'databaseConnection').throws(new Error('Database error'));
+      const res = { json: sinon.fake((param) => param) };
+
+      const result = await registryManager.getRegistryStatus(undefined, res);
 
       expect(result.status).to.equal('error');
       expect(result.data.message).to.include('Database error');

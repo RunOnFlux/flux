@@ -512,6 +512,9 @@ module.exports = (app) => {
   app.get('/apps/hashes', cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getAppHashes(req, res);
   }));
+  app.get('/apps/registrystatus', rejectQueryParameters, cache('10 seconds'), asyncRoute((req, res) => {
+    return registryManager.getRegistryStatus(req, res);
+  }));
   app.get('/apps/location/:appname?', cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getAppsLocation(req, res);
   }));

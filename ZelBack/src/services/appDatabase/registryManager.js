@@ -6,6 +6,7 @@ const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxEventBus = require('../utils/fluxEventBus');
+const globalState = require('../utils/globalState');
 // Removed appsService to avoid circular dependency - will use dynamic require where needed
 const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession } = require('../utils/enterpriseHelper');
 const { specificationFormatter, updateToLatestAppSpecifications } = require('../utils/appUtilities');
@@ -30,6 +31,44 @@ const {
 const { Privilege, authOf } = require('../utils/privileges');
 
 let reindexRunning = false;
+
+/**
+ * The state of this node's app registry as counts: whether it is built, how many
+ * apps it holds, how many app transactions the explorer has recorded, and how
+ * many of those this node still has no message for. A node that is not ready
+ * answers too, with `ready: false`.
+ * @param {object} _req - Request object (unused)
+ * @param {object} res - Response object
+ * @returns {Promise<object>} {ready, apps, transactions, missingMessages}
+ */
+async function getRegistryStatus(_req, res) {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+    const appsDatabase = dbopen.db(config.database.appsglobal.database);
+    const daemonDatabase = dbopen.db(config.database.daemon.database);
+    const [apps, transactions, missingMessages] = await Promise.all([
+      dbHelper.countInDatabase(appsDatabase, globalAppsInformation, {}),
+      dbHelper.countInDatabase(daemonDatabase, appsHashesCollection, {}),
+      dbHelper.countInDatabase(daemonDatabase, appsHashesCollection, { message: false }),
+    ]);
+    const status = {
+      ready: globalState.dbReady,
+      apps,
+      transactions,
+      missingMessages,
+    };
+    const statusResponse = messageHelper.createDataMessage(status);
+    return res ? res.json(statusResponse) : statusResponse;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
 
 /**
  * Get all app hashes from the blockchain
@@ -2236,6 +2275,7 @@ async function shuttingDownNodes() {
 module.exports = {
   shuttingDownNodes,
   getAppHashes,
+  getRegistryStatus,
   getPreviousAppSpecifications,
   appLocation,
   appLocationFromEvents,
