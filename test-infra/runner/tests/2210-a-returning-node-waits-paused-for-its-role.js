@@ -228,9 +228,10 @@ describe('a returning node waits paused until its role is decided', function () 
     const mark = client(ARCANE).getLastEventId();
     await stopDaemon(client(ARCANE));
     await startDaemon(client(ARCANE), { paused: true });
-    expect(await folderIs(ARCANE, { paused: true }), 'fixture: the folder came back paused').to.equal(true);
 
-    await fluxEvent(ARCANE, 'syncthing:devicesResumed', () => true, mark, 120000);
+    // FluxOS finds the peer devices the paused start left paused, and resumes them.
+    const resumed = await fluxEvent(ARCANE, 'syncthing:devicesResumed', () => true, mark, 120000);
+    expect(resumed.data.devices, 'the peer devices the paused start left paused').to.include(await getDeviceId(client(LEGACY)));
     await waitForDaemonEvent(client(ARCANE), folderSaved(folder, { type: 'sendreceive', paused: false }), {
       timeout: 120000, label: 'the primary\'s folder unpaused, sending',
     });
@@ -240,6 +241,32 @@ describe('a returning node waits paused until its role is decided', function () 
     await writeAsApp(ARCANE, 'after-arcane-restart.txt', 'written after the restart');
     await scanFolder(client(ARCANE), folder);
     await waitForDaemonEvent(client(LEGACY), itemFinished(folder, 'appdata/after-arcane-restart.txt', 'update'), {
+      since, timeout: 120000, label: 'the primary\'s write arriving on the standby',
+    });
+  });
+
+  it('keeps the primary sending through its own syncthing restarting unpaused, as ArcaneOS starts it before the release that passes --paused', async function () {
+    this.timeout(300000);
+    await stopDaemon(client(ARCANE));
+    await startDaemon(client(ARCANE), { paused: false });
+    expect((await syncthingCommandLines(client(ARCANE))).some((line) => line.includes('--paused')), 'fixture: a syncthing started with --paused').to.equal(false);
+
+    // Two passes of FluxOS over the restarted daemon: the second began after it answered.
+    const mark = client(ARCANE).getLastEventId();
+    const first = await fluxEvent(ARCANE, 'syncthing:passComplete', () => true, mark);
+    await fluxEvent(ARCANE, 'syncthing:passComplete', () => true, first.id);
+
+    expect(client(ARCANE).getEventBuffer().filter((e) => e.event === 'syncthing:devicesResumed' && e.id > mark), 'peer devices found paused').to.deep.equal([]);
+    // The daemon's event ids restart with it, so its whole log is since this start.
+    const paused = (await getDaemonEvents(client(ARCANE), { events: ['ConfigSaved'] }))
+      .filter((event) => savedFolder(event)?.paused);
+    expect(paused, 'a config write that paused the folder').to.deep.equal([]);
+    expect(await runners(), 'the writer').to.deep.equal([ARCANE]);
+
+    const since = await lastDaemonEventId(client(LEGACY));
+    await writeAsApp(ARCANE, 'after-unpaused-restart.txt', 'written after the restart');
+    await scanFolder(client(ARCANE), folder);
+    await waitForDaemonEvent(client(LEGACY), itemFinished(folder, 'appdata/after-unpaused-restart.txt', 'update'), {
       since, timeout: 120000, label: 'the primary\'s write arriving on the standby',
     });
   });
