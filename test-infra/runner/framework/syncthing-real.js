@@ -13,7 +13,8 @@ import { execInContainer } from './container.js';
 
 // The daemon's home as FluxOS resolves it: SYNCTHING_PATH where the node sets it
 // (Arcane), otherwise ~/.config/syncthing of the account FluxOS runs as (legacy).
-const CONFIG_XML = '"${SYNCTHING_PATH:-$(getent passwd "${FLUX_FLUXOS_USER:-root}" | cut -d: -f6)/.config/syncthing}/config.xml"';
+export const SYNCTHING_HOME = '${SYNCTHING_PATH:-$(getent passwd "${FLUX_FLUXOS_USER:-root}" | cut -d: -f6)/.config/syncthing}';
+const CONFIG_XML = `"${SYNCTHING_HOME}/config.xml"`;
 
 async function apiKey(client) {
   const r = await execInContainer(client.container,
