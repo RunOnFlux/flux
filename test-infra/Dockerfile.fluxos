@@ -80,27 +80,25 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 # missing packages the node goes on to ask for.
 FROM base AS debcache
 
-COPY test-infra/syncthing-release-key.asc /tmp/syncthing-release-key.asc
+COPY test-infra/syncthing-debs.sha256 /tmp/syncthing-debs.sha256
 COPY test-infra/build-apt-repo.sh /usr/local/bin/build-apt-repo.sh
-COPY test-infra/build-syncthing-deb.sh /usr/local/bin/build-syncthing-deb.sh
+COPY test-infra/fetch-syncthing-deb.sh /usr/local/bin/fetch-syncthing-deb.sh
 
 # syncthing is the release named here, one of those in test-infra/syncthing-versions
-# (build-images.sh passes it), packaged from the signed release on GitHub. The
+# (build-images.sh passes it): the package syncthing publishes with that release
+# on GitHub, the one a node installs, which is built without self-upgrade. The
 # fleet's nodes run more than one version and a suite has to be run against each,
-# which syncthing's own repository cannot serve: it carries only its two newest.
-# The version is recorded in the repository so that whoever has to agree with it
-# can read it rather than restate it.
-#
-# The key is vendored rather than fetched so the release it authenticates is
-# pinned in git and reviewed, not trusted on first use at build time.
+# which syncthing's own apt repository cannot serve: it carries only its two
+# newest. test-infra/syncthing-debs.sha256 pins each package, so every build of a
+# version installs the same file.
 ARG SYNCTHING_VERSION
 RUN test -n "$SYNCTHING_VERSION" \
     && apt-get update \
     && apt-get install -y --no-install-recommends dpkg-dev apt-utils \
     && rm -rf /var/cache/apt/archives/*.deb \
     && apt-get install -y --download-only chrony netcat-openbsd \
-    && chmod +x /usr/local/bin/build-syncthing-deb.sh /usr/local/bin/build-apt-repo.sh \
-    && /usr/local/bin/build-syncthing-deb.sh "$SYNCTHING_VERSION" /var/cache/apt/archives \
+    && chmod +x /usr/local/bin/fetch-syncthing-deb.sh /usr/local/bin/build-apt-repo.sh \
+    && /usr/local/bin/fetch-syncthing-deb.sh "$SYNCTHING_VERSION" /var/cache/apt/archives \
     && /usr/local/bin/build-apt-repo.sh /opt/flux-apt-repo
 
 FROM base

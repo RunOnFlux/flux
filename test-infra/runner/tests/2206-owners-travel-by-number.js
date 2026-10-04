@@ -10,7 +10,7 @@ import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, waitForUp } from '../framework/wait.js';
 import {
   isDaemonUp, isFolderSynced, getFolderConfig, getFolderStatus, scanFolder, statPath,
-  getFileInfo, syncthingIdTables, startDaemon, stopDaemon, getConnections, getListenAddresses,
+  getFileInfo, syncthingIdTables, startDaemon, stopDaemon, getConnections, getListenAddresses, getDaemonVersion, installedSyncthingVersion,
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -243,7 +243,7 @@ describe('owners travel by number on real syncthing', function () {
     });
   });
 
-  it('connects every holder to the others over TCP alone', async function () {
+  it('runs the syncthing release its image installed, and connects every holder to the others over TCP alone', async function () {
     this.timeout(120000);
     for (const i of HOLDERS) {
       // eslint-disable-next-line no-await-in-loop
@@ -252,6 +252,8 @@ describe('owners travel by number on real syncthing', function () {
       expect(connections.filter((c) => !c.type?.startsWith('tcp-')), `node ${i}'s connections not over TCP`).to.deep.equal([]);
       // eslint-disable-next-line no-await-in-loop
       const listening = await getListenAddresses(client(i));
+      // eslint-disable-next-line no-await-in-loop
+      expect(await getDaemonVersion(client(i)), `the syncthing node ${i} runs`).to.equal(await installedSyncthingVersion(client(i)));
       expect(listening.filter((address) => !address.startsWith('tcp://')), `what node ${i}'s syncthing listens on besides TCP`).to.deep.equal([]);
     }
   });

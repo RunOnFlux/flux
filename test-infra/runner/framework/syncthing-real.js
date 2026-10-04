@@ -89,6 +89,18 @@ export async function getConnections(client) {
     .map(([deviceID, c]) => ({ deviceID, type: c.type }));
 }
 
+// The release this node's running syncthing reports, without its leading v.
+export async function getDaemonVersion(client) {
+  return (await api(client, '/rest/system/version')).version.replace(/^v/, '');
+}
+
+// The syncthing release the node's image installed.
+export async function installedSyncthingVersion(client) {
+  const r = await execInContainer(client.container, "dpkg-query -W -f='${Version}' syncthing");
+  if (r.exitCode !== 0) throw new Error(`syncthing-real: no installed syncthing package: ${r.output}`);
+  return r.stdout.trim();
+}
+
 // The addresses this node's syncthing listens on.
 export async function getListenAddresses(client) {
   return (await api(client, '/rest/config/options')).listenAddresses;
