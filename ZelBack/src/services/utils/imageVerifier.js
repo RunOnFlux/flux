@@ -180,6 +180,13 @@ class ImageVerifier {
       },
     } = match;
 
+    const port = provider?.match(/:(\d+)$/)?.[1];
+
+    if (port !== undefined && (Number(port) < 1 || Number(port) > 65535)) {
+      this.#parseErrorDetail = `Image tag: ${this.rawImageTag} has registry port ${port}, which is not in 1-65535`;
+      return;
+    }
+
     this.provider = provider || ImageVerifier.defaultDockerRegistry;
 
     // Without doing a lookup against the dockerhub library, no way to know if a single string is
@@ -306,9 +313,17 @@ class ImageVerifier {
       'ECONNABORTED',
       'ERR_CANCELED',
       'ENETUNREACH',
+      'ETIMEDOUT',
+      'ECONNRESET',
+      'ENOTFOUND',
+      'EAI_AGAIN',
+      'EHOSTUNREACH',
     ];
 
-    if (connectionErrors.includes(error.code)) {
+    // A request that got no HTTP response at all is a connectivity answer, not a
+    // registry verdict - route it with the coded connection errors rather than
+    // letting an undefined status read as an HTTP rejection below.
+    if (connectionErrors.includes(error.code) || (error.request && !error.response)) {
       this.#lookupErrorDetail = `Connection Error ${error.code}: ${this.rawImageTag} not available`;
       this.#lookupErrorMeta = {
         httpStatus: null,
@@ -558,20 +573,21 @@ class ImageVerifier {
 
   /**
    * Allows for descriptive errors to be throw if there are any errors present.
+   * Throwing resets this verifier's errors, errorMeta included, so the thrown error carries the
+   * errorMeta for the caller to classify it by.
    * @returns {void}
    */
   throwIfError() {
     if (!this.error) return;
 
-    try {
-      throw new Error(
-        this.#parseErrorDetail
-        || this.#lookupErrorDetail
-        || this.#evaluationErrorDetail,
-      );
-    } finally {
-      this.resetErrors();
-    }
+    const error = new Error(
+      this.#parseErrorDetail
+      || this.#lookupErrorDetail
+      || this.#evaluationErrorDetail,
+    );
+    error.errorMeta = this.#lookupErrorMeta;
+    this.resetErrors();
+    throw error;
   }
 
   /**

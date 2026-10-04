@@ -1,5 +1,6 @@
-// An entry point pins four environment variables before its first require, and what
-// they are worth is only visible in a process that actually loaded it. So this loads
+// An entry point pins four environment variables and the outbound connection defaults
+// before its first require, and what they are worth is only visible in a process that
+// actually loaded it. So this loads
 // each real entry point in a child, and reads the environment back out.
 //
 // A child rather than an in-process require: both pull the service tree, which leaves
@@ -14,8 +15,14 @@
 const { expect } = require('chai');
 const path = require('path');
 const { execFile } = require('child_process');
+const networkDefaults = require('../../ZelBack/src/services/utils/networkDefaults');
 
 const repoRoot = path.join(__dirname, '..', '..');
+
+const APPLIED_NETWORK_DEFAULTS = {
+  attemptMs: networkDefaults.CONNECT_ATTEMPT_TIMEOUT_MS,
+  order: networkDefaults.DNS_RESULT_ORDER,
+};
 
 const ENTRY_POINTS = [
   { name: 'app.js', file: path.join(repoRoot, 'app.js') },
@@ -35,16 +42,23 @@ const HOSTILE_ENV = {
 
 /**
  * Loads a real entry point in a child process and reports what it left behind.
- * @param {string} entryFile - absolute path to the entry point
- * @returns {Promise<{env: object, stderr: string}>}
+ * @param {string|null} entryFile - absolute path to the entry point, or null to load nothing
+ * @returns {Promise<{env: object, network: object, stderr: string}>}
  */
 function loadEntryPoint(entryFile) {
-  const script = `require(${JSON.stringify(entryFile)});
+  const load = entryFile ? `require(${JSON.stringify(entryFile)});` : '';
+  const script = `${load}
     process.stdout.write(JSON.stringify({
-      NODE_ENV: process.env.NODE_ENV ?? null,
-      NODE_CONFIG_ENV: process.env.NODE_CONFIG_ENV ?? null,
-      NODE_CONFIG: process.env.NODE_CONFIG ?? null,
-      NODE_CONFIG_DIR: process.env.NODE_CONFIG_DIR ?? null,
+      env: {
+        NODE_ENV: process.env.NODE_ENV ?? null,
+        NODE_CONFIG_ENV: process.env.NODE_CONFIG_ENV ?? null,
+        NODE_CONFIG: process.env.NODE_CONFIG ?? null,
+        NODE_CONFIG_DIR: process.env.NODE_CONFIG_DIR ?? null,
+      },
+      network: {
+        attemptMs: require('node:net').getDefaultAutoSelectFamilyAttemptTimeout(),
+        order: require('node:dns').getDefaultResultOrder(),
+      },
     }));
     process.exit(0);`;
 
@@ -55,7 +69,7 @@ function loadEntryPoint(entryFile) {
         reject(new Error(`${entryFile} could not be loaded: ${error.message}\n${stderr}`));
         return;
       }
-      resolve({ env: JSON.parse(stdout), stderr });
+      resolve({ ...JSON.parse(stdout), stderr });
     });
   });
 }
@@ -96,5 +110,21 @@ ENTRY_POINTS.forEach(({ name, file }) => {
       expect(loaded.env.NODE_CONFIG_DIR).to.equal(`${repoRoot}/ZelBack/config/`);
       expect(loaded.env.NODE_CONFIG).to.equal(null);
     });
+
+    it('applies the outbound connection defaults to the main thread', () => {
+      expect(loaded.network).to.deep.equal(APPLIED_NETWORK_DEFAULTS);
+    });
+  });
+});
+
+describe('a process that loads no entry point', function () {
+  this.timeout(90000);
+
+  // Canary for the network assertion above: the same probe in a child that loads nothing
+  // reads Node's own defaults, so a match there comes from the entry point.
+  it('runs at Node\'s own outbound connection defaults', async () => {
+    const loaded = await loadEntryPoint(null);
+
+    expect(loaded.network).to.not.deep.equal(APPLIED_NETWORK_DEFAULTS);
   });
 });

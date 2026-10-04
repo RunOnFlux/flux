@@ -1,7 +1,7 @@
-const { Worker } = require('worker_threads');
 const path = require('path');
 const os = require('os');
 const log = require('../../lib/log');
+const { createWorker } = require('./networkDefaults');
 
 const DEFAULT_WORKER_PATH = path.join(__dirname, 'verifyWorker.js');
 
@@ -159,7 +159,7 @@ function ensureWorkers() {
 }
 
 function createSlot() {
-  const worker = new Worker(workerPath);
+  const worker = createWorker(workerPath);
   const slot = {
     worker, job: null, timer: null, retired: false,
   };

@@ -16,16 +16,18 @@ const { RemovalOutcome } = require('../utils/removalOutcome');
 
 /**
  * Classify error type and determine appropriate cache TTL
- * Uses structured error metadata from imageVerifier when available
- * @param {Error} error - The error from image verification
- * @param {object} errorMeta - Error metadata from imageVerifier (httpStatus, errorCode, errorType)
+ * @param {Error & {errorMeta?: object}} error - The error from image verification. One thrown by
+ *   imageVerifier's throwIfError() carries its errorMeta (httpStatus, errorCode, errorType); one
+ *   without errorMeta is a malformed image tag or an architecture this node cannot run, and is
+ *   permanent.
  * @returns {{ttlMs: number, reason: string}}
  */
-function classifyVerificationError(error, errorMeta) {
+function classifyVerificationError(error) {
   // eslint-disable-next-line global-require
   const { FluxCacheManager } = require('../utils/cacheManager');
 
-  // Use structured errorMeta if available (from imageVerifier)
+  const { errorMeta } = error;
+
   if (errorMeta && errorMeta.errorType) {
     switch (errorMeta.errorType) {
       case 'network':
@@ -43,6 +45,8 @@ function classifyVerificationError(error, errorMeta) {
       case 'unsupported_schema':
       case 'auth_rejected':
       case 'auth_failed':
+      case 'auth_error':
+      case 'http_error':
       case 'size_limit':
         return { ttlMs: 6 * FluxCacheManager.oneHour, reason: `Permanent error: ${errorMeta.errorType}` };
       default:
@@ -50,21 +54,7 @@ function classifyVerificationError(error, errorMeta) {
     }
   }
 
-  // Fallback to message parsing if errorMeta not available (shouldn't happen with updated imageVerifier)
-  const errorMessage = error.message.toLowerCase();
-  if (errorMessage.includes('connection error') || errorMessage.includes('econnrefused')
-    || errorMessage.includes('enetunreach')) {
-    return { ttlMs: FluxCacheManager.oneHour, reason: 'Network error (fallback)' };
-  }
-  if (errorMessage.includes('429') || errorMessage.includes('rate limit')) {
-    return { ttlMs: 2 * FluxCacheManager.oneHour, reason: 'Rate limit (fallback)' };
-  }
-  if (errorMessage.includes('bad http status 5')) {
-    return { ttlMs: 3 * FluxCacheManager.oneHour, reason: 'Server error (fallback)' };
-  }
-
-  // Default permanent error
-  return { ttlMs: 6 * FluxCacheManager.oneHour, reason: 'Permanent error (fallback)' };
+  return { ttlMs: 6 * FluxCacheManager.oneHour, reason: 'Permanent error: unclassified' };
 }
 
 /**
@@ -151,9 +141,7 @@ async function verifyRepository(repotag, options = {}) {
 
     return result;
   } catch (error) {
-    // Use errorMeta from imageVerifier for intelligent classification
-    const { errorMeta } = imgVerifier;
-    const { ttlMs, reason } = classifyVerificationError(error, errorMeta);
+    const { ttlMs, reason } = classifyVerificationError(error);
 
     log.warn(`Docker Hub verification failed for ${repotag}: ${error.message}`);
     log.warn(`Error classified as: ${reason} (retry in ${ttlMs / 1000 / 60 / 60} hours)`);
