@@ -1,0 +1,147 @@
+/**
+ * How the main thread's global http and https agents resolve a hostname.
+ *
+ * Resolution goes through three sources, and the first that yields an address answers:
+ *
+ * 1. The system's DNS servers, from /etc/resolv.conf.
+ * 2. Public DNS servers, asked only when the system's servers FAILED: a query that errored
+ *    (SERVFAIL, REFUSED, a timeout). A system server that answers that the name has no
+ *    addresses has answered, so the public servers are not asked and cannot override the
+ *    operator's own DNS. They are a source of their own rather than further entries in the
+ *    system resolver's server list: a DNS client moves to its next server only when one does
+ *    not answer at all, so a server that answers with a failure would otherwise end the lookup
+ *    with the next servers never asked.
+ * 3. The operating system's resolver (`dns.lookup`), which also reads /etc/hosts and
+ *    nsswitch. Its error is the lookup's error when nothing answers.
+ *
+ * Within a source, IPv4 and IPv6 are queried separately, and a source that returns addresses
+ * for either family answers with them. A router that answers AAAA queries with SERVFAIL
+ * therefore leaves a hostname with its IPv4 addresses instead of without any.
+ *
+ * The first two sources are queried directly and never read /etc/hosts.
+ *
+ * Addresses are ordered by networkDefaults' DNS_RESULT_ORDER, the order every other lookup in
+ * the process uses.
+ *
+ * Nothing is cached in the process. Every lookup asks the system's servers first, and the
+ * local resolver caches.
+ */
+
+const dns = require('node:dns');
+const http = require('node:http');
+const https = require('node:https');
+
+const { DNS_RESULT_ORDER } = require('./networkDefaults');
+
+const PUBLIC_DNS_SERVERS = ['1.1.1.1', '8.8.8.8', '9.9.9.9'];
+
+const systemResolver = new dns.promises.Resolver();
+const publicResolver = new dns.promises.Resolver();
+publicResolver.setServers(PUBLIC_DNS_SERVERS);
+
+const FAMILIES_IN_ORDER = DNS_RESULT_ORDER === 'ipv6first' ? [6, 4] : [4, 6];
+
+// The codes a DNS server's answer carries when a name has no addresses of a family: an answer,
+// unlike every other error, which says the query itself failed.
+const NO_ADDRESS_CODES = new Set([dns.NODATA, dns.NOTFOUND]);
+
+/**
+ * @param {dns.promises.Resolver} resolver
+ * @param {string} hostname
+ * @param {4|6} family
+ * @returns {Promise<{addresses: Array<{address: string, family: number}>, failed: boolean}>}
+ *   failed: the query errored rather than being answered.
+ */
+async function queryFamily(resolver, hostname, family) {
+  try {
+    const addresses = family === 4
+      ? await resolver.resolve4(hostname)
+      : await resolver.resolve6(hostname);
+    return { addresses: addresses.map((address) => ({ address, family })), failed: false };
+  } catch (error) {
+    return { addresses: [], failed: !NO_ADDRESS_CODES.has(error.code) };
+  }
+}
+
+/**
+ * @param {dns.promises.Resolver} resolver
+ * @param {string} hostname
+ * @param {Array<4|6>} families In the order the addresses are returned.
+ * @returns {Promise<{addresses: Array<{address: string, family: number}>, failed: boolean}>}
+ *   failed: no address, and at least one family's query errored.
+ */
+async function queryResolver(resolver, hostname, families) {
+  const results = await Promise.all(families.map((family) => queryFamily(resolver, hostname, family)));
+  const addresses = results.flatMap((result) => result.addresses);
+  return { addresses, failed: !addresses.length && results.some((result) => result.failed) };
+}
+
+/**
+ * @param {string} hostname
+ * @param {number} [family] 4 or 6 for that family only; anything else for both.
+ * @returns {Promise<Array<{address: string, family: number}>>} Never empty.
+ * @throws The operating system resolver's error when no source has an address.
+ */
+async function resolveHostname(hostname, family) {
+  const families = family === 4 || family === 6 ? [family] : FAMILIES_IN_ORDER;
+
+  const fromSystem = await queryResolver(systemResolver, hostname, families);
+  if (fromSystem.addresses.length) return fromSystem.addresses;
+
+  if (fromSystem.failed) {
+    const fromPublic = await queryResolver(publicResolver, hostname, families);
+    if (fromPublic.addresses.length) return fromPublic.addresses;
+  }
+
+  const fromOs = await dns.promises.lookup(hostname, { all: true, family: families.length === 1 ? families[0] : 0 });
+  return families.flatMap((wanted) => fromOs.filter((entry) => entry.family === wanted));
+}
+
+/**
+ * Answers a `lookup` call once the hostname is resolved.
+ * @param {string} hostname
+ * @param {{family?: number, all?: boolean}} options
+ * @param {Function} callback
+ */
+async function answerLookup(hostname, options, callback) {
+  let addresses;
+  try {
+    addresses = await resolveHostname(hostname, options.family);
+  } catch (error) {
+    callback(error);
+    return;
+  }
+
+  if (options.all) {
+    callback(null, addresses);
+    return;
+  }
+
+  callback(null, addresses[0].address, addresses[0].family);
+}
+
+/**
+ * A `lookup` for net.connect and http.Agent: (hostname, options, callback), where options
+ * carries `family` and `all` as dns.lookup reads them.
+ * @param {string} hostname
+ * @param {{family?: number, all?: boolean}} options
+ * @param {Function} callback
+ */
+function lookup(hostname, options, callback) {
+  answerLookup(hostname, options, callback);
+}
+
+/**
+ * Makes the main thread's global http and https agents resolve through `lookup`. An agent's
+ * own options take precedence over a request's, so every request on these agents uses it.
+ */
+function install() {
+  http.globalAgent.options.lookup = lookup;
+  https.globalAgent.options.lookup = lookup;
+}
+
+module.exports = {
+  PUBLIC_DNS_SERVERS,
+  install,
+  lookup,
+};
