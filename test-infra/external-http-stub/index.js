@@ -1129,6 +1129,22 @@ control.post('/dns-attempts/reset', (req, res) => {
   res.json({ ok: true });
 });
 
+// Names this resolver answers itself instead of relaying, per record type:
+// { name, records: { A: '<ipv4>' | 'SERVFAIL', AAAA: 'SERVFAIL' } }. A type left out is
+// relayed as any other query is. Each answer given is counted, so a suite can show the
+// node asked the question it meant to fail rather than only that it went on to succeed.
+const dnsRecords = new Map();
+
+control.post('/dns-records', (req, res) => {
+  const { name, records } = req.body;
+  dnsRecords.set(name.toLowerCase(), { records, served: {} });
+  res.json({ ok: true });
+});
+
+control.get('/dns-records', (req, res) => {
+  res.json(Object.fromEntries(dnsRecords));
+});
+
 // The fleet's resolver.
 //
 // Blocking a network is not the same as failing loudly on it: a blocked packet
@@ -1144,7 +1160,12 @@ control.post('/dns-attempts/reset', (req, res) => {
 const dnsAttempts = [];
 
 function questionName(query) {
-  // QNAME begins after the 12-byte header, as length-prefixed labels ending in 0.
+  return parseQuestion(query).name;
+}
+
+// The query's one question: QNAME begins after the 12-byte header, as length-prefixed
+// labels ending in 0, and QTYPE and QCLASS follow it. `end` is where the question stops.
+function parseQuestion(query) {
   let offset = 12;
   const labels = [];
   while (offset < query.length) {
@@ -1153,13 +1174,67 @@ function questionName(query) {
     labels.push(query.subarray(offset + 1, offset + 1 + len).toString('ascii'));
     offset += len + 1;
   }
-  return labels.join('.');
+  const typeAt = offset + 1;
+  return {
+    name: labels.join('.'),
+    type: typeAt + 2 <= query.length ? query.readUInt16BE(typeAt) : 0,
+    end: typeAt + 4,
+  };
+}
+
+const DNS_TYPES = { 1: 'A', 28: 'AAAA' };
+
+// A response carrying the query's id and question, with RCODE and answers as given. Any
+// additional section the query carried (an EDNS OPT record) is not echoed.
+function dnsResponse(query, end, rcode, answers = []) {
+  const header = Buffer.alloc(12);
+  query.copy(header, 0, 0, 2);
+  // QR, the query's RD, RA; then RCODE.
+  header[2] = 0x80 | (query[2] & 0x01);
+  header[3] = 0x80 | rcode;
+  header.writeUInt16BE(1, 4);
+  header.writeUInt16BE(answers.length, 6);
+  return Buffer.concat([header, query.subarray(12, end), ...answers]);
+}
+
+function aRecord(ip) {
+  const record = Buffer.alloc(16);
+  // A pointer to the question's name at offset 12, type A, class IN, TTL 60, 4 bytes.
+  record.writeUInt16BE(0xc00c, 0);
+  record.writeUInt16BE(1, 2);
+  record.writeUInt16BE(1, 4);
+  record.writeUInt32BE(60, 6);
+  record.writeUInt16BE(4, 10);
+  ip.split('.').forEach((octet, index) => { record[12 + index] = Number(octet); });
+  return record;
+}
+
+/**
+ * This resolver's own answer to a query for a name in dnsRecords, or null to relay it.
+ * @returns {Buffer|null}
+ */
+function recordedAnswer(query) {
+  const { name, type, end } = parseQuestion(query);
+  const entry = dnsRecords.get(name.toLowerCase());
+  const typeName = DNS_TYPES[type];
+  const record = entry && typeName ? entry.records[typeName] : undefined;
+  if (record === undefined) return null;
+
+  entry.served[typeName] = (entry.served[typeName] ?? 0) + 1;
+  if (record === 'SERVFAIL') return dnsResponse(query, end, 2);
+  return dnsResponse(query, end, 0, [aRecord(record)]);
 }
 
 function startResolver() {
   const server = dgram.createSocket('udp4');
 
   server.on('message', (query, rinfo) => {
+    const recorded = recordedAnswer(query);
+    if (recorded) {
+      server.send(recorded, rinfo.port, rinfo.address);
+      return;
+    }
+
     const name = questionName(query);
     const upstream = dgram.createSocket('udp4');
     let settled = false;

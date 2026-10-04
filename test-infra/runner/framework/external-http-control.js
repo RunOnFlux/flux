@@ -68,6 +68,17 @@ export async function resetDnsAttempts() {
 }
 
 /**
+ * The names the resolver answers itself (createTestEnv's `dnsRecords`), each with the
+ * records it was given and how many answers of each type it has served.
+ *
+ * @returns {Promise<Object<string, {records: object, served: Object<string, number>}>>}
+ */
+export async function dnsRecordsServed() {
+  const res = await fetch(`${CONTROL}/dns-records`);
+  return res.json();
+}
+
+/**
  * Publish the typed blocklist every node fetches, each entry naming the kind of
  * thing it refuses: `{ kind, value, reason, added }` with kind one of hash, name,
  * owner, image or org.
