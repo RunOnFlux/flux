@@ -1827,6 +1827,7 @@ async function manageFolderSyncState(params) {
     // its process, and what it holds must not go out until the election says
     // it is primary again.
     log.info(`manageFolderSyncState - ${appId} is sendreceive and not held here, demoting until the election decides`);
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_STANDBY_HOLD, appId);
     await primaryRole.holdAsStandby(identifier, appId);
     return { syncthingFolder, cache: { restarted: false, numberOfExecutions: 0 } };
   }

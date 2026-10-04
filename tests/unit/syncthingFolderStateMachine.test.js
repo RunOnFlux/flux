@@ -935,6 +935,22 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.notCalled(syncthingServiceMock.dbRevert);
     });
 
+    it('stops at its checkpoint before asking for a sending folder it does not hold to be held as a standby', async () => {
+      mockParams.containerDataFlags = 'g';
+      mockParams.syncFolder = { id: 'test-app', type: 'sendreceive' };
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+      appQueryServiceMock.holdsComponent.resolves(false);
+      const checkpoint = sinon.stub(fluxEventBus, 'checkpoint').resolves();
+      try {
+        await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.calledWithExactly(checkpoint, 'syncthing:beforeStandbyHold', 'test-app');
+        sinon.assert.callOrder(checkpoint.withArgs('syncthing:beforeStandbyHold'), primaryRoleMock.holdAsStandby);
+      } finally {
+        checkpoint.restore();
+      }
+    });
+
     it('demotes a single-writer folder found sendreceive on a node that does not hold it', async () => {
       mockParams.containerDataFlags = 'g';
       mockParams.syncFolder = { id: 'test-app', type: 'sendreceive' };
