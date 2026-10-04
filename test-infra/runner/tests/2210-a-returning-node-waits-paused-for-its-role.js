@@ -113,6 +113,20 @@ describe('a returning node waits paused until its role is decided', function () 
   };
   // A folder id syncthing names in a ConfigSaved event, with its type and pause.
   const savedFolder = (event) => (event.data?.folders || []).find((f) => f.id === folder);
+  // A node's calls to another's API, landing on the node that holds nothing, which
+  // answers as itself.
+  const addr = (i) => `${client(i).ip}:${API_PORT}`;
+  const misrouted = (from, to) => client(from).getDecisionCount('peerIdentity:verdict', addr(to), 'misrouted');
+  const redirects = {};
+  const redirect = async (from, to) => {
+    redirects[from] = await redirectOutbound(client(from).container, {
+      toIps: [client(to).ip], ports: String(API_PORT), landsOn: client(BYSTANDER).ip, resetOpen: true,
+    });
+  };
+  const clearRedirect = async (from) => {
+    if (redirects[from]) await clearOutboundRedirect(client(from).container, redirects[from]);
+    delete redirects[from];
+  };
 
   before(async function () {
     this.timeout(900000);
@@ -347,18 +361,6 @@ describe('a returning node waits paused until its role is decided', function () 
     // which answers as itself: neither can rule the other out. The returning
     // primary cannot judge the Arcane node, and the Arcane node cannot take over
     // while the primary is down.
-    const addr = (i) => `${client(i).ip}:${API_PORT}`;
-    const misrouted = (from, to) => client(from).getDecisionCount('peerIdentity:verdict', addr(to), 'misrouted');
-    const redirects = {};
-    const redirect = async (from, to) => {
-      redirects[from] = await redirectOutbound(client(from).container, {
-        toIps: [client(to).ip], ports: String(API_PORT), landsOn: client(BYSTANDER).ip, resetOpen: true,
-      });
-    };
-    const clearRedirect = async (from) => {
-      if (redirects[from]) await clearOutboundRedirect(client(from).container, redirects[from]);
-      delete redirects[from];
-    };
     let returned = 0;
     let arcaneFrom = 0;
 
@@ -419,39 +421,64 @@ describe('a returning node waits paused until its role is decided', function () 
     });
   });
 
-  it('discards from the election too, which asks every other holder and not only the node FDM names', async function () {
-    this.timeout(900000);
-    await waitFor(async () => (await runners()).length === 1, {
-      timeout: 300000, interval: 2000, label: 'fixture: one node runs the component',
+  describe('a returning primary its folder monitor cannot judge, decided by its election', () => {
+    // The folder monitor decides a returning primary's paused folder on its first
+    // pass after FluxOS starts, and the election runs only once that pass is done.
+    // The election decides it only where the monitor could not: here the returning
+    // node's calls to the node that took over land on the bystander, so the monitor
+    // keeps the folder paused, and is then held before it asks again. FDM names the
+    // bystander, which does not run the component, and the redirect is lifted: the
+    // election asks every other holder, finds the one that took over, and discards.
+    let primary;
+    let standby;
+
+    after(async () => {
+      await clearMaster(appName);
+      if (standby !== undefined) await client(standby).releaseAllCheckpoints().catch(() => {});
+      if (primary !== undefined) {
+        await client(primary).releaseAllCheckpoints().catch(() => {});
+        await clearRedirect(primary);
+      }
     });
-    const [primary] = await runners();
-    const [standby] = HOLDERS.filter((i) => i !== primary);
-    const standbyMark = client(standby).getLastEventId();
 
-    // The whole machine, with no announcement: the process, the container and the
-    // daemon.
-    await crashFluxos(client(primary).container, { hold: true });
-    await execInContainer(client(primary).container, `docker kill flux${identifier}`);
-    await stopDaemon(client(primary));
-    await becamePrimary(standby, standbyMark, 600000);
-    await writeAsApp(primary, 'written-before-fdm-caught-up.txt', 'never sent');
+    it('discards, from the election, which asks every other holder and not only the node FDM names', async function () {
+      this.timeout(1200000);
+      await waitFor(async () => (await runners()).length === 1, {
+        timeout: 300000, interval: 2000, label: 'fixture: one node runs the component',
+      });
+      [primary] = await runners();
+      [standby] = HOLDERS.filter((i) => i !== primary);
+      const standbyMark = client(standby).getLastEventId();
 
-    // FDM names a node that does not run the component. The node that took over
-    // does not act on it, and the returning node's folder monitor is held from its
-    // start, so only its election decides.
-    await client(standby).holdCheckpoint('masterSlave:beforeDecision', identifier);
-    try {
-      await electMaster(appName, client(BYSTANDER).ip);
+      // The whole machine, with no announcement: the process, the container and the
+      // daemon.
+      await crashFluxos(client(primary).container, { hold: true });
+      await execInContainer(client(primary).container, `docker kill flux${identifier}`);
+      await stopDaemon(client(primary));
+      await becamePrimary(standby, standbyMark, 600000);
+      await writeAsApp(primary, 'written-before-fdm-caught-up.txt', 'never sent');
+      await redirect(primary, standby);
+
       // On Arcane the OS starts syncthing, with --paused; on a legacy node FluxOS
       // starts it so.
       if (primary === ARCANE) await startDaemon(client(ARCANE), { paused: true });
       const returned = client(primary).getLastEventId();
-      await releaseFluxos(client(primary).container, {
-        checkpointHolds: [{ name: 'syncthing:beforeStandbyHold', key: folder }],
+      await releaseFluxos(client(primary).container);
+      await waitFor(async () => await heldPausedPasses(primary) >= 1, {
+        timeout: 300000, interval: 3000, label: 'the monitor kept the returned primary paused',
       });
+      expect(await misrouted(primary, standby), 'fixture: the returned primary\'s calls to the node that took over answered by another node').to.be.above(0);
 
-      await fluxEvent(primary, 'checkpoint:held', (d) => d.name === 'syncthing:beforeStandbyHold' && d.key === folder, returned);
-      const decision = await fluxEvent(primary, 'primaryRole:returned', () => true, returned);
+      await client(primary).holdCheckpoint('syncthing:beforeStandbyHold', folder);
+      const held = await fluxEvent(primary, 'checkpoint:held', (d) => d.name === 'syncthing:beforeStandbyHold' && d.key === folder, returned);
+      expect(client(primary).getEventBuffer().filter((e) => e.event === 'primaryRole:returned' && e.id > returned),
+        'fixture: a decision before the election was given the chance').to.deep.equal([]);
+
+      await client(standby).holdCheckpoint('masterSlave:beforeDecision', identifier);
+      await electMaster(appName, client(BYSTANDER).ip);
+      await clearRedirect(primary);
+
+      const decision = await fluxEvent(primary, 'primaryRole:returned', () => true, held.id);
       expect(decision.data, 'what the returning node\'s election decided').to.deep.equal({ identifier, outcome: 'discarded' });
       await client(primary).releaseCheckpoint('syncthing:beforeStandbyHold', folder);
 
@@ -459,10 +486,6 @@ describe('a returning node waits paused until its role is decided', function () 
       expect(await readPath(client(primary), `${data}/written-before-fdm-caught-up.txt`), 'the unsent write on the returned node').to.equal(null);
       expect(await holdsValidVersion(client(standby), folder, 'appdata/written-before-fdm-caught-up.txt'), 'a version of the unsent write on the node that took over').to.equal(false);
       expect(await runners(), 'the writer').to.deep.equal([standby]);
-    } finally {
-      await clearMaster(appName);
-      await client(standby).releaseCheckpoint('masterSlave:beforeDecision', identifier);
-      await client(primary).releaseAllCheckpoints().catch(() => {});
-    }
+    });
   });
 });
