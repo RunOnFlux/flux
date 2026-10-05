@@ -62,6 +62,10 @@ describe('one unmountable app does not block g: election node-wide', function ()
     await resetFdm();
     await resetSyncState();
 
+    // Node 0 is the elected primary from the start: FDM names it before the app
+    // is installed, so the other holder never starts it first.
+    await electMaster(gName, env.clients[0].ip);
+
     // the g: app, on the same node as the jammer plus one peer to fail over to
     await pushImage(gName, 'v1');
     const gApp = await buildSeedableSyncthingApp({ name: gName, mode: 'g' });
@@ -98,8 +102,7 @@ describe('one unmountable app does not block g: election node-wide', function ()
     });
     await installOnNodes(env, jamApp, [0]);
 
-    // node 0 starts as the elected primary, running
-    await electMaster(gName, env.clients[0].ip);
+    // node 0 runs as the elected primary
     await waitForReconcilerDesiredChanged(env.clients[0], gIdentifier, 'running', 90000);
     await waitFor(() => isUp(env.clients[0], gName), { timeout: 90000, interval: 2000, label: 'g: app running on node 0' });
   });
