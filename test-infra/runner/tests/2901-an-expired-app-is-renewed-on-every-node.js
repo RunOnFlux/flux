@@ -10,6 +10,9 @@
  * DRIVEN BY BLOCKS. The expiry pass runs on a block still at the tip when it is fetched, every
  * 2 x speedMultiplier (8) blocks, so the chain is advanced by driveUntil alone once the apps are
  * registered: a second advancer leaves the node's tip on one parity and the pass never fires.
+ * The pass waits a minute after each app it uninstalls, and the block scan waits on the pass,
+ * so blocks are driven against a node that holds neither app, and every node is back at the tip
+ * before the next block that matters is mined.
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
@@ -19,7 +22,7 @@ import { buildAppSpec, registerApp, registerAndConfirm, updateAndConfirm } from 
 import { bootAndPeer, installedInstanceIndices } from '../framework/reconciler-suite.js';
 import { waitFor, waitForDaemonReady, waitForNodeStatus } from '../framework/wait.js';
 import {
-  driveUntil, queueAppTx, startTicker, stopTicker,
+  driveUntil, getState, queueAppTx, startTicker, stopTicker,
 } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -33,7 +36,7 @@ const TERM = 120;
 const EXPIRY_BUDGET = TERM + 24;
 const RENEWED_TERM = 88000;
 const subnet = getSubnetConfig();
-// The node submissions go to and blocks are driven against.
+// The node submissions go to.
 const MIDDLE = 2;
 
 describe('an expired app is renewed by an update, on every node alike', function () {
@@ -47,6 +50,7 @@ describe('an expired app is renewed by an update, on every node alike', function
   const ownerSpec = buildAppSpec({ name: ownerName, instances: 1, expire: TERM });
   let live;
   let submitter;
+  let driver;
   let liveIndices;
   let lateRenewalHash;
   let ownerRenewalHash;
@@ -55,12 +59,17 @@ describe('an expired app is renewed by an update, on every node alike', function
   // Node numbers are 1-based in the database, indices 0-based in env.clients.
   const specHash = async (index, name) => (await dbClient(index + 1).appSpec(name))?.hash ?? null;
   const hashesEverywhere = async (indices, name) => Promise.all(indices.map((i) => specHash(i, name)));
+  const allAtTip = async () => {
+    const { currentHeight } = await getState();
+    const heights = await Promise.all(liveIndices.map((i) => dbClient(i + 1).explorerHeight()));
+    return heights.every((h) => h >= currentHeight);
+  };
 
   before(async function () {
-    this.timeout(900000);
+    this.timeout(1500000);
     // 5 dialers once the joining node is held back: 2 peers each way, which is also what a
     // submission needs here. Index 0's backward arc wraps onto the held-back slot, so
-    // submissions and the block driver use the middle of the ring.
+    // submissions go to the middle of the ring.
     env = await createTestEnv({ hookCtx: this, nodes: 6, deferredNodes: 1, tickerAutostart: false });
     await bootAndPeer(env);
     submitter = env.clients[MIDDLE];
@@ -74,10 +83,13 @@ describe('an expired app is renewed by an update, on every node alike', function
     }
     await stopTicker();
 
+    let ownerHolders = [];
     await waitFor(async () => {
       lateHolders = await installedInstanceIndices(env, lateName);
-      return lateHolders.length > 0 && (await installedInstanceIndices(env, ownerName)).length > 0;
+      ownerHolders = await installedInstanceIndices(env, ownerName);
+      return lateHolders.length > 0 && ownerHolders.length > 0;
     }, { timeout: 180000, interval: 3000, label: 'both apps installed before their term ends' });
+    driver = env.clients[liveIndices.find((i) => !lateHolders.includes(i) && !ownerHolders.includes(i))];
 
     // Signed and relayed while the app still runs; its payment waits until after the app ends.
     const signed = await registerApp(submitter.url, nodeKey(1), { ...lateSpec, expire: RENEWED_TERM }, 'fluxappupdate');
@@ -88,10 +100,11 @@ describe('an expired app is renewed by an update, on every node alike', function
       return held.every(Boolean);
     }, { timeout: 30000, interval: 2000, label: 'the unpaid renewal reaches every node' });
 
-    await driveUntil(submitter, async () => {
+    await driveUntil(driver, async () => {
       const hashes = [...await hashesEverywhere(liveIndices, lateName), ...await hashesEverywhere(liveIndices, ownerName)];
       return hashes.every((h) => h === null);
     }, { blocks: EXPIRY_BUDGET, label: 'both apps expire on every node' });
+    await waitFor(allAtTip, { timeout: 300000, interval: 5000, label: 'every node back at the tip after uninstalling' });
   });
 
   after(async function () {
@@ -114,7 +127,7 @@ describe('an expired app is renewed by an update, on every node alike', function
   it('applies a renewal paid after its app expired, on every node', async function () {
     this.timeout(600000);
     await queueAppTx(lateRenewalHash);
-    await driveUntil(submitter, async () => {
+    await driveUntil(driver, async () => {
       const hashes = await hashesEverywhere(liveIndices, lateName);
       return hashes.every((h) => h === lateRenewalHash);
     }, { blocks: 12, label: `${lateName} renewed on every node` });
@@ -151,7 +164,7 @@ describe('an expired app is renewed by an update, on every node alike', function
     await waitForDaemonReady(env.clients[joiner]);
     await waitForNodeStatus(env.clients[joiner], (d) => d.confirmed === true, 30000);
     await env.startDiscovery([joiner]);
-    await driveUntil(submitter, async () => (
+    await driveUntil(driver, async () => (
       await specHash(joiner, lateName) === lateRenewalHash && await specHash(joiner, ownerName) === ownerRenewalHash
     ), { blocks: 60, label: 'the joining node holds both renewals' });
   });
@@ -159,7 +172,7 @@ describe('an expired app is renewed by an update, on every node alike', function
   it('announces the revived app in both location stores', async function () {
     this.timeout(600000);
     let holders = [];
-    await driveUntil(submitter, async () => {
+    await driveUntil(driver, async () => {
       holders = await installedInstanceIndices(env, lateName);
       return holders.length > 0;
     }, { blocks: 60, label: `${lateName} installed again` });
