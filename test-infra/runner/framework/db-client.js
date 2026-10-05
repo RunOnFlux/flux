@@ -105,12 +105,6 @@ export function dbClient(nodeNum) {
       return globalDb.collection('zelappslocation').find({ ip }).toArray();
     },
 
-    // The app's global spec as this node holds it, or null.
-    async appSpec(appName) {
-      const globalDb = await db('appsGlobal');
-      return globalDb.collection('zelappsinformation').findOne({ name: appName });
-    },
-
     // This node's app state event log, filtered.
     async appStateEvents(query = {}) {
       const globalDb = await db('appsGlobal');
