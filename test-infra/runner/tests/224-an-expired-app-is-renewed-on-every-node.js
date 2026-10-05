@@ -8,11 +8,11 @@
  * sync. The removal and the revived app's return show in both location stores.
  *
  * The chain moves only when this suite advances it: the ticker is stopped after boot, and
- * submissions are paid with queueAppTx and mined by driveUntil.
- *
- * The holders' expiry pass waits a minute after each app it uninstalls, and their block scan
- * waits on it, so blocks are driven against a node holding neither app and every node is back
- * at the tip before the next payment is mined.
+ * submissions are paid with queueAppTx and mined by driveFleetUntil. A node runs its expiry pass
+ * and promotes a payment only on a block that is still the tip when it fetches it, so each block
+ * is mined only once every node has processed the one before. A holder's expiry pass waits a
+ * minute after each app it uninstalls, and its block scan waits on the pass, so a block may
+ * take that long.
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
@@ -25,7 +25,7 @@ import {
   waitFor, waitForDaemonReady, waitForBlockProcessed, waitForAppRemoved, waitForAppInstalled, waitForInstallSettled,
 } from '../framework/wait.js';
 import {
-  driveUntil, getState, queueAppTx, stopTicker,
+  advanceBlock, getState, queueAppTx, stopTicker,
 } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -36,7 +36,7 @@ const subnet = getSubnetConfig();
 // Six nodes, the last held back: 5 dialers, 2 peers each way, which is also the floor a
 // submission needs. Index 0's backward arc wraps onto the held-back slot, so nothing is
 // submitted through it or asserted on it alone.
-const SUBMITTER = 2; // takes submissions and is the block driver; holds neither app
+const SUBMITTER = 2; // takes submissions; holds neither app
 const OBSERVER = 1; // reads the location stores, and rebuilds its app list
 const HOLDER_LATE = 3;
 const HOLDER_OWNER = 4;
@@ -75,6 +75,20 @@ describe('an expired app is renewed by an update, on every node alike', function
     const { currentHeight } = await getState();
     const heights = await Promise.all(liveIndices.map((i) => dbClient(i + 1).explorerHeight()));
     return heights.every((h) => h >= currentHeight);
+  };
+  // Mines one block at a time until the condition holds, each once every node has processed the
+  // one before. Budgeted in blocks, or in time for a wait on a timer.
+  const driveFleetUntil = async (condition, { blocks = Infinity, timeoutMs = Infinity, label }) => {
+    const deadline = Date.now() + timeoutMs;
+    for (let mined = 0; mined < blocks && Date.now() < deadline; mined += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      if (await condition()) return;
+      // eslint-disable-next-line no-await-in-loop
+      await advanceBlock();
+      // eslint-disable-next-line no-await-in-loop
+      await waitFor(allAtTip, { timeout: 150000, interval: 1000, label: `every node processes the block (${label})` });
+    }
+    if (!await condition()) throw new Error(`${label}: not reached within ${blocks} blocks / ${timeoutMs} ms`);
   };
   const relayedEverywhere = async (hash) => {
     const held = await Promise.all(live.map(async (node) => (await node.getTempMessages(hash)).data?.length > 0));
@@ -121,7 +135,7 @@ describe('an expired app is renewed by an update, on every node alike', function
     const ownerRegistration = await submit(ownerSpec, 'fluxappregister');
     await queueAppTx(lateRegistration);
     await queueAppTx(ownerRegistration);
-    await driveUntil(submitter, async () => (await hashes(lateName)).every((h) => h === lateRegistration)
+    await driveFleetUntil(async () => (await hashes(lateName)).every((h) => h === lateRegistration)
       && (await hashes(ownerName)).every((h) => h === ownerRegistration), { blocks: 6, label: 'both apps registered on every node' });
     registered.late = await dbClient(OBSERVER + 1).globalAppSpec(lateName);
     registered.owner = await dbClient(OBSERVER + 1).globalAppSpec(ownerName);
@@ -148,9 +162,8 @@ describe('an expired app is renewed by an update, on every node alike', function
       observeRemoval(HOLDER_OWNER, ownerName, marks.owner),
     ]);
     removal = removals.then(() => null, (error) => error);
-    await driveUntil(submitter, async () => (await hashes(lateName)).every((h) => h === null)
+    await driveFleetUntil(async () => (await hashes(lateName)).every((h) => h === null)
       && (await hashes(ownerName)).every((h) => h === null), { blocks: EXPIRY_BUDGET, label: 'both apps expire on every node' });
-    await waitFor(allAtTip, { timeout: 300000, interval: 5000, label: 'every node back at the tip after uninstalling' });
   });
 
   after(async function () {
@@ -168,7 +181,7 @@ describe('an expired app is renewed by an update, on every node alike', function
     this.timeout(300000);
     installMarks = live.map((node) => node.getLastEventId());
     await queueAppTx(lateRenewalHash);
-    await driveUntil(submitter, async () => (await hashes(lateName)).every((h) => h === lateRenewalHash), { blocks: 12, label: `${lateName} renewed on every node` });
+    await driveFleetUntil(async () => (await hashes(lateName)).every((h) => h === lateRenewalHash), { blocks: 12, label: `${lateName} renewed on every node` });
     expect((await dbClient(OBSERVER + 1).globalAppSpec(lateName)).expire).to.equal(RENEWED_TERM);
   });
 
@@ -176,7 +189,7 @@ describe('an expired app is renewed by an update, on every node alike', function
     this.timeout(300000);
     ownerRenewalHash = await submit({ ...ownerSpec, expire: RENEWED_TERM }, 'fluxappupdate');
     await queueAppTx(ownerRenewalHash);
-    await driveUntil(submitter, async () => (await hashes(ownerName)).every((h) => h === ownerRenewalHash), { blocks: 12, label: `${ownerName} renewed on every node` });
+    await driveFleetUntil(async () => (await hashes(ownerName)).every((h) => h === ownerRenewalHash), { blocks: 12, label: `${ownerName} renewed on every node` });
   });
 
   it('holds the same renewals after rebuilding its app list from its message log', async function () {
@@ -205,7 +218,7 @@ describe('an expired app is renewed by an update, on every node alike', function
     await waitForBlockProcessed(env.clients[JOINER], () => true, 120000);
     await env.startDiscovery([JOINER]);
     // Hash sync runs on a timer, so the budget is time; the driver keeps the chain moving.
-    await driveUntil(submitter, async () => await specHash(JOINER, lateName) === lateRenewalHash
+    await driveFleetUntil(async () => await specHash(JOINER, lateName) === lateRenewalHash
       && await specHash(JOINER, ownerName) === ownerRenewalHash, { timeoutMs: 300000, label: 'the joining node holds both renewals' });
   });
 
