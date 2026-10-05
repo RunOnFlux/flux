@@ -2404,6 +2404,75 @@ describe('FluxPeerManager tests', () => {
       }, 1200);
     });
 
+    // This node at 1.1.1.1 holds its own dial when the peer's reconnect dial
+    // arrives. Whether the two crossed is known only once the held one answers.
+    describe('a reconnect dial meeting a held outbound one', () => {
+      let held;
+      let dial;
+      let count;
+
+      beforeEach(() => {
+        manager.numberOfFluxNodes = 10000;
+        manager.setOwnSocketAddress('1.1.1.1:16127');
+        held = createMockWs('8.8.8.8', '16127');
+        manager.add(held, '8.8.8.8', '16127', { source: PEER_SOURCE.DETERMINISTIC });
+        dial = createMockWs('8.8.8.8', '16127');
+        count = sinon.stub(fluxEventBus, 'count');
+        manager.validateAndAddInbound(dial, '16127', createMockReq('8.8.8.8', { 'x-flux-reconnect': 'true' }));
+      });
+
+      it('reports nothing until the held connection answers', () => {
+        sinon.assert.calledOnce(held.ping);
+        sinon.assert.neverCalledWith(count, 'peers:crossing');
+      });
+
+      it('reports a crossing when the held connection pongs', () => {
+        held.emit('pong');
+        sinon.assert.calledOnceWithExactly(count, 'peers:crossing', DIRECTION.OUTBOUND);
+      });
+
+      it('reports a crossing when the peer closes its dial', () => {
+        dial.emit('close', CLOSE_CODES.DUPLICATE_PEER);
+        sinon.assert.calledOnceWithExactly(count, 'peers:crossing', DIRECTION.OUTBOUND);
+      });
+
+      it('reports no crossing when the held connection was dead', (done) => {
+        setTimeout(() => {
+          expect(manager.get('8.8.8.8:16127').ws).to.equal(dial);
+          sinon.assert.neverCalledWith(count, 'peers:crossing');
+          done();
+        }, 1200);
+      });
+    });
+
+    it('reports a crossing at once when the peer\'s reconnect dial is the one kept', () => {
+      manager.numberOfFluxNodes = 10000;
+      manager.setOwnSocketAddress('9.9.9.9:16127');
+      const held = createMockWs('8.8.8.8', '16127');
+      manager.add(held, '8.8.8.8', '16127', { source: PEER_SOURCE.DETERMINISTIC });
+      const count = sinon.stub(fluxEventBus, 'count');
+
+      const dial = createMockWs('8.8.8.8', '16127');
+      manager.validateAndAddInbound(dial, '16127', createMockReq('8.8.8.8', { 'x-flux-reconnect': 'true' }));
+
+      expect(manager.get('8.8.8.8:16127').ws).to.equal(dial);
+      sinon.assert.notCalled(held.ping);
+      sinon.assert.calledOnceWithExactly(count, 'peers:crossing', DIRECTION.INBOUND);
+    });
+
+    it('reports no crossing for a reconnect dial meeting a held inbound one', () => {
+      manager.numberOfFluxNodes = 10000;
+      const ws1 = createMockWs('8.8.8.8', '16127');
+      manager.add(ws1, '8.8.8.8', '16127', { source: PEER_SOURCE.INBOUND });
+      const count = sinon.stub(fluxEventBus, 'count');
+
+      const ws2 = createMockWs('8.8.8.8', '16127');
+      manager.validateAndAddInbound(ws2, '16127', createMockReq('8.8.8.8', { 'x-flux-reconnect': 'true' }));
+      ws1.emit('pong');
+
+      sinon.assert.neverCalledWith(count, 'peers:crossing');
+    });
+
     it('stops listening to the new socket once the existing connection answers', (done) => {
       manager.numberOfFluxNodes = 10000;
       const ws1 = createMockWs('8.8.8.8', '16127');

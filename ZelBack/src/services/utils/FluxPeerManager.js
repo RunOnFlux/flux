@@ -446,6 +446,9 @@ class FluxPeerManager extends EventEmitter {
    *   so the existing one is alive at both ends however slow its pong;
    * - 1s with neither: the existing connection is dead, and the new socket replaces it.
    *
+   * An existing outbound connection found alive makes the two a crossing, and
+   * it is reported here; one found dead was never a crossing.
+   *
    * @param {FluxPeerSocket} existing - The current peer connection to verify
    * @param {WebSocket} ws - The new inbound WebSocket
    * @param {string} ip
@@ -476,12 +479,14 @@ class FluxPeerManager extends EventEmitter {
 
     listeners.pong = () => {
       if (!settle()) return;
+      if (existing.direction === DIRECTION.OUTBOUND) this.#reportCrossing(existing, DIRECTION.OUTBOUND);
       log.info(`Reconnect verify: existing connection ${existing.key} is alive, rejecting new inbound`);
       ws.close(CLOSE_CODES.DUPLICATE_PEER, 'Existing connection verified alive');
     };
 
     listeners.newcomerClosed = () => {
       if (!settle()) return;
+      if (existing.direction === DIRECTION.OUTBOUND) this.#reportCrossing(existing, DIRECTION.OUTBOUND);
       log.info(`Reconnect verify: ${existing.key} closed its new connection and kept the existing one`);
     };
 
@@ -615,9 +620,9 @@ class FluxPeerManager extends EventEmitter {
 
   /**
    * newcomerReplaces, for a connection just established to a peer this node
-   * already holds - and the one report of a crossing. When the two are live and
-   * opposite, the pair's two dials met: the decision is logged and counted here,
-   * once, whichever path made it.
+   * already holds, reporting the crossing when the two are live and opposite.
+   * The one exception is an inbound reconnect dial the held outbound would
+   * outlive: the held one may be dead, so the reconnect check reports it.
    * @param {object} existing The held peer.
    * @param {string} direction The newcomer's DIRECTION.
    * @returns {boolean} Whether the newcomer replaces the held peer.
@@ -625,14 +630,24 @@ class FluxPeerManager extends EventEmitter {
   resolveCrossing(existing, direction) {
     const replaces = this.newcomerReplaces(existing, direction);
     if (existing.isAlive && existing.direction !== direction) {
-      const kept = replaces ? direction : existing.direction;
-      const why = this.crossingSurvivor(existing.key)
-        ? 'dialed by the lower address'
-        : 'held, as this node does not know its own address';
-      log.info(`Crossing connections with ${existing.key}: keeping the ${kept} one, ${why}`);
-      fluxEventBus.count('peers:crossing', kept);
+      this.#reportCrossing(existing, replaces ? direction : existing.direction);
     }
     return replaces;
+  }
+
+  /**
+   * Log and count a crossing with the held peer, and which of its two
+   * connections the pair keeps.
+   * @param {object} existing The held peer.
+   * @param {string} kept The DIRECTION of the connection kept.
+   * @private
+   */
+  #reportCrossing(existing, kept) {
+    const why = this.crossingSurvivor(existing.key)
+      ? 'dialed by the lower address'
+      : 'held, as this node does not know its own address';
+    log.info(`Crossing connections with ${existing.key}: keeping the ${kept} one, ${why}`);
+    fluxEventBus.count('peers:crossing', kept);
   }
 
   getPeerFluxUptime(key) {
@@ -1156,16 +1171,20 @@ class FluxPeerManager extends EventEmitter {
           this.add(ws, ipv4Peer, port, { source: PEER_SOURCE.INBOUND, ...metadata });
           return;
         }
+        const isReconnect = req && req.headers && req.headers['x-flux-reconnect'];
         // Both ends dialed at once: this inbound is the pair's other connection.
-        if (existing && existing.direction === DIRECTION.OUTBOUND
-          && this.resolveCrossing(existing, DIRECTION.INBOUND)) {
-          this.add(ws, ipv4Peer, port, { source: PEER_SOURCE.INBOUND, ...metadata });
-          return;
+        // A reconnect dial says the held one may be dead, so when the held one
+        // would stay, the reconnect check below decides whether the two crossed.
+        if (existing && existing.direction === DIRECTION.OUTBOUND) {
+          const heldMayBeDead = isReconnect && !this.newcomerReplaces(existing, DIRECTION.INBOUND);
+          if (!heldMayBeDead && this.resolveCrossing(existing, DIRECTION.INBOUND)) {
+            this.add(ws, ipv4Peer, port, { source: PEER_SOURCE.INBOUND, ...metadata });
+            return;
+          }
         }
         // If the remote is reconnecting (asymmetric disconnect), verify the
         // existing connection is still alive before rejecting. Ping it and
         // wait up to 1s — if no pong, the old socket is dead, replace it.
-        const isReconnect = req && req.headers && req.headers['x-flux-reconnect'];
         if (isReconnect && existing) {
           this.#verifyOrReplace(existing, ws, ipv4Peer, port, metadata);
           return;
