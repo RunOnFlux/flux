@@ -25,8 +25,10 @@ import { dbClient } from '../framework/db-client.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
-// An app's term, in blocks: long enough to install it, short enough to drive past.
-const TERM = 40;
+// An app's term, in blocks. The spawner installs only an app with more than
+// newMinBlocksAllowance (100) blocks left, and the chain holds still between registering and
+// installing, so 120 is installable and still short enough to drive past.
+const TERM = 120;
 // The term, plus three expiry passes.
 const EXPIRY_BUDGET = TERM + 24;
 const RENEWED_TERM = 88000;
