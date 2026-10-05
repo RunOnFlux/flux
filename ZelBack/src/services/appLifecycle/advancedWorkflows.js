@@ -43,7 +43,7 @@ const primaryRole = require('./primaryRole');
 const primaryRoleChanges = require('./primaryRoleChanges');
 const { createPeerFolderLiveness } = require('../appMonitoring/peerFolderLiveness');
 const {
-  PeerComponent, peerComponentState, componentStateOnPeers, componentStateOnOtherHolders,
+  PeerComponent, peerComponentState, componentStateOnPeers, componentStateOnOtherHolders, peerUndecided,
 } = require('../appMonitoring/peerComponent');
 const syncthingFolderStateMachine = require('../appMonitoring/syncthingFolderStateMachine');
 const syncthingServiceModule = require('../syncthingService');
@@ -5360,30 +5360,45 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 log.info(`masterSlaveApps: app:${installedApp.name} removed from timeTostartNewMasterApp cache, already started on another standby node`);
                 timeTostartNewMasterApp.delete(identifier);
               }
+              // Every other holder, and the node FDM names as well: what a node that
+              // has not decided its role asks before it does.
+              const probeCtx = {
+                appId, identifier, appName: installedApp.name, liveness, logPrefix: 'masterSlaveApps',
+              };
+              const othersHold = () => componentStateOnOtherHolders(
+                (name) => registryManagerModule.appLocation(name),
+                localSocketAddr,
+                probeCtx,
+                { also: [ip] },
+              );
+              const holdsHere = runningAppsNames.includes(identifier)
+                || primaryRole.inTransition(identifier) === primaryRole.Role.PROMOTING
+                || appReconciler.committedIdentifiers().includes(identifier);
               if (!ipsMatch(localSocketAddr, ip)) {
                 withdrawSeedMark(appId, `FDM names ${ip} its primary`);
                 if (resuming) {
                   // eslint-disable-next-line no-await-in-loop
                   await settleOperatorStart(identifier, `FDM names ${ip} its primary`);
                 }
+                // FDM names a node that runs the component, and also one that only
+                // holds it - by a stop lock, a promotion, or a sending folder - while
+                // nothing runs it anywhere. This node stands down for a node that has
+                // decided it holds the component, or that cannot be shown not to have.
+                // One that has not decided gives way to a node that has, and FDM
+                // names this one once it runs.
+                // eslint-disable-next-line no-await-in-loop
+                if (holdsHere && await peerUndecided(`${extractIp(ip)}:${extractPort(ip)}`, { ...probeCtx, label: 'FDM primary' })) {
+                  log.info(`masterSlaveApps: keeping component:${identifier} - FDM names ip:${ip}, which has not decided it holds it`);
                 // Stands down only the g: component on this node. Non-g siblings (e.g. a
                 // DB cluster component that needs all instances running) keep running.
-                if (primaryRole.standDown(identifier, appId, { running: runningAppsNames.includes(identifier) })) {
-                  log.info(`masterSlaveApps: standing down as primary of component:${identifier} - primary runs on ip:${ip}, localSocketAddr is: ${localSocketAddr}`);
+                } else if (primaryRole.standDown(identifier, appId, { running: runningAppsNames.includes(identifier) })) {
+                  log.info(`masterSlaveApps: standing down as primary of component:${identifier} - FDM names ip:${ip}, localSocketAddr is: ${localSocketAddr}`);
                 } else {
                   // A standby's folder receives and never sends: what it holds is the
                   // primary's, and anything written here is a local change for the
                   // primary's copy to overwrite. A folder that returned paused asks
                   // every other holder whether it runs the component, as the monitor
                   // does, and the node FDM names as well.
-                  const othersHold = () => componentStateOnOtherHolders(
-                    (name) => registryManagerModule.appLocation(name),
-                    localSocketAddr,
-                    {
-                      appId, identifier, appName: installedApp.name, liveness, logPrefix: 'masterSlaveApps',
-                    },
-                    { also: [ip] },
-                  );
                   // eslint-disable-next-line no-await-in-loop
                   await primaryRole.holdAsStandby(identifier, appId, { othersHold });
                 }
@@ -5420,14 +5435,21 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   }
                 }
 
-                if (isReady) {
-                  // eslint-disable-next-line no-await-in-loop
-                  if (await start()) {
-                    log.info(`masterSlaveApps: starting docker component:${identifier}`);
-                  }
-                } else {
+                // FDM naming this node is no clearance on its own: FDM also names a
+                // node that only holds the component while another has taken it
+                // over and is not running it yet. A start here asks every other
+                // holder first, as every other start does.
+                // eslint-disable-next-line no-await-in-loop
+                const others = isReady && !holdsHere ? await othersHold() : PeerComponent.NOT_RUNNING;
+                if (!isReady) {
                   fluxEventBus.count('masterSlave:decision', identifier, 'notReady');
                   log.info(`masterSlaveApps: app:${installedApp.name} is registered as primary on FDM but not ready yet (syncthing not synced), skipping start for this cycle`);
+                } else if (others !== PeerComponent.NOT_RUNNING) {
+                  fluxEventBus.count('masterSlave:decision', identifier, 'namedButHeldElsewhere');
+                  log.info(`masterSlaveApps: not starting app:${installedApp.name} that FDM names this node the primary of - a peer ${others === PeerComponent.RUNNING ? 'holds it' : 'could not be ruled out'}`);
+                // eslint-disable-next-line no-await-in-loop
+                } else if (await start()) {
+                  log.info(`masterSlaveApps: starting docker component:${identifier}`);
                 }
               }
             }

@@ -207,6 +207,40 @@ async function silentPeerState(peerSocketAddr, {
 }
 
 /**
+ * Whether a peer is shown, in its own signed words, not to have decided it holds
+ * a component: it neither runs it, nor is committed to or becoming its primary,
+ * nor was stopped there by its owner as its primary. It holds it at most by a
+ * sending folder - a primary back from a stop, still deciding whether another
+ * holder took over, which gives way to one that has.
+ *
+ * Anything short of a signed answer saying so is false: an unsigned or unproven
+ * reply, a peer that cannot be reached, or one too old to say what it decided.
+ * @param {string} peerSocketAddr The peer's socket address.
+ * @param {object} ctx As peerComponentState, without `liveness`.
+ * @returns {Promise<boolean>}
+ */
+async function peerUndecided(peerSocketAddr, {
+  appId, identifier, appName, label, logPrefix,
+}) {
+  const { IdentityVerdict, AnswerPurpose } = peerIdentityService;
+  const asked = await peerIdentityService.askSigned(
+    peerSocketAddr,
+    '/apps/heldcomponents',
+    AnswerPurpose.HELD_COMPONENTS,
+    {},
+    { timeout: PEER_PROBE_TIMEOUT_MS },
+  );
+  const { decided } = asked.verdict === IdentityVerdict.VERIFIED ? asked.answer : {};
+  if (!Array.isArray(decided)) {
+    log.info(`${logPrefix}: peer node (${label}) at ${extractIp(peerSocketAddr)} cannot be shown to be undecided about app:${appName}`);
+    return false;
+  }
+  const undecided = !decided.includes(appId);
+  if (undecided) fluxEventBus.count('masterSlave:decision', identifier, 'peerUndecided');
+  return undecided;
+}
+
+/**
  * What this node can show the other holders of a component to be doing with it,
  * taken together. One peer that cannot be ruled out decides on its own: every
  * other peer answering "not me" says nothing about that one.
@@ -260,4 +294,5 @@ module.exports = {
   peerComponentState,
   componentStateOnPeers,
   componentStateOnOtherHolders,
+  peerUndecided,
 };

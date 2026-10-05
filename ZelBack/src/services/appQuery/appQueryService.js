@@ -348,6 +348,28 @@ async function ownHoldings() {
   return [...new Set([...running, ...committed, ...operatorHeld])];
 }
 
+function notKnownYet() {
+  return messageHelper.createErrorMessage('Which folders send here is not known yet', 'ServiceUnavailable', 503);
+}
+
+/**
+ * What this node holds, both ways a peer reads it: `decided` is its own account
+ * (ownHoldings), and `held` adds every component whose folder sends here. A
+ * component in `held` and not in `decided` has a sending folder and nothing
+ * behind it yet: a primary back from a stop, still deciding whether another
+ * holder took over.
+ *
+ * Throws when the lock store cannot be read.
+ * @returns {Promise<{decided: string[], held: string[]}|null>} null until the
+ *   monitor's first pass says which folders send here
+ */
+async function holdingsAccount() {
+  const sending = sharedState.promotedFolderIds;
+  if (sending === null) return null;
+  const decided = await ownHoldings();
+  return { decided, held: [...new Set([...decided, ...sending])] };
+}
+
 /**
  * Component identifiers this node holds, as a peer is told: its own account,
  * and every component whose folder sends here. The question a primary election
@@ -375,13 +397,12 @@ async function ownHoldings() {
  */
 async function heldComponents(req, res) {
   try {
-    const sending = sharedState.promotedFolderIds;
-    if (sending === null) {
-      const notReady = messageHelper.createErrorMessage('Which folders send here is not known yet', 'ServiceUnavailable', 503);
+    const account = await holdingsAccount();
+    if (!account) {
+      const notReady = notKnownYet();
       return res ? res.json(notReady) : notReady;
     }
-    const held = [...new Set([...await ownHoldings(), ...sending])];
-    const response = messageHelper.createDataMessage(held);
+    const response = messageHelper.createDataMessage(account.held);
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -418,12 +439,12 @@ const HELD_FOR_PEERS_TTL_MS = 1000;
 let heldForPeers = null;
 
 /**
- * heldComponents as a peer asks it: `{ held }`, signed over the challenge the
- * request body carries.
+ * heldComponents as a peer asks it: `{ held, decided }` (see holdingsAccount),
+ * signed over the challenge the request body carries.
  *
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {Promise<object>} Message carrying the signed `{ held }`.
+ * @returns {Promise<object>} Message carrying the signed `{ held, decided }`.
  */
 async function heldComponentsAnswer(req, res) {
   try {
@@ -433,11 +454,11 @@ async function heldComponentsAnswer(req, res) {
     );
     const now = Number(process.hrtime.bigint() / 1000000n);
     if (!heldForPeers || now - heldForPeers.at >= HELD_FOR_PEERS_TTL_MS) {
-      const account = await heldComponents();
-      if (account.status !== 'success') return res.json(account);
-      heldForPeers = { held: account.data, at: now };
+      const account = await holdingsAccount();
+      if (!account) return res.json(notKnownYet());
+      heldForPeers = { ...account, at: now };
     }
-    return res.json(messageHelper.createDataMessage(await seal({ held: heldForPeers.held })));
+    return res.json(messageHelper.createDataMessage(await seal({ held: heldForPeers.held, decided: heldForPeers.decided })));
   } catch (error) {
     log.error(error);
     return res.json(messageHelper.createErrorMessage(error.message || error, error.name, error.code));

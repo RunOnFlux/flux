@@ -1219,6 +1219,8 @@ describe('advancedWorkflows tests', () => {
         const appName = 'opstartnamedhere';
         const runPass = electionFixture(appName, [PEER]);
         serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.5'] } } });
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
 
         await runPass();
 
@@ -1542,6 +1544,176 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'cleared this node\'s own stale primary record')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'conditions not met')).to.have.lengthOf(0);
+    });
+
+    // FDM names a node that runs the component, and also, while nothing runs it
+    // anywhere, one that only holds it. Neither is a clearance on its own.
+    describe('FDM naming a primary', () => {
+      const PEER = '192.168.1.90:16127';
+      const namesThisNode = { data: { status: 'success', data: { ips: ['192.168.1.5'] } } };
+      const namesPeer = { data: { status: 'success', data: { ips: ['192.168.1.90'] } } };
+      let standDown;
+      let holdAsStandby;
+      let promote;
+
+      beforeEach(() => {
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+        standDown = sinon.stub(primaryRole, 'standDown').returns(true);
+        holdAsStandby = sinon.stub(primaryRole, 'holdAsStandby').resolves(true);
+        promote = sinon.stub(primaryRole, 'promote').returns(true);
+      });
+
+      afterEach(() => {
+        primaryRoleChanges.promotingIdentifiers().forEach((identifier) => primaryRoleChanges.end(identifier, primaryRoleChanges.get(identifier)));
+      });
+
+      const peerSignsHolding = ({ held, decided }) => peerIdentityService.askSigned.withArgs(PEER).resolves({
+        verdict: peerIdentityService.IdentityVerdict.VERIFIED,
+        answer: { held, decided, purpose: peerIdentityService.AnswerPurpose.HELD_COMPONENTS },
+      });
+      const becoming = (appName) => primaryRoleChanges.set(appName, { state: 'promoting', appId: `flux${appName}` });
+
+      describe('this node', () => {
+        it('does not start when another holder holds the component', async () => {
+          const appName = 'namedheldelsewhere';
+          const count = sinon.stub(fluxEventBus, 'count');
+          const runPass = electionFixture(appName, [PEER]);
+          serviceHelperStub.resolves(namesThisNode);
+          peerSignsHolding({ held: [`flux${appName}`], decided: [`flux${appName}`] });
+
+          await runPass();
+
+          sinon.assert.notCalled(promote);
+          sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'namedButHeldElsewhere');
+        });
+
+        it('does not start when another holder cannot be ruled out', async () => {
+          const appName = 'namedunknownelsewhere';
+          const runPass = electionFixture(appName, [PEER]);
+          serviceHelperStub.resolves(namesThisNode);
+          axiosGetStub.resetBehavior();
+          axiosGetStub.callsFake(peerAnswers({ held: null }));
+          peerIdentityService.askSigned.withArgs(PEER).resolves({
+            verdict: peerIdentityService.IdentityVerdict.MISROUTED, answeredAs: 'someone else',
+          });
+
+          await runPass();
+
+          sinon.assert.notCalled(promote);
+        });
+
+        it('starts when no other holder holds the component', async () => {
+          const appName = 'namedfreeelsewhere';
+          const runPass = electionFixture(appName, [PEER]);
+          serviceHelperStub.resolves(namesThisNode);
+          peerSignsHolding({ held: [], decided: [] });
+
+          await runPass();
+
+          sinon.assert.calledOnceWithExactly(promote, appName, `flux${appName}`);
+        });
+
+        it('asks no other holder while it is already becoming the primary', async () => {
+          const appName = 'namedwhilebecoming';
+          const runPass = electionFixture(appName, [PEER]);
+          serviceHelperStub.resolves(namesThisNode);
+          becoming(appName);
+
+          await runPass();
+
+          sinon.assert.neverCalledWith(peerIdentityService.askSigned, PEER);
+        });
+      });
+
+      describe('another node, while this one is becoming the primary', () => {
+        it('keeps the promotion when the named node signs that it has not decided it holds the component', async () => {
+          const appName = 'namedundecided';
+          const count = sinon.stub(fluxEventBus, 'count');
+          const runPass = electionFixture(appName, [PEER]);
+          serviceHelperStub.resolves(namesPeer);
+          becoming(appName);
+          peerSignsHolding({ held: [`flux${appName}`], decided: [] });
+
+          await runPass();
+
+          sinon.assert.notCalled(standDown);
+          sinon.assert.notCalled(holdAsStandby);
+          sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'peerUndecided');
+        });
+
+        it('keeps the promotion when the named node signs that it holds nothing', async () => {
+          const appName = 'namedholdsnothing';
+          const runPass = electionFixture(appName, [PEER]);
+          serviceHelperStub.resolves(namesPeer);
+          becoming(appName);
+          peerSignsHolding({ held: [], decided: [] });
+
+          await runPass();
+
+          sinon.assert.notCalled(standDown);
+        });
+
+        it('stands down when the named node signs that it has decided it holds the component', async () => {
+          const appName = 'nameddecided';
+          const runPass = electionFixture(appName, [PEER]);
+          serviceHelperStub.resolves(namesPeer);
+          becoming(appName);
+          peerSignsHolding({ held: [`flux${appName}`], decided: [`flux${appName}`] });
+
+          await runPass();
+
+          sinon.assert.calledOnceWithExactly(standDown, appName, `flux${appName}`, { running: false });
+        });
+
+        it('stands down when the named node signs an answer that does not say what it decided', async () => {
+          const appName = 'namednodecidedlist';
+          const runPass = electionFixture(appName, [PEER]);
+          serviceHelperStub.resolves(namesPeer);
+          becoming(appName);
+          peerSignsHolding({ held: [`flux${appName}`] });
+
+          await runPass();
+
+          sinon.assert.calledOnce(standDown);
+        });
+
+        it('stands down when the named node cannot prove who it is', async () => {
+          const appName = 'namedunproven';
+          const runPass = electionFixture(appName, [PEER]);
+          serviceHelperStub.resolves(namesPeer);
+          becoming(appName);
+
+          await runPass();
+
+          sinon.assert.calledOnce(standDown);
+        });
+      });
+
+      it('keeps a component committed here when the named node signs that it has not decided it holds it', async () => {
+        const appName = 'namedundecidedcommitted';
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(namesPeer);
+        sinon.stub(appReconciler, 'committedIdentifiers').returns([appName]);
+        peerSignsHolding({ held: [`flux${appName}`], decided: [] });
+
+        await runPass();
+
+        sinon.assert.notCalled(standDown);
+      });
+
+      it('asks nothing of the named node when this one holds the component by nothing, and holds as a standby', async () => {
+        const appName = 'namedstandby';
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(namesPeer);
+        standDown.returns(false);
+        peerSignsHolding({ held: [`flux${appName}`], decided: [] });
+
+        await runPass();
+
+        sinon.assert.neverCalledWith(peerIdentityService.askSigned, PEER);
+        sinon.assert.calledOnce(standDown);
+        sinon.assert.calledOnce(holdAsStandby);
+      });
     });
 
     describe('isElectedPrimaryHere answers in three states', () => {

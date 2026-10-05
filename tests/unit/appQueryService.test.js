@@ -723,13 +723,34 @@ describe('appQueryService tests', () => {
       sealWith((fields) => Promise.resolve({ ...fields, sealed: true }));
     });
 
-    it('answers what this node holds, as `held`, signed as held components over the request', async () => {
+    it('answers what this node holds, as `held` and `decided`, signed as held components over the request', async () => {
       const req = { body: { challenge: 'c'.repeat(32) } };
 
       const answer = await appQueryService.heldComponentsAnswer(req, res());
 
-      expect(answer).to.deep.equal({ status: 'success', data: { held: ['fluxwww_App'], sealed: true } });
+      expect(answer).to.deep.equal({ status: 'success', data: { held: ['fluxwww_App'], decided: ['fluxwww_App'], sealed: true } });
       sinon.assert.calledOnceWithExactly(peerIdentityServiceStub.answerSealer, 'held', req.body);
+    });
+
+    it('holds a component whose folder alone sends here without having decided it', async () => {
+      sharedState.promotedFolderIds = new Set(['fluxgame_App']);
+
+      const answer = await appQueryService.heldComponentsAnswer({}, res());
+
+      expect(answer.data.held).to.have.members(['fluxwww_App', 'fluxgame_App']);
+      expect(answer.data.decided).to.deep.equal(['fluxwww_App']);
+    });
+
+    it('answers that it cannot say yet, unsigned, before the monitor has said which folders send here', async () => {
+      sharedState.promotedFolderIds = null;
+      const seal = sinon.spy((fields) => Promise.resolve(fields));
+      sealWith(seal);
+
+      const answer = await appQueryService.heldComponentsAnswer({}, res());
+
+      expect(answer.status).to.equal('error');
+      expect(answer.data.message).to.equal('Which folders send here is not known yet');
+      sinon.assert.notCalled(seal);
     });
 
     it('reads the account at most once a second however often it is asked', async () => {

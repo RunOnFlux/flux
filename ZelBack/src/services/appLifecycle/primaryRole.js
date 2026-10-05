@@ -111,12 +111,12 @@ async function sendThenRun(identifier, appId, change) {
   return Role.PRIMARY;
 }
 
-// A stand-down ends an error: FDM names another node only once that node runs
-// the component, so this node and that one have both been writing it - a network
-// split, or two nodes starting it at once. The elected node's copy is kept. This
-// node's folder receives as soon as its container has stopped, unscanned, so
-// what syncthing had not yet scanned is discarded rather than sent over the
-// elected copy, and from then on one folder sends. A change it had already
+// A stand-down ends an error: FDM names another node that has decided it holds
+// the component while this one runs it, so both have been writing it, or are
+// about to - a network split, or two nodes starting it at once. The elected
+// node's copy is kept. This node's folder receives as soon as its container has
+// stopped, unscanned, so what syncthing had not yet scanned is discarded rather
+// than sent over the elected copy, and from then on one folder sends. A change it had already
 // scanned is in its index, which receiving does not withdraw: it reaches the
 // elected copy when the two reconnect.
 async function stopThenReceive(identifier, appId) {
