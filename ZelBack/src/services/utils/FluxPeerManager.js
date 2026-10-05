@@ -336,6 +336,8 @@ class FluxPeerManager extends EventEmitter {
     this.#peers.delete(peer.key);
     this.#inboundKeys.delete(peer.key);
     this.#outboundKeys.delete(peer.key);
+    // A reconnect dial awaiting its verdict contests this connection, and goes with it.
+    this.#awaitingVerdict.get(peer.key)?.(CLOSE_CODES.DEAD_CONNECTION, 'The connection it contested is gone');
 
     // Decrement IP group and unique IP tracking
     const groupKey = `${peer.direction}:${FluxPeerManager.getIpGroup(peer.ip)}`;
@@ -385,12 +387,14 @@ class FluxPeerManager extends EventEmitter {
     // a flag set only around that one eviction would have to know which it is.
     this.#deliberateTeardown = true;
     try {
+      // First, so a waiting dial is told the node is unconfirmed: an eviction
+      // would close it as contesting a connection that is gone.
+      for (const abandon of [...this.#awaitingVerdict.values()]) {
+        abandon(CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
+      }
       // Snapshot the keys: evict() deletes from the map being walked.
       for (const key of [...this.#peers.keys()]) {
         this.evict(key, CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
-      }
-      for (const abandon of [...this.#awaitingVerdict.values()]) {
-        abandon(CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
       }
     } finally {
       this.#deliberateTeardown = false;
@@ -453,7 +457,9 @@ class FluxPeerManager extends EventEmitter {
    *   existing connection, which the peer does not hold;
    * - the new socket closing: the peer did not keep it, as when it holds the
    *   existing connection and the two are a crossing (resolveCrossing), and the
-   *   existing one stays.
+   *   existing one stays;
+   * - the existing connection ending: the dial is closed with it, as what it
+   *   contested is gone, and the peer dials again.
    * No clock decides it: a slow link or a stalled peer delays the verdict and
    * cannot change it. One dial per peer awaits its verdict: a newer reconnect
    * dial from the same peer closes the one before it.

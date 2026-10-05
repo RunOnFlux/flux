@@ -2416,8 +2416,29 @@ describe('FluxPeerManager tests', () => {
 
       manager.disconnectAll();
 
-      sinon.assert.calledWith(dial.close, CLOSE_CODES.NODE_UNCONFIRMED);
+      sinon.assert.calledOnceWithExactly(dial.close, CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
       expect(dial.onmessage, 'a late verdict adopts nothing').to.equal(null);
+    });
+
+    it('closes a dial awaiting its verdict when the existing connection ends', () => {
+      manager.validateAndAddInbound(dial, '16127', reconnectReq());
+
+      held.onclose({ code: 1006 });
+
+      sinon.assert.calledOnceWithExactly(dial.close, CLOSE_CODES.DEAD_CONNECTION, 'The connection it contested is gone');
+      expect(dial.onmessage, 'a late verdict adopts nothing').to.equal(null);
+      expect(dial.listenerCount('close'), 'the dial is no longer awaited').to.equal(0);
+    });
+
+    it('closes a dial awaiting its verdict when the existing connection is replaced', () => {
+      manager.validateAndAddInbound(dial, '16127', reconnectReq());
+      const fresh = createMockWs('8.8.8.8', '16127');
+
+      manager.add(fresh, '8.8.8.8', '16127', { source: PEER_SOURCE.INBOUND });
+
+      sinon.assert.calledOnceWithExactly(dial.close, CLOSE_CODES.DEAD_CONNECTION, 'The connection it contested is gone');
+      expect(dial.onmessage, 'a late verdict cannot replace the newer connection').to.equal(null);
+      expect(manager.get('8.8.8.8:16127').ws).to.equal(fresh);
     });
 
     it('sends on a connection the moment it is kept: the frame a reconnecting peer awaits', () => {
