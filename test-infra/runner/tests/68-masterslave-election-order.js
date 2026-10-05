@@ -5,7 +5,9 @@ import { pushImage } from '../framework/registry-helper.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
-import { getAppContainerStatus, crashFluxos, releaseFluxos, execInContainer } from '../framework/container.js';
+import {
+  getAppContainerStatus, crashFluxos, releaseFluxos, execInContainer, blockPeerAccess, unblockPeerAccess,
+} from '../framework/container.js';
 import { electMaster, clearMaster, resetFdm } from '../framework/fdm-control.js';
 import {
   setSynced, setPeerHasData, resetSyncState, getSyncthingState, getFolderWrites, getFolderConfig, setFolderConfig, severPeerSync,
@@ -542,20 +544,27 @@ describe('primary election under a divergent placement order', function () {
 
   it('stands a primary down by stopping its container before its folder stops sending', async function () {
     this.timeout(420000);
-    // FDM names another holder while the primary runs, as its registration lag can
-    // after a primary comes back from a partition. The running primary stands
-    // down: its container stops, and only then does its folder stop sending,
-    // scanned first so its last writes go out as its own version.
+    // Split: another holder cannot reach the primary, so it cannot rule the
+    // primary out, and FDM names it - as FDM can after a primary comes back from a
+    // partition. It starts, and the running primary, which can reach it, finds it
+    // has decided it holds the component and stands down: its container stops, and
+    // only then does its folder stop sending, scanned first so its last writes go
+    // out as its own version.
     const identifier = identifierOf(fdmApp);
     const oldPrimary = fdmPrimary;
     expect(oldPrimary, 'fixture: the previous test left no primary running').to.not.equal(undefined);
     const next = holders.find((i) => i !== oldPrimary);
     const from = env.clients[oldPrimary].getLastEventId();
 
-    await electMaster(fdmApp, env.clients[next].ip);
-
-    const ended = await env.clients[oldPrimary].waitForEvent('primaryRole:changed',
-      (d) => d.identifier === identifier && d.from === 'demoting', 180000, { afterId: from });
+    const cut = await blockPeerAccess(env.clients[oldPrimary].container, [env.clients[next].ip], 16127);
+    let ended;
+    try {
+      await electMaster(fdmApp, env.clients[next].ip);
+      ended = await env.clients[oldPrimary].waitForEvent('primaryRole:changed',
+        (d) => d.identifier === identifier && d.from === 'demoting', 180000, { afterId: from });
+    } finally {
+      await unblockPeerAccess(env.clients[oldPrimary].container, cut, 16127);
+    }
     expect(ended.data.to, `the stand-down did not finish: ${ended.data.reason ?? ''}`).to.equal('standby');
     const seen = env.clients[oldPrimary].getEventBuffer().filter((e) => e.id > from);
     const began = seen.find((e) => e.event === 'primaryRole:changed' && e.data?.identifier === identifier && e.data?.to === 'demoting');
