@@ -1574,7 +1574,9 @@ async function appVolumesMount() {
 
 /**
  * The mount that holds the app volumes, made shared when it is not: on every
- * node that can mount an app volume, FluxOS has the privilege to.
+ * node that can mount an app volume, FluxOS has the privilege to. That mount
+ * alone: every app volume is mounted directly on it, and the mounts below it
+ * keep their own propagation.
  * @returns {Promise<{target: string, propagation: string}|null>} as appVolumesMount
  */
 async function sharedAppVolumesMount() {
@@ -1583,7 +1585,7 @@ async function sharedAppVolumesMount() {
   if (!mount || isShared(mount)) return mount;
   const { error } = await serviceHelper.runCommand('mount', {
     runAsRoot: true,
-    params: ['--make-rshared', mount.target],
+    params: ['--make-shared', mount.target],
     logError: false,
   });
   if (error) {

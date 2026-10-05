@@ -1674,7 +1674,7 @@ describe('syncthingService tests', () => {
           if (cmd === 'pgrep') return { stdout: '' };
           if (cmd === 'syncthing') return { stdout: 'syncthing installed' };
           if (cmd === 'findmnt') return { stdout: JSON.stringify({ filesystems: [{ target: '/srv', propagation: current }] }) };
-          if (cmd === 'mount' && opts.params[0] === '--make-rshared') {
+          if (cmd === 'mount' && opts.params[0] === '--make-shared') {
             if (!makeShared) return { error: new Error('mount: /srv: permission denied') };
             current = 'shared';
           }
@@ -1691,7 +1691,7 @@ describe('syncthingService tests', () => {
         await clock.tickAsync(5000);
         await promise;
 
-        sinon.assert.calledWithMatch(runCmdStub, 'mount', { runAsRoot: true, params: ['--make-rshared', '/srv'] });
+        sinon.assert.calledWithMatch(runCmdStub, 'mount', { runAsRoot: true, params: ['--make-shared', '/srv'] });
         sinon.assert.calledWithExactly(countStub, 'syncthing:appVolumesMountShared');
         sinon.assert.calledOnce(spawnStub);
         sinon.assert.neverCalledWithMatch(errorStub, /not shared/);
@@ -1706,7 +1706,7 @@ describe('syncthingService tests', () => {
         await clock.tickAsync(5000);
         await promise;
 
-        sinon.assert.neverCalledWithMatch(runCmdStub, 'mount', { params: ['--make-rshared', sinon.match.any] });
+        sinon.assert.neverCalledWithMatch(runCmdStub, 'mount');
         sinon.assert.neverCalledWith(countStub, 'syncthing:appVolumesMountShared');
         sinon.assert.calledOnce(spawnStub);
       });
@@ -1717,7 +1717,7 @@ describe('syncthingService tests', () => {
 
         await syncthingService.runSyncthingSentinel();
 
-        sinon.assert.calledWithMatch(runCmdStub, 'mount', { params: ['--make-rshared', '/srv'] });
+        sinon.assert.calledWithMatch(runCmdStub, 'mount', { params: ['--make-shared', '/srv'] });
         sinon.assert.notCalled(spawnStub);
         sinon.assert.calledWithExactly(countStub, 'syncthing:launchFailed');
         sinon.assert.calledWithMatch(errorStub, /propagates as 'private,slave', not shared, so app volumes mounted after syncthing starts would never reach it/);
