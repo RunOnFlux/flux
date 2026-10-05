@@ -601,6 +601,7 @@ describe('primary election under a divergent placement order', function () {
     const from = client.getLastEventId();
     const folderWrites = async () => (await getFolderWrites(targetIp)).filter((w) => w.id === folder);
     let writesBefore;
+    let cut = null;
     await client.holdCheckpoint(BEFORE_FOLDER_WRITE, folder);
     try {
       // Syncthing holding only this node's own device gives the next pass a
@@ -609,6 +610,12 @@ describe('primary election under a divergent placement order', function () {
       await client.waitForEvent('checkpoint:held', (d) => d.name === BEFORE_FOLDER_WRITE && d.key === folder, 120000, { afterId: from });
       writesBefore = (await folderWrites()).length;
 
+      // Promoted as a holder that cannot reach the running primary is: it cannot
+      // rule the primary out, so it starts when FDM names it.
+      const up = await Promise.all(holders.map((i) => isUp(env.clients[i], fdmApp)));
+      const running = holders.find((i, k) => up[k] && i !== target);
+      expect(running, 'fixture: a holder runs the component').to.not.equal(undefined);
+      cut = { container: env.clients[running].container, ips: await blockPeerAccess(env.clients[running].container, [client.ip], 16127) };
       await electMaster(fdmApp, client.ip);
       const promoted = await client.waitForEvent('primaryRole:changed',
         (d) => d.identifier === identifier && d.from === 'promoting', 300000, { afterId: from });
@@ -618,6 +625,7 @@ describe('primary election under a divergent placement order', function () {
     } finally {
       await client.releaseCheckpoint(BEFORE_FOLDER_WRITE, folder)
         .catch((err) => console.warn(`cleanup: checkpoint release failed: ${err.message}`));
+      if (cut) await unblockPeerAccess(cut.container, cut.ips, 16127);
     }
 
     // The held pass's write is the first since the hold that carries its peers'
