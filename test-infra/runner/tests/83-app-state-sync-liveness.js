@@ -386,6 +386,12 @@ describe('a state sync at the production requirement completes on three distinct
     expect([...creditedTypes].sort(), 'a stream the request asked for was never counted')
       .to.deep.equal([...SYNC_TYPES].sort());
 
+    // The decliner never became able to answer, so a credit to it below can
+    // only be a decline counted as a completion.
+    const declinerEvents = env.clients[DECLINER].getEventBuffer();
+    expect(declinerEvents.some((e) => e.event === 'ephemeralSync:allComplete'),
+      'fixture: the decliner completed its own sync and could answer').to.equal(false);
+
     // The one peer that could not answer is not among them: it declined, and a
     // decline is an answer that is not a completion.
     const declinerIp = ipOfIndex(DECLINER);
