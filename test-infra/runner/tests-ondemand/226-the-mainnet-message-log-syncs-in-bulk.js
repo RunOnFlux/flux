@@ -137,7 +137,7 @@ describe('a node that joins mainnet takes its whole message log in bulk', functi
     for (const message of messages) {
       const record = recordOf.get(message.hash);
       const placed = { hash: message.hash, height: record.height, timestamp: message.timestamp, expire: message.appSpecifications.expire };
-      const name = message.appSpecifications.name;
+      const { name } = message.appSpecifications;
       const held = newest.get(name);
       if (!held || placed.height > held.height || (placed.height === held.height && placed.timestamp > held.timestamp)) {
         newest.set(name, placed);
