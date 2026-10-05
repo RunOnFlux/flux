@@ -278,6 +278,7 @@ export function nodeClient(nodeNum) {
         'ephemeralSync:peerDisconnected',
         'sync:chunkVerified',
         'hashSync:complete',
+        'hashSync:bulkFetched',
         'hashSync:failed',
         'hashRequest:received',
         'hashRequest:responded',

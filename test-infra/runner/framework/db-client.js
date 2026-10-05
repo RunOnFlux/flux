@@ -280,6 +280,27 @@ export function dbClient(nodeNum) {
       await globalDb.collection('zelappsmessages').insertOne({ ...msg });
     },
 
+    async seedPermanentMessages(msgs) {
+      const globalDb = await db('appsGlobal');
+      await globalDb.collection('zelappsmessages').insertMany(msgs.map((msg) => ({ ...msg })));
+    },
+
+    // The node's record of app payments its scan found: { hash, txid, height, value, message }.
+    async seedAppHashes(entries) {
+      const explorerDb = await db('explorer');
+      await explorerDb.collection('zelappshashes').insertMany(entries.map((entry) => ({ ...entry })));
+    },
+
+    async permanentMessages(query = {}) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappsmessages').find(query, { projection: { _id: 0 } }).toArray();
+    },
+
+    async appHashRecords(query = {}) {
+      const explorerDb = await db('explorer');
+      return explorerDb.collection('zelappshashes').find(query, { projection: { _id: 0 } }).toArray();
+    },
+
     async seedAppLocation({ name, ip, hash, broadcastedAt, runningSince }) {
       const globalDb = await db('appsGlobal');
       const ts = broadcastedAt ?? Date.now();
