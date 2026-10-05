@@ -54,6 +54,9 @@ describe('reconciler enforces masterSlave g: election', function () {
     await pushImage(appName, 'v1');
     const app = await buildSeedableSyncthingApp({ name: appName, mode: 'g' });
     // targeted install on two specific nodes — deterministic g: holders
+    // Node 0 is the elected primary from the start: FDM names it before the app
+    // is installed, so the other holder never starts it first.
+    await electMaster(appName, env.clients[0].ip);
     const installAfters = [0, 1].map((i) => env.clients[i].getLastEventId());
     holders = await installOnNodes(env, app, [0, 1]);
     // This suite exercises the FDM election/failover of a READY g: app, so pin both

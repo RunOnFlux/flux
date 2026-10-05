@@ -97,6 +97,9 @@ describe('a restore does not reach the other instances data', function () {
     // the incident's shape: a g: app with two instances, one elected
     await pushImage(appName, 'v1');
     const app = await buildSeedableSyncthingApp({ name: appName, mode: 'g' });
+    // Node 0 is the elected primary from the start: FDM names it before the app
+    // is installed, so the other holder never starts it first.
+    await electMaster(appName, env.clients[0].ip);
     const installAfters = [0, 1].map((i) => env.clients[i].getLastEventId());
     await installOnNodes(env, app, [0, 1]);
     // real data on disk, and only after the sync layer's first-run reset has
@@ -114,7 +117,6 @@ describe('a restore does not reach the other instances data', function () {
       `printf 'node-${i}-world\\n' > ${appDir(appName)}/appdata/marker.txt`,
     )));
 
-    await electMaster(appName, env.clients[0].ip);
     await waitForReconcilerDesiredChanged(env.clients[0], identifier, 'running', 90000);
     await waitFor(() => pathExists(env.clients[1], volFile(appName)), {
       timeout: 60000, interval: 2000, label: 'peer volume present before any restore',
@@ -216,6 +218,10 @@ describe('a restore does not reach the other instances data', function () {
       this.timeout(420000);
       await pushImage(ownName, 'v1');
       const app = await buildSeedableSyncthingApp({ name: ownName, mode: 'g' });
+      // node 0 holds it, so node 1 is a standby the election has stopped - which
+      // is the state a restore must not undo. FDM names node 0 before the app is
+      // installed, so node 1 never starts it first.
+      await electMaster(ownName, env.clients[0].ip);
       const afters = [0, 1].map((i) => env.clients[i].getLastEventId());
       await installOnNodes(env, app, [0, 1]);
       await Promise.all([0, 1].map(async (i, k) => {
@@ -223,9 +229,6 @@ describe('a restore does not reach the other instances data', function () {
         await seedSyncScopedData(env, ownName, i);
       }));
       await Promise.all([0, 1].map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder: ownFolder })));
-      // node 0 holds it, so node 1 is a standby the election has stopped - which
-      // is the state a restore must not undo
-      await electMaster(ownName, env.clients[0].ip);
       await waitForReconcilerDesiredChanged(env.clients[0], ownIdentifier, 'running', 90000);
     });
 
