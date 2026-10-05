@@ -12,6 +12,11 @@
  * The peers serve the messages; the joiner holds only the payment records, as its own scan of
  * the chain would have left them. It must keep every message, each at its own record's txid,
  * height and payment, and hold every app whose newest message is still in its term.
+ *
+ * The joiner is not an Arcane node. An Arcane node checks a subscription extension signed by a
+ * usersToExtend address on an enterprise app by decrypting the spec, which needs keys no harness
+ * node holds; a node that is not Arcane accepts it without the comparison, as the slice's
+ * buckyorbit renewal shows.
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
@@ -22,7 +27,8 @@ import { gunzipSync } from 'node:zlib';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { waitForDaemonReady, waitForOrchestratorState, waitFor } from '../framework/wait.js';
-import { stopTicker } from '../framework/daemon-control.js';
+import { setSystemSecure, stopTicker } from '../framework/daemon-control.js';
+import { getSubnetConfig } from '../framework/subnet-config.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -65,6 +71,7 @@ describe('a node that joins takes a slice of the mainnet message log in bulk', f
       await dbClient(i + 1).seedAppHashes(records.map((record) => ({ ...record, message: true, messageNotFound: false })));
     }));
     await dbClient(JOINER + 1).seedAppHashes(records.map((record) => ({ ...record, message: false, messageNotFound: false })));
+    await setSystemSecure(getSubnetConfig().nodeIp(JOINER + 1), false);
 
     const joiner = await env.startNode(JOINER);
     await waitForDaemonReady(joiner);
