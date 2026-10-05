@@ -7,7 +7,7 @@ import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes, electionIndexOf } from '../framework/reconciler-suite.js';
 import {
-  waitFor, waitHolding, waitForUp, electionDecisionCount,
+  waitFor, waitHolding, waitForUp, electionDecisionCount, waitForOperatorIntent,
 } from '../framework/wait.js';
 import {
   isDaemonUp, isFolderSynced, getFolderConfig, stopDaemon, startDaemon,
@@ -30,6 +30,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const APP_UID = 1000;
 const HELD_PASSES = 3;
+const BEFORE_RUN = 'masterSlave:beforeRun';
 
 describe('an owner stop and start everywhere keeps the primary', function () {
   let env;
@@ -260,5 +261,50 @@ describe('an owner stop and start everywhere keeps the primary', function () {
 
     await globally('appstart', PRIMARY);
     await runsAgainOn(PRIMARY, 'started everywhere again');
+  });
+
+  it('brings it back on a primary its owner stopped everywhere while it was becoming the primary', async function () {
+    this.timeout(1200000);
+    await stopsEverywhere(PRIMARY);
+    await nothingRunsThroughPasses(STANDBYS, 'stopped everywhere');
+
+    // The start makes the primary's folder send and holds it there, before it
+    // asks for the container: becoming the primary, not yet committed to it.
+    const held = client(PRIMARY).getLastEventId();
+    await client(PRIMARY).holdCheckpoint(BEFORE_RUN, identifier);
+    let released = false;
+    try {
+      await globally('appstart', FIRST);
+      await client(PRIMARY).waitForEvent('checkpoint:held', (d) => d.name === BEFORE_RUN && d.key === identifier, 300000, { afterId: held });
+      expect((await getFolderConfig(client(PRIMARY), folder))?.type, 'the primary\'s folder, becoming the primary').to.equal('sendreceive');
+
+      const stopped = client(PRIMARY).getLastEventId();
+      await globally('appstop', FIRST);
+      await waitForOperatorIntent(client(PRIMARY), identifier, true, 180000, { afterId: stopped });
+
+      const gaveUp = client(PRIMARY).getLastEventId();
+      await client(PRIMARY).releaseCheckpoint(BEFORE_RUN, identifier);
+      released = true;
+      await client(PRIMARY).waitForEvent('primaryRole:changed', (d) => d.identifier === identifier && d.from === 'promoting', 180000, { afterId: gaveUp });
+    } finally {
+      if (!released) {
+        await client(PRIMARY).releaseCheckpoint(BEFORE_RUN, identifier)
+          .catch((err) => console.warn(`cleanup: checkpoint release failed: ${err.message}`));
+      }
+    }
+
+    // The lock holds the app on the primary: its folder goes on sending through
+    // its own monitor's passes, and nothing runs it.
+    const folderPasses = () => client(PRIMARY).getDecisionCount('syncthing:folderPass', folder, 'evaluated');
+    const passesFrom = await folderPasses();
+    await waitHolding(async () => {
+      expect(await runners(), 'stopped while becoming the primary: the app runs').to.deep.equal([]);
+      expect((await getFolderConfig(client(PRIMARY), folder))?.type, 'the primary\'s folder, stopped').to.equal('sendreceive');
+      return (await folderPasses()) >= passesFrom + HELD_PASSES;
+    }, { timeout: 300000, interval: 2000, label: `the primary's folder sends through ${HELD_PASSES} monitor passes` });
+    await nothingRunsThroughPasses(STANDBYS, 'stopped while becoming the primary');
+
+    await globally('appstart', FIRST);
+    await runsAgainOn(PRIMARY, 'started everywhere after a stop while becoming the primary');
   });
 });
