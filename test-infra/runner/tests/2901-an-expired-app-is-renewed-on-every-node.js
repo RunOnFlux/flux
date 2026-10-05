@@ -53,8 +53,14 @@ describe('an expired app is renewed by an update, on every node alike', function
 
   before(async function () {
     this.timeout(900000);
-    env = await createTestEnv({ hookCtx: this, nodes: 6, deferredNodes: 1, tickerAutostart: false });
-    await bootAndPeer(env);
+    // A node takes a registration or an update only with minOutgoing (4) and minIncoming (2)
+    // peers, and the ring gives every node 4 outbound peers from 9 dialers up.
+    env = await createTestEnv({ hookCtx: this, nodes: 10, deferredNodes: 1, tickerAutostart: false });
+    await bootAndPeer(env, { minOutbound: 4, minInbound: 2 });
+    await waitFor(async () => {
+      const [outgoing, incoming] = await Promise.all([env.clients[0].getPeers(), env.clients[0].getIncomingPeers()]);
+      return (outgoing.data?.length ?? 0) >= 4 && (incoming.data?.length ?? 0) >= 2;
+    }, { timeout: 120000, interval: 2000, label: 'node 0 has the peers a submission needs' });
     live = env.clients.filter(Boolean);
     liveIndices = env.clients.map((c, i) => (c ? i : null)).filter((i) => i !== null);
 
