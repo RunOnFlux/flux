@@ -1,4 +1,6 @@
-import { describe, it, before, after } from 'mocha';
+import {
+  describe, it, before, after, afterEach,
+} from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
@@ -110,6 +112,23 @@ describe('a single-writer folder type has one writer', function () {
     };
   };
 
+  // A standby made the primary, as one that cannot reach the running primary
+  // is: it cannot rule the primary out, so it starts when FDM names it. Each
+  // block is lifted after its test.
+  const cuts = [];
+  const promoteStandby = async (a, standby) => {
+    const primary = env.clients[a.primary].container;
+    cuts.push({ container: primary, ips: await blockPeerAccess(primary, [env.clients[standby].ip], 16127) });
+    await electMaster(a.appName, env.clients[standby].ip);
+  };
+  afterEach(async () => {
+    while (cuts.length) {
+      const { container, ips } = cuts.pop();
+      // eslint-disable-next-line no-await-in-loop
+      await unblockPeerAccess(container, ips, 16127).catch((err) => console.warn(`cleanup: unblock failed: ${err.message}`));
+    }
+  });
+
   before(async function () {
     this.timeout(900000);
     env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
@@ -177,7 +196,7 @@ describe('a single-writer folder type has one writer', function () {
 
     await client.holdCheckpoint(BEFORE_START, a.identifier);
     try {
-      await electMaster(a.appName, client.ip);
+      await promoteStandby(a, target);
       await client.waitForEvent('checkpoint:held', (d) => d.name === BEFORE_START && d.key === a.identifier, 300000, { afterId: from });
       // The volume leaves the directory under the node and cannot be mounted
       // again, as suite 61 does it; syncthing reports the folder's marker gone.
@@ -270,7 +289,7 @@ describe('a single-writer folder type has one writer', function () {
     let unmountedAt;
     let heldStopped;
     try {
-      await electMaster(a.appName, client.ip);
+      await promoteStandby(a, target);
       const sends = await writeSince(target, a.folder, writesBefore, (w) => w.body?.type === 'sendreceive',
         'the promotion makes the folder send');
       await waitFor(async () => (await getPendingFolderScans(ipOf(target)))
@@ -327,7 +346,7 @@ describe('a single-writer folder type has one writer', function () {
     const writesBefore = (await writesTo(target, a.folder)).length;
     await setScanDuration({ ip: ipOf(target), folder: a.folder, ms: COVER_SCAN_MS });
     try {
-      await electMaster(a.appName, client.ip);
+      await promoteStandby(a, target);
       const sends = await writeSince(target, a.folder, writesBefore, (w) => w.body?.type === 'sendreceive',
         'the promotion makes the folder send');
       await waitFor(async () => isUp(client, a.appName), {
@@ -418,7 +437,7 @@ describe('a single-writer folder type has one writer', function () {
       await setFolderConfig({ ip, folder: a.folder, fields: { devices: [] } });
       await client.waitForEvent('checkpoint:held', (d) => d.name === BEFORE_FOLDER_WRITE && d.key === a.folder, 120000, { afterId: from });
       await setFolderPatchDelay({ ip, ms: SLOW_MS });
-      await electMaster(a.appName, client.ip);
+      await promoteStandby(a, target);
       await waitFor(async () => (await getPendingFolderWrites(ip)).some((w) => w.id === a.folder && w.body?.type === 'sendreceive'), {
         timeout: 300000, interval: 500, label: 'the promotion\'s type change reached syncthing',
       });
@@ -458,7 +477,7 @@ describe('a single-writer folder type has one writer', function () {
     await client.holdCheckpoint(BEFORE_FOLDER_WRITE, a.folder);
     try {
       await client.waitForEvent('checkpoint:held', (d) => d.name === AFTER_FOLDER_READ, 120000, { afterId: from });
-      await electMaster(a.appName, client.ip);
+      await promoteStandby(a, target);
       const promoted = await client.waitForEvent('primaryRole:changed',
         (d) => d.identifier === a.identifier && d.from === 'promoting', 300000, { afterId: from });
       expect(promoted.data.to, `fixture: the promotion did not finish: ${promoted.data.reason ?? ''}`).to.equal('primary');
