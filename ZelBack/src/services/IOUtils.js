@@ -475,17 +475,29 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
     retryDelayMs = 5 * 1000,
   } = options;
   let filepath = null;
+  // The validator of the copy on disk, sent back as If-Range so a file that
+  // changed between attempts is sent whole instead of spliced onto the old one.
+  let validator = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       // eslint-disable-next-line no-await-in-loop
       const offset = filepath ? await sizeOnDisk(filepath) : 0;
+      // identity: a body the server compresses on the fly would be inflated by
+      // axios, so neither its content-length nor a range offset would describe
+      // the bytes written to disk, and the archive saved would not be the file.
+      const headers = { 'Accept-Encoding': 'identity' };
+      if (offset > 0) {
+        headers.Range = `bytes=${offset}-`;
+        if (validator) headers['If-Range'] = validator;
+      }
       // Use validated redirect-following request to prevent SSRF via redirects
       // eslint-disable-next-line no-await-in-loop
       const response = await requestWithValidatedRedirects(url, 'GET', {
         responseType: 'stream',
         timeout: 15000,
-        headers: offset > 0 ? { Range: `bytes=${offset}-` } : {},
+        decompress: false,
+        headers,
       });
 
       if (!filepath) {
@@ -513,8 +525,15 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
       } else if (response.status === 200) {
         const length = parseInt(response.headers['content-length'], 10);
         if (Number.isFinite(length)) expectedBytes = length;
+        // Only a strong ETag may guard a byte range (RFC 9110 13.1.5); a date
+        // is the fallback the same rule allows.
+        const { etag } = response.headers;
+        validator = (etag && !etag.startsWith('W/')) ? etag : (response.headers['last-modified'] || null);
       } else {
         response.data.destroy();
+        // a 206 for some other range would come back the same way every time
+        // eslint-disable-next-line no-await-in-loop
+        if (response.status === 206) await fs.rm(filepath, { force: true });
         throw new Error(`unexpected status ${response.status} for a download from ${offset} bytes`);
       }
       if (offset > 0) {
@@ -533,13 +552,27 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
       }
       return true;
     } catch (err) {
+      const status = err?.response?.status;
       log.error(`downloadFileFromUrl - ${url} attempt ${attempt}/${maxAttempts} failed: ${err?.message}`);
+      // 416: the range asked for is not in the file (the copy on disk is not a
+      // prefix of it), so the next attempt starts over from nothing.
+      if (status === 416 && filepath) {
+        // eslint-disable-next-line no-await-in-loop
+        await fs.rm(filepath, { force: true });
+      }
+      // Any other 4xx is the server's final answer (gone, forbidden), not a
+      // network failure, and asking again only keeps the app stopped longer.
+      const final = status >= 400 && status < 500 && ![408, 416, 429].includes(status);
+      if (final) break;
       if (attempt < maxAttempts) {
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(retryDelayMs);
       }
     }
   }
+  // A partial archive is no use to anyone, and on a game server it can be
+  // gigabytes of the app's own volume until the next restore clears it.
+  if (filepath) await fs.rm(filepath, { force: true }).catch(() => {});
   return false;
 }
 
