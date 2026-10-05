@@ -214,8 +214,11 @@ describe('two holders that can reach each other never both seed', function () {
 
   it('decides nothing when its decision took longer than a pass, and seeds on the next', async function () {
     this.timeout(600000);
-    const app = await placeSplitApp('slow', [[holder, BEFORE_RECORD]]);
+    // The lowest address decides only once the holder is deciding, so the holder's
+    // decision is the one held, whichever pass reaches the field first.
+    const app = await placeSplitApp('slow', [[holder, BEFORE_RECORD], [lowest, BEFORE_DECISION]]);
     await heldAt(holder, BEFORE_RECORD, app);
+    await release(lowest, BEFORE_DECISION, app);
 
     // Held past its read for longer than a pass: two of the lowest address's own
     // folder passes, each a full pass apart.
