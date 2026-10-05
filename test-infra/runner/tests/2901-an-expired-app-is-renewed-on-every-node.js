@@ -31,6 +31,8 @@ const TERM = 40;
 const EXPIRY_BUDGET = TERM + 24;
 const RENEWED_TERM = 88000;
 const subnet = getSubnetConfig();
+// The node submissions go to and blocks are driven against.
+const MIDDLE = 2;
 
 describe('an expired app is renewed by an update, on every node alike', function () {
   let env;
@@ -42,6 +44,7 @@ describe('an expired app is renewed by an update, on every node alike', function
   const lateSpec = buildAppSpec({ name: lateName, instances: 1, expire: TERM });
   const ownerSpec = buildAppSpec({ name: ownerName, instances: 1, expire: TERM });
   let live;
+  let submitter;
   let liveIndices;
   let lateRenewalHash;
   let ownerRenewalHash;
@@ -53,20 +56,18 @@ describe('an expired app is renewed by an update, on every node alike', function
 
   before(async function () {
     this.timeout(900000);
-    // A node takes a registration or an update only with minOutgoing (4) and minIncoming (2)
-    // peers, and the ring gives every node 4 outbound peers from 9 dialers up.
-    env = await createTestEnv({ hookCtx: this, nodes: 10, deferredNodes: 1, tickerAutostart: false });
-    await bootAndPeer(env, { minOutbound: 4, minInbound: 2 });
-    await waitFor(async () => {
-      const [outgoing, incoming] = await Promise.all([env.clients[0].getPeers(), env.clients[0].getIncomingPeers()]);
-      return (outgoing.data?.length ?? 0) >= 4 && (incoming.data?.length ?? 0) >= 2;
-    }, { timeout: 120000, interval: 2000, label: 'node 0 has the peers a submission needs' });
+    // 5 dialers once the joining node is held back: 2 peers each way, which is also what a
+    // submission needs here. Index 0's backward arc wraps onto the held-back slot, so
+    // submissions and the block driver use the middle of the ring.
+    env = await createTestEnv({ hookCtx: this, nodes: 6, deferredNodes: 1, tickerAutostart: false });
+    await bootAndPeer(env);
+    submitter = env.clients[MIDDLE];
     live = env.clients.filter(Boolean);
     liveIndices = env.clients.map((c, i) => (c ? i : null)).filter((i) => i !== null);
 
     for (const spec of [lateSpec, ownerSpec]) {
       // eslint-disable-next-line no-await-in-loop
-      const result = await registerAndConfirm(env.clients[0].url, nodeKey(1), spec, live);
+      const result = await registerAndConfirm(submitter.url, nodeKey(1), spec, live);
       expect(result.status, `${spec.name} registers: ${JSON.stringify(result.data)}`).to.equal('success');
     }
     await stopTicker();
@@ -77,7 +78,7 @@ describe('an expired app is renewed by an update, on every node alike', function
     }, { timeout: 180000, interval: 3000, label: 'both apps installed before their term ends' });
 
     // Signed and relayed while the app still runs; its payment waits until after the app ends.
-    const signed = await registerApp(env.clients[0].url, nodeKey(1), { ...lateSpec, expire: RENEWED_TERM }, 'fluxappupdate');
+    const signed = await registerApp(submitter.url, nodeKey(1), { ...lateSpec, expire: RENEWED_TERM }, 'fluxappupdate');
     expect(signed.status, `the renewal of ${lateName} is accepted while the app runs: ${JSON.stringify(signed.data)}`).to.equal('success');
     lateRenewalHash = signed.data;
     await waitFor(async () => {
@@ -85,7 +86,7 @@ describe('an expired app is renewed by an update, on every node alike', function
       return held.every(Boolean);
     }, { timeout: 30000, interval: 2000, label: 'the unpaid renewal reaches every node' });
 
-    await driveUntil(env.clients[0], async () => {
+    await driveUntil(submitter, async () => {
       const hashes = [...await hashesEverywhere(liveIndices, lateName), ...await hashesEverywhere(liveIndices, ownerName)];
       return hashes.every((h) => h === null);
     }, { blocks: EXPIRY_BUDGET, label: 'both apps expire on every node' });
@@ -111,7 +112,7 @@ describe('an expired app is renewed by an update, on every node alike', function
   it('applies a renewal paid after its app expired, on every node', async function () {
     this.timeout(600000);
     await queueAppTx(lateRenewalHash);
-    await driveUntil(env.clients[0], async () => {
+    await driveUntil(submitter, async () => {
       const hashes = await hashesEverywhere(liveIndices, lateName);
       return hashes.every((h) => h === lateRenewalHash);
     }, { blocks: 12, label: `${lateName} renewed on every node` });
@@ -122,7 +123,7 @@ describe('an expired app is renewed by an update, on every node alike', function
   it('takes an owner\'s renewal of an app that has expired, on every node', async function () {
     this.timeout(600000);
     await startTicker();
-    const result = await updateAndConfirm(env.clients[0].url, nodeKey(1), { ...ownerSpec, expire: RENEWED_TERM }, live);
+    const result = await updateAndConfirm(submitter.url, nodeKey(1), { ...ownerSpec, expire: RENEWED_TERM }, live);
     await stopTicker();
     expect(result.status, `${ownerName} accepts a renewal after it expired: ${JSON.stringify(result.data)}`).to.equal('success');
     ownerRenewalHash = result.appHash;
@@ -148,7 +149,7 @@ describe('an expired app is renewed by an update, on every node alike', function
     await waitForDaemonReady(env.clients[joiner]);
     await waitForNodeStatus(env.clients[joiner], (d) => d.confirmed === true, 30000);
     await env.startDiscovery([joiner]);
-    await driveUntil(env.clients[0], async () => (
+    await driveUntil(submitter, async () => (
       await specHash(joiner, lateName) === lateRenewalHash && await specHash(joiner, ownerName) === ownerRenewalHash
     ), { blocks: 60, label: 'the joining node holds both renewals' });
   });
@@ -156,7 +157,7 @@ describe('an expired app is renewed by an update, on every node alike', function
   it('announces the revived app in both location stores', async function () {
     this.timeout(600000);
     let holders = [];
-    await driveUntil(env.clients[0], async () => {
+    await driveUntil(submitter, async () => {
       holders = await installedInstanceIndices(env, lateName);
       return holders.length > 0;
     }, { blocks: 60, label: `${lateName} installed again` });
