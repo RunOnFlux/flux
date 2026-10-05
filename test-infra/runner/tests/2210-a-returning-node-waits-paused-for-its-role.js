@@ -552,25 +552,27 @@ describe('a returning node waits paused until its role is decided', function () 
       await fluxEvent(primary, 'checkpoint:held', (d) => d.name === 'syncthing:beforeStandbyHold' && d.key === folder, returned);
       expect(await folderIs(primary, { type: 'sendreceive', paused: true }), 'fixture: the returned primary\'s folder').to.equal(true);
 
+      // Its monitor held, the returned node's calls reach the other holder again,
+      // and its election finds that holder holding the component.
+      const heldFrom = await client(primary).getDecisionCount('masterSlave:decision', identifier, 'heldOnPeer');
+      await clearRedirect(primary);
+      await waitFor(async () => (await client(primary).getDecisionCount('masterSlave:decision', identifier, 'heldOnPeer')) > heldFrom, {
+        timeout: 300000, interval: 2000, label: 'the returned primary\'s election finding the other holder holds the component',
+      });
+
       // FDM names the returned node. The node becoming the primary asks it, finds
-      // it has not decided it holds the component, and keeps its promotion.
+      // it has not decided it holds the component, and keeps its promotion; the
+      // returned node asks the other holder before it starts, finds it holds the
+      // component, and starts nothing.
       const undecidedFrom = await client(standby).getDecisionCount('masterSlave:decision', identifier, 'peerUndecided');
+      const refusedFrom = await client(primary).getDecisionCount('masterSlave:decision', identifier, 'namedButHeldElsewhere');
       await electMaster(appName, client(primary).ip);
-      await waitFor(async () => (await client(standby).getDecisionCount('masterSlave:decision', identifier, 'peerUndecided')) >= undecidedFrom + 2, {
-        timeout: 300000, interval: 2000, label: 'two election passes on the node becoming the primary that kept its promotion',
+      await waitFor(async () => (await client(standby).getDecisionCount('masterSlave:decision', identifier, 'peerUndecided')) >= undecidedFrom + 2
+        && (await client(primary).getDecisionCount('masterSlave:decision', identifier, 'namedButHeldElsewhere')) >= refusedFrom + 2, {
+        timeout: 300000, interval: 2000, label: 'two election passes on each holder while FDM names the returned one',
       });
       expect(client(standby).getEventBuffer().filter((e) => e.event === 'primaryRole:changed' && e.id > becoming.id && e.data?.identifier === identifier),
         'a change of role on the node becoming the primary while FDM named the returned one').to.deep.equal([]);
-
-      // The returned node's election, named by FDM, asks the other holder before it
-      // starts, finds it holds the component, and starts nothing.
-      const heldFrom = await client(primary).getDecisionCount('masterSlave:decision', identifier, 'heldOnPeer');
-      const refusedFrom = await client(primary).getDecisionCount('masterSlave:decision', identifier, 'namedButHeldElsewhere');
-      await clearRedirect(primary);
-      await waitFor(async () => (await client(primary).getDecisionCount('masterSlave:decision', identifier, 'heldOnPeer')) > heldFrom
-        && (await client(primary).getDecisionCount('masterSlave:decision', identifier, 'namedButHeldElsewhere')) > refusedFrom, {
-        timeout: 300000, interval: 2000, label: 'the returned primary\'s election finding the other holder holds the component, and not starting',
-      });
       expect(client(primary).getEventBuffer().filter((e) => e.event === 'masterSlave:started' && e.id > returned && e.data?.identifier === identifier),
         'a start on the returned primary').to.deep.equal([]);
 
