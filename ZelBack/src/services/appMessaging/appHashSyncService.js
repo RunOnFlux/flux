@@ -20,6 +20,7 @@ const { CLOSE_CODES } = require('../utils/FluxPeerSocket');
 const { appSyncEvents, EVENTS } = require('../utils/appSyncEvents');
 const { HASH_EXPIRY_BLOCKS, HASH_RETRY_BACKOFF } = require('../utils/appConstants');
 const log = require('../../lib/log');
+const fluxEventBus = require('../utils/fluxEventBus');
 const { isBefore } = require('../utils/appMessageChain');
 const { invalidMessages } = require('../invalidMessages');
 const { Privilege, authOf } = require('../utils/privileges');
@@ -234,6 +235,9 @@ async function bulkFetchStreamAndProcess(peerIp, peerPort, missing, onProgress) 
   }
 
   log.info(`syncMissingHashes - Streamed ${totalSeen} messages from ${peerIp}:${peerPort}: ${totalProcessed} processed, ${totalSkipped} skipped`);
+  fluxEventBus.publish('hashSync:bulkFetched', {
+    peer: `${peerIp}:${peerPort}`, streamed: totalSeen, processed: totalProcessed, skipped: totalSkipped,
+  });
   return { processed: totalProcessed, skipped: totalSkipped, streamed: totalSeen };
 }
 
