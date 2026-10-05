@@ -244,7 +244,9 @@ describe('two holders that can reach each other never both seed', function () {
     this.timeout(600000);
     const identifier = (app) => `${app.name}_${app.name}`;
     const name = `e2eseedgwithdraw${stamp}`;
-    const app = await placeSplitApp('gwithdraw', [[holder, ELECTION, `${name}_${name}`]], 'g');
+    // The lowest address decides only once the holder has, so the holder is the
+    // one that decided, whichever pass reaches the field first.
+    const app = await placeSplitApp('gwithdraw', [[holder, ELECTION, `${name}_${name}`], [lowest, BEFORE_DECISION]], 'g');
     const team = (await authenticate(client(holder).url, fluxTeamKey())).zelidauth;
     // The seed decisions a node publishes go to a node or the Flux team, on the POST
     // form of the route; the open GET carries none.
@@ -254,10 +256,12 @@ describe('two holders that can reach each other never both seed', function () {
       await waitFor(async () => (await seeding())?.stage === 'decided', {
         timeout: 240000, interval: 1000, label: 'the holder decides to seed, its election held',
       });
+      await release(lowest, BEFORE_DECISION, app);
 
       await electMaster(app.name, client(lowest).ip);
     } finally {
       await release(holder, ELECTION, { ...app, folder: identifier(app) });
+      await release(lowest, BEFORE_DECISION, app).catch(() => {});
     }
 
     await waitFor(async () => (await client(holder).getDecisionCount('syncthing:seedMark', app.folder, 'withdrawn')) >= 1, {
