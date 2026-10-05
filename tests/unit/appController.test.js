@@ -8,6 +8,7 @@ const dockerService = require('../../ZelBack/src/services/dockerService');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+const primaryRoleChanges = require('../../ZelBack/src/services/appLifecycle/primaryRoleChanges');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 const bootGateAtStart = globalState.bootContainerStateSettled;
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
@@ -318,6 +319,18 @@ describe('appController tests', () => {
         sinon.stub(appReconciler, 'clearControllerDesired');
         appReconciler.dockerActual.resolves({ reachable: true, exists: true, running: false });
         sinon.stub(appReconciler, 'committedIdentifiers').returns(['game_GApp']);
+
+        await appController.appStop({ params: { appname: 'game_GApp' }, query: {} }, { json: sinon.fake((param) => param) });
+
+        sinon.assert.calledOnceWithExactly(appsRuntimeState.setOperatorStopped, 'game_GApp', true, { force: false, asPrimary: true });
+      });
+
+      it('takes the lock as the primary\'s on a node becoming the primary, before it is committed', async () => {
+        stubInstalledApp(gApp);
+        sinon.stub(appReconciler, 'clearControllerDesired');
+        appReconciler.dockerActual.resolves({ reachable: true, exists: true, running: false });
+        sinon.stub(appReconciler, 'committedIdentifiers').returns([]);
+        sinon.stub(primaryRoleChanges, 'promotingIdentifiers').returns(['game_GApp']);
 
         await appController.appStop({ params: { appname: 'game_GApp' }, query: {} }, { json: sinon.fake((param) => param) });
 

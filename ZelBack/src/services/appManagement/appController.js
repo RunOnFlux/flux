@@ -6,6 +6,7 @@ const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
 const appsRuntimeState = require('./appsRuntimeState');
 const appReconciler = require('../appMonitoring/appReconciler');
+const primaryRoleChanges = require('../appLifecycle/primaryRoleChanges');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 const fluxEventBus = require('../utils/fluxEventBus');
@@ -239,7 +240,12 @@ async function setAppOperatorStopped(appname, stopped, { awaitPass = false, forc
       // Read inside the slot, so no pass moves the container between this read
       // and the lock. A container docker cannot read is not one known to run.
       const lockOptions = stopped && id === electedId
-        ? { force, asPrimary: appReconciler.committedIdentifiers().includes(id) || (await appReconciler.dockerActual(id)).running === true }
+        ? {
+          force,
+          asPrimary: appReconciler.committedIdentifiers().includes(id)
+            || primaryRoleChanges.promotingIdentifiers().includes(id)
+            || (await appReconciler.dockerActual(id)).running === true,
+        }
         : { force };
       if (!awaitsElection) await appsRuntimeState.setOperatorStopped(id, stopped, lockOptions);
       // Raised inside the same slot as the lock, so a pass cannot read one
