@@ -143,8 +143,11 @@ function interfaceDevice(name) {
  * The device this node's traffic to an address leaves by, as the kernel routes
  * it, every policy rule and routing table included. A UDP connect resolves the
  * route and fixes the source address without sending a packet; the source
- * address names the device.
- * @param {string} [target] - An IPv4 address; by default one on the internet
+ * address names the device. That is the device holding the source address: a
+ * route that takes its source from an address on a dummy device or lo names
+ * that device, not the one the packets leave through.
+ * @param {string} [target] - An IPv4 address; by default one no network routes
+ *   on its own, so the answer is the device internet traffic leaves by
  * @returns {Promise<string|null>} The device, or null when the route cannot be
  *   resolved or its source address is on no running interface.
  */
