@@ -583,10 +583,19 @@ describe('a node whose source answered with something that did not verify', func
 
   it('refuses it, and holds nothing', async function () {
     this.timeout(120000);
+    // A node asks the source only once every peer has answered, which is after peering
+    // completes, so bootAndPeer returning says nothing about whether any node has met the
+    // bad answer yet. Each node is waited on to ask, and the source to ANSWER all three -
+    // the fleet met a body, not silence, which is the half that matters here.
+    await Promise.all([0, 1, 2].map(
+      (i) => env.clients[i].waitForEvent('policy:backstopAsked', () => true, 90000),
+    ));
+    await waitFor(
+      async () => (await stubState(env)).policyFetches.ok >= 3,
+      { timeout: 30000, interval: 500, label: 'the source to serve every node' },
+    );
     const held = await Promise.all([0, 1, 2].map(heldSeq));
     expect(held, 'a valid signature from an untrusted signer is not policy').to.deep.equal([null, null, null]);
-    // It ANSWERED, which is the half that matters here - the fleet met a body, not silence.
-    expect((await stubState(env)).policyFetches.ok, 'the fleet did fetch it').to.be.greaterThan(0);
   });
 
   it('still opens its gate when a peer later hands it a real bundle', async function () {
