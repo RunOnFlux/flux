@@ -265,6 +265,11 @@ export function dbClient(nodeNum) {
       return globalDb.collection('zelappsinformation').findOne({ name });
     },
 
+    async globalAppSpecs() {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappsinformation').find({}, { projection: { _id: 0, name: 1, hash: 1 } }).toArray();
+    },
+
     // zelappsinformation holds one row per app - the CURRENT specification. An
     // update replaces it, the way hash sync does when the chain carries a newer
     // message; inserting a second row leaves the node reading whichever it finds
