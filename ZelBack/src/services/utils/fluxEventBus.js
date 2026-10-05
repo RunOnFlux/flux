@@ -32,6 +32,9 @@ const RING_BUFFER_SIZE = 1024;
 const Checkpoint = Object.freeze({
   // A state-sync attempt's budget has run out and the attempt is still open.
   APPSYNC_BEFORE_BUDGET_SPENT: 'appSync:beforeBudgetSpent',
+  // A state sync has every answer it needs and the node has not yet become
+  // authoritative from them, so it still refuses to answer a peer's sync.
+  APPSYNC_BEFORE_AUTHORITATIVE: 'appSync:beforeAuthoritative',
   // A start decision is about to ask a peer what it holds. Keyed by the peer's
   // socket address.
   MASTERSLAVE_BEFORE_PEER_PROBE: 'masterSlave:beforePeerProbe',
@@ -181,6 +184,13 @@ class FluxEventBus extends EventEmitter {
       this.#parked.push({ name, key, resume });
       this.publish('checkpoint:held', { name, key });
     });
+  }
+
+  // Whether a caller reaching `name` for `key` now would pause there. For a
+  // caller that runs straight through unless held, and so takes the pause only
+  // when there is one to take. Always false when disabled.
+  isCheckpointHeld(name, key) {
+    return this.#enabled && this.#isHeld(name, key);
   }
 
   #isHeld(name, key) {

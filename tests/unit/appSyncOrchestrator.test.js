@@ -1006,6 +1006,88 @@ describe('AppSyncOrchestrator', () => {
 
       expect(globalStateStub.appStateAuthoritative, 'a stopped orchestrator still claimed authority').to.equal(false);
     });
+
+    // A harness suite holds a node here so that it goes on refusing peers'
+    // syncs after its own sync has every answer it needs.
+    describe('the authority checkpoint', () => {
+      let release;
+      let publish;
+
+      beforeEach(() => {
+        sinon.stub(fluxEventBus, 'isCheckpointHeld')
+          .callsFake((name) => name === fluxEventBus.Checkpoint.APPSYNC_BEFORE_AUTHORITATIVE);
+        sinon.stub(fluxEventBus, 'checkpoint').callsFake(() => new Promise((resolve) => { release = resolve; }));
+        publish = sinon.stub(fluxEventBus, 'publish');
+      });
+
+      const allComplete = () => publish.getCalls().filter((c) => c.args[0] === 'ephemeralSync:allComplete');
+
+      it('stays unauthoritative while held, and completes once on release', async () => {
+        const peers = makeEligiblePeers(4);
+        getEligibleSyncPeersStub = sinon.stub().returns(peers);
+        const orchestrator = makeOrchestrator();
+        orchestrator.start(defaultBootContext);
+        peerEmitter.emit('peerThresholdReached', 12);
+        await clock.tickAsync(0);
+
+        completeAllTypes(3);
+        await clock.tickAsync(0);
+        sinon.assert.calledOnceWithExactly(fluxEventBus.checkpoint, fluxEventBus.Checkpoint.APPSYNC_BEFORE_AUTHORITATIVE);
+        expect(globalStateStub.appStateAuthoritative, 'authoritative while held').to.equal(false);
+
+        // A fourth peer answering while held is recorded, and pauses nothing more.
+        completeAllTypes(4);
+        await clock.tickAsync(0);
+        sinon.assert.calledOnce(fluxEventBus.checkpoint);
+        expect(allComplete()).to.have.lengthOf(0);
+
+        release();
+        await clock.tickAsync(0);
+        expect(globalStateStub.appStateAuthoritative).to.equal(true);
+        expect(allComplete()).to.have.lengthOf(1);
+        await orchestrator.stop();
+      });
+
+      it('completes nothing on release after the attempt was reset', async () => {
+        const peers = makeEligiblePeers(3);
+        getEligibleSyncPeersStub = sinon.stub().returns(peers);
+        const orchestrator = makeOrchestrator();
+        orchestrator.start(defaultBootContext);
+        blockEmitter.emit('blocksProcessed', 2555000);
+        await clock.tickAsync(0);
+        peerEmitter.emit('peerThresholdReached', 12);
+        await clock.tickAsync(0);
+        completeAllTypes(3);
+        await clock.tickAsync(0);
+
+        peerEmitter.emit('peersBelowThreshold', 1);
+        await clock.tickAsync(0);
+        expect(orchestrator.state, 'fixture: losing the peer set did not reset the attempt').to.equal(STATES.DEGRADED);
+
+        release();
+        await clock.tickAsync(0);
+        expect(globalStateStub.appStateAuthoritative, 'a reset attempt completed on release').to.equal(false);
+        expect(allComplete()).to.have.lengthOf(0);
+        await orchestrator.stop();
+      });
+
+      it('completes nothing on release after it stopped', async () => {
+        const peers = makeEligiblePeers(3);
+        getEligibleSyncPeersStub = sinon.stub().returns(peers);
+        const orchestrator = makeOrchestrator();
+        orchestrator.start(defaultBootContext);
+        peerEmitter.emit('peerThresholdReached', 12);
+        await clock.tickAsync(0);
+        completeAllTypes(3);
+        await clock.tickAsync(0);
+
+        await orchestrator.stop();
+        release();
+        await clock.tickAsync(0);
+        expect(globalStateStub.appStateAuthoritative, 'a stopped orchestrator completed on release').to.equal(false);
+        expect(allComplete()).to.have.lengthOf(0);
+      });
+    });
   });
 
   // The block fallback was two literals, so no fleet could have a node that

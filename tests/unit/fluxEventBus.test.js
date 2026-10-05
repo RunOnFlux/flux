@@ -286,6 +286,20 @@ describe('FluxEventBus tests', () => {
       expect(await settled(bus.checkpoint(POINT, 'app_app'))).to.equal(true);
     });
 
+    it('says whether a caller would pause, and never when disabled', () => {
+      const off = new FluxEventBus(false);
+      off.holdCheckpoint(POINT);
+      expect(off.isCheckpointHeld(POINT, 'app_app')).to.equal(false);
+
+      const bus = new FluxEventBus(true);
+      expect(bus.isCheckpointHeld(POINT, 'app_app')).to.equal(false);
+      bus.holdCheckpoint(POINT, 'app_app');
+      expect(bus.isCheckpointHeld(POINT, 'app_app')).to.equal(true);
+      expect(bus.isCheckpointHeld(POINT, 'other_other')).to.equal(false);
+      bus.releaseCheckpoint(POINT, 'app_app');
+      expect(bus.isCheckpointHeld(POINT, 'app_app')).to.equal(false);
+    });
+
     it('passes straight through a checkpoint nobody holds', async () => {
       const bus = new FluxEventBus(true);
 
