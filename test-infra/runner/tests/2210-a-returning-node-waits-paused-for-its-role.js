@@ -43,10 +43,15 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //   - A primary that crashed returns paused while FDM still names a node that
 //     does not run the component. The election, not only the folder monitor,
 //     asks every other holder, finds the one that took over, and discards.
+//   - A primary that crashed returns paused while the other holder is becoming
+//     the primary, and FDM names the returned one. The other holder keeps its
+//     promotion, the returned one does not start, and its unsent write is
+//     discarded.
 //
 // Throughout, at most one node runs the component.
 
 const APP_UID = 1000;
+const BEFORE_RUN = 'masterSlave:beforeRun';
 const API_PORT = 16127;
 // How long an identity verdict is held, so a redirect put in or taken out is
 // noticed within a pass or two.
@@ -486,6 +491,96 @@ describe('a returning node waits paused until its role is decided', function () 
       expect(await readPath(client(primary), `${data}/written-before-fdm-caught-up.txt`), 'the unsent write on the returned node').to.equal(null);
       expect(await holdsValidVersion(client(standby), folder, 'appdata/written-before-fdm-caught-up.txt'), 'a version of the unsent write on the node that took over').to.equal(false);
       expect(await runners(), 'the writer').to.deep.equal([standby]);
+    });
+  });
+
+  describe('a returning primary FDM names while another holder is becoming the primary', () => {
+    // The node that takes over is held after its folder sends and before it asks
+    // for the container, and the returning node's monitor is held before it
+    // decides its folder: FDM names the returning node in that window, as it does
+    // a node holding the component while nothing runs it anywhere.
+    let primary;
+    let standby;
+
+    after(async () => {
+      await clearMaster(appName);
+      if (standby !== undefined) await client(standby).releaseAllCheckpoints().catch(() => {});
+      if (primary !== undefined) {
+        await client(primary).releaseAllCheckpoints().catch(() => {});
+        await clearRedirect(primary);
+      }
+    });
+
+    it('keeps the other holder\'s promotion, starts nothing on the returned primary, and discards its unsent write', async function () {
+      this.timeout(1500000);
+      await waitFor(async () => (await runners()).length === 1, {
+        timeout: 300000, interval: 2000, label: 'fixture: one node runs the component',
+      });
+      [primary] = await runners();
+      [standby] = HOLDERS.filter((i) => i !== primary);
+
+      const standbyMark = client(standby).getLastEventId();
+      await client(standby).holdCheckpoint(BEFORE_RUN, identifier);
+      // The whole machine, with no announcement: the process, the container and the
+      // daemon.
+      await crashFluxos(client(primary).container, { hold: true });
+      await execInContainer(client(primary).container, `docker kill flux${identifier}`);
+      await stopDaemon(client(primary));
+      const becoming = await fluxEvent(standby, 'checkpoint:held', (d) => d.name === BEFORE_RUN && d.key === identifier, standbyMark, 600000);
+      expect(await folderIs(standby, { type: 'sendreceive' }), 'fixture: the folder of the node becoming the primary sends').to.equal(true);
+      await writeAsApp(primary, 'written-while-another-took-over.txt', 'never sent');
+
+      // The returning node's calls to the other holder land on the bystander, so
+      // its monitor keeps the folder paused; then it is held before it asks again.
+      await redirect(primary, standby);
+      if (primary === ARCANE) await startDaemon(client(ARCANE), { paused: true });
+      const returned = client(primary).getLastEventId();
+      await releaseFluxos(client(primary).container);
+      await waitFor(async () => await heldPausedPasses(primary) >= 1, {
+        timeout: 300000, interval: 3000, label: 'the monitor kept the returned primary paused',
+      });
+      await client(primary).holdCheckpoint('syncthing:beforeStandbyHold', folder);
+      await fluxEvent(primary, 'checkpoint:held', (d) => d.name === 'syncthing:beforeStandbyHold' && d.key === folder, returned);
+      expect(await folderIs(primary, { type: 'sendreceive', paused: true }), 'fixture: the returned primary\'s folder').to.equal(true);
+
+      // FDM names the returned node. The node becoming the primary asks it, finds
+      // it has not decided it holds the component, and keeps its promotion.
+      const undecidedFrom = await client(standby).getDecisionCount('masterSlave:decision', identifier, 'peerUndecided');
+      await electMaster(appName, client(primary).ip);
+      await waitFor(async () => (await client(standby).getDecisionCount('masterSlave:decision', identifier, 'peerUndecided')) >= undecidedFrom + 2, {
+        timeout: 300000, interval: 2000, label: 'two election passes on the node becoming the primary that kept its promotion',
+      });
+      expect(client(standby).getEventBuffer().filter((e) => e.event === 'primaryRole:changed' && e.id > becoming.id && e.data?.identifier === identifier),
+        'a change of role on the node becoming the primary while FDM named the returned one').to.deep.equal([]);
+
+      // The returned node's election, named by FDM, asks the other holder before it
+      // starts, finds it holds the component, and starts nothing.
+      const heldFrom = await client(primary).getDecisionCount('masterSlave:decision', identifier, 'heldOnPeer');
+      const refusedFrom = await client(primary).getDecisionCount('masterSlave:decision', identifier, 'namedButHeldElsewhere');
+      await clearRedirect(primary);
+      await waitFor(async () => (await client(primary).getDecisionCount('masterSlave:decision', identifier, 'heldOnPeer')) > heldFrom
+        && (await client(primary).getDecisionCount('masterSlave:decision', identifier, 'namedButHeldElsewhere')) > refusedFrom, {
+        timeout: 300000, interval: 2000, label: 'the returned primary\'s election finding the other holder holds the component, and not starting',
+      });
+      expect(client(primary).getEventBuffer().filter((e) => e.event === 'masterSlave:started' && e.id > returned && e.data?.identifier === identifier),
+        'a start on the returned primary').to.deep.equal([]);
+
+      await client(standby).releaseCheckpoint(BEFORE_RUN, identifier);
+      await becamePrimary(standby, becoming.id, 300000);
+      await waitFor(async () => (await runners()).length === 1, {
+        timeout: 300000, interval: 2000, label: 'the node that took over runs the component',
+      });
+      expect(await runners(), 'the writer, with FDM still naming the returned node').to.deep.equal([standby]);
+
+      await client(primary).releaseCheckpoint('syncthing:beforeStandbyHold', folder);
+      const decision = await fluxEvent(primary, 'primaryRole:returned', () => true, returned);
+      expect(decision.data, 'what the returned node decided').to.deep.equal({ identifier, outcome: 'discarded' });
+      await fluxEvent(primary, 'syncthing:localChangesReverted', (d) => d.folder === folder && d.files > 0, returned);
+      expect(await readPath(client(primary), `${data}/written-while-another-took-over.txt`), 'the unsent write on the returned node').to.equal(null);
+      expect(await holdsValidVersion(client(standby), folder, 'appdata/written-while-another-took-over.txt'), 'a version of the unsent write on the node that took over').to.equal(false);
+      expect(await runners(), 'the writer').to.deep.equal([standby]);
+      expect(client(primary).getEventBuffer().filter((e) => e.event === 'masterSlave:started' && e.id > returned && e.data?.identifier === identifier),
+        'a start on the returned primary').to.deep.equal([]);
     });
   });
 });
