@@ -16,12 +16,10 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerApp, registerAndConfirm, updateAndConfirm } from '../framework/app-helper.js';
-import { installedInstanceIndices } from '../framework/reconciler-suite.js';
+import { bootAndPeer, installedInstanceIndices } from '../framework/reconciler-suite.js';
+import { waitFor, waitForDaemonReady, waitForNodeStatus } from '../framework/wait.js';
 import {
-  waitFor, waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
-} from '../framework/wait.js';
-import {
-  advanceBlock, driveUntil, queueAppTx, startTicker, stopTicker,
+  driveUntil, queueAppTx, startTicker, stopTicker,
 } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -33,22 +31,6 @@ const TERM = 40;
 const EXPIRY_BUDGET = TERM + 24;
 const RENEWED_TERM = 88000;
 const subnet = getSubnetConfig();
-
-async function bootAndPeer(env) {
-  for (const client of env.clients) {
-    if (client) await waitForDaemonReady(client);
-  }
-  for (const client of env.clients) {
-    if (client) await waitForNodeStatus(client, (d) => d.confirmed === true, 30000);
-  }
-  await advanceBlock();
-  for (const client of env.clients) {
-    if (client) await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
-  }
-  await env.startDiscovery();
-  await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 2, 120000);
-  await startTicker();
-}
 
 describe('an expired app is renewed by an update, on every node alike', function () {
   let env;
@@ -79,7 +61,7 @@ describe('an expired app is renewed by an update, on every node alike', function
     for (const spec of [lateSpec, ownerSpec]) {
       // eslint-disable-next-line no-await-in-loop
       const result = await registerAndConfirm(env.clients[0].url, nodeKey(1), spec, live);
-      expect(result.status, `${spec.name} registers`).to.equal('success');
+      expect(result.status, `${spec.name} registers: ${JSON.stringify(result.data)}`).to.equal('success');
     }
     await stopTicker();
 
@@ -90,7 +72,7 @@ describe('an expired app is renewed by an update, on every node alike', function
 
     // Signed and relayed while the app still runs; its payment waits until after the app ends.
     const signed = await registerApp(env.clients[0].url, nodeKey(1), { ...lateSpec, expire: RENEWED_TERM }, 'fluxappupdate');
-    expect(signed.status, `the renewal of ${lateName} is accepted while the app runs`).to.equal('success');
+    expect(signed.status, `the renewal of ${lateName} is accepted while the app runs: ${JSON.stringify(signed.data)}`).to.equal('success');
     lateRenewalHash = signed.data;
     await waitFor(async () => {
       const held = await Promise.all(live.map(async (node) => (await node.getTempMessages(lateRenewalHash)).data?.length > 0));
@@ -136,7 +118,7 @@ describe('an expired app is renewed by an update, on every node alike', function
     await startTicker();
     const result = await updateAndConfirm(env.clients[0].url, nodeKey(1), { ...ownerSpec, expire: RENEWED_TERM }, live);
     await stopTicker();
-    expect(result.status, `${ownerName} accepts a renewal after it expired: ${result.data?.message ?? result.data}`).to.equal('success');
+    expect(result.status, `${ownerName} accepts a renewal after it expired: ${JSON.stringify(result.data)}`).to.equal('success');
     ownerRenewalHash = result.appHash;
     await waitFor(async () => {
       const hashes = await hashesEverywhere(liveIndices, ownerName);
