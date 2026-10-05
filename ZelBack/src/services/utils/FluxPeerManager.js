@@ -434,70 +434,47 @@ class FluxPeerManager extends EventEmitter {
   }
 
   /**
-   * Ping an existing connection to verify it's alive, and replace it with the
-   * new socket only when it is dead.
+   * Settle a reconnect dial from a peer this node already holds on the peer's
+   * own verdict on that dial.
    *
-   * Called when an inbound duplicate arrives with the X-Flux-Reconnect header,
-   * indicating the remote peer believes its old connection died. Settled by the
-   * first of:
-   * - a pong on the existing connection: it is alive, and the new socket is refused;
-   * - the peer closing the new socket: the peer holds the existing connection
-   *   and has kept it, as it does when the two are a crossing (resolveCrossing),
-   *   so the existing one is alive at both ends however slow its pong;
-   * - 1s with neither: the existing connection is dead, and the new socket replaces it.
+   * Called when an inbound duplicate arrives with the X-Flux-Reconnect header.
+   * The peer dialed holding no connection to this node, and when its dial opens
+   * it keeps it or closes it; a node keeping a connection sends a peer exchange
+   * on it at once (add). Settled by the first of:
+   * - a message on the new socket: the peer kept it, so it replaces the
+   *   existing connection, which the peer does not hold;
+   * - the new socket closing: the peer did not keep it, as when it holds the
+   *   existing connection and the two are a crossing (resolveCrossing), and the
+   *   existing one stays.
+   * No clock decides it: a slow link or a stalled peer delays the verdict and
+   * cannot change it.
    *
-   * An existing outbound connection found alive makes the two a crossing, and
-   * it is reported here; one found dead was never a crossing.
-   *
-   * @param {FluxPeerSocket} existing - The current peer connection to verify
+   * @param {FluxPeerSocket} existing - The current peer connection
    * @param {WebSocket} ws - The new inbound WebSocket
    * @param {string} ip
    * @param {string} port
    * @param {object} metadata - Peer metadata from upgrade headers
    * @private
    */
-  #verifyOrReplace(existing, ws, ip, port, metadata) {
-    const VERIFY_TIMEOUT_MS = 1000;
-    const listeners = {};
-    let timer = null;
-    let settled = false;
-
-    const settle = () => {
-      if (settled) return false;
-      settled = true;
-      clearTimeout(timer);
-      existing.ws.removeListener('pong', listeners.pong);
-      ws.removeListener('close', listeners.newcomerClosed);
-      return true;
+  #awaitReconnectVerdict(existing, ws, ip, port, metadata) {
+    const rejected = () => {
+      ws.onmessage = null;
+      if (this.get(existing.key) === existing && existing.isAlive
+        && existing.direction === DIRECTION.OUTBOUND) {
+        this.#reportCrossing(existing, DIRECTION.OUTBOUND);
+      }
+      log.info(`Reconnect from ${existing.key}: the peer closed its new connection and kept the existing one`);
     };
 
-    const replace = (why) => {
-      if (!settle()) return;
-      log.info(`Reconnect verify: existing connection ${existing.key} ${why}, replacing`);
-      this.add(ws, ip, port, { source: PEER_SOURCE.INBOUND, ...metadata });
+    const kept = (evt) => {
+      ws.removeListener('close', rejected);
+      log.info(`Reconnect from ${existing.key}: the peer kept its new connection, replacing the existing one`);
+      const peer = this.add(ws, ip, port, { source: PEER_SOURCE.INBOUND, ...metadata });
+      peer.ws.onmessage(evt);
     };
 
-    listeners.pong = () => {
-      if (!settle()) return;
-      if (existing.direction === DIRECTION.OUTBOUND) this.#reportCrossing(existing, DIRECTION.OUTBOUND);
-      log.info(`Reconnect verify: existing connection ${existing.key} is alive, rejecting new inbound`);
-      ws.close(CLOSE_CODES.DUPLICATE_PEER, 'Existing connection verified alive');
-    };
-
-    listeners.newcomerClosed = () => {
-      if (!settle()) return;
-      if (existing.direction === DIRECTION.OUTBOUND) this.#reportCrossing(existing, DIRECTION.OUTBOUND);
-      log.info(`Reconnect verify: ${existing.key} closed its new connection and kept the existing one`);
-    };
-
-    timer = setTimeout(() => replace('failed pong check'), VERIFY_TIMEOUT_MS);
-    existing.ws.on('pong', listeners.pong);
-    ws.once('close', listeners.newcomerClosed);
-    try {
-      existing.ws.ping();
-    } catch (_e) {
-      replace('could not be pinged');
-    }
+    ws.onmessage = kept;
+    ws.once('close', rejected);
   }
 
   /**
@@ -622,7 +599,8 @@ class FluxPeerManager extends EventEmitter {
    * newcomerReplaces, for a connection just established to a peer this node
    * already holds, reporting the crossing when the two are live and opposite.
    * The one exception is an inbound reconnect dial the held outbound would
-   * outlive: the held one may be dead, so the reconnect check reports it.
+   * outlive: the held one may be dead, so the peer's verdict on its dial
+   * reports it.
    * @param {object} existing The held peer.
    * @param {string} direction The newcomer's DIRECTION.
    * @returns {boolean} Whether the newcomer replaces the held peer.
@@ -1174,7 +1152,7 @@ class FluxPeerManager extends EventEmitter {
         const isReconnect = req && req.headers && req.headers['x-flux-reconnect'];
         // Both ends dialed at once: this inbound is the pair's other connection.
         // A reconnect dial says the held one may be dead, so when the held one
-        // would stay, the reconnect check below decides whether the two crossed.
+        // would stay, the peer's verdict on its dial decides whether the two crossed.
         if (existing && existing.direction === DIRECTION.OUTBOUND) {
           const heldMayBeDead = isReconnect && !this.newcomerReplaces(existing, DIRECTION.INBOUND);
           if (!heldMayBeDead && this.resolveCrossing(existing, DIRECTION.INBOUND)) {
@@ -1182,11 +1160,10 @@ class FluxPeerManager extends EventEmitter {
             return;
           }
         }
-        // If the remote is reconnecting (asymmetric disconnect), verify the
-        // existing connection is still alive before rejecting. Ping it and
-        // wait up to 1s — if no pong, the old socket is dead, replace it.
+        // The remote holds no connection to this node, or did when it dialed:
+        // whether its dial replaces the existing one is the remote's to say.
         if (isReconnect && existing) {
-          this.#verifyOrReplace(existing, ws, ipv4Peer, port, metadata);
+          this.#awaitReconnectVerdict(existing, ws, ipv4Peer, port, metadata);
           return;
         }
         setTimeout(() => {
