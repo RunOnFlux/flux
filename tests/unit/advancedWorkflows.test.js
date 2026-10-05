@@ -1587,7 +1587,7 @@ describe('advancedWorkflows tests', () => {
           sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'namedButHeldElsewhere');
         });
 
-        it('does not start when another holder cannot be ruled out', async () => {
+        it('starts when another holder cannot be ruled out', async () => {
           const appName = 'namedunknownelsewhere';
           const runPass = electionFixture(appName, [PEER]);
           serviceHelperStub.resolves(namesThisNode);
@@ -1599,7 +1599,7 @@ describe('advancedWorkflows tests', () => {
 
           await runPass();
 
-          sinon.assert.notCalled(promote);
+          sinon.assert.calledOnceWithExactly(promote, appName, `flux${appName}`);
         });
 
         it('starts when no other holder holds the component', async () => {

@@ -5435,18 +5435,21 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   }
                 }
 
-                // FDM naming this node is no clearance on its own: FDM also names a
-                // node that only holds the component while another has taken it
-                // over and is not running it yet. A start here asks every other
-                // holder first, as every other start does.
+                // FDM also names a node that only holds the component while
+                // another has taken it over and is not running it yet, so a start
+                // here asks every other holder first and does not start beside one
+                // that holds it. A holder this node cannot rule out does not stop
+                // it: FDM found nothing running it from where FDM stands, and a
+                // holder that was taking it over stands down for a node FDM names
+                // that has decided it holds it.
                 // eslint-disable-next-line no-await-in-loop
                 const others = isReady && !holdsHere ? await othersHold() : PeerComponent.NOT_RUNNING;
                 if (!isReady) {
                   fluxEventBus.count('masterSlave:decision', identifier, 'notReady');
                   log.info(`masterSlaveApps: app:${installedApp.name} is registered as primary on FDM but not ready yet (syncthing not synced), skipping start for this cycle`);
-                } else if (others !== PeerComponent.NOT_RUNNING) {
+                } else if (others === PeerComponent.RUNNING) {
                   fluxEventBus.count('masterSlave:decision', identifier, 'namedButHeldElsewhere');
-                  log.info(`masterSlaveApps: not starting app:${installedApp.name} that FDM names this node the primary of - a peer ${others === PeerComponent.RUNNING ? 'holds it' : 'could not be ruled out'}`);
+                  log.info(`masterSlaveApps: not starting app:${installedApp.name} that FDM names this node the primary of - a peer holds it`);
                 // eslint-disable-next-line no-await-in-loop
                 } else if (await start()) {
                   log.info(`masterSlaveApps: starting docker component:${identifier}`);
