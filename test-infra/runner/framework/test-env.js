@@ -747,7 +747,7 @@ export async function createTestEnv({
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
   geolocation = {}, locationTable = null, staticIp = true, policy = null, policySeeds = null,
-  awaitPolicy = true, pm2Nodes = {},
+  awaitPolicy = true, pm2Nodes = {}, rejoinOnRestart = true,
 } = {}) {
   if (syncthing !== 'stub' && syncthing !== 'binary') {
     throw new Error(`createTestEnv: syncthing must be 'stub' or 'binary', got '${syncthing}'`);
@@ -990,6 +990,7 @@ export async function createTestEnv({
   }
   const networkName = await createNetwork();
   const env = makeEnvShell(networkName);
+  env.rejoinOnRestart = rejoinOnRestart;
   activeEnvs.add(env);
   // A previous env's death must not fail this one's waits.
   clearInfraDeath();
@@ -1893,6 +1894,12 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
         // through here
         client.zelidauth = auth.zelidauth;
         await client.getAuthed('/flux/startdiscovery', auth.zelidauth);
+        // From here on the node starts discovery itself whenever FluxOS starts,
+        // unless the suite brings restarted nodes back into the mesh itself.
+        if (env.rejoinOnRestart) {
+          const marked = await execInContainer(client.container, 'node /flux/test-infra/rejoin-discovery.cjs mark');
+          if (marked.exitCode !== 0) throw new Error(`startDiscovery: could not mark ${client.url} to rejoin on restart: ${marked.output}`);
+        }
       }));
 
       // AND THEN POLICY, because a peered fleet is not yet one that can serve.

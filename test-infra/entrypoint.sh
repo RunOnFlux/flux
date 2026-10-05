@@ -90,6 +90,9 @@ if [ -n "$FLUX_TEST_CONFIG" ]; then
     fs.writeFileSync(target, `module.exports = ${JSON.stringify(merged, null, 2)};\n`);
   '
 fi
+# A node whose discovery the harness has started rejoins the mesh by itself on
+# every later start, the run's own discoveryAutostart notwithstanding.
+node /flux/test-infra/rejoin-discovery.cjs apply
 
 # The image ships these installed, which is the state a node is in on every boot
 # after its first. A suite that wants to exercise the install asks for a node
