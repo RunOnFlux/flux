@@ -746,8 +746,8 @@ describe('dbHelper tests', () => {
     let client;
     let appsGlobalDb;
 
-    const message = (name, type, hash, height, expire) => ({
-      type, hash, height, timestamp: height, appSpecifications: { name, owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W', expire },
+    const message = (name, type, hash, height, expire, timestamp = height) => ({
+      type, hash, height, timestamp, appSpecifications: { name, owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W', expire },
     });
 
     beforeEach(async () => {
@@ -755,6 +755,8 @@ describe('dbHelper tests', () => {
       client = dbHelper.databaseConnection();
       appsGlobalDb = client.db(appsglobal.database);
       await appsGlobalDb.collection(appsglobal.collections.appsMessages).deleteMany({});
+      // the indexes the rebuild relies on are its own to create
+      await appsGlobalDb.collection(appsglobal.collections.appsMessages).dropIndexes();
       await appsGlobalDb.collection(appsglobal.collections.appsInformation).deleteMany({});
       await client.db(appslocal.database).collection(appslocal.collections.appsInformation).deleteMany({});
       await client.db(daemon.database).collection(daemon.collections.scannedHeight).deleteMany({});
@@ -770,14 +772,18 @@ describe('dbHelper tests', () => {
         message('RenewedApp', 'fluxappupdate', 'r2', 3005000, 88000),
         // an app that simply expired
         message('ExpiredApp', 'fluxappregister', 'e1', 2990000, 1000),
-        // owncast: renewed 57 blocks late in 2022, below the activation block, alive today
+        // owncast: renewed 57 blocks late in 2022, renewed in time since
         message('LegacyApp', 'fluxappregister', 'l1', 1306201, 22000),
         message('LegacyApp', 'fluxappupdate', 'l2', 1328258, 22000),
         message('LegacyApp', 'fluxappupdate', 'l3', 2938092, 88000),
+        // two updates paid in one block, the earlier-signed one stored first
+        message('TiedApp', 'fluxappregister', 't1', 3000000, 88000),
+        message('TiedApp', 'fluxappupdate', 'tz', 3005000, 88000, 10),
+        message('TiedApp', 'fluxappupdate', 'ta', 3005000, 88000, 20),
       ]);
     });
 
-    it('should not bring back an app renewed after it expired, and keep the others, legacy ones included', async () => {
+    it('should hold the newest message of every app still in its term, a late renewal included', async () => {
       await dbHelper.reindexGlobalAppsInformation(
         appsGlobalDb,
         client.db(appslocal.database),
@@ -788,7 +794,7 @@ describe('dbHelper tests', () => {
       );
 
       const apps = await appsGlobalDb.collection(appsglobal.collections.appsInformation).find({}).toArray();
-      expect(apps.map((a) => `${a.name}:${a.hash}`).sort()).to.deep.equal(['LegacyApp:l3', 'RenewedApp:r2']);
+      expect(apps.map((a) => `${a.name}:${a.hash}`).sort()).to.deep.equal(['IncidentApp:i4', 'LegacyApp:l3', 'RenewedApp:r2', 'TiedApp:ta']);
     });
 
     it('should judge the rebuilt collection as valid, not reindex it on every check', async () => {

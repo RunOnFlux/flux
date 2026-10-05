@@ -92,7 +92,7 @@ describe('messageVerifier tests', () => {
         getChainTeamSupportAddressUpdates: sinon.stub().returns([]),
       },
       '../appDatabase/registryManager': {
-        updateAppSpecifications: sinon.stub().resolves(),
+        storeAppSpecificationInForce: sinon.stub().resolves(),
       },
       '../fluxNetworkHelper': {
         getNumberOfPeers: sinon.stub().returns(10),
@@ -156,7 +156,7 @@ describe('messageVerifier tests', () => {
     let signatureVerifierStub;
     let storeAppPermanentMessageStub;
     let isDaemonSyncedStub;
-    let updateAppSpecificationsStub;
+    let storeAppSpecificationInForceStub;
     let updateOneInDatabaseStub;
     let verifierWithStubs;
     let buildVerifier;
@@ -167,7 +167,7 @@ describe('messageVerifier tests', () => {
       storeAppPermanentMessageStub = sinon.stub().resolves();
       updateOneInDatabaseStub = sinon.stub().resolves();
       isDaemonSyncedStub = sinon.stub().returns({ data: { height: 2000000, synced: true } });
-      updateAppSpecificationsStub = sinon.stub().resolves();
+      storeAppSpecificationInForceStub = sinon.stub().resolves();
 
       const mockDb = { db: sinon.stub().returns('database') };
 
@@ -226,10 +226,9 @@ describe('messageVerifier tests', () => {
           getBlock: sinon.stub().resolves({}),
         },
         '../appDatabase/registryManager': {
-          updateAppSpecifications: updateAppSpecificationsStub,
+          storeAppSpecificationInForce: storeAppSpecificationInForceStub,
           getPreviousAppSpecifications: getPreviousAppSpecsStub,
           isNewestAppMessage: sinon.stub().resolves(true),
-          isAppUpdateInForce: sinon.stub().resolves(true),
           ...registryManagerOverrides,
         },
         './messageStore': {
@@ -297,36 +296,6 @@ describe('messageVerifier tests', () => {
       expect(storeAppPermanentMessageStub.called).to.be.true;
       // re-verified against what was below its own block, never by its signer's timestamp
       sinon.assert.calledWith(getPreviousAppSpecsStub, sinon.match({ name: 'testapp' }), 2000000, sinon.match.number);
-    });
-
-    describe('an update that confirmed after its app expired', () => {
-      beforeEach(() => {
-        getPreviousAppSpecsStub.resolves({ owner: 'correctOwner', version: 8 });
-      });
-
-      it('should keep it in the log but never apply it', async () => {
-        const inForce = sinon.stub().resolves(false);
-        const verifier = buildVerifier({ registryManagerOverrides: { isAppUpdateInForce: inForce } });
-
-        const result = await verifier.checkAndRequestApp('hash123', 'txid123', 2000000, 200000000);
-
-        expect(result).to.be.true;
-        expect(storeAppPermanentMessageStub.called).to.be.true;
-        sinon.assert.calledWith(inForce, 'testapp', 2000000, sinon.match.number);
-        expect(updateAppSpecificationsStub.called).to.be.false;
-        expect(logStub.warn.lastCall.args[0]).to.include('after the app had expired');
-      });
-
-      it('should go on to price and apply an update made while the app was alive', async () => {
-        const inForce = sinon.stub().resolves(true);
-        const verifier = buildVerifier({ registryManagerOverrides: { isAppUpdateInForce: inForce } });
-
-        await verifier.checkAndRequestApp('hash123', 'txid123', 2000000, 200000000);
-
-        sinon.assert.calledWith(inForce, 'testapp', 2000000);
-        // reached the price check, which looks up the previous permanent message
-        expect(logStub.error.lastCall.args[0]).to.include('Last permanent message for testapp not found');
-      });
     });
 
     describe('an update that has expired by itself', () => {
@@ -524,7 +493,7 @@ describe('messageVerifier tests', () => {
         '../utils/appUtilities': appUtilitiesStub,
         '../utils/chainUtilities': chainUtilitiesStub,
         '../appDatabase/registryManager': {
-          updateAppSpecifications: sinon.stub().resolves(),
+          storeAppSpecificationInForce: sinon.stub().resolves(),
           getPreviousAppSpecifications: sinon.stub().resolves(null),
         },
         '../fluxNetworkHelper': {

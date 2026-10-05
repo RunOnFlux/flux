@@ -12,9 +12,7 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const { appPricePerMonth, specificationFormatter } = require('../utils/appUtilities');
 const { getChainParamsPriceUpdates, getChainTeamSupportAddressUpdates } = require('../utils/chainUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const {
-  insertAppSpecifications, updateAppSpecifications, getPreviousAppSpecifications, isNewestAppMessage, isAppUpdateInForce,
-} = require('../appDatabase/registryManager');
+const { storeAppSpecificationInForce, getPreviousAppSpecifications, isNewestAppMessage } = require('../appDatabase/registryManager');
 const {
   globalAppsMessages,
   globalAppsTempMessages,
@@ -785,7 +783,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               updateForSpecifications.hash = permanentAppMessage.hash;
               updateForSpecifications.height = permanentAppMessage.height;
               // object of appSpecifications extended for hash and height
-              const inserted = await insertAppSpecifications(updateForSpecifications);
+              const inserted = await storeAppSpecificationInForce(updateForSpecifications);
               const appName = specifications.name;
               if (!inserted) {
                 globalState.clearPendingUpdates(appName);
@@ -814,14 +812,6 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8} - priceSpecs ${JSON.stringify(priceSpecifications)} - specs ${JSON.stringify(specifications)}`);
             }
           } else if (tempMessage.type === 'zelappupdate' || tempMessage.type === 'fluxappupdate') {
-            // An expired app is over. An update that confirmed after it expired - a renewal paid
-            // just after a cancellation ran out - is kept in the log but never applied, on every
-            // node alike: whether this node still happens to hold the app is no guide, it depends
-            // on when its expiry pass last ran. The rebuild from the log applies the same rule.
-            if (!await isAppUpdateInForce(specifications.name, height, tempMessage.timestamp)) {
-              log.warn(`Apps message ${permanentAppMessage.hash} for ${specifications.name} confirmed at ${height}, after the app had expired. Not applied.`);
-              return true;
-            }
             const db = dbHelper.databaseConnection();
             const database = db.db(config.database.appsglobal.database);
             const messageInfo = await dbHelper.findOneInDatabase(
@@ -875,7 +865,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               updateForSpecifications.hash = permanentAppMessage.hash;
               updateForSpecifications.height = permanentAppMessage.height;
               // object of appSpecifications extended for hash and height
-              await updateAppSpecifications(updateForSpecifications);
+              await storeAppSpecificationInForce(updateForSpecifications);
             } else {
               log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8}`);
             }

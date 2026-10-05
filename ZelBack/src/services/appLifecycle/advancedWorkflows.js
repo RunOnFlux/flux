@@ -3486,36 +3486,28 @@ async function updateAppGlobaly(params) {
     }
   }
 
-  // verify that app exists, does not change repotag and is signed by app owner.
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const query = { name: appSpecFormatted.name };
-  const projection = { projection: { _id: 0 } };
-  const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-  if (!appInfo) {
-    throw new Error('Flux App update received but application to update does not exist!');
-  }
-  // An update confirmed after its app expired is never applied (appMessageChain), so one that
-  // might be is refused now, before it is paid for.
-  // eslint-disable-next-line global-require
-  const registryManager = require('../appDatabase/registryManager');
-  await registryManager.getAppForUpdate(appSpecFormatted.name, daemonHeight);
-  if (appInfo.version <= 3 && appSpecFormatted.version <= 3 && appInfo.repotag !== appSpecFormatted.repotag) {
-    throw new Error('Flux App update of repotag is not allowed');
-  }
-
   const isEnterprise = Boolean(appSpecObj.version >= 8 && appSpecObj.enterprise);
   const toVerify = isEnterprise ? specificationFormatter(appSpecObj) : appSpecFormatted;
 
-  // Verify against the same previous spec every peer will use when this message reaches it
-  // (storeAppTemporaryMessage and the promotion re-check both call
-  // getPreviousAppSpecifications). Verifying against anything else lets this node accept a
-  // message its peers then refuse: the broadcast never comes back and the caller is told
-  // "Unable to update application on the network" with no reason. It returns the spec already
-  // decrypted, which verifyAppMessageUpdateSignature needs for the usersToExtend expire-only
-  // comparison of an enterprise app (globalAppsInformation holds compose/contacts stripped).
+  // The app being updated: the previous spec every peer judges this message against when it
+  // reaches it (storeAppTemporaryMessage and the promotion re-check both call
+  // getPreviousAppSpecifications), or this node's global spec when its message log does not hold
+  // the app. Verifying against anything else lets this node accept a message its peers then
+  // refuse: the broadcast never comes back and the caller is told "Unable to update application
+  // on the network" with no reason. It is the newest message for the name whether or not its
+  // term has ended, so an owner renews an expired app here. It comes back decrypted, which
+  // verifyAppMessageUpdateSignature needs for the usersToExtend expire-only comparison of an
+  // enterprise app (globalAppsInformation holds compose/contacts stripped).
+  // eslint-disable-next-line global-require
+  const registryManager = require('../appDatabase/registryManager');
   let previousAppSpec = await registryManager.getPreviousAppSpecifications(appSpecFormatted);
   if (!previousAppSpec) {
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, { name: appSpecFormatted.name }, { projection: { _id: 0 } });
+    if (!appInfo) {
+      throw new Error('Flux App update received but application to update does not exist!');
+    }
     previousAppSpec = appInfo;
     if (appInfo.version >= 8 && appInfo.enterprise) {
       try {
@@ -3525,6 +3517,9 @@ async function updateAppGlobaly(params) {
         previousAppSpec = specificationFormatter(appInfo);
       }
     }
+  }
+  if (previousAppSpec.version <= 3 && appSpecFormatted.version <= 3 && previousAppSpec.repotag !== appSpecFormatted.repotag) {
+    throw new Error('Flux App update of repotag is not allowed');
   }
   const appOwner = previousAppSpec.owner;
 

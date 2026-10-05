@@ -486,15 +486,6 @@ module.exports = {
       composedDelay: 5,
     },
     blocksLasting: 22000, // by default registered app will live for 22000 of blocks 44000 minutes ~= 1 month
-    // An update is refused this many blocks before its app expires: a signed update waits up to
-    // an hour of wall clock for its payment (120 blocks of 30 s), and one confirmed after the
-    // expiry buys nothing. 150 leaves room for blocks that come faster than 30 s.
-    updateExpiryMarginBlocks: 150,
-    // block from which an update confirmed after its app expired is no longer applied (it used to
-    // apply on the nodes that had not expired the app yet, and every reindex revived the app). Below
-    // it the old rule stands: seven long-lived apps renewed late in 2022 still rest on it.
-    // Expected around October 19th 2026 - move it if the release ships later.
-    expiredAppUpdatesIgnoredBlock: 3050000,
     minBlocksAllowance: 5000, // app can be registered for a minimum of this blocks ~ 1 week
     newMinBlocksAllowance: 100, // app can be registered for a minimum of this blocks ~ 3 hours - to allow users to cancel application subscription
     newMinBlocksAllowanceBlock: 1630040, // block where we will start looking at new min blocks allowance. block expected on 26th of April 2024

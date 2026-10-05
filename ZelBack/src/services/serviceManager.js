@@ -372,6 +372,7 @@ async function startFluxFunctions() {
       { key: { 'appSpecifications.version': 1 }, name: 'query for getting app message based on version' },
       { key: { 'appSpecifications.nodes': 1 }, name: 'query for getting app message based on nodes' },
     ]);
+    await dbHelper.ensureNewestAppMessageIndex(databaseTemp.collection(config.database.appsglobal.collections.appsMessages));
     // TTL is driven by expireAt (set per-document by store functions). Migrate from old broadcastedAt-based TTL.
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).dropIndex('broadcastedAt_1').catch(() => {});
     await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsLocations), [

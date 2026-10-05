@@ -794,7 +794,7 @@ describe('registryManager tests', () => {
   });
 
   describe('rescanGlobalAppsInformation tests', () => {
-    it('should rebuild by the same rule as the reindex, so a late renewal does not bring an app back', async () => {
+    it('should rebuild by the same rule as the reindex, a late renewal included', async () => {
       const { appsMessages, appsInformation } = config.database.appsglobal.collections;
       const daemonDb = db.db(config.database.daemon.database);
       await daemonDb.collection(config.database.daemon.collections.scannedHeight).deleteMany({});
@@ -813,23 +813,31 @@ describe('registryManager tests', () => {
 
       await registryManager.rescanGlobalAppsInformation(3003000);
 
-      expect(await database.collection(appsInformation).findOne({ name: 'RescanApp' })).to.equal(null);
+      expect((await database.collection(appsInformation).findOne({ name: 'RescanApp' })).hash).to.equal('late');
     });
   });
 
-  describe('updateAppSpecifications tests', () => {
-    const { appsMessages } = config.database.appsglobal.collections;
-
-    async function storeMessages(name, messages) {
+  describe('storeAppSpecificationInForce tests', () => {
+    const { appsMessages, appsInformation } = config.database.appsglobal.collections;
+    const owner = '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC';
+    const specOf = (name, m) => ({
+      name, version: 3, owner, expire: m.expire, ...m.spec, height: m.height, hash: m.hash,
+    });
+    const messageOf = (name, m) => ({
+      type: m.type || 'fluxappupdate', hash: m.hash, height: m.height, timestamp: m.timestamp ?? m.height, appSpecifications: specOf(name, m),
+    });
+    // the permanent messages of one app, already stored as promotion stores them before this runs
+    const logMessages = async (name, messages) => {
       await database.collection(appsMessages).deleteMany({ 'appSpecifications.name': name });
-      await database.collection(config.database.appsglobal.collections.appsInformation).deleteMany({ name });
-      await database.collection(appsMessages).insertMany(messages.map((m) => ({
-        type: 'fluxappupdate', timestamp: m.height, ...m, appSpecifications: { name, version: 3, owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC' },
-      })));
-    }
+      await database.collection(appsInformation).deleteMany({ name });
+      await database.collection(appsMessages).insertMany(messages.map((m) => messageOf(name, m)));
+    };
+    const promote = (name, m) => registryManager.storeAppSpecificationInForce(specOf(name, m));
+    const stored = (name) => database.collection(appsInformation).findOne({ name });
+    const atHeight = (height) => sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height } });
 
     it('should break a same-block tie by timestamp when deciding the newest message', async () => {
-      await storeMessages('SameBlockApp', [
+      await logMessages('SameBlockApp', [
         { hash: 'first', height: 371, timestamp: 1000 },
         { hash: 'second', height: 371, timestamp: 2000 },
       ]);
@@ -839,258 +847,143 @@ describe('registryManager tests', () => {
       expect(await registryManager.isNewestAppMessage('NoSuchApp', 'second')).to.equal(false);
     });
 
-    it('should never let an older update promoted concurrently overwrite a newer one', async () => {
-      await database.collection(config.database.appsglobal.collections.appsInformation).deleteMany({ name: 'ConcurrentApp' });
-      await registryManager.insertAppSpecifications({
-        name: 'ConcurrentApp', version: 3, owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', height: 100, hash: 'h100',
-      });
-      const update = (height) => registryManager.updateAppSpecifications({
-        name: 'ConcurrentApp', version: 3, owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', height, hash: `h${height}`,
-      });
-      // Force the dangerous interleaving: each read of the stored spec waits (up to 100 ms) for
-      // the other one, so without serialisation both read height 100 before either writes, and
-      // the second - the older update - writes last.
-      const realFindOne = dbHelper.findOneInDatabase;
-      let reads = 0;
-      sinon.stub(dbHelper, 'findOneInDatabase').callsFake(async (dbase, collection, query, options) => {
-        const result = await realFindOne(dbase, collection, query, options);
-        if (collection === config.database.appsglobal.collections.appsInformation && query.name === 'ConcurrentApp') {
-          reads += 1;
-          const mine = reads;
-          for (let waited = 0; reads < 2 && waited < 100; waited += 5) {
-            // eslint-disable-next-line no-await-in-loop
-            await new Promise((resolve) => { setTimeout(resolve, 5); });
-          }
-          if (mine === 2) await new Promise((resolve) => { setTimeout(resolve, 20); });
-        }
-        return result;
-      });
+    it('should store a registration, then the update that follows it', async () => {
+      atHeight(150);
+      const reg = { type: 'fluxappregister', hash: 'oldhash', height: 100 };
+      const upd = { hash: 'newhash', height: 200 };
+      await logMessages('UpdateTestApp', [reg]);
+      await promote('UpdateTestApp', reg);
+      expect((await stored('UpdateTestApp')).hash).to.equal('oldhash');
 
-      await Promise.all([update(371), update(300)]);
-
-      const stored = await database.collection(config.database.appsglobal.collections.appsInformation).find({ name: 'ConcurrentApp' }).toArray();
-      expect(stored.map((a) => a.hash)).to.deep.equal(['h371']);
-    });
-
-    describe('an app this node no longer holds', () => {
-      const owner = '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC';
-      const store = async (name, messages) => {
-        await database.collection(appsMessages).deleteMany({ 'appSpecifications.name': name });
-        await database.collection(config.database.appsglobal.collections.appsInformation).deleteMany({ name });
-        await database.collection(appsMessages).insertMany(messages.map((m) => ({
-          timestamp: m.height, ...m, appSpecifications: { name, version: 3, owner, expire: m.expire },
-        })));
-      };
-      const stored = (name) => database.collection(config.database.appsglobal.collections.appsInformation).findOne({ name });
-
-      it('should not bring it back for an update that confirmed after it expired', async () => {
-        sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 3003400 } });
-        await store('LateApp', [
-          { type: 'fluxappregister', hash: 'reg', height: 3003000, expire: 300 },
-          { type: 'fluxappupdate', hash: 'late', height: 3003381, expire: 88072 },
-        ]);
-
-        await registryManager.updateAppSpecifications({
-          name: 'LateApp', version: 3, owner, height: 3003381, hash: 'late', expire: 88072,
-        });
-
-        expect(await stored('LateApp')).to.equal(null);
-      });
-
-      it('should store an update in force that was promoted after the expiry pass removed the app', async () => {
-        // confirmed at 3003290, 10 blocks before the app ran out; promoted at 3003400
-        sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 3003400 } });
-        await store('RenewedLateApp', [
-          { type: 'fluxappregister', hash: 'reg', height: 3003000, expire: 300 },
-          { type: 'fluxappupdate', hash: 'renewal', height: 3003290, expire: 88000 },
-        ]);
-
-        await registryManager.updateAppSpecifications({
-          name: 'RenewedLateApp', version: 3, owner, height: 3003290, hash: 'renewal', expire: 88000,
-        });
-
-        expect((await stored('RenewedLateApp')).hash).to.equal('renewal');
-      });
-
-      it('should not store an update a newer message superseded', async () => {
-        sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 3003400 } });
-        await store('SupersededApp', [
-          { type: 'fluxappregister', hash: 'reg', height: 3003000, expire: 88000 },
-          { type: 'fluxappupdate', hash: 'renewal', height: 3003290, expire: 88000 },
-          { type: 'fluxappupdate', hash: 'cancel', height: 3003300, expire: 1 },
-        ]);
-
-        await registryManager.updateAppSpecifications({
-          name: 'SupersededApp', version: 3, owner, height: 3003290, hash: 'renewal', expire: 88000,
-        });
-
-        expect(await stored('SupersededApp')).to.equal(null);
-      });
-
-      it('should settle a same-block tie by the rule, not by which update was processed first', async () => {
-        await store('TieApp', [
-          { type: 'fluxappregister', hash: 'reg', height: 3003000, expire: 88000 },
-          { type: 'fluxappupdate', hash: 'later', height: 3003500, timestamp: 2, expire: 88000 },
-          { type: 'fluxappupdate', hash: 'earlier', height: 3003500, timestamp: 1, expire: 88000 },
-        ]);
-        await database.collection(config.database.appsglobal.collections.appsInformation).insertOne({
-          name: 'TieApp', version: 3, owner, height: 3003500, hash: 'earlier', expire: 88000,
-        });
-        const update = (hash) => registryManager.updateAppSpecifications({
-          name: 'TieApp', version: 3, owner, height: 3003500, hash, expire: 88000,
-        });
-
-        await update('later');
-        expect((await stored('TieApp')).hash).to.equal('later');
-        await update('earlier');
-        expect((await stored('TieApp')).hash).to.equal('later');
-      });
-    });
-
-    describe('isAppUpdateInForce', () => {
-      // dragonwilds1790467903997: expire 56 at 3003310 ends the app at 3003366; the renewal
-      // confirmed at 3003381
-      const incident = [
-        { type: 'fluxappregister', hash: 'reg', height: 2985989, expire: 20160 },
-        { type: 'fluxappupdate', hash: 'paid', height: 2986064, expire: 108135 },
-        { type: 'fluxappupdate', hash: 'cancel', height: 3003260, expire: 100 },
-        { type: 'fluxappupdate', hash: 'cancel2', height: 3003310, expire: 56 },
-        { type: 'fluxappupdate', hash: 'late', height: 3003381, expire: 88072 },
-      ];
-
-      beforeEach(async () => {
-        await database.collection(appsMessages).deleteMany({ 'appSpecifications.name': 'IncidentApp' });
-        await database.collection(appsMessages).insertMany(incident.map((m) => ({
-          type: m.type, hash: m.hash, height: m.height, timestamp: m.height, appSpecifications: { name: 'IncidentApp', expire: m.expire },
-        })));
-      });
-
-      it('should refuse an update that confirmed after its app expired', async () => {
-        expect(await registryManager.isAppUpdateInForce('IncidentApp', 3003381)).to.equal(false);
-      });
-
-      it('should accept updates that confirmed while the app was alive, up to its last block', async () => {
-        expect(await registryManager.isAppUpdateInForce('IncidentApp', 3003310)).to.equal(true);
-        expect(await registryManager.isAppUpdateInForce('IncidentApp', 3003366)).to.equal(true);
-        expect(await registryManager.isAppUpdateInForce('IncidentApp', 3003367)).to.equal(false);
-      });
-
-      it('should refuse an update of an app that never existed', async () => {
-        expect(await registryManager.isAppUpdateInForce('NeverRegisteredApp', 3003381)).to.equal(false);
-      });
-    });
-
-    describe('getAppForUpdate', () => {
-      beforeEach(async () => {
-        // judged from the message log: registered at 3003260 for 1000 blocks, alive until 3004260
-        await database.collection(appsMessages).deleteMany({ 'appSpecifications.name': 'UpdatableApp' });
-        await database.collection(appsMessages).insertOne({
-          type: 'fluxappregister', hash: 'reg', height: 3003260, timestamp: 1, appSpecifications: { name: 'UpdatableApp', expire: 1000 },
-        });
-      });
-
-      it('should return the app while enough blocks are left for an update to confirm', async () => {
-        const governing = await registryManager.getAppForUpdate('UpdatableApp', 3004260 - 150);
-        expect(governing.hash).to.equal('reg');
-      });
-
-      it('should refuse an update that could confirm after the app expires', async () => {
-        await registryManager.getAppForUpdate('UpdatableApp', 3004260 - 149)
-          .then(() => expect.fail('should have refused'), (error) => expect(error.message).to.include('can no longer be updated or renewed'));
-      });
-
-      it('should refuse an update of an expired app', async () => {
-        await registryManager.getAppForUpdate('ExpiredGoneApp', 3004000)
-          .then(() => expect.fail('should have refused'), (error) => expect(error.message).to.include('does not exist or has expired'));
-      });
-    });
-
-    it('should update app specifications', async () => {
-      const initialSpecs = {
-        name: 'UpdateTestApp',
-        version: 3,
-        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-        height: 100,
-        hash: 'oldhash',
-      };
-      await registryManager.insertAppSpecifications(initialSpecs);
-
-      const updatedSpecs = {
-        name: 'UpdateTestApp',
-        version: 3,
-        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-        height: 200,
-        hash: 'newhash',
-      };
-      await registryManager.updateAppSpecifications(updatedSpecs);
+      await database.collection(appsMessages).insertOne(messageOf('UpdateTestApp', upd));
+      await promote('UpdateTestApp', upd);
 
       const result = await registryManager.getApplicationSpecifications('UpdateTestApp');
-      expect(result.name).to.equal('UpdateTestApp');
       expect(result.height).to.equal(200);
       expect(result.hash).to.equal('newhash');
     });
 
-    it('should not update if height is lower than existing', async () => {
-      const initialSpecs = {
-        name: 'HeightTestApp',
-        version: 3,
-        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-        height: 300,
-        hash: 'hash1',
-      };
+    it('should change nothing for a message a newer one superseded', async () => {
+      atHeight(3003400);
+      const renewal = { hash: 'renewal', height: 3003290, expire: 88000 };
+      await logMessages('SupersededApp', [
+        { type: 'fluxappregister', hash: 'reg', height: 3003000, expire: 88000 },
+        renewal,
+        { hash: 'newer', height: 3003300, expire: 88000 },
+      ]);
 
-      await registryManager.insertAppSpecifications(initialSpecs);
+      await promote('SupersededApp', renewal);
 
-      const lowerHeightSpecs = {
-        ...initialSpecs,
-        height: 200,
-        hash: 'hash2',
-      };
-
-      await registryManager.updateAppSpecifications(lowerHeightSpecs);
-
-      const result = await registryManager.getApplicationSpecifications('HeightTestApp');
-      expect(result.height).to.equal(300);
-      expect(result.hash).to.equal('hash1');
+      expect(await stored('SupersededApp')).to.equal(null);
     });
 
     it('should not accumulate ghost fields when spec version changes', async () => {
-      // Simulate a v3 flat spec registration
-      const v3Spec = {
-        version: 3,
-        name: 'GhostFieldTestApp',
-        description: 'Test',
-        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-        repotag: 'test/image:latest',
-        cpu: 0.5,
-        ram: 500,
-        hdd: 5,
-        height: 100,
+      const v3 = {
+        type: 'fluxappregister',
         hash: 'hash1',
+        height: 100,
+        spec: {
+          description: 'Test', repotag: 'test/image:latest', cpu: 0.5, ram: 500, hdd: 5,
+        },
       };
-      await registryManager.insertAppSpecifications(v3Spec);
-
-      // Simulate a v4 compose update (no flat fields)
-      const v4Spec = {
-        version: 4,
-        name: 'GhostFieldTestApp',
-        description: 'Test',
-        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-        compose: [{ name: 'main', cpu: 0.5, ram: 500, hdd: 5 }],
-        instances: 3,
-        height: 200,
+      const v4 = {
         hash: 'hash2',
+        height: 200,
+        spec: {
+          version: 4, description: 'Test', compose: [{ name: 'main', cpu: 0.5, ram: 500, hdd: 5 }], instances: 3,
+        },
       };
-      await registryManager.updateAppSpecifications(v4Spec);
+      await logMessages('GhostFieldTestApp', [v3]);
+      await promote('GhostFieldTestApp', v3);
+      await database.collection(appsMessages).insertOne(messageOf('GhostFieldTestApp', v4));
+      await promote('GhostFieldTestApp', v4);
 
       const result = await registryManager.getApplicationSpecifications('GhostFieldTestApp');
       expect(result.version).to.equal(4);
       expect(result.compose).to.exist;
-      // Ghost flat fields from v3 should NOT exist
       expect(result.repotag).to.be.undefined;
       expect(result.cpu).to.be.undefined;
       expect(result.ram).to.be.undefined;
       expect(result.hdd).to.be.undefined;
+    });
+
+    it('should renew an app this node expired, for an update that confirmed after the app had expired', async () => {
+      // the app ran out at 3003300; the renewal confirmed at 3003381
+      atHeight(3003400);
+      const late = { hash: 'late', height: 3003381, expire: 88072 };
+      await logMessages('LateApp', [
+        { type: 'fluxappregister', hash: 'reg', height: 3003000, expire: 300 },
+        late,
+      ]);
+
+      await promote('LateApp', late);
+
+      expect((await stored('LateApp')).hash).to.equal('late');
+    });
+
+    it('should renew an app this node expired, for an update promoted after the expiry pass', async () => {
+      // confirmed at 3003290, 10 blocks before the app ran out; promoted at 3003400
+      atHeight(3003400);
+      const renewal = { hash: 'renewal', height: 3003290, expire: 88000 };
+      await logMessages('RenewedLateApp', [
+        { type: 'fluxappregister', hash: 'reg', height: 3003000, expire: 300 },
+        renewal,
+      ]);
+
+      await promote('RenewedLateApp', renewal);
+
+      expect((await stored('RenewedLateApp')).hash).to.equal('renewal');
+    });
+
+    it('should change nothing for the newest message once its own term has ended', async () => {
+      atHeight(3003400);
+      const cancel = { hash: 'cancel', height: 3003290, expire: 100 };
+      await logMessages('CancelledApp', [
+        { type: 'fluxappregister', hash: 'reg', height: 3003000, expire: 88000 },
+        cancel,
+      ]);
+
+      await promote('CancelledApp', cancel);
+
+      expect(await stored('CancelledApp')).to.equal(null);
+    });
+
+    it('should settle a same-block tie by timestamp, not by which update was processed first', async () => {
+      atHeight(3003600);
+      const later = { hash: 'later', height: 3003500, timestamp: 2, expire: 88000 };
+      const earlier = { hash: 'earlier', height: 3003500, timestamp: 1, expire: 88000 };
+      await logMessages('TieApp', [{ type: 'fluxappregister', hash: 'reg', height: 3003000, expire: 88000 }, later, earlier]);
+
+      await promote('TieApp', later);
+      expect((await stored('TieApp')).hash).to.equal('later');
+      await promote('TieApp', earlier);
+      expect((await stored('TieApp')).hash).to.equal('later');
+    });
+
+    it('should never let an older promotion overwrite a newer one', async () => {
+      atHeight(400);
+      const older = { type: 'fluxappregister', hash: 'h300', height: 300 };
+      const newer = { hash: 'h371', height: 371 };
+      await logMessages('ConcurrentApp', [older]);
+      // The newer message confirms and is promoted while the older one's promotion is between
+      // reading the log and writing the spec.
+      const realFindOne = dbHelper.findOneInDatabase;
+      let newerPromotion = null;
+      sinon.stub(dbHelper, 'findOneInDatabase').callsFake(async (dbase, collection, query, options) => {
+        const result = await realFindOne(dbase, collection, query, options);
+        if (!newerPromotion && collection === appsMessages && query['appSpecifications.name'] === 'ConcurrentApp') {
+          await database.collection(appsMessages).insertOne(messageOf('ConcurrentApp', newer));
+          newerPromotion = promote('ConcurrentApp', newer);
+          await new Promise((resolve) => { setTimeout(resolve, 50); });
+        }
+        return result;
+      });
+
+      await promote('ConcurrentApp', older);
+      await newerPromotion;
+
+      const all = await database.collection(appsInformation).find({ name: 'ConcurrentApp' }).toArray();
+      expect(all.map((a) => a.hash)).to.deep.equal(['h371']);
     });
   });
 
