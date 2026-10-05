@@ -178,7 +178,10 @@ describe('messageVerifier tests', () => {
         axiosGet: sinon.stub().resolves(),
       };
 
-      buildVerifier = ({ tempMessage, dbHelperOverrides = {}, registryManagerOverrides = {} } = {}) => proxyquire('../../ZelBack/src/services/appMessaging/messageVerifier', {
+      buildVerifier = ({
+        tempMessage, dbHelperOverrides = {}, registryManagerOverrides = {},
+        paymentRecord = { txid: 'txid123', height: 2000000, value: 200000000 },
+      } = {}) => proxyquire('../../ZelBack/src/services/appMessaging/messageVerifier', {
         config: {
           ...configStub,
           database: {
@@ -195,8 +198,9 @@ describe('messageVerifier tests', () => {
           ...dbHelperStub,
           databaseConnection: sinon.stub().returns(mockDb),
           findOneInDatabase: sinon.stub()
-            .onFirstCall().resolves(null) // checkAppMessageExistence — not in permanent
-            .onSecondCall().resolves(tempMessage || { // checkAppTemporaryMessageExistence — found in temp
+            .onFirstCall().resolves(paymentRecord) // paymentRecordOf — this node's record of the payment
+            .onSecondCall().resolves(null) // checkAppMessageExistence — not in permanent
+            .onThirdCall().resolves(tempMessage || { // checkAppTemporaryMessageExistence — found in temp
               type: 'fluxappupdate',
               version: 1,
               appSpecifications: { name: 'testapp', version: 8, owner: 'newOwner' },
@@ -298,6 +302,26 @@ describe('messageVerifier tests', () => {
       sinon.assert.calledWith(getPreviousAppSpecsStub, sinon.match({ name: 'testapp' }), 2000000, sinon.match.number);
     });
 
+    describe('the payment a message is placed by', () => {
+      it('should store the message at this node\'s record of its payment, not the caller\'s', async () => {
+        getPreviousAppSpecsStub.resolves({ owner: 'correctOwner', version: 8 });
+        const verifier = buildVerifier({ paymentRecord: { txid: 'recordedtx', height: 2000000, value: 300000000 } });
+
+        await verifier.checkAndRequestApp('hash123', 'othertx', 2000000, 100000000);
+
+        sinon.assert.calledWith(storeAppPermanentMessageStub, sinon.match({ txid: 'recordedtx', height: 2000000, valueSat: 300000000 }));
+      });
+
+      it('should store nothing for a hash this node has no payment recorded for', async () => {
+        const verifier = buildVerifier({ paymentRecord: null });
+
+        const result = await verifier.checkAndRequestApp('hash123', 'txid123', 2000000, 200000000);
+
+        expect(result).to.equal(false);
+        expect(storeAppPermanentMessageStub.called).to.equal(false);
+      });
+    });
+
     describe('an update that has expired by itself', () => {
       // stored at 1999000 with expire 10: long expired at daemon height 2000000
       const expiredUpdate = {
@@ -318,10 +342,11 @@ describe('messageVerifier tests', () => {
         getPreviousAppSpecsStub.resolves({ owner: 'correctOwner', version: 8 });
         findOneAndDeleteStub = sinon.stub().resolves();
         findOne = sinon.stub();
-        findOne.onCall(0).resolves(null); // not in permanent storage
-        findOne.onCall(1).resolves(expiredUpdate); // found in temporary storage
-        findOne.onCall(2).resolves({ name: 'testapp' }); // still in globalAppsInformation
-        findOne.onCall(3).resolves(null); // not installed locally
+        findOne.onCall(0).resolves({ txid: 'txid123', height: 1999000, value: 200000000 }); // this node's payment record
+        findOne.onCall(1).resolves(null); // not in permanent storage
+        findOne.onCall(2).resolves(expiredUpdate); // found in temporary storage
+        findOne.onCall(3).resolves({ name: 'testapp' }); // still in globalAppsInformation
+        findOne.onCall(4).resolves(null); // not installed locally
       });
 
       it('should not end an app that a newer message keeps alive (old message fetched late)', async () => {

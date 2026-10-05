@@ -651,7 +651,47 @@ async function getAppsPermanentMessages(req, res) {
  * @param {number} i - Retry counter
  * @returns {Promise<boolean>} True if message found or stored, false otherwise
  */
+/**
+ * This node's payment record for an app message hash: the txid, block height and payment its
+ * own scan recorded. One record per hash, so a hash paid more than once is placed by the payment
+ * the scan recorded for it.
+ * @param {string} hash
+ * @returns {Promise<{txid: string, height: number, value: number}|null>}
+ */
+async function paymentRecordOf(hash) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.daemon.database);
+  const record = await dbHelper.findOneInDatabase(
+    database,
+    appsHashesCollection,
+    { hash },
+    { projection: { _id: 0, txid: 1, height: 1, value: 1 } },
+  );
+  return record;
+}
+
+/**
+ * Stores and promotes an app message whose payment this node's scan recorded, fetching it from
+ * peers when this node does not hold it yet. It is placed by this node's record of its payment,
+ * whichever payment of the hash the caller came from.
+ * @param {string} hash
+ * @param {string} txid the payment the caller came from
+ * @param {number} height
+ * @param {number} valueSat
+ * @param {number} [i] attempt
+ * @returns {Promise<boolean>} whether the message is stored
+ */
 async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
+  const record = await paymentRecordOf(hash);
+  if (!record) {
+    log.warn(`checkAndRequestApp - no payment recorded for ${hash} (requested from txid ${txid}), not stored`);
+    return false;
+  }
+  // eslint-disable-next-line no-use-before-define
+  return checkAndRequestRecordedApp(hash, record.txid, record.height, record.value, i);
+}
+
+async function checkAndRequestRecordedApp(hash, txid, height, valueSat, i = 0) {
   try {
     if (height < config.fluxapps.epochstart) { // do not request testing apps
       return false;

@@ -829,6 +829,8 @@ describe('registryManager tests', () => {
     // the permanent messages of one app, already stored as promotion stores them before this runs
     const logMessages = async (name, messages) => {
       await database.collection(appsMessages).deleteMany({ 'appSpecifications.name': name });
+      // hashes are unique in the log, and these are reused across apps
+      await database.collection(appsMessages).deleteMany({ hash: { $in: messages.map((m) => m.hash) } });
       await database.collection(appsInformation).deleteMany({ name });
       await database.collection(appsMessages).insertMany(messages.map((m) => messageOf(name, m)));
     };
