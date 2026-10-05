@@ -57,6 +57,8 @@ const SILENT = REAL_NODES;
 const UNVERIFIABLE = REAL_NODES + 1;
 // The state-sync budget's checkpoint, declared in fluxEventBus.Checkpoint.
 const BUDGET_SPENT = 'appSync:beforeBudgetSpent';
+// The checkpoint between a completed state sync and the authority it confers.
+const BEFORE_AUTHORITATIVE = 'appSync:beforeAuthoritative';
 const ANSWERER = REAL_NODES + 2; // held back, and the only node that boots synced
 const BOOTED = Array.from({ length: REAL_NODES }, (_unused, i) => i);
 
@@ -315,6 +317,11 @@ describe('a state sync at the production requirement completes on three distinct
     for (const client of clients) {
       await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
     }
+    // THE DECLINER IS HELD SHORT OF AUTHORITY for the whole describe. Its peers
+    // are the answerers, so its own sync completes within a second of peering,
+    // and from then on it answers like any of them. The fallback above shuts
+    // the waiting road; this shuts the sync road.
+    await env.clients[DECLINER].holdCheckpoint(BEFORE_AUTHORITATIVE);
     await env.startDiscovery(booted);
     // The answerers settle among themselves before anyone asks them, so the
     // node under test meets a fleet that is up rather than one still starting.
@@ -323,6 +330,8 @@ describe('a state sync at the production requirement completes on three distinct
 
   after(async function () {
     this.timeout(60000);
+    await env?.clients[DECLINER].releaseCheckpoint(BEFORE_AUTHORITATIVE)
+      .catch((err) => console.warn(`cleanup: authority checkpoint release failed: ${err.message}`));
     await env?.teardown();
   });
 
