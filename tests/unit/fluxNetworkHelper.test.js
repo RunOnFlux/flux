@@ -3578,6 +3578,17 @@ describe('fluxNetworkHelper tests', () => {
       expect(await fluxNetworkHelper.egressDevice('1.1.1.1')).to.equal(null);
     });
 
+    it('asks by default for the route to an address no network routes on its own', async () => {
+      socket = fakeUdpSocket({ source: '10.0.0.5' });
+      sinon.stub(dgram, 'createSocket').returns(socket);
+      sinon.stub(os, 'networkInterfaces').returns({
+        eth0: [{ family: 'IPv4', internal: false, address: '10.0.0.5' }],
+      });
+
+      expect(await fluxNetworkHelper.egressDevice()).to.equal('eth0');
+      sinon.assert.calledWith(socket.connect, sinon.match.number, '203.0.113.1');
+    });
+
     it('is null, and closes the socket, when there is no route', async () => {
       socket = fakeUdpSocket({ error: Object.assign(new Error('connect ENETUNREACH'), { code: 'ENETUNREACH' }) });
       sinon.stub(dgram, 'createSocket').returns(socket);

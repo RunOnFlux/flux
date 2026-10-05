@@ -116,9 +116,11 @@ let localSocketAddress = null;
 // clock step never serves the cache stale or expires it early.
 let localSocketAddressFreshUntil = 0n;
 const LOCAL_SOCKET_ADDRESS_TTL_NS = 60n * 1_000_000_000n;
-// An address on the internet: the route to it is the route this node's
-// traffic takes.
-const EGRESS_TARGET = '1.1.1.1';
+// An address reserved for documentation (TEST-NET-3, RFC 5737). No network
+// routes it on its own, so the route to it is the route this node's internet
+// traffic takes. A well-known address can have a route of its own: a VPN
+// client's DNS leak protection sends just its DNS resolver through the tunnel.
+const EGRESS_TARGET = '203.0.113.1';
 // The last address this node learned. A benchmark that does not answer clears
 // localSocketAddress but gives the node no new address, so this keeps it.
 let lastKnownSocketAddress = null;

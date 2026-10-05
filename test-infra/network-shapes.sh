@@ -20,6 +20,9 @@
 #                       128.0.0.0/1 over a tunnel device, no default route
 #   no-gateway-default  a default route straight to the device, with no
 #                       gateway, as pppd installs one
+#   dns-route           a VPN client's DNS leak protection: routes to the
+#                       public resolvers 1.1.1.1 and 8.8.8.8 alone over a
+#                       tunnel device, the default left on the fleet device
 set -euo pipefail
 
 shape="$1"
@@ -64,6 +67,13 @@ case "$shape" in
     ;;
   no-gateway-default)
     ip route replace default dev "$dev"
+    ;;
+  dns-route)
+    ip link add wg2 type wireguard
+    ip addr add 10.9.0.2/32 dev wg2
+    ip link set wg2 up
+    ip route add 1.1.1.1/32 dev wg2
+    ip route add 8.8.8.8/32 dev wg2
     ;;
   *)
     echo "network-shapes: unknown shape '$shape'" >&2

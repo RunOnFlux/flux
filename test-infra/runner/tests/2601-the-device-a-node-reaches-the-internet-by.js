@@ -88,6 +88,15 @@ const SHAPES = [
     egress: 'eth0',
     tunnels: [],
   },
+  {
+    shape: 'dns-route',
+    label: 'only its DNS resolvers routed over a tunnel',
+    staticIpState: 'STATIC',
+    tunnel: 'none',
+    reason: null,
+    egress: 'eth0',
+    tunnels: ['wg2'],
+  },
 ];
 
 describe('The device a node reaches the internet by', function () {
