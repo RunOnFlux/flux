@@ -2377,6 +2377,55 @@ describe('FluxPeerManager tests', () => {
       expect(manager.get('8.8.8.8:16127').ws).to.equal(dial);
     });
 
+    it('closes a dial still awaiting its verdict when the peer dials again', () => {
+      manager.validateAndAddInbound(dial, '16127', reconnectReq());
+      const second = createMockWs('8.8.8.8', '16127');
+      manager.validateAndAddInbound(second, '16127', reconnectReq());
+
+      sinon.assert.calledOnceWithExactly(dial.close, CLOSE_CODES.DUPLICATE_PEER, 'Superseded by a newer reconnect');
+      expect(dial.listenerCount('close'), 'the superseded dial is no longer awaited').to.equal(0);
+      expect(dial.onmessage).to.equal(null);
+      sinon.assert.notCalled(second.close);
+
+      second.onmessage(peerExchange);
+      expect(manager.get('8.8.8.8:16127').ws).to.equal(second);
+    });
+
+    it('leaves a dial it has adopted alone when the peer dials again', () => {
+      manager.validateAndAddInbound(dial, '16127', reconnectReq());
+      dial.onmessage(peerExchange);
+      const adopted = manager.get('8.8.8.8:16127');
+
+      manager.validateAndAddInbound(createMockWs('8.8.8.8', '16127'), '16127', reconnectReq());
+
+      sinon.assert.notCalled(dial.close);
+      expect(manager.get('8.8.8.8:16127')).to.equal(adopted);
+      expect(dial.onmessage, 'the adopted connection keeps its handler').to.not.equal(null);
+    });
+
+    it('keeps one dial awaiting per peer however many arrive', () => {
+      const dials = [dial, ...Array.from({ length: 4 }, () => createMockWs('8.8.8.8', '16127'))];
+      dials.forEach((ws) => manager.validateAndAddInbound(ws, '16127', reconnectReq()));
+
+      const open = dials.filter((ws) => ws.close.notCalled);
+      expect(open).to.deep.equal([dials[4]]);
+    });
+
+    it('closes a dial awaiting its verdict when the node stops accepting peers', () => {
+      manager.validateAndAddInbound(dial, '16127', reconnectReq());
+
+      manager.disconnectAll();
+
+      sinon.assert.calledWith(dial.close, CLOSE_CODES.NODE_UNCONFIRMED);
+      expect(dial.onmessage, 'a late verdict adopts nothing').to.equal(null);
+    });
+
+    it('sends on a connection the moment it is kept: the frame a reconnecting peer awaits', () => {
+      const ws = createMockWs('9.9.9.9', '16127');
+      manager.add(ws, '9.9.9.9', '16127', { source: PEER_SOURCE.DETERMINISTIC, remoteCapabilities: ['peerExchange'] });
+      sinon.assert.calledOnce(ws.send);
+    });
+
     it('refuses a duplicate that is not a reconnect', (done) => {
       manager.validateAndAddInbound(dial, '16127', createMockReq('8.8.8.8'));
 

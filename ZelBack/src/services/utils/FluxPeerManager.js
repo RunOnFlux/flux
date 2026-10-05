@@ -53,6 +53,8 @@ class FluxPeerManager extends EventEmitter {
   #uniqueIps = new Map();
   /** @type {Map<string, {attempts: number, lastAttempt: number}>} */
   #failedConnections = new Map();
+  /** @type {Map<string, Function>} per peer key, the reconnect dial awaiting that peer's verdict: called to abandon it */
+  #awaitingVerdict = new Map();
   /** @type {Set<string>} keys of outbound connections currently being established */
   #pendingConnections = new Set();
   /** @type {Map<string, number>} reconnect count per peer key, persists across connection cycles */
@@ -217,7 +219,10 @@ class FluxPeerManager extends EventEmitter {
       direction,
       source: peer.source,
     });
-    // Peer exchange: send our full list to new peer, notify others about the addition
+    // Peer exchange: send our full list to new peer, notify others about the addition.
+    // Sent at once, as the connection's first frame: a peer that dialed this one
+    // as a reconnect takes it as this node's word that it kept the dial
+    // (#awaitReconnectVerdict).
     this.sendPeerExchange(peer);
     const dirSet = peer.direction === DIRECTION.OUTBOUND ? this.#pendingAdds.outbound : this.#pendingAdds.inbound;
     dirSet.add(peer.key);
@@ -384,6 +389,9 @@ class FluxPeerManager extends EventEmitter {
       for (const key of [...this.#peers.keys()]) {
         this.evict(key, CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
       }
+      for (const abandon of [...this.#awaitingVerdict.values()]) {
+        abandon(CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
+      }
     } finally {
       this.#deliberateTeardown = false;
     }
@@ -447,7 +455,8 @@ class FluxPeerManager extends EventEmitter {
    *   existing connection and the two are a crossing (resolveCrossing), and the
    *   existing one stays.
    * No clock decides it: a slow link or a stalled peer delays the verdict and
-   * cannot change it.
+   * cannot change it. One dial per peer awaits its verdict: a newer reconnect
+   * dial from the same peer closes the one before it.
    *
    * @param {FluxPeerSocket} existing - The current peer connection
    * @param {WebSocket} ws - The new inbound WebSocket
@@ -457,8 +466,24 @@ class FluxPeerManager extends EventEmitter {
    * @private
    */
   #awaitReconnectVerdict(existing, ws, ip, port, metadata) {
-    const rejected = () => {
+    const { key } = existing;
+    this.#awaitingVerdict.get(key)?.(CLOSE_CODES.DUPLICATE_PEER, 'Superseded by a newer reconnect');
+
+    let abandon;
+    let rejected;
+    const settle = () => {
+      ws.removeListener('close', rejected);
       ws.onmessage = null;
+      if (this.#awaitingVerdict.get(key) === abandon) this.#awaitingVerdict.delete(key);
+    };
+
+    abandon = (code, reason) => {
+      settle();
+      try { ws.close(code, reason); } catch (_e) { /* noop */ }
+    };
+
+    rejected = () => {
+      settle();
       if (this.get(existing.key) === existing && existing.isAlive
         && existing.direction === DIRECTION.OUTBOUND) {
         this.#reportCrossing(existing, DIRECTION.OUTBOUND);
@@ -467,12 +492,13 @@ class FluxPeerManager extends EventEmitter {
     };
 
     const kept = (evt) => {
-      ws.removeListener('close', rejected);
+      settle();
       log.info(`Reconnect from ${existing.key}: the peer kept its new connection, replacing the existing one`);
       const peer = this.add(ws, ip, port, { source: PEER_SOURCE.INBOUND, ...metadata });
       peer.ws.onmessage(evt);
     };
 
+    this.#awaitingVerdict.set(key, abandon);
     ws.onmessage = kept;
     ws.once('close', rejected);
   }
@@ -1751,6 +1777,7 @@ class FluxPeerManager extends EventEmitter {
     this.#uniqueIps.clear();
     this.#failedConnections.clear();
     this.#pendingConnections.clear();
+    this.#awaitingVerdict.clear();
     this.#reconnectCounts.clear();
     this.#peerTopology.clear();
     this.#peerExchangeListeners.length = 0;
