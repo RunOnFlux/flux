@@ -4,7 +4,6 @@ const proxyquire = require('proxyquire').noCallThru();
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
 const primaryRoleChanges = require('../../ZelBack/src/services/appLifecycle/primaryRoleChanges');
-const sharedState = require('../../ZelBack/src/services/utils/globalState');
 
 describe('appQueryService tests', () => {
   let appQueryService;
@@ -15,6 +14,7 @@ describe('appQueryService tests', () => {
   let dbHelperStub;
   let messageHelperStub;
   let peerIdentityServiceStub;
+  let syncthingServiceStub;
   let dockerServiceStub;
   let registryManagerStub;
   let enterpriseHelperStub;
@@ -131,6 +131,7 @@ describe('appQueryService tests', () => {
       BROADCAST_CLOCK_SKEW_MS: 120_000,
     };
     networkStateServiceStub = { isReady: sinon.stub().returns(true) };
+    syncthingServiceStub = { getConfigFolders: sinon.stub().resolves([]) };
     appQueryService = proxyquire('../../ZelBack/src/services/appQuery/appQueryService', {
       config: configStub,
       '../dbHelper': dbHelperStub,
@@ -146,6 +147,7 @@ describe('appQueryService tests', () => {
       '../fluxCommunicationUtils': fluxCommunicationUtilsStub,
       '../networkStateService': networkStateServiceStub,
       '../peerIdentityService': peerIdentityServiceStub,
+      '../syncthingService': syncthingServiceStub,
       '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
         config: configStub,
       }),
@@ -578,27 +580,30 @@ describe('appQueryService tests', () => {
     // What a peer mid-election is told this node owns. Answering short here is not
     // a stale reading - it is a second container started on a volume this node is
     // already writing, which corrupts it.
-    let sendingBefore;
-    beforeEach(() => {
-      sendingBefore = sharedState.promotedFolderIds;
-      sharedState.promotedFolderIds = new Set();
-    });
-    afterEach(() => {
-      sharedState.promotedFolderIds = sendingBefore;
-    });
 
     // A primary back from a stop: its folder still sends, paused, and nothing runs
     // or is committed while it decides whether another holder took over.
     it('reports a component whose folder sends here, with nothing running, committed or stopped', async () => {
-      sharedState.promotedFolderIds = new Set(['fluxwww_App']);
+      syncthingServiceStub.getConfigFolders.resolves([{ id: 'fluxwww_App', type: 'sendreceive' }]);
 
       const result = await held();
 
       expect(result).to.deep.equal(['fluxwww_App']);
     });
 
-    it('answers that it cannot say yet before the monitor has read which folders send', async () => {
-      sharedState.promotedFolderIds = null;
+    it('reports a folder that sends while syncthing is paused, and not one that receives', async () => {
+      syncthingServiceStub.getConfigFolders.resolves([
+        { id: 'fluxwww_App', type: 'sendreceive', paused: true },
+        { id: 'fluxdb_App', type: 'receiveonly', paused: true },
+      ]);
+
+      const result = await held();
+
+      expect(result).to.deep.equal(['fluxwww_App']);
+    });
+
+    it('answers that it cannot say yet while syncthing cannot say which folders send', async () => {
+      syncthingServiceStub.getConfigFolders.rejects(new Error('connect ECONNREFUSED'));
       messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
 
       const result = await held({ running: ['fluxdb_App'] });
@@ -705,14 +710,7 @@ describe('appQueryService tests', () => {
     const res = () => ({ json: sinon.stub().returnsArg(0) });
     const sealWith = (seal) => peerIdentityServiceStub.answerSealer.returns(seal);
 
-    let sendingBefore;
-    afterEach(() => {
-      sharedState.promotedFolderIds = sendingBefore;
-    });
-
     beforeEach(() => {
-      sendingBefore = sharedState.promotedFolderIds;
-      sharedState.promotedFolderIds = new Set();
       nowNs += 10n ** 10n;
       sinon.stub(process.hrtime, 'bigint').callsFake(() => nowNs);
       dockerServiceStub.dockerListContainers.resolves([{ Names: ['/fluxwww_App'] }]);
@@ -733,7 +731,7 @@ describe('appQueryService tests', () => {
     });
 
     it('holds a component whose folder alone sends here without having decided it', async () => {
-      sharedState.promotedFolderIds = new Set(['fluxgame_App']);
+      syncthingServiceStub.getConfigFolders.resolves([{ id: 'fluxgame_App', type: 'sendreceive' }]);
 
       const answer = await appQueryService.heldComponentsAnswer({}, res());
 
@@ -741,8 +739,8 @@ describe('appQueryService tests', () => {
       expect(answer.data.decided).to.deep.equal(['fluxwww_App']);
     });
 
-    it('answers that it cannot say yet, unsigned, before the monitor has said which folders send here', async () => {
-      sharedState.promotedFolderIds = null;
+    it('answers that it cannot say yet, unsigned, while syncthing cannot say which folders send here', async () => {
+      syncthingServiceStub.getConfigFolders.rejects(new Error('connect ECONNREFUSED'));
       const seal = sinon.spy((fields) => Promise.resolve(fields));
       sealWith(seal);
 
@@ -758,10 +756,12 @@ describe('appQueryService tests', () => {
       nowNs += 999n * 10n ** 6n;
       await appQueryService.heldComponentsAnswer({}, res());
       expect(dockerServiceStub.dockerListContainers.callCount).to.equal(1);
+      expect(syncthingServiceStub.getConfigFolders.callCount).to.equal(1);
 
       nowNs += 10n ** 6n;
       await appQueryService.heldComponentsAnswer({}, res());
       expect(dockerServiceStub.dockerListContainers.callCount).to.equal(2);
+      expect(syncthingServiceStub.getConfigFolders.callCount).to.equal(2);
     });
 
     it('signs each answer for its own call, even when the account is reused', async () => {
@@ -814,15 +814,10 @@ describe('appQueryService tests', () => {
     });
 
     it('does not count a folder that sends here: that is what it asks about', async () => {
-      const sendingBefore = sharedState.promotedFolderIds;
-      sharedState.promotedFolderIds = new Set(['fluxprobe_gsyncprobe']);
-      try {
-        account();
+      syncthingServiceStub.getConfigFolders.resolves([{ id: 'fluxprobe_gsyncprobe', type: 'sendreceive' }]);
+      account();
 
-        expect(await appQueryService.holdsComponent('fluxprobe_gsyncprobe')).to.equal(false);
-      } finally {
-        sharedState.promotedFolderIds = sendingBefore;
-      }
+      expect(await appQueryService.holdsComponent('fluxprobe_gsyncprobe')).to.equal(false);
     });
 
     it('does not hold a component that is neither running, committed nor stopped here', async () => {

@@ -16,7 +16,7 @@ const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 const networkStateService = require('../networkStateService');
 const peerIdentityService = require('../peerIdentityService');
 const primaryRoleChanges = require('../appLifecycle/primaryRoleChanges');
-const sharedState = require('../utils/globalState');
+const syncthingService = require('../syncthingService');
 const log = require('../../lib/log');
 
 // Database collections
@@ -353,6 +353,22 @@ function notKnownYet() {
 }
 
 /**
+ * The folders syncthing holds sendreceive, read from its configuration. A
+ * paused syncthing answers too: pausing stops a folder moving data, not its
+ * configuration being read.
+ * @returns {Promise<string[]|null>} folder ids, null when syncthing cannot say
+ */
+async function sendingFolderIds() {
+  try {
+    const folders = await syncthingService.getConfigFolders();
+    if (!Array.isArray(folders)) return null;
+    return folders.filter((folder) => folder.type === 'sendreceive').map((folder) => folder.id);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * What this node holds, both ways a peer reads it: `decided` is its own account
  * (ownHoldings), and `held` adds every component whose folder sends here. A
  * component in `held` and not in `decided` has a sending folder and nothing
@@ -360,11 +376,11 @@ function notKnownYet() {
  * holder took over.
  *
  * Throws when the lock store cannot be read.
- * @returns {Promise<{decided: string[], held: string[]}|null>} null until the
- *   monitor's first pass says which folders send here
+ * @returns {Promise<{decided: string[], held: string[]}|null>} null while
+ *   syncthing cannot say which folders send here
  */
 async function holdingsAccount() {
-  const sending = sharedState.promotedFolderIds;
+  const sending = await sendingFolderIds();
   if (sending === null) return null;
   const decided = await ownHoldings();
   return { decided, held: [...new Set([...decided, ...sending])] };
@@ -378,9 +394,9 @@ async function holdingsAccount() {
  * A sending folder is a writer. A primary back from a stop has its folder still
  * sending, paused, and no container or commitment until it has decided whether
  * another holder took over; read without its folder, it answers that it holds
- * nothing, and the holder asking starts the component beside it. Until the
- * monitor's first pass after a start this node does not know which folders send,
- * so it answers that it cannot say yet rather than that it holds nothing.
+ * nothing, and the holder asking starts the component beside it. Which folders
+ * send is read from syncthing; while syncthing cannot say, this node answers
+ * that it cannot say yet rather than that it holds nothing.
  *
  * Not filtered to g: components. The list answers "is this component mine", and
  * the callers ask about g: components alone - so filtering would cost a spec
