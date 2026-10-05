@@ -142,9 +142,18 @@ describe('reconciler enforces masterSlave g: election', function () {
     // demote the folder / chmod against the tar. The guard reads the busy list
     // off globalState at the decision; a boot-time capture stayed empty forever
     // and this test is the wiring's end-to-end proof.
-    await electMaster(appName, a.ip);
-    await waitForReconcileActuated(a, identifier, 'started', 60000);
-    await waitForUp(a, appName, 'primary running before backup');
+    //
+    // b holds the component by its owner's stop, so a starts as a node that
+    // cannot reach b does: it cannot rule b out, and FDM names it.
+    const b = env.clients[holders[1]];
+    const cut = await blockPeerAccess(b.container, [a.ip], 16127);
+    try {
+      await electMaster(appName, a.ip);
+      await waitForReconcileActuated(a, identifier, 'started', 60000);
+      await waitForUp(a, appName, 'primary running before backup');
+    } finally {
+      await unblockPeerAccess(b.container, cut, 16127);
+    }
 
     // bulk appdata so the tar phase is a real window (same shape as suite 44)
     const bulk = await execInContainer(
