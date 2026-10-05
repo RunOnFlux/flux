@@ -595,9 +595,11 @@ describe('a returning node waits paused until its role is decided', function () 
 
   describe('a returning primary whose boot cannot finish', () => {
     let primary;
+    let other;
 
     after(async () => {
       if (primary !== undefined) await disableRpcFailure(client(primary).ip).catch(() => {});
+      if (other !== undefined) await client(other).releaseAllCheckpoints().catch(() => {});
     });
 
     it('answers that it holds the component from syncthing before its boot settles, and resumes as primary once it does', async function () {
@@ -606,6 +608,13 @@ describe('a returning node waits paused until its role is decided', function () 
         timeout: 300000, interval: 2000, label: 'fixture: one node runs the component',
       });
       [primary] = await runners();
+      [other] = HOLDERS.filter((i) => i !== primary);
+
+      // The other holder's election is held while the primary is down, so it
+      // cannot take the component over before the primary is back to answer.
+      const otherMark = client(other).getLastEventId();
+      await client(other).holdCheckpoint('masterSlave:beforeDecision', identifier);
+      await fluxEvent(other, 'checkpoint:held', (d) => d.name === 'masterSlave:beforeDecision' && d.key === identifier, otherMark);
 
       // Its daemon refuses it, so its boot waits at the daemon and the syncthing
       // monitor, which starts once the boot has settled, never runs.
@@ -627,6 +636,17 @@ describe('a returning node waits paused until its role is decided', function () 
         'a boot that settled while the daemon refused it').to.deep.equal([]);
       expect(await client(primary).getDecisionCount('syncthing:folderPass', folder, 'evaluated'), 'monitor passes over the folder on the returned primary').to.equal(0);
       expect((await client(primary).get('/apps/promotedfolders'))?.data?.ready, 'promotedfolders, before the monitor has run').to.equal(false);
+
+      // Released, the other holder's election asks the returned primary, finds it
+      // holds the component, and starts nothing.
+      const heldFrom = await client(other).getDecisionCount('masterSlave:decision', identifier, 'heldOnPeer');
+      const passesFrom = await client(other).getDecisionCount('masterSlave:decision', identifier, 'evaluated');
+      await client(other).releaseCheckpoint('masterSlave:beforeDecision', identifier);
+      await waitFor(async () => (await client(other).getDecisionCount('masterSlave:decision', identifier, 'heldOnPeer')) > heldFrom
+        && (await client(other).getDecisionCount('masterSlave:decision', identifier, 'evaluated')) >= passesFrom + 3, {
+        timeout: 300000, interval: 2000, label: 'three election passes on the other holder, finding the returned primary holds the component',
+      });
+      expect(await runners(), 'the component while the returned primary\'s boot is held').to.deep.equal([]);
 
       await disableRpcFailure(client(primary).ip);
       await fluxEvent(primary, 'boot:settled', () => true, returned, 600000);
