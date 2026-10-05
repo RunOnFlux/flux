@@ -1363,8 +1363,47 @@ async function configureDirectories() {
   }
 }
 
+// Syncthing's graceful stop sends each peer connection a close message and
+// waits up to protocol.CloseTimeout - ten seconds - for it to go out, so a
+// stop given less than that can find it still running.
+const SYNCTHING_STOP_TIMEOUT_MS = 15 * 1000;
+const SYNCTHING_KILL_TIMEOUT_MS = 5 * 1000;
+const SYNCTHING_EXIT_POLL_MS = 250;
+
 /**
- * Stops syncthing if it is running.
+ * Whether a syncthing process is running here.
+ * @returns {Promise<boolean>}
+ */
+async function syncthingProcessRunning() {
+  const { stdout } = await serviceHelper.runCommand('pgrep', {
+    params: ['-x', 'syncthing'],
+    logError: false,
+  });
+  return Boolean(stdout);
+}
+
+/**
+ * Waits for every syncthing process to exit.
+ * @param {number} timeoutMs
+ * @returns {Promise<boolean>} Whether none is left; false at the timeout, or
+ *   once the controller is aborted.
+ */
+async function syncthingExitsWithin(timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  // eslint-disable-next-line no-await-in-loop
+  while (await syncthingProcessRunning()) {
+    if (stc.aborted || Date.now() >= deadline) return false;
+    // eslint-disable-next-line no-await-in-loop
+    await serviceHelper.delay(SYNCTHING_EXIT_POLL_MS);
+  }
+  return true;
+}
+
+/**
+ * Stops syncthing if it is running, and returns once it has exited: a syncthing
+ * started while the last one still holds its lock exits at once.
+ *
+ * Throws when it is still running after SIGKILL, so nothing is started beside it.
  * @returns {Promise<void>}
  */
 async function stopSyncthing() {
@@ -1375,43 +1414,27 @@ async function stopSyncthing() {
   ownersByNumberAnnounced = false;
   if (stc.aborted) return;
 
-  const { stdout: syncthingRunningA } = await serviceHelper.runCommand('pgrep', {
-    params: ['syncthing'],
-    logError: false,
-  });
-
-  if (!syncthingRunningA) return;
+  if (!(await syncthingProcessRunning())) return;
 
   log.info('Stopping syncthing service gracefully');
-
-  // killall will error if process not found (Sends SIGTERM by default)
-  await serviceHelper.runCommand('killall', {
-    runAsRoot: true,
-    params: ['syncthing'],
-    logError: false,
-  });
-
-  // pkill will error if process not found (Sends SIGTERM by default)
   await serviceHelper.runCommand('pkill', {
     runAsRoot: true,
-    params: ['syncthing'],
+    params: ['-x', 'syncthing'],
     logError: false,
   });
+  if (await syncthingExitsWithin(SYNCTHING_STOP_TIMEOUT_MS)) return;
+  if (stc.aborted) return;
 
-  await serviceHelper.delay(1 * 1000);
-
-  const { stdout: syncthingRunningB } = await serviceHelper.runCommand('pgrep', {
-    params: ['syncthing'],
+  log.warn(`Syncthing is still running ${SYNCTHING_STOP_TIMEOUT_MS / 1000}s after SIGTERM; sending SIGKILL`);
+  await serviceHelper.runCommand('pkill', {
+    runAsRoot: true,
+    params: ['-KILL', '-x', 'syncthing'],
     logError: false,
   });
+  if (await syncthingExitsWithin(SYNCTHING_KILL_TIMEOUT_MS)) return;
+  if (stc.aborted) return;
 
-  if (syncthingRunningB) {
-    log.info('Sending SIGKILL to syncthing service');
-    await serviceHelper.runCommand('kill', {
-      runAsRoot: true,
-      params: ['-9', 'syncthing'],
-    });
-  }
+  throw new Error(`Syncthing is still running ${SYNCTHING_KILL_TIMEOUT_MS / 1000}s after SIGKILL; not starting another`);
 }
 
 /**

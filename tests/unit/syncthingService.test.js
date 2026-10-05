@@ -1050,51 +1050,74 @@ describe('syncthingService tests', () => {
       await promise;
     });
 
-    it('should stop syncthing gracefully if running', async () => {
-      // there is a one second wait inbetween gracefully killing services,
-      // and checking if it's still running
-      const clock = sinon.useFakeTimers();
-
-      let pgrepCalls = 0;
+    const TERM = { runAsRoot: true, logError: false, params: ['-x', 'syncthing'] };
+    const KILL = { runAsRoot: true, logError: false, params: ['-KILL', '-x', 'syncthing'] };
+    // pgrep answers running until `exitAfter` checks have been made.
+    const syncthingExitsAfter = (exitAfter) => {
+      let checks = 0;
       runCmdStub.callsFake(async (cmd) => {
-        if (cmd === 'pgrep' && !pgrepCalls) {
-          pgrepCalls += 1;
-          return { stdout: 'syncthing is running' };
-        }
-        if (cmd === 'pgrep') return { stdout: '' };
-        return {};
+        if (cmd !== 'pgrep') return {};
+        checks += 1;
+        return { stdout: checks <= exitAfter ? '1234' : '' };
       });
+    };
 
-      const promise = syncthingService.stopSyncthing();
-      await clock.tickAsync(1000);
+    it('signals nothing when syncthing is not running', async () => {
+      syncthingExitsAfter(0);
+
+      await syncthingService.stopSyncthing();
+
+      sinon.assert.calledOnceWithExactly(runCmdStub, 'pgrep', { params: ['-x', 'syncthing'], logError: false });
+    });
+
+    it('returns once syncthing exits after SIGTERM, sending no SIGKILL', async () => {
+      const clock = sinon.useFakeTimers();
+      // Running at the first check and for the next ten seconds of the wait.
+      syncthingExitsAfter(1 + 40);
+
+      let returned = false;
+      const promise = syncthingService.stopSyncthing().then(() => { returned = true; });
+      await clock.tickAsync(9000);
+      expect(returned, 'returned while syncthing was still running').to.equal(false);
+      await clock.tickAsync(2000);
       await promise;
 
       sinon.assert.calledWithExactly(infoSpy, 'Stopping syncthing service gracefully');
+      sinon.assert.calledWithExactly(runCmdStub, 'pkill', TERM);
+      sinon.assert.neverCalledWith(runCmdStub, 'pkill', KILL);
       sinon.assert.notCalled(errorSpy);
-      sinon.assert.calledWithExactly(runCmdStub, 'killall', { runAsRoot: true, logError: false, params: ['syncthing'] });
-      sinon.assert.calledWithExactly(runCmdStub, 'pkill', { runAsRoot: true, logError: false, params: ['syncthing'] });
-      sinon.assert.neverCalledWith(runCmdStub, 'kill', { runAsRoot: true, params: ['-9', 'syncthing'] });
     });
 
-    it('should forcefully stop syncthing if still running after asking nicely', async () => {
-      // there is a one second wait inbetween gracefully killing services,
-      // and checking if it's still running
+    it('sends SIGKILL to a syncthing still running fifteen seconds after SIGTERM, and returns once it has exited', async () => {
       const clock = sinon.useFakeTimers();
-
-      runCmdStub.callsFake(async (cmd) => {
-        if (cmd === 'pgrep') return { stdout: 'syncthing is running' };
-        return {};
-      });
+      // Running through the whole SIGTERM wait, then gone after one check of the SIGKILL wait.
+      syncthingExitsAfter(1 + 61 + 1);
+      const warnSpy = sinon.spy(log, 'warn');
 
       const promise = syncthingService.stopSyncthing();
-      await clock.tickAsync(1000);
+      await clock.tickAsync(14000);
+      sinon.assert.neverCalledWith(runCmdStub, 'pkill', KILL);
+      await clock.tickAsync(2000);
       await promise;
 
-      sinon.assert.calledWithExactly(infoSpy, 'Sending SIGKILL to syncthing service');
-      sinon.assert.notCalled(errorSpy);
-      sinon.assert.calledWithExactly(runCmdStub, 'killall', { runAsRoot: true, logError: false, params: ['syncthing'] });
-      sinon.assert.calledWithExactly(runCmdStub, 'pkill', { runAsRoot: true, logError: false, params: ['syncthing'] });
-      sinon.assert.calledWithExactly(runCmdStub, 'kill', { runAsRoot: true, params: ['-9', 'syncthing'] });
+      sinon.assert.callOrder(
+        runCmdStub.withArgs('pkill', TERM),
+        runCmdStub.withArgs('pkill', KILL),
+      );
+      sinon.assert.calledWithMatch(warnSpy, /still running 15s after SIGTERM; sending SIGKILL/);
+      sinon.assert.neverCalledWith(runCmdStub, 'kill');
+    });
+
+    it('throws when syncthing is still running after SIGKILL, so nothing is started beside it', async () => {
+      const clock = sinon.useFakeTimers();
+      syncthingExitsAfter(Infinity);
+
+      const promise = syncthingService.stopSyncthing().then(() => null, (error) => error);
+      await clock.tickAsync(25000);
+      const error = await promise;
+
+      expect(error?.message).to.match(/still running 5s after SIGKILL; not starting another/);
+      sinon.assert.calledWithExactly(runCmdStub, 'pkill', KILL);
     });
   });
   describe('runSyncthingSentinel tests', () => {
@@ -1304,7 +1327,7 @@ describe('syncthingService tests', () => {
       await clock.tickAsync(6000);
       await promise;
 
-      sinon.assert.calledWithExactly(runCmdStub, 'killall', { runAsRoot: true, logError: false, params: ['syncthing'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'pkill', { runAsRoot: true, logError: false, params: ['-x', 'syncthing'] });
     });
 
     it('should install syncthing if there is a problem with the service', async () => {
@@ -1474,6 +1497,11 @@ describe('syncthingService tests', () => {
         runCmdStub.callsFake(async (cmd, options) => {
           if (cmd === 'pgrep' && options.params[0] === '-x') return { stdout: pids };
           if (cmd === 'pgrep') return { stdout: '' };
+          // A stopped syncthing exits; a launch brings one back (below).
+          if (cmd === 'pkill') {
+            pids = '';
+            return { error: null };
+          }
           if (cmd === 'stat') return { stdout: identities() };
           if (cmd === 'syncthing') return { stdout: 'syncthing installed' };
           if (cmd === 'findmnt') return { stdout: '{"filesystems":[{"target":"/","propagation":"shared"}]}' };
@@ -1539,6 +1567,7 @@ describe('syncthingService tests', () => {
         seen = ['8:7', '8:101'];
         spawnStub.callsFake(() => {
           seen = ['8:100', '8:101'];
+          pids = '4242\n';
           return { unref: unrefStub };
         });
         const promise = syncthingService.runSyncthingSentinel();
@@ -1581,6 +1610,7 @@ describe('syncthingService tests', () => {
         seen = ['8:7', '8:101'];
         spawnStub.callsFake(() => {
           seen = ['8:100', '8:101'];
+          pids = '4242\n';
           return { unref: unrefStub };
         });
 
@@ -1729,6 +1759,8 @@ describe('syncthingService tests', () => {
         sinon.assert.notCalled(publishStub);
 
         await syncthingService.stopSyncthing();
+        // The next syncthing process, already running when the pass reads it.
+        pids = '4343\n';
         await syncthingService.runSyncthingSentinel();
         await syncthingService.runSyncthingSentinel();
 
