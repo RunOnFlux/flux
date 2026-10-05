@@ -252,16 +252,32 @@ export async function shutdownFluxosGracefully(container, {
   const signalled = await execInContainer(container, `kill -TERM ${pid}`);
   if (signalled.exitCode !== 0) throw new Error(`shutdownFluxosGracefully: could not signal ${pid}: ${signalled.output}`);
   const start = Date.now();
+  let exitedAt = null;
   try {
     while (Date.now() - start < exitTimeoutMs) {
       throwIfInfraDead();
       // eslint-disable-next-line no-await-in-loop
       const alive = await execInContainer(container, `kill -0 ${pid} 2>/dev/null`);
-      if (alive.exitCode !== 0) return { pid, exitedAt: Date.now() };
+      if (alive.exitCode !== 0) {
+        exitedAt = Date.now();
+        break;
+      }
       // eslint-disable-next-line no-await-in-loop
       await sleepUnlessInfraDead(interval);
     }
-    throw new Error(`shutdownFluxosGracefully: FluxOS ${pid} still running ${exitTimeoutMs}ms after SIGTERM`);
+    if (exitedAt === null) throw new Error(`shutdownFluxosGracefully: FluxOS ${pid} still running ${exitTimeoutMs}ms after SIGTERM`);
+    // The daemon is down too before this returns: a syncthing still exiting holds
+    // its lock, and one started now cannot take it.
+    while (stopSyncthingAfter && Date.now() - start < exitTimeoutMs) {
+      throwIfInfraDead();
+      // eslint-disable-next-line no-await-in-loop
+      const running = await execInContainer(container, 'pgrep -x syncthing >/dev/null');
+      if (running.exitCode !== 0) return { pid, exitedAt };
+      // eslint-disable-next-line no-await-in-loop
+      await sleepUnlessInfraDead(interval);
+    }
+    if (stopSyncthingAfter) throw new Error(`shutdownFluxosGracefully: syncthing still running ${exitTimeoutMs}ms after SIGTERM to FluxOS`);
+    return { pid, exitedAt };
   } finally {
     await execInContainer(container, 'rm -f /run/nologin');
   }
