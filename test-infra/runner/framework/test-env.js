@@ -1072,9 +1072,14 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   // boot — EMFILE panics WT (directory-sync fails) and mongod dies with what
   // presents as a SIGSEGV. The compose envs already run mongo at 65536; this
   // path was the only one still on the Docker default.
+  // Data on tmpfs: every node of a fleet creates its collections and indexes on
+  // this one mongod at boot, and on disk each creation waits on a sync, which
+  // makes a ten-node fleet's setup take about a minute; on tmpfs, a few seconds.
+  // The data lives as long as the container, which is the fleet's lifetime.
   const mongo = await new StaticIpContainer('mongo:8@sha256:a706cb4e493bcd0262f345b3b0c78732ca0e54301f0d7bbe2b66f26313ce7ccb')
     .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64', '--setParameter', 'enableTestCommands=1'])
     .withUlimits({ nofile: { soft: 65536, hard: 65536 } })
+    .withTmpFs({ '/data/db': 'rw,size=4g' })
     .withStaticIp(networkName, MONGO_IP)
     .withWaitStrategy(new TcpPollWaitStrategy(MONGO_IP, 27017))
     .start();
