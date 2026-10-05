@@ -18,6 +18,7 @@ import {
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { electMaster, clearMaster } from '../framework/fdm-control.js';
+import { enableRpcFailure, disableRpcFailure } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // fleet: 3
@@ -47,11 +48,16 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //     the primary, and FDM names the returned one. The other holder keeps its
 //     promotion, the returned one does not start, and its unsent write is
 //     discarded.
+//   - A primary that crashed returns paused and its boot cannot finish. It
+//     answers peers that it holds the component, from syncthing, before its boot
+//     settles and before the monitor's first pass; promotedfolders still answers
+//     that it is not ready. Once its boot finishes it resumes as primary.
 //
 // Throughout, at most one node runs the component.
 
 const APP_UID = 1000;
 const BEFORE_RUN = 'masterSlave:beforeRun';
+const BOOT_DAEMON_TIMEOUT_MS = 600000;
 const API_PORT = 16127;
 // How long an identity verdict is held, so a redirect put in or taken out is
 // noticed within a pass or two.
@@ -150,6 +156,9 @@ describe('a returning node waits paused until its role is decided', function () 
           sigtermExpiryS: SIGTERM_EXPIRY_S,
           locationTtlS: LOCATION_TTL_S,
         },
+        // A boot held at the daemon outlasts the harness's 30s, after which a
+        // node removes every app.
+        system: { bootDaemonTimeoutMs: BOOT_DAEMON_TIMEOUT_MS },
       },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
@@ -581,6 +590,52 @@ describe('a returning node waits paused until its role is decided', function () 
       expect(await runners(), 'the writer').to.deep.equal([standby]);
       expect(client(primary).getEventBuffer().filter((e) => e.event === 'masterSlave:started' && e.id > returned && e.data?.identifier === identifier),
         'a start on the returned primary').to.deep.equal([]);
+    });
+  });
+
+  describe('a returning primary whose boot cannot finish', () => {
+    let primary;
+
+    after(async () => {
+      if (primary !== undefined) await disableRpcFailure(client(primary).ip).catch(() => {});
+    });
+
+    it('answers that it holds the component from syncthing before its boot settles, and resumes as primary once it does', async function () {
+      this.timeout(1200000);
+      await waitFor(async () => (await runners()).length === 1, {
+        timeout: 300000, interval: 2000, label: 'fixture: one node runs the component',
+      });
+      [primary] = await runners();
+
+      // Its daemon refuses it, so its boot waits at the daemon and the syncthing
+      // monitor, which starts once the boot has settled, never runs.
+      await enableRpcFailure(client(primary).ip);
+      // The whole machine, with no announcement: the process, the container and the
+      // daemon.
+      await crashFluxos(client(primary).container, { hold: true });
+      await execInContainer(client(primary).container, `docker kill flux${identifier}`);
+      await stopDaemon(client(primary));
+      if (primary === ARCANE) await startDaemon(client(ARCANE), { paused: true });
+      const returned = client(primary).getLastEventId();
+      await releaseFluxos(client(primary).container);
+
+      await waitFor(async () => (await client(primary).get('/apps/heldcomponents'))?.data?.includes?.(folder) === true, {
+        timeout: 300000, interval: 2000, label: 'the returned primary answering that it holds the component',
+      });
+      expect(await folderIs(primary, { type: 'sendreceive', paused: true }), 'the returned primary\'s folder').to.equal(true);
+      expect(client(primary).getEventBuffer().filter((e) => e.event === 'boot:settled' && e.id > returned),
+        'a boot that settled while the daemon refused it').to.deep.equal([]);
+      expect(await client(primary).getDecisionCount('syncthing:folderPass', folder, 'evaluated'), 'monitor passes over the folder on the returned primary').to.equal(0);
+      expect((await client(primary).get('/apps/promotedfolders'))?.data?.ready, 'promotedfolders, before the monitor has run').to.equal(false);
+
+      await disableRpcFailure(client(primary).ip);
+      await fluxEvent(primary, 'boot:settled', () => true, returned, 600000);
+      const decision = await fluxEvent(primary, 'primaryRole:returned', () => true, returned, 600000);
+      expect(decision.data, 'what the returned primary decided').to.deep.equal({ identifier, outcome: 'kept' });
+      await waitFor(async () => (await runners()).length === 1, {
+        timeout: 300000, interval: 2000, label: 'the returned primary runs the component again',
+      });
+      expect(await runners(), 'the writer').to.deep.equal([primary]);
     });
   });
 });
