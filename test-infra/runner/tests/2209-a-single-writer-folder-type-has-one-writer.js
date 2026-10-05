@@ -5,7 +5,9 @@ import { pushImage } from '../framework/registry-helper.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
-import { execInContainer, getAppContainerStatus } from '../framework/container.js';
+import {
+  execInContainer, getAppContainerStatus, blockPeerAccess, unblockPeerAccess,
+} from '../framework/container.js';
 import { electMaster, resetFdm } from '../framework/fdm-control.js';
 import {
   setSynced, resetSyncState, getFolderWrites, getFolderScans, getFolderConfig, setFolderConfig,
@@ -203,7 +205,10 @@ describe('a single-writer folder type has one writer', function () {
   // Two nodes can race for one app; FDM naming the other while this one is
   // promoting is what stands this one down, and it must hold at any point of
   // the promotion - here, its folder sending and covered, the container not yet
-  // asked for.
+  // asked for. A race needs nodes that cannot rule each other out: neither can
+  // reach the primary, and the other cannot reach this one, so each starts when
+  // FDM names it; this one, which can reach the other, finds it has decided it
+  // holds the component.
   it('runs no container on a node stood down once its folder sends and before it asks to run it', async function () {
     this.timeout(900000);
     const a = await settle(`e2eraced${stamp}`);
@@ -211,6 +216,8 @@ describe('a single-writer folder type has one writer', function () {
     const client = env.clients[target];
     const from = client.getLastEventId();
 
+    const cutFromPrimary = await blockPeerAccess(env.clients[a.primary].container, [client.ip, env.clients[other].ip], 16127);
+    const cutFromTarget = await blockPeerAccess(client.container, [env.clients[other].ip], 16127);
     await client.holdCheckpoint(BEFORE_RUN, a.identifier);
     try {
       await electMaster(a.appName, client.ip);
@@ -228,8 +235,14 @@ describe('a single-writer folder type has one writer', function () {
         .catch((err) => console.warn(`cleanup: checkpoint release failed: ${err.message}`));
     }
 
-    const ended = await client.waitForEvent('primaryRole:changed',
-      (d) => d.identifier === a.identifier && d.from === 'promoting', 120000, { afterId: from });
+    let ended;
+    try {
+      ended = await client.waitForEvent('primaryRole:changed',
+        (d) => d.identifier === a.identifier && d.from === 'promoting', 120000, { afterId: from });
+    } finally {
+      await unblockPeerAccess(client.container, cutFromTarget, 16127);
+      await unblockPeerAccess(env.clients[a.primary].container, cutFromPrimary, 16127);
+    }
     expect(ended.data.to, 'the promotion was not stood down').to.equal('standby');
     expect(ended.data.reason).to.equal('stood down before it ran');
     await passesFromNow([target], (i) => electionCount(i, a.appName, 'evaluated'), 'election');
@@ -475,8 +488,9 @@ describe('a single-writer folder type has one writer', function () {
     expect(writesAtEnd, 'a pass rewrote a folder syncthing already held as the monitor would write it').to.deep.equal(writesAtStart);
   });
 
-  // FDM names another node only once it runs the component, so a stand-down
-  // ends two nodes writing it. The node standing down sends nothing more: its
+  // A stand-down for a node FDM names that runs the component ends two nodes
+  // writing it - here a node that cannot reach the primary, so cannot rule it
+  // out, and starts beside it. The node standing down sends nothing more: its
   // folder receives at once, unscanned, however long a scan of it would take.
   it('stops a folder sending at once, unscanned, when another node is named while both run it', async function () {
     this.timeout(900000);
@@ -487,6 +501,7 @@ describe('a single-writer folder type has one writer', function () {
     const writesBefore = (await writesTo(a.primary, a.folder)).length;
     const scansBefore = (await scansOf(a.primary, a.folder)).length;
     await setScanDuration({ ip: ipOf(a.primary), folder: a.folder, ms: COVER_SCAN_MS });
+    const cut = await blockPeerAccess(client.container, [env.clients[other].ip], 16127);
     let named;
     try {
       await electMaster(a.appName, env.clients[other].ip);
@@ -499,6 +514,7 @@ describe('a single-writer folder type has one writer', function () {
       expect(ended.data.to, `the stand-down did not finish: ${ended.data.reason ?? ''}`).to.equal('standby');
       expect(ended.data.reason, 'the stand-down left the folder sending').to.equal(undefined);
     } finally {
+      await unblockPeerAccess(client.container, cut, 16127);
       await setScanDuration({ ip: ipOf(a.primary), folder: a.folder, ms: 0 });
     }
 
