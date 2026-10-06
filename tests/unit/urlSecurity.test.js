@@ -162,8 +162,29 @@ describe('urlSecurity', () => {
       expect(isBlockedIP('93.184.216.34')).to.be.false;
     });
 
+    it('should return true for the whole benchmarking range (198.18.0.0/15)', () => {
+      expect(isBlockedIP('198.18.0.1')).to.be.true;
+      expect(isBlockedIP('198.19.255.255')).to.be.true;
+      expect(isBlockedIP('198.17.255.255')).to.be.false;
+      expect(isBlockedIP('198.20.0.0')).to.be.false;
+    });
+
+    it('should return false for the harness fleet\'s addresses, which stand in for public ones', () => {
+      expect(isBlockedIP('31.200.0.10')).to.be.false;
+      expect(isBlockedIP('31.200.15.255')).to.be.false;
+    });
+
     it('should return true for IPv6 loopback', () => {
       expect(isBlockedIP('::1')).to.be.true;
+    });
+
+    it('should return true for the whole unique local range (fc00::/7)', () => {
+      expect(isBlockedIP('fc00::1')).to.be.true;
+      expect(isBlockedIP('fc01::1')).to.be.true;
+      expect(isBlockedIP('fcff::1')).to.be.true;
+      expect(isBlockedIP('fd12:3456::1')).to.be.true;
+      expect(isBlockedIP('fbff::1')).to.be.false;
+      expect(isBlockedIP('fe00::1')).to.be.false;
     });
 
     it('should return true for null/undefined', () => {

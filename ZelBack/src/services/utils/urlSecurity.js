@@ -97,6 +97,7 @@ const BLOCKED_IPV4_PATTERNS = [
   /^100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\./, // Carrier-grade NAT (100.64.0.0/10)
   /^192\.0\.0\./, // IETF Protocol Assignments (192.0.0.0/24)
   /^192\.0\.2\./, // Documentation (TEST-NET-1)
+  /^198\.1[89]\./, // Benchmarking (198.18.0.0/15)
   /^198\.51\.100\./, // Documentation (TEST-NET-2)
   /^203\.0\.113\./, // Documentation (TEST-NET-3)
   /^224\./, // Multicast (224.0.0.0/4)
@@ -110,8 +111,7 @@ const BLOCKED_IPV4_PATTERNS = [
 const BLOCKED_IPV6_PATTERNS = [
   /^::1$/, // Loopback
   /^fe80:/i, // Link-local
-  /^fc00:/i, // Unique local (fc00::/7)
-  /^fd[0-9a-f]{2}:/i, // Unique local
+  /^f[cd][0-9a-f]{2}:/i, // Unique local (fc00::/7)
   /^::ffff:(127\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.|169\.254\.)/i, // IPv4-mapped
   /^ff[0-9a-f]{2}:/i, // Multicast
   /^::$/i, // Unspecified address
