@@ -188,7 +188,7 @@ describe('volumeExecutor tests', () => {
     // a shared emitter would carry it between tests.
 
     // This node's own address, so a peer draw cannot come back as itself.
-    fluxNetworkHelperStub = { getLocalSocketAddress: sinon.stub().resolves('198.18.0.1:16127') };
+    fluxNetworkHelperStub = { getLocalSocketAddress: sinon.stub().resolves('31.200.0.1:16127') };
 
     nodeFsStub = {
       createWriteStream: sinon.stub().callsFake(() => new Writable({
@@ -439,14 +439,14 @@ describe('volumeExecutor tests', () => {
       pulled = false;
       dockerServiceStub.pullImage.rejects(new Error('getaddrinfo ENOTFOUND ghcr.io'));
       dockerServiceStub.loadImage = sinon.stub().callsFake(async () => { pulled = true; return { ids: [IMAGE_ID], tags: [] }; });
-      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      networkStateStub.getRandomSocketAddress.resolves('31.200.0.5:16127');
       serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
 
       const vol = await openSession();
       await volumeExecutor.run(vol, ['true']);
 
       expect(serviceHelperStub.axiosGet.firstCall.args[0])
-        .to.equal(`http://198.18.0.5:16127/apps/fileoperationimage/${IMAGE_ID}`);
+        .to.equal(`http://31.200.0.5:16127/apps/fileoperationimage/${IMAGE_ID}`);
       sinon.assert.calledOnce(dockerServiceStub.loadImage);
     });
 
@@ -459,7 +459,7 @@ describe('volumeExecutor tests', () => {
       pulled = false;
       dockerServiceStub.pullImage.rejects(new Error('getaddrinfo ENOTFOUND ghcr.io'));
       dockerServiceStub.loadImage = sinon.stub().callsFake(async () => { pulled = true; return { ids: [IMAGE_ID], tags: [] }; });
-      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      networkStateStub.getRandomSocketAddress.resolves('31.200.0.5:16127');
       serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
 
       const vol = await openSession();
@@ -484,9 +484,9 @@ describe('volumeExecutor tests', () => {
     // failed to acquire refuses the next caller without searching, so a second
     // pass in the same test asks nothing and would assert on the first.
     [
-      ['198.18.0.5:16127', 'http://198.18.0.5:16127'],
-      ['198.18.0.5', 'http://198.18.0.5:16127'],
-      ['::ffff:198.18.0.5', 'http://198.18.0.5:16127'],
+      ['31.200.0.5:16127', 'http://31.200.0.5:16127'],
+      ['31.200.0.5', 'http://31.200.0.5:16127'],
+      ['::ffff:31.200.0.5', 'http://31.200.0.5:16127'],
       ['2001:db8::1', 'http://[2001:db8::1]:16127'],
     ].forEach(([address, base]) => {
       it(`asks a peer known as ${address} at ${base}`, async () => {
@@ -513,7 +513,7 @@ describe('volumeExecutor tests', () => {
       pulled = false;
       dockerServiceStub.pullImage.rejects(new Error('getaddrinfo ENOTFOUND ghcr.io'));
       dockerServiceStub.loadImage = sinon.stub().callsFake(async () => { pulled = true; return { ids: [IMAGE_ID], tags: [] }; });
-      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      networkStateStub.getRandomSocketAddress.resolves('31.200.0.5:16127');
       serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
 
       const vol = await openSession();
@@ -534,7 +534,7 @@ describe('volumeExecutor tests', () => {
       dockerServiceStub.pullImage.rejects(new Error('getaddrinfo ENOTFOUND ghcr.io'));
       dockerServiceStub.imageExists = sinon.stub().callsFake(async (id) => pulled && id === INDEX_ID);
       dockerServiceStub.loadImage = sinon.stub().callsFake(async () => { pulled = true; return { ids: [INDEX_ID], tags: [] }; });
-      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      networkStateStub.getRandomSocketAddress.resolves('31.200.0.5:16127');
       serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
 
       const vol = await openSession();
@@ -549,7 +549,7 @@ describe('volumeExecutor tests', () => {
       dockerServiceStub.pullImage.rejects(new Error('offline'));
       dockerServiceStub.loadImage = sinon.stub().resolves({ ids: [wrong], tags: [] });
       dockerServiceStub.appDockerImageRemove = sinon.stub().resolves();
-      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      networkStateStub.getRandomSocketAddress.resolves('31.200.0.5:16127');
       serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
 
       const vol = await openSession();
@@ -571,7 +571,7 @@ describe('volumeExecutor tests', () => {
       dockerServiceStub.pullImage.rejects(new Error('offline'));
       dockerServiceStub.archiveNames = sinon.stub().resolves(['ghcr.io/someone/theirapp:v1']);
       dockerServiceStub.loadImage = sinon.stub().resolves({ ids: [IMAGE_ID], tags: [] });
-      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      networkStateStub.getRandomSocketAddress.resolves('31.200.0.5:16127');
       // The fetch must SUCCEED for this to test anything: with the shared
       // default (axiosGet rejects), the transfer fails before archiveNames is
       // consulted and the assertion below holds with the guard deleted.
@@ -591,7 +591,7 @@ describe('volumeExecutor tests', () => {
       dockerServiceStub.imageExists = sinon.stub().resolves(false);
       dockerServiceStub.pullImage.rejects(new Error('offline'));
       dockerServiceStub.loadImage = sinon.stub().resolves({ ids: [], tags: [] });
-      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      networkStateStub.getRandomSocketAddress.resolves('31.200.0.5:16127');
 
       let sent = 0;
       const firehose = new Readable({
@@ -621,7 +621,7 @@ describe('volumeExecutor tests', () => {
       dockerServiceStub.imageExists = sinon.stub().resolves(false);
       dockerServiceStub.pullImage.rejects(new Error('offline'));
       dockerServiceStub.loadImage = sinon.stub().resolves({ ids: [], tags: [] });
-      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      networkStateStub.getRandomSocketAddress.resolves('31.200.0.5:16127');
 
       // Answers, sends one chunk, then nothing - ever.
       const silent = new Readable({ read() {} });
@@ -651,7 +651,7 @@ describe('volumeExecutor tests', () => {
       dockerServiceStub.pullImage.rejects(new Error('offline'));
       dockerServiceStub.loadImage = sinon.stub().resolves({ ids: [wrong], tags: [] });
       dockerServiceStub.appDockerImageRemove = sinon.stub().resolves();
-      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      networkStateStub.getRandomSocketAddress.resolves('31.200.0.5:16127');
       serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
 
       const vol = await openSession();
@@ -673,7 +673,7 @@ describe('volumeExecutor tests', () => {
         return { ids: [IMAGE_ID, extra], tags: [] };
       });
       dockerServiceStub.appDockerImageRemove = sinon.stub().resolves();
-      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      networkStateStub.getRandomSocketAddress.resolves('31.200.0.5:16127');
       serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
 
       const vol = await openSession();
@@ -697,7 +697,7 @@ describe('volumeExecutor tests', () => {
       });
       dockerServiceStub.getImageId = sinon.stub().resolves('sha256:5555555555555555555555555555555555555555555555555555555555555555');
       dockerServiceStub.appDockerImageRemove = sinon.stub().resolves();
-      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      networkStateStub.getRandomSocketAddress.resolves('31.200.0.5:16127');
       serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
 
       const vol = await openSession();
@@ -718,7 +718,7 @@ describe('volumeExecutor tests', () => {
       });
       dockerServiceStub.getImageId = sinon.stub().resolves(IMAGE_ID);
       dockerServiceStub.appDockerImageRemove = sinon.stub().resolves();
-      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      networkStateStub.getRandomSocketAddress.resolves('31.200.0.5:16127');
       serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
 
       const vol = await openSession();
@@ -734,8 +734,8 @@ describe('volumeExecutor tests', () => {
       pulled = false;
       dockerServiceStub.pullImage.rejects(new Error('offline'));
       dockerServiceStub.loadImage = sinon.stub().resolves({ ids: [], tags: [] });
-      const drawn = ['198.18.0.5:16127', '198.18.0.5:16127', '198.18.0.6:16127',
-        '198.18.0.5:16127', '198.18.0.7:16127', '198.18.0.8:16127'];
+      const drawn = ['31.200.0.5:16127', '31.200.0.5:16127', '31.200.0.6:16127',
+        '31.200.0.5:16127', '31.200.0.7:16127', '31.200.0.8:16127'];
       let next = 0;
       networkStateStub.getRandomSocketAddress.callsFake(async () => drawn[next++] ?? null);
       serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
@@ -761,7 +761,7 @@ describe('volumeExecutor tests', () => {
       originalAddress = globalThis.userconfig.initial.ipaddress;
       // A node that does not hold the image yet, with a peer to ask about it.
       pulled = false;
-      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      networkStateStub.getRandomSocketAddress.resolves('31.200.0.5:16127');
     });
 
     afterEach(() => {
@@ -775,14 +775,14 @@ describe('volumeExecutor tests', () => {
       // that herds, so it waits.
       const clock = sinon.useFakeTimers();
       try {
-        globalThis.userconfig.initial.ipaddress = '198.18.0.7';
+        globalThis.userconfig.initial.ipaddress = '31.200.0.7';
 
         await volumeExecutor.startImagePrefetch();
 
         expect(serviceHelperStub.axiosGet.called, 'peers were not asked at once').to.equal(true);
         expect(dockerServiceStub.pullImage.called, 'the registry was asked immediately').to.equal(false);
 
-        await clock.tickAsync(slotFor('198.18.0.7') - 1);
+        await clock.tickAsync(slotFor('31.200.0.7') - 1);
         expect(dockerServiceStub.pullImage.called, 'the registry was asked before its slot').to.equal(false);
 
         await clock.tickAsync(1);
@@ -798,8 +798,8 @@ describe('volumeExecutor tests', () => {
       // spread.
       const clock = sinon.useFakeTimers();
       try {
-        globalThis.userconfig.initial.ipaddress = '198.18.0.7';
-        const slot = slotFor('198.18.0.7');
+        globalThis.userconfig.initial.ipaddress = '31.200.0.7';
+        const slot = slotFor('31.200.0.7');
 
         await volumeExecutor.startImagePrefetch();
         volumeExecutor.stopImagePrefetch();
@@ -854,7 +854,7 @@ describe('volumeExecutor tests', () => {
       expect(
         networkStateStub.getRandomSocketAddress.firstCall.args[0],
         'the draw was not told which node it is running on',
-      ).to.equal('198.18.0.1:16127');
+      ).to.equal('31.200.0.1:16127');
     });
 
 
@@ -890,11 +890,11 @@ describe('volumeExecutor tests', () => {
       // must not set it going.
       const clock = sinon.useFakeTimers();
       try {
-        expect(slotFor('198.18.0.7')).to.be.greaterThan(slotFor('198.18.0.8'));
-        globalThis.userconfig.initial.ipaddress = '198.18.0.7';
+        expect(slotFor('31.200.0.8')).to.be.greaterThan(slotFor('31.200.0.7'));
+        globalThis.userconfig.initial.ipaddress = '31.200.0.8';
 
         await volumeExecutor.startImagePrefetch();
-        await clock.tickAsync(slotFor('198.18.0.8'));
+        await clock.tickAsync(slotFor('31.200.0.7'));
 
         expect(dockerServiceStub.pullImage.called, 'it went at another address\'s slot').to.equal(false);
       } finally {
@@ -929,7 +929,7 @@ describe('volumeExecutor tests', () => {
 
     /** A peer this node will answer, holding the image it is pinned to. */
     const willServe = () => {
-      networkStateStub.networkState.returns([{ ip: '198.18.0.5:16127' }]);
+      networkStateStub.networkState.returns([{ ip: '31.200.0.5:16127' }]);
       dockerServiceStub.imageExists = sinon.stub().resolves(true);
     };
 
@@ -945,7 +945,7 @@ describe('volumeExecutor tests', () => {
       for (let i = 0; i < 25; i += 1) {
         const res = responseFor();
         // eslint-disable-next-line no-await-in-loop
-        await volumeExecutor.serveImageToPeer(requestFrom('198.18.9.9', IMAGE_ID), res);
+        await volumeExecutor.serveImageToPeer(requestFrom('31.200.9.9', IMAGE_ID), res);
         expect(res.statusCode, 'a stranger was not refused').to.equal(403);
       }
 
@@ -956,14 +956,14 @@ describe('volumeExecutor tests', () => {
     });
 
     it('serves only the id this node is pinned to', async () => {
-      networkStateStub.networkState.returns([{ ip: '198.18.0.5:16127' }]);
+      networkStateStub.networkState.returns([{ ip: '31.200.0.5:16127' }]);
       // A real stub, so "the export never ran" is an observation rather than
       // the shared stub object simply lacking the key.
       dockerServiceStub.exportImage = sinon.stub().resolves(archiveStub());
       const res = responseFor();
 
       await volumeExecutor.serveImageToPeer(
-        requestFrom('198.18.0.5', 'sha256:3333333333333333333333333333333333333333333333333333333333333333'),
+        requestFrom('31.200.0.5', 'sha256:3333333333333333333333333333333333333333333333333333333333333333'),
         res,
       );
 
@@ -977,7 +977,7 @@ describe('volumeExecutor tests', () => {
       dockerServiceStub.exportImage = sinon.stub().resolves(archiveStub());
       const res = responseFor();
 
-      const served = volumeExecutor.serveImageToPeer(requestFrom('::ffff:198.18.0.5', IMAGE_ID), res);
+      const served = volumeExecutor.serveImageToPeer(requestFrom('::ffff:31.200.0.5', IMAGE_ID), res);
       await settle();
       res.emit('close');
       await served;
@@ -1001,7 +1001,7 @@ describe('volumeExecutor tests', () => {
     });
 
     it('answers only an address the network state knows', async () => {
-      networkStateStub.networkState.returns([{ ip: '198.18.0.5:16127' }]);
+      networkStateStub.networkState.returns([{ ip: '31.200.0.5:16127' }]);
       const res = responseFor();
 
       await volumeExecutor.serveImageToPeer(requestFrom('203.0.113.9', IMAGE_ID), res);
@@ -1012,12 +1012,12 @@ describe('volumeExecutor tests', () => {
     it('matches a peer on its address, whatever api port it runs on', async () => {
       // A node's api port cannot be read off an inbound connection, and the
       // fleet does not all run on the default one.
-      networkStateStub.networkState.returns([{ ip: '198.18.0.5:16187' }]);
+      networkStateStub.networkState.returns([{ ip: '31.200.0.5:16187' }]);
       dockerServiceStub.imageExists = sinon.stub().resolves(true);
       dockerServiceStub.exportImage = sinon.stub().resolves(archiveStub());
       const res = responseFor();
 
-      const served = volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), res);
+      const served = volumeExecutor.serveImageToPeer(requestFrom('31.200.0.5', IMAGE_ID), res);
       await settle();
       res.emit('close');
       await served;
@@ -1045,14 +1045,14 @@ describe('volumeExecutor tests', () => {
       });
 
       // Both slots, which is the whole limit.
-      await volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), abandoned[0]);
-      await volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), abandoned[1]);
+      await volumeExecutor.serveImageToPeer(requestFrom('31.200.0.5', IMAGE_ID), abandoned[0]);
+      await volumeExecutor.serveImageToPeer(requestFrom('31.200.0.5', IMAGE_ID), abandoned[1]);
 
       // The proof: a third caller is served rather than refused, which can only
       // happen if both slots came back.
       dockerServiceStub.exportImage = sinon.stub().resolves(archiveStub());
       const third = responseFor();
-      const served = volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), third);
+      const served = volumeExecutor.serveImageToPeer(requestFrom('31.200.0.5', IMAGE_ID), third);
       await settle();
       third.emit('close');
       await served;
@@ -1071,7 +1071,7 @@ describe('volumeExecutor tests', () => {
 
       const hangUpAfterPiping = async () => {
         const res = responseFor();
-        const served = volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), res);
+        const served = volumeExecutor.serveImageToPeer(requestFrom('31.200.0.5', IMAGE_ID), res);
         await settle();
         res.emit('close');
         await served;
@@ -1082,7 +1082,7 @@ describe('volumeExecutor tests', () => {
       await hangUpAfterPiping();
 
       const third = responseFor();
-      const served = volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), third);
+      const served = volumeExecutor.serveImageToPeer(requestFrom('31.200.0.5', IMAGE_ID), third);
       await settle();
       third.emit('close');
       await served;
@@ -1102,7 +1102,7 @@ describe('volumeExecutor tests', () => {
       let refused = null;
       for (let i = 0; i < 20 && !refused; i += 1) {
         const res = responseFor();
-        const call = volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), res);
+        const call = volumeExecutor.serveImageToPeer(requestFrom('31.200.0.5', IMAGE_ID), res);
         // eslint-disable-next-line no-await-in-loop
         await settle();
         if (res.statusCode === 503) refused = res;
@@ -1125,7 +1125,7 @@ describe('volumeExecutor tests', () => {
       dockerServiceStub.exportImage = sinon.stub().callsFake(async () => archiveStub());
 
       const responses = Array.from({ length: 12 }, () => responseFor());
-      const calls = responses.map((res) => volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), res));
+      const calls = responses.map((res) => volumeExecutor.serveImageToPeer(requestFrom('31.200.0.5', IMAGE_ID), res));
       await settle();
       await settle();
 
@@ -1149,7 +1149,7 @@ describe('volumeExecutor tests', () => {
       dockerServiceStub.exportImage = sinon.stub().callsFake(async () => archiveStub());
 
       const res = responseFor();
-      const req = requestFrom('198.18.0.5', IMAGE_ID);
+      const req = requestFrom('31.200.0.5', IMAGE_ID);
       req.method = 'HEAD';
       await volumeExecutor.serveImageToPeer(req, res);
 
@@ -1169,7 +1169,7 @@ describe('volumeExecutor tests', () => {
       const clock = sinon.useFakeTimers({ shouldAdvanceTime: true, advanceTimeDelta: 20 });
       try {
         const res = responseFor();
-        const call = volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), res);
+        const call = volumeExecutor.serveImageToPeer(requestFrom('31.200.0.5', IMAGE_ID), res);
         await settle();
         expect(archive.pipe.called, 'the export never started').to.equal(true);
 
@@ -1185,7 +1185,7 @@ describe('volumeExecutor tests', () => {
 
       // And the slot is back: the next caller is served rather than refused.
       const next = responseFor();
-      const following = volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), next);
+      const following = volumeExecutor.serveImageToPeer(requestFrom('31.200.0.5', IMAGE_ID), next);
       await settle();
       expect(next.statusCode, 'the slot was never given back').to.not.equal(503);
       next.emit('close');

@@ -5,7 +5,7 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 198.18.0.0/16
+        - subnet: 31.200.0.0/16
 
 volumes:
   mongo-data:
@@ -22,7 +22,7 @@ services:
         hard: 65536
     networks:
       flux-test-net:
-        ipv4_address: 198.18.0.2
+        ipv4_address: 31.200.0.2
     volumes:
       - mongo-data:/data/db
       - ./fixtures/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
@@ -36,7 +36,7 @@ services:
     build: ./daemon-stub
     networks:
       flux-test-net:
-        ipv4_address: 198.18.0.3
+        ipv4_address: 31.200.0.3
     environment:
       FLUX_TEST_HARNESS: "true"
       FLUXD_PORT: "16124"
@@ -59,7 +59,7 @@ services:
     build: ./syncthing-stub
     networks:
       flux-test-net:
-        ipv4_address: 198.18.0.4
+        ipv4_address: 31.200.0.4
     environment:
       SYNCTHING_PORT: "8384"
       CONTROL_PORT: "8385"
@@ -76,7 +76,7 @@ services:
     privileged: true
     networks:
       flux-test-net:
-        ipv4_address: 198.18.1.0
+        ipv4_address: 31.200.1.0
     volumes:
       - docker-01-data:/var/lib/docker
       - appdata-01:/mnt/appdata
@@ -88,14 +88,14 @@ services:
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       # Database
       FLUX_DB_PREFIX: "node01_"
-      FLUX_DB_HOST: "198.18.0.2"
+      FLUX_DB_HOST: "31.200.0.2"
       FLUX_DB_PORT: "27017"
       # Daemon / Benchmark / Syncthing
-      FLUX_DAEMON_HOST: "198.18.0.3"
-      FLUX_BENCH_HOST: "198.18.0.3"
-      FLUX_SYNCTHING_HOST: "198.18.0.4"
+      FLUX_DAEMON_HOST: "31.200.0.3"
+      FLUX_BENCH_HOST: "31.200.0.3"
+      FLUX_SYNCTHING_HOST: "31.200.0.4"
       # Node identity
-      FLUX_NODE_IP: "198.18.1.0"
+      FLUX_NODE_IP: "31.200.1.0"
       FLUX_ADMIN_ZELID: "${NODE01_ZELID:-1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC}"
       FLUX_API_PORT: "16127"
       # Timing compression

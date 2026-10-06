@@ -14,9 +14,9 @@ const CONTROL_PORT = parseInt(process.env.CONTROL_PORT || '3001', 10);
 const STORAGE_PORT = parseInt(process.env.STORAGE_PORT || '443', 10);
 const STORAGE_TLS_DIR = process.env.STORAGE_TLS_DIR || '/certs';
 
-// The harness fleet lives in 198.18.0.0/15 (RFC 2544 benchmarking range).
-const HARNESS_NET_START = (198 * 2 ** 24) + (18 * 2 ** 16);
-const HARNESS_NET_END = HARNESS_NET_START + (2 * 2 ** 16) - 1;
+// The harness fleet lives in 31.200.0.0/20.
+const HARNESS_NET_START = (31 * 2 ** 24) + (200 * 2 ** 16);
+const HARNESS_NET_END = HARNESS_NET_START + (16 * 2 ** 8) - 1;
 
 const GEO_MAGIC = 'FLXGEO';
 const GEO_FORMAT = 2;
@@ -134,7 +134,7 @@ function regionAssignment(domains, withRegions) {
  * written against that keep their meaning while now exercising the real table
  * reader rather than skipping it.
  *
- * `domains: n` with a `subnet` (`198.18.5`) assigns that /24's addresses to n
+ * `domains: n` with a `subnet` (`31.200.5`) assigns that /24's addresses to n
  * organisations ROUND-ROBIN, one range per address. The harness gives its
  * nodes consecutive addresses from .10, so anything coarser than per-address
  * puts the whole fleet in one bucket; interleaving is what actually splits it.
@@ -155,7 +155,7 @@ function regionAssignment(domains, withRegions) {
  * classification should see: an organisation with no verdict is one nothing
  * enforces against.
  * @param {number} domains How many organisations to split across
- * @param {string} [subnet] Dotted /24 prefix to split, e.g. '198.18.5'
+ * @param {string} [subnet] Dotted /24 prefix to split, e.g. '31.200.5'
  * @param {boolean} [withRegions] Whether rows carry a region
  * @param {object} [networkClasses] Organisation index -> 'residential'|'hosting'
  * @returns {object} artifact in format 1
@@ -214,7 +214,7 @@ function buildIpLocationArtifact(domains, subnet, withRegions = false, networkCl
 
 /**
  * Append one unsigned LEB128 varint. Plain arithmetic rather than shifts:
- * range bounds run past 2^31 (198.18.0.0 is 3,323,068,416), which the signed
+ * range bounds run past 2^31 (31.200.0.0 is 3,323,068,416), which the signed
  * 32-bit shift operators cannot carry.
  * @param {number[]} bytes Output byte list, appended in place
  * @param {number} value Non-negative integer

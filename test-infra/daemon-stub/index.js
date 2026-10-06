@@ -651,7 +651,7 @@ control.post('/set-height', (req, res) => {
 
 control.post('/set-node-list', (req, res) => {
   // Update the restore/reset baseline too, so /node-list/restore and /reset stay
-  // consistent with the per-run addresses the harness assigns (not the 198.18 fixture).
+  // consistent with the per-run addresses the harness assigns (not the fixture's).
   deterministicNodeList = req.body.nodes;
   originalNodeList = [...req.body.nodes];
   res.json({ nodeCount: deterministicNodeList.length });

@@ -910,11 +910,11 @@ describe('policyStore', () => {
       module.stop();
       expect(module.isReady(), 'boot obtained nothing').to.equal(false);
 
-      module.notePeerAvailable('198.18.0.11:16127');
+      module.notePeerAvailable('31.200.0.11:16127');
       await new Promise(setImmediate);
 
       expect(requestFrom.callCount, 'holding nothing is a reason to ask, not a reason to fetch').to.equal(1);
-      expect(requestFrom.firstCall.args[0]).to.equal('198.18.0.11:16127');
+      expect(requestFrom.firstCall.args[0]).to.equal('31.200.0.11:16127');
     });
 
     it('asks each arriving peer while it holds nothing, and reaches the source for none of them', async () => {
@@ -926,9 +926,9 @@ describe('policyStore', () => {
       module.stop();
       const fetchesAtBoot = axiosGet.callCount;
 
-      module.notePeerAvailable('198.18.0.11:16127');
+      module.notePeerAvailable('31.200.0.11:16127');
       await new Promise(setImmediate);
-      module.notePeerAvailable('198.18.0.12:16127');
+      module.notePeerAvailable('31.200.0.12:16127');
       await new Promise(setImmediate);
 
       expect(requestFrom.callCount, 'still nothing held, so still worth asking').to.equal(2);
@@ -953,7 +953,7 @@ describe('policyStore', () => {
       expect(module.getSeq(), 'restored, so it holds something').to.equal(4);
       const fetchesBefore = axiosGet.callCount;
 
-      module.notePeerAvailable('198.18.0.11:16127');
+      module.notePeerAvailable('31.200.0.11:16127');
       await new Promise(setImmediate);
       await new Promise(setImmediate);
 
@@ -973,13 +973,13 @@ describe('policyStore', () => {
       const requestFrom = sinon.stub().resolves();
       module.setPeerTransport({ requestFrom, announce: sinon.stub().resolves() });
       await module.restore();
-      module.notePeerSeq(4, '198.18.0.11:16127');
+      module.notePeerSeq(4, '31.200.0.11:16127');
 
-      module.notePeerAvailable('198.18.0.12:16127');
+      module.notePeerAvailable('31.200.0.12:16127');
       await new Promise(setImmediate);
 
       expect(requestFrom.callCount, 'a level peer must not close the road to the next one').to.equal(1);
-      expect(requestFrom.firstCall.args[0]).to.equal('198.18.0.12:16127');
+      expect(requestFrom.firstCall.args[0]).to.equal('31.200.0.12:16127');
       module.stop();
     });
 
@@ -989,9 +989,9 @@ describe('policyStore', () => {
       // as a count rather than having to be inferred.
       const { module } = load({ serviceHelper: { axiosGet: sinon.stub().resolves({ data: bundle(4) }) } });
       const requestFrom = sinon.stub().resolves();
-      const arriving = '198.18.0.11:16127';
+      const arriving = '31.200.0.11:16127';
       module.setPeerTransport({
-        capableKeys: () => [arriving, '198.18.0.12:16127', '198.18.0.13:16127'],
+        capableKeys: () => [arriving, '31.200.0.12:16127', '31.200.0.13:16127'],
         requestFrom,
         announce: sinon.stub().resolves(),
       });
@@ -1012,13 +1012,13 @@ describe('policyStore', () => {
       await module.start();
       module.stop();
 
-      module.notePeerAvailable('198.18.0.12:16127');
+      module.notePeerAvailable('31.200.0.12:16127');
       await new Promise(setImmediate);
-      module.notePeerAvailable('198.18.0.13:16127');
+      module.notePeerAvailable('31.200.0.13:16127');
       await new Promise(setImmediate);
 
       expect(requestFrom.callCount, 'each arriving peer is asked').to.equal(2);
-      expect(requestFrom.secondCall.args[0]).to.equal('198.18.0.13:16127');
+      expect(requestFrom.secondCall.args[0]).to.equal('31.200.0.13:16127');
     });
 
     it('settles a targeted ask on the answer, not on the clock', async () => {
@@ -1032,18 +1032,18 @@ describe('policyStore', () => {
       await module.start();
       module.stop();
 
-      module.notePeerAvailable('198.18.0.11:16127');
+      module.notePeerAvailable('31.200.0.11:16127');
       await new Promise(setImmediate);
-      module.notePeerAvailable('198.18.0.11:16127');
+      module.notePeerAvailable('31.200.0.11:16127');
       await new Promise(setImmediate);
       expect(requestFrom.callCount, 'one outstanding ask per peer').to.equal(1);
 
       deliver();
       await new Promise(setImmediate);
-      module.notePeerSeq(4, '198.18.0.11:16127');
+      module.notePeerSeq(4, '31.200.0.11:16127');
       await new Promise(setImmediate);
 
-      module.notePeerAvailable('198.18.0.11:16127');
+      module.notePeerAvailable('31.200.0.11:16127');
       await new Promise(setImmediate);
       expect(requestFrom.callCount, 'answered, so askable again').to.equal(2);
     });
@@ -1063,7 +1063,7 @@ describe('policyStore', () => {
       expect(module.isReady(), 'boot obtained nothing').to.equal(false);
       const afterBoot = axiosGet.callCount;
 
-      for (let i = 0; i < 16; i += 1) module.notePeerAvailable(`198.18.0.${i + 20}:16127`);
+      for (let i = 0; i < 16; i += 1) module.notePeerAvailable(`31.200.0.${i + 20}:16127`);
       await new Promise(setImmediate);
       await new Promise(setImmediate);
 

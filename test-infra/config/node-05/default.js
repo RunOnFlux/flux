@@ -3,7 +3,7 @@ const shared = require('../shared');
 module.exports = {
   ...shared,
   database: {
-    "url": "198.18.0.2",
+    "url": "31.200.0.2",
     "port": 27017,
     "local": {
         "database": "node05_zelfluxlocal",

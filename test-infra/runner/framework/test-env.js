@@ -134,7 +134,7 @@ const manifest = JSON.parse(readFileSync(join(fixturesDir, 'node-manifest.json')
 const deterministicList = JSON.parse(readFileSync(join(fixturesDir, 'deterministic-list.json'), 'utf-8'));
 
 // All infra/node addresses derive from the per-run subnet base (TEST_SUBNET_BASE,
-// default '198.18'); see subnet-config.js. The named constants below are kept so
+// default '31.200.0'); see subnet-config.js. The named constants below are kept so
 // downstream references are unchanged — only the base varies per run.
 const subnet = getSubnetConfig();
 const SUBNET = subnet.subnet;
@@ -1136,7 +1136,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   // Render the deterministic node list for this run: identity from the committed
   // fixture, addresses from subnet-config (the single source of truth for node IPs).
   // POST before any node boots; /set-node-list also resets the stub's restore/reset
-  // baseline. A no-op-equivalent when base === '198.18'.
+  // baseline. A no-op-equivalent when base === '31.200.0'.
   const runNodeList = deterministicList.slice(0, nodes).map((n, idx) => ({
     ...n, ip: subnet.nodeIp(idx + 1), pubkey: nodeKey(keyNumber(sharedKeys, idx + 1)).pubkey,
   }));
@@ -1411,10 +1411,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     if (!aptSeeded && isLegacy) nodeEnv.FLUX_APT_SEEDED = 'false';
     if (aptBadSource && isLegacy) nodeEnv.FLUX_APT_BAD_SOURCE = 'true';
     // Point the node's config at the base-derived infra IPs. The mounted config
-    // files carry the default 198.18 addresses; this is written into the node's
+    // files carry the default 31.200.0 addresses; this is written into the node's
     // config directory as local.js, which node-config loads after them, so under a
     // non-default base these overrides take effect (and are a no-op when
-    // base === '198.18'). Explicit test overrides still win (merged on top of this).
+    // base === '31.200.0'). Explicit test overrides still win (merged on top of this).
     const infraOverride = {
       database: { url: MONGO_IP },
       daemon: { host: DAEMON_IP },

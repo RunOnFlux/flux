@@ -80,11 +80,11 @@ describe('instanceOrdering tests', () => {
       // which is arrival order - and two nodes that received the same claims in
       // different orders each rank themselves the winner, so both install.
       const build = () => [
-        { ip: '198.18.0.16:16127', broadcastedAt: new Date('2026-08-05T16:38:50.000Z') },
-        { ip: '198.18.0.13:16127', broadcastedAt: new Date('2026-08-05T16:38:50.000Z') },
-        { ip: '198.18.0.14:16127', broadcastedAt: new Date('2026-08-05T16:38:50.000Z') },
+        { ip: '31.200.0.16:16127', broadcastedAt: new Date('2026-08-05T16:38:50.000Z') },
+        { ip: '31.200.0.13:16127', broadcastedAt: new Date('2026-08-05T16:38:50.000Z') },
+        { ip: '31.200.0.14:16127', broadcastedAt: new Date('2026-08-05T16:38:50.000Z') },
       ];
-      const expected = ['198.18.0.13:16127', '198.18.0.14:16127', '198.18.0.16:16127'];
+      const expected = ['31.200.0.13:16127', '31.200.0.14:16127', '31.200.0.16:16127'];
 
       expect(ips(build().sort(compareInstallingClaims))).to.eql(expected);
       expect(ips(build().reverse().sort(compareInstallingClaims))).to.eql(expected);

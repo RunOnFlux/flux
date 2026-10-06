@@ -28,7 +28,7 @@ const subnet = getSubnetConfig();
 
 // A residential node is one whose network classification reaches RESIDENTIAL on
 // positive evidence with nothing contradicting it. In the harness the only
-// signal available is what the ip-api stub serves - 198.18.x.x has no reverse
+// signal available is what the ip-api stub serves - the fleet has no reverse
 // DNS and the stub tiers are not asymmetric enough to count - so `mobile` is the
 // positive signal and every contradiction is turned off.
 // The pacing this fleet runs on, derived once so the two knobs cannot drift
@@ -86,7 +86,7 @@ const RESIDENTIAL_GEO = {
 };
 
 // Nothing either way: no hosting flags, no operator that sells hosting, and
-// 198.18.x.x has no reverse DNS. The node's own rule reaches UNKNOWN on this,
+// the fleet has no reverse DNS. The node's own rule reaches UNKNOWN on this,
 // so whatever verdict it ends up with came from the published table.
 const NEUTRAL_GEO = {
   hosting: false, proxy: false, mobile: false, org: 'Neutral Holdings', isp: 'Metro Fibre', as: 'AS64501 Metro Fibre',

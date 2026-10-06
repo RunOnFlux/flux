@@ -69,7 +69,7 @@ export async function buildSeedableApp({
   // for which the collision IS the subject - 98 - says so.
   allowPortReuse = false,
   // Pin the app to named nodes. An entry names a node EITHER by socket address
-  // ('198.18.1.0:16127') or by collateral outpoint ('<txhash>:<outidx>') - both
+  // ('31.200.1.0:16127') or by collateral outpoint ('<txhash>:<outidx>') - both
   // are live on the network, and nodeOutpoint() below builds the second form.
   //
   // Set HERE and nowhere else: the signature and the hash are taken over

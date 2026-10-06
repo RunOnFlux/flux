@@ -6,9 +6,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const manifest = JSON.parse(readFileSync(join(__dirname, 'fixtures', 'node-manifest.json'), 'utf-8'));
 const NODE_COUNT = manifest.nodes.length;
 
-const MONGO_IP = '198.18.0.2';
-const DAEMON_IP = '198.18.0.3';
-const SYNCTHING_IP = '198.18.0.4';
+const MONGO_IP = '31.200.0.2';
+const DAEMON_IP = '31.200.0.3';
+const SYNCTHING_IP = '31.200.0.4';
 const SYNCTHING_PORT = '8384';
 
 const lines = [];
@@ -21,7 +21,7 @@ w('  flux-test-net:');
 w('    driver: bridge');
 w('    ipam:');
 w('      config:');
-w('        - subnet: 198.18.0.0/16');
+w('        - subnet: 31.200.0.0/16');
 w();
 w('volumes:');
 w('  mongo-data:');
@@ -103,7 +103,7 @@ w();
 for (let i = 0; i < NODE_COUNT; i++) {
   const num = String(i + 1).padStart(2, '0');
   const node = manifest.nodes[i];
-  const nodeIp = `198.18.${i + 1}.0`;
+  const nodeIp = `31.200.${i + 1}.0`;
 
   w(`  fluxos-${num}:`);
   w('    build:');

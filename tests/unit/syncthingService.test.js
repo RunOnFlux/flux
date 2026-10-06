@@ -700,8 +700,8 @@ describe('syncthingService tests', () => {
         ['the same by name', 'localhost', false, true],
         ['the same over v6', '::1', false, true],
         ['Arcane ships and supervises it, so FluxOS stands back', '127.0.0.1', true, false],
-        ['syncthing on another host cannot be stopped or reinstalled from here', '198.18.0.9', false, false],
-        ['and neither can it on Arcane', '198.18.0.9', true, false],
+        ['syncthing on another host cannot be stopped or reinstalled from here', '31.200.0.9', false, false],
+        ['and neither can it on Arcane', '31.200.0.9', true, false],
       ];
 
       cases.forEach(([name, ip, arcane, expected]) => {
