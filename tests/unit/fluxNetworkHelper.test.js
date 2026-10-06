@@ -2787,33 +2787,59 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.neverCalledWith(runCommandStub, 'ufw', sinon.match({ params: sinon.match.some(sinon.match((value) => value === 'out')) }));
     });
 
-    it('should delete every outbound rule, highest number first, and no inbound rule', async () => {
+    const removerCall = sinon.match({ runAsRoot: true, params: [sinon.match(/helpers\/ufw\/remove-outbound-rules\.py$/)] });
+    const remover = (result) => runCommandStub.withArgs('python3', removerCall).resolves(result);
+    const lockedError = () => Object.assign(new Error('command failed'), { code: 75 });
+
+    it('should remove the outbound rules as root before any other firewall change, and reload once', async () => {
       firewallStatus('Status: active');
-      runCommandStub.withArgs('ufw', ufwCall(['status', 'numbered'])).resolves({
-        error: null,
-        stdout: [
-          'Status: active',
-          '',
-          '     To                         Action      From',
-          '     --                         ------      ----',
-          '[ 1] 8080                       ALLOW OUT   Anywhere                   (out)',
-          '[ 2] OpenSSH                    LIMIT IN    Anywhere',
-          '[ 3] 172.16.16.1 16197/udp      ALLOW OUT   Anywhere                   (out)',
-          '[ 4] 16187                      ALLOW IN    Anywhere',
-          '[12] 16187 (v6)                 ALLOW OUT   Anywhere (v6)              (out)',
-          '[13] 10.0.0.0/8                 DENY OUT    Anywhere                   (out)',
-          '',
-        ].join('\n'),
-        stderr: '',
-      });
+      remover({ error: null, stdout: '{"removed": 4}\n', stderr: '' });
 
       await fluxNetworkHelper.adjustFirewall();
 
-      const deletes = runCommandStub.getCalls()
-        .filter((call) => call.args[0] === 'ufw' && call.args[1].params[1] === 'delete')
-        .map((call) => call.args[1].params[2]);
-      expect(deletes).to.deep.equal(['13', '12', '3', '1']);
+      const calls = runCommandStub.getCalls().filter((call) => ['python3', 'ufw'].includes(call.args[0]));
+      expect(calls[0].args[0]).to.equal('python3');
+      sinon.assert.calledWithMatch(runCommandStub, 'python3', removerCall);
+      expect(calls[1].args[1].params).to.deep.equal(['reload']);
+      expect(runCommandStub.getCalls().filter((call) => call.args[0] === 'ufw' && call.args[1].params[0] === 'reload')).to.have.lengthOf(1);
       sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 4 });
+    });
+
+    it('should not reload when there was no outbound rule to remove', async () => {
+      firewallStatus('Status: active');
+      remover({ error: null, stdout: '{"removed": 0}\n', stderr: '' });
+
+      await fluxNetworkHelper.adjustFirewall();
+
+      sinon.assert.neverCalledWith(runCommandStub, 'ufw', ufwCall(['reload']));
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0 });
+    });
+
+    it('should run no ufw command at all when another ufw command holds the lock', async () => {
+      // Each would wait on the same lock for as long as it is held.
+      firewallStatus('Status: active');
+      remover({ error: lockedError(), stdout: '', stderr: 'ufw lock /run/ufw.lock not free within 30s' });
+      const errorSpy = sinon.spy(log, 'error');
+
+      await fluxNetworkHelper.adjustFirewall();
+
+      sinon.assert.neverCalledWith(runCommandStub, 'ufw');
+      sinon.assert.calledWith(errorSpy, 'Firewall not adjusted: ufw is locked by another ufw command');
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:locked', {});
+    });
+
+    it('should still allow every flux port when the outbound rules could not be removed', async () => {
+      firewallStatus('Status: active');
+      remover({ error: Object.assign(new Error('command failed'), { code: 1 }), stdout: '', stderr: 'Traceback: no such file' });
+      const warnSpy = sinon.spy(log, 'warn');
+
+      await fluxNetworkHelper.adjustFirewall();
+
+      sinon.assert.calledWith(warnSpy, 'Firewall outbound rules not removed: Traceback: no such file');
+      sinon.assert.neverCalledWith(runCommandStub, 'ufw', ufwCall(['reload']));
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of ports) sinon.assert.calledWith(runCommandStub, 'ufw', ufwCall(['allow', String(port)]));
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0 });
     });
 
     it('should log the ports it could not allow', async () => {
@@ -2862,6 +2888,7 @@ describe('fluxNetworkHelper tests', () => {
       await fluxNetworkHelper.adjustFirewall();
 
       sinon.assert.neverCalledWith(runCommandStub, 'ufw');
+      sinon.assert.neverCalledWith(runCommandStub, 'python3');
       sinon.assert.calledWith(logSpy, 'Firewall is not active. Adjusting not applied');
       sinon.assert.notCalled(publishStub);
     });

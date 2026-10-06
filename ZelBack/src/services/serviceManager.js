@@ -277,6 +277,10 @@ async function startFluxFunctions() {
     // Before anything reads or changes the firewall: a node whose ufw defaults
     // file is broken has no firewall until this repairs it.
     await fluxNetworkHelper.ensureUfwDefaults().catch((error) => log.error(error));
+    // The node's own firewall rules, before any other code writes to the
+    // firewall and before any app starts.
+    await fluxNetworkHelper.adjustFirewall();
+    log.info('Firewalls checked');
 
     // Check and update CloudUI if needed (for legacy nodes without watchdog)
     log.info('Checking CloudUI installation...');
@@ -618,8 +622,6 @@ async function startFluxFunctions() {
     fluxNetworkHelper.setOnAddressChanged((apps, reason) => appReconciler.requestRestartOf(apps, reason));
     log.info('App Spawner initialized');
 
-    fluxNetworkHelper.adjustFirewall();
-    log.info('Firewalls checked');
     fluxNetworkHelper.allowNodeToBindPrivilegedPorts();
     log.info('Node allowed to bind privileged ports');
     fluxCommunication.keepConnectionsAlive();

@@ -2296,31 +2296,40 @@ async function isFirewallActive() {
   }
 }
 
+// Removes every outbound rule from ufw's rules files under ufw's own lock.
+const ufwOutboundRemover = path.join(__dirname, '../../../helpers/ufw/remove-outbound-rules.py');
+// The remover's exit code when ufw's lock was not free within its wait.
+const UFW_LOCK_UNAVAILABLE = 75;
+
 /**
- * Outbound traffic is governed by the default policy alone: every outbound
- * rule, whoever added it, is deleted. Deleted highest number first, so the
- * numbers still to delete stay valid.
- * @returns {Promise<number>} The number of outbound rules found to delete.
+ * Removes every outbound rule from the node's firewall: outbound traffic is
+ * governed by the default policy alone, whoever added the rule. The rules are
+ * taken out of ufw's rules files in one pass, under the lock every ufw command
+ * holds, and ufw is reloaded once. Route rules and inbound rules are untouched.
+ * @returns {Promise<{removed: number, locked: boolean}>} locked: ufw's lock was
+ *   held by another ufw command for the whole wait, and nothing was changed.
  */
 async function removeOutboundRules() {
-  const { stdout, error } = await serviceHelper.runCommand('ufw', { runAsRoot: true, logError: false, params: ['status', 'numbered'] });
+  const { stdout, stderr, error } = await serviceHelper.runCommand('python3', {
+    runAsRoot: true, logError: false, params: [ufwOutboundRemover],
+  });
   if (error) {
-    log.warn(`Firewall outbound rules not read: ${error.message}`);
-    return 0;
+    if (error.code === UFW_LOCK_UNAVAILABLE) return { removed: 0, locked: true };
+    log.warn(`Firewall outbound rules not removed: ${serviceHelper.ensureString(stderr).trim() || error.message}`);
+    return { removed: 0, locked: false };
   }
-  const numbers = serviceHelper.ensureString(stdout).split('\n')
-    .map((line) => line.match(/^\[\s*(\d+)\].*\b(?:ALLOW|DENY|REJECT|LIMIT) OUT\b/))
-    .filter(Boolean)
-    .map((match) => Number(match[1]))
-    .sort((a, b) => b - a);
-  // eslint-disable-next-line no-restricted-syntax
-  for (const number of numbers) {
-    // eslint-disable-next-line no-await-in-loop
-    const { error: deleteError } = await serviceHelper.runCommand('ufw', { runAsRoot: true, logError: false, params: ['--force', 'delete', String(number)] });
-    if (deleteError) log.warn(`Firewall outbound rule ${number} not deleted: ${deleteError.message}`);
+  let removed = 0;
+  try {
+    ({ removed } = JSON.parse(serviceHelper.ensureString(stdout)));
+  } catch {
+    log.warn(`Firewall outbound rules removed, count unread: ${serviceHelper.ensureString(stdout).trim()}`);
   }
-  if (numbers.length) log.info(`Firewall outbound rules removed: ${numbers.length}`);
-  return numbers.length;
+  if (removed) {
+    const { error: reloadError } = await serviceHelper.runCommand('ufw', { runAsRoot: true, logError: false, params: ['reload'] });
+    if (reloadError) log.error(`Firewall not reloaded after removing outbound rules: ${reloadError.message}`);
+    log.info(`Firewall outbound rules removed: ${removed}`);
+  }
+  return { removed, locked: false };
 }
 
 /**
@@ -2349,7 +2358,15 @@ async function adjustFirewall() {
       return !error;
     };
 
-    const outboundRemoved = await removeOutboundRules();
+    // Every ufw command waits on the same lock, so with it held each would
+    // wait for as long as it is held: none is run, and the firewall is left as
+    // it is until the next start.
+    const { removed: outboundRemoved, locked } = await removeOutboundRules();
+    if (locked) {
+      log.error('Firewall not adjusted: ufw is locked by another ufw command');
+      fluxEventBus.publish('firewall:locked', {});
+      return;
+    }
     // remove inbound DNS traffic
     await ufw(['delete', 'allow', 'in', 'proto', 'udp', 'to', 'any', 'port', '53']);
     log.info('Firewall adjusted for DNS traffic');

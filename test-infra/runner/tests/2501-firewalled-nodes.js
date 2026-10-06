@@ -32,6 +32,24 @@ describe('2501 firewalled nodes', function suite() {
     return stdout;
   }
 
+  // ufw's own record of a node's rules, one `ufw ...` command per rule.
+  async function rulesAdded(index) {
+    const { stdout } = await execInContainer(env.clients[index].container, 'ufw show added; true');
+    return stdout.split('\n').map((line) => line.trim()).filter((line) => line.startsWith('ufw '));
+  }
+  const isOutbound = (rule) => /^ufw (allow|deny|reject|limit) out\b/.test(rule);
+
+  // Holds ufw's lock as every ufw command takes it, from a process of its own
+  // in the node, until releaseUfwLock.
+  async function holdUfwLock(index) {
+    await execInContainer(env.clients[index].container, [
+      'setsid python3 -c \'import fcntl, time; f = open("/run/ufw.lock", "w"); fcntl.lockf(f, fcntl.LOCK_EX); open("/tmp/ufw-lock-held", "w").close(); time.sleep(3600)\' >/dev/null 2>&1 & echo $! > /tmp/ufw-lock.pid',
+      'for i in $(seq 1 100); do [ -e /tmp/ufw-lock-held ] && break; sleep 0.1; done',
+      'test -e /tmp/ufw-lock-held',
+    ].join('; '));
+  }
+  const releaseUfwLock = (index) => execInContainer(env.clients[index].container, 'kill "$(cat /tmp/ufw-lock.pid)"; rm -f /tmp/ufw-lock-held /tmp/ufw-lock.pid');
+
   // Published once FluxOS has applied its rules to an active firewall.
   const firewallAdjusted = (index) => env.clients[index].waitForEvent('firewall:adjusted', () => true, FLUXOS_RULES_TIMEOUT_MS);
 
@@ -99,6 +117,83 @@ describe('2501 firewalled nodes', function suite() {
 
   it('keeps ufw off on a node the switch does not name', async () => {
     expect(await ufwStatus(UNFIREWALLED)).to.match(/^Status: inactive$/m);
+  });
+
+  it('removes every outbound rule ufw writes and keeps every inbound and route rule as it was', async () => {
+    const node = env.clients[LEGACY];
+    await firewallAdjusted(LEGACY);
+    // Outbound: plain (with its v6 twin), on an interface (with its twin), with a
+    // comment, and v6 only - six tuples across the two rules files.
+    const seeded = await execInContainer(node.container, [
+      'ufw allow out 8080',
+      'ufw allow out on eth0 to any port 443',
+      "ufw deny out to 10.0.0.0/8 comment 'operator'",
+      'ufw allow out to 2001:db8::1 port 53',
+      'ufw allow in on eth0 to any port 4100',
+      "ufw allow 4101 comment 'inbound'",
+      'ufw route allow in on eth0 out on eth0 to any port 4102',
+    ].join(' && '));
+    expect(seeded.exitCode, seeded.stdout).to.equal(0);
+    const before = await rulesAdded(LEGACY);
+    expect(before.filter(isOutbound), 'the seeded outbound rules').to.have.lengthOf(4);
+    const kept = before.filter((rule) => !isOutbound(rule));
+    expect(kept.some((rule) => rule.startsWith('ufw route ')), 'a route rule to keep').to.equal(true);
+
+    const afterId = node.getLastEventId();
+    await restartFluxos(node.container);
+    const { data } = await node.waitForEvent('firewall:adjusted', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId });
+
+    expect(data.outboundRemoved).to.equal(6);
+    const after = await rulesAdded(LEGACY);
+    expect(after.filter(isOutbound), 'outbound rules left').to.deep.equal([]);
+    expect(after.filter((rule) => !isOutbound(rule)), 'inbound and route rules').to.deep.equal(kept);
+    // The live firewall, not only ufw's record of it.
+    const { stdout: chains } = await execInContainer(node.container, 'iptables -S ufw-user-output; ip6tables -S ufw6-user-output; iptables -S ufw-user-input; iptables -S ufw-user-forward');
+    expect(chains.split('\n').filter((line) => /-A ufw6?-user-output /.test(line)), 'live outbound rules').to.deep.equal([]);
+    expect(chains).to.match(/-A ufw-user-input -i eth0 -p tcp -m tcp --dport 4100 -j ACCEPT/);
+    expect(chains).to.match(/-A ufw-user-forward -i eth0 -o eth0 -p tcp -m tcp --dport 4102 -j ACCEPT/);
+  });
+
+  it('waits for ufw\'s lock, and a ufw command run meanwhile still lands', async () => {
+    const node = env.clients[LEGACY];
+    await execInContainer(node.container, 'ufw allow out 8081');
+    await holdUfwLock(LEGACY);
+
+    const afterId = node.getLastEventId();
+    await restartFluxos(node.container);
+    // An operator's ufw command, queued on the same lock.
+    await execInContainer(node.container, 'setsid sh -c \'ufw allow 4242 > /tmp/ufw-4242.out 2>&1; echo exit=$? >> /tmp/ufw-4242.out\' >/dev/null 2>&1 &');
+    await new Promise((resolve) => { setTimeout(resolve, 5000); });
+    const { stdout: waiting } = await execInContainer(node.container, 'cat /tmp/ufw-4242.out 2>/dev/null; true');
+    expect(waiting, 'the queued ufw command ran with the lock held').to.equal('');
+    expect(node.getEventBuffer().filter((event) => event.id > afterId && event.event === 'firewall:adjusted'), 'FluxOS adjusted with the lock held').to.deep.equal([]);
+
+    await releaseUfwLock(LEGACY);
+    await node.waitForEvent('firewall:adjusted', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId });
+    const { stdout: queued } = await execInContainer(node.container, 'for i in $(seq 1 100); do grep -q exit= /tmp/ufw-4242.out && break; sleep 0.2; done; cat /tmp/ufw-4242.out');
+    expect(queued).to.match(/exit=0/);
+    const rules = await rulesAdded(LEGACY);
+    expect(rules, 'the queued rule').to.include('ufw allow 4242');
+    expect(rules.filter(isOutbound), 'outbound rules left').to.deep.equal([]);
+  });
+
+  it('leaves the firewall as it is and boots on when ufw\'s lock stays held, and adjusts it at the next start', async () => {
+    const node = env.clients[LEGACY];
+    await execInContainer(node.container, 'ufw allow out 8082');
+    await holdUfwLock(LEGACY);
+
+    const lockedId = node.getLastEventId();
+    await restartFluxos(node.container);
+    await node.waitForEvent('firewall:locked', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId: lockedId });
+    await node.waitForEvent('boot:settled', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId: lockedId });
+    expect(node.getEventBuffer().filter((event) => event.id > lockedId && event.event === 'firewall:adjusted')).to.deep.equal([]);
+    expect(await rulesAdded(LEGACY), 'the firewall as it was').to.include('ufw allow out 8082');
+
+    await releaseUfwLock(LEGACY);
+    const afterId = node.getLastEventId();
+    await restartFluxos(node.container);
+    await node.waitForEvent('firewall:adjusted', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId });
+    expect((await rulesAdded(LEGACY)).filter(isOutbound), 'outbound rules left').to.deep.equal([]);
   });
 
   // The state a node boots into when /etc/default/ufw was left empty: ufw-init

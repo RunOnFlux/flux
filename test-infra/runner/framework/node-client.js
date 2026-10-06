@@ -201,6 +201,7 @@ export function nodeClient(nodeNum) {
         'dos:changed',
         'explorer:ready',
         'firewall:adjusted',
+        'firewall:locked',
         'firewall:containerEgressApplied',
         'firewall:defaultsWritten',
         'fileops:recovered',
