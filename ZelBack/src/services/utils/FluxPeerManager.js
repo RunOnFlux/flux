@@ -3,7 +3,7 @@ const config = require('config');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
 const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES } = require('./FluxPeerSocket');
-const { DEFAULT_API_PORT } = require('./socketAddressUtils');
+const { DEFAULT_API_PORT, compareSocketAddresses } = require('./socketAddressUtils');
 const peerCodec = require('./peerCodec');
 const fluxEventBus = require('./fluxEventBus');
 
@@ -53,6 +53,8 @@ class FluxPeerManager extends EventEmitter {
   #uniqueIps = new Map();
   /** @type {Map<string, {attempts: number, lastAttempt: number}>} */
   #failedConnections = new Map();
+  /** @type {Map<string, Function>} per peer key, the reconnect dial awaiting that peer's verdict: called to abandon it */
+  #awaitingVerdict = new Map();
   /** @type {Set<string>} keys of outbound connections currently being established */
   #pendingConnections = new Set();
   /** @type {Map<string, number>} reconnect count per peer key, persists across connection cycles */
@@ -217,7 +219,10 @@ class FluxPeerManager extends EventEmitter {
       direction,
       source: peer.source,
     });
-    // Peer exchange: send our full list to new peer, notify others about the addition
+    // Peer exchange: send our full list to new peer, notify others about the addition.
+    // Sent at once, as the connection's first frame: a peer that dialed this one
+    // as a reconnect takes it as this node's word that it kept the dial
+    // (#awaitReconnectVerdict).
     this.sendPeerExchange(peer);
     const dirSet = peer.direction === DIRECTION.OUTBOUND ? this.#pendingAdds.outbound : this.#pendingAdds.inbound;
     dirSet.add(peer.key);
@@ -331,6 +336,8 @@ class FluxPeerManager extends EventEmitter {
     this.#peers.delete(peer.key);
     this.#inboundKeys.delete(peer.key);
     this.#outboundKeys.delete(peer.key);
+    // A reconnect dial awaiting its verdict contests this connection, and goes with it.
+    this.#awaitingVerdict.get(peer.key)?.(CLOSE_CODES.DEAD_CONNECTION, 'The connection it contested is gone');
 
     // Decrement IP group and unique IP tracking
     const groupKey = `${peer.direction}:${FluxPeerManager.getIpGroup(peer.ip)}`;
@@ -380,6 +387,11 @@ class FluxPeerManager extends EventEmitter {
     // a flag set only around that one eviction would have to know which it is.
     this.#deliberateTeardown = true;
     try {
+      // First, so a waiting dial is told the node is unconfirmed: an eviction
+      // would close it as contesting a connection that is gone.
+      for (const abandon of [...this.#awaitingVerdict.values()]) {
+        abandon(CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
+      }
       // Snapshot the keys: evict() deletes from the map being walked.
       for (const key of [...this.#peers.keys()]) {
         this.evict(key, CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
@@ -434,54 +446,67 @@ class FluxPeerManager extends EventEmitter {
   }
 
   /**
-   * Ping an existing connection to verify it's alive. If the pong comes back
-   * within 1s, reject the new socket. If not, the existing connection is dead —
-   * replace it with the new one.
+   * Settle a reconnect dial from a peer this node already holds on the peer's
+   * own verdict on that dial.
    *
-   * Called when an inbound duplicate arrives with the X-Flux-Reconnect header,
-   * indicating the remote peer believes its old connection died.
+   * Called when an inbound duplicate arrives with the X-Flux-Reconnect header.
+   * The peer dialed holding no connection to this node, and when its dial opens
+   * it keeps it or closes it; a node keeping a connection sends a peer exchange
+   * on it at once (add). Settled by the first of:
+   * - a message on the new socket: the peer kept it, so it replaces the
+   *   existing connection, which the peer does not hold;
+   * - the new socket closing: the peer did not keep it, as when it holds the
+   *   existing connection and the two are a crossing (resolveCrossing), and the
+   *   existing one stays;
+   * - the existing connection ending: the dial is closed with it, as what it
+   *   contested is gone, and the peer dials again.
+   * No clock decides it: a slow link or a stalled peer delays the verdict and
+   * cannot change it. One dial per peer awaits its verdict: a newer reconnect
+   * dial from the same peer closes the one before it.
    *
-   * @param {FluxPeerSocket} existing - The current peer connection to verify
+   * @param {FluxPeerSocket} existing - The current peer connection
    * @param {WebSocket} ws - The new inbound WebSocket
    * @param {string} ip
    * @param {string} port
    * @param {object} metadata - Peer metadata from upgrade headers
    * @private
    */
-  #verifyOrReplace(existing, ws, ip, port, metadata) {
-    const VERIFY_TIMEOUT_MS = 1000;
-    let settled = false;
+  #awaitReconnectVerdict(existing, ws, ip, port, metadata) {
+    const { key } = existing;
+    this.#awaitingVerdict.get(key)?.(CLOSE_CODES.DUPLICATE_PEER, 'Superseded by a newer reconnect');
 
-    const onPong = () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      existing.ws.removeListener('pong', onPong);
-      log.info(`Reconnect verify: existing connection ${existing.key} is alive, rejecting new inbound`);
-      ws.close(CLOSE_CODES.DUPLICATE_PEER, 'Existing connection verified alive');
+    let abandon;
+    let rejected;
+    const settle = () => {
+      ws.removeListener('close', rejected);
+      ws.onmessage = null;
+      if (this.#awaitingVerdict.get(key) === abandon) this.#awaitingVerdict.delete(key);
     };
 
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      existing.ws.removeListener('pong', onPong);
-      log.info(`Reconnect verify: existing connection ${existing.key} failed pong check, replacing`);
-      this.add(ws, ip, port, { source: PEER_SOURCE.INBOUND, ...metadata });
-    }, VERIFY_TIMEOUT_MS);
+    abandon = (code, reason) => {
+      settle();
+      try { ws.close(code, reason); } catch (_e) { /* noop */ }
+    };
 
-    existing.ws.on('pong', onPong);
-    try {
-      existing.ws.ping();
-    } catch (_e) {
-      // ping failed — socket is already dead
-      if (!settled) {
-        settled = true;
-        clearTimeout(timer);
-        existing.ws.removeListener('pong', onPong);
-        log.info(`Reconnect verify: ping failed for ${existing.key}, replacing`);
-        this.add(ws, ip, port, { source: PEER_SOURCE.INBOUND, ...metadata });
+    rejected = () => {
+      settle();
+      if (this.get(existing.key) === existing && existing.isAlive
+        && existing.direction === DIRECTION.OUTBOUND) {
+        this.#reportCrossing(existing, DIRECTION.OUTBOUND);
       }
-    }
+      log.info(`Reconnect from ${existing.key}: the peer closed its new connection and kept the existing one`);
+    };
+
+    const kept = (evt) => {
+      settle();
+      log.info(`Reconnect from ${existing.key}: the peer kept its new connection, replacing the existing one`);
+      const peer = this.add(ws, ip, port, { source: PEER_SOURCE.INBOUND, ...metadata });
+      peer.ws.onmessage(evt);
+    };
+
+    this.#awaitingVerdict.set(key, abandon);
+    ws.onmessage = kept;
+    ws.once('close', rejected);
   }
 
   /**
@@ -569,6 +594,70 @@ class FluxPeerManager extends EventEmitter {
    */
   getOwnSocketAddress() {
     return this.#ownSocketAddress;
+  }
+
+  /**
+   * Which of a crossing pair's two connections this node keeps: the one dialed
+   * by the lower of the two socket addresses. Both ends compute it from the same
+   * two addresses, so they agree whatever order the connections established in
+   * at either end. Null while this node does not know its own address, or when
+   * the two cannot be ordered; the connection already held then stays.
+   * @param {string} peerKey The peer's ip:port.
+   * @returns {string|null} DIRECTION.OUTBOUND, DIRECTION.INBOUND or null.
+   */
+  crossingSurvivor(peerKey) {
+    const order = compareSocketAddresses(this.#ownSocketAddress, peerKey);
+    if (!order) return null;
+    return order < 0 ? DIRECTION.OUTBOUND : DIRECTION.INBOUND;
+  }
+
+  /**
+   * Whether a connection just established to a peer this node already holds
+   * replaces the held one. A held connection that is no longer alive is always
+   * replaced. A live one is never replaced by another in the same direction.
+   * Two live connections in opposite directions are a crossing, and the
+   * survivor is crossingSurvivor's.
+   * @param {object} existing The held peer.
+   * @param {string} direction The newcomer's DIRECTION.
+   * @returns {boolean}
+   */
+  newcomerReplaces(existing, direction) {
+    if (!existing.isAlive) return true;
+    if (existing.direction === direction) return false;
+    return this.crossingSurvivor(existing.key) === direction;
+  }
+
+  /**
+   * newcomerReplaces, for a connection just established to a peer this node
+   * already holds, reporting the crossing when the two are live and opposite.
+   * The one exception is an inbound reconnect dial the held outbound would
+   * outlive: the held one may be dead, so the peer's verdict on its dial
+   * reports it.
+   * @param {object} existing The held peer.
+   * @param {string} direction The newcomer's DIRECTION.
+   * @returns {boolean} Whether the newcomer replaces the held peer.
+   */
+  resolveCrossing(existing, direction) {
+    const replaces = this.newcomerReplaces(existing, direction);
+    if (existing.isAlive && existing.direction !== direction) {
+      this.#reportCrossing(existing, replaces ? direction : existing.direction);
+    }
+    return replaces;
+  }
+
+  /**
+   * Log and count a crossing with the held peer, and which of its two
+   * connections the pair keeps.
+   * @param {object} existing The held peer.
+   * @param {string} kept The DIRECTION of the connection kept.
+   * @private
+   */
+  #reportCrossing(existing, kept) {
+    const why = this.crossingSurvivor(existing.key)
+      ? 'dialed by the lower address'
+      : 'held, as this node does not know its own address';
+    log.info(`Crossing connections with ${existing.key}: keeping the ${kept} one, ${why}`);
+    fluxEventBus.count('peers:crossing', kept);
   }
 
   getPeerFluxUptime(key) {
@@ -1092,12 +1181,21 @@ class FluxPeerManager extends EventEmitter {
           this.add(ws, ipv4Peer, port, { source: PEER_SOURCE.INBOUND, ...metadata });
           return;
         }
-        // If the remote is reconnecting (asymmetric disconnect), verify the
-        // existing connection is still alive before rejecting. Ping it and
-        // wait up to 1s — if no pong, the old socket is dead, replace it.
         const isReconnect = req && req.headers && req.headers['x-flux-reconnect'];
+        // Both ends dialed at once: this inbound is the pair's other connection.
+        // A reconnect dial says the held one may be dead, so when the held one
+        // would stay, the peer's verdict on its dial decides whether the two crossed.
+        if (existing && existing.direction === DIRECTION.OUTBOUND) {
+          const heldMayBeDead = isReconnect && !this.newcomerReplaces(existing, DIRECTION.INBOUND);
+          if (!heldMayBeDead && this.resolveCrossing(existing, DIRECTION.INBOUND)) {
+            this.add(ws, ipv4Peer, port, { source: PEER_SOURCE.INBOUND, ...metadata });
+            return;
+          }
+        }
+        // The remote holds no connection to this node, or did when it dialed:
+        // whether its dial replaces the existing one is the remote's to say.
         if (isReconnect && existing) {
-          this.#verifyOrReplace(existing, ws, ipv4Peer, port, metadata);
+          this.#awaitReconnectVerdict(existing, ws, ipv4Peer, port, metadata);
           return;
         }
         setTimeout(() => {
@@ -1685,6 +1783,7 @@ class FluxPeerManager extends EventEmitter {
     this.#uniqueIps.clear();
     this.#failedConnections.clear();
     this.#pendingConnections.clear();
+    this.#awaitingVerdict.clear();
     this.#reconnectCounts.clear();
     this.#peerTopology.clear();
     this.#peerExchangeListeners.length = 0;
@@ -1701,5 +1800,18 @@ class FluxPeerManager extends EventEmitter {
 
 // Singleton export
 const peerManager = new FluxPeerManager();
+
+// The connections this node holds right now, by direction, and the address it
+// knows itself by - harness-only, see fluxEventBus.js.
+fluxEventBus.snapshot('peers', () => {
+  const describe = (peer) => ({
+    ip: peer.ip, port: String(peer.port), source: peer.source, alive: peer.isAlive, connectedAt: peer.connectedAt,
+  });
+  return {
+    self: peerManager.getOwnSocketAddress(),
+    outbound: [...peerManager.outboundValues()].map(describe),
+    inbound: [...peerManager.inboundValues()].map(describe),
+  };
+});
 
 module.exports = { FluxPeerManager, peerManager, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES };

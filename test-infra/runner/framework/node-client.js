@@ -436,6 +436,18 @@ export function nodeClient(nodeNum) {
     return res.data;
   }
 
+  // State as it is at the moment of asking - see the rule at the top of
+  // ZelBack/src/services/utils/fluxEventBus.js. Throws rather than answering
+  // empty when the node does not serve it: an empty state would satisfy every
+  // "holds nothing" assertion for the wrong reason.
+  async function getTestState(name) {
+    const res = await get(`/flux/teststate/${encodeURIComponent(name)}`);
+    if (res?.status !== 'success') {
+      throw new Error(`test state ${name} unavailable: ${JSON.stringify(res?.data ?? res)}`);
+    }
+    return res.data;
+  }
+
   // Times a loop has been observed taking a given decision about a component.
   // Absent counters read as 0, so a caller can difference two reads without
   // caring whether the loop has run yet.
@@ -465,6 +477,7 @@ export function nodeClient(nodeNum) {
     disconnectEventStream,
     waitForEvent,
     getTestCounters,
+    getTestState,
     getDecisionCount,
     holdCheckpoint: (name, key) => checkpointControl({ name, key, action: 'hold' }),
     releaseCheckpoint: (name, key) => checkpointControl({ name, key, action: 'release' }),
