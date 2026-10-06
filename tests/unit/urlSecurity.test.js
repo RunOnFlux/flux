@@ -1,4 +1,5 @@
 const http = require('http');
+const https = require('https');
 const net = require('net');
 const axios = require('axios');
 const chai = require('chai');
@@ -9,7 +10,6 @@ chai.use(chaiAsPromised);
 const { expect } = chai;
 const {
   validateUrl,
-  validateUrlWithDns,
   isUrlSafe,
   isBlockedIP,
   isBlockedHostname,
@@ -218,32 +218,6 @@ describe('urlSecurity', () => {
     });
   });
 
-  describe('validateUrlWithDns', () => {
-    it('should validate URLs that resolve to public IPs', async () => {
-      // This test relies on example.com resolving to a public IP
-      const result = await validateUrlWithDns('https://example.com/');
-      expect(result).to.equal('https://example.com/');
-    });
-
-    it('should throw for non-existent hostnames', async () => {
-      await expect(
-        validateUrlWithDns('https://this-domain-definitely-does-not-exist-12345.com/'),
-      ).to.be.rejectedWith('could not be resolved');
-    });
-
-    it('should still block localhost via basic validation', async () => {
-      await expect(
-        validateUrlWithDns('http://localhost/'),
-      ).to.be.rejectedWith('hostname is not allowed');
-    });
-
-    it('should still block private IPs via basic validation', async () => {
-      await expect(
-        validateUrlWithDns('http://127.0.0.1/'),
-      ).to.be.rejectedWith('private/internal IP');
-    });
-  });
-
   describe('normalizeIpString', () => {
     it('should strip brackets from IPv6 addresses', () => {
       expect(normalizeIpString('[::1]')).to.equal('::1');
@@ -383,7 +357,7 @@ describe('urlSecurity', () => {
     // answer, and a real lookup would make these assertions depend on DNS.
     function withResolver(impl) {
       return proxyquire('../../ZelBack/src/services/utils/urlSecurity', {
-        dns: { lookup: impl },
+        './dnsLookup': { lookup: impl },
       }).guardedLookup;
     }
 
@@ -459,6 +433,24 @@ describe('urlSecurity', () => {
       expect(options.httpsAgent).to.be.instanceOf(GuardedHttpsAgent);
       expect(options.httpAgent.options.lookup).to.equal(guardedLookup);
       expect(options.httpsAgent.options.lookup).to.equal(guardedLookup);
+    });
+
+    it('hands every caller the same agents, so connections are pooled across requests', () => {
+      const first = guardedRequestOptions();
+      const second = guardedRequestOptions();
+
+      expect(second.httpAgent).to.equal(first.httpAgent);
+      expect(second.httpsAgent).to.equal(first.httpsAgent);
+    });
+
+    it('keeps connections alive and times them out as the global agents do', () => {
+      const { httpAgent, httpsAgent } = guardedRequestOptions();
+
+      expect(http.globalAgent.keepAlive).to.equal(true);
+      expect(httpAgent.keepAlive).to.equal(http.globalAgent.keepAlive);
+      expect(httpsAgent.keepAlive).to.equal(https.globalAgent.keepAlive);
+      expect(httpAgent.options.timeout).to.equal(http.globalAgent.options.timeout);
+      expect(httpsAgent.options.timeout).to.equal(https.globalAgent.options.timeout);
     });
 
     describe('an address in any form URL parsing accepts', () => {
@@ -538,15 +530,14 @@ describe('urlSecurity', () => {
         registryHits = 0;
       });
 
-      // The guarded options, with the connection to the registry let through.
+      // Guarded agents of their own, with the connection to the registry let through.
       function guardedPastTheRegistry() {
-        const options = guardedRequestOptions();
-        const agent = options.httpAgent;
+        const agent = new GuardedHttpAgent();
         const guarded = agent.createConnection.bind(agent);
         agent.createConnection = (opts, callback) => (Number(opts.port) === registry.port
           ? http.Agent.prototype.createConnection.call(agent, opts, callback)
           : guarded(opts, callback));
-        return options;
+        return { httpAgent: agent, httpsAgent: new GuardedHttpsAgent() };
       }
 
       it('reaches the internal service without the guard', async () => {

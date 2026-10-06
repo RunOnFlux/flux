@@ -13,13 +13,10 @@
  */
 
 const { URL } = require('url');
-const dns = require('dns');
 const net = require('net');
 const http = require('http');
 const https = require('https');
-const { promisify } = require('util');
-
-const dnsLookup = promisify(dns.lookup);
+const dnsLookup = require('./dnsLookup');
 
 /**
  * Normalize an IP string by removing brackets and zone identifiers.
@@ -286,70 +283,6 @@ function validateUrl(inputUrl, options = {}) {
 }
 
 /**
- * Validate a URL with DNS resolution to catch DNS rebinding attacks.
- * This resolves the hostname and verifies the resolved IP is not blocked.
- *
- * @param {string} inputUrl - URL to validate
- * @param {object} options - Validation options (same as validateUrl)
- * @returns {Promise<string>} The validated URL
- * @throws {Error} If URL is invalid, blocked, or resolves to a blocked IP
- *
- * @example
- * await validateUrlWithDns('https://example.com/file.tar.gz')  // Returns URL
- * await validateUrlWithDns('http://evil.com/')  // Throws if evil.com resolves to 127.0.0.1
- */
-async function validateUrlWithDns(inputUrl, options = {}) {
-  const { allowPrivate = false } = options;
-
-  // First, perform basic validation
-  const validatedUrl = validateUrl(inputUrl, options);
-
-  // Parse URL to get hostname
-  const parsed = new URL(validatedUrl);
-  const { hostname } = parsed;
-
-  // Normalize hostname for IP checks (strip brackets from IPv6)
-  const normalizedHostname = normalizeIpString(hostname);
-
-  // Skip DNS check if hostname is already an IP
-  // (already validated by validateUrl, but double-check for defense-in-depth)
-  if (!allowPrivate && isBlockedIP(normalizedHostname)) {
-    throw new Error('Access to private/internal IP addresses is not allowed');
-  }
-
-  // Use net.isIP() to reliably detect if hostname is an IP address
-  // Returns 0 for hostnames, 4 for IPv4, 6 for IPv6
-  const ipVersion = net.isIP(normalizedHostname);
-
-  // If not an IP address (ipVersion === 0), resolve DNS and check the result
-  if (!allowPrivate && ipVersion === 0) {
-    try {
-      const result = await dnsLookup(hostname, { all: true });
-      const addresses = Array.isArray(result) ? result : [result];
-
-      for (const addr of addresses) {
-        const ip = addr.address || addr;
-        if (isBlockedIP(ip)) {
-          throw new Error(`Hostname '${hostname}' resolves to blocked IP address`);
-        }
-      }
-    } catch (error) {
-      if (error.code === 'ENOTFOUND') {
-        throw new Error(`Hostname '${hostname}' could not be resolved`);
-      }
-      // Re-throw our own errors
-      if (error.message.includes('resolves to blocked')) {
-        throw error;
-      }
-      // For other DNS errors, allow the request to proceed
-      // (the actual HTTP request will fail if DNS is truly broken)
-    }
-  }
-
-  return validatedUrl;
-}
-
-/**
  * Check if a URL is safe without throwing an error.
  *
  * @param {string} inputUrl - URL to check
@@ -398,6 +331,8 @@ function isBlockedAddressLiteral(host) {
  * connecting and uses the address it returns, so what is checked is what is
  * dialled.
  *
+ * The name is resolved by dnsLookup, as every other request FluxOS makes is.
+ *
  * @param {string} hostname
  * @param {object|Function} options dns.lookup options, or the callback
  * @param {Function} [callback]
@@ -406,7 +341,7 @@ function guardedLookup(hostname, options, callback) {
   const done = typeof options === 'function' ? options : callback;
   const opts = typeof options === 'function' ? {} : (options || {});
 
-  dns.lookup(hostname, opts, (error, address, family) => {
+  dnsLookup.lookup(hostname, opts, (error, address, family) => {
     if (error) {
       done(error);
       return;
@@ -450,11 +385,12 @@ function connectionRefusal(options) {
 
 /**
  * An http.Agent that refuses private and reserved addresses on every connection, before any
- * packet is sent.
+ * packet is sent. Its options are the global agent's, so a guarded request is pooled and kept
+ * alive as any other request is; only the address check differs.
  */
 class GuardedHttpAgent extends http.Agent {
   constructor() {
-    super({ lookup: guardedLookup });
+    super({ ...http.globalAgent.options, lookup: guardedLookup });
   }
 
   createConnection(options, callback) {
@@ -469,11 +405,12 @@ class GuardedHttpAgent extends http.Agent {
 
 /**
  * An https.Agent that refuses private and reserved addresses on every connection, before any
- * packet is sent.
+ * packet is sent. Its options are the global agent's, so a guarded request is pooled and kept
+ * alive as any other request is; only the address check differs.
  */
 class GuardedHttpsAgent extends https.Agent {
   constructor() {
-    super({ lookup: guardedLookup });
+    super({ ...https.globalAgent.options, lookup: guardedLookup });
   }
 
   createConnection(options, callback) {
@@ -487,25 +424,31 @@ class GuardedHttpsAgent extends https.Agent {
 }
 
 /**
+ * The process's guarded agents. Node's global agents carry every request whose destination
+ * FluxOS chose, including its own services on loopback and peers on private networks; these
+ * carry every request whose destination someone else chose.
+ */
+const guardedAgents = {
+  httpAgent: new GuardedHttpAgent(),
+  httpsAgent: new GuardedHttpsAgent(),
+};
+
+/**
  * axios options that keep a request off private and reserved addresses on every hop. The agents
  * check each connection as it is made, so the first request, every redirect it follows, and a
  * redirect from one scheme to the other are all guarded by the same check.
  *
- * Every request whose destination someone else chooses - a registry named in an app spec, or a
- * URL such a registry hands back - is made with these.
+ * Every request whose destination someone else chooses - a registry named in an app spec, a URL
+ * such a registry hands back, a URL a user asks the node to download - is made with these.
  *
  * @returns {{httpAgent: GuardedHttpAgent, httpsAgent: GuardedHttpsAgent}}
  */
 function guardedRequestOptions() {
-  return {
-    httpAgent: new GuardedHttpAgent(),
-    httpsAgent: new GuardedHttpsAgent(),
-  };
+  return { ...guardedAgents };
 }
 
 module.exports = {
   validateUrl,
-  validateUrlWithDns,
   isUrlSafe,
   isBlockedIP,
   isBlockedHostname,
