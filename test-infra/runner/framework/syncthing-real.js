@@ -149,13 +149,17 @@ export async function getFileInfo(client, folderId, file) {
   return api(client, `/rest/db/file?folder=${encodeURIComponent(folderId)}&file=${encodeURIComponent(file)}`);
 }
 
-// What each running syncthing process resolves owners against: the sha256 of
-// its /etc/passwd followed by its /etc/group, as that process sees them - the
-// value numericIdTables.js calls TABLES_SHA256 when they are the numeric id
-// tables. Empty when no syncthing runs.
+// The node's own syncthing processes, as FluxOS matches them: by name, in the
+// node's PID namespace. An app's syncthing runs in its container's.
+const NODE_SYNCTHING = 'pgrep -x syncthing --ns 1 --nslist pid';
+
+// What each of the node's own syncthing processes resolves owners against: the
+// sha256 of its /etc/passwd followed by its /etc/group, as that process sees
+// them - the value numericIdTables.js calls TABLES_SHA256 when they are the
+// numeric id tables. Empty when no syncthing runs.
 export async function syncthingIdTables(client) {
   const r = await execInContainer(client.container,
-    'for p in $(pgrep -x syncthing); do echo "$p $(cat /proc/$p/root/etc/passwd /proc/$p/root/etc/group | sha256sum | cut -c1-64)"; done');
+    `for p in $(${NODE_SYNCTHING}); do echo "$p $(cat /proc/$p/root/etc/passwd /proc/$p/root/etc/group | sha256sum | cut -c1-64)"; done`);
   return r.stdout.trim().split('\n').filter(Boolean).map((line) => {
     const [pid, tables] = line.split(' ');
     return { pid: Number(pid), tables };
@@ -185,7 +189,7 @@ export async function startDaemon(client, { timeout = 60000, interval = 1000 } =
 
 // Stop the node's own daemon outright, as a machine going down stops it.
 export async function stopDaemon(client) {
-  await execInContainer(client.container, 'pkill -KILL -x syncthing; true');
+  await execInContainer(client.container, 'pkill -KILL -x syncthing --ns 1 --nslist pid; true');
 }
 
 // The daemon's own event log since `since`, optionally of named types - e.g.
