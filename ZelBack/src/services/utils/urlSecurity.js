@@ -381,12 +381,7 @@ function blockedAddressError(hostname, address) {
 /**
  * Whether a host is a literal IP address that must not be dialled.
  *
- * The Agent `lookup` guard below never sees these: Node resolves nothing when
- * the host is already an address, so it connects straight out. A literal cannot
- * rebind either, so checking it once — before any request is built — is both
- * necessary and sufficient.
- *
- * @param {string} host hostname or address, without a port
+ * @param {string} host hostname or address, without a port or brackets
  * @returns {boolean}
  */
 function isBlockedAddressLiteral(host) {
@@ -440,32 +435,71 @@ function guardedLookup(hostname, options, callback) {
 }
 
 /**
- * A follow-redirects `beforeRedirect` hook that refuses a redirect to a private or reserved
- * address literal. A redirect to a hostname is resolved through the agent's guardedLookup; a
- * literal is not resolved at all, so this is the one place a literal target can be refused.
+ * The refusal for a connection about to be made to `options.host`, or null if it may proceed.
+ * Node hands an Agent's createConnection the host the socket is about to dial, after URL parsing
+ * has normalised it (`2130706433`, `127.1` and `0x7f.0.0.1` all arrive as `127.0.0.1`), so the
+ * address checked is the address dialled. Node resolves nothing for an address, so guardedLookup
+ * never sees one; a hostname passes here and is resolved through guardedLookup.
  *
- * @param {{hostname?: string}} options the options of the request about to be made
+ * @param {{host?: string}} options the options createConnection was called with
+ * @returns {Error|null}
  */
-function refuseBlockedRedirect(options) {
-  const host = String(options.hostname ?? '').replace(/^\[|\]$/g, '');
-  if (isBlockedAddressLiteral(host)) throw blockedAddressError(host, host);
+function connectionRefusal(options) {
+  return isBlockedAddressLiteral(options.host) ? blockedAddressError(options.host, options.host) : null;
 }
 
 /**
- * axios options that keep a request off private and reserved addresses on every hop: both the
- * http and the https agent resolve through guardedLookup, so a redirect from one scheme to the
- * other is guarded too, and a redirect to a blocked address literal is refused.
+ * An http.Agent that refuses private and reserved addresses on every connection, before any
+ * packet is sent.
+ */
+class GuardedHttpAgent extends http.Agent {
+  constructor() {
+    super({ lookup: guardedLookup });
+  }
+
+  createConnection(options, callback) {
+    const refusal = connectionRefusal(options);
+    if (refusal) {
+      callback(refusal);
+      return undefined;
+    }
+    return super.createConnection(options, callback);
+  }
+}
+
+/**
+ * An https.Agent that refuses private and reserved addresses on every connection, before any
+ * packet is sent.
+ */
+class GuardedHttpsAgent extends https.Agent {
+  constructor() {
+    super({ lookup: guardedLookup });
+  }
+
+  createConnection(options, callback) {
+    const refusal = connectionRefusal(options);
+    if (refusal) {
+      callback(refusal);
+      return undefined;
+    }
+    return super.createConnection(options, callback);
+  }
+}
+
+/**
+ * axios options that keep a request off private and reserved addresses on every hop. The agents
+ * check each connection as it is made, so the first request, every redirect it follows, and a
+ * redirect from one scheme to the other are all guarded by the same check.
  *
  * Every request whose destination someone else chooses - a registry named in an app spec, or a
  * URL such a registry hands back - is made with these.
  *
- * @returns {{httpAgent: http.Agent, httpsAgent: https.Agent, beforeRedirect: Function}}
+ * @returns {{httpAgent: GuardedHttpAgent, httpsAgent: GuardedHttpsAgent}}
  */
 function guardedRequestOptions() {
   return {
-    httpAgent: new http.Agent({ lookup: guardedLookup }),
-    httpsAgent: new https.Agent({ lookup: guardedLookup }),
-    beforeRedirect: refuseBlockedRedirect,
+    httpAgent: new GuardedHttpAgent(),
+    httpsAgent: new GuardedHttpsAgent(),
   };
 }
 
@@ -477,7 +511,8 @@ module.exports = {
   isBlockedHostname,
   guardedLookup,
   guardedRequestOptions,
-  refuseBlockedRedirect,
+  GuardedHttpAgent,
+  GuardedHttpsAgent,
   isBlockedAddressLiteral,
   blockedAddressError,
   BLOCKED_ADDRESS_CODE,

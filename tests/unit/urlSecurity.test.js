@@ -1,4 +1,5 @@
 const http = require('http');
+const net = require('net');
 const axios = require('axios');
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
@@ -16,8 +17,9 @@ const {
   ipv6MappedToIpv4,
   isBlockedAddressLiteral,
   guardedLookup,
-  refuseBlockedRedirect,
   guardedRequestOptions,
+  GuardedHttpAgent,
+  GuardedHttpsAgent,
 } = require('../../ZelBack/src/services/utils/urlSecurity');
 
 describe('urlSecurity', () => {
@@ -352,9 +354,7 @@ describe('urlSecurity', () => {
   });
 
   describe('isBlockedAddressLiteral', () => {
-    // The Agent lookup guard never sees these: Node resolves nothing when the
-    // host is already an address, so it dials straight out. This is the check
-    // that catches them, and it has to run before a request is built.
+    // The guarded agents' check on the address a connection is about to dial.
     it('blocks private and reserved literals', () => {
       expect(isBlockedAddressLiteral('127.0.0.1')).to.equal(true);
       expect(isBlockedAddressLiteral('10.0.0.5')).to.equal(true);
@@ -451,35 +451,62 @@ describe('urlSecurity', () => {
     });
   });
 
-  describe('refuseBlockedRedirect', () => {
-    ['127.0.0.1', '10.0.0.5', '169.254.169.254', '[::1]'].forEach((hostname) => {
-      it(`refuses a redirect to a blocked literal (${hostname})`, () => {
-        expect(() => refuseBlockedRedirect({ hostname })).to.throw().with.property('code', 'EBLOCKEDADDRESS');
-      });
-    });
-
-    ['93.184.216.34', 'registry.example.com'].forEach((hostname) => {
-      it(`lets a redirect to a public literal or any hostname through (${hostname})`, () => {
-        expect(() => refuseBlockedRedirect({ hostname })).to.not.throw();
-      });
-    });
-  });
-
   describe('guardedRequestOptions', () => {
-    it('resolves through guardedLookup on both schemes and checks every redirect', () => {
+    it('connects through the guarded agents, which resolve through guardedLookup, on both schemes', () => {
       const options = guardedRequestOptions();
 
+      expect(options.httpAgent).to.be.instanceOf(GuardedHttpAgent);
+      expect(options.httpsAgent).to.be.instanceOf(GuardedHttpsAgent);
       expect(options.httpAgent.options.lookup).to.equal(guardedLookup);
       expect(options.httpsAgent.options.lookup).to.equal(guardedLookup);
-      expect(options.beforeRedirect).to.equal(refuseBlockedRedirect);
+    });
+
+    describe('an address in any form URL parsing accepts', () => {
+      // A local listener stands in for an internal service. It counts TCP connections, so a
+      // refusal that came after the connection was made would still be caught.
+      let internal;
+      let port;
+      let connections;
+
+      before((done) => {
+        internal = net.createServer((socket) => { connections += 1; socket.destroy(); });
+        internal.listen(0, '127.0.0.1', () => { ({ port } = internal.address()); done(); });
+      });
+
+      after(() => {
+        internal.close();
+      });
+
+      beforeEach(() => {
+        connections = 0;
+      });
+
+      it('reaches the internal service through an encoded address without the guard', async () => {
+        // Canary: the encoded form does reach the listener, so a zero below is the guard.
+        await axios.get(`http://2130706433:${port}/`).catch(() => {});
+
+        expect(connections).to.equal(1);
+      });
+
+      ['127.0.0.1', '2130706433', '127.1', '127.0.1', '0x7f.0.0.1', '0177.0.0.1', '0x7f000001', '0'].forEach((host) => {
+        ['http', 'https'].forEach((scheme) => {
+          it(`refuses ${scheme}://${host} before connecting`, async () => {
+            const error = await axios.get(`${scheme}://${host}:${port}/`, guardedRequestOptions()).then(() => null, (e) => e);
+
+            expect(error).to.have.property('code', 'EBLOCKEDADDRESS');
+            expect(connections).to.equal(0);
+          });
+        });
+      });
     });
 
     describe('a redirect into the internal network', () => {
       // A local server stands in for an internal service, and another for a registry that
-      // answers with a redirect to it. The registry is requested by address, which resolves
-      // nothing, so only the redirect is under test.
+      // answers with a redirect to it. The registry stands in for a public host, so its own
+      // connection is let through and only the redirect is under test.
       let internal;
       let internalHits;
+      let registryHits;
       let registry;
       let redirectTo;
 
@@ -492,10 +519,12 @@ describe('urlSecurity', () => {
         internal = http.createServer((req, res) => { internalHits += 1; res.end('internal'); });
         const internalPort = await listen(internal);
         registry = http.createServer((req, res) => {
+          registryHits += 1;
           res.writeHead(302, { location: redirectTo(internalPort) });
           res.end();
         });
         const registryPort = await listen(registry);
+        registry.port = registryPort;
         registry.url = `http://127.0.0.1:${registryPort}/v2/`;
       });
 
@@ -506,7 +535,19 @@ describe('urlSecurity', () => {
 
       beforeEach(() => {
         internalHits = 0;
+        registryHits = 0;
       });
+
+      // The guarded options, with the connection to the registry let through.
+      function guardedPastTheRegistry() {
+        const options = guardedRequestOptions();
+        const agent = options.httpAgent;
+        const guarded = agent.createConnection.bind(agent);
+        agent.createConnection = (opts, callback) => (Number(opts.port) === registry.port
+          ? http.Agent.prototype.createConnection.call(agent, opts, callback)
+          : guarded(opts, callback));
+        return options;
+      }
 
       it('reaches the internal service without the guard', async () => {
         // Canary: the fixture can detect a redirect that gets through.
@@ -520,18 +561,30 @@ describe('urlSecurity', () => {
       it('refuses a redirect to an internal address literal', async () => {
         redirectTo = (port) => `http://127.0.0.1:${port}/`;
 
-        const error = await axios.get(registry.url, guardedRequestOptions()).then(() => null, (e) => e);
+        const error = await axios.get(registry.url, guardedPastTheRegistry()).then(() => null, (e) => e);
 
-        expect(error).to.not.equal(null);
+        expect(error).to.have.property('code', 'EBLOCKEDADDRESS');
+        expect(registryHits).to.equal(1);
+        expect(internalHits).to.equal(0);
+      });
+
+      it('refuses a redirect to an internal address in an encoded form', async () => {
+        redirectTo = (port) => `http://2130706433:${port}/`;
+
+        const error = await axios.get(registry.url, guardedPastTheRegistry()).then(() => null, (e) => e);
+
+        expect(error).to.have.property('code', 'EBLOCKEDADDRESS');
+        expect(registryHits).to.equal(1);
         expect(internalHits).to.equal(0);
       });
 
       it('refuses a redirect to a name that resolves internal', async () => {
         redirectTo = (port) => `http://localhost:${port}/`;
 
-        const error = await axios.get(registry.url, guardedRequestOptions()).then(() => null, (e) => e);
+        const error = await axios.get(registry.url, guardedPastTheRegistry()).then(() => null, (e) => e);
 
-        expect(error).to.not.equal(null);
+        expect(error).to.have.property('code', 'EBLOCKEDADDRESS');
+        expect(registryHits).to.equal(1);
         expect(internalHits).to.equal(0);
       });
     });

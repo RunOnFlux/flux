@@ -1,7 +1,5 @@
 const serviceHelper = require('../serviceHelper');
-const {
-  guardedRequestOptions, isBlockedAddressLiteral, BLOCKED_ADDRESS_CODE,
-} = require('./urlSecurity');
+const { guardedRequestOptions, BLOCKED_ADDRESS_CODE } = require('./urlSecurity');
 
 /**
  * Docker Architecture
@@ -89,15 +87,6 @@ class ImageVerifier {
 
     this.#parseDockerTag();
 
-    // A host that is already an address never reaches the Agent's lookup — Node
-    // resolves nothing when there is nothing to resolve — so the literal case is
-    // refused here, before any request exists. Hostnames are handled at connect
-    // time, where a name that resolves private cannot slip past a stale check.
-    if (!this.parseError && isBlockedAddressLiteral(String(this.provider).split(':')[0])) {
-      this.#refuseBlockedAddress(`Refused: ${this.rawImageTag} points at a private or reserved address`);
-      return;
-    }
-
     if (!this.parseError) this.#createAxiosInstance();
   }
 
@@ -167,10 +156,10 @@ class ImageVerifier {
       // hostname, and the reference grammar accepts `10.0.0.5:2375/x/y:t` and
       // `localhost:8080/x/y:t` as readily as a real registry. Without this the
       // node would dial whatever it was handed and report back whether the port
-      // answered - an internal port scanner driven by a spec. The guard runs at
-      // CONNECT time rather than as a pre-check, so a name that resolves public
-      // and then private cannot slip through the gap, and it covers every
-      // redirect the registry answers with.
+      // answered - an internal port scanner driven by a spec. The guard runs on
+      // each connection as it is made, so it checks the address actually dialled,
+      // a name that resolves public and then private cannot slip through, and
+      // every redirect the registry answers with is covered.
       ...guardedRequestOptions(),
     });
   }
@@ -292,13 +281,7 @@ class ImageVerifier {
     }
 
     // For Bearer auth (Docker Hub, etc.), do token exchange. The realm is a URL the registry
-    // hands back, so it is as attacker-chosen as the registry host and guarded the same way:
-    // a literal refused up front, everything else at connect time and on every redirect.
-    const realmHost = URL.canParse(realm) ? new URL(realm).hostname.replace(/^\[|\]$/g, '') : '';
-    if (isBlockedAddressLiteral(realmHost)) {
-      this.#refuseBlockedAddress(`Refused: authentication for ${this.rawImageTag} points at a private or reserved address`);
-      return;
-    }
+    // hands back, so it is as attacker-chosen as the registry host and guarded the same way.
 
     const {
       data: { token },
@@ -308,7 +291,7 @@ class ImageVerifier {
         const status = err?.response?.status;
 
         if (ImageVerifier.isBlockedAddressError(err)) {
-          this.#refuseBlockedAddress(`Refused: authentication for ${this.rawImageTag} resolves to a private or reserved address`);
+          this.#refuseBlockedAddress(`Refused: authentication for ${this.rawImageTag} points at a private or reserved address`);
         } else if (status === 401) {
           this.#lookupErrorDetail = `Authentication rejected for: ${this.rawImageTag}`;
           this.#lookupErrorMeta = {
@@ -381,12 +364,12 @@ class ImageVerifier {
       'EHOSTUNREACH',
     ];
 
-    // A refused address is not a connectivity problem: the name resolved, we
-    // declined to talk to it, and no amount of retrying changes that. Classify it
-    // permanent before the network branch below, or a spec pointing at a private
-    // address would be retried forever as though the registry were flaky.
+    // A refused address is not a connectivity problem: we declined to talk to it,
+    // and no amount of retrying changes that. Classify it permanent before the
+    // network branch below, or a spec pointing at a private address would be
+    // retried forever as though the registry were flaky.
     if (ImageVerifier.isBlockedAddressError(error)) {
-      this.#refuseBlockedAddress(`Refused: ${this.rawImageTag} resolves to a private or reserved address`);
+      this.#refuseBlockedAddress(`Refused: ${this.rawImageTag} points at a private or reserved address`);
       return { data: null };
     }
 
