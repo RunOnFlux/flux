@@ -4,13 +4,14 @@
  * Resolution goes through three sources, and the first that yields an address answers:
  *
  * 1. The system's DNS servers, from /etc/resolv.conf.
- * 2. Public DNS servers, asked only when the system's servers FAILED: a query that errored
- *    (SERVFAIL, REFUSED, a timeout). A system server that answers that the name has no
- *    addresses has answered, so the public servers are not asked and cannot override the
- *    operator's own DNS. They are a source of their own rather than further entries in the
- *    system resolver's server list: a DNS client moves to its next server only when one does
- *    not answer at all, so a server that answers with a failure would otherwise end the lookup
- *    with the next servers never asked.
+ * 2. Public DNS servers, asked only when the system's servers gave no address and at least
+ *    one family's query FAILED: it errored (SERVFAIL, REFUSED, a timeout). When every family's
+ *    query is answered that the name does not exist or has no records, the system's servers
+ *    have answered, so the public servers are not asked and cannot override the operator's own
+ *    DNS. They are a source of their own rather than further entries in the system resolver's
+ *    server list: a DNS client moves to its next server only when one does not answer at all,
+ *    so a server that answers with a failure would otherwise end the lookup with the next
+ *    servers never asked.
  * 3. The operating system's resolver (`dns.lookup`), which also reads /etc/hosts and
  *    nsswitch. Its error is the lookup's error when nothing answers.
  *
