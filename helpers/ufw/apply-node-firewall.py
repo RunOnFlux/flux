@@ -120,39 +120,51 @@ def ufw_error(printed):
     return lines[-1] if lines else printed.strip()
 
 
+class Printed:
+    """What ufw prints to stderr while it runs, captured. ufw writes encoded
+    bytes to a stream's buffer, so the capture is a text stream over bytes."""
+
+    def __init__(self):
+        self.stream = io.TextIOWrapper(io.BytesIO(), encoding='utf-8', errors='replace')
+
+    def text(self):
+        self.stream.flush()
+        return self.stream.buffer.getvalue().decode('utf-8', 'replace')
+
+
 def apply_rules(rules):
     """(failed rules, None), or (None, reason) when ufw's library is not usable.
 
     ufw refuses a rule either by raising UFWError or, like the ufw command, by
     printing 'ERROR: ...' and exiting; both are a refused rule.
     """
-    printed = io.StringIO()
+    printed = Printed()
     try:
-        with contextlib.redirect_stderr(printed):
+        with contextlib.redirect_stderr(printed.stream):
             import gettext
             gettext.install('ufw')
             import ufw.common
             import ufw.frontend
             ui = ufw.frontend.UFWFrontend(False)
     except (Exception, SystemExit) as error:  # pylint: disable=broad-except
-        sys.stderr.write(printed.getvalue())
-        return None, f'ufw library not usable: {ufw_error(printed.getvalue()) or repr(error)}'
-    sys.stderr.write(printed.getvalue())
+        sys.stderr.write(printed.text())
+        return None, f'ufw library not usable: {ufw_error(printed.text()) or repr(error)}'
+    sys.stderr.write(printed.text())
     failed = []
     for args in rules:
-        printed = io.StringIO()
+        printed = Printed()
         try:
-            with contextlib.redirect_stderr(printed):
+            with contextlib.redirect_stderr(printed.stream):
                 parsed = ufw.frontend.parse_command(['ufw'] + args)
                 ui.do_action(parsed.action, parsed.data.get('rule', ''), parsed.data.get('iptype', ''), True)
         except ufw.common.UFWError as error:
             failed.append({'rule': ' '.join(args), 'error': error.value})
         except SystemExit:
-            failed.append({'rule': ' '.join(args), 'error': ufw_error(printed.getvalue())})
+            failed.append({'rule': ' '.join(args), 'error': ufw_error(printed.text())})
         except (TypeError, AttributeError, ValueError) as error:
-            sys.stderr.write(printed.getvalue())
+            sys.stderr.write(printed.text())
             return None, f'ufw library not usable: {error!r}'
-        sys.stderr.write(printed.getvalue())
+        sys.stderr.write(printed.text())
     return failed, None
 
 
@@ -183,15 +195,20 @@ def main():
         print(f'ufw lock {args.lock} not free within {args.wait:g}s', file=sys.stderr)
         return LOCK_UNAVAILABLE
 
-    result = sys.stdout
-    # ufw's library prints its own messages; stdout carries only the result.
-    sys.stdout = sys.stderr
+    # ufw's library prints its own messages to the stdout it saw when it was
+    # imported, so stdout's descriptor points at stderr until the result is
+    # printed: stdout carries only the result.
+    sys.stdout.flush()
+    result_fd = os.dup(1)
+    os.dup2(2, 1)
     try:
         removed = remove_outbound(args.files)
         failed, reason = apply_rules(args.rules) if args.rules else ([], None)
     finally:
         lock.close()
-        sys.stdout = result
+        sys.stdout.flush()
+        os.dup2(result_fd, 1)
+        os.close(result_fd)
     print(json.dumps({'removed': removed, 'applied': reason is None, 'failed': failed or [], 'reason': reason}))
     return 0
 

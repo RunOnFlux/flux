@@ -2402,7 +2402,9 @@ async function adjustFirewall() {
       if (reload.error) log.error(`Firewall not reloaded after removing outbound rules: ${reload.error.message}`);
       log.info(`Firewall outbound rules removed: ${outboundRemoved}`);
     }
-    fluxEventBus.publish('firewall:adjusted', { outboundRemoved, rulesFailed: failed.map(({ rule }) => rule) });
+    fluxEventBus.publish('firewall:adjusted', {
+      outboundRemoved, rulesFailed: failed.map(({ rule }) => rule), appliedBy: result?.applied ? 'library' : 'commands',
+    });
   } catch (error) {
     log.error(error);
   }

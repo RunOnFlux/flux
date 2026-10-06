@@ -144,12 +144,13 @@ describe('2501 firewalled nodes', function suite() {
     const { data } = await node.waitForEvent('firewall:adjusted', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId });
 
     expect(data.outboundRemoved).to.equal(6);
+    expect(data.appliedBy, 'the rules applied through ufw\'s library, under one lock').to.equal('library');
     const after = await rulesAdded(LEGACY);
     expect(after.filter(isOutbound), 'outbound rules left').to.deep.equal([]);
-    const keptAfter = after.filter((rule) => !isOutbound(rule));
-    const appeared = keptAfter.filter((rule) => !kept.includes(rule));
-    const missing = kept.filter((rule) => !keptAfter.includes(rule));
-    expect(JSON.stringify({ appeared, missing }, null, 2), 'inbound and route rules, before and after').to.equal(JSON.stringify({ appeared: [], missing: [] }, null, 2));
+    // Other code adds inbound rules meanwhile - an app port being tested - so
+    // what is checked is that none of the rules there before went.
+    const missing = kept.filter((rule) => !after.includes(rule));
+    expect(JSON.stringify(missing), 'inbound and route rules gone').to.equal('[]');
     // The live firewall, not only ufw's record of it.
     const { stdout: chains } = await execInContainer(node.container, 'iptables -S ufw-user-output; ip6tables -S ufw6-user-output; iptables -S ufw-user-input; iptables -S ufw-user-forward');
     expect(chains.split('\n').filter((line) => /-A ufw6?-user-output /.test(line)), 'live outbound rules').to.deep.equal([]);

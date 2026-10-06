@@ -2774,7 +2774,7 @@ describe('fluxNetworkHelper tests', () => {
         ['allow', 'from', '172.23.0.0/16', 'proto', 'tcp', 'to', '169.254.43.43/32', 'port', '16101'],
       ]);
       expect(ufwCalls(), 'no ufw command of its own').to.deep.equal([]);
-      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0, rulesFailed: [] });
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0, rulesFailed: [], appliedBy: 'library' });
     });
 
     it('should write no outbound rule and never set a default policy', async () => {
@@ -2794,7 +2794,7 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(ufwCalls()).to.deep.equal(['reload']);
       sinon.assert.calledWith(runCommandStub, 'ufw', sinon.match({ runAsRoot: true, params: ['reload'], timeout: 30000 }));
-      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 4, rulesFailed: [] });
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 4, rulesFailed: [], appliedBy: 'library' });
     });
 
     it('should report each rule ufw refused, but not a delete of a rule already gone', async () => {
@@ -2812,7 +2812,7 @@ describe('fluxNetworkHelper tests', () => {
 
       sinon.assert.calledWith(warnSpy, "Firewall rule not applied: ufw insert 1 limit to any app OpenSSH: ERROR: Could not find a profile matching 'OpenSSH'");
       sinon.assert.neverCalledWith(warnSpy, sinon.match(/port 53/));
-      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0, rulesFailed: ['insert 1 limit to any app OpenSSH'] });
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0, rulesFailed: ['insert 1 limit to any app OpenSSH'], appliedBy: 'library' });
     });
 
     it('should run no ufw command at all when another ufw command holds the lock', async () => {
@@ -2838,7 +2838,7 @@ describe('fluxNetworkHelper tests', () => {
       expect(ufwCalls()).to.deep.equal([...rules, 'reload']);
       runCommandStub.getCalls().filter((call) => call.args[0] === 'ufw').forEach((call) => expect(call.args[1].timeout).to.equal(30000));
       sinon.assert.calledWith(warnSpy, 'Firewall rules applied one ufw command each: ufw library not usable: TypeError()');
-      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 2, rulesFailed: [] });
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 2, rulesFailed: [], appliedBy: 'commands' });
     });
 
     it('should leave the rules it hands to ufw as they were', async () => {
@@ -2852,7 +2852,7 @@ describe('fluxNetworkHelper tests', () => {
 
       await fluxNetworkHelper.adjustFirewall();
 
-      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0, rulesFailed: ['insert 1 limit to any app OpenSSH'] });
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0, rulesFailed: ['insert 1 limit to any app OpenSSH'], appliedBy: 'commands' });
     });
 
     it('should apply the rules one ufw command each when the applier fails', async () => {
@@ -2864,7 +2864,7 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledWith(warnSpy, 'Firewall applier failed: Traceback: no such file');
       expect(ufwCalls()).to.include('allow 16127');
       expect(ufwCalls()).to.not.include('reload');
-      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0, rulesFailed: [] });
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0, rulesFailed: [], appliedBy: 'commands' });
     });
 
     it('should stop at the first ufw command that outruns the lock wait, and report the firewall locked', async () => {
