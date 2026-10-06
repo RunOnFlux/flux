@@ -1371,15 +1371,34 @@ const SYNCTHING_KILL_TIMEOUT_MS = 5 * 1000;
 const SYNCTHING_EXIT_POLL_MS = 250;
 
 /**
- * Whether a syncthing process is running here.
+ * The pgrep and pkill match for a syncthing in the host's PID namespace. An
+ * app container's syncthing runs in its own, and is the app's. Run as root: a
+ * non-root pgrep cannot read a root process's namespace, and matches nothing.
+ * @returns {string[]}
+ */
+function hostSyncthingMatch() {
+  return ['-x', 'syncthing', '--ns', '1', '--nslist', 'pid'];
+}
+
+/**
+ * The syncthing processes running in the host's PID namespace.
+ * @returns {Promise<string[]>}
+ */
+async function hostSyncthingPids() {
+  const { stdout } = await serviceHelper.runCommand('pgrep', {
+    runAsRoot: true,
+    params: hostSyncthingMatch(),
+    logError: false,
+  });
+  return (stdout ?? '').split('\n').map((pid) => pid.trim()).filter(Boolean);
+}
+
+/**
+ * Whether a syncthing process is running in the host's PID namespace.
  * @returns {Promise<boolean>}
  */
 async function syncthingProcessRunning() {
-  const { stdout } = await serviceHelper.runCommand('pgrep', {
-    params: ['-x', 'syncthing'],
-    logError: false,
-  });
-  return Boolean(stdout);
+  return (await hostSyncthingPids()).length > 0;
 }
 
 /**
@@ -1419,7 +1438,7 @@ async function stopSyncthing() {
   log.info('Stopping syncthing service gracefully');
   await serviceHelper.runCommand('pkill', {
     runAsRoot: true,
-    params: ['-x', 'syncthing'],
+    params: hostSyncthingMatch(),
     logError: false,
   });
   if (await syncthingExitsWithin(SYNCTHING_STOP_TIMEOUT_MS)) return;
@@ -1428,7 +1447,7 @@ async function stopSyncthing() {
   log.warn(`Syncthing is still running ${SYNCTHING_STOP_TIMEOUT_MS / 1000}s after SIGTERM; sending SIGKILL`);
   await serviceHelper.runCommand('pkill', {
     runAsRoot: true,
-    params: ['-KILL', '-x', 'syncthing'],
+    params: ['-KILL', ...hostSyncthingMatch()],
     logError: false,
   });
   if (await syncthingExitsWithin(SYNCTHING_KILL_TIMEOUT_MS)) return;
@@ -1498,19 +1517,15 @@ async function ensureNumericIdTables(moment) {
 }
 
 /**
- * What the running syncthing processes resolve owners against, read through
- * each process's own view of the filesystem.
+ * What the syncthing processes running in the host's PID namespace resolve
+ * owners against, read through each process's own view of the filesystem.
  * @returns {Promise<'numeric'|'names'|'absent'|'unknown'>} numeric when every
  *   process's passwd and group are this node's numeric id tables, names when
  *   any process's are not, absent when none runs, unknown when the answer
  *   could not be read.
  */
 async function syncthingOwnerView() {
-  const { stdout: pidList } = await serviceHelper.runCommand('pgrep', {
-    params: ['-x', 'syncthing'],
-    logError: false,
-  });
-  const pids = (pidList ?? '').split('\n').map((pid) => pid.trim()).filter(Boolean);
+  const pids = await hostSyncthingPids();
   if (!pids.length) return 'absent';
 
   // A bind mount is the file itself: same device, same inode.

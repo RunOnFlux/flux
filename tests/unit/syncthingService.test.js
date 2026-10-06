@@ -49,6 +49,50 @@ function advanceMonotonic(ms) {
   return () => { process.hrtime.bigint = real; };
 }
 
+const HOST_SYNCTHING = ['-x', 'syncthing', '--ns', '1', '--nslist', 'pid'];
+
+/**
+ * runCommand's pgrep, pkill and stat over a host running its own syncthing
+ * and an app container running another, matched as procps matches: the
+ * namespace match keeps the host's processes, and as a user it can read no
+ * root process's namespace and keeps none. The host's syncthing sees the
+ * numeric id tables; the container's sees its own passwd and group.
+ * @returns {{runCommand: Function, alive: Function}}
+ */
+function hostAndContainerSyncthing() {
+  const processes = [
+    { pid: '4242', hostNamespace: true, alive: true },
+    { pid: '5150', hostNamespace: false, alive: true },
+  ];
+
+  function matched({ runAsRoot, params }) {
+    const byNamespace = params.includes('--ns');
+    return processes.filter((proc) => proc.alive && (!byNamespace || (runAsRoot && proc.hostNamespace)));
+  }
+
+  function identity(filePath) {
+    const inContainer = filePath.startsWith('/proc/5150/');
+    if (filePath.endsWith('passwd')) return inContainer ? '56:1' : '8:100';
+    return inContainer ? '56:2' : '8:101';
+  }
+
+  async function runCommand(cmd, options) {
+    if (cmd === 'pgrep') return { stdout: matched(options).map((proc) => `${proc.pid}\n`).join('') };
+    if (cmd === 'pkill') {
+      matched(options).forEach((proc) => { proc.alive = false; });
+      return { error: null };
+    }
+    if (cmd === 'stat') return { stdout: options.params.slice(3).map(identity).join('\n') };
+    return { error: null };
+  }
+
+  function alive() {
+    return processes.filter((proc) => proc.alive).map((proc) => proc.pid);
+  }
+
+  return { runCommand, alive };
+}
+
 describe('syncthingService tests', () => {
   // The gui config carries syncthing's apikey - the credential that authenticates
   // every syncthing call on this node - so these ask for fluxteam where their
@@ -1050,8 +1094,8 @@ describe('syncthingService tests', () => {
       await promise;
     });
 
-    const TERM = { runAsRoot: true, logError: false, params: ['-x', 'syncthing'] };
-    const KILL = { runAsRoot: true, logError: false, params: ['-KILL', '-x', 'syncthing'] };
+    const TERM = { runAsRoot: true, logError: false, params: HOST_SYNCTHING };
+    const KILL = { runAsRoot: true, logError: false, params: ['-KILL', ...HOST_SYNCTHING] };
     // pgrep answers running until `exitAfter` checks have been made.
     const syncthingExitsAfter = (exitAfter) => {
       let checks = 0;
@@ -1067,7 +1111,7 @@ describe('syncthingService tests', () => {
 
       await syncthingService.stopSyncthing();
 
-      sinon.assert.calledOnceWithExactly(runCmdStub, 'pgrep', { params: ['-x', 'syncthing'], logError: false });
+      sinon.assert.calledOnceWithExactly(runCmdStub, 'pgrep', { runAsRoot: true, params: HOST_SYNCTHING, logError: false });
     });
 
     it('returns once syncthing exits after SIGTERM, sending no SIGKILL', async () => {
@@ -1106,6 +1150,20 @@ describe('syncthingService tests', () => {
       );
       sinon.assert.calledWithMatch(warnSpy, /still running 15s after SIGTERM; sending SIGKILL/);
       sinon.assert.neverCalledWith(runCmdStub, 'kill');
+    });
+
+    it('stops the host\'s syncthing and leaves an app container\'s running', async () => {
+      const clock = sinon.useFakeTimers();
+      const host = hostAndContainerSyncthing();
+      runCmdStub.callsFake(host.runCommand);
+
+      const promise = syncthingService.stopSyncthing().then(() => null, (error) => error);
+      await clock.tickAsync(25000);
+      const error = await promise;
+
+      expect(error).to.equal(null);
+      expect(host.alive()).to.deep.equal(['5150']);
+      sinon.assert.neverCalledWith(runCmdStub, 'pkill', KILL);
     });
 
     it('throws when syncthing is still running after SIGKILL, so nothing is started beside it', async () => {
@@ -1327,7 +1385,7 @@ describe('syncthingService tests', () => {
       await clock.tickAsync(6000);
       await promise;
 
-      sinon.assert.calledWithExactly(runCmdStub, 'pkill', { runAsRoot: true, logError: false, params: ['-x', 'syncthing'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'pkill', { runAsRoot: true, logError: false, params: HOST_SYNCTHING });
     });
 
     it('should install syncthing if there is a problem with the service', async () => {
@@ -1653,6 +1711,16 @@ describe('syncthingService tests', () => {
         sinon.assert.calledOnce(spawnStub);
       });
 
+      it('leaves the host\'s syncthing alone when an app container runs a syncthing that sees its own names', async () => {
+        runCmdStub.callsFake(hostAndContainerSyncthing().runCommand);
+
+        await syncthingService.runSyncthingSentinel();
+
+        sinon.assert.neverCalledWith(runCmdStub, 'pkill');
+        sinon.assert.notCalled(spawnStub);
+        sinon.assert.calledWith(publishStub, 'syncthing:ownersByNumber');
+      });
+
       it('leaves a running syncthing alone when what it sees cannot be read', async () => {
         runCmdStub.callsFake(async (cmd, options) => {
           if (cmd === 'pgrep' && options.params[0] === '-x') return { stdout: pids };
@@ -1846,6 +1914,17 @@ describe('syncthingService tests', () => {
 
     it('writes ownership while every syncthing process has the tables as its passwd and group', async () => {
       identities = '8:100\n8:101\n8:100\n8:101\n';
+
+      const response = await syncthingService.adjustConfigFolders('put', [
+        { id: 'fluxb_app', type: 'sendreceive', syncOwnership: true },
+      ]);
+
+      expect(response.status).to.equal('success');
+      sinon.assert.calledOnce(fakeInstance.put);
+    });
+
+    it('writes ownership while an app container runs a syncthing that sees its own names', async () => {
+      serviceHelper.runCommand.callsFake(hostAndContainerSyncthing().runCommand);
 
       const response = await syncthingService.adjustConfigFolders('put', [
         { id: 'fluxb_app', type: 'sendreceive', syncOwnership: true },
