@@ -16,7 +16,9 @@
  *
  * Within a source, IPv4 and IPv6 are queried separately, and a source that returns addresses
  * for either family answers with them. A router that answers AAAA queries with SERVFAIL
- * therefore leaves a hostname with its IPv4 addresses instead of without any.
+ * therefore leaves a hostname with its IPv4 addresses instead of without any. Once one family
+ * has answered with addresses, the other is waited for only RESOLUTION_DELAY_MS, so a router
+ * that never answers AAAA queries costs a lookup that delay, not the query timeout.
  *
  * The first two sources are queried directly and never read /etc/hosts.
  *
@@ -45,6 +47,11 @@ const FAMILIES_IN_ORDER = DNS_RESULT_ORDER === 'ipv6first' ? [6, 4] : [4, 6];
 // unlike every other error, which says the query itself failed.
 const NO_ADDRESS_CODES = new Set([dns.NODATA, dns.NOTFOUND]);
 
+// How long a resolver waits for the other family once one family has answered with addresses:
+// the Resolution Delay of Happy Eyeballs v2 (RFC 8305 section 3). A server that never answers
+// one family's query then costs a lookup this long, not the resolver's query timeout.
+const RESOLUTION_DELAY_MS = 50;
+
 /**
  * @param {dns.promises.Resolver} resolver
  * @param {string} hostname
@@ -64,6 +71,31 @@ async function queryFamily(resolver, hostname, family) {
 }
 
 /**
+ * The families' results once every query has settled, or once RESOLUTION_DELAY_MS has passed
+ * since the first query that answered with addresses, whichever is sooner.
+ * @param {Array<Promise<{addresses: Array<{address: string, family: number}>, failed: boolean}>>} queries
+ * @returns {Promise<Array<{addresses: Array<{address: string, family: number}>, failed: boolean}|null>>}
+ *   Index-aligned with queries; null for a query still unsettled when the delay ran out.
+ */
+function settleWithResolutionDelay(queries) {
+  return new Promise((resolve) => {
+    const results = queries.map(() => null);
+    let unsettled = queries.length;
+    let delay = null;
+    const finish = () => {
+      clearTimeout(delay);
+      resolve([...results]);
+    };
+    queries.forEach((query, index) => query.then((result) => {
+      results[index] = result;
+      unsettled -= 1;
+      if (!unsettled) finish();
+      else if (result.addresses.length && !delay) delay = setTimeout(finish, RESOLUTION_DELAY_MS);
+    }));
+  });
+}
+
+/**
  * @param {dns.promises.Resolver} resolver
  * @param {string} hostname
  * @param {Array<4|6>} families In the order the addresses are returned.
@@ -71,7 +103,9 @@ async function queryFamily(resolver, hostname, family) {
  *   failed: no address, and at least one family's query errored.
  */
 async function queryResolver(resolver, hostname, families) {
-  const results = await Promise.all(families.map((family) => queryFamily(resolver, hostname, family)));
+  const results = (await settleWithResolutionDelay(
+    families.map((family) => queryFamily(resolver, hostname, family)),
+  )).filter(Boolean);
   const addresses = results.flatMap((result) => result.addresses);
   return { addresses, failed: !addresses.length && results.some((result) => result.failed) };
 }
@@ -142,6 +176,7 @@ function install() {
 
 module.exports = {
   PUBLIC_DNS_SERVERS,
+  RESOLUTION_DELAY_MS,
   install,
   lookup,
 };

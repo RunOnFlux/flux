@@ -10,6 +10,9 @@ const dnsLookup = require('../../ZelBack/src/services/utils/dnsLookup');
 // A hostname no real resolver answers for, so only the stubbed sources can resolve it.
 const HOSTNAME = 'flux-dns-lookup-test.invalid';
 
+// A query the server never answers.
+const NO_REPLY = 'NO_REPLY';
+
 function dnsError(code, syscall) {
   const error = new Error(`${syscall} ${code} ${HOSTNAME}`);
   error.code = code;
@@ -43,6 +46,10 @@ describe('dnsLookup tests', () => {
     const source = sourceOf(resolver);
     asked.push(`${source}:${family}`);
     const answer = answers[source][family];
+    if (answer === NO_REPLY) return new Promise(() => {});
+    if (answer && answer.afterMs !== undefined) {
+      return new Promise((resolve) => { setTimeout(() => resolve(answer.addresses), answer.afterMs); });
+    }
     if (Array.isArray(answer)) return Promise.resolve(answer);
     return Promise.reject(dnsError(answer, syscall));
   }
@@ -131,6 +138,64 @@ describe('dnsLookup tests', () => {
 
       expect(caught.code).to.equal('ENOTFOUND');
       expect(asked).to.have.members(['system:4', 'system:6', 'os']);
+    });
+
+    describe('a family that answers late or never', () => {
+      let clock;
+
+      beforeEach(() => {
+        clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      });
+
+      afterEach(() => {
+        clock.restore();
+      });
+
+      it('should answer with the IPv4 addresses once the delay passes when the AAAA query is never answered', async () => {
+        answers.system[4] = ['93.184.216.34'];
+        answers.system[6] = NO_REPLY;
+
+        const lookup = lookupAsync(HOSTNAME, { all: true });
+        await clock.tickAsync(dnsLookup.RESOLUTION_DELAY_MS);
+
+        expect(await lookup).to.deep.equal([{ address: '93.184.216.34', family: 4 }]);
+      });
+
+      it('should not answer before the delay has passed', async () => {
+        answers.system[4] = ['93.184.216.34'];
+        answers.system[6] = NO_REPLY;
+        let settled = false;
+
+        lookupAsync(HOSTNAME, { all: true }).then(() => { settled = true; });
+        await clock.tickAsync(dnsLookup.RESOLUTION_DELAY_MS - 1);
+
+        expect(settled).to.equal(false);
+      });
+
+      it('should include the IPv6 addresses that answer within the delay', async () => {
+        answers.system[4] = ['93.184.216.34'];
+        answers.system[6] = { afterMs: dnsLookup.RESOLUTION_DELAY_MS - 1, addresses: ['2606:2800:220:1::1'] };
+
+        const lookup = lookupAsync(HOSTNAME, { all: true });
+        await clock.tickAsync(dnsLookup.RESOLUTION_DELAY_MS);
+
+        expect(await lookup).to.deep.equal([
+          { address: '93.184.216.34', family: 4 },
+          { address: '2606:2800:220:1::1', family: 6 },
+        ]);
+      });
+
+      it('should wait for the other family when the first has no address', async () => {
+        // The delay starts only once a family has addresses: a family that answered empty
+        // leaves the lookup waiting on the one that might have them.
+        answers.system[4] = { afterMs: 1000, addresses: ['93.184.216.34'] };
+        answers.system[6] = 'ENODATA';
+
+        const lookup = lookupAsync(HOSTNAME, { all: true });
+        await clock.tickAsync(1000);
+
+        expect(await lookup).to.deep.equal([{ address: '93.184.216.34', family: 4 }]);
+      });
     });
 
     it('should fall back to the operating system resolver when no DNS server has an address', async () => {
