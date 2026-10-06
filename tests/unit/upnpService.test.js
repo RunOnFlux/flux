@@ -3,10 +3,10 @@
 const chai = require('chai');
 const natUpnp = require('@runonflux/nat-upnp');
 const sinon = require('sinon');
-const util = require('util');
 const proxyquire = require('proxyquire');
 const log = require('../../ZelBack/src/lib/log');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 
 const { expect } = chai;
 
@@ -44,17 +44,29 @@ describe('upnpService tests', () => {
       sinon.restore();
     });
 
-    it('should allow UDP in from the router and write no outbound rule', async () => {
-      const commands = [];
-      sinon.stub(util, 'promisify').returns(async (cmd) => {
-        commands.push(cmd);
-        return cmd.includes('grep Status') ? 'Status: active' : '';
-      });
+    it('should allow UDP in from the router and write no outbound rule, each ufw command bounded', async () => {
+      const runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '', stderr: '' });
+      runCommandStub.withArgs('ufw', sinon.match({ params: ['status'] })).resolves({ error: null, stdout: 'Status: active\n', stderr: '' });
 
       await upnpService.adjustFirewallForUPNP();
 
-      expect(commands).to.include('LANG="en_US.UTF-8" && sudo ufw insert 1 allow from 192.168.1.1 to any proto udp > /dev/null 2>&1');
-      expect(commands.filter((cmd) => /\bout\b/.test(cmd))).to.deep.equal([]);
+      const calls = runCommandStub.getCalls().filter((call) => call.args[0] === 'ufw');
+      const params = calls.map((call) => call.args[1].params.join(' '));
+      expect(params).to.include('insert 1 allow from 192.168.1.1 to any proto udp');
+      expect(params).to.include('insert 1 allow in proto tcp from any to 192.168.1.1 port 16137');
+      expect(params.filter((rule) => /\bout\b/.test(rule))).to.deep.equal([]);
+      calls.forEach((call) => expect(call.args[1]).to.include({ runAsRoot: true, timeout: 30000 }));
+    });
+
+    it('should stop when ufw is locked by another ufw command', async () => {
+      const runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: Object.assign(new Error('killed'), { killed: true }), stdout: '', stderr: '' });
+      runCommandStub.withArgs('ufw', sinon.match({ params: ['status'] })).resolves({ error: null, stdout: 'Status: active\n', stderr: '' });
+      const errorSpy = sinon.spy(log, 'error');
+
+      await upnpService.adjustFirewallForUPNP();
+
+      expect(runCommandStub.getCalls().filter((call) => call.args[0] === 'ufw' && call.args[1].params[0] === 'insert')).to.have.lengthOf(1);
+      sinon.assert.calledWith(errorSpy, 'Firewall not adjusted for UPNP: ufw is locked by another ufw command');
     });
   });
 

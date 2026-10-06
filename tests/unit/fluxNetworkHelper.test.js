@@ -24,7 +24,6 @@ const chaiAsPromised = require('chai-as-promised');
 const fs = require('fs').promises;
 const os = require('os');
 const crypto = require('crypto');
-const util = require('util');
 const config = require('config');
 const log = require('../../ZelBack/src/lib/log');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
@@ -2434,84 +2433,82 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
+  // Every ufw command runs through the one bounded runner: `ufw` as root, its
+  // arguments as given, and a wait of at most 30 s on ufw's lock.
+  const ufwRun = (params) => sinon.match({ runAsRoot: true, params, timeout: 30000 });
+  const lockTimedOut = () => ({ error: Object.assign(new Error('killed'), { killed: true, signal: 'SIGTERM' }), stdout: '', stderr: '' });
+
   describe('allowPort tests', () => {
-    const port = '12345';
+    let runCommandStub;
+    const updated = 'Rules updated\nRules updated (v6)\n';
+    beforeEach(() => {
+      runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: updated, stderr: '' });
+    });
     afterEach(() => {
       sinon.restore();
     });
 
-    it('should properly enable a new port in string format', async () => {
-      // Mock util.promisify to return a function that simulates UFW command success
-      sinon.stub(util, 'promisify').returns(() => Promise.resolve('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n'));
-
-      const result = await fluxNetworkHelper.allowPort(port);
-
-      expect(result.status).to.eql(true);
-      expect(result.message).to.eql('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n');
-    }).timeout(5000);
-
-    it('should properly enable a new port in number format', async () => {
-      // Mock util.promisify to return a function that simulates UFW command success
-      sinon.stub(util, 'promisify').returns(() => Promise.resolve('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n'));
-
-      const result = await fluxNetworkHelper.allowPort(+port);
-
-      expect(result.status).to.eql(true);
-      expect(result.message).to.eql('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n');
-    }).timeout(5000);
-
-    it('should skip updating if policy already exists', async () => {
-      // Mock util.promisify to return a function that simulates UFW command "existing"
-      sinon.stub(util, 'promisify').returns(() => Promise.resolve('existing'));
-
-      const result = await fluxNetworkHelper.allowPort(port);
-
-      expect(result.status).to.eql(true);
-      expect(result.message).to.eql('existing');
-    }).timeout(5000);
-
-    it('should return false with specific message error if the parameter is not a proper number', async () => {
-      const result = await fluxNetworkHelper.allowPort('test');
-      expect(result.status).to.eql(false);
-      expect(result.message).to.eql('Port needs to be a number');
+    it('should allow the port inbound, in string or number format', async () => {
+      expect(await fluxNetworkHelper.allowPort('12345')).to.eql({ status: true, message: updated });
+      expect(await fluxNetworkHelper.allowPort(12345)).to.eql({ status: true, message: updated });
+      sinon.assert.alwaysCalledWith(runCommandStub, 'ufw', ufwRun(['allow', '12345']));
     });
 
-    it('should return status: false if the command response does not include words "udpdated", "existing" or "added"', async () => {
-      sinon.stub(util, 'promisify').returns(() => 'testing');
+    it('should skip updating if the rule already exists', async () => {
+      runCommandStub.resolves({ error: null, stdout: 'Skipping adding existing rule\n', stderr: '' });
 
-      const result = await fluxNetworkHelper.allowPort(12345);
+      expect(await fluxNetworkHelper.allowPort(12345)).to.eql({ status: true, message: 'existing' });
+    });
 
-      expect(result.status).to.eql(false);
-    }).timeout(5000);
+    it('should return false with specific message error if the parameter is not a proper number', async () => {
+      expect(await fluxNetworkHelper.allowPort('test')).to.eql({ status: false, message: 'Port needs to be a number' });
+      sinon.assert.notCalled(runCommandStub);
+    });
+
+    it('should return status: false if the command response does not include words "updated", "existing" or "added"', async () => {
+      runCommandStub.resolves({ error: null, stdout: 'testing', stderr: '' });
+
+      expect((await fluxNetworkHelper.allowPort(12345)).status).to.eql(false);
+    });
+
+    it('should return status: false when ufw is locked by another ufw command', async () => {
+      runCommandStub.resolves(lockTimedOut());
+
+      expect(await fluxNetworkHelper.allowPort(12345)).to.eql({ status: false, message: 'ufw is locked by another ufw command' });
+    });
   });
 
   describe('port rule commands', () => {
-    let command;
+    let runCommandStub;
     beforeEach(() => {
-      sinon.stub(util, 'promisify').returns((cmd) => {
-        command = cmd;
-        return Promise.resolve('Rules updated\nRule deleted');
-      });
+      runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: 'Rule deleted\n', stderr: '' });
     });
     afterEach(() => {
       sinon.restore();
-    });
-
-    it('should allow a port inbound only', async () => {
-      await fluxNetworkHelper.allowPort(31000);
-      expect(command).to.equal('LANG="en_US.UTF-8" && sudo ufw allow 31000');
     });
 
     it('should deny a port inbound only', async () => {
       await fluxNetworkHelper.denyPort(31000);
-      expect(command).to.equal('LANG="en_US.UTF-8" && sudo ufw deny 31000');
+      sinon.assert.calledOnceWithExactly(runCommandStub, 'ufw', ufwRun(['deny', '31000']));
     });
 
     it('should delete only the inbound allow rule of a port', async () => {
-      await fluxNetworkHelper.deleteAllowPortRule(31000);
-      expect(command).to.equal('LANG="en_US.UTF-8" && sudo ufw delete allow 31000');
+      expect((await fluxNetworkHelper.deleteAllowPortRule(31000)).status).to.equal(true);
+      sinon.assert.calledOnceWithExactly(runCommandStub, 'ufw', ufwRun(['delete', 'allow', '31000']));
     });
 
+    it('should count a rule already gone as deleted', async () => {
+      runCommandStub.resolves({ error: null, stdout: 'Could not delete non-existent rule\n', stderr: '' });
+
+      expect((await fluxNetworkHelper.deleteAllowPortRule(31000)).status).to.equal(true);
+    });
+
+    it('should report a delete that ran out of the lock wait as not done', async () => {
+      runCommandStub.resolves(lockTimedOut());
+
+      expect(await fluxNetworkHelper.deleteAllowPortRule(31000)).to.eql({ status: false, message: 'ufw is locked by another ufw command' });
+      expect(await fluxNetworkHelper.denyPort(31000)).to.eql({ status: false, message: 'ufw is locked by another ufw command' });
+    });
   });
 
   describe('purgeUFW tests', () => {
@@ -2520,73 +2517,55 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should delete only the inbound deny rule of each denied port, and no outbound rule', async () => {
-      const commands = [];
-      sinon.stub(util, 'promisify').returns(async (cmd) => {
-        commands.push(cmd);
-        if (cmd.includes('grep Status')) return 'Status: active';
-        if (cmd.includes("grep 'DENY'")) return '31000                      DENY        Anywhere\n';
-        return 'Rule deleted';
+      const runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: 'Rule deleted\n', stderr: '' });
+      runCommandStub.withArgs('ufw', ufwRun(['status'])).resolves({
+        error: null,
+        stdout: 'Status: active\n\nTo                         Action      From\n--                         ------      ----\n31000                      DENY        Anywhere\n16127                      ALLOW       Anywhere\n',
+        stderr: '',
       });
 
       await fluxNetworkHelper.purgeUFW();
 
-      expect(commands).to.include('LANG="en_US.UTF-8" && sudo ufw delete deny 31000');
-      expect(commands.filter((cmd) => /\bout\b/.test(cmd))).to.deep.equal([]);
+      sinon.assert.calledWith(runCommandStub, 'ufw', ufwRun(['delete', 'deny', '31000']));
+      const params = runCommandStub.getCalls().filter((call) => call.args[0] === 'ufw').map((call) => call.args[1].params);
+      expect(params.filter((args) => args.includes('out')), 'outbound rules touched').to.deep.equal([]);
+      expect(params.filter((args) => args.includes('16127')), 'an allow rule touched').to.deep.equal([]);
     });
   });
 
   describe('denyPort tests', () => {
     const port = '32111';
+    const updated = 'Rules updated\nRules updated (v6)\n';
+    let runCommandStub;
 
-    beforeEach(async () => {
-      // Mock util.promisify for beforeEach setup
-      sinon.stub(util, 'promisify').returns(() => Promise.resolve('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n'));
+    beforeEach(() => {
+      runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: updated, stderr: '' });
     });
 
     afterEach(() => {
       sinon.restore();
     });
 
-    it('should deny port given in a string format', async () => {
-      const result = await fluxNetworkHelper.denyPort(port);
-
-      expect(result.status).to.eql(true);
-      expect(result.message).to.eql('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n');
-    }).timeout(5000);
-
-    it('should deny port given in a number format', async () => {
-      const result = await fluxNetworkHelper.denyPort(+port);
-
-      expect(result.status).to.eql(true);
-      expect(result.message).to.eql('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n');
-    }).timeout(5000);
-
-    it('should skip updating if policy already exists', async () => {
-      // Restore and re-stub to return "existing" for this test
-      sinon.restore();
-      sinon.stub(util, 'promisify').returns(() => Promise.resolve('existing'));
-
-      const result = await fluxNetworkHelper.denyPort(port);
-
-      expect(result.status).to.eql(true);
-      expect(result.message).to.eql('existing');
-    }).timeout(5000);
-
-    it('should return false with specific message error if the parameter is not a proper number', async () => {
-      const result = await fluxNetworkHelper.denyPort('test');
-      expect(result.status).to.eql(false);
-      expect(result.message).to.eql('Port needs to be a number');
+    it('should deny port given in a string or number format', async () => {
+      expect(await fluxNetworkHelper.denyPort(port)).to.eql({ status: true, message: updated });
+      expect(await fluxNetworkHelper.denyPort(+port)).to.eql({ status: true, message: updated });
     });
 
-    it('should return status: false if the command response does not include words "udpdated", "existing" or "added"', async () => {
-      // Restore and re-stub to return a different value for this test
-      sinon.restore();
-      sinon.stub(util, 'promisify').returns(() => 'testing');
+    it('should skip updating if policy already exists', async () => {
+      runCommandStub.resolves({ error: null, stdout: 'Skipping adding existing rule\n', stderr: '' });
 
-      const result = await fluxNetworkHelper.denyPort(12345);
+      expect(await fluxNetworkHelper.denyPort(port)).to.eql({ status: true, message: 'existing' });
+    });
 
-      expect(result.status).to.eql(false);
-    }).timeout(5000);
+    it('should return false with specific message error if the parameter is not a proper number', async () => {
+      expect(await fluxNetworkHelper.denyPort('test')).to.eql({ status: false, message: 'Port needs to be a number' });
+    });
+
+    it('should return status: false if the command response does not include words "updated", "existing" or "added"', async () => {
+      runCommandStub.resolves({ error: null, stdout: 'testing', stderr: '' });
+
+      expect((await fluxNetworkHelper.denyPort(12345)).status).to.eql(false);
+    });
   });
 
   describe('allowPortApi tests', () => {
@@ -2601,8 +2580,7 @@ describe('fluxNetworkHelper tests', () => {
 
     beforeEach(async () => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      // Mock util.promisify for beforeEach setup
-      sinon.stub(util, 'promisify').returns(() => Promise.resolve('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n'));
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: 'Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n', stderr: '' });
     });
 
     afterEach(() => {
@@ -2685,7 +2663,7 @@ describe('fluxNetworkHelper tests', () => {
       const errorMessage = 'This is error message';
       // Restore and re-stub to return error message for this test
       sinon.restore();
-      sinon.stub(util, 'promisify').returns(() => errorMessage);
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: errorMessage, stderr: '' });
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       verifyPrivilegeStub.returns(true);
       const res = generateResponse();
@@ -2711,10 +2689,9 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('isFirewallActive tests', () => {
-    let utilStub;
-    let funcStub;
+    let runCommandStub;
     beforeEach(() => {
-      utilStub = sinon.stub(util, 'promisify');
+      runCommandStub = sinon.stub(serviceHelper, 'runCommand');
     });
 
     afterEach(() => {
@@ -2722,203 +2699,182 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return true if firewall is active', async () => {
-      funcStub = sinon.fake(() => 'Status: active');
-      utilStub.returns(funcStub);
+      runCommandStub.resolves({ error: null, stdout: 'Status: active\n', stderr: '' });
 
-      const isFirewallActive = await fluxNetworkHelper.isFirewallActive();
-
-      expect(isFirewallActive).to.be.true;
-      sinon.assert.calledOnceWithExactly(funcStub, 'LANG="en_US.UTF-8" && sudo ufw status | grep Status');
+      expect(await fluxNetworkHelper.isFirewallActive()).to.be.true;
+      sinon.assert.calledOnceWithExactly(runCommandStub, 'ufw', ufwRun(['status']));
     });
 
     it('should return false if firewall is not active', async () => {
-      funcStub = sinon.fake(() => 'Status: not active');
-      utilStub.returns(funcStub);
+      runCommandStub.resolves({ error: null, stdout: 'Status: inactive\n', stderr: '' });
 
-      const isFirewallActive = await fluxNetworkHelper.isFirewallActive();
-
-      expect(isFirewallActive).to.be.false;
-      sinon.assert.calledOnceWithExactly(funcStub, 'LANG="en_US.UTF-8" && sudo ufw status | grep Status');
+      expect(await fluxNetworkHelper.isFirewallActive()).to.be.false;
     });
 
-    it('should return false command execution throws error', async () => {
-      funcStub = sinon.fake.throws();
-      utilStub.returns(funcStub);
+    it('should return false when ufw cannot be run', async () => {
+      runCommandStub.resolves({ error: new Error('sudo: ufw: command not found'), stdout: '', stderr: '' });
 
-      const isFirewallActive = await fluxNetworkHelper.isFirewallActive();
+      expect(await fluxNetworkHelper.isFirewallActive()).to.be.false;
+    });
 
-      expect(isFirewallActive).to.be.false;
-      sinon.assert.calledOnceWithExactly(funcStub, 'LANG="en_US.UTF-8" && sudo ufw status | grep Status');
+    it('should answer whether ufw is enabled when ufw is locked by another ufw command', async () => {
+      runCommandStub.resolves(lockTimedOut());
+      const readFile = sinon.stub(fs, 'readFile');
+      readFile.withArgs('/etc/ufw/ufw.conf', 'utf8').resolves('ENABLED=yes\n');
+
+      expect(await fluxNetworkHelper.isFirewallActive()).to.be.true;
+      readFile.withArgs('/etc/ufw/ufw.conf', 'utf8').resolves('ENABLED=no\n');
+      expect(await fluxNetworkHelper.isFirewallActive()).to.be.false;
     });
   });
 
   describe('adjustFirewall tests', () => {
-    const ports = [16127, 16126, 16128, 16129, 80, 443, 16125, 11, 13];
-    const ufwCall = (params) => sinon.match({ runAsRoot: true, params });
+    // api, home, ssl and syncthing ports, http(s), fluxd, then every flux api port
+    const ports = () => ['16127', '16126', '16128', '16129', '80', '443', '16125', ...config.server.allowedPorts.map(String)];
+    const applierCall = sinon.match({ runAsRoot: true, params: sinon.match((params) => /helpers\/ufw\/apply-node-firewall\.py$/.test(params[0])) });
     let runCommandStub;
-    let logSpy;
     let publishStub;
+    let warnSpy;
 
-    // Whether ufw is enabled is read from ufw.conf, never asked of ufw.
-    const firewallStatus = (status) => {
+    const firewallEnabled = (enabled) => {
       const readFile = sinon.stub(fs, 'readFile');
       readFile.callThrough();
-      readFile.withArgs('/etc/ufw/ufw.conf', 'utf8').resolves(status === 'Status: active' ? 'ENABLED=yes\nLOGLEVEL=low\n' : 'ENABLED=no\nLOGLEVEL=low\n');
+      readFile.withArgs('/etc/ufw/ufw.conf', 'utf8').resolves(enabled ? 'ENABLED=yes\nLOGLEVEL=low\n' : 'ENABLED=no\nLOGLEVEL=low\n');
     };
+    const applier = (result) => runCommandStub.withArgs('python3', applierCall).resolves(result);
+    const answered = (answer) => applier({ error: null, stdout: `${JSON.stringify({ failed: [], reason: null, ...answer })}\n`, stderr: '' });
+    const appliedRules = () => JSON.parse(runCommandStub.getCalls().find((call) => call.args[0] === 'python3').args[1].params[4]);
+    const ufwCalls = () => runCommandStub.getCalls().filter((call) => call.args[0] === 'ufw').map((call) => call.args[1].params.join(' '));
 
     beforeEach(() => {
       runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '', stderr: '' });
       runCommandStub.withArgs('ip').resolves({ error: null, stdout: 'default via 192.168.1.1 dev eth0\n10.0.0.0/8 dev eth1\n', stderr: '' });
-      logSpy = sinon.spy(log, 'info');
       publishStub = sinon.stub(fluxEventBus, 'publish');
+      warnSpy = sinon.spy(log, 'warn');
     });
 
     afterEach(() => {
       sinon.restore();
     });
 
-    it('should allow every flux port in, and write no outbound rule', async () => {
-      firewallStatus('Status: active');
+    it('should hand every rule of the node to the applier in one go, as root, waiting at most 30 s on ufw\'s lock', async () => {
+      firewallEnabled(true);
+      answered({ removed: 0, applied: true });
 
       await fluxNetworkHelper.adjustFirewall();
 
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of ports) {
-        sinon.assert.calledWith(runCommandStub, 'ufw', ufwCall(['allow', String(port)]));
-        sinon.assert.calledWith(logSpy, `Firewall adjusted for port ${port}`);
-      }
-      sinon.assert.neverCalledWith(runCommandStub, 'ufw', sinon.match({ params: sinon.match.some(sinon.match((value) => value === 'out')) }));
+      sinon.assert.calledOnce(runCommandStub.withArgs('python3', applierCall));
+      const [, options] = runCommandStub.getCalls().find((call) => call.args[0] === 'python3').args;
+      expect(options.params.slice(1, 4)).to.deep.equal(['--wait', '30', '--rules']);
+      expect(appliedRules()).to.deep.equal([
+        ['delete', 'allow', 'in', 'proto', 'udp', 'to', 'any', 'port', '53'],
+        ['insert', '1', 'limit', 'to', 'any', 'app', 'OpenSSH'],
+        ['insert', '1', 'allow', 'from', '192.168.1.1', 'to', 'any', 'proto', 'udp'],
+        ...ports().map((port) => ['allow', port]),
+        ['allow', 'from', '172.23.0.0/16', 'proto', 'tcp', 'to', '169.254.43.43/32', 'port', '16101'],
+      ]);
+      expect(ufwCalls(), 'no ufw command of its own').to.deep.equal([]);
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0, rulesFailed: [] });
     });
 
-    const removerCall = sinon.match({ runAsRoot: true, params: [sinon.match(/helpers\/ufw\/remove-outbound-rules\.py$/), '--wait', '30'] });
-    const remover = (result) => runCommandStub.withArgs('python3', removerCall).resolves(result);
-    const lockedError = () => Object.assign(new Error('command failed'), { code: 75 });
-
-    it('should remove the outbound rules as root before any other firewall change, and reload once', async () => {
-      firewallStatus('Status: active');
-      remover({ error: null, stdout: '{"removed": 4}\n', stderr: '' });
+    it('should write no outbound rule and never set a default policy', async () => {
+      firewallEnabled(true);
+      answered({ removed: 0, applied: true });
 
       await fluxNetworkHelper.adjustFirewall();
 
-      const calls = runCommandStub.getCalls().filter((call) => ['python3', 'ufw'].includes(call.args[0]));
-      expect(calls[0].args[0]).to.equal('python3');
-      sinon.assert.calledWithMatch(runCommandStub, 'python3', removerCall);
-      expect(calls[1].args[1].params).to.deep.equal(['reload']);
-      expect(runCommandStub.getCalls().filter((call) => call.args[0] === 'ufw' && call.args[1].params[0] === 'reload')).to.have.lengthOf(1);
-      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 4 });
+      expect(appliedRules().filter((rule) => rule.includes('out') || rule[0] === 'default')).to.deep.equal([]);
     });
 
-    it('should not reload when there was no outbound rule to remove', async () => {
-      firewallStatus('Status: active');
-      remover({ error: null, stdout: '{"removed": 0}\n', stderr: '' });
+    it('should reload ufw once, through the bounded runner, when outbound rules were removed', async () => {
+      firewallEnabled(true);
+      answered({ removed: 4, applied: true });
 
       await fluxNetworkHelper.adjustFirewall();
 
-      sinon.assert.neverCalledWith(runCommandStub, 'ufw', ufwCall(['reload']));
-      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0 });
+      expect(ufwCalls()).to.deep.equal(['reload']);
+      sinon.assert.calledWith(runCommandStub, 'ufw', sinon.match({ runAsRoot: true, params: ['reload'], timeout: 30000 }));
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 4, rulesFailed: [] });
+    });
+
+    it('should report each rule ufw refused, but not a delete of a rule already gone', async () => {
+      firewallEnabled(true);
+      answered({
+        removed: 0,
+        applied: true,
+        failed: [
+          { rule: 'delete allow in proto udp to any port 53', error: 'Could not delete non-existent rule' },
+          { rule: 'insert 1 limit to any app OpenSSH', error: "ERROR: Could not find a profile matching 'OpenSSH'" },
+        ],
+      });
+
+      await fluxNetworkHelper.adjustFirewall();
+
+      sinon.assert.calledWith(warnSpy, "Firewall rule not applied: ufw insert 1 limit to any app OpenSSH: ERROR: Could not find a profile matching 'OpenSSH'");
+      sinon.assert.neverCalledWith(warnSpy, sinon.match(/port 53/));
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0, rulesFailed: ['insert 1 limit to any app OpenSSH'] });
     });
 
     it('should run no ufw command at all when another ufw command holds the lock', async () => {
       // Each would wait on the same lock for as long as it is held.
-      firewallStatus('Status: active');
-      remover({ error: lockedError(), stdout: '', stderr: 'ufw lock /run/ufw.lock not free within 30s' });
+      firewallEnabled(true);
+      applier({ error: Object.assign(new Error('command failed'), { code: 75 }), stdout: '', stderr: 'ufw lock /run/ufw.lock not free within 30s' });
       const errorSpy = sinon.spy(log, 'error');
 
       await fluxNetworkHelper.adjustFirewall();
 
-      sinon.assert.neverCalledWith(runCommandStub, 'ufw');
+      expect(ufwCalls()).to.deep.equal([]);
       sinon.assert.calledWith(errorSpy, 'Firewall not adjusted: ufw is locked by another ufw command');
       sinon.assert.calledOnceWithExactly(publishStub, 'firewall:locked', {});
     });
 
-    it('should still allow every flux port when the outbound rules could not be removed', async () => {
-      firewallStatus('Status: active');
-      remover({ error: Object.assign(new Error('command failed'), { code: 1 }), stdout: '', stderr: 'Traceback: no such file' });
-      const warnSpy = sinon.spy(log, 'warn');
+    it('should apply the rules one bounded ufw command each when ufw\'s library cannot be used', async () => {
+      firewallEnabled(true);
+      answered({ removed: 2, applied: false, reason: 'ufw library not usable: TypeError()' });
 
       await fluxNetworkHelper.adjustFirewall();
 
-      sinon.assert.calledWith(warnSpy, 'Firewall outbound rules not removed: Traceback: no such file');
-      sinon.assert.neverCalledWith(runCommandStub, 'ufw', ufwCall(['reload']));
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of ports) sinon.assert.calledWith(runCommandStub, 'ufw', ufwCall(['allow', String(port)]));
-      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0 });
+      const rules = appliedRules().map((rule) => rule.join(' '));
+      expect(ufwCalls()).to.deep.equal([...rules, 'reload']);
+      runCommandStub.getCalls().filter((call) => call.args[0] === 'ufw').forEach((call) => expect(call.args[1].timeout).to.equal(30000));
+      sinon.assert.calledWith(warnSpy, 'Firewall rules applied one ufw command each: ufw library not usable: TypeError()');
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 2, rulesFailed: [] });
     });
 
-    it('should bound every ufw command it runs by the lock wait', async () => {
-      firewallStatus('Status: active');
+    it('should apply the rules one ufw command each when the applier fails', async () => {
+      firewallEnabled(true);
+      applier({ error: Object.assign(new Error('command failed'), { code: 1 }), stdout: '', stderr: 'Traceback: no such file' });
 
       await fluxNetworkHelper.adjustFirewall();
 
-      const ufwCalls = runCommandStub.getCalls().filter((call) => call.args[0] === 'ufw');
-      expect(ufwCalls.length).to.be.above(0);
-      ufwCalls.forEach((call) => expect(call.args[1].timeout, `ufw ${call.args[1].params.join(' ')}`).to.equal(30000));
+      sinon.assert.calledWith(warnSpy, 'Firewall applier failed: Traceback: no such file');
+      expect(ufwCalls()).to.include('allow 16127');
+      expect(ufwCalls()).to.not.include('reload');
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0, rulesFailed: [] });
     });
 
     it('should stop at the first ufw command that outruns the lock wait, and report the firewall locked', async () => {
       // A ufw command waits on ufw's lock for as long as it is held: one killed
       // at the wait was waiting on it, and every later one would wait too.
-      firewallStatus('Status: active');
-      runCommandStub.withArgs('ufw', ufwCall(['allow', '16127'])).resolves({ error: Object.assign(new Error('killed'), { killed: true, signal: 'SIGTERM' }), stdout: '', stderr: '' });
+      firewallEnabled(true);
+      answered({ removed: 0, applied: false, reason: 'ufw library not usable: TypeError()' });
+      runCommandStub.withArgs('ufw', sinon.match({ params: ['allow', '16127'] })).resolves({ error: Object.assign(new Error('killed'), { killed: true, signal: 'SIGTERM' }), stdout: '', stderr: '' });
 
       await fluxNetworkHelper.adjustFirewall();
 
-      const ufwParams = runCommandStub.getCalls().filter((call) => call.args[0] === 'ufw').map((call) => call.args[1].params.join(' '));
-      expect(ufwParams[ufwParams.length - 1]).to.equal('allow 16127');
+      const calls = ufwCalls();
+      expect(calls[calls.length - 1]).to.equal('allow 16127');
       sinon.assert.calledOnceWithExactly(publishStub, 'firewall:locked', {});
       sinon.assert.neverCalledWith(publishStub, 'firewall:adjusted');
     });
 
-    it('should log the ports it could not allow', async () => {
-      firewallStatus('Status: active');
-      runCommandStub.withArgs('ufw', ufwCall(['allow', '16127'])).resolves({ error: new Error('ufw failed'), stdout: '', stderr: '' });
-
-      await fluxNetworkHelper.adjustFirewall();
-
-      sinon.assert.calledWith(logSpy, 'Failed to adjust Firewall for port 16127');
-      sinon.assert.calledWith(logSpy, 'Firewall adjusted for port 16126');
-    });
-
-    it('should still allow every flux port when an earlier rule fails', async () => {
-      firewallStatus('Status: active');
-      runCommandStub.withArgs('ufw', ufwCall(['insert', '1', 'limit', 'to', 'any', 'app', 'OpenSSH']))
-        .resolves({ error: new Error('ERROR: Could not find a profile matching \'OpenSSH\''), stdout: '', stderr: '' });
-
-      await fluxNetworkHelper.adjustFirewall();
-
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of ports) {
-        sinon.assert.calledWith(runCommandStub, 'ufw', ufwCall(['allow', String(port)]));
-        sinon.assert.calledWith(logSpy, `Firewall adjusted for port ${port}`);
-      }
-    });
-
-    it('should allow inbound UDP from the router named by the first route', async () => {
-      firewallStatus('Status: active');
-
-      await fluxNetworkHelper.adjustFirewall();
-
-      sinon.assert.calledWith(runCommandStub, 'ufw', ufwCall(['insert', '1', 'allow', 'from', '192.168.1.1', 'to', 'any', 'proto', 'udp']));
-    });
-
-    it('should never set a default policy', async () => {
-      firewallStatus('Status: active');
-
-      await fluxNetworkHelper.adjustFirewall();
-
-      sinon.assert.neverCalledWith(runCommandStub, 'ufw', sinon.match({ params: sinon.match.array.startsWith(['default']) }));
-    });
-
-    it('should change nothing when the firewall is not active', async () => {
-      firewallStatus('Status: inactive');
-      const promisifySpy = sinon.spy(util, 'promisify');
+    it('should change nothing, and ask ufw nothing, when the firewall is not enabled', async () => {
+      firewallEnabled(false);
 
       await fluxNetworkHelper.adjustFirewall();
 
       sinon.assert.neverCalledWith(runCommandStub, 'ufw');
       sinon.assert.neverCalledWith(runCommandStub, 'python3');
-      sinon.assert.notCalled(promisifySpy);
-      sinon.assert.calledWith(logSpy, 'Firewall is not active. Adjusting not applied');
       sinon.assert.notCalled(publishStub);
     });
   });

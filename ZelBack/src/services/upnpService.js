@@ -3,11 +3,10 @@ const natUpnp = require('@runonflux/nat-upnp');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
-const nodecmd = require('node-cmd');
 // eslint-disable-next-line import/no-extraneous-dependencies
-const util = require('util');
 
 const log = require('../lib/log');
+const ufw = require('./utils/ufw');
 const { Privilege, authOf } = require('./utils/privileges');
 
 const client = new natUpnp.Client();
@@ -34,26 +33,6 @@ function isUPNP() {
 }
 
 /**
- * To check if a firewall is active.
- * @returns {Promise<boolean>} True if a firewall is active. Otherwise false.
- */
-async function isFirewallActive() {
-  try {
-    const cmdAsync = util.promisify(nodecmd.run);
-    const execA = 'LANG="en_US.UTF-8" && sudo ufw status | grep Status';
-    const cmdresA = await cmdAsync(execA);
-    if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
-      return true;
-    }
-    return false;
-  } catch (error) {
-    // command ufw not found is the most likely reason
-    log.error(error);
-    return false;
-  }
-}
-
-/**
  * To adjust a firewall to allow comms between host and router.
  */
 async function adjustFirewallForUPNP() {
@@ -61,26 +40,25 @@ async function adjustFirewallForUPNP() {
     let { routerIP } = userconfig.initial;
     routerIP = serviceHelper.ensureString(routerIP);
     if (routerIP) {
-      const cmdAsync = util.promisify(nodecmd.run);
-      const firewallActive = await isFirewallActive();
+      const firewallActive = await ufw.isFirewallActive();
       if (firewallActive) {
-        // standard rules for upnp
-        const execB = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow from ${routerIP} port 1900 to any proto udp > /dev/null 2>&1`;
-        const execD = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow from ${routerIP} to any proto udp > /dev/null 2>&1`;
-        await cmdAsync(execB);
-        await cmdAsync(execD);
-
-        const fluxCommunicationPorts = config.server.allowedPorts;
+        // standard rules for upnp, then one pair per home node ws port
+        const rules = [
+          ['insert', '1', 'allow', 'from', routerIP, 'port', '1900', 'to', 'any', 'proto', 'udp'],
+          ['insert', '1', 'allow', 'from', routerIP, 'to', 'any', 'proto', 'udp'],
+          ...config.server.allowedPorts.flatMap((port) => [
+            ['insert', '1', 'allow', 'in', 'proto', 'tcp', 'from', 'any', 'to', routerIP, 'port', String(port)],
+            ['insert', '1', 'allow', 'in', 'proto', 'udp', 'from', 'any', 'to', routerIP, 'port', String(port)],
+          ]),
+        ];
         // eslint-disable-next-line no-restricted-syntax
-        for (const port of fluxCommunicationPorts) {
-          // create rule for hone nodes ws connections
-          const execAllowHomeComsA = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow in proto tcp from any to ${routerIP} port ${port} > /dev/null 2>&1`;
-          const execAllowHomeComsC = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow in proto udp from any to ${routerIP} port ${port} > /dev/null 2>&1`;
+        for (const rule of rules) {
           // eslint-disable-next-line no-await-in-loop
-          await cmdAsync(execAllowHomeComsA);
-          // eslint-disable-next-line no-await-in-loop
-          await cmdAsync(execAllowHomeComsC);
-          log.info(`Firewall adjusted for UPNP local connections on port ${port}`);
+          const { locked } = await ufw.runUfw(rule);
+          if (locked) {
+            log.error('Firewall not adjusted for UPNP: ufw is locked by another ufw command');
+            return;
+          }
         }
         log.info('Firewall adjusted for UPNP');
       } else {

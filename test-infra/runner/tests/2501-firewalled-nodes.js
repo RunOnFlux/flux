@@ -149,7 +149,7 @@ describe('2501 firewalled nodes', function suite() {
     const keptAfter = after.filter((rule) => !isOutbound(rule));
     const appeared = keptAfter.filter((rule) => !kept.includes(rule));
     const missing = kept.filter((rule) => !keptAfter.includes(rule));
-    expect({ appeared, missing }, 'inbound and route rules, before and after').to.deep.equal({ appeared: [], missing: [] });
+    expect(JSON.stringify({ appeared, missing }, null, 2), 'inbound and route rules, before and after').to.equal(JSON.stringify({ appeared: [], missing: [] }, null, 2));
     // The live firewall, not only ufw's record of it.
     const { stdout: chains } = await execInContainer(node.container, 'iptables -S ufw-user-output; ip6tables -S ufw6-user-output; iptables -S ufw-user-input; iptables -S ufw-user-forward');
     expect(chains.split('\n').filter((line) => /-A ufw6?-user-output /.test(line)), 'live outbound rules').to.deep.equal([]);
@@ -163,15 +163,17 @@ describe('2501 firewalled nodes', function suite() {
     await holdUfwLock(LEGACY);
 
     const afterId = node.getLastEventId();
-    await restartFluxos(node.container);
-    // An operator's ufw command, queued on the same lock.
-    await execInContainer(node.container, 'setsid sh -c \'ufw allow 4242 > /tmp/ufw-4242.out 2>&1; echo exit=$? >> /tmp/ufw-4242.out\' >/dev/null 2>&1 &');
-    await new Promise((resolve) => { setTimeout(resolve, 5000); });
-    const { stdout: waiting } = await execInContainer(node.container, 'cat /tmp/ufw-4242.out 2>/dev/null; true');
-    expect(waiting, 'the queued ufw command ran with the lock held').to.equal('');
-    expect(node.getEventBuffer().filter((event) => event.id > afterId && event.event === 'firewall:adjusted'), 'FluxOS adjusted with the lock held').to.deep.equal([]);
-
-    await releaseUfwLock(LEGACY);
+    try {
+      await restartFluxos(node.container);
+      // An operator's ufw command, queued on the same lock.
+      await execInContainer(node.container, 'setsid sh -c \'ufw allow 4242 > /tmp/ufw-4242.out 2>&1; echo exit=$? >> /tmp/ufw-4242.out\' >/dev/null 2>&1 &');
+      await new Promise((resolve) => { setTimeout(resolve, 5000); });
+      const { stdout: waiting } = await execInContainer(node.container, 'cat /tmp/ufw-4242.out 2>/dev/null; true');
+      expect(waiting, 'the queued ufw command ran with the lock held').to.equal('');
+      expect(node.getEventBuffer().filter((event) => event.id > afterId && event.event === 'firewall:adjusted'), 'FluxOS adjusted with the lock held').to.deep.equal([]);
+    } finally {
+      await releaseUfwLock(LEGACY);
+    }
     await node.waitForEvent('firewall:adjusted', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId });
     const { stdout: queued } = await execInContainer(node.container, 'for i in $(seq 1 100); do grep -q exit= /tmp/ufw-4242.out && break; sleep 0.2; done; cat /tmp/ufw-4242.out');
     expect(queued).to.match(/exit=0/);
@@ -186,13 +188,15 @@ describe('2501 firewalled nodes', function suite() {
     await holdUfwLock(LEGACY);
 
     const lockedId = node.getLastEventId();
-    await restartFluxos(node.container);
-    await node.waitForEvent('firewall:locked', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId: lockedId });
-    await node.waitForEvent('boot:settled', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId: lockedId });
-    expect(node.getEventBuffer().filter((event) => event.id > lockedId && event.event === 'firewall:adjusted')).to.deep.equal([]);
-    expect(await rulesAdded(LEGACY), 'the firewall as it was').to.include('ufw allow out 8082');
-
-    await releaseUfwLock(LEGACY);
+    try {
+      await restartFluxos(node.container);
+      await node.waitForEvent('firewall:locked', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId: lockedId });
+      await node.waitForEvent('boot:settled', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId: lockedId });
+      expect(node.getEventBuffer().filter((event) => event.id > lockedId && event.event === 'firewall:adjusted')).to.deep.equal([]);
+      expect(await rulesAdded(LEGACY), 'the firewall as it was').to.include('ufw allow out 8082');
+    } finally {
+      await releaseUfwLock(LEGACY);
+    }
     const afterId = node.getLastEventId();
     await restartFluxos(node.container);
     await node.waitForEvent('firewall:adjusted', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId });

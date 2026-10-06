@@ -24,6 +24,7 @@ const { CLOSE_CODES, DIRECTION } = require('./utils/FluxPeerSocket');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const fluxEventBus = require('./utils/fluxEventBus');
+const ufw = require('./utils/ufw');
 const {
   normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch, parseSocketAddress, ipsMatch,
 } = require('./utils/socketAddressUtils');
@@ -2066,7 +2067,6 @@ async function setDOSStateApi(req, res) {
  * @returns {object} Command status.
  */
 async function allowPort(port) {
-  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -2075,12 +2075,16 @@ async function allowPort(port) {
     cmdStat.message = 'Port needs to be a number';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw allow ${port}`;
-  const cmdres = await cmdAsync(exec);
+  const ran = await ufw.runUfw(['allow', String(port)]);
+  if (ran.locked) {
+    cmdStat.message = 'ufw is locked by another ufw command';
+    return cmdStat;
+  }
+  const cmdres = ran.stdout + ran.stderr;
   cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
+  if (cmdres.includes('updated') || cmdres.includes('added')) {
     cmdStat.status = true;
-  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
+  } else if (cmdres.includes('existing')) {
     cmdStat.status = true;
     cmdStat.message = 'existing';
   } else {
@@ -2095,7 +2099,6 @@ async function allowPort(port) {
  * @returns {object} Command status.
  */
 async function denyPort(port) {
-  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -2109,12 +2112,16 @@ async function denyPort(port) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw deny ${port}`;
-  const cmdres = await cmdAsync(exec);
+  const ran = await ufw.runUfw(['deny', String(port)]);
+  if (ran.locked) {
+    cmdStat.message = 'ufw is locked by another ufw command';
+    return cmdStat;
+  }
+  const cmdres = ran.stdout + ran.stderr;
   cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
+  if (cmdres.includes('updated') || cmdres.includes('added')) {
     cmdStat.status = true;
-  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
+  } else if (cmdres.includes('existing')) {
     cmdStat.status = true;
     cmdStat.message = 'existing';
   } else {
@@ -2129,7 +2136,6 @@ async function denyPort(port) {
  * @returns {object} Command status.
  */
 async function deleteAllowPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -2143,10 +2149,14 @@ async function deleteAllowPortRule(port) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw delete allow ${port}`;
-  const cmdres = await cmdAsync(exec);
+  const ran = await ufw.runUfw(['delete', 'allow', String(port)]);
+  if (ran.locked) {
+    cmdStat.message = 'ufw is locked by another ufw command';
+    return cmdStat;
+  }
+  const cmdres = ran.stdout + ran.stderr;
   cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
+  if (cmdres.includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
     cmdStat.status = true;
   } else {
     cmdStat.status = false;
@@ -2160,7 +2170,6 @@ async function deleteAllowPortRule(port) {
  * @returns {object} Command status.
  */
 async function deleteDenyPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -2174,10 +2183,14 @@ async function deleteDenyPortRule(port) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw delete deny ${port}`;
-  const cmdres = await cmdAsync(exec);
+  const ran = await ufw.runUfw(['delete', 'deny', String(port)]);
+  if (ran.locked) {
+    cmdStat.message = 'ufw is locked by another ufw command';
+    return cmdStat;
+  }
+  const cmdres = ran.stdout + ran.stderr;
   cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
+  if (cmdres.includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
     cmdStat.status = true;
   } else {
     cmdStat.status = false;
@@ -2270,41 +2283,19 @@ async function ensureUfwDefaults() {
   log.info(whole ? 'Firewall outbound policy set to ACCEPT' : 'Firewall defaults restored');
 
   if (/^ENABLED=yes$/m.test(ufwConf)) {
-    const { error } = await serviceHelper.runCommand('ufw', { runAsRoot: true, logError: false, params: ['reload'] });
-    if (error) log.error(`Firewall not reloaded: ${error.message}`);
+    const { error, locked } = await ufw.runUfw(['reload']);
+    if (locked) log.error('Firewall not reloaded: ufw is locked by another ufw command');
+    else if (error) log.error(`Firewall not reloaded: ${error.message}`);
   }
   fluxEventBus.publish('firewall:defaultsWritten', { restored: !whole });
 }
 
-/**
- * To check if a firewall is active.
- * @returns {Promise<boolean>} True if a firewall is active. Otherwise false.
- */
-async function isFirewallActive() {
-  try {
-    const cmdAsync = util.promisify(nodecmd.run);
-    const execA = 'LANG="en_US.UTF-8" && sudo ufw status | grep Status';
-    const cmdresA = await cmdAsync(execA);
-    if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
-      return true;
-    }
-    return false;
-  } catch (error) {
-    // command ufw not found is the most likely reason
-    log.error(error);
-    return false;
-  }
-}
-
-// Removes every outbound rule from ufw's rules files under ufw's own lock.
-const ufwOutboundRemover = path.join(__dirname, '../../../helpers/ufw/remove-outbound-rules.py');
-// The remover's exit code when ufw's lock was not free within its wait.
+// The docker networks app containers are on.
+const fluxAppDockerNetworks = '172.23.0.0/16';
+// Applies a node's own firewall rules to ufw in one pass, under ufw's lock.
+const nodeFirewallApplier = path.join(__dirname, '../../../helpers/ufw/apply-node-firewall.py');
+// The applier's exit code when ufw's lock was not free within its wait.
 const UFW_LOCK_UNAVAILABLE = 75;
-// How long the firewall step waits on ufw's lock, which every ufw command holds
-// for its whole run. ufw's slowest ordinary hold, a reload of ~100 rules, is
-// under 2 s, so a lock held this long is held by a command that is not ending.
-const UFW_LOCK_WAIT_MS = 30000;
-
 /**
  * Reports a firewall step that stopped because another ufw command held ufw's lock.
  */
@@ -2314,120 +2305,105 @@ function reportUfwLocked() {
 }
 
 /**
- * Whether ufw is enabled, read from ufw.conf as ufw's own boot script reads it.
- * Reading the file takes no lock, where every ufw command waits on ufw's.
- * @returns {Promise<boolean>}
+ * The node's own firewall rules, each the arguments of one ufw command, in the
+ * order they are applied.
+ * @returns {Promise<string[][]>}
  */
-async function ufwEnabled() {
-  const ufwConf = await fs.readFile('/etc/ufw/ufw.conf', 'utf8').catch(() => '');
-  return /^ENABLED=yes$/m.test(ufwConf);
+async function nodeFirewallRules() {
+  const apiPort = userconfig.initial.apiport || config.server.apiport;
+  const ports = [apiPort, +apiPort - 1, +apiPort + 1, +apiPort + 2, 80, 443, 16125, ...config.server.allowedPorts];
+  const rules = [['delete', 'allow', 'in', 'proto', 'udp', 'to', 'any', 'port', '53']];
+  // this should also be limit, but existing nodes use allow (needs to be updated)
+  if (isArcane) rules.push(['insert', '1', 'allow', 'to', 'any', 'app', 'FluxadmSSH']);
+  // the OpenSSH profile exists only where openssh-server is installed
+  rules.push(['insert', '1', 'limit', 'to', 'any', 'app', 'OpenSSH']);
+
+  const { stdout: routes } = await serviceHelper.runCommand('ip', { logError: false, params: ['route'] });
+  const routerIP = serviceHelper.ensureString(routes).split('\n')[0].trim().split(/\s+/)[2] || '';
+  if (serviceHelper.validIpv4Address(routerIP)
+    && (routerIP.startsWith('192.168.') || routerIP.startsWith('10.') || routerIP.startsWith('172.16.')
+      || routerIP.startsWith('100.64.') || routerIP.startsWith('198.18.') || routerIP.startsWith('169.254.'))) {
+    rules.push(['insert', '1', 'allow', 'from', routerIP, 'to', 'any', 'proto', 'udp']);
+  }
+  ports.forEach((port) => rules.push(['allow', String(port)]));
+  // app containers reach the fluxnode service; the rest of loopback is refused
+  // by allowOnlyDockerNetworksToFluxNodeService, as ufw does not filter loopback
+  rules.push(['allow', 'from', fluxAppDockerNetworks, 'proto', 'tcp', 'to', `${config.server.fluxNodeServiceAddress}/32`, 'port', '16101']);
+  return rules;
 }
 
 /**
- * Removes every outbound rule from the node's firewall: outbound traffic is
- * governed by the default policy alone, whoever added the rule. The rules are
- * taken out of ufw's rules files in one pass, under the lock every ufw command
- * holds, and ufw is reloaded once. Route rules and inbound rules are untouched.
- * @returns {Promise<{removed: number, locked: boolean}>} locked: ufw's lock was
- *   held by another ufw command for the whole wait, and nothing was changed.
- */
-async function removeOutboundRules() {
-  const { stdout, stderr, error } = await serviceHelper.runCommand('python3', {
-    runAsRoot: true, logError: false, params: [ufwOutboundRemover, '--wait', String(UFW_LOCK_WAIT_MS / 1000)],
-  });
-  if (error) {
-    if (error.code === UFW_LOCK_UNAVAILABLE) return { removed: 0, locked: true };
-    log.warn(`Firewall outbound rules not removed: ${serviceHelper.ensureString(stderr).trim() || error.message}`);
-    return { removed: 0, locked: false };
-  }
-  let removed = 0;
-  try {
-    ({ removed } = JSON.parse(serviceHelper.ensureString(stdout)));
-  } catch {
-    log.warn(`Firewall outbound rules removed, count unread: ${serviceHelper.ensureString(stdout).trim()}`);
-  }
-  if (removed) {
-    const { error: reloadError } = await serviceHelper.runCommand('ufw', { runAsRoot: true, logError: false, params: ['reload'] });
-    if (reloadError) log.error(`Firewall not reloaded after removing outbound rules: ${reloadError.message}`);
-    log.info(`Firewall outbound rules removed: ${removed}`);
-  }
-  return { removed, locked: false };
-}
-
-/**
- * To adjust a firewall to allow ports for Flux. Each rule is applied on its
- * own: one that fails is logged and the rest are still applied.
+ * Applies the node's own firewall rules. Outbound traffic is governed by the
+ * default policy alone, so every outbound rule is removed, whoever added it;
+ * then the node's own inbound rules are applied. Both happen in one pass under
+ * ufw's lock (helpers/ufw/apply-node-firewall.py), and ufw is reloaded only
+ * when outbound rules were removed. Where ufw's library cannot be used, the
+ * rules are applied one ufw command each.
+ *
+ * Every ufw command waits on ufw's lock for as long as another holds it, so a
+ * lock held past ufw.UFW_LOCK_WAIT_MS stops the step: no ufw command is run, the
+ * firewall is left as it is, and the next start applies it.
  */
 async function adjustFirewall() {
   try {
-    const apiPort = userconfig.initial.apiport || config.server.apiport;
-    const homePort = +apiPort - 1;
-    const apiSSLPort = +apiPort + 1;
-    const syncthingPort = +apiPort + 2;
-    let ports = [apiPort, homePort, apiSSLPort, syncthingPort, 80, 443, 16125];
-    const fluxCommunicationPorts = config.server.allowedPorts;
-    ports = ports.concat(fluxCommunicationPorts);
-    if (!await ufwEnabled()) {
+    if (!await ufw.ufwEnabled()) {
       log.info('Firewall is not active. Adjusting not applied');
       return;
     }
+    const rules = await nodeFirewallRules();
 
-    // Every ufw command waits on ufw's lock for as long as another holds it,
-    // so each here waits at most UFW_LOCK_WAIT_MS. One that runs out stops the
-    // step: the firewall is left as it is until the next start.
-    const ufw = async (params) => {
-      const rule = params.join(' ');
-      const { error, stderr } = await serviceHelper.runCommand('ufw', {
-        runAsRoot: true, logError: false, params, timeout: UFW_LOCK_WAIT_MS,
-      });
-      if (error?.killed) throw Object.assign(new Error(`ufw ${rule} outran ufw's lock wait`), { ufwLocked: true });
-      if (error) log.warn(`Firewall rule not applied: ufw ${rule}: ${serviceHelper.ensureString(stderr).trim() || error.message}`);
-      return !error;
-    };
-
-    const { removed: outboundRemoved, locked } = await removeOutboundRules();
-    if (locked) {
+    const { stdout, stderr, error } = await serviceHelper.runCommand('python3', {
+      runAsRoot: true,
+      logError: false,
+      params: [nodeFirewallApplier, '--wait', String(ufw.UFW_LOCK_WAIT_MS / 1000), '--rules', JSON.stringify(rules)],
+      timeout: 2 * ufw.UFW_LOCK_WAIT_MS,
+    });
+    if (error?.code === UFW_LOCK_UNAVAILABLE) {
       reportUfwLocked();
       return;
     }
-    // remove inbound DNS traffic
-    await ufw(['delete', 'allow', 'in', 'proto', 'udp', 'to', 'any', 'port', '53']);
-    log.info('Firewall adjusted for DNS traffic');
-
-    // fix up for ssh being misteriously removed (needs tracing)
-    if (isArcane) {
-      // this should also be limit, but existing nodes use allow (needs to be updated)
-      await ufw(['insert', '1', 'allow', 'to', 'any', 'app', 'FluxadmSSH']);
+    let result = null;
+    if (!error) {
+      try {
+        result = JSON.parse(serviceHelper.ensureString(stdout));
+      } catch {
+        log.warn(`Firewall applier answered unreadably: ${serviceHelper.ensureString(stdout).trim()}`);
+      }
+    } else {
+      log.warn(`Firewall applier failed: ${serviceHelper.ensureString(stderr).trim() || error.message}`);
     }
 
-    // the OpenSSH profile exists only where openssh-server is installed
-    await ufw(['insert', '1', 'limit', 'to', 'any', 'app', 'OpenSSH']);
-
-    const { stdout: routes } = await serviceHelper.runCommand('ip', { logError: false, params: ['route'] });
-    const routerIP = serviceHelper.ensureString(routes).split('\n')[0].trim().split(/\s+/)[2] || '';
-    log.info(`Router IP: ${routerIP}`);
-    if (serviceHelper.validIpv4Address(routerIP)
-      && (routerIP.startsWith('192.168.') || routerIP.startsWith('10.') || routerIP.startsWith('172.16.')
-        || routerIP.startsWith('100.64.') || routerIP.startsWith('198.18.') || routerIP.startsWith('169.254.'))) {
-      await ufw(['insert', '1', 'allow', 'from', routerIP, 'to', 'any', 'proto', 'udp']);
-      log.info(`Firewall adjusted for comms with router on local ip ${routerIP}`);
-    }
-    // eslint-disable-next-line no-restricted-syntax
-    for (const port of ports) {
-      // eslint-disable-next-line no-await-in-loop
-      if (await ufw(['allow', String(port)])) {
-        log.info(`Firewall adjusted for port ${port}`);
-      } else {
-        log.info(`Failed to adjust Firewall for port ${port}`);
+    const outboundRemoved = result?.removed ?? 0;
+    let failed = result?.failed ?? [];
+    if (!result?.applied) {
+      if (result?.reason) log.warn(`Firewall rules applied one ufw command each: ${result.reason}`);
+      failed = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const rule of rules) {
+        // eslint-disable-next-line no-await-in-loop
+        const ran = await ufw.runUfw(rule);
+        if (ran.locked) {
+          reportUfwLocked();
+          return;
+        }
+        if (ran.error) failed.push({ rule: rule.join(' '), error: ran.stderr.trim() || ran.error.message });
       }
     }
-    fluxEventBus.publish('firewall:adjusted', { outboundRemoved });
-  } catch (error) {
-    if (error.ufwLocked) {
-      log.error(error.message);
-      reportUfwLocked();
-      return;
+    // a delete finds nothing to delete once the rule is gone
+    failed = failed.filter(({ rule, error: why }) => !(rule.startsWith('delete ') && /non-existent rule/.test(why)));
+    failed.forEach(({ rule, error: why }) => log.warn(`Firewall rule not applied: ufw ${rule}: ${why}`));
+
+    if (outboundRemoved) {
+      const reload = await ufw.runUfw(['reload']);
+      if (reload.locked) {
+        reportUfwLocked();
+        return;
+      }
+      if (reload.error) log.error(`Firewall not reloaded after removing outbound rules: ${reload.error.message}`);
+      log.info(`Firewall outbound rules removed: ${outboundRemoved}`);
     }
+    fluxEventBus.publish('firewall:adjusted', { outboundRemoved, rulesFailed: failed.map(({ rule }) => rule) });
+  } catch (error) {
     log.error(error);
   }
 }
@@ -2437,12 +2413,11 @@ async function adjustFirewall() {
  */
 async function purgeUFW() {
   try {
-    const cmdAsync = util.promisify(nodecmd.run);
-    const firewallActive = await isFirewallActive();
+    const firewallActive = await ufw.isFirewallActive();
     if (firewallActive) {
-      const execB = 'LANG="en_US.UTF-8" && sudo ufw status | grep \'DENY\'';
-      const cmdresB = await cmdAsync(execB).catch(() => { }) || ''; // fail silently,
-      if (serviceHelper.ensureString(cmdresB).includes('DENY')) {
+      const status = await ufw.runUfw(['status']);
+      const cmdresB = status.stdout.split('\n').filter((line) => line.includes('DENY')).join('\n');
+      if (cmdresB.includes('DENY')) {
         const deniedPorts = cmdresB.split('\n'); // split by new line
         const portsToDelete = [];
         deniedPorts.forEach((port) => {
@@ -2579,34 +2554,20 @@ async function allowNodeToBindPrivilegedPorts() {
 }
 
 /**
- * docker network including mask to allow to verification. For example: 172.23.123.0/24
+ * Refuses the fluxnode service's address on loopback to everything but the app
+ * containers' networks. ufw does not filter loopback, so this is an iptables
+ * rule; the containers' own allow is one of the node's firewall rules.
  * @returns {Promise<void>}
  */
 async function allowOnlyDockerNetworksToFluxNodeService() {
-  const firewallActive = await isFirewallActive();
+  if (!await ufw.ufwEnabled()) return;
 
-  if (!firewallActive) return;
-
-  const fluxAppDockerNetworks = '172.23.0.0/16';
   const { fluxNodeServiceAddress } = config.server;
-  const allowDockerNetworks = `LANG="en_US.UTF-8" && sudo ufw allow from ${fluxAppDockerNetworks} proto tcp to ${fluxNodeServiceAddress}/32 port 16101`;
-  // have to use iptables here as ufw won't filter loopback
   const denyRule = `INPUT -i lo ! -s ${fluxAppDockerNetworks} -d ${fluxNodeServiceAddress}/32 -j DROP`;
   const checkDenyRule = `LANG="en_US.UTF-8" && sudo iptables -C ${denyRule}`;
   const denyAllElse = `LANG="en_US.UTF-8" && sudo iptables -I ${denyRule}`;
 
   const cmdAsync = util.promisify(nodecmd.run);
-
-  try {
-    const cmd = await cmdAsync(allowDockerNetworks);
-    if (serviceHelper.ensureString(cmd).includes('updated') || serviceHelper.ensureString(cmd).includes('existing') || serviceHelper.ensureString(cmd).includes('added')) {
-      log.info(`Firewall adjusted for network: ${fluxAppDockerNetworks} to address: ${fluxNodeServiceAddress}/32`);
-    } else {
-      log.warn(`Failed to adjust Firewall for network: ${fluxAppDockerNetworks} to address: ${fluxNodeServiceAddress}/32`);
-    }
-  } catch (err) {
-    log.error(err);
-  }
 
   const denied = await cmdAsync(checkDenyRule).catch(async (err) => {
     if (err.message.includes('Bad rule')) {
@@ -2692,7 +2653,7 @@ module.exports = {
   adjustExternalIP,
   setOnAddressChanged,
   allowPort,
-  isFirewallActive,
+  isFirewallActive: ufw.isFirewallActive,
   // Exports for testing purposes
   resetNtpSource,
   parseChronyOffset,

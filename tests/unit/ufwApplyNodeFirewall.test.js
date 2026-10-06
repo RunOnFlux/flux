@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const helper = path.join(__dirname, '../../helpers/ufw/remove-outbound-rules.py');
+const helper = path.join(__dirname, '../../helpers/ufw/apply-node-firewall.py');
 
 // A rules file as ufw writes it: header, then each rule as its tuple and its
 // iptables lines followed by a blank line, then the END RULES marker and the
@@ -43,7 +43,7 @@ const KEEP = {
   inboundComment: ['### tuple ### allow tcp 80 0.0.0.0/0 any 0.0.0.0/0 in comment=6f7574', '-A ufw-user-input -p tcp --dport 80 -j ACCEPT'],
 };
 
-describe('ufw remove-outbound-rules helper', () => {
+describe('ufw apply-node-firewall helper', () => {
   let dir;
   let lockPath;
   let holders;
@@ -82,6 +82,102 @@ describe('ufw remove-outbound-rules helper', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
+  // ufw's library as the helper uses it, replaced by a package earlier on the
+  // path: it records each rule it is asked to apply, refuses the action
+  // `refuse`, and prints on stdout as ufw's own library does.
+  const fakeUfw = (behaviour = '') => {
+    const root = path.join(dir, 'fake');
+    fs.mkdirSync(path.join(root, 'ufw'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'ufw', '__init__.py'), '');
+    fs.writeFileSync(path.join(root, 'ufw', 'common.py'), [
+      'class UFWError(Exception):',
+      '    def __init__(self, value):',
+      '        Exception.__init__(self, value)',
+      '        self.value = value',
+    ].join('\n'));
+    fs.writeFileSync(path.join(root, 'ufw', 'frontend.py'), [
+      'import json, os',
+      'from ufw.common import UFWError',
+      'class Parsed:',
+      '    def __init__(self, argv):',
+      '        self.action = argv[1]',
+      '        self.data = {"rule": " ".join(argv[2:]), "iptype": "both"}',
+      'def parse_command(argv):',
+      '    return Parsed(argv)',
+      'class UFWFrontend:',
+      '    def __init__(self, dryrun):',
+      `        if ${JSON.stringify(behaviour)} == "broken-constructor": raise RuntimeError("no backend")`,
+      '        self.dryrun = dryrun',
+      '    def do_action(self, action, rule, ip_version, force):',
+      `        if ${JSON.stringify(behaviour)} == "wrong-signature": raise TypeError("do_action() takes 3 arguments")`,
+      '        print("Rule added")',
+      '        if action == "refuse": raise UFWError("ERROR: Could not find a profile matching refuse")',
+      `        with open(${JSON.stringify(path.join(dir, 'applied.jsonl'))}, "a") as f:`,
+      '            f.write(json.dumps([action, rule, ip_version, force, self.dryrun]) + "\\n")',
+    ].join('\n'));
+    return root;
+  };
+  const applied = () => {
+    const file = path.join(dir, 'applied.jsonl');
+    return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').map((line) => JSON.parse(line)) : [];
+  };
+  const runWithRules = (files, rules, behaviour) => spawnSync('python3', [helper, '--lock', lockPath, '--wait', '2', '--rules', JSON.stringify(rules), ...files], {
+    encoding: 'utf8', env: { ...process.env, PYTHONPATH: fakeUfw(behaviour) },
+  });
+
+  it('applies the rules through ufw\'s library in order, after removing the outbound rules, with stdout only its result', () => {
+    const file = write('user.rules', rulesFile([OUT.plain, KEEP.inbound]));
+
+    const result = runWithRules([file], [['allow', '16127'], ['insert', '1', 'allow', 'from', '192.168.1.1']]);
+
+    expect(result.status, result.stderr).to.equal(0);
+    expect(JSON.parse(result.stdout)).to.deep.equal({ removed: 1, applied: true, failed: [], reason: null });
+    expect(applied()).to.deep.equal([
+      ['allow', '16127', 'both', true, false],
+      ['insert', '1 allow from 192.168.1.1', 'both', true, false],
+    ]);
+    expect(fs.readFileSync(file, 'utf8')).to.equal(rulesFile([KEEP.inbound]));
+  });
+
+  it('reports a rule ufw refuses and still applies the rest', () => {
+    const file = write('user.rules', rulesFile([KEEP.inbound]));
+
+    const result = runWithRules([file], [['allow', '16127'], ['refuse'], ['allow', '16128']]);
+
+    expect(JSON.parse(result.stdout)).to.deep.equal({
+      removed: 0, applied: true, failed: [{ rule: 'refuse', error: 'ERROR: Could not find a profile matching refuse' }], reason: null,
+    });
+    expect(applied().map(([, rule]) => rule)).to.deep.equal(['16127', '16128']);
+  });
+
+  ['broken-constructor', 'wrong-signature'].forEach((behaviour) => {
+    it(`says the rules were not applied when ufw's library cannot be used (${behaviour}), with the outbound rules still removed`, () => {
+      const file = write('user.rules', rulesFile([OUT.plain, KEEP.inbound]));
+
+      const result = runWithRules([file], [['allow', '16127']], behaviour);
+
+      expect(result.status, result.stderr).to.equal(0);
+      const answer = JSON.parse(result.stdout);
+      expect(answer).to.include({ removed: 1, applied: false });
+      expect(answer.reason).to.match(/^ufw library not usable: /);
+      expect(fs.readFileSync(file, 'utf8')).to.equal(rulesFile([KEEP.inbound]));
+    });
+  });
+
+  it('applies nothing and changes nothing when the lock stays held for the whole wait', async () => {
+    const text = rulesFile([OUT.plain, KEEP.inbound]);
+    const file = write('user.rules', text);
+    await holdLock();
+
+    const result = spawnSync('python3', [helper, '--lock', lockPath, '--wait', '0.5', '--rules', JSON.stringify([['allow', '16127']]), file], {
+      encoding: 'utf8', env: { ...process.env, PYTHONPATH: fakeUfw() },
+    });
+
+    expect(result.status).to.equal(75);
+    expect(applied()).to.deep.equal([]);
+    expect(fs.readFileSync(file, 'utf8')).to.equal(text);
+  });
+
   it('removes every outbound rule ufw writes, and keeps every inbound and route rule as it was', () => {
     const file = write('user.rules', rulesFile([
       KEEP.inbound, OUT.plain, KEEP.oldFormat, OUT.twoChains, KEEP.inboundIface, OUT.iface,
@@ -91,7 +187,7 @@ describe('ufw remove-outbound-rules helper', () => {
     const result = run([file]);
 
     expect(result.status, result.stderr).to.equal(0);
-    expect(JSON.parse(result.stdout)).to.deep.equal({ removed: 5 });
+    expect(JSON.parse(result.stdout)).to.deep.equal({ removed: 5, applied: true, failed: [], reason: null });
     expect(fs.readFileSync(file, 'utf8')).to.equal(rulesFile([
       KEEP.inbound, KEEP.oldFormat, KEEP.inboundIface, KEEP.app, KEEP.routeOut, KEEP.routeBoth, KEEP.inboundComment,
     ]));
@@ -106,7 +202,7 @@ describe('ufw remove-outbound-rules helper', () => {
 
     const result = run([v4, v6]);
 
-    expect(JSON.parse(result.stdout)).to.deep.equal({ removed: 2 });
+    expect(JSON.parse(result.stdout)).to.deep.equal({ removed: 2, applied: true, failed: [], reason: null });
     expect(fs.readFileSync(v6, 'utf8')).to.equal(rulesFile([
       ['### tuple ### allow any 16127 ::/0 any ::/0 in', '-A ufw6-user-input -p tcp --dport 16127 -j ACCEPT'],
     ], 'ufw6'));
@@ -119,7 +215,7 @@ describe('ufw remove-outbound-rules helper', () => {
     const result = run([file, path.join(dir, 'user6.rules')]);
 
     expect(result.status, result.stderr).to.equal(0);
-    expect(JSON.parse(result.stdout)).to.deep.equal({ removed: 0 });
+    expect(JSON.parse(result.stdout)).to.deep.equal({ removed: 0, applied: true, failed: [], reason: null });
     expect(fs.statSync(file).ino).to.equal(before.ino);
   });
 
@@ -160,7 +256,7 @@ describe('ufw remove-outbound-rules helper', () => {
     });
 
     expect(removed.code).to.equal(0);
-    expect(JSON.parse(removed.out)).to.deep.equal({ removed: 1 });
+    expect(JSON.parse(removed.out)).to.deep.equal({ removed: 1, applied: true, failed: [], reason: null });
     expect(fs.readFileSync(file, 'utf8')).to.equal(rulesFile([KEEP.inbound]));
   });
 });
