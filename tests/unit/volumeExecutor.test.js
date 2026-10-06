@@ -2578,10 +2578,13 @@ describe('volumeExecutor tests', () => {
       const source = new Readable({ read() {} });
 
       const running = upload(vol, source);
-      // Once the transfer is actually under way, so this exercises a client
-      // that goes away mid-upload rather than one that never connected.
-      await new Promise((resolve) => { setTimeout(resolve, 20); });
+      // Once part of the file has reached the container, so this exercises a
+      // client that goes away mid-upload rather than one that never connected.
       source.push(Buffer.from('half a file'));
+      while (!socket.received.length) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setImmediate(resolve); });
+      }
       source.destroy(new Error('client went away'));
 
       // flux-op traps the stop and reports a cancellation.
