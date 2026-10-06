@@ -193,7 +193,9 @@ describe('2501 firewalled nodes', function suite() {
       await node.waitForEvent('firewall:locked', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId: lockedId });
       await node.waitForEvent('boot:settled', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId: lockedId });
       expect(node.getEventBuffer().filter((event) => event.id > lockedId && event.event === 'firewall:adjusted')).to.deep.equal([]);
-      expect(await rulesAdded(LEGACY), 'the firewall as it was').to.include('ufw allow out 8082');
+      // Read from ufw's rules file: a ufw command would wait on the lock held here.
+      const { stdout: tuples } = await execInContainer(node.container, 'grep -c "^### tuple ### allow any 8082 0.0.0.0/0 any 0.0.0.0/0 out$" /etc/ufw/user.rules; true');
+      expect(tuples.trim(), 'the firewall as it was').to.equal('1');
     } finally {
       await releaseUfwLock(LEGACY);
     }

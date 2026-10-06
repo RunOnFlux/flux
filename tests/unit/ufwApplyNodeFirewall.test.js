@@ -96,7 +96,7 @@ describe('ufw apply-node-firewall helper', () => {
       '        self.value = value',
     ].join('\n'));
     fs.writeFileSync(path.join(root, 'ufw', 'frontend.py'), [
-      'import json, os',
+      'import json, os, sys',
       'from ufw.common import UFWError',
       'class Parsed:',
       '    def __init__(self, argv):',
@@ -107,11 +107,17 @@ describe('ufw apply-node-firewall helper', () => {
       'class UFWFrontend:',
       '    def __init__(self, dryrun):',
       `        if ${JSON.stringify(behaviour)} == "broken-constructor": raise RuntimeError("no backend")`,
+      `        if ${JSON.stringify(behaviour)} == "exiting-constructor":`,
+      '            sys.stderr.write("ERROR: You need to be root to run this script\\n")',
+      '            sys.exit(1)',
       '        self.dryrun = dryrun',
       '    def do_action(self, action, rule, ip_version, force):',
       `        if ${JSON.stringify(behaviour)} == "wrong-signature": raise TypeError("do_action() takes 3 arguments")`,
       '        print("Rule added")',
       '        if action == "refuse": raise UFWError("ERROR: Could not find a profile matching refuse")',
+      '        if action == "exit":',
+      '            sys.stderr.write("WARN: uid is 0 but /x is owned by 1000\\nERROR: Could not find a profile matching \'OpenSSH\'\\n")',
+      '            sys.exit(1)',
       `        with open(${JSON.stringify(path.join(dir, 'applied.jsonl'))}, "a") as f:`,
       '            f.write(json.dumps([action, rule, ip_version, force, self.dryrun]) + "\\n")',
     ].join('\n'));
@@ -150,7 +156,19 @@ describe('ufw apply-node-firewall helper', () => {
     expect(applied().map(([, rule]) => rule)).to.deep.equal(['16127', '16128']);
   });
 
-  ['broken-constructor', 'wrong-signature'].forEach((behaviour) => {
+  it('reports a rule ufw refuses by exiting, as the ufw command does, and still applies the rest', () => {
+    const file = write('user.rules', rulesFile([OUT.plain, KEEP.inbound]));
+
+    const result = runWithRules([file], [['allow', '16127'], ['exit'], ['allow', '16128']]);
+
+    expect(result.status, result.stderr).to.equal(0);
+    expect(JSON.parse(result.stdout)).to.deep.equal({
+      removed: 1, applied: true, failed: [{ rule: 'exit', error: "ERROR: Could not find a profile matching 'OpenSSH'" }], reason: null,
+    });
+    expect(applied().map(([, rule]) => rule)).to.deep.equal(['16127', '16128']);
+  });
+
+  ['broken-constructor', 'exiting-constructor', 'wrong-signature'].forEach((behaviour) => {
     it(`says the rules were not applied when ufw's library cannot be used (${behaviour}), with the outbound rules still removed`, () => {
       const file = write('user.rules', rulesFile([OUT.plain, KEEP.inbound]));
 

@@ -15,8 +15,9 @@ const UFW_LOCK_WAIT_MS = 30000;
  * @returns {Promise<{error: (Error|null), stdout: string, stderr: string, locked: boolean}>}
  */
 async function runUfw(params) {
+  // runCommand puts the command in front of the params it is given
   const { error, stdout, stderr } = await serviceHelper.runCommand('ufw', {
-    runAsRoot: true, logError: false, params, timeout: UFW_LOCK_WAIT_MS,
+    runAsRoot: true, logError: false, params: [...params], timeout: UFW_LOCK_WAIT_MS,
   });
   return {
     error,

@@ -32,7 +32,9 @@ within --wait seconds.
 """
 
 import argparse
+import contextlib
 import fcntl
+import io
 import json
 import os
 import re
@@ -112,25 +114,45 @@ def remove_outbound(files):
     return removed
 
 
+def ufw_error(printed):
+    """The message ufw printed before exiting: its last 'ERROR:' line."""
+    lines = [line for line in printed.splitlines() if line.startswith('ERROR:')]
+    return lines[-1] if lines else printed.strip()
+
+
 def apply_rules(rules):
-    """(failed rules, None), or (None, reason) when ufw's library is not usable."""
+    """(failed rules, None), or (None, reason) when ufw's library is not usable.
+
+    ufw refuses a rule either by raising UFWError or, like the ufw command, by
+    printing 'ERROR: ...' and exiting; both are a refused rule.
+    """
+    printed = io.StringIO()
     try:
-        import gettext
-        gettext.install('ufw')
-        import ufw.common
-        import ufw.frontend
-        ui = ufw.frontend.UFWFrontend(False)
-    except Exception as error:  # pylint: disable=broad-except
-        return None, f'ufw library not usable: {error!r}'
+        with contextlib.redirect_stderr(printed):
+            import gettext
+            gettext.install('ufw')
+            import ufw.common
+            import ufw.frontend
+            ui = ufw.frontend.UFWFrontend(False)
+    except (Exception, SystemExit) as error:  # pylint: disable=broad-except
+        sys.stderr.write(printed.getvalue())
+        return None, f'ufw library not usable: {ufw_error(printed.getvalue()) or repr(error)}'
+    sys.stderr.write(printed.getvalue())
     failed = []
     for args in rules:
+        printed = io.StringIO()
         try:
-            parsed = ufw.frontend.parse_command(['ufw'] + args)
-            ui.do_action(parsed.action, parsed.data.get('rule', ''), parsed.data.get('iptype', ''), True)
+            with contextlib.redirect_stderr(printed):
+                parsed = ufw.frontend.parse_command(['ufw'] + args)
+                ui.do_action(parsed.action, parsed.data.get('rule', ''), parsed.data.get('iptype', ''), True)
         except ufw.common.UFWError as error:
             failed.append({'rule': ' '.join(args), 'error': error.value})
+        except SystemExit:
+            failed.append({'rule': ' '.join(args), 'error': ufw_error(printed.getvalue())})
         except (TypeError, AttributeError, ValueError) as error:
+            sys.stderr.write(printed.getvalue())
             return None, f'ufw library not usable: {error!r}'
+        sys.stderr.write(printed.getvalue())
     return failed, None
 
 

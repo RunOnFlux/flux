@@ -2841,6 +2841,20 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 2, rulesFailed: [] });
     });
 
+    it('should leave the rules it hands to ufw as they were', async () => {
+      // The fallback runs each rule as given, and reports a refused one by it.
+      firewallEnabled(true);
+      answered({ removed: 0, applied: false, reason: 'ufw library not usable: TypeError()' });
+      runCommandStub.withArgs('ufw', sinon.match({ params: ['insert', '1', 'limit', 'to', 'any', 'app', 'OpenSSH'] })).callsFake(async (cmd, options) => {
+        options.params.unshift(cmd);
+        return { error: new Error('exit 1'), stdout: '', stderr: "ERROR: Could not find a profile matching 'OpenSSH'" };
+      });
+
+      await fluxNetworkHelper.adjustFirewall();
+
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0, rulesFailed: ['insert 1 limit to any app OpenSSH'] });
+    });
+
     it('should apply the rules one ufw command each when the applier fails', async () => {
       firewallEnabled(true);
       applier({ error: Object.assign(new Error('command failed'), { code: 1 }), stdout: '', stderr: 'Traceback: no such file' });
