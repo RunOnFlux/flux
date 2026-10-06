@@ -2300,6 +2300,28 @@ async function isFirewallActive() {
 const ufwOutboundRemover = path.join(__dirname, '../../../helpers/ufw/remove-outbound-rules.py');
 // The remover's exit code when ufw's lock was not free within its wait.
 const UFW_LOCK_UNAVAILABLE = 75;
+// How long the firewall step waits on ufw's lock, which every ufw command holds
+// for its whole run. ufw's slowest ordinary hold, a reload of ~100 rules, is
+// under 2 s, so a lock held this long is held by a command that is not ending.
+const UFW_LOCK_WAIT_MS = 30000;
+
+/**
+ * Reports a firewall step that stopped because another ufw command held ufw's lock.
+ */
+function reportUfwLocked() {
+  log.error('Firewall not adjusted: ufw is locked by another ufw command');
+  fluxEventBus.publish('firewall:locked', {});
+}
+
+/**
+ * Whether ufw is enabled, read from ufw.conf as ufw's own boot script reads it.
+ * Reading the file takes no lock, where every ufw command waits on ufw's.
+ * @returns {Promise<boolean>}
+ */
+async function ufwEnabled() {
+  const ufwConf = await fs.readFile('/etc/ufw/ufw.conf', 'utf8').catch(() => '');
+  return /^ENABLED=yes$/m.test(ufwConf);
+}
 
 /**
  * Removes every outbound rule from the node's firewall: outbound traffic is
@@ -2311,7 +2333,7 @@ const UFW_LOCK_UNAVAILABLE = 75;
  */
 async function removeOutboundRules() {
   const { stdout, stderr, error } = await serviceHelper.runCommand('python3', {
-    runAsRoot: true, logError: false, params: [ufwOutboundRemover],
+    runAsRoot: true, logError: false, params: [ufwOutboundRemover, '--wait', String(UFW_LOCK_WAIT_MS / 1000)],
   });
   if (error) {
     if (error.code === UFW_LOCK_UNAVAILABLE) return { removed: 0, locked: true };
@@ -2345,26 +2367,27 @@ async function adjustFirewall() {
     let ports = [apiPort, homePort, apiSSLPort, syncthingPort, 80, 443, 16125];
     const fluxCommunicationPorts = config.server.allowedPorts;
     ports = ports.concat(fluxCommunicationPorts);
-    const firewallActive = await isFirewallActive();
-    if (!firewallActive) {
+    if (!await ufwEnabled()) {
       log.info('Firewall is not active. Adjusting not applied');
       return;
     }
 
+    // Every ufw command waits on ufw's lock for as long as another holds it,
+    // so each here waits at most UFW_LOCK_WAIT_MS. One that runs out stops the
+    // step: the firewall is left as it is until the next start.
     const ufw = async (params) => {
       const rule = params.join(' ');
-      const { error, stderr } = await serviceHelper.runCommand('ufw', { runAsRoot: true, logError: false, params });
+      const { error, stderr } = await serviceHelper.runCommand('ufw', {
+        runAsRoot: true, logError: false, params, timeout: UFW_LOCK_WAIT_MS,
+      });
+      if (error?.killed) throw Object.assign(new Error(`ufw ${rule} outran ufw's lock wait`), { ufwLocked: true });
       if (error) log.warn(`Firewall rule not applied: ufw ${rule}: ${serviceHelper.ensureString(stderr).trim() || error.message}`);
       return !error;
     };
 
-    // Every ufw command waits on the same lock, so with it held each would
-    // wait for as long as it is held: none is run, and the firewall is left as
-    // it is until the next start.
     const { removed: outboundRemoved, locked } = await removeOutboundRules();
     if (locked) {
-      log.error('Firewall not adjusted: ufw is locked by another ufw command');
-      fluxEventBus.publish('firewall:locked', {});
+      reportUfwLocked();
       return;
     }
     // remove inbound DNS traffic
@@ -2400,6 +2423,11 @@ async function adjustFirewall() {
     }
     fluxEventBus.publish('firewall:adjusted', { outboundRemoved });
   } catch (error) {
+    if (error.ufwLocked) {
+      log.error(error.message);
+      reportUfwLocked();
+      return;
+    }
     log.error(error);
   }
 }

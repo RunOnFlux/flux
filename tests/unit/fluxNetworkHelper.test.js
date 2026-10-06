@@ -2759,8 +2759,11 @@ describe('fluxNetworkHelper tests', () => {
     let logSpy;
     let publishStub;
 
+    // Whether ufw is enabled is read from ufw.conf, never asked of ufw.
     const firewallStatus = (status) => {
-      sinon.stub(util, 'promisify').returns(sinon.fake.resolves(status));
+      const readFile = sinon.stub(fs, 'readFile');
+      readFile.callThrough();
+      readFile.withArgs('/etc/ufw/ufw.conf', 'utf8').resolves(status === 'Status: active' ? 'ENABLED=yes\nLOGLEVEL=low\n' : 'ENABLED=no\nLOGLEVEL=low\n');
     };
 
     beforeEach(() => {
@@ -2787,7 +2790,7 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.neverCalledWith(runCommandStub, 'ufw', sinon.match({ params: sinon.match.some(sinon.match((value) => value === 'out')) }));
     });
 
-    const removerCall = sinon.match({ runAsRoot: true, params: [sinon.match(/helpers\/ufw\/remove-outbound-rules\.py$/)] });
+    const removerCall = sinon.match({ runAsRoot: true, params: [sinon.match(/helpers\/ufw\/remove-outbound-rules\.py$/), '--wait', '30'] });
     const remover = (result) => runCommandStub.withArgs('python3', removerCall).resolves(result);
     const lockedError = () => Object.assign(new Error('command failed'), { code: 75 });
 
@@ -2842,6 +2845,30 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0 });
     });
 
+    it('should bound every ufw command it runs by the lock wait', async () => {
+      firewallStatus('Status: active');
+
+      await fluxNetworkHelper.adjustFirewall();
+
+      const ufwCalls = runCommandStub.getCalls().filter((call) => call.args[0] === 'ufw');
+      expect(ufwCalls.length).to.be.above(0);
+      ufwCalls.forEach((call) => expect(call.args[1].timeout, `ufw ${call.args[1].params.join(' ')}`).to.equal(30000));
+    });
+
+    it('should stop at the first ufw command that outruns the lock wait, and report the firewall locked', async () => {
+      // A ufw command waits on ufw's lock for as long as it is held: one killed
+      // at the wait was waiting on it, and every later one would wait too.
+      firewallStatus('Status: active');
+      runCommandStub.withArgs('ufw', ufwCall(['allow', '16127'])).resolves({ error: Object.assign(new Error('killed'), { killed: true, signal: 'SIGTERM' }), stdout: '', stderr: '' });
+
+      await fluxNetworkHelper.adjustFirewall();
+
+      const ufwParams = runCommandStub.getCalls().filter((call) => call.args[0] === 'ufw').map((call) => call.args[1].params.join(' '));
+      expect(ufwParams[ufwParams.length - 1]).to.equal('allow 16127');
+      sinon.assert.calledOnceWithExactly(publishStub, 'firewall:locked', {});
+      sinon.assert.neverCalledWith(publishStub, 'firewall:adjusted');
+    });
+
     it('should log the ports it could not allow', async () => {
       firewallStatus('Status: active');
       runCommandStub.withArgs('ufw', ufwCall(['allow', '16127'])).resolves({ error: new Error('ufw failed'), stdout: '', stderr: '' });
@@ -2884,11 +2911,13 @@ describe('fluxNetworkHelper tests', () => {
 
     it('should change nothing when the firewall is not active', async () => {
       firewallStatus('Status: inactive');
+      const promisifySpy = sinon.spy(util, 'promisify');
 
       await fluxNetworkHelper.adjustFirewall();
 
       sinon.assert.neverCalledWith(runCommandStub, 'ufw');
       sinon.assert.neverCalledWith(runCommandStub, 'python3');
+      sinon.assert.notCalled(promisifySpy);
       sinon.assert.calledWith(logSpy, 'Firewall is not active. Adjusting not applied');
       sinon.assert.notCalled(publishStub);
     });

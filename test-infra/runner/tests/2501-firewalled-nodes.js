@@ -146,7 +146,10 @@ describe('2501 firewalled nodes', function suite() {
     expect(data.outboundRemoved).to.equal(6);
     const after = await rulesAdded(LEGACY);
     expect(after.filter(isOutbound), 'outbound rules left').to.deep.equal([]);
-    expect(after.filter((rule) => !isOutbound(rule)), 'inbound and route rules').to.deep.equal(kept);
+    const keptAfter = after.filter((rule) => !isOutbound(rule));
+    const appeared = keptAfter.filter((rule) => !kept.includes(rule));
+    const missing = kept.filter((rule) => !keptAfter.includes(rule));
+    expect({ appeared, missing }, 'inbound and route rules, before and after').to.deep.equal({ appeared: [], missing: [] });
     // The live firewall, not only ufw's record of it.
     const { stdout: chains } = await execInContainer(node.container, 'iptables -S ufw-user-output; ip6tables -S ufw6-user-output; iptables -S ufw-user-input; iptables -S ufw-user-forward');
     expect(chains.split('\n').filter((line) => /-A ufw6?-user-output /.test(line)), 'live outbound rules').to.deep.equal([]);
