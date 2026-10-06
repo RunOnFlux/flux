@@ -1352,6 +1352,16 @@ describe('dockerService tests', () => {
     it('should throw error if app name is not correct or app does not exist', async () => {
       await expect(dockerService.appDockerStart('testing123')).to.eventually.be.rejectedWith('Container testing123 not found');
     });
+
+    it('starts nothing once the node is shutting down', async () => {
+      const shutdown = sinon.stub(globalState, 'shutdownInProgress').get(() => true);
+      try {
+        await expect(dockerService.appDockerStart(appName)).to.eventually.be.rejectedWith('shutting down');
+      } finally {
+        shutdown.restore();
+      }
+      sinon.assert.notCalled(dockerStub);
+    });
   });
 
   describe('appDockerStop tests', () => {
@@ -1462,6 +1472,17 @@ describe('dockerService tests', () => {
       dockerInspectStub = sinon.stub(Dockerode.Container.prototype, 'inspect').returns(Promise.resolve({ State: { Running: true } }));
       getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
       listContainersStub = stubContainerListing();
+    });
+
+    it('restarts nothing once the node is shutting down', async () => {
+      const shutdown = sinon.stub(globalState, 'shutdownInProgress').get(() => true);
+      try {
+        await expect(dockerService.appDockerRestart(appName)).to.eventually.be.rejectedWith('shutting down');
+      } finally {
+        shutdown.restore();
+      }
+      sinon.assert.notCalled(dockerRestartStub);
+      sinon.assert.notCalled(dockerStartStub);
     });
 
     afterEach(() => {

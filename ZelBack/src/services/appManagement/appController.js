@@ -6,9 +6,11 @@ const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
 const appsRuntimeState = require('./appsRuntimeState');
 const appReconciler = require('../appMonitoring/appReconciler');
+const primaryRoleChanges = require('../appLifecycle/primaryRoleChanges');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 const fluxEventBus = require('../utils/fluxEventBus');
+const mountParser = require('../utils/mountParser');
 const log = require('../../lib/log');
 const { Privilege, authOf } = require('../utils/privileges');
 
@@ -193,7 +195,11 @@ async function operatorTargetIds(appname) {
   if (!ids.length) {
     throw new Error(`Application ${appName} was not changed: this node cannot determine its components`);
   }
-  if (!appname.includes('_')) return { ids, appName };
+  // The component whose start the election decides, read from the spec as the
+  // election reads it, so the two agree on which one that is.
+  const { inPlace: [spec] } = await appQueryService.decryptEnterpriseApps([installedRes.data[0]]);
+  const electedId = mountParser.electedComponentIdentifier(spec);
+  if (!appname.includes('_')) return { ids, appName, electedId };
   // A component is addressed by name, and a name that is not one of this app's
   // components addresses nothing. Taking it verbatim wrote a durable operator
   // lock under a component that does not exist - nothing clears one, and it holds
@@ -201,11 +207,11 @@ async function operatorTargetIds(appname) {
   if (!ids.includes(appname)) {
     throw new Error(`Component ${appname} is not installed on this node`);
   }
-  return { ids: [appname], appName: appname };
+  return { ids: [appname], appName: appname, electedId };
 }
 
 async function setAppOperatorStopped(appname, stopped, { awaitPass = false, force = false, alsoRestart = false } = {}) {
-  const { ids, appName } = await operatorTargetIds(appname);
+  const { ids, appName, electedId } = await operatorTargetIds(appname);
   // Components come up in compose order and go down in the reverse of it, so a
   // dependency outlives what writes to it: the database stops after the server it
   // serves, not before it. awaitPass holds each component's pass open before the
@@ -223,9 +229,25 @@ async function setAppOperatorStopped(appname, stopped, { awaitPass = false, forc
     // applyIntent waits out any pass deciding for this id, holds the key while
     // the write lands, and enqueues on release - so the two cannot interleave,
     // and the next pass reads what was just written.
+    let awaitsElection = false;
     // eslint-disable-next-line no-await-in-loop
     const actuated = await appReconciler.applyIntent(id, async () => {
-      await appsRuntimeState.setOperatorStopped(id, stopped, { force });
+      // A start of the component the election decides, while it is locked,
+      // leaves the lock for the election to lift: lifted here, the component
+      // would be held by nothing until the election next ran, and a standby
+      // could take it in between. See appsRuntimeState.requestOperatorStart.
+      awaitsElection = !stopped && id === electedId && await appsRuntimeState.requestOperatorStart(id);
+      // Read inside the slot, so no pass moves the container between this read
+      // and the lock. A container docker cannot read is not one known to run.
+      const lockOptions = stopped && id === electedId
+        ? {
+          force,
+          asPrimary: appReconciler.committedIdentifiers().includes(id)
+            || primaryRoleChanges.promotingIdentifiers().includes(id)
+            || (await appReconciler.dockerActual(id)).running === true,
+        }
+        : { force };
+      if (!awaitsElection) await appsRuntimeState.setOperatorStopped(id, stopped, lockOptions);
       // Raised inside the same slot as the lock, so a pass cannot read one
       // without the other and bounce a container the operator meant to keep down.
       if (alsoRestart) await appsRuntimeState.requestRestart(id);
@@ -239,7 +261,7 @@ async function setAppOperatorStopped(appname, stopped, { awaitPass = false, forc
         // The bare component id the reconciler publishes its own actuations
         // under. An event carrying a different spelling of the same component
         // cannot be ordered against them, which is the only thing it is for.
-        identifier: dockerService.getBaseAppName(id), stopped, force, restartRequested: alsoRestart,
+        identifier: dockerService.getBaseAppName(id), stopped, force, restartRequested: alsoRestart, awaitsElection,
       });
     }, { awaitPass });
     if (!actuated) allActuated = false;
@@ -293,6 +315,7 @@ async function containersReachedStopped(ids) {
 // and saying so is more use than a generic wait.
 const NOT_RUNNING_REASONS = {
   awaitingController: 'waiting for the election',
+  startAwaitsElection: 'waiting for the election',
   controllerDesired: 'the election has not made this node the writer',
   policy: 'its restart policy does not allow it to run',
   invalidSpec: 'its specification cannot be actuated',
@@ -370,7 +393,9 @@ async function appStart(req, res) {
     //
     // Clearing the lock is the whole of an operator start: whether the container
     // may run is a decision the election already owns for a g:/r: component, and
-    // the reconciler consults it on every pass. A handler that also probed docker
+    // the reconciler consults it on every pass. The component the election
+    // decides keeps its lock until the election has decided - see
+    // setAppOperatorStopped. A handler that also probed docker
     // was asking a different question - "is this container running now" as a proxy
     // for "should this node be running it" - and those diverge both ways: a
     // primary whose container is stopped was refused a start, a standby whose

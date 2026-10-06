@@ -293,6 +293,9 @@ describe('appSpawner tests', () => {
         removeAppLocally: opts.removeAppLocallyStub ?? sinon.stub().resolves(),
       },
       '../appPlacement/placementFeasibility': placementFeasibilityStub,
+      '../outboundPathService': {
+        isRedirected: sinon.stub().returns(Boolean(opts.outboundRedirected)),
+      },
     });
   }
 
@@ -971,6 +974,56 @@ describe('appSpawner tests', () => {
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
 
       expect(logStub.error.args.some((a) => a[0]?.includes?.('is held by the Flux node at'))).to.be.false;
+    });
+
+    // A node whose calls to other nodes are redirected cannot ask a synced app's
+    // partners anything, so it is not given one. Anything else it still takes.
+    describe('a node whose calls to other nodes are redirected', () => {
+      const syncedSpec = { ...fullSpec, compose: [{ repotag: 'testimage:latest', containerData: 'g:/appdata' }] };
+      const declined = () => logStub.warn.args.some((a) => a[0]?.includes?.('calls to other nodes are redirected'));
+      // The image compliance check is the next step after this decision, so it
+      // running is the proof a pass got past it.
+      let compliance;
+
+      beforeEach(() => {
+        compliance = sinon.stub().resolves();
+      });
+
+      it('does not take a synced app, and installs nothing', async () => {
+        const installStub = sinon.stub().resolves(InstallOutcome.INSTALLED);
+        buildModule({
+          aggregateResult: [spawnableApp], appSpec: syncedSpec, errorCount: 0, outboundRedirected: true, installStub, complianceStub: compliance,
+        });
+
+        const delay = await appSpawner.trySpawningGlobalApplication();
+
+        expect(delay).to.equal(60000);
+        expect(declined()).to.equal(true);
+        sinon.assert.notCalled(compliance);
+        sinon.assert.notCalled(installStub);
+      });
+
+      it('still takes an app that keeps no synced volume', async () => {
+        buildModule({
+          aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0, outboundRedirected: true, complianceStub: compliance,
+        });
+
+        await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+        expect(declined()).to.equal(false);
+        sinon.assert.calledOnce(compliance);
+      });
+
+      it('takes a synced app while its calls are not redirected', async () => {
+        buildModule({
+          aggregateResult: [spawnableApp], appSpec: syncedSpec, errorCount: 0, outboundRedirected: false, complianceStub: compliance,
+        });
+
+        await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+        expect(declined()).to.equal(false);
+        sinon.assert.calledOnce(compliance);
+      });
     });
 
     // The port check answers with a verdict rather than a bare boolean, so the

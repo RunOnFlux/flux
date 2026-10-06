@@ -473,6 +473,22 @@ module.exports = {
     // has to keep when it shortens the window, or the suite is measuring the
     // tick instead of the rule.
     peerSetDipEvaluateMs: 60 * 1000,
+    // Which Flux node answers when this node dials an address (peerIdentityService).
+    // A verified identity is reused for longest, since it changes only when an
+    // address changes hands; a misroute is rechecked soon, since the fault is on
+    // this node's side and its operator is expected to fix it.
+    peerIdentityTimeoutMs: 5 * 1000,
+    peerIdentityVerifiedTtlMs: 30 * 60 * 1000,
+    peerIdentityMisroutedTtlMs: 2 * 60 * 1000,
+    peerIdentityUnverifiableTtlMs: 10 * 60 * 1000,
+    peerIdentityUnreachableTtlMs: 60 * 1000,
+    // How long a partner's introduction - its identity, signed when it calls in -
+    // is relied on. Twice the verified TTL, since a partner introduces itself each
+    // time it verifies this node.
+    peerIdentityIntroductionTtlMs: 60 * 60 * 1000,
+    // How often this node checks that its calls to other nodes reach them
+    // (outboundPathService).
+    outboundPathCheckIntervalMs: 10 * 60 * 1000,
     installation: {
       probability: 100, // 1%
       delay: 120, // in seconds

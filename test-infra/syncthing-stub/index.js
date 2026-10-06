@@ -44,8 +44,39 @@ const nodeStates = new Map();
 // like one that was never touched. Record each write in order so a test can ask
 // what was done to WHICH folder - the whole question for a composed app, whose
 // folders are per component and whose app name addresses none of them.
-function recordFolderWrite(state, method, id, body) {
-  state.folderWrites.push({ method, id, body: body ?? null });
+//
+// Scans are recorded in their own list, numbered from the same sequence as the
+// writes, so a suite can ask whether a folder was scanned before it was changed
+// without a scan reading as a config write.
+//
+// `arrivedSeq` and `arrivedAt` are taken when the request arrives,
+// `appliedSeq` when the change is in the config - what a read, and the next
+// PATCH, sees - and `seq` and `at` once it has taken effect, the folder
+// restarted. The sequence is shared by writes and scans, so a suite can ask
+// whether one call arrived before another was applied. A write that has
+// arrived and not yet taken effect is listed in `pendingFolderWrites`.
+let folderCallSeq = 0;
+function nextSeq() {
+  folderCallSeq += 1;
+  return folderCallSeq;
+}
+function arrive(state, method, id, body) {
+  const pending = {
+    method, id, body: body ?? null, arrivedSeq: nextSeq(), arrivedAt: Date.now(),
+  };
+  state.pendingFolderWrites.push(pending);
+  return pending;
+}
+function recordFolderWrite(state, pending) {
+  state.pendingFolderWrites.splice(state.pendingFolderWrites.indexOf(pending), 1);
+  state.folderWrites.push({ ...pending, seq: nextSeq(), at: Date.now() });
+}
+function recordFolderScan(state, id, arrivedSeq, arrivedAt) {
+  const pending = state.pendingFolderScans.findIndex((scan) => scan.arrivedSeq === arrivedSeq);
+  if (pending >= 0) state.pendingFolderScans.splice(pending, 1);
+  state.folderScans.push({
+    id, arrivedSeq, arrivedAt, seq: nextSeq(), at: Date.now(),
+  });
 }
 
 function nodeState(ip) {
@@ -54,11 +85,22 @@ function nodeState(ip) {
     const deviceID = deviceIdForIp(ip);
     state = {
       deviceID,
+      // When this node's syncthing started: reported as startTime, and what a
+      // device's lastSeen is compared against. Reset by a restart.
+      startedAt: new Date().toISOString(),
       folders: new Map(),
       devices: new Map(),
       ignores: new Map(),
       restartRequired: false,
       folderWrites: [],
+      pendingFolderWrites: [],
+      folderScans: [],
+      // scans asked for and not yet answered: { id, arrivedSeq, arrivedAt }
+      pendingFolderScans: [],
+      // folder id -> when its restart after a config change ends
+      restartingUntil: new Map(),
+      // settles when the config change this node applied last has taken effect
+      configQueue: Promise.resolve(),
     };
     // every node knows itself as a configured device
     state.devices.set(deviceID, {
@@ -74,7 +116,97 @@ function reqState(req) {
   return nodeState(clientIp(req));
 }
 
-// ip (or '*') -> milliseconds to hold a folder PATCH open before answering
+// syncthing's default folder. A PUT starts each folder it is sent from a copy of
+// this and applies the body over it, so a field the body leaves out takes the
+// default - not the folder's current value. A PATCH applies the body over the
+// folder as it is.
+const DEFAULT_FOLDER = Object.freeze({
+  type: 'sendreceive',
+  paused: false,
+  devices: [],
+  rescanIntervalS: 3600,
+  maxConflicts: 10,
+  syncOwnership: false,
+});
+
+// syncthing's default device, which a device PUT starts from the same way.
+const DEFAULT_DEVICE = Object.freeze({
+  addresses: ['dynamic'],
+  compression: 'metadata',
+  introducer: false,
+  paused: false,
+});
+
+// --- config changes, applied the way syncthing applies them ----------------
+// Syncthing applies one config change at a time. Each is prepared (below) and
+// takes effect before the next is applied, and the request is answered once it
+// has: a change to a folder restarts that folder, and the answer waits for the
+// restart. A PATCH reads the folder when the request arrives, so a PATCH queued
+// behind another change writes the folder back as it was when it arrived.
+
+// How long a folder takes to restart after its config changes. While it
+// restarts it is not running: a scan of it fails.
+const DEFAULT_FOLDER_RESTART_MS = 250;
+let folderRestartMs = DEFAULT_FOLDER_RESTART_MS;
+
+const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+// Every config write prepares the whole config: a folder keeps only the
+// devices the device list holds, each once, and always this node's own, sorted
+// by device ID and in syncthing's full shape.
+function prepareConfig(state) {
+  state.folders.forEach((folder, id) => {
+    const byId = new Map();
+    (folder.devices || []).forEach((d) => {
+      if (d?.deviceID && state.devices.has(d.deviceID) && !byId.has(d.deviceID)) byId.set(d.deviceID, d);
+    });
+    if (!byId.has(state.deviceID)) byId.set(state.deviceID, { deviceID: state.deviceID });
+    const devices = [...byId.values()]
+      .map((d) => ({ deviceID: d.deviceID, introducedBy: d.introducedBy ?? '', encryptionPassword: d.encryptionPassword ?? '' }))
+      .sort((x, y) => (x.deviceID < y.deviceID ? -1 : 1));
+    state.folders.set(id, { ...folder, devices });
+  });
+}
+
+function folderRunning(state, id) {
+  const folder = state.folders.get(id);
+  if (!folder) return 'no such folder';
+  if (folder.paused) return 'folder is paused';
+  if ((state.restartingUntil.get(id) ?? 0) > Date.now()) return 'folder is not running';
+  return null;
+}
+
+/**
+ * Queues a config change on a node. `change` runs in its turn and returns the
+ * ids of the folders whose config it changed; the promise settles once those
+ * folders have restarted.
+ */
+function applyConfigChange(state, change) {
+  const turn = state.configQueue.then(async () => {
+    const before = new Map([...state.folders].map(([id, f]) => [id, JSON.stringify(f)]));
+    await change();
+    prepareConfig(state);
+    const restarted = [...state.folders.keys()].filter((id) => before.get(id) !== JSON.stringify(state.folders.get(id)));
+    if (restarted.length && folderRestartMs > 0) {
+      const until = Date.now() + folderRestartMs;
+      restarted.forEach((id) => state.restartingUntil.set(id, until));
+      await sleep(folderRestartMs);
+    }
+  });
+  // eslint-disable-next-line no-param-reassign
+  state.configQueue = turn.catch(() => {});
+  return turn;
+}
+
+// `${ip}|${folder}` ('*' for either) -> how long a scan of that folder takes
+const scanDurations = new Map();
+function scanDuration(ip, folder) {
+  return scanDurations.get(`${ip}|${folder}`) ?? scanDurations.get(`${ip}|*`)
+    ?? scanDurations.get(`*|${folder}`) ?? scanDurations.get('*|*') ?? 0;
+}
+
+// ip (or '*') -> milliseconds a folder PATCH takes to apply on that node. It is
+// applied in the node's turn, so it holds every config change queued behind it.
 const folderPatchDelay = new Map();
 // Wakes parked PATCHes when a delay is cleared; unbounded listeners because
 // every held request registers one.
@@ -99,6 +231,26 @@ patchDelayWaker.setMaxListeners(0);
 // must never testify to a synced peer.
 const syncOverrides = new Map();
 const completionOverrides = new Map(); // value: number (completion) or { completion, remoteState }
+// completionOverrides key -> when the connection it testified to closed. A
+// device's lastSeen is derived from these, as a real syncthing's is from its
+// connections: now while connected, the moment it closed once it has, and
+// never for a device it was never connected to.
+const connectionClosedAt = new Map();
+
+// Whether a declared completion testifies to a live connection: remoteState
+// 'valid', which a declaration carries unless it says otherwise.
+function testifiesConnected(value) {
+  if (value === undefined) return false;
+  return ((typeof value === 'object' ? value?.remoteState : undefined) ?? 'valid') === 'valid';
+}
+
+function declareCompletion(key, value) {
+  if (testifiesConnected(completionOverrides.get(key)) && !testifiesConnected(value)) {
+    connectionClosedAt.set(key, new Date().toISOString());
+  }
+  if (testifiesConnected(value)) connectionClosedAt.delete(key);
+  completionOverrides.set(key, value);
+}
 
 // device pause/resume calls per node ip - the production "nudge" (device
 // pause/resume forces an index re-exchange) is observable through this log
@@ -145,11 +297,31 @@ function lookupSync(ip, folder) {
   return syncOverrides.get(`${ip}|${folder}`) ?? syncOverrides.get(`*|${folder}`);
 }
 
+// The declaration db/completion reads for a (node, folder, peer): exact keys win.
+function completionKey(ip, folder, device) {
+  return [`${ip}|${folder}|${device}`, `${ip}|${folder}|*`, `*|${folder}|${device}`, `*|${folder}|*`]
+    .find((key) => completionOverrides.has(key));
+}
+
 function lookupCompletion(ip, folder, device) {
-  return completionOverrides.get(`${ip}|${folder}|${device}`)
-    ?? completionOverrides.get(`${ip}|${folder}|*`)
-    ?? completionOverrides.get(`*|${folder}|${device}`)
-    ?? completionOverrides.get(`*|${folder}|*`);
+  const key = completionKey(ip, folder, device);
+  return key === undefined ? undefined : completionOverrides.get(key);
+}
+
+// What a node's syncthing reports as lastSeen for a device, from the
+// connections its declared completions testify to across every folder.
+function derivedLastSeen(ip, deviceID) {
+  const folders = new Set([...completionOverrides.keys()].map((key) => key.split('|')[1]));
+  let closed = null;
+  for (const folder of folders) {
+    const key = completionKey(ip, folder, deviceID);
+    if (key !== undefined) {
+      if (testifiesConnected(completionOverrides.get(key))) return new Date().toISOString();
+      const at = connectionClosedAt.get(key);
+      if (at && (!closed || at > closed)) closed = at;
+    }
+  }
+  return closed;
 }
 
 // -- Health & Meta --
@@ -196,7 +368,7 @@ app.get('/rest/system/status', (req, res) => {
     lastDialStatus: {},
     myID: reqState(req).deviceID,
     pathSeparator: '/',
-    startTime: new Date().toISOString(),
+    startTime: reqState(req).startedAt,
     sys: 100000000,
     tilde: '/root',
     uptime: Math.floor(process.uptime()),
@@ -260,6 +432,7 @@ app.post('/rest/system/restart', (req, res) => {
   // recorded so suites can assert the ladder NUDGED instead of restarting
   nudgeLog(clientIp(req)).push({ action: 'restart', device: '*', at: Date.now() });
   reqState(req).restartRequired = false;
+  reqState(req).startedAt = new Date().toISOString();
   res.json({ ok: 'restarting' });
 });
 
@@ -296,20 +469,23 @@ app.get('/rest/config', (req, res) => {
     gui: { enabled: true, address: `0.0.0.0:${PORT}`, apikey: API_KEY, theme: 'default' },
     ldap: {},
     options: { listenAddresses: ['default'], globalAnnEnabled: false, localAnnEnabled: false, relaysEnabled: false },
-    defaults: { folder: {}, device: {}, ignores: {} },
+    defaults: { folder: DEFAULT_FOLDER, device: {}, ignores: {} },
   });
 });
 
-app.put('/rest/config', (req, res) => {
+app.put('/rest/config', async (req, res) => {
   const state = reqState(req);
-  if (req.body.folders) {
-    state.folders.clear();
-    req.body.folders.forEach((f) => state.folders.set(f.id, f));
-  }
-  if (req.body.devices) {
-    state.devices.clear();
-    req.body.devices.forEach((d) => state.devices.set(d.deviceID, d));
-  }
+  await applyConfigChange(state, () => {
+    if (req.body.devices) {
+      state.devices.clear();
+      req.body.devices.forEach((d) => state.devices.set(d.deviceID, { ...DEFAULT_DEVICE, ...d }));
+      if (!state.devices.has(state.deviceID)) state.devices.set(state.deviceID, { ...DEFAULT_DEVICE, deviceID: state.deviceID });
+    }
+    if (req.body.folders) {
+      state.folders.clear();
+      req.body.folders.forEach((f) => state.folders.set(f.id, { ...DEFAULT_FOLDER, ...f }));
+    }
+  });
   res.json({});
 });
 
@@ -327,16 +503,18 @@ app.get('/rest/config/folders', (req, res) => {
   res.json(Array.from(reqState(req).folders.values()));
 });
 
-// Collection PUT (no id): the syncthing monitor writes folder config as an array
-// of the folders that changed. Upsert by id (don't replace the whole set) so
-// unrelated folders survive — matching how the monitor uses it.
-app.put('/rest/config/folders', (req, res) => {
+// Collection PUT (no id): the folders sent replace those with the same id,
+// starting from the default folder; folders not sent are kept.
+app.put('/rest/config/folders', async (req, res) => {
   const state = reqState(req);
   const arr = Array.isArray(req.body) ? req.body : [req.body];
-  arr.forEach((f) => {
-    state.folders.set(f.id, f);
-    recordFolderWrite(state, 'put', f.id, f);
+  const pending = arr.map((f) => arrive(state, 'put', f.id, f));
+  await applyConfigChange(state, () => {
+    arr.forEach((f) => state.folders.set(f.id, { ...DEFAULT_FOLDER, ...f }));
+    const appliedSeq = nextSeq();
+    pending.forEach((write) => { Object.assign(write, { appliedSeq }); });
   });
+  pending.forEach((write) => recordFolderWrite(state, write));
   res.json({});
 });
 
@@ -346,45 +524,52 @@ app.get('/rest/config/folders/:id', (req, res) => {
   return res.json(folder);
 });
 
-app.put('/rest/config/folders/:id', (req, res) => {
+app.put('/rest/config/folders/:id', async (req, res) => {
   const state = reqState(req);
-  state.folders.set(req.params.id, { ...req.body, id: req.params.id });
-  recordFolderWrite(state, 'put', req.params.id, req.body);
+  const pending = arrive(state, 'put', req.params.id, req.body);
+  await applyConfigChange(state, () => {
+    state.folders.set(req.params.id, { ...DEFAULT_FOLDER, ...req.body, id: req.params.id });
+    pending.appliedSeq = nextSeq();
+  });
+  recordFolderWrite(state, pending);
   res.json({});
 });
 
+// PATCH modifies an existing folder and 404s an unknown id (PUT is the upsert).
+// The folder is read when the request arrives and written back whole, with the
+// body over it, in the node's turn.
 app.patch('/rest/config/folders/:id', async (req, res) => {
   const state = reqState(req);
-  // real syncthing: PATCH modifies an existing folder and 404s an unknown id
-  // (PUT is the upsert). The monitor's safety demotion reads that 404 as
-  // "not a syncthing folder", so the distinction is load-bearing.
   const existing = state.folders.get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'not found' });
-  // The masterSlave primary path brackets its ownership fix with two of these
-  // calls, and its duration is the window in which the node has committed but
-  // has no container. Held open on request, that window becomes a chosen length
-  // rather than whatever the box happened to do (see /folder-patch-delay).
+  const pending = arrive(state, 'patch', req.params.id, req.body);
   const delayMs = folderPatchDelay.get(clientIp(req)) ?? folderPatchDelay.get('*') ?? 0;
-  if (delayMs > 0) {
-    // Interruptible: clearing the delay wakes every request already parked in
-    // it. A sleeper that outlives its release freezes whatever awaits it for
-    // the full duration - a monitor cycle, and every decision behind it.
-    await new Promise((resolve) => {
-      let timer;
-      const done = () => { clearTimeout(timer); patchDelayWaker.off('wake', done); resolve(); };
-      timer = setTimeout(done, delayMs);
-      patchDelayWaker.on('wake', done);
-    });
-  }
-  state.folders.set(req.params.id, { ...existing, ...req.body });
-  recordFolderWrite(state, 'patch', req.params.id, req.body);
+  await applyConfigChange(state, async () => {
+    if (delayMs > 0) {
+      // Interruptible: clearing the delay wakes every change parked in it.
+      await new Promise((resolve) => {
+        let timer;
+        const done = () => { clearTimeout(timer); patchDelayWaker.off('wake', done); resolve(); };
+        timer = setTimeout(done, delayMs);
+        patchDelayWaker.on('wake', done);
+      });
+    }
+    state.folders.set(req.params.id, { ...existing, ...req.body });
+    pending.appliedSeq = nextSeq();
+  });
+  recordFolderWrite(state, pending);
   return res.json({});
 });
 
-app.delete('/rest/config/folders/:id', (req, res) => {
+// Deleting a folder syncthing does not have succeeds.
+app.delete('/rest/config/folders/:id', async (req, res) => {
   const state = reqState(req);
-  state.folders.delete(req.params.id);
-  recordFolderWrite(state, 'delete', req.params.id, null);
+  const pending = arrive(state, 'delete', req.params.id, null);
+  await applyConfigChange(state, () => {
+    state.folders.delete(req.params.id);
+    pending.appliedSeq = nextSeq();
+  });
+  recordFolderWrite(state, pending);
   res.json({});
 });
 
@@ -399,11 +584,14 @@ app.get('/rest/config/devices', (req, res) => {
   return res.json(Array.from(reqState(req).devices.values()));
 });
 
-// Collection PUT (no id): upsert each device by deviceID (see folders above).
-app.put('/rest/config/devices', (req, res) => {
+// Collection PUT (no id): the devices sent replace those with the same id,
+// starting from the default device; devices not sent are kept.
+app.put('/rest/config/devices', async (req, res) => {
   const state = reqState(req);
   const arr = Array.isArray(req.body) ? req.body : [req.body];
-  arr.forEach((d) => state.devices.set(d.deviceID, d));
+  await applyConfigChange(state, () => {
+    arr.forEach((d) => state.devices.set(d.deviceID, { ...DEFAULT_DEVICE, ...d }));
+  });
   res.json({});
 });
 
@@ -413,22 +601,29 @@ app.get('/rest/config/devices/:id', (req, res) => {
   return res.json(device);
 });
 
-app.put('/rest/config/devices/:id', (req, res) => {
+app.put('/rest/config/devices/:id', async (req, res) => {
   const state = reqState(req);
-  state.devices.set(req.params.id, { ...req.body, deviceID: req.params.id });
+  await applyConfigChange(state, () => {
+    state.devices.set(req.params.id, { ...DEFAULT_DEVICE, ...req.body, deviceID: req.params.id });
+  });
   res.json({});
 });
 
-app.patch('/rest/config/devices/:id', (req, res) => {
+app.patch('/rest/config/devices/:id', async (req, res) => {
   const state = reqState(req);
-  const existing = state.devices.get(req.params.id) || { deviceID: req.params.id };
-  state.devices.set(req.params.id, { ...existing, ...req.body });
-  res.json({});
+  const existing = state.devices.get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'No device with given ID' });
+  await applyConfigChange(state, () => {
+    state.devices.set(req.params.id, { ...existing, ...req.body });
+  });
+  return res.json({});
 });
 
-app.delete('/rest/config/devices/:id', (req, res) => {
+// A folder shared with the removed device stops listing it: every change
+// prepares the whole config.
+app.delete('/rest/config/devices/:id', async (req, res) => {
   const state = reqState(req);
-  state.devices.delete(req.params.id);
+  await applyConfigChange(state, () => { state.devices.delete(req.params.id); });
   res.json({});
 });
 
@@ -554,11 +749,9 @@ app.get('/rest/db/status', (req, res) => {
   const ov = lookupSync(clientIp(req), folderId || '');
   if (ov?.statusUnreadable) return res.status(500).json({ error: 'simulated unreadable folder status' });
   const globalBytes = ov?.globalBytes ?? 0;
-  // How many of the indexed entries are FILES, which is what says WHICH KIND of claim
-  // globalBytes is. Declared rather than derived from the byte count, because both
-  // readings are real: a folder of empty directories has bytes and no files, and one
-  // holding the owner's data has both. Undeclared reads 0 - the reading a consumer
-  // treats as "the payload is directories".
+  // How many of the indexed entries are FILES. This stub reports no directories,
+  // so bytes it reports are bytes in files, and at least one file carries them -
+  // see /sync-state.
   const globalFiles = ov?.globalFiles ?? 0;
   const inSyncBytes = ov?.inSyncBytes ?? 0;
   const state = ov?.state ?? 'idle';
@@ -628,7 +821,21 @@ app.post('/rest/db/revert', (req, res) => {
   });
   res.json({});
 });
-app.post('/rest/db/scan', (req, res) => res.json({}));
+// A scan is answered once it has finished, and refused while the folder is
+// missing, paused or restarting.
+app.post('/rest/db/scan', async (req, res) => {
+  const state = reqState(req);
+  const folder = req.query.folder || '';
+  const notRunning = folderRunning(state, folder);
+  if (notRunning) return res.status(500).type('text/plain').send(notRunning);
+  const arrivedSeq = nextSeq();
+  const arrivedAt = Date.now();
+  state.pendingFolderScans.push({ id: folder, arrivedSeq, arrivedAt });
+  const ms = scanDuration(clientIp(req), folder);
+  if (ms > 0) await sleep(ms);
+  recordFolderScan(state, folder, arrivedSeq, arrivedAt);
+  return res.json({});
+});
 
 // -- Folder --
 
@@ -644,10 +851,21 @@ app.post('/rest/folder/versions', (req, res) => res.json({}));
 
 // -- Stats --
 
+// `<viewer ip>|<device>` or `*|<device>` -> the lastSeen a node reports for a
+// device, or null for a device it has never been connected to. Unset, it is
+// derived from the node's declared connections (derivedLastSeen).
+const deviceLastSeen = new Map();
+// What syncthing reports as lastSeen for a device it has never been connected to.
+const NEVER_SEEN = '1970-01-01T00:00:00Z';
+
 app.get('/rest/stats/device', (req, res) => {
+  const ip = clientIp(req);
   const stats = {};
   reqState(req).devices.forEach((d) => {
-    stats[d.deviceID] = { lastSeen: new Date().toISOString(), lastConnectionDurationS: 3600 };
+    const key = [`${ip}|${d.deviceID}`, `*|${d.deviceID}`].find((k) => deviceLastSeen.has(k));
+    const declared = key ? deviceLastSeen.get(key) : undefined;
+    const seen = declared === undefined ? derivedLastSeen(ip, d.deviceID) : declared;
+    stats[d.deviceID] = { lastSeen: seen ?? NEVER_SEEN, lastConnectionDurationS: seen ? 3600 : 0 };
   });
   res.json(stats);
 });
@@ -746,15 +964,18 @@ control.get('/state', (req, res) => {
       folders: Array.from(s.folders.values()),
       devices: Array.from(s.devices.values()),
       restartRequired: s.restartRequired,
-      // ordered history of folder config writes - see recordFolderWrite
+      // ordered history of folder config writes, and of scans - see recordFolderWrite
       folderWrites: s.folderWrites,
+      pendingFolderWrites: s.pendingFolderWrites,
+      folderScans: s.folderScans,
+      pendingFolderScans: s.pendingFolderScans,
     })),
   });
 });
 
-// Hold this node's folder PATCH calls open for `ms`, stretching the window in
-// which a masterSlave primary has committed to running a component but has not
-// started its container. Omit ip to target every node; 0 clears.
+// Make this node's folder PATCHes take `ms` to apply, as a syncthing slow to
+// apply a change would; every config change queued behind one waits for it.
+// Omit ip to target every node; 0 clears.
 control.post('/folder-patch-delay', (req, res) => {
   const { ip = '*', ms = 0 } = req.body;
   if (ms > 0) {
@@ -773,10 +994,14 @@ control.post('/folder-patch-delay', (req, res) => {
 // reads as a stall (the production stall detector needs N unchanged samples).
 control.post('/sync-state', (req, res) => {
   const {
-    ip = '*', folder, state = 'idle', globalBytes = 0, globalFiles = 0, inSyncBytes = 0,
-    receiveOnlyChangedFiles = 0, localChanged = null, statusUnreadable = false,
+    ip = '*', folder, state = 'idle', globalBytes = 0, globalFiles: declaredFiles, inSyncBytes = 0,
+    receiveOnlyChangedFiles = 0, localChanged = null, statusUnreadable = false, onDisk = true,
   } = req.body;
   if (!folder) return res.status(400).json({ error: 'folder required' });
+  // This stub reports no directories, so declared bytes are bytes in files, and a
+  // real index carrying them lists at least one file. A suite may still state the
+  // count; left out, it is the one file the bytes need.
+  const globalFiles = declaredFiles ?? (globalBytes > 0 ? 1 : 0);
   console.log(`[write] sync-state from=${clientIp(req)} ip=${ip} folder=${folder} state=${state} bytes=${inSyncBytes}/${globalBytes} unreadable=${statusUnreadable}`);
   // The ENTRIES are the declaration; the count is derived from them. A real daemon
   // cannot report a receiveOnlyChangedFiles that disagrees with what db/localchanged
@@ -808,8 +1033,12 @@ control.post('/sync-state', (req, res) => {
       if (key.endsWith(`|${folder}`) && !key.startsWith('*|')) syncOverrides.delete(key);
     }
   }
+  // onDisk: the node's volume holds the bytes it reports in sync, as a real sync
+  // leaves them. The harness writes them there (synced-data-keeper.js); a suite
+  // describing an index the disk contradicts - a stale index over a wiped volume -
+  // declares onDisk: false.
   syncOverrides.set(`${ip}|${folder}`, {
-    state, globalBytes, globalFiles, inSyncBytes, localChanged: entries, statusUnreadable,
+    state, globalBytes, globalFiles, inSyncBytes, localChanged: entries, statusUnreadable, onDisk: onDisk !== false,
   });
   // A declared sync state is also the folder's peer evidence: when OTHER
   // nodes ask db/completion about this folder, the declaring node is a
@@ -823,13 +1052,27 @@ control.post('/sync-state', (req, res) => {
   // connected source - the exact witness class this gate exists to kill.
   if (!statusUnreadable && globalBytes > 0) {
     const sourceDevice = ip === '*' ? '*' : nodeState(ip).deviceID;
-    completionOverrides.set(`*|${folder}|${sourceDevice}`, {
+    declareCompletion(`*|${folder}|${sourceDevice}`, {
       completion: globalBytes > 0 ? Math.round((inSyncBytes / globalBytes) * 100) : 0,
       remoteState: 'valid',
       globalBytes,
     });
   }
   return res.json({ ok: true });
+});
+
+// The bytes each node's volume should hold for each folder: what its declared state
+// reports in sync, unless the declaration says the disk does not hold it. Keyed as
+// the overrides are; '*' applies to every node without one of its own.
+control.get('/disk-claims', (req, res) => {
+  res.json(Array.from(syncOverrides.entries()).map(([key, ov]) => {
+    const sep = key.indexOf('|');
+    return {
+      ip: key.slice(0, sep),
+      folder: key.slice(sep + 1),
+      bytes: ov.onDisk && !ov.statusUnreadable ? Math.max(0, Number(ov.inSyncBytes) || 0) : 0,
+    };
+  }));
 });
 
 // Set what /rest/db/completion returns for a (node ip, folder, peer device).
@@ -842,7 +1085,7 @@ control.post('/peer-completion', (req, res) => {
   // remoteState 'valid' (default) = connected peer; 'unknown' models a
   // disconnected peer whose last-known index still reports the completion
   console.log(`[write] peer-completion from=${clientIp(req)} key=${ip}|${folder}|${device} completion=${completion} remoteState=${remoteState}`);
-  completionOverrides.set(`${ip}|${folder}|${device}`, remoteState !== undefined ? { completion, remoteState } : completion);
+  declareCompletion(`${ip}|${folder}|${device}`, remoteState !== undefined ? { completion, remoteState } : completion);
   return res.json({ ok: true });
 });
 
@@ -902,11 +1145,24 @@ control.get('/device-config-refusals', (req, res) => {
   return res.json({ refusals: ip ? (deviceConfigRefusals.get(ip) ?? 0) : Object.fromEntries(deviceConfigRefusals) });
 });
 
+// Set what one node's /rest/stats/device reports as lastSeen for a device: an
+// ISO time, or null for a device it has never been connected to. Omit ip to
+// set it for every viewer; omit lastSeen to go back to "seen now".
+control.post('/device-last-seen', (req, res) => {
+  const { ip = '*', device } = req.body || {};
+  if (!device) return res.status(400).json({ error: 'device required' });
+  const key = `${ip}|${device}`;
+  if (!('lastSeen' in (req.body || {}))) deviceLastSeen.delete(key);
+  else deviceLastSeen.set(key, req.body.lastSeen);
+  return res.json({ ok: true, key, lastSeen: deviceLastSeen.get(key) });
+});
+
 // Back to default always-synced/empty behaviour.
 control.post('/sync-reset', (req, res) => {
   console.log(`[write] sync-reset from=${clientIp(req)}`);
   syncOverrides.clear();
   completionOverrides.clear();
+  connectionClosedAt.clear();
   deviceConfigOutages.clear();
   deviceConfigRefusals.clear();
   nudgeLogs.clear();
@@ -914,10 +1170,42 @@ control.post('/sync-reset', (req, res) => {
   eventsOutages.clear();
   folderPatchDelay.clear();
   patchDelayWaker.emit('wake');
+  scanDurations.clear();
+  folderRestartMs = DEFAULT_FOLDER_RESTART_MS;
+  deviceLastSeen.clear();
   res.json({ ok: true });
 });
 
-// Drop the recorded folder-write history, leaving the folder config itself
+// How long a scan of a folder takes on a node. Omit ip or folder for every one;
+// 0 clears.
+control.post('/scan-duration', (req, res) => {
+  const { ip = '*', folder = '*', ms = 0 } = req.body || {};
+  if (ms > 0) scanDurations.set(`${ip}|${folder}`, ms);
+  else scanDurations.delete(`${ip}|${folder}`);
+  return res.json({ ok: true, ip, folder, ms });
+});
+
+// How long a folder takes to restart after its config changes, on every node.
+control.post('/folder-restart-ms', (req, res) => {
+  const { ms = DEFAULT_FOLDER_RESTART_MS } = req.body || {};
+  folderRestartMs = ms;
+  return res.json({ ok: true, ms });
+});
+
+// Change fields of a node's folder config directly, as something other than
+// FluxOS would, prepared like any config change. Not recorded as a folder
+// write. 404 for an unknown folder.
+control.post('/folder-config', (req, res) => {
+  const { ip, id, fields = {} } = req.body || {};
+  const state = nodeStates.get(ip);
+  const existing = state?.folders.get(id);
+  if (!existing) return res.status(404).json({ error: 'not found' });
+  state.folders.set(id, { ...existing, ...fields });
+  prepareConfig(state);
+  return res.json({ ok: true });
+});
+
+// Drop the recorded folder-write and scan history, leaving the folder config itself
 // alone: a test that asks "what did THIS operation do" needs a mark it can
 // measure from, and the monitor writes folder config continuously.
 control.post('/folder-writes-reset', (req, res) => {
@@ -925,7 +1213,10 @@ control.post('/folder-writes-reset', (req, res) => {
   const targets = ip === '*' ? Array.from(nodeStates.keys()) : [ip];
   targets.forEach((target) => {
     const state = nodeStates.get(target);
-    if (state) state.folderWrites.length = 0;
+    if (state) {
+      state.folderWrites.length = 0;
+      state.folderScans.length = 0;
+    }
   });
   res.json({ ok: true });
 });

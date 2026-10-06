@@ -133,6 +133,8 @@ describe('policy reaching a node from its peers', function () {
     this.timeout(420000);
     env = await createTestEnv({
       hookCtx: this,
+      // This suite decides when a restarted node rejoins - restartAndRepeer.
+      rejoinOnRestart: false,
       nodes: 5,
       stubPeers: [STUB_PEER_INDEX],
       // Connected to node 1 only. createTestEnv waits for the link before returning, so a
@@ -382,6 +384,8 @@ describe('a node that restored STALE policy catches up before it acts', function
     this.timeout(420000);
     env = await createTestEnv({
       hookCtx: this,
+      // This suite decides when a restarted node rejoins - restartAndRepeer.
+      rejoinOnRestart: false,
       nodes: 3,
       // Well above the seeded bundle, so the node is unambiguously behind.
       policy: { seq: 40 },
@@ -463,6 +467,8 @@ describe('a fleet that has never obtained policy', function () {
     // still looks like a valid fleet, so the suite would go green having tested nothing.
     env = await createTestEnv({
       hookCtx: this,
+      // This suite decides when a restarted node rejoins - restartAndRepeer.
+      rejoinOnRestart: false,
       nodes: 3,
       policy: { available: false },
       // The source never answers, so this fleet never holds policy - which is the subject.
@@ -558,6 +564,8 @@ describe('a node whose source answered with something that did not verify', func
     // would be testing a node that never met the failure.
     env = await createTestEnv({
       hookCtx: this,
+      // This suite decides when a restarted node rejoins - restartAndRepeer.
+      rejoinOnRestart: false,
       nodes: 3,
       policy: { available: true, signer: 'rogue' },
       // The source answers, and everything it serves is refused - so this fleet holds no
@@ -575,10 +583,19 @@ describe('a node whose source answered with something that did not verify', func
 
   it('refuses it, and holds nothing', async function () {
     this.timeout(120000);
+    // A node asks the source only once every peer has answered, which is after peering
+    // completes, so bootAndPeer returning says nothing about whether any node has met the
+    // bad answer yet. Each node is waited on to ask, and the source to ANSWER all three -
+    // the fleet met a body, not silence, which is the half that matters here.
+    await Promise.all([0, 1, 2].map(
+      (i) => env.clients[i].waitForEvent('policy:backstopAsked', () => true, 90000),
+    ));
+    await waitFor(
+      async () => (await stubState(env)).policyFetches.ok >= 3,
+      { timeout: 30000, interval: 500, label: 'the source to serve every node' },
+    );
     const held = await Promise.all([0, 1, 2].map(heldSeq));
     expect(held, 'a valid signature from an untrusted signer is not policy').to.deep.equal([null, null, null]);
-    // It ANSWERED, which is the half that matters here - the fleet met a body, not silence.
-    expect((await stubState(env)).policyFetches.ok, 'the fleet did fetch it').to.be.greaterThan(0);
   });
 
   it('still opens its gate when a peer later hands it a real bundle', async function () {
@@ -641,6 +658,8 @@ describe('a fleet where only the source has the new policy', function () {
     this.timeout(420000);
     env = await createTestEnv({
       hookCtx: this,
+      // This suite decides when a restarted node rejoins - restartAndRepeer.
+      rejoinOnRestart: false,
       nodes: 3,
       nodeConfigOverrides: { [SOURCE_NODE]: { policy: { refreshIntervalMs: 15000 } } },
     });
@@ -716,6 +735,8 @@ describe('the peer threshold is what licenses a fetch from the source', function
     this.timeout(600000);
     env = await createTestEnv({
       hookCtx: this,
+      // This suite decides when a restarted node rejoins - restartAndRepeer.
+      rejoinOnRestart: false,
       nodes: 10,
       deferredNodes: 1,
       tickerAutostart: false,
@@ -802,6 +823,8 @@ describe('a fleet too small to finish peering never asks the source', function (
     this.timeout(420000);
     env = await createTestEnv({
       hookCtx: this,
+      // This suite decides when a restarted node rejoins - restartAndRepeer.
+      rejoinOnRestart: false,
       nodes: 3,
       tickerAutostart: false,
       configOverrides: {
@@ -885,6 +908,8 @@ describe('the location table follows the bundle that names it', function () {
     this.timeout(420000);
     env = await createTestEnv({
       hookCtx: this,
+      // This suite decides when a restarted node rejoins - restartAndRepeer.
+      rejoinOnRestart: false,
       nodes: 3,
       tickerAutostart: false,
       // Published before the fleet boots, so every node's first bundle names THIS artifact
@@ -969,6 +994,8 @@ describe('a node acts on every peer that answers, not just the first', function 
     this.timeout(420000);
     env = await createTestEnv({
       hookCtx: this,
+      // This suite decides when a restarted node rejoins - restartAndRepeer.
+      rejoinOnRestart: false,
       nodes: 3,
       stubPeers: STUBS,
       // Both wired to the one real node, so it has two peers to ask and they are the only
@@ -1048,6 +1075,8 @@ describe('a node whose peers all predate the policy protocol', function () {
     this.timeout(420000);
     env = await createTestEnv({
       hookCtx: this,
+      // This suite decides when a restarted node rejoins - restartAndRepeer.
+      rejoinOnRestart: false,
       nodes: 3,
       stubPeers: STUBS,
       // Advertising no policyBundle capability, which is what every peer looks like to the
@@ -1135,6 +1164,8 @@ describe('a node does not open its gate on fewer peers than it takes', function 
     this.timeout(420000);
     env = await createTestEnv({
       hookCtx: this,
+      // This suite decides when a restarted node rejoins - restartAndRepeer.
+      rejoinOnRestart: false,
       nodes: 3,
       stubPeers: STUBS,
       stubPeeredWith: { [STUBS[0]]: [NODE], [STUBS[1]]: [NODE] },
@@ -1249,6 +1280,8 @@ describe('a peer that cannot make its claim good is not asked in a loop', functi
     this.timeout(420000);
     env = await createTestEnv({
       hookCtx: this,
+      // This suite decides when a restarted node rejoins - restartAndRepeer.
+      rejoinOnRestart: false,
       nodes: 3,
       stubPeers: STUBS,
       stubPeeredWith: { [STUBS[0]]: [ASKER], [STUBS[1]]: [ASKER] },

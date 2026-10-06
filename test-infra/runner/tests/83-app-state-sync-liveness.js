@@ -55,6 +55,10 @@ const SILENT = REAL_NODES;
 // produce: every responder signs correctly with its own key, so silence and a
 // refusal were the only failures reachable here.
 const UNVERIFIABLE = REAL_NODES + 1;
+// The state-sync budget's checkpoint, declared in fluxEventBus.Checkpoint.
+const BUDGET_SPENT = 'appSync:beforeBudgetSpent';
+// The checkpoint between a completed state sync and the authority it confers.
+const BEFORE_AUTHORITATIVE = 'appSync:beforeAuthoritative';
 const ANSWERER = REAL_NODES + 2; // held back, and the only node that boots synced
 const BOOTED = Array.from({ length: REAL_NODES }, (_unused, i) => i);
 
@@ -82,10 +86,7 @@ describe('a node that cannot answer a state sync declines it', function () {
           // THE PRODUCTION BUDGET, for the reason the second describe gives:
           // the per-peer deadlines derive from it, and at the harness default
           // of 30s the first-response deadline is 2.5s - shorter than two
-          // containers still booting take to exchange a first batch. It also
-          // has to outlast the tests below, because they all examine ONE node's
-          // ONE attempt: a budget shorter than they take leaves every test
-          // after the first reading a node that has already stopped asking.
+          // containers still booting take to exchange a first batch.
           syncTimeoutMs: 120000,
         },
       },
@@ -109,12 +110,18 @@ describe('a node that cannot answer a state sync declines it', function () {
     await waitForDaemonReady(answerer);
     await waitForNodeStatus(answerer, (d) => d.confirmed === true, 60000);
 
+    // THE TESTS BELOW ALL EXAMINE ONE NODE'S ONE ATTEMPT, so its budget is held
+    // from before the attempt opens until they are done: however long they take,
+    // node 0 is still asking.
+    await env.clients[0].holdCheckpoint(BUDGET_SPENT);
     await env.startDiscovery(BOOTED);
     await env.clients[0].waitForEvent('peers:added', (d) => d.total >= 2, 120000);
   });
 
   after(async function () {
     this.timeout(60000);
+    await env?.clients[0].releaseCheckpoint(BUDGET_SPENT)
+      .catch((err) => console.warn(`cleanup: budget checkpoint release failed: ${err.message}`));
     await env?.teardown();
   });
 
@@ -239,6 +246,8 @@ describe('a node that cannot answer a state sync declines it', function () {
 
     expect(credited.data.peer).to.match(new RegExp(`^${answererIp.replace(/\./g, '\\.')}:`));
     expect(credited.data.syncType).to.be.oneOf(SYNC_TYPES);
+    expect(env.clients[0].getEventBuffer().some((e) => e.event === 'ephemeralSync:budgetSpent'),
+      'fixture: node 0 spent its budget while it was held').to.equal(false);
 
     await env.clients[0].waitForEvent('ephemeralSync:allComplete', () => true, 120000, { afterId });
   });
@@ -308,6 +317,11 @@ describe('a state sync at the production requirement completes on three distinct
     for (const client of clients) {
       await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
     }
+    // THE DECLINER IS HELD SHORT OF AUTHORITY for the whole describe. Its peers
+    // are the answerers, so its own sync completes within a second of peering,
+    // and from then on it answers like any of them. The fallback above shuts
+    // the waiting road; this shuts the sync road.
+    await env.clients[DECLINER].holdCheckpoint(BEFORE_AUTHORITATIVE);
     await env.startDiscovery(booted);
     // The answerers settle among themselves before anyone asks them, so the
     // node under test meets a fleet that is up rather than one still starting.
@@ -316,6 +330,8 @@ describe('a state sync at the production requirement completes on three distinct
 
   after(async function () {
     this.timeout(60000);
+    await env?.clients[DECLINER].releaseCheckpoint(BEFORE_AUTHORITATIVE)
+      .catch((err) => console.warn(`cleanup: authority checkpoint release failed: ${err.message}`));
     await env?.teardown();
   });
 
@@ -369,6 +385,12 @@ describe('a state sync at the production requirement completes on three distinct
     );
     expect([...creditedTypes].sort(), 'a stream the request asked for was never counted')
       .to.deep.equal([...SYNC_TYPES].sort());
+
+    // The decliner never became able to answer, so a credit to it below can
+    // only be a decline counted as a completion.
+    const declinerEvents = env.clients[DECLINER].getEventBuffer();
+    expect(declinerEvents.some((e) => e.event === 'ephemeralSync:allComplete'),
+      'fixture: the decliner completed its own sync and could answer').to.equal(false);
 
     // The one peer that could not answer is not among them: it declined, and a
     // decline is an answer that is not a completion.

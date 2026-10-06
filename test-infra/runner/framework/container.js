@@ -83,6 +83,72 @@ export async function unblockPeerAccess(container, peerIps, apiPort) {
   }
 }
 
+// A router that forwards by port alone, as seen from the node behind it: every
+// call this node makes to `ports` on one of `toIps` arrives at `landsOn` instead,
+// port for port. A DNAT in the node's own nat OUTPUT chain, so it moves only
+// connections this node originates - traffic arriving at the node, and every
+// other node's traffic, are untouched, which is exactly the half of the fault
+// that makes it invisible from outside. TCP and UDP both, because syncthing
+// dials QUIC on the same port as TCP.
+//
+// Moves new connections only. One already open to a target keeps going to it
+// until it closes, as it would through a real router whose forwarding changed -
+// unless `resetOpen`, which resets every TCP connection still addressed to a
+// target, so the node's next call opens one through the redirect. A redirected
+// connection is addressed to `landsOn` and is not reset.
+//
+// Returns the rules it added, for clearOutboundRedirect.
+//
+// @param {object} container The node's container.
+// @param {{toIps: string[], ports: string, landsOn: string, resetOpen?: boolean}} redirect
+//   `ports` as iptables takes it, e.g. '16127:16129'.
+export async function redirectOutbound(container, {
+  toIps, ports, landsOn, resetOpen = false,
+}) {
+  const rules = [];
+  for (const toIp of toIps) {
+    for (const proto of ['tcp', 'udp']) {
+      const rule = `-t nat OUTPUT -p ${proto} -d ${toIp} --dport ${ports} -j DNAT --to-destination ${landsOn}`;
+      // eslint-disable-next-line no-await-in-loop
+      const r = await execInContainer(container, `iptables ${rule.replace(' OUTPUT', ' -A OUTPUT')}`);
+      if (r.exitCode !== 0) {
+        throw new Error(`redirectOutbound: could not send ${toIp}:${ports}/${proto} to ${landsOn}: ${r.output}`);
+      }
+      rules.push(rule);
+    }
+    if (resetOpen) {
+      const rule = `-t filter OUTPUT -p tcp -d ${toIp} --dport ${ports} -j REJECT --reject-with tcp-reset`;
+      // eslint-disable-next-line no-await-in-loop
+      const r = await execInContainer(container, `iptables ${rule.replace(' OUTPUT', ' -A OUTPUT')}`);
+      if (r.exitCode !== 0) throw new Error(`redirectOutbound: could not reset open connections to ${toIp}:${ports}: ${r.output}`);
+      rules.push(rule);
+    }
+  }
+  return rules;
+}
+
+// Undo redirectOutbound. Tolerates a rule that is already gone so teardown after
+// a failed test cannot fail in its own right.
+//
+// A connection opened through the redirect goes on reaching `landsOn` after the
+// rules are gone, as one open to a target went on reaching it when they went in.
+// A redirect made with `resetOpen` is undone the same way: every socket still
+// addressed to a target is killed, so the node's next call opens one to it.
+export async function clearOutboundRedirect(container, rules) {
+  for (const rule of rules) {
+    // eslint-disable-next-line no-await-in-loop
+    await execInContainer(container, `iptables ${rule.replace(' OUTPUT', ' -D OUTPUT')}`);
+  }
+  for (const rule of rules) {
+    const reset = rule.match(/-d (\S+) --dport (\d+)(?::(\d+))? -j REJECT/);
+    if (!reset) continue;
+    const [, toIp, low, high = low] = reset;
+    // eslint-disable-next-line no-await-in-loop
+    const r = await execInContainer(container, `ss -K dst ${toIp} '( dport >= :${low} and dport <= :${high} )'`);
+    if (r.exitCode !== 0) throw new Error(`clearOutboundRedirect: could not close the connections redirected from ${toIp}: ${r.output}`);
+  }
+}
+
 // THE READ CAN FAIL, AND SAYS SO. `2>/dev/null || echo ""` gave a broken docker
 // exec the same answer as a node with no containers on it - an empty list - so
 // every caller read "the app is not running" and every wait built on one spent
@@ -222,4 +288,190 @@ export async function getContainerImageDigest(container, appName, componentName)
   );
   const match = stdout.trim().match(/@(sha256:[a-f0-9]+)$/);
   return match ? match[1] : null;
+}
+
+// A graceful system shutdown of one node's FluxOS, as systemd performs it: the
+// shutdown marker FluxOS checks for is put in place, the process is sent
+// SIGTERM, and this returns once it has exited. The marker is removed again
+// after the exit, so the next FluxOS on this node boots as usual.
+//
+// `hold` keeps the node down after the exit, as a machine stays down between a
+// shutdown and its next boot; releaseFluxos brings it back. `stopSyncthingAfter`
+// stops the node's own syncthing the moment FluxOS exits, which is what the OS
+// does next on an Arcane node - for a node booted with syncthing: 'binary'.
+//
+// @returns {Promise<{pid: number, exitedAt: number}>} the process that shut down,
+//   and when this saw it gone (ms)
+export async function shutdownFluxosGracefully(container, {
+  hold = false, stopSyncthingAfter = false, exitTimeoutMs = 120000, interval = 250,
+} = {}) {
+  const pid = Number((await execInContainer(container, 'cat /tmp/fluxos.pid')).stdout.trim());
+  if (!pid) throw new Error('shutdownFluxosGracefully: no FluxOS pid in /tmp/fluxos.pid');
+  await execInContainer(container, `touch /run/nologin${hold ? ' /tmp/fluxos.hold' : ''}`);
+  if (stopSyncthingAfter) {
+    // Inside the node, so the daemon stops within a poll of the exit rather than
+    // a docker exec round trip later.
+    const watcher = await execInContainer(container,
+      `setsid sh -c 'while kill -0 ${pid} 2>/dev/null; do sleep 0.05; done; pkill -x syncthing' >/dev/null 2>&1 </dev/null &`);
+    if (watcher.exitCode !== 0) throw new Error(`shutdownFluxosGracefully: could not arm the syncthing stop: ${watcher.output}`);
+  }
+  const signalled = await execInContainer(container, `kill -TERM ${pid}`);
+  if (signalled.exitCode !== 0) throw new Error(`shutdownFluxosGracefully: could not signal ${pid}: ${signalled.output}`);
+  const start = Date.now();
+  let exitedAt = null;
+  try {
+    while (Date.now() - start < exitTimeoutMs) {
+      throwIfInfraDead();
+      // eslint-disable-next-line no-await-in-loop
+      const alive = await execInContainer(container, `kill -0 ${pid} 2>/dev/null`);
+      if (alive.exitCode !== 0) {
+        exitedAt = Date.now();
+        break;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await sleepUnlessInfraDead(interval);
+    }
+    if (exitedAt === null) throw new Error(`shutdownFluxosGracefully: FluxOS ${pid} still running ${exitTimeoutMs}ms after SIGTERM`);
+    // The daemon is down too before this returns: a syncthing still exiting holds
+    // its lock, and one started now cannot take it.
+    while (stopSyncthingAfter && Date.now() - start < exitTimeoutMs) {
+      throwIfInfraDead();
+      // eslint-disable-next-line no-await-in-loop
+      const running = await execInContainer(container, 'pgrep -x syncthing >/dev/null');
+      if (running.exitCode !== 0) return { pid, exitedAt };
+      // eslint-disable-next-line no-await-in-loop
+      await sleepUnlessInfraDead(interval);
+    }
+    if (stopSyncthingAfter) throw new Error(`shutdownFluxosGracefully: syncthing still running ${exitTimeoutMs}ms after SIGTERM to FluxOS`);
+    return { pid, exitedAt };
+  } finally {
+    await execInContainer(container, 'rm -f /run/nologin');
+  }
+}
+
+// Bring back a node held down by shutdownFluxosGracefully({ hold: true }), and
+// wait for its API to answer.
+export async function releaseFluxos(container, { apiPort = 16127, readyTimeoutMs = 120000, interval = 500 } = {}) {
+  await execInContainer(container, 'rm -f /tmp/fluxos.hold');
+  const probe = `curl -sf -o /dev/null http://127.0.0.1:${apiPort}/flux/version`;
+  const start = Date.now();
+  while (Date.now() - start < readyTimeoutMs) {
+    throwIfInfraDead();
+    // eslint-disable-next-line no-await-in-loop
+    if ((await execInContainer(container, probe)).exitCode === 0) return;
+    // eslint-disable-next-line no-await-in-loop
+    await sleepUnlessInfraDead(interval);
+  }
+  throw new Error(`releaseFluxos: FluxOS did not answer within ${readyTimeoutMs}ms`);
+}
+
+// Drop every packet between this node and each peer on one port, TCP and UDP,
+// in both directions and whichever side dialled - a link that is up but carries
+// nothing for that service. The syncthing port is apiport+2, and syncthing
+// listens on it for both TCP and QUIC.
+function trafficRules(peerIp, port) {
+  return ['tcp', 'udp'].flatMap((proto) => [
+    `INPUT -p ${proto} -s ${peerIp} --dport ${port} -j DROP`,
+    `INPUT -p ${proto} -s ${peerIp} --sport ${port} -j DROP`,
+    `OUTPUT -p ${proto} -d ${peerIp} --dport ${port} -j DROP`,
+    `OUTPUT -p ${proto} -d ${peerIp} --sport ${port} -j DROP`,
+  ]);
+}
+
+export async function blockTraffic(container, peerIps, port) {
+  for (const peerIp of peerIps) {
+    for (const rule of trafficRules(peerIp, port)) {
+      // eslint-disable-next-line no-await-in-loop
+      const r = await execInContainer(container, `iptables -I ${rule}`);
+      if (r.exitCode !== 0) throw new Error(`blockTraffic: could not add '${rule}': ${r.output}`);
+    }
+  }
+  return peerIps;
+}
+
+// Undo blockTraffic. Tolerates a rule that is already gone.
+export async function unblockTraffic(container, peerIps, port) {
+  for (const peerIp of peerIps) {
+    for (const rule of trafficRules(peerIp, port)) {
+      // eslint-disable-next-line no-await-in-loop
+      await execInContainer(container, `iptables -D ${rule}`);
+    }
+  }
+}
+
+// A crash of one node's FluxOS: the process is killed outright, with no
+// shutdown handling at all. `hold` keeps the node down afterwards, as a machine
+// that lost power stays down; releaseFluxos brings it back.
+export async function crashFluxos(container, { hold = false, exitTimeoutMs = 30000, interval = 250 } = {}) {
+  const pid = Number((await execInContainer(container, 'cat /tmp/fluxos.pid')).stdout.trim());
+  if (!pid) throw new Error('crashFluxos: no FluxOS pid in /tmp/fluxos.pid');
+  if (hold) await execInContainer(container, 'touch /tmp/fluxos.hold');
+  await execInContainer(container, `kill -9 ${pid}`);
+  const start = Date.now();
+  while (Date.now() - start < exitTimeoutMs) {
+    throwIfInfraDead();
+    // eslint-disable-next-line no-await-in-loop
+    if ((await execInContainer(container, `kill -0 ${pid} 2>/dev/null`)).exitCode !== 0) return { pid };
+    // eslint-disable-next-line no-await-in-loop
+    await sleepUnlessInfraDead(interval);
+  }
+  throw new Error(`crashFluxos: FluxOS ${pid} still running ${exitTimeoutMs}ms after SIGKILL`);
+}
+
+// The kill timeout of FluxOS's pm2 registration on a legacy node whose FluxOS
+// pm2 runs (createTestEnv pm2Nodes), as the daemon holds it and as `pm2 save`
+// stored it for the next boot. null where pm2 has none, which is its default.
+//
+// @returns {Promise<{live: number|null, saved: number|null, restarts: number}>}
+export async function pm2Registration(container) {
+  const jlist = await execInContainer(container, 'pm2 jlist');
+  if (jlist.exitCode !== 0) throw new Error(`pm2Registration: pm2 jlist failed: ${jlist.output}`);
+  const live = JSON.parse(jlist.stdout.trim()).find((p) => p.name === 'flux');
+  if (!live) throw new Error('pm2Registration: pm2 lists no process named flux');
+  const dump = await execInContainer(container, 'cat "$HOME/.pm2/dump.pm2" 2>/dev/null || echo "[]"');
+  const saved = JSON.parse(dump.stdout.trim()).find((p) => p.name === 'flux');
+  return {
+    live: live.pm2_env.kill_timeout ?? null,
+    saved: saved?.kill_timeout ?? null,
+    restarts: live.pm2_env.restart_time,
+  };
+}
+
+// A system shutdown of a legacy node whose FluxOS pm2 runs (createTestEnv
+// pm2Nodes): the shutdown marker FluxOS checks for is put in place and pm2
+// stops FluxOS, as the OS stops pm2 on its way down. pm2 returns once FluxOS
+// has exited or its kill timeout has run out, whichever is first.
+// `stopSyncthingAfter` then stops the node's syncthing, as the rest of the
+// shutdown does: FluxOS started it outside pm2's process tree, so pm2 leaves it.
+//
+// @returns {Promise<{stopMs: number}>} how long pm2 took to report FluxOS stopped
+export async function shutdownFluxosUnderPm2(container, { stopSyncthingAfter = false } = {}) {
+  await execInContainer(container, 'touch /run/nologin');
+  try {
+    const started = Date.now();
+    const stopped = await execInContainer(container, 'pm2 stop flux');
+    const stopMs = Date.now() - started;
+    if (stopped.exitCode !== 0) throw new Error(`shutdownFluxosUnderPm2: pm2 stop failed: ${stopped.output}`);
+    if (stopSyncthingAfter) await execInContainer(container, 'pkill -KILL -x syncthing; true');
+    return { stopMs };
+  } finally {
+    await execInContainer(container, 'rm -f /run/nologin');
+  }
+}
+
+// Start FluxOS again through pm2 on a node shut down by shutdownFluxosUnderPm2,
+// and wait for its API to answer.
+export async function startFluxosUnderPm2(container, { apiPort = 16127, readyTimeoutMs = 180000, interval = 1000 } = {}) {
+  const started = await execInContainer(container, 'pm2 start flux');
+  if (started.exitCode !== 0) throw new Error(`startFluxosUnderPm2: pm2 start failed: ${started.output}`);
+  const probe = `curl -sf -o /dev/null http://127.0.0.1:${apiPort}/flux/version`;
+  const start = Date.now();
+  while (Date.now() - start < readyTimeoutMs) {
+    throwIfInfraDead();
+    // eslint-disable-next-line no-await-in-loop
+    if ((await execInContainer(container, probe)).exitCode === 0) return;
+    // eslint-disable-next-line no-await-in-loop
+    await sleepUnlessInfraDead(interval);
+  }
+  throw new Error(`startFluxosUnderPm2: FluxOS did not answer within ${readyTimeoutMs}ms`);
 }

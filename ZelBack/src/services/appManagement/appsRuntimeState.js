@@ -113,25 +113,115 @@ async function setFields(rawIdentifier, fields) {
  * renaming it is a migration: without one, that query stops matching on upgrade
  * and every live stop lock releases at once.
  *
+ * A lock records whether this node was the component's primary when it was
+ * stopped - running it, or committed to running it - and keeps that through a
+ * second stop of a component already locked. Only such a lock holds the
+ * component on this node; see operatorHeldIdentifiers.
+ *
  * @param {string} identifier
  * @param {boolean} stopped
+ * @param {object} [opts]
+ * @param {boolean} [opts.force] A hard kill, not a graceful stop.
+ * @param {boolean} [opts.asPrimary] This node runs the component, or is
+ *   committed to running it, as it is stopped.
  */
 async function setOperatorStopped(identifier, stopped, opts = {}) {
   // No catch: the lock is the contract that the reconciler will not restart the
   // app. Swallowing a write failure would let the API report success while the
   // lock never persisted - the caller must surface the failure instead.
-  const fields = { operatorStopped: stopped };
+  // Either way the lock moves, a start waiting on the election is settled: a
+  // stop withdraws it, and a lifted lock has nothing left to wait for.
+  const fields = { operatorStopped: stopped, operatorStartRequested: false };
   if (stopped) {
     // A hard kill skips the graceful shutdown window. Durable, so a crash between
     // the write and the stop cannot quietly downgrade "kill now" to a drain that
     // waits for the app to finish what it is doing.
     fields.operatorStopForce = opts.force === true;
+    const held = opts.asPrimary === true ? null : await readLock(canonical(identifier));
+    fields.operatorStoppedAsPrimary = opts.asPrimary === true
+      || (held?.operatorStopped === true && held.operatorStoppedAsPrimary === true);
   } else {
     fields.operatorStopForce = false;
+    fields.operatorStoppedAsPrimary = false;
     fields.restartHistory = [];
     fields.autoRestartWindow = [];
   }
   await setFields(identifier, fields);
+}
+
+// The stop lock and its start request, read without getState's swallow: these
+// readers decide whether to lift the lock, and a read failure answered as "no
+// record" is a lock lifted on no evidence.
+function readLock(identifier) {
+  return dbHelper.findOneInDatabase(
+    collection(),
+    appsRuntimeState,
+    { identifier },
+    { projection: { _id: 0, operatorStopped: 1, operatorStartRequested: 1, operatorStoppedAsPrimary: 1 } },
+  );
+}
+
+/**
+ * Whether the operator stop lock is on, read without getState's swallow: for a
+ * caller about to commit a component to running, an unread lock is not an
+ * absent one.
+ *
+ * @param {string} rawIdentifier
+ * @returns {Promise<boolean>}
+ * @throws When the lock cannot be read.
+ */
+async function operatorStoppedOrThrow(rawIdentifier) {
+  return (await readLock(canonical(rawIdentifier)))?.operatorStopped === true;
+}
+
+/**
+ * Records an operator start of a locked component whose start the primary
+ * election decides, leaving the stop lock in place until the election has
+ * decided it. A component with no lock has nothing to wait for and is left as
+ * it is.
+ *
+ * The lock is what makes this node hold the component while it is stopped:
+ * peers, FDM and the folder monitor all read it as this node's. Lifted at the
+ * start, the component would be neither running, nor committed, nor locked until
+ * the election next ran, and a standby could take it in between. Held until the
+ * election decides, the hold is continuous, and survives a FluxOS restart with
+ * the lock. releaseOperatorStart lifts it once the election has decided.
+ *
+ * Callers write through the reconciler's per-key slot, so the lock read here is
+ * the lock this marks. Throws on a failed read or write, for setOperatorStopped's
+ * reason: an unread lock answered as none would lift it.
+ *
+ * @param {string} rawIdentifier
+ * @returns {Promise<boolean>} Whether a lock was found and its start recorded.
+ */
+async function requestOperatorStart(rawIdentifier) {
+  const identifier = canonical(rawIdentifier);
+  const state = await readLock(identifier);
+  if (state?.operatorStopped !== true) return false;
+  await setFields(identifier, { operatorStartRequested: true });
+  return true;
+}
+
+/**
+ * Lifts the stop lock of a component the operator has asked to start, once the
+ * election has decided who runs it. A lock with no start request - one the
+ * operator set again after asking, or never asked to lift - is left as it is.
+ *
+ * Callers write through the reconciler's per-key slot, which orders this read
+ * against the operator's own writes, so a stop that lands after the start was
+ * asked for is never lifted by the election acting on the earlier request.
+ *
+ * Throws on a failed read or write: an unread lock is not a lock to lift.
+ *
+ * @param {string} rawIdentifier
+ * @returns {Promise<boolean>} Whether the lock was lifted.
+ */
+async function releaseOperatorStart(rawIdentifier) {
+  const identifier = canonical(rawIdentifier);
+  const state = await readLock(identifier);
+  if (state?.operatorStopped !== true || state.operatorStartRequested !== true) return false;
+  await setOperatorStopped(identifier, false);
+  return true;
 }
 
 /**
@@ -206,24 +296,41 @@ async function isOperatorStopped(identifier) {
  * single read is a window that cannot open - and one round-trip fewer on every
  * stop the reconciler performs.
  *
+ * `startRequested` is a start the operator has asked for and the election has
+ * not yet decided; the lock stands until it has. `asPrimary` is whether this
+ * node was the component's primary when it was stopped.
+ *
  * @param {string} identifier
- * @returns {Promise<{stopped: boolean, force: boolean}>}
+ * @returns {Promise<{stopped: boolean, force: boolean, startRequested: boolean, asPrimary: boolean}>}
  */
 async function operatorStopState(identifier) {
   const state = await getState(identifier);
   return {
     stopped: state?.operatorStopped === true,
+    startRequested: state?.operatorStopped === true && state.operatorStartRequested === true,
     force: state?.operatorStopForce === true,
+    asPrimary: state?.operatorStopped === true && state.operatorStoppedAsPrimary === true,
   };
 }
 
 /**
- * Every component identifier on this node the operator has deliberately stopped.
+ * Every component identifier on this node that its operator stop lock holds
+ * here: a lock taken while this node was the component's primary.
  *
- * One query rather than isOperatorStopped per component. The caller is the
- * held-components answer, served on an unauthenticated route a peer reads
- * mid-election, so a findOne apiece would scale its cost with the number of
- * components installed here.
+ * A lock on any other node keeps the component down there and owns nothing.
+ * When an owner stops an app on every node and starts it on every node, the
+ * starts arrive one node at a time, and the node that was its primary is the
+ * only one holding it whichever arrives first: it starts, and the others stand
+ * aside for it. A standby's lock held as well would read to the primary as a
+ * peer holding the component until that standby's own start arrived.
+ *
+ * A lock taken before the lock recorded this is held until its start is asked
+ * for, as every lock then was.
+ *
+ * One query rather than a read per component. The caller is the held-components
+ * answer, served on an unauthenticated route a peer reads mid-election, so a
+ * findOne apiece would scale its cost with the number of components installed
+ * here.
  *
  * Throws where getState swallows, and the difference is the point. getState's
  * callers ask about one component and act on this node: a read failure there
@@ -235,12 +342,18 @@ async function operatorStopState(identifier) {
  *
  * @returns {Promise<string[]>} bare component identifiers, unprefixed
  */
-async function operatorStoppedIdentifiers() {
+async function operatorHeldIdentifiers() {
   const database = collection();
   const docs = await dbHelper.findInDatabase(
     database,
     appsRuntimeState,
-    { operatorStopped: true },
+    {
+      operatorStopped: true,
+      $or: [
+        { operatorStoppedAsPrimary: true },
+        { operatorStoppedAsPrimary: { $exists: false }, operatorStartRequested: { $ne: true } },
+      ],
+    },
     { projection: { _id: 0, identifier: 1 } },
   );
   return docs.map((doc) => doc.identifier).filter(Boolean);
@@ -609,6 +722,10 @@ async function prepareCollection() {
           // a force anywhere is a force: a kill must never be merged down into a
           // graceful stop the operator did not ask for
           operatorStopForce: twins.some((t) => t.operatorStopForce === true),
+          // a start waits on the election only if no locked twin withholds it: a
+          // stop without one is the operator's later word
+          operatorStartRequested: twins.some((t) => t.operatorStopped === true)
+            && twins.every((t) => t.operatorStopped !== true || t.operatorStartRequested === true),
           // the highest request wins and the lowest actuation does, so a restart
           // asked for on either doc still bounces the container once
           restartGeneration: Math.max(0, ...twins.map((t) => t.restartGeneration || 0)),
@@ -646,9 +763,12 @@ module.exports = {
   prepareCollection,
   getState,
   setOperatorStopped,
+  requestOperatorStart,
+  releaseOperatorStart,
+  operatorStoppedOrThrow,
   isOperatorStopped,
   operatorStopState,
-  operatorStoppedIdentifiers,
+  operatorHeldIdentifiers,
   recordRestart,
   requestRestart,
   recordRestartGeneration,

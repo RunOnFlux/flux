@@ -3,6 +3,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const deviceHelper = require('../deviceHelper');
 const serviceHelper = require('../serviceHelper');
+const syncthingService = require('../syncthingService');
 const verificationHelper = require('../verificationHelper');
 const {
   sanitizePath, verifyRealPath, verifyRealPathOfExistingPath,
@@ -11,6 +12,7 @@ const { appsFolder, APP_NAME_REGEX, APP_NAME_REGEX_LEGACY } = require('../utils/
 const { STAGING_ROOT, stagingRelative, isReservedName } = require('./volumeReservedNames');
 const { measureTree, BLOCK_UNIT } = require('../utils/treeSize');
 const { Privilege, authOf } = require('../utils/privileges');
+const log = require('../../lib/log');
 
 /**
  * Where an app's volume is mounted inside the executor container. Operands in
@@ -550,6 +552,36 @@ class VolumeSession {
 }
 
 /**
+ * Refuse a write to a volume whose copy on this node follows another node's.
+ *
+ * Syncthing never sends a receiveonly folder's changes, and a synced
+ * single-writer standby reverts them, so a write here would be lost without the
+ * owner being told. A primary its owner stopped to work on keeps its folder
+ * sendreceive and is not refused.
+ *
+ * A syncthing that cannot be asked does not refuse: most volumes have no folder
+ * at all, and an outage must not take every app's file browser with it.
+ *
+ * @param {string} identifier - The volume's component identifier, which is its folder id
+ */
+async function refuseReadOnlyCopy(identifier) {
+  let folders;
+  try {
+    folders = await syncthingService.getConfigFolders();
+  } catch (error) {
+    log.warn(`refuseReadOnlyCopy - could not read the syncthing folders for ${identifier}: ${error.message}`);
+    return;
+  }
+  const folder = Array.isArray(folders) ? folders.find((f) => f.id === identifier) : null;
+  if (folder?.type === 'receiveonly') {
+    const error = new Error('This node holds a read-only copy of this app\'s data, which follows the node running the app. Make changes on that node.');
+    error.name = 'ReadOnlyCopy';
+    error.code = 409;
+    throw error;
+  }
+}
+
+/**
  * The authorised way to reach an app's volume from a request.
  *
  * --- Why authorisation lives here and not in each handler ---
@@ -613,6 +645,7 @@ async function openVolume(req, options = {}) {
   }
 
   const { mount, availableBytes, identifier } = await resolveVolumeMount(appname, component);
+  await refuseReadOnlyCopy(identifier);
   // Read after authorisation succeeded, so this is the identity that passed it.
   const auth = serviceHelper.ensureObject(authOf(req));
   const owner = (auth && auth.zelid) || null;

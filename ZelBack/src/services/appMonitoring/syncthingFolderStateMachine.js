@@ -7,6 +7,7 @@ const appReconciler = require('./appReconciler');
 const appUninstaller = require('../appLifecycle/appUninstaller');
 const messageHelper = require('../messageHelper');
 const syncthingService = require('../syncthingService');
+const appQueryService = require('../appQuery/appQueryService');
 const serviceHelper = require('../serviceHelper');
 const { appsFolder } = require('../utils/appConstants');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
@@ -15,6 +16,7 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const { silenceVerdict, SilenceVerdict } = require('./peerFolderLiveness');
 const {
   LEADER_CONFIRM_COUNT,
+  MONITOR_INTERVAL_MS,
   SYNC_COMPLETE_PERCENTAGE,
   OPERATION_DELAY_MS,
   STALL_NUDGE_AFTER_MS,
@@ -27,6 +29,8 @@ const {
 const { isPathMounted } = require('../utils/volumeService');
 const globalState = require('../utils/globalState');
 const { isSyncedRootName } = require('../appSystem/volumeReservedNames');
+const primaryRole = require('../appLifecycle/primaryRole');
+const { componentStateOnOtherHolders } = require('./peerComponent');
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
@@ -38,6 +42,18 @@ const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 // appId -> { observation, lastLoggedMs }
 const mountSafetyObservations = new Map();
 const OBSERVATION_RELOG_MS = 5 * 60 * 1000;
+
+/**
+ * Sets the type of an r: folder. A g: folder's type is its primary role's
+ * (primaryRole.js), and this state machine decides only whether it is ready.
+ * @param {Object} syncthingFolder
+ * @param {string} containerDataFlags
+ * @param {string} type
+ */
+function decideType(syncthingFolder, containerDataFlags, type) {
+  // eslint-disable-next-line no-param-reassign
+  if (!containerDataFlags.includes('g')) syncthingFolder.type = type;
+}
 
 /**
  * Logs a mount-safety observation only when it changes for the folder (with a
@@ -467,24 +483,29 @@ async function verifyFolderMountSafety(appId, folderPath) {
  * broadcasts them, gutting the healthy peers (the deletion-propagation
  * failure mode observed live 2026-07-01). A legitimately empty folder
  * (globalBytes 0, e.g. a cold-start seed) does not trip this.
+ *
+ * A caller deciding on a sync status passes the status it decided on, and the
+ * disk is judged against that one: read again, a status that changed or failed
+ * in between would pair one reading's "synced" with another's "nothing to
+ * check". Read here only when the caller has none.
  * @param {string} appId - App ID (also the syncthing folder id)
  * @param {string} folderPath - Syncthing folder path
+ * @param {string[]} [unsyncedSubdirs]
+ * @param {object} [options]
+ * @param {object} [options.syncStatus] The status the caller decided on.
  * @returns {Promise<{isSafe: boolean, reason: string, isMounted: boolean, hasContent: boolean}>}
  */
-async function verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs = []) {
+async function verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs = [], { syncStatus: decidedOn } = {}) {
   const result = await verifyFolderMountSafety(appId, folderPath);
   if (!result.isSafe) return result;
 
-  const syncStatus = await getFolderSyncCompletion(appId);
+  const syncStatus = decidedOn === undefined ? await getFolderSyncCompletion(appId) : decidedOn;
   if (!syncStatus || syncStatus.globalBytes === 0) return result;
 
-  // The index says which kind of claim it is making, and the disk is read on those
-  // terms. Claiming FILES is answered by files on disk: the directories FluxOS builds
-  // the volume from survive a wipe, so counting them answers every volume the same
-  // way and the check decides nothing. Claiming bytes and NO files is a folder of
-  // empty directories, where directories are the payload and the only honest count.
-  const claimsFiles = syncStatus.globalFiles > 0;
-  const dataCheck = await checkDirectoryHasSyncScopedContent(folderPath, unsyncedSubdirs, { countDirs: !claimsFiles });
+  // The index claims bytes held in files, so it is answered by files with bytes on
+  // disk. The directories and empty files FluxOS builds the volume from survive a
+  // wipe, so counting them would answer every volume the same way and decide nothing.
+  const dataCheck = await checkDirectoryHasSyncScopedContent(folderPath, unsyncedSubdirs, { countDirs: false });
   // An empty reading is acted on only where it is an answer. A volume no process on
   // this node could read says nothing about what it holds, and demoting on it stops a
   // running app over the node's own blindness - so it is reported as the fault it is,
@@ -500,40 +521,6 @@ async function verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs 
     log.error(`verifySendReceiveFolderSafety - CRITICAL: ${appId} index claims ${syncStatus.globalBytes} bytes in ${syncStatus.globalFiles} files but the disk holds none of them - stale index over an empty volume; sendreceive would broadcast deletions.`);
   }
   return result;
-}
-
-/**
- * Fix permissions on all mount directories for containers
- * Critical for synced data that may have wrong ownership
- * Fixes permissions on appdata and all additional mount points
- * @param {string} appId - App ID
- * @returns {Promise<void>}
- */
-async function fixAppdataPermissions(appId) {
-  try {
-    // Fix permissions on entire app directory to cover appdata and all additional mounts
-    // (appdata, logs, config, file mounts, etc.)
-    const appPath = `${appsFolder}${appId}`;
-
-    // ONE ARGUMENT, AND IT IS THE DIRECTORY FLUXOS CREATED. chmod resolves a
-    // symbolic link given as an argument and ignores one met inside a traversal,
-    // so a path named here that something else can replace with a link has that
-    // link's TARGET widened, as root, at a path of that writer's choosing. Every
-    // name inside the volume is such a path: the owner's file API copies and moves
-    // a link as a link, and syncthing replicates one into this very folder. The
-    // volume root is the only path FluxOS owns, so it is the only one named.
-    //
-    // The executor's staging directory is widened with the rest. Root owns it and
-    // the executor runs as root in the container, so the mode buys nothing there;
-    // reaching it needs a path to the volume root, which no app container is given
-    // and the owner's file API refuses.
-    const chmod = await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['-R', '777', appPath] });
-    if (chmod.error) throw chmod.error;
-    log.info(`fixAppdataPermissions - Fixed permissions on ${appPath} (includes appdata and all mount points)`);
-  } catch (error) {
-    log.warn(`fixAppdataPermissions - Could not fix permissions for ${appId}: ${error.message}`);
-    // Continue anyway - container might still work
-  }
 }
 
 /**
@@ -557,25 +544,29 @@ async function fixAppdataPermissions(appId) {
  */
 async function probeFolderSyncCompletion(folderId) {
   try {
+    // Bytes in FILES: before syncthing v2.1.2 every directory adds a synthetic 128,
+    // so a folder of empty directories would read as holding data.
     const {
-      globalBytes = 0, globalFiles = 0, inSyncBytes = 0, state, receiveOnlyChangedFiles = 0,
-    } = await syncthingService.getDbStatus(folderId);
+      globalFileBytes: globalBytes = 0, globalFiles = 0, inSyncFileBytes: inSyncBytes = 0, state,
+      receiveOnlyChangedFiles = 0, receiveOnlyChangedDirectories = 0,
+    } = await syncthingService.getDbStatusInFileBytes(folderId);
 
     const syncPercentage = globalBytes > 0 ? (inSyncBytes / globalBytes) * 100 : 100;
 
     const status = {
       syncPercentage,
+      // What the global index holds in files, in bytes.
       globalBytes,
-      // How many of the indexed entries are FILES. It is what says which kind of
-      // claim globalBytes is: a folder whose payload is empty directories has bytes
-      // and no files, and one holding the owner's data has both. A daemon too old to
-      // report it reads 0, which is the reading that changes nothing.
+      // How many of the indexed entries are FILES, empty ones included.
       globalFiles,
       inSyncBytes,
       state,
       // local additions/modifications in a receiveonly folder; invisible to the
       // completion metrics above (they only count cluster data)
       receiveOnlyChangedFiles,
+      // Directories are counted apart from files. A directory whose owner or mode
+      // differs from the cluster's is a local change like any other.
+      receiveOnlyChangedDirectories,
       // An EMPTY global index (globalBytes 0) means "unknown / not yet synced",
       // never "done": a node holding the only copy before its peers reconnect
       // reads globalBytes 0, and syncPercentage defaults to 100 there (vacuous).
@@ -809,8 +800,13 @@ async function holderIsGone(appId, holderIp, liveness) {
     return false;
   }
   if (verdict === SilenceVerdict.NO_EVIDENCE) {
-    log.info(`holderIsGone - ${extractIp(holderIp)} is unreachable, but this node cannot ask its own syncthing about it for ${appId}; gone requires evidence, keeping it`);
+    log.info(`holderIsGone - ${extractIp(holderIp)} is unreachable, but this node's own syncthing has never been connected to it or cannot be asked, for ${appId}; gone requires evidence, keeping it`);
     fluxEventBus.publish('syncthing:holderRetained', { folder: appId, holder: holderIp, reason: 'noEvidence' });
+    return false;
+  }
+  if (verdict === SilenceVerdict.RESTARTING) {
+    log.info(`holderIsGone - ${extractIp(holderIp)} is unreachable, but it announced a shutdown and may still come back from it, for ${appId}; keeping it`);
+    fluxEventBus.publish('syncthing:holderRetained', { folder: appId, holder: holderIp, reason: 'restarting' });
     return false;
   }
   if (verdict === SilenceVerdict.LOCALLY_ISOLATED) {
@@ -889,7 +885,9 @@ async function holderListExcludingDead(appId, allPeersList, localSocketAddr, liv
  * @param {Array} peers App location entries
  * @param {string} localSocketAddr This node's socket address
  * @param {Object} liveness This pass's peer view
- * @returns {Promise<{ip: string, reason: string}|null>} The blocking peer, or null
+ * @returns {Promise<{ip: string, reason: string, holdsWritableCopy?: boolean}|null>}
+ *   The blocking peer, or null. holdsWritableCopy marks a peer that has the copy
+ *   already, which means the seed is taken rather than undecided.
  */
 async function findPeerBlockingPromotion(appId, peers, localSocketAddr, liveness) {
   const others = (peers || []).filter((peer) => peer?.ip && !socketAddressesMatch(peer.ip, localSocketAddr));
@@ -900,9 +898,17 @@ async function findPeerBlockingPromotion(appId, peers, localSocketAddr, liveness
   ));
 
   const holder = answers.find((answer) => answer.reachable && answer.ready && answer.folders.includes(appId));
-  if (holder) return { ip: holder.ip, reason: 'already holds the writable copy' };
+  if (holder) return { ip: holder.ip, reason: 'already holds the writable copy', holdsWritableCopy: true };
   const unready = answers.find((answer) => answer.reachable && answer.answerable && !answer.ready);
   if (unready) return { ip: unready.ip, reason: 'has not determined its folder state yet' };
+  // Unlike an old peer, whose silence on this question is its version, a call
+  // another node answered, or a reply that cannot show it is this peer's, says
+  // nothing about the peer at all - and that peer may be the one holding the
+  // copy.
+  const misrouted = answers.find((answer) => answer.misrouted);
+  if (misrouted) return { ip: misrouted.ip, reason: 'is answered by a different node when this node calls it' };
+  const unproven = answers.find((answer) => answer.unproven);
+  if (unproven) return { ip: unproven.ip, reason: 'answered without proving it is that node' };
 
   // Recorded, not blocked - see UNANSWERABLE above. Worth a line of its own so a
   // promotion made without full cover is visible as that, and so the remedy reads
@@ -929,6 +935,80 @@ async function findPeerBlockingPromotion(appId, peers, localSocketAddr, liveness
   return null;
 }
 
+// How long a seed decision may take, from this node's read of its peers to it
+// recording that it seeds. A rival this read missed marked its intent after the read
+// began, and reads a full pass after that intent - so it sees this node's decision
+// unless the decision took longer than a pass. Past the budget this node decides
+// nothing and tries again on the next pass.
+const SEED_DECISION_BUDGET_MS = MONITOR_INTERVAL_MS;
+
+/**
+ * This node's place in deciding which holder seeds a folder, published to its peers
+ * through /apps/promotedfolders (globalState.seedMarks).
+ * @param {string} appId Folder id
+ * @param {string} stage 'intent' | 'deciding' | 'decided'
+ * @param {{bytes: number, newestModified: number}|null} holdings What this node holds
+ */
+function markSeed(appId, stage, holdings) {
+  globalState.seedMarks.set(appId, {
+    stage,
+    bytes: holdings?.bytes ?? null,
+    newestModified: holdings?.newestModified ?? null,
+  });
+}
+
+/**
+ * Whether claim `a` ranks before claim `b` to seed a folder: most bytes, then most
+ * recently written, then lowest address - bestHolder's order. Both rivals compare the
+ * same two claims, each as its owner published it, so they reach the same answer. A
+ * claim that is not a finite number ranks below every one that is.
+ * @param {{address: string, bytes: *, newestModified: *}} a
+ * @param {{address: string, bytes: *, newestModified: *}} b
+ * @returns {boolean}
+ */
+function seedClaimRanksFirst(a, b) {
+  const number = (value) => (Number.isFinite(value) ? value : -1);
+  if (number(a.bytes) !== number(b.bytes)) return number(a.bytes) > number(b.bytes);
+  if (number(a.newestModified) !== number(b.newestModified)) return number(a.newestModified) > number(b.newestModified);
+  return a.address < b.address;
+}
+
+/**
+ * The peer that stops this node seeding a folder now, read fresh from every holder
+ * that answers: one that has decided to seed it, or one that also intends to and
+ * ranks first. Null when none does.
+ *
+ * Two holders can each be elected to seed - each decides from its own view of the
+ * claims - and confirm on the same pass. Each marks itself deciding before this read,
+ * so the one that marks first is seen by the other's read; two that see each other
+ * compare the same two claims and agree. A holder that cannot be read is not counted
+ * here: two holders that cannot reach each other is a partition, which only an
+ * election agreed across the fleet can settle.
+ * @param {string} appId Folder id
+ * @param {Array} peers App location entries
+ * @param {string} localSocketAddr This node's socket address
+ * @param {Object} liveness This pass's peer view
+ * @param {{address: string, bytes: *, newestModified: *}} own This node's claim
+ * @returns {Promise<{ip: string, reason: string, outcome: string}|null>}
+ */
+async function findSeedRival(appId, peers, localSocketAddr, liveness, own) {
+  const others = (peers || []).filter((peer) => peer?.ip && !socketAddressesMatch(peer.ip, localSocketAddr));
+  const answers = await Promise.all(others.map(
+    async (peer) => ({ ip: peer.ip, ...await liveness.reread(peer.ip) }),
+  ));
+  const answered = answers.filter((answer) => answer.reachable && answer.answerable);
+  const decided = answered.find((answer) => answer.seeding?.[appId]?.stage === 'decided'
+    || (answer.ready && answer.folders.includes(appId)));
+  if (decided) return { ip: decided.ip, reason: 'has already decided to seed it', outcome: 'yieldedToDecided' };
+  const rival = answered.find((answer) => {
+    const mark = answer.seeding?.[appId];
+    return (mark?.stage === 'intent' || mark?.stage === 'deciding')
+      && seedClaimRanksFirst({ address: answer.ip, bytes: mark.bytes, newestModified: mark.newestModified }, own);
+  });
+  if (rival) return { ip: rival.ip, reason: 'also intends to seed it and ranks first', outcome: 'yieldedToRank' };
+  return null;
+}
+
 /**
  * Handle first run scenario for an app/component
  * @param {Object} params - Parameters
@@ -937,6 +1017,7 @@ async function findPeerBlockingPromotion(appId, peers, localSocketAddr, liveness
 async function handleFirstRun(params) {
   const {
     appId,
+    containerDataFlags,
     syncFolder,
     syncthingFolder,
     receiveOnlySyncthingAppsCache,
@@ -948,7 +1029,7 @@ async function handleFirstRun(params) {
     // its per-key single-flight and a start can never race it (the S1 data-loss
     // window the old imperative stop+rm-rf left open).
     log.info(`handleFirstRun - First run, no sync folder - requesting stop + clean of ${appId}`);
-    syncthingFolder.type = 'receiveonly';
+    decideType(syncthingFolder, containerDataFlags, 'receiveonly');
     const cache = { numberOfExecutions: 1 };
 
     // Set cache BEFORE requesting the reset to prevent re-processing as "new"
@@ -975,6 +1056,8 @@ async function handleFirstRun(params) {
     // App is running - this means FluxOS restart, not computer restart
     // Skip processing - keep existing state
     log.info(`handleFirstRun - ${appId} is running, FluxOS restart detected, keeping existing state`);
+    // An r: component running here is ready, and its folder sends.
+    decideType(syncthingFolder, containerDataFlags, 'sendreceive');
     const cache = { restarted: true };
     return { syncthingFolder, cache };
   }
@@ -982,7 +1065,7 @@ async function handleFirstRun(params) {
   // Container is stopped - computer was restarted
   // Set to receiveonly mode to wait for sync before starting
   log.info(`handleFirstRun - ${appId} is stopped, computer restart detected, setting to receiveonly mode`);
-  syncthingFolder.type = 'receiveonly';
+  decideType(syncthingFolder, containerDataFlags, 'receiveonly');
   const cache = {
     restarted: false,
     numberOfExecutions: 1,
@@ -999,12 +1082,13 @@ async function handleFirstRun(params) {
 async function handleSkippedAppSecondEncounter(params) {
   const {
     appId,
+    containerDataFlags,
     syncthingFolder,
     receiveOnlySyncthingAppsCache,
   } = params;
 
   log.info(`handleSkippedAppSecondEncounter - ${appId} was skipped on first encounter, now processing as new app`);
-  syncthingFolder.type = 'receiveonly';
+  decideType(syncthingFolder, containerDataFlags, 'receiveonly');
   const cache = { numberOfExecutions: 1 };
 
   // Set cache BEFORE requesting the reset to prevent re-processing as "new"
@@ -1054,7 +1138,7 @@ async function checkIfPeersAreSynced(folderId) {
  * @returns {Promise<{deviceID: string, globalBytes: number}|null>} The peer, or
  *   null when no peer can be shown to hold this folder.
  */
-async function findSyncedPeer(folderId) {
+async function findSyncedPeer(folderId, { exclude = new Set() } = {}) {
   try {
     // getConfig takes no request and answers with the config itself, not a
     // {status, data} envelope - the same call its sibling checkIfPeersAreSynced
@@ -1072,6 +1156,19 @@ async function findSyncedPeer(folderId) {
 
     const { devices = [] } = folder;
     if (devices.length === 0) {
+      return null;
+    }
+
+    // What the folder holds is one figure for the whole cluster, the same
+    // whichever peer is asked about, so it is read once. Syncthing reports
+    // completion 100 for an empty folder, so a peer of a folder with no file
+    // bytes is never a source: one that synced empty or wrong data from a bad
+    // seed would otherwise count as holding it, and the caller would remove the
+    // good local copy in its favour. Bytes in FILES: before syncthing v2.1.2 a
+    // folder of empty directories carries bytes of its own.
+    const { globalFileBytes: globalBytes = 0 } = await syncthingService.getDbStatusInFileBytes(folderId);
+    if (globalBytes <= 0) {
+      log.warn(`findSyncedPeer - ${folderId}: the folder holds no file bytes; no peer is a synced source`);
       return null;
     }
 
@@ -1099,31 +1196,31 @@ async function findSyncedPeer(folderId) {
         // eslint-disable-next-line no-continue
         continue;
       }
+      // A peer the caller has ruled out - one that is shutting down holds the data
+      // only until its syncthing stops, seconds from now.
+      if (exclude.has(device.deviceID)) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       try {
         // eslint-disable-next-line no-await-in-loop
-        const { completion = 0, globalBytes = 0, remoteState = 'unknown' } = await syncthingService.getDbCompletion({
+        const { completion = 0, remoteState = 'unknown' } = await syncthingService.getDbCompletion({
           folder: folderId,
           device: device.deviceID,
         });
-        // A peer is a safe source only if it is CONNECTED (remoteState 'valid'),
-        // reports 100%, AND actually holds data:
-        // - db/completion is computed from the peer's last-known index, so a dead or
-        //   offline peer still reports completion 100. Trusting that stale figure
-        //   turns a source-node reboot into followers deleting their partial copies.
-        //   remoteState is the connectivity discriminator ('valid' iff connected);
-        //   when absent, there is no evidence and the peer must not be trusted.
-        // - Syncthing reports completion 100 for an empty folder (globalBytes 0) too,
-        //   so without the globalBytes check a peer that synced empty/wrong data from
-        //   a bad seed would falsely satisfy "peers are synced" and we would remove
-        //   the good local copy in favour of an empty one (data loss).
-        if (remoteState === 'valid' && completion === 100 && globalBytes > 0) {
+        // A peer is a safe source only if it is CONNECTED (remoteState 'valid') and
+        // reports 100%. db/completion is computed from the peer's last-known index,
+        // so a dead or offline peer still reports completion 100. Trusting that
+        // stale figure turns a source-node reboot into followers deleting their
+        // partial copies. remoteState is the connectivity discriminator ('valid' iff
+        // connected); when absent, there is no evidence and the peer must not be
+        // trusted.
+        if (remoteState === 'valid' && completion === 100) {
           log.info(`findSyncedPeer - Found synced peer for ${folderId}: device ${device.deviceID.substring(0, 7)}... at ${completion}% (${globalBytes} bytes, connected)`);
           return { deviceID: device.deviceID, globalBytes };
         }
-        if (completion === 100 && remoteState !== 'valid') {
+        if (completion === 100) {
           log.warn(`findSyncedPeer - ${folderId}: device ${device.deviceID.substring(0, 7)}... reports 100% but is not connected (remoteState ${remoteState}); stale index, not a synced source`);
-        } else if (completion === 100) {
-          log.warn(`findSyncedPeer - ${folderId}: device ${device.deviceID.substring(0, 7)}... reports 100% but 0 bytes (empty); not treating it as a synced source`);
         }
       } catch (deviceError) {
         // a failed completion read silently skipping the device would read as
@@ -1183,6 +1280,39 @@ async function nudgeFolderDevices(folderId) {
   } catch (error) {
     log.warn(`nudgeFolderDevices - ${folderId}: ${error.message}`);
   }
+}
+
+/**
+ * Reverts a synced receiveonly folder's local changes to the cluster's version.
+ *
+ * A receiveonly folder never overwrites its own deviations: a file or directory
+ * whose content, owner or mode differs locally stays that way, and every peer
+ * keeps listing it as needed by this node. db/revert applies the cluster's
+ * version and deletes local-only items that are not ignored, so it runs only
+ * against a complete global index (isSynced).
+ *
+ * @param {string} appId - The Syncthing folder ID
+ * @param {Object|null} syncStatus - A probeFolderSyncCompletion status
+ * @returns {Promise<boolean>} True when the folder had local changes and a revert was asked for
+ */
+async function revertLocalChangesIfSynced(appId, syncStatus) {
+  if (!syncStatus?.isSynced) return false;
+  const changed = (syncStatus.receiveOnlyChangedFiles || 0) + (syncStatus.receiveOnlyChangedDirectories || 0);
+  if (changed === 0) return false;
+  log.warn(`revertLocalChangesIfSynced - ${appId} is synced but the receive-only folder has ${changed} locally changed item(s) (${syncStatus.receiveOnlyChangedFiles || 0} files, ${syncStatus.receiveOnlyChangedDirectories || 0} directories); reverting to the cluster's version`);
+  try {
+    // dataOrThrow: dbRevert answers in-band; without it this catch is
+    // dead code and a failed revert reads as reverted
+    messageHelper.dataOrThrow(await syncthingService.dbRevert(appId));
+    fluxEventBus.publish('syncthing:localChangesReverted', {
+      folder: appId,
+      files: syncStatus.receiveOnlyChangedFiles || 0,
+      directories: syncStatus.receiveOnlyChangedDirectories || 0,
+    });
+  } catch (error) {
+    log.error(`revertLocalChangesIfSynced - revert of local changes for ${appId} failed: ${error.message}`);
+  }
+  return true;
 }
 
 /**
@@ -1309,6 +1439,15 @@ async function handleReceiveOnlyTransition(params) {
   const { connected } = liveness.localConnectivity();
   cache.leaderStreak = electedLeader && connected ? (cache.leaderStreak || 0) + 1 : 0;
   const isLeader = electedLeader && cache.leaderStreak >= LEADER_CONFIRM_COUNT;
+  // Announced on the pass this node is elected, so a rival that confirms on the same
+  // pass as it can see it - see findSeedRival.
+  const ownSeedClaim = {
+    address: (runningAppList || []).find((peer) => socketAddressesMatch(peer?.ip, localSocketAddr))?.ip ?? localSocketAddr,
+    bytes: holdings?.bytes ?? null,
+    newestModified: holdings?.newestModified ?? null,
+  };
+  if (electedLeader && connected) markSeed(appId, 'intent', holdings);
+  else globalState.seedMarks.delete(appId);
   // Withdrawn on every unpromoted pass, so a lost election drops the claim
   // and the intent behind it. It is raised again only where the promotion is
   // APPLIED - the state machine records intent at the last gate, and the
@@ -1334,7 +1473,39 @@ async function handleReceiveOnlyTransition(params) {
   // alone. Properly closing it needs a consensus-grounded election (a deterministic
   // candidate over the on-chain confirmed node set + a data-aware quorum lease that
   // subsumes the data-version check) - a separate, proposed redesign, out of scope here.
-  if (isLeader) {
+  // Winning the election is not the same as being the first to win it. Each node
+  // decides from its own view of the holder list, and those views fill in at
+  // different moments: the first-placed node is briefly the only holder it knows
+  // of and seeds on that basis, which is correct - somebody has to seed an empty
+  // folder or the app never starts. A node that can see further then wins the
+  // tiebreak among the holders it can see. So the last check before seeding is
+  // whether somebody already has.
+  //
+  // SEEDING IS OVER once another holder has the writable copy. The election goes
+  // on naming this node for as long as it wins the tiebreak, but there is nothing
+  // left to seed, so it goes on as a standby: receiveonly until it has synced,
+  // then writable, like every other holder.
+  const blocker = isLeader ? await findPeerBlockingPromotion(appId, runningAppList, localSocketAddr, liveness) : null;
+  if (blocker?.holdsWritableCopy) {
+    log.info(`handleReceiveOnlyTransition - ${appId} is elected to seed but ${blocker.ip} ${blocker.reason}; going on as a standby`);
+  }
+  if (isLeader && !blocker?.holdsWritableCopy) {
+    // Marked before the peers are read, so a rival deciding at the same moment
+    // sees this node. Every way out below that does not seed goes back to intent.
+    markSeed(appId, 'deciding', holdings);
+    const notSeeding = () => {
+      markSeed(appId, 'intent', holdings);
+      decideType(syncthingFolder, containerDataFlags, 'receiveonly');
+      return { syncthingFolder, cache };
+    };
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_SEED_DECISION, appId);
+    const decisionStartedAt = monotonicMs();
+    const rival = await findSeedRival(appId, runningAppList, localSocketAddr, liveness, ownSeedClaim);
+    if (rival) {
+      fluxEventBus.count('syncthing:seedDecision', appId, rival.outcome);
+      log.info(`handleReceiveOnlyTransition - ${appId} is elected to seed but ${rival.ip} ${rival.reason}; going on as a standby`);
+      return notSeeding();
+    }
     // The seed flip below runs WITHOUT a sync check, and that is only sound when
     // there is nothing to lose: an empty folder (the cold start this election
     // exists for) or a fully synced copy (a survivor taking over). A node can
@@ -1358,24 +1529,13 @@ async function handleReceiveOnlyTransition(params) {
       || (syncStatus.globalBytes > 0 && !syncStatus.isSynced);
     if (holdsPartialOfAKnownGlobal) {
       log.info(`handleReceiveOnlyTransition - ${appId} is the confirmed designated leader but holds a partial copy (${syncStatus ? `${syncStatus.syncPercentage.toFixed(2)}% synced` : 'sync status unreadable'}); staying receiveonly until synced`);
-      syncthingFolder.type = 'receiveonly';
-      return { syncthingFolder, cache };
+      return notSeeding();
     }
     log.info(`handleReceiveOnlyTransition - ${appId} is the designated leader (elected from ${runningAppList.length} peers, confirmed ${cache.leaderStreak}x), starting immediately`);
 
-    // Winning the election is not the same as being the first to win it. Each node
-    // decides from its own view of the holder list, and those views fill in at
-    // different moments: the first-placed node is briefly the only holder it knows
-    // of and seeds on that basis, which is correct - somebody has to seed an empty
-    // folder or the app never starts. A node that can see further then wins the
-    // tiebreak among the holders it can see and seeds too, and neither revisits it,
-    // because a promoted folder never re-enters this election. So the last check
-    // before promoting is whether somebody already has.
-    const blocker = await findPeerBlockingPromotion(appId, runningAppList, localSocketAddr, liveness);
     if (blocker) {
       log.info(`handleReceiveOnlyTransition - ${appId} won the election but ${blocker.ip} ${blocker.reason}; staying receiveonly`);
-      syncthingFolder.type = 'receiveonly';
-      return { syncthingFolder, cache };
+      return notSeeding();
     }
 
     // A folder must pass the sendreceive safety verification BEFORE it ever
@@ -1383,12 +1543,25 @@ async function handleReceiveOnlyTransition(params) {
     // over an empty disk); an unmounted dir, or a stale index claiming bytes
     // over an empty volume, must never seed: sendreceive would broadcast the
     // missing files as deletions.
-    const seedSafety = await verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs || []);
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_SEED_CHECK, appId);
+    const seedSafety = await verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs || [], { syncStatus });
     if (!seedSafety.isSafe) {
       log.warn(`handleReceiveOnlyTransition - ${appId} elected leader but not safe to seed (${seedSafety.reason}); staying receiveonly`);
-      syncthingFolder.type = 'receiveonly';
-      return { syncthingFolder, cache };
+      fluxEventBus.count('syncthing:seedRefused', appId, seedSafety.reason);
+      return notSeeding();
     }
+
+    // A decision that took longer than a pass may have missed a rival that
+    // marked its intent after this node's read - see SEED_DECISION_BUDGET_MS.
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_SEED_RECORD, appId);
+    const decisionMs = monotonicMs() - decisionStartedAt;
+    if (decisionMs > SEED_DECISION_BUDGET_MS) {
+      fluxEventBus.count('syncthing:seedDecision', appId, 'overBudget');
+      log.info(`handleReceiveOnlyTransition - ${appId}: deciding to seed took ${decisionMs}ms, longer than a pass (${SEED_DECISION_BUDGET_MS}ms); deciding again on the next pass`);
+      return notSeeding();
+    }
+    markSeed(appId, 'decided', holdings);
+    fluxEventBus.count('syncthing:seedDecision', appId, 'seeded');
 
     // Every gate passed - but deciding the promotion is not applying it. The
     // designation masterSlaveApps reads has to mean "the folder IS writable",
@@ -1399,10 +1572,9 @@ async function handleReceiveOnlyTransition(params) {
     // long as the apply takes.
     cache.designationPending = true;
 
-    // Fix permissions before changing to sendreceive - ensures correct ownership for synced data
-    await fixAppdataPermissions(appId);
-
-    syncthingFolder.type = 'sendreceive';
+    // A g: seed's folder sends once the election makes it primary; this pass
+    // only names the seed.
+    decideType(syncthingFolder, containerDataFlags, 'sendreceive');
 
     if (containerDataFlags.includes('r')) {
       log.info(`handleReceiveOnlyTransition - requesting start of ${appId} (leader)`);
@@ -1440,7 +1612,7 @@ async function handleReceiveOnlyTransition(params) {
   }
 
   // Not the leader - syncStatus already read above
-  syncthingFolder.type = 'receiveonly';
+  decideType(syncthingFolder, containerDataFlags, 'receiveonly');
   cache.numberOfExecutions = (cache.numberOfExecutions || 0) + 1;
 
   if (syncStatus) {
@@ -1467,29 +1639,25 @@ async function handleReceiveOnlyTransition(params) {
     // is clean first; if not, revert the local changes (db/revert undoes local edits in
     // a receiveonly folder) and promote on a later cycle once verifiably clean. The
     // leader path above is exempt by design - the leader's local data IS the seed.
-    if (syncStatus.isSynced && syncStatus.receiveOnlyChangedFiles > 0) {
-      log.warn(`handleReceiveOnlyTransition - ${appId} is synced but the receive-only folder has ${syncStatus.receiveOnlyChangedFiles} locally changed item(s); reverting local changes instead of promoting (promotion would propagate them to the cluster)`);
-      try {
-        // dataOrThrow: dbRevert answers in-band; without it this catch is
-        // dead code and a failed revert reads as reverted
-        messageHelper.dataOrThrow(await syncthingService.dbRevert(appId));
-      } catch (error) {
-        log.error(`handleReceiveOnlyTransition - revert of local changes for ${appId} failed: ${error.message}`);
-      }
+    if (await revertLocalChangesIfSynced(appId, syncStatus)) {
       return { syncthingFolder, cache };
     }
     if (syncStatus.isSynced) {
       // Same pre-flip verification as the seed above: completion metrics come
       // from the index, and an index can be stale - promotion requires the disk
       // to actually hold the data the index claims.
-      const promoteSafety = await verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs || []);
+      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_PROMOTION_CHECK, appId);
+      const promoteSafety = await verifySendReceiveFolderSafety(appId, folderPath, unsyncedSubdirs || [], { syncStatus });
       if (!promoteSafety.isSafe) {
         log.warn(`handleReceiveOnlyTransition - ${appId} is synced but not safe to promote (${promoteSafety.reason}); staying receiveonly`);
+        fluxEventBus.count('syncthing:promotionRefused', appId, promoteSafety.reason);
         return { syncthingFolder, cache };
       }
-      log.info(`handleReceiveOnlyTransition - ${appId} is synced (${syncStatus.syncPercentage.toFixed(2)}%), switching to sendreceive`);
-      await fixAppdataPermissions(appId);
-      syncthingFolder.type = 'sendreceive';
+      // A g: folder sends once the election makes this node primary; this pass
+      // only records that the copy is whole.
+      const singleWriter = containerDataFlags.includes('g');
+      log.info(`handleReceiveOnlyTransition - ${appId} is synced (${syncStatus.syncPercentage.toFixed(2)}%), ${singleWriter ? 'ready to take over' : 'switching to sendreceive'}`);
+      decideType(syncthingFolder, containerDataFlags, 'sendreceive');
       if (containerDataFlags.includes('r')) {
         log.info(`handleReceiveOnlyTransition - requesting start of ${appId} (synced)`);
         appReconciler.setControllerDesired(appId, 'running', 'syncthing synced start');
@@ -1591,12 +1759,13 @@ async function handleReceiveOnlyTransition(params) {
 async function handleNewApp(params) {
   const {
     appId,
+    containerDataFlags,
     syncthingFolder,
     receiveOnlySyncthingAppsCache,
   } = params;
 
   log.info(`handleNewApp - ${appId} NOT in cache. requesting stop + clean of ${appId}`);
-  syncthingFolder.type = 'receiveonly';
+  decideType(syncthingFolder, containerDataFlags, 'receiveonly');
   const cache = { numberOfExecutions: 1 };
 
   // Set cache BEFORE requesting the reset so subsequent monitoring cycles don't
@@ -1638,20 +1807,47 @@ async function ensureContainerRunning(appId, containerDataFlags) {
 async function manageFolderSyncState(params) {
   const {
     appId,
+    identifier,
     syncFolder,
     containerDataFlags,
     unsyncedSubdirs,
     syncthingAppsFirstRun,
     receiveOnlySyncthingAppsCache,
     appLocation,
+    readAppLocation,
     localSocketAddr,
     syncthingFolder,
     installedAppName,
     liveness,
   } = params;
 
+  // One per pass per folder, whatever the pass decides: a harness suite counts
+  // passes from an event to know every holder has decided since it.
+  fluxEventBus.count('syncthing:folderPass', appId, 'evaluated');
+
   // Check if folder already exists and is in sendreceive mode
   const folderAlreadySyncing = syncFolder && syncFolder.type === 'sendreceive';
+  const sendingSingleWriter = folderAlreadySyncing && containerDataFlags.includes('g');
+  const held = sendingSingleWriter ? await appQueryService.holdsComponent(appId) : null;
+  if (sendingSingleWriter && held !== true) {
+    // Whether a sending folder this node does not hold may go out is its primary
+    // role's decision; this pass's write leaves its pause as it is.
+    delete syncthingFolder.paused;
+  }
+  if (sendingSingleWriter && held === false) {
+    // A single-writer folder sends only from the node that holds the primary:
+    // running it, committed to start it, or stopped by its owner to work on its
+    // data. Found sendreceive with none of those, this is a primary that lost
+    // its process, and what it holds must not go out until the election says
+    // it is primary again.
+    log.info(`manageFolderSyncState - ${appId} is sendreceive and not held here, demoting until the election decides`);
+    const othersHold = () => componentStateOnOtherHolders(readAppLocation, localSocketAddr, {
+      appId, identifier, appName: installedAppName, liveness, logPrefix: 'manageFolderSyncState',
+    });
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_STANDBY_HOLD, appId);
+    await primaryRole.holdAsStandby(identifier, appId, { othersHold });
+    return { syncthingFolder, cache: { restarted: false, numberOfExecutions: 0 } };
+  }
 
   // If already syncing in sendreceive mode, ensure container is running
   if (folderAlreadySyncing) {
@@ -1660,6 +1856,7 @@ async function manageFolderSyncState(params) {
     // Re-deriving that verdict here would cost a syncthing round trip and a
     // directory walk per folder to answer a question already answered.
     await ensureContainerRunning(appId, containerDataFlags);
+    decideType(syncthingFolder, containerDataFlags, 'sendreceive');
     // Ensure cache entry exists so health monitor can track this folder
     const existingCache = receiveOnlySyncthingAppsCache.get(appId);
     const cache = existingCache || { restarted: true };
@@ -1670,6 +1867,7 @@ async function manageFolderSyncState(params) {
   if (syncthingAppsFirstRun) {
     const result = await handleFirstRun({
       appId,
+      containerDataFlags,
       syncFolder,
       syncthingFolder,
       receiveOnlySyncthingAppsCache,
@@ -1683,6 +1881,7 @@ async function manageFolderSyncState(params) {
   if (cache?.firstEncounterSkipped) {
     const result = await handleSkippedAppSecondEncounter({
       appId,
+      containerDataFlags,
       syncthingFolder,
       receiveOnlySyncthingAppsCache,
     });
@@ -1713,6 +1912,7 @@ async function manageFolderSyncState(params) {
       log.info(`manageFolderSyncState - ${appId} NOT in cache but syncFolder doesn't exist, treating as new app installation`);
       const result = await handleNewApp({
         appId,
+        containerDataFlags,
         syncthingFolder,
         receiveOnlySyncthingAppsCache,
       });
@@ -1730,6 +1930,7 @@ async function manageFolderSyncState(params) {
     // First run and not in cache - clean install
     const result = await handleNewApp({
       appId,
+      containerDataFlags,
       syncthingFolder,
       receiveOnlySyncthingAppsCache,
     });
@@ -1738,6 +1939,18 @@ async function manageFolderSyncState(params) {
 
   // Default case - ensure container is running
   await ensureContainerRunning(appId, containerDataFlags);
+  if (containerDataFlags.includes('g')) {
+    // The ready mark the election reads has to outlive this pass.
+    // A ready standby still has to converge on the primary's copy: a local
+    // deviation (an owner or mode included) is never overwritten by syncthing
+    // in a receiveonly folder, and the primary counts it as outstanding.
+    if (syncFolder?.type === 'receiveonly') {
+      await revertLocalChangesIfSynced(appId, await getFolderSyncCompletion(appId));
+    }
+    return { syncthingFolder, cache };
+  }
+  // An r: folder whose copy is whole sends.
+  decideType(syncthingFolder, containerDataFlags, 'sendreceive');
   return { syncthingFolder, cache: null };
 }
 

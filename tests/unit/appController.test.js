@@ -8,9 +8,11 @@ const dockerService = require('../../ZelBack/src/services/dockerService');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+const primaryRoleChanges = require('../../ZelBack/src/services/appLifecycle/primaryRoleChanges');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 const bootGateAtStart = globalState.bootContainerStateSettled;
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const { requireMongo } = require('./dbTestHelper');
 
 describe('appController tests', () => {
@@ -231,6 +233,132 @@ describe('appController tests', () => {
       // "not started here" is the correct outcome - and saying which of the two
       // it is stops an operator retrying against a decision that already holds.
       expect(result.data).to.equal('Application TestApp will be started: waiting for the election');
+    });
+
+    // The lock is what holds a stopped g: component on this node. Lifted by the
+    // start, the component is held by nothing until the election next runs, and a
+    // standby can take it in between - so the election lifts it, once it has
+    // decided. Every other component's lock lifts at once, as before.
+    describe('a start of the component the election decides', () => {
+      const gApp = {
+        name: 'GApp',
+        version: 4,
+        compose: [{ name: 'db', containerData: '/data' }, { name: 'game', containerData: 'g:/data' }, { name: 'web', containerData: '/www' }],
+      };
+      let requestOperatorStart;
+      let publish;
+
+      beforeEach(() => {
+        verificationHelperStub.resolves(true);
+        requestOperatorStart = sinon.stub(appsRuntimeState, 'requestOperatorStart').resolves(true);
+        publish = sinon.stub(fluxEventBus, 'publish');
+      });
+
+      it('leaves its lock for the election to lift, and lifts every other component\'s', async () => {
+        stubInstalledApp(gApp);
+
+        await appController.appStart({ params: { appname: 'GApp' }, query: {} }, { json: sinon.fake((param) => param) });
+
+        sinon.assert.calledOnceWithExactly(requestOperatorStart, 'game_GApp');
+        expect(appsRuntimeState.setOperatorStopped.args.map((args) => args[0]), 'locks lifted by the start').to.deep.equal(['db_GApp', 'web_GApp']);
+        const intents = publish.args.filter(([name]) => name === 'app:operatorIntent').map(([, data]) => [data.identifier, data.awaitsElection]);
+        expect(intents).to.deep.equal([['db_GApp', false], ['game_GApp', true], ['web_GApp', false]]);
+      });
+
+      it('lifts its lock at once when it holds none, since there is no hold to keep', async () => {
+        stubInstalledApp(gApp);
+        requestOperatorStart.resolves(false);
+
+        await appController.appStart({ params: { appname: 'game_GApp' }, query: {} }, { json: sinon.fake((param) => param) });
+
+        sinon.assert.calledOnceWithExactly(requestOperatorStart, 'game_GApp');
+        sinon.assert.calledOnceWithExactly(appsRuntimeState.setOperatorStopped, 'game_GApp', false, { force: false });
+      });
+
+      it('leaves the lock of a v1-3 g: app to the election too', async () => {
+        stubInstalledApp({ name: 'OldG', version: 3, containerData: 'g:/data' });
+
+        await appController.appStart({ params: { appname: 'OldG' }, query: {} }, { json: sinon.fake((param) => param) });
+
+        sinon.assert.calledOnceWithExactly(requestOperatorStart, 'OldG');
+        sinon.assert.notCalled(appsRuntimeState.setOperatorStopped);
+      });
+
+      it('asks the election about no component of an app it does not decide', async () => {
+        stubInstalledApp({ name: 'Plain', version: 4, compose: [{ name: 'web', containerData: '/www' }, { name: 'rep', containerData: 'r:/data' }] });
+
+        await appController.appStart({ params: { appname: 'Plain' }, query: {} }, { json: sinon.fake((param) => param) });
+
+        sinon.assert.notCalled(requestOperatorStart);
+        expect(appsRuntimeState.setOperatorStopped.args.map((args) => args[0])).to.deep.equal(['web_Plain', 'rep_Plain']);
+      });
+
+      it('says the start waits on the election', async () => {
+        stubInstalledApp(gApp);
+        appReconciler.dockerActual.callsFake(async (id) => ({ reachable: true, exists: true, running: id !== 'game_GApp' }));
+        sinon.stub(appReconciler, 'desiredRunState').resolves({ desired: false, reason: 'startAwaitsElection' });
+
+        const res = { json: sinon.fake((param) => param) };
+        await appController.appStart({ params: { appname: 'GApp' }, query: {} }, res);
+
+        expect(res.json.firstCall.args[0].data).to.equal('Application GApp will be started: waiting for the election');
+      });
+
+      it('still takes the lock when the operator stops it, as the primary\'s when it runs here', async () => {
+        stubInstalledApp(gApp);
+        sinon.stub(appReconciler, 'clearControllerDesired');
+
+        await appController.appStop({ params: { appname: 'game_GApp' }, query: {} }, { json: sinon.fake((param) => param) });
+
+        sinon.assert.notCalled(requestOperatorStart);
+        sinon.assert.calledOnceWithExactly(appsRuntimeState.setOperatorStopped, 'game_GApp', true, { force: false, asPrimary: true });
+      });
+
+      it('takes the lock as the primary\'s on a node committed to running it whose container is down', async () => {
+        stubInstalledApp(gApp);
+        sinon.stub(appReconciler, 'clearControllerDesired');
+        appReconciler.dockerActual.resolves({ reachable: true, exists: true, running: false });
+        sinon.stub(appReconciler, 'committedIdentifiers').returns(['game_GApp']);
+
+        await appController.appStop({ params: { appname: 'game_GApp' }, query: {} }, { json: sinon.fake((param) => param) });
+
+        sinon.assert.calledOnceWithExactly(appsRuntimeState.setOperatorStopped, 'game_GApp', true, { force: false, asPrimary: true });
+      });
+
+      it('takes the lock as the primary\'s on a node becoming the primary, before it is committed', async () => {
+        stubInstalledApp(gApp);
+        sinon.stub(appReconciler, 'clearControllerDesired');
+        appReconciler.dockerActual.resolves({ reachable: true, exists: true, running: false });
+        sinon.stub(appReconciler, 'committedIdentifiers').returns([]);
+        sinon.stub(primaryRoleChanges, 'promotingIdentifiers').returns(['game_GApp']);
+
+        await appController.appStop({ params: { appname: 'game_GApp' }, query: {} }, { json: sinon.fake((param) => param) });
+
+        sinon.assert.calledOnceWithExactly(appsRuntimeState.setOperatorStopped, 'game_GApp', true, { force: false, asPrimary: true });
+      });
+
+      it('takes the lock as not the primary\'s on a node that neither runs it nor is committed to', async () => {
+        stubInstalledApp(gApp);
+        sinon.stub(appReconciler, 'clearControllerDesired');
+        appReconciler.dockerActual.resolves({ reachable: true, exists: true, running: false });
+        sinon.stub(appReconciler, 'committedIdentifiers').returns([]);
+
+        await appController.appStop({ params: { appname: 'game_GApp' }, query: {} }, { json: sinon.fake((param) => param) });
+
+        sinon.assert.calledOnceWithExactly(appsRuntimeState.setOperatorStopped, 'game_GApp', true, { force: false, asPrimary: false });
+      });
+
+      it('records nothing about the primary on the components the election does not decide', async () => {
+        stubInstalledApp(gApp);
+        sinon.stub(appReconciler, 'clearControllerDesired');
+
+        await appController.appStop({ params: { appname: 'GApp' }, query: {} }, { json: sinon.fake((param) => param) });
+
+        const options = Object.fromEntries(appsRuntimeState.setOperatorStopped.args.map(([id, , opts]) => [id, opts]));
+        expect(options).to.deep.equal({
+          web_GApp: { force: false }, game_GApp: { force: false, asPrimary: true }, db_GApp: { force: false },
+        });
+      });
     });
 
     it('should report an unreachable docker rather than claiming a start', async () => {
@@ -628,6 +756,19 @@ describe('appController tests', () => {
     // A synced component the election holds elsewhere still gets its lock lifted -
     // the stop veto is the operator's, the run decision is the election's - but it
     // is reported as held rather than as restarted.
+    it('leaves the lock of a stopped g: component for the election to lift, with the restart raised', async () => {
+      verificationHelperStub.resolves(true);
+      const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+      const requestOperatorStart = sinon.stub(appsRuntimeState, 'requestOperatorStart').resolves(true);
+      stubInstalledApp({ name: 'GApp', version: 4, compose: [{ name: 'game', containerData: 'g:/data' }] });
+
+      await appController.appRestart({ params: { appname: 'GApp' }, query: {} }, { json: sinon.fake((param) => param) });
+
+      sinon.assert.calledOnceWithExactly(requestOperatorStart, 'game_GApp');
+      sinon.assert.notCalled(setOperatorStopped);
+      sinon.assert.calledOnceWithExactly(appsRuntimeState.requestRestart, 'game_GApp');
+    });
+
     it('lifts the lock for a synced component the election holds, and says so', async () => {
       verificationHelperStub.resolves(true);
       const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();

@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { activeTestEnvs } from './test-env.js';
 import { execInContainer } from './container.js';
+import { SYNCTHING_HOME } from './syncthing-real.js';
 
 const LOG_ROOT = join(process.cwd(), 'test-logs');
 
@@ -62,6 +63,44 @@ async function cgroupState(env) {
   return parts.join('\n');
 }
 
+// Two writers inside a node log only where the node's own output never reaches:
+// its syncthing, to a file (the harness's start script and FluxOS's launch each
+// name one, and syncthing keeps two rotated files beside it), and the apps its
+// dockerd runs, which only that dockerd can read back. Both leave with the node.
+// App output is bounded per container: a chatty app's whole history would be
+// held in memory by the exec that reads it.
+const APP_LOG_LINES = 20000;
+
+const SYNCTHING_LOGS = `
+for f in /dat/var/log/syncthing*.log* "${SYNCTHING_HOME}"/syncthing*.log*; do
+  [ -f "$f" ] || continue
+  echo "=== $f ==="
+  cat "$f"
+done
+`;
+
+const APP_LOGS = `
+for c in $(docker ps -a --format '{{.Names}}'); do
+  echo "=== $c ($(docker inspect -f '{{.State.Status}} exit={{.State.ExitCode}}' "$c" 2>&1)), last ${APP_LOG_LINES} lines ==="
+  docker logs --timestamps --tail ${APP_LOG_LINES} "$c" 2>&1
+done
+`;
+
+// Best-effort, as cgroupState: a node that cannot answer is reported, and never
+// fails the dump it is attached to.
+async function readFromNodes(env, script) {
+  const clients = env.clients || [];
+  return Promise.all(clients.map(async (client, index) => {
+    if (!client?.container) return { index, output: '' };
+    try {
+      const { output } = await execInContainer(client.container, script);
+      return { index, output };
+    } catch (err) {
+      return { index, error: err.message };
+    }
+  }));
+}
+
 export function dumpLogsOnFailure(getEnv) {
   let dumped = false;
 
@@ -91,6 +130,10 @@ export function dumpLogsOnFailure(getEnv) {
     const cgroupsByEnv = await Promise.all(envs.map((env) => cgroupState(env).catch(
       (err) => `cgroup probe failed: ${err.message}\n`,
     )));
+    const nodeFilesByEnv = await Promise.all(envs.map(async (env) => ({
+      syncthing: await readFromNodes(env, SYNCTHING_LOGS),
+      apps: await readFromNodes(env, APP_LOGS),
+    })));
 
     const written = [];
     envs.forEach((env, e) => {
@@ -123,6 +166,18 @@ export function dumpLogsOnFailure(getEnv) {
         const file = join(dir, `${prefix}node-${String(index).padStart(2, '0')}.log`);
         writeFileSync(file, `${parts.join('\n')}\n`);
         written.push(`${file} (${lines.length} lines, ${events.length} events)`);
+      }
+      for (const [kind, results] of Object.entries(nodeFilesByEnv[e])) {
+        for (const { index, output, error } of results) {
+          if (error) {
+            console.log(`log-on-failure: no ${kind} logs for node ${index}: ${error}`);
+            continue;
+          }
+          if (!output.trim()) continue;
+          const file = join(dir, `${prefix}node-${String(index).padStart(2, '0')}-${kind}.log`);
+          writeFileSync(file, output.endsWith('\n') ? output : `${output}\n`);
+          written.push(`${file} (${output.trimEnd().split('\n').length} lines)`);
+        }
       }
     });
 

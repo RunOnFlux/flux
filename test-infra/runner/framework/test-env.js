@@ -33,6 +33,7 @@ import { fluxTeamKey, nodeKey } from './keys.js';
 import policySigning from '../../external-http-stub/policy-signing.js';
 import chainStart from './chain-start.cjs';
 import { assertCoupledRatios, loadSharedConfig } from './coupled-knobs.js';
+import { startSyncedDataKeeper } from './synced-data-keeper.js';
 
 // How long after a re-attach the collector goes on treating an exact repeat as docker
 // replaying a line it already has. Docker's `since` is whole-second, so the replay is over
@@ -491,6 +492,7 @@ function makeEnvShell(networkName) {
       // the flag covers events already queued on the stream, closing it covers
       // the rest.
       env.stopping = true;
+      await env.syncedDataKeeper?.stop().catch((err) => warn('synced-data keeper', err));
       try {
         env.infraWatch?.stop();
       } catch (err) {
@@ -723,6 +725,13 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCent
 // and /id/loginphrase needs the mongo connection, which comes up after express
 // starts answering /flux/version. During that window the route returns 200 with
 // an error body, so readiness must validate the body, not just res.ok.
+// The node whose key node `num` signs with. `sharedKeys` maps a node number to
+// another's, both 1-based: distinct nodes, with their own collateral and
+// address, on one key - as one operator's nodes often are.
+function keyNumber(sharedKeys, num) {
+  return Number(sharedKeys[num] ?? num);
+}
+
 function nodeReadyWaitStrategy(nodeIp) {
   const validate = async (res) => {
     if (!res.ok) return false;
@@ -745,10 +754,27 @@ export async function createTestEnv({
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
   geolocation = {}, locationTable = null, staticIp = true, policy = null, policySeeds = null,
-  awaitPolicy = true,
+  awaitPolicy = true, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, rejoinOnRestart = true,
 } = {}) {
   if (syncthing !== 'stub' && syncthing !== 'binary') {
     throw new Error(`createTestEnv: syncthing must be 'stub' or 'binary', got '${syncthing}'`);
+  }
+  // Arcane nodes whose OS starts syncthing paused, as a syncthing.service with
+  // --paused does. A legacy node's syncthing is FluxOS's to start, always paused.
+  for (const index of pausedSyncthingNodes) {
+    if (syncthing !== 'binary') throw new Error('createTestEnv: pausedSyncthingNodes needs syncthing: \'binary\'');
+    if (legacyNodes.includes(index)) throw new Error(`createTestEnv: paused syncthing node ${index} is legacy, whose syncthing FluxOS starts`);
+  }
+  // Nodes whose FluxOS pm2 runs, the way the multitool installs a legacy node:
+  // index -> the kill timeout it is started with in ms, or null for pm2's own
+  // default. Only a legacy node is started by pm2, and it runs FluxOS as root.
+  for (const key of Object.keys(pm2Nodes)) {
+    const index = Number(key);
+    if (!legacyNodes.includes(index)) throw new Error(`createTestEnv: pm2 node ${index} is not a legacy node`);
+    if (unprivilegedNodes.includes(index)) throw new Error(`createTestEnv: pm2 node ${index} cannot also be unprivileged`);
+  }
+  for (const [nodeNumber, keyOf] of Object.entries(sharedKeys)) {
+    if (sharedKeys[keyOf] !== undefined) throw new Error(`createTestEnv: node ${nodeNumber} shares the key of node ${keyOf}, which itself shares another's`);
   }
   // WHICH NODES ARE ALREADY PART OF THE NETWORK, rather than joining it.
   //
@@ -980,6 +1006,7 @@ export async function createTestEnv({
   }
   const networkName = await createNetwork();
   const env = makeEnvShell(networkName);
+  env.rejoinOnRestart = rejoinOnRestart;
   activeEnvs.add(env);
   // A previous env's death must not fail this one's waits.
   clearInfraDeath();
@@ -989,7 +1016,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, sharedKeys);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -1018,7 +1045,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -1085,7 +1112,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   // fixture, addresses from subnet-config (the single source of truth for node IPs).
   // POST before any node boots; /set-node-list also resets the stub's restore/reset
   // baseline. A no-op-equivalent when base === '198.18'.
-  const runNodeList = deterministicList.slice(0, nodes).map((n, idx) => ({ ...n, ip: subnet.nodeIp(idx + 1) }));
+  const runNodeList = deterministicList.slice(0, nodes).map((n, idx) => ({
+    ...n, ip: subnet.nodeIp(idx + 1), pubkey: nodeKey(keyNumber(sharedKeys, idx + 1)).pubkey,
+  }));
+  env.nodeKeyOf = (num) => nodeKey(keyNumber(sharedKeys, num));
   await fetch(`http://${DAEMON_IP}:18232/set-node-list`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1286,7 +1316,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     const nodeEnv = {
       NODE_CONFIG_DIR: `/flux/test-infra/config/node-${num}`,
       FLUXD_PATH: '/dat/var/lib/fluxd',
-      FLUXD_CONFIG_PATH: `/flux/test-infra/fixtures/conf/flux-${num}.conf`,
+      FLUXD_CONFIG_PATH: `/flux/test-infra/fixtures/conf/flux-${String(keyNumber(sharedKeys, i + 1)).padStart(2, '0')}.conf`,
       SYNCTHING_PATH: '/dat/usr/lib/syncthing',
       FLUXBENCH_PATH: '/dat/usr/lib/fluxbenchd',
       FLUX_WATCHDOG_PATH: '/dat/usr/lib/fluxwatchdog',
@@ -1320,6 +1350,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       }
     }
     if (!isLegacy) nodeEnv.FLUXOS_PATH = '/flux';
+    if (pausedSyncthingNodes.includes(i)) nodeEnv.FLUX_SYNCTHING_PAUSED = '1';
     // WHETHER THIS NODE'S FLUXOS IS ROOT. Declared per node rather than derived from
     // legacy, because the field carries both: Arcane runs FluxOS as root, and an
     // operator's own install runs it as whatever account they installed it under,
@@ -1327,6 +1358,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     // can READ - syncthing is spawned with sudo whichever account FluxOS holds, so on
     // an unprivileged node the index can describe files the node itself is refused.
     if (unprivilegedNodes.includes(i)) nodeEnv.FLUX_FLUXOS_USER = 'fluxuser';
+    if (Object.prototype.hasOwnProperty.call(pm2Nodes, i)) {
+      nodeEnv.FLUX_PM2 = '1';
+      if (pm2Nodes[i] != null) nodeEnv.FLUX_PM2_KILL_TIMEOUT_MS = String(pm2Nodes[i]);
+    }
     // Legacy only, because it is the only node type that installs anything:
     // monitorSystem() returns on sight of FLUXOS_PATH, so an Arcane node purged
     // of syncthing would simply never get it back.
@@ -1462,7 +1497,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
 
   for (const stubIdx of stubPeers) {
     const nodeIp = subnet.nodeIp(stubIdx + 1);
-    const key = nodeKey(stubIdx + 1);
+    const key = nodeKey(keyNumber(sharedKeys, stubIdx + 1));
 
     const stub = await new StaticIpContainer(image('flux-e2e-peer-stub'))
       .withStaticIp(networkName, nodeIp)
@@ -1520,6 +1555,9 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   for (const client of clients) {
     if (client) await client.connectEventStream();
   }
+  // The stub moves no data, so the harness puts on each node's disk the bytes the
+  // stub reports that node holds in sync - see synced-data-keeper.js.
+  if (syncthing !== 'binary') env.syncedDataKeeper = startSyncedDataKeeper(env);
 
   // Boot is NOT complete when the nodes answer HTTP: FluxOS still runs its
   // internal boot (mongo collection prep → daemon poll loop), and that is the
@@ -1876,6 +1914,12 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
         // through here
         client.zelidauth = auth.zelidauth;
         await client.getAuthed('/flux/startdiscovery', auth.zelidauth);
+        // From here on the node starts discovery itself whenever FluxOS starts,
+        // unless the suite brings restarted nodes back into the mesh itself.
+        if (env.rejoinOnRestart) {
+          const marked = await execInContainer(client.container, 'node /flux/test-infra/rejoin-discovery.cjs mark');
+          if (marked.exitCode !== 0) throw new Error(`startDiscovery: could not mark ${client.url} to rejoin on restart: ${marked.output}`);
+        }
       }));
 
       // AND THEN POLICY, because a peered fleet is not yet one that can serve.

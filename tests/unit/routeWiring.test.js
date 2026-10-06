@@ -163,6 +163,19 @@ describe('route wiring', () => {
     });
   });
 
+  describe('which node this is', () => {
+    // Every answer is to one caller's challenge. A cached answer is a recording,
+    // and refusing a recording is what the challenge is for.
+    it('is registered as a POST, not a GET, and caches nothing', () => {
+      const post = table.find((entry) => entry.path === '/flux/identity' && entry.method === 'post');
+      const get = table.find((entry) => entry.path === '/flux/identity' && entry.method === 'get');
+
+      expect(post, '/flux/identity is not registered as a POST').to.not.equal(undefined);
+      expect(get, '/flux/identity is registered as a GET').to.equal(undefined);
+      expect(post.chain.some((fn) => fn && fn.name === 'cache')).to.equal(false);
+    });
+  });
+
   describe('endpoints that take no query parameters', () => {
     // Unauthenticated, read by peers mid-election, and each one either does
     // backend work per request or sits beside one that does.
@@ -170,6 +183,7 @@ describe('route wiring', () => {
       '/apps/heldcomponents',
       '/apps/promotedfolders',
       '/apps/placementlocations',
+      '/flux/outboundpath',
     ];
 
     guarded.forEach((path) => {

@@ -3,6 +3,11 @@ set -e
 
 ip addr add 169.254.43.43/32 dev lo 2>/dev/null || true
 
+# Every mount shared, as systemd makes them at boot on a real host. syncthing
+# runs in a mount namespace that is a slave of the node's, and a slave receives
+# the app volumes FluxOS mounts after syncthing starts only from a shared mount.
+mount --make-rshared /
+
 # A default route, or deliberately none - declared by the suite, never inherited
 # from the topology.
 #
@@ -85,6 +90,9 @@ if [ -n "$FLUX_TEST_CONFIG" ]; then
     fs.writeFileSync(target, `module.exports = ${JSON.stringify(merged, null, 2)};\n`);
   '
 fi
+# A node whose discovery the harness has started rejoins the mesh by itself on
+# every later start, the run's own discoveryAutostart notwithstanding.
+node /flux/test-infra/rejoin-discovery.cjs apply
 
 # The image ships these installed, which is the state a node is in on every boot
 # after its first. A suite that wants to exercise the install asks for a node
@@ -164,11 +172,7 @@ if [ "$FLUX_SYNCTHING_MODE" = "binary" ]; then
   # read and a node with one of them gets either two syncthings or none.
   if [ -n "$FLUXOS_PATH" ]; then
     # the flags a real Arcane node is supervised with, read off a live one
-    mkdir -p /dat/var/log
-    nohup syncthing --no-browser --allow-newer-config --home "$SYNCTHING_PATH" \
-          --logfile /dat/var/log/syncthing.log --logflags=3 \
-          --log-max-old-files=2 --log-max-size=26214400 \
-          >/dev/null 2>&1 </dev/null &
+    /flux/test-infra/start-syncthing.sh
   fi
 elif [ -n "$FLUX_SYNCTHING_HOST" ]; then
   socat TCP-LISTEN:${SYNCTHING_LISTEN_PORT},fork,reuseaddr TCP:${FLUX_SYNCTHING_HOST}:${FLUX_SYNCTHING_PORT:-8384} &
@@ -249,6 +253,29 @@ fi
 # dockerd - the app containers keep running, exactly like `systemctl restart fluxos`.
 # The child PID is written to /tmp/fluxos.pid so a test kills only the node process,
 # never PID 1. A SIGTERM/SIGINT (docker stop at teardown) stops the child and exits.
+#
+# While /tmp/fluxos.hold exists the loop does not respawn: the node stays down
+# after FluxOS exits, as a machine does between a shutdown and its next boot,
+# and comes back once a test removes the file.
+# A legacy node the multitool installed: the pm2 daemon starts FluxOS through
+# start.sh, which runs npm start - npm install, then FluxOS - from the account's
+# home, with the flags the multitool gives it. The kill timeout is the fleet's
+# to choose; unset, pm2 uses its own default. There is no registry here, so npm
+# answers its install from the image's own. The entrypoint stays in the
+# foreground streaming pm2's logs, so FluxOS's output is the container's, and a
+# test stops and starts FluxOS through pm2 as an operator or the OS does.
+if [ "$FLUX_PM2" = "1" ]; then
+  export NPM_CONFIG_OFFLINE=true NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_UPDATE_NOTIFIER=false
+  cd "$HOME" || exit 1
+  pm2 start "$HOME/zelflux/start.sh" --name flux \
+    --max-memory-restart 1500M --restart-delay 30000 --max-restarts 40 --time \
+    ${FLUX_PM2_KILL_TIMEOUT_MS:+--kill-timeout "$FLUX_PM2_KILL_TIMEOUT_MS"} >/dev/null
+  trap 'pm2 kill >/dev/null 2>&1; exit 0' TERM INT
+  pm2 logs --raw --lines 0 &
+  wait $!
+  exit 0
+fi
+
 set +e
 STOPPING=0
 trap 'STOPPING=1; kill -TERM "$(cat /tmp/fluxos.pid 2>/dev/null)" 2>/dev/null' TERM INT
@@ -257,6 +284,8 @@ while [ "$STOPPING" = "0" ]; do
   FLUXOS_PID=$!
   echo "$FLUXOS_PID" > /tmp/fluxos.pid
   wait "$FLUXOS_PID"
+  [ "$STOPPING" = "1" ] && break
+  while [ -f /tmp/fluxos.hold ] && [ "$STOPPING" = "0" ]; do sleep 1; done
   [ "$STOPPING" = "1" ] && break
   echo "fluxos (node app.js) exited, respawning in 1s" >&2
   sleep 1

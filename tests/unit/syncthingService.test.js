@@ -8,6 +8,10 @@ const childProcess = require('node:child_process');
 const axios = require('axios');
 const log = require('../../ZelBack/src/lib/log');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+const numericIdTables = require('../../ZelBack/src/services/utils/numericIdTables');
+const volumeService = require('../../ZelBack/src/services/utils/volumeService');
+const { appsFolderPath } = require('../../ZelBack/src/services/utils/appConstants');
 
 // Testing imports
 const chai = require('chai');
@@ -15,6 +19,7 @@ const chai = require('chai');
 const { expect } = chai;
 const proxyquire = require('proxyquire');
 const sinon = require('sinon');
+const config = require('config');
 const syncthingFixtures = require('./data/syncthingFixtures');
 
 // Fakes
@@ -42,6 +47,50 @@ function advanceMonotonic(ms) {
   const real = process.hrtime.bigint;
   process.hrtime.bigint = () => real() + BigInt(ms) * 1000000n;
   return () => { process.hrtime.bigint = real; };
+}
+
+const HOST_SYNCTHING = ['-x', 'syncthing', '--ns', '1', '--nslist', 'pid'];
+
+/**
+ * runCommand's pgrep, pkill and stat over a host running its own syncthing
+ * and an app container running another, matched as procps matches: the
+ * namespace match keeps the host's processes, and as a user it can read no
+ * root process's namespace and keeps none. The host's syncthing sees the
+ * numeric id tables; the container's sees its own passwd and group.
+ * @returns {{runCommand: Function, alive: Function}}
+ */
+function hostAndContainerSyncthing() {
+  const processes = [
+    { pid: '4242', hostNamespace: true, alive: true },
+    { pid: '5150', hostNamespace: false, alive: true },
+  ];
+
+  function matched({ runAsRoot, params }) {
+    const byNamespace = params.includes('--ns');
+    return processes.filter((proc) => proc.alive && (!byNamespace || (runAsRoot && proc.hostNamespace)));
+  }
+
+  function identity(filePath) {
+    const inContainer = filePath.startsWith('/proc/5150/');
+    if (filePath.endsWith('passwd')) return inContainer ? '56:1' : '8:100';
+    return inContainer ? '56:2' : '8:101';
+  }
+
+  async function runCommand(cmd, options) {
+    if (cmd === 'pgrep') return { stdout: matched(options).map((proc) => `${proc.pid}\n`).join('') };
+    if (cmd === 'pkill') {
+      matched(options).forEach((proc) => { proc.alive = false; });
+      return { error: null };
+    }
+    if (cmd === 'stat') return { stdout: options.params.slice(3).map(identity).join('\n') };
+    return { error: null };
+  }
+
+  function alive() {
+    return processes.filter((proc) => proc.alive).map((proc) => proc.pid);
+  }
+
+  return { runCommand, alive };
 }
 
 describe('syncthingService tests', () => {
@@ -260,6 +309,12 @@ describe('syncthingService tests', () => {
 
       // for getSynchingApiKey
       sinon.stub(fs, 'readFile').resolves().resolves(syncthingFixtures.configFile);
+      // the apps folder the launch asks the propagation of
+      sinon.stub(fs, 'stat').resolves({});
+      // the numeric id tables the sentinel writes
+      sinon.stub(fs, 'mkdir').resolves();
+      sinon.stub(fs, 'writeFile').resolves();
+      syncthingService.setNumericIdTablesChecked(false);
 
       fakeMeta = sinon.stub().resolves({
         status: 'success', data: `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`,
@@ -325,6 +380,249 @@ describe('syncthingService tests', () => {
     });
   });
 
+
+  describe('drainFoldersToPeers', () => {
+    const deviceId = 'AEYDK6D-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM';
+    const peer = 'PEER111-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM';
+    const gone = 'GONE111-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM';
+    const metaBody = `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`;
+    const folders = [
+      { id: 'fluxa_app', type: 'sendreceive', devices: [{ deviceID: deviceId }, { deviceID: peer }, { deviceID: gone }] },
+      { id: 'fluxb_app', type: 'receiveonly', devices: [{ deviceID: deviceId }, { deviceID: peer }] },
+    ];
+    let fakeGet;
+    let fakePost;
+    let completion;
+    let mounted;
+    beforeEach(() => {
+      syncthingService.getAxiosCache().reset();
+      syncthingService.resetDeviceIdCache();
+      syncthingService.setSyncthingRunningState(true);
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '' });
+      sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
+      sinon.stub(serviceHelper, 'delay').resolves();
+      mounted = sinon.stub(volumeService, 'isPathMounted').resolves(true);
+      fakeGet = sinon.fake(async (reqPath) => {
+        if (reqPath === '/meta.js') return { status: 'success', data: metaBody };
+        if (reqPath === '/rest/noauth/health') return { status: 'success', data: { status: 'OK' } };
+        if (reqPath === '/rest/system/ping') return { status: 'success', data: { ping: 'pong' } };
+        if (reqPath === '/rest/config/folders') return { data: folders };
+        if (reqPath === '/rest/system/connections') return { data: { connections: { [peer]: { connected: true }, [gone]: { connected: false } } } };
+        if (reqPath.startsWith('/rest/db/completion')) return { data: completion() };
+        return {};
+      });
+      fakePost = sinon.fake.resolves({ data: '' });
+      sinon.stub(axios, 'create').returns({ get: fakeGet, post: fakePost });
+    });
+    afterEach(() => {
+      syncthingService.getAxiosCache().reset();
+      syncthingService.resetDeviceIdCache();
+      sinon.restore();
+    });
+
+    it('scanFolder asks syncthing to scan exactly the folder named', async () => {
+      await syncthingService.scanFolder('fluxa_app');
+
+      sinon.assert.calledOnce(fakePost);
+      expect(fakePost.firstCall.args[0]).to.equal('/rest/db/scan?folder=fluxa_app');
+    });
+
+    it('scans every sendreceive folder before asking what the peers hold, and skips folders that only receive', async () => {
+      completion = () => ({ needBytes: 0, needItems: 0, needDeletes: 0 });
+
+      const incomplete = await syncthingService.drainFoldersToPeers(1000);
+
+      expect(incomplete).to.deep.equal([]);
+      sinon.assert.calledOnce(fakePost);
+      expect(fakePost.firstCall.args[0]).to.equal('/rest/db/scan?folder=fluxa_app');
+      const scanAt = fakePost.firstCall.callId;
+      const firstCompletion = fakeGet.getCalls().find((call) => call.args[0].startsWith('/rest/db/completion'));
+      expect(firstCompletion.callId, 'the scan must precede the first completion read, or the read answers about the old index').to.be.greaterThan(scanAt);
+    });
+
+    it('reports the folder a connected peer has not completed by the deadline', async () => {
+      completion = () => ({ needBytes: 4096, needItems: 1, needDeletes: 0 });
+
+      const incomplete = await syncthingService.drainFoldersToPeers(50);
+
+      expect(incomplete).to.deep.equal(['fluxa_app']);
+    });
+
+    // A scan over a volume that is not mounted finds its files gone, and sends
+    // their deletion to every peer.
+    it('scanFolder asks syncthing nothing for a folder whose volume is not mounted, and says why', async () => {
+      mounted.resolves(false);
+
+      let refused = null;
+      await syncthingService.scanFolder('fluxa_app').catch((error) => { refused = error; });
+
+      sinon.assert.notCalled(fakePost);
+      expect(refused?.code).to.equal('VOLUME_NOT_MOUNTED');
+      sinon.assert.calledOnceWithExactly(mounted, path.join(appsFolderPath, 'fluxa_app'));
+    });
+
+    it('scans no folder in a drain whose volume is not mounted, and still waits on its peers', async () => {
+      completion = () => ({ needBytes: 0, needItems: 0, needDeletes: 0 });
+      mounted.resolves(false);
+      const warn = sinon.stub(log, 'warn');
+
+      const incomplete = await syncthingService.drainFoldersToPeers(1000);
+
+      expect(incomplete).to.deep.equal([]);
+      sinon.assert.notCalled(fakePost);
+      sinon.assert.calledWithMatch(warn, /fluxa_app was not scanned: its volume is not mounted/);
+    });
+
+    it('scanFolder gives the scan the time it is allowed, and the client\'s own timeout otherwise', async () => {
+      await syncthingService.scanFolder('fluxa_app', { timeoutMs: 1234 });
+      await syncthingService.scanFolder('fluxa_app');
+
+      expect(fakePost.firstCall.args[2]).to.deep.equal({ timeout: 1234 });
+      expect(fakePost.secondCall.args[2]).to.equal(undefined);
+    });
+
+    it('gives each scan what is left of the drain\'s own time', async () => {
+      completion = () => ({ needBytes: 0, needItems: 0, needDeletes: 0 });
+
+      await syncthingService.drainFoldersToPeers(1000);
+
+      const { timeout } = fakePost.firstCall.args[2];
+      expect(timeout).to.be.greaterThan(0);
+      expect(timeout).to.be.at.most(1000);
+    });
+
+    // syncthing answers a scan only once it is done, so a large folder can
+    // outlast its time; the peers may still hold everything written before it.
+    it('still waits on the peers of a folder whose scan did not finish', async () => {
+      completion = () => ({ needBytes: 0, needItems: 0, needDeletes: 0 });
+      fakePost = sinon.fake.rejects(Object.assign(new Error('timeout of 1000ms exceeded'), { code: 'ECONNABORTED' }));
+      axios.create.returns({ get: fakeGet, post: fakePost });
+      const warn = sinon.stub(log, 'warn');
+
+      const incomplete = await syncthingService.drainFoldersToPeers(1000);
+
+      expect(incomplete).to.deep.equal([]);
+      const asked = fakeGet.getCalls().map((call) => call.args[0]).filter((reqPath) => reqPath.startsWith('/rest/db/completion'));
+      expect(asked, 'the folder\'s peers were asked what they hold').to.have.length(1);
+      sinon.assert.calledWithMatch(warn, /the scan of fluxa_app did not finish: timeout of 1000ms exceeded/);
+    });
+
+    it('does not wait for a peer that is not connected', async () => {
+      completion = () => ({ needBytes: 0, needItems: 0, needDeletes: 0 });
+
+      await syncthingService.drainFoldersToPeers(1000);
+
+      const asked = fakeGet.getCalls().map((call) => call.args[0]).filter((reqPath) => reqPath.startsWith('/rest/db/completion'));
+      expect(asked).to.have.length(1);
+      expect(asked[0]).to.include(`device=${peer}`);
+    });
+  });
+
+  // syncthing before v2.1.2 counts every directory as 128 bytes (v1 counts every
+  // symlink too), so a folder of empty directories reads as holding data. These
+  // reads take that off, by entry count, for the release the daemon reports.
+  describe('a folder\'s counts in file bytes', () => {
+    const folder = 'fluxapp_app';
+    let version;
+    let status;
+    let get;
+
+    beforeEach(() => {
+      syncthingService.getAxiosCache().reset();
+      syncthingService.setSyncthingRunningState(true);
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '' });
+      sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
+      get = sinon.fake(async (reqPath) => {
+        if (reqPath === '/rest/system/version') return { data: { version } };
+        if (reqPath.startsWith('/rest/db/status')) return { data: status };
+        return {};
+      });
+      sinon.stub(axios, 'create').returns({ get });
+    });
+
+    afterEach(() => {
+      syncthingService.getAxiosCache().reset();
+      sinon.restore();
+    });
+
+    it('names the synthetic size each release counts', () => {
+      const sized = (v) => syncthingService.nonFileEntryBytesForVersion(v);
+      expect(sized('v1.30.0')).to.deep.equal({ directory: 128, symlink: 128 });
+      expect(sized('v2.0.0')).to.deep.equal({ directory: 128, symlink: 0 });
+      expect(sized('v2.0.15')).to.deep.equal({ directory: 128, symlink: 0 });
+      expect(sized('v2.1.1')).to.deep.equal({ directory: 128, symlink: 0 });
+      expect(sized('v2.1.2')).to.deep.equal({ directory: 0, symlink: 0 });
+      expect(sized('v2.1.6-rc.1')).to.deep.equal({ directory: 0, symlink: 0 });
+      expect(sized('v3.0.0')).to.deep.equal({ directory: 0, symlink: 0 });
+      expect(() => sized('unknown-dev')).to.throw('cannot be read');
+      expect(() => sized(undefined)).to.throw('cannot be read');
+    });
+
+    it('takes 128 off for each directory on v2.0.15, leaving nothing for a folder of scaffolding', async () => {
+      version = 'v2.0.15';
+      status = {
+        globalBytes: 256, globalFiles: 1, globalDirectories: 2, needBytes: 0, needDirectories: 0, inSyncBytes: 256,
+      };
+
+      const result = await syncthingService.getDbStatusInFileBytes(folder);
+
+      expect(result).to.include({ globalFileBytes: 0, needFileBytes: 0, inSyncFileBytes: 0 });
+      expect(result.globalBytes, 'syncthing\'s own figure is kept').to.equal(256);
+    });
+
+    it('keeps the bytes of files on v2.0.15, needed and in sync alike', async () => {
+      version = 'v2.0.15';
+      status = {
+        globalBytes: 256 + 1000, globalFiles: 2, globalDirectories: 2,
+        needBytes: 128 + 400, needDirectories: 1, inSyncBytes: 128 + 600,
+      };
+
+      expect(await syncthingService.getDbStatusInFileBytes(folder))
+        .to.include({ globalFileBytes: 1000, needFileBytes: 400, inSyncFileBytes: 600 });
+    });
+
+    it('takes nothing off from v2.1.2, where directories count 0', async () => {
+      version = 'v2.1.5';
+      status = {
+        globalBytes: 1000, globalFiles: 2, globalDirectories: 2, needBytes: 400, needDirectories: 1, inSyncBytes: 600,
+      };
+
+      expect(await syncthingService.getDbStatusInFileBytes(folder))
+        .to.include({ globalFileBytes: 1000, needFileBytes: 400, inSyncFileBytes: 600 });
+    });
+
+    it('takes 128 off for each symlink on v1 as well', async () => {
+      version = 'v1.30.0';
+      status = {
+        globalBytes: 2 * 128 + 128 + 50, globalDirectories: 2, globalSymlinks: 1, needBytes: 0, inSyncBytes: 2 * 128 + 128 + 50,
+      };
+
+      expect((await syncthingService.getDbStatusInFileBytes(folder)).globalFileBytes).to.equal(50);
+    });
+
+    // A restart between the two reads pairs one daemon's counts with another's
+    // release. Status first means that can only be an older daemon's counts with a
+    // newer release, which takes nothing off - never bytes off counts without them.
+    it('reads the counts before the release', async () => {
+      version = 'v2.0.15';
+      status = { globalBytes: 0 };
+
+      await syncthingService.getDbStatusInFileBytes(folder);
+
+      const asked = get.getCalls().map((call) => call.args[0]).filter((p) => p.startsWith('/rest/'));
+      expect(asked.indexOf('/rest/system/version')).to.be.greaterThan(asked.findIndex((p) => p.startsWith('/rest/db/status')));
+    });
+
+    it('gives no figure when the release cannot be read', async () => {
+      version = 'nightly';
+      status = { globalBytes: 256, globalDirectories: 2 };
+
+      const result = await syncthingService.getDbStatusInFileBytes(folder).catch((err) => err);
+
+      expect(result).to.be.an('error');
+    });
+  });
+
   describe('syncthing health robustness', () => {
     const deviceId = 'AEYDK6D-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM';
     const metaBody = `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`;
@@ -359,6 +657,17 @@ describe('syncthingService tests', () => {
       syncthingService.resetDeviceIdCache();
       syncthingService.setSyncthingRunningState(true);
       sinon.restore();
+    });
+
+    it('holds no device id until the sentinel has read one, then the one it read - and never asks syncthing itself', async () => {
+      expect(syncthingService.heldDeviceId()).to.equal(null);
+      expect(fakeMeta.callCount, 'reading what is held asked syncthing').to.equal(0);
+
+      await syncthingService.refreshSyncthingHealth();
+      const asked = fakeMeta.callCount;
+
+      expect(syncthingService.heldDeviceId()).to.equal(deviceId);
+      expect(fakeMeta.callCount, 'reading what is held asked syncthing').to.equal(asked);
     });
 
     it('caches the device id - a second read does not re-probe syncthing', async () => {
@@ -616,6 +925,35 @@ describe('syncthingService tests', () => {
     });
   });
 
+  describe('adjustSyncthing listen addresses', () => {
+    let patch;
+
+    beforeEach(() => {
+      syncthingService.getAxiosCache().reset();
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+      sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
+      const get = sinon.fake(async (reqPath) => {
+        if (reqPath === '/rest/config/options') return { data: syncthingFixtures.configOptions };
+        return { data: {} };
+      });
+      patch = sinon.fake.resolves({ data: {} });
+      sinon.stub(axios, 'create').returns({ get, patch, put: sinon.fake.resolves({ data: {} }) });
+    });
+
+    afterEach(() => {
+      syncthingService.getAxiosCache().reset();
+      sinon.restore();
+    });
+
+    it('has syncthing listen over TCP alone', async () => {
+      await syncthingService.adjustSyncthing();
+
+      const options = patch.getCalls().find((call) => call.args[0] === '/rest/config/options');
+      expect(options, 'the options written').to.not.equal(undefined);
+      expect(options.args[1].listenAddresses).to.deep.equal([`tcp://:${+config.server.apiport + 2}`]);
+    });
+  });
+
   describe('installSyncthingIdempotently tests', () => {
     let runCmdStub;
     let infoSpy;
@@ -767,51 +1105,88 @@ describe('syncthingService tests', () => {
       await promise;
     });
 
-    it('should stop syncthing gracefully if running', async () => {
-      // there is a one second wait inbetween gracefully killing services,
-      // and checking if it's still running
-      const clock = sinon.useFakeTimers();
-
-      let pgrepCalls = 0;
+    const TERM = { runAsRoot: true, logError: false, params: HOST_SYNCTHING };
+    const KILL = { runAsRoot: true, logError: false, params: ['-KILL', ...HOST_SYNCTHING] };
+    // pgrep answers running until `exitAfter` checks have been made.
+    const syncthingExitsAfter = (exitAfter) => {
+      let checks = 0;
       runCmdStub.callsFake(async (cmd) => {
-        if (cmd === 'pgrep' && !pgrepCalls) {
-          pgrepCalls += 1;
-          return { stdout: 'syncthing is running' };
-        }
-        if (cmd === 'pgrep') return { stdout: '' };
-        return {};
+        if (cmd !== 'pgrep') return {};
+        checks += 1;
+        return { stdout: checks <= exitAfter ? '1234' : '' };
       });
+    };
 
-      const promise = syncthingService.stopSyncthing();
-      await clock.tickAsync(1000);
+    it('signals nothing when syncthing is not running', async () => {
+      syncthingExitsAfter(0);
+
+      await syncthingService.stopSyncthing();
+
+      sinon.assert.calledOnceWithExactly(runCmdStub, 'pgrep', { runAsRoot: true, params: HOST_SYNCTHING, logError: false });
+    });
+
+    it('returns once syncthing exits after SIGTERM, sending no SIGKILL', async () => {
+      const clock = sinon.useFakeTimers();
+      // Running at the first check and for the next ten seconds of the wait.
+      syncthingExitsAfter(1 + 40);
+
+      let returned = false;
+      const promise = syncthingService.stopSyncthing().then(() => { returned = true; });
+      await clock.tickAsync(9000);
+      expect(returned, 'returned while syncthing was still running').to.equal(false);
+      await clock.tickAsync(2000);
       await promise;
 
       sinon.assert.calledWithExactly(infoSpy, 'Stopping syncthing service gracefully');
+      sinon.assert.calledWithExactly(runCmdStub, 'pkill', TERM);
+      sinon.assert.neverCalledWith(runCmdStub, 'pkill', KILL);
       sinon.assert.notCalled(errorSpy);
-      sinon.assert.calledWithExactly(runCmdStub, 'killall', { runAsRoot: true, logError: false, params: ['syncthing'] });
-      sinon.assert.calledWithExactly(runCmdStub, 'pkill', { runAsRoot: true, logError: false, params: ['syncthing'] });
-      sinon.assert.neverCalledWith(runCmdStub, 'kill', { runAsRoot: true, params: ['-9', 'syncthing'] });
     });
 
-    it('should forcefully stop syncthing if still running after asking nicely', async () => {
-      // there is a one second wait inbetween gracefully killing services,
-      // and checking if it's still running
+    it('sends SIGKILL to a syncthing still running fifteen seconds after SIGTERM, and returns once it has exited', async () => {
       const clock = sinon.useFakeTimers();
-
-      runCmdStub.callsFake(async (cmd) => {
-        if (cmd === 'pgrep') return { stdout: 'syncthing is running' };
-        return {};
-      });
+      // Running through the whole SIGTERM wait, then gone after one check of the SIGKILL wait.
+      syncthingExitsAfter(1 + 61 + 1);
+      const warnSpy = sinon.spy(log, 'warn');
 
       const promise = syncthingService.stopSyncthing();
-      await clock.tickAsync(1000);
+      await clock.tickAsync(14000);
+      sinon.assert.neverCalledWith(runCmdStub, 'pkill', KILL);
+      await clock.tickAsync(2000);
       await promise;
 
-      sinon.assert.calledWithExactly(infoSpy, 'Sending SIGKILL to syncthing service');
-      sinon.assert.notCalled(errorSpy);
-      sinon.assert.calledWithExactly(runCmdStub, 'killall', { runAsRoot: true, logError: false, params: ['syncthing'] });
-      sinon.assert.calledWithExactly(runCmdStub, 'pkill', { runAsRoot: true, logError: false, params: ['syncthing'] });
-      sinon.assert.calledWithExactly(runCmdStub, 'kill', { runAsRoot: true, params: ['-9', 'syncthing'] });
+      sinon.assert.callOrder(
+        runCmdStub.withArgs('pkill', TERM),
+        runCmdStub.withArgs('pkill', KILL),
+      );
+      sinon.assert.calledWithMatch(warnSpy, /still running 15s after SIGTERM; sending SIGKILL/);
+      sinon.assert.neverCalledWith(runCmdStub, 'kill');
+    });
+
+    it('stops the host\'s syncthing and leaves an app container\'s running', async () => {
+      const clock = sinon.useFakeTimers();
+      const host = hostAndContainerSyncthing();
+      runCmdStub.callsFake(host.runCommand);
+
+      const promise = syncthingService.stopSyncthing().then(() => null, (error) => error);
+      await clock.tickAsync(25000);
+      const error = await promise;
+
+      expect(error).to.equal(null);
+      expect(host.alive()).to.deep.equal(['5150']);
+      sinon.assert.neverCalledWith(runCmdStub, 'pkill', KILL);
+    });
+
+    it('throws when syncthing is still running after SIGKILL, so nothing is started beside it', async () => {
+      const clock = sinon.useFakeTimers();
+      syncthingExitsAfter(Infinity);
+
+      const promise = syncthingService.stopSyncthing().then(() => null, (error) => error);
+      await clock.tickAsync(25000);
+      const error = await promise;
+
+      expect(error?.message).to.match(/still running 5s after SIGKILL; not starting another/);
+      sinon.assert.calledWithExactly(runCmdStub, 'pkill', KILL);
     });
   });
   describe('runSyncthingSentinel tests', () => {
@@ -839,6 +1214,12 @@ describe('syncthingService tests', () => {
       sinon.stub(process, 'cwd').returns('/home/testuser/flux');
       // for getSynchingApiKey
       sinon.stub(fs, 'readFile').resolves().resolves(syncthingFixtures.configFile);
+      // the apps folder the launch asks the propagation of
+      sinon.stub(fs, 'stat').resolves({});
+      // the numeric id tables the sentinel writes
+      sinon.stub(fs, 'mkdir').resolves();
+      sinon.stub(fs, 'writeFile').resolves();
+      syncthingService.setNumericIdTablesChecked(false);
 
       fakeMeta = sinon.stub().resolves({
         status: 'success', data: `var metadata = {"authenticated":true,"deviceID":"${deviceId}","deviceIDShort":"AEYDK6D"};\n`,
@@ -1015,7 +1396,7 @@ describe('syncthingService tests', () => {
       await clock.tickAsync(6000);
       await promise;
 
-      sinon.assert.calledWithExactly(runCmdStub, 'killall', { runAsRoot: true, logError: false, params: ['syncthing'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'pkill', { runAsRoot: true, logError: false, params: HOST_SYNCTHING });
     });
 
     it('should install syncthing if there is a problem with the service', async () => {
@@ -1055,6 +1436,8 @@ describe('syncthingService tests', () => {
           return { stdout: '' };
         } if (cmd === 'syncthing') {
           return { stdout: 'syncthing installed' };
+        } if (cmd === 'findmnt') {
+          return { stdout: '{"filesystems":[{"target":"/","propagation":"shared"}]}' };
         }
         return { error: null };
       });
@@ -1070,7 +1453,11 @@ describe('syncthingService tests', () => {
     it('should spawn a new syncthing process if there is a problem with the service', async () => {
       const clock = sinon.useFakeTimers();
 
-      const expected = "sudo nohup syncthing --logfile '/home/testuser/.config/syncthing/syncthing.log' --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home '/home/testuser/.config/syncthing' >/dev/null 2>&1 </dev/null &";
+      const expected = 'sudo nohup unshare --mount --propagation slave '
+        + "sh -c 'mount --bind \"$1\" /etc/passwd && mount --bind \"$2\" /etc/group && shift 2 && exec syncthing \"$@\"' "
+        + "syncthing '/home/testuser/.config/syncthing/numeric-ids/passwd' '/home/testuser/.config/syncthing/numeric-ids/group' "
+        + "--logfile '/home/testuser/.config/syncthing/syncthing.log' --logflags=3 --log-max-old-files=2 --log-max-size=26214400 "
+        + "--allow-newer-config --no-browser --paused --home '/home/testuser/.config/syncthing' >/dev/null 2>&1 </dev/null &";
       // const expectedParams = [
       //   'syncthing',
       //   '--logfile',
@@ -1096,6 +1483,8 @@ describe('syncthingService tests', () => {
           return { stdout: '' };
         } if (cmd === 'syncthing') {
           return { stdout: 'syncthing installed' };
+        } if (cmd === 'findmnt') {
+          return { stdout: '{"filesystems":[{"target":"/","propagation":"shared"}]}' };
         }
         return { error: null };
       });
@@ -1130,6 +1519,7 @@ describe('syncthingService tests', () => {
       runCmdStub.callsFake(async (cmd) => {
         if (cmd === 'pgrep') return { stdout: '' };
         if (cmd === 'syncthing') return { stdout: 'syncthing installed' };
+        if (cmd === 'findmnt') return { stdout: '{"filesystems":[{"target":"/","propagation":"shared"}]}' };
         return { error: null };
       });
 
@@ -1152,6 +1542,407 @@ describe('syncthingService tests', () => {
         delete process.env.SYNCTHING_PATH;
         clock.restore();
       }
+    });
+
+    describe('a syncthing that resolves owners against anything but the numeric id tables', () => {
+      const TABLES = '/home/testuser/.config/syncthing/numeric-ids';
+      // What `pgrep -x syncthing` answers, and the device:inode stat reads for
+      // the tables and then for each process's passwd and group.
+      let pids;
+      let seen;
+      let publishStub;
+      let countStub;
+      let errorStub;
+
+      const identities = () => ['8:100', '8:101', ...seen].join('\n');
+
+      beforeEach(() => {
+        pids = '4242\n';
+        seen = ['8:100', '8:101'];
+        publishStub = sinon.stub(fluxEventBus, 'publish');
+        countStub = sinon.stub(fluxEventBus, 'count');
+        errorStub = sinon.stub(log, 'error');
+        syncthingService.setOwnersByNumberAnnounced(false);
+        runCmdStub.callsFake(async (cmd, options) => {
+          if (cmd === 'pgrep' && options.params[0] === '-x') return { stdout: pids };
+          if (cmd === 'pgrep') return { stdout: '' };
+          // A stopped syncthing exits; a launch brings one back (below).
+          if (cmd === 'pkill') {
+            pids = '';
+            return { error: null };
+          }
+          if (cmd === 'stat') return { stdout: identities() };
+          if (cmd === 'syncthing') return { stdout: 'syncthing installed' };
+          if (cmd === 'findmnt') return { stdout: '{"filesystems":[{"target":"/","propagation":"shared"}]}' };
+          return { error: null };
+        });
+      });
+
+      afterEach(() => {
+        syncthingService.setOwnersByNumberAnnounced(false);
+      });
+
+      const tableReads = () => fs.readFile.getCalls().filter((call) => String(call.args[0]).startsWith(`${TABLES}/`));
+
+      it('checks the tables on the first pass, and writes both where either differs', async () => {
+        const { passwdTable, groupTable } = numericIdTables;
+        fs.readFile.withArgs(`${TABLES}/passwd`, 'utf8').resolves(passwdTable());
+        fs.readFile.withArgs(`${TABLES}/group`, 'utf8').resolves('stale');
+
+        await syncthingService.runSyncthingSentinel();
+
+        sinon.assert.calledWith(fs.mkdir, TABLES, { recursive: true });
+        sinon.assert.calledTwice(fs.writeFile);
+        sinon.assert.calledWithExactly(fs.writeFile, `${TABLES}/passwd`, passwdTable());
+        sinon.assert.calledWithExactly(fs.writeFile, `${TABLES}/group`, groupTable());
+        sinon.assert.calledWithExactly(countStub, 'syncthing:idTablesChecked', 'start');
+      });
+
+      it('leaves the tables as they are when both are already right', async () => {
+        const { passwdTable, groupTable } = numericIdTables;
+        fs.readFile.withArgs(`${TABLES}/passwd`, 'utf8').resolves(passwdTable());
+        fs.readFile.withArgs(`${TABLES}/group`, 'utf8').resolves(groupTable());
+
+        await syncthingService.runSyncthingSentinel();
+
+        expect(tableReads().length, 'the first pass reads both tables').to.equal(2);
+        sinon.assert.notCalled(fs.writeFile);
+      });
+
+      it('reads the tables on no later pass while syncthing runs with them', async () => {
+        await syncthingService.runSyncthingSentinel();
+        expect(tableReads().length, 'fixture: the first pass reads both tables').to.equal(2);
+        sinon.assert.calledWith(publishStub, 'syncthing:ownersByNumber');
+
+        await syncthingService.runSyncthingSentinel();
+        await syncthingService.runSyncthingSentinel();
+
+        expect(tableReads().length).to.equal(2);
+        sinon.assert.calledOnceWithExactly(countStub.withArgs('syncthing:idTablesChecked'), 'syncthing:idTablesChecked', 'start');
+        sinon.assert.calledThrice(countStub.withArgs('syncthing:supervisionPass'));
+      });
+
+      it('checks the tables again before a later launch, and writes them where they differ', async () => {
+        const clock = sinon.useFakeTimers();
+        const { passwdTable, groupTable } = numericIdTables;
+        fs.readFile.withArgs(`${TABLES}/passwd`, 'utf8').resolves(passwdTable());
+        fs.readFile.withArgs(`${TABLES}/group`, 'utf8').resolves(groupTable());
+        await syncthingService.runSyncthingSentinel();
+        expect(tableReads().length, 'fixture: the first pass reads both tables').to.equal(2);
+        sinon.assert.notCalled(spawnStub);
+        sinon.assert.notCalled(fs.writeFile);
+
+        fs.readFile.withArgs(`${TABLES}/group`, 'utf8').rejects(new Error('ENOENT'));
+        seen = ['8:7', '8:101'];
+        spawnStub.callsFake(() => {
+          seen = ['8:100', '8:101'];
+          pids = '4242\n';
+          return { unref: unrefStub };
+        });
+        const promise = syncthingService.runSyncthingSentinel();
+        await clock.tickAsync(5000);
+        await promise;
+
+        expect(tableReads().length, 'both tables read again for the launch').to.equal(4);
+        sinon.assert.calledWithExactly(fs.writeFile, `${TABLES}/group`, groupTable());
+        sinon.assert.callOrder(fs.writeFile, spawnStub);
+        sinon.assert.calledWithExactly(countStub, 'syncthing:idTablesChecked', 'launch');
+      });
+
+      it('checks the tables once on a first pass that launches syncthing', async () => {
+        const clock = sinon.useFakeTimers();
+        fakeMeta.rejects(Error('Fake Meta Error'));
+
+        const promise = syncthingService.runSyncthingSentinel();
+        await clock.tickAsync(5000);
+        await promise;
+
+        sinon.assert.calledOnce(spawnStub);
+        expect(tableReads().length).to.equal(2);
+        sinon.assert.calledOnceWithExactly(countStub.withArgs('syncthing:idTablesChecked'), 'syncthing:idTablesChecked', 'start');
+      });
+
+      it('announces a syncthing whose every process has the tables as its passwd and group, and leaves it running', async () => {
+        await syncthingService.runSyncthingSentinel();
+
+        sinon.assert.calledWithExactly(runCmdStub, 'stat', {
+          runAsRoot: true,
+          params: ['-L', '-c', '%d:%i', `${TABLES}/passwd`, `${TABLES}/group`, '/proc/4242/root/etc/passwd', '/proc/4242/root/etc/group'],
+          logError: false,
+        });
+        sinon.assert.notCalled(spawnStub);
+        sinon.assert.calledWith(publishStub, 'syncthing:ownersByNumber');
+      });
+
+      it('replaces a syncthing that answers but resolves the host\'s names, and announces the new one that has the tables', async () => {
+        const clock = sinon.useFakeTimers();
+        seen = ['8:7', '8:101'];
+        spawnStub.callsFake(() => {
+          seen = ['8:100', '8:101'];
+          pids = '4242\n';
+          return { unref: unrefStub };
+        });
+
+        const promise = syncthingService.runSyncthingSentinel();
+        await clock.tickAsync(5000);
+        await promise;
+
+        sinon.assert.calledWith(publishStub, 'syncthing:namesVisible');
+        sinon.assert.calledOnce(spawnStub);
+        sinon.assert.calledWithMatch(spawnStub, `sudo nohup unshare --mount --propagation slave sh -c 'mount --bind "$1" /etc/passwd && mount --bind "$2" /etc/group && shift 2 && exec syncthing "$@"' syncthing '${TABLES}/passwd' '${TABLES}/group' --logfile `);
+        sinon.assert.calledWith(publishStub, 'syncthing:ownersByNumber');
+        expect(publishStub.firstCall.args[0], 'the old one is reported before the replacement is announced').to.equal('syncthing:namesVisible');
+      });
+
+      it('reads every syncthing process, so one bound to anything else among several is replaced', async () => {
+        const clock = sinon.useFakeTimers();
+        pids = '11\n12\n';
+        seen = ['8:100', '8:101', '8:100', '8:9'];
+
+        const promise = syncthingService.runSyncthingSentinel();
+        await clock.tickAsync(5000);
+        await promise;
+
+        sinon.assert.calledWithMatch(runCmdStub, 'stat', {
+          params: ['-L', '-c', '%d:%i', `${TABLES}/passwd`, `${TABLES}/group`,
+            '/proc/11/root/etc/passwd', '/proc/11/root/etc/group', '/proc/12/root/etc/passwd', '/proc/12/root/etc/group'],
+        });
+        sinon.assert.calledOnce(spawnStub);
+        sinon.assert.neverCalledWith(publishStub, 'syncthing:ownersByNumber');
+      });
+
+      it('takes a passwd bound in place of the group as bound to the wrong file', async () => {
+        const clock = sinon.useFakeTimers();
+        seen = ['8:101', '8:100'];
+
+        const promise = syncthingService.runSyncthingSentinel();
+        await clock.tickAsync(5000);
+        await promise;
+
+        sinon.assert.calledOnce(spawnStub);
+      });
+
+      it('leaves the host\'s syncthing alone when an app container runs a syncthing that sees its own names', async () => {
+        runCmdStub.callsFake(hostAndContainerSyncthing().runCommand);
+
+        await syncthingService.runSyncthingSentinel();
+
+        sinon.assert.neverCalledWith(runCmdStub, 'pkill');
+        sinon.assert.notCalled(spawnStub);
+        sinon.assert.calledWith(publishStub, 'syncthing:ownersByNumber');
+      });
+
+      it('leaves a running syncthing alone when what it sees cannot be read', async () => {
+        runCmdStub.callsFake(async (cmd, options) => {
+          if (cmd === 'pgrep' && options.params[0] === '-x') return { stdout: pids };
+          if (cmd === 'stat') return { error: new Error('No such file or directory') };
+          return { error: null };
+        });
+
+        await syncthingService.runSyncthingSentinel();
+
+        sinon.assert.notCalled(spawnStub);
+        sinon.assert.notCalled(publishStub);
+      });
+
+      it('starts no syncthing with the host\'s names, and says why, when the namespace cannot be made', async () => {
+        const clock = sinon.useFakeTimers();
+        fakeMeta.rejects(Error('Fake Meta Error'));
+        let unshareOptions = null;
+        runCmdStub.callsFake(async (cmd, options) => {
+          if (cmd === 'pgrep') return { stdout: '' };
+          if (cmd === 'syncthing') return { stdout: 'syncthing installed' };
+          if (cmd === 'findmnt') return { stdout: '{"filesystems":[{"target":"/","propagation":"shared"}]}' };
+          if (cmd === 'unshare') {
+            unshareOptions = options;
+            return { error: new Error('unshare: unshare failed: Operation not permitted') };
+          }
+          return { error: null };
+        });
+
+        const promise = syncthingService.runSyncthingSentinel();
+        await clock.tickAsync(5000);
+        await promise;
+
+        sinon.assert.calledOnce(spawnStub);
+        expect(unshareOptions, 'the reason is asked by trying the first bind alone').to.deep.equal({
+          runAsRoot: true,
+          params: ['--mount', '--propagation', 'slave', 'mount', '--bind', `${TABLES}/passwd`, '/etc/passwd'],
+          logError: false,
+        });
+        sinon.assert.calledWithExactly(countStub, 'syncthing:launchFailed');
+        sinon.assert.calledWithMatch(errorStub, /Syncthing did not start with the numeric id tables: unshare: unshare failed: Operation not permitted/);
+        sinon.assert.neverCalledWith(publishStub, 'syncthing:ownersByNumber');
+      });
+
+      // A mount findmnt reads with the propagation given, and how mount answers a
+      // request to make it shared: by changing it, or by refusing.
+      const appsMount = ({ propagation, makeShared }) => {
+        let current = propagation;
+        runCmdStub.callsFake(async (cmd, opts) => {
+          if (cmd === 'pgrep') return { stdout: '' };
+          if (cmd === 'syncthing') return { stdout: 'syncthing installed' };
+          if (cmd === 'findmnt') return { stdout: JSON.stringify({ filesystems: [{ target: '/srv', propagation: current }] }) };
+          if (cmd === 'mount' && opts.params[0] === '--make-shared') {
+            if (!makeShared) return { error: new Error('mount: /srv: permission denied') };
+            current = 'shared';
+          }
+          return { error: null };
+        });
+      };
+
+      it('makes the mount that holds the app volumes shared when it is not, and starts syncthing', async () => {
+        const clock = sinon.useFakeTimers();
+        fakeMeta.rejects(Error('Fake Meta Error'));
+        appsMount({ propagation: 'private', makeShared: true });
+
+        const promise = syncthingService.runSyncthingSentinel();
+        await clock.tickAsync(5000);
+        await promise;
+
+        sinon.assert.calledWithMatch(runCmdStub, 'mount', { runAsRoot: true, params: ['--make-shared', '/srv'] });
+        sinon.assert.calledWithExactly(countStub, 'syncthing:appVolumesMountShared');
+        sinon.assert.calledOnce(spawnStub);
+        sinon.assert.neverCalledWithMatch(errorStub, /not shared/);
+      });
+
+      it('leaves a mount that is already shared as it is', async () => {
+        const clock = sinon.useFakeTimers();
+        fakeMeta.rejects(Error('Fake Meta Error'));
+        appsMount({ propagation: 'shared', makeShared: true });
+
+        const promise = syncthingService.runSyncthingSentinel();
+        await clock.tickAsync(5000);
+        await promise;
+
+        sinon.assert.neverCalledWithMatch(runCmdStub, 'mount');
+        sinon.assert.neverCalledWith(countStub, 'syncthing:appVolumesMountShared');
+        sinon.assert.calledOnce(spawnStub);
+      });
+
+      it('starts no syncthing when the mount that holds the app volumes cannot be made shared', async () => {
+        fakeMeta.rejects(Error('Fake Meta Error'));
+        appsMount({ propagation: 'private,slave', makeShared: false });
+
+        await syncthingService.runSyncthingSentinel();
+
+        sinon.assert.calledWithMatch(runCmdStub, 'mount', { params: ['--make-shared', '/srv'] });
+        sinon.assert.notCalled(spawnStub);
+        sinon.assert.calledWithExactly(countStub, 'syncthing:launchFailed');
+        sinon.assert.calledWithMatch(errorStub, /propagates as 'private,slave', not shared, so app volumes mounted after syncthing starts would never reach it/);
+      });
+
+      it('announces each new syncthing process, once', async () => {
+        syncthingService.setOwnersByNumberAnnounced(true);
+        await syncthingService.runSyncthingSentinel();
+        sinon.assert.notCalled(publishStub);
+
+        await syncthingService.stopSyncthing();
+        // The next syncthing process, already running when the pass reads it.
+        pids = '4343\n';
+        await syncthingService.runSyncthingSentinel();
+        await syncthingService.runSyncthingSentinel();
+
+        sinon.assert.calledOnce(publishStub);
+        sinon.assert.calledWith(publishStub, 'syncthing:ownersByNumber');
+      });
+    });
+  });
+
+  describe('folder ownership is written only while syncthing resolves owners against the numeric id tables', () => {
+    let fakeInstance;
+    let countStub;
+    // What `pgrep -x syncthing` and the device:inode stat answer with at the write.
+    let pids;
+    let identities;
+
+    beforeEach(() => {
+      fakeInstance = {
+        put: sinon.stub().resolves({ data: {} }),
+        patch: sinon.stub().resolves({ data: {} }),
+        delete: sinon.stub().resolves({ data: {} }),
+      };
+      const cache = syncthingService.getAxiosCache();
+      cache.axiosInstance = fakeInstance;
+      cache.syncthingApiKey = 'testkey';
+      cache.lastUpdate = Date.now();
+      countStub = sinon.stub(fluxEventBus, 'count');
+      pids = '4242\n';
+      identities = '8:100\n8:101\n64:5\n64:6\n';
+      sinon.stub(serviceHelper, 'runCommand').callsFake(async (cmd) => {
+        if (cmd === 'pgrep') return { stdout: pids };
+        if (cmd === 'stat') return { stdout: identities };
+        return { error: null };
+      });
+    });
+
+    afterEach(() => {
+      syncthingService.setOwnersByNumberAnnounced(false);
+      syncthingService.getAxiosCache().reset();
+      sinon.restore();
+    });
+
+    it('refuses a folder list that turns ownership on for any folder while syncthing resolves the host\'s names, and sends nothing', async () => {
+      const response = await syncthingService.adjustConfigFolders('put', [
+        { id: 'fluxa_app', type: 'receiveonly' },
+        { id: 'fluxb_app', type: 'sendreceive', syncOwnership: true },
+      ]);
+
+      expect(response.status).to.equal('error');
+      expect(response.data.message).to.equal('Folder ownership is not written until syncthing resolves owners against the numeric id tables');
+      sinon.assert.notCalled(fakeInstance.put);
+      sinon.assert.calledWithExactly(countStub, 'syncthing:ownershipWriteRefused');
+    });
+
+    it('refuses a patch that turns ownership on while no syncthing runs', async () => {
+      pids = '';
+
+      const response = await syncthingService.adjustConfigFolders('patch', { type: 'sendreceive', syncOwnership: true }, 'fluxa_app');
+
+      expect(response.status).to.equal('error');
+      sinon.assert.notCalled(fakeInstance.patch);
+    });
+
+    it('reads the running syncthing at the write, so an earlier announcement cannot let ownership through', async () => {
+      syncthingService.setOwnersByNumberAnnounced(true);
+
+      const response = await syncthingService.adjustConfigFolders('put', [{ id: 'fluxb_app', syncOwnership: true }]);
+
+      expect(response.status).to.equal('error');
+      sinon.assert.notCalled(fakeInstance.put);
+    });
+
+    it('still demotes, pauses and deletes while syncthing resolves the host\'s names', async () => {
+      const demote = await syncthingService.adjustConfigFolders('patch', { type: 'receiveonly' }, 'fluxa_app');
+      const pause = await syncthingService.adjustConfigFolders('patch', { paused: true }, 'fluxa_app');
+      const remove = await syncthingService.adjustConfigFolders('delete', undefined, 'fluxa_app');
+
+      expect([demote.status, pause.status, remove.status]).to.deep.equal(['success', 'success', 'success']);
+      sinon.assert.calledTwice(fakeInstance.patch);
+      sinon.assert.calledOnce(fakeInstance.delete);
+      sinon.assert.notCalled(countStub);
+    });
+
+    it('writes ownership while every syncthing process has the tables as its passwd and group', async () => {
+      identities = '8:100\n8:101\n8:100\n8:101\n';
+
+      const response = await syncthingService.adjustConfigFolders('put', [
+        { id: 'fluxb_app', type: 'sendreceive', syncOwnership: true },
+      ]);
+
+      expect(response.status).to.equal('success');
+      sinon.assert.calledOnce(fakeInstance.put);
+    });
+
+    it('writes ownership while an app container runs a syncthing that sees its own names', async () => {
+      serviceHelper.runCommand.callsFake(hostAndContainerSyncthing().runCommand);
+
+      const response = await syncthingService.adjustConfigFolders('put', [
+        { id: 'fluxb_app', type: 'sendreceive', syncOwnership: true },
+      ]);
+
+      expect(response.status).to.equal('success');
+      sinon.assert.calledOnce(fakeInstance.put);
     });
   });
 

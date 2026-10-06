@@ -3,15 +3,32 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
 const { expect } = require('chai');
 const sinon = require('sinon');
+const { performance } = require('perf_hooks');
 const { resetGlobalState } = require('./fixtures/globalState');
 const axios = require('axios');
 const config = require('config');
 const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advancedWorkflows');
+const peerIdentityService = require('../../ZelBack/src/services/peerIdentityService');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
 const log = require('../../ZelBack/src/lib/log');
+const https = require('https');
+const syncthingService = require('../../ZelBack/src/services/syncthingService');
+const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+const primaryRole = require('../../ZelBack/src/services/appLifecycle/primaryRole');
+const primaryRoleChanges = require('../../ZelBack/src/services/appLifecycle/primaryRoleChanges');
+const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
+const syncthingFolderStateMachine = require('../../ZelBack/src/services/appMonitoring/syncthingFolderStateMachine');
+const { RECONNECT_GRACE_MS } = require('../../ZelBack/src/services/appMonitoring/peerFolderLiveness');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+
+// The operator stop lock as appsRuntimeState.operatorStopState answers it.
+const UNLOCKED = { stopped: false, startRequested: false, force: false };
+const LOCKED = { stopped: true, startRequested: false, force: false };
+const START_REQUESTED = { stopped: true, startRequested: true, force: false };
+const START_REQUESTED_AS_PRIMARY = { ...START_REQUESTED, asPrimary: true };
 
 describe('advancedWorkflows tests', () => {
   afterEach(() => {
@@ -567,9 +584,12 @@ describe('advancedWorkflows tests', () => {
     let serviceHelperDelayStub;
     let fluxNetworkHelperStub;
     let registryManagerStub;
+    let shuttingDownNodesStub;
     let dockerServiceStub;
     let syncthingServiceStub;
     let syncthingCompletionStub;
+    let syncthingDeviceStatsStub;
+    let syncthingStatusStub;
     let syncthingDevicesStub;
     let axiosGetStub;
     let recursionCounter;
@@ -601,6 +621,14 @@ describe('advancedWorkflows tests', () => {
       // Setup stubs
       const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
       serviceHelperStub = sinon.stub(serviceHelper, 'axiosGet');
+      // Every peer predates the identity endpoint unless a test says otherwise,
+      // which is the one verdict the election treats as it treated every peer
+      // before identities existed.
+      sinon.stub(peerIdentityService, 'verifyPeer')
+        .resolves({ verdict: peerIdentityService.IdentityVerdict.UNVERIFIABLE, reason: 'answered 404' });
+      sinon.stub(peerIdentityService, 'askSigned').resolves({
+        verdict: peerIdentityService.IdentityVerdict.UNVERIFIABLE, status: 404, data: null, mayReadUnsigned: true,
+      });
 
       // Stub delay to prevent recursive calls - after first call, block recursion
       serviceHelperDelayStub = sinon.stub(serviceHelper, 'delay').callsFake(async () => {
@@ -617,6 +645,8 @@ describe('advancedWorkflows tests', () => {
 
       const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
       registryManagerStub = sinon.stub(registryManager, 'appLocation');
+      // default: no node has announced a shutdown
+      shuttingDownNodesStub = sinon.stub(registryManager, 'shuttingDownNodes').resolves([]);
 
       const dockerService = require('../../ZelBack/src/services/dockerService');
       dockerServiceStub = sinon.stub(dockerService, 'getAppIdentifier');
@@ -650,6 +680,10 @@ describe('advancedWorkflows tests', () => {
       const syncthingServiceModule = require('../../ZelBack/src/services/syncthingService');
       syncthingCompletionStub = sinon.stub(syncthingServiceModule, 'getDbCompletion').resolves(null);
       syncthingDevicesStub = sinon.stub(syncthingServiceModule, 'getConfigDevices').resolves([]);
+      // default: this node's syncthing has never been connected to any peer
+      syncthingDeviceStatsStub = sinon.stub(syncthingServiceModule, 'getDeviceStats').resolves({});
+      // this node's syncthing started before any connection the tests close
+      syncthingStatusStub = sinon.stub(syncthingServiceModule, 'getSystemStatus').resolves({ startTime: '2026-09-25T13:00:00Z' });
       globalState.syncthingDevicesIDCache.clear();
       const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
       sinon.stub(fluxCommunication, 'peerResponsiveness').returns({ responding: 4, total: 4 });
@@ -685,6 +719,20 @@ describe('advancedWorkflows tests', () => {
         listRunningApps,
         https,
       );
+
+      expect(installedApps.called).to.be.false;
+    });
+
+    it('takes no action while the node is shutting down', async () => {
+      const shutdown = sinon.stub(globalState, 'shutdownInProgress').get(() => true);
+      const installedApps = sinon.stub().resolves({ status: 'success', data: [] });
+      const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+
+      try {
+        await advancedWorkflows.masterSlaveApps(globalState, installedApps, listRunningApps, https);
+      } finally {
+        shutdown.restore();
+      }
 
       expect(installedApps.called).to.be.false;
     });
@@ -868,12 +916,16 @@ describe('advancedWorkflows tests', () => {
     };
 
     // This node's own syncthing view of a peer's device, which is what a silence is
-    // judged on. 'valid' is a live connection; any other state is a closed one; and
-    // leaving the device out of the cache entirely is the third answer - this node
-    // never resolved the peer and cannot say.
-    const peerSyncthingSays = (peerSocketAddr, remoteState) => {
+    // judged on. 'valid' is a live connection; any other state is a closed one if
+    // the connection was ever up, and no answer if it never was; and leaving the
+    // device out of the cache entirely is the third answer - this node never
+    // resolved the peer and cannot say.
+    const peerSyncthingSays = (peerSocketAddr, remoteState, { everConnected = true } = {}) => {
       globalState.syncthingDevicesIDCache.set(peerSocketAddr, `DEVICE-${peerSocketAddr}`);
       syncthingCompletionStub.resolves({ remoteState });
+      syncthingDeviceStatsStub.resolves(everConnected
+        ? { [`DEVICE-${peerSocketAddr}`]: { lastSeen: '2026-09-25T14:00:00Z' } }
+        : { [`DEVICE-${peerSocketAddr}`]: { lastSeen: '1970-01-01T00:00:00Z' } });
     };
 
     const linesMatching = (logInfo, needle) => logInfo.getCalls()
@@ -896,7 +948,7 @@ describe('advancedWorkflows tests', () => {
 
       it('stands down when no region answers, instead of reading silence as "no primary"', async () => {
         const appName = 'fdmsilentapp';
-        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
         const logInfo = sinon.stub(log, 'info');
         const logWarn = sinon.stub(log, 'warn');
         sinon.stub(log, 'error');
@@ -918,7 +970,7 @@ describe('advancedWorkflows tests', () => {
 
       it('does not take a 503 for an answer - FDM reporting itself as starting up has named nothing', async () => {
         const appName = 'fdm503app';
-        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
         const logInfo = sinon.stub(log, 'info');
         const logWarn = sinon.stub(log, 'warn');
         const runPass = electionFixture(appName, ['192.168.1.90:16127']);
@@ -937,7 +989,7 @@ describe('advancedWorkflows tests', () => {
         // never heard of the app. Standing down on a 404 would leave it without a
         // primary for as long as FDM had no row for it - a deadlock, not a guard.
         const appName = 'fdm404app';
-        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
         const logInfo = sinon.stub(log, 'info');
         const logWarn = sinon.stub(log, 'warn');
         const runPass = electionFixture(appName, ['192.168.1.90:16127']);
@@ -956,7 +1008,7 @@ describe('advancedWorkflows tests', () => {
         // fdmOk asks whether ANY region gave a verdict. Requiring all three would
         // stand every g: app down on the routine failure of a single region.
         const appName = 'fdmpartialapp';
-        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
         const logInfo = sinon.stub(log, 'info');
         const logWarn = sinon.stub(log, 'warn');
         sinon.stub(log, 'error');
@@ -978,7 +1030,7 @@ describe('advancedWorkflows tests', () => {
 
     it('announces the exclusion once when a g: component is operator-stopped, not every cycle', async () => {
       const appName = 'opstoppedapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(true);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(LOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName);
 
@@ -997,32 +1049,472 @@ describe('advancedWorkflows tests', () => {
 
     it('announces again after the operator lock is lifted and re-applied', async () => {
       const appName = 'relockapp';
-      const operatorStopped = sinon.stub(appsRuntimeState, 'isOperatorStopped');
+      const operatorStopped = sinon.stub(appsRuntimeState, 'operatorStopState');
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName);
       serviceHelperStub.resolves(fdmNoPrimary());
 
       operatorStopped.resetBehavior();
-      operatorStopped.resolves(true);
+      operatorStopped.resolves(LOCKED);
       await runPass();
       expect(linesMatching(logInfo, 'operator-stopped')).to.have.lengthOf(1);
 
       // operator starts it again - the latch must clear
       operatorStopped.resetBehavior();
-      operatorStopped.resolves(false);
+      operatorStopped.resolves(UNLOCKED);
       await runPass();
       expect(linesMatching(logInfo, 'operator-stopped')).to.have.lengthOf(1);
 
       // and a fresh stop must be announced rather than swallowed by a stale latch
       operatorStopped.resetBehavior();
-      operatorStopped.resolves(true);
+      operatorStopped.resolves(LOCKED);
       await runPass();
       expect(linesMatching(logInfo, 'operator-stopped')).to.have.lengthOf(2);
     });
 
+    // A node that decided to seed a folder publishes that, and every holder
+    // reaching its own cold start stands aside for it. Once the election runs
+    // the folder's component on another node, this one will not seed.
+    describe('this node\'s mark that it seeds the folder', () => {
+      const PEER = '192.168.1.90:16127';
+      let promote;
+
+      beforeEach(() => {
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+        promote = sinon.stub(primaryRole, 'promote').returns(true);
+        sinon.stub(primaryRole, 'holdAsStandby').resolves(true);
+        sinon.stub(primaryRole, 'standDown').returns(false);
+      });
+
+      const decided = (appName) => globalState.seedMarks.set(`flux${appName}`, { stage: 'decided', bytes: 0, newestModified: 0 });
+      const mark = (appName) => globalState.seedMarks.get(`flux${appName}`);
+      afterEach(() => globalState.seedMarks.clear());
+
+      it('is withdrawn when FDM names another node its primary', async () => {
+        const appName = 'seedfdmother';
+        const runPass = electionFixture(appName, [PEER]);
+        decided(appName);
+        serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+
+        await runPass();
+
+        expect(mark(appName)).to.equal(undefined);
+      });
+
+      it('is withdrawn when a peer holds the component', async () => {
+        const appName = 'seedpeerholds';
+        const runPass = electionFixture(appName, [PEER]);
+        decided(appName);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+
+        await runPass();
+
+        sinon.assert.notCalled(promote);
+        expect(mark(appName)).to.equal(undefined);
+      });
+
+      it('is withdrawn when the primary FDM last named has gone from FDM and still runs the component', async () => {
+        const appName = 'seedpreviousruns';
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+        await runPass();
+        decided(appName);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+
+        await runPass();
+
+        expect(mark(appName)).to.equal(undefined);
+      });
+
+      it('stands while a peer cannot be ruled out, since the decision is still open', async () => {
+        const appName = 'seedpeerunknown';
+        const runPass = electionFixture(appName, [PEER]);
+        decided(appName);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.rejects(new Error('connect ETIMEDOUT'));
+
+        await runPass();
+
+        sinon.assert.notCalled(promote);
+        expect(mark(appName)?.stage).to.equal('decided');
+      });
+
+      it('stands while this node starts the component, whose folder sending clears it', async () => {
+        const appName = 'seedstartshere';
+        const runPass = electionFixture(appName, [PEER]);
+        decided(appName);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        sinon.assert.calledOnce(promote);
+        expect(mark(appName)?.stage).to.equal('decided');
+      });
+    });
+
+    // An owner start of a stopped g: component leaves the stop lock on - it is what
+    // holds the component on this node - and the election lifts it once it has
+    // decided: starting it here, or finding another node runs it. A pass that
+    // cannot tell leaves it, and the next pass decides again.
+    describe('an operator start the election decides', () => {
+      const PEER = '192.168.1.90:16127';
+      let releaseOperatorStart;
+      let applyIntent;
+      let publish;
+      let promote;
+
+      beforeEach(() => {
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(START_REQUESTED);
+        releaseOperatorStart = sinon.stub(appsRuntimeState, 'releaseOperatorStart').resolves(true);
+        applyIntent = sinon.stub(appReconciler, 'applyIntent').callsFake(async (id, mutate) => {
+          await mutate();
+          return true;
+        });
+        publish = sinon.stub(fluxEventBus, 'publish');
+        // Begins a promotion as primaryRole does, so the component is held by it.
+        promote = sinon.stub(primaryRole, 'promote').callsFake((identifier, appId) => {
+          primaryRoleChanges.set(identifier, { state: 'promoting', appId });
+          return true;
+        });
+        sinon.stub(primaryRole, 'holdAsStandby').resolves(true);
+        sinon.stub(primaryRole, 'standDown').returns(false);
+      });
+
+      afterEach(() => {
+        primaryRoleChanges.promotingIdentifiers().forEach((identifier) => primaryRoleChanges.end(identifier, primaryRoleChanges.get(identifier)));
+      });
+
+      const settled = () => publish.args.filter(([name]) => name === 'masterSlave:operatorStartSettled').map(([, data]) => data);
+
+      it('decides the component rather than skipping it, and lifts the lock once the start has begun', async () => {
+        const appName = 'opstartfree';
+        const count = sinon.stub(fluxEventBus, 'count');
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        sinon.assert.calledOnceWithExactly(promote, appName, `flux${appName}`);
+        sinon.assert.calledOnceWithExactly(releaseOperatorStart, appName);
+        // The start and the lift happen inside one hold of the slot the
+        // operator's own writes go through, the promotion first.
+        sinon.assert.calledOnce(applyIntent);
+        expect(applyIntent.firstCall.args[0]).to.equal(appName);
+        sinon.assert.callOrder(applyIntent, promote, releaseOperatorStart);
+        expect(settled()).to.deep.equal([{ identifier: appName, outcome: 'it starts here' }]);
+        sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'operatorStartPending');
+        sinon.assert.neverCalledWith(count, 'masterSlave:decision', appName, 'operatorStopped');
+      });
+
+      it('lifts the lock when FDM names this node and it starts', async () => {
+        const appName = 'opstartnamedhere';
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.5'] } } });
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        sinon.assert.calledOnce(promote);
+        sinon.assert.callOrder(promote, releaseOperatorStart);
+        expect(settled()).to.deep.equal([{ identifier: appName, outcome: 'it starts here' }]);
+      });
+
+      // Every node the owner stopped the app on is started together; the one that
+      // was its primary when it was stopped takes it back, whatever its place.
+      describe('on the node that was its primary when it was stopped', () => {
+        const BELOW_INDEX_0 = { selfRunningSince: '2026-01-01T00:02:00.000Z' };
+
+        it('starts it at once, from below index 0, when no peer holds it', async () => {
+          const appName = 'opstartresumes';
+          appsRuntimeState.operatorStopState.resolves(START_REQUESTED_AS_PRIMARY);
+          const count = sinon.stub(fluxEventBus, 'count');
+          const runPass = electionFixture(appName, [PEER], BELOW_INDEX_0);
+          serviceHelperStub.resolves(fdmNoPrimary());
+          axiosGetStub.resetBehavior();
+          axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+          await runPass();
+
+          sinon.assert.calledOnceWithExactly(promote, appName, `flux${appName}`);
+          sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'primaryResumed');
+          sinon.assert.neverCalledWith(count, 'masterSlave:decision', appName, 'staggerBooked');
+          expect(settled()).to.deep.equal([{ identifier: appName, outcome: 'it starts here' }]);
+        });
+
+        it('waits for its turn instead on a node that was not', async () => {
+          const appName = 'opstartwaitsturn';
+          const count = sinon.stub(fluxEventBus, 'count');
+          const runPass = electionFixture(appName, [PEER], BELOW_INDEX_0);
+          serviceHelperStub.resolves(fdmNoPrimary());
+          axiosGetStub.resetBehavior();
+          axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+          await runPass();
+
+          sinon.assert.notCalled(promote);
+          sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'staggerBooked');
+          expect(settled()).to.deep.equal([]);
+        });
+
+        it('does not start it over a peer that holds it, and lifts its lock', async () => {
+          const appName = 'opstartresumepeerholds';
+          appsRuntimeState.operatorStopState.resolves(START_REQUESTED_AS_PRIMARY);
+          const runPass = electionFixture(appName, [PEER], BELOW_INDEX_0);
+          serviceHelperStub.resolves(fdmNoPrimary());
+          axiosGetStub.resetBehavior();
+          axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+
+          await runPass();
+
+          sinon.assert.notCalled(promote);
+          expect(settled()).to.deep.equal([{ identifier: appName, outcome: 'a peer holds it' }]);
+        });
+
+        it('keeps the lock and starts nothing while a peer cannot be ruled out', async () => {
+          const appName = 'opstartresumeunknown';
+          appsRuntimeState.operatorStopState.resolves(START_REQUESTED_AS_PRIMARY);
+          const runPass = electionFixture(appName, [PEER], BELOW_INDEX_0);
+          serviceHelperStub.resolves(fdmNoPrimary());
+          axiosGetStub.resetBehavior();
+          axiosGetStub.rejects(new Error('connect ETIMEDOUT'));
+
+          await runPass();
+
+          sinon.assert.notCalled(promote);
+          sinon.assert.notCalled(releaseOperatorStart);
+          expect(settled()).to.deep.equal([]);
+        });
+      });
+
+      it('lifts the lock without starting when a peer holds it', async () => {
+        const appName = 'opstartpeerruns';
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+
+        await runPass();
+
+        sinon.assert.notCalled(promote);
+        sinon.assert.calledOnceWithExactly(releaseOperatorStart, appName);
+        sinon.assert.calledOnce(applyIntent);
+        expect(applyIntent.firstCall.args[0], 'lifted through the slot the operator writes through').to.equal(appName);
+        sinon.assert.callOrder(applyIntent, releaseOperatorStart);
+        expect(settled()).to.deep.equal([{ identifier: appName, outcome: 'a peer holds it' }]);
+      });
+
+      it('announces nothing when a peer holds it and the lock was not lifted', async () => {
+        const appName = 'opstartpeerrunsrestopped';
+        releaseOperatorStart.resolves(false);
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+
+        await runPass();
+
+        sinon.assert.calledOnce(releaseOperatorStart);
+        expect(settled()).to.deep.equal([]);
+      });
+
+      it('logs a lock it could not lift when FDM names another node, and still stands by', async () => {
+        const appName = 'opstartnamedpeerfails';
+        releaseOperatorStart.rejects(new Error('no primary available'));
+        const logError = sinon.stub(log, 'error');
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+
+        await runPass();
+
+        expect(linesMatching(logError, 'could not be lifted')).to.have.lengthOf(1);
+        sinon.assert.calledOnce(primaryRole.holdAsStandby);
+        expect(settled()).to.deep.equal([]);
+      });
+
+      it('lifts the lock before standing by when FDM names another node its primary', async () => {
+        const appName = 'opstartnamedpeer';
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+
+        await runPass();
+
+        sinon.assert.notCalled(promote);
+        sinon.assert.calledOnceWithExactly(releaseOperatorStart, appName);
+        sinon.assert.callOrder(releaseOperatorStart, primaryRole.holdAsStandby);
+        expect(settled()).to.deep.equal([{ identifier: appName, outcome: 'FDM names 192.168.1.90 its primary' }]);
+      });
+
+      it('lifts the lock when the previous primary runs it, and keeps it when the previous primary cannot be ruled out', async () => {
+        const appName = 'opstartprevious';
+        const lockState = appsRuntimeState.operatorStopState;
+        const runPass = electionFixture(appName, [PEER]);
+        // Cycle 1, before the stop: FDM names the peer, which this node records as
+        // the previous primary.
+        lockState.resolves(UNLOCKED);
+        serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+        await runPass();
+
+        // The peer cannot be read, and its sync connection here is still live.
+        lockState.resolves(START_REQUESTED);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.rejects(new Error('previous primary unreachable'));
+        peerSyncthingSays(PEER, 'valid');
+        await runPass();
+        sinon.assert.notCalled(releaseOperatorStart);
+
+        // The peer answers that it runs it.
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+        await runPass();
+
+        sinon.assert.notCalled(promote);
+        sinon.assert.calledOnceWithExactly(releaseOperatorStart, appName);
+        expect(settled()).to.deep.equal([{ identifier: appName, outcome: 'the previous primary runs it' }]);
+      });
+
+      it('keeps the lock when a peer cannot be ruled out', async () => {
+        const appName = 'opstartunknown';
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.rejects(new Error('peer unreachable'));
+        peerSyncthingSays(PEER, 'valid');
+
+        await runPass();
+
+        sinon.assert.notCalled(promote);
+        sinon.assert.notCalled(releaseOperatorStart);
+      });
+
+      it('keeps the lock when FDM does not answer', async () => {
+        const appName = 'opstartnofdm';
+        sinon.stub(log, 'warn');
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.rejects(new Error('connect ECONNREFUSED 10.0.0.1:16130'));
+
+        await runPass();
+
+        sinon.assert.notCalled(releaseOperatorStart);
+      });
+
+      it('starts nothing when the owner stopped it again after the pass read the lock', async () => {
+        const appName = 'opstartrestoppedmidpass';
+        appsRuntimeState.operatorStopState.onFirstCall().resolves(START_REQUESTED);
+        appsRuntimeState.operatorStopState.resolves(LOCKED);
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        sinon.assert.calledOnce(applyIntent);
+        sinon.assert.notCalled(promote);
+        sinon.assert.notCalled(releaseOperatorStart);
+      });
+
+      it('lifts the lock of a component already becoming the primary here', async () => {
+        const appName = 'opstartalreadypromoting';
+        promote.callsFake((identifier, appId) => {
+          primaryRoleChanges.set(identifier, { state: 'promoting', appId });
+          return false;
+        });
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        sinon.assert.calledOnceWithExactly(releaseOperatorStart, appName);
+      });
+
+      it('keeps the lock when the start does not begin', async () => {
+        const appName = 'opstartinflight';
+        promote.returns(false);
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        sinon.assert.calledOnce(promote);
+        sinon.assert.notCalled(releaseOperatorStart);
+      });
+
+      it('announces nothing when the lock was not lifted, so a stop given since is not reported as released', async () => {
+        const appName = 'opstartrestopped';
+        releaseOperatorStart.resolves(false);
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        sinon.assert.calledOnce(releaseOperatorStart);
+        expect(settled()).to.deep.equal([]);
+      });
+
+      it('logs a lock it could not lift and carries on with the pass', async () => {
+        const appName = 'opstartwritefails';
+        releaseOperatorStart.rejects(new Error('no primary available'));
+        const logError = sinon.stub(log, 'error');
+        const logInfo = sinon.stub(log, 'info');
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        expect(linesMatching(logError, 'could not be lifted')).to.have.lengthOf(1);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+        expect(settled()).to.deep.equal([]);
+      });
+
+      it('lifts nothing for a component whose lock was never asked to lift', async () => {
+        const appName = 'opstartlocked';
+        appsRuntimeState.operatorStopState.resolves(LOCKED);
+        const runPass = electionFixture(appName, [PEER]);
+
+        await runPass();
+
+        expect(serviceHelperStub.called, 'the election reached FDM for a locked component').to.be.false;
+        sinon.assert.notCalled(releaseOperatorStart);
+      });
+
+      it('lifts nothing for a start that was not waiting on the election', async () => {
+        const appName = 'opstartunlocked';
+        appsRuntimeState.operatorStopState.resolves(UNLOCKED);
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        sinon.assert.calledOnce(promote);
+        sinon.assert.notCalled(releaseOperatorStart);
+        sinon.assert.notCalled(applyIntent);
+      });
+    });
+
     it('lets a stopped last-primary be elected again by clearing its own stale record', async () => {
       const appName = 'lastprimaryapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       // The peer answers and holds nothing. Left unreachable it would hold the
@@ -1054,13 +1546,183 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'conditions not met')).to.have.lengthOf(0);
     });
 
+    // FDM names a node that runs the component, and also, while nothing runs it
+    // anywhere, one that only holds it. Neither is a clearance on its own.
+    describe('FDM naming a primary', () => {
+      const PEER = '192.168.1.90:16127';
+      const namesThisNode = { data: { status: 'success', data: { ips: ['192.168.1.5'] } } };
+      const namesPeer = { data: { status: 'success', data: { ips: ['192.168.1.90'] } } };
+      let standDown;
+      let holdAsStandby;
+      let promote;
+
+      beforeEach(() => {
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+        standDown = sinon.stub(primaryRole, 'standDown').returns(true);
+        holdAsStandby = sinon.stub(primaryRole, 'holdAsStandby').resolves(true);
+        promote = sinon.stub(primaryRole, 'promote').returns(true);
+      });
+
+      afterEach(() => {
+        primaryRoleChanges.promotingIdentifiers().forEach((identifier) => primaryRoleChanges.end(identifier, primaryRoleChanges.get(identifier)));
+      });
+
+      const peerSignsHolding = ({ held, decided }) => peerIdentityService.askSigned.withArgs(PEER).resolves({
+        verdict: peerIdentityService.IdentityVerdict.VERIFIED,
+        answer: { held, decided, purpose: peerIdentityService.AnswerPurpose.HELD_COMPONENTS },
+      });
+      const becoming = (appName) => primaryRoleChanges.set(appName, { state: 'promoting', appId: `flux${appName}` });
+
+      describe('this node', () => {
+        it('does not start when another holder holds the component', async () => {
+          const appName = 'namedheldelsewhere';
+          const count = sinon.stub(fluxEventBus, 'count');
+          const runPass = electionFixture(appName, [PEER]);
+          serviceHelperStub.resolves(namesThisNode);
+          peerSignsHolding({ held: [`flux${appName}`], decided: [`flux${appName}`] });
+
+          await runPass();
+
+          sinon.assert.notCalled(promote);
+          sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'namedButHeldElsewhere');
+        });
+
+        it('starts when another holder cannot be ruled out', async () => {
+          const appName = 'namedunknownelsewhere';
+          const runPass = electionFixture(appName, [PEER]);
+          serviceHelperStub.resolves(namesThisNode);
+          axiosGetStub.resetBehavior();
+          axiosGetStub.callsFake(peerAnswers({ held: null }));
+          peerIdentityService.askSigned.withArgs(PEER).resolves({
+            verdict: peerIdentityService.IdentityVerdict.MISROUTED, answeredAs: 'someone else',
+          });
+
+          await runPass();
+
+          sinon.assert.calledOnceWithExactly(promote, appName, `flux${appName}`);
+        });
+
+        it('starts when no other holder holds the component', async () => {
+          const appName = 'namedfreeelsewhere';
+          const runPass = electionFixture(appName, [PEER]);
+          serviceHelperStub.resolves(namesThisNode);
+          peerSignsHolding({ held: [], decided: [] });
+
+          await runPass();
+
+          sinon.assert.calledOnceWithExactly(promote, appName, `flux${appName}`);
+        });
+
+        it('asks no other holder while it is already becoming the primary', async () => {
+          const appName = 'namedwhilebecoming';
+          const runPass = electionFixture(appName, [PEER]);
+          serviceHelperStub.resolves(namesThisNode);
+          becoming(appName);
+
+          await runPass();
+
+          sinon.assert.neverCalledWith(peerIdentityService.askSigned, PEER);
+        });
+      });
+
+      describe('another node, while this one is becoming the primary', () => {
+        it('keeps the promotion when the named node signs that it has not decided it holds the component', async () => {
+          const appName = 'namedundecided';
+          const count = sinon.stub(fluxEventBus, 'count');
+          const runPass = electionFixture(appName, [PEER]);
+          serviceHelperStub.resolves(namesPeer);
+          becoming(appName);
+          peerSignsHolding({ held: [`flux${appName}`], decided: [] });
+
+          await runPass();
+
+          sinon.assert.notCalled(standDown);
+          sinon.assert.notCalled(holdAsStandby);
+          sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'peerUndecided');
+        });
+
+        it('keeps the promotion when the named node signs that it holds nothing', async () => {
+          const appName = 'namedholdsnothing';
+          const runPass = electionFixture(appName, [PEER]);
+          serviceHelperStub.resolves(namesPeer);
+          becoming(appName);
+          peerSignsHolding({ held: [], decided: [] });
+
+          await runPass();
+
+          sinon.assert.notCalled(standDown);
+        });
+
+        it('stands down when the named node signs that it has decided it holds the component', async () => {
+          const appName = 'nameddecided';
+          const runPass = electionFixture(appName, [PEER]);
+          serviceHelperStub.resolves(namesPeer);
+          becoming(appName);
+          peerSignsHolding({ held: [`flux${appName}`], decided: [`flux${appName}`] });
+
+          await runPass();
+
+          sinon.assert.calledOnceWithExactly(standDown, appName, `flux${appName}`, { running: false });
+        });
+
+        it('stands down when the named node signs an answer that does not say what it decided', async () => {
+          const appName = 'namednodecidedlist';
+          const runPass = electionFixture(appName, [PEER]);
+          serviceHelperStub.resolves(namesPeer);
+          becoming(appName);
+          peerSignsHolding({ held: [`flux${appName}`] });
+
+          await runPass();
+
+          sinon.assert.calledOnce(standDown);
+        });
+
+        it('stands down when the named node cannot prove who it is', async () => {
+          const appName = 'namedunproven';
+          const runPass = electionFixture(appName, [PEER]);
+          serviceHelperStub.resolves(namesPeer);
+          becoming(appName);
+
+          await runPass();
+
+          sinon.assert.calledOnce(standDown);
+        });
+      });
+
+      it('keeps a component committed here when the named node signs that it has not decided it holds it', async () => {
+        const appName = 'namedundecidedcommitted';
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(namesPeer);
+        sinon.stub(appReconciler, 'committedIdentifiers').returns([appName]);
+        peerSignsHolding({ held: [`flux${appName}`], decided: [] });
+
+        await runPass();
+
+        sinon.assert.notCalled(standDown);
+      });
+
+      it('asks nothing of the named node when this one holds the component by nothing, and holds as a standby', async () => {
+        const appName = 'namedstandby';
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(namesPeer);
+        standDown.returns(false);
+        peerSignsHolding({ held: [`flux${appName}`], decided: [] });
+
+        await runPass();
+
+        sinon.assert.neverCalledWith(peerIdentityService.askSigned, PEER);
+        sinon.assert.calledOnce(standDown);
+        sinon.assert.calledOnce(holdAsStandby);
+      });
+    });
+
     describe('isElectedPrimaryHere answers in three states', () => {
       // Finding 25 of the review: the true path had no coverage at all, and the
       // false path could not be told apart from "the election never ran". Each
       // test uses its own app name because the election tables are module state
       // that outlives a sinon restore.
       const runElection = async (appName, fdmResponse) => {
-        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
         const runPass = electionFixture(appName, ['192.168.1.90:16127']);
         axiosGetStub.resetBehavior();
         axiosGetStub.callsFake(peerAnswers({ held: [] }));
@@ -1082,7 +1744,7 @@ describe('advancedWorkflows tests', () => {
         // The election keys a composed app on `<component>_<app>`, and the
         // lookup is asked for the bare app name. Nothing exercised the
         // endsWith half of that match before.
-        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
         const runPass = electionFixture('composedapp', ['192.168.1.90:16127'], { componentName: 'server' });
         axiosGetStub.resetBehavior();
         axiosGetStub.callsFake(peerAnswers({ held: [] }));
@@ -1130,7 +1792,7 @@ describe('advancedWorkflows tests', () => {
         // fdmOk true on every path, so a total outage and an app with no
         // primary produced the same verdict and this warning never appeared.
         const logWarn = sinon.stub(log, 'warn');
-        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
         const runPass = electionFixture('fdmdownapp', ['192.168.1.90:16127']);
         axiosGetStub.resetBehavior();
         axiosGetStub.callsFake(peerAnswers({ held: [] }));
@@ -1146,7 +1808,7 @@ describe('advancedWorkflows tests', () => {
 
     it('does not start at index 0 while a peer is already running the component', async () => {
       const appName = 'peerbusyapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary()); // FDM: no primary registered yet
@@ -1163,7 +1825,7 @@ describe('advancedWorkflows tests', () => {
 
     it('starts at index 0 when no peer is running the component', async () => {
       const appName = 'peerfreeapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1178,6 +1840,141 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'a peer is already running it')).to.have.lengthOf(0);
     });
 
+    // The palworld case. The peer at .90 is running the component; this node's
+    // router hands every call for .90 to a machine beside it, which truthfully
+    // is not. Taken as .90's answer, that is a clearance to start a second writer.
+    it('does not start at index 0 when a call to the peer is answered by a different node', async () => {
+      const appName = 'misroutedpeerapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerIdentityService.askSigned.withArgs('192.168.1.90:16127')
+        .resolves({ verdict: peerIdentityService.IdentityVerdict.MISROUTED, answeredAs: '192.168.1.5:16137' });
+
+      // What answers at .90 holds nothing - it is not .90.
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: ['fluxsomethingelse'] }));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      expect(linesMatching(logInfo, 'was answered by 192.168.1.5:16137')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'could not be ruled out')).to.have.lengthOf(1);
+    });
+
+    it('does not ask a peer another node answered for what it runs', async () => {
+      const appName = 'misroutedunaskedapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerIdentityService.askSigned.withArgs('192.168.1.90:16127')
+        .resolves({ verdict: peerIdentityService.IdentityVerdict.MISROUTED, answeredAs: '192.168.1.5:16137' });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: ['fluxsomethingelse'] }));
+
+      await runPass();
+
+      const peerQueries = axiosGetStub.getCalls().map((call) => call.args[0])
+        .filter((url) => /192\.168\.1\.90:16127\/apps\/(heldcomponents|listrunningapps)/.test(url));
+      expect(peerQueries).to.deep.equal([]);
+    });
+
+    // What the peer signed, over this call's challenge, for the question asked.
+    const peerSigns = (held) => peerIdentityService.askSigned.withArgs('192.168.1.90:16127').resolves({
+      verdict: peerIdentityService.IdentityVerdict.VERIFIED,
+      answer: { held, purpose: peerIdentityService.AnswerPurpose.HELD_COMPONENTS },
+    });
+
+    it('still starts at index 0 when the peer signs that it does not hold the component', async () => {
+      const appName = 'verifiedpeerapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSigns(['fluxsomethingelse']);
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+      sinon.assert.calledWith(
+        peerIdentityService.askSigned,
+        '192.168.1.90:16127',
+        '/apps/heldcomponents',
+        peerIdentityService.AnswerPurpose.HELD_COMPONENTS,
+      );
+    });
+
+    it('does not start at index 0 when the peer signs that it holds the component', async () => {
+      const appName = 'signedheldapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSigns([`flux${appName}`]);
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      expect(linesMatching(logInfo, 'is held on peer node')).to.have.lengthOf(1);
+    });
+
+    it('does not start at index 0 on a signed answer that does not list what the peer holds', async () => {
+      const appName = 'signedunlistedapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSigns(undefined);
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      expect(linesMatching(logInfo, 'signed an answer that does not list what it holds')).to.have.lengthOf(1);
+    });
+
+    // A peer that has proven who it is signs every answer, so a reply from its
+    // address that is not signed came from somewhere else - however recently this
+    // node proved who is at that address.
+    it('does not start at index 0 on a reply that does not prove it came from a peer that can prove itself', async () => {
+      const appName = 'unprovenpeerapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerIdentityService.askSigned.withArgs('192.168.1.90:16127').resolves({
+        verdict: peerIdentityService.IdentityVerdict.UNVERIFIABLE, status: 404, data: null, mayReadUnsigned: false,
+      });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: ['fluxsomethingelse'] }));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      expect(linesMatching(logInfo, 'does not prove it came from that node')).to.have.lengthOf(1);
+      const peerQueries = axiosGetStub.getCalls().map((call) => call.args[0])
+        .filter((url) => /192\.168\.1\.90:16127\/apps\/(heldcomponents|listrunningapps)/.test(url));
+      expect(peerQueries, 'nothing is read unsigned from it').to.deep.equal([]);
+    });
+
+    it('judges a peer that did not reply to the signed question by its silence', async () => {
+      const appName = 'silentsignedapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerIdentityService.askSigned.withArgs('192.168.1.90:16127').resolves({
+        verdict: peerIdentityService.IdentityVerdict.UNREACHABLE, reason: 'connect ECONNREFUSED',
+      });
+      peerSyncthingSays('192.168.1.90:16127', 'valid');
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'still holds a live connection to it')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
     it('does not re-elect a component this node stood down to hand its app back', async () => {
       // THE MECHANISM. Without this exclusion the election undoes the stand-down
       // within one cycle and every cycle after it: the component is not running
@@ -1190,7 +1987,7 @@ describe('advancedWorkflows tests', () => {
       const appName = 'standdownapp';
       const componentName = 'server';
       const identifier = `${componentName}_${appName}`;
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
 
       const generalService = require('../../ZelBack/src/services/generalService');
       const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
@@ -1240,7 +2037,7 @@ describe('advancedWorkflows tests', () => {
       // is known. A seed that then defers to that schedule waits index*3min on peers
       // that cannot become ready, which is the wait the claim exists to skip.
       const appName = 'seedafterscheduleapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const cache = new Map([[`flux${appName}`, { restarted: true }]]);
       const runPass = electionFixture(
@@ -1270,7 +2067,7 @@ describe('advancedWorkflows tests', () => {
       // that whole window. Asked only for containers it answers "free", and this
       // node starts a second writer on the shared volume.
       const appName = 'peerclaimedapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1290,7 +2087,7 @@ describe('advancedWorkflows tests', () => {
       // endpoint must be asked the old way; reading its 404 as "holds nothing" is
       // the same second-writer start, arrived at from the other direction.
       const appName = 'peeroldapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1330,7 +2127,7 @@ describe('advancedWorkflows tests', () => {
       // the component, where the container list happens to give the right answer.
       // This is the case where it does not.
       const appName = 'peeroldstoppedapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1357,7 +2154,7 @@ describe('advancedWorkflows tests', () => {
       // node would elect itself onto the volume that owner is working on. The
       // container list here says free, and the pass must still refuse.
       const appName = 'peerunreadableapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1373,41 +2170,65 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
-    it('claims the component before the ownership fix, and releases it once the attempt ends', async () => {
-      // The claim has to be taken BEFORE the slow pre-start work, or it does not
-      // cover the window it exists for. Releasing it at the end is safe: a start
-      // that got as far as controllerDesired is held by that from then on, and one
-      // that failed must stop claiming rather than block the fleet.
-      const appName = 'claimlifecycleapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
-      const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
-      const claimStarting = sinon.stub(appReconciler, 'claimStarting');
-      const releaseStarting = sinon.stub(appReconciler, 'releaseStarting');
-      const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
+    // The election runs every masterSlaveIntervalMs and a promotion waits on the
+    // folder, so a pass can come round before the last one's promotion has ended.
+    it('begins no second start while the last pass\'s promotion is in progress', async () => {
+      const appName = 'secondpassapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const setRunning = sinon.stub(appReconciler, 'setRunningUnlessOperatorStopped').resolves(true);
+      const count = sinon.stub(fluxEventBus, 'count');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      syncthingServiceStub.resolves([{ id: `flux${appName}`, path: `${appsFolder}flux${appName}`, type: 'receiveonly' }]);
+      let sent;
+      const sending = new Promise((resolve) => { sent = resolve; });
+      const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').callsFake(async () => {
+        await sending;
+        return { status: 'success' };
+      });
+      serviceHelperStub.resolves(fdmNoPrimary());
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+      await runPass();
+      expect(primaryRole.inTransition(appName), 'fixture: the first pass did not begin a promotion').to.equal('promoting');
+      await runPass();
+
+      expect(count.withArgs('masterSlave:decision', appName, 'started').callCount, 'a second start began').to.equal(1);
+      sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'startInFlight');
+      sent();
+      await primaryRole.whenSettled(appName);
+      sinon.assert.calledOnce(adjust);
+      expect(setRunning.withArgs(appName).callCount).to.equal(1);
+    });
+
+    it('holds the component from the moment it commits until the reconciler is asked to run it', async () => {
+      // The hold has to cover the time before the folder sends, or a peer asking "is
+      // anyone running this?" hears no from a node that has already committed.
+      const appName = 'holdlifecycleapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const setRunning = sinon.stub(appReconciler, 'setRunningUnlessOperatorStopped').resolves(true);
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      syncthingServiceStub.resolves([{ id: `flux${appName}`, path: `${appsFolder}flux${appName}`, type: 'receiveonly' }]);
+      let sent;
+      const sending = new Promise((resolve) => { sent = resolve; });
+      sinon.stub(syncthingService, 'adjustConfigFolders').callsFake(async () => {
+        await sending;
+        return { status: 'success' };
+      });
       serviceHelperStub.resolves(fdmNoPrimary());
       axiosGetStub.resetBehavior();
       axiosGetStub.callsFake(peerAnswers({ held: [] })); // nobody holds it - we start
 
       await runPass();
 
-      // The start is deliberately not awaited by the election pass, so the release
-      // lands after it returns - wait for the attempt to finish rather than racing
-      // it. Waited on THIS app: earlier tests leave their own starts in flight, and
-      // any-call-happened is satisfied by one of those landing here.
-      const releasedThisApp = () => releaseStarting.getCalls().some((c) => c.args[0] === appName);
-      for (let tick = 0; tick < 100 && !releasedThisApp(); tick += 1) {
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise((resolve) => { setTimeout(resolve, 20); });
-      }
+      expect(primaryRoleChanges.promotingIdentifiers(), 'not held while its folder has not sent').to.include(appName);
+      sinon.assert.neverCalledWith(setRunning, appName);
 
-      sinon.assert.calledWith(claimStarting, appName);
-      sinon.assert.calledWith(releaseStarting, appName);
-      // the claim precedes any pre-start work, and outlives it
-      sinon.assert.callOrder(claimStarting, releaseStarting);
-      if (setControllerDesired.called) {
-        sinon.assert.callOrder(claimStarting, setControllerDesired, releaseStarting);
-      }
+      sent();
+      await primaryRole.whenSettled(appName);
+
+      expect(primaryRoleChanges.promotingIdentifiers()).to.not.include(appName);
+      sinon.assert.calledWith(setRunning, appName);
     });
 
     it('does not mistake a longer-named app on a peer for this component', async () => {
@@ -1415,7 +2236,7 @@ describe('advancedWorkflows tests', () => {
       // way - simplexsmp against simplexsmp1 on the live network. A substring test
       // reads that as this component being live and declines to start, forever.
       const appName = 'prefixapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1430,14 +2251,12 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
     });
 
-    it('probes every peer, not just lower-index ones, before a designated leader leaves the stagger', async () => {
-      // The seed claim exists precisely to leave the index stagger, so the
-      // lower-index probe that serialises the staggered starts is the wrong set
-      // to ask: a peer ABOVE us in the order is the one it cannot see, and FDM's
-      // registration lag means nothing else reports that peer as live either.
-      // Starting anyway puts a second writer on the syncthing-shared volume.
+    it('probes every peer, above it in the order too, before a designated leader leaves the stagger', async () => {
+      // FDM's registration lag means nothing but a probe reports a peer that has
+      // just started as live, wherever it sits in the order. Starting without
+      // asking it puts a second writer on the syncthing-shared volume.
       const appName = 'seedjumpapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const cache = new Map([[`flux${appName}`, { restarted: true, designatedLeader: true }]]);
       const runPass = electionFixture(
@@ -1448,7 +2267,7 @@ describe('advancedWorkflows tests', () => {
       serviceHelperStub.resolves(fdmNoPrimary()); // FDM: no primary registered yet
 
       // Order: .90 (00:01), .91 (00:02), this node (00:02:30), .92 (00:03). Only
-      // .92 - the peer above us, invisible to a lower-index probe - is running it.
+      // .92 - the peer above us - is running it.
       axiosGetStub.resetBehavior();
       axiosGetStub.callsFake(async (url) => (url.includes('192.168.1.92')
         ? peerAnswers({ held: [`flux${appName}`] })(url)
@@ -1467,7 +2286,7 @@ describe('advancedWorkflows tests', () => {
       // so nothing retracts a claim left standing. This node would then skip the
       // stagger on every later primary loss, for the life of the process.
       const appName = 'seedspentapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const appId = `flux${appName}`;
       const cache = new Map([[appId, { restarted: true, designatedLeader: true }]]);
@@ -1495,7 +2314,7 @@ describe('advancedWorkflows tests', () => {
 
     it('probes every peer at once, so an unreachable fleet costs one timeout and not N', async () => {
       const appName = 'peerconcurrentapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const runPass = electionFixture(appName, [
         '192.168.1.90:16127', '192.168.1.91:16127', '192.168.1.92:16127',
       ]);
@@ -1530,7 +2349,7 @@ describe('advancedWorkflows tests', () => {
       // IS running the component. In-fleet, six seconds of it was enough to start a
       // second writer on the shared volume.
       const appName = 'restartingpeerapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1550,7 +2369,7 @@ describe('advancedWorkflows tests', () => {
       // either way. The node with the least knowledge must not be the one that
       // authorises a second writer - absence of evidence authorises nothing.
       const appName = 'unknownpeerapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1558,7 +2377,7 @@ describe('advancedWorkflows tests', () => {
 
       await runPass();
 
-      expect(linesMatching(logInfo, 'cannot ask its own syncthing about it')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
@@ -1567,7 +2386,7 @@ describe('advancedWorkflows tests', () => {
       // that is genuinely down loses its sync connection, and that IS evidence. The
       // start proceeds without waiting for the location record to expire.
       const appName = 'deadpeerapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1579,6 +2398,54 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
     });
 
+    // A clean shutdown closes the connection too. The network gives a rebooting
+    // node SIGTERM_EXPIRY_MS to come back before its locations expire, and a node
+    // back within it keeps what it holds.
+    it('will not start beside a silent peer that announced a shutdown and has not passed its expiry', async () => {
+      const appName = 'rebootingpeerapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      shuttingDownNodesStub.resolves(['192.168.1.90:16127']);
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'it announced a shutdown and may still come back from it')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('starts beside a silent peer when another node at its IP announced a shutdown', async () => {
+      const appName = 'neighbourrebootingapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      shuttingDownNodesStub.resolves(['192.168.1.90:16137']);
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'the component is free there')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+    });
+
+    it('will not start beside a silent peer when this node cannot read which nodes announced a shutdown', async () => {
+      const appName = 'shutdownsunreadableapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      shuttingDownNodesStub.rejects(new Error('database unavailable'));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
     it('resolves a dead peer\'s device from this node\'s own syncthing when the cache never learned it', async () => {
       // The device cache is in memory and is filled by asking the PEER, so it is
       // empty for exactly the peer that matters: one that died while this node's own
@@ -1587,7 +2454,7 @@ describe('advancedWorkflows tests', () => {
       // expired - up to the full broadcast lifetime, for a peer it had a perfectly
       // good local record of.
       const appName = 'diskdeviceapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1595,11 +2462,220 @@ describe('advancedWorkflows tests', () => {
       // under the name the monitor gave it, and reports the connection closed
       syncthingDevicesStub.resolves([{ name: '192.168.1.90:16127', deviceID: 'DEVICE-DEAD-PEER' }]);
       syncthingCompletionStub.resolves({ remoteState: 'unknown' });
+      syncthingDeviceStatsStub.resolves({ 'DEVICE-DEAD-PEER': { lastSeen: '2026-09-25T14:00:00Z' } });
 
       await runPass();
 
       expect(linesMatching(logInfo, 'the component is free there')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+    });
+
+    // A node placed minutes ago may not have connected to anyone yet. A primary whose
+    // FluxOS is restarting is silent for tens of seconds while its syncthing and its
+    // container carry on, and a connection that was never up says nothing about it.
+    it('will not start beside a silent peer its syncthing has never been connected to', async () => {
+      const appName = 'neverseenapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown', { everConnected: false });
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    // A syncthing started paused disconnects every device itself, until the monitor
+    // resumes them. The closed connection is this node's doing, not the peer's.
+    it('will not start beside a silent peer whose device this node\'s syncthing has paused', async () => {
+      const appName = 'pausedpeerapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      syncthingDevicesStub.resolves([{ name: '192.168.1.90:16127', deviceID: 'DEVICE-192.168.1.90:16127', paused: true }]);
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    // A syncthing that has just started has reconnected to nobody. A connection
+    // that closed before it started says nothing about the peer now.
+    it('will not start beside a silent peer whose connection closed before this node\'s syncthing started', async () => {
+      const appName = 'restartedsyncthingapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      syncthingStatusStub.resolves({ startTime: '2026-09-25T14:00:30Z' });
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    // syncthing rounds both times down to the second, so a connection that closed
+    // as the previous syncthing stopped reads the same second as this one's start.
+    it('will not start beside a silent peer whose connection closed in the second this node\'s syncthing started', async () => {
+      const appName = 'samesecondapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      syncthingStatusStub.resolves({ startTime: '2026-09-25T14:00:00Z' });
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('starts beside a silent peer whose connection closed the second after this node\'s syncthing started', async () => {
+      const appName = 'nextsecondapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      syncthingStatusStub.resolves({ startTime: '2026-09-25T13:59:59Z' });
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+    });
+
+    // A syncthing that started after a peer's connection closed has no closing
+    // of its own to read; the peer counts as gone once it has stayed away for
+    // the grace, measured on this FluxOS's own clock from when it first read
+    // that syncthing.
+    describe('a silent peer this node\'s syncthing has not seen since it started', () => {
+      const PEER = '192.168.1.90:16127';
+      let monotonicNow;
+
+      beforeEach(() => {
+        monotonicNow = sinon.stub(performance, 'now').returns(1000);
+      });
+
+      const restartedAfterThePeerClosed = (appName, startTime, options) => {
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+        const runPass = electionFixture(appName, [PEER]);
+        serviceHelperStub.resolves(fdmNoPrimary());
+        peerSyncthingSays(PEER, 'unknown', options);
+        syncthingStatusStub.resolves({ startTime });
+        return runPass;
+      };
+
+      it('starts once the peer has not reconnected for longer than the grace', async () => {
+        const logInfo = sinon.stub(log, 'info');
+        const runPass = restartedAfterThePeerClosed('gracepassedapp', '2026-09-25T14:00:30Z');
+
+        await runPass();
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+
+        monotonicNow.returns(1000 + RECONNECT_GRACE_MS + 1);
+        await runPass();
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+      });
+
+      it('will not start while the grace has not passed', async () => {
+        const logInfo = sinon.stub(log, 'info');
+        const runPass = restartedAfterThePeerClosed('graceheldapp', '2026-09-25T14:01:30Z');
+
+        await runPass();
+        monotonicNow.returns(1000 + RECONNECT_GRACE_MS);
+        await runPass();
+
+        expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(2);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      });
+
+      it('counts the grace from when this FluxOS first read the syncthing, not from its start time', async () => {
+        const logInfo = sinon.stub(log, 'info');
+        monotonicNow.returns(1000 + 10 * RECONNECT_GRACE_MS);
+        const runPass = restartedAfterThePeerClosed('gracefromfirstreadapp', '2026-09-25T14:02:30Z');
+
+        await runPass();
+
+        expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      });
+
+      it('starts the grace again when syncthing restarts again', async () => {
+        const logInfo = sinon.stub(log, 'info');
+        const runPass = restartedAfterThePeerClosed('gracerestartedapp', '2026-09-25T14:03:30Z');
+
+        await runPass();
+        monotonicNow.returns(1000 + RECONNECT_GRACE_MS + 1);
+        syncthingStatusStub.resolves({ startTime: '2026-09-25T14:09:30Z' });
+        await runPass();
+
+        expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(2);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      });
+
+      it('will not start beside a peer this node\'s syncthing was never connected to, however long it waits', async () => {
+        const logInfo = sinon.stub(log, 'info');
+        const runPass = restartedAfterThePeerClosed('gracenevermetapp', '2026-09-25T14:04:30Z', { everConnected: false });
+
+        await runPass();
+        monotonicNow.returns(1000 + 10 * RECONNECT_GRACE_MS);
+        await runPass();
+
+        expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(2);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      });
+    });
+
+    it('will not start beside a silent peer when this node cannot read when its syncthing started', async () => {
+      const appName = 'statusunreadableapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      syncthingStatusStub.rejects(new Error('syncthing did not answer'));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('will not start beside a silent peer when this node cannot read whether its syncthing paused it', async () => {
+      const appName = 'devicesunreadableapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      syncthingDevicesStub.rejects(new Error('syncthing did not answer'));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'has never been connected to it or cannot be asked')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('will not start beside a silent peer when this node cannot read whether its syncthing ever saw it', async () => {
+      const appName = 'statsunreadableapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      syncthingDeviceStatsStub.rejects(new Error('syncthing busy'));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
     it('will not start when a silent peer\'s connection is gone but this node cannot see the fleet either', async () => {
@@ -1608,7 +2684,7 @@ describe('advancedWorkflows tests', () => {
       // sync connection has dropped. The proportional floor is the only thing that
       // separates them, and below it the peer is very likely still serving.
       const appName = 'isolatedselfapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1627,7 +2703,7 @@ describe('advancedWorkflows tests', () => {
       // running it". The evidence path must not be reached at all here: a live peer
       // whose sync connection happens to be down would otherwise read as free.
       const appName = 'erroringpeerapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -1647,7 +2723,7 @@ describe('advancedWorkflows tests', () => {
       // Folding the set as "some peer is free" rather than "every peer was ruled
       // out" is how a single blind spot becomes a start.
       const appName = 'onedarkpeerapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(
         appName,
@@ -1665,14 +2741,14 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
-    it('holds a due schedule rather than dropping it when a lower-index node cannot be read', async () => {
-      // The two ways of not starting are not the same. A lower-index node that IS
-      // running it settles the question, and the schedule is spent. A lower-index
-      // node this node could not read settles nothing - dropping the schedule there
+    it('holds a due schedule rather than dropping it when a peer cannot be read', async () => {
+      // The two ways of not starting are not the same. A peer that IS running it
+      // settles the question, and the schedule is spent. A peer this node could
+      // not read settles nothing - dropping the schedule there
       // sends this node back through a fresh index * 3min wait for a peer it may be
       // able to read on the very next pass.
       const appName = 'holdscheduleapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(
         appName,
@@ -1690,11 +2766,11 @@ describe('advancedWorkflows tests', () => {
       await runPass();
       expect(linesMatching(logInfo, 'scheduling app')).to.have.lengthOf(1);
 
-      // Pass 2: the schedule is due, and now the lower-index peer cannot be read.
+      // Pass 2: the schedule is due, and now the peer cannot be read.
       clock.tick(3 * 60 * 1000);
       logInfo.resetHistory();
       axiosGetStub.resetBehavior();
-      axiosGetStub.rejects(new Error('lower-index node unreachable'));
+      axiosGetStub.rejects(new Error('peer unreachable'));
       await runPass();
       expect(linesMatching(logInfo, 'holding the scheduled start')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
@@ -1709,14 +2785,10 @@ describe('advancedWorkflows tests', () => {
     });
 
     it('asks every peer when a booked turn comes due at index 0, instead of asking nobody', async () => {
-      // The stagger serialises candidates by index, so a due turn only checks the
-      // nodes AHEAD of this one. At index 0 there are none, and "nobody ahead" was
-      // read as "nobody" - a start issued without a single peer being asked.
-      //
-      // Reaching it takes three things at once, which is why it is rare rather than
-      // impossible: a remembered primary (so the index-0 branch, which probes every
-      // peer, is skipped), a booked turn (so the previous-primary branch, which
-      // requires none, is skipped), and index 0 by the time the turn is due. The
+      // A turn booked further down the order can come due at index 0: a remembered
+      // primary (so the index-0 branch is skipped), a booked turn (so the
+      // previous-primary branch, which requires none, is skipped), and index 0 by
+      // the time the turn is due. The
       // turn is booked at index >= 2 and index is re-derived from the location list
       // every pass, so the instances ahead ageing out is all it takes.
       //
@@ -1724,7 +2796,7 @@ describe('advancedWorkflows tests', () => {
       // starts, FDM still reports no primary. A less-senior node can be live and
       // invisible throughout, and starting beside it puts two writers on the volume.
       const appName = 'duestagger0app';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       // Index 2: behind two peers, and far enough back to book a turn rather than
       // start at once (at index 1 the wait computes to zero).
@@ -1767,12 +2839,9 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
-    it('leaves the staggered order alone when there IS a node ahead to ask', async () => {
-      // The escalation above must not turn every due turn into a fleet-wide probe:
-      // at index 1 the node ahead is the one the stagger exists to defer to, and
-      // asking it alone is the whole point of the lower-only scope.
+    it('starts on its due turn when no peer holds the component', async () => {
       const appName = 'duestagger1app';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(
         appName,
@@ -1790,24 +2859,88 @@ describe('advancedWorkflows tests', () => {
       clock.tick(config.fluxapps.masterSlaveStaggerMs);
       logInfo.resetHistory();
       axiosGetStub.resetBehavior();
-      // Only the node ahead is asked, and it is free - so this node takes the primary.
+      // The peer is free, so this node takes the primary.
       axiosGetStub.callsFake(peerAnswers({ held: [] }));
       await runPass();
 
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
     });
 
-    // The test above cannot actually see the scope. With ONE peer, 'lower' and
-    // 'all' probe the same single node, so "asked the node ahead" and "asked
-    // everybody" are observationally identical and the escalation could become
-    // unconditional without a test noticing. This node sits at index 1 with a
-    // peer on either side, and only the one BELOW it should be asked.
-    //
-    // What it costs if the scope escalates: every staggered due-turn becomes a
-    // fleet-wide probe, at election cadence, on every node running the app.
-    it('asks only the node ahead on a due stagger, not every instance', async () => {
+    // A turn counts from the pass that finds the component free, so every standby
+    // counts from the holder stopping and the order decides who comes due first.
+    it('books its turn only once no holder runs the component, counted from that pass', async () => {
+      const appName = 'bookonfreeapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const logInfo = sinon.stub(log, 'info');
+      const count = sinon.spy(fluxEventBus, 'count');
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127'],
+        { selfRunningSince: '2026-01-01T00:02:00.000Z' },
+      );
+      serviceHelperStub.resolves(fdmNoPrimary());
+      const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+      const stagger = config.fluxapps.masterSlaveStaggerMs;
+
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+      await runPass();
+      clock.tick(3 * stagger);
+      await runPass();
+      expect(linesMatching(logInfo, 'masterSlaveApps: scheduling app'), 'booked while the holder runs it').to.have.lengthOf(0);
+      expect(linesMatching(logInfo, 'not scheduling app')).to.have.lengthOf(2);
+      sinon.assert.neverCalledWith(count, 'masterSlave:decision', appName, 'staggerBooked');
+
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+      logInfo.resetHistory();
+      const freedAt = Date.now();
+      await runPass();
+      const booked = linesMatching(logInfo, 'masterSlaveApps: scheduling app');
+      expect(booked).to.have.lengthOf(1);
+      expect(Number(/to start at (\d+)/.exec(booked[0])[1]), 'the turn counts from the pass that found it free')
+        .to.equal(freedAt + stagger);
+      sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'staggerBooked');
+
+      clock.tick(stagger - 1);
+      logInfo.resetHistory();
+      await runPass();
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      clock.tick(1);
+      await runPass();
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+      clock.restore();
+    });
+
+    it('does not book its turn while a holder cannot be ruled out', async () => {
+      const appName = 'bookunknownapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127'],
+        { selfRunningSince: '2026-01-01T00:02:00.000Z' },
+      );
+      serviceHelperStub.resolves(fdmNoPrimary());
+      axiosGetStub.resetBehavior();
+      axiosGetStub.rejects(Object.assign(new Error('Request failed with status code 500'), { response: { status: 500 } }));
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'not scheduling app')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'not scheduling app')[0]).to.include('could not be ruled out');
+      expect(linesMatching(logInfo, 'masterSlaveApps: scheduling app')).to.have.lengthOf(0);
+    });
+
+    // A node further down the order can start first: its turn was booked before
+    // the node ahead of it was released, so it comes due first, and nobody ahead
+    // of it holds the component then. When the released node's own turn comes, the
+    // node below it is the one running. This node sits at index 1 with a peer on
+    // either side, and only the one BELOW it holds the component.
+    it('does not start on a due stagger while a node further down the order holds it', async () => {
       const appName = 'duestaggerscopeapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(
         appName,
@@ -1818,8 +2951,7 @@ describe('advancedWorkflows tests', () => {
       const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
 
       // Ordered by runningSince: .90 (00:01) is index 0, this node (00:01:30) is
-      // index 1, .91 (00:02) is index 2. The node ABOVE holds the component; a
-      // lower-only probe never asks it, an escalated one does.
+      // index 1, .91 (00:02) is index 2, and .91 holds the component.
       const answerByPeer = (url) => {
         if (url.includes('/apps/heldcomponents')) {
           const held = url.includes('192.168.1.91') ? [`flux${appName}`] : [];
@@ -1839,22 +2971,80 @@ describe('advancedWorkflows tests', () => {
       axiosGetStub.callsFake(answerByPeer);
       await runPass();
 
+      expect(linesMatching(logInfo, 'is held on peer node')).to.have.lengthOf(1);
       expect(
         linesMatching(logInfo, 'starting docker component'),
-        'did not start - a node ABOVE this one was probed, so the scope escalated past the stagger',
-      ).to.have.lengthOf(1);
+        'started beside the node further down the order - two writers on the shared volume',
+      ).to.have.lengthOf(0);
       clock.restore();
+    });
+
+    // Directly behind a primary FDM has dropped, a node's turn is due at once. The
+    // node further down may already have taken the component, so it is asked too.
+    // A standby whose folder came back paused asks every other holder whether it
+    // runs the component, as the folder monitor does, and the node FDM names as
+    // well - each at the address its location record gives. FDM lags a move, so
+    // the node it names may not be the one running it.
+    it('lets a standby\'s paused folder ask every other holder, not only the node FDM names', async () => {
+      const appName = 'fdmholderapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(log, 'info');
+      const hold = sinon.stub(primaryRole, 'holdAsStandby').resolves(false);
+      const runPass = electionFixture(appName, ['192.168.1.90:16137', '192.168.1.91:16127']);
+      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+
+      await runPass();
+
+      sinon.assert.calledOnce(hold);
+      const { othersHold } = hold.firstCall.args[2];
+      axiosGetStub.resetBehavior();
+      // The node FDM names holds nothing; the other holder runs it.
+      axiosGetStub.callsFake((url) => Promise.resolve({ data: { data: url.includes('192.168.1.91') ? [`flux${appName}`] : [] } }));
+      expect(await othersHold()).to.equal('running');
+      expect(axiosGetStub.getCalls().map((call) => call.args[0]).sort()).to.deep.equal([
+        'http://192.168.1.90:16137/apps/heldcomponents',
+        'http://192.168.1.91:16127/apps/heldcomponents',
+      ]);
+    });
+
+    it('does not take over from a departed primary while a node further down the order holds it', async () => {
+      const appName = 'takeoverbelowapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const logInfo = sinon.stub(log, 'info');
+      // Order: .90 (00:01) index 0, this node (00:01:30) index 1, .91 (00:02) index 2.
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127', '192.168.1.91:16127'],
+        { selfRunningSince: '2026-01-01T00:01:30.000Z' },
+      );
+
+      // Pass 1: FDM names .90, so this node remembers it as primary.
+      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+      await runPass();
+
+      // Pass 2: FDM names nobody. .90 has stopped, and .91 holds the component.
+      serviceHelperStub.resolves(fdmNoPrimary());
+      logInfo.resetHistory();
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(async (url) => (url.includes('192.168.1.91')
+        ? peerAnswers({ held: [`flux${appName}`] })(url)
+        : peerAnswers({ held: [] })(url)));
+      await runPass();
+
+      expect(linesMatching(logInfo, 'is held on peer node')).to.have.lengthOf(1);
+      expect(
+        linesMatching(logInfo, 'starting docker component'),
+        'took over beside the node further down the order - two writers on the shared volume',
+      ).to.have.lengthOf(0);
     });
 
     // index is re-derived from the location list on every pass, so a node that
     // booked a stagger can find itself ABSENT from that list when its turn comes
-    // - the instances ahead aged out, or its own row lapsed. index is then -1, and
-    // a lower-only walk of "everyone below index -1" asks NOBODY, which the caller
-    // reads as clear. That is a blind start onto a shared volume, reached from the
-    // staggered path rather than the index-0 one.
-    it('escalates rather than starting blind when this node has left the location list', async () => {
+    // - the instances ahead aged out, or its own row lapsed. It still asks every
+    // holder the list names before it starts.
+    it('asks every holder rather than starting blind when this node has left the location list', async () => {
       const appName = 'droppedoutapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(
         appName,
@@ -1878,7 +3068,7 @@ describe('advancedWorkflows tests', () => {
       ]);
       logInfo.resetHistory();
       axiosGetStub.resetBehavior();
-      // A peer IS running it. Escalating finds that; asking nobody does not.
+      // A peer IS running it.
       axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
       await runPass();
 
@@ -1887,6 +3077,62 @@ describe('advancedWorkflows tests', () => {
         'started without asking anyone - a second writer on the shared volume',
       ).to.have.lengthOf(0);
       clock.restore();
+    });
+
+    // A pass that cannot start the component yet is a decision like any other, and
+    // a harness suite counts it to tell a standby still syncing from one holding.
+    // Every start counts 'started', so a suite reads passes counted from an event
+    // with no new start as that many decisions not to start. Counted whatever the
+    // pass decides, an operator-stopped component included.
+    it('counts every pass over a g: component, whatever it decides', async () => {
+      const appName = 'evaluatedapp';
+      const operatorStopped = sinon.stub(appsRuntimeState, 'operatorStopState').resolves(LOCKED);
+      const count = sinon.stub(fluxEventBus, 'count');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves(fdmNoPrimary());
+
+      await runPass();
+      operatorStopped.resolves(UNLOCKED);
+      await runPass();
+
+      expect(count.withArgs('masterSlave:decision', appName, 'evaluated').callCount).to.equal(2);
+      sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'operatorStopped');
+    });
+
+    it('counts a pass that finds the folder not ready yet', async () => {
+      const appName = 'notreadyapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const count = sinon.stub(fluxEventBus, 'count');
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127'],
+        { receiveOnlyCache: new Map([[`flux${appName}`, { restarted: false }]]) },
+      );
+      syncthingServiceStub.resolves([{ path: `/root/.flux/ZelApps/flux${appName}`, type: 'receiveonly' }]);
+      serviceHelperStub.resolves(fdmNoPrimary());
+
+      await runPass();
+
+      sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'notReady');
+      sinon.assert.neverCalledWith(count, 'masterSlave:decision', appName, 'staggerBooked');
+    });
+
+    it('counts a pass FDM names this node primary on while its folder is not ready yet', async () => {
+      const appName = 'notreadyprimaryapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const count = sinon.stub(fluxEventBus, 'count');
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127'],
+        { receiveOnlyCache: new Map([[`flux${appName}`, { restarted: false }]]) },
+      );
+      syncthingServiceStub.resolves([{ path: `/root/.flux/ZelApps/flux${appName}`, type: 'receiveonly' }]);
+      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.5'] } } });
+
+      await runPass();
+
+      sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'primaryObserved');
+      sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'notReady');
     });
 
     it('takes the per-place stagger from config, not from a literal', async () => {
@@ -1900,7 +3146,7 @@ describe('advancedWorkflows tests', () => {
       const appName = 'staggerconfigapp';
       const stagger = config.fluxapps.masterSlaveStaggerMs;
       expect(stagger, 'unit config must differ from the fallback or this proves nothing').to.not.equal(3 * 60 * 1000);
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(
         appName,
@@ -1935,7 +3181,7 @@ describe('advancedWorkflows tests', () => {
       // evidence - the exact wait the claim exists to remove, given up because a
       // peer did not answer.
       const appName = 'seedheldapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const appId = `flux${appName}`;
       const cache = new Map([[appId, { restarted: true, designatedLeader: true }]]);
@@ -1960,7 +3206,7 @@ describe('advancedWorkflows tests', () => {
       // likely to still hold the volume, so a silence there keeps the component
       // rather than releasing it to an election.
       const appName = 'prevprimaryapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
 
@@ -1993,7 +3239,7 @@ describe('advancedWorkflows tests', () => {
       // which is the failure this whole area keeps producing.
       const first = 'starvedfirst';
       const second = 'starvedsecond';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
       const logInfo = sinon.stub(log, 'info');
 
       dockerServiceStub.callsFake((name) => `flux${name}`);
@@ -2199,7 +3445,11 @@ describe('advancedWorkflows tests', () => {
       const appDockerStopStub = sinon.stub(dockerService, 'appDockerStop').resolves();
       // post-inversion, a standby records desired-stopped through the reconciler seam
       const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
-      const setControllerDesiredStub = sinon.stub(appReconciler, 'setControllerDesired');
+      // The stand-down stops the container through the reconciler and waits for it,
+      // then scans the folder and makes it receive.
+      const setControllerDesiredStub = sinon.stub(appReconciler, 'setControllerDesiredAndWait').resolves(true);
+      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, exists: true, running: false });
+      sinon.stub(syncthingService, 'scanFolder').resolves();
 
       // Mixed compose app: n8n uses g: master/slave, pgcluster needs all instances running
       const installedApps = sinon.stub().resolves({
@@ -2237,11 +3487,12 @@ describe('advancedWorkflows tests', () => {
         listRunningApps,
         https,
       );
+      await primaryRole.whenSettled('n8n_n8napp');
 
-      // masterSlaveApps' job here is the election DECISION: it must declare the g:
-      // component desired-stopped (with the standby reason) and touch nothing else.
-      // Actuation is the reconciler's job (covered in appReconciler.test.js), so it
-      // must NOT call appDockerStop directly.
+      // The election decides and the role owner stands the primary down: the g:
+      // component is declared desired-stopped (with the standby reason) and nothing
+      // else is touched. Actuation is the reconciler's job (covered in
+      // appReconciler.test.js), so appDockerStop is NOT called directly.
       expect(setControllerDesiredStub.calledWith('n8n_n8napp', 'stopped', 'masterSlave standby')).to.be.true;
       expect(setControllerDesiredStub.neverCalledWith('pgcluster_n8napp')).to.be.true;
       expect(setControllerDesiredStub.neverCalledWith(appName)).to.be.true;
@@ -2291,6 +3542,96 @@ describe('advancedWorkflows tests', () => {
       // The g: component is not running here and we are not primary - nothing to stop.
       // The running pgcluster sibling must be left alone.
       expect(appDockerStopStub.called).to.be.false;
+    });
+
+    // The election owns a single-writer folder's type: the standby's receives and
+    // never sends, whether or not its component ever ran, and the primary's sends
+    // while its container runs here.
+    describe('the folder type follows the election', () => {
+      const gApp = (name) => ({ name, version: 8, compose: [{ name: 'n8n', containerData: 'g:/home/node/.n8n' }] });
+
+      const pass = async ({ primaryIp, running, folderType }) => {
+        dockerServiceStub.returns('fluxn8n_n8napp');
+        syncthingServiceStub.resolves([{ id: 'fluxn8n_n8napp', path: `${appsFolder}fluxn8n_n8napp`, type: folderType }]);
+        const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+        sinon.stub(syncthingService, 'scanFolder').resolves();
+        sinon.stub(appReconciler, 'setControllerDesired');
+        serviceHelperStub.resolves({ data: { status: 'success', data: { ips: [primaryIp] } } });
+        fluxNetworkHelperStub.resolves('192.168.1.5:16127');
+
+        await advancedWorkflows.masterSlaveApps(
+          globalState,
+          sinon.stub().resolves({ status: 'success', data: [gApp('n8napp')] }),
+          sinon.stub().resolves({ status: 'success', data: running.map((n) => ({ Names: [`/${n}`] })) }),
+          https,
+        );
+        return adjust;
+      };
+
+      it('makes a standby\'s folder receiveonly even when its component is not running, scanned first', async () => {
+        const adjust = await pass({ primaryIp: '192.168.1.99', running: [], folderType: 'sendreceive' });
+
+        sinon.assert.calledOnceWithMatch(adjust, 'patch', { type: 'receiveonly', maxConflicts: 0 }, 'fluxn8n_n8napp');
+        sinon.assert.callOrder(syncthingService.scanFolder.withArgs('fluxn8n_n8napp'), adjust);
+      });
+
+      it('makes the primary\'s folder send again once its container runs here', async () => {
+        const adjust = await pass({ primaryIp: '192.168.1.5', running: ['fluxn8n_n8napp'], folderType: 'receiveonly' });
+
+        sinon.assert.calledOnceWithMatch(adjust, 'patch', { type: 'sendreceive', maxConflicts: 0 }, 'fluxn8n_n8napp');
+      });
+
+      it('writes nothing when the folder already has the type the election gives it', async () => {
+        const adjust = await pass({ primaryIp: '192.168.1.99', running: [], folderType: 'receiveonly' });
+
+        sinon.assert.notCalled(adjust);
+      });
+    });
+
+    it('does not start a primary whose folder could not be made to send', async () => {
+      const appName = 'flipfailsapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      syncthingServiceStub.resolves([{ id: `flux${appName}`, path: `${appsFolder}flux${appName}`, type: 'receiveonly' }]);
+      const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'error', data: { message: 'refused' } });
+      serviceHelperStub.resolves(fdmNoPrimary());
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+      await runPass();
+      expect(primaryRole.inTransition(appName), 'the start was never attempted, so this proves nothing').to.equal('promoting');
+      await primaryRole.whenSettled(appName);
+
+      sinon.assert.calledWithMatch(adjust, 'patch', { type: 'sendreceive' });
+      sinon.assert.neverCalledWith(setControllerDesired, appName, 'running');
+    });
+
+    it('starts a primary once a flip syncthing did not answer shows in its config', async function () {
+      this.timeout(10000);
+      const appName = 'flipunansweredapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const setRunning = sinon.stub(appReconciler, 'setRunningUnlessOperatorStopped').resolves(true);
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      // the wait for the type to show polls once a second
+      serviceHelperDelayStub.withArgs(1000).callsFake(() => new Promise((resolve) => { setTimeout(resolve, 5); }));
+      let applied = false;
+      syncthingServiceStub.callsFake(async () => [{
+        id: `flux${appName}`, path: `${appsFolder}flux${appName}`, type: applied ? 'sendreceive' : 'receiveonly',
+      }]);
+      sinon.stub(syncthingService, 'adjustConfigFolders').callsFake(async () => {
+        applied = true;
+        return { status: 'error', data: { code: 'ECONNABORTED', message: 'timeout of 5000ms exceeded', httpStatus: null } };
+      });
+      serviceHelperStub.resolves(fdmNoPrimary());
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+      await runPass();
+      expect(primaryRole.inTransition(appName), 'the start was never attempted, so this proves nothing').to.equal('promoting');
+      await primaryRole.whenSettled(appName);
+
+      sinon.assert.calledWith(setRunning, appName);
     });
 
     it('does NOT stop its own container when it is the primary on a UPnP (non-default) port', async () => {
@@ -2353,7 +3694,11 @@ describe('advancedWorkflows tests', () => {
       dockerServiceStub.returns('fluxn8n_n8napp');
       const appDockerStopStub = sinon.stub(dockerService, 'appDockerStop').resolves();
       const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
-      const setControllerDesiredStub = sinon.stub(appReconciler, 'setControllerDesired');
+      // The stand-down stops the container through the reconciler and waits for it,
+      // then scans the folder and makes it receive.
+      const setControllerDesiredStub = sinon.stub(appReconciler, 'setControllerDesiredAndWait').resolves(true);
+      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, exists: true, running: false });
+      sinon.stub(syncthingService, 'scanFolder').resolves();
 
       const installedApps = sinon.stub().resolves({
         status: 'success',
@@ -2389,6 +3734,7 @@ describe('advancedWorkflows tests', () => {
         listRunningApps,
         https,
       );
+      await primaryRole.whenSettled('n8n_n8napp');
 
       // The standby's g: component is declared desired-stopped through the reconciler
       // seam; the non-g sibling is untouched and Docker is not actuated directly here.
@@ -2978,12 +4324,15 @@ describe('advancedWorkflows tests', () => {
         [identifier, { bytes: 5821604997, newestModified: 200 }],
         ['fluxother_TestApp', { bytes: 4096, newestModified: 100 }],
       ]);
+      volGlobalState.seedMarks.set(identifier, { stage: 'intent', bytes: 5821604997, newestModified: 200 });
+      volGlobalState.seedMarks.set('fluxother_TestApp', { stage: 'intent', bytes: 4096, newestModified: 100 });
     };
 
     beforeEach(() => {
       volGlobalState = require('../../ZelBack/src/services/utils/globalState');
       volGlobalState.receiveOnlySyncthingAppsCache.clear();
       volGlobalState.folderHoldings = null;
+      volGlobalState.seedMarks.clear();
       const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
       sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
       // The volume search reads the real mount table through findmnt. Stubbing
@@ -3190,6 +4539,8 @@ describe('advancedWorkflows tests', () => {
       ).to.equal(false);
       // Scoped to the volume being replaced, not a clear of every answer the node holds.
       expect(volGlobalState.folderHoldings.has('fluxother_TestApp')).to.equal(true);
+      expect(volGlobalState.seedMarks.has(identifier), 'the point of no return left an offer to seed an empty volume').to.equal(false);
+      expect(volGlobalState.seedMarks.has('fluxother_TestApp')).to.equal(true);
     });
   });
 
@@ -3452,6 +4803,21 @@ describe('advancedWorkflows tests', () => {
       sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: true }, folderId);
       sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
       sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'delete');
+    });
+
+    it('leaves a folder it found paused paused, and archives it held still', async () => {
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: { isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000 },
+        reason: 'ok',
+      });
+      const folders = sinon.stub(syncthingService, 'getConfigFolders').resolves([{ id: folderId, path: `${appsFolder}${folderId}`, type: 'sendreceive', paused: true }]);
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+      expect(result).to.equal(true);
+      sinon.assert.called(folders);
+      sinon.assert.calledOnce(IOUtils.createTarGz);
+      sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
     });
 
     it('refuses when the pause is denied, instead of reading denial as absence', async () => {
@@ -3915,6 +5281,15 @@ describe('advancedWorkflows tests', () => {
         sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'delete');
       });
 
+      it('leaves a folder it found paused paused', async () => {
+        syncthingService.getConfigFolders.resolves([{ id: folderId, path: `${appsFolder}${folderId}`, type: 'sendreceive', paused: true }]);
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.calledOnce(IOUtils.untarFile);
+        sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
+      });
+
       it('leaves the folder paused when a failed restore cannot demote it', async () => {
         // The folder holds partial data. Demoted it heals from the peers;
         // resumed while still sendreceive it hands the deletions and the
@@ -3952,7 +5327,11 @@ describe('advancedWorkflows tests', () => {
         await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
 
         sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { type: 'receiveonly' }, folderId);
-        sinon.assert.notCalled(syncthingService.getConfigFolders);
+        const pause = syncthingService.adjustConfigFolders.getCalls().find((call) => call.args[1]?.paused === true);
+        expect(
+          syncthingService.getConfigFolders.getCalls().filter((call) => call.callId > pause.callId),
+          'the config was read between the pause and the demotion',
+        ).to.have.lengthOf(0);
         sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
       });
 
@@ -5288,6 +6667,10 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
     sinon.stub(residentialNodeDosService, 'mayEvacuateApp').returns({ ok: true, reason: 'ready' });
     sinon.stub(residentialNodeDosService, 'noteEvacuated');
     sinon.stub(residentialNodeDosService, 'forgetAppObservation');
+    // Every peer here predates the identity endpoint, and is read unsigned.
+    sinon.stub(peerIdentityService, 'askSigned').resolves({
+      verdict: peerIdentityService.IdentityVerdict.UNVERIFIABLE, status: 404, data: null, mayReadUnsigned: true,
+    });
 
     const db = { db: () => ({}) };
     sinon.stub(dbHelper, 'databaseConnection').returns(db);
@@ -5620,6 +7003,15 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       expect(isElectedPrimary('appone')).to.equal(null);
     });
 
+    it('gives the safety gate the walk that finds a connected peer holding the data', async () => {
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      const { findSyncedPeer } = evacuationSafety.canSafelyRemoveApp.firstCall.args[1];
+      expect(findSyncedPeer).to.equal(syncthingFolderStateMachine.findSyncedPeer);
+    });
+
     it('tells the safety gate which components are running on this node', async () => {
       // The local half of the primary question. A node not running the g:
       // component cannot be the one writing, and that needs no FDM - which is
@@ -5638,6 +7030,22 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       // The pre-rename prefix is four characters, not five.
       expect(await isComponentRunningLocally('olderapp')).to.equal(true);
       expect(await isComponentRunningLocally('server_someotherapp')).to.equal(false);
+    });
+
+    it('names the devices of the nodes that have announced a shutdown', async () => {
+      // A peer shutting down still reads as a complete, connected copy until its
+      // syncthing stops; the safety check has to be told which peers those are.
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+      sinon.stub(registryManager, 'shuttingDownNodes').resolves(['5.6.7.8:16127']);
+      sinon.stub(syncthingService, 'getConfigDevices').resolves([
+        { name: '5.6.7.8:16127', deviceID: 'DEV-LEAVING' },
+        { name: '9.9.9.9:16127', deviceID: 'DEV-STAYING' },
+      ]);
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      const { shuttingDownDevices } = evacuationSafety.canSafelyRemoveApp.firstCall.args[1];
+      expect([...(await shuttingDownDevices())]).to.deep.equal(['DEV-LEAVING']);
     });
 
     it('treats an unreadable container list as "running here" rather than "not running"', async () => {

@@ -14,13 +14,17 @@
 // is the one thing here that must not be remembered: carried into the next pass
 // it would report a recovered holder as dead, or a dead one as serving, which is
 // the judgement this whole path exists to make.
+const { performance } = require('perf_hooks');
 const axios = require('axios');
 const log = require('../../lib/log');
 const fluxCommunication = require('../fluxCommunication');
 const syncthingService = require('../syncthingService');
 const globalState = require('../utils/globalState');
-const { extractIp, extractPort } = require('../utils/socketAddressUtils');
+const { extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
 const { nodeSigner } = require('../utils/nodeSigner');
+const peerIdentityService = require('../peerIdentityService');
+const registryManager = require('../appDatabase/registryManager');
+const { SIGTERM_EXPIRY_MS } = require('../utils/appConstants');
 
 // Bounded because this runs on the pass a node is about to promote, and a slow
 // peer must not hold the promotion open.
@@ -43,9 +47,68 @@ const SERVICE_UNAVAILABLE = 503;
 const MIN_RESPONDING_PEER_FRACTION = 0.5;
 
 /**
+ * The signed body that asks a peer for what it holds, or null when this node cannot
+ * sign as itself.
+ *
+ * Signed for ONE recipient, one moment and one call: `target` is the peer being asked,
+ * so a body captured in flight cannot be turned on the rest of the fleet, the timestamp
+ * is read against the bound every signed Flux broadcast is held to, and `challenge` is
+ * the one the answer is signed over, which the body is sent with and the peer verifies
+ * the signature over. Built per peer because of the first of those, which is
+ * affordable: nothing is probed at all unless a folder is awaiting promotion, so this
+ * is a cold start's cost and not a steady state's.
+ *
+ * @param {string} socketAddr - the peer being asked
+ * @param {string} challenge - this call's challenge
+ * @returns {Promise<object|null>}
+ */
+async function holdingsRequest(socketAddr, challenge) {
+  const signer = await nodeSigner();
+  if (!signer) return null;
+  const body = {
+    target: socketAddr, timestamp: Date.now(), pubKey: signer.pubKey, challenge,
+  };
+  const signature = signer.sign(JSON.stringify(body));
+  if (!signature) return null;
+  return { ...body, signature };
+}
+
+/**
+ * A peer's answer as the callers read it.
+ * @param {object} answer The `data` of the reply.
+ * @returns {{reachable: boolean, answerable: boolean, ready: boolean, folders: string[], holding: object, seeding: object}}
+ */
+function readAnswer(answer) {
+  // A peer that has not completed its first monitor pass cannot tell "I hold
+  // nothing" from "I have not looked", so its empty list is not a clearance.
+  const ready = answer?.ready === true;
+  const folders = Array.isArray(answer?.folders) ? answer.folders : [];
+  // Absent on a peer too old to publish it, and on one that would not serve it to
+  // this caller. Both read as "claims nothing" - the answer that node's behaviour has
+  // always amounted to.
+  const holding = (answer && typeof answer.holding === 'object' && answer.holding) || {};
+  // Where the peer stands in deciding a cold-start seed, per folder. Absent reads as
+  // nowhere, for the same reasons.
+  const seeding = (answer && typeof answer.seeding === 'object' && answer.seeding) || {};
+  return {
+    reachable: true, answerable: true, ready, folders, holding, seeding,
+  };
+}
+
+// Answered, and what it answered is that it is not ready - which findPeerBlocking
+// Promotion blocks on, where a peer it merely cannot ask does not. The difference
+// decides whether this node seeds while that one is still starting, and that node
+// may be the one holding the copy.
+function notReady() {
+  return {
+    reachable: true, answerable: true, ready: false, folders: [], holding: {}, seeding: {},
+  };
+}
+
+/**
  * Ask one peer what it is holding.
  *
- * Three outcomes, because the callers need to tell them apart:
+ * The outcomes the callers need to tell apart:
  *
  *   REACHABLE AND ANSWERABLE - the peer replied with an answer. `ready` and
  *   `folders` carry it.
@@ -61,83 +124,85 @@ const MIN_RESPONDING_PEER_FRACTION = 0.5;
  *   NOT REACHABLE - no reply at all. Whether the peer is dead or this node is cut
  *   off is the question its callers then have to answer.
  *
+ *   MISROUTED - a different node answered at the address. Reachable and not
+ *   answerable, and flagged `misrouted` so a caller can tell it from an old peer.
+ *
+ *   UNPROVEN - a reply that does not prove it came from a peer that can prove who
+ *   it is. Reachable and not answerable, and flagged `unproven`: it came from
+ *   somewhere else, and says nothing of the peer.
+ *
  * @param {string} socketAddr Peer socket address
- * @returns {Promise<{reachable: boolean, answerable: boolean, ready: boolean, folders: string[], holding: object}>}
+ * @returns {Promise<{reachable: boolean, answerable: boolean, misrouted?: boolean, unproven?: boolean, ready: boolean, folders: string[], holding: object, seeding: object}>}
  */
-/**
- * The signed body that asks a peer for what it holds, or null when this node cannot
- * sign as itself.
- *
- * Signed for ONE recipient and one moment: `target` is the peer being asked, so a body
- * captured in flight cannot be turned on the rest of the fleet, and the timestamp is
- * read against the bound every signed Flux broadcast is held to. Built per peer because
- * of the first of those, which is affordable: nothing is probed at all unless a folder
- * is awaiting promotion, so this is a cold start's cost and not a steady state's.
- *
- * @param {string} socketAddr - the peer being asked
- * @returns {Promise<object|null>}
- */
-async function holdingsRequest(socketAddr) {
-  const signer = await nodeSigner();
-  if (!signer) return null;
-  const body = { target: socketAddr, timestamp: Date.now(), pubKey: signer.pubKey };
-  const signature = signer.sign(JSON.stringify(body));
-  if (!signature) return null;
-  return { ...body, signature };
-}
-
 async function probePeer(socketAddr) {
   const ip = extractIp(socketAddr);
   const port = extractPort(socketAddr);
+  const { IdentityVerdict, AnswerPurpose } = peerIdentityService;
+
+  // Signed both ways. The request, because `holding` is the tenant's data and the
+  // peer serves it to a node or to the Flux team and to nobody else; a node that
+  // cannot sign as itself asks without it and is answered without `holding`. The
+  // answer, over a challenge only this call carries, because every answer here is
+  // filed as this peer's.
+  const asked = await peerIdentityService.askSigned(
+    socketAddr,
+    '/apps/promotedfolders',
+    AnswerPurpose.PROMOTED_FOLDERS,
+    async (challenge) => (await holdingsRequest(socketAddr, challenge)) ?? {},
+    { timeout: PROBE_TIMEOUT_MS },
+  );
+
+  if (asked.verdict === IdentityVerdict.VERIFIED) return readAnswer(asked.answer);
+  if (asked.verdict === IdentityVerdict.MISROUTED) {
+    log.info(`peerFolderLiveness - a call to ${ip} was answered by ${asked.answeredAs}; nothing it holds is known`);
+    return {
+      reachable: true, answerable: false, misrouted: true, ready: false, folders: [], holding: {}, seeding: {},
+    };
+  }
+  if (asked.verdict === IdentityVerdict.UNREACHABLE) {
+    log.info(`peerFolderLiveness - could not read ${ip}: ${asked.reason}`);
+    return {
+      reachable: false, answerable: false, ready: false, folders: [], holding: {}, seeding: {},
+    };
+  }
+
+  // 503 IS AN ANSWER, and a blocker, so it needs no proof: a node that cannot yet
+  // say who its peers are refuses rather than waiting, so it can say so in
+  // milliseconds.
+  if (asked.status === SERVICE_UNAVAILABLE) {
+    log.info(`peerFolderLiveness - ${ip} is up and not ready yet`);
+    return notReady();
+  }
+  if (!asked.mayReadUnsigned) {
+    log.info(`peerFolderLiveness - a reply from ${ip} does not prove it came from that node; nothing it holds is known`);
+    return {
+      reachable: true, answerable: false, unproven: true, ready: false, folders: [], holding: {}, seeding: {},
+    };
+  }
+
+  // A peer that cannot prove who it is at all is read unsigned: its reply when it
+  // had the route, and the open GET when it did not.
+  if (asked.status >= 200 && asked.status < 300) return readAnswer(asked.data?.data);
   try {
-    // Signed, because `holding` is the tenant's data and the peer serves it to a node
-    // or to the Flux team and to nobody else. A peer that has not upgraded has no POST
-    // route and answers 404, and a node that cannot sign as itself sends nothing to
-    // sign - both fall back to the open GET, which is what this asked for before the
-    // holdings existed. Either way the answer carries no `holding`, the peer reads as
-    // claiming nothing, and the election falls back to the address order.
-    const request = await holdingsRequest(socketAddr);
-    const url = `http://${ip}:${port}/apps/promotedfolders`;
-    const response = request
-      ? await axios.post(url, request, { timeout: PROBE_TIMEOUT_MS }).catch((error) => {
-        if (!error.response) throw error;
-        // 503 IS AN ANSWER, and it is the one answer the fallback must not cover.
-        // A node that cannot yet say who its peers are refuses rather than waiting,
-        // so it can say so in milliseconds - and what it is saying is "alive, not
-        // ready", which is a blocker. Falling back to the open GET would turn that
-        // into "ready, holding nothing", because the GET reports syncthing's
-        // readiness and the two flags are set by different passes.
-        if (error.response.status === SERVICE_UNAVAILABLE) throw error;
-        return axios.get(url, { timeout: PROBE_TIMEOUT_MS });
-      })
-      : await axios.get(url, { timeout: PROBE_TIMEOUT_MS });
-    const answer = response.data?.data;
-    // A peer that has not completed its first monitor pass cannot tell "I hold
-    // nothing" from "I have not looked", so its empty list is not a clearance.
-    const ready = answer?.ready === true;
-    const folders = Array.isArray(answer?.folders) ? answer.folders : [];
-    // Absent on a peer too old to publish it, and on one that would not serve it to
-    // this caller. Both read as "claims nothing" - the answer that node's behaviour has
-    // always amounted to.
-    const holding = (answer && typeof answer.holding === 'object' && answer.holding) || {};
-    return { reachable: true, answerable: true, ready, folders, holding };
+    const response = await axios.get(`http://${ip}:${port}/apps/promotedfolders`, { timeout: PROBE_TIMEOUT_MS });
+    return readAnswer(response.data?.data);
   } catch (error) {
     // error.response exists only when the peer sent one, so this separates a
     // reply we cannot use from no reply at all.
     if (error.response) {
-      // Answered, and what it answered is that it is not ready - which findPeerBlocking
-      // Promotion blocks on, where a peer it merely cannot ask does not. The difference
-      // decides whether this node seeds while that one is still starting, and that node
-      // may be the one holding the copy.
       if (error.response.status === SERVICE_UNAVAILABLE) {
         log.info(`peerFolderLiveness - ${ip} is up and not ready yet`);
-        return { reachable: true, answerable: true, ready: false, folders: [], holding: {} };
+        return notReady();
       }
       log.info(`peerFolderLiveness - ${ip} answered ${error.response.status} and cannot say which folders it holds`);
-      return { reachable: true, answerable: false, ready: false, folders: [], holding: {} };
+      return {
+        reachable: true, answerable: false, ready: false, folders: [], holding: {}, seeding: {},
+      };
     }
     log.info(`peerFolderLiveness - could not read ${ip}: ${error.message}`);
-    return { reachable: false, answerable: false, ready: false, folders: [], holding: {} };
+    return {
+      reachable: false, answerable: false, ready: false, folders: [], holding: {}, seeding: {},
+    };
   }
 }
 
@@ -147,7 +212,7 @@ async function probePeer(socketAddr) {
  * `read` answers from that set or asks on demand for a peer it did not cover.
  * Both share one map of in-flight requests, so a peer is never asked twice even
  * when the two paths race.
- * @returns {{read: Function, prewarm: Function, localConnectivity: Function}}
+ * @returns {{read: Function, reread: Function, prewarm: Function, localConnectivity: Function}}
  */
 function createPeerFolderLiveness() {
   const answers = new Map();
@@ -160,6 +225,18 @@ function createPeerFolderLiveness() {
 
   return {
     read,
+
+    /**
+     * Ask a peer again, now, and keep the new answer for the rest of the pass. For a
+     * decision that has to see what the peer is doing at the moment it is made,
+     * which the answer the pass opened with may predate.
+     * @param {string} socketAddr Peer socket address
+     * @returns {Promise<object>} As read.
+     */
+    reread(socketAddr) {
+      answers.set(socketAddr, probePeer(socketAddr));
+      return answers.get(socketAddr);
+    },
 
     /**
      * Ask every given peer at once. Duplicates collapse, and a peer already read
@@ -191,6 +268,29 @@ function createPeerFolderLiveness() {
   };
 }
 
+// How long this node's syncthing must have been up before a peer it was once
+// connected to, and has not reconnected to since, counts as gone: the time the
+// network gives a node to come back from a restart. A live peer redials within
+// a minute or two.
+const RECONNECT_GRACE_MS = SIGTERM_EXPIRY_MS;
+
+// The syncthing start time this FluxOS last read, and when it first read it on
+// its own monotonic clock: never earlier than that syncthing started, and not
+// moved when the system clock is stepped, as it is on a node that booted with
+// a wrong clock and then synced it.
+let observedSyncthing = { startTime: null, atMs: 0 };
+
+/**
+ * How long this FluxOS has known the syncthing that started at `startTime`.
+ * @param {string} startTime syncthing's own start time, as it reports it
+ * @returns {number} milliseconds
+ */
+function msSinceSyncthingObserved(startTime) {
+  const now = performance.now();
+  if (observedSyncthing.startTime !== startTime) observedSyncthing = { startTime, atMs: now };
+  return now - observedSyncthing.atMs;
+}
+
 const PeerConnection = Object.freeze({
   CONNECTED: 'connected',
   DISCONNECTED: 'disconnected',
@@ -199,14 +299,28 @@ const PeerConnection = Object.freeze({
 
 /**
  * Why this node cannot hear a peer. `GONE` is the only answer that authorises
- * acting on the silence; the other three are reasons to leave the peer alone.
+ * acting on the silence; the others are reasons to leave the peer alone.
  */
 const SilenceVerdict = Object.freeze({
   GONE: 'gone',
   CONNECTION_ALIVE: 'connectionAlive',
   NO_EVIDENCE: 'noEvidence',
+  RESTARTING: 'restarting',
   LOCALLY_ISOLATED: 'locallyIsolated',
 });
+
+/**
+ * Whether a peer announced a shutdown less than SIGTERM_EXPIRY_MS ago and has
+ * not announced its apps running since: the time the network gives it to come
+ * back from a reboot, before its locations expire.
+ * @param {string} peerIp The peer's socket address
+ * @returns {Promise<boolean|null>} null when the announcements cannot be read
+ */
+async function announcedShutdown(peerIp) {
+  const departing = await registryManager.shuttingDownNodes().catch(() => null);
+  if (!Array.isArray(departing)) return null;
+  return departing.some((address) => socketAddressesMatch(address, peerIp));
+}
 
 /**
  * The syncthing device id this node knows the peer by, or null.
@@ -246,7 +360,16 @@ async function peerDeviceId(peerIp) {
  * evidence. 'disconnected' is an answer - this node's syncthing was asked
  * about the device and does not consider it connected. 'unknown' is the
  * absence of one - the peer's device is in neither this node's cache nor its
- * syncthing's own device config, or this node's syncthing did not answer.
+ * syncthing's own device config, this node's syncthing did not answer, or it
+ * has never been connected to the device. A connection that was never up says
+ * nothing about the peer: a node placed minutes ago may not have reached it
+ * yet, and reading that as a closed connection would let it start beside a
+ * primary whose FluxOS is only restarting. Nor does a connection this node's
+ * syncthing closed by pausing the device, as a syncthing started paused does
+ * with every device until the monitor resumes them. A connection that closed
+ * before this node's syncthing last started is 'disconnected' only once this
+ * FluxOS has known that syncthing for RECONNECT_GRACE_MS and the peer has not
+ * reconnected to it.
  * Collapsing 'unknown' into 'disconnected' would let the one node with the
  * least knowledge authorise a second writer.
  *
@@ -269,7 +392,34 @@ async function peerSyncthingConnection(folderId, peerIp) {
   }).catch(() => null);
 
   if (!completion) return PeerConnection.UNKNOWN;
-  return completion.remoteState === 'valid' ? PeerConnection.CONNECTED : PeerConnection.DISCONNECTED;
+  if (completion.remoteState === 'valid') return PeerConnection.CONNECTED;
+
+  // A device this node's syncthing has paused is disconnected by this node, not
+  // by the peer; a config that cannot be read cannot rule that out.
+  const devices = await syncthingService.getConfigDevices().catch(() => null);
+  if (!Array.isArray(devices)) return PeerConnection.UNKNOWN;
+  if (devices.find((device) => device.deviceID === deviceId)?.paused) return PeerConnection.UNKNOWN;
+
+  const stats = await syncthingService.getDeviceStats().catch(() => null);
+  const lastSeen = Date.parse(stats?.[deviceId]?.lastSeen);
+
+  // Both times are rounded down to the second, so a connection closed as the
+  // previous syncthing stopped can read the same second as this one's start;
+  // only a later second is a closing this syncthing saw.
+  const status = await syncthingService.getSystemStatus().catch(() => null);
+  const startedAt = Date.parse(status?.startTime);
+  if (!(startedAt > 0)) return PeerConnection.UNKNOWN;
+  if (lastSeen > startedAt) return PeerConnection.DISCONNECTED;
+
+  // One that closed before this syncthing started says nothing at first: a
+  // syncthing that has just started has not reconnected to anyone. A peer that
+  // has still not reconnected once the grace has passed is gone. One never
+  // connected, which syncthing records as 1970, may be a node placed minutes
+  // ago that has not reached this one yet.
+  if (lastSeen > 0 && msSinceSyncthingObserved(status.startTime) > RECONNECT_GRACE_MS) {
+    return PeerConnection.DISCONNECTED;
+  }
+  return PeerConnection.UNKNOWN;
 }
 
 /**
@@ -288,6 +438,11 @@ async function peerSyncthingConnection(folderId, peerIp) {
  * whose peers have all gone quiet is the one that fell over, and the peer is
  * very likely still serving on the other side of the split.
  *
+ * A peer that announced its shutdown is rebooting until SIGTERM_EXPIRY_MS has
+ * passed: its closed connection is the reboot, and a node back within that
+ * time keeps what it holds. Once it has passed, the closed connection is
+ * evidence again.
+ *
  * @param {string} folderId
  * @param {string} peerIp
  * @param {Object} liveness This pass's peer view
@@ -297,6 +452,9 @@ async function silenceVerdict(folderId, peerIp, liveness) {
   const connection = await peerSyncthingConnection(folderId, peerIp);
   if (connection === PeerConnection.CONNECTED) return SilenceVerdict.CONNECTION_ALIVE;
   if (connection === PeerConnection.UNKNOWN) return SilenceVerdict.NO_EVIDENCE;
+  const shutdown = await announcedShutdown(peerIp);
+  if (shutdown === null) return SilenceVerdict.NO_EVIDENCE;
+  if (shutdown) return SilenceVerdict.RESTARTING;
   if (!liveness.localConnectivity().connected) return SilenceVerdict.LOCALLY_ISOLATED;
   return SilenceVerdict.GONE;
 }
@@ -307,4 +465,5 @@ module.exports = {
   SilenceVerdict,
   PROBE_TIMEOUT_MS,
   MIN_RESPONDING_PEER_FRACTION,
+  RECONNECT_GRACE_MS,
 };
