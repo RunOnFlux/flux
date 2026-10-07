@@ -3350,12 +3350,13 @@ describe('fluxNetworkHelper tests', () => {
       });
     });
 
-    it('lets replies and DNS through before any drop, and nothing towards a bridge', () => {
+    it('lets replies, traffic within one bridge and DNS through before any drop, and nothing towards a bridge', () => {
       const rules = fluxNetworkHelper.containerEgressRules();
       const firstDrop = rules.findIndex((rule) => rule.endsWith('-j DROP'));
       const before = rules.slice(0, firstDrop);
 
       expect(rules[0]).to.equal('-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN');
+      expect(before).to.include('-A DOCKER-USER -m physdev --physdev-is-bridged -j RETURN');
       expect(rules.filter((rule) => / -o /.test(rule))).to.deep.equal([]);
       ['docker0', 'br-+'].forEach((bridge) => ['udp', 'tcp'].forEach((proto) => {
         expect(before).to.include(`-A DOCKER-USER -i ${bridge} -p ${proto} -m ${proto} --dport 53 -j RETURN`);
