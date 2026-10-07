@@ -23,6 +23,13 @@
 #   dns-route           a VPN client's DNS leak protection: routes to the
 #                       public resolvers 1.1.1.1 and 8.8.8.8 alone over a
 #                       tunnel device, the default left on the fleet device
+#   silent-dns          the node's own DNS server never answers, and the
+#                       public resolvers FluxOS asks next are the fleet's
+#                       resolver (FLUX_E2E_RESOLVER). The silent server is
+#                       192.0.2.1, which nothing on the internal fleet network
+#                       holds; a target-less rule counts the queries sent to it
+#                       without failing their send. Everything in the node that
+#                       resolves through /etc/resolv.conf meets the silent server.
 set -euo pipefail
 
 shape="$1"
@@ -74,6 +81,17 @@ case "$shape" in
     ip link set wg2 up
     ip route add 1.1.1.1/32 dev wg2
     ip route add 8.8.8.8/32 dev wg2
+    ;;
+  silent-dns)
+    : "${FLUX_E2E_RESOLVER:?}"
+    echo 'nameserver 192.0.2.1' > /etc/resolv.conf
+    iptables -A OUTPUT -d 192.0.2.1 -p udp --dport 53
+    # dnsLookup.js's PUBLIC_DNS_SERVERS.
+    for resolver in 1.1.1.1 8.8.8.8 9.9.9.9; do
+      for proto in udp tcp; do
+        iptables -t nat -A OUTPUT -d "$resolver" -p "$proto" --dport 53 -j DNAT --to-destination "$FLUX_E2E_RESOLVER:53"
+      done
+    done
     ;;
   *)
     echo "network-shapes: unknown shape '$shape'" >&2

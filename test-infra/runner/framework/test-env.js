@@ -1364,7 +1364,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       // entrypoint installs it before FluxOS starts; see the note there.
       ...(staticIp ? { FLUX_E2E_DEFAULT_ROUTE: subnet.gateway } : {}),
       // Built by the entrypoint after the default route, before FluxOS starts.
-      ...(networkShapes[i] ? { FLUX_E2E_NETWORK_SHAPE: networkShapes[i] } : {}),
+      ...(networkShapes[i] ? { FLUX_E2E_NETWORK_SHAPE: networkShapes[i], FLUX_E2E_RESOLVER: EXTERNAL_STUB_IP } : {}),
     };
     if (syncthing === 'binary') {
       // the node runs its own daemon and binds apiport+2 itself, so there is
