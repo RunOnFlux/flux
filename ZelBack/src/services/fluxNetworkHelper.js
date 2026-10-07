@@ -2329,10 +2329,6 @@ async function ensureUfwDefaults() {
 
 // The docker networks app containers are on.
 const fluxAppDockerNetworks = '172.23.0.0/16';
-// Applies a node's own firewall rules to ufw in one pass, under ufw's lock.
-const nodeFirewallApplier = path.join(__dirname, '../../../helpers/ufw/apply-node-firewall.py');
-// The applier's exit code when ufw's lock was not free within its wait.
-const UFW_LOCK_UNAVAILABLE = 75;
 /**
  * Reports a firewall step that stopped because another ufw command held ufw's lock.
  */
@@ -2389,13 +2385,13 @@ async function adjustFirewall() {
     }
     const rules = await nodeFirewallRules();
 
-    const { stdout, stderr, error } = await serviceHelper.runCommand('python3', {
+    const { stdout, stderr, error } = await ufw.oneAtATime(() => serviceHelper.runCommand('python3', {
       runAsRoot: true,
       logError: false,
-      params: [nodeFirewallApplier, '--wait', String(ufw.UFW_LOCK_WAIT_MS / 1000), '--rules', JSON.stringify(rules)],
+      params: [ufw.UFW_HELPER, '--wait', String(ufw.UFW_LOCK_WAIT_MS / 1000), '--rules', JSON.stringify(rules)],
       timeout: 2 * ufw.UFW_LOCK_WAIT_MS,
-    });
-    if (error?.code === UFW_LOCK_UNAVAILABLE) {
+    }));
+    if (error?.code === ufw.UFW_LOCK_UNAVAILABLE) {
       reportUfwLocked();
       return;
     }

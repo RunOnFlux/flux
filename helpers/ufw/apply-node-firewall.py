@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
-"""Applies a node's own firewall rules to ufw in one pass, under ufw's lock.
+"""Changes ufw's rules under ufw's lock, taken before the rules are read.
 
-Two steps, both while holding the lock every ufw command takes for its whole
-run (an exclusive lockf lock on /run/ufw.lock), so no ufw command changes the
-rules between them:
+The ufw command reads the rules files and only then waits for ufw's lock, so
+two ufw commands run together read the same rules and the one that writes
+second drops the other's change. Everything here takes the lock first.
+
+With --command (a JSON list, the arguments of one ufw command), runs that
+command through ufw's own library, the code the ufw command runs, and prints
+and exits as the ufw command does: 0, or 1 with ufw's 'ERROR: ...' on stderr.
+Exits 69 having changed nothing when ufw's library cannot be used; the caller
+runs the ufw command instead.
+
+Otherwise, applies a node's own firewall rules to ufw in one pass.
+
+Two steps, both while holding ufw's lock (an exclusive lockf lock on
+/run/ufw.lock), so no ufw command changes the rules between them:
 
 1. Every outbound rule is removed from /etc/ufw/user.rules and user6.rules. A
    rule is a block in those files: its '### tuple ###' line, which is ufw's own
@@ -43,6 +54,7 @@ import tempfile
 import time
 
 LOCK_UNAVAILABLE = 75
+LIBRARY_UNUSABLE = 69
 PAT_TUPLE = re.compile(r'^### tuple ###\s*')
 
 
@@ -182,10 +194,37 @@ def take_lock(lock_path, wait_seconds):
             time.sleep(0.05)
 
 
+def run_command(args):
+    """Runs one ufw command through ufw's library, as the ufw command does."""
+    try:
+        import gettext
+        gettext.install('ufw')
+        import ufw.common
+        import ufw.frontend
+        ui = ufw.frontend.UFWFrontend(False)
+    except (Exception, SystemExit) as error:  # pylint: disable=broad-except
+        print(f'ufw library not usable: {error!r}', file=sys.stderr)
+        return LIBRARY_UNUSABLE
+    try:
+        parsed = ufw.frontend.parse_command(['ufw'] + args)
+        force = getattr(parsed, 'force', False)
+        if 'rule' in parsed.data:
+            res = ui.do_action(parsed.action, parsed.data['rule'], parsed.data['iptype'], force)
+        else:
+            res = ui.do_action(parsed.action, '', '', force)
+    except ufw.common.UFWError as error:
+        print(f'ERROR: {error.value}', file=sys.stderr)
+        return 1
+    if res:
+        print(res)
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--lock', default='/run/ufw.lock')
     parser.add_argument('--wait', type=float, default=30)
+    parser.add_argument('--command', type=json.loads)
     parser.add_argument('--rules', type=json.loads, default=[])
     parser.add_argument('files', nargs='*', default=['/etc/ufw/user.rules', '/etc/ufw/user6.rules'])
     args = parser.parse_args()
@@ -194,6 +233,12 @@ def main():
     if lock is None:
         print(f'ufw lock {args.lock} not free within {args.wait:g}s', file=sys.stderr)
         return LOCK_UNAVAILABLE
+
+    if args.command is not None:
+        try:
+            return run_command(args.command)
+        finally:
+            lock.close()
 
     # ufw's library prints its own messages to the stdout it saw when it was
     # imported, so stdout's descriptor points at stderr until the result is

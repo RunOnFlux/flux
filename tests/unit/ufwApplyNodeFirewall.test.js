@@ -126,6 +126,8 @@ describe('ufw apply-node-firewall helper', () => {
       '        # as ufw does where a path it checks is not root-owned, as on every legacy node',
       '        warn("uid is 0 but \'/flux\' is owned by 1000")',
       '        self.dryrun = dryrun',
+      '        # where ufw reads the rules files',
+      `        open(${JSON.stringify(path.join(dir, 'loaded'))}, "a").write("loaded\\n")`,
       '    def do_action(self, action, rule, ip_version, force):',
       `        if ${JSON.stringify(behaviour)} == "wrong-signature": raise TypeError("do_action() takes 3 arguments")`,
       '        msg("Rule added")',
@@ -143,6 +145,48 @@ describe('ufw apply-node-firewall helper', () => {
   };
   const runWithRules = (files, rules, behaviour) => spawnSync('python3', [helper, '--lock', lockPath, '--wait', '2', '--rules', JSON.stringify(rules), ...files], {
     encoding: 'utf8', env: { ...process.env, PYTHONPATH: fakeUfw(behaviour) },
+  });
+
+  const runCommandMode = (command, behaviour, wait = 2) => spawnSync('python3', [helper, '--lock', lockPath, '--wait', String(wait), '--command', JSON.stringify(command)], {
+    encoding: 'utf8', env: { ...process.env, PYTHONPATH: fakeUfw(behaviour) },
+  });
+  const loaded = () => fs.existsSync(path.join(dir, 'loaded'));
+
+  describe('one command', () => {
+    it('runs it through ufw\'s library and prints what ufw prints, exiting 0', () => {
+      const result = runCommandMode(['allow', 'from', '::/0', 'to', 'any', 'port', '31000']);
+
+      expect(result.status, result.stderr).to.equal(0);
+      expect(result.stdout).to.equal('Rule added\n');
+      expect(applied()).to.deep.equal([['allow', 'from ::/0 to any port 31000', 'both', false, false]]);
+    });
+
+    it('exits 1 with ufw\'s error when ufw refuses it', () => {
+      const result = runCommandMode(['refuse']);
+
+      expect(result.status).to.equal(1);
+      expect(result.stderr).to.include('ERROR: Could not find a profile matching refuse');
+    });
+
+    ['broken-constructor', 'exiting-constructor'].forEach((behaviour) => {
+      it(`exits 69 having applied nothing when ufw's library cannot be used (${behaviour})`, () => {
+        const result = runCommandMode(['allow', '31000'], behaviour);
+
+        expect(result.status).to.equal(69);
+        expect(result.stderr).to.include('ufw library not usable');
+        expect(applied()).to.deep.equal([]);
+      });
+    });
+
+    it('reads no rules while another holds the lock, and exits 75 when it stays held for the whole wait', async () => {
+      await holdLock();
+
+      const result = runCommandMode(['allow', '31000'], '', 0.3);
+
+      expect(result.status).to.equal(75);
+      expect(loaded(), 'ufw read the rules before it had the lock').to.equal(false);
+      expect(applied()).to.deep.equal([]);
+    });
   });
 
   it('applies the rules through ufw\'s library in order, after removing the outbound rules, with stdout only its result', () => {

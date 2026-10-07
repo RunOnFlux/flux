@@ -1,29 +1,63 @@
 const fs = require('node:fs/promises');
+const path = require('node:path');
 const serviceHelper = require('../serviceHelper');
 
-// How long FluxOS waits on ufw's lock, which every ufw command holds for its
-// whole run. ufw's slowest ordinary hold, a reload of ~100 rules, is under 2 s,
-// so a lock held this long is held by a command that is not ending.
+// How long FluxOS waits on ufw's lock. ufw's slowest ordinary hold, a reload
+// of ~100 rules, is under 2 s, so a lock held this long is held by a command
+// that is not ending.
 const UFW_LOCK_WAIT_MS = 30000;
+// The exit code of a ufw helper that found the lock held past its wait.
+const UFW_LOCK_UNAVAILABLE = 75;
+// The helper's exit code when ufw's library cannot be used.
+const UFW_LIBRARY_UNUSABLE = 69;
+
+// Changes ufw's rules with ufw's lock taken before the rules are read.
+const UFW_HELPER = path.join(__dirname, '../../../../helpers/ufw/apply-node-firewall.py');
+
+let previous = Promise.resolve();
 
 /**
- * Runs one ufw command as root. ufw waits on its lock for as long as another
- * ufw command holds it; this waits at most UFW_LOCK_WAIT_MS, and a command that
- * ran out of the wait is reported as locked. A ufw command killed while waiting
- * on the lock has changed nothing.
+ * Runs a task once every ufw task FluxOS started before it has ended, so no two
+ * of FluxOS's ufw commands run at once.
+ * @template T
+ * @param {function(): Promise<T>} task
+ * @returns {Promise<T>}
+ */
+function oneAtATime(task) {
+  const run = previous.then(task);
+  previous = run.catch(() => {});
+  return run;
+}
+
+/**
+ * Runs one ufw command as root, through helpers/ufw/apply-node-firewall.py: it takes
+ * ufw's lock before reading the rules, which the ufw command does not, so a
+ * command run while another changes the rules never writes back what it read
+ * before that change. The lock is waited for at most UFW_LOCK_WAIT_MS; a command
+ * that ran out of the wait changed nothing and is reported as locked. Where
+ * ufw's library cannot be used, the ufw command runs it.
  * @param {string[]} params The ufw command's arguments.
  * @returns {Promise<{error: (Error|null), stdout: string, stderr: string, locked: boolean}>}
  */
 async function runUfw(params) {
-  // runCommand puts the command in front of the params it is given
-  const { error, stdout, stderr } = await serviceHelper.runCommand('ufw', {
-    runAsRoot: true, logError: false, params: [...params], timeout: UFW_LOCK_WAIT_MS,
+  const { error, stdout, stderr } = await oneAtATime(async () => {
+    const ran = await serviceHelper.runCommand('python3', {
+      runAsRoot: true,
+      logError: false,
+      params: [UFW_HELPER, '--wait', String(UFW_LOCK_WAIT_MS / 1000), '--command', JSON.stringify(params)],
+      timeout: 2 * UFW_LOCK_WAIT_MS,
+    });
+    if (ran.error?.code !== UFW_LIBRARY_UNUSABLE) return ran;
+    // runCommand puts the command in front of the params it is given
+    return serviceHelper.runCommand('ufw', {
+      runAsRoot: true, logError: false, params: [...params], timeout: UFW_LOCK_WAIT_MS,
+    });
   });
   return {
     error,
     stdout: serviceHelper.ensureString(stdout),
     stderr: serviceHelper.ensureString(stderr),
-    locked: Boolean(error?.killed),
+    locked: error?.code === UFW_LOCK_UNAVAILABLE || Boolean(error?.killed),
   };
 }
 
@@ -61,9 +95,12 @@ async function isFirewallActive() {
 }
 
 module.exports = {
+  UFW_HELPER,
+  UFW_LOCK_UNAVAILABLE,
   UFW_LOCK_WAIT_MS,
   ipv6Filtered,
   isFirewallActive,
+  oneAtATime,
   runUfw,
   ufwEnabled,
 };
