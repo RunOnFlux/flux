@@ -32,6 +32,11 @@ const sessionUnits = 'fluxadm-sshd@*.service';
 const ufwBinaryPath = '/usr/sbin/ufw';
 // The openssh-server package's own units: a general-purpose sshd on port 22.
 const distroSshdUnits = ['ssh.service', 'ssh.socket'];
+// Debian's hook for package installs: a policy-rc.d that exits 101 stops every
+// maintainer script starting a service. Held only across FluxOS's own install
+// of openssh-server, and marked so a copy left by an interrupted one is known.
+const policyRcPath = '/usr/sbin/policy-rc.d';
+const policyRc = '#!/bin/sh\n# FluxOS: no service starts while it installs openssh-server.\nexit 101\n';
 
 const reconcileIntervalMs = 60 * 60 * 1000;
 // used when the ArcaneOS confirmation is indeterminate (fluxbenchd not up yet)
@@ -323,38 +328,47 @@ StandardInput=socket
 
 /**
  * Installs openssh-server for the sshd binary and host keys the maintenance
- * instance needs, leaving the package's own sshd installed but disabled. Its
- * units are masked across the install so the package cannot start them, then
- * unmasked and disabled; any failure leaves them masked, so port 22 never opens.
+ * sshd needs, leaving the package's own sshd installed and disabled, as a node
+ * owner would disable it. The install runs with service starts held off, so
+ * the package's sshd never starts and port 22 never opens; the package records
+ * its units' state as on any install, so an upgrade keeps them disabled. A
+ * policy-rc.d that is not FluxOS's is never replaced: the install waits for a
+ * node without one.
  * @returns {Promise<boolean>}
  */
 async function installOpensshServer() {
-  const systemctl = (params) => serviceHelper.runCommand('systemctl', { runAsRoot: true, params });
-  const leftMasked = `${distroSshdUnits.join(' and ')} left masked`;
-
-  const { error: maskError } = await systemctl(['mask', ...distroSshdUnits]);
-  if (maskError) {
-    log.error('fluxadm access - cannot mask the openssh-server units, not installing it');
+  const existing = await readFileIfExists(policyRcPath);
+  if (existing !== null && existing !== policyRc) {
+    log.error(`fluxadm access - ${policyRcPath} is the node owner's, not installing openssh-server`);
+    return false;
+  }
+  if (existing === null && !(await installFileAsRoot(policyRc, policyRcPath, { mode: '0755' }))) {
+    log.error(`fluxadm access - cannot hold service starts with ${policyRcPath}, not installing openssh-server`);
     return false;
   }
 
-  const installError = await systemService.upgradePackage('openssh-server');
+  let installError;
+  try {
+    installError = await systemService.upgradePackage('openssh-server');
+  } finally {
+    const { error: rmError } = await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-f', policyRcPath] });
+    if (rmError) log.error(`fluxadm access - could not remove ${policyRcPath}; no package can start a service until it is removed`);
+  }
   if (installError) {
-    log.error(`fluxadm access - openssh-server is not installable, cannot start maintenance sshd; ${leftMasked}`);
+    log.error('fluxadm access - openssh-server is not installable, cannot start maintenance sshd');
     return false;
   }
 
-  const { error: unmaskError } = await systemctl(['unmask', ...distroSshdUnits]);
-  if (!unmaskError) {
-    const { error: disableError } = await systemctl(['disable', ...distroSshdUnits]);
-    if (!disableError) {
-      log.info('fluxadm access - openssh-server installed, its own sshd left disabled');
-      return true;
-    }
-    await systemctl(['mask', ...distroSshdUnits]);
+  const { error: disableError } = await serviceHelper.runCommand('systemctl', {
+    runAsRoot: true,
+    params: ['disable', ...distroSshdUnits],
+  });
+  if (disableError) {
+    log.error(`fluxadm access - openssh-server installed, but ${distroSshdUnits.join(' and ')} could not be disabled`);
+    return false;
   }
-  log.error(`fluxadm access - openssh-server installed, ${leftMasked}`);
-  return false;
+  log.info('fluxadm access - openssh-server installed, its own sshd disabled');
+  return true;
 }
 
 /**
@@ -369,6 +383,10 @@ async function installOpensshServer() {
 async function ensureSshdInstance(port) {
   const sshdPresent = await fs.access(sshdBinaryPath).then(() => true).catch(() => false);
   if (!sshdPresent && !(await installOpensshServer())) return false;
+  // a hold left by an install that was interrupted after the package went in
+  if (sshdPresent && (await readFileIfExists(policyRcPath)) === policyRc) {
+    await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-f', policyRcPath] });
+  }
 
   const desiredConfig = buildSshdConfig();
   if ((await readFileIfExists(sshdConfigPath)) !== desiredConfig) {

@@ -426,16 +426,20 @@ describe('fluxadmService tests', () => {
     });
 
     describe('when sshd is missing', () => {
-      const distroUnits = ['ssh.service', 'ssh.socket'];
-      const systemctlCall = (verb) => sinon.match({ runAsRoot: true, params: [verb, ...distroUnits] });
+      const policyRc = '#!/bin/sh\n# FluxOS: no service starts while it installs openssh-server.\nexit 101\n';
+      const disableDistro = sinon.match({ runAsRoot: true, params: ['disable', 'ssh.service', 'ssh.socket'] });
+      const holdInstalled = sinon.match({ params: sinon.match.array.endsWith(['/usr/sbin/policy-rc.d']) });
+      const holdRemoved = sinon.match({ params: ['-f', '/usr/sbin/policy-rc.d'] });
       let upgradeStub;
+      let readFileStub;
 
       beforeEach(() => {
         sinon.stub(fs, 'access').rejects(new Error('missing'));
-        sinon.stub(fs, 'readFile')
-          .withArgs('/etc/ssh/fluxadm_sshd_config', 'utf-8').resolves(fluxadmService.buildSshdConfig())
-          .withArgs('/etc/systemd/system/fluxadm-sshd.socket', 'utf-8').resolves(fluxadmService.buildSocketUnit(16122))
-          .withArgs('/etc/systemd/system/fluxadm-sshd@.service', 'utf-8').resolves(fluxadmService.buildSessionUnit());
+        readFileStub = sinon.stub(fs, 'readFile');
+        readFileStub.withArgs('/etc/ssh/fluxadm_sshd_config', 'utf-8').resolves(fluxadmService.buildSshdConfig());
+        readFileStub.withArgs('/etc/systemd/system/fluxadm-sshd.socket', 'utf-8').resolves(fluxadmService.buildSocketUnit(16122));
+        readFileStub.withArgs('/etc/systemd/system/fluxadm-sshd@.service', 'utf-8').resolves(fluxadmService.buildSessionUnit());
+        readFileStub.withArgs('/usr/sbin/policy-rc.d', 'utf-8').rejects(new Error('missing'));
         runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-enabled', 'fluxadm-sshd.socket'] }))
           .resolves({ ...cmdOk, stdout: 'enabled\n' });
         runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-active', 'fluxadm-sshd.socket'] }))
@@ -443,54 +447,91 @@ describe('fluxadmService tests', () => {
         upgradeStub = sinon.stub(systemService, 'upgradePackage').resolves(false);
       });
 
-      it('should mask the package\'s own units across the install, then leave them disabled', async () => {
+      it('should hold service starts across the install, then remove the hold and disable the package\'s sshd', async () => {
         const res = await fluxadmService.ensureSshdInstance(16122);
 
         expect(res).to.equal(true);
-        const mask = runCommandStub.withArgs('systemctl', systemctlCall('mask'));
-        const unmask = runCommandStub.withArgs('systemctl', systemctlCall('unmask'));
-        const disable = runCommandStub.withArgs('systemctl', systemctlCall('disable'));
         sinon.assert.calledWithExactly(upgradeStub, 'openssh-server');
-        sinon.assert.callOrder(mask, upgradeStub, unmask, disable);
-        sinon.assert.calledOnce(mask);
+        sinon.assert.callOrder(
+          runCommandStub.withArgs('install', holdInstalled),
+          upgradeStub,
+          runCommandStub.withArgs('rm', holdRemoved),
+          runCommandStub.withArgs('systemctl', disableDistro),
+        );
+        sinon.assert.neverCalledWith(runCommandStub, 'systemctl', sinon.match({ params: sinon.match.array.startsWith(['mask']) }));
       });
 
-      it('should not install when the units cannot be masked', async () => {
-        runCommandStub.withArgs('systemctl', systemctlCall('mask')).resolves({ ...cmdFail });
+      it('should never replace a policy-rc.d that is not FluxOS\'s', async () => {
+        readFileStub.withArgs('/usr/sbin/policy-rc.d', 'utf-8').resolves('#!/bin/sh\nexit 0\n');
 
         const res = await fluxadmService.ensureSshdInstance(16122);
 
         expect(res).to.equal(false);
         sinon.assert.notCalled(upgradeStub);
+        sinon.assert.neverCalledWith(runCommandStub, 'install', holdInstalled);
+        sinon.assert.neverCalledWith(runCommandStub, 'rm', holdRemoved);
       });
 
-      it('should leave the units masked when the install fails', async () => {
+      it('should install under its own hold left by an interrupted install, and remove it after', async () => {
+        readFileStub.withArgs('/usr/sbin/policy-rc.d', 'utf-8').resolves(policyRc);
+
+        const res = await fluxadmService.ensureSshdInstance(16122);
+
+        expect(res).to.equal(true);
+        sinon.assert.neverCalledWith(runCommandStub, 'install', holdInstalled);
+        sinon.assert.callOrder(upgradeStub, runCommandStub.withArgs('rm', holdRemoved));
+      });
+
+      it('should remove the hold when the install fails, and leave the package\'s units alone', async () => {
         upgradeStub.resolves(true);
 
         const res = await fluxadmService.ensureSshdInstance(16122);
 
         expect(res).to.equal(false);
-        sinon.assert.neverCalledWith(runCommandStub, 'systemctl', systemctlCall('unmask'));
+        sinon.assert.calledWith(runCommandStub, 'rm', holdRemoved);
+        sinon.assert.neverCalledWith(runCommandStub, 'systemctl', disableDistro);
       });
 
-      it('should not disable units it could not unmask', async () => {
-        runCommandStub.withArgs('systemctl', systemctlCall('unmask')).resolves({ ...cmdFail });
+      it('should report failure when the package\'s sshd cannot be disabled', async () => {
+        runCommandStub.withArgs('systemctl', disableDistro).resolves({ ...cmdFail });
 
         const res = await fluxadmService.ensureSshdInstance(16122);
 
         expect(res).to.equal(false);
-        sinon.assert.neverCalledWith(runCommandStub, 'systemctl', systemctlCall('disable'));
+      });
+    });
+
+    describe('when sshd is present', () => {
+      const holdRemoved = sinon.match({ params: ['-f', '/usr/sbin/policy-rc.d'] });
+      let readFileStub;
+
+      beforeEach(() => {
+        sinon.stub(fs, 'access').resolves();
+        readFileStub = sinon.stub(fs, 'readFile');
+        readFileStub.withArgs('/etc/ssh/fluxadm_sshd_config', 'utf-8').resolves(fluxadmService.buildSshdConfig());
+        readFileStub.withArgs('/etc/systemd/system/fluxadm-sshd.socket', 'utf-8').resolves(fluxadmService.buildSocketUnit(16122));
+        readFileStub.withArgs('/etc/systemd/system/fluxadm-sshd@.service', 'utf-8').resolves(fluxadmService.buildSessionUnit());
+        runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-enabled', 'fluxadm-sshd.socket'] }))
+          .resolves({ ...cmdOk, stdout: 'enabled\n' });
+        runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-active', 'fluxadm-sshd.socket'] }))
+          .resolves({ ...cmdOk, stdout: 'active\n' });
       });
 
-      it('should mask the units again when they cannot be disabled', async () => {
-        runCommandStub.withArgs('systemctl', systemctlCall('disable')).resolves({ ...cmdFail });
+      it('should remove its own hold left behind once the package went in', async () => {
+        readFileStub.withArgs('/usr/sbin/policy-rc.d', 'utf-8')
+          .resolves('#!/bin/sh\n# FluxOS: no service starts while it installs openssh-server.\nexit 101\n');
 
-        const res = await fluxadmService.ensureSshdInstance(16122);
+        await fluxadmService.ensureSshdInstance(16122);
 
-        expect(res).to.equal(false);
-        const mask = runCommandStub.withArgs('systemctl', systemctlCall('mask'));
-        sinon.assert.calledTwice(mask);
-        sinon.assert.callOrder(runCommandStub.withArgs('systemctl', systemctlCall('disable')), mask);
+        sinon.assert.calledWith(runCommandStub, 'rm', holdRemoved);
+      });
+
+      it('should leave a policy-rc.d that is not FluxOS\'s', async () => {
+        readFileStub.withArgs('/usr/sbin/policy-rc.d', 'utf-8').resolves('#!/bin/sh\nexit 101\n');
+
+        await fluxadmService.ensureSshdInstance(16122);
+
+        sinon.assert.neverCalledWith(runCommandStub, 'rm', holdRemoved);
       });
     });
 
