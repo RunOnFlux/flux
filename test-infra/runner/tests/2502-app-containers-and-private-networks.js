@@ -17,14 +17,14 @@
 // negative sits beside a positive that must succeed through the same chain.
 //
 // The harness host runs without br_netfilter; 2503 runs these paths with it loaded.
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before, after, beforeEach, afterEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, restartDockerd, restartFluxos } from '../framework/container.js';
 import { pushBusybox } from '../framework/registry-helper.js';
 import { REGISTRY_REPO_HOST, REGISTRY_PORT, getSubnetConfig } from '../framework/subnet-config.js';
 import { waitForBootSettled } from '../framework/wait.js';
-import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { dumpLogsOnFailure, startCapture, stopCapture } from '../framework/log-on-failure.js';
 
 const NODE = 0;
 const OUTSIDE = 1;
@@ -107,6 +107,9 @@ describe('2502 app containers are kept off private networks', function suite() {
     return stdout.trim();
   }
 
+  // What nc said, for an assertion message: its exit code and its error output.
+  const ncSaid = ({ exitCode, stderr }) => `nc exit ${exitCode}: ${(stderr || '').trim()}`;
+
   const listener = (name, network, extra = '') => `docker run -d --name ${name} --network ${network} ${extra} --entrypoint /bin/busybox ${image} nc -lk -p 8080 -e /bin/busybox echo ok >/dev/null`;
 
   before(async function hook() {
@@ -135,6 +138,15 @@ describe('2502 app containers are kept off private networks', function suite() {
 
   after(async () => {
     await env?.teardown();
+  });
+
+  // Every test's packets on both nodes, decoded into the failure dump.
+  beforeEach(async () => {
+    await Promise.all([node, outside].map((n) => startCapture(n.container)));
+  });
+
+  afterEach(async () => {
+    await Promise.all([node, outside].map((n) => stopCapture(n.container)));
   });
 
   describe('the chain', () => {
@@ -190,8 +202,8 @@ describe('2502 app containers are kept off private networks', function suite() {
     });
 
     it('answers a client outside the node on the app\'s published port', async () => {
-      const { stdout } = await inOutside(`echo | nc -w 5 ${node.ip} ${PUBLISHED_PORT}`);
-      expect(stdout.trim()).to.equal('ok');
+      const answer = await inOutside(`echo | nc -w 5 ${node.ip} ${PUBLISHED_PORT}`);
+      expect(answer.stdout.trim(), ncSaid(answer)).to.equal('ok');
     });
 
     it('answers a client whose router rewrote its source to a private address', async () => {
@@ -199,8 +211,8 @@ describe('2502 app containers are kept off private networks', function suite() {
       await inNode(`ip route add ${ROUTER_SOURCE}/32 via ${outside.ip}`);
       try {
         const dropBefore = await ruleHits('DROP', 'br-+', '192.168.0.0/16');
-        const { stdout } = await inOutside(`echo | nc -s ${ROUTER_SOURCE} -w 5 ${node.ip} ${PUBLISHED_PORT}`);
-        expect(stdout.trim(), 'the reply to a private address').to.equal('ok');
+        const answer = await inOutside(`echo | nc -s ${ROUTER_SOURCE} -w 5 ${node.ip} ${PUBLISHED_PORT}`);
+        expect(answer.stdout.trim(), `the reply to a private address; ${ncSaid(answer)}`).to.equal('ok');
         expect(await ruleHits('DROP', 'br-+', '192.168.0.0/16')).to.equal(dropBefore);
       } finally {
         await inNode(`ip route del ${ROUTER_SOURCE}/32 via ${outside.ip}`);

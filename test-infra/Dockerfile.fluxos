@@ -45,6 +45,8 @@ RUN set -eu; \
     iputils-ping \
     socat \
     iptables \
+    conntrack \
+    tcpdump \
     e2fsprogs \
     && rm -rf /var/lib/apt/lists/*
 

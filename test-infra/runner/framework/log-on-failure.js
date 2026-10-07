@@ -88,6 +88,32 @@ for c in $(docker ps -a --format '{{.Names}}'); do
 done
 `;
 
+// A node's network as the kernel holds it: every rule with its packet counters,
+// the connections conntrack is tracking, addresses and routes, and the packets a
+// suite captured to E2E_CAPTURE (see startCapture). All of it leaves with the node.
+export const E2E_CAPTURE = '/tmp/e2e-capture.pcap';
+const NETWORK_STATE = `
+echo "=== ip addr ==="; ip -br addr 2>&1
+echo "=== ip route ==="; ip route 2>&1
+echo "=== iptables-save -c ==="; iptables-save -c 2>&1
+echo "=== conntrack -L ==="; conntrack -L 2>&1 | head -1000
+if [ -f ${E2E_CAPTURE} ]; then
+  echo "=== packets captured to ${E2E_CAPTURE} ==="
+  tcpdump -nn -tttt -e -r ${E2E_CAPTURE} 2>&1 | tail -5000
+fi
+`;
+
+// Captures a node's packets on every interface to E2E_CAPTURE until stopCapture,
+// so a failure dump shows them. The node's API and database traffic is left out:
+// the node's own log holds it.
+export async function startCapture(container, filter = 'not port 16127 and not port 27017') {
+  await execInContainer(container, `rm -f ${E2E_CAPTURE}; tcpdump -i any -nn -U -s 256 -w ${E2E_CAPTURE} '${filter}' </dev/null >/dev/null 2>&1 & echo $! > /tmp/e2e-capture.pid; sleep 1`);
+}
+
+export async function stopCapture(container) {
+  await execInContainer(container, 'kill "$(cat /tmp/e2e-capture.pid 2>/dev/null)" 2>/dev/null; rm -f /tmp/e2e-capture.pid');
+}
+
 // Best-effort, as cgroupState: a node that cannot answer is reported, and never
 // fails the dump it is attached to.
 async function readFromNodes(env, script) {
@@ -135,6 +161,7 @@ export function dumpLogsOnFailure(getEnv) {
     const nodeFilesByEnv = await Promise.all(envs.map(async (env) => ({
       syncthing: await readFromNodes(env, SYNCTHING_LOGS),
       apps: await readFromNodes(env, APP_LOGS),
+      network: await readFromNodes(env, NETWORK_STATE),
     })));
 
     const written = [];
