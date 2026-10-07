@@ -4,6 +4,7 @@ const https = require('node:https');
 const { once } = require('node:events');
 const { expect } = require('chai');
 const sinon = require('sinon');
+const proxyquire = require('proxyquire');
 
 const dnsLookup = require('../../ZelBack/src/services/utils/dnsLookup');
 
@@ -83,6 +84,7 @@ describe('dnsLookup tests', () => {
 
   afterEach(() => {
     sinon.restore();
+    dnsLookup.forgetSystemSilent();
   });
 
   describe('lookup tests', () => {
@@ -252,6 +254,89 @@ describe('dnsLookup tests', () => {
 
       expect(result).to.deep.equal([{ address: '2001:db8::60', family: 6 }]);
       expect(asked).to.deep.equal(['system:6']);
+    });
+  });
+
+  describe('query bounds tests', () => {
+    it('should build both resolvers with the bounded timeout and tries', () => {
+      const built = [];
+      class FakeResolver {
+        constructor(options) { built.push(options); }
+
+        setServers() {}
+      }
+      proxyquire('../../ZelBack/src/services/utils/dnsLookup', {
+        'node:dns': { ...dns, promises: { ...dns.promises, Resolver: FakeResolver } },
+      });
+
+      expect(built).to.deep.equal([
+        { timeout: dnsLookup.QUERY_TIMEOUT_MS, tries: dnsLookup.QUERY_TRIES },
+        { timeout: dnsLookup.QUERY_TIMEOUT_MS, tries: dnsLookup.QUERY_TRIES },
+      ]);
+      expect(dnsLookup.QUERY_TIMEOUT_MS * dnsLookup.QUERY_TRIES).to.be.below(20000);
+    });
+  });
+
+  describe('silent system servers tests', () => {
+    beforeEach(() => {
+      answers.system = { 4: 'ETIMEOUT', 6: 'ETIMEOUT' };
+      answers.public[4] = ['203.0.113.40'];
+    });
+
+    it('should ask only the public servers once the system servers have timed out', async () => {
+      await lookupAsync(HOSTNAME, { all: true });
+      asked = [];
+
+      const result = await lookupAsync(HOSTNAME, { all: true });
+
+      expect(result).to.deep.equal([{ address: '203.0.113.40', family: 4 }]);
+      expect(asked).to.have.members(['public:4', 'public:6']);
+    });
+
+    it('should keep asking system servers that answer with a failure', async () => {
+      answers.system = { 4: 'ESERVFAIL', 6: 'ESERVFAIL' };
+      await lookupAsync(HOSTNAME, { all: true });
+      asked = [];
+
+      await lookupAsync(HOSTNAME, { all: true });
+
+      expect(asked).to.include.members(['system:4', 'system:6']);
+    });
+
+    describe('the background check', () => {
+      let clock;
+
+      beforeEach(() => {
+        clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      });
+
+      it('should bring the system servers back once they answer, even that a name has no address', async () => {
+        await lookupAsync(HOSTNAME, { all: true });
+        answers.system = { 4: 'ENOTFOUND', 6: 'ENOTFOUND' };
+        asked = [];
+
+        await clock.tickAsync(dnsLookup.SILENT_RECHECK_MS);
+        expect(asked, 'the background query').to.have.members(['system:4', 'system:6']);
+        answers.system[4] = ['203.0.113.41'];
+        asked = [];
+        const result = await lookupAsync(HOSTNAME, { all: true });
+
+        expect(result).to.deep.equal([{ address: '203.0.113.41', family: 4 }]);
+        expect(asked).to.include('system:4');
+      });
+
+      it('should keep them silent, and check again, while they still do not answer', async () => {
+        await lookupAsync(HOSTNAME, { all: true });
+
+        await clock.tickAsync(dnsLookup.SILENT_RECHECK_MS);
+        asked = [];
+        await lookupAsync(HOSTNAME, { all: true });
+        expect(asked).to.have.members(['public:4', 'public:6']);
+
+        asked = [];
+        await clock.tickAsync(dnsLookup.SILENT_RECHECK_MS);
+        expect(asked, 'the next background query').to.have.members(['system:4', 'system:6']);
+      });
     });
   });
 
