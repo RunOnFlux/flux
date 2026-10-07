@@ -301,7 +301,12 @@ if [ "$FLUX_SYSTEMD_MODE" = "true" ]; then
 
   # Container hygiene: kernel modules cannot be loaded here, and a tmpfs
   # over /tmp would shadow the harness's /tmp/flux-boot-config bind mount.
+  # kernel.*, fs.*, vm.* and binfmt_misc are the host's, not the container's,
+  # and a privileged node can write them: systemd-sysctl and systemd-binfmt
+  # would apply the image's settings to the shared runner host.
   ln -sf /dev/null /etc/systemd/system/systemd-modules-load.service
+  ln -sf /dev/null /etc/systemd/system/systemd-sysctl.service
+  ln -sf /dev/null /etc/systemd/system/systemd-binfmt.service
   ln -sf /dev/null /etc/systemd/system/tmp.mount
 
   # docker-ce's packaged containerd.service would boot under systemd and
