@@ -1311,9 +1311,12 @@ describe('fluxNetworkHelper tests', () => {
           pgpPublicKey: '',
         },
       };
+      // adjustExternalIP defers a change until the node knows its own address.
+      fluxNetworkHelper.setLocalSocketAddress('127.0.0.1');
     });
     afterEach(() => {
       sinon.restore();
+      fluxNetworkHelper.setLocalSocketAddress(null);
       // Restore original userconfig
       globalThis.userconfig = originalUserConfig;
     });
