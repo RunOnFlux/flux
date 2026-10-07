@@ -212,10 +212,11 @@ describe('2502 app containers are kept off private networks', function suite() {
       expect(await tcpAnswer('fluxe2eprobe', node.ip, PUBLISHED_PORT), 'its own published port').to.equal('ok');
     });
 
+    // The path depends on the docker release: from 29 the connection is forwarded
+    // from one app's bridge to the other's, through the bridge RETURN; earlier
+    // releases answer it without crossing bridges.
     it('reaches another app\'s published port at the node\'s address', async () => {
-      const before = await bridgeReturnHits();
       expect(await tcpAnswer('fluxe2eprobe', node.ip, OTHER_PUBLISHED_PORT)).to.equal('ok');
-      expect(await bridgeReturnHits(), 'handed to Docker').to.be.above(before);
     });
 
     it('lets an app\'s DNS reach a private address over UDP and TCP', async () => {
