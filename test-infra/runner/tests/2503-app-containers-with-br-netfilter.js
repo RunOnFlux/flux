@@ -6,7 +6,7 @@
 // The module is kernel-wide, so loading it changes every docker bridge on the
 // harness host. The suite runs only when E2E_HOST_KERNEL=1 and, with it, on a host
 // running nothing else: SUITE_GLOB='tests/2503-*.js' E2E_HOST_KERNEL=1. It loads
-// the module with the runner's sudo and unloads whatever it loaded.
+// the module with the runner's sudo and unloads only what it loaded.
 import { execFileSync } from 'node:child_process';
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
@@ -95,7 +95,9 @@ describe('2503 app containers on a node with br_netfilter loaded', function suit
     await env?.teardown();
     const loadedNow = hostModulesLoaded();
     const ours = MODULES.filter((m) => loadedNow.includes(m) && !loadedBefore.includes(m));
-    if (ours.length) execFileSync('sudo', ['-n', 'modprobe', '-r', ...ours]);
+    // rmmod, not modprobe -r: modprobe -r also unloads the bridge module once
+    // nothing holds it, which deletes every bridge on the host, docker0 included.
+    if (ours.length) execFileSync('sudo', ['-n', 'rmmod', ...ours]);
   });
 
   it('runs with bridged traffic passing through iptables in the node', async () => {
