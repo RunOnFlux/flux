@@ -642,6 +642,15 @@ describe('fluxadmService tests', () => {
     });
   });
 
+  describe('buildServiceUnit tests', () => {
+    it('should wait for sshd to report ready, so a restart returns once it listens', () => {
+      const lines = fluxadmService.buildServiceUnit().split('\n');
+
+      expect(lines.filter((line) => line.startsWith('Type='))).to.deep.equal(['Type=notify']);
+      expect(lines).to.include('ExecStart=/usr/sbin/sshd -D -f /etc/ssh/fluxadm_sshd_config');
+    });
+  });
+
   describe('ensureFluxadmAccess tests', () => {
     it('should run the removal path only on a confirmed legacy node when no keys are configured', async () => {
       sinon.stub(fs, 'access').rejects(new Error('missing'));

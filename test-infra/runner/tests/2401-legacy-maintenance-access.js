@@ -109,6 +109,13 @@ describe('2401 legacy node maintenance access', function suite() {
     return (await loginResult(keyName, options)).ok;
   }
 
+  // A login the sshd answered and refused for its key, as opposed to one that
+  // found nothing listening, which would fail the same login for another reason.
+  async function refusedForKey(keyName, options) {
+    const { exitCode, stderr } = await loginResult(keyName, options);
+    return { refused: exitCode === 255 && /Permission denied \(publickey\)/.test(stderr), stderr };
+  }
+
   // For a wait on a login that must succeed: a failed attempt throws what the
   // remote said, which the wait reports if it times out.
   async function loginOrThrow(keyName, options) {
@@ -343,7 +350,8 @@ describe('2401 legacy node maintenance access', function suite() {
     expect(await sessionCgroup(legacy, 7001), 'the session must be open before the key is dropped').to.not.equal(null);
     await releaseKeys(['next']);
     expect(await sessionCgroup(legacy, 7001), 'dropping a key must end the session and its sudo child').to.equal(null);
-    expect(await login('current'), 'the outgoing key must be refused').to.equal(false);
+    const outgoing = await refusedForKey('current');
+    expect(outgoing.refused, `the outgoing key must be refused by the sshd: ${outgoing.stderr}`).to.equal(true);
     expect(await login('next'), 'the incoming key must still log in').to.equal(true);
   });
 

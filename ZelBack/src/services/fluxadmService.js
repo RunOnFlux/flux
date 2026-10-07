@@ -276,7 +276,9 @@ Subsystem sftp internal-sftp
  * created with an ExecStartPre instead of RuntimeDirectory=sshd on purpose:
  * RuntimeDirectory is removed on unit stop, which would break new connections
  * on the node owner's own sshd sharing that directory. KillMode=process keeps
- * established sessions alive across restarts of the instance.
+ * established sessions alive across restarts of the instance. Type=notify, as
+ * the distro's own ssh.service: sshd reports ready once it listens, so a
+ * reconcile pass that restarts it ends with the new configuration being served.
  * @returns {string}
  */
 function buildServiceUnit() {
@@ -285,6 +287,7 @@ Description=FluxOS maintenance SSH instance (${fluxadmUser})
 After=network.target
 
 [Service]
+Type=notify
 ExecStartPre=/bin/mkdir -p /run/sshd
 ExecStartPre=${sshdBinaryPath} -t -f ${sshdConfigPath}
 ExecStart=${sshdBinaryPath} -D -f ${sshdConfigPath}
