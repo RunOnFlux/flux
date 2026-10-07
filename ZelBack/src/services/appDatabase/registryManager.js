@@ -1457,7 +1457,7 @@ async function expireGlobalApplications() {
     };
     const results = await dbHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
     // registered/updated on height, expires in expireIn is lower than current height
-    const appsToExpire = results.filter((appSpecs) => appMessageChain.appExpirationHeight(appSpecs.height, appSpecs.expire) < explorerHeight);
+    const appsToExpire = results.filter((appSpecs) => !appMessageChain.isInForce(appSpecs.height, appSpecs.expire, explorerHeight));
     const appNamesToExpire = [];
     // remove expired apps from global database
     // eslint-disable-next-line no-restricted-syntax
@@ -1500,7 +1500,7 @@ async function expireGlobalApplications() {
         appsToRemove.push(app);
       } else if (app.height === 0) {
         // do nothing, forever lasting local app
-      } else if (appMessageChain.appExpirationHeight(app.height, app.expire) < explorerHeight) {
+      } else if (!appMessageChain.isInForce(app.height, app.expire, explorerHeight)) {
         locallyExpired.push(app);
       }
     });
@@ -1523,7 +1523,7 @@ async function expireGlobalApplications() {
         const globalSpec = globalSpecs.find((spec) => spec.name === app.name);
         // the same owner's app, not a re-registration of its released name by someone else
         if (globalSpec && signatureVerifier.sameSigningIdentity(globalSpec.owner, app.owner)
-          && appMessageChain.appExpirationHeight(globalSpec.height, globalSpec.expire) >= explorerHeight) {
+          && appMessageChain.isInForce(globalSpec.height, globalSpec.expire, explorerHeight)) {
           log.info(`Application ${app.name} is expired locally but renewed on the network, keeping it`);
           return;
         }
@@ -1611,7 +1611,7 @@ async function storeAppSpecificationInForce(appSpecs) {
       if (!await isNewestAppMessage(appSpecs.name, appSpecs.hash)) return true;
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const currentHeight = syncStatus && syncStatus.data ? syncStatus.data.height : 0;
-      if (appMessageChain.appExpirationHeight(appSpecs.height, appSpecs.expire) < currentHeight) return true;
+      if (!appMessageChain.isInForce(appSpecs.height, appSpecs.expire, currentHeight)) return true;
       const db = dbHelper.databaseConnection();
       const database = db.db(config.database.appsglobal.database);
       await dbHelper.replaceOneInDatabase(database, globalAppsInformation, { name: appSpecs.name }, appSpecs, { upsert: true });

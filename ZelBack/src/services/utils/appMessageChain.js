@@ -10,9 +10,9 @@
 const config = require('config');
 
 /**
- * The last block an app is alive at: height + expire. Blocks of a pre-fork registration that
+ * The block an app's term ends at: height + expire. Blocks of a pre-fork registration that
  * fall after the PON fork count 4x, because the chain moves 4x faster since - the same
- * arithmetic as dbHelper.expireHeightExpr. An app is alive at block h while h <= this.
+ * arithmetic as dbHelper.expireHeightExpr. The app is expired from this block on (isInForce).
  * @param {number} height block the governing message confirmed in
  * @param {number} [expire] its expire, in blocks
  * @returns {number}
@@ -23,6 +23,18 @@ function appExpirationHeight(height, expire) {
   const end = height + (expire || defaultExpire);
   if (height < fork && end > fork) return fork + ((end - fork) * 4);
   return end;
+}
+
+/**
+ * Whether an app's term still runs at a block: below its expiration height. The rebuild
+ * (dbHelper) and v9 draw the same line.
+ * @param {number} height block the governing message confirmed in
+ * @param {number} [expire] its expire, in blocks
+ * @param {number} atHeight
+ * @returns {boolean}
+ */
+function isInForce(height, expire, atHeight) {
+  return atHeight < appExpirationHeight(height, expire);
 }
 
 /**
@@ -41,4 +53,5 @@ function isBefore(message, height, timestamp = -Infinity) {
 module.exports = {
   appExpirationHeight,
   isBefore,
+  isInForce,
 };

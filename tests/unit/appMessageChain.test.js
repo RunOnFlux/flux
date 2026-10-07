@@ -23,6 +23,13 @@ describe('appMessageChain tests', () => {
     });
   });
 
+  describe('isInForce', () => {
+    it('should end an app at its expiration height', () => {
+      expect(appMessageChain.isInForce(fork + 100, 1000, fork + 1099)).to.equal(true);
+      expect(appMessageChain.isInForce(fork + 100, 1000, fork + 1100)).to.equal(false);
+    });
+  });
+
   describe('isBefore', () => {
     const at = (height, timestamp) => ({ height, timestamp });
 

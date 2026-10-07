@@ -754,6 +754,35 @@ describe('registryManager tests', () => {
       sinon.assert.calledWith(removeAppLocallyStub, 'DeadApp');
     });
 
+    it('should expire an app at its expiration height, installed or only global', async () => {
+      // term ends at the tip
+      await database.collection(appsInformation).insertMany([spec('EndsNowApp', 'n', 3007900, 100), spec('LiveApp', 'l', 3007900, 101)]);
+      installed = [spec('LocalEndsNowApp', 'x', 3007900, 100), spec('LiveApp', 'l', 3007900, 101)];
+
+      await registryManager.expireGlobalApplications();
+
+      const left = await database.collection(appsInformation).find({}).toArray();
+      expect(left.map((a) => a.name)).to.deep.equal(['LiveApp']);
+      sinon.assert.calledOnce(removeAppLocallyStub);
+      sinon.assert.calledWith(removeAppLocallyStub, 'LocalEndsNowApp');
+    });
+
+    it('should not keep an installed app for a renewal whose term ends at the tip', async () => {
+      const realFind = dbHelper.findInDatabase;
+      sinon.stub(dbHelper, 'findInDatabase').callsFake(async (dbase, collection, query, options) => {
+        // the pass's first read finds nothing to expire; its renewal check finds the renewal
+        if (collection === appsInformation && Object.keys(query).length === 0) return [];
+        if (collection === appsInformation) return [spec('RenewedApp', 'renewal', 3007900, 100)];
+        return realFind(dbase, collection, query, options);
+      });
+      installed = [spec('RenewedApp', 'cancel', 3003310, 56)];
+
+      await registryManager.expireGlobalApplications();
+
+      sinon.assert.calledOnce(removeAppLocallyStub);
+      sinon.assert.calledWith(removeAppLocallyStub, 'RenewedApp');
+    });
+
     it('should keep a renewal stored between reading the expired spec and deleting it', async () => {
       // the renewal confirmed right at the expiry block and replaced the spec mid-pass
       await database.collection(appsInformation).insertOne(spec('RenewedApp', 'renewal', 3003381, 88072));
@@ -874,6 +903,16 @@ describe('registryManager tests', () => {
       const result = await registryManager.getApplicationSpecifications('UpdateTestApp');
       expect(result.height).to.equal(200);
       expect(result.hash).to.equal('newhash');
+    });
+
+    it('should not store a message whose term ends at the current block', async () => {
+      atHeight(3003100);
+      const reg = { type: 'fluxappregister', hash: 'endsnow', height: 3003000, expire: 100 };
+      await logMessages('EndsNowApp', [reg]);
+
+      await promote('EndsNowApp', reg);
+
+      expect(await stored('EndsNowApp')).to.equal(null);
     });
 
     it('should change nothing for a message a newer one superseded', async () => {
