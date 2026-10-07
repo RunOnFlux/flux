@@ -25,11 +25,10 @@ const DAEMON_RETRY_AFTER_SECONDS = 5;
 // The daemon's own RPC error while it is still loading (RPC_IN_WARMUP).
 const RPC_IN_WARMUP = -28;
 
-// What the RPC client reports when no daemon is listening or the connection to
-// it died: the daemon is down or restarting, not answering wrongly.
-const DAEMON_UNREACHABLE_CODES = new Set([
-  'ECONNREFUSED', 'ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT', 'EHOSTUNREACH', 'EPIPE',
-]);
+// What the RPC client reports when no daemon is listening on the loopback port,
+// the connection to it died, or it stopped answering: the daemon is down or
+// restarting, not answering wrongly.
+const DAEMON_UNREACHABLE_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT']);
 
 /**
  * Answer 503 with a Retry-After: this node cannot answer yet, and the caller is
