@@ -25,8 +25,9 @@
 // installs libpam-systemd with it, so its sessions get their own logind scope. Each
 // node proves one of the two ways a session is ended.
 //
-// Each run generates its keypairs on the runner and deletes them at teardown; no
-// key is stored in the repo.
+// Each run generates its keypairs on the runner and holds them in memory: the files
+// ssh-keygen writes are deleted as soon as they are read, so no key outlives the
+// run on the runner whatever stops it, and none is stored in the repo.
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { execFileSync } from 'node:child_process';
@@ -75,19 +76,24 @@ describe('2401 legacy node maintenance access', function suite() {
   let arcane;
   let legacyIp;
   let ownerIp;
-  let keyDir;
   let ownerSshdBefore;
   // Each legacy node's last event before the restart that made it legacy.
   const legacyStartedAfter = new Map();
   const publicKeys = {};
+  const privateKeys = {};
   dumpLogsOnFailure(() => env);
 
   function generateKeys() {
-    keyDir = mkdtempSync(join(tmpdir(), 'flux-e2e-fluxadm-'));
-    for (const name of KEY_NAMES) {
-      const keyPath = join(keyDir, name);
-      execFileSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', `flux-e2e-fluxadm-${name}`, '-f', keyPath]);
-      publicKeys[name] = readFileSync(`${keyPath}.pub`, 'utf-8').trim();
+    const keyDir = mkdtempSync(join(tmpdir(), 'flux-e2e-fluxadm-'));
+    try {
+      for (const name of KEY_NAMES) {
+        const keyPath = join(keyDir, name);
+        execFileSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', `flux-e2e-fluxadm-${name}`, '-f', keyPath]);
+        publicKeys[name] = readFileSync(`${keyPath}.pub`, 'utf-8').trim();
+        privateKeys[name] = readFileSync(keyPath);
+      }
+    } finally {
+      rmSync(keyDir, { recursive: true, force: true });
     }
   }
 
@@ -238,7 +244,7 @@ describe('2401 legacy node maintenance access', function suite() {
     const keyDirMade = await execInContainer(arcane.container, `install -d -m 700 ${CLIENT_KEY_DIR}`);
     expect(keyDirMade.exitCode, `client key dir failed: ${keyDirMade.stderr}`).to.equal(0);
     await arcane.container.copyContentToContainer(KEY_NAMES.map((name) => ({
-      content: readFileSync(join(keyDir, name)),
+      content: privateKeys[name],
       target: `${CLIENT_KEY_DIR}/${name}`,
       mode: 0o600,
     })));
@@ -257,7 +263,6 @@ describe('2401 legacy node maintenance access', function suite() {
 
   after(async () => {
     await env?.teardown();
-    if (keyDir) rmSync(keyDir, { recursive: true, force: true });
   });
 
   it('boots every node with systemd as init and FluxOS as a unit', async () => {
