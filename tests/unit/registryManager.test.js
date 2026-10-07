@@ -791,6 +791,17 @@ describe('registryManager tests', () => {
       sinon.assert.calledOnce(removeAppLocallyStub);
       sinon.assert.calledWith(removeAppLocallyStub, 'GoneApp');
     });
+
+    it('should keep a renewed app whose 0x owner the renewal spells in another case', async () => {
+      const ethOwner = '0x5a0b54d5dc17e0aadc383d2db43b0a0d3e029c4c';
+      await database.collection(appsInformation).insertOne({ ...spec('EthApp', 'renewal', 3003381, 88072), owner: ethOwner.toUpperCase().replace('0X', '0x') });
+      installed = [{ ...spec('EthApp', 'cancel', 3003310, 56), owner: ethOwner }, spec('GoneApp', 'g', 3003310, 56)];
+
+      await registryManager.expireGlobalApplications();
+
+      sinon.assert.calledOnce(removeAppLocallyStub);
+      sinon.assert.calledWith(removeAppLocallyStub, 'GoneApp');
+    });
   });
 
   describe('rescanGlobalAppsInformation tests', () => {

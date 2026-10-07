@@ -13,6 +13,7 @@ const placementFeasibility = require('../appPlacement/placementFeasibility');
 const { AsyncLock } = require('../utils/asyncLock');
 const appMessageChain = require('../utils/appMessageChain');
 const mountParser = require('../utils/mountParser');
+const signatureVerifier = require('../signatureVerifier');
 const {
   SIGTERM_EXPIRY_MS,
   globalAppsInformation,
@@ -1521,7 +1522,7 @@ async function expireGlobalApplications() {
       locallyExpired.forEach((app) => {
         const globalSpec = globalSpecs.find((spec) => spec.name === app.name);
         // the same owner's app, not a re-registration of its released name by someone else
-        if (globalSpec && globalSpec.owner === app.owner
+        if (globalSpec && signatureVerifier.sameSigningIdentity(globalSpec.owner, app.owner)
           && appMessageChain.appExpirationHeight(globalSpec.height, globalSpec.expire) >= explorerHeight) {
           log.info(`Application ${app.name} is expired locally but renewed on the network, keeping it`);
           return;
