@@ -14,6 +14,9 @@ const verificationHelper = require('../verificationHelper');
 const { Privilege, authOf } = require('../utils/privileges');
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 const networkStateService = require('../networkStateService');
+const peerIdentityService = require('../peerIdentityService');
+const primaryRoleChanges = require('../appLifecycle/primaryRoleChanges');
+const syncthingService = require('../syncthingService');
 const log = require('../../lib/log');
 
 // Database collections
@@ -305,32 +308,99 @@ async function listRunningAppsApi(req, res) {
 }
 
 /**
- * Component identifiers this node holds: running here, committed to running and
- * not started yet, or deliberately stopped here by the operator.
+ * Component identifiers this node holds by its own account: running here,
+ * committed to running and not started yet, or deliberately stopped here by the
+ * operator.
  *
- * The question a primary election actually asks a peer, and the answer is about
- * OWNERSHIP, not about what is up. Three sources, because no one of them answers
- * it on its own:
+ * The answer is about OWNERSHIP, not about what is up. Three sources, because no
+ * one of them answers it on its own:
  *
- * - Running containers miss the masterSlave primary path, which fixes ownership
- *   on the persistent data before it starts anything. For that whole window the
- *   node has decided but has no container.
- * - committedIdentifiers covers that window, but it is in-memory and re-derived
- *   from live truth, so a FluxOS restart empties it. It is also only ever written
- *   at the moment a node wins an election, never re-asserted while it goes on
+ * - Running containers miss a node becoming the primary, which makes its folder
+ *   send before it starts anything. For that whole window the node has decided
+ *   but has no container.
+ * - The promotion in progress covers that window, and the reconciler's
+ *   committedIdentifiers everything asked to run after it. Both are in-memory and
+ *   re-derived from live truth, so a FluxOS restart empties them. They are only
+ *   ever written when a node wins an election, never re-asserted while it goes on
  *   being the primary.
  * - The operator stop lock is the durable one. `appstop` writes it to hold the
  *   component down HERE - the election skips this node and the reconciler will
- *   not restart it - and until this endpoint reported it, that intent never left
- *   the node. A peer saw no container and no commitment, concluded the component
- *   was free, and elected a new primary over an owner who had stopped theirs to
- *   work on it. Whether that happened at all turned on whether this node's FluxOS
- *   had restarted since it was elected, which is not something an owner can see.
+ *   not restart it. A lock holds the component only on the node that was its
+ *   primary when it was stopped - see appsRuntimeState.operatorHeldIdentifiers.
  *
- * Not filtered to g: components. The list answers "is this component mine", which
- * is true of a stopped component whatever its storage mode, and the only caller
- * asks about g: components alone - so filtering would cost a spec lookup to leave
- * out entries nobody looks up.
+ * Throws when the lock store cannot be read.
+ * @returns {Promise<string[]>} container-name identifiers
+ */
+async function ownHoldings() {
+  const containers = await dockerService.dockerListContainers(false);
+  const running = containers
+    .map((container) => (container.Names?.[0] || '').replace(/^\//, ''))
+    .filter((name) => name.slice(0, 3) === 'zel' || name.slice(0, 4) === 'flux');
+
+  // eslint-disable-next-line global-require
+  const appReconciler = require('../appMonitoring/appReconciler');
+  const committed = [...appReconciler.committedIdentifiers(), ...primaryRoleChanges.promotingIdentifiers()]
+    .map((identifier) => dockerService.getAppIdentifier(identifier));
+
+  const operatorHeld = (await appsRuntimeState.operatorHeldIdentifiers())
+    .map((identifier) => dockerService.getAppIdentifier(identifier));
+
+  return [...new Set([...running, ...committed, ...operatorHeld])];
+}
+
+function notKnownYet() {
+  return messageHelper.createErrorMessage('Which folders send here is not known yet', 'ServiceUnavailable', 503);
+}
+
+/**
+ * The folders syncthing holds sendreceive, read from its configuration. A
+ * paused syncthing answers too: pausing stops a folder moving data, not its
+ * configuration being read.
+ * @returns {Promise<string[]|null>} folder ids, null when syncthing cannot say
+ */
+async function sendingFolderIds() {
+  try {
+    const folders = await syncthingService.getConfigFolders();
+    if (!Array.isArray(folders)) return null;
+    return folders.filter((folder) => folder.type === 'sendreceive').map((folder) => folder.id);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What this node holds, both ways a peer reads it: `decided` is its own account
+ * (ownHoldings), and `held` adds every component whose folder sends here. A
+ * component in `held` and not in `decided` has a sending folder and nothing
+ * behind it yet: a primary back from a stop, still deciding whether another
+ * holder took over.
+ *
+ * Throws when the lock store cannot be read.
+ * @returns {Promise<{decided: string[], held: string[]}|null>} null while
+ *   syncthing cannot say which folders send here
+ */
+async function holdingsAccount() {
+  const sending = await sendingFolderIds();
+  if (sending === null) return null;
+  const decided = await ownHoldings();
+  return { decided, held: [...new Set([...decided, ...sending])] };
+}
+
+/**
+ * Component identifiers this node holds, as a peer is told: its own account,
+ * and every component whose folder sends here. The question a primary election
+ * asks a peer, and FDM's last way to name a primary.
+ *
+ * A sending folder is a writer. A primary back from a stop has its folder still
+ * sending, paused, and no container or commitment until it has decided whether
+ * another holder took over; read without its folder, it answers that it holds
+ * nothing, and the holder asking starts the component beside it. Which folders
+ * send is read from syncthing; while syncthing cannot say, this node answers
+ * that it cannot say yet rather than that it holds nothing.
+ *
+ * Not filtered to g: components. The list answers "is this component mine", and
+ * the callers ask about g: components alone - so filtering would cost a spec
+ * lookup to leave out entries nobody looks up.
  *
  * Cached for one second at the route, not the fifteen listrunningapps takes: long
  * enough to bound an anonymous caller to one pass of this work per second, short
@@ -343,21 +413,12 @@ async function listRunningAppsApi(req, res) {
  */
 async function heldComponents(req, res) {
   try {
-    const containers = await dockerService.dockerListContainers(false);
-    const running = containers
-      .map((container) => (container.Names?.[0] || '').replace(/^\//, ''))
-      .filter((name) => name.slice(0, 3) === 'zel' || name.slice(0, 4) === 'flux');
-
-    // eslint-disable-next-line global-require
-    const appReconciler = require('../appMonitoring/appReconciler');
-    const committed = appReconciler.committedIdentifiers()
-      .map((identifier) => dockerService.getAppIdentifier(identifier));
-
-    const operatorStopped = (await appsRuntimeState.operatorStoppedIdentifiers())
-      .map((identifier) => dockerService.getAppIdentifier(identifier));
-
-    const held = [...new Set([...running, ...committed, ...operatorStopped])];
-    const response = messageHelper.createDataMessage(held);
+    const account = await holdingsAccount();
+    if (!account) {
+      const notReady = notKnownYet();
+      return res ? res.json(notReady) : notReady;
+    }
+    const response = messageHelper.createDataMessage(account.held);
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -367,6 +428,56 @@ async function heldComponents(req, res) {
       error.code,
     );
     return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+/**
+ * Whether this node holds a component by its own account - running here,
+ * committed to start here, or stopped here by its owner. Not its folder: this
+ * asks whether a folder that sends here has anything behind it.
+ *
+ * @param {string} identifier - The component's container name, e.g. fluxcomp_app
+ * @returns {Promise<boolean|null>} null when the account cannot be read
+ */
+async function holdsComponent(identifier) {
+  try {
+    return (await ownHoldings()).includes(identifier);
+  } catch (error) {
+    log.error(error);
+    return null;
+  }
+}
+
+// Peers ask what this node holds on every election pass, unauthenticated and
+// uncached (each answer is signed for one call), so the account
+// behind the answer is read at most once a second however often it is asked.
+const HELD_FOR_PEERS_TTL_MS = 1000;
+let heldForPeers = null;
+
+/**
+ * heldComponents as a peer asks it: `{ held, decided }` (see holdingsAccount),
+ * signed over the challenge the request body carries.
+ *
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {Promise<object>} Message carrying the signed `{ held, decided }`.
+ */
+async function heldComponentsAnswer(req, res) {
+  try {
+    const seal = peerIdentityService.answerSealer(
+      peerIdentityService.AnswerPurpose.HELD_COMPONENTS,
+      serviceHelper.ensureObject(req?.body) || {},
+    );
+    const now = Number(process.hrtime.bigint() / 1000000n);
+    if (!heldForPeers || now - heldForPeers.at >= HELD_FOR_PEERS_TTL_MS) {
+      const account = await holdingsAccount();
+      if (!account) return res.json(notKnownYet());
+      heldForPeers = { ...account, at: now };
+    }
+    return res.json(messageHelper.createDataMessage(await seal({ held: heldForPeers.held, decided: heldForPeers.decided })));
+  } catch (error) {
+    log.error(error);
+    return res.json(messageHelper.createErrorMessage(error.message || error, error.name, error.code));
   }
 }
 
@@ -654,9 +765,16 @@ async function callerIsFluxnode(body) {
  * to sign is not a peer doing something wrong, and it reads an absent `holding` as
  * claiming nothing - which is what the address-order election already expects of it.
  *
+ * The answer is signed over the challenge the request body carries, when it
+ * carries one.
+ *
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message carrying { ready, folders, holding }.
+ * `seeding` is where this node stands in deciding which holder seeds each folder at a
+ * cold start (globalState.seedMarks); it carries the same figures as `holding`, so it
+ * goes only where `holding` does.
+ *
+ * @returns {object} Message carrying { ready, folders, holding, seeding }.
  */
 async function promotedFolderHoldings(req, res) {
   try {
@@ -687,11 +805,15 @@ async function promotedFolderHoldings(req, res) {
     const entitled = authorized === true || await callerIsFluxnode(body);
 
     const held = globalState.folderHoldings;
-    const response = messageHelper.createDataMessage({
+    const seal = peerIdentityService.answerSealer(peerIdentityService.AnswerPurpose.PROMOTED_FOLDERS, body);
+    const response = messageHelper.createDataMessage(await seal({
       ready: ids !== null,
       folders: ids === null ? [] : [...ids],
-      ...(entitled ? { holding: held === null ? {} : Object.fromEntries(held) } : {}),
-    });
+      ...(entitled ? {
+        holding: held === null ? {} : Object.fromEntries(held),
+        seeding: Object.fromEntries(globalState.seedMarks),
+      } : {}),
+    }));
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -711,6 +833,8 @@ module.exports = {
   listRunningApps,
   listRunningAppsApi,
   heldComponents,
+  heldComponentsAnswer,
+  holdsComponent,
   promotedFolders,
   promotedFolderHoldings,
   listAllApps,

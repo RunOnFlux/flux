@@ -43,12 +43,6 @@ const controllerDesired = new Map();
 // a start can never race it.
 const dataDesired = new Map();
 
-// Components a decider has committed to running but has not started yet, because
-// its pre-start data-safety work is still in flight. Read by the peer probe: a
-// node that answers only with running containers withholds an intent it already
-// holds, and the asking node starts a second writer. In-memory for the same
-// reason as controllerDesired - a claim must not survive the process that made it.
-const startingClaims = new Set();
 
 // brief settle between the stop and the rm -rf so the container has fully released
 // its appdata mount before the wipe (mirrors the sync layer's prior 500ms delay).
@@ -378,7 +372,12 @@ function isManagedElsewhere(identifier) {
  */
 async function effectiveDesiredRunning(identifier, spec, exitCode) {
   const operatorStop = await appsRuntimeState.operatorStopState(identifier);
-  if (operatorStop.stopped) return { desired: false, reason: 'operatorStopped', force: operatorStop.force };
+  if (operatorStop.stopped) {
+    // A start the election has yet to decide keeps the lock, and is reported as
+    // what it is waiting for.
+    const reason = operatorStop.startRequested ? 'startAwaitsElection' : 'operatorStopped';
+    return { desired: false, reason, force: operatorStop.force };
+  }
   if (spec.isG || spec.isR) {
     const cd = controllerDesired.get(identifier) ?? null;
     // No controller opinion yet. controllerDesired is in-memory, so a FluxOS
@@ -1413,6 +1412,52 @@ function setControllerDesired(rawIdentifier, state, reason) {
 }
 
 /**
+ * setControllerDesired, returning once the reconcile it causes has run, so the
+ * caller can act on what was done rather than on what was asked for.
+ * @param {string} rawIdentifier Component identifier.
+ * @param {string} state 'running' | 'stopped'
+ * @param {string} reason Why, for the log and the event.
+ * @returns {Promise<boolean>} False when nothing has acted on it yet - see applyIntent.
+ */
+async function setControllerDesiredAndWait(rawIdentifier, state, reason) {
+  const identifier = canonical(rawIdentifier);
+  return applyIntent(identifier, () => {
+    controllerDesired.set(identifier, state);
+    log.info(`appReconciler - controllerDesired[${identifier}] = ${state} (${reason})`);
+    fluxEventBus.publish('reconciler:desiredChanged', { identifier, state, reason });
+  }, { awaitPass: true });
+}
+
+/**
+ * Asks for a component to run unless its operator has it stopped, decided in
+ * the per-key slot the operator's own writes go through. A desire to run is
+ * never written behind the stop lock: an operator stop clears the desire, and a
+ * desire written after it would start the component the moment the lock lifted
+ * by any route, with no election pass. In the slot, either this lands first and
+ * the stop clears it, or the stop lands first and this writes nothing.
+ * @param {string} rawIdentifier Component identifier.
+ * @param {string} reason Why, for the log and the event.
+ * @param {object} [options]
+ * @param {() => boolean} [options.unless] Asked once the slot is held; true
+ *   writes nothing.
+ * @returns {Promise<boolean>} Whether the desire was written.
+ * @throws When the lock cannot be read: an unread lock is not an absent one.
+ */
+async function setRunningUnlessOperatorStopped(rawIdentifier, reason, { unless = () => false } = {}) {
+  const identifier = canonical(rawIdentifier);
+  let written = false;
+  await applyIntent(identifier, async () => {
+    if (unless()) return;
+    if (await appsRuntimeState.operatorStoppedOrThrow(identifier)) return;
+    controllerDesired.set(identifier, 'running');
+    log.info(`appReconciler - controllerDesired[${identifier}] = running (${reason})`);
+    fluxEventBus.publish('reconciler:desiredChanged', { identifier, state: 'running', reason });
+    written = true;
+  });
+  return written;
+}
+
+/**
  * Declare that a g:/r: component must be stopped and its local appdata cleared
  * before it next runs - the sync layer's first-run / new-app reset. Sets both
  * desired inputs and enqueues ONE reconcile: the reconciler (the sole container
@@ -1468,33 +1513,13 @@ function forgetDesiredState(rawIdentifier) {
 }
 
 /**
- * A decider has committed to running this component but cannot start it yet -
- * the masterSlave primary path fixes ownership on the persistent data first,
- * which takes long enough that a peer asking "is anyone running this?" gets a
- * truthful no and starts a second writer. Held from the decision, released when
- * the attempt ends: a start that succeeds is covered by controllerDesired from
- * then on, and one that fails is correctly no longer a claim.
- *
- * Deliberately not time-bounded. The claimant knows when it has finished, so
- * there is nothing to guess at, and the state is process-local - a crash or a
- * FluxOS restart drops it with no way for a stale claim to outlive its owner.
- */
-function claimStarting(rawIdentifier) {
-  startingClaims.add(canonical(rawIdentifier));
-}
-
-function releaseStarting(rawIdentifier) {
-  startingClaims.delete(canonical(rawIdentifier));
-}
-
-/**
- * Component identifiers this node runs or is committed to running, from its own
- * state alone. The running containers are the caller's to add - this is the part
- * Docker cannot answer.
+ * Component identifiers this node is committed to running, from its own state
+ * alone. The running containers are the caller's to add - this is the part Docker
+ * cannot answer.
  * @returns {string[]}
  */
 function committedIdentifiers() {
-  const ids = new Set(startingClaims);
+  const ids = new Set();
   controllerDesired.forEach((state, identifier) => {
     if (state === 'running') ids.add(identifier);
   });
@@ -1548,8 +1573,8 @@ module.exports = {
   setControllerDesired,
   clearControllerDesired,
   forgetDesiredState,
-  claimStarting,
-  releaseStarting,
+  setControllerDesiredAndWait,
+  setRunningUnlessOperatorStopped,
   committedIdentifiers,
   requestStopAndClearData,
   waitForBootDrainSettled: () => bootDrainGate.wait(),

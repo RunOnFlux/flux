@@ -2226,7 +2226,36 @@ async function getPreviousAppSpecifications(specifications, verificationTimestam
   return specificationFormatter(appSpecs);
 }
 
+/**
+ * Nodes that have announced a shutdown and not come back: the newest state
+ * event from each is a sigterm still inside SIGTERM_EXPIRY_MS, with no apprunning
+ * broadcast after it.
+ *
+ * @returns {Promise<string[]>} Their socket addresses
+ */
+async function shuttingDownNodes() {
+  const db = dbHelper.databaseConnection();
+  const events = db.db(config.database.appsglobal.database).collection(globalAppStateEvents);
+  const since = new Date(Date.now() - SIGTERM_EXPIRY_MS);
+  const sigterms = await events.find(
+    { type: 'sigterm', broadcastedAt: { $gt: since } },
+    { projection: { _id: 0, ip: 1, broadcastedAt: 1 } },
+  ).toArray();
+  const departing = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const { ip, broadcastedAt } of sigterms) {
+    // eslint-disable-next-line no-await-in-loop
+    const back = await events.findOne(
+      { ip, type: 'apprunning', broadcastedAt: { $gt: broadcastedAt } },
+      { projection: { _id: 1 } },
+    );
+    if (!back) departing.push(ip);
+  }
+  return departing;
+}
+
 module.exports = {
+  shuttingDownNodes,
   getAppHashes,
   getPreviousAppSpecifications,
   appLocation,

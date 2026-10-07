@@ -60,6 +60,25 @@ export async function waitFor(condition, { timeout = 60000, interval = 2000, lab
   );
 }
 
+// waitFor, for a poll that also asserts an invariant. waitFor retries a poll
+// that throws, so an assertion inside one passes if a later poll succeeds - a
+// breach that lasts one poll goes unseen. Here an assertion failure ends the
+// wait at the first breach and is thrown; anything else a poll throws - a read
+// that did not answer - is retried as waitFor retries it.
+export async function waitHolding(poll, options) {
+  let breach = null;
+  await waitFor(async () => {
+    try {
+      return await poll();
+    } catch (error) {
+      if (error?.name !== 'AssertionError') throw error;
+      breach = error;
+      return true;
+    }
+  }, options);
+  if (breach) throw breach;
+}
+
 // Container-state wait helpers (docker-level, via the node's DinD)
 // Thrown rather than returned false, so the timeout carries what docker actually
 // reported - a status string, or that nothing matched the name. waitFor keeps the

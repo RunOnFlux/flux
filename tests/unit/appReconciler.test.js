@@ -64,6 +64,7 @@ describe('appReconciler tests', () => {
       appsRuntimeState: {
         isOperatorStopped: sinon.stub().resolves(false),
         operatorStopState: sinon.stub().resolves({ stopped: false, force: false }),
+        operatorStoppedOrThrow: sinon.stub().resolves(false),
         restartWaitMs: sinon.stub().resolves(0),
         recordRestart: sinon.stub().resolves(),
         recordExit: sinon.stub().resolves(),
@@ -172,6 +173,21 @@ describe('appReconciler tests', () => {
       await appReconciler.reconcile('www_App');
       expect(stubs.dockerService.appDockerStop.calledOnceWith('www_App')).to.be.true;
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
+    // An operator start the election has yet to decide keeps the lock, so the
+    // container stays down until the election lifts it - and is reported as
+    // waiting on the election rather than as stopped by the operator.
+    it('keeps the container down while an operator start waits on the election, and says why', async () => {
+      stubs.appsRuntimeState.operatorStopState.resolves({ stopped: true, startRequested: true, force: false });
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 0 } });
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      expect(await appReconciler.desiredRunState('www_App')).to.deep.include({ desired: false, reason: 'startAwaitsElection' });
+      stubs.appsRuntimeState.operatorStopState.resolves({ stopped: true, startRequested: false, force: false });
+      expect(await appReconciler.desiredRunState('www_App')).to.deep.include({ desired: false, reason: 'operatorStopped' });
     });
 
     // The sampler runs on its own interval against a container id. Left on after
@@ -1955,6 +1971,90 @@ describe('appReconciler tests', () => {
       await new Promise(setImmediate);
 
       expect(stubs.dockerService.dockerContainerInspect.called).to.equal(true);
+    });
+
+    // A stand-down stops the container before its folder stops sending, so it
+    // needs the pass the stop causes to have run, not merely to have been asked for.
+    it('setControllerDesiredAndWait records the state and returns once its pass has run', async () => {
+      const releaseInspect = blockDockerInspect();
+      let settled = false;
+      const intent = appReconciler.setControllerDesiredAndWait('www_App', 'stopped', 'test')
+        .then((r) => { settled = true; return r; });
+
+      await new Promise(setImmediate);
+      expect(appReconciler.committedIdentifiers()).to.not.include('www_App');
+      expect(settled, 'returned while the pass was still running').to.equal(false);
+
+      releaseInspect();
+      expect(await intent).to.equal(true);
+
+      await appReconciler.setControllerDesiredAndWait('www_App', 'running', 'test');
+      expect(appReconciler.committedIdentifiers()).to.include('www_App');
+    });
+  });
+
+  // A desire to run is never written behind the operator's stop lock: written
+  // after the stop cleared the desire, it would start the component the moment
+  // the lock lifted by any route, with no election pass.
+  describe('setRunningUnlessOperatorStopped', () => {
+    it('commits an unlocked component to running', async () => {
+      expect(await appReconciler.setRunningUnlessOperatorStopped('www_App', 'test')).to.equal(true);
+      expect(appReconciler.committedIdentifiers()).to.include('www_App');
+    });
+
+    it('writes nothing for a component its operator has stopped', async () => {
+      stubs.appsRuntimeState.operatorStoppedOrThrow.resolves(true);
+
+      expect(await appReconciler.setRunningUnlessOperatorStopped('www_App', 'test')).to.equal(false);
+      expect(appReconciler.committedIdentifiers()).to.not.include('www_App');
+    });
+
+    it('writes nothing when its caller withdraws once the slot is held, asked only then', async () => {
+      let asked = 0;
+      let release;
+      const held = new Promise((resolve) => { release = resolve; });
+      const before = appReconciler.applyIntent('www_App', () => held);
+      let withdrawn = false;
+      const running = appReconciler.setRunningUnlessOperatorStopped('www_App', 'test', {
+        unless: () => { asked += 1; return withdrawn; },
+      });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(asked, 'asked before the slot was held').to.equal(0);
+      withdrawn = true;
+      release();
+      await before;
+
+      expect(await running).to.equal(false);
+      expect(asked).to.equal(1);
+      expect(appReconciler.committedIdentifiers()).to.not.include('www_App');
+    });
+
+    it('throws, writing nothing, when the lock cannot be read', async () => {
+      stubs.appsRuntimeState.operatorStoppedOrThrow.rejects(new Error('no primary available'));
+
+      const result = await appReconciler.setRunningUnlessOperatorStopped('www_App', 'test').catch((err) => err);
+
+      expect(result).to.be.an('error');
+      expect(appReconciler.committedIdentifiers()).to.not.include('www_App');
+    });
+
+    it('reads the lock after a stop already in the slot has written it', async () => {
+      let locked = false;
+      stubs.appsRuntimeState.operatorStoppedOrThrow.callsFake(async () => locked);
+      let land;
+      const landed = new Promise((resolve) => { land = resolve; });
+      const stop = appReconciler.applyIntent('www_App', async () => {
+        await landed;
+        locked = true;
+      });
+
+      const running = appReconciler.setRunningUnlessOperatorStopped('www_App', 'test');
+      await new Promise(setImmediate);
+      land();
+      await stop;
+
+      expect(await running, 'the desire was written over a stop already in the slot').to.equal(false);
+      expect(appReconciler.committedIdentifiers()).to.not.include('www_App');
     });
   });
 

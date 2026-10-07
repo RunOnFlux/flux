@@ -54,6 +54,7 @@ describe('appEvacuationSafety tests', () => {
       // below reach the syncthing evidence rather than stopping short of it.
       isElectedPrimary: sinon.stub().resolves(false),
       isComponentRunningLocally: sinon.stub().resolves(true),
+      shuttingDownDevices: sinon.stub().resolves(new Set()),
     };
   });
 
@@ -216,6 +217,22 @@ describe('appEvacuationSafety tests', () => {
       sinon.assert.calledWith(deps.findSyncedPeer, 'fluxserver_palworld1');
     });
 
+    // A peer that has announced its shutdown still reads as connected and
+    // complete until its syncthing stops, seconds later.
+    it('does not count a peer that is shutting down as holding the data', async () => {
+      deps.getApplicationGlobalSpecifications.resolves(statefulSpec({ instances: 2 }));
+      deps.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127'));
+      const departing = new Set(['PEER1']);
+      deps.shuttingDownDevices.resolves(departing);
+      deps.findSyncedPeer.callsFake(async (_folder, { exclude }) => (exclude.has('PEER1') ? null : { deviceID: 'PEER1' }));
+
+      const result = await appEvacuationSafety.canSafelyRemoveApp('palworld1', deps);
+
+      sinon.assert.calledWith(deps.findSyncedPeer, 'fluxserver_palworld1', { exclude: departing });
+      expect(result.safe).to.equal(false);
+      expect(result.code).to.equal('NO_SYNCED_PEER');
+    });
+
     it('requires EVERY synced component to be held, not just the first', async () => {
       deps.getApplicationGlobalSpecifications.resolves(statefulSpec({
         instances: 2,
@@ -352,6 +369,16 @@ describe('appEvacuationSafety tests', () => {
       expect(result.safe).to.equal(false);
       expect(result.code).to.equal('CHECK_FAILED');
       expect(result.reason).to.contain('isElectedPrimary');
+    });
+
+    it('refuses when a caller omits who is shutting down', async () => {
+      deps.getApplicationGlobalSpecifications.resolves(sharedOnlySpec);
+      delete deps.shuttingDownDevices;
+
+      const result = await appEvacuationSafety.canSafelyRemoveApp('shared1', deps);
+
+      expect(result.safe).to.equal(false);
+      expect(result.code).to.equal('CHECK_FAILED');
     });
 
     it('refuses when a caller omits the running-component check', async () => {

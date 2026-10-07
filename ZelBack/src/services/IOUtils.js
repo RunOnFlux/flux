@@ -3,6 +3,8 @@ const fs2 = require('fs');
 const log = require('../lib/log');
 const axios = require('axios');
 const path = require('path');
+const { Transform } = require('stream');
+const { pipeline } = require('stream/promises');
 const deviceHelper = require('./deviceHelper');
 const serviceHelper = require('./serviceHelper');
 const { URL } = require('url');
@@ -385,58 +387,193 @@ async function checkFileExists(filePath) {
 }
 
 /**
+ * How long a download may go without receiving a byte before it is abandoned.
+ * The request timeout only covers the wait for the response headers; once the
+ * body is streaming nothing else bounds it, and a connection that stops sending
+ * (or dies without the socket noticing) would hold its caller forever.
+ */
+const DOWNLOAD_IDLE_TIMEOUT_MS = 60 * 1000;
+
+/**
+ * Attempts per download. A retry resumes from the bytes already on disk when
+ * the server honours a range request.
+ */
+const DOWNLOAD_MAX_ATTEMPTS = 4;
+
+/**
+ * A pass-through that fails the stream when no data has flowed for idleMs. As a
+ * pipeline stage, its failure destroys every other stage, the socket included.
+ *
+ * @param {number} idleMs - Silence allowed between chunks.
+ * @returns {Transform}
+ */
+function idleGuard(idleMs) {
+  let timer = null;
+  const guard = new Transform({
+    transform(chunk, encoding, callback) {
+      // eslint-disable-next-line no-use-before-define
+      arm();
+      callback(null, chunk);
+    },
+    flush(callback) {
+      clearTimeout(timer);
+      callback();
+    },
+    destroy(error, callback) {
+      clearTimeout(timer);
+      callback(error);
+    },
+  });
+  function arm() {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      guard.destroy(new Error(`no data received for ${Math.round(idleMs / 1000)}s`));
+    }, idleMs);
+  }
+  arm();
+  return guard;
+}
+
+/**
+ * The size of a file on disk, or 0 when there is none.
+ *
+ * @param {string} filepath
+ * @returns {Promise<number>}
+ */
+async function sizeOnDisk(filepath) {
+  try {
+    const stats = await fs.stat(filepath);
+    return stats.size;
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * Downloads a file from a remote URL and saves it locally.
+ *
+ * Every attempt settles: a body that goes silent for longer than the idle
+ * timeout, a connection that drops, or a body shorter than the server announced
+ * all fail the attempt instead of leaving it pending. A failed attempt is
+ * retried, resuming from what is already on disk when the server answers the
+ * range request with 206, and starting over otherwise.
  *
  * @param {string} url - The URL of the file to download.
  * @param {string} localpath - The local path to save the downloaded file.
  * @param {string} component - The component name for identification.
  * @param {boolean} rename - Flag indicating whether to rename the downloaded file.
- * @returns {boolean} - True if the file is downloaded and saved successfully, false on failure.
+ * @param {object} [options]
+ * @param {number} [options.idleTimeoutMs] - Silence allowed before an attempt is abandoned.
+ * @param {number} [options.maxAttempts] - Attempts before giving up.
+ * @param {number} [options.retryDelayMs] - Pause between attempts.
+ * @returns {Promise<boolean>} - True if the file is downloaded and saved successfully, false on failure.
  */
-async function downloadFileFromUrl(url, localpath, component, rename = false, retries = 0) {
-  try {
-    // Use validated redirect-following request to prevent SSRF via redirects
-    const response = await requestWithValidatedRedirects(url, 'GET', {
-      responseType: 'stream',
-      timeout: 15000,
-    });
+async function downloadFileFromUrl(url, localpath, component, rename = false, options = {}) {
+  const {
+    idleTimeoutMs = DOWNLOAD_IDLE_TIMEOUT_MS,
+    maxAttempts = DOWNLOAD_MAX_ATTEMPTS,
+    retryDelayMs = 5 * 1000,
+  } = options;
+  let filepath = null;
+  // The validator of the copy on disk, sent back as If-Range so a file that
+  // changed between attempts is sent whole instead of spliced onto the old one.
+  let validator = null;
 
-    let filepath = `${localpath}/backup_${component.toLowerCase()}.tar.gz`;
-    if (!rename) {
-      // Extract filename from the final URL (after redirects)
-      const finalUrl = response.finalUrl || url;
-      const parsedUrl = new URL(finalUrl);
-      const fileName = path.basename(parsedUrl.pathname) || 'download';
-      filepath = `${localpath}/${fileName}`;
-    }
-
-    const dirPath = path.dirname(filepath);
-    // Create directory if it doesn't exist
-    await fs.mkdir(dirPath, { recursive: true });
-    const writer = fs2.createWriteStream(filepath);
-    response.data.pipe(writer);
-
-    return new Promise((resolve, reject) => {
-      writer.on('finish', () => {
-        resolve(true);
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const offset = filepath ? await sizeOnDisk(filepath) : 0;
+      // identity: a body the server compresses on the fly would be inflated by
+      // axios, so neither its content-length nor a range offset would describe
+      // the bytes written to disk, and the archive saved would not be the file.
+      const headers = { 'Accept-Encoding': 'identity' };
+      if (offset > 0) {
+        headers.Range = `bytes=${offset}-`;
+        if (validator) headers['If-Range'] = validator;
+      }
+      // Use validated redirect-following request to prevent SSRF via redirects
+      // eslint-disable-next-line no-await-in-loop
+      const response = await requestWithValidatedRedirects(url, 'GET', {
+        responseType: 'stream',
+        timeout: 15000,
+        decompress: false,
+        headers,
       });
-      writer.on('error', (err) => {
-        log.error(`Error writing file: ${err.message}`);
-        reject();
-      });
-    });
-  } catch (err) {
-    if (retries < 3) {
-      log.error(err);
-      // eslint-disable-next-line no-param-reassign
-      retries += 1;
-      log.error(`Error downloading file, retrying download:${retries}`);
-      // eslint-disable-next-line no-return-await
-      return await downloadFileFromUrl(url, localpath, component, rename, retries);
+
+      if (!filepath) {
+        filepath = `${localpath}/backup_${component.toLowerCase()}.tar.gz`;
+        if (!rename) {
+          // Extract filename from the final URL (after redirects)
+          const finalUrl = response.finalUrl || url;
+          const parsedUrl = new URL(finalUrl);
+          const fileName = path.basename(parsedUrl.pathname) || 'download';
+          filepath = `${localpath}/${fileName}`;
+        }
+        // Create directory if it doesn't exist
+        // eslint-disable-next-line no-await-in-loop
+        await fs.mkdir(path.dirname(filepath), { recursive: true });
+      }
+
+      // A server that ignores the range answers 200 with the whole file, and a
+      // 206 for some other range cannot be appended - both start over.
+      const contentRange = response.headers['content-range'] || '';
+      const resumed = offset > 0 && response.status === 206 && contentRange.startsWith(`bytes ${offset}-`);
+      let expectedBytes = null;
+      if (resumed) {
+        const total = parseInt(contentRange.split('/')[1], 10);
+        if (Number.isFinite(total)) expectedBytes = total;
+      } else if (response.status === 200) {
+        const length = parseInt(response.headers['content-length'], 10);
+        if (Number.isFinite(length)) expectedBytes = length;
+        // Only a strong ETag may guard a byte range (RFC 9110 13.1.5); a date
+        // is the fallback the same rule allows.
+        const { etag } = response.headers;
+        validator = (etag && !etag.startsWith('W/')) ? etag : (response.headers['last-modified'] || null);
+      } else {
+        response.data.destroy();
+        // a 206 for some other range would come back the same way every time
+        // eslint-disable-next-line no-await-in-loop
+        if (response.status === 206) await fs.rm(filepath, { force: true });
+        throw new Error(`unexpected status ${response.status} for a download from ${offset} bytes`);
+      }
+      if (offset > 0) {
+        log.info(`downloadFileFromUrl - ${url} attempt ${attempt}, ${resumed ? `resuming at ${offset} bytes` : 'range refused, starting over'}`);
+      }
+
+      const writer = fs2.createWriteStream(filepath, { flags: resumed ? 'a' : 'w' });
+      // eslint-disable-next-line no-await-in-loop
+      await pipeline(response.data, idleGuard(idleTimeoutMs), writer);
+
+      // A connection that closes early can end the body cleanly but short
+      // eslint-disable-next-line no-await-in-loop
+      const written = await sizeOnDisk(filepath);
+      if (expectedBytes !== null && written !== expectedBytes) {
+        throw new Error(`download ended at ${written} of ${expectedBytes} bytes`);
+      }
+      return true;
+    } catch (err) {
+      const status = err?.response?.status;
+      log.error(`downloadFileFromUrl - ${url} attempt ${attempt}/${maxAttempts} failed: ${err?.message}`);
+      // 416: the range asked for is not in the file (the copy on disk is not a
+      // prefix of it), so the next attempt starts over from nothing.
+      if (status === 416 && filepath) {
+        // eslint-disable-next-line no-await-in-loop
+        await fs.rm(filepath, { force: true });
+      }
+      // Any other 4xx is the server's final answer (gone, forbidden), not a
+      // network failure, and asking again only keeps the app stopped longer.
+      const final = status >= 400 && status < 500 && ![408, 416, 429].includes(status);
+      if (final) break;
+      if (attempt < maxAttempts) {
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(retryDelayMs);
+      }
     }
-    log.error('Error downloading file:', err);
-    return false;
   }
+  // A partial archive is no use to anyone, and on a game server it can be
+  // gigabytes of the app's own volume until the next restore clears it.
+  if (filepath) await fs.rm(filepath, { force: true }).catch(() => {});
+  return false;
 }
 
 /**

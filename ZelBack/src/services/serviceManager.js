@@ -9,6 +9,7 @@ const dbHelper = require('./dbHelper');
 const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const networkStateService = require('./networkStateService');
+const systemdNotify = require('./utils/systemdNotify');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 // App modular services - replacing appsService
 const appInstaller = require('./appLifecycle/appInstaller');
@@ -59,6 +60,8 @@ const cloudUIUpdateService = require('./cloudUIUpdateService');
 const appTamperingBlocklistService = require('./appTamperingBlocklistService');
 const residentialNodeDosService = require('./residentialNodeDosService');
 const peerSetStabilityService = require('./peerSetStabilityService');
+const outboundPathService = require('./outboundPathService');
+const uplinkService = require('./uplinkService');
 const nodeConfirmationService = require('./nodeConfirmationService');
 const appTamperingDetectionService = require('./appTamperingDetectionService');
 const appsRuntimeState = require('./appManagement/appsRuntimeState');
@@ -250,6 +253,10 @@ async function ensureIndexes(collection, specs) {
 
 /**
  * To start FluxOS. A series of checks are performed on port and UPnP (Universal Plug and Play) support and mapping. Database connections are established. The other relevant functions required to start FluxOS services are called.
+ *
+ * Not unit-testable: every step acts on the machine, and a throw re-runs the
+ * whole boot 15 s later with whatever is stubbed by then. Unit-test the steps
+ * it calls; the integration harness covers the sequence.
  */
 async function startFluxFunctions() {
   try {
@@ -264,6 +271,9 @@ async function startFluxFunctions() {
     // Hard dependencies — nothing starts until these are confirmed.
     await dbHelper.waitForMongo();
     await dockerService.waitForDocker();
+    // Before any work that a restart would cut short: a registration that
+    // needs its kill timeout raised restarts FluxOS, and this waits for it.
+    await fluxService.ensurePm2KillTimeout();
 
     // Check and update CloudUI if needed (for legacy nodes without watchdog)
     log.info('Checking CloudUI installation...');
@@ -488,6 +498,9 @@ async function startFluxFunctions() {
     // before daemonReady is set so its timeout/removal logic can trigger.
     await daemonServiceUtils.buildFluxdClient();
     await daemonServiceMiscRpcs.waitForDaemonRpc();
+    // The API listens and the daemon answers: what a unit ordered after this
+    // one may rely on.
+    systemdNotify.notifyReady();
     // awaited so isDaemonSynced cache is populated before hash sync reads it
     await daemonServiceMiscRpcs.daemonBlockchainInfoService();
     globalState.daemonReady = true;
@@ -518,6 +531,11 @@ async function startFluxFunctions() {
       offPeerEvent: (event, cb) => peerManager.removeListener(event, cb),
       isAboveThreshold: () => peerManager.isAboveThreshold(),
     });
+
+    // Whether this node's calls to other nodes reach them. Started beside the
+    // peer-set watch because it draws its observer from the same network state,
+    // and like it the check says why a node is out rather than leaving it silent.
+    outboundPathService.start();
 
     // Network policy, started here rather than at the top of boot because it needs both of
     // the things that only exist by now: mongo, to restore and re-verify the bundle this
@@ -638,6 +656,7 @@ async function startFluxFunctions() {
     }).catch((err) => {
       log.error(`residentialNodeDos start error: ${err.message}`);
     });
+    uplinkService.start();
     log.info('Flux checks operational');
     fluxCommunication.initializeDiscovery();
     await nodeConfirmationService.start();

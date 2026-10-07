@@ -10,6 +10,7 @@ let softRedeployInProgress = false;
 let hardRedeployInProgress = false;
 let reinstallationOfOldAppsInProgress = false;
 let masterSlaveAppsRunning = false;
+let shutdownInProgress = false;
 const daemonReadyGate = new AsyncGate();
 const bootContainerStateSettledGate = new AsyncGate();
 const dbReadyGate = new AsyncGate();
@@ -170,6 +171,13 @@ let promotedFolderIds = null;
 // nothing" and "I have not looked" are opposite answers to a peer about to seed.
 let folderHoldings = null;
 
+// This node's place in deciding which holder seeds a folder at a cold start:
+// folderId -> { stage, bytes, newestModified }. `intent` while this node is elected,
+// `deciding` while it reads its peers before seeding, `decided` once it seeds. Peers
+// read it before they seed, so two holders that can reach each other never both seed
+// - see the seed decision in syncthingFolderStateMachine.
+const seedMarks = new Map();
+
 
 // Cache references - these will be initialized from cacheManager
 let spawnErrorsLongerAppCache = null;
@@ -225,6 +233,12 @@ module.exports = {
   isOperationInProgress() {
     return removalInProgress || installationInProgress || softRedeployInProgress || hardRedeployInProgress || reinstallationOfOldAppsInProgress;
   },
+
+  // Set by the graceful shutdown path and never cleared: the process exits at the
+  // end of it. From then on no container starts and no decider acts, so what the
+  // shutdown stops and drains stays stopped and drained.
+  get shutdownInProgress() { return shutdownInProgress; },
+  setShutdownInProgressTrue() { shutdownInProgress = true; },
 
   get masterSlaveAppsRunning() { return masterSlaveAppsRunning; },
   set masterSlaveAppsRunning(value) { masterSlaveAppsRunning = value; },
@@ -336,6 +350,7 @@ module.exports = {
   set promotedFolderIds(ids) { promotedFolderIds = ids; },
   get folderHoldings() { return folderHoldings; },
   set folderHoldings(map) { folderHoldings = map; },
+  get seedMarks() { return seedMarks; },
   get syncthingDevicesIDCache() { return syncthingDevicesIDCache; },
   get folderHealthCache() { return folderHealthCache; },
   get runningAppsCache() { return runningAppsCache; },

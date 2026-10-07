@@ -12,9 +12,8 @@ const policyStore = require('./policyStore');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const messageHelper = require('./messageHelper');
-const dbHelper = require('./dbHelper');
-const { peerManager, PEER_SOURCE } = require('./utils/peerState');
-const { SIGTERM_EXPIRY_MS, RUNNING_EXPIRY_MS } = require('./utils/appConstants');
+const { peerManager, PEER_SOURCE, CLOSE_CODES } = require('./utils/peerState');
+const { RUNNING_EXPIRY_MS } = require('./utils/appConstants');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const nodeConfirmationService = require('./nodeConfirmationService');
@@ -26,7 +25,6 @@ const { INTENT } = require('./utils/messageIntent');
 const {
   ROUTE, register, declaredIntent, handlerFor, isOrdered,
 } = require('./utils/messageRoutes');
-const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
 const { announcementSeen, announcementStore, wsPeerCache } = cacheManager;
 
@@ -274,24 +272,18 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
       await messageStore.pruneAppRunningLocations(newestByIp);
     }
 
-    // Applied after every slice, never inside one. An eviction clears a node's
-    // locations outright, so a slice storing that node's apprunning events
-    // afterwards would put them straight back - and evictions carry no
-    // broadcastedAt, so the sender's timestamp sort puts them in the earliest
-    // slice every time.
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
+    // Applied after every slice, once every apprunning row in the response is
+    // stored. Each event removes or shortens only the rows broadcast before it.
+    // An eviction's time is createdAt, when the evicting node made it.
     for (const event of [...evictions, ...stateEvents]) {
       if (event.type === 'sigterm') {
         await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
-        const newExpireAt = new Date(event.data.broadcastedAt + SIGTERM_EXPIRY_MS);
-        await dbHelper.updateInDatabase(database, globalAppsLocations, { ip: event.data.ip }, { $set: { expireAt: newExpireAt } });
+        await messageStore.expireLocationsForSigterm(event.data.ip, event.data.broadcastedAt);
       } else if (event.type === 'appremoved') {
         await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
-        await dbHelper.findOneAndDeleteInDatabase(database, globalAppsLocations, { ip: event.data.ip, name: event.data.appName }, {});
+        await messageStore.removeLocationForAppRemoved(event.data.ip, event.data.appName, event.data.broadcastedAt);
       } else if (event.type === 'evicted') {
-        await messageStore.storeAppStateEvent(event.type, { ip: event.ip });
-        await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, { ip: event.ip });
+        await messageStore.applyEviction(event.ip, Date.parse(event.createdAt));
       } else if (event.type === 'ipchanged') {
         await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
       }
@@ -579,12 +571,7 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
     await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.SIGTERM, { message: message.data, envelope });
     fluxEventBus.publish('network:sigterm', { ip });
 
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    const newExpireAt = new Date(broadcastedAt + SIGTERM_EXPIRY_MS);
-    const update = { $set: { expireAt: newExpireAt } };
-    const query = { ip };
-    await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
+    await messageStore.expireLocationsForSigterm(ip, broadcastedAt);
 
     // Rebroadcast to other peers
     announceToPeers(message, `${fromIP}:${port}`);
@@ -1165,6 +1152,18 @@ function onOutboundError(error) {
 function onOutboundOpen() {
   const meta = wsMetadata.get(this);
   if (!meta) return;
+  const key = `${meta.ip}:${meta.port}`;
+  const existing = peerManager.get(key);
+  // A connection to this peer is already held: a live one in the same
+  // direction stays, and when both ends dialed at once the pair keeps the
+  // connection dialed by the lower address (peerManager.resolveCrossing), the
+  // same choice the far end makes. Otherwise add() replaces the held one.
+  const replaces = !existing || peerManager.resolveCrossing(existing, DIRECTION.OUTBOUND);
+  if (!replaces) {
+    peerManager.clearPending(key);
+    try { this.close(CLOSE_CODES.DUPLICATE_PEER, 'Peer already connected'); } catch (_e) { /* noop */ }
+    return;
+  }
   peerManager.add(this, meta.ip, meta.port, {
     source: meta.source,
     remoteCapabilities: meta.remoteCapabilities,

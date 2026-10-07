@@ -108,6 +108,7 @@ async function canSafelyRemoveApp(appName, deps) {
     findSyncedPeer,
     isElectedPrimary,
     isComponentRunningLocally,
+    shuttingDownDevices,
   } = deps;
 
   try {
@@ -117,8 +118,9 @@ async function canSafelyRemoveApp(appName, deps) {
     // refused. A caller that cannot answer must not be told the removal is
     // safe, so the omission throws and the catch below turns it into a refusal
     // that says so.
-    if (typeof isElectedPrimary !== 'function' || typeof isComponentRunningLocally !== 'function') {
-      throw new Error('isElectedPrimary and isComponentRunningLocally are required');
+    if (typeof isElectedPrimary !== 'function' || typeof isComponentRunningLocally !== 'function'
+      || typeof shuttingDownDevices !== 'function') {
+      throw new Error('isElectedPrimary, isComponentRunningLocally and shuttingDownDevices are required');
     }
     if (globalState.backupInProgress.includes(appName)) {
       return { safe: false, code: 'BACKUP_IN_PROGRESS', reason: 'backup in progress' };
@@ -182,15 +184,19 @@ async function canSafelyRemoveApp(appName, deps) {
     // ever wrote has landed elsewhere: by then the component is stopped, so a
     // peer at 100% is a peer holding the final state rather than the state as of
     // a moment before the next write.
+    // A peer that has announced its shutdown still reads as connected and complete
+    // until its syncthing stops, so it would pass the check below and be gone
+    // moments after this node deleted the other copy.
+    const exclude = await shuttingDownDevices();
     // eslint-disable-next-line no-restricted-syntax
     for (const component of synced) {
       // eslint-disable-next-line no-await-in-loop
-      const peer = await findSyncedPeer(component.folderId);
+      const peer = await findSyncedPeer(component.folderId, { exclude });
       if (!peer) {
         return {
           safe: false,
           code: 'NO_SYNCED_PEER',
-          reason: `no connected peer holds ${component.folderId} in full`,
+          reason: `no connected peer that is staying up holds ${component.folderId} in full`,
         };
       }
     }

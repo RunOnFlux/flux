@@ -52,6 +52,12 @@ export function dbClient(nodeNum) {
       return { total, resolved, missing, notFound };
     },
 
+    // The node's own geolocation record: what it decided about its address.
+    async nodeGeolocation() {
+      const localDb = await db('local');
+      return localDb.collection('geolocation').findOne({ _id: 'nodeGeolocation' });
+    },
+
     async explorerHeight() {
       const explorerDb = await db('explorer');
       const doc = await explorerDb.collection('scannedheight').findOne({});
@@ -103,6 +109,12 @@ export function dbClient(nodeNum) {
     async getAppLocationsByIp(ip) {
       const globalDb = await db('appsGlobal');
       return globalDb.collection('zelappslocation').find({ ip }).toArray();
+    },
+
+    // This node's stored state events for one node, optionally of one type.
+    async getAppStateEvents({ ip, type } = {}) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('appstateevents').find({ ip, ...(type ? { type } : {}) }).toArray();
     },
 
     async eventCounts() {
