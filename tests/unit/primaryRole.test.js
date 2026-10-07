@@ -252,6 +252,21 @@ describe('primaryRole', () => {
       });
     });
 
+    it('publishes the first stand-down a promotion is given, and no repeat', async () => {
+      const held = heldSend();
+      const t = loadRole({ changeType: held.changeType });
+
+      t.role.promote(APP, FOLDER);
+      await new Promise((resolve) => { setImmediate(resolve); });
+      t.role.standDown(APP, FOLDER);
+      t.role.standDown(APP, FOLDER);
+      held.answer(true);
+      await t.role.whenSettled(APP);
+
+      const given = t.bus.publish.getCalls().filter((c) => c.args[0] === 'primaryRole:standDownGiven').map((c) => c.args[1]);
+      expect(given).to.deep.equal([{ identifier: APP }]);
+    });
+
     it('asks for no container when it is stood down while the start waits for the reconciler', async () => {
       let t;
       t = loadRole({ inSlot: async () => { t.role.standDown(APP, FOLDER); } });

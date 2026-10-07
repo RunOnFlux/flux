@@ -174,7 +174,8 @@ function promote(identifier, appId) {
 
 /**
  * Stand down as the primary of a component: stop it, then make its folder
- * receive. A promotion in progress is abandoned before it asks for the container.
+ * receive. A promotion in progress is abandoned before it asks for the container;
+ * the first stand-down it is given is published as primaryRole:standDownGiven.
  * Returns at once; the change runs in the background.
  * @param {string} identifier `<component>_<app>`
  * @param {string} appId Syncthing folder id
@@ -185,6 +186,7 @@ function promote(identifier, appId) {
 function standDown(identifier, appId, { running = false } = {}) {
   const change = changes.get(identifier);
   if (change?.state === Role.PROMOTING) {
+    if (!change.standDown) fluxEventBus.publish('primaryRole:standDownGiven', { identifier });
     change.standDown = true;
     return true;
   }

@@ -282,6 +282,7 @@ export function nodeClient(nodeNum) {
         'syncthing:folderWritable',
         'syncthing:folderReady',
         'primaryRole:changed',
+        'primaryRole:standDownGiven',
         'primaryRole:returned',
         'shutdown:paused',
         'system:packages-checked',
