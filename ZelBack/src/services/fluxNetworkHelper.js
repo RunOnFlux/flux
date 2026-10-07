@@ -2351,16 +2351,16 @@ async function nodeFirewallRules() {
   const ports = [apiPort, +apiPort - 1, +apiPort + 1, +apiPort + 2, 80, 443, 16125, ...config.server.allowedPorts];
   const rules = [['delete', 'allow', 'in', 'proto', 'udp', 'to', 'any', 'port', '53']];
   // this should also be limit, but existing nodes use allow (needs to be updated)
-  if (isArcane) rules.push(['insert', '1', 'allow', 'to', 'any', 'app', 'FluxadmSSH']);
+  if (isArcane) rules.push(['prepend', 'allow', 'to', 'any', 'app', 'FluxadmSSH']);
   // the OpenSSH profile exists only where openssh-server is installed
-  rules.push(['insert', '1', 'limit', 'to', 'any', 'app', 'OpenSSH']);
+  rules.push(['prepend', 'limit', 'to', 'any', 'app', 'OpenSSH']);
 
   const { stdout: routes } = await serviceHelper.runCommand('ip', { logError: false, params: ['route'] });
   const routerIP = serviceHelper.ensureString(routes).split('\n')[0].trim().split(/\s+/)[2] || '';
   if (serviceHelper.validIpv4Address(routerIP)
     && (routerIP.startsWith('192.168.') || routerIP.startsWith('10.') || routerIP.startsWith('172.16.')
       || routerIP.startsWith('100.64.') || routerIP.startsWith('198.18.') || routerIP.startsWith('169.254.'))) {
-    rules.push(['insert', '1', 'allow', 'from', routerIP, 'to', 'any', 'proto', 'udp']);
+    rules.push(['prepend', 'allow', 'from', routerIP, 'to', 'any', 'proto', 'udp']);
   }
   ports.forEach((port) => rules.push(['allow', String(port)]));
   // app containers reach the fluxnode service; the rest of loopback is refused

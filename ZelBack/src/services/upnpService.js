@@ -44,11 +44,11 @@ async function adjustFirewallForUPNP() {
       if (firewallActive) {
         // standard rules for upnp, then one pair per home node ws port
         const rules = [
-          ['insert', '1', 'allow', 'from', routerIP, 'port', '1900', 'to', 'any', 'proto', 'udp'],
-          ['insert', '1', 'allow', 'from', routerIP, 'to', 'any', 'proto', 'udp'],
+          ['prepend', 'allow', 'from', routerIP, 'port', '1900', 'to', 'any', 'proto', 'udp'],
+          ['prepend', 'allow', 'from', routerIP, 'to', 'any', 'proto', 'udp'],
           ...config.server.allowedPorts.flatMap((port) => [
-            ['insert', '1', 'allow', 'in', 'proto', 'tcp', 'from', 'any', 'to', routerIP, 'port', String(port)],
-            ['insert', '1', 'allow', 'in', 'proto', 'udp', 'from', 'any', 'to', routerIP, 'port', String(port)],
+            ['prepend', 'allow', 'in', 'proto', 'tcp', 'from', 'any', 'to', routerIP, 'port', String(port)],
+            ['prepend', 'allow', 'in', 'proto', 'udp', 'from', 'any', 'to', routerIP, 'port', String(port)],
           ]),
         ];
         // eslint-disable-next-line no-restricted-syntax

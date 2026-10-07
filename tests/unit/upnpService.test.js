@@ -52,8 +52,8 @@ describe('upnpService tests', () => {
 
       const calls = runCommandStub.getCalls().filter((call) => call.args[0] === 'ufw');
       const params = calls.map((call) => call.args[1].params.join(' '));
-      expect(params).to.include('insert 1 allow from 192.168.1.1 to any proto udp');
-      expect(params).to.include('insert 1 allow in proto tcp from any to 192.168.1.1 port 16137');
+      expect(params).to.include('prepend allow from 192.168.1.1 to any proto udp');
+      expect(params).to.include('prepend allow in proto tcp from any to 192.168.1.1 port 16137');
       expect(params.filter((rule) => /\bout\b/.test(rule))).to.deep.equal([]);
       calls.forEach((call) => expect(call.args[1]).to.include({ runAsRoot: true, timeout: 30000 }));
     });
@@ -65,7 +65,7 @@ describe('upnpService tests', () => {
 
       await upnpService.adjustFirewallForUPNP();
 
-      expect(runCommandStub.getCalls().filter((call) => call.args[0] === 'ufw' && call.args[1].params[0] === 'insert')).to.have.lengthOf(1);
+      expect(runCommandStub.getCalls().filter((call) => call.args[0] === 'ufw' && call.args[1].params[0] === 'prepend')).to.have.lengthOf(1);
       sinon.assert.calledWith(errorSpy, 'Firewall not adjusted for UPNP: ufw is locked by another ufw command');
     });
   });
