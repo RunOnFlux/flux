@@ -531,8 +531,12 @@ export async function mirrorExecutorImage() {
 
 // Push a static-busybox image (entrypoint sleeps so the container stays up), for
 // an app container a suite needs tools inside: file inspection, network probes.
-// The freestanding pause/test-app images have neither.
-export async function pushBusybox(repo, tag = 'v1', markerContent = 'busybox') {
+// The freestanding pause/test-app images have neither. `entrypoint` replaces the
+// sleep, for an app FluxOS installs that must do something of its own, since an
+// app spec cannot set one.
+export async function pushBusybox(repo, tag = 'v1', markerContent = 'busybox', {
+  entrypoint = ['/bin/busybox', 'sleep', '2147483647'],
+} = {}) {
   const gzippedLayer = buildBinaryLayerTar(BUSYBOX_BIN, 'busybox', markerContent);
   const layerDigest = await uploadBlob(repo, gzippedLayer);
 
@@ -542,7 +546,7 @@ export async function pushBusybox(repo, tag = 'v1', markerContent = 'busybox') {
   const configObj = {
     architecture: 'amd64',
     os: 'linux',
-    config: { Entrypoint: ['/bin/busybox', 'sleep', '2147483647'] },
+    config: { Entrypoint: entrypoint },
     rootfs: { type: 'layers', diff_ids: [diffId] },
   };
   const configBuf = Buffer.from(JSON.stringify(configObj));
