@@ -12,6 +12,9 @@ import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, restartFluxos } from '../framework/container.js';
 import { BUSYBOX_BIN } from '../framework/registry-helper.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { waitFor } from '../framework/wait.js';
+import { authenticate } from '../auth.js';
+import { fluxTeamKey } from '../framework/keys.js';
 
 const LEGACY = 0;
 const ARCANE = 1;
@@ -181,6 +184,56 @@ describe('2501 firewalled nodes', function suite() {
     const rules = await rulesAdded(LEGACY);
     expect(rules, 'the queued rule').to.include('ufw allow 4242');
     expect(rules.filter(isOutbound), 'outbound rules left').to.deep.equal([]);
+  });
+
+  // The ufw command reads the rules and only then waits for ufw's lock. FluxOS
+  // reads them once it holds the lock, so a change FluxOS makes while another
+  // process holds the lock keeps what that process wrote under it.
+  it('keeps a rule another process adds under ufw\'s lock while a FluxOS change waits on it', async () => {
+    const node = env.clients[LEGACY];
+    const fluxosPort = 31955;
+    const holderPort = 4343;
+    // Holds the lock, waits to be told to go, adds a rule through ufw's
+    // library, the code the ufw command runs, and releases the lock on exit.
+    const holder = [
+      'import fcntl, gettext, os, time',
+      'f = open("/run/ufw.lock", "w")',
+      'fcntl.lockf(f, fcntl.LOCK_EX)',
+      'open("/tmp/ufw-holder-held", "w").close()',
+      'while not os.path.exists("/tmp/ufw-holder-go"): time.sleep(0.1)',
+      'gettext.install("ufw")',
+      'import ufw.frontend',
+      `p = ufw.frontend.parse_command(["ufw", "allow", "${holderPort}"])`,
+      'ui = ufw.frontend.UFWFrontend(False)',
+      'print(ui.do_action(p.action, p.data["rule"], p.data["iptype"], False), flush=True)',
+    ].join('\n');
+    // One command per line: a backgrounded command cannot be followed by ';'.
+    const started = await execInContainer(node.container, [
+      'rm -f /tmp/ufw-holder-held /tmp/ufw-holder-go',
+      `printf '%s\\n' '${holder.replace(/'/g, "'\\''")}' > /tmp/ufw-holder.py`,
+      'setsid python3 /tmp/ufw-holder.py > /tmp/ufw-holder.out 2>&1 &',
+      'for i in $(seq 1 100); do [ -e /tmp/ufw-holder-held ] && break; sleep 0.1; done',
+      'test -e /tmp/ufw-holder-held',
+    ].join('\n'));
+    expect(started.exitCode, `fixture: the lock holder did not start: ${started.output}`).to.equal(0);
+
+    const auth = await authenticate(node.url, fluxTeamKey());
+    const opened = fetch(`${node.url}/flux/allowport/${fluxosPort}`, { headers: { zelidauth: auth.zelidauth } }).then((res) => res.json());
+    // FluxOS's change is under way and waiting on the lock; a ufw command has
+    // read the rules by now.
+    await waitFor(async () => (await execInContainer(node.container, `pgrep -f '[${String(fluxosPort)[0]}]${String(fluxosPort).slice(1)}'`)).exitCode === 0, {
+      timeout: 30000, interval: 200, label: 'FluxOS\'s ufw change to start',
+    });
+    await new Promise((resolve) => { setTimeout(resolve, 2000); });
+    await execInContainer(node.container, 'touch /tmp/ufw-holder-go');
+
+    const answer = await opened;
+    expect(answer.status, JSON.stringify(answer)).to.equal('success');
+    const { stdout: held } = await execInContainer(node.container, 'cat /tmp/ufw-holder.out');
+    expect(held, 'the holder\'s rule').to.match(/Rule added/);
+    const rules = await rulesAdded(LEGACY);
+    expect(rules, 'FluxOS\'s rule').to.include(`ufw allow ${fluxosPort}`);
+    expect(rules, 'the rule added under the lock while FluxOS waited').to.include(`ufw allow ${holderPort}`);
   });
 
   it('leaves the firewall as it is and boots on when ufw\'s lock stays held, and adjusts it at the next start', async () => {
