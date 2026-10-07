@@ -49,11 +49,12 @@ describe('2503 app containers on a node with br_netfilter loaded', function suit
     return Number(line.trim().split(/\s+/)[0]);
   }
 
-  async function bridgeReturnHits() {
+  // Packets the RETURN handing traffic to an app network's address to Docker has matched.
+  async function appNetworkReturnHits() {
     const { stdout } = await inNode('iptables -L DOCKER-USER -v -x -n');
     const row = stdout.split('\n').map((l) => l.trim().split(/\s+/))
-      .find((c) => c[2] === 'RETURN' && c[5] === 'br-+' && c[6] === 'br-+');
-    if (!row) throw new Error(`no br-+ to br-+ RETURN in DOCKER-USER:\n${stdout}`);
+      .find((c) => c[2] === 'RETURN' && c[8] === '172.23.0.0/16');
+    if (!row) throw new Error(`no RETURN to 172.23.0.0/16 in DOCKER-USER:\n${stdout}`);
     return Number(row[0]);
   }
 
@@ -106,10 +107,10 @@ describe('2503 app containers on a node with br_netfilter loaded', function suit
   });
 
   it('connects an app\'s own containers to each other, handed to Docker', async () => {
-    const before = await bridgeReturnHits();
+    const before = await appNetworkReturnHits();
     const dropBefore = await ruleHits('DROP', 'br-+', '172.16.0.0/12');
     expect(await tcpAnswer('fluxe2eprobe', await containerIp('fluxe2epeer'), 8080)).to.equal('ok');
-    expect(await bridgeReturnHits(), 'bridged packets handed to Docker').to.be.above(before);
+    expect(await appNetworkReturnHits(), 'bridged packets handed to Docker').to.be.above(before);
     expect(await ruleHits('DROP', 'br-+', '172.16.0.0/12')).to.equal(dropBefore);
   });
 

@@ -2497,16 +2497,20 @@ const containerBlockedNetworks = NON_PUBLIC_IPV4;
  * The DOCKER-USER chain, as `iptables -S DOCKER-USER` prints it.
  *
  * The chain governs traffic from a container to anything that is not a
- * container on this node. Traffic from one container to another - out to a
- * docker bridge - is returned to Docker's own rules, which pass it within one
- * network and drop it between networks unless it is for a published port
- * (Docker's documented bridge isolation). The drops below therefore never see
+ * container on this node. Traffic to a container - an app network's address,
+ * or out to docker0 - is returned to Docker's own rules, which pass it within
+ * one network and drop it between networks unless it is for a published port,
+ * whose address Docker has already rewritten to the container's (Docker's
+ * documented bridge isolation). The drops below therefore never see
  * container-to-container traffic, whether or not the br_netfilter kernel module
- * sends bridged traffic through iptables.
+ * sends bridged traffic through iptables, and a host interface whose name
+ * resembles a docker bridge's leads nowhere they do not cover.
  *
- * Rules match the bridge a packet comes from and goes to, never an address, so
- * a container cannot leave them by forging its source. DNS stays open to every
- * private address, for a node owner who runs their own resolver.
+ * A packet's origin is matched by the bridge it comes from, never by its source
+ * address, so a container cannot leave the drops by forging its source. A host
+ * bridge named like a docker one is treated as a container's, so the drops also
+ * stop traffic the host forwards from it to a non-public address. DNS stays
+ * open to every private address, for a node owner who runs their own resolver.
  *
  * No rule uses the physdev match: the kernel loads br_netfilter the first time
  * a physdev rule is added, which sends bridged traffic on every bridge on the
@@ -2514,10 +2518,11 @@ const containerBlockedNetworks = NON_PUBLIC_IPV4;
  * @returns {string[]}
  */
 function containerEgressRules() {
-  const rules = ['-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN'];
-  containerBridges.forEach((from) => {
-    containerBridges.forEach((to) => rules.push(`-A DOCKER-USER -i ${from} -o ${to} -j RETURN`));
-  });
+  const rules = [
+    '-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN',
+    `-A DOCKER-USER -d ${fluxAppDockerNetworks} -j RETURN`,
+    '-A DOCKER-USER -o docker0 -j RETURN',
+  ];
   containerBridges.forEach((bridge) => {
     ['udp', 'tcp'].forEach((proto) => rules.push(`-A DOCKER-USER -i ${bridge} -p ${proto} -m ${proto} --dport 53 -j RETURN`));
   });

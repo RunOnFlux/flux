@@ -3423,17 +3423,17 @@ describe('fluxNetworkHelper tests', () => {
       });
     });
 
-    it('returns replies, container-to-container traffic and DNS before any drop', () => {
+    it('returns replies, traffic to a container and DNS before any drop', () => {
       const rules = fluxNetworkHelper.containerEgressRules();
       const firstDrop = rules.findIndex((rule) => rule.endsWith('-j DROP'));
       const before = rules.slice(0, firstDrop);
 
       expect(rules[0]).to.equal('-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN');
-      ['docker0', 'br-+'].forEach((from) => ['docker0', 'br-+'].forEach((to) => {
-        expect(before).to.include(`-A DOCKER-USER -i ${from} -o ${to} -j RETURN`);
-      }));
+      expect(before).to.include('-A DOCKER-USER -d 172.23.0.0/16 -j RETURN');
+      expect(before).to.include('-A DOCKER-USER -o docker0 -j RETURN');
       expect(rules.filter((rule) => /physdev/.test(rule))).to.deep.equal([]);
-      expect(rules.filter((rule) => / -o /.test(rule)), 'rules matching where a packet goes').to.have.lengthOf(4);
+      // A host interface can carry a name like br-<id>; only docker0 is Docker's alone.
+      expect(rules.filter((rule) => / -o /.test(rule)), 'rules matching where a packet goes').to.deep.equal(['-A DOCKER-USER -o docker0 -j RETURN']);
       ['docker0', 'br-+'].forEach((bridge) => ['udp', 'tcp'].forEach((proto) => {
         expect(before).to.include(`-A DOCKER-USER -i ${bridge} -p ${proto} -m ${proto} --dport 53 -j RETURN`);
       }));

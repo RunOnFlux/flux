@@ -33,6 +33,10 @@ const APP_NETWORK = { name: 'fluxDockerNetwork_e2eprobe', octet: 250 };
 const OTHER_NETWORK = { name: 'fluxDockerNetwork_e2eother', octet: 251 };
 // Inside 10.0.0.0/8; nothing on the fleet network holds it.
 const PRIVATE_TARGET = '10.255.255.1';
+// A bridge of the host's own, named as docker names its bridges, with a private
+// network inside 10.0.0.0/8 behind it.
+const HOST_BRIDGE = 'br-e2elan';
+const HOST_BRIDGE_NETWORK = '10.77.0';
 const FLUX_NODE_SERVICE = '169.254.43.43:16101';
 // Link-local, not on the node: the cloud metadata address.
 const LINK_LOCAL_TARGET = '169.254.169.254';
@@ -76,15 +80,6 @@ describe('2502 app containers are kept off private networks', function suite() {
     const line = stdout.split('\n').find((l) => words.every((w) => l.includes(w)));
     if (!line) throw new Error(`no DOCKER-USER rule with ${words.join(' ')}:\n${stdout}`);
     return Number(line.trim().split(/\s+/)[0]);
-  }
-
-  // Packets the RETURN handing traffic from one app bridge to another to Docker has matched.
-  async function bridgeReturnHits() {
-    const { stdout } = await inNode('iptables -L DOCKER-USER -v -x -n');
-    const row = stdout.split('\n').map((l) => l.trim().split(/\s+/))
-      .find((c) => c[2] === 'RETURN' && c[5] === 'br-+' && c[6] === 'br-+');
-    if (!row) throw new Error(`no br-+ to br-+ RETURN in DOCKER-USER:\n${stdout}`);
-    return Number(row[0]);
   }
 
   async function chain() {
@@ -166,14 +161,14 @@ describe('2502 app containers are kept off private networks', function suite() {
       expect(rules.split('\n').filter((rule) => / -s /.test(rule))).to.deep.equal([]);
     });
 
-    it('returns traffic from one container to another to Docker ahead of every drop', async () => {
+    it('returns traffic to a container to Docker ahead of every drop', async () => {
       const rules = (await chain()).split('\n');
       const firstDrop = rules.findIndex((rule) => rule.endsWith('-j DROP'));
-      ['docker0', 'br-+'].forEach((from) => ['docker0', 'br-+'].forEach((to) => {
-        const at = rules.indexOf(`-A DOCKER-USER -i ${from} -o ${to} -j RETURN`);
-        expect(at, `${from} to ${to}, as iptables lists it`).to.be.above(-1);
+      ['-A DOCKER-USER -d 172.23.0.0/16 -j RETURN', '-A DOCKER-USER -o docker0 -j RETURN'].forEach((rule) => {
+        const at = rules.indexOf(rule);
+        expect(at, `${rule}, as iptables lists it`).to.be.above(-1);
         expect(at).to.be.below(firstDrop);
-      }));
+      });
       expect(rules.filter((rule) => /physdev/.test(rule))).to.deep.equal([]);
     });
   });
@@ -260,6 +255,18 @@ describe('2502 app containers are kept off private networks', function suite() {
         expect(await tcpConnects('fluxe2eprobe', target, 80)).to.equal(false);
         expect(await ruleHits('DROP', 'br-+', range)).to.be.above(before);
       });
+    });
+
+    // A host bridge named as docker names its own, such as an owner's LAN bridge.
+    it('drops an app\'s connection into a private network behind a host bridge named like a docker one', async () => {
+      await inNode(`ip link add ${HOST_BRIDGE} type bridge && ip addr add ${HOST_BRIDGE_NETWORK}.1/24 dev ${HOST_BRIDGE} && ip link set ${HOST_BRIDGE} up`);
+      try {
+        const before = await ruleHits('DROP', 'br-+', '10.0.0.0/8');
+        expect(await tcpConnects('fluxe2eprobe', `${HOST_BRIDGE_NETWORK}.2`, 80)).to.equal(false);
+        expect(await ruleHits('DROP', 'br-+', '10.0.0.0/8')).to.be.above(before);
+      } finally {
+        await inNode(`ip link del ${HOST_BRIDGE}`);
+      }
     });
 
     it('drops a private destination on a resolver\'s other ports', async () => {
