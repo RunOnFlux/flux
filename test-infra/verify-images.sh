@@ -52,12 +52,18 @@ for target in "${targets[@]}"; do
   esac
 done
 
+# A suite whose fixture binary is missing dies in its own before() mid-run, so a
+# missing one refuses the run here, before any suite starts.
+while read -r fixture product; do
+  [ -e "$product" ] || stale+=("${product}|fixture not built: bash ${fixture}/build.sh")
+done < <(test-infra/fixtures.sh products)
+
 if [ "${#stale[@]}" -eq 0 ]; then
-  echo "images verified against the tree (tag '${TAG}', ${#targets[@]} images)"
+  echo "images and fixtures verified against the tree (tag '${TAG}', ${#targets[@]} images)"
   exit 0
 fi
 
-echo "REFUSING TO RUN - ${#stale[@]} image(s) do not match this tree:" >&2
+echo "REFUSING TO RUN - ${#stale[@]} image(s) or fixture(s) do not match this tree:" >&2
 for entry in "${stale[@]}"; do
   printf '  %-42s %s\n' "${entry%%|*}" "${entry#*|}" >&2
 done
