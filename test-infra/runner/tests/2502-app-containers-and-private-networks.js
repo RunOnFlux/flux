@@ -201,8 +201,10 @@ describe('2502 app containers are kept off private networks', function suite() {
       expect(ping.exitCode, `ICMP to a fleet node: ${ping.stdout}`).to.equal(0);
     });
 
+    // The outside node's nc (netcat-openbsd) sends nothing: given input and then
+    // the end of it, it sometimes exits without printing an answer it received.
     it('answers a client outside the node on the app\'s published port', async () => {
-      const answer = await inOutside(`echo | nc -w 5 ${node.ip} ${PUBLISHED_PORT}`);
+      const answer = await inOutside(`nc -w 5 ${node.ip} ${PUBLISHED_PORT} </dev/null`);
       expect(answer.stdout.trim(), ncSaid(answer)).to.equal('ok');
     });
 
@@ -211,7 +213,7 @@ describe('2502 app containers are kept off private networks', function suite() {
       await inNode(`ip route add ${ROUTER_SOURCE}/32 via ${outside.ip}`);
       try {
         const dropBefore = await ruleHits('DROP', 'br-+', '192.168.0.0/16');
-        const answer = await inOutside(`echo | nc -s ${ROUTER_SOURCE} -w 5 ${node.ip} ${PUBLISHED_PORT}`);
+        const answer = await inOutside(`nc -s ${ROUTER_SOURCE} -w 5 ${node.ip} ${PUBLISHED_PORT} </dev/null`);
         expect(answer.stdout.trim(), `the reply to a private address; ${ncSaid(answer)}`).to.equal('ok');
         expect(await ruleHits('DROP', 'br-+', '192.168.0.0/16')).to.equal(dropBefore);
       } finally {
