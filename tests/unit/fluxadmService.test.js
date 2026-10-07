@@ -31,6 +31,10 @@ const fluxadmService = proxyquire('../../ZelBack/src/services/fluxadmService', {
 
 const cmdOk = { error: null, stdout: '', stderr: '' };
 const cmdFail = { error: new Error('command failed'), stdout: '', stderr: '' };
+// One ufw command as ufw.runUfw runs it, through the lock-first helper.
+const ufwCall = (args) => sinon.match({ params: [ufw.UFW_HELPER, '--wait', '30', '--command', JSON.stringify(args)] });
+// Any ufw command run through ufw.runUfw.
+const anyUfwCall = sinon.match({ params: sinon.match((params) => params.includes('--command')) });
 
 describe('fluxadmService tests', () => {
   let runCommandStub;
@@ -553,7 +557,7 @@ describe('fluxadmService tests', () => {
 
       await fluxadmService.ensureFirewall(16122);
 
-      sinon.assert.neverCalledWith(runCommandStub, 'ufw');
+      sinon.assert.neverCalledWith(runCommandStub, 'python3', anyUfwCall);
     });
 
     it('should add a rate-limited rule when the firewall is active', async () => {
@@ -562,17 +566,17 @@ describe('fluxadmService tests', () => {
       const res = await fluxadmService.ensureFirewall(16122);
 
       expect(res).to.equal(true);
-      sinon.assert.calledWithExactly(runCommandStub, 'ufw', {
+      sinon.assert.calledWithExactly(runCommandStub, 'python3', {
         runAsRoot: true,
         logError: false,
-        params: ['limit', '16122/tcp'],
-        timeout: ufw.UFW_LOCK_WAIT_MS,
+        params: [ufw.UFW_HELPER, '--wait', '30', '--command', '["limit","16122/tcp"]'],
+        timeout: 2 * ufw.UFW_LOCK_WAIT_MS,
       });
     });
 
     it('should report a rule it could not add', async () => {
       sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
-      runCommandStub.withArgs('ufw').resolves({ ...cmdFail, stderr: 'ERROR: problem running ufw-init' });
+      runCommandStub.withArgs('python3', anyUfwCall).resolves({ ...cmdFail, stderr: 'ERROR: problem running ufw-init' });
 
       const res = await fluxadmService.ensureFirewall(16122);
 
@@ -620,7 +624,7 @@ describe('fluxadmService tests', () => {
         call('systemctl', sinon.match.array.startsWith(['stop', 'fluxadm-sshd@*.service'])),
         call('rm', ['-f', '/etc/systemd/system/fluxadm-sshd.socket', '/etc/systemd/system/fluxadm-sshd@.service', '/etc/ssh/fluxadm_sshd_config', '/etc/ssh/fluxadm_authorized_keys']),
         call('systemctl', ['daemon-reload']),
-        call('ufw', ['delete', 'limit', '16122/tcp']),
+        runCommandStub.withArgs('python3', ufwCall(['delete', 'limit', '16122/tcp'])),
         call('userdel', ['-r', 'fluxadm']),
         call('rm', ['-f', '/etc/sudoers.d/fluxadm']),
       );
@@ -629,7 +633,7 @@ describe('fluxadmService tests', () => {
     it('should keep the user and the drop-in when the firewall rule cannot be deleted', async () => {
       sinon.stub(fs, 'access').resolves();
       runCommandStub.withArgs('cat', sudoersRead).resolves({ ...cmdOk, stdout: 'fluxadm ALL=(ALL) NOPASSWD:ALL\n' });
-      runCommandStub.withArgs('ufw').resolves({ ...cmdFail });
+      runCommandStub.withArgs('python3', anyUfwCall).resolves({ ...cmdFail });
 
       await fluxadmService.removeAccess();
 
@@ -644,7 +648,7 @@ describe('fluxadmService tests', () => {
 
       await fluxadmService.removeAccess();
 
-      sinon.assert.neverCalledWith(runCommandStub, 'ufw');
+      sinon.assert.neverCalledWith(runCommandStub, 'python3', anyUfwCall);
       sinon.assert.calledWith(runCommandStub, 'userdel', sinon.match({ params: ['-r', 'fluxadm'] }));
       sinon.assert.calledWith(runCommandStub, 'rm', sinon.match({ params: ['-f', '/etc/sudoers.d/fluxadm'] }));
     });
@@ -688,7 +692,7 @@ describe('fluxadmService tests', () => {
       await fluxadmService.removeAccess();
 
       sinon.assert.neverCalledWith(runCommandStub, 'systemctl', sinon.match({ params: sinon.match.array.startsWith(['kill']) }));
-      sinon.assert.neverCalledWith(runCommandStub, 'ufw');
+      sinon.assert.neverCalledWith(runCommandStub, 'python3', anyUfwCall);
       sinon.assert.neverCalledWith(runCommandStub, 'userdel');
       sinon.assert.calledWith(runCommandStub, 'rm', sinon.match({ params: sinon.match.some(sinon.match('/etc/ssh/fluxadm_sshd_config')) }));
     });
@@ -701,7 +705,7 @@ describe('fluxadmService tests', () => {
 
       sinon.assert.neverCalledWith(runCommandStub, 'systemctl');
       sinon.assert.neverCalledWith(runCommandStub, 'rm');
-      sinon.assert.neverCalledWith(runCommandStub, 'ufw');
+      sinon.assert.neverCalledWith(runCommandStub, 'python3', anyUfwCall);
       sinon.assert.neverCalledWith(runCommandStub, 'userdel');
     });
   });
@@ -819,7 +823,7 @@ describe('fluxadmService tests', () => {
       sinon.assert.neverCalledWith(runCommandStub, 'visudo');
       sinon.assert.neverCalledWith(runCommandStub, 'install');
       sinon.assert.neverCalledWith(runCommandStub, 'systemctl');
-      sinon.assert.neverCalledWith(runCommandStub, 'ufw');
+      sinon.assert.neverCalledWith(runCommandStub, 'python3', anyUfwCall);
     });
 
     it('should publish each pass, naming the step a failed pass stopped at', async () => {
@@ -879,7 +883,7 @@ describe('fluxadmService tests', () => {
       runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-active', 'fluxadm-sshd.socket'] }))
         .resolves({ ...cmdOk, stdout: 'inactive\n' });
 
-      runCommandStub.withArgs('ufw').resolves({ ...cmdFail });
+      runCommandStub.withArgs('python3', anyUfwCall).resolves({ ...cmdFail });
 
       const res = await fluxadmService.ensureFluxadmAccess();
 
@@ -913,7 +917,7 @@ describe('fluxadmService tests', () => {
       sinon.assert.calledWith(runCommandStub, 'visudo', sinon.match({ runAsRoot: true }));
       sinon.assert.calledWith(runCommandStub, 'systemctl', sinon.match({ params: ['enable', 'fluxadm-sshd.socket'] }));
       sinon.assert.calledWith(runCommandStub, 'systemctl', sinon.match({ params: ['restart', 'fluxadm-sshd.socket'] }));
-      sinon.assert.calledWith(runCommandStub, 'ufw', sinon.match({ params: ['limit', '16122/tcp'] }));
+      sinon.assert.calledWith(runCommandStub, 'python3', ufwCall(['limit', '16122/tcp']));
     });
   });
 });
