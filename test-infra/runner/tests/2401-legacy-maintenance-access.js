@@ -286,6 +286,17 @@ describe('2401 legacy node maintenance access', function suite() {
     expect(await port22Listening(legacy), 'nothing may listen on port 22').to.equal(false);
   });
 
+  // A reinstall runs the package's maintainer scripts exactly as an upgrade does.
+  it('keeps the sshd it ships off through a package upgrade', async () => {
+    const upgrade = await execInContainer(legacy.container,
+      'DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install --reinstall -y openssh-server');
+    expect(upgrade.exitCode, `openssh-server reinstall failed: ${upgrade.stderr}`).to.equal(0);
+    const { stdout } = await execInContainer(legacy.container,
+      'systemctl is-enabled ssh.service ssh.socket; systemctl is-active ssh.service ssh.socket; true');
+    expect(stdout.trim().split('\n')).to.deep.equal(['disabled', 'disabled', 'inactive', 'inactive']);
+    expect(await port22Listening(legacy), 'nothing may listen on port 22').to.equal(false);
+  });
+
   it('lets the configured key in on a node whose node owner runs sshd', async () => {
     await reconciledPass(owner, legacyStartedAfter.get(owner));
     await loginOrThrow('current', { ip: ownerIp });
