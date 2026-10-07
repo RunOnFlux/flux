@@ -152,6 +152,19 @@ describe('ufw apply-node-firewall helper', () => {
   });
   const loaded = () => fs.existsSync(path.join(dir, 'loaded'));
 
+  it('removes no outbound rule when the rules are a batch of commands', () => {
+    const file = write('user.rules', rulesFile([OUT.plain, KEEP.inbound]));
+
+    const result = spawnSync('python3', [helper, '--lock', lockPath, '--wait', '2', '--keep-outbound', '--rules', JSON.stringify([['allow', '16127']]), file], {
+      encoding: 'utf8', env: { ...process.env, PYTHONPATH: fakeUfw() },
+    });
+
+    expect(result.status, result.stderr).to.equal(0);
+    expect(JSON.parse(result.stdout)).to.deep.equal({ removed: 0, applied: true, failed: [], reason: null });
+    expect(applied().map(([action, rule]) => [action, rule])).to.deep.equal([['allow', '16127']]);
+    expect(fs.readFileSync(file, 'utf8')).to.equal(rulesFile([OUT.plain, KEEP.inbound]));
+  });
+
   describe('one command', () => {
     it('runs it through ufw\'s library and prints what ufw prints, exiting 0', () => {
       const result = runCommandMode(['allow', 'from', '::/0', 'to', 'any', 'port', '31000']);

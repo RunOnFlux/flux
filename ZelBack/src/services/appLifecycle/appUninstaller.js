@@ -623,14 +623,7 @@ async function cleanupPorts(appSpecifications, appName, res, entityName) {
   }
 
   const appPorts = appSpecifications.ports ?? (appSpecifications.port ? [appSpecifications.port] : []);
-  // eslint-disable-next-line no-restricted-syntax
-  for (const port of appPorts) {
-    // eslint-disable-next-line no-await-in-loop
-    await fluxNetworkHelper.deleteAppPortIpv6Rule(serviceHelper.ensureNumber(port));
-    // The allow for both families an app installed by an earlier FluxOS holds.
-    // eslint-disable-next-line no-await-in-loop
-    await fluxNetworkHelper.deleteAllowPortRule(serviceHelper.ensureNumber(port));
-  }
+  await fluxNetworkHelper.deleteAppPortRules(appPorts.map((port) => serviceHelper.ensureNumber(port)));
 
   if (appSpecifications.ports) {
     const isUPNP = upnpService.isUPNP();

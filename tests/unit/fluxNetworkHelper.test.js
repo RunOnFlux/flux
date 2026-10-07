@@ -2524,76 +2524,69 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
-  describe('app port IPv6 rule', () => {
-    const ipv6Rule = ['from', '::/0', 'to', 'any', 'port', '31000'];
+  describe('app port rules', () => {
+    const ipv6 = (port) => ['from', '::/0', 'to', 'any', 'port', String(port)];
     let runCommandStub;
     let readFile;
-    const ufwFiles = ({ enabled = 'yes', ipv6 = 'yes' } = {}) => {
+    const ufwFiles = ({ enabled = 'yes', ipv6Filtered = 'yes' } = {}) => {
       readFile.withArgs('/etc/ufw/ufw.conf', 'utf8').resolves(`ENABLED=${enabled}\n`);
-      readFile.withArgs('/etc/default/ufw', 'utf8').resolves(`IPV6=${ipv6}\n`);
+      readFile.withArgs('/etc/default/ufw', 'utf8').resolves(`IPV6=${ipv6Filtered}\n`);
     };
+    const batched = (result) => ({ error: null, stdout: `${JSON.stringify({ removed: 0, applied: true, failed: [], reason: null, ...result })}\n`, stderr: '' });
+    // The ufw commands each batch handed to the helper, in order.
+    const batches = () => runCommandStub.getCalls()
+      .filter((call) => call.args[0] === 'python3' && call.args[1].params.includes('--keep-outbound'))
+      .map((call) => JSON.parse(call.args[1].params[call.args[1].params.indexOf('--rules') + 1]));
     beforeEach(() => {
-      runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: 'Rule added (v6)\n', stderr: '' });
+      runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves(batched());
       readFile = sinon.stub(fs, 'readFile');
     });
     afterEach(() => {
       sinon.restore();
     });
 
-    it('admits IPv6 clients to the port, and no IPv4 client', async () => {
+    it('admits IPv6 clients to every port of an app, and no IPv4 client, in one batch', async () => {
       ufwFiles();
 
-      expect((await fluxNetworkHelper.allowAppPortIpv6(31000)).status).to.equal(true);
-      sinon.assert.calledOnceWithExactly(runCommandStub, 'python3', ufwRun(['allow', ...ipv6Rule]));
+      expect(await fluxNetworkHelper.allowAppPortsIpv6([31000, 31001])).to.deep.equal({ failed: [], locked: false });
+      expect(batches()).to.deep.equal([[['allow', ...ipv6(31000)], ['allow', ...ipv6(31001)]]]);
+      sinon.assert.calledOnce(runCommandStub);
     });
 
-    it('counts a rule already present as allowed', async () => {
+    it('writes nothing while ufw is disabled or leaves IPv6 alone', async () => {
+      ufwFiles({ enabled: 'no' });
+      await fluxNetworkHelper.allowAppPortsIpv6([31000]);
+      ufwFiles({ ipv6Filtered: 'no' });
+      await fluxNetworkHelper.allowAppPortsIpv6([31000]);
+
+      sinon.assert.notCalled(runCommandStub);
+    });
+
+    it('reports a port ufw refused', async () => {
       ufwFiles();
-      runCommandStub.resolves({ error: null, stdout: 'Skipping adding existing rule (v6)\n', stderr: '' });
+      const failed = [{ rule: `allow ${ipv6(31000).join(' ')}`, error: 'ERROR: Bad port' }];
+      runCommandStub.resolves(batched({ failed }));
 
-      expect((await fluxNetworkHelper.allowAppPortIpv6(31000)).status).to.equal(true);
+      expect(await fluxNetworkHelper.allowAppPortsIpv6([31000])).to.deep.equal({ failed, locked: false });
     });
 
-    it('writes nothing while ufw is disabled', async () => {
+    it('deletes each port\'s IPv6 rule and an earlier FluxOS\'s allow for it in one batch, while ufw is disabled too', async () => {
       ufwFiles({ enabled: 'no' });
 
-      expect((await fluxNetworkHelper.allowAppPortIpv6(31000)).status).to.equal(true);
-      sinon.assert.notCalled(runCommandStub);
+      await fluxNetworkHelper.deleteAppPortRules([31000, 31001]);
+
+      expect(batches()).to.deep.equal([[
+        ['delete', 'allow', ...ipv6(31000)], ['delete', 'allow', '31000'],
+        ['delete', 'allow', ...ipv6(31001)], ['delete', 'allow', '31001'],
+      ]]);
     });
 
-    it('writes nothing while ufw leaves IPv6 alone', async () => {
-      ufwFiles({ ipv6: 'no' });
+    it('deletes no IPv6 rule while ufw leaves IPv6 alone, and no allow for a port apps are not given', async () => {
+      ufwFiles({ ipv6Filtered: 'no' });
 
-      expect((await fluxNetworkHelper.allowAppPortIpv6(31000)).status).to.equal(true);
-      sinon.assert.notCalled(runCommandStub);
-    });
+      await fluxNetworkHelper.deleteAppPortRules([31000, 16127]);
 
-    it('reports a rule ufw did not add, and one locked out, as not allowed', async () => {
-      ufwFiles();
-      runCommandStub.resolves({ error: new Error('exit 1'), stdout: '', stderr: 'ERROR: Bad port\n' });
-      expect((await fluxNetworkHelper.allowAppPortIpv6(31000)).status).to.equal(false);
-
-      runCommandStub.resolves(lockTimedOut());
-      expect(await fluxNetworkHelper.allowAppPortIpv6(31000)).to.eql({ status: false, message: 'ufw is locked by another ufw command' });
-    });
-
-    it('deletes the same rule, while ufw is disabled too', async () => {
-      ufwFiles({ enabled: 'no' });
-      runCommandStub.resolves({ error: null, stdout: 'Rule deleted (v6)\n', stderr: '' });
-
-      expect((await fluxNetworkHelper.deleteAppPortIpv6Rule(31000)).status).to.equal(true);
-      sinon.assert.calledOnceWithExactly(runCommandStub, 'python3', ufwRun(['delete', 'allow', ...ipv6Rule]));
-    });
-
-    it('counts a rule already gone as deleted, and deletes nothing while ufw leaves IPv6 alone', async () => {
-      ufwFiles();
-      runCommandStub.resolves({ error: null, stdout: 'Could not delete non-existent rule (v6)\n', stderr: '' });
-      expect((await fluxNetworkHelper.deleteAppPortIpv6Rule(31000)).status).to.equal(true);
-
-      runCommandStub.resetHistory();
-      ufwFiles({ ipv6: 'no' });
-      expect((await fluxNetworkHelper.deleteAppPortIpv6Rule(31000)).status).to.equal(true);
-      sinon.assert.notCalled(runCommandStub);
+      expect(batches()).to.deep.equal([[['delete', 'allow', '31000']]]);
     });
   });
 

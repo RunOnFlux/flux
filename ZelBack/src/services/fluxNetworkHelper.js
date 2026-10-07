@@ -2203,36 +2203,44 @@ async function deleteDenyPortRule(port) {
 const appPortIpv6Rule = (port) => ['from', '::/0', 'to', 'any', 'port', String(port)];
 
 /**
- * Opens an app's published port to IPv6 clients. Docker forwards an IPv4
- * connection to a published port ahead of ufw's inbound rules, but answers an
- * IPv6 one through docker-proxy on the host, behind them. ufw keeps the rule
- * across restarts, so it is written when the app is installed and deleted when
- * it is removed. Nothing is written while ufw is disabled or leaves IPv6 alone.
+ * Whether a port is in the range FluxOS gives apps, and so one FluxOS may have
+ * opened for an app.
  * @param {number|string} port Port.
- * @returns {Promise<{status: boolean, message: (string|null)}>}
+ * @returns {boolean}
  */
-async function allowAppPortIpv6(port) {
-  if (Number.isNaN(+port)) return { status: false, message: 'Port needs to be a number' };
-  if (!await ufw.ufwEnabled() || !await ufw.ipv6Filtered()) return { status: true, message: null };
-  const ran = await ufw.runUfw(['allow', ...appPortIpv6Rule(port)]);
-  if (ran.locked) return { status: false, message: 'ufw is locked by another ufw command' };
-  const cmdres = ran.stdout + ran.stderr;
-  return { status: /added|updated|existing/.test(cmdres), message: cmdres };
+function isAppPort(port) {
+  return !Number.isNaN(+port) && !isPortBanned(+port) && +port >= config.fluxapps.portMin && +port <= config.fluxapps.portMax;
 }
 
 /**
- * Deletes the rule allowAppPortIpv6 writes for a port. A rule already gone
- * counts as deleted.
- * @param {number|string} port Port.
- * @returns {Promise<{status: boolean, message: (string|null)}>}
+ * Opens an app's published ports to IPv6 clients, in one ufw batch. Docker
+ * forwards an IPv4 connection to a published port ahead of ufw's inbound
+ * rules, but answers an IPv6 one through docker-proxy on the host, behind
+ * them. ufw keeps the rules across restarts, so they are written when the app
+ * is installed and deleted when it is removed. Nothing is written while ufw is
+ * disabled or leaves IPv6 alone.
+ * @param {Array<number|string>} ports Ports.
+ * @returns {Promise<{failed: Array<{rule: string, error: string}>, locked: boolean}>}
  */
-async function deleteAppPortIpv6Rule(port) {
-  if (Number.isNaN(+port)) return { status: false, message: 'Port needs to be a number' };
-  if (!await ufw.ipv6Filtered()) return { status: true, message: null };
-  const ran = await ufw.runUfw(['delete', 'allow', ...appPortIpv6Rule(port)]);
-  if (ran.locked) return { status: false, message: 'ufw is locked by another ufw command' };
-  const cmdres = ran.stdout + ran.stderr;
-  return { status: cmdres.includes('delete'), message: cmdres };
+async function allowAppPortsIpv6(ports) {
+  if (!await ufw.ufwEnabled() || !await ufw.ipv6Filtered()) return { failed: [], locked: false };
+  return ufw.runUfwCommands(ports.filter((port) => !Number.isNaN(+port)).map((port) => ['allow', ...appPortIpv6Rule(port)]));
+}
+
+/**
+ * Deletes an app's ports' rules, in one ufw batch: the IPv6 rule
+ * allowAppPortsIpv6 writes, and the allow for both families an earlier FluxOS
+ * wrote for a port in the app port range. A rule already gone counts as
+ * deleted.
+ * @param {Array<number|string>} ports Ports.
+ * @returns {Promise<{failed: Array<{rule: string, error: string}>, locked: boolean}>}
+ */
+async function deleteAppPortRules(ports) {
+  const ipv6 = await ufw.ipv6Filtered();
+  return ufw.runUfwCommands(ports.filter((port) => !Number.isNaN(+port)).flatMap((port) => [
+    ...(ipv6 ? [['delete', 'allow', ...appPortIpv6Rule(port)]] : []),
+    ...(isAppPort(port) ? [['delete', 'allow', String(port)]] : []),
+  ]));
 }
 
 /**
@@ -2687,8 +2695,8 @@ module.exports = {
   hasPublicIpOnInterface,
   denyPort,
   deleteAllowPortRule,
-  allowAppPortIpv6,
-  deleteAppPortIpv6Rule,
+  allowAppPortsIpv6,
+  deleteAppPortRules,
   allowPortApi,
   adjustFirewall,
   ensureUfwDefaults,

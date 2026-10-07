@@ -110,13 +110,10 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
 
   if (!test) {
     const appPorts = appSpecifications.ports ?? (appSpecifications.port ? [appSpecifications.port] : []);
-    // eslint-disable-next-line no-restricted-syntax
-    for (const port of appPorts) {
-      // eslint-disable-next-line no-await-in-loop
-      const opened = await fluxNetworkHelper.allowAppPortIpv6(serviceHelper.ensureNumber(port));
-      // IPv4 clients reach the port either way, so the install goes on.
-      if (!opened.status) log.warn(`Port ${port} of ${appName} not opened to IPv6: ${opened.message}`);
-    }
+    const { failed, locked } = await fluxNetworkHelper.allowAppPortsIpv6(appPorts.map((port) => serviceHelper.ensureNumber(port)));
+    // IPv4 clients reach the ports either way, so the install goes on.
+    if (locked) log.warn(`Ports of ${appName} not opened to IPv6: ufw is locked by another ufw command`);
+    failed.forEach(({ rule, error }) => log.warn(`Port of ${appName} not opened to IPv6: ufw ${rule}: ${error}`));
   }
 
   if (!test && appSpecifications.ports) {

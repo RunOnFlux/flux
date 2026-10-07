@@ -272,7 +272,7 @@ async function restoreFluxPortsSupport() {
 /**
  * Restores applications' UPnP mappings. An app port's host firewall rule needs
  * no restoring: it admits IPv6 only, and ufw keeps it across restarts
- * (fluxNetworkHelper.allowAppPortIpv6).
+ * (fluxNetworkHelper.allowAppPortsIpv6).
  * @returns {Promise<void>}
  */
 async function restoreAppsPortsSupport() {

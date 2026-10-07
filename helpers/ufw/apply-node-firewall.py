@@ -11,7 +11,9 @@ and exits as the ufw command does: 0, or 1 with ufw's 'ERROR: ...' on stderr.
 Exits 69 having changed nothing when ufw's library cannot be used; the caller
 runs the ufw command instead.
 
-Otherwise, applies a node's own firewall rules to ufw in one pass.
+Otherwise, applies a node's own firewall rules to ufw in one pass. With
+--keep-outbound, step 1 below is skipped: the rules are a batch of ufw
+commands, applied under one lock in one process.
 
 Two steps, both while holding ufw's lock (an exclusive lockf lock on
 /run/ufw.lock), so no ufw command changes the rules between them:
@@ -226,6 +228,7 @@ def main():
     parser.add_argument('--wait', type=float, default=30)
     parser.add_argument('--command', type=json.loads)
     parser.add_argument('--rules', type=json.loads, default=[])
+    parser.add_argument('--keep-outbound', action='store_true')
     parser.add_argument('files', nargs='*', default=['/etc/ufw/user.rules', '/etc/ufw/user6.rules'])
     args = parser.parse_args()
 
@@ -247,7 +250,7 @@ def main():
     result_fd = os.dup(1)
     os.dup2(2, 1)
     try:
-        removed = remove_outbound(args.files)
+        removed = 0 if args.keep_outbound else remove_outbound(args.files)
         failed, reason = apply_rules(args.rules) if args.rules else ([], None)
     finally:
         lock.close()

@@ -9,13 +9,11 @@ const verificationHelper = require('../../ZelBack/src/services/verificationHelpe
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const ufw = require('../../ZelBack/src/services/utils/ufw');
 
-// The ufw arguments a runCommand call ran through ufw's runner, or null.
-const ufwArgs = (call) => {
-  const params = call.args[0] === 'python3' ? call.args[1].params : [];
-  const at = params.indexOf('--command');
-  return at === -1 ? null : JSON.parse(params[at + 1]);
-};
 const ufwRun = (args) => sinon.match({ runAsRoot: true, params: [ufw.UFW_HELPER, '--wait', '30', '--command', JSON.stringify(args)] });
+// The ufw commands each batch handed to the helper.
+const batches = (stub) => stub.getCalls()
+  .filter((call) => call.args[0] === 'python3' && call.args[1].params.includes('--keep-outbound'))
+  .map((call) => ({ commands: JSON.parse(call.args[1].params[call.args[1].params.indexOf('--rules') + 1]), options: call.args[1] }));
 
 const { expect } = chai;
 
@@ -53,18 +51,30 @@ describe('upnpService tests', () => {
       sinon.restore();
     });
 
-    it('should allow UDP in from the router and write no outbound rule, each ufw command bounded', async () => {
-      const runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '', stderr: '' });
+    it('should allow UDP in from the router and write no outbound rule, in one bounded ufw batch', async () => {
+      const runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '{"removed": 0, "applied": true, "failed": [], "reason": null}\n', stderr: '' });
       runCommandStub.withArgs('python3', ufwRun(['status'])).resolves({ error: null, stdout: 'Status: active\n', stderr: '' });
 
       await upnpService.adjustFirewallForUPNP();
 
-      const calls = runCommandStub.getCalls().filter(ufwArgs);
-      const params = calls.map((call) => ufwArgs(call).join(' '));
+      const sent = batches(runCommandStub);
+      expect(sent).to.have.lengthOf(1);
+      const params = sent[0].commands.map((command) => command.join(' '));
       expect(params).to.include('prepend allow from 192.168.1.1 to any proto udp');
       expect(params).to.include('prepend allow in proto tcp from any to 192.168.1.1 port 16137');
       expect(params.filter((rule) => /\bout\b/.test(rule))).to.deep.equal([]);
-      calls.forEach((call) => expect(call.args[1]).to.include({ runAsRoot: true, timeout: 60000 }));
+      expect(sent[0].options).to.include({ runAsRoot: true, timeout: 60000 });
+    });
+
+    it('should log each rule ufw refused', async () => {
+      const failed = [{ rule: 'prepend allow from 192.168.1.1 to any proto udp', error: 'ERROR: Bad rule' }];
+      const runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: `${JSON.stringify({ removed: 0, applied: true, failed, reason: null })}\n`, stderr: '' });
+      runCommandStub.withArgs('python3', ufwRun(['status'])).resolves({ error: null, stdout: 'Status: active\n', stderr: '' });
+      const warnSpy = sinon.spy(log, 'warn');
+
+      await upnpService.adjustFirewallForUPNP();
+
+      sinon.assert.calledWith(warnSpy, 'Firewall rule not applied for UPNP: ufw prepend allow from 192.168.1.1 to any proto udp: ERROR: Bad rule');
     });
 
     it('should stop when ufw is locked by another ufw command', async () => {
@@ -74,7 +84,7 @@ describe('upnpService tests', () => {
 
       await upnpService.adjustFirewallForUPNP();
 
-      expect(runCommandStub.getCalls().filter((call) => ufwArgs(call)?.[0] === 'prepend')).to.have.lengthOf(1);
+      expect(batches(runCommandStub)).to.have.lengthOf(1);
       sinon.assert.calledWith(errorSpy, 'Firewall not adjusted for UPNP: ufw is locked by another ufw command');
     });
   });

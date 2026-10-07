@@ -51,15 +51,12 @@ async function adjustFirewallForUPNP() {
             ['prepend', 'allow', 'in', 'proto', 'udp', 'from', 'any', 'to', routerIP, 'port', String(port)],
           ]),
         ];
-        // eslint-disable-next-line no-restricted-syntax
-        for (const rule of rules) {
-          // eslint-disable-next-line no-await-in-loop
-          const { locked } = await ufw.runUfw(rule);
-          if (locked) {
-            log.error('Firewall not adjusted for UPNP: ufw is locked by another ufw command');
-            return;
-          }
+        const { failed, locked } = await ufw.runUfwCommands(rules);
+        if (locked) {
+          log.error('Firewall not adjusted for UPNP: ufw is locked by another ufw command');
+          return;
         }
+        failed.forEach(({ rule, error }) => log.warn(`Firewall rule not applied for UPNP: ufw ${rule}: ${error}`));
         log.info('Firewall adjusted for UPNP');
       } else {
         log.info('RouterIP is set but firewall is not active. Adjusting not applied for UPNP');

@@ -62,6 +62,50 @@ async function runUfw(params) {
 }
 
 /**
+ * Runs ufw commands as one batch, through the helper: one process, with ufw's
+ * lock taken once, before the rules are read, and held for all of them. A
+ * command ufw refuses is reported and the rest still run. Where ufw's library
+ * cannot be used, each runs as a ufw command, stopping at one that ran out of
+ * the lock wait.
+ * @param {string[][]} commands Each the arguments of one ufw command.
+ * @returns {Promise<{failed: Array<{rule: string, error: string}>, locked: boolean}>}
+ *   locked: ufw's lock was held past the wait; a batch run under the lock then
+ *   changed nothing.
+ */
+async function runUfwCommands(commands) {
+  if (!commands.length) return { failed: [], locked: false };
+  return oneAtATime(async () => {
+    const ran = await serviceHelper.runCommand('python3', {
+      runAsRoot: true,
+      logError: false,
+      params: [UFW_HELPER, '--wait', String(UFW_LOCK_WAIT_MS / 1000), '--keep-outbound', '--rules', JSON.stringify(commands)],
+      timeout: 2 * UFW_LOCK_WAIT_MS,
+    });
+    if (ran.error?.code === UFW_LOCK_UNAVAILABLE || ran.error?.killed) return { failed: [], locked: true };
+    let result = null;
+    try {
+      result = JSON.parse(serviceHelper.ensureString(ran.stdout));
+    } catch {
+      result = null;
+    }
+    if (!ran.error && result?.applied) return { failed: result.failed, locked: false };
+
+    const failed = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const command of commands) {
+      // runCommand puts the command in front of the params it is given
+      // eslint-disable-next-line no-await-in-loop
+      const one = await serviceHelper.runCommand('ufw', {
+        runAsRoot: true, logError: false, params: [...command], timeout: UFW_LOCK_WAIT_MS,
+      });
+      if (one.error?.killed) return { failed, locked: true };
+      if (one.error) failed.push({ rule: command.join(' '), error: serviceHelper.ensureString(one.stderr).trim() || one.error.message });
+    }
+    return { failed, locked: false };
+  });
+}
+
+/**
  * Whether ufw is enabled, read from ufw.conf as ufw's own boot script reads it.
  * Reading the file takes no lock.
  * @returns {Promise<boolean>}
@@ -102,5 +146,6 @@ module.exports = {
   isFirewallActive,
   oneAtATime,
   runUfw,
+  runUfwCommands,
   ufwEnabled,
 };
