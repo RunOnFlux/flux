@@ -48,12 +48,15 @@ RUN set -eu; \
     e2fsprogs \
     && rm -rf /var/lib/apt/lists/*
 
+# The node's docker: the newest release unless DOCKER_VERSION names one, as apt
+# spells it (5:27.5.1-1~ubuntu.24.04~noble), for a run against an older docker.
+ARG DOCKER_VERSION=
 RUN install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
     && chmod a+r /etc/apt/keyrings/docker.asc \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
-    && apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io \
+    && apt-get install -y --no-install-recommends "docker-ce${DOCKER_VERSION:+=$DOCKER_VERSION}" "docker-ce-cli${DOCKER_VERSION:+=$DOCKER_VERSION}" containerd.io \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \

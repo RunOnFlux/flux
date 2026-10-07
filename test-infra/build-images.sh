@@ -54,6 +54,13 @@ fi
 if [ -n "${UBUNTU_SECURITY_MIRROR:-}" ]; then
   MIRROR_ARGS+=(--build-arg "UBUNTU_SECURITY_MIRROR=${UBUNTU_SECURITY_MIRROR}")
 fi
+# The node's docker release, as apt spells it; unset builds the newest. Build the
+# whole set under its own tag, so it replaces no other build:
+#
+#   DOCKER_VERSION=5:27.5.1-1~ubuntu.24.04~noble FLUX_E2E_TAG=firewall-d27 ./test-infra/build-images.sh
+if [ -n "${DOCKER_VERSION:-}" ]; then
+  MIRROR_ARGS+=(--build-arg "DOCKER_VERSION=${DOCKER_VERSION}")
+fi
 
 # The stub set is DERIVED, never listed: it differs by lineage (v9 carries a
 # fluxdrive-stub the development lineage neither builds nor references), and a
