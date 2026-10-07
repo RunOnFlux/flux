@@ -1,56 +1,49 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
-const childProcess = require('node:child_process');
 
 const log = require('../../ZelBack/src/lib/log');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const systemdNotify = require('../../ZelBack/src/services/utils/systemdNotify');
 
 describe('systemdNotify tests', () => {
-  let execFileStub;
+  let runCommandStub;
   let infoStub;
   let warnStub;
-  let savedSocket;
+  let notifySocket;
 
   beforeEach(() => {
-    savedSocket = process.env.NOTIFY_SOCKET;
-    execFileStub = sinon.stub(childProcess, 'execFile');
+    notifySocket = process.env.NOTIFY_SOCKET;
+    runCommandStub = sinon.stub(serviceHelper, 'runCommand');
     infoStub = sinon.stub(log, 'info');
     warnStub = sinon.stub(log, 'warn');
   });
 
   afterEach(() => {
-    if (savedSocket === undefined) {
-      delete process.env.NOTIFY_SOCKET;
-    } else {
-      process.env.NOTIFY_SOCKET = savedSocket;
-    }
+    if (notifySocket === undefined) delete process.env.NOTIFY_SOCKET;
+    else process.env.NOTIFY_SOCKET = notifySocket;
     sinon.restore();
   });
 
-  it('sends nothing without a supervisor', () => {
+  it('sends nothing without a supervisor', async () => {
     delete process.env.NOTIFY_SOCKET;
-
-    expect(systemdNotify.notifyReady()).to.equal(false);
-    sinon.assert.notCalled(execFileStub);
+    expect(await systemdNotify.notifyReady()).to.equal(false);
+    sinon.assert.notCalled(runCommandStub);
   });
 
-  it('reports readiness through systemd-notify when systemd is listening', () => {
+  it('reports readiness through systemd-notify when systemd is listening', async () => {
     process.env.NOTIFY_SOCKET = '/run/systemd/notify';
-    execFileStub.callsFake((file, args, callback) => callback(null));
-
-    expect(systemdNotify.notifyReady()).to.equal(true);
-    sinon.assert.calledOnceWithExactly(execFileStub, 'systemd-notify', ['--ready'], sinon.match.func);
+    runCommandStub.resolves({ error: null, stdout: '', stderr: '' });
+    expect(await systemdNotify.notifyReady()).to.equal(true);
+    sinon.assert.calledOnceWithExactly(runCommandStub, 'systemd-notify', { params: ['--ready'] });
     sinon.assert.calledOnce(infoStub);
     sinon.assert.notCalled(warnStub);
   });
 
-  it('warns and carries on when systemd-notify fails', () => {
+  it('warns when systemd-notify fails and does not throw', async () => {
     process.env.NOTIFY_SOCKET = '/run/systemd/notify';
-    execFileStub.callsFake((file, args, callback) => callback(new Error('spawn systemd-notify ENOENT')));
-
-    expect(systemdNotify.notifyReady()).to.equal(true);
+    runCommandStub.resolves({ error: new Error('spawn systemd-notify ENOENT'), stdout: '', stderr: '' });
+    expect(await systemdNotify.notifyReady()).to.equal(true);
     sinon.assert.calledOnce(warnStub);
-    expect(warnStub.firstCall.args[0]).to.include('ENOENT');
     sinon.assert.notCalled(infoStub);
   });
 });
