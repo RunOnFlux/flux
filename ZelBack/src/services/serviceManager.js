@@ -9,6 +9,7 @@ const dbHelper = require('./dbHelper');
 const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const networkStateService = require('./networkStateService');
+const systemdNotify = require('./utils/systemdNotify');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 // App modular services - replacing appsService
 const appInstaller = require('./appLifecycle/appInstaller');
@@ -497,6 +498,9 @@ async function startFluxFunctions() {
     // before daemonReady is set so its timeout/removal logic can trigger.
     await daemonServiceUtils.buildFluxdClient();
     await daemonServiceMiscRpcs.waitForDaemonRpc();
+    // The API listens and the daemon answers: what a unit ordered after this
+    // one may rely on.
+    systemdNotify.notifyReady();
     // awaited so isDaemonSynced cache is populated before hash sync reads it
     await daemonServiceMiscRpcs.daemonBlockchainInfoService();
     globalState.daemonReady = true;
