@@ -2457,29 +2457,30 @@ const containerBridges = ['docker0', 'br-+'];
 const containerBlockedNetworks = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '169.254.0.0/16'];
 
 /**
- * The DOCKER-USER chain, as `iptables -S DOCKER-USER` prints it. Rules match the
- * bridge a packet comes from, not its source address, so a container cannot
- * leave them by forging one. App networks sit inside 172.16.0.0/12, so on Docker
- * before 28 these rules drop one app network from another. From Docker 28 a
- * packet for a container that arrives off its own bridge is dropped in the raw
- * table, before FORWARD, so these rules never see it. DNS stays open to every
+ * The DOCKER-USER chain, as `iptables -S DOCKER-USER` prints it.
+ *
+ * The chain governs traffic from a container to anything that is not a
+ * container on this node. Traffic from one container to another - out to a
+ * docker bridge - is returned to Docker's own rules, which pass it within one
+ * network and drop it between networks unless it is for a published port
+ * (Docker's documented bridge isolation). The drops below therefore never see
+ * container-to-container traffic, whether or not the br_netfilter kernel module
+ * sends bridged traffic through iptables.
+ *
+ * Rules match the bridge a packet comes from and goes to, never an address, so
+ * a container cannot leave them by forging its source. DNS stays open to every
  * private address, for a node owner who runs their own resolver.
  *
- * Traffic between containers on one network is switched inside its bridge and
- * reaches iptables only when the br_netfilter kernel module is loaded (Docker
- * loads it for a network with inter-container traffic off, or a daemon without
- * the userland proxy). It then enters FORWARD towards a 172.23.x.x address, so
- * the physdev RETURN, ahead of the drops, keeps an app's own containers
- * reaching each other; traffic routed from one bridge to another is not
- * bridged and still meets the 172.16.0.0/12 drop. The physdev match exists
- * wherever br_netfilter does: the kernel builds it only with bridge netfilter.
+ * No rule uses the physdev match: the kernel loads br_netfilter the first time
+ * a physdev rule is added, which sends bridged traffic on every bridge on the
+ * host - an operator's VMs included - through iptables.
  * @returns {string[]}
  */
 function containerEgressRules() {
-  const rules = [
-    '-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN',
-    '-A DOCKER-USER -m physdev --physdev-is-bridged -j RETURN',
-  ];
+  const rules = ['-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN'];
+  containerBridges.forEach((from) => {
+    containerBridges.forEach((to) => rules.push(`-A DOCKER-USER -i ${from} -o ${to} -j RETURN`));
+  });
   containerBridges.forEach((bridge) => {
     ['udp', 'tcp'].forEach((proto) => rules.push(`-A DOCKER-USER -i ${bridge} -p ${proto} -m ${proto} --dport 53 -j RETURN`));
   });

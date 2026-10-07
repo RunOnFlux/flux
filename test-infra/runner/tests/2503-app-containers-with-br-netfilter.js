@@ -1,6 +1,7 @@
 // App containers on a node whose kernel has br_netfilter loaded: traffic between
-// an app's own containers is then switched through iptables, and the DOCKER-USER
-// chain must pass it while still keeping app networks apart and off private ones.
+// an app's own containers then passes through iptables, and the DOCKER-USER
+// chain must hand it to Docker while still keeping app networks apart and off
+// private ones.
 //
 // The module is kernel-wide, so loading it changes every docker bridge on the
 // harness host. The suite runs only when E2E_HOST_KERNEL=1 and, with it, on a host
@@ -21,7 +22,7 @@ const IMAGE_REPO = 'e2enettools';
 const APP_NETWORK = { name: 'fluxDockerNetwork_e2eprobe', octet: 250 };
 const OTHER_NETWORK = { name: 'fluxDockerNetwork_e2eother', octet: 251 };
 const PRIVATE_TARGET = '10.255.255.1';
-const MODULES = ['br_netfilter', 'xt_physdev'];
+const MODULES = ['br_netfilter'];
 
 const subnet = getSubnetConfig();
 
@@ -46,6 +47,14 @@ describe('2503 app containers on a node with br_netfilter loaded', function suit
     const line = stdout.split('\n').find((l) => words.every((w) => l.includes(w)));
     if (!line) throw new Error(`no DOCKER-USER rule with ${words.join(' ')}:\n${stdout}`);
     return Number(line.trim().split(/\s+/)[0]);
+  }
+
+  async function bridgeReturnHits() {
+    const { stdout } = await inNode('iptables -L DOCKER-USER -v -x -n');
+    const row = stdout.split('\n').map((l) => l.trim().split(/\s+/))
+      .find((c) => c[2] === 'RETURN' && c[5] === 'br-+' && c[6] === 'br-+');
+    if (!row) throw new Error(`no br-+ to br-+ RETURN in DOCKER-USER:\n${stdout}`);
+    return Number(row[0]);
   }
 
   async function containerIp(name) {
@@ -94,18 +103,20 @@ describe('2503 app containers on a node with br_netfilter loaded', function suit
     expect(stdout.trim()).to.equal('1');
   });
 
-  it('connects an app\'s own containers to each other through the physdev RETURN', async () => {
-    const before = await ruleHits('RETURN', 'PHYSDEV');
+  it('connects an app\'s own containers to each other, handed to Docker', async () => {
+    const before = await bridgeReturnHits();
     const dropBefore = await ruleHits('DROP', 'br-+', '172.16.0.0/12');
     expect(await tcpAnswer('fluxe2eprobe', await containerIp('fluxe2epeer'), 8080)).to.equal('ok');
-    expect(await ruleHits('RETURN', 'PHYSDEV'), 'bridged packets returned').to.be.above(before);
+    expect(await bridgeReturnHits(), 'bridged packets handed to Docker').to.be.above(before);
     expect(await ruleHits('DROP', 'br-+', '172.16.0.0/12')).to.equal(dropBefore);
   });
 
-  it('still keeps one app\'s network from another', async () => {
-    const before = await ruleHits('DROP', 'br-+', '172.16.0.0/12');
+  it('still keeps one app\'s network from another, through Docker\'s own isolation', async () => {
+    const before = await bridgeReturnHits();
+    const dropBefore = await ruleHits('DROP', 'br-+', '172.16.0.0/12');
     expect(await tcpAnswer('fluxe2eprobe', await containerIp('fluxe2eother'), 8080)).to.equal('');
-    expect(await ruleHits('DROP', 'br-+', '172.16.0.0/12')).to.be.above(before);
+    expect(await bridgeReturnHits(), 'handed to Docker').to.be.above(before);
+    expect(await ruleHits('DROP', 'br-+', '172.16.0.0/12')).to.equal(dropBefore);
   });
 
   it('still drops an app\'s connection to a private network, and passes one to the fleet', async () => {

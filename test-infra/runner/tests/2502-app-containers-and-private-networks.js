@@ -16,7 +16,7 @@
 // from the DROP rule's own packet counter rather than from a timeout, and every
 // negative sits beside a positive that must succeed through the same chain.
 //
-// The node's kernel runs without br_netfilter here; 2503 covers a node with it.
+// The harness host runs without br_netfilter; 2503 runs these paths with it loaded.
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -46,6 +46,7 @@ const BLOCKED_TARGETS = {
 };
 // An app's published port, as FluxOS publishes one and opens it in ufw.
 const PUBLISHED_PORT = 31999;
+const OTHER_PUBLISHED_PORT = 31998;
 const UDP_PORT = 9999;
 // The address a home router gives the outside client when it rewrites the source
 // of a connection into the node.
@@ -74,6 +75,15 @@ describe('2502 app containers are kept off private networks', function suite() {
     const line = stdout.split('\n').find((l) => words.every((w) => l.includes(w)));
     if (!line) throw new Error(`no DOCKER-USER rule with ${words.join(' ')}:\n${stdout}`);
     return Number(line.trim().split(/\s+/)[0]);
+  }
+
+  // Packets the RETURN handing traffic from one app bridge to another to Docker has matched.
+  async function bridgeReturnHits() {
+    const { stdout } = await inNode('iptables -L DOCKER-USER -v -x -n');
+    const row = stdout.split('\n').map((l) => l.trim().split(/\s+/))
+      .find((c) => c[2] === 'RETURN' && c[5] === 'br-+' && c[6] === 'br-+');
+    if (!row) throw new Error(`no br-+ to br-+ RETURN in DOCKER-USER:\n${stdout}`);
+    return Number(row[0]);
   }
 
   async function chain() {
@@ -115,7 +125,9 @@ describe('2502 app containers are kept off private networks', function suite() {
       listener('fluxe2epeer', APP_NETWORK.name),
       listener('fluxe2eother', OTHER_NETWORK.name),
       listener('fluxe2epublished', APP_NETWORK.name, `-p ${PUBLISHED_PORT}:8080`),
+      listener('fluxe2eotherpublished', OTHER_NETWORK.name, `-p ${OTHER_PUBLISHED_PORT}:8080`),
       `ufw allow ${PUBLISHED_PORT}/tcp >/dev/null`,
+      `ufw allow ${OTHER_PUBLISHED_PORT}/tcp >/dev/null`,
     ].join('; '));
     expect(setup.exitCode, `app containers did not start: ${setup.stderr}`).to.equal(0);
   });
@@ -141,11 +153,15 @@ describe('2502 app containers are kept off private networks', function suite() {
       expect(rules.split('\n').filter((rule) => / -s /.test(rule))).to.deep.equal([]);
     });
 
-    it('lets traffic within one bridge through ahead of every drop', async () => {
+    it('returns traffic from one container to another to Docker ahead of every drop', async () => {
       const rules = (await chain()).split('\n');
-      const bridged = rules.indexOf('-A DOCKER-USER -m physdev --physdev-is-bridged -j RETURN');
-      expect(bridged, 'the physdev RETURN, as iptables lists it').to.be.above(-1);
-      expect(bridged).to.be.below(rules.findIndex((rule) => rule.endsWith('-j DROP')));
+      const firstDrop = rules.findIndex((rule) => rule.endsWith('-j DROP'));
+      ['docker0', 'br-+'].forEach((from) => ['docker0', 'br-+'].forEach((to) => {
+        const at = rules.indexOf(`-A DOCKER-USER -i ${from} -o ${to} -j RETURN`);
+        expect(at, `${from} to ${to}, as iptables lists it`).to.be.above(-1);
+        expect(at).to.be.below(firstDrop);
+      }));
+      expect(rules.filter((rule) => /physdev/.test(rule))).to.deep.equal([]);
     });
   });
 
@@ -157,14 +173,6 @@ describe('2502 app containers are kept off private networks', function suite() {
       await inApp('fluxe2eprobe', `sh -c 'sleep 1; echo same-network | /bin/busybox nc -u -w 1 ${peer} 9000'`);
       const { stdout } = await inNode('sleep 1; docker exec fluxe2epeer /bin/busybox cat /tmp/udp-in');
       expect(stdout).to.include('same-network');
-    });
-
-    it('sends traffic within one bridge past iptables when br_netfilter is not loaded', async function test() {
-      const { stdout } = await inNode('cat /proc/sys/net/bridge/bridge-nf-call-iptables 2>/dev/null || echo absent');
-      if (stdout.trim() === '1') this.skip();
-      const before = await ruleHits('RETURN', 'PHYSDEV');
-      expect(await tcpAnswer('fluxe2eprobe', await containerIp('fluxe2epeer'), 8080)).to.equal('ok');
-      expect(await ruleHits('RETURN', 'PHYSDEV')).to.equal(before);
     });
 
     it('reaches the fleet over TCP, UDP and ICMP', async () => {
@@ -201,6 +209,12 @@ describe('2502 app containers are kept off private networks', function suite() {
     it('reaches its own node\'s API and its own published port at the node\'s address', async () => {
       expect(await tcpConnects('fluxe2eprobe', node.ip, API_PORT), 'the node\'s API').to.equal(true);
       expect(await tcpAnswer('fluxe2eprobe', node.ip, PUBLISHED_PORT), 'its own published port').to.equal('ok');
+    });
+
+    it('reaches another app\'s published port at the node\'s address', async () => {
+      const before = await bridgeReturnHits();
+      expect(await tcpAnswer('fluxe2eprobe', node.ip, OTHER_PUBLISHED_PORT)).to.equal('ok');
+      expect(await bridgeReturnHits(), 'handed to Docker').to.be.above(before);
     });
 
     it('lets an app\'s DNS reach a private address over UDP and TCP', async () => {
@@ -260,8 +274,12 @@ describe('2502 app containers are kept off private networks', function suite() {
       }
     });
 
-    it('keeps one app\'s network from another', async () => {
+    it('keeps one app\'s network from another, through Docker\'s own isolation', async () => {
+      const before = await bridgeReturnHits();
+      const dropBefore = await ruleHits('DROP', 'br-+', '172.16.0.0/12');
       expect(await tcpConnects('fluxe2eprobe', await containerIp('fluxe2eother'), 8080)).to.equal(false);
+      expect(await bridgeReturnHits(), 'handed to Docker').to.be.above(before);
+      expect(await ruleHits('DROP', 'br-+', '172.16.0.0/12'), 'never reaches the private-range drop').to.equal(dropBefore);
     });
   });
 
