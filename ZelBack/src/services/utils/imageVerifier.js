@@ -282,7 +282,6 @@ class ImageVerifier {
 
     // For Bearer auth (Docker Hub, etc.), do token exchange. The realm is a URL the registry
     // hands back, so it is as attacker-chosen as the registry host and guarded the same way.
-
     const {
       data: { token },
     } = await serviceHelper
