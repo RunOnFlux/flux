@@ -12,6 +12,7 @@ const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const systemService = require('../../ZelBack/src/services/systemService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+const ufw = require('../../ZelBack/src/services/utils/ufw');
 
 const testKeys = ['ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITESTKEYONLYFORTESTS fluxteam-legacy'];
 
@@ -499,6 +500,7 @@ describe('fluxadmService tests', () => {
         runAsRoot: true,
         logError: false,
         params: ['limit', '16122/tcp'],
+        timeout: ufw.UFW_LOCK_WAIT_MS,
       });
     });
 

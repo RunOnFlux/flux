@@ -8,6 +8,7 @@ const systemService = require('./systemService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const fluxadmPort = require('./fluxadmPort');
 const fluxEventBus = require('./utils/fluxEventBus');
+const ufw = require('./utils/ufw');
 const log = require('../lib/log');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -417,13 +418,9 @@ async function ensureFirewall(port) {
   const firewallActive = await fluxNetworkHelper.isFirewallActive();
   if (!firewallActive) return true;
 
-  const { error, stderr } = await serviceHelper.runCommand('ufw', {
-    runAsRoot: true,
-    logError: false,
-    params: ['limit', `${port}/tcp`],
-  });
+  const { error, stderr } = await ufw.runUfw(['limit', `${port}/tcp`]);
   if (error) {
-    log.error(`fluxadm access - could not add the ufw limit rule for port ${port}: ${serviceHelper.ensureString(stderr).trim() || error.message}`);
+    log.error(`fluxadm access - could not add the ufw limit rule for port ${port}: ${stderr.trim() || error.message}`);
     return false;
   }
   return true;
@@ -473,13 +470,9 @@ async function removeAccess() {
   const ufwPresent = await fs.access(ufwBinaryPath).then(() => true).catch(() => false);
   if (ufwPresent) {
     const port = fluxadmPort.currentSshPort();
-    const { error: ufwError, stderr } = await serviceHelper.runCommand('ufw', {
-      runAsRoot: true,
-      logError: false,
-      params: ['delete', 'limit', `${port}/tcp`],
-    });
+    const { error: ufwError, stderr } = await ufw.runUfw(['delete', 'limit', `${port}/tcp`]);
     if (ufwError) {
-      log.error(`fluxadm access - could not delete the ufw limit rule for port ${port}, retrying on the next pass: ${serviceHelper.ensureString(stderr).trim() || ufwError.message}`);
+      log.error(`fluxadm access - could not delete the ufw limit rule for port ${port}, retrying on the next pass: ${stderr.trim() || ufwError.message}`);
       return;
     }
   }
