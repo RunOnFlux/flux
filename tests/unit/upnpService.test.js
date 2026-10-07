@@ -33,13 +33,10 @@ const generateResponse = () => {
   return res;
 };
 
-// Whether this node runs maintenance access is the leaf module's decision;
-// the tests set it directly.
 const fluxadmPortStub = {
   isArcane: false,
-  configured: false,
-  accessConfigured() { return this.configured; },
   sshPortFor: (apiPort) => +apiPort - 5,
+  sshdUnit: 'fluxadm-sshd.service',
 };
 
 const upnpService = proxyquire(
@@ -231,9 +228,16 @@ describe('upnpService tests', () => {
     let createMappingSpy;
     let getMappingsStub;
     let removeMappingStub;
+    let unitStateStub;
+
+    // What `systemctl is-enabled fluxadm-sshd.service` prints, and whether it failed.
+    const sshdUnit = (stdout, error = null) => unitStateStub.resolves({ error, stdout, stderr: '' });
 
     beforeEach(() => {
       logSpy = sinon.spy(log, 'error');
+      unitStateStub = sinon.stub(serviceHelper, 'runCommand')
+        .withArgs('systemctl', sinon.match({ params: ['is-enabled', 'fluxadm-sshd.service'] }));
+      sshdUnit('disabled\n');
       createMappingSpy = sinon.stub(natUpnp.Client.prototype, 'createMapping');
       getMappingsStub = sinon.stub(natUpnp.Client.prototype, 'getMappings').resolves([]);
       removeMappingStub = sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
@@ -241,7 +245,6 @@ describe('upnpService tests', () => {
 
     afterEach(() => {
       fluxadmPortStub.isArcane = false;
-      fluxadmPortStub.configured = false;
       sinon.restore();
     });
 
@@ -262,9 +265,9 @@ describe('upnpService tests', () => {
       return promise;
     }
 
-    it('should map the maintenance ssh port beside the core ports while access is configured', async () => {
+    it('should map the maintenance ssh port beside the core ports while its unit is enabled', async () => {
       createMappingSpy.returns(true);
-      fluxadmPortStub.configured = true;
+      sshdUnit('enabled\n');
 
       const result = await runSetup(123);
 
@@ -276,9 +279,21 @@ describe('upnpService tests', () => {
       sinon.assert.notCalled(removeMappingStub);
     });
 
-    it('should remove its own maintenance ssh mapping once access is no longer configured', async () => {
+    it('should remove its own maintenance ssh mapping while its unit is not enabled', async () => {
       createMappingSpy.returns(true);
       getMappingsStub.resolves([fluxadmMapping()]);
+
+      const result = await runSetup(123);
+
+      expect(result).to.equal(true);
+      sinon.assert.callCount(createMappingSpy, 4);
+      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 118, protocol: 'TCP' });
+    });
+
+    it('should remove its own maintenance ssh mapping once its unit is gone, or systemctl cannot answer', async () => {
+      createMappingSpy.returns(true);
+      getMappingsStub.resolves([fluxadmMapping()]);
+      sshdUnit('', new Error('Failed to get unit file state for fluxadm-sshd.service: No such file or directory'));
 
       const result = await runSetup(123);
 
@@ -304,7 +319,7 @@ describe('upnpService tests', () => {
     it('should neither map nor unmap the maintenance ssh port on ArcaneOS', async () => {
       createMappingSpy.returns(true);
       fluxadmPortStub.isArcane = true;
-      fluxadmPortStub.configured = true;
+      sshdUnit('enabled\n');
       getMappingsStub.resolves([fluxadmMapping()]);
 
       const result = await runSetup(123);
@@ -318,7 +333,7 @@ describe('upnpService tests', () => {
     it('should still report the core ports mapped when the maintenance ssh mapping fails', async () => {
       createMappingSpy.returns(true);
       createMappingSpy.withArgs(sinon.match({ description: 'Flux_Fluxadm_SSH' })).rejects(new Error('conflict'));
-      fluxadmPortStub.configured = true;
+      sshdUnit('enabled\n');
 
       const result = await runSetup(123);
 

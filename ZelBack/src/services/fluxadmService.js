@@ -23,7 +23,7 @@ const sudoersPath = `/etc/sudoers.d/${fluxadmUser}`;
 // ever be read by our dedicated instance.
 const sshdConfigPath = '/etc/ssh/fluxadm_sshd_config';
 const sshdBinaryPath = '/usr/sbin/sshd';
-const serviceName = 'fluxadm-sshd.service';
+const serviceName = fluxadmPort.sshdUnit;
 const serviceUnitPath = `/etc/systemd/system/${serviceName}`;
 const ufwBinaryPath = '/usr/sbin/ufw';
 // The openssh-server package's own units: a general-purpose sshd on port 22.
