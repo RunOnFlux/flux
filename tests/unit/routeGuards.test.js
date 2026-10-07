@@ -12,7 +12,7 @@ const request = require('supertest');
 const apicache = require('apicache');
 
 const {
-  asyncRoute, rejectQueryParameters, requireBootSettled, requirePolicyReady,
+  answerDaemonUnavailable, asyncRoute, rejectQueryParameters, requireBootSettled, requirePolicyReady,
 } = require('../../ZelBack/src/services/utils/routeGuards');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 
@@ -245,6 +245,87 @@ describe('routeGuards', () => {
   // Every route is registered through this. A handler that rejects must reach
   // express, because the alternative is not a 500 - it is an unhandled
   // rejection, apiServer's uncaughtException handler, and process.exit.
+  describe('answerDaemonUnavailable', () => {
+    let app;
+    let server;
+    let daemonError;
+    let handlerCalls;
+
+    // A handler that asks the daemon and reports what it raised, the way
+    // getNodeTier does, through a real express stack so the status, the header
+    // and the body are what a caller receives.
+    beforeEach(() => {
+      handlerCalls = 0;
+      app = express();
+      app.get('/flux/nodetier', (req, res) => {
+        if (answerDaemonUnavailable(res, daemonError)) return;
+        handlerCalls += 1;
+        res.json({
+          status: 'error',
+          data: { code: daemonError.code, name: daemonError.name, message: daemonError.message },
+        });
+      });
+    });
+
+    afterEach(() => {
+      if (server) { server.close(); server = null; }
+    });
+
+    const get = (path) => {
+      if (!server) server = app.listen(0);
+      return request(server).get(path);
+    };
+
+    const raised = (message, code) => Object.assign(new Error(message), { code });
+
+    it('refuses while the daemon is still loading', async () => {
+      daemonError = raised('Loading block index...', -28);
+      const res = await get('/flux/nodetier');
+      expect(res.status).to.equal(503);
+      expect(res.body).to.deep.equal({
+        status: 'error',
+        data: { code: 503, name: 'ServiceUnavailable', message: 'Loading block index...' },
+      });
+      expect(handlerCalls).to.equal(0);
+    });
+
+    it('says when to come back', async () => {
+      daemonError = raised('Loading block index...', -28);
+      const res = await get('/flux/nodetier');
+      expect(res.headers['retry-after']).to.equal('5');
+    });
+
+    it('refuses while nothing is listening on the daemon port', async () => {
+      daemonError = raised('connect ECONNREFUSED 127.0.0.1:16124', 'ECONNREFUSED');
+      const res = await get('/flux/nodetier');
+      expect(res.status).to.equal(503);
+      expect(res.body.data.name).to.equal('ServiceUnavailable');
+      expect(res.headers['retry-after']).to.equal('5');
+      expect(handlerCalls).to.equal(0);
+    });
+
+    // A daemon that answered with an error of its own gave a verdict: the
+    // handler reports it, as it does any error that is not the daemon's absence.
+    it('leaves a daemon error that is an answer to the handler', async () => {
+      daemonError = raised('Invalid parameter', -8);
+      const res = await get('/flux/nodetier');
+      expect(res.status).to.equal(200);
+      expect(res.body).to.deep.equal({
+        status: 'error',
+        data: { code: -8, name: 'Error', message: 'Invalid parameter' },
+      });
+      expect(handlerCalls).to.equal(1);
+    });
+
+    it('leaves an error with no code to the handler', async () => {
+      daemonError = new Error('Unrecognised Flux node tier');
+      const res = await get('/flux/nodetier');
+      expect(res.status).to.equal(200);
+      expect(res.body.data.message).to.equal('Unrecognised Flux node tier');
+      expect(handlerCalls).to.equal(1);
+    });
+  });
+
   describe('asyncRoute', () => {
     it('hands a rejection to express rather than dropping it', async () => {
       const boom = new Error('handler-exploded');

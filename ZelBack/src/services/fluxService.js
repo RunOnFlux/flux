@@ -30,6 +30,7 @@ const dockerService = require('./dockerService');
 const upnpService = require('./upnpService');
 const uplinkService = require('./uplinkService');
 const enterpriseConfig = require('./utils/enterpriseConfig');
+const { answerDaemonUnavailable } = require('./utils/routeGuards');
 
 // for streamChain endpoint
 const zlib = require('node:zlib');
@@ -1877,6 +1878,7 @@ async function getNodeTier(req, res) {
     const response = messageHelper.createDataMessage(responseAux);
     res.json(response);
   } catch (error) {
+    if (answerDaemonUnavailable(res, error)) return;
     log.error(error);
     const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
