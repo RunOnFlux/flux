@@ -322,21 +322,9 @@ async function startFluxFunctions() {
     log.info('Preparing local database...');
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.local.database);
-    await dbHelper.dropCollection(database, config.database.local.collections.loggedUsers).catch((error) => { // drop currently logged users
-      if (error.message !== 'ns not found') {
-        log.error(error);
-      }
-    });
-    await dbHelper.dropCollection(database, config.database.local.collections.activeLoginPhrases).catch((error) => {
-      if (error.message !== 'ns not found') {
-        log.error(error);
-      }
-    });
-    await dbHelper.dropCollection(database, config.database.local.collections.activeSignatures).catch((error) => {
-      if (error.message !== 'ns not found') {
-        log.error(error);
-      }
-    });
+    // Logins survive a restart: every request re-verifies its signature and
+    // re-checks its privilege against the node's current config, and each
+    // session collection's TTL index expires its rows.
     // Named literally because they are no longer part of the schema: the payment
     // request and receipt collections outlived the endpoint that wrote them, and
     // a node's word was never the payment record - the chain is. Dropping is
