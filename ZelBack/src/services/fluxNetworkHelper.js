@@ -2493,7 +2493,7 @@ function containerEgressRules() {
  * chain is replaced in one iptables-restore transaction, so no moment passes
  * without its rules, and is left untouched when it already matches. Docker
  * never writes DOCKER-USER, and its FORWARD jump is put back if missing.
- * @returns {Promise<boolean>} True when the chain is in place.
+ * @returns {Promise<boolean>} True when the chain is in place. Never rejects.
  */
 async function applyContainerEgressRules() {
   const desired = containerEgressRules();
@@ -2518,6 +2518,9 @@ async function applyContainerEgressRules() {
       }
       log.info('IPTABLES: DOCKER-USER rules applied');
       fluxEventBus.publish('firewall:containerEgressApplied', {});
+    } catch (error) {
+      log.error(`IPTABLES: DOCKER-USER rules not applied: ${error.message}`);
+      return false;
     } finally {
       if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }

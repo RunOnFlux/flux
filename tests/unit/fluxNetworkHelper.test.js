@@ -3390,6 +3390,16 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.notCalled(publishStub);
     });
 
+    it('reports failure, not a rejection, when the rules file cannot be written', async () => {
+      fs.writeFile.rejects(new Error('ENOSPC'));
+
+      const res = await fluxNetworkHelper.applyContainerEgressRules();
+
+      expect(res).to.equal(false);
+      sinon.assert.neverCalledWith(runCommandStub, 'iptables-restore');
+      sinon.assert.notCalled(publishStub);
+    });
+
     it('puts back a missing FORWARD jump to DOCKER-USER, and only then', async () => {
       liveChain(fluxNetworkHelper.containerEgressRules());
       runCommandStub.withArgs('iptables', iptablesCall(['-C', 'FORWARD', '-j', 'DOCKER-USER'])).resolves({ error: new Error('missing'), stdout: '', stderr: '' });
