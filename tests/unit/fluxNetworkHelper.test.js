@@ -42,6 +42,12 @@ const upnpService = require('../../ZelBack/src/services/upnpService');
 const geolocationService = require('../../ZelBack/src/services/geolocationService');
 const ufw = require('../../ZelBack/src/services/utils/ufw');
 const ufwHelper = require('../../ZelBack/src/services/utils/ufwHelper');
+// Loaded by adjustExternalIP on its first call; loaded here so that load is not
+// inside a test's timeout.
+const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+require('../../ZelBack/src/services/appDatabase/registryManager');
+require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+require('../../ZelBack/src/services/utils/enterpriseHelper');
 
 /**
  * A UDP socket whose connect resolves to a source address, or fails.
@@ -1466,6 +1472,8 @@ describe('fluxNetworkHelper tests', () => {
     beforeEach(() => {
       writeFileStub = sinon.stub(fs, 'writeFile').resolves();
       sinon.stub(geolocationService, 'setNodeGeolocation');
+      sinon.stub(appQueryService, 'installedApps').resolves({ status: 'success', data: [] });
+      sinon.stub(daemonServiceFluxnodeRpcs, 'createConfirmationTransaction').resolves({ status: 'success', data: null });
       // Backup original userconfig
       originalUserConfig = globalThis.userconfig;
       // Mock userconfig with expected test values
@@ -1509,6 +1517,7 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/routerIP: '',/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/pgpPrivateKey: ``,/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/pgpPublicKey: ``,/gm));
+      sinon.assert.calledOnce(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
     });
 
     it('should not write to file if the config already has same exact ip', async () => {
