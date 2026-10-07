@@ -28,7 +28,8 @@ const lastCandidacy = new Map();
 
 /**
  * Which stage removed each app, from the survivor snapshots taken through the
- * filter chain, and publish only the ones whose answer changed since last pass.
+ * filter chain: tallied every pass (spawner:verdict, by app and stage), and
+ * published only when the answer changed since last pass.
  *
  * @param {Array<[string, Set<string>]>} stages Ordered [stageName, names still in].
  */
@@ -44,6 +45,7 @@ function publishCandidacyChanges(stages) {
     verdicts.set(name, stage);
   }
   for (const [name, stage] of verdicts) {
+    fluxEventBus.count('spawner:verdict', name, stage);
     if (lastCandidacy.get(name) === stage) continue;
     lastCandidacy.set(name, stage);
     fluxEventBus.publish('spawner:candidacy', { name, stage, candidate: stage === 'candidate' });
