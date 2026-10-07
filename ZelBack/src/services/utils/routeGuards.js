@@ -2,8 +2,6 @@
 
 const apicache = require('apicache');
 
-const log = require('../../lib/log');
-
 const messageHelper = require('../messageHelper');
 const globalState = require('./globalState');
 
@@ -115,7 +113,6 @@ function requirePolicyReady(req, res, next) {
 function answerDaemonUnavailable(res, error) {
   const code = error && error.code;
   if (code !== RPC_IN_WARMUP && !DAEMON_UNREACHABLE_CODES.has(code)) return false;
-  log.debug(`Daemon cannot answer yet (${code}): ${error.message}`);
   serviceUnavailable(res, error.message, DAEMON_RETRY_AFTER_SECONDS);
   return true;
 }
