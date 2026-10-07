@@ -627,6 +627,9 @@ async function cleanupPorts(appSpecifications, appName, res, entityName) {
   for (const port of appPorts) {
     // eslint-disable-next-line no-await-in-loop
     await fluxNetworkHelper.deleteAppPortIpv6Rule(serviceHelper.ensureNumber(port));
+    // The allow for both families an app installed by an earlier FluxOS holds.
+    // eslint-disable-next-line no-await-in-loop
+    await fluxNetworkHelper.deleteAllowPortRule(serviceHelper.ensureNumber(port));
   }
 
   if (appSpecifications.ports) {

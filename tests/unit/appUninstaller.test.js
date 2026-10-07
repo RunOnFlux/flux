@@ -14,7 +14,7 @@ describe('appUninstaller tests', () => {
     beforeEach(() => {
       firewallStub = {
         isFirewallActive: sinon.stub().resolves(true),
-        deleteAllowPortRule: sinon.stub().resolves(true),
+        deleteAllowPortRule: sinon.stub().resolves({ status: true, message: null }),
         deleteAppPortIpv6Rule: sinon.stub().resolves({ status: true, message: null }),
       };
       upnpStub = { isUPNP: sinon.stub().returns(true), removeMapUpnpPort: sinon.stub().resolves(true) };
@@ -29,20 +29,20 @@ describe('appUninstaller tests', () => {
       sinon.restore();
     });
 
-    it('removes app port mappings from the router and the ports\' IPv6 rules from the host firewall', async () => {
+    it('removes app port mappings from the router and the ports\' rules from the host firewall, an earlier FluxOS\'s included', async () => {
       await appUninstallerPorts.cleanupPorts({ ports: [31000, 31001] }, 'myapp', null, 'myapp');
 
-      expect(firewallStub.deleteAllowPortRule.called).to.be.false;
       expect(firewallStub.deleteAppPortIpv6Rule.args).to.deep.equal([[31000], [31001]]);
+      expect(firewallStub.deleteAllowPortRule.args).to.deep.equal([[31000], [31001]]);
       expect(upnpStub.removeMapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
       expect(upnpStub.removeMapUpnpPort.calledWith(31001, 'Flux_App_myapp')).to.be.true;
     });
 
-    it('removes a v1 app port mapping and the port\'s IPv6 rule', async () => {
+    it('removes a v1 app port mapping and the port\'s rules', async () => {
       await appUninstallerPorts.cleanupPorts({ port: 31000 }, 'myapp', null, 'myapp');
 
-      expect(firewallStub.deleteAllowPortRule.called).to.be.false;
       expect(firewallStub.deleteAppPortIpv6Rule.args).to.deep.equal([[31000]]);
+      expect(firewallStub.deleteAllowPortRule.args).to.deep.equal([[31000]]);
       expect(upnpStub.removeMapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
     });
   });
@@ -152,6 +152,7 @@ describe('appUninstaller tests', () => {
       '../fluxNetworkHelper': {
         closeConnection: sinon.stub().resolves(),
         deleteAppPortIpv6Rule: sinon.stub().resolves({ status: true, message: null }),
+        deleteAllowPortRule: sinon.stub().resolves({ status: true, message: null }),
         allowPort: sinon.stub().resolves(true),
       },
       '../fluxCommunicationMessagesSender': {
@@ -468,6 +469,7 @@ describe('appUninstaller tests', () => {
         '../fluxNetworkHelper': {
           closeConnection: sinon.stub().resolves(),
           deleteAppPortIpv6Rule: sinon.stub().resolves({ status: true, message: null }),
+          deleteAllowPortRule: sinon.stub().resolves({ status: true, message: null }),
           allowPort: sinon.stub().resolves(true),
         },
         '../fluxCommunicationMessagesSender': {
@@ -552,6 +554,7 @@ describe('appUninstaller tests', () => {
         '../fluxNetworkHelper': {
           closeConnection: sinon.stub().resolves(),
           deleteAppPortIpv6Rule: sinon.stub().resolves({ status: true, message: null }),
+          deleteAllowPortRule: sinon.stub().resolves({ status: true, message: null }),
           allowPort: sinon.stub().resolves(true),
         },
         '../fluxCommunicationMessagesSender': {
@@ -1079,6 +1082,7 @@ describe('appUninstaller tests', () => {
         '../fluxNetworkHelper': {
           closeConnection: sinon.stub().resolves(),
           deleteAppPortIpv6Rule: sinon.stub().resolves({ status: true, message: null }),
+          deleteAllowPortRule: sinon.stub().resolves({ status: true, message: null }),
           allowPort: sinon.stub().resolves(true),
         },
         '../fluxCommunicationMessagesSender': {
@@ -1179,6 +1183,7 @@ describe('appUninstaller tests', () => {
         '../fluxNetworkHelper': {
           closeConnection: sinon.stub().resolves(),
           deleteAppPortIpv6Rule: sinon.stub().resolves({ status: true, message: null }),
+          deleteAllowPortRule: sinon.stub().resolves({ status: true, message: null }),
           allowPort: sinon.stub().resolves(true),
         },
         '../fluxCommunicationMessagesSender': {
