@@ -24,7 +24,7 @@ const SUBMITTER = 2;
 // The app payment address in force at the harness chain's height (addressMultisigB).
 const APP_PAYMENT_ADDRESS = 't3NryfAQLGeFs9jEoeqsxmBN2QLRaRKFLUX';
 const PRICE_SAT = 200000000;
-// The scan's minPrice (0.01 FLUX) at the harness chain's height, below either app's price.
+// The scan's minPrice (0.01 FLUX) at the harness chain's height.
 const MIN_PRICE_SAT = 1000000;
 
 const payment = (txid, hash, valueSat) => ({
@@ -42,8 +42,16 @@ describe('a message paid twice in one block keeps its first payment, on every no
   dumpLogsOnFailure(() => env);
 
   const stamp = Date.now();
-  const paidSpec = buildAppSpec({ name: `e2ePaidTwice${stamp}`, instances: 1 });
-  const cheapSpec = buildAppSpec({ name: `e2ePaidMinimum${stamp}`, instances: 1 });
+  // Sized so its price (0.05 FLUX) is above the minimum: the default app costs exactly that.
+  const sized = (name) => {
+    const spec = buildAppSpec({ name, instances: 1 });
+    spec.compose = spec.compose.map((component) => ({
+      ...component, cpu: 1, ram: 2000, hdd: 20,
+    }));
+    return spec;
+  };
+  const paidSpec = sized(`e2ePaidTwice${stamp}`);
+  const cheapSpec = sized(`e2ePaidMinimum${stamp}`);
   const txids = {
     price: `pay-price-${stamp}`,
     minimum: `pay-minimum-${stamp}`,
