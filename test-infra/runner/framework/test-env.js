@@ -8,7 +8,7 @@ import { GenericContainer, Wait, getContainerRuntimeClient } from 'testcontainer
 import {
   readFileSync, mkdirSync, writeFileSync, rmSync, existsSync,
 } from 'node:fs';
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -269,12 +269,32 @@ function fdmExtraHosts(ip) {
   return fdmHostnames().map((host) => ({ host, ipAddress: ip }));
 }
 
+// A host that confines its own sshd with AppArmor (an Arcane box) has that profile
+// attach, by path, to any /usr/sbin/sshd a node starts: the nodes run privileged,
+// so unconfined, and an unconfined exec takes the profile its path matches. A
+// legacy node never runs under it. On such a host every node runs under
+// flux-e2e-node (test-infra/apparmor), loaded into the kernel here once per process.
+const HOST_SSHD_PROFILE = '/etc/apparmor.d/usr.sbin.sshd';
+let nodeAppArmorProfile;
+function nodeAppArmor() {
+  if (nodeAppArmorProfile === undefined) {
+    nodeAppArmorProfile = null;
+    if (existsSync(HOST_SSHD_PROFILE)) {
+      const profile = fileURLToPath(new URL('../../apparmor/flux-e2e-node', import.meta.url));
+      execFileSync('sudo', ['-n', 'apparmor_parser', '-r', profile], { stdio: 'pipe' });
+      nodeAppArmorProfile = 'flux-e2e-node';
+    }
+  }
+  return nodeAppArmorProfile;
+}
+
 class StaticIpContainer extends GenericContainer {
   #staticIp;
   #networkName;
   #aliases = [];
   #dnsServer;
   #stopSignal;
+  #appArmorProfile;
 
   withStaticIp(networkName, ip, aliases = []) {
     this.#staticIp = ip;
@@ -297,6 +317,11 @@ class StaticIpContainer extends GenericContainer {
     return this;
   }
 
+  withAppArmorProfile(profile) {
+    this.#appArmorProfile = profile;
+    return this;
+  }
+
   async beforeContainerCreated() {
     // Tag with this run's label so run-all.sh's between-suite cleanup can scope
     // removal to its own fleet (see runLabels()).
@@ -314,6 +339,9 @@ class StaticIpContainer extends GenericContainer {
       this.hostConfig.Dns = [this.#dnsServer];
     }
     if (this.#stopSignal) this.createOpts.StopSignal = this.#stopSignal;
+    if (this.#appArmorProfile) {
+      this.hostConfig.SecurityOpt = [...(this.hostConfig.SecurityOpt || []), `apparmor=${this.#appArmorProfile}`];
+    }
     if (this.#staticIp && this.#networkName) {
       this.createOpts.NetworkingConfig = {
         EndpointsConfig: {
@@ -1663,6 +1691,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       .withEnvironment(nodeEnv)
       .withWaitStrategy(nodeReadyWaitStrategy(nodeIp).withStartupTimeout(120000));
     if (systemdMode) builder.withStopSignal('SIGRTMIN+3');
+    if (nodeAppArmor()) builder.withAppArmorProfile(nodeAppArmor());
 
     nodeConfigs.push({
       index: i, builder, ip: nodeIp, num: i + 1, logCollector, bootIdDir, journalDir,
