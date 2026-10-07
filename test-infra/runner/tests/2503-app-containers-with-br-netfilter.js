@@ -113,12 +113,12 @@ describe('2503 app containers on a node with br_netfilter loaded', function suit
     expect(await ruleHits('DROP', 'br-+', '172.16.0.0/12')).to.equal(dropBefore);
   });
 
+  // Docker drops it: from Docker 28 in the raw table, before FORWARD; before 28 in
+  // its isolation chains, after DOCKER-USER has returned it.
   it('still keeps one app\'s network from another, through Docker\'s own isolation', async () => {
-    const before = await bridgeReturnHits();
     const dropBefore = await ruleHits('DROP', 'br-+', '172.16.0.0/12');
     expect(await tcpAnswer('fluxe2eprobe', await containerIp('fluxe2eother'), 8080)).to.equal('');
-    expect(await bridgeReturnHits(), 'handed to Docker').to.be.above(before);
-    expect(await ruleHits('DROP', 'br-+', '172.16.0.0/12')).to.equal(dropBefore);
+    expect(await ruleHits('DROP', 'br-+', '172.16.0.0/12'), 'never reaches the private-range drop').to.equal(dropBefore);
   });
 
   it('still drops an app\'s connection to a private network, and passes one to the fleet', async () => {

@@ -169,9 +169,10 @@ describe('2502 app containers are kept off private networks', function suite() {
     it('connects an app\'s own containers to each other, over TCP and UDP', async () => {
       const peer = await containerIp('fluxe2epeer');
       expect(await tcpAnswer('fluxe2eprobe', peer, 8080)).to.equal('ok');
-      await inNode('docker exec -d fluxe2epeer /bin/busybox sh -c \'/bin/busybox nc -u -l -p 9000 > /tmp/udp-in\'');
+      // The image holds only /bin/busybox: no /tmp, so the listener writes at the root.
+      await inNode('docker exec -d fluxe2epeer /bin/busybox sh -c \'/bin/busybox nc -u -l -p 9000 > /udp-in\'');
       await inApp('fluxe2eprobe', `sh -c 'sleep 1; echo same-network | /bin/busybox nc -u -w 1 ${peer} 9000'`);
-      const { stdout } = await inNode('sleep 1; docker exec fluxe2epeer /bin/busybox cat /tmp/udp-in');
+      const { stdout } = await inNode('sleep 1; docker exec fluxe2epeer /bin/busybox cat /udp-in');
       expect(stdout).to.include('same-network');
     });
 
@@ -274,11 +275,11 @@ describe('2502 app containers are kept off private networks', function suite() {
       }
     });
 
+    // Docker drops it: from Docker 28 in the raw table, before FORWARD; before 28 in
+    // its isolation chains, after DOCKER-USER has returned it.
     it('keeps one app\'s network from another, through Docker\'s own isolation', async () => {
-      const before = await bridgeReturnHits();
       const dropBefore = await ruleHits('DROP', 'br-+', '172.16.0.0/12');
       expect(await tcpConnects('fluxe2eprobe', await containerIp('fluxe2eother'), 8080)).to.equal(false);
-      expect(await bridgeReturnHits(), 'handed to Docker').to.be.above(before);
       expect(await ruleHits('DROP', 'br-+', '172.16.0.0/12'), 'never reaches the private-range drop').to.equal(dropBefore);
     });
   });
