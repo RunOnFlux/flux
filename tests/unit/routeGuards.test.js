@@ -242,9 +242,6 @@ describe('routeGuards', () => {
     });
   });
 
-  // Every route is registered through this. A handler that rejects must reach
-  // express, because the alternative is not a 500 - it is an unhandled
-  // rejection, apiServer's uncaughtException handler, and process.exit.
   describe('answerDaemonUnavailable', () => {
     let app;
     let server;
@@ -326,6 +323,9 @@ describe('routeGuards', () => {
     });
   });
 
+  // Every route is registered through this. A handler that rejects must reach
+  // express, because the alternative is not a 500 - it is an unhandled
+  // rejection, apiServer's uncaughtException handler, and process.exit.
   describe('asyncRoute', () => {
     it('hands a rejection to express rather than dropping it', async () => {
       const boom = new Error('handler-exploded');
