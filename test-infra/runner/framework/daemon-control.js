@@ -42,6 +42,11 @@ export async function advanceBlock(appHash) {
   return post('/advance-block', appHash ? { appHash } : {});
 }
 
+// Mines the next block holding exactly these transactions, in this order.
+export async function mineBlock(tx) {
+  return post('/advance-block', { block: { tx } });
+}
+
 export async function advanceBlocks(count) {
   for (let i = 0; i < count; i++) {
     // eslint-disable-next-line no-await-in-loop
