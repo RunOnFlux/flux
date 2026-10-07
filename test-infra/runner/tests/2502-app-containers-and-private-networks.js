@@ -43,6 +43,7 @@ const BLOCKED_TARGETS = {
   '192.168.0.0/16': '192.168.255.1',
   '100.64.0.0/10': '100.127.255.1',
   '169.254.0.0/16': LINK_LOCAL_TARGET,
+  '198.18.0.0/15': '198.19.255.1',
 };
 // An app's published port, as FluxOS publishes one and opens it in ufw.
 const PUBLISHED_PORT = 31999;

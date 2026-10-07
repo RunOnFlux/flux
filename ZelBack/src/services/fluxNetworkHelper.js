@@ -24,6 +24,7 @@ const { CLOSE_CODES, DIRECTION } = require('./utils/FluxPeerSocket');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const fluxEventBus = require('./utils/fluxEventBus');
+const { NON_PUBLIC_IPV4 } = require('./utils/nonPublicNetworks');
 const ufw = require('./utils/ufw');
 const {
   normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch, parseSocketAddress, ipsMatch,
@@ -2450,11 +2451,11 @@ async function purgeUFW() {
 // Docker's own bridges: the default one and every user-defined network,
 // whichever app it belongs to.
 const containerBridges = ['docker0', 'br-+'];
-// Addresses an app container may not reach beyond its own node: the node
-// owner's private networks, carrier-grade NAT, and link-local (a cloud host's
-// metadata service). fluxnode.service lives on this node's loopback, so a
-// container reaches it through INPUT and these FORWARD rules never see it.
-const containerBlockedNetworks = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '169.254.0.0/16'];
+// Addresses an app container may not reach beyond its own node: every
+// non-public IPv4 range, the node owner's private networks and a cloud host's
+// metadata service among them. fluxnode.service lives on this node's loopback,
+// so a container reaches it through INPUT and these FORWARD rules never see it.
+const containerBlockedNetworks = NON_PUBLIC_IPV4;
 
 /**
  * The DOCKER-USER chain, as `iptables -S DOCKER-USER` prints it.

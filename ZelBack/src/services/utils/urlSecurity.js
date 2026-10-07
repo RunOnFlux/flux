@@ -5,10 +5,9 @@
  * attacks (CWE-918).
  *
  * Blocks requests to:
- * - Private IP ranges (10.x.x.x, 172.16-31.x.x, 192.168.x.x)
- * - Loopback addresses (127.x.x.x, ::1, localhost)
- * - Link-local addresses (169.254.x.x, fe80::)
- * - Cloud metadata endpoints (169.254.169.254, metadata.google.internal)
+ * - Every non-public address range (nonPublicNetworks): private, loopback,
+ *   link-local and cloud metadata, carrier-grade NAT, and IANA's reserved ranges
+ * - Local and metadata hostnames (localhost, metadata.google.internal)
  * - Non-HTTP(S) protocols
  */
 
@@ -17,6 +16,7 @@ const net = require('net');
 const http = require('http');
 const https = require('https');
 const dnsLookup = require('./dnsLookup');
+const { isNonPublicAddress } = require('./nonPublicNetworks');
 
 /**
  * Normalize an IP string by removing brackets and zone identifiers.
@@ -41,83 +41,6 @@ function normalizeIpString(ip) {
 }
 
 /**
- * Convert IPv6-mapped IPv4 address to IPv4.
- * Handles both dotted-decimal (::ffff:127.0.0.1) and hex (::ffff:7f00:1) forms.
- * @param {string} ip - IPv6 address to check
- * @returns {string|null} IPv4 address if mapped, null otherwise
- */
-function ipv6MappedToIpv4(ip) {
-  if (!ip || typeof ip !== 'string') {
-    return null;
-  }
-  const normalized = ip.toLowerCase();
-
-  // Check for ::ffff: prefix (IPv6-mapped IPv4)
-  if (!normalized.startsWith('::ffff:')) {
-    return null;
-  }
-
-  const suffix = normalized.slice(7); // Remove '::ffff:'
-
-  // Dotted-decimal form: ::ffff:127.0.0.1
-  if (suffix.includes('.')) {
-    // Validate it looks like an IPv4
-    if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(suffix)) {
-      return suffix;
-    }
-    return null;
-  }
-
-  // Hex form: ::ffff:7f00:1 -> 127.0.0.1
-  // The last 32 bits are in the format XXXX:XXXX where each X is a hex digit
-  const hexMatch = suffix.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-  if (hexMatch) {
-    const high = parseInt(hexMatch[1], 16);
-    const low = parseInt(hexMatch[2], 16);
-    const a = (high >> 8) & 0xff;
-    const b = high & 0xff;
-    const c = (low >> 8) & 0xff;
-    const d = low & 0xff;
-    return `${a}.${b}.${c}.${d}`;
-  }
-
-  return null;
-}
-
-/**
- * IPv4 private/reserved ranges that should be blocked
- */
-const BLOCKED_IPV4_PATTERNS = [
-  /^127\./, // Loopback (127.0.0.0/8)
-  /^10\./, // Private Class A (10.0.0.0/8)
-  /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // Private Class B (172.16.0.0/12)
-  /^192\.168\./, // Private Class C (192.168.0.0/16)
-  /^169\.254\./, // Link-local (169.254.0.0/16) - includes cloud metadata
-  /^0\./, // Current network (0.0.0.0/8)
-  /^100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\./, // Carrier-grade NAT (100.64.0.0/10)
-  /^192\.0\.0\./, // IETF Protocol Assignments (192.0.0.0/24)
-  /^192\.0\.2\./, // Documentation (TEST-NET-1)
-  /^198\.1[89]\./, // Benchmarking (198.18.0.0/15)
-  /^198\.51\.100\./, // Documentation (TEST-NET-2)
-  /^203\.0\.113\./, // Documentation (TEST-NET-3)
-  /^224\./, // Multicast (224.0.0.0/4)
-  /^240\./, // Reserved (240.0.0.0/4)
-  /^255\.255\.255\.255$/, // Broadcast
-];
-
-/**
- * IPv6 private/reserved patterns that should be blocked
- */
-const BLOCKED_IPV6_PATTERNS = [
-  /^::1$/, // Loopback
-  /^fe80:/i, // Link-local
-  /^f[cd][0-9a-f]{2}:/i, // Unique local (fc00::/7)
-  /^::ffff:(127\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.|169\.254\.)/i, // IPv4-mapped
-  /^ff[0-9a-f]{2}:/i, // Multicast
-  /^::$/i, // Unspecified address
-];
-
-/**
  * Hostnames that should always be blocked
  */
 const BLOCKED_HOSTNAMES = [
@@ -137,49 +60,17 @@ const BLOCKED_HOSTNAMES = [
 const ALLOWED_PROTOCOLS = ['http:', 'https:'];
 
 /**
- * Check if an IP address is in a blocked range.
- * Handles IPv6-mapped IPv4 addresses by extracting and checking the IPv4 portion.
+ * Check if an IP address is in a blocked range. An IPv4-mapped IPv6 address is
+ * judged by the IPv4 address it carries.
  *
- * @param {string} ip - IP address to check
- * @returns {boolean} True if IP is blocked
+ * @param {string} ip - IP address to check, brackets and zone allowed
+ * @returns {boolean} True if IP is blocked; false for anything that is not an IP
  */
 function isBlockedIP(ip) {
   if (!ip || typeof ip !== 'string') {
     return true; // Block if no IP provided
   }
-
-  // Normalize the IP (strip brackets, zone identifiers)
-  const normalizedIp = normalizeIpString(ip);
-
-  // Check for IPv6-mapped IPv4 addresses (e.g., ::ffff:127.0.0.1)
-  // These need to be checked against IPv4 patterns
-  const mappedIpv4 = ipv6MappedToIpv4(normalizedIp);
-  if (mappedIpv4) {
-    // Check the extracted IPv4 against IPv4 patterns
-    for (const pattern of BLOCKED_IPV4_PATTERNS) {
-      if (pattern.test(mappedIpv4)) {
-        return true;
-      }
-    }
-    // If mapped IPv4 is not blocked, it's safe
-    return false;
-  }
-
-  // Check IPv4 patterns
-  for (const pattern of BLOCKED_IPV4_PATTERNS) {
-    if (pattern.test(normalizedIp)) {
-      return true;
-    }
-  }
-
-  // Check IPv6 patterns
-  for (const pattern of BLOCKED_IPV6_PATTERNS) {
-    if (pattern.test(normalizedIp)) {
-      return true;
-    }
-  }
-
-  return false;
+  return isNonPublicAddress(normalizeIpString(ip));
 }
 
 /**
@@ -461,10 +352,6 @@ module.exports = {
   BLOCKED_ADDRESS_CODE,
   // Helper functions for testing
   normalizeIpString,
-  ipv6MappedToIpv4,
-  // Export constants for testing
-  BLOCKED_IPV4_PATTERNS,
-  BLOCKED_IPV6_PATTERNS,
   BLOCKED_HOSTNAMES,
   ALLOWED_PROTOCOLS,
 };

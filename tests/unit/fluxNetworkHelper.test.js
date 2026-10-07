@@ -3344,7 +3344,7 @@ describe('fluxNetworkHelper tests', () => {
       const rules = fluxNetworkHelper.containerEgressRules();
 
       expect(rules.filter((rule) => / -s /.test(rule))).to.deep.equal([]);
-      ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '169.254.0.0/16'].forEach((network) => {
+      ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '169.254.0.0/16', '198.18.0.0/15', '240.0.0.0/4'].forEach((network) => {
         expect(rules).to.include(`-A DOCKER-USER -d ${network} -i docker0 -j DROP`);
         expect(rules).to.include(`-A DOCKER-USER -d ${network} -i br-+ -j DROP`);
       });

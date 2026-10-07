@@ -14,7 +14,6 @@ const {
   isBlockedIP,
   isBlockedHostname,
   normalizeIpString,
-  ipv6MappedToIpv4,
   isBlockedAddressLiteral,
   guardedLookup,
   guardedRequestOptions,
@@ -169,6 +168,14 @@ describe('urlSecurity', () => {
       expect(isBlockedIP('198.20.0.0')).to.be.false;
     });
 
+    it('should return true for the whole multicast (224.0.0.0/4) and reserved (240.0.0.0/4) ranges', () => {
+      expect(isBlockedIP('224.0.0.1')).to.be.true;
+      expect(isBlockedIP('239.255.255.250')).to.be.true;
+      expect(isBlockedIP('241.0.0.1')).to.be.true;
+      expect(isBlockedIP('254.1.2.3')).to.be.true;
+      expect(isBlockedIP('223.255.255.255')).to.be.false;
+    });
+
     it('should return false for the harness fleet\'s addresses, which stand in for public ones', () => {
       expect(isBlockedIP('31.200.0.10')).to.be.false;
       expect(isBlockedIP('31.200.15.255')).to.be.false;
@@ -264,42 +271,6 @@ describe('urlSecurity', () => {
       expect(normalizeIpString(null)).to.equal(null);
       expect(normalizeIpString(undefined)).to.equal(undefined);
       expect(normalizeIpString('')).to.equal('');
-    });
-  });
-
-  describe('ipv6MappedToIpv4', () => {
-    it('should extract IPv4 from dotted-decimal mapped addresses', () => {
-      expect(ipv6MappedToIpv4('::ffff:127.0.0.1')).to.equal('127.0.0.1');
-      expect(ipv6MappedToIpv4('::ffff:10.0.0.1')).to.equal('10.0.0.1');
-      expect(ipv6MappedToIpv4('::ffff:192.168.1.1')).to.equal('192.168.1.1');
-      expect(ipv6MappedToIpv4('::ffff:169.254.169.254')).to.equal('169.254.169.254');
-    });
-
-    it('should extract IPv4 from hex-encoded mapped addresses', () => {
-      // ::ffff:7f00:1 = 127.0.0.1
-      expect(ipv6MappedToIpv4('::ffff:7f00:1')).to.equal('127.0.0.1');
-      // ::ffff:0a00:1 = 10.0.0.1
-      expect(ipv6MappedToIpv4('::ffff:a00:1')).to.equal('10.0.0.1');
-      // ::ffff:c0a8:101 = 192.168.1.1
-      expect(ipv6MappedToIpv4('::ffff:c0a8:101')).to.equal('192.168.1.1');
-    });
-
-    it('should be case-insensitive', () => {
-      expect(ipv6MappedToIpv4('::FFFF:127.0.0.1')).to.equal('127.0.0.1');
-      expect(ipv6MappedToIpv4('::FFFF:7F00:1')).to.equal('127.0.0.1');
-    });
-
-    it('should return null for non-mapped addresses', () => {
-      expect(ipv6MappedToIpv4('::1')).to.be.null;
-      expect(ipv6MappedToIpv4('fe80::1')).to.be.null;
-      expect(ipv6MappedToIpv4('127.0.0.1')).to.be.null;
-      expect(ipv6MappedToIpv4('fc00::1')).to.be.null;
-    });
-
-    it('should return null for null/undefined', () => {
-      expect(ipv6MappedToIpv4(null)).to.be.null;
-      expect(ipv6MappedToIpv4(undefined)).to.be.null;
-      expect(ipv6MappedToIpv4('')).to.be.null;
     });
   });
 
