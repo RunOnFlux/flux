@@ -501,7 +501,7 @@ async function startFluxFunctions() {
     await daemonServiceMiscRpcs.waitForDaemonRpc();
     // The API listens and the daemon answers: what a unit ordered after this
     // one may rely on.
-    systemdNotify.notifyReady();
+    await systemdNotify.notifyReady();
     // awaited so isDaemonSynced cache is populated before hash sync reads it
     await daemonServiceMiscRpcs.daemonBlockchainInfoService();
     globalState.daemonReady = true;
