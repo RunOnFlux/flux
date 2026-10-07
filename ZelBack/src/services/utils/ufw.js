@@ -38,6 +38,17 @@ async function ufwEnabled() {
 }
 
 /**
+ * Whether ufw filters IPv6, read from ufw's defaults as ufw reads them. When it
+ * does not, ufw leaves IPv6 traffic alone and refuses IPv6 rules. Reading the
+ * file takes no lock.
+ * @returns {Promise<boolean>}
+ */
+async function ipv6Filtered() {
+  const defaults = await fs.readFile('/etc/default/ufw', 'utf8').catch(() => '');
+  return /^IPV6="?yes"?\s*$/mi.test(defaults);
+}
+
+/**
  * Whether the firewall is active, as `ufw status` reports it. While another ufw
  * command holds ufw's lock past the wait, the answer is whether ufw is enabled.
  * @returns {Promise<boolean>}
@@ -51,6 +62,7 @@ async function isFirewallActive() {
 
 module.exports = {
   UFW_LOCK_WAIT_MS,
+  ipv6Filtered,
   isFirewallActive,
   runUfw,
   ufwEnabled,

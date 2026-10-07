@@ -270,9 +270,9 @@ async function restoreFluxPortsSupport() {
 }
 
 /**
- * Restores applications' UPnP mappings. App ports need no host firewall rule:
- * Docker forwards a published port to its container ahead of ufw's inbound
- * rules.
+ * Restores applications' UPnP mappings. An app port's host firewall rule needs
+ * no restoring: it admits IPv6 only, and ufw keeps it across restarts
+ * (fluxNetworkHelper.allowAppPortIpv6).
  * @returns {Promise<void>}
  */
 async function restoreAppsPortsSupport() {

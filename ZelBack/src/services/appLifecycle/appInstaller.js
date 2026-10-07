@@ -108,6 +108,17 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
     if (res.flush) res.flush();
   }
 
+  if (!test) {
+    const appPorts = appSpecifications.ports ?? (appSpecifications.port ? [appSpecifications.port] : []);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const port of appPorts) {
+      // eslint-disable-next-line no-await-in-loop
+      const opened = await fluxNetworkHelper.allowAppPortIpv6(serviceHelper.ensureNumber(port));
+      // IPv4 clients reach the port either way, so the install goes on.
+      if (!opened.status) log.warn(`Port ${port} of ${appName} not opened to IPv6: ${opened.message}`);
+    }
+  }
+
   if (!test && appSpecifications.ports) {
     const isUPNP = upnpService.isUPNP();
     if (isUPNP) {

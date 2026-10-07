@@ -159,7 +159,7 @@ describe('appInstaller tests', () => {
       },
       '../fluxNetworkHelper': {
         getNumberOfPeers: sinon.stub().returns(15),
-        isFirewallActive: sinon.stub().resolves(false),
+        allowAppPortIpv6: sinon.stub().resolves({ status: true, message: null }),
         allowPort: sinon.stub().resolves({ status: true }),
       },
       '../geolocationService': {
@@ -791,7 +791,7 @@ describe('appInstaller tests', () => {
         },
         '../fluxNetworkHelper': {
           getNumberOfPeers: sinon.stub().returns(15),
-          isFirewallActive: sinon.stub().resolves(false),
+          allowAppPortIpv6: sinon.stub().resolves({ status: true, message: null }),
           allowPort: sinon.stub().resolves({ status: true }),
         },
         '../geolocationService': {
@@ -1006,7 +1006,7 @@ describe('appInstaller tests', () => {
         },
         '../fluxNetworkHelper': {
           getNumberOfPeers: sinon.stub().returns(15),
-          isFirewallActive: sinon.stub().resolves(false),
+          allowAppPortIpv6: sinon.stub().resolves({ status: true, message: null }),
           allowPort: sinon.stub().resolves({ status: true }),
         },
         '../geolocationService': {
@@ -1204,7 +1204,7 @@ describe('appInstaller tests', () => {
         },
         '../fluxNetworkHelper': {
           getNumberOfPeers: sinon.stub().returns(15),
-          isFirewallActive: sinon.stub().resolves(false),
+          allowAppPortIpv6: sinon.stub().resolves({ status: true, message: null }),
           allowPort: sinon.stub().resolves({ status: true }),
           getLocalSocketAddress: sinon.stub().resolves('1.2.3.4:16127'),
         },
@@ -1427,7 +1427,7 @@ describe('appInstaller tests', () => {
         },
         '../fluxNetworkHelper': {
           getNumberOfPeers: sinon.stub().returns(15),
-          isFirewallActive: sinon.stub().resolves(false),
+          allowAppPortIpv6: sinon.stub().resolves({ status: true, message: null }),
           allowPort: sinon.stub().resolves({ status: true }),
           getLocalSocketAddress: sinon.stub().resolves('1.2.3.4:16127'),
         },
@@ -1530,7 +1530,7 @@ describe('appInstaller tests', () => {
         '../fluxNetworkHelper': {
           getLocalSocketAddress: sinon.stub().resolves('192.168.1.1:16127'),
           getNumberOfPeers: sinon.stub().returns(15),
-          isFirewallActive: sinon.stub().resolves(false),
+          allowAppPortIpv6: sinon.stub().resolves({ status: true, message: null }),
           allowPort: sinon.stub().resolves({ status: true }),
         },
         '../geolocationService': { isStaticIP: sinon.stub().returns(true) },
@@ -1585,14 +1585,20 @@ describe('appInstaller tests', () => {
     let appInstallerPorts;
     let firewallStub;
     let upnpStub;
+    let logStub;
 
     beforeEach(() => {
-      firewallStub = { isFirewallActive: sinon.stub().resolves(true), allowPort: sinon.stub().resolves({ status: true }) };
+      firewallStub = {
+        isFirewallActive: sinon.stub().resolves(true),
+        allowPort: sinon.stub().resolves({ status: true }),
+        allowAppPortIpv6: sinon.stub().resolves({ status: true, message: null }),
+      };
       upnpStub = { isUPNP: sinon.stub().returns(true), mapUpnpPort: sinon.stub().resolves(true) };
+      logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
       appInstallerPorts = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
         '../fluxNetworkHelper': firewallStub,
         '../upnpService': upnpStub,
-        '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
+        '../../lib/log': logStub,
       });
     });
 
@@ -1600,19 +1606,36 @@ describe('appInstaller tests', () => {
       sinon.restore();
     });
 
-    it('maps app ports on the router and writes no host firewall rule for them', async () => {
+    it('maps app ports on the router and opens them in the host firewall to IPv6 only', async () => {
       await appInstallerPorts.setupApplicationPorts({ ports: [31000, 31001] }, 'myapp', false, null);
 
       expect(firewallStub.allowPort.called).to.be.false;
+      expect(firewallStub.allowAppPortIpv6.args).to.deep.equal([[31000], [31001]]);
       expect(upnpStub.mapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
       expect(upnpStub.mapUpnpPort.calledWith(31001, 'Flux_App_myapp')).to.be.true;
     });
 
-    it('maps a v1 app port and writes no host firewall rule for it', async () => {
+    it('maps a v1 app port and opens it in the host firewall to IPv6 only', async () => {
       await appInstallerPorts.setupApplicationPorts({ port: 31000 }, 'myapp', false, null);
 
       expect(firewallStub.allowPort.called).to.be.false;
+      expect(firewallStub.allowAppPortIpv6.args).to.deep.equal([[31000]]);
       expect(upnpStub.mapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
+    });
+
+    it('installs on with a warning when a port cannot be opened to IPv6', async () => {
+      firewallStub.allowAppPortIpv6.resolves({ status: false, message: 'ufw is locked by another ufw command' });
+
+      await appInstallerPorts.setupApplicationPorts({ ports: [31000] }, 'myapp', false, null);
+
+      sinon.assert.calledWithMatch(logStub.warn, 'Port 31000 of myapp not opened to IPv6');
+      expect(upnpStub.mapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
+    });
+
+    it('opens nothing for a test install', async () => {
+      await appInstallerPorts.setupApplicationPorts({ ports: [31000] }, 'myapp', false, null, true);
+
+      sinon.assert.notCalled(firewallStub.allowAppPortIpv6);
     });
   });
 

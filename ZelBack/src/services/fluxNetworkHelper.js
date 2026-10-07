@@ -2199,6 +2199,42 @@ async function deleteDenyPortRule(port) {
   return cmdStat;
 }
 
+// The ufw rule that admits IPv6 clients to an app port, and no IPv4 client.
+const appPortIpv6Rule = (port) => ['from', '::/0', 'to', 'any', 'port', String(port)];
+
+/**
+ * Opens an app's published port to IPv6 clients. Docker forwards an IPv4
+ * connection to a published port ahead of ufw's inbound rules, but answers an
+ * IPv6 one through docker-proxy on the host, behind them. ufw keeps the rule
+ * across restarts, so it is written when the app is installed and deleted when
+ * it is removed. Nothing is written while ufw is disabled or leaves IPv6 alone.
+ * @param {number|string} port Port.
+ * @returns {Promise<{status: boolean, message: (string|null)}>}
+ */
+async function allowAppPortIpv6(port) {
+  if (Number.isNaN(+port)) return { status: false, message: 'Port needs to be a number' };
+  if (!await ufw.ufwEnabled() || !await ufw.ipv6Filtered()) return { status: true, message: null };
+  const ran = await ufw.runUfw(['allow', ...appPortIpv6Rule(port)]);
+  if (ran.locked) return { status: false, message: 'ufw is locked by another ufw command' };
+  const cmdres = ran.stdout + ran.stderr;
+  return { status: /added|updated|existing/.test(cmdres), message: cmdres };
+}
+
+/**
+ * Deletes the rule allowAppPortIpv6 writes for a port. A rule already gone
+ * counts as deleted.
+ * @param {number|string} port Port.
+ * @returns {Promise<{status: boolean, message: (string|null)}>}
+ */
+async function deleteAppPortIpv6Rule(port) {
+  if (Number.isNaN(+port)) return { status: false, message: 'Port needs to be a number' };
+  if (!await ufw.ipv6Filtered()) return { status: true, message: null };
+  const ran = await ufw.runUfw(['delete', 'allow', ...appPortIpv6Rule(port)]);
+  if (ran.locked) return { status: false, message: 'ufw is locked by another ufw command' };
+  const cmdres = ran.stdout + ran.stderr;
+  return { status: cmdres.includes('delete'), message: cmdres };
+}
+
 /**
  * To allow a port via API. Only accessible by admins and Flux team members.
  * @param {object} req Request.
@@ -2650,6 +2686,8 @@ module.exports = {
   hasPublicIpOnInterface,
   denyPort,
   deleteAllowPortRule,
+  allowAppPortIpv6,
+  deleteAppPortIpv6Rule,
   allowPortApi,
   adjustFirewall,
   ensureUfwDefaults,

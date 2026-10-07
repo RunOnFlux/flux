@@ -622,6 +622,13 @@ async function cleanupPorts(appSpecifications, appName, res, entityName) {
     if (res.flush) res.flush();
   }
 
+  const appPorts = appSpecifications.ports ?? (appSpecifications.port ? [appSpecifications.port] : []);
+  // eslint-disable-next-line no-restricted-syntax
+  for (const port of appPorts) {
+    // eslint-disable-next-line no-await-in-loop
+    await fluxNetworkHelper.deleteAppPortIpv6Rule(serviceHelper.ensureNumber(port));
+  }
+
   if (appSpecifications.ports) {
     const isUPNP = upnpService.isUPNP();
     if (isUPNP) {
