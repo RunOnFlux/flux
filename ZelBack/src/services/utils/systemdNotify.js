@@ -8,23 +8,21 @@
  * a Type=exec unit) and nothing is sent.
  */
 
-const childProcess = require('node:child_process');
-
 const log = require('../../lib/log');
+const serviceHelper = require('../serviceHelper');
 
 /**
  * Tell systemd this service is ready, when systemd is listening.
- * @returns {boolean} True when a notification was sent.
+ * @returns {Promise<boolean>} True when a notification was sent.
  */
-function notifyReady() {
+async function notifyReady() {
   if (!process.env.NOTIFY_SOCKET) return false;
-  childProcess.execFile('systemd-notify', ['--ready'], (error) => {
-    if (error) {
-      log.warn(`systemd-notify --ready failed: ${error.message}`);
-      return;
-    }
+  const { error } = await serviceHelper.runCommand('systemd-notify', { params: ['--ready'] });
+  if (error) {
+    log.warn(`systemd-notify --ready failed: ${error.message}`);
+  } else {
     log.info('Readiness reported to systemd');
-  });
+  }
   return true;
 }
 
