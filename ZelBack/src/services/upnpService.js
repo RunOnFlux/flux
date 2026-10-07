@@ -143,13 +143,12 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
 }
 
 /**
- * Maps the maintenance sshd's port (apiport - 5) while its unit is enabled -
+ * Maps the maintenance sshd's port (apiport - 5) while its socket is enabled -
  * the fluxadm reconcile enables it only once it has installed access - and
  * otherwise removes a mapping of that port only when this code made it, so a
- * node owner's own mapping of the same port keeps. Enabled, not running: the
- * unit restarts whenever a key is revoked. ArcaneOS maps its own and is never
- * touched. A failure here is logged and never fails the core mapping it runs
- * beside.
+ * node owner's own mapping of the same port keeps. ArcaneOS maps its own and
+ * is never touched. A failure here is logged and never fails the core mapping
+ * it runs beside.
  * @param {number|string} apiport
  * @returns {Promise<void>}
  */
@@ -159,7 +158,7 @@ async function reconcileFluxadmMapping(apiport) {
   try {
     const { stdout: unitState } = await serviceHelper.runCommand('systemctl', {
       logError: false,
-      params: ['is-enabled', fluxadmPort.sshdUnit],
+      params: ['is-enabled', fluxadmPort.sshdSocket],
     });
     if (serviceHelper.ensureString(unitState).trim() === 'enabled') {
       await client.createMapping({

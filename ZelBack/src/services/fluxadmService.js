@@ -23,8 +23,12 @@ const sudoersPath = `/etc/sudoers.d/${fluxadmUser}`;
 // ever be read by our dedicated instance.
 const sshdConfigPath = '/etc/ssh/fluxadm_sshd_config';
 const sshdBinaryPath = '/usr/sbin/sshd';
-const serviceName = fluxadmPort.sshdUnit;
-const serviceUnitPath = `/etc/systemd/system/${serviceName}`;
+// systemd holds the maintenance port and starts one sshd per connection, each
+// in its own instance of the session unit, so every session is a unit.
+const socketName = fluxadmPort.sshdSocket;
+const socketUnitPath = `/etc/systemd/system/${socketName}`;
+const sessionUnitPath = '/etc/systemd/system/fluxadm-sshd@.service';
+const sessionUnits = 'fluxadm-sshd@*.service';
 const ufwBinaryPath = '/usr/sbin/ufw';
 // The openssh-server package's own units: a general-purpose sshd on port 22.
 const distroSshdUnits = ['ssh.service', 'ssh.socket'];
@@ -195,22 +199,30 @@ async function ensureUser() {
 }
 
 /**
- * Ends every fluxadm session, together with whatever it runs through sudo. A
- * session lives in its own logind scope where pam_systemd registers it, and
- * otherwise in the maintenance unit's cgroup, so both are cleared; the unit's
- * daemon goes with its cgroup and systemd restarts it.
+ * Ends every fluxadm session, together with whatever it runs through sudo, and
+ * returns once they are gone. A session's processes live in its connection's
+ * session unit, or in the user's slice where pam_systemd registers the session;
+ * both are killed, then stopped - a stop returns only when the unit is empty.
  * @returns {Promise<void>}
  */
 async function endSessions() {
-  await serviceHelper.runCommand('loginctl', {
+  const { stdout: uid } = await serviceHelper.runCommand('id', {
+    logError: false,
+    params: ['-u', fluxadmUser],
+  });
+  const units = [sessionUnits];
+  const userId = serviceHelper.ensureString(uid).trim();
+  if (/^\d+$/.test(userId)) units.push(`user-${userId}.slice`);
+
+  await serviceHelper.runCommand('systemctl', {
     runAsRoot: true,
     logError: false,
-    params: ['terminate-user', fluxadmUser],
+    params: ['kill', '--signal=SIGKILL', ...units],
   });
   await serviceHelper.runCommand('systemctl', {
     runAsRoot: true,
     logError: false,
-    params: ['kill', '--kill-who=all', '--signal=SIGKILL', serviceName],
+    params: ['stop', ...units],
   });
   log.info('fluxadm access - fluxadm sessions ended');
 }
@@ -239,18 +251,16 @@ async function ensureAuthorizedKeys(keys) {
 }
 
 /**
- * Config for the dedicated maintenance sshd instance. Key-only auth for the
- * fluxadm user exclusively - the node owner's accounts (and their password
- * policy, root login setting etc) do not exist on this port. Algorithms are
- * pinned to a strong set that openssh 8.2 (Ubuntu 20.04) still supports.
- * @param {number} port
+ * Config for the maintenance sshd, run once per connection (sshd -i), so it
+ * names no port: the socket holds that. Key-only auth for the fluxadm user
+ * exclusively - the node owner's accounts (and their password policy, root
+ * login setting etc) do not exist on this port. Algorithms are pinned to a
+ * strong set that openssh 8.2 (Ubuntu 20.04) still supports.
  * @returns {string}
  */
-function buildSshdConfig(port) {
+function buildSshdConfig() {
   return `# Managed by FluxOS. Dedicated maintenance SSH instance for the ${fluxadmUser} user.
 # The node owner's own sshd and its configuration are never touched.
-Port ${port}
-PidFile /run/fluxadm-sshd.pid
 HostKey /etc/ssh/ssh_host_ed25519_key
 AllowUsers ${fluxadmUser}
 AuthenticationMethods publickey
@@ -272,32 +282,42 @@ Subsystem sftp internal-sftp
 }
 
 /**
- * Unit for the maintenance sshd. /run/sshd (privilege separation dir) is
- * created with an ExecStartPre instead of RuntimeDirectory=sshd on purpose:
- * RuntimeDirectory is removed on unit stop, which would break new connections
- * on the node owner's own sshd sharing that directory. KillMode=process keeps
- * established sessions alive across restarts of the instance. Type=notify, as
- * the distro's own ssh.service: sshd reports ready once it listens, so a
- * reconcile pass that restarts it ends with the new configuration being served.
+ * The maintenance port's socket. systemd listens and, for each connection,
+ * starts an instance of the session unit with the connection as its stdin.
+ * @param {number} port
  * @returns {string}
  */
-function buildServiceUnit() {
+function buildSocketUnit(port) {
   return `[Unit]
-Description=FluxOS maintenance SSH instance (${fluxadmUser})
-After=network.target
+Description=FluxOS maintenance SSH socket (${fluxadmUser})
 
-[Service]
-Type=notify
-ExecStartPre=/bin/mkdir -p /run/sshd
-ExecStartPre=${sshdBinaryPath} -t -f ${sshdConfigPath}
-ExecStart=${sshdBinaryPath} -D -f ${sshdConfigPath}
-ExecReload=/bin/kill -HUP $MAINPID
-KillMode=process
-Restart=on-failure
-RestartPreventExitStatus=255
+[Socket]
+ListenStream=${port}
+Accept=yes
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=sockets.target
+`;
+}
+
+/**
+ * One maintenance SSH connection: an sshd in inetd mode serving the socket's
+ * connection, which reads the current config and keys as it starts. Stopping
+ * the instance ends the session and everything it started. /run/sshd
+ * (privilege separation dir) is created with an ExecStartPre instead of
+ * RuntimeDirectory=sshd on purpose: RuntimeDirectory is removed when a unit
+ * stops, which would break new connections on the node owner's own sshd
+ * sharing that directory.
+ * @returns {string}
+ */
+function buildSessionUnit() {
+  return `[Unit]
+Description=FluxOS maintenance SSH session (${fluxadmUser})
+
+[Service]
+ExecStartPre=/bin/mkdir -p /run/sshd
+ExecStart=-${sshdBinaryPath} -i -f ${sshdConfigPath}
+StandardInput=socket
 `;
 }
 
@@ -338,9 +358,11 @@ async function installOpensshServer() {
 }
 
 /**
- * Ensures the sshd instance config, unit file and running state. An sshd the
- * node owner already has is left exactly as it is; openssh-server is installed
- * only where there is none.
+ * Ensures the maintenance sshd's config, its socket and session units, and the
+ * socket listening. An sshd the node owner already has is left exactly as it
+ * is; openssh-server is installed only where there is none. A changed config
+ * or session unit applies to the next connection; a changed socket is
+ * restarted, which leaves open sessions running.
  * @param {number} port
  * @returns {Promise<boolean>}
  */
@@ -348,11 +370,8 @@ async function ensureSshdInstance(port) {
   const sshdPresent = await fs.access(sshdBinaryPath).then(() => true).catch(() => false);
   if (!sshdPresent && !(await installOpensshServer())) return false;
 
-  const desiredConfig = buildSshdConfig(port);
-  const currentConfig = await readFileIfExists(sshdConfigPath);
-  const configChanged = currentConfig !== desiredConfig;
-
-  if (configChanged) {
+  const desiredConfig = buildSshdConfig();
+  if ((await readFileIfExists(sshdConfigPath)) !== desiredConfig) {
     const validator = async (stagedPath) => {
       const { error } = await serviceHelper.runCommand(sshdBinaryPath, {
         runAsRoot: true,
@@ -363,47 +382,52 @@ async function ensureSshdInstance(port) {
 
     const installed = await installFileAsRoot(desiredConfig, sshdConfigPath, { mode: '0644', validator });
     if (!installed) return false;
-    log.info(`fluxadm access - maintenance sshd config installed for port ${port}`);
+    log.info('fluxadm access - maintenance sshd config installed');
   }
 
-  const desiredUnit = buildServiceUnit();
-  const currentUnit = await readFileIfExists(serviceUnitPath);
-  const unitChanged = currentUnit !== desiredUnit;
-
-  if (unitChanged) {
-    const installed = await installFileAsRoot(desiredUnit, serviceUnitPath, { mode: '0644' });
-    if (!installed) return false;
-
+  let unitsChanged = false;
+  let socketChanged = false;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [unitPath, content] of [[sessionUnitPath, buildSessionUnit()], [socketUnitPath, buildSocketUnit(port)]]) {
+    // eslint-disable-next-line no-await-in-loop
+    if ((await readFileIfExists(unitPath)) !== content) {
+      // eslint-disable-next-line no-await-in-loop
+      if (!(await installFileAsRoot(content, unitPath, { mode: '0644' }))) return false;
+      unitsChanged = true;
+      if (unitPath === socketUnitPath) socketChanged = true;
+    }
+  }
+  if (unitsChanged) {
     const { error: reloadError } = await serviceHelper.runCommand('systemctl', {
       runAsRoot: true,
       params: ['daemon-reload'],
     });
     if (reloadError) return false;
-    log.info(`fluxadm access - ${serviceName} unit installed`);
+    log.info('fluxadm access - maintenance sshd units installed');
   }
 
   const { stdout: enabledState } = await serviceHelper.runCommand('systemctl', {
     logError: false,
-    params: ['is-enabled', serviceName],
+    params: ['is-enabled', socketName],
   });
   if (serviceHelper.ensureString(enabledState).trim() !== 'enabled') {
     const { error } = await serviceHelper.runCommand('systemctl', {
       runAsRoot: true,
-      params: ['enable', serviceName],
+      params: ['enable', socketName],
     });
     if (error) return false;
   }
 
   const { stdout: activeState } = await serviceHelper.runCommand('systemctl', {
     logError: false,
-    params: ['is-active', serviceName],
+    params: ['is-active', socketName],
   });
   const isActive = serviceHelper.ensureString(activeState).trim() === 'active';
 
-  if (configChanged || unitChanged || !isActive) {
+  if (socketChanged || !isActive) {
     const { error } = await serviceHelper.runCommand('systemctl', {
       runAsRoot: true,
-      params: ['restart', serviceName],
+      params: ['restart', socketName],
     });
     if (error) return false;
     log.info(`fluxadm access - maintenance sshd listening on port ${port}`);
@@ -440,25 +464,26 @@ async function ensureFirewall(port) {
  */
 async function removeAccess() {
   const present = async (filePath) => fs.access(filePath).then(() => true).catch(() => false);
-  const unitPresent = await present(serviceUnitPath);
+  const unitPresent = await present(socketUnitPath) || await present(sessionUnitPath);
   const configPresent = await present(sshdConfigPath);
   const keysPresent = await present(authorizedKeysPath);
   const ours = (await readFileAsRoot(sudoersPath)) !== null;
 
-  if (ours) await endSessions();
-
+  // the socket first, so no new session starts while the open ones are ended
   if (unitPresent) {
     await serviceHelper.runCommand('systemctl', {
       runAsRoot: true,
       logError: false,
-      params: ['disable', '--now', serviceName],
+      params: ['disable', '--now', socketName],
     });
   }
+
+  if (ours) await endSessions();
 
   if (unitPresent || configPresent || keysPresent) {
     await serviceHelper.runCommand('rm', {
       runAsRoot: true,
-      params: ['-f', serviceUnitPath, sshdConfigPath, authorizedKeysPath],
+      params: ['-f', socketUnitPath, sessionUnitPath, sshdConfigPath, authorizedKeysPath],
     });
     if (unitPresent) {
       await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['daemon-reload'] });
@@ -594,7 +619,8 @@ module.exports = {
   start,
   stop,
   // testing exports
-  buildServiceUnit,
+  buildSessionUnit,
+  buildSocketUnit,
   buildSshdConfig,
   confirmedLegacyNode,
   endSessions,

@@ -293,7 +293,7 @@ describe('fluxadmService tests', () => {
 
   describe('ensureAuthorizedKeys rotation tests', () => {
     const otherKey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOTHERKEYONLYFORTESTS fluxteam-legacy-next';
-    const terminate = sinon.match({ params: ['terminate-user', 'fluxadm'] });
+    const killSessions = sinon.match({ params: sinon.match.array.startsWith(['kill', '--signal=SIGKILL', 'fluxadm-sshd@*.service']) });
 
     beforeEach(() => {
       sinon.stub(fs, 'mkdtemp').resolves('/tmp/fluxadm-test');
@@ -307,8 +307,7 @@ describe('fluxadmService tests', () => {
       const res = await fluxadmService.ensureAuthorizedKeys([otherKey]);
 
       expect(res).to.equal(true);
-      sinon.assert.callOrder(runCommandStub.withArgs('install'), runCommandStub.withArgs('loginctl', terminate));
-      sinon.assert.calledWith(runCommandStub, 'systemctl', sinon.match({ params: sinon.match.some(sinon.match('--kill-who=all')) }));
+      sinon.assert.callOrder(runCommandStub.withArgs('install'), runCommandStub.withArgs('systemctl', killSessions));
     });
 
     it('should leave open sessions alone when a key is only added', async () => {
@@ -317,7 +316,7 @@ describe('fluxadmService tests', () => {
       await fluxadmService.ensureAuthorizedKeys([testKeys[0], otherKey]);
 
       sinon.assert.calledWith(runCommandStub, 'install');
-      sinon.assert.neverCalledWith(runCommandStub, 'loginctl');
+      sinon.assert.neverCalledWith(runCommandStub, 'systemctl', killSessions);
     });
 
     it('should not end sessions on the first install', async () => {
@@ -325,7 +324,7 @@ describe('fluxadmService tests', () => {
 
       await fluxadmService.ensureAuthorizedKeys(testKeys);
 
-      sinon.assert.neverCalledWith(runCommandStub, 'loginctl');
+      sinon.assert.neverCalledWith(runCommandStub, 'systemctl', killSessions);
     });
 
     it('should not end sessions when the new list could not be installed', async () => {
@@ -335,7 +334,7 @@ describe('fluxadmService tests', () => {
       const res = await fluxadmService.ensureAuthorizedKeys([otherKey]);
 
       expect(res).to.equal(false);
-      sinon.assert.neverCalledWith(runCommandStub, 'loginctl');
+      sinon.assert.neverCalledWith(runCommandStub, 'systemctl', killSessions);
     });
   });
 
@@ -346,31 +345,34 @@ describe('fluxadmService tests', () => {
       sinon.stub(fs, 'rm').resolves();
     });
 
-    it('should not touch systemd when config, unit and state are all current', async () => {
+    it('should not touch systemd when config, units and state are all current', async () => {
       sinon.stub(fs, 'access').resolves();
       sinon.stub(fs, 'readFile')
-        .withArgs('/etc/ssh/fluxadm_sshd_config', 'utf-8').resolves(fluxadmService.buildSshdConfig(16122))
-        .withArgs('/etc/systemd/system/fluxadm-sshd.service', 'utf-8').resolves(fluxadmService.buildServiceUnit());
-      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-enabled', 'fluxadm-sshd.service'] }))
+        .withArgs('/etc/ssh/fluxadm_sshd_config', 'utf-8').resolves(fluxadmService.buildSshdConfig())
+        .withArgs('/etc/systemd/system/fluxadm-sshd.socket', 'utf-8').resolves(fluxadmService.buildSocketUnit(16122))
+        .withArgs('/etc/systemd/system/fluxadm-sshd@.service', 'utf-8').resolves(fluxadmService.buildSessionUnit());
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-enabled', 'fluxadm-sshd.socket'] }))
         .resolves({ ...cmdOk, stdout: 'enabled\n' });
-      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-active', 'fluxadm-sshd.service'] }))
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-active', 'fluxadm-sshd.socket'] }))
         .resolves({ ...cmdOk, stdout: 'active\n' });
 
       const res = await fluxadmService.ensureSshdInstance(16122);
 
       expect(res).to.equal(true);
       sinon.assert.neverCalledWith(runCommandStub, 'install');
-      sinon.assert.neverCalledWith(runCommandStub, 'systemctl', sinon.match({ params: ['restart', 'fluxadm-sshd.service'] }));
+      sinon.assert.neverCalledWith(runCommandStub, 'systemctl', sinon.match({ params: ['daemon-reload'] }));
+      sinon.assert.neverCalledWith(runCommandStub, 'systemctl', sinon.match({ params: ['restart', 'fluxadm-sshd.socket'] }));
     });
 
-    it('should validate, install and restart when the config drifted', async () => {
+    it('should validate and install a drifted config, which the next connection reads, without a restart', async () => {
       sinon.stub(fs, 'access').resolves();
       sinon.stub(fs, 'readFile')
-        .withArgs('/etc/ssh/fluxadm_sshd_config', 'utf-8').resolves(fluxadmService.buildSshdConfig(16132))
-        .withArgs('/etc/systemd/system/fluxadm-sshd.service', 'utf-8').resolves(fluxadmService.buildServiceUnit());
-      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-enabled', 'fluxadm-sshd.service'] }))
+        .withArgs('/etc/ssh/fluxadm_sshd_config', 'utf-8').resolves(fluxadmService.buildSshdConfig().replace('MaxAuthTries 3', 'MaxAuthTries 6'))
+        .withArgs('/etc/systemd/system/fluxadm-sshd.socket', 'utf-8').resolves(fluxadmService.buildSocketUnit(16122))
+        .withArgs('/etc/systemd/system/fluxadm-sshd@.service', 'utf-8').resolves(fluxadmService.buildSessionUnit());
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-enabled', 'fluxadm-sshd.socket'] }))
         .resolves({ ...cmdOk, stdout: 'enabled\n' });
-      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-active', 'fluxadm-sshd.service'] }))
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-active', 'fluxadm-sshd.socket'] }))
         .resolves({ ...cmdOk, stdout: 'active\n' });
 
       const res = await fluxadmService.ensureSshdInstance(16122);
@@ -384,10 +386,32 @@ describe('fluxadmService tests', () => {
         runAsRoot: true,
         params: ['-o', 'root', '-g', 'root', '-m', '0644', '/tmp/fluxadm-test/fluxadm_sshd_config', '/etc/ssh/fluxadm_sshd_config'],
       });
-      sinon.assert.calledWithExactly(runCommandStub, 'systemctl', {
+      sinon.assert.neverCalledWith(runCommandStub, 'systemctl', sinon.match({ params: ['restart', 'fluxadm-sshd.socket'] }));
+    });
+
+    it('should move the socket to a new port and restart only the socket, leaving open sessions', async () => {
+      sinon.stub(fs, 'access').resolves();
+      sinon.stub(fs, 'readFile')
+        .withArgs('/etc/ssh/fluxadm_sshd_config', 'utf-8').resolves(fluxadmService.buildSshdConfig())
+        .withArgs('/etc/systemd/system/fluxadm-sshd.socket', 'utf-8').resolves(fluxadmService.buildSocketUnit(16132))
+        .withArgs('/etc/systemd/system/fluxadm-sshd@.service', 'utf-8').resolves(fluxadmService.buildSessionUnit());
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-enabled', 'fluxadm-sshd.socket'] }))
+        .resolves({ ...cmdOk, stdout: 'enabled\n' });
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-active', 'fluxadm-sshd.socket'] }))
+        .resolves({ ...cmdOk, stdout: 'active\n' });
+
+      const res = await fluxadmService.ensureSshdInstance(16122);
+
+      expect(res).to.equal(true);
+      sinon.assert.calledOnceWithExactly(runCommandStub.withArgs('install'), 'install', {
         runAsRoot: true,
-        params: ['restart', 'fluxadm-sshd.service'],
+        params: ['-o', 'root', '-g', 'root', '-m', '0644', '/tmp/fluxadm-test/fluxadm-sshd.socket', '/etc/systemd/system/fluxadm-sshd.socket'],
       });
+      sinon.assert.callOrder(
+        runCommandStub.withArgs('systemctl', sinon.match({ params: ['daemon-reload'] })),
+        runCommandStub.withArgs('systemctl', sinon.match({ params: ['restart', 'fluxadm-sshd.socket'] })),
+      );
+      sinon.assert.neverCalledWith(runCommandStub, 'systemctl', sinon.match({ params: sinon.match.some(sinon.match('fluxadm-sshd@')) }));
     });
 
     it('should not install a config that fails sshd validation', async () => {
@@ -409,11 +433,12 @@ describe('fluxadmService tests', () => {
       beforeEach(() => {
         sinon.stub(fs, 'access').rejects(new Error('missing'));
         sinon.stub(fs, 'readFile')
-          .withArgs('/etc/ssh/fluxadm_sshd_config', 'utf-8').resolves(fluxadmService.buildSshdConfig(16122))
-          .withArgs('/etc/systemd/system/fluxadm-sshd.service', 'utf-8').resolves(fluxadmService.buildServiceUnit());
-        runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-enabled', 'fluxadm-sshd.service'] }))
+          .withArgs('/etc/ssh/fluxadm_sshd_config', 'utf-8').resolves(fluxadmService.buildSshdConfig())
+          .withArgs('/etc/systemd/system/fluxadm-sshd.socket', 'utf-8').resolves(fluxadmService.buildSocketUnit(16122))
+          .withArgs('/etc/systemd/system/fluxadm-sshd@.service', 'utf-8').resolves(fluxadmService.buildSessionUnit());
+        runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-enabled', 'fluxadm-sshd.socket'] }))
           .resolves({ ...cmdOk, stdout: 'enabled\n' });
-        runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-active', 'fluxadm-sshd.service'] }))
+        runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-active', 'fluxadm-sshd.socket'] }))
           .resolves({ ...cmdOk, stdout: 'active\n' });
         upgradeStub = sinon.stub(systemService, 'upgradePackage').resolves(false);
       });
@@ -515,19 +540,26 @@ describe('fluxadmService tests', () => {
   });
 
   describe('endSessions tests', () => {
-    it('should end logind sessions and everything left in the maintenance unit\'s cgroup', async () => {
+    const units = ['fluxadm-sshd@*.service', 'user-998.slice'];
+
+    it('should kill every session unit and the user\'s slice, then stop them, which waits until they are empty', async () => {
+      runCommandStub.withArgs('id').resolves({ ...cmdOk, stdout: '998\n' });
+
       await fluxadmService.endSessions();
 
-      sinon.assert.calledWithExactly(runCommandStub, 'loginctl', {
-        runAsRoot: true,
-        logError: false,
-        params: ['terminate-user', 'fluxadm'],
-      });
-      sinon.assert.calledWithExactly(runCommandStub, 'systemctl', {
-        runAsRoot: true,
-        logError: false,
-        params: ['kill', '--kill-who=all', '--signal=SIGKILL', 'fluxadm-sshd.service'],
-      });
+      sinon.assert.callOrder(
+        runCommandStub.withArgs('systemctl', sinon.match({ runAsRoot: true, params: ['kill', '--signal=SIGKILL', ...units] })),
+        runCommandStub.withArgs('systemctl', sinon.match({ runAsRoot: true, params: ['stop', ...units] })),
+      );
+    });
+
+    it('should still end the session units when the user cannot be looked up', async () => {
+      runCommandStub.withArgs('id').resolves({ ...cmdFail });
+
+      await fluxadmService.endSessions();
+
+      sinon.assert.calledWith(runCommandStub, 'systemctl', sinon.match({ params: ['kill', '--signal=SIGKILL', 'fluxadm-sshd@*.service'] }));
+      sinon.assert.calledWith(runCommandStub, 'systemctl', sinon.match({ params: ['stop', 'fluxadm-sshd@*.service'] }));
     });
   });
 
@@ -535,17 +567,17 @@ describe('fluxadmService tests', () => {
     const sudoersRead = sinon.match({ params: ['/etc/sudoers.d/fluxadm'] });
     const call = (cmd, params) => runCommandStub.withArgs(cmd, sinon.match({ params }));
 
-    it('should end sessions, remove the sshd, its keys, the firewall rule, the user, and the drop-in last', async () => {
+    it('should stop listening, end sessions, remove the sshd, its keys, the firewall rule, the user, and the drop-in last', async () => {
       sinon.stub(fs, 'access').resolves();
       runCommandStub.withArgs('cat', sudoersRead).resolves({ ...cmdOk, stdout: 'fluxadm ALL=(ALL) NOPASSWD:ALL\n' });
 
       await fluxadmService.removeAccess();
 
       sinon.assert.callOrder(
-        call('loginctl', ['terminate-user', 'fluxadm']),
-        call('systemctl', ['kill', '--kill-who=all', '--signal=SIGKILL', 'fluxadm-sshd.service']),
-        call('systemctl', ['disable', '--now', 'fluxadm-sshd.service']),
-        call('rm', ['-f', '/etc/systemd/system/fluxadm-sshd.service', '/etc/ssh/fluxadm_sshd_config', '/etc/ssh/fluxadm_authorized_keys']),
+        call('systemctl', ['disable', '--now', 'fluxadm-sshd.socket']),
+        call('systemctl', sinon.match.array.startsWith(['kill', '--signal=SIGKILL', 'fluxadm-sshd@*.service'])),
+        call('systemctl', sinon.match.array.startsWith(['stop', 'fluxadm-sshd@*.service'])),
+        call('rm', ['-f', '/etc/systemd/system/fluxadm-sshd.socket', '/etc/systemd/system/fluxadm-sshd@.service', '/etc/ssh/fluxadm_sshd_config', '/etc/ssh/fluxadm_authorized_keys']),
         call('systemctl', ['daemon-reload']),
         call('ufw', ['delete', 'limit', '16122/tcp']),
         call('userdel', ['-r', 'fluxadm']),
@@ -614,7 +646,7 @@ describe('fluxadmService tests', () => {
 
       await fluxadmService.removeAccess();
 
-      sinon.assert.neverCalledWith(runCommandStub, 'loginctl');
+      sinon.assert.neverCalledWith(runCommandStub, 'systemctl', sinon.match({ params: sinon.match.array.startsWith(['kill']) }));
       sinon.assert.neverCalledWith(runCommandStub, 'ufw');
       sinon.assert.neverCalledWith(runCommandStub, 'userdel');
       sinon.assert.calledWith(runCommandStub, 'rm', sinon.match({ params: sinon.match.some(sinon.match('/etc/ssh/fluxadm_sshd_config')) }));
@@ -626,7 +658,6 @@ describe('fluxadmService tests', () => {
 
       await fluxadmService.removeAccess();
 
-      sinon.assert.neverCalledWith(runCommandStub, 'loginctl');
       sinon.assert.neverCalledWith(runCommandStub, 'systemctl');
       sinon.assert.neverCalledWith(runCommandStub, 'rm');
       sinon.assert.neverCalledWith(runCommandStub, 'ufw');
@@ -636,18 +667,30 @@ describe('fluxadmService tests', () => {
 
   describe('buildSshdConfig tests', () => {
     it('should read keys only from the root-owned key file', () => {
-      const lines = fluxadmService.buildSshdConfig(16122).split('\n');
+      const lines = fluxadmService.buildSshdConfig().split('\n');
 
       expect(lines.filter((line) => line.startsWith('AuthorizedKeysFile'))).to.deep.equal(['AuthorizedKeysFile /etc/ssh/fluxadm_authorized_keys']);
     });
   });
 
-  describe('buildServiceUnit tests', () => {
-    it('should wait for sshd to report ready, so a restart returns once it listens', () => {
-      const lines = fluxadmService.buildServiceUnit().split('\n');
+  describe('maintenance sshd unit tests', () => {
+    it('should listen on the port and start one session unit per connection', () => {
+      const lines = fluxadmService.buildSocketUnit(16122).split('\n');
 
-      expect(lines.filter((line) => line.startsWith('Type='))).to.deep.equal(['Type=notify']);
-      expect(lines).to.include('ExecStart=/usr/sbin/sshd -D -f /etc/ssh/fluxadm_sshd_config');
+      expect(lines).to.include('ListenStream=16122');
+      expect(lines).to.include('Accept=yes');
+    });
+
+    it('should serve each connection with an sshd in inetd mode on the maintenance config', () => {
+      const lines = fluxadmService.buildSessionUnit().split('\n');
+
+      expect(lines).to.include('ExecStart=-/usr/sbin/sshd -i -f /etc/ssh/fluxadm_sshd_config');
+      expect(lines).to.include('StandardInput=socket');
+      expect(lines.filter((line) => line.startsWith('KillMode='))).to.deep.equal([]);
+    });
+
+    it('should name no port in the sshd config, which the socket holds', () => {
+      expect(fluxadmService.buildSshdConfig()).to.not.match(/^(Port|PidFile|ListenAddress)\b/m);
     });
   });
 
@@ -785,13 +828,14 @@ describe('fluxadmService tests', () => {
       sinon.stub(fs, 'access').resolves();
       sinon.stub(fs, 'readFile')
         .withArgs('/etc/ssh/fluxadm_authorized_keys', 'utf-8').rejects(new Error('missing'))
-        .withArgs('/etc/ssh/fluxadm_sshd_config', 'utf-8').resolves(fluxadmService.buildSshdConfig(16122))
-        .withArgs('/etc/systemd/system/fluxadm-sshd.service', 'utf-8').resolves(fluxadmService.buildServiceUnit());
+        .withArgs('/etc/ssh/fluxadm_sshd_config', 'utf-8').resolves(fluxadmService.buildSshdConfig())
+        .withArgs('/etc/systemd/system/fluxadm-sshd.socket', 'utf-8').resolves(fluxadmService.buildSocketUnit(16122))
+        .withArgs('/etc/systemd/system/fluxadm-sshd@.service', 'utf-8').resolves(fluxadmService.buildSessionUnit());
       runCommandStub.withArgs('id').resolves({ ...cmdFail });
       runCommandStub.withArgs('cat').resolves({ ...cmdFail });
-      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-enabled', 'fluxadm-sshd.service'] }))
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-enabled', 'fluxadm-sshd.socket'] }))
         .resolves({ ...cmdOk, stdout: 'disabled\n' });
-      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-active', 'fluxadm-sshd.service'] }))
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-active', 'fluxadm-sshd.socket'] }))
         .resolves({ ...cmdOk, stdout: 'inactive\n' });
 
       runCommandStub.withArgs('ufw').resolves({ ...cmdFail });
@@ -811,13 +855,14 @@ describe('fluxadmService tests', () => {
       sinon.stub(fs, 'access').resolves();
       sinon.stub(fs, 'readFile')
         .withArgs('/etc/ssh/fluxadm_authorized_keys', 'utf-8').rejects(new Error('missing'))
-        .withArgs('/etc/ssh/fluxadm_sshd_config', 'utf-8').resolves(fluxadmService.buildSshdConfig(16122))
-        .withArgs('/etc/systemd/system/fluxadm-sshd.service', 'utf-8').resolves(fluxadmService.buildServiceUnit());
+        .withArgs('/etc/ssh/fluxadm_sshd_config', 'utf-8').resolves(fluxadmService.buildSshdConfig())
+        .withArgs('/etc/systemd/system/fluxadm-sshd.socket', 'utf-8').resolves(fluxadmService.buildSocketUnit(16122))
+        .withArgs('/etc/systemd/system/fluxadm-sshd@.service', 'utf-8').resolves(fluxadmService.buildSessionUnit());
       runCommandStub.withArgs('id').resolves({ ...cmdFail });
       runCommandStub.withArgs('cat').resolves({ ...cmdFail });
-      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-enabled', 'fluxadm-sshd.service'] }))
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-enabled', 'fluxadm-sshd.socket'] }))
         .resolves({ ...cmdOk, stdout: 'disabled\n' });
-      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-active', 'fluxadm-sshd.service'] }))
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-active', 'fluxadm-sshd.socket'] }))
         .resolves({ ...cmdOk, stdout: 'inactive\n' });
 
       const res = await fluxadmService.ensureFluxadmAccess();
@@ -825,8 +870,8 @@ describe('fluxadmService tests', () => {
       expect(res).to.equal('reconciled');
       sinon.assert.calledWith(runCommandStub, 'useradd', sinon.match({ runAsRoot: true }));
       sinon.assert.calledWith(runCommandStub, 'visudo', sinon.match({ runAsRoot: true }));
-      sinon.assert.calledWith(runCommandStub, 'systemctl', sinon.match({ params: ['enable', 'fluxadm-sshd.service'] }));
-      sinon.assert.calledWith(runCommandStub, 'systemctl', sinon.match({ params: ['restart', 'fluxadm-sshd.service'] }));
+      sinon.assert.calledWith(runCommandStub, 'systemctl', sinon.match({ params: ['enable', 'fluxadm-sshd.socket'] }));
+      sinon.assert.calledWith(runCommandStub, 'systemctl', sinon.match({ params: ['restart', 'fluxadm-sshd.socket'] }));
       sinon.assert.calledWith(runCommandStub, 'ufw', sinon.match({ params: ['limit', '16122/tcp'] }));
     });
   });

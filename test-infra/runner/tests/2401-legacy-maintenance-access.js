@@ -21,7 +21,7 @@
 //
 // A list that drops a key ends every open maintenance session, together with what
 // it runs through sudo. The node without sshd has no pam_systemd, so its sessions
-// stay in the maintenance unit's cgroup; the node with the node owner's sshd
+// stay in their connection's session unit; the node with the node owner's sshd
 // installs libpam-systemd with it, so its sessions get their own logind scope. Each
 // node proves one of the two ways a session is ended.
 //
@@ -53,7 +53,8 @@ const CLIENT_KEY_DIR = '/root/.fluxadm-keys';
 
 const MANAGED_FILES = [
   '/etc/ssh/fluxadm_sshd_config',
-  '/etc/systemd/system/fluxadm-sshd.service',
+  '/etc/systemd/system/fluxadm-sshd.socket',
+  '/etc/systemd/system/fluxadm-sshd@.service',
   '/etc/sudoers.d/fluxadm',
   '/etc/ssh/fluxadm_authorized_keys',
 ];
@@ -213,7 +214,7 @@ describe('2401 legacy node maintenance access', function suite() {
 
   async function managedState() {
     const { stdout } = await execInContainer(legacy.container,
-      `stat -c '%n %Y %s' ${MANAGED_FILES.join(' ')}; systemctl show -p MainPID --value fluxadm-sshd.service`);
+      `stat -c '%n %Y %s' ${MANAGED_FILES.join(' ')}; systemctl show -p ActiveEnterTimestampMonotonic --value fluxadm-sshd.socket`);
     return stdout.trim();
   }
 
@@ -312,15 +313,15 @@ describe('2401 legacy node maintenance access', function suite() {
     expect(present, status).to.equal(true);
   });
 
-  it('runs the maintenance sshd as its own unit, on apiport - 5', async () => {
-    expect(await unitState(legacy.container, 'fluxadm-sshd.service')).to.equal('active');
+  it('listens for the maintenance sshd with its own socket, on apiport - 5', async () => {
+    expect(await unitState(legacy.container, 'fluxadm-sshd.socket')).to.equal('active');
     const { stdout } = await execInContainer(legacy.container, `ss -Hltn 'sport = :${SSH_PORT}'`);
     expect(stdout.trim(), `nothing listening on ${SSH_PORT}`).to.not.equal('');
   });
 
   it('installs nothing on an Arcane node with the same key list', async () => {
     const probe = 'id fluxadm >/dev/null 2>&1 && echo user; '
-      + 'test -e /etc/systemd/system/fluxadm-sshd.service && echo unit; '
+      + 'test -e /etc/systemd/system/fluxadm-sshd.socket && echo unit; '
       + `ss -Hltn 'sport = :${SSH_PORT}' | grep -q . && echo listener; true`;
     const onLegacy = await execInContainer(legacy.container, probe);
     expect(onLegacy.stdout.trim().split('\n'), 'the probe must see the install where it exists')
@@ -338,8 +339,8 @@ describe('2401 legacy node maintenance access', function suite() {
 
   it('lets both keys in while a rotation overlaps them, and keeps open sessions', async () => {
     const cgroup = await openSession(legacy, legacyIp, 'current', 7001);
-    expect(cgroup, "without pam_systemd a session stays in the maintenance unit's cgroup")
-      .to.match(/\/fluxadm-sshd\.service$/);
+    expect(cgroup, "without pam_systemd a session stays in its connection's session unit")
+      .to.match(/\/fluxadm-sshd@[^/]+\.service$/);
     await releaseKeys(['current', 'next']);
     expect(await sessionCgroup(legacy, 7001), 'adding a key must not end an open session').to.equal(cgroup);
     await loginOrThrow('next');
@@ -364,7 +365,8 @@ describe('2401 legacy node maintenance access', function suite() {
     expect(rule.present, `emptying the list must remove the firewall rule:\n${rule.status}`).to.equal(false);
     expect(await login('next'), 'login must be refused once the list is empty').to.equal(false);
     const { stdout } = await execInContainer(legacy.container,
-      'test -e /etc/systemd/system/fluxadm-sshd.service && echo unit; test -e /etc/ssh/fluxadm_authorized_keys && echo keys; '
+      'test -e /etc/systemd/system/fluxadm-sshd.socket && echo socket; test -e /etc/systemd/system/fluxadm-sshd@.service && echo session; '
+      + 'test -e /etc/ssh/fluxadm_sshd_config && echo config; test -e /etc/ssh/fluxadm_authorized_keys && echo keys; '
       + 'id fluxadm >/dev/null 2>&1 && echo user; test -e /home/fluxadm && echo home; test -e /etc/sudoers.d/fluxadm && echo sudoers; '
       + `ss -Hltn 'sport = :${SSH_PORT}' | grep -q . && echo listener; true`);
     expect(stdout.trim()).to.equal('');

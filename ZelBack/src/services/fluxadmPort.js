@@ -3,10 +3,10 @@ const fs = require('node:fs');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
-// The maintenance sshd's systemd unit. The reconcile enables it once it has
-// installed access and disables and deletes it when it removes access, so its
-// enabled state is the reconcile's standing decision.
-const sshdUnit = 'fluxadm-sshd.service';
+// The maintenance sshd's listening socket. The reconcile enables it once it
+// has installed access and disables and deletes it when it removes access, so
+// its enabled state is the reconcile's standing decision.
+const sshdSocket = 'fluxadm-sshd.socket';
 
 // present only when systemd booted the machine as PID 1 (see sd_booted(3))
 const systemdRuntimeDir = '/run/systemd/system';
@@ -83,5 +83,5 @@ module.exports = {
   getFluxadmSshPort,
   isArcane,
   sshPortFor,
-  sshdUnit,
+  sshdSocket,
 };
