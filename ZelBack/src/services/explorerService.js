@@ -15,7 +15,6 @@ const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const chainUtilities = require('./utils/chainUtilities');
 const messageVerifier = require('./appMessaging/messageVerifier');
 const registryManager = require('./appDatabase/registryManager');
-const { withRegistryWrite } = require('./appDatabase/registryWriteLock');
 const { appPaymentPositions } = require('./appPaymentPositions');
 const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const benchmarkService = require('./benchmarkService');
@@ -743,10 +742,9 @@ async function processBlock(blockHeight, isInsightExplorer) {
 /**
  * To restore database to specified block height.
  * @param {number} height Block height.
- * @param {boolean} rescanGlobalApps Value set to false on function call.
  * @returns {boolean} Value set to true after database is restored.
  */
-async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = false) {
+async function restoreDatabaseToBlockheightState(height) {
   if (!height) {
     throw new Error('No blockheight for restoring provided');
   }
@@ -770,14 +768,8 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
   // restore appsHashes collection
   await dbHelper.removeDocumentsFromCollection(database, appsHashesCollection, query);
   log.info('Rescanning Blockchain Parameters!');
-  const databaseGlobal = dbopen.db(config.database.appsglobal.database);
   const databaseUpdates = dbopen.db(config.database.chainparams.database);
   await dbHelper.removeDocumentsFromCollection(databaseUpdates, chainParamsMessagesCollection, query);
-  if (rescanGlobalApps === true) {
-    log.info('Rescanning Apps!');
-    await dbHelper.removeDocumentsFromCollection(databaseGlobal, config.database.appsglobal.collections.appsMessages, query);
-    await withRegistryWrite(() => dbHelper.removeDocumentsFromCollection(databaseGlobal, config.database.appsglobal.collections.appsInformation, query));
-  }
   log.info('Rescan completed');
   return true;
 }
@@ -854,7 +846,6 @@ async function migrateZelAppSpecifications(databaseGlobal) {
  * To start the block processor.
  * @param {boolean} restoreDatabase True if database is to be restored.
  * @param {boolean} deepRestore True if a deep restore is required.
- * @param {boolean} reindexOrRescanGlobalApps True if apps collections are to be reindexed.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 
@@ -1202,8 +1193,7 @@ async function recoverAndRestart(restoreDatabase, deepRestore) {
 }
 
 // do a deepRestore of 100 blocks if daemon if enouncters an error (mostly flux daemon was down) or if its initial start of flux
-// use reindexGlobalApps with caution!!!
-async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps) {
+async function initiateBlockProcessor(restoreDatabase, deepRestore) {
   try {
     await waitForDaemonSync();
 
@@ -1279,37 +1269,6 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
 
       const databaseGlobal = db.db(config.database.appsglobal.database);
       log.info('Preparing apps collections');
-      if (reindexOrRescanGlobalApps === true) {
-        const resultE = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsMessages).catch((error) => {
-          if (error.message !== 'ns not found') throw error;
-        });
-        const resultF = await withRegistryWrite(() => dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsInformation)).catch((error) => {
-          if (error.message !== 'ns not found') throw error;
-        });
-        const resultG = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsLocations).catch((error) => {
-          if (error.message !== 'ns not found') throw error;
-        });
-        const resultH = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsInstallingLocations).catch((error) => {
-          if (error.message !== 'ns not found') throw error;
-        });
-        const resultI = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsInstallingErrorsLocations).catch((error) => {
-          if (error.message !== 'ns not found') throw error;
-        });
-        const resultJ = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsInstallingErrorsBroadcasts).catch((error) => {
-          if (error.message !== 'ns not found') throw error;
-        });
-        const resultK = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appStateEvents).catch((error) => {
-          if (error.message !== 'ns not found') throw error;
-        });
-        const resultL = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsInstallingBroadcasts).catch((error) => {
-          if (error.message !== 'ns not found') throw error;
-        });
-        log.info(resultE, resultF, resultG, resultH, resultI, resultJ, resultK, resultL);
-        await databaseGlobal.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });
-        await databaseGlobal.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ ip: 1, type: 1, dedupKey: 1 }, { unique: true });
-        await databaseGlobal.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ broadcastedAt: 1 });
-        await databaseGlobal.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ createdAt: 1 });
-      }
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash', unique: true });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ txid: 1 }, { name: 'query for getting zelapp message based on txid' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ height: 1 }, { name: 'query for getting zelapp message based on height' });
@@ -1342,7 +1301,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
         if (deepRestore && deepRestoreBlocks > 0) {
           log.info('Deep restoring of database...');
           scannedBlockHeight = Math.max(scannedBlockHeight - deepRestoreBlocks, 0);
-          await restoreDatabaseToBlockheightState(scannedBlockHeight, reindexOrRescanGlobalApps);
+          await restoreDatabaseToBlockheightState(scannedBlockHeight);
           await dbHelper.updateOneInDatabase(database, scannedHeightCollection,
             { generalScannedHeight: { $gte: 0 } },
             { $set: { generalScannedHeight: scannedBlockHeight } },
@@ -1350,7 +1309,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
           log.info('Database restored OK');
         } else if (!deepRestore) {
           log.info('Restoring database...');
-          await restoreDatabaseToBlockheightState(scannedBlockHeight, reindexOrRescanGlobalApps);
+          await restoreDatabaseToBlockheightState(scannedBlockHeight);
           log.info('Database restored OK');
         }
       }
@@ -1785,22 +1744,39 @@ async function restartBlockProcessing(req, res) {
 }
 
 /**
+ * Refuse the apps flag of an explorer reindex or rescan. The explorer reset
+ * covers chain data only: the app messages come from the network, not the chain,
+ * and the registry has its own rebuild, which keeps the live registry until the
+ * new one is complete.
+ * @param {object} res Response.
+ * @returns {*} the sent response
+ */
+function refuseAppsFlag(res) {
+  const errMessage = messageHelper.createErrorMessage(
+    'The explorer reset covers chain data only. Rebuild the app registry with /apps/reindexglobalappsinformation.',
+    'BadRequest',
+    400,
+  );
+  return res.status(400).json(errMessage);
+}
+
+/**
  * To reindex Flux explorer database.
  *
- * Flux team only. With the apps flag it drops the application registry, messages
- * and locations and refills them over the whole chain, and until the refill ends
- * this node serves every app read from stores that are empty or partial.
+ * Flux team only. Chain data only: the apps flag is refused (refuseAppsFlag).
  * @param {object} req Request.
  * @param {object} res Response.
  */
 async function reindexExplorer(req, res) {
   const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
   if (authorized === true) {
+    const { reindexapps } = req?.params || {};
+    if (serviceHelper.ensureBoolean(reindexapps ?? req?.query?.rescanapps ?? false)) {
+      refuseAppsFlag(res);
+      return;
+    }
     // stop block processing
     const i = 0;
-    let { reindexapps } = req?.params || {};
-    reindexapps = reindexapps ?? req?.query?.rescanapps ?? false;
-    reindexapps = serviceHelper.ensureBoolean(reindexapps);
     checkBlockProcessingStopped(i, async (response) => {
       if (response.status === 'error') {
         res.json(response);
@@ -1821,7 +1797,7 @@ async function reindexExplorer(req, res) {
         });
         operationBlocked = false;
         if (resultOfDropping === true || resultOfDropping === undefined) {
-          initiateBlockProcessor(true, false, reindexapps); // restore database and possibly do reindex of apps
+          initiateBlockProcessor(true, false);
           const message = messageHelper.createSuccessMessage('Explorer database reindex initiated');
           res.json(message);
         } else {
@@ -1839,9 +1815,7 @@ async function reindexExplorer(req, res) {
 /**
  * To rescan Flux explorer database from a specific block height.
  *
- * Flux team only. With the apps flag it drops the application registry, messages
- * and locations and refills them over the whole chain, and until the refill ends
- * this node serves every app read from stores that are empty or partial.
+ * Flux team only. Chain data only: the apps flag is refused (refuseAppsFlag).
  * @param {object} req Request.
  * @param {object} res Response.
  */
@@ -1849,6 +1823,11 @@ async function rescanExplorer(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
     if (authorized === true) {
+      const { rescanapps } = req?.params || {};
+      if (serviceHelper.ensureBoolean(rescanapps ?? req?.query?.rescanapps ?? false)) {
+        refuseAppsFlag(res);
+        return;
+      }
       // since what blockheight
       let { blockheight } = req?.params || {}; // we accept both help/command and help?command=getinfo
       blockheight = blockheight || req?.query?.blockheight;
@@ -1876,9 +1855,6 @@ async function rescanExplorer(req, res) {
       if (blockheight < 0) {
         throw new Error('BlockHeight lower than 0');
       }
-      let { rescanapps } = req?.params || {};
-      rescanapps = rescanapps ?? req?.query?.rescanapps ?? false;
-      rescanapps = serviceHelper.ensureBoolean(rescanapps);
       // stop block processing
       const i = 0;
       checkBlockProcessingStopped(i, async (response) => {
@@ -1896,7 +1872,7 @@ async function rescanExplorer(req, res) {
           // update scanned Height in scannedBlockHeightCollection
           await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
           operationBlocked = false;
-          initiateBlockProcessor(true, false, rescanapps); // restore database and possibly do rescan of apps
+          initiateBlockProcessor(true, false);
           const message = messageHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
           res.json(message);
         }

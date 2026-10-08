@@ -1061,24 +1061,17 @@ describe('explorerService tests', () => {
       sinon.assert.calledWithMatch(updateInDatabaseStub, sinon.match.object, 'addresstransactionindex', {}, { $pull: { transactions: { height: sinon.match.object } } });
     });
 
-    it('should remove and update db properly, rescan parameter passed', async () => {
+    it('should leave the app messages and the registry alone', async () => {
       removeDocumentsFromCollectionStub.returns(true);
       updateInDatabaseStub.returns(true);
       const height = 100000;
 
-      const result = await explorerService.restoreDatabaseToBlockheightState(height, true);
+      await explorerService.restoreDatabaseToBlockheightState(height);
 
-      expect(result).to.equal(true);
-      sinon.assert.calledWith(logInfoSpy, 'Rescanning Apps!');
-      sinon.assert.calledWith(logInfoSpy, 'Rescan completed');
-      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'utxoindex', { height: { $gt: height } });
-      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'coinbasefusionindex', { height: { $gt: height } });
-      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'addresstransactionindex', { transactions: { $exists: true, $size: 0 } });
-      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'zelappshashes', { height: { $gt: height } });
-      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'zelappsmessages', { height: { $gt: height } });
-      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'zelappsinformation', { height: { $gt: height } });
       sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'chainmessages', { height: { $gt: height } });
-      sinon.assert.calledWithMatch(updateInDatabaseStub, sinon.match.object, 'addresstransactionindex', {}, { $pull: { transactions: { height: sinon.match.object } } });
+      const collections = removeDocumentsFromCollectionStub.getCalls().map((call) => call.args[1]);
+      expect(collections).to.not.include('zelappsmessages');
+      expect(collections).to.not.include('zelappsinformation');
     });
   });
 
@@ -1929,7 +1922,7 @@ describe('explorerService tests', () => {
       sinon.assert.calledWithMatch(logInfoSpy, 'Database restored OK');
     });
 
-    it('should run the block processor, reindexOrRescanGlobalApps set to true, height == 0', async () => {
+    it('should run the block processor from height 0 dropping chain data, never the app messages or locations', async () => {
       sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves(true);
       sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
       sinon.stub(dbHelper, 'findInDatabase').resolves([]);
@@ -1949,15 +1942,17 @@ describe('explorerService tests', () => {
       sinon.stub(daemonServiceUtils, 'executeBatchCall').resolves({ status: 'success', data: [] });
       explorerService.setBlockProccessingCanContinue(false);
 
-      await explorerService.initiateBlockProcessor(false, false, true);
+      await explorerService.initiateBlockProcessor(false, false);
       await serviceHelper.delay(200);
 
       sinon.assert.notCalled(logErrorSpy);
       sinon.assert.calledWithMatch(logInfoSpy, 'Bootstrap: Using address-index fast path');
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparing apps collections');
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparation done');
-      sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'zelappslocation');
-      sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'zelappsmessages');
+      const dropped = dropCollectionStub.getCalls().map((call) => call.args[1]);
+      expect(dropped).to.not.include('zelappslocation');
+      expect(dropped).to.not.include('zelappsmessages');
+      expect(dropped).to.not.include('zelappsinformation');
       sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'coinbasefusionindex');
       sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'zelappshashes');
       sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'addresstransactionindex');
