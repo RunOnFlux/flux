@@ -14,6 +14,10 @@ const HOSTNAME = 'flux-dns-lookup-test.invalid';
 // A query the server never answers.
 const NO_REPLY = 'NO_REPLY';
 
+// The system servers the tests run with, as resolv.conf would list them.
+const SYSTEM = '192.0.2.53';
+const SECOND = '192.0.2.54';
+
 function dnsError(code, syscall) {
   const error = new Error(`${syscall} ${code} ${HOSTNAME}`);
   error.code = code;
@@ -32,21 +36,27 @@ function lookupAsync(hostname, options) {
 }
 
 describe('dnsLookup tests', () => {
-  // What each source answers, by family: an array of addresses, or an error code.
+  // What each source answers, by family: an array of addresses, or an error code. A probe -
+  // a random name under .com - is answered by `probe[source]` instead.
   let answers;
   let asked;
 
-  // The public resolver is the one whose servers are exactly the public list; the system
-  // resolver's list may include one of those servers among its own.
   function sourceOf(resolver) {
     const servers = resolver.getServers().join(',');
-    return servers === dnsLookup.PUBLIC_DNS_SERVERS.join(',') ? 'public' : 'system';
+    if (servers === dnsLookup.PUBLIC_DNS_SERVERS.join(',')) return 'public';
+    if (servers === SECOND) return 'second';
+    return 'system';
   }
 
-  function answerFrom(resolver, family, syscall) {
+  function isProbe(hostname) {
+    return hostname !== HOSTNAME && /^[0-9a-f]{12}\.com$/.test(hostname);
+  }
+
+  function answerFrom(resolver, hostname, family, syscall) {
     const source = sourceOf(resolver);
-    asked.push(`${source}:${family}`);
-    const answer = answers[source][family];
+    const probing = isProbe(hostname);
+    asked.push(probing ? `${source}:probe` : `${source}:${family}`);
+    const answer = probing ? answers.probe[source] : answers[source][family];
     if (answer === NO_REPLY) return new Promise(() => {});
     if (answer && answer.afterMs !== undefined) {
       return new Promise((resolve) => { setTimeout(() => resolve(answer.addresses), answer.afterMs); });
@@ -55,12 +65,12 @@ describe('dnsLookup tests', () => {
     return Promise.reject(dnsError(answer, syscall));
   }
 
-  function fakeResolve4() {
-    return answerFrom(this, 4, 'queryA');
+  function fakeResolve4(hostname) {
+    return answerFrom(this, hostname, 4, 'queryA');
   }
 
-  function fakeResolve6() {
-    return answerFrom(this, 6, 'queryAaaa');
+  function fakeResolve6(hostname) {
+    return answerFrom(this, hostname, 6, 'queryAaaa');
   }
 
   function fakeOsLookup() {
@@ -74,9 +84,12 @@ describe('dnsLookup tests', () => {
     asked = [];
     answers = {
       system: { 4: 'ESERVFAIL', 6: 'ESERVFAIL' },
+      second: { 4: 'ESERVFAIL', 6: 'ESERVFAIL' },
       public: { 4: 'ESERVFAIL', 6: 'ESERVFAIL' },
+      probe: { system: 'ENOTFOUND', second: 'ENOTFOUND' },
       os: 'ENOTFOUND',
     };
+    dnsLookup.useSystemServers([SYSTEM]);
     sinon.stub(dns.promises.Resolver.prototype, 'resolve4').callsFake(fakeResolve4);
     sinon.stub(dns.promises.Resolver.prototype, 'resolve6').callsFake(fakeResolve6);
     sinon.stub(dns.promises, 'lookup').callsFake(fakeOsLookup);
@@ -84,7 +97,6 @@ describe('dnsLookup tests', () => {
 
   afterEach(() => {
     sinon.restore();
-    dnsLookup.forgetSystemSilent();
   });
 
   describe('lookup tests', () => {
@@ -258,10 +270,12 @@ describe('dnsLookup tests', () => {
   });
 
   describe('query bounds tests', () => {
-    it('should build both resolvers with the bounded timeout and tries', () => {
+    it('should build every resolver it queries with one bounded try', () => {
       const built = [];
       class FakeResolver {
         constructor(options) { built.push(options); }
+
+        getServers() { return ['127.0.0.53', '192.0.2.1']; }
 
         setServers() {}
       }
@@ -269,74 +283,193 @@ describe('dnsLookup tests', () => {
         'node:dns': { ...dns, promises: { ...dns.promises, Resolver: FakeResolver } },
       });
 
-      expect(built).to.deep.equal([
-        { timeout: dnsLookup.QUERY_TIMEOUT_MS, tries: dnsLookup.QUERY_TRIES },
-        { timeout: dnsLookup.QUERY_TIMEOUT_MS, tries: dnsLookup.QUERY_TRIES },
-      ]);
-      expect(dnsLookup.QUERY_TIMEOUT_MS * dnsLookup.QUERY_TRIES).to.be.below(20000);
+      // The public resolver, the one that reads the system's server list, and one per system server.
+      const queried = built.filter(Boolean);
+      expect(built).to.have.length(4);
+      expect(queried).to.deep.equal(Array(3).fill({ timeout: dnsLookup.QUERY_TIMEOUT_MS, tries: 1 }));
     });
   });
 
-  describe('silent system servers tests', () => {
+  describe('a system server that does not answer', () => {
+    const silent = () => dnsLookup.systemServerStates().filter((state) => state.silent).map((state) => state.address);
+
     beforeEach(() => {
       answers.system = { 4: 'ETIMEOUT', 6: 'ETIMEOUT' };
-      answers.public[4] = ['203.0.113.40'];
+      answers.public[4] = ['203.0.113.70'];
     });
 
-    it('should ask only the public servers once the system servers have timed out', async () => {
-      await lookupAsync(HOSTNAME, { all: true });
-      asked = [];
-
+    it('should probe it at once, and keep it in use when it resolves the probe: the name was the failure', async () => {
       const result = await lookupAsync(HOSTNAME, { all: true });
 
-      expect(result).to.deep.equal([{ address: '203.0.113.40', family: 4 }]);
-      expect(asked).to.have.members(['public:4', 'public:6']);
-    });
+      expect(result).to.deep.equal([{ address: '203.0.113.70', family: 4 }]);
+      expect(asked).to.deep.equal(['system:4', 'system:6', 'system:probe', 'public:4', 'public:6']);
+      expect(silent()).to.deep.equal([]);
 
-    it('should keep asking system servers that answer with a failure', async () => {
-      answers.system = { 4: 'ESERVFAIL', 6: 'ESERVFAIL' };
-      await lookupAsync(HOSTNAME, { all: true });
+      answers.system[4] = ['203.0.113.71'];
       asked = [];
+      expect(await lookupAsync(HOSTNAME, { all: true })).to.deep.equal([{ address: '203.0.113.71', family: 4 }]);
+    });
+
+    it('should count a probe answered with an address as resolving', async () => {
+      answers.probe.system = ['198.51.100.1'];
 
       await lookupAsync(HOSTNAME, { all: true });
 
-      expect(asked).to.include.members(['system:4', 'system:6']);
+      expect(silent()).to.deep.equal([]);
     });
 
-    describe('the background check', () => {
+    it('should remember it as silent when the probe is not answered, and skip it after', async () => {
+      answers.probe.system = 'ETIMEOUT';
+
+      await lookupAsync(HOSTNAME, { all: true });
+      expect(silent()).to.deep.equal([SYSTEM]);
+
+      asked = [];
+      const result = await lookupAsync(HOSTNAME, { all: true });
+
+      expect(result).to.deep.equal([{ address: '203.0.113.70', family: 4 }]);
+      expect(asked).to.deep.equal(['public:4', 'public:6']);
+    });
+
+    it('should remember it as silent when it answers the probe with SERVFAIL', async () => {
+      answers.probe.system = 'ESERVFAIL';
+
+      await lookupAsync(HOSTNAME, { all: true });
+
+      expect(silent()).to.deep.equal([SYSTEM]);
+    });
+
+    it('should probe a server whose host refuses the query', async () => {
+      answers.system = { 4: 'ECONNREFUSED', 6: 'ECONNREFUSED' };
+      answers.probe.system = 'ECONNREFUSED';
+
+      await lookupAsync(HOSTNAME, { all: true });
+
+      expect(asked).to.include('system:probe');
+      expect(silent()).to.deep.equal([SYSTEM]);
+    });
+
+    it('should not probe a server that answers with a failure', async () => {
+      answers.system = { 4: 'ESERVFAIL', 6: 'ESERVFAIL' };
+
+      await lookupAsync(HOSTNAME, { all: true });
+
+      expect(asked).to.not.include('system:probe');
+      expect(silent()).to.deep.equal([]);
+    });
+
+    it('should not let a name a caller chooses make it silent, however often it is asked for', async () => {
+      await Promise.all(Array.from({ length: 8 }, () => lookupAsync(HOSTNAME, { all: true })));
+      await lookupAsync(HOSTNAME, { all: true });
+
+      expect(silent()).to.deep.equal([]);
+    });
+
+    it('should send one probe for lookups that meet the server together', async () => {
+      answers.probe.system = 'ETIMEOUT';
+
+      await Promise.all(Array.from({ length: 3 }, () => lookupAsync(HOSTNAME, { all: true })));
+
+      expect(asked.filter((entry) => entry === 'system:probe')).to.have.length(1);
+    });
+
+    describe('while it is silent', () => {
       let clock;
 
-      beforeEach(() => {
-        clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      beforeEach(async () => {
+        clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+        answers.probe.system = 'ETIMEOUT';
+        await lookupAsync(HOSTNAME, { all: true });
+        asked = [];
       });
 
-      it('should bring the system servers back once they answer, even that a name has no address', async () => {
-        await lookupAsync(HOSTNAME, { all: true });
-        answers.system = { 4: 'ENOTFOUND', 6: 'ENOTFOUND' };
-        asked = [];
+      afterEach(() => {
+        clock.restore();
+      });
 
-        await clock.tickAsync(dnsLookup.SILENT_RECHECK_MS);
-        expect(asked, 'the background query').to.have.members(['system:4', 'system:6']);
-        answers.system[4] = ['203.0.113.41'];
+      it('should not probe it again before REPROBE_MS has passed', async () => {
+        await clock.tickAsync(dnsLookup.REPROBE_MS - 1);
+        await lookupAsync(HOSTNAME, { all: true });
+
+        expect(asked).to.deep.equal(['public:4', 'public:6']);
+      });
+
+      it('should probe it again once REPROBE_MS has passed, with a fresh name, without the lookup waiting on it', async () => {
+        const probesBefore = [];
+        dns.promises.Resolver.prototype.resolve4.getCalls().forEach((call) => {
+          if (isProbe(call.args[0])) probesBefore.push(call.args[0]);
+        });
+        answers.probe.system = NO_REPLY;
+        await clock.tickAsync(dnsLookup.REPROBE_MS);
+
+        const result = await lookupAsync(HOSTNAME, { all: true });
+
+        expect(result).to.deep.equal([{ address: '203.0.113.70', family: 4 }]);
+        expect(asked).to.deep.equal(['system:probe', 'public:4', 'public:6']);
+        const probeNames = dns.promises.Resolver.prototype.resolve4.getCalls().map((call) => call.args[0]).filter(isProbe);
+        expect(probeNames.at(-1)).to.not.equal(probesBefore.at(-1));
+      });
+
+      it('should bring it back when a later probe resolves', async () => {
+        answers.probe.system = 'ENOTFOUND';
+        answers.system[4] = ['203.0.113.72'];
+        await clock.tickAsync(dnsLookup.REPROBE_MS);
+
+        await lookupAsync(HOSTNAME, { all: true });
+        expect(silent()).to.deep.equal([]);
         asked = [];
         const result = await lookupAsync(HOSTNAME, { all: true });
 
-        expect(result).to.deep.equal([{ address: '203.0.113.41', family: 4 }]);
+        expect(result).to.deep.equal([{ address: '203.0.113.72', family: 4 }]);
         expect(asked).to.include('system:4');
       });
+    });
+  });
 
-      it('should keep them silent, and check again, while they still do not answer', async () => {
+  describe('more than one system server', () => {
+    beforeEach(() => {
+      dnsLookup.useSystemServers([SYSTEM, SECOND]);
+    });
+
+    it('should ask the next server when the first answers with a failure', async () => {
+      answers.second[4] = ['203.0.113.80'];
+
+      const result = await lookupAsync(HOSTNAME, { all: true });
+
+      expect(result).to.deep.equal([{ address: '203.0.113.80', family: 4 }]);
+      expect(asked).to.include.members(['system:4', 'second:4']);
+    });
+
+    it('should judge each server on its own: a silent first server is skipped and the next answers', async () => {
+      answers.system = { 4: 'ETIMEOUT', 6: 'ETIMEOUT' };
+      answers.probe.system = 'ETIMEOUT';
+      answers.second[4] = ['203.0.113.81'];
+
+      await lookupAsync(HOSTNAME, { all: true });
+      asked = [];
+      const result = await lookupAsync(HOSTNAME, { all: true });
+
+      expect(result).to.deep.equal([{ address: '203.0.113.81', family: 4 }]);
+      expect(asked).to.deep.equal(['second:4', 'second:6']);
+      expect(dnsLookup.systemServerStates()).to.deep.equal([
+        { address: SYSTEM, silent: true },
+        { address: SECOND, silent: false },
+      ]);
+    });
+
+    it('should not ask the public servers when a later server answers that the name does not exist', async () => {
+      answers.second = { 4: 'ENOTFOUND', 6: 'ENOTFOUND' };
+      answers.public[4] = ['203.0.113.82'];
+
+      let caught = null;
+      try {
         await lookupAsync(HOSTNAME, { all: true });
+      } catch (error) {
+        caught = error;
+      }
 
-        await clock.tickAsync(dnsLookup.SILENT_RECHECK_MS);
-        asked = [];
-        await lookupAsync(HOSTNAME, { all: true });
-        expect(asked).to.have.members(['public:4', 'public:6']);
-
-        asked = [];
-        await clock.tickAsync(dnsLookup.SILENT_RECHECK_MS);
-        expect(asked, 'the next background query').to.have.members(['system:4', 'system:6']);
-      });
+      expect(caught.code).to.equal('ENOTFOUND');
+      expect(asked).to.not.include('public:4');
     });
   });
 
