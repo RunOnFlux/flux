@@ -1,7 +1,9 @@
 /**
  * How the main thread's global http and https agents resolve a hostname.
  *
- * Resolution goes through three sources, and the first that yields an address answers:
+ * `localhost` and every name under it resolve to the loopback addresses without a query (RFC
+ * 6761 section 6.3). Every other name goes through two sources, and the first that yields an
+ * address answers:
  *
  * 1. The system's DNS servers - the ones Node reads from /etc/resolv.conf at start, which on a
  *    host running systemd-resolved is its local stub - each asked on its own, in order.
@@ -10,17 +12,18 @@
  *    further entries in a system resolver's server list: a DNS client moves to its next server
  *    only when one does not answer at all, so a server that answers with a failure (SERVFAIL,
  *    REFUSED) would otherwise end the lookup with the next servers never asked.
- * 3. The operating system's resolver (`dns.lookup`), which also reads /etc/hosts and
- *    nsswitch. Its error is the lookup's error when nothing answers.
+ *
+ * When neither yields an address the lookup fails with the last source's DNS error: ENOTFOUND or
+ * ENODATA when a server answered that the name has no address, ETIMEOUT, ESERVFAIL or another
+ * query error when none did. Nothing reads /etc/hosts and nothing calls the operating system's
+ * resolver, whose getaddrinfo asks the same servers again with the C library's own timeouts.
  *
  * Within a source, IPv4 and IPv6 are queried separately, and a source that returns addresses
  * for either family answers with them. A router that answers AAAA queries with SERVFAIL
  * therefore leaves a hostname with its IPv4 addresses instead of without any. Once one family
  * has answered with addresses, the other is waited for only RESOLUTION_DELAY_MS, so a router
- * that never answers AAAA queries costs a lookup that delay, not the query timeout.
- *
- * The first two sources are queried directly and never read /etc/hosts. Each query is one try
- * of QUERY_TIMEOUT_MS.
+ * that never answers AAAA queries costs a lookup that delay, not the query timeout. Each query
+ * is one try of QUERY_TIMEOUT_MS.
  *
  * A system server that does not answer a lookup at all is either down or unable to resolve that
  * one name: a resolver whose upstream cannot reach a name's authoritative servers does not
@@ -44,15 +47,33 @@
  * random. One probe per server is in flight at a time; lookups that meet the server meanwhile
  * share its result.
  *
- * What a lookup waits, with c-ares's timing: a query or probe that is not answered waits about
- * QUERY_TIMEOUT_MS, up to 1.5 times that on the c-ares of Node 20.8 and 20.9, and down to half
- * of it once c-ares 1.32 or later has learnt the server's response time.
- * - A system server that goes down costs the one lookup that meets it a query wait and a probe
- *   wait, 2 to 6 s; lookups after it do not wait on that server.
- * - A name a working system server never answers costs its own lookup a query wait, and then
- *   whatever the public servers take.
- * - The public servers are one resolver of three servers, each tried once: when none answers, a
- *   lookup waits about three query waits for them, 6 to 7 s.
+ * What a lookup costs. A query or probe that is not answered waits about QUERY_TIMEOUT_MS, up to
+ * 1.5 times that on the c-ares of Node 20.8 and 20.9, and down to half of it once c-ares 1.32 or
+ * later has learnt the server's response time. The public servers are one resolver of three
+ * servers, each tried once. Waits below are Node 24 / Node 20.8.
+ *
+ *   State                                          Lookup waits                  Result
+ *   ---------------------------------------------  ----------------------------  ------------------
+ *   DNS healthy                                    the server's answer           addresses
+ *   localhost, or a name under it                  nothing                       127.0.0.1, ::1
+ *   AAAA never answered, A answered                RESOLUTION_DELAY_MS           IPv4 addresses
+ *   AAAA answered SERVFAIL, A answered             the server's answer           IPv4 addresses
+ *   name does not exist (/etc/hosts not read)      the server's answer           ENOTFOUND
+ *   name a working system server never answers     a query wait, 1 s / 3 s,      public's addresses
+ *                                                  then the public servers
+ *   name a system server answers SERVFAIL          the public servers' answer    public's addresses
+ *   system server down: the lookup that finds it   a query + a probe, 2-4 s /    public's addresses
+ *                                                  5-6 s
+ *   system server down: every lookup after         the public servers' answer    public's addresses
+ *   unbound whose upstream is gone, while it       its SERVFAIL, then the        public's addresses
+ *   still answers SERVFAIL                         public servers
+ *   system server down, name does not exist        the public servers' answer    ENOTFOUND
+ *   system server down, public servers silent      5 s / 6-8 s                   ETIMEOUT
+ *   name a system server never answers, public     6 s / 9 s                     ETIMEOUT
+ *   servers silent
+ *   system server back                             as down, until the first      the server's answer
+ *                                                  lookup REPROBE_MS after the
+ *                                                  last probe brings it back
  *
  * Addresses are ordered by networkDefaults' DNS_RESULT_ORDER, the order every other lookup in
  * the process uses.
@@ -93,6 +114,12 @@ const NO_REPLY_CODES = new Set([dns.TIMEOUT, dns.CONNREFUSED]);
 // one family's query then costs a lookup this long, not the resolver's query timeout.
 const RESOLUTION_DELAY_MS = 50;
 
+// The addresses a localhost name resolves to, by family.
+const LOOPBACK = {
+  4: { address: '127.0.0.1', family: 4 },
+  6: { address: '::1', family: 6 },
+};
+
 const publicResolver = new dns.promises.Resolver(resolverOptions);
 publicResolver.setServers(PUBLIC_DNS_SERVERS);
 
@@ -115,17 +142,22 @@ let systemServers = new dns.promises.Resolver().getServers().map(systemServer);
  * @param {dns.promises.Resolver} resolver
  * @param {string} hostname
  * @param {4|6} family
- * @returns {Promise<{addresses: Array<{address: string, family: number}>, failed: boolean, noReply: boolean}>}
- *   failed: the query errored rather than being answered. noReply: the server did not answer.
+ * @returns {Promise<{addresses: Array<{address: string, family: number}>, error: ?Error, failed: boolean, noReply: boolean}>}
+ *   error: the query's error, null when it answered with addresses. failed: the query errored
+ *   rather than being answered. noReply: the server did not answer.
  */
 async function queryFamily(resolver, hostname, family) {
   try {
     const addresses = family === 4
       ? await resolver.resolve4(hostname)
       : await resolver.resolve6(hostname);
-    return { addresses: addresses.map((address) => ({ address, family })), failed: false, noReply: false };
+    return {
+      addresses: addresses.map((address) => ({ address, family })), error: null, failed: false, noReply: false,
+    };
   } catch (error) {
-    return { addresses: [], failed: !NO_ADDRESS_CODES.has(error.code), noReply: NO_REPLY_CODES.has(error.code) };
+    return {
+      addresses: [], error, failed: !NO_ADDRESS_CODES.has(error.code), noReply: NO_REPLY_CODES.has(error.code),
+    };
   }
 }
 
@@ -158,17 +190,20 @@ function settleWithResolutionDelay(queries) {
  * @param {dns.promises.Resolver} resolver
  * @param {string} hostname
  * @param {Array<4|6>} families In the order the addresses are returned.
- * @returns {Promise<{addresses: Array<{address: string, family: number}>, failed: boolean, noReply: boolean}>}
- *   failed: no address, and at least one family's query errored. noReply: no address, and no
- *   family's query was answered.
+ * @returns {Promise<{addresses: Array<{address: string, family: number}>, error: ?Error, failed: boolean, noReply: boolean}>}
+ *   error: when there is no address, the error of a query that errored if any did, else of the
+ *   first family's query. failed: no address, and at least one family's query errored. noReply:
+ *   no address, and no family's query was answered.
  */
 async function queryResolver(resolver, hostname, families) {
   const results = (await settleWithResolutionDelay(
     families.map((family) => queryFamily(resolver, hostname, family)),
   )).filter(Boolean);
   const addresses = results.flatMap((result) => result.addresses);
+  const errored = results.find((result) => result.failed) ?? results[0];
   return {
     addresses,
+    error: addresses.length ? null : errored.error,
     failed: !addresses.length && results.some((result) => result.failed),
     noReply: !addresses.length && results.length > 0 && results.every((result) => result.noReply),
   };
@@ -207,15 +242,28 @@ function reprobeIfDue(server) {
 
 /**
  * @param {string} hostname
+ * @returns {boolean} Whether the name is `localhost` or falls within it (RFC 6761 section 6.3).
+ */
+function isLocalhostName(hostname) {
+  const name = hostname.toLowerCase().replace(/\.$/, '');
+  return name === 'localhost' || name.endsWith('.localhost');
+}
+
+/**
+ * @param {string} hostname
  * @param {number} [family] 4 or 6 for that family only; anything else for both.
  * @returns {Promise<Array<{address: string, family: number}>>} Never empty.
- * @throws The operating system resolver's error when no source has an address.
+ * @throws The last source's DNS error when no source has an address: the system server's when
+ *   it answered that the name has no address, otherwise the public servers'.
  */
 async function resolveHostname(hostname, family) {
   const families = family === 4 || family === 6 ? [family] : FAMILIES_IN_ORDER;
 
+  if (isLocalhostName(hostname)) return families.map((wanted) => LOOPBACK[wanted]);
+
   // The public servers are asked unless a system server answered that the name has no address.
   let askPublic = true;
+  let lastError = null;
   // eslint-disable-next-line no-restricted-syntax
   for (const server of systemServers) {
     if (server.silent) {
@@ -226,6 +274,7 @@ async function resolveHostname(hostname, family) {
     // eslint-disable-next-line no-await-in-loop
     const fromServer = await queryResolver(server.resolver, hostname, families);
     if (fromServer.addresses.length) return fromServer.addresses;
+    lastError = fromServer.error;
     if (!fromServer.failed) {
       askPublic = false;
       break;
@@ -237,10 +286,10 @@ async function resolveHostname(hostname, family) {
   if (askPublic) {
     const fromPublic = await queryResolver(publicResolver, hostname, families);
     if (fromPublic.addresses.length) return fromPublic.addresses;
+    lastError = fromPublic.error;
   }
 
-  const fromOs = await dns.promises.lookup(hostname, { all: true, family: families.length === 1 ? families[0] : 0 });
-  return families.flatMap((wanted) => fromOs.filter((entry) => entry.family === wanted));
+  throw lastError;
 }
 
 /**

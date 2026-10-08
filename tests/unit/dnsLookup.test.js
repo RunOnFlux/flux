@@ -73,11 +73,10 @@ describe('dnsLookup tests', () => {
     return answerFrom(this, hostname, 6, 'queryAaaa');
   }
 
+  // The operating system resolver answers every name, so a lookup that calls it is seen to.
   function fakeOsLookup() {
     asked.push('os');
-    const answer = answers.os;
-    if (Array.isArray(answer)) return Promise.resolve(answer);
-    return Promise.reject(dnsError(answer, 'getaddrinfo'));
+    return Promise.resolve([{ address: '203.0.113.99', family: 4 }]);
   }
 
   beforeEach(() => {
@@ -87,7 +86,6 @@ describe('dnsLookup tests', () => {
       second: { 4: 'ESERVFAIL', 6: 'ESERVFAIL' },
       public: { 4: 'ESERVFAIL', 6: 'ESERVFAIL' },
       probe: { system: 'ENOTFOUND', second: 'ENOTFOUND' },
-      os: 'ENOTFOUND',
     };
     dnsLookup.useSystemServers([SYSTEM]);
     sinon.stub(dns.promises.Resolver.prototype, 'resolve4').callsFake(fakeResolve4);
@@ -131,12 +129,16 @@ describe('dnsLookup tests', () => {
     it('should not ask the public servers when the system servers answer that the name does not exist', async () => {
       answers.system = { 4: 'ENOTFOUND', 6: 'ENOTFOUND' };
       answers.public[4] = ['203.0.113.21'];
-      answers.os = [{ address: '203.0.113.22', family: 4 }];
 
-      const result = await lookupAsync(HOSTNAME, { all: true });
+      let caught = null;
+      try {
+        await lookupAsync(HOSTNAME, { all: true });
+      } catch (error) {
+        caught = error;
+      }
 
-      expect(result).to.deep.equal([{ address: '203.0.113.22', family: 4 }]);
-      expect(asked).to.have.members(['system:4', 'system:6', 'os']);
+      expect(caught.code).to.equal('ENOTFOUND');
+      expect(asked).to.deep.equal(['system:4', 'system:6']);
     });
 
     it('should not ask the public servers when the system servers answer that the name has no records', async () => {
@@ -150,8 +152,8 @@ describe('dnsLookup tests', () => {
         caught = error;
       }
 
-      expect(caught.code).to.equal('ENOTFOUND');
-      expect(asked).to.have.members(['system:4', 'system:6', 'os']);
+      expect(caught.code).to.equal('ENODATA');
+      expect(asked).to.deep.equal(['system:4', 'system:6']);
     });
 
     describe('a family that answers late or never', () => {
@@ -212,26 +214,102 @@ describe('dnsLookup tests', () => {
       });
     });
 
-    it('should fall back to the operating system resolver when no DNS server has an address', async () => {
-      answers.os = [{ address: '203.0.113.30', family: 4 }];
-
-      const result = await lookupAsync(HOSTNAME, { all: true });
-
-      expect(result).to.deep.equal([{ address: '203.0.113.30', family: 4 }]);
-      expect(asked).to.include('os');
-    });
-
-    it('should pass on the operating system resolver\'s error when nothing has an address', async () => {
-      let caught = null;
-      try {
-        await lookupAsync(HOSTNAME, { all: true });
-      } catch (error) {
-        caught = error;
+    describe('a lookup no source answers with an address', () => {
+      async function lookupError(options = { all: true }) {
+        try {
+          await lookupAsync(HOSTNAME, options);
+        } catch (error) {
+          return error;
+        }
+        return null;
       }
 
-      expect(caught).to.not.equal(null);
-      expect(caught.code).to.equal('ENOTFOUND');
-      expect(caught.hostname).to.equal(HOSTNAME);
+      it('should fail with the system server\'s error when it answers that the name does not exist', async () => {
+        answers.system = { 4: 'ENOTFOUND', 6: 'ENOTFOUND' };
+
+        const error = await lookupError();
+
+        expect(error.code).to.equal('ENOTFOUND');
+        expect(error.hostname).to.equal(HOSTNAME);
+        expect(asked).to.deep.equal(['system:4', 'system:6']);
+      });
+
+      it('should fail with the public servers\' error when no server answers that the name has no address', async () => {
+        answers.public = { 4: 'ETIMEOUT', 6: 'ETIMEOUT' };
+
+        const error = await lookupError();
+
+        expect(error.code).to.equal('ETIMEOUT');
+        expect(asked).to.deep.equal(['system:4', 'system:6', 'public:4', 'public:6']);
+      });
+
+      it('should fail with the public servers\' answer that the name does not exist when the system server fails', async () => {
+        answers.public = { 4: 'ENOTFOUND', 6: 'ENOTFOUND' };
+
+        const error = await lookupError();
+
+        expect(error.code).to.equal('ENOTFOUND');
+      });
+
+      it('should fail with the error of the family whose query failed, not of the one with no records', async () => {
+        answers.system = { 4: 'ENODATA', 6: 'ESERVFAIL' };
+        answers.public = { 4: 'ENODATA', 6: 'ETIMEOUT' };
+
+        const error = await lookupError();
+
+        expect(error.code).to.equal('ETIMEOUT');
+      });
+
+      it('should fail with the error of the one family asked for', async () => {
+        answers.public = { 4: 'ETIMEOUT', 6: 'ENOTFOUND' };
+
+        const error = await lookupError({ family: 6, all: true });
+
+        expect(error.code).to.equal('ENOTFOUND');
+        expect(asked).to.deep.equal(['system:6', 'public:6']);
+      });
+
+      it('should never ask the operating system resolver', async () => {
+        await lookupError();
+
+        expect(asked).to.include('public:4');
+        expect(asked).to.not.include('os');
+      });
+    });
+
+    describe('localhost', () => {
+      it('should answer localhost with the loopback addresses, IPv4 first, without a query', async () => {
+        const result = await lookupAsync('localhost', { all: true });
+
+        expect(result).to.deep.equal([{ address: '127.0.0.1', family: 4 }, { address: '::1', family: 6 }]);
+        expect(asked).to.deep.equal([]);
+      });
+
+      it('should answer a name under localhost, in any case and with a trailing dot', async () => {
+        const results = await Promise.all(['LocalHost', 'localhost.', 'shareddb.localhost', 'a.b.LOCALHOST.']
+          .map((name) => lookupAsync(name, { all: true })));
+
+        results.forEach((result) => expect(result).to.deep.equal([
+          { address: '127.0.0.1', family: 4 }, { address: '::1', family: 6 },
+        ]));
+        expect(asked).to.deep.equal([]);
+      });
+
+      it('should answer only the family asked for', async () => {
+        expect(await lookupAsync('localhost', { family: 6 })).to.deep.equal({ address: '::1', family: 6 });
+        expect(await lookupAsync('localhost', { family: 4 })).to.deep.equal({ address: '127.0.0.1', family: 4 });
+        expect(await lookupAsync('localhost', {})).to.deep.equal({ address: '127.0.0.1', family: 4 });
+      });
+
+      it('should ask DNS for a name that only contains localhost', async () => {
+        answers.system = { 4: ['203.0.113.70'], 6: 'ENODATA' };
+
+        const results = await Promise.all(['localhost.example.com', 'notlocalhost']
+          .map((name) => lookupAsync(name, { all: true })));
+
+        results.forEach((result) => expect(result).to.deep.equal([{ address: '203.0.113.70', family: 4 }]));
+        expect(asked).to.have.lengthOf(4);
+      });
     });
 
     it('should return IPv4 addresses before IPv6 addresses', async () => {
@@ -246,17 +324,6 @@ describe('dnsLookup tests', () => {
         { address: '2001:db8::40', family: 6 },
       ]);
       expect(first).to.deep.equal({ address: '203.0.113.40', family: 4 });
-    });
-
-    it('should order the operating system resolver\'s addresses IPv4 first', async () => {
-      answers.os = [{ address: '2001:db8::50', family: 6 }, { address: '203.0.113.50', family: 4 }];
-
-      const result = await lookupAsync(HOSTNAME, { all: true });
-
-      expect(result).to.deep.equal([
-        { address: '203.0.113.50', family: 4 },
-        { address: '2001:db8::50', family: 6 },
-      ]);
     });
 
     it('should query only the family asked for', async () => {
