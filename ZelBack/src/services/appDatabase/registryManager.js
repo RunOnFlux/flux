@@ -33,14 +33,13 @@ const { Privilege, authOf } = require('../utils/privileges');
 let reindexRunning = false;
 
 /**
- * The state of this node's app registry as counts: whether it is built, how many
- * apps it holds, how many app transactions the explorer has recorded, how many
- * of those this node still has no message for, and how many of the missing ones
- * it has stopped looking for. A node that is not ready answers too, with
- * `ready: false`.
+ * The state of this node's app registry: the app sync state, how many apps it
+ * holds, how many app transactions the explorer has recorded, how many of those
+ * this node still has no message for, and how many of the missing ones it has
+ * stopped looking for. A node answers in every sync state, READY or not.
  * @param {object} _req - Request object (unused)
  * @param {object} res - Response object
- * @returns {Promise<object>} {ready, apps, transactions, missingMessages, messagesNotFound}
+ * @returns {Promise<object>} {syncState, apps, transactions, missingMessages, messagesNotFound}
  */
 async function getRegistryStatus(_req, res) {
   try {
@@ -57,7 +56,7 @@ async function getRegistryStatus(_req, res) {
       dbHelper.countInDatabase(daemonDatabase, appsHashesCollection, { message: false, messageNotFound: true }),
     ]);
     const status = {
-      ready: globalState.dbReady,
+      syncState: globalState.appSyncState,
       apps,
       transactions,
       missingMessages,

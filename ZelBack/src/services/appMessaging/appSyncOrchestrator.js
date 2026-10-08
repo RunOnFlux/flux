@@ -188,6 +188,7 @@ class AppSyncOrchestrator {
     const prevState = this.#state;
     if (prevState === newState) return;
     this.#state = newState;
+    globalState.appSyncState = newState;
     fluxEventBus.publish('orchestrator:stateChanged', { from: prevState, to: newState });
     if (prevState === STATES.READY && newState !== STATES.READY) {
       appSyncEvents.emit(EVENTS.READINESS_LOST);

@@ -198,7 +198,7 @@ describe('registryManager tests', () => {
     const infoCollection = config.database.appsglobal.collections.appsInformation;
     const hashesCollection = config.database.daemon.collections.appsHashes;
     let daemonDatabase;
-    let readyBefore;
+    let syncStateBefore;
 
     const hashRecord = (i, message) => ({
       txid: `tx${i}`, height: 1000 + i, hash: `hash${i}`, value: 100000000, message,
@@ -208,23 +208,23 @@ describe('registryManager tests', () => {
       daemonDatabase = db.db(config.database.daemon.database);
       await database.collection(infoCollection).deleteMany({});
       await daemonDatabase.collection(hashesCollection).deleteMany({});
-      readyBefore = globalState.dbReady;
+      syncStateBefore = globalState.appSyncState;
     });
 
     afterEach(async () => {
-      globalState.dbReady = readyBefore;
+      globalState.appSyncState = syncStateBefore;
       await database.collection(infoCollection).deleteMany({});
       await daemonDatabase.collection(hashesCollection).deleteMany({});
     });
 
-    it('counts the registry, the recorded transactions and those without a message', async () => {
+    it('reports the sync state and counts the registry, the recorded transactions and those without a message', async () => {
       await database.collection(infoCollection).insertMany([
         { name: 'AppOne', owner: 'o1' }, { name: 'AppTwo', owner: 'o2' }, { name: 'AppThree', owner: 'o3' },
       ]);
       await daemonDatabase.collection(hashesCollection).insertMany([
         hashRecord(1, true), hashRecord(2, true), hashRecord(3, false), hashRecord(4, true), hashRecord(5, false),
       ]);
-      globalState.dbReady = true;
+      globalState.appSyncState = 'READY';
       const res = { json: sinon.fake((param) => param) };
 
       const result = await registryManager.getRegistryStatus(undefined, res);
@@ -233,23 +233,28 @@ describe('registryManager tests', () => {
       expect(result).to.deep.equal({
         status: 'success',
         data: {
-          ready: true, apps: 3, transactions: 5, missingMessages: 2, messagesNotFound: 0,
+          syncState: 'READY', apps: 3, transactions: 5, missingMessages: 2, messagesNotFound: 0,
         },
       });
     });
 
-    it('answers while the registry is not ready, saying so', async () => {
+    it('answers in every sync state, saying which', async () => {
       await daemonDatabase.collection(hashesCollection).insertMany([hashRecord(1, false), hashRecord(2, false)]);
-      globalState.dbReady = false;
 
-      const result = await registryManager.getRegistryStatus(undefined, undefined);
+      // eslint-disable-next-line no-restricted-syntax
+      for (const syncState of ['INITIALIZING', 'SYNCING', 'DEGRADED', 'RESYNCING']) {
+        globalState.appSyncState = syncState;
 
-      expect(result).to.deep.equal({
-        status: 'success',
-        data: {
-          ready: false, apps: 0, transactions: 2, missingMessages: 2, messagesNotFound: 0,
-        },
-      });
+        // eslint-disable-next-line no-await-in-loop
+        const result = await registryManager.getRegistryStatus(undefined, undefined);
+
+        expect(result).to.deep.equal({
+          status: 'success',
+          data: {
+            syncState, apps: 0, transactions: 2, missingMessages: 2, messagesNotFound: 0,
+          },
+        });
+      }
     });
 
     it('does not count a record whose message is unknown rather than missing', async () => {

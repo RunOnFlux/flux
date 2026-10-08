@@ -16,6 +16,7 @@ const bootContainerStateSettledGate = new AsyncGate();
 const dbReadyGate = new AsyncGate();
 const policyReadyGate = new AsyncGate();
 let appStateAuthoritative = false;
+let appSyncState = 'INITIALIZING';
 let updateSyncthingRunning = false;
 let syncthingAppsFirstRun = true;
 const backupInProgress = [];
@@ -286,6 +287,12 @@ module.exports = {
   // and mirrors it; nothing else writes it.
   get appStateAuthoritative() { return appStateAuthoritative; },
   set appStateAuthoritative(value) { appStateAuthoritative = Boolean(value); },
+
+  // The app sync orchestrator's state (INITIALIZING, SYNCING, READY, DEGRADED,
+  // RESYNCING), for readers that cannot require the orchestrator without a
+  // cycle. The orchestrator owns the value and mirrors it; nothing else writes it.
+  get appSyncState() { return appSyncState; },
+  set appSyncState(value) { appSyncState = value; },
 
   get updateSyncthingRunning() { return updateSyncthingRunning; },
   set updateSyncthingRunning(value) { updateSyncthingRunning = value; },
