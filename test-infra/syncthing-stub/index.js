@@ -1061,18 +1061,24 @@ control.post('/sync-state', (req, res) => {
   return res.json({ ok: true });
 });
 
-// The bytes each node's volume should hold for each folder: what its declared state
-// reports in sync, unless the declaration says the disk does not hold it. Keyed as
-// the overrides are; '*' applies to every node without one of its own.
+// claims: the bytes each node's volume should hold for each folder - what its declared
+// state reports in sync, unless the declaration says the disk does not hold it. Keyed
+// as the overrides are; '*' applies to every node without one of its own.
+// paused: each folder a node's config has paused. A paused folder moves no data, so
+// whatever its volume holds is left as it is.
 control.get('/disk-claims', (req, res) => {
-  res.json(Array.from(syncOverrides.entries()).map(([key, ov]) => {
+  const claims = Array.from(syncOverrides.entries()).map(([key, ov]) => {
     const sep = key.indexOf('|');
     return {
       ip: key.slice(0, sep),
       folder: key.slice(sep + 1),
       bytes: ov.onDisk && !ov.statusUnreadable ? Math.max(0, Number(ov.inSyncBytes) || 0) : 0,
     };
-  }));
+  });
+  const paused = Array.from(nodeStates.entries()).flatMap(([ip, state]) => Array.from(state.folders.entries())
+    .filter(([, folder]) => folder.paused)
+    .map(([id]) => ({ ip, folder: id })));
+  res.json({ claims, paused });
 });
 
 // Set what /rest/db/completion returns for a (node ip, folder, peer device).
