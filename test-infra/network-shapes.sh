@@ -30,6 +30,14 @@
 #                       holds; a target-less rule counts the queries sent to it
 #                       without failing their send. Everything in the node that
 #                       resolves through /etc/resolv.conf meets the silent server.
+#   public-dns-counted  the node's own DNS server is the fleet's resolver as on
+#                       every node, and the public resolvers FluxOS asks next are
+#                       the fleet's resolver on its public-route port, so the
+#                       resolver counts a query by the route it came in on.
+#   dead-first-nameserver
+#                       the node's resolv.conf lists a server that never answers
+#                       (192.0.2.1, counted as in silent-dns) ahead of the fleet's
+#                       resolver.
 set -euo pipefail
 
 shape="$1"
@@ -92,6 +100,20 @@ case "$shape" in
         iptables -t nat -A OUTPUT -d "$resolver" -p "$proto" --dport 53 -j DNAT --to-destination "$FLUX_E2E_RESOLVER:53"
       done
     done
+    ;;
+  public-dns-counted)
+    : "${FLUX_E2E_RESOLVER:?}"
+    # dnsLookup.js's PUBLIC_DNS_SERVERS, to the resolver's public-route port.
+    for resolver in 1.1.1.1 8.8.8.8 9.9.9.9; do
+      for proto in udp tcp; do
+        iptables -t nat -A OUTPUT -d "$resolver" -p "$proto" --dport 53 -j DNAT --to-destination "$FLUX_E2E_RESOLVER:5354"
+      done
+    done
+    ;;
+  dead-first-nameserver)
+    : "${FLUX_E2E_RESOLVER:?}"
+    printf 'nameserver 192.0.2.1\nnameserver %s\n' "$FLUX_E2E_RESOLVER" > /etc/resolv.conf
+    iptables -A OUTPUT -d 192.0.2.1 -p udp --dport 53
     ;;
   *)
     echo "network-shapes: unknown shape '$shape'" >&2

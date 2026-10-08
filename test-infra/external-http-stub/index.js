@@ -1130,14 +1130,16 @@ control.post('/dns-attempts/reset', (req, res) => {
 });
 
 // Names this resolver answers itself instead of relaying, per record type:
-// { name, records: { A: '<ipv4>' | 'SERVFAIL', AAAA: 'SERVFAIL' } }. A type left out is
-// relayed as any other query is. Each answer given is counted, so a suite can show the
-// node asked the question it meant to fail rather than only that it went on to succeed.
+// { name, records: { A: '<ipv4>' | 'SERVFAIL' | 'NO_REPLY', AAAA: 'SERVFAIL' | 'NO_REPLY' } }.
+// NO_REPLY leaves the query unanswered. A type left out is relayed as any other query is.
+// Each query for a recorded type is counted - in `served` by type, and in `via` by the route
+// it came in on and type - so a suite can show the node asked the question it meant to fail,
+// and by which route, rather than only that it went on to succeed.
 const dnsRecords = new Map();
 
 control.post('/dns-records', (req, res) => {
   const { name, records } = req.body;
-  dnsRecords.set(name.toLowerCase(), { records, served: {} });
+  dnsRecords.set(name.toLowerCase(), { records, served: {}, via: {} });
   res.json({ ok: true });
 });
 
@@ -1209,11 +1211,17 @@ function aRecord(ip) {
   return record;
 }
 
+// The answer recordedAnswer gives a query it leaves unanswered.
+const NO_REPLY = Symbol('no reply');
+
 /**
- * This resolver's own answer to a query for a name in dnsRecords, or null to relay it.
- * @returns {Buffer|null}
+ * This resolver's own answer to a query for a name in dnsRecords: a response, NO_REPLY, or
+ * null to relay it.
+ * @param {Buffer} query
+ * @param {string} route The listener the query came in on.
+ * @returns {Buffer|symbol|null}
  */
-function recordedAnswer(query) {
+function recordedAnswer(query, route) {
   const { name, type, end } = parseQuestion(query);
   const entry = dnsRecords.get(name.toLowerCase());
   const typeName = DNS_TYPES[type];
@@ -1221,15 +1229,26 @@ function recordedAnswer(query) {
   if (record === undefined) return null;
 
   entry.served[typeName] = (entry.served[typeName] ?? 0) + 1;
+  entry.via[route] = entry.via[route] ?? {};
+  entry.via[route][typeName] = (entry.via[route][typeName] ?? 0) + 1;
+  if (record === 'NO_REPLY') return NO_REPLY;
   if (record === 'SERVFAIL') return dnsResponse(query, end, 2);
   return dnsResponse(query, end, 0, [aRecord(record)]);
 }
 
-function startResolver() {
+/**
+ * The fleet's resolver on one port. Port 53 is the route a node's own DNS takes ('own'); the
+ * public-dns-counted network shape sends a node's queries to the public DNS servers to
+ * PUBLIC_ROUTE_PORT ('public'), so a recorded name's counts tell the two routes apart.
+ * @param {number} port
+ * @param {string} route
+ */
+function startResolver(port, route) {
   const server = dgram.createSocket('udp4');
 
   server.on('message', (query, rinfo) => {
-    const recorded = recordedAnswer(query);
+    const recorded = recordedAnswer(query, route);
+    if (recorded === NO_REPLY) return;
     if (recorded) {
       server.send(recorded, rinfo.port, rinfo.address);
       return;
@@ -1291,19 +1310,22 @@ function startResolver() {
   let bound = false;
   server.on('error', (error) => {
     if (!bound) {
-      console.error(`External HTTP stub resolver could not bind to 53: ${error.message}`);
+      console.error(`External HTTP stub resolver could not bind to ${port}: ${error.message}`);
       process.exit(1);
     }
     console.error(`External HTTP stub resolver socket error: ${error.message}`);
   });
 
-  server.bind(53, () => {
+  server.bind(port, () => {
     bound = true;
-    console.log('External HTTP stub resolver on port 53');
+    console.log(`External HTTP stub resolver on port ${port} (${route})`);
   });
 }
 
-startResolver();
+const PUBLIC_ROUTE_PORT = 5354;
+
+startResolver(53, 'own');
+startResolver(PUBLIC_ROUTE_PORT, 'public');
 
 app.listen(PORT, () => {
   console.log(`External HTTP stub listening on port ${PORT}`);

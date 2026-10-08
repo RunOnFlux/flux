@@ -23,21 +23,18 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // thread's global agent, and so through the lookup FluxOS installs there; the refresh
 // is compressed so lookups come every few seconds.
 //
-// A lookup that asks the silent server sends each family's query QUERY_TRIES times
-// (dnsLookup.js). The server is remembered as silent after the first such lookup and
-// asked again only by the background re-check, every SILENT_RECHECK_MS, so over a
-// window of LOOKUPS lookups shorter than SILENT_RECHECK_MS it is asked at most one
-// re-check's queries, where a node that did not remember it would ask
-// LOOKUPS lookups' worth.
+// The first lookup asks the silent server once per family and then probes it once, and the
+// probe goes unanswered (dnsLookup.js). After that the server is skipped, and probed again at
+// most once every REPROBE_MS, so over a window of lookups it is sent at most one query per
+// REPROBE_MS begun, where a node that did not remember it would send each lookup's queries
+// and a probe.
 
 const POLICY_HOST = 'policy.e2e.test';
 const NODES = 3;
 const SHAPED = 0;
 const SILENT_SERVER = '192.0.2.1';
-const FAMILIES = 2;
-const QUERY_TRIES = 2;
+const REPROBE_MS = 30000;
 const LOOKUPS = 3;
-const QUERIES_PER_ASK = FAMILIES * QUERY_TRIES;
 
 describe('a node whose own DNS server is silent waits on it once', function () {
   let env;
@@ -90,15 +87,17 @@ describe('a node whose own DNS server is silent waits on it once', function () {
     });
   });
 
-  it(`asks its own server at most one re-check's queries over ${LOOKUPS} lookups`, async function () {
+  it(`sends its own server at most one probe per ${REPROBE_MS / 1000}s over ${LOOKUPS} lookups`, async function () {
     this.timeout(150000);
     const queriesBefore = await silentQueries();
     const servedBefore = await servedA();
+    const startedAt = Date.now();
     await waitFor(async () => (await servedA()) >= servedBefore + LOOKUPS, {
       timeout: 120000, interval: 1000, label: `${LOOKUPS} more lookups of ${POLICY_HOST}`,
     });
+    const allowed = Math.floor((Date.now() - startedAt) / REPROBE_MS) + 1;
     const lookups = (await servedA()) - servedBefore;
     const queries = (await silentQueries()) - queriesBefore;
-    expect(queries, `${queries} queries to ${SILENT_SERVER} over ${lookups} lookups`).to.be.at.most(QUERIES_PER_ASK);
+    expect(queries, `${queries} queries to ${SILENT_SERVER} over ${lookups} lookups`).to.be.at.most(allowed);
   });
 });
