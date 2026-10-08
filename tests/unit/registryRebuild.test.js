@@ -26,8 +26,10 @@ const HEIGHT = 1000;
 describe('registry rebuild', () => {
   let globalDb;
   let localDb;
+  let daemonDb;
   const globalName = `registryRebuildTest_${process.pid}_global`;
   const localName = `registryRebuildTest_${process.pid}_local`;
+  const daemonName = `registryRebuildTest_${process.pid}_daemon`;
 
   const message = (name, height) => ({
     type: 'fluxappregister',
@@ -47,7 +49,7 @@ describe('registry rebuild', () => {
   };
 
   const rebuild = () => dbHelper.reindexGlobalAppsInformation(
-    globalDb, localDb, MESSAGES, INFO, LOCAL_INFO, HEIGHT,
+    globalDb, localDb, MESSAGES, INFO, LOCAL_INFO, HEIGHT, daemonDb,
   );
 
   // Resolves once the rebuild has created its staging collection, which is the
@@ -67,11 +69,13 @@ describe('registry rebuild', () => {
     const client = dbHelper.databaseConnection();
     globalDb = client.db(globalName);
     localDb = client.db(localName);
+    daemonDb = client.db(daemonName);
   });
 
   beforeEach(async () => {
     await globalDb.dropDatabase();
     await localDb.dropDatabase();
+    await daemonDb.dropDatabase();
     const docs = [];
     for (let i = 0; i < APPS; i += 1) docs.push(message(`app${i}`, HEIGHT));
     await globalDb.collection(MESSAGES).insertMany(docs);
@@ -82,6 +86,7 @@ describe('registry rebuild', () => {
   after(async () => {
     if (globalDb) await globalDb.dropDatabase();
     if (localDb) await localDb.dropDatabase();
+    if (daemonDb) await daemonDb.dropDatabase();
   });
 
   it('rebuilds one row per live app from the messages', async () => {
@@ -139,6 +144,147 @@ describe('registry rebuild', () => {
     await promote(message('unlockedWrite', HEIGHT + 1));
     await running;
     expect(await globalDb.collection(INFO).countDocuments({ name: 'unlockedWrite' })).to.equal(0);
+  });
+});
+
+// Who holds a name is decided by the chain (appMessageChain): the rebuild applies that to every
+// name whose message in force can differ from its newest message.
+describe('registry rebuild: who holds a name', () => {
+  let globalDb;
+  let localDb;
+  let daemonDb;
+  const prefix = `registryNameRuleTest_${process.pid}`;
+  const HEIGHT = 5000;
+
+  const msg = ({
+    hash, type = 'fluxappregister', owner, height, timestamp = height, expire = 1_000_000, name = 'contested',
+  }) => ({
+    type, version: 1, hash, height, timestamp, appSpecifications: { name, version: 3, owner, expire },
+  });
+  const pay = (hash, height, txIndex, extra = {}) => ({
+    hash, height, txIndex, txid: `tx-${hash}`, value: 1, message: true, ...extra,
+  });
+
+  const seed = async (messages, payments) => {
+    await globalDb.collection(MESSAGES).insertMany(messages);
+    if (payments.length) await daemonDb.collection('zelappshashes').insertMany(payments);
+  };
+  const rebuild = () => dbHelper.reindexGlobalAppsInformation(globalDb, localDb, MESSAGES, INFO, LOCAL_INFO, HEIGHT, daemonDb);
+  const row = (name = 'contested') => globalDb.collection(INFO).findOne({ name });
+
+  before(async function setUp() {
+    await requireMongo.call(this);
+    const client = dbHelper.databaseConnection();
+    globalDb = client.db(`${prefix}_global`);
+    localDb = client.db(`${prefix}_local`);
+    daemonDb = client.db(`${prefix}_daemon`);
+  });
+
+  beforeEach(async () => {
+    await Promise.all([globalDb.dropDatabase(), localDb.dropDatabase(), daemonDb.dropDatabase()]);
+  });
+
+  after(async () => {
+    if (globalDb) await Promise.all([globalDb.dropDatabase(), localDb.dropDatabase(), daemonDb.dropDatabase()]);
+  });
+
+  it('keeps the name with its holder when another owner registers it while the app is live', async () => {
+    await seed(
+      [msg({ hash: 'holder', owner: 'alice', height: 1000 }), msg({ hash: 'taker', owner: 'mallory', height: 2000 })],
+      [pay('holder', 1000, 0), pay('taker', 2000, 0)],
+    );
+    await rebuild();
+    expect((await row()).hash).to.equal('holder');
+  });
+
+  it('gives a free name to another owner once the holder\'s app has expired', async () => {
+    await seed(
+      [msg({ hash: 'holder', owner: 'alice', height: 1000, expire: 500 }), msg({ hash: 'next', owner: 'bob', height: 2000 })],
+      [pay('holder', 1000, 0), pay('next', 2000, 0)],
+    );
+    await rebuild();
+    expect((await row()).hash).to.equal('next');
+  });
+
+  it('gives a name two owners register in one block to the registration earliest in the block, whatever the timestamps', async () => {
+    await seed(
+      [
+        msg({ hash: 'later-in-block', owner: 'mallory', height: 1000, timestamp: 1 }),
+        msg({ hash: 'earlier-in-block', owner: 'alice', height: 1000, timestamp: 9 }),
+      ],
+      [pay('later-in-block', 1000, 7), pay('earlier-in-block', 1000, 3)],
+    );
+    await rebuild();
+    expect((await row()).hash).to.equal('earlier-in-block');
+  });
+
+  it('applies the holder\'s latest signed update, wherever it sits in the block', async () => {
+    await seed(
+      [
+        msg({ hash: 'reg', owner: 'alice', height: 1000 }),
+        msg({ hash: 'taker', owner: 'mallory', height: 1500 }),
+        msg({
+          hash: 'signed-last', type: 'fluxappupdate', owner: 'alice', height: 2000, timestamp: 20,
+        }),
+        msg({
+          hash: 'signed-first', type: 'fluxappupdate', owner: 'alice', height: 2000, timestamp: 10,
+        }),
+      ],
+      [pay('reg', 1000, 0), pay('taker', 1500, 0), pay('signed-last', 2000, 1), pay('signed-first', 2000, 6)],
+    );
+    await rebuild();
+    expect((await row()).hash).to.equal('signed-last');
+  });
+
+  it('never stands a message whose payment is not on the chain', async () => {
+    await seed(
+      [
+        msg({ hash: 'reg', owner: 'alice', height: 1000, name: 'solo' }),
+        msg({
+          hash: 'orphaned', type: 'fluxappupdate', owner: 'alice', height: 2000, name: 'solo',
+        }),
+      ],
+      [pay('reg', 1000, 0), pay('orphaned', 2000, 0, { notOnChain: true })],
+    );
+    await rebuild();
+    expect((await row('solo')).hash).to.equal('reg');
+  });
+
+  it('keeps the holder\'s live app when the newest message is another owner\'s registration that has expired', async () => {
+    await seed(
+      [msg({ hash: 'holder', owner: 'alice', height: 1000 }), msg({ hash: 'taker', owner: 'mallory', height: 2000, expire: 100 })],
+      [pay('holder', 1000, 0), pay('taker', 2000, 0)],
+    );
+    await localDb.collection(LOCAL_INFO).insertOne({ name: 'contested', height: 1000 });
+    const appsToRemove = await rebuild();
+    expect((await row()).hash).to.equal('holder');
+    expect(appsToRemove).to.not.include('contested');
+  });
+
+  // The reindex check counts live apps by the same rule the rebuild applies, so a registry the
+  // rebuild just produced reads as consistent; the canary shows the check does report a mismatch.
+  it('reads a registry it rebuilt under the name rule as consistent', async () => {
+    await seed(
+      [msg({ hash: 'holder', owner: 'alice', height: 1000 }), msg({ hash: 'taker', owner: 'mallory', height: 2000, expire: 100 })],
+      [pay('holder', 1000, 0), pay('taker', 2000, 0)],
+    );
+    await rebuild();
+    expect(await dbHelper.isReindexAppsInformationRequired(globalDb, MESSAGES, INFO, HEIGHT, daemonDb)).to.equal(false);
+    await globalDb.collection(INFO).deleteOne({ name: 'contested' });
+    await globalDb.collection(INFO).insertOne({ name: 'other', height: 1000, expire: 1_000_000 });
+    await globalDb.collection(INFO).insertOne({ name: 'another', height: 1000, expire: 1_000_000 });
+    expect(await dbHelper.isReindexAppsInformationRequired(globalDb, MESSAGES, INFO, HEIGHT, daemonDb)).to.equal(true);
+  });
+
+  it('removes this node\'s install when the newest message is another owner\'s live registration and the holder\'s app has expired', async () => {
+    await seed(
+      [msg({ hash: 'holder', owner: 'alice', height: 1000, expire: 1500 }), msg({ hash: 'taker', owner: 'mallory', height: 2000 })],
+      [pay('holder', 1000, 0), pay('taker', 2000, 0)],
+    );
+    await localDb.collection(LOCAL_INFO).insertOne({ name: 'contested', height: 1000 });
+    const appsToRemove = await rebuild();
+    expect(await row()).to.equal(null);
+    expect(appsToRemove).to.include('contested');
   });
 });
 

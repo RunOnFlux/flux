@@ -6,6 +6,7 @@ const proxyquire = require('proxyquire');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+const appMessageChain = require('../../ZelBack/src/services/utils/appMessageChain');
 // eslint-disable-next-line no-unused-vars
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
@@ -30,6 +31,11 @@ describe('registryManager tests', () => {
   });
 
   describe('getPreviousAppSpecifications tests', () => {
+    // The messages the stubbed log returns, under the name rule with no payment facts.
+    beforeEach(() => {
+      sinon.stub(dbHelper, 'appMessagesThatCount').callsFake(async (daemonDb, messages) => appMessageChain.messagesThatCount(messages));
+    });
+
     it('should return null if no previous message found', async () => {
       const specifications = { name: 'NewApp' };
       const verificationTimestamp = Date.now();
@@ -111,6 +117,19 @@ describe('registryManager tests', () => {
       expect(previous.description).to.equal('registration');
       // without its timestamp the whole block is left out
       expect(await registryManager.getPreviousAppSpecifications({ name: 'OutOfOrderApp' }, 500)).to.equal(null);
+    });
+
+    it('should check the holder\'s update against the holder\'s spec, past another owner\'s registration of the held name', async () => {
+      const alice = '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC';
+      const mallory = '1Q9sjqQcR2jSFt8pdaF7fhv9ozqD4qLnHu';
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findInDatabase').resolves([
+        { type: 'fluxappregister', height: 100, timestamp: 1000, appSpecifications: { ...specLabelled('alice registers'), owner: alice } },
+        { type: 'fluxappregister', height: 200, timestamp: 2000, appSpecifications: { ...specLabelled('mallory registers'), owner: mallory } },
+      ]);
+
+      const previous = await registryManager.getPreviousAppSpecifications({ name: 'OutOfOrderApp' }, 300, 3000);
+      expect(previous.owner).to.equal(alice);
     });
 
     it('should not let a backdated update be checked against the spec before a transfer', async () => {
@@ -992,15 +1011,15 @@ describe('registryManager tests', () => {
     const stored = (name) => database.collection(appsInformation).findOne({ name });
     const atHeight = (height) => sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height } });
 
-    it('should break a same-block tie by timestamp when deciding the newest message', async () => {
+    it('should break a same-block tie by timestamp when deciding the governing message', async () => {
       await logMessages('SameBlockApp', [
         { hash: 'first', height: 371, timestamp: 1000 },
         { hash: 'second', height: 371, timestamp: 2000 },
       ]);
 
-      expect(await registryManager.isNewestAppMessage('SameBlockApp', 'second')).to.equal(true);
-      expect(await registryManager.isNewestAppMessage('SameBlockApp', 'first')).to.equal(false);
-      expect(await registryManager.isNewestAppMessage('NoSuchApp', 'second')).to.equal(false);
+      expect(await registryManager.isGoverningAppMessage('SameBlockApp', 'second')).to.equal(true);
+      expect(await registryManager.isGoverningAppMessage('SameBlockApp', 'first')).to.equal(false);
+      expect(await registryManager.isGoverningAppMessage('NoSuchApp', 'second')).to.equal(false);
     });
 
     it('should store a registration, then the update that follows it', async () => {
@@ -1017,6 +1036,21 @@ describe('registryManager tests', () => {
       const result = await registryManager.getApplicationSpecifications('UpdateTestApp');
       expect(result.height).to.equal(200);
       expect(result.hash).to.equal('newhash');
+    });
+
+    it('should not store another owner\'s registration of a live app over its holder', async () => {
+      atHeight(250);
+      const holder = { type: 'fluxappregister', hash: 'holderhash', height: 100 };
+      const taker = {
+        type: 'fluxappregister', hash: 'takerhash', height: 200, spec: { owner: '1Q9sjqQcR2jSFt8pdaF7fhv9ozqD4qLnHu' },
+      };
+      await logMessages('HeldApp', [holder]);
+      await promote('HeldApp', holder);
+
+      await database.collection(appsMessages).insertOne(messageOf('HeldApp', taker));
+      await promote('HeldApp', taker);
+
+      expect((await stored('HeldApp')).hash).to.equal('holderhash');
     });
 
     it('should not store a message whose term ends at the current block', async () => {
@@ -1133,10 +1167,10 @@ describe('registryManager tests', () => {
       await logMessages('ConcurrentApp', [older]);
       // The newer message confirms and is promoted while the older one's promotion is between
       // reading the log and writing the spec.
-      const realFindOne = dbHelper.findOneInDatabase;
+      const realFind = dbHelper.findInDatabase;
       let newerPromotion = null;
-      sinon.stub(dbHelper, 'findOneInDatabase').callsFake(async (dbase, collection, query, options) => {
-        const result = await realFindOne(dbase, collection, query, options);
+      sinon.stub(dbHelper, 'findInDatabase').callsFake(async (dbase, collection, query, options) => {
+        const result = await realFind(dbase, collection, query, options);
         if (!newerPromotion && collection === appsMessages && query['appSpecifications.name'] === 'ConcurrentApp') {
           await database.collection(appsMessages).insertOne(messageOf('ConcurrentApp', newer));
           newerPromotion = promote('ConcurrentApp', newer);
