@@ -18,12 +18,18 @@
  * query error when none did. Nothing reads /etc/hosts and nothing calls the operating system's
  * resolver, whose getaddrinfo asks the same servers again with the C library's own timeouts.
  *
- * Within a source, IPv4 and IPv6 are queried separately, and a source that returns addresses
+ * A lookup asks for the families its caller asks for. net.connect passes dns.ADDRCONFIG, and
+ * then, as getaddrinfo does, a family this host holds no routable address of is not asked for:
+ * a host without a global or unique-local IPv6 address sends no AAAA query and gets IPv4
+ * addresses only.
+ *
+ * Within a source, the families are queried separately, and a source that returns addresses
  * for either family answers with them. A router that answers AAAA queries with SERVFAIL
- * therefore leaves a hostname with its IPv4 addresses instead of without any. Once one family
- * has answered with addresses, the other is waited for only RESOLUTION_DELAY_MS, so a router
- * that never answers AAAA queries costs a lookup that delay, not the query timeout. Each query
- * is one try of QUERY_TIMEOUT_MS.
+ * therefore leaves a hostname with its IPv4 addresses instead of without any. The family
+ * dialled first (DNS_RESULT_ORDER) is always waited for; once it has answered with addresses,
+ * the other is waited for only RESOLUTION_DELAY_MS, so a router that never answers AAAA
+ * queries costs a lookup that delay, not the query timeout, and a resolver that answers AAAA
+ * before A still yields the IPv4 addresses. Each query is one try of QUERY_TIMEOUT_MS.
  *
  * A system server that does not answer a lookup at all is either down or unable to resolve that
  * one name: a resolver whose upstream cannot reach a name's authoritative servers does not
@@ -55,8 +61,11 @@
  *   State                                          Lookup waits                  Result
  *   ---------------------------------------------  ----------------------------  ------------------
  *   DNS healthy                                    the server's answer           addresses
- *   localhost, or a name under it                  nothing                       127.0.0.1, ::1
+ *   localhost, or a name under it                  nothing                       127.0.0.1, and ::1
+ *                                                                                when IPv6 is asked
+ *   host with no routable IPv6 address             A only is asked               IPv4 addresses
  *   AAAA never answered, A answered                RESOLUTION_DELAY_MS           IPv4 addresses
+ *   AAAA answered first, A answered later          the A answer                  IPv4 and IPv6
  *   AAAA answered SERVFAIL, A answered             the server's answer           IPv4 addresses
  *   name does not exist (/etc/hosts not read)      the server's answer           ENOTFOUND
  *   name a working system server never answers     a query wait, 1 s / 3 s,      public's addresses
@@ -86,6 +95,7 @@ const crypto = require('node:crypto');
 const dns = require('node:dns');
 const http = require('node:http');
 const https = require('node:https');
+const os = require('node:os');
 
 const { DNS_RESULT_ORDER } = require('./networkDefaults');
 
@@ -163,8 +173,11 @@ async function queryFamily(resolver, hostname, family) {
 
 /**
  * The families' results once every query has settled, or once RESOLUTION_DELAY_MS has passed
- * since the first query that answered with addresses, whichever is sooner.
+ * since the first family's query answered with addresses, whichever is sooner. Only the first
+ * family's addresses start the delay: a later family that answers first is held until the first
+ * family's query settles, so the addresses dialled first are never dropped for being slow.
  * @param {Array<Promise<{addresses: Array<{address: string, family: number}>, failed: boolean}>>} queries
+ *   In the order the families' addresses are dialled.
  * @returns {Promise<Array<{addresses: Array<{address: string, family: number}>, failed: boolean}|null>>}
  *   Index-aligned with queries; null for a query still unsettled when the delay ran out.
  */
@@ -181,7 +194,7 @@ function settleWithResolutionDelay(queries) {
       results[index] = result;
       unsettled -= 1;
       if (!unsettled) finish();
-      else if (result.addresses.length && !delay) delay = setTimeout(finish, RESOLUTION_DELAY_MS);
+      else if (index === 0 && result.addresses.length) delay = setTimeout(finish, RESOLUTION_DELAY_MS);
     }));
   });
 }
@@ -250,14 +263,44 @@ function isLocalhostName(hostname) {
 }
 
 /**
+ * Whether this host holds an address of the family that can reach beyond it: for IPv4 any but
+ * loopback, for IPv6 any but loopback and link-local (fe80::/10). Read on every lookup, so an
+ * address added after start counts from then on.
+ * @param {4|6} family
+ * @returns {boolean}
+ */
+function hasRoutableAddress(family) {
+  const name = family === 4 ? 'IPv4' : 'IPv6';
+  return Object.values(os.networkInterfaces()).flat().some((entry) => entry.family === name
+    && !entry.internal
+    && !(family === 6 && (parseInt(entry.address.split(':')[0], 16) & 0xffc0) === 0xfe80));
+}
+
+/**
+ * The families a lookup asks for, in the order their addresses are dialled.
+ * @param {number} [family] 4 or 6 for that family only; anything else for both.
+ * @param {number} [hints] dns.lookup hints. With dns.ADDRCONFIG, as net.connect passes it, a
+ *   family this host holds no routable address of is left out, as getaddrinfo leaves it out;
+ *   both are asked for when the host holds neither.
+ * @returns {Array<4|6>}
+ */
+function familiesFor(family, hints) {
+  if (family === 4 || family === 6) return [family];
+  if (!(hints & dns.ADDRCONFIG)) return FAMILIES_IN_ORDER;
+  const configured = FAMILIES_IN_ORDER.filter(hasRoutableAddress);
+  return configured.length ? configured : FAMILIES_IN_ORDER;
+}
+
+/**
  * @param {string} hostname
  * @param {number} [family] 4 or 6 for that family only; anything else for both.
+ * @param {number} [hints] dns.lookup hints; see familiesFor.
  * @returns {Promise<Array<{address: string, family: number}>>} Never empty.
  * @throws The last source's DNS error when no source has an address: the system server's when
  *   it answered that the name has no address, otherwise the public servers'.
  */
-async function resolveHostname(hostname, family) {
-  const families = family === 4 || family === 6 ? [family] : FAMILIES_IN_ORDER;
+async function resolveHostname(hostname, family, hints) {
+  const families = familiesFor(family, hints);
 
   if (isLocalhostName(hostname)) return families.map((wanted) => LOOPBACK[wanted]);
 
@@ -295,13 +338,13 @@ async function resolveHostname(hostname, family) {
 /**
  * Answers a `lookup` call once the hostname is resolved.
  * @param {string} hostname
- * @param {{family?: number, all?: boolean}} options
+ * @param {{family?: number, hints?: number, all?: boolean}} options
  * @param {Function} callback
  */
 async function answerLookup(hostname, options, callback) {
   let addresses;
   try {
-    addresses = await resolveHostname(hostname, options.family);
+    addresses = await resolveHostname(hostname, options.family, options.hints);
   } catch (error) {
     callback(error);
     return;
@@ -317,9 +360,9 @@ async function answerLookup(hostname, options, callback) {
 
 /**
  * A `lookup` for net.connect and http.Agent: (hostname, options, callback), where options
- * carries `family` and `all` as dns.lookup reads them.
+ * carries `family`, `hints` and `all` as dns.lookup reads them.
  * @param {string} hostname
- * @param {{family?: number, all?: boolean}} options
+ * @param {{family?: number, hints?: number, all?: boolean}} options
  * @param {Function} callback
  */
 function lookup(hostname, options, callback) {

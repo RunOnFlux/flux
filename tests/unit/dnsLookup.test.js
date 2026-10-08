@@ -1,6 +1,7 @@
 const dns = require('node:dns');
 const http = require('node:http');
 const https = require('node:https');
+const os = require('node:os');
 const { once } = require('node:events');
 const { expect } = require('chai');
 const sinon = require('sinon');
@@ -211,6 +212,130 @@ describe('dnsLookup tests', () => {
         await clock.tickAsync(1000);
 
         expect(await lookup).to.deep.equal([{ address: '93.184.216.34', family: 4 }]);
+      });
+
+      it('should wait for the IPv4 addresses when the AAAA query answers first', async () => {
+        answers.system[4] = { afterMs: 1000, addresses: ['93.184.216.34'] };
+        answers.system[6] = ['2606:2800:220:1::1'];
+        let settled = false;
+
+        const lookup = lookupAsync(HOSTNAME, { all: true });
+        lookup.then(() => { settled = true; });
+        await clock.tickAsync(999);
+        expect(settled).to.equal(false);
+        await clock.tickAsync(1);
+
+        expect(await lookup).to.deep.equal([
+          { address: '93.184.216.34', family: 4 },
+          { address: '2606:2800:220:1::1', family: 6 },
+        ]);
+      });
+
+      it('should answer with the IPv6 addresses when the A query fails after the AAAA query answered', async () => {
+        answers.system[4] = 'ESERVFAIL';
+        answers.system[6] = ['2606:2800:220:1::1'];
+
+        expect(await lookupAsync(HOSTNAME, { all: true })).to.deep.equal([{ address: '2606:2800:220:1::1', family: 6 }]);
+      });
+    });
+
+    describe('dns.ADDRCONFIG, as net.connect passes it', () => {
+      const LOOPBACK_ONLY = {
+        lo: [
+          { address: '127.0.0.1', family: 'IPv4', internal: true },
+          { address: '::1', family: 'IPv6', internal: true },
+        ],
+      };
+      const IPV4 = { address: '198.51.100.7', family: 'IPv4', internal: false };
+      const LINK_LOCAL = { address: 'fe80::d835:efff:feff:e29d', family: 'IPv6', internal: false };
+      const GLOBAL_V6 = { address: '2001:db8::7', family: 'IPv6', internal: false };
+      const UNIQUE_LOCAL = { address: 'fd00::7', family: 'IPv6', internal: false };
+      let interfaces;
+
+      const withAddrconfig = (extra = {}) => ({ all: true, hints: dns.ADDRCONFIG, ...extra });
+
+      beforeEach(() => {
+        interfaces = { ...LOOPBACK_ONLY, eth0: [IPV4] };
+        sinon.stub(os, 'networkInterfaces').callsFake(() => interfaces);
+        answers.system = { 4: ['203.0.113.80'], 6: ['2001:db8::80'] };
+      });
+
+      it('should ask for IPv4 only on a host with no IPv6 address but loopback', async () => {
+        expect(await lookupAsync(HOSTNAME, withAddrconfig())).to.deep.equal([{ address: '203.0.113.80', family: 4 }]);
+        expect(asked).to.deep.equal(['system:4']);
+      });
+
+      it('should not count a link-local IPv6 address', async () => {
+        interfaces.eth0 = [IPV4, LINK_LOCAL];
+
+        await lookupAsync(HOSTNAME, withAddrconfig());
+
+        expect(asked).to.deep.equal(['system:4']);
+      });
+
+      it('should ask for both families on a host with a global IPv6 address', async () => {
+        interfaces.eth0 = [IPV4, LINK_LOCAL, GLOBAL_V6];
+
+        const result = await lookupAsync(HOSTNAME, withAddrconfig());
+
+        expect(result).to.deep.equal([{ address: '203.0.113.80', family: 4 }, { address: '2001:db8::80', family: 6 }]);
+        expect(asked).to.deep.equal(['system:4', 'system:6']);
+      });
+
+      it('should count a unique-local IPv6 address', async () => {
+        interfaces.eth0 = [IPV4, UNIQUE_LOCAL];
+
+        await lookupAsync(HOSTNAME, withAddrconfig());
+
+        expect(asked).to.deep.equal(['system:4', 'system:6']);
+      });
+
+      it('should read the host\'s addresses on every lookup', async () => {
+        await lookupAsync(HOSTNAME, withAddrconfig());
+        interfaces.eth0 = [IPV4, GLOBAL_V6];
+        await lookupAsync(HOSTNAME, withAddrconfig());
+
+        expect(asked).to.deep.equal(['system:4', 'system:4', 'system:6']);
+      });
+
+      it('should ask for IPv6 only on a host with no IPv4 address but loopback', async () => {
+        interfaces.eth0 = [GLOBAL_V6];
+
+        await lookupAsync(HOSTNAME, withAddrconfig());
+
+        expect(asked).to.deep.equal(['system:6']);
+      });
+
+      it('should ask for both families on a host with no address but loopback', async () => {
+        interfaces = { ...LOOPBACK_ONLY };
+
+        await lookupAsync(HOSTNAME, withAddrconfig());
+
+        expect(asked).to.deep.equal(['system:4', 'system:6']);
+      });
+
+      it('should ask for the family a caller names, whatever the host holds', async () => {
+        await lookupAsync(HOSTNAME, withAddrconfig({ family: 6 }));
+
+        expect(asked).to.deep.equal(['system:6']);
+      });
+
+      it('should ask for both families without the hint', async () => {
+        await lookupAsync(HOSTNAME, { all: true });
+
+        expect(asked).to.deep.equal(['system:4', 'system:6']);
+      });
+
+      it('should answer localhost with 127.0.0.1 alone on a host with no IPv6 address', async () => {
+        expect(await lookupAsync('localhost', withAddrconfig())).to.deep.equal([{ address: '127.0.0.1', family: 4 }]);
+      });
+
+      it('should leave a public lookup to the same families', async () => {
+        answers.system = { 4: 'ESERVFAIL', 6: 'ESERVFAIL' };
+        answers.public = { 4: ['203.0.113.81'], 6: ['2001:db8::81'] };
+
+        expect(await lookupAsync(HOSTNAME, withAddrconfig())).to.deep.equal([{ address: '203.0.113.81', family: 4 }]);
+        expect(asked).to.deep.equal(['system:4', 'public:4']);
       });
     });
 
