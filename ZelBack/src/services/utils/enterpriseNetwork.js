@@ -194,18 +194,18 @@ function filterAppsByOwnership(apps, isEnterprise) {
 /**
  * Spawn-loop cadence for trySpawningGlobalApplication. Enterprise nodes get
  * a tight cadence that sticks regardless of how many apps are installable;
- * non-enterprise nodes keep the original dynamic tuning (60s when more than
- * one candidate exists, otherwise the legacy 5m/30m defaults).
+ * non-enterprise nodes keep a dynamic tuning: 60s while any candidate
+ * exists, otherwise 5m/5m.
  */
 function getSpawnDelays(isEnterprise, appsAvailable) {
   const multiplier = config.fluxapps.spawnDelayMultiplier ?? 1;
   if (isEnterprise) {
     return { shortDelayTime: 30 * 1000 * multiplier, delayTime: 60 * 1000 * multiplier };
   }
-  if (appsAvailable > 1) {
+  if (appsAvailable > 0) {
     return { shortDelayTime: 60 * 1000 * multiplier, delayTime: 60 * 1000 * multiplier };
   }
-  return { shortDelayTime: 5 * 60 * 1000 * multiplier, delayTime: 30 * 60 * 1000 * multiplier };
+  return { shortDelayTime: 5 * 60 * 1000 * multiplier, delayTime: 5 * 60 * 1000 * multiplier };
 }
 
 /**
