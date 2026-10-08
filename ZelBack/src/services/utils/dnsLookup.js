@@ -44,6 +44,16 @@
  * random. One probe per server is in flight at a time; lookups that meet the server meanwhile
  * share its result.
  *
+ * What a lookup waits, with c-ares's timing: a query or probe that is not answered waits about
+ * QUERY_TIMEOUT_MS, up to 1.5 times that on the c-ares of Node 20.8 and 20.9, and down to half
+ * of it once c-ares 1.32 or later has learnt the server's response time.
+ * - A system server that goes down costs the one lookup that meets it a query wait and a probe
+ *   wait, 2 to 6 s; lookups after it do not wait on that server.
+ * - A name a working system server never answers costs its own lookup a query wait, and then
+ *   whatever the public servers take.
+ * - The public servers are one resolver of three servers, each tried once: when none answers, a
+ *   lookup waits about three query waits for them, 6 to 7 s.
+ *
  * Addresses are ordered by networkDefaults' DNS_RESULT_ORDER, the order every other lookup in
  * the process uses.
  *
