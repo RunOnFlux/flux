@@ -12,7 +12,7 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const { appPricePerMonth, specificationFormatter } = require('../utils/appUtilities');
 const { getChainParamsPriceUpdates, getChainTeamSupportAddressUpdates } = require('../utils/chainUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { insertAppSpecifications, updateAppSpecifications, getPreviousAppSpecifications } = require('../appDatabase/registryManager');
+const { storeAppSpecificationInForce, getPreviousAppSpecifications, isNewestAppMessage } = require('../appDatabase/registryManager');
 const {
   globalAppsMessages,
   globalAppsTempMessages,
@@ -651,7 +651,47 @@ async function getAppsPermanentMessages(req, res) {
  * @param {number} i - Retry counter
  * @returns {Promise<boolean>} True if message found or stored, false otherwise
  */
+/**
+ * This node's payment record for an app message hash: the txid, block height and payment its
+ * own scan recorded. One record per hash, so a hash paid more than once is placed by the payment
+ * the scan recorded for it.
+ * @param {string} hash
+ * @returns {Promise<{txid: string, height: number, value: number}|null>}
+ */
+async function paymentRecordOf(hash) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.daemon.database);
+  const record = await dbHelper.findOneInDatabase(
+    database,
+    appsHashesCollection,
+    { hash },
+    { projection: { _id: 0, txid: 1, height: 1, value: 1 } },
+  );
+  return record;
+}
+
+/**
+ * Stores and promotes an app message whose payment this node's scan recorded, fetching it from
+ * peers when this node does not hold it yet. It is placed by this node's record of its payment,
+ * whichever payment of the hash the caller came from.
+ * @param {string} hash
+ * @param {string} txid the payment the caller came from
+ * @param {number} height
+ * @param {number} valueSat
+ * @param {number} [i] attempt
+ * @returns {Promise<boolean>} whether the message is stored
+ */
 async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
+  const record = await paymentRecordOf(hash);
+  if (!record) {
+    log.warn(`checkAndRequestApp - no payment recorded for ${hash} (requested from txid ${txid}), not stored`);
+    return false;
+  }
+  // eslint-disable-next-line no-use-before-define
+  return checkAndRequestRecordedApp(hash, record.txid, record.height, record.value, i);
+}
+
+async function checkAndRequestRecordedApp(hash, txid, height, valueSat, i = 0) {
   try {
     if (height < config.fluxapps.epochstart) { // do not request testing apps
       return false;
@@ -675,7 +715,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
         // the owner before the second is promoted.
         const isUpdate = tempMessage.type === 'fluxappupdate' || tempMessage.type === 'zelappupdate';
         if (isUpdate) {
-          const previousAppSpecs = await getPreviousAppSpecifications(specifications, tempMessage.timestamp);
+          const previousAppSpecs = await getPreviousAppSpecifications(specifications, height, tempMessage.timestamp);
           if (previousAppSpecs) {
             const messageVersion = serviceHelper.ensureNumber(tempMessage.version);
             const messageTimestamp = serviceHelper.ensureNumber(tempMessage.timestamp);
@@ -783,7 +823,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               updateForSpecifications.hash = permanentAppMessage.hash;
               updateForSpecifications.height = permanentAppMessage.height;
               // object of appSpecifications extended for hash and height
-              const inserted = await insertAppSpecifications(updateForSpecifications);
+              const inserted = await storeAppSpecificationInForce(updateForSpecifications);
               const appName = specifications.name;
               if (!inserted) {
                 globalState.clearPendingUpdates(appName);
@@ -865,7 +905,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               updateForSpecifications.hash = permanentAppMessage.hash;
               updateForSpecifications.height = permanentAppMessage.height;
               // object of appSpecifications extended for hash and height
-              await updateAppSpecifications(updateForSpecifications);
+              await storeAppSpecificationInForce(updateForSpecifications);
             } else {
               log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8}`);
             }
@@ -875,6 +915,13 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           // App has expired (actualExpirationHeight <= daemonHeight)
           // Clean up stale data from both global and local databases
           // This handles the case where an update message was received after the app expired
+          // Only when this message is the newest for the app. An old update fetched late by the
+          // missing-hash sync has long expired by itself, but a newer message may be keeping the
+          // app alive - ending it here would drop a paid app from this node and uninstall it.
+          if (!await isNewestAppMessage(specifications.name, permanentAppMessage.hash)) {
+            log.info(`App message ${permanentAppMessage.hash} for ${specifications.name} has expired, but a newer message governs the app. Nothing to clean up.`);
+            return true;
+          }
           log.warn(`App ${specifications.name} has expired (expiration height ${actualExpirationHeight} <= daemon height ${daemonHeight}). Cleaning up stale data.`);
 
           const db = dbHelper.databaseConnection();

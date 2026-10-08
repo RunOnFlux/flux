@@ -20,6 +20,8 @@ const { CLOSE_CODES } = require('../utils/FluxPeerSocket');
 const { appSyncEvents, EVENTS } = require('../utils/appSyncEvents');
 const { HASH_EXPIRY_BLOCKS, HASH_RETRY_BACKOFF } = require('../utils/appConstants');
 const log = require('../../lib/log');
+const fluxEventBus = require('../utils/fluxEventBus');
+const { isBefore } = require('../utils/appMessageChain');
 const { invalidMessages } = require('../invalidMessages');
 const { Privilege, authOf } = require('../utils/privileges');
 
@@ -35,12 +37,16 @@ const EPHEMERAL_PEERS_COUNT = config.fluxapps.hashSyncEphemeralPeers ?? 5;
 
 let syncRunning = false;
 
-function findPrevSpec(specs, height) {
+// The message right before one in the log, in (height, timestamp) order - the order
+// getPreviousAppSpecifications and appMessageChain use, so a registration and an update paid in
+// one block are in the same order for a bulk-synced node as for a live one. specs is sorted by
+// (height, timestamp).
+function findPrevSpec(specs, height, timestamp = -Infinity) {
   let lo = 0;
   let hi = specs.length;
   while (lo < hi) {
     const mid = (lo + hi) >>> 1;
-    if (specs[mid].height < height) lo = mid + 1;
+    if (isBefore(specs[mid], height, timestamp)) lo = mid + 1;
     else hi = mid;
   }
   return lo > 0 ? specs[lo - 1] : null;
@@ -131,7 +137,15 @@ function createJsonArrayExtractor(onObject) {
 
 const BULK_FETCH_BATCH_SIZE = 500;
 
-async function bulkFetchStreamAndProcess(peerIp, peerPort, missingSet, onProgress) {
+/**
+ * Streams a peer's permanent messages and stores the ones this node is missing.
+ * @param {string} peerIp
+ * @param {string|number} peerPort
+ * @param {Map<string, {txid: string, height: number, value: number}>} missing this node's own
+ *   payment record of each hash it is missing, keyed by hash
+ * @param {Function} [onProgress]
+ */
+async function bulkFetchStreamAndProcess(peerIp, peerPort, missing, onProgress) {
   log.info(`syncMissingHashes - Checking explorer sync on ${peerIp}:${peerPort}`);
   const syncResponse = await serviceHelper.axiosGet(
     `http://${peerIp}:${peerPort}/explorer/issynced`,
@@ -141,7 +155,7 @@ async function bulkFetchStreamAndProcess(peerIp, peerPort, missingSet, onProgres
     return { processed: 0, skipped: 0, streamed: 0 };
   }
 
-  log.info(`syncMissingHashes - Streaming permanent messages from ${peerIp}:${peerPort} (${missingSet.size} missing)`);
+  log.info(`syncMissingHashes - Streaming permanent messages from ${peerIp}:${peerPort} (${missing.size} missing)`);
   const response = await serviceHelper.axiosGet(
     `http://${peerIp}:${peerPort}/apps/permanentmessages`,
     { responseType: 'stream', timeout: 120000, headers: { 'Accept-Encoding': 'gzip' }, decompress: false },
@@ -167,7 +181,7 @@ async function bulkFetchStreamAndProcess(peerIp, peerPort, missingSet, onProgres
 
   const extractor = createJsonArrayExtractor((obj) => {
     totalSeen += 1;
-    if (obj.hash && missingSet.has(obj.hash)) {
+    if (obj.hash && missing.has(obj.hash)) {
       batch.push(obj);
       if (batch.length >= BULK_FETCH_BATCH_SIZE) {
         dataStream.pause();
@@ -194,12 +208,12 @@ async function bulkFetchStreamAndProcess(peerIp, peerPort, missingSet, onProgres
 
       const currentBatch = batch.splice(0, BULK_FETCH_BATCH_SIZE);
       // eslint-disable-next-line no-await-in-loop
-      const stats = await processMessages(currentBatch, onProgress);
+      const stats = await processMessages(currentBatch, missing, onProgress);
       totalProcessed += stats.processed;
       totalSkipped += stats.skipped;
-      for (const msg of currentBatch) missingSet.delete(msg.hash);
+      for (const msg of currentBatch) missing.delete(msg.hash);
 
-      if (missingSet.size === 0) {
+      if (missing.size === 0) {
         log.info(`syncMissingHashes - All missing hashes resolved after streaming ${totalSeen} messages`);
         stopped = true;
         break;
@@ -210,10 +224,10 @@ async function bulkFetchStreamAndProcess(peerIp, peerPort, missingSet, onProgres
     }
 
     if (batch.length > 0) {
-      const stats = await processMessages(batch, onProgress);
+      const stats = await processMessages(batch, missing, onProgress);
       totalProcessed += stats.processed;
       totalSkipped += stats.skipped;
-      for (const msg of batch) missingSet.delete(msg.hash);
+      for (const msg of batch) missing.delete(msg.hash);
     }
   } finally {
     dataStream.destroy();
@@ -221,10 +235,39 @@ async function bulkFetchStreamAndProcess(peerIp, peerPort, missingSet, onProgres
   }
 
   log.info(`syncMissingHashes - Streamed ${totalSeen} messages from ${peerIp}:${peerPort}: ${totalProcessed} processed, ${totalSkipped} skipped`);
+  fluxEventBus.publish('hashSync:bulkFetched', {
+    peer: `${peerIp}:${peerPort}`, streamed: totalSeen, processed: totalProcessed, skipped: totalSkipped,
+  });
   return { processed: totalProcessed, skipped: totalSkipped, streamed: totalSeen };
 }
 
-async function processMessages(messages, onProgress) {
+/**
+ * A peer's message with this node's chain facts for it: the txid, block height and payment its
+ * own scan recorded for the hash. The peer's copy carries its own values for these, which are
+ * never taken: they place the message on chain, and so decide which message is in force and when
+ * its app expires.
+ * @param {object} message as the peer sent it
+ * @param {{txid: string, height: number, value: number}} record this node's payment record
+ * @returns {object}
+ */
+function withOwnChainRecord(message, record) {
+  if (message.txid !== record.txid || message.height !== record.height || message.valueSat !== record.value) {
+    log.warn(`processMessages - ${message.hash}: peer sent txid ${message.txid} height ${message.height} valueSat ${message.valueSat}, `
+      + `this node recorded txid ${record.txid} height ${record.height} value ${record.value}; storing this node's`);
+  }
+  return {
+    ...message, txid: record.txid, height: record.height, valueSat: record.value,
+  };
+}
+
+/**
+ * Verifies and stores messages streamed from a peer.
+ * @param {object[]} messages as the peer sent them
+ * @param {Map<string, {txid: string, height: number, value: number}>} records this node's
+ *   payment record of each hash, keyed by hash
+ * @param {Function} [onProgress]
+ */
+async function processMessages(messages, records, onProgress) {
   const db = dbHelper.databaseConnection();
   const appsGlobalDb = db.db(config.database.appsglobal.database);
   const daemonDb = db.db(config.database.daemon.database);
@@ -232,8 +275,12 @@ async function processMessages(messages, onProgress) {
   let skipped = 0;
   let failed = 0;
 
-  messages.sort((a, b) => a.height - b.height);
-  const filtered = messages.filter((app) => app.valueSat !== null);
+  const placed = messages
+    .filter((message) => records.has(message.hash))
+    .map((message) => withOwnChainRecord(message, records.get(message.hash)));
+  // (height, timestamp): the order findPrevSpec searches, and the one a same-block pair confirmed in
+  placed.sort((a, b) => (a.height - b.height) || ((a.timestamp || 0) - (b.timestamp || 0)));
+  const filtered = placed.filter((app) => app.valueSat !== null);
 
   const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
   const daemonHeight = syncStatus.data.height || 0;
@@ -280,7 +327,8 @@ async function processMessages(messages, onProgress) {
       const prevDocs = await appsGlobalDb.collection(globalAppsMessages)
         .find({ 'appSpecifications.name': { $in: [...updateNames] } })
         .project({ _id: 0 })
-        .sort({ height: 1 })
+        // a same-block tie in the order getPreviousAppSpecifications and appMessageChain use
+        .sort({ height: 1, timestamp: 1 })
         .toArray();
       for (const doc of prevDocs) {
         const name = doc.appSpecifications?.name;
@@ -341,7 +389,7 @@ async function processMessages(messages, onProgress) {
           );
         } else {
           const prevSpecsList = prevSpecsMap.get(appSpecFormatted.name);
-          const prevMsg = prevSpecsList ? findPrevSpec(prevSpecsList, height) : null;
+          const prevMsg = prevSpecsList ? findPrevSpec(prevSpecsList, height, messageTimestamp) : null;
           if (!prevMsg) {
             failed += 1;
             continue;
@@ -387,7 +435,10 @@ async function processMessages(messages, onProgress) {
         // Verified — add to batch and update map for subsequent messages
         permInserts.push(permMsg);
         if (!prevSpecsMap.has(appSpecFormatted.name)) prevSpecsMap.set(appSpecFormatted.name, []);
-        prevSpecsMap.get(appSpecFormatted.name).push(permMsg);
+        // kept sorted, as findPrevSpec searches it: a gap filled late lands mid-list, not at its end
+        const prevList = prevSpecsMap.get(appSpecFormatted.name);
+        const at = prevList.indexOf(findPrevSpec(prevList, height, messageTimestamp)) + 1;
+        prevList.splice(at, 0, permMsg);
 
         hashMarkOps.push({
           updateOne: { filter: { hash: appMessage.hash }, update: { $set: { message: true, messageNotFound: false } } },
@@ -618,11 +669,15 @@ async function syncMissingHashes(options = {}) {
       const peerKeys = peers.map((p) => p.key).join(', ');
       log.info(`syncMissingHashes - ${missingHashes.length} missing, using streaming bulk fetch from ${peers.length} peers: ${peerKeys}`);
 
-      const missingSet = new Set(missingHashes.map((h) => h.hash));
+      // A hash paid more than once is placed by its first payment, as the scan records it first.
+      const missing = new Map();
+      for (const record of missingHashes) {
+        if (!missing.has(record.hash)) missing.set(record.hash, record);
+      }
       for (const peer of peers) {
-        if (missingSet.size === 0) break;
+        if (missing.size === 0) break;
         // eslint-disable-next-line no-await-in-loop
-        const stats = await bulkFetchStreamAndProcess(peer.ip, peer.port, missingSet, onProgress);
+        const stats = await bulkFetchStreamAndProcess(peer.ip, peer.port, missing, onProgress);
         resolved += stats.processed;
       }
 
@@ -758,6 +813,7 @@ async function resetHashSyncForUpgrade(currentHeight) {
 }
 
 module.exports = {
+  findPrevSpec,
   syncMissingHashes,
   getMissingHashes,
   resetHashSyncForUpgrade,

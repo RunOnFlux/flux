@@ -92,7 +92,7 @@ describe('messageVerifier tests', () => {
         getChainTeamSupportAddressUpdates: sinon.stub().returns([]),
       },
       '../appDatabase/registryManager': {
-        updateAppSpecifications: sinon.stub().resolves(),
+        storeAppSpecificationInForce: sinon.stub().resolves(),
       },
       '../fluxNetworkHelper': {
         getNumberOfPeers: sinon.stub().returns(10),
@@ -156,9 +156,10 @@ describe('messageVerifier tests', () => {
     let signatureVerifierStub;
     let storeAppPermanentMessageStub;
     let isDaemonSyncedStub;
-    let updateAppSpecificationsStub;
+    let storeAppSpecificationInForceStub;
     let updateOneInDatabaseStub;
     let verifierWithStubs;
+    let buildVerifier;
 
     beforeEach(() => {
       getPreviousAppSpecsStub = sinon.stub();
@@ -166,7 +167,7 @@ describe('messageVerifier tests', () => {
       storeAppPermanentMessageStub = sinon.stub().resolves();
       updateOneInDatabaseStub = sinon.stub().resolves();
       isDaemonSyncedStub = sinon.stub().returns({ data: { height: 2000000, synced: true } });
-      updateAppSpecificationsStub = sinon.stub().resolves();
+      storeAppSpecificationInForceStub = sinon.stub().resolves();
 
       const mockDb = { db: sinon.stub().returns('database') };
 
@@ -177,7 +178,10 @@ describe('messageVerifier tests', () => {
         axiosGet: sinon.stub().resolves(),
       };
 
-      verifierWithStubs = proxyquire('../../ZelBack/src/services/appMessaging/messageVerifier', {
+      buildVerifier = ({
+        tempMessage, dbHelperOverrides = {}, registryManagerOverrides = {},
+        paymentRecord = { txid: 'txid123', height: 2000000, value: 200000000 },
+      } = {}) => proxyquire('../../ZelBack/src/services/appMessaging/messageVerifier', {
         config: {
           ...configStub,
           database: {
@@ -194,8 +198,9 @@ describe('messageVerifier tests', () => {
           ...dbHelperStub,
           databaseConnection: sinon.stub().returns(mockDb),
           findOneInDatabase: sinon.stub()
-            .onFirstCall().resolves(null) // checkAppMessageExistence — not in permanent
-            .onSecondCall().resolves({ // checkAppTemporaryMessageExistence — found in temp
+            .onFirstCall().resolves(paymentRecord) // paymentRecordOf — this node's record of the payment
+            .onSecondCall().resolves(null) // checkAppMessageExistence — not in permanent
+            .onThirdCall().resolves(tempMessage || { // checkAppTemporaryMessageExistence — found in temp
               type: 'fluxappupdate',
               version: 1,
               appSpecifications: { name: 'testapp', version: 8, owner: 'newOwner' },
@@ -206,6 +211,7 @@ describe('messageVerifier tests', () => {
           findInDatabase: sinon.stub().resolves([]),
           updateOneInDatabase: updateOneInDatabaseStub,
           insertOneToDatabase: sinon.stub().resolves(),
+          ...dbHelperOverrides,
         },
         '../serviceHelper': fullServiceHelperStub,
         '../../lib/log': logStub,
@@ -224,8 +230,10 @@ describe('messageVerifier tests', () => {
           getBlock: sinon.stub().resolves({}),
         },
         '../appDatabase/registryManager': {
-          updateAppSpecifications: updateAppSpecificationsStub,
+          storeAppSpecificationInForce: storeAppSpecificationInForceStub,
           getPreviousAppSpecifications: getPreviousAppSpecsStub,
+          isNewestAppMessage: sinon.stub().resolves(true),
+          ...registryManagerOverrides,
         },
         './messageStore': {
           storeAppPermanentMessage: storeAppPermanentMessageStub,
@@ -265,6 +273,7 @@ describe('messageVerifier tests', () => {
           validateAddress: sinon.stub().resolves({ data: { isvalid: true } }),
         },
       });
+      verifierWithStubs = buildVerifier();
     });
 
     it('should refuse promotion when signature re-verification fails (ownership change race)', async () => {
@@ -289,6 +298,82 @@ describe('messageVerifier tests', () => {
       await verifierWithStubs.checkAndRequestApp('hash123', 'txid123', 2000000, 200000000);
 
       expect(storeAppPermanentMessageStub.called).to.be.true;
+      // re-verified against what was below its own block, never by its signer's timestamp
+      sinon.assert.calledWith(getPreviousAppSpecsStub, sinon.match({ name: 'testapp' }), 2000000, sinon.match.number);
+    });
+
+    describe('the payment a message is placed by', () => {
+      it('should store the message at this node\'s record of its payment, not the caller\'s', async () => {
+        getPreviousAppSpecsStub.resolves({ owner: 'correctOwner', version: 8 });
+        const verifier = buildVerifier({ paymentRecord: { txid: 'recordedtx', height: 2000000, value: 300000000 } });
+
+        await verifier.checkAndRequestApp('hash123', 'othertx', 2000000, 100000000);
+
+        sinon.assert.calledWith(storeAppPermanentMessageStub, sinon.match({ txid: 'recordedtx', height: 2000000, valueSat: 300000000 }));
+      });
+
+      it('should store nothing for a hash this node has no payment recorded for', async () => {
+        const verifier = buildVerifier({ paymentRecord: null });
+
+        const result = await verifier.checkAndRequestApp('hash123', 'txid123', 2000000, 200000000);
+
+        expect(result).to.equal(false);
+        expect(storeAppPermanentMessageStub.called).to.equal(false);
+      });
+    });
+
+    describe('an update that has expired by itself', () => {
+      // stored at 1999000 with expire 10: long expired at daemon height 2000000
+      const expiredUpdate = {
+        type: 'fluxappupdate',
+        version: 1,
+        appSpecifications: {
+          name: 'testapp', version: 8, owner: 'correctOwner', expire: 10,
+        },
+        hash: 'oldhash',
+        timestamp: Date.now(),
+        signature: 'sig123',
+      };
+      let findOneAndDeleteStub;
+
+      let findOne;
+
+      beforeEach(() => {
+        getPreviousAppSpecsStub.resolves({ owner: 'correctOwner', version: 8 });
+        findOneAndDeleteStub = sinon.stub().resolves();
+        findOne = sinon.stub();
+        findOne.onCall(0).resolves({ txid: 'txid123', height: 1999000, value: 200000000 }); // this node's payment record
+        findOne.onCall(1).resolves(null); // not in permanent storage
+        findOne.onCall(2).resolves(expiredUpdate); // found in temporary storage
+        findOne.onCall(3).resolves({ name: 'testapp' }); // still in globalAppsInformation
+        findOne.onCall(4).resolves(null); // not installed locally
+      });
+
+      it('should not end an app that a newer message keeps alive (old message fetched late)', async () => {
+        const isNewest = sinon.stub().resolves(false);
+        const verifier = buildVerifier({
+          dbHelperOverrides: { findOneInDatabase: findOne, findOneAndDeleteInDatabase: findOneAndDeleteStub },
+          registryManagerOverrides: { isNewestAppMessage: isNewest },
+        });
+
+        const result = await verifier.checkAndRequestApp('oldhash', 'txid123', 1999000, 200000000);
+
+        expect(result).to.be.true;
+        sinon.assert.calledWith(isNewest, 'testapp', 'oldhash');
+        expect(storeAppPermanentMessageStub.called).to.be.true;
+        expect(findOneAndDeleteStub.called).to.be.false;
+      });
+
+      it('should clean up the app when it is the newest message', async () => {
+        const verifier = buildVerifier({
+          dbHelperOverrides: { findOneInDatabase: findOne, findOneAndDeleteInDatabase: findOneAndDeleteStub },
+          registryManagerOverrides: { isNewestAppMessage: sinon.stub().resolves(true) },
+        });
+
+        await verifier.checkAndRequestApp('oldhash', 'txid123', 1999000, 200000000);
+
+        expect(findOneAndDeleteStub.calledOnce).to.be.true;
+      });
     });
   });
 
@@ -433,7 +518,7 @@ describe('messageVerifier tests', () => {
         '../utils/appUtilities': appUtilitiesStub,
         '../utils/chainUtilities': chainUtilitiesStub,
         '../appDatabase/registryManager': {
-          updateAppSpecifications: sinon.stub().resolves(),
+          storeAppSpecificationInForce: sinon.stub().resolves(),
           getPreviousAppSpecifications: sinon.stub().resolves(null),
         },
         '../fluxNetworkHelper': {

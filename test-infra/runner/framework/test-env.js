@@ -633,6 +633,13 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCent
         { $set: { generalScannedHeight: initialHeight } },
         { upsert: true },
       );
+      // A node starting above height 0 skips the scan's collection setup, so the payment
+      // records get its indexes here: one record per message hash, as on every scanned node.
+      const appHashes = explorerDb.collection('zelappshashes');
+      await appHashes.createIndex({ txid: 1 }, { name: 'query for getting txid' });
+      await appHashes.createIndex({ height: 1 }, { name: 'query for getting height' });
+      await appHashes.createIndex({ hash: 1 }, { name: 'query for getting app hash', unique: true });
+      await appHashes.createIndex({ message: 1 }, { name: 'query for getting app hashes depending if we have message' });
       const localDb = client.db(`node${num}_zelfluxlocal`);
       await localDb.collection('geolocation').updateOne(
         { _id: 'nodeGeolocation' },

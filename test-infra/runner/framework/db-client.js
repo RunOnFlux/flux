@@ -111,6 +111,12 @@ export function dbClient(nodeNum) {
       return globalDb.collection('zelappslocation').find({ ip }).toArray();
     },
 
+    // This node's app state event log, filtered.
+    async appStateEvents(query = {}) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('appstateevents').find(query).toArray();
+    },
+
     // This node's stored state events for one node, optionally of one type.
     async getAppStateEvents({ ip, type } = {}) {
       const globalDb = await db('appsGlobal');
@@ -271,6 +277,11 @@ export function dbClient(nodeNum) {
       return globalDb.collection('zelappsinformation').findOne({ name });
     },
 
+    async globalAppSpecs() {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappsinformation').find({}, { projection: { _id: 0, name: 1, hash: 1 } }).toArray();
+    },
+
     // zelappsinformation holds one row per app - the CURRENT specification. An
     // update replaces it, the way hash sync does when the chain carries a newer
     // message; inserting a second row leaves the node reading whichever it finds
@@ -284,6 +295,27 @@ export function dbClient(nodeNum) {
     async seedPermanentMessage(msg) {
       const globalDb = await db('appsGlobal');
       await globalDb.collection('zelappsmessages').insertOne({ ...msg });
+    },
+
+    async seedPermanentMessages(msgs) {
+      const globalDb = await db('appsGlobal');
+      await globalDb.collection('zelappsmessages').insertMany(msgs.map((msg) => ({ ...msg })));
+    },
+
+    // The node's record of app payments its scan found: { hash, txid, height, value, message }.
+    async seedAppHashes(entries) {
+      const explorerDb = await db('explorer');
+      await explorerDb.collection('zelappshashes').insertMany(entries.map((entry) => ({ ...entry })));
+    },
+
+    async permanentMessages(query = {}) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappsmessages').find(query, { projection: { _id: 0 } }).toArray();
+    },
+
+    async appHashRecords(query = {}) {
+      const explorerDb = await db('explorer');
+      return explorerDb.collection('zelappshashes').find(query, { projection: { _id: 0 } }).toArray();
     },
 
     async seedAppLocation({ name, ip, hash, broadcastedAt, runningSince }) {

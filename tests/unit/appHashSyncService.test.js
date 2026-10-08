@@ -896,6 +896,37 @@ describe('appHashSyncService tests', () => {
       expect(inserted.length).to.equal(2);
     });
 
+    it('should store a streamed message with this node\'s own txid, height and payment for its hash', async () => {
+      // the peer places hash5 in another block, with another payment
+      const bulkMessages = [{
+        type: 'fluxappregister', version: 1, hash: 'hash5', timestamp: Date.now(),
+        signature: 'sig5', appSpecifications: { name: 'placedapp', version: 4, owner: 'owner' },
+        valueSat: 999e8, txid: 'peertx', height: 2000000,
+      }];
+      const manyMissing = Array(600).fill(null).map((_, i) => ({
+        hash: `hash${i}`, txid: `tx${i}`, height: 1000 + i, value: 100 + i, message: false,
+      }));
+      let getMissingCalls = 0;
+      localDbHelperStub.findInDatabase.callsFake(() => {
+        getMissingCalls += 1;
+        if (getMissingCalls === 1) return Promise.resolve(manyMissing);
+        return Promise.resolve([]);
+      });
+      localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+      serviceHelperStub.axiosGet.callsFake((url) => {
+        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
+        return Promise.resolve({ data: { status: 'success', data: true } });
+      });
+
+      await localModule.syncMissingHashes();
+
+      const [inserted] = localCollectionStub.insertMany.firstCall.args[0];
+      expect(inserted.hash).to.equal('hash5');
+      expect(inserted.txid).to.equal('tx5');
+      expect(inserted.height).to.equal(1005);
+      expect(inserted.valueSat).to.equal(105);
+    });
+
     it('should decrypt prevSpec for enterprise v8 updates before signature verification', async () => {
       const bulkMessages = [
         {
@@ -908,7 +939,7 @@ describe('appHashSyncService tests', () => {
 
       // Generate > 500 missing hashes to trigger bulk fetch path
       const manyMissing = Array(600).fill(null).map((_, i) => ({
-        hash: `hash${i}`, txid: `tx${i}`, height: 1000 + i, value: 100, message: false,
+        hash: `hash${i}`, txid: `tx${i}`, height: 1999 + i, value: 1e8, message: false,
       }));
 
       let getMissingCalls = 0;
@@ -1071,4 +1102,25 @@ describe('appHashSyncService tests', () => {
     });
   });
 
+
+  describe('findPrevSpec', () => {
+    // eslint-disable-next-line global-require
+    const { findPrevSpec } = require('../../ZelBack/src/services/appMessaging/appHashSyncService');
+    const list = [
+      { hash: 'reg', height: 500, timestamp: 10 },
+      { hash: 'upd', height: 500, timestamp: 20 },
+      { hash: 'next', height: 600, timestamp: 5 },
+    ];
+
+    it('should find the message right before one in (height, timestamp) order', () => {
+      expect(findPrevSpec(list, 500, 20).hash).to.equal('reg');
+      expect(findPrevSpec(list, 600, 5).hash).to.equal('upd');
+      expect(findPrevSpec(list, 700).hash).to.equal('next');
+    });
+
+    it('should leave the whole block out when no timestamp is given', () => {
+      expect(findPrevSpec(list, 500)).to.equal(null);
+      expect(findPrevSpec(list, 600).hash).to.equal('upd');
+    });
+  });
 });

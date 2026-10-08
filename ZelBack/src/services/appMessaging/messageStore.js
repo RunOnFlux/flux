@@ -144,7 +144,13 @@ async function storeAppTemporaryMessage(message, options = {}) {
     // For updates, fetch previous app specs first - if registration doesn't exist yet, queue the update
     let previousAppSpecs = null;
     if (!appRegistration) {
-      previousAppSpecs = await registryManager.getPreviousAppSpecifications(appSpecFormatted, messageTimestamp);
+      // a message fetched from peers is already on chain at block: check it against what was
+      // below it there. A live one builds on the newest message.
+      previousAppSpecs = await registryManager.getPreviousAppSpecifications(
+        appSpecFormatted,
+        isAppRequested ? block : undefined,
+        isAppRequested ? messageTimestamp : undefined,
+      );
       if (!previousAppSpecs) {
         // Registration doesn't exist yet - queue this update for later processing
         const appName = appSpecFormatted.name;

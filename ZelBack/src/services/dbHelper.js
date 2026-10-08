@@ -590,6 +590,24 @@ function expireHeightExpr(heightField, expireField) {
 }
 
 /**
+ * Each app's messages newest first: by block, a same-block tie by timestamp. The first message
+ * per name in this order is the one in force (appMessageChain).
+ */
+const NEWEST_APP_MESSAGE_SORT = { 'appSpecifications.name': 1, height: -1, timestamp: -1 };
+const NEWEST_APP_MESSAGE_INDEX = 'newestAppMessageByName';
+
+/**
+ * Ensures the index NEWEST_APP_MESSAGE_SORT reads from, and drops the name+height index it
+ * covers.
+ * @param {mongodb.Collection} appsMessagesCollection
+ * @returns {Promise<void>}
+ */
+async function ensureNewestAppMessageIndex(appsMessagesCollection) {
+  await appsMessagesCollection.createIndex(NEWEST_APP_MESSAGE_SORT, { name: NEWEST_APP_MESSAGE_INDEX });
+  await appsMessagesCollection.dropIndex('sortAppMessagesForGroupBy').catch(() => {});
+}
+
+/**
  *
  * @param {mongodb.Db} appsGlobalDb
  * @param {string} appsMessagesCol mongo collection name
@@ -604,7 +622,7 @@ async function isReindexAppsInformationRequired(
   scannedHeight,
 ) {
   const appsMessagesPipeline = [
-    { $sort: { 'appSpecifications.name': 1, height: -1 } },
+    { $sort: NEWEST_APP_MESSAGE_SORT },
     {
       $group: {
         _id: '$appSpecifications.name',
@@ -646,15 +664,7 @@ async function isReindexAppsInformationRequired(
   ];
 
   try {
-    await appsGlobalDb
-      .collection(appsMessagesCol)
-      .createIndex(
-        {
-          'appSpecifications.name': 1,
-          height: -1,
-        },
-        { name: 'sortAppMessagesForGroupBy' },
-      );
+    await ensureNewestAppMessageIndex(appsGlobalDb.collection(appsMessagesCol));
 
     const messagesCursor = await aggregateInDatabase(
       appsGlobalDb,
@@ -803,9 +813,10 @@ async function reindexGlobalAppsInformation(
     { key: { height: 1 }, name: 'query for getting zelapp based on last height update' },
     { key: { hash: 1 }, name: 'query for getting zelapp based on last hash' },
   ]);
+  await ensureNewestAppMessageIndex(appsGlobalDb.collection(globalAppsMessagesCol));
 
   const pipeline = [
-    { $sort: { 'appSpecifications.name': 1, height: -1 } },
+    { $sort: NEWEST_APP_MESSAGE_SORT },
     {
       $group: {
         _id: '$appSpecifications.name',
@@ -992,6 +1003,7 @@ module.exports = {
   databaseConnection,
   distinctDatabase,
   dropCollection,
+  ensureNewestAppMessageIndex,
   findInDatabase,
   findOneAndDeleteInDatabase,
   findOneAndUpdateInDatabase,
@@ -1008,4 +1020,5 @@ module.exports = {
   updateOneInDatabase,
   validateAppsInformation,
   waitForMongo,
+  NEWEST_APP_MESSAGE_SORT,
 };

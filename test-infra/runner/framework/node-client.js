@@ -302,6 +302,7 @@ export function nodeClient(nodeNum) {
         'ephemeralSync:budgetSpent',
         'sync:chunkVerified',
         'hashSync:complete',
+        'hashSync:bulkFetched',
         'hashSync:failed',
         'hashRequest:received',
         'hashRequest:responded',
@@ -501,6 +502,8 @@ export function nodeClient(nodeNum) {
     getPermanentMessages: () => get('/apps/permanentmessages'),
     getTempMessages: (hash) => get(`/apps/temporarymessages/${hash}`),
     getAppSpecs: (name) => get(`/apps/appspecifications/${name}`),
+    // Rebuilds the global app list from this node's message log (node operator or Flux team).
+    reindexGlobalApps: (zelidauth) => getAuthed('/apps/reindexglobalappsinformation', zelidauth),
     getInstalledApps: () => get('/apps/installedapps'),
     getRunningApps: () => get('/apps/runningapps'),
     getLoginPhrase: () => get('/id/loginphrase'),

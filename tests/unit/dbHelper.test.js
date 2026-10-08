@@ -739,4 +739,71 @@ describe('dbHelper tests', () => {
       expect(collectionStatsResponse.avgObjSize).to.be.undefined;
     });
   });
+
+  describe('rebuilding globalAppsInformation from the message log', () => {
+    const { appsglobal, appslocal, daemon } = config.database;
+    const scannedHeight = 3008000;
+    let client;
+    let appsGlobalDb;
+
+    const message = (name, type, hash, height, expire, timestamp = height) => ({
+      type, hash, height, timestamp, appSpecifications: { name, owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W', expire },
+    });
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      client = dbHelper.databaseConnection();
+      appsGlobalDb = client.db(appsglobal.database);
+      await appsGlobalDb.collection(appsglobal.collections.appsMessages).deleteMany({});
+      // the indexes the rebuild relies on are its own to create
+      await appsGlobalDb.collection(appsglobal.collections.appsMessages).dropIndexes();
+      await appsGlobalDb.collection(appsglobal.collections.appsInformation).deleteMany({});
+      await client.db(appslocal.database).collection(appslocal.collections.appsInformation).deleteMany({});
+      await client.db(daemon.database).collection(daemon.collections.scannedHeight).deleteMany({});
+      await client.db(daemon.database).collection(daemon.collections.scannedHeight).insertOne({ generalScannedHeight: scannedHeight });
+      await appsGlobalDb.collection(appsglobal.collections.appsMessages).insertMany([
+        // dragonwilds1790467903997: renewed 15 blocks after its cancellation ran out
+        message('IncidentApp', 'fluxappregister', 'i1', 2985989, 20160),
+        message('IncidentApp', 'fluxappupdate', 'i2', 3003260, 100),
+        message('IncidentApp', 'fluxappupdate', 'i3', 3003310, 56),
+        message('IncidentApp', 'fluxappupdate', 'i4', 3003381, 88072),
+        // an ordinary app renewed in time
+        message('RenewedApp', 'fluxappregister', 'r1', 2990000, 20000),
+        message('RenewedApp', 'fluxappupdate', 'r2', 3005000, 88000),
+        // an app that simply expired
+        message('ExpiredApp', 'fluxappregister', 'e1', 2990000, 1000),
+        // owncast: renewed 57 blocks late in 2022, renewed in time since
+        message('LegacyApp', 'fluxappregister', 'l1', 1306201, 22000),
+        message('LegacyApp', 'fluxappupdate', 'l2', 1328258, 22000),
+        message('LegacyApp', 'fluxappupdate', 'l3', 2938092, 88000),
+        // two updates paid in one block, the earlier-signed one stored first
+        message('TiedApp', 'fluxappregister', 't1', 3000000, 88000),
+        message('TiedApp', 'fluxappupdate', 'tz', 3005000, 88000, 10),
+        message('TiedApp', 'fluxappupdate', 'ta', 3005000, 88000, 20),
+      ]);
+    });
+
+    it('should hold the newest message of every app still in its term, a late renewal included', async () => {
+      await dbHelper.reindexGlobalAppsInformation(
+        appsGlobalDb,
+        client.db(appslocal.database),
+        appsglobal.collections.appsMessages,
+        appsglobal.collections.appsInformation,
+        appslocal.collections.appsInformation,
+        scannedHeight,
+      );
+
+      const apps = await appsGlobalDb.collection(appsglobal.collections.appsInformation).find({}).toArray();
+      expect(apps.map((a) => `${a.name}:${a.hash}`).sort()).to.deep.equal(['IncidentApp:i4', 'LegacyApp:l3', 'RenewedApp:r2', 'TiedApp:ta']);
+    });
+
+    it('should judge the rebuilt collection as valid, not reindex it on every check', async () => {
+      const first = await dbHelper.validateAppsInformation();
+      expect(first.reindexed).to.equal(true);
+
+      const second = await dbHelper.validateAppsInformation();
+      expect(second.validated).to.equal(true);
+      expect(second.reindexed).to.not.equal(true);
+    });
+  });
 });

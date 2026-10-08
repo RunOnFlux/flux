@@ -10,7 +10,10 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession } = require('../utils/enterpriseHelper');
 const { specificationFormatter, updateToLatestAppSpecifications } = require('../utils/appUtilities');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
+const { AsyncLock } = require('../utils/asyncLock');
+const appMessageChain = require('../utils/appMessageChain');
 const mountParser = require('../utils/mountParser');
+const signatureVerifier = require('../signatureVerifier');
 const {
   SIGTERM_EXPIRY_MS,
   globalAppsInformation,
@@ -1254,37 +1257,6 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
 }
 
 /**
- * Update app specifications for rescan/reindex
- * @param {object} appSpecs - Application specifications
- * @returns {Promise<boolean>} Update result
- */
-async function updateAppSpecsForRescanReindex(appSpecs) {
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-
-  const query = { name: appSpecs.name };
-  const options = {
-    upsert: true,
-  };
-  const projection = {
-    projection: {
-      _id: 0,
-    },
-  };
-  const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-  if (appInfo) {
-    if (appInfo.height < appSpecs.height) {
-      await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, options);
-      fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
-    }
-  } else {
-    await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, options);
-    fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
-  }
-  return true;
-}
-
-/**
  * Store app specification in permanent storage
  * @param {object} appSpec - Application specification
  * @returns {Promise<object>} Storage result
@@ -1484,41 +1456,23 @@ async function expireGlobalApplications() {
       },
     };
     const results = await dbHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
-    const appsToExpire = [];
-    results.forEach((appSpecs) => {
-      // Determine default expire based on whether app was registered after PON fork
-      const defaultExpire = appSpecs.height >= config.fluxapps.daemonPONFork
-        ? config.fluxapps.blocksLasting * 4
-        : config.fluxapps.blocksLasting;
-      const expireIn = appSpecs.expire || defaultExpire;
-      let actualExpirationHeight = appSpecs.height + expireIn;
-
-      // If app was registered before fork block and we are past fork block
-      // the chain moves 4x faster, so we need to adjust the expiration
-      if (appSpecs.height < config.fluxapps.daemonPONFork && explorerHeight >= config.fluxapps.daemonPONFork) {
-        const originalExpirationHeight = appSpecs.height + expireIn;
-        if (originalExpirationHeight > config.fluxapps.daemonPONFork) {
-          // Calculate blocks that were supposed to live after fork block
-          const blocksAfterFork = originalExpirationHeight - config.fluxapps.daemonPONFork;
-          // Multiply by 4 to account for 4x faster chain
-          const adjustedBlocksAfterFork = blocksAfterFork * 4;
-          // New expiration = fork block + adjusted blocks
-          actualExpirationHeight = config.fluxapps.daemonPONFork + adjustedBlocksAfterFork;
-        }
-      }
-
-      if (actualExpirationHeight < explorerHeight) { // registered/updated on height, expires in expireIn is lower than current height
-        appsToExpire.push(appSpecs);
-      }
-    });
-    const appNamesToExpire = appsToExpire.map((res) => res.name);
-    // remove appNamesToExpire apps from global database
+    // registered/updated on height, expires in expireIn is lower than current height
+    const appsToExpire = results.filter((appSpecs) => !appMessageChain.isInForce(appSpecs.height, appSpecs.expire, explorerHeight));
+    const appNamesToExpire = [];
+    // remove expired apps from global database
     // eslint-disable-next-line no-restricted-syntax
     for (const app of appsToExpire) {
-      log.info(`Expiring application ${app.name}`);
-      const queryDeleteApp = { name: app.name };
+      // Delete the spec that was read as expired, not whatever holds the name now: promotions
+      // run concurrently with this pass, and a renewal stored since the read above stays.
       // eslint-disable-next-line no-await-in-loop
-      await dbHelper.findOneAndDeleteInDatabase(databaseApps, globalAppsInformation, queryDeleteApp, projectionApps);
+      const deleted = await dbHelper.findOneAndDeleteInDatabase(databaseApps, globalAppsInformation, { name: app.name, hash: app.hash }, projectionApps);
+      if (!deleted) {
+        log.info(`Application ${app.name} was updated while expiring, keeping it`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      log.info(`Expiring application ${app.name}`);
+      appNamesToExpire.push(app.name);
 
       const queryDeleteAppErrors = { name: app.name };
       // eslint-disable-next-line no-await-in-loop
@@ -1538,6 +1492,7 @@ async function expireGlobalApplications() {
     const appsInstalled = installedAppsRes.data;
     // remove any installed app which height is lower (or not present) but is not infinite app
     const appsToRemove = [];
+    const locallyExpired = [];
     appsInstalled.forEach((app) => {
       if (appNamesToExpire.includes(app.name)) {
         appsToRemove.push(app);
@@ -1545,33 +1500,36 @@ async function expireGlobalApplications() {
         appsToRemove.push(app);
       } else if (app.height === 0) {
         // do nothing, forever lasting local app
-      } else {
-        // Determine default expire based on whether app was registered after PON fork
-        const defaultExpire = app.height >= config.fluxapps.daemonPONFork
-          ? config.fluxapps.blocksLasting * 4
-          : config.fluxapps.blocksLasting;
-        const expireIn = app.expire || defaultExpire;
-        let actualExpirationHeight = app.height + expireIn;
-
-        // If app was registered before fork block and we are past fork block
-        // the chain moves 4x faster, so we need to adjust the expiration
-        if (app.height < config.fluxapps.daemonPONFork && explorerHeight >= config.fluxapps.daemonPONFork) {
-          const originalExpirationHeight = app.height + expireIn;
-          if (originalExpirationHeight > config.fluxapps.daemonPONFork) {
-            // Calculate blocks that were supposed to live after fork block
-            const blocksAfterFork = originalExpirationHeight - config.fluxapps.daemonPONFork;
-            // Multiply by 4 to account for 4x faster chain
-            const adjustedBlocksAfterFork = blocksAfterFork * 4;
-            // New expiration = fork block + adjusted blocks
-            actualExpirationHeight = config.fluxapps.daemonPONFork + adjustedBlocksAfterFork;
-          }
-        }
-
-        if (actualExpirationHeight < explorerHeight) {
-          appsToRemove.push(app);
-        }
+      } else if (!appMessageChain.isInForce(app.height, app.expire, explorerHeight)) {
+        locallyExpired.push(app);
       }
     });
+    // The installed record is only refreshed from a renewal by reinstallOldApplications, every
+    // 16-36 blocks, so for a while after a renewal it still carries the old expiry. Ask the
+    // global spec before uninstalling: removing an app the network has just renewed deletes
+    // its data on this node for nothing.
+    if (locallyExpired.length) {
+      const globalSpecs = await dbHelper.findInDatabase(
+        databaseApps,
+        globalAppsInformation,
+        { name: { $in: locallyExpired.map((app) => app.name) } },
+        {
+          projection: {
+            _id: 0, name: 1, owner: 1, expire: 1, height: 1,
+          },
+        },
+      );
+      locallyExpired.forEach((app) => {
+        const globalSpec = globalSpecs.find((spec) => spec.name === app.name);
+        // the same owner's app, not a re-registration of its released name by someone else
+        if (globalSpec && signatureVerifier.sameSigningIdentity(globalSpec.owner, app.owner)
+          && appMessageChain.isInForce(globalSpec.height, globalSpec.expire, explorerHeight)) {
+          log.info(`Application ${app.name} is expired locally but renewed on the network, keeping it`);
+          return;
+        }
+        appsToRemove.push(app);
+      });
+    }
     const appsToRemoveNames = appsToRemove.map((app) => app.name);
 
     // remove appsToRemoveNames apps from locally running
@@ -1592,45 +1550,80 @@ async function expireGlobalApplications() {
   }
 }
 
-/**
- * To update app specifications.
- * @param {object} appSpecs App specifications.
- */
-async function insertAppSpecifications(appSpecs) {
+// Every write of a global app spec reads what is stored, then decides. Promotions run
+// concurrently (the block scanner schedules them without awaiting, and a message fetched from
+// peers is promoted on its own), so two of them for one app could both read, and the older could
+// write last - or, with the app missing, both upsert and leave two documents for one name.
+// Serialised here: each write is a couple of quick queries.
+const appSpecWriteLock = new AsyncLock();
+
+async function withAppSpecWriteLock(write) {
+  await appSpecWriteLock.enable();
   try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    const query = { name: appSpecs.name };
-    const existing = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, { projection: { _id: 0, height: 1 } });
-    if (existing && existing.height >= appSpecs.height) return true;
-    await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, { upsert: true });
-    fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
-    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, { name: appSpecs.name });
-    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsBroadcasts, { 'data.name': appSpecs.name });
-    return true;
-  } catch (error) {
-    log.error(`insertAppSpecifications failed for ${appSpecs.name}: ${error.message}`);
-    return false;
+    return await write();
+  } finally {
+    appSpecWriteLock.disable();
   }
 }
 
-async function updateAppSpecifications(appSpecs) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    const query = { name: appSpecs.name };
-    const projection = { projection: { _id: 0 } };
-    const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-    if (!appInfo || appInfo.height >= appSpecs.height) return true;
-    await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, { upsert: false });
-    fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
-    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, { name: appSpecs.name });
-    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsBroadcasts, { 'data.name': appSpecs.name });
-    return true;
-  } catch (error) {
-    log.error(`updateAppSpecifications failed for ${appSpecs.name}: ${error.message}`);
-    return false;
-  }
+/**
+ * The newest permanent message for an app name: the one in force while its term runs
+ * (appMessageChain).
+ * @param {string} appName
+ * @returns {Promise<{hash: string, height: number}|null>}
+ */
+async function newestAppMessage(appName) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const newest = await dbHelper.findOneInDatabase(
+    database,
+    globalAppsMessages,
+    { 'appSpecifications.name': appName },
+    { projection: { _id: 0, hash: 1, height: 1 }, sort: { height: -1, timestamp: -1 } },
+  );
+  return newest;
+}
+
+/**
+ * Whether a permanent message is the newest for its app. A message fetched late (missing-hash
+ * sync) must not end an app that a newer message keeps alive.
+ * @param {string} appName
+ * @param {string} hash
+ * @returns {Promise<boolean>}
+ */
+async function isNewestAppMessage(appName, hash) {
+  const newest = await newestAppMessage(appName);
+  return Boolean(newest) && newest.hash === hash;
+}
+
+/**
+ * Stores a promoted message's specifications as its app's global spec when that message is in
+ * force (appMessageChain): the newest for the name in the message log, and alive at the current
+ * block. Any other message changes nothing: a newer one governs the app, or its term has ended.
+ * A registration and an update are stored alike, so an update renews an app this node's expiry
+ * pass has already removed, and this node holds what a rebuild from the log would.
+ * @param {object} appSpecs the message's specifications, with its hash and height
+ * @returns {Promise<boolean>} false when the write failed
+ */
+async function storeAppSpecificationInForce(appSpecs) {
+  return withAppSpecWriteLock(async () => {
+    try {
+      if (!await isNewestAppMessage(appSpecs.name, appSpecs.hash)) return true;
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      const currentHeight = syncStatus && syncStatus.data ? syncStatus.data.height : 0;
+      if (!appMessageChain.isInForce(appSpecs.height, appSpecs.expire, currentHeight)) return true;
+      const db = dbHelper.databaseConnection();
+      const database = db.db(config.database.appsglobal.database);
+      await dbHelper.replaceOneInDatabase(database, globalAppsInformation, { name: appSpecs.name }, appSpecs, { upsert: true });
+      fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
+      await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, { name: appSpecs.name });
+      await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsBroadcasts, { 'data.name': appSpecs.name });
+      return true;
+    } catch (error) {
+      log.error(`storeAppSpecificationInForce failed for ${appSpecs.name}: ${error.message}`);
+      return false;
+    }
+  });
 }
 
 /**
@@ -1669,14 +1662,17 @@ async function reindexGlobalAppsInformation() {
       scannedHeightResult.generalScannedHeight,
     );
 
-    const appsToRemove = await dbHelper.reindexGlobalAppsInformation(
+    // Under the spec write lock: the rebuild empties the collection and refills it, and a
+    // promotion landing in between would find no app, or be overwritten by the refill.
+    // eslint-disable-next-line no-use-before-define
+    const appsToRemove = await withAppSpecWriteLock(() => dbHelper.reindexGlobalAppsInformation(
       appsGlobalDb,
       appsLocalDb,
       globalAppsMessages,
       globalAppsInformation,
       localAppsInformation,
       scannedHeight,
-    );
+    ));
 
     log.info('Reindexing of global application list finished.');
 
@@ -2073,37 +2069,13 @@ async function reindexGlobalAppsInformationAPI(req, res) {
  * @returns {Promise<boolean>} True if successful
  */
 async function rescanGlobalAppsInformation(height = 0, removeLastInformation = false) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    await dbHelper.dropCollection(database, globalAppsInformation).catch((error) => {
-      if (error.message !== 'ns not found') {
-        throw error;
-      }
-    });
-
-    const query = { height: { $gte: height } };
-    const projection = { projection: { _id: 0 } };
-    const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
-
-    if (removeLastInformation === true) {
-      await dbHelper.removeDocumentsFromCollection(database, globalAppsInformation, query);
-    }
-
-    // eslint-disable-next-line no-restricted-syntax
-    for (const message of results) {
-      const updateForSpecifications = message.appSpecifications;
-      updateForSpecifications.hash = message.hash;
-      updateForSpecifications.height = message.height;
-      // eslint-disable-next-line no-await-in-loop
-      await updateAppSpecsForRescanReindex(updateForSpecifications);
-    }
-    return true;
-  } catch (error) {
-    log.error(error);
-    throw error;
-  }
+  // Rebuilt from the whole message log by the same rule as the reindex: an app not updated since
+  // the requested height is still in force, so a partial replay would lose it.
+  log.info(`rescanGlobalAppsInformation - rebuilding from the full message log (requested from ${height}, removeLastInformation ${removeLastInformation})`);
+  // eslint-disable-next-line no-use-before-define
+  const result = await reindexGlobalAppsInformation();
+  if (result !== true) throw new Error(result || 'Rescan could not run');
+  return true;
 }
 
 /**
@@ -2171,10 +2143,13 @@ async function rescanGlobalAppsInformationAPI(req, res) {
  * accurate source. Lives here (not in advancedWorkflows) so message verification
  * does not depend on the lifecycle layer — that was a require cycle.
  * @param {object} specifications App specifications.
- * @param {object} verificationTimestamp Message timestamp.
+ * @param {number} [beforeHeight] Block of the message being verified, when it is on chain
+ *   (promotion, replay). Omitted for a live submission, which builds on the newest message.
+ * @param {number} [beforeTimestamp] Its timestamp: a message in the same block signed earlier
+ *   (a registration paid in the same block as its first update) counts as before it.
  * @returns {object|null} App specifications or null if not found.
  */
-async function getPreviousAppSpecifications(specifications, verificationTimestamp) {
+async function getPreviousAppSpecifications(specifications, beforeHeight, beforeTimestamp) {
   // we may not have the application in global apps. This can happen when we receive the message
   // after the app has already expired AND we need to get message right before our message.
   // Thus using messages system that is accurate
@@ -2189,22 +2164,26 @@ async function getPreviousAppSpecifications(specifications, verificationTimestam
     'appSpecifications.name': specifications.name,
   };
   const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+  // The previous spec is the message right below ours on chain: the highest height under the
+  // block ours confirmed in (in that block, one signed before ours), or, for a live submission
+  // not yet on chain, the newest one. The bulk hash sync replays history by the same rule
+  // (appHashSyncService findPrevSpec), so a node that synced in bulk and one that followed live
+  // judge a message the same way.
+  //
+  // Chain position, not the signed timestamp: messages confirm out of signing order, and the
+  // timestamp is the signer's to choose, so a former owner could backdate an update to before
+  // the transfer that took the app from them. A same-block tie goes to the later timestamp.
+  const validTypes = ['zelappregister', 'fluxappregister', 'zelappupdate', 'fluxappupdate'];
+  const below = beforeHeight === undefined || beforeHeight === null ? Infinity : beforeHeight;
+  const signedBefore = beforeTimestamp === undefined || beforeTimestamp === null ? -Infinity : beforeTimestamp;
   let latestPermanentRegistrationMessage;
   permanentAppMessage.forEach((foundMessage) => {
-    // has to be registration message
-    const validTypes = ['zelappregister', 'fluxappregister', 'zelappupdate', 'fluxappupdate'];
-    if (validTypes.includes(foundMessage.type)) {
-      if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= verificationTimestamp) {
-        // no message and found message is not newer than our message
-        latestPermanentRegistrationMessage = foundMessage;
-      } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) {
-        // we have some message and the message is quite new
-        if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp
-          && foundMessage.timestamp <= verificationTimestamp) {
-          // but our message is newer. foundMessage has to have lower timestamp than our new message
-          latestPermanentRegistrationMessage = foundMessage;
-        }
-      }
+    if (!validTypes.includes(foundMessage.type) || !appMessageChain.isBefore(foundMessage, below, signedBefore)) return;
+    const latest = latestPermanentRegistrationMessage;
+    if (!latest
+      || (foundMessage.height || 0) > (latest.height || 0)
+      || ((foundMessage.height || 0) === (latest.height || 0) && foundMessage.timestamp > latest.timestamp)) {
+      latestPermanentRegistrationMessage = foundMessage;
     }
   });
   if (!latestPermanentRegistrationMessage) {
@@ -2281,9 +2260,8 @@ module.exports = {
   getGlobalAppsSpecifications,
   availableApps,
   checkApplicationRegistrationNameConflicts,
-  insertAppSpecifications,
-  updateAppSpecifications,
-  updateAppSpecsForRescanReindex,
+  storeAppSpecificationInForce,
+  isNewestAppMessage,
   storeAppSpecificationInPermanentStorage,
   getAppSpecificationFromDb,
   getAllAppsInformation,

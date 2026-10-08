@@ -271,6 +271,72 @@ describe('messageStore tests', () => {
       expect(result).to.be.true;
       expect(dbHelperStub.insertOneToDatabase.calledOnce).to.be.true;
     });
+
+    [
+      ['a live update builds on the newest message', null, undefined],
+      ['a message fetched from peers is checked against what was below its block', { message: false, height: 3003381, txid: 'tx1', value: 1 }, 3003381],
+    ].forEach(([label, hashRecord, expectedHeight]) => {
+      it(`should pick the previous spec by block, not by timestamp: ${label}`, async () => {
+        const message = {
+          type: 'fluxappupdate',
+          version: 1,
+          appSpecifications: { name: 'test', version: 6 },
+          hash: 'hash123',
+          timestamp: Date.now(),
+          signature: 'sig123',
+        };
+        messageVerifierStub.checkAppMessageExistence.resolves(null);
+        messageVerifierStub.checkAppTemporaryMessageExistence.resolves(null);
+        messageVerifierStub.verifyAppHash = sinon.stub().resolves();
+        messageVerifierStub.verifyAppMessageUpdateSignature = sinon.stub().resolves();
+        messageVerifierStub.checkAndRequestApp = sinon.stub().resolves(true);
+        dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+        dbHelperStub.findOneInDatabase.resolves(hashRecord);
+        dbHelperStub.insertOneToDatabase.resolves();
+        const getPrevious = sinon.stub().resolves({ owner: 'owner1', version: 6 });
+
+        messageStore = proxyquire('../../ZelBack/src/services/appMessaging/messageStore', {
+          config: configStub,
+          '../dbHelper': dbHelperStub,
+          '../serviceHelper': serviceHelperStub,
+          './messageVerifier': messageVerifierStub,
+          '../../lib/log': logStub,
+          '../daemonService/daemonServiceMiscRpcs': {
+            isDaemonSynced: sinon.stub().returns({ data: { height: 3008000 } }),
+          },
+          '../appRequirements/appValidator': {
+            verifyAppSpecifications: sinon.stub().resolves(),
+          },
+          '../appDatabase/registryManager': {
+            checkApplicationRegistrationNameConflicts: sinon.stub().resolves(),
+            getPreviousAppSpecifications: getPrevious,
+          },
+          '../appLifecycle/advancedWorkflows': {
+            validateApplicationUpdateCompatibility: sinon.stub().resolves(),
+          },
+          '../utils/enterpriseHelper': {
+            checkAndDecryptAppSpecs: sinon.stub().resolves({}),
+          },
+          '../utils/appConstants': {
+            globalAppsMessages: 'appsMessages',
+            globalAppsTempMessages: 'appsTempMessages',
+            globalAppsLocations: 'appsLocations',
+            globalAppsInstallingLocations: 'appsInstallingLocations',
+            globalAppsInstallingErrorsLocations: 'appsInstallingErrorsLocations',
+            appsHashesCollection: 'appsHashes',
+          },
+          '../utils/appSpecHelpers': {
+            specificationFormatter: sinon.stub().returnsArg(0),
+          },
+        });
+
+        await messageStore.storeAppTemporaryMessage(message);
+
+        sinon.assert.calledOnce(getPrevious);
+        expect(getPrevious.firstCall.args[1]).to.equal(expectedHeight);
+        expect(getPrevious.firstCall.args[2]).to.equal(expectedHeight === undefined ? undefined : message.timestamp);
+      });
+    });
   });
 
   describe('storeAppPermanentMessage', () => {

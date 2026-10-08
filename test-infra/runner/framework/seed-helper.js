@@ -183,11 +183,12 @@ export async function buildSeedableApp({
  *
  * @param {object} app - what buildSeedableApp returned
  * @param {(spec: object) => void} mutate - changes the copy in place
- * @param {{height?: number}} opts - the block the update lands on
+ * @param {{height?: number, signer?: object}} opts - the block the update lands on, and the key
+ *   that signs it (the app owner's by default)
  * @returns {Promise<object>} the same shape buildSeedableApp returns
  */
-export async function buildSeedableUpdate(app, mutate, { height = null } = {}) {
-  const ownerKey = appOwnerKey();
+export async function buildSeedableUpdate(app, mutate, { height = null, signer = appOwnerKey() } = {}) {
+  const ownerKey = signer;
 
   // hash and height are what the seeding added; the signature and the hash below
   // are taken over the specification alone, exactly as registration took them.

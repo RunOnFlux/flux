@@ -1291,7 +1291,7 @@ async function verifyAppSpecifications(appSpecifications, height, liveSubmission
     if (!previousLookedUp) {
       previousLookedUp = true;
       const found = await registryManager
-        .getPreviousAppSpecifications(appSpecifications, Date.now())
+        .getPreviousAppSpecifications(appSpecifications)
         .catch(() => null);
       previousSpec = found
         && signatureVerifier.sameSigningIdentity(found.owner, appSpecifications.owner)
@@ -1603,11 +1603,10 @@ async function validateAppUpdate(appSpecification) {
   }
 
   // Validate update compatibility with previous version
-  const timestamp = Date.now();
   // Dynamic require to avoid circular dependency
   // eslint-disable-next-line global-require
   const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
-  const previousAppSpecs = await registryManager.getPreviousAppSpecifications(appSpecFormatted, timestamp);
+  const previousAppSpecs = await registryManager.getPreviousAppSpecifications(appSpecFormatted);
   if (!previousAppSpecs) {
     throw new Error(`Flux App ${appSpecFormatted.name} does not exist and cannot be updated`);
   }
