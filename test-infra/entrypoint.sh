@@ -228,6 +228,21 @@ if [ -n "${FLUX_E2E_NETWORK_SHAPE:-}" ]; then
   fi
 fi
 
+# A global IPv6 address, declared per node by the suite (createTestEnv globalIpv6). It sits on
+# a device of its own with no IPv6 route beyond it, so the node holds a routable IPv6 address
+# as a dual-stack host does while every IPv6 connection fails at once (ENETUNREACH): an IPv6
+# that is configured and does not route. Independent of the network shape, and built before
+# FluxOS starts for the same reason.
+if [ -n "${FLUX_E2E_GLOBAL_IPV6:-}" ]; then
+  if ! { ip link add flux6 type dummy \
+      && sysctl -qw net.ipv6.conf.flux6.disable_ipv6=0 \
+      && ip link set flux6 up \
+      && ip -6 addr add "$FLUX_E2E_GLOBAL_IPV6/64" dev flux6 nodad; }; then
+    echo "ERROR: could not add the global IPv6 address $FLUX_E2E_GLOBAL_IPV6" >&2
+    exit 1
+  fi
+fi
+
 # Write boot_id for test harness control.
 # FLUX_BOOT_ID is set per-container by the test harness.
 # The harness seeds a heartbeat with matching or different value to

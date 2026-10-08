@@ -18,7 +18,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // rule counts the queries sent to 192.0.2.1. The node's policy source is a host only it
 // fetches, refreshed every few seconds, so the resolver's count of that host is its lookups.
 //
-// The first lookup asks the dead server once per family and then probes it once, and the
+// The first lookup asks the dead server for the A record and then probes it once, and the
 // probe goes unanswered (dnsLookup.js). After that the server is skipped, and probed again
 // at most once every REPROBE_MS, so over a window of lookups it is sent at most one query per
 // REPROBE_MS begun; a node that judged its servers together would ask it on every lookup.

@@ -1,5 +1,6 @@
 const zlib = require('zlib');
 const dgram = require('dgram');
+const net = require('net');
 const fs = require('fs');
 const crypto = require('crypto');
 const https = require('https');
@@ -1130,8 +1131,10 @@ control.post('/dns-attempts/reset', (req, res) => {
 });
 
 // Names this resolver answers itself instead of relaying, per record type:
-// { name, records: { A: '<ipv4>' | 'SERVFAIL' | 'NO_REPLY', AAAA: 'SERVFAIL' | 'NO_REPLY' } }.
-// NO_REPLY leaves the query unanswered. A type left out is relayed as any other query is.
+// { name, records: { A: <answer>, AAAA: <answer> } }, where an answer is an address of the
+// type's family, 'SERVFAIL', 'NO_REPLY', or { answer, afterMs } to send that answer afterMs
+// after the query arrives. NO_REPLY leaves the query unanswered. A type left out is relayed
+// as any other query is.
 // Each query for a recorded type is counted - in `served` by type, and in `via` by the route
 // it came in on and type - so a suite can show the node asked the question it meant to fail,
 // and by which route, rather than only that it went on to succeed.
@@ -1199,6 +1202,24 @@ function dnsResponse(query, end, rcode, answers = []) {
   return Buffer.concat([header, query.subarray(12, end), ...answers]);
 }
 
+// An AAAA record for a full or compressed IPv6 address, laid out as aRecord's.
+function aaaaRecord(ip) {
+  const record = Buffer.alloc(28);
+  record.writeUInt16BE(0xc00c, 0);
+  record.writeUInt16BE(28, 2);
+  record.writeUInt16BE(1, 4);
+  record.writeUInt32BE(60, 6);
+  record.writeUInt16BE(16, 10);
+  const [head, tail = ''] = ip.split('::');
+  const headGroups = head ? head.split(':') : [];
+  const tailGroups = tail ? tail.split(':') : [];
+  const groups = ip.includes('::')
+    ? [...headGroups, ...Array(8 - headGroups.length - tailGroups.length).fill('0'), ...tailGroups]
+    : headGroups;
+  groups.forEach((group, index) => record.writeUInt16BE(parseInt(group, 16), 12 + index * 2));
+  return record;
+}
+
 function aRecord(ip) {
   const record = Buffer.alloc(16);
   // A pointer to the question's name at offset 12, type A, class IN, TTL 60, 4 bytes.
@@ -1215,11 +1236,11 @@ function aRecord(ip) {
 const NO_REPLY = Symbol('no reply');
 
 /**
- * This resolver's own answer to a query for a name in dnsRecords: a response, NO_REPLY, or
- * null to relay it.
+ * This resolver's own answer to a query for a name in dnsRecords, and how long after the query
+ * to send it: a response, or NO_REPLY; or null to relay the query.
  * @param {Buffer} query
  * @param {string} route The listener the query came in on.
- * @returns {Buffer|symbol|null}
+ * @returns {{response: Buffer|symbol, afterMs: number}|null}
  */
 function recordedAnswer(query, route) {
   const { name, type, end } = parseQuestion(query);
@@ -1231,9 +1252,11 @@ function recordedAnswer(query, route) {
   entry.served[typeName] = (entry.served[typeName] ?? 0) + 1;
   entry.via[route] = entry.via[route] ?? {};
   entry.via[route][typeName] = (entry.via[route][typeName] ?? 0) + 1;
-  if (record === 'NO_REPLY') return NO_REPLY;
-  if (record === 'SERVFAIL') return dnsResponse(query, end, 2);
-  return dnsResponse(query, end, 0, [aRecord(record)]);
+  const { answer, afterMs } = typeof record === 'object' ? record : { answer: record, afterMs: 0 };
+  if (answer === 'NO_REPLY') return { response: NO_REPLY, afterMs };
+  if (answer === 'SERVFAIL') return { response: dnsResponse(query, end, 2), afterMs };
+  const addressRecord = net.isIPv6(answer) ? aaaaRecord(answer) : aRecord(answer);
+  return { response: dnsResponse(query, end, 0, [addressRecord]), afterMs };
 }
 
 /**
@@ -1248,9 +1271,9 @@ function startResolver(port, route) {
 
   server.on('message', (query, rinfo) => {
     const recorded = recordedAnswer(query, route);
-    if (recorded === NO_REPLY) return;
     if (recorded) {
-      server.send(recorded, rinfo.port, rinfo.address);
+      if (recorded.response === NO_REPLY) return;
+      setTimeout(() => server.send(recorded.response, rinfo.port, rinfo.address), recorded.afterMs);
       return;
     }
 

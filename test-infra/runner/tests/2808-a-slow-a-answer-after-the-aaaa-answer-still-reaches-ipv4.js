@@ -7,26 +7,22 @@ import { bootAndPeer, waitForLocationTable } from '../framework/reconciler-suite
 import { dnsRecordsServed } from '../framework/external-http-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
-// A node whose DNS server answers a host's A query and fails its AAAA query with SERVFAIL
-// reaches that host at its IPv4 address.
+// A node whose IPv6 is configured and does not route reaches a host at its IPv4 address when
+// the host's A answer arrives after its AAAA answer, as a recursive resolver with a cold cache
+// gives them.
 //
-// Routers that SERVFAIL every AAAA query are common on home connections. The host here is
-// the policy source, reached by name on every node: the fleet takes the signed bundle from
-// it, and each node fetches the location table the bundle names from it, all through the
-// main thread's global agent and so through the lookup FluxOS installs there.
-//
-// Every node holds a global IPv6 address (createTestEnv globalIpv6): a node with none asks for
-// no AAAA records at all.
-//
-// Three nodes, peered, because the table fetch starts once a node's app database is
-// ready, and a node that never peers never gets there. The backstop period is compressed so
-// the first fetch from the source lands within the suite's patience rather than within a
-// day.
+// Every node holds a global IPv6 address with no IPv6 route beyond it (createTestEnv
+// globalIpv6), so it asks for both record types and every IPv6 connection fails at once. The
+// policy host's AAAA query is answered at once and its A query A_AFTER_MS later. The host is the
+// policy source for every node, so a node holds the bundle only if a lookup gave it the host's
+// IPv4 address; no node can take it from a peer that did not.
 
 const POLICY_HOST = 'policy.e2e.test';
 const NODES = 3;
+// Beyond the lookup's Resolution Delay, within its query timeout (dnsLookup.js).
+const A_AFTER_MS = 500;
 
-describe('a host whose AAAA query fails is reached at its IPv4 address', function () {
+describe('a slow A answer after the AAAA answer still reaches the host at its IPv4 address', function () {
   let env;
 
   dumpLogsOnFailure(() => env);
@@ -39,7 +35,7 @@ describe('a host whose AAAA query fails is reached at its IPv4 address', functio
       globalIpv6: Array.from({ length: NODES }, (_, i) => i),
       dnsRecords: [{
         name: POLICY_HOST,
-        records: { A: getSubnetConfig().externalStub, AAAA: 'SERVFAIL' },
+        records: { A: { answer: getSubnetConfig().externalStub, afterMs: A_AFTER_MS }, AAAA: '2001:db8:5::1' },
       }],
       configOverrides: {
         policy: { signedBaseUrl: `http://${POLICY_HOST}:3000`, refreshIntervalMs: 15000 },
@@ -55,9 +51,8 @@ describe('a host whose AAAA query fails is reached at its IPv4 address', functio
     await env?.teardown();
   });
 
-  it('asks for the host\'s AAAA records and is answered with SERVFAIL', async function () {
-    // The condition under test, shown present: without it, everything below would pass
-    // against any lookup at all.
+  it('asks for the host\'s A and AAAA records', async function () {
+    // The condition under test, shown present.
     this.timeout(90000);
     await waitFor(async () => {
       const served = (await dnsRecordsServed())[POLICY_HOST]?.served ?? {};

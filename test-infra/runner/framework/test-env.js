@@ -190,6 +190,13 @@ function fdmHostnames() {
   return names;
 }
 
+// The global IPv6 address createTestEnv's `globalIpv6` gives node i: one per node in
+// 2001:db8:e2e::/48 (the documentation prefix, RFC 3849), which no stub answers a name with, so
+// a connection to an address a stub does answer leaves by no route and fails at once.
+export function globalIpv6Address(i) {
+  return `2001:db8:e2e:${i + 1}::1`;
+}
+
 // testcontainers ExtraHost objects for the built-in .withExtraHosts().
 function fdmExtraHosts(ip) {
   return fdmHostnames().map((host) => ({ host, ipAddress: ip }));
@@ -763,7 +770,7 @@ export async function createTestEnv({
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
   geolocation = {}, locationTable = null, staticIp = true, policy = null, policySeeds = null,
-  awaitPolicy = true, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, rejoinOnRestart = true, networkShapes = {}, dnsRecords = [],
+  awaitPolicy = true, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, rejoinOnRestart = true, networkShapes = {}, globalIpv6 = [], dnsRecords = [],
 } = {}) {
   if (syncthing !== 'stub' && syncthing !== 'binary') {
     throw new Error(`createTestEnv: syncthing must be 'stub' or 'binary', got '${syncthing}'`);
@@ -1030,7 +1037,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, sharedKeys, networkShapes, dnsRecords);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, sharedKeys, networkShapes, globalIpv6, dnsRecords);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -1059,7 +1066,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, dnsRecords = []) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = []) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -1365,6 +1372,8 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       ...(staticIp ? { FLUX_E2E_DEFAULT_ROUTE: subnet.gateway } : {}),
       // Built by the entrypoint after the default route, before FluxOS starts.
       ...(networkShapes[i] ? { FLUX_E2E_NETWORK_SHAPE: networkShapes[i], FLUX_E2E_RESOLVER: EXTERNAL_STUB_IP } : {}),
+      // A global IPv6 address with no IPv6 route, added by the entrypoint before FluxOS starts.
+      ...(globalIpv6.includes(i) ? { FLUX_E2E_GLOBAL_IPV6: globalIpv6Address(i) } : {}),
     };
     if (syncthing === 'binary') {
       // the node runs its own daemon and binds apiport+2 itself, so there is

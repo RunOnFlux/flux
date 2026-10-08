@@ -23,7 +23,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // thread's global agent, and so through the lookup FluxOS installs there; the refresh
 // is compressed so lookups come every few seconds.
 //
-// The first lookup asks the silent server once per family and then probes it once, and the
+// The first lookup asks the silent server for the A record and then probes it once, and the
 // probe goes unanswered (dnsLookup.js). After that the server is skipped, and probed again at
 // most once every REPROBE_MS, so over a window of lookups it is sent at most one query per
 // REPROBE_MS begun, where a node that did not remember it would send each lookup's queries

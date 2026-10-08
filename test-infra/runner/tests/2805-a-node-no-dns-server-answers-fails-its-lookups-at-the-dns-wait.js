@@ -16,7 +16,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //
 // The node's policy source is a host only it fetches, refreshed every few seconds, so its
 // lookups of that host come at a steady rate and each one fails. Each lookup sends the public
-// servers one query per family. The first lookup asks the silent own server and probes it once
+// servers at least one A query; the node holds no IPv6 address, so it asks for no AAAA records. The first lookup asks the silent own server and probes it once
 // (dnsLookup.js); after that the server is skipped and probed again at most once every
 // REPROBE_MS, so over a window of lookups it is sent at most one query per REPROBE_MS begun. A
 // lookup that ended in getaddrinfo would send the own server that lookup's queries again.
@@ -28,8 +28,8 @@ const OWN_SERVER = '192.0.2.1';
 const PUBLIC_SERVERS = '192.0.2.2';
 const REPROBE_MS = 30000;
 const LOOKUPS = 3;
-// One query per family for each lookup.
-const PUBLIC_QUERIES_PER_LOOKUP = 2;
+// At least one A query for each lookup.
+const PUBLIC_QUERIES_PER_LOOKUP = 1;
 
 describe('a node no DNS server answers fails its lookups at the DNS wait', function () {
   let env;
