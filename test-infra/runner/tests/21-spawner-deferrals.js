@@ -101,18 +101,23 @@ describe('Arcane spawner deferrals', function () {
     await env?.teardown();
   });
 
-  describe('non-enterprise app deferred as non_enterprise_on_arcane', function () {
-    const appName = `e2earcdefer${Date.now()}`;
+  // Being non-enterprise is not a deferral of its own on Arcane. It used to be one,
+  // at the head of the chain, and it pre-empted every deferral below it: the node
+  // took the app back after two minutes and never sat out static IP, datacenter or
+  // capacity gap. The app now meets the same chain it meets on Legacy.
+  describe('non-enterprise app deferred for static_ip', function () {
+    const appName = `e2earcstatip${Date.now()}`;
 
     before(async function () {
       this.timeout(180000);
-      await registerApp(env, appName);
+      await registerApp(env, appName, { staticip: false });
     });
 
-    it('should defer with reason non_enterprise_on_arcane', async function () {
+    it('should defer with reason static_ip and standard delay', async function () {
       this.timeout(60000);
-      const deferred = await anyDeferralEvent(env, appName, 'non_enterprise_on_arcane');
-      expect(deferred.reason).to.equal('non_enterprise_on_arcane');
+      const deferred = await anyDeferralEvent(env, appName, 'static_ip');
+      expect(deferred.reason).to.equal('static_ip');
+      expect(deferred.delayMs).to.equal(400);
     });
 
     it('should install after deferral expires', async function () {

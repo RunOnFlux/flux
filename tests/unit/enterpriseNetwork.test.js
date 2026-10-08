@@ -447,15 +447,15 @@ describe('enterpriseNetwork', () => {
       expect(m.getSpawnDelays(true, 42)).to.deep.equal({ shortDelayTime: 30 * 1000, delayTime: 60 * 1000 });
     });
 
-    it('non-enterprise with appsAvailable > 1: 60s/60s', () => {
+    it('non-enterprise with any app available: 60s/60s', () => {
       const { module: m } = loadModule();
+      expect(m.getSpawnDelays(false, 1)).to.deep.equal({ shortDelayTime: 60 * 1000, delayTime: 60 * 1000 });
       expect(m.getSpawnDelays(false, 2)).to.deep.equal({ shortDelayTime: 60 * 1000, delayTime: 60 * 1000 });
     });
 
-    it('non-enterprise with appsAvailable <= 1: legacy 5m/30m defaults', () => {
+    it('non-enterprise with no app available: 5m/5m', () => {
       const { module: m } = loadModule();
-      expect(m.getSpawnDelays(false, 0)).to.deep.equal({ shortDelayTime: 5 * 60 * 1000, delayTime: 30 * 60 * 1000 });
-      expect(m.getSpawnDelays(false, 1)).to.deep.equal({ shortDelayTime: 5 * 60 * 1000, delayTime: 30 * 60 * 1000 });
+      expect(m.getSpawnDelays(false, 0)).to.deep.equal({ shortDelayTime: 5 * 60 * 1000, delayTime: 5 * 60 * 1000 });
     });
   });
 

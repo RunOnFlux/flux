@@ -163,10 +163,7 @@ describe('a pinned app runs where its spec says', function () {
       // reads where the app ended up, which is the claim the whole feature makes.
       //
       // There is no lottery to lose here, which is why this can be asserted at all: the
-      // pin filter leaves exactly one candidate, so the only open question is WHEN. (A
-      // non-enterprise app on an Arcane node is deferred first - spawner:deferred,
-      // reason non_enterprise_on_arcane - which delays the install rather than
-      // preventing it.)
+      // pin filter leaves exactly one candidate, so the only open question is WHEN.
       const app = await buildSeedableApp({
         env,
         name: `landspin${Date.now()}`,
