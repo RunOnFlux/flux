@@ -70,201 +70,201 @@ describe('idService tests', () => {
       sinon.restore();
     });
 
-    it('should return false and log error if stratus (100000) has less than 8 cpu threads', async () => {
+    it('should return fail and log error if stratus (100000) has less than 8 cpu threads', async () => {
       tierStub.resolves('bamf');
       collateralStub.resolves(100000);
       osTotalmemStub.returns(30 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(false);
+      expect(response).to.eql(idService.CHECK.FAIL);
       sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Cpu Threads (4) below Stratus requirements')));
     });
 
-    it('should return false and log error if stratus (100000) has less than 30gb ram', async () => {
+    it('should return fail and log error if stratus (100000) has less than 30gb ram', async () => {
       tierStub.resolves('bamf');
       collateralStub.resolves(100000);
       osTotalmemStub.returns(29 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(false);
+      expect(response).to.eql(idService.CHECK.FAIL);
       sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Total Ram (29) below Stratus requirements')));
     });
 
-    it('should return true if stratus (100000) matches requirements', async () => {
+    it('should return ok if stratus (100000) matches requirements', async () => {
       tierStub.resolves('bamf');
       collateralStub.resolves(100000);
       osTotalmemStub.returns(30 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(true);
+      expect(response).to.eql(idService.CHECK.OK);
       sinon.assert.notCalled(logSpy);
     });
 
-    it('should return false and log error if stratus (40000) has less than 16 cpu threads', async () => {
+    it('should return fail and log error if stratus (40000) has less than 16 cpu threads', async () => {
       tierStub.resolves('bamf');
       collateralStub.resolves(40000);
       osTotalmemStub.returns(61 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(false);
+      expect(response).to.eql(idService.CHECK.FAIL);
       sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Cpu Threads (15) below new Stratus requirements')));
     });
 
-    it('should return false and log error if stratus (40000) has less than 61gb ram', async () => {
+    it('should return fail and log error if stratus (40000) has less than 61gb ram', async () => {
       tierStub.resolves('bamf');
       collateralStub.resolves(40000);
       osTotalmemStub.returns(60 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(false);
+      expect(response).to.eql(idService.CHECK.FAIL);
       sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Total Ram (60) below new Stratus requirements')));
     });
 
-    it('should return true if stratus (40000) matches requirements', async () => {
+    it('should return ok if stratus (40000) matches requirements', async () => {
       tierStub.resolves('bamf');
       collateralStub.resolves(40000);
       osTotalmemStub.returns(61 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(true);
+      expect(response).to.eql(idService.CHECK.OK);
       sinon.assert.notCalled(logSpy);
     });
 
-    it('should return false and log error if Nimbus (25000) has less than 4 cpu threads', async () => {
+    it('should return fail and log error if Nimbus (25000) has less than 4 cpu threads', async () => {
       tierStub.resolves('super');
       collateralStub.resolves(25000);
       osTotalmemStub.returns(7 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(false);
+      expect(response).to.eql(idService.CHECK.FAIL);
       sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Cpu Threads (3) below Nimbus requirements')));
     });
 
-    it('should return false and log error if Nimbus (25000) has less than 7gb ram', async () => {
+    it('should return fail and log error if Nimbus (25000) has less than 7gb ram', async () => {
       tierStub.resolves('super');
       collateralStub.resolves(25000);
       osTotalmemStub.returns(6 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(false);
+      expect(response).to.eql(idService.CHECK.FAIL);
       sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Total Ram (6) below Nimbus requirements')));
     });
 
-    it('should return true if Nimbus (25000) matches requirements', async () => {
+    it('should return ok if Nimbus (25000) matches requirements', async () => {
       tierStub.resolves('super');
       collateralStub.resolves(25000);
       osTotalmemStub.returns(8 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(true);
+      expect(response).to.eql(idService.CHECK.OK);
       sinon.assert.notCalled(logSpy);
     });
 
-    it('should return false and log error if Nimbus (12500) has less than 8 cpu threads', async () => {
+    it('should return fail and log error if Nimbus (12500) has less than 8 cpu threads', async () => {
       tierStub.resolves('super');
       collateralStub.resolves(12500);
       osTotalmemStub.returns(30 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(false);
+      expect(response).to.eql(idService.CHECK.FAIL);
       sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Cpu Threads (7) below new Nimbus requirements')));
     });
 
-    it('should return false and log error if Nimbus (12500) has less than 30gb ram', async () => {
+    it('should return fail and log error if Nimbus (12500) has less than 30gb ram', async () => {
       tierStub.resolves('super');
       collateralStub.resolves(12500);
       osTotalmemStub.returns(29 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(false);
+      expect(response).to.eql(idService.CHECK.FAIL);
       sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Total Ram (29) below new Nimbus requirements')));
     });
 
-    it('should return true if Nimbus (12500) matches requirements', async () => {
+    it('should return ok if Nimbus (12500) matches requirements', async () => {
       tierStub.resolves('super');
       collateralStub.resolves(12500);
       osTotalmemStub.returns(30 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(true);
+      expect(response).to.eql(idService.CHECK.OK);
       sinon.assert.notCalled(logSpy);
     });
 
-    it('should return false and log error if Cumulus (10000) has less than 2 cpu threads', async () => {
+    it('should return fail and log error if Cumulus (10000) has less than 2 cpu threads', async () => {
       tierStub.resolves('basic');
       collateralStub.resolves(10000);
       osTotalmemStub.returns(3 * 1024 ** 3);
       osCpusStub.returns([1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(false);
+      expect(response).to.eql(idService.CHECK.FAIL);
       sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Cpu Threads (1) below Cumulus requirements')));
     });
 
-    it('should return false and log error if Cumulus (10000) has less than 3gb ram', async () => {
+    it('should return fail and log error if Cumulus (10000) has less than 3gb ram', async () => {
       tierStub.resolves('basic');
       collateralStub.resolves(10000);
       osTotalmemStub.returns(2 * 1024 ** 3);
       osCpusStub.returns([1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(false);
+      expect(response).to.eql(idService.CHECK.FAIL);
       sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Total Ram (2) below Cumulus requirements')));
     });
 
-    it('should return true if Cumulus (10000) matches requirements', async () => {
+    it('should return ok if Cumulus (10000) matches requirements', async () => {
       tierStub.resolves('basic');
       collateralStub.resolves(10000);
       osTotalmemStub.returns(3 * 1024 ** 3);
       osCpusStub.returns([1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(true);
+      expect(response).to.eql(idService.CHECK.OK);
       sinon.assert.notCalled(logSpy);
     });
 
-    it('should return false and log error if Cumulus (1000) has less than 4 cpu threads', async () => {
+    it('should return fail and log error if Cumulus (1000) has less than 4 cpu threads', async () => {
       tierStub.resolves('basic');
       collateralStub.resolves(1000);
       osTotalmemStub.returns(3 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(false);
+      expect(response).to.eql(idService.CHECK.FAIL);
       sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Cpu Threads (3) below new Cumulus requirements')));
     });
 
-    it('should return false and log error if Cumulus (1000) has less than 3gb ram', async () => {
+    it('should return fail and log error if Cumulus (1000) has less than 3gb ram', async () => {
       tierStub.resolves('basic');
       collateralStub.resolves(1000);
       osTotalmemStub.returns(2 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(false);
+      expect(response).to.eql(idService.CHECK.FAIL);
       sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Total Ram (2) below new Cumulus requirements')));
     });
 
-    it('should return true if Cumulus (1000) matches requirements', async () => {
+    it('should return ok if Cumulus (1000) matches requirements', async () => {
       tierStub.resolves('basic');
       collateralStub.resolves(1000);
       osTotalmemStub.returns(3 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(true);
+      expect(response).to.eql(idService.CHECK.OK);
       sinon.assert.notCalled(logSpy);
     });
   });
@@ -478,6 +478,54 @@ describe('idService tests', () => {
     });
   });
 
+  // The tier comes from the daemon. While it loads its block index or is not
+  // listening there is no tier to measure against: the check says so and does
+  // not log, because every daemon start passes through that state.
+  describe('confirmNodeTierHardware while the daemon cannot answer', () => {
+    const warming = { code: -28, name: 'Error', message: 'Loading block index...' };
+    let tierStub;
+    let collateralStub;
+    let logSpy;
+
+    beforeEach(() => {
+      sinon.stub(os, 'totalmem').returns(1 * 1024 ** 3);
+      sinon.stub(os, 'cpus').returns([1]);
+      tierStub = sinon.stub(generalService, 'nodeTier');
+      collateralStub = sinon.stub(generalService, 'nodeCollateral');
+      logSpy = sinon.spy(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('is unmeasured, not ok, while the daemon is warming up', async () => {
+      tierStub.rejects(warming);
+      collateralStub.rejects(warming);
+
+      expect(await idService.confirmNodeTierHardware()).to.equal(idService.CHECK.UNMEASURED);
+      sinon.assert.notCalled(logSpy);
+    });
+
+    it('is unmeasured while nothing listens on the daemon port', async () => {
+      const refused = { code: 'ECONNREFUSED', name: 'Error', message: 'connect ECONNREFUSED 127.0.0.1:16124' };
+      tierStub.rejects(refused);
+      collateralStub.rejects(refused);
+
+      expect(await idService.confirmNodeTierHardware()).to.equal(idService.CHECK.UNMEASURED);
+      sinon.assert.notCalled(logSpy);
+    });
+
+    it('is unmeasured and logs when the lookup fails for any other reason', async () => {
+      const unknown = new Error('Unrecognised Flux Node tier');
+      tierStub.rejects(unknown);
+      collateralStub.resolves(1000);
+
+      expect(await idService.confirmNodeTierHardware()).to.equal(idService.CHECK.UNMEASURED);
+      sinon.assert.calledOnceWithExactly(logSpy, unknown);
+    });
+  });
+
   describe('nodeHealth / checkNodeFitness tests', () => {
     let osTotalmemStub;
     let osCpusStub;
@@ -548,7 +596,15 @@ describe('idService tests', () => {
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
-        data: { code: undefined, name: 'Error', message: 'Node hardware requirements not met' },
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'Node hardware requirements not met',
+          failed: 'hardware',
+          checks: {
+            db: 'ok', syncthing: 'ok', docker: 'ok', hardware: 'fail',
+          },
+        },
       });
     });
 
@@ -561,7 +617,13 @@ describe('idService tests', () => {
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
-        data: { code: undefined, name: 'Error', message: 'Syncthing is not running properly' },
+        data: {
+          code: undefined,
+          name: 'Error',
+          message: 'Syncthing is not running properly',
+          failed: 'syncthing',
+          checks: { db: 'ok', syncthing: 'fail' },
+        },
       });
     });
 
@@ -612,6 +674,37 @@ describe('idService tests', () => {
 
         const [answer] = res.json.firstCall.args;
         expect(answer.status, 'the boot window refused a login phrase and failed the benchmark').to.equal('success');
+      });
+    });
+
+    describe('with the daemon still warming up', () => {
+      beforeEach(() => {
+        healthyHardware();
+        const warming = { code: -28, name: 'Error', message: 'Loading block index...' };
+        tierStub.rejects(warming);
+        collateralStub.rejects(warming);
+      });
+
+      it('keeps the node fit and reports hardware as unmeasured', async () => {
+        const res = generateResponse();
+
+        await idService.nodeHealth(undefined, res);
+
+        sinon.assert.calledOnceWithExactly(res.json, {
+          status: 'success',
+          data: {
+            db: 'ok', syncthing: 'ok', docker: 'ok', hardware: 'unmeasured', dos: 'ok', appsDos: 'ok',
+          },
+        });
+      });
+
+      it('loginPhrase still answers a phrase', async () => {
+        const res = generateResponse();
+
+        await idService.loginPhrase(undefined, res);
+
+        const [answer] = res.json.firstCall.args;
+        expect(answer.status).to.equal('success');
       });
     });
 
