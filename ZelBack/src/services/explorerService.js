@@ -15,6 +15,7 @@ const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const chainUtilities = require('./utils/chainUtilities');
 const messageVerifier = require('./appMessaging/messageVerifier');
 const registryManager = require('./appDatabase/registryManager');
+const { withRegistryWrite } = require('./appDatabase/registryWriteLock');
 const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const benchmarkService = require('./benchmarkService');
 const fluxNetworkhelper = require('./fluxNetworkHelper');
@@ -771,7 +772,7 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
   if (rescanGlobalApps === true) {
     log.info('Rescanning Apps!');
     await dbHelper.removeDocumentsFromCollection(databaseGlobal, config.database.appsglobal.collections.appsMessages, query);
-    await dbHelper.removeDocumentsFromCollection(databaseGlobal, config.database.appsglobal.collections.appsInformation, query);
+    await withRegistryWrite(() => dbHelper.removeDocumentsFromCollection(databaseGlobal, config.database.appsglobal.collections.appsInformation, query));
   }
   log.info('Rescan completed');
   return true;
@@ -1281,7 +1282,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
         const resultE = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsMessages).catch((error) => {
           if (error.message !== 'ns not found') throw error;
         });
-        const resultF = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsInformation).catch((error) => {
+        const resultF = await withRegistryWrite(() => dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsInformation)).catch((error) => {
           if (error.message !== 'ns not found') throw error;
         });
         const resultG = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsLocations).catch((error) => {

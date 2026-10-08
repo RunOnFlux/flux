@@ -13,6 +13,7 @@ const { appPricePerMonth, specificationFormatter } = require('../utils/appUtilit
 const { getChainParamsPriceUpdates, getChainTeamSupportAddressUpdates } = require('../utils/chainUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { storeAppSpecificationInForce, getPreviousAppSpecifications, isNewestAppMessage } = require('../appDatabase/registryManager');
+const { withRegistryWrite } = require('../appDatabase/registryWriteLock');
 const {
   globalAppsMessages,
   globalAppsTempMessages,
@@ -930,11 +931,13 @@ async function checkAndRequestRecordedApp(hash, txid, height, valueSat, i = 0) {
           const databaseGlobal = db.db(config.database.appsglobal.database);
           const queryDeleteApp = { name: specifications.name };
           const projectionApps = { projection: { _id: 0, name: 1 } };
-          const existingGlobalApp = await dbHelper.findOneInDatabase(databaseGlobal, globalAppsInformation, queryDeleteApp, projectionApps);
-          if (existingGlobalApp) {
-            log.warn(`Removing expired app ${specifications.name} from global apps database`);
-            await dbHelper.findOneAndDeleteInDatabase(databaseGlobal, globalAppsInformation, queryDeleteApp, projectionApps);
-          }
+          await withRegistryWrite(async () => {
+            const existingGlobalApp = await dbHelper.findOneInDatabase(databaseGlobal, globalAppsInformation, queryDeleteApp, projectionApps);
+            if (existingGlobalApp) {
+              log.warn(`Removing expired app ${specifications.name} from global apps database`);
+              await dbHelper.findOneAndDeleteInDatabase(databaseGlobal, globalAppsInformation, queryDeleteApp, projectionApps);
+            }
+          });
 
           // Check if app is installed locally and remove it
           const databaseLocal = db.db(config.database.appslocal.database);
