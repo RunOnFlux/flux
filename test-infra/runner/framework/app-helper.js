@@ -61,9 +61,8 @@ export function assertHermeticRepotags(spec, allowExternalRepotag) {
 }
 
 export function buildAppSpec({
-  enterprise = false, allowExternalRepotag = false, allowPortReuse = false, ...overrides
+  enterprise = false, allowExternalRepotag = false, allowPortReuse = false, ownerKey = appOwnerKey(), ...overrides
 } = {}) {
-  const ownerKey = appOwnerKey();
   const spec = { ...defaultSpec, owner: ownerKey.zelid, ...overrides };
   assertHermeticRepotags(spec, allowExternalRepotag);
 
@@ -104,8 +103,8 @@ export function buildAppSpec({
   return spec;
 }
 
-export async function signAppSpec(spec, type = 'fluxappregister') {
-  const ownerKey = appOwnerKey();
+// Signed by the owner's key: the app owner unless the spec names another.
+export async function signAppSpec(spec, type = 'fluxappregister', ownerKey = appOwnerKey()) {
   const timestamp = Date.now();
   const version = 1;
   const payload = type + version + JSON.stringify(spec) + timestamp;
@@ -122,9 +121,9 @@ function endpointForType(type) {
   return type === 'fluxappupdate' || type === 'zelappupdate' ? 'appupdate' : 'appregister';
 }
 
-export async function registerApp(nodeUrl, adminKeypair, spec, type = 'fluxappregister') {
+export async function registerApp(nodeUrl, adminKeypair, spec, type = 'fluxappregister', { ownerKey } = {}) {
   const auth = await authenticate(nodeUrl, adminKeypair);
-  const signed = await signAppSpec(spec, type);
+  const signed = await signAppSpec(spec, type, ownerKey);
 
   const res = await fetch(`${nodeUrl}/apps/${endpointForType(type)}`, {
     method: 'POST',

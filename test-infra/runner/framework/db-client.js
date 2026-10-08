@@ -227,6 +227,26 @@ export function dbClient(nodeNum) {
       });
     },
 
+    // The node's record of an app payment, including its position in the block.
+    async appHashRecord(hash) {
+      const explorerDb = await db('explorer');
+      return explorerDb.collection('zelappshashes').findOne({ hash }, { projection: { _id: 0 } });
+    },
+
+    // Remove a payment record's position, leaving it as a record made before
+    // positions were recorded.
+    async unsetTxIndex(hash) {
+      const explorerDb = await db('explorer');
+      const result = await explorerDb.collection('zelappshashes').updateOne({ hash }, { $unset: { txIndex: '' } });
+      if (result.matchedCount !== 1) throw new Error(`no payment record for ${hash}`);
+    },
+
+    // Every registry row this node holds for an app, straight from its store.
+    async appSpecRows(name) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappsinformation').find({ name }, { projection: { _id: 0 } }).toArray();
+    },
+
     async markHashUnresolved(hash) {
       const explorerDb = await db('explorer');
       await explorerDb.collection('zelappshashes').updateOne(
