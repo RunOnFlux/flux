@@ -1584,39 +1584,39 @@ async function expireGlobalApplications() {
 }
 
 /**
- * The newest permanent message for an app name: the one in force while its term runs
- * (appMessageChain).
+ * The permanent messages of an app name that count (appMessageChain.messagesThatCount), oldest
+ * first.
  * @param {string} appName
- * @returns {Promise<{hash: string, height: number}|null>}
+ * @returns {Promise<object[]>}
  */
-async function newestAppMessage(appName) {
+async function appMessagesThatCount(appName) {
   const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const newest = await dbHelper.findOneInDatabase(
-    database,
+  const messages = await dbHelper.findInDatabase(
+    db.db(config.database.appsglobal.database),
     globalAppsMessages,
     { 'appSpecifications.name': appName },
-    { projection: { _id: 0, hash: 1, height: 1 }, sort: { height: -1, timestamp: -1 } },
+    { projection: { _id: 0 } },
   );
-  return newest;
+  return dbHelper.appMessagesThatCount(db.db(config.database.daemon.database), messages);
 }
 
 /**
- * Whether a permanent message is the newest for its app. A message fetched late (missing-hash
- * sync) must not end an app that a newer message keeps alive.
+ * Whether a permanent message is the one that governs its app: the newest that counts
+ * (appMessageChain). A message fetched late (missing-hash sync) must not end an app that a newer
+ * message keeps alive, and another owner's registration of a held name governs nothing.
  * @param {string} appName
  * @param {string} hash
  * @returns {Promise<boolean>}
  */
-async function isNewestAppMessage(appName, hash) {
-  const newest = await newestAppMessage(appName);
-  return Boolean(newest) && newest.hash === hash;
+async function isGoverningAppMessage(appName, hash) {
+  const counted = await appMessagesThatCount(appName);
+  return counted.length > 0 && counted[counted.length - 1].hash === hash;
 }
 
 /**
  * Stores a promoted message's specifications as its app's global spec when that message is in
- * force (appMessageChain): the newest for the name in the message log, and alive at the current
- * block. Any other message changes nothing: a newer one governs the app, or its term has ended.
+ * force (appMessageChain): the one that governs the name in the message log, and alive at the
+ * current block. Any other message changes nothing: a newer one governs the app, or its term has ended.
  * A registration and an update are stored alike, so an update renews an app this node's expiry
  * pass has already removed, and this node holds what a rebuild from the log would.
  * @param {object} appSpecs the message's specifications, with its hash and height
@@ -1625,7 +1625,7 @@ async function isNewestAppMessage(appName, hash) {
 async function storeAppSpecificationInForce(appSpecs) {
   return withRegistryWrite(async () => {
     try {
-      if (!await isNewestAppMessage(appSpecs.name, appSpecs.hash)) return true;
+      if (!await isGoverningAppMessage(appSpecs.name, appSpecs.hash)) return true;
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const currentHeight = syncStatus && syncStatus.data ? syncStatus.data.height : 0;
       if (!appMessageChain.isInForce(appSpecs.height, appSpecs.expire, currentHeight)) return true;
@@ -1686,6 +1686,7 @@ async function reindexGlobalAppsInformation() {
       globalAppsInformation,
       localAppsInformation,
       scannedHeight,
+      daemonDb,
     );
 
     log.info('Reindexing of global application list finished.');
@@ -2181,7 +2182,10 @@ async function getPreviousAppSpecifications(specifications, beforeHeight, before
   const appsQuery = {
     'appSpecifications.name': specifications.name,
   };
-  const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+  const logged = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+  // Only a message that counts can be the previous spec: another owner's registration of a name
+  // held at its block holds nothing (appMessageChain).
+  const permanentAppMessage = await dbHelper.appMessagesThatCount(db.db(config.database.daemon.database), logged);
   // The previous spec is the message right below ours on chain: the highest height under the
   // block ours confirmed in (in that block, one signed before ours), or, for a live submission
   // not yet on chain, the newest one. The bulk hash sync replays history by the same rule
@@ -2280,7 +2284,7 @@ module.exports = {
   availableApps,
   checkApplicationRegistrationNameConflicts,
   storeAppSpecificationInForce,
-  isNewestAppMessage,
+  isGoverningAppMessage,
   getAppSpecificationFromDb,
   getAllAppsInformation,
   getInstalledApps,

@@ -70,6 +70,7 @@ describe('appHashSyncService tests', () => {
       databaseConnection: sinon.stub().returns({ db: sinon.stub().returns(mockDatabase) }),
       findInDatabase: sinon.stub(),
       findOneInDatabase: sinon.stub(),
+      appPaymentFacts: sinon.stub().resolves({ positions: new Map(), notOnChain: new Set() }),
     };
 
     messageHelperStub = {
@@ -792,6 +793,7 @@ describe('appHashSyncService tests', () => {
         databaseConnection: sinon.stub().returns({ db: sinon.stub().returns(mockDatabase) }),
         findInDatabase: sinon.stub().resolves([]),
         findOneInDatabase: sinon.stub(),
+        appPaymentFacts: sinon.stub().resolves({ positions: new Map(), notOnChain: new Set() }),
       };
 
       localMessageVerifierStub = {
@@ -835,6 +837,48 @@ describe('appHashSyncService tests', () => {
         '../fluxCommunication': { openEphemeralConnection: sinon.stub().resolves(null) },
         '../fluxNetworkHelper': { getLocalSocketAddress: sinon.stub().resolves('10.0.0.99:16127') },
       });
+    });
+
+    it('should check a synced update against its holder, past another owner\'s registration of the held name', async () => {
+      const bulkMessages = [{
+        type: 'fluxappupdate', version: 4, hash: 'hash1', timestamp: Date.now(),
+        signature: 'sig1', appSpecifications: { name: 'testapp', version: 4, owner: 'alice' },
+        valueSat: 1e8, txid: 'tx1', height: 1001,
+      }];
+      const manyMissing = Array(600).fill(null).map((_, i) => ({
+        hash: `hash${i}`, txid: `tx${i}`, height: 1000 + i, value: 100, message: false,
+      }));
+      let getMissingCalls = 0;
+      localDbHelperStub.findInDatabase.callsFake(() => {
+        getMissingCalls += 1;
+        return Promise.resolve(getMissingCalls === 1 ? manyMissing : []);
+      });
+      localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+      serviceHelperStub.axiosGet.callsFake((url) => {
+        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
+        return Promise.resolve({ data: { status: 'success', data: true } });
+      });
+      localCollectionStub.find.returns({
+        project: sinon.stub().returns({
+          sort: sinon.stub().returns({
+            toArray: sinon.stub().resolves([
+              {
+                type: 'fluxappregister', hash: 'held', height: 990, timestamp: 1,
+                appSpecifications: { name: 'testapp', version: 4, owner: 'alice' },
+              },
+              {
+                type: 'fluxappregister', hash: 'taken', height: 995, timestamp: 2,
+                appSpecifications: { name: 'testapp', version: 4, owner: 'mallory' },
+              },
+            ]),
+          }),
+        }),
+      });
+
+      await localModule.syncMissingHashes();
+
+      sinon.assert.called(localMessageVerifierStub.verifyAppMessageUpdateSignature);
+      expect(localMessageVerifierStub.verifyAppMessageUpdateSignature.firstCall.args[5]).to.equal('alice');
     });
 
     it('should retry with previous owner when signature verification fails due to ownership change', async () => {

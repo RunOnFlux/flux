@@ -21,7 +21,7 @@ const { appSyncEvents, EVENTS } = require('../utils/appSyncEvents');
 const { HASH_EXPIRY_BLOCKS, HASH_RETRY_BACKOFF } = require('../utils/appConstants');
 const log = require('../../lib/log');
 const fluxEventBus = require('../utils/fluxEventBus');
-const { isBefore } = require('../utils/appMessageChain');
+const { isBefore, messagesThatCount } = require('../utils/appMessageChain');
 const { invalidMessages } = require('../invalidMessages');
 const { Privilege, authOf } = require('../utils/privileges');
 
@@ -339,6 +339,17 @@ async function processMessages(messages, records, onProgress) {
       }
     }
 
+    // Who holds a name is decided by the chain (appMessageChain): an update is verified against
+    // the message before it among those that count, from this node's payment records.
+    const paymentFacts = await dbHelper.appPaymentFacts(
+      daemonDb,
+      [...[...prevSpecsMap.values()].flat(), ...newMessages].map((message) => message.hash),
+    );
+    const countedBefore = (list) => messagesThatCount(
+      list.filter((message) => !paymentFacts.notOnChain.has(message.hash)),
+      paymentFacts.positions,
+    );
+
     // 4. Verify each message and collect for batch insert
     const permInserts = [];
     let hashMarkOps = [];
@@ -390,7 +401,7 @@ async function processMessages(messages, records, onProgress) {
           );
         } else {
           const prevSpecsList = prevSpecsMap.get(appSpecFormatted.name);
-          const prevMsg = prevSpecsList ? findPrevSpec(prevSpecsList, height, messageTimestamp) : null;
+          const prevMsg = prevSpecsList ? findPrevSpec(countedBefore(prevSpecsList), height, messageTimestamp) : null;
           if (!prevMsg) {
             failed += 1;
             continue;

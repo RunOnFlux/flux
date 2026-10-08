@@ -232,7 +232,7 @@ describe('messageVerifier tests', () => {
         '../appDatabase/registryManager': {
           storeAppSpecificationInForce: storeAppSpecificationInForceStub,
           getPreviousAppSpecifications: getPreviousAppSpecsStub,
-          isNewestAppMessage: sinon.stub().resolves(true),
+          isGoverningAppMessage: sinon.stub().resolves(true),
           ...registryManagerOverrides,
         },
         './messageStore': {
@@ -363,7 +363,7 @@ describe('messageVerifier tests', () => {
         const isNewest = sinon.stub().resolves(false);
         const verifier = buildVerifier({
           dbHelperOverrides: { findOneInDatabase: findOne, findOneAndDeleteInDatabase: findOneAndDeleteStub },
-          registryManagerOverrides: { isNewestAppMessage: isNewest },
+          registryManagerOverrides: { isGoverningAppMessage: isNewest },
         });
 
         const result = await verifier.checkAndRequestApp('oldhash', 'txid123', 1999000, 200000000);
@@ -377,7 +377,7 @@ describe('messageVerifier tests', () => {
       it('should clean up the app when it is the newest message', async () => {
         const verifier = buildVerifier({
           dbHelperOverrides: { findOneInDatabase: findOne, findOneAndDeleteInDatabase: findOneAndDeleteStub },
-          registryManagerOverrides: { isNewestAppMessage: sinon.stub().resolves(true) },
+          registryManagerOverrides: { isGoverningAppMessage: sinon.stub().resolves(true) },
         });
 
         await verifier.checkAndRequestApp('oldhash', 'txid123', 1999000, 200000000);

@@ -12,7 +12,7 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const { appPricePerMonth, specificationFormatter } = require('../utils/appUtilities');
 const { getChainParamsPriceUpdates, getChainTeamSupportAddressUpdates } = require('../utils/chainUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { storeAppSpecificationInForce, getPreviousAppSpecifications, isNewestAppMessage } = require('../appDatabase/registryManager');
+const { storeAppSpecificationInForce, getPreviousAppSpecifications, isGoverningAppMessage } = require('../appDatabase/registryManager');
 const { withRegistryWrite } = require('../appDatabase/registryWriteLock');
 const {
   globalAppsMessages,
@@ -917,11 +917,12 @@ async function checkAndRequestRecordedApp(hash, txid, height, valueSat, i = 0) {
           // App has expired (actualExpirationHeight <= daemonHeight)
           // Clean up stale data from both global and local databases
           // This handles the case where an update message was received after the app expired
-          // Only when this message is the newest for the app. An old update fetched late by the
-          // missing-hash sync has long expired by itself, but a newer message may be keeping the
-          // app alive - ending it here would drop a paid app from this node and uninstall it.
-          if (!await isNewestAppMessage(specifications.name, permanentAppMessage.hash)) {
-            log.info(`App message ${permanentAppMessage.hash} for ${specifications.name} has expired, but a newer message governs the app. Nothing to clean up.`);
+          // Only when this message governs the app (appMessageChain). An old update fetched late by
+          // the missing-hash sync has long expired by itself, but a newer message may be keeping
+          // the app alive, and another owner's registration of a held name governs nothing -
+          // ending the app here would drop a paid app from this node and uninstall it.
+          if (!await isGoverningAppMessage(specifications.name, permanentAppMessage.hash)) {
+            log.info(`App message ${permanentAppMessage.hash} for ${specifications.name} has expired, but does not govern the app. Nothing to clean up.`);
             return true;
           }
           log.warn(`App ${specifications.name} has expired (expiration height ${actualExpirationHeight} <= daemon height ${daemonHeight}). Cleaning up stale data.`);
