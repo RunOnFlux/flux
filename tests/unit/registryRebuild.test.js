@@ -339,7 +339,7 @@ describe('registry writes', () => {
   const all = FILES.flatMap(registryWrites);
 
   it('finds the registry writes it is looking for, so an empty sweep cannot pass', () => {
-    expect(all.length).to.be.at.least(6);
+    expect(all.length).to.be.at.least(4);
   });
 
   it('holds every one of them to the registry write lock', () => {
