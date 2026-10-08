@@ -298,8 +298,10 @@ async function processMessages(messages, records, onProgress) {
     );
     const existingSet = new Set(existingDocs.map((d) => d.hash));
 
-    // 2. Batch mark existing hashes as message:true
+    // 2. Batch mark existing hashes as message:true, the stored message following this node's
+    // payment record
     if (existingSet.size > 0) {
+      await messageVerifier.alignStoredMessagesWithPayments([...existingSet].map((hash) => ({ hash, ...records.get(hash) })));
       const hashOps = [...existingSet].map((hash) => ({
         updateOne: { filter: { hash }, update: { $set: { message: true, messageNotFound: false } } },
       }));
@@ -657,6 +659,10 @@ async function syncMissingHashes(options = {}) {
       // eslint-disable-next-line no-await-in-loop
       const found = await dbHelper.findInDatabase(appsGlobalDb, globalAppsMessages, { hash: { $in: hashValues } }, { projection: { _id: 0, hash: 1 } });
       if (found.length > 0) {
+        // The stored message follows this node's payment record.
+        const foundHashes = new Set(found.map((m) => m.hash));
+        // eslint-disable-next-line no-await-in-loop
+        await messageVerifier.alignStoredMessagesWithPayments(chunk.filter((record) => foundHashes.has(record.hash)));
         const ops = found.map((m) => ({ updateOne: { filter: { hash: m.hash }, update: { $set: { message: true, messageNotFound: false } } } }));
         // eslint-disable-next-line no-await-in-loop
         await daemonDb.collection(appsHashesCollection).bulkWrite(ops, { ordered: false });
