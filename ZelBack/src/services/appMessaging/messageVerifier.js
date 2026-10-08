@@ -655,7 +655,8 @@ async function getAppsPermanentMessages(req, res) {
 /**
  * This node's payment record for an app message hash: the txid, block height and payment its
  * own scan recorded. One record per hash, so a hash paid more than once is placed by the payment
- * the scan recorded for it.
+ * the scan recorded for it. A record whose transaction is not on the chain (`notOnChain`) is no
+ * payment.
  * @param {string} hash
  * @returns {Promise<{txid: string, height: number, value: number}|null>}
  */
@@ -665,7 +666,7 @@ async function paymentRecordOf(hash) {
   const record = await dbHelper.findOneInDatabase(
     database,
     appsHashesCollection,
-    { hash },
+    { hash, notOnChain: { $ne: true } },
     { projection: { _id: 0, txid: 1, height: 1, value: 1 } },
   );
   return record;

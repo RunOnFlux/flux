@@ -312,6 +312,16 @@ describe('messageVerifier tests', () => {
         sinon.assert.calledWith(storeAppPermanentMessageStub, sinon.match({ txid: 'recordedtx', height: 2000000, valueSat: 300000000 }));
       });
 
+      it('should look the payment up among the payments on the chain only', async () => {
+        const findOneInDatabase = sinon.stub().resolves(null);
+        const verifier = buildVerifier({ dbHelperOverrides: { findOneInDatabase } });
+
+        const result = await verifier.checkAndRequestApp('hash123', 'txid123', 2000000, 200000000);
+
+        expect(result).to.equal(false);
+        expect(findOneInDatabase.firstCall.args[2]).to.deep.equal({ hash: 'hash123', notOnChain: { $ne: true } });
+      });
+
       it('should store nothing for a hash this node has no payment recorded for', async () => {
         const verifier = buildVerifier({ paymentRecord: null });
 

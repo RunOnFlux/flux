@@ -257,6 +257,21 @@ describe('appHashSyncService tests', () => {
       expect(result[0].hash).to.equal('valid1');
     });
 
+    // A payment whose transaction is not on the chain has no message to fetch,
+    // forced or not.
+    [false, true].forEach((force) => {
+      it(`should never ask for the message of a payment that is not on the chain (force: ${force})`, async () => {
+        const mockDb = { db: sinon.stub().returns('database') };
+        dbHelperStub.databaseConnection.returns(mockDb);
+        dbHelperStub.findInDatabase.resolves([]);
+
+        await appHashSyncService.getMissingHashes({ force });
+
+        expect(dbHelperStub.findInDatabase.lastCall.args[2]).to.include({ message: false });
+        expect(dbHelperStub.findInDatabase.lastCall.args[2].notOnChain).to.deep.equal({ $ne: true });
+      });
+    });
+
     it('should return empty array when no hashes are missing', async () => {
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);

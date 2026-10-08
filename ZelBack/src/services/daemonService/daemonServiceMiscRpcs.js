@@ -49,6 +49,16 @@ function isInsightExplorer() {
   return false;
 }
 
+/**
+ * Whether the daemon configuration file turns on the address index, which
+ * answers getaddressdeltas and getaddresstxids.
+ * @returns {boolean}
+ */
+function isAddressIndex() {
+  const value = daemonServiceUtils.getConfigValue('addressindex');
+  return value === 1 || value === '1';
+}
+
 // == NON Daemon ==
 /**
  * To check if daemon is synced.
@@ -190,6 +200,7 @@ function setLastSuccessfulRpcCall(newValue) {
 }
 
 module.exports = {
+  isAddressIndex,
   isInsightExplorer,
   // == NON Daemon ==
   isDaemonSynced,

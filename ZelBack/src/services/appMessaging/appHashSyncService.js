@@ -56,7 +56,8 @@ async function getMissingHashes(options = {}) {
   const { force = false, currentHeight = 0 } = options;
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
-  const query = { message: false };
+  // A payment whose transaction is not on the chain (notOnChain) has no message to fetch.
+  const query = { message: false, notOnChain: { $ne: true } };
   if (!force) {
     query.messageNotFound = { $ne: true };
     query.$or = [

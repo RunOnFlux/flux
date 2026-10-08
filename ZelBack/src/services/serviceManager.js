@@ -43,6 +43,7 @@ const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSend
 const appQueryService = require('./appQuery/appQueryService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
+const paymentPositions = require('./migrations/paymentPositions');
 const fluxService = require('./fluxService');
 const geolocationService = require('./geolocationService');
 const ipLocationSync = require('./appPlacement/ipLocationSync');
@@ -502,6 +503,15 @@ async function startFluxFunctions() {
     // awaited so isDaemonSynced cache is populated before hash sync reads it
     await daemonServiceMiscRpcs.daemonBlockchainInfoService();
     globalState.daemonReady = true;
+
+    // App payments are placed in chain order from the daemon's address index: it
+    // positions the payments recorded before the scan recorded positions, and a
+    // node with no app history yet fetches its payments through it.
+    if (!daemonServiceMiscRpcs.isAddressIndex()) {
+      log.error('fluxd is running without addressindex=1. FluxOS needs the address index to order app messages. Set addressindex=1 in flux.conf and reindex the daemon, or reinstall the node. FluxOS is stopping.');
+      process.exit(1);
+    }
+    await paymentPositions.backfillPaymentPositions();
 
     // Initialize app sync orchestrator and spawner
     const orchestrator = new AppSyncOrchestrator({
