@@ -16,6 +16,7 @@ const chainUtilities = require('./utils/chainUtilities');
 const messageVerifier = require('./appMessaging/messageVerifier');
 const registryManager = require('./appDatabase/registryManager');
 const { withRegistryWrite } = require('./appDatabase/registryWriteLock');
+const { appPaymentPositions } = require('./appPaymentPositions');
 const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const benchmarkService = require('./benchmarkService');
 const fluxNetworkhelper = require('./fluxNetworkHelper');
@@ -313,9 +314,10 @@ async function processSoftFork(txid, height, message) {
 async function processInsight(blockDataVerbose, database) {
   // get Block Deltas information
   const txs = blockDataVerbose.tx;
-  // go through each transaction in deltas
+  // go through each transaction in deltas. The index is the transaction's position
+  // in the block: a verbose block lists its transactions in block order.
   // eslint-disable-next-line no-restricted-syntax
-  for (const tx of txs) {
+  for (const [txIndex, tx] of txs.entries()) {
     if (tx.version < 5 && tx.version > 0) {
       let message = '';
       let isFluxAppMessageValue = 0;
@@ -353,7 +355,7 @@ async function processInsight(blockDataVerbose, database) {
         // MAY contain App transaction. Store it.
         if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of X flux had to be paid for us bothering checking
           const appTxRecord = {
-            txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
+            txid: tx.txid, height: blockDataVerbose.height, txIndex, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
             syncAttempts: 0, nextRetryHeight: blockDataVerbose.height, retryFromHeight: blockDataVerbose.height,
           };
           // Unique hash - If we already have a hash of this app in our database, do not insert it!
@@ -477,7 +479,9 @@ async function processStandard(blockDataVerbose, database) {
   // utxoDetail = { txid, vout, height, address, satoshis, scriptPubKey )
   // and can create addressTransactionIndex.
   // amount in address can be calculated from utxos. We do not need to store it.
-  await Promise.all(transactions.map(async (tx) => {
+  // processBlockTransactions keeps the block's order, so the index is the
+  // transaction's position in the block.
+  await Promise.all(transactions.map(async (tx, txIndex) => {
     // normal transactions
     if (tx.version < 5 && tx.version > 0) {
       let message = '';
@@ -528,7 +532,7 @@ async function processStandard(blockDataVerbose, database) {
         // MAY contain App transaction. Store it.
         if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
           const appTxRecord = {
-            txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
+            txid: tx.txid, height: blockDataVerbose.height, txIndex, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
             syncAttempts: 0, nextRetryHeight: blockDataVerbose.height, retryFromHeight: blockDataVerbose.height,
           };
           // Unique hash - If we already have a hash of this app in our database, do not insert it!
@@ -934,7 +938,15 @@ async function bootstrapSoftForks(currentDaemonHeight) {
   log.info(`Bootstrap: Stored ${totalForks} soft fork messages`);
 }
 
-function processBootstrapTx(tx, priceSpecs, seenHashes, hashBatch) {
+/**
+ * Records the app payment a transaction makes, unless its hash already has one.
+ * @param {object} tx Verbose transaction
+ * @param {Array<{height: number, minPrice: number}>} priceSpecs
+ * @param {Set<string>} seenHashes Hashes already recorded
+ * @param {object[]} hashBatch Records to insert
+ * @param {number} txIndex The transaction's position in its block
+ */
+function processBootstrapTx(tx, priceSpecs, seenHashes, hashBatch, txIndex) {
   if (tx.version >= 5 || tx.version <= 0) return;
   const { height } = tx;
   if (!height) return;
@@ -963,7 +975,7 @@ function processBootstrapTx(tx, priceSpecs, seenHashes, hashBatch) {
       && height >= config.fluxapps.epochstart && !seenHashes.has(message)) {
       seenHashes.add(message);
       hashBatch.push({
-        txid: tx.txid, height, hash: message, value: appValue,
+        txid: tx.txid, height, txIndex, hash: message, value: appValue,
         message: false, syncAttempts: 0, nextRetryHeight: height, retryFromHeight: height,
       });
     }
@@ -971,28 +983,17 @@ function processBootstrapTx(tx, priceSpecs, seenHashes, hashBatch) {
 
 }
 
+/**
+ * Records every app payment from `epochstart` to a height without scanning
+ * blocks: each hash's first payment in chain order (height, then position in
+ * the block).
+ * @param {number} currentDaemonHeight
+ */
 async function bootstrapAppHashes(currentDaemonHeight) {
-  const appAddresses = [
-    config.fluxapps.address,
-    config.fluxapps.addressMultisig,
-    config.fluxapps.addressMultisigB,
-  ];
-  if (config.development) {
-    appAddresses.push(config.fluxapps.addressDevelopment);
-  }
-
-  log.info(`Bootstrap: Fetching txids for ${appAddresses.length} app addresses from height ${config.fluxapps.epochstart} to ${currentDaemonHeight}`);
-
-  const txidResult = await daemonServiceUtils.executeCall('getaddresstxids', [{
-    addresses: appAddresses,
-    start: config.fluxapps.epochstart,
-    end: currentDaemonHeight,
-  }]);
-  if (txidResult.status !== 'success') {
-    throw new Error(`getaddresstxids failed: ${txidResult.data.message || txidResult.data}`);
-  }
-
-  const allTxids = [...new Set(txidResult.data)];
+  log.info(`Bootstrap: Fetching app payments from height ${config.fluxapps.epochstart} to ${currentDaemonHeight}`);
+  const positions = await appPaymentPositions(config.fluxapps.epochstart, currentDaemonHeight);
+  const allTxids = [...positions.keys()].sort((a, b) => positions.get(a).height - positions.get(b).height
+    || positions.get(a).txIndex - positions.get(b).txIndex);
   log.info(`Bootstrap: ${allTxids.length} unique txids to process`);
 
   await bootstrapSoftForks(currentDaemonHeight);
@@ -1022,7 +1023,7 @@ async function bootstrapAppHashes(currentDaemonHeight) {
         log.warn(`Bootstrap: failed to fetch tx: ${response.error.message || JSON.stringify(response.error)}`);
         continue;
       }
-      processBootstrapTx(response.result, priceSpecs, seenHashes, hashBatch);
+      processBootstrapTx(response.result, priceSpecs, seenHashes, hashBatch, positions.get(response.result.txid).txIndex);
     }
 
     if (hashBatch.length >= INSERT_THRESHOLD || i + BATCH_SIZE >= allTxids.length) {

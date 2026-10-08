@@ -172,6 +172,33 @@ function publishReported(list) {
   });
 }
 
+/**
+ * The address-index deltas of the blocks this stub has built: one per output
+ * paying a requested address, with the transaction's position in its block as
+ * `blockindex`, as fluxd reports them.
+ * @param {{addresses?: string[], start?: number, end?: number}} query
+ * @returns {object[]}
+ */
+function blockAddressDeltas({ addresses = [], start = 0, end = Infinity }) {
+  const wanted = new Set(addresses);
+  const deltas = [];
+  pendingBlocks
+    .filter((block) => block.height >= start && block.height <= end)
+    .sort((a, b) => a.height - b.height)
+    .forEach((block) => {
+      (block.tx || []).forEach((tx, blockindex) => {
+        (tx.vout || []).forEach((vout, index) => {
+          const address = vout.scriptPubKey?.addresses?.[0];
+          if (!wanted.has(address)) return;
+          deltas.push({
+            satoshis: vout.valueSat, txid: tx.txid, index, blockindex, height: block.height, address,
+          });
+        });
+      });
+    });
+  return deltas;
+}
+
 const rpcHandlers = {
   getblockchaininfo: () => ({
     chain: 'main',
@@ -357,7 +384,7 @@ const rpcHandlers = {
   getaddressbalance: () => ({ balance: 0, received: 0 }),
   getaddressutxos: () => [],
   getaddresstxids: () => (seededAddressTxids.length > 0 ? seededAddressTxids : []),
-  getaddressdeltas: () => (seededAddressDeltas.length > 0 ? seededAddressDeltas : []),
+  getaddressdeltas: (params) => [...seededAddressDeltas, ...blockAddressDeltas(params[0] || {})],
 
   listunspent: () => [],
   validateaddress: (params) => ({

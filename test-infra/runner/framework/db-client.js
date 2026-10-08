@@ -219,6 +219,7 @@ export function dbClient(nodeNum) {
         hash,
         height,
         txid: hash,
+        txIndex: 0,
         value: 200000000,
         message: resolved,
         messageNotFound: false,
@@ -302,10 +303,18 @@ export function dbClient(nodeNum) {
       await globalDb.collection('zelappsmessages').insertMany(msgs.map((msg) => ({ ...msg })));
     },
 
-    // The node's record of app payments its scan found: { hash, txid, height, value, message }.
+    // The node's record of app payments its scan found: { hash, txid, height, txIndex, value,
+    // message }. An entry without a position takes the next one at its height, in entry order.
     async seedAppHashes(entries) {
       const explorerDb = await db('explorer');
-      await explorerDb.collection('zelappshashes').insertMany(entries.map((entry) => ({ ...entry })));
+      const nextAtHeight = new Map();
+      const records = entries.map((entry) => {
+        if (Number.isInteger(entry.txIndex)) return { ...entry };
+        const txIndex = nextAtHeight.get(entry.height) ?? 0;
+        nextAtHeight.set(entry.height, txIndex + 1);
+        return { ...entry, txIndex };
+      });
+      await explorerDb.collection('zelappshashes').insertMany(records);
     },
 
     async permanentMessages(query = {}) {
