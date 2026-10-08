@@ -11,7 +11,7 @@ const globalState = require('../utils/globalState');
 const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession } = require('../utils/enterpriseHelper');
 const { specificationFormatter, updateToLatestAppSpecifications } = require('../utils/appUtilities');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
-const { AsyncLock } = require('../utils/asyncLock');
+const { withRegistryWrite } = require('./registryWriteLock');
 const appMessageChain = require('../utils/appMessageChain');
 const mountParser = require('../utils/mountParser');
 const signatureVerifier = require('../signatureVerifier');
@@ -1309,27 +1309,6 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
 }
 
 /**
- * Store app specification in permanent storage
- * @param {object} appSpec - Application specification
- * @returns {Promise<object>} Storage result
- */
-async function storeAppSpecificationInPermanentStorage(appSpec) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    await dbHelper.insertOneToDatabase(database, globalAppsInformation, appSpec);
-
-    fluxEventBus.publish('app:specStored', { name: appSpec.name, hash: appSpec.hash });
-    log.info(`App specification stored permanently for ${appSpec.name}`);
-    return { status: 'success', message: 'App specification stored' };
-  } catch (error) {
-    log.error(`Error storing app specification: ${error.message}`);
-    throw error;
-  }
-}
-
-/**
  * Get app specification from database
  * @param {string} appName - Application name
  * @returns {Promise<object|null>} App specification
@@ -1507,31 +1486,33 @@ async function expireGlobalApplications() {
         _id: 0, name: 1, hash: 1, expire: 1, height: 1,
       },
     };
-    const results = await dbHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
-    // registered/updated on height, expires in expireIn is lower than current height
-    const appsToExpire = results.filter((appSpecs) => !appMessageChain.isInForce(appSpecs.height, appSpecs.expire, explorerHeight));
-    const appNamesToExpire = [];
-    // remove expired apps from global database
-    // eslint-disable-next-line no-restricted-syntax
-    for (const app of appsToExpire) {
-      // Delete the spec that was read as expired, not whatever holds the name now: promotions
-      // run concurrently with this pass, and a renewal stored since the read above stays.
-      // eslint-disable-next-line no-await-in-loop
-      const deleted = await dbHelper.findOneAndDeleteInDatabase(databaseApps, globalAppsInformation, { name: app.name, hash: app.hash }, projectionApps);
-      if (!deleted) {
-        log.info(`Application ${app.name} was updated while expiring, keeping it`);
-        // eslint-disable-next-line no-continue
-        continue;
-      }
-      log.info(`Expiring application ${app.name}`);
-      appNamesToExpire.push(app.name);
+    // Read, decide and delete under the registry write lock: a promotion cannot store a renewal
+    // between the read and the delete, and a rebuild's rename cannot bring back an app deleted here.
+    const appNamesToExpire = await withRegistryWrite(async () => {
+      const results = await dbHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
+      const appsToExpire = results.filter((appSpecs) => !appMessageChain.isInForce(appSpecs.height, appSpecs.expire, explorerHeight));
+      const expired = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const app of appsToExpire) {
+        // Delete the spec that was read as expired, not whatever holds the name now.
+        // eslint-disable-next-line no-await-in-loop
+        const deleted = await dbHelper.findOneAndDeleteInDatabase(databaseApps, globalAppsInformation, { name: app.name, hash: app.hash }, projectionApps);
+        if (!deleted) {
+          log.info(`Application ${app.name} was updated while expiring, keeping it`);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+        log.info(`Expiring application ${app.name}`);
+        expired.push(app.name);
 
-      const queryDeleteAppErrors = { name: app.name };
-      // eslint-disable-next-line no-await-in-loop
-      await dbHelper.removeDocumentsFromCollection(databaseApps, globalAppsInstallingErrorsLocations, queryDeleteAppErrors);
-      // eslint-disable-next-line no-await-in-loop
-      await dbHelper.removeDocumentsFromCollection(databaseApps, globalAppsInstallingErrorsBroadcasts, { 'data.name': app.name });
-    }
+        const queryDeleteAppErrors = { name: app.name };
+        // eslint-disable-next-line no-await-in-loop
+        await dbHelper.removeDocumentsFromCollection(databaseApps, globalAppsInstallingErrorsLocations, queryDeleteAppErrors);
+        // eslint-disable-next-line no-await-in-loop
+        await dbHelper.removeDocumentsFromCollection(databaseApps, globalAppsInstallingErrorsBroadcasts, { 'data.name': app.name });
+      }
+      return expired;
+    });
 
     // get list of locally installed apps.
     // Use dynamic require to avoid circular dependency
@@ -1602,22 +1583,6 @@ async function expireGlobalApplications() {
   }
 }
 
-// Every write of a global app spec reads what is stored, then decides. Promotions run
-// concurrently (the block scanner schedules them without awaiting, and a message fetched from
-// peers is promoted on its own), so two of them for one app could both read, and the older could
-// write last - or, with the app missing, both upsert and leave two documents for one name.
-// Serialised here: each write is a couple of quick queries.
-const appSpecWriteLock = new AsyncLock();
-
-async function withAppSpecWriteLock(write) {
-  await appSpecWriteLock.enable();
-  try {
-    return await write();
-  } finally {
-    appSpecWriteLock.disable();
-  }
-}
-
 /**
  * The newest permanent message for an app name: the one in force while its term runs
  * (appMessageChain).
@@ -1658,7 +1623,7 @@ async function isNewestAppMessage(appName, hash) {
  * @returns {Promise<boolean>} false when the write failed
  */
 async function storeAppSpecificationInForce(appSpecs) {
-  return withAppSpecWriteLock(async () => {
+  return withRegistryWrite(async () => {
     try {
       if (!await isNewestAppMessage(appSpecs.name, appSpecs.hash)) return true;
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
@@ -1714,17 +1679,14 @@ async function reindexGlobalAppsInformation() {
       scannedHeightResult.generalScannedHeight,
     );
 
-    // Under the spec write lock: the rebuild empties the collection and refills it, and a
-    // promotion landing in between would find no app, or be overwritten by the refill.
-    // eslint-disable-next-line no-use-before-define
-    const appsToRemove = await withAppSpecWriteLock(() => dbHelper.reindexGlobalAppsInformation(
+    const appsToRemove = await dbHelper.reindexGlobalAppsInformation(
       appsGlobalDb,
       appsLocalDb,
       globalAppsMessages,
       globalAppsInformation,
       localAppsInformation,
       scannedHeight,
-    ));
+    );
 
     log.info('Reindexing of global application list finished.');
 
@@ -2319,7 +2281,6 @@ module.exports = {
   checkApplicationRegistrationNameConflicts,
   storeAppSpecificationInForce,
   isNewestAppMessage,
-  storeAppSpecificationInPermanentStorage,
   getAppSpecificationFromDb,
   getAllAppsInformation,
   getInstalledApps,

@@ -8,6 +8,7 @@ const mongodb = require('mongodb');
 const config = require('config');
 
 const serviceHelper = require('./serviceHelper');
+const { withRegistryWrite } = require('./appDatabase/registryWriteLock');
 
 const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
@@ -772,10 +773,14 @@ async function syncAppsInformationCollection(
 }
 
 /**
- * Drops the appsInformation collection and rebuilds it from appsMessages in a
- * single mongo aggregation + chunked bulk inserts. Also clears the install
- * errors collection (1-hour TTL anyway, no useful state to preserve through
- * a full rebuild).
+ * Rebuilds the appsInformation collection from appsMessages in a single mongo
+ * aggregation and chunked bulk inserts.
+ *
+ * The new registry is built in a staging collection and renamed over the live
+ * one in one step, so a reader sees the old registry or the new one and never an
+ * empty or partial one. The rebuild holds the registry write lock throughout: a
+ * promotion or expiry arriving meanwhile waits and writes to the collection this
+ * produced.
  *
  * Filtering for currently-alive apps happens inside the aggregation via
  * expireHeightExpr (full PON fork rate adjustment), so there is no separate
@@ -785,7 +790,6 @@ async function syncAppsInformationCollection(
  * @param {mongodb.Db} appsLocalDb
  * @param {string} globalAppsMessagesCol
  * @param {string} globalAppsInformationCol
- * @param {string} globalAppsInstallingErrorsLocationsCol
  * @param {string} localAppsInformationCol
  * @param {number} scannedHeight
  * @returns {Promise<Array<string>>} installed app names that are no longer in
@@ -799,77 +803,81 @@ async function reindexGlobalAppsInformation(
   localAppsInformationCol,
   scannedHeight,
 ) {
-  try {
-    await appsGlobalDb.collection(globalAppsInformationCol).deleteMany({});
-  } catch (error) {
-    log.error(`reindexGlobalAppsInformation - Unable to clear collection. Error: ${error}`);
-    return [];
-  }
+  return withRegistryWrite(async () => {
+    const stagingCol = `${globalAppsInformationCol}_rebuild`;
+    // A staging collection left by a rebuild that did not finish is discarded;
+    // the live registry was never touched by it.
+    await dropCollection(appsGlobalDb, stagingCol).catch((error) => {
+      if (error.message !== 'ns not found') throw error;
+    });
 
-  const infoCol = appsGlobalDb.collection(globalAppsInformationCol);
-  await infoCol.createIndexes([
-    { key: { name: 1 }, name: 'query for getting zelapp based on zelapp specs name' },
-    { key: { owner: 1 }, name: 'query for getting zelapp based on zelapp specs owner' },
-    { key: { repotag: 1 }, name: 'query for getting zelapp based on image' },
-    { key: { height: 1 }, name: 'query for getting zelapp based on last height update' },
-    { key: { hash: 1 }, name: 'query for getting zelapp based on last hash' },
-  ]);
-  await ensureNewestAppMessageIndex(appsGlobalDb.collection(globalAppsMessagesCol));
+    const infoCol = appsGlobalDb.collection(stagingCol);
+    await infoCol.createIndexes([
+      { key: { name: 1 }, name: 'query for getting zelapp based on zelapp specs name' },
+      { key: { owner: 1 }, name: 'query for getting zelapp based on zelapp specs owner' },
+      { key: { repotag: 1 }, name: 'query for getting zelapp based on image' },
+      { key: { height: 1 }, name: 'query for getting zelapp based on last height update' },
+      { key: { hash: 1 }, name: 'query for getting zelapp based on last hash' },
+    ]);
+    await ensureNewestAppMessageIndex(appsGlobalDb.collection(globalAppsMessagesCol));
 
-  const pipeline = [
-    { $sort: NEWEST_APP_MESSAGE_SORT },
-    {
-      $group: {
-        _id: '$appSpecifications.name',
-        maxHeightMsg: { $first: '$$ROOT' },
+    const pipeline = [
+      { $sort: NEWEST_APP_MESSAGE_SORT },
+      {
+        $group: {
+          _id: '$appSpecifications.name',
+          maxHeightMsg: { $first: '$$ROOT' },
+        },
       },
-    },
-    {
-      $match: {
-        $expr: {
-          $gt: [
-            expireHeightExpr(
-              '$maxHeightMsg.height',
-              '$maxHeightMsg.appSpecifications.expire',
-            ),
-            scannedHeight,
+      {
+        $match: {
+          $expr: {
+            $gt: [
+              expireHeightExpr(
+                '$maxHeightMsg.height',
+                '$maxHeightMsg.appSpecifications.expire',
+              ),
+              scannedHeight,
+            ],
+          },
+        },
+      },
+      {
+        $replaceWith: {
+          $mergeObjects: [
+            '$maxHeightMsg.appSpecifications',
+            {
+              hash: '$maxHeightMsg.hash',
+              height: '$maxHeightMsg.height',
+            },
           ],
         },
       },
-    },
-    {
-      $replaceWith: {
-        $mergeObjects: [
-          '$maxHeightMsg.appSpecifications',
-          {
-            hash: '$maxHeightMsg.hash',
-            height: '$maxHeightMsg.height',
-          },
-        ],
-      },
-    },
-  ];
+    ];
 
-  const resultCursor = await aggregateInDatabase(
-    appsGlobalDb,
-    globalAppsMessagesCol,
-    pipeline,
-    { returnArray: false },
-  );
+    const resultCursor = await aggregateInDatabase(
+      appsGlobalDb,
+      globalAppsMessagesCol,
+      pipeline,
+      { returnArray: false },
+    );
 
-  const appsToRemove = await syncAppsInformationCollection(
-    resultCursor,
-    appsGlobalDb,
-    appsLocalDb,
-    globalAppsInformationCol,
-    localAppsInformationCol,
-  );
+    const appsToRemove = await syncAppsInformationCollection(
+      resultCursor,
+      appsGlobalDb,
+      appsLocalDb,
+      stagingCol,
+      localAppsInformationCol,
+    );
 
-  log.info(
-    `Reindexing of global applications finished. Local apps to be removed: ${JSON.stringify(appsToRemove)}`,
-  );
+    await infoCol.rename(globalAppsInformationCol, { dropTarget: true });
 
-  return appsToRemove;
+    log.info(
+      `Reindexing of global applications finished. Local apps to be removed: ${JSON.stringify(appsToRemove)}`,
+    );
+
+    return appsToRemove;
+  });
 }
 
 /**
