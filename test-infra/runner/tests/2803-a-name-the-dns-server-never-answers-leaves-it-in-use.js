@@ -28,6 +28,7 @@ const LOOKUPS = 3;
 
 describe('a name its own DNS server never answers leaves a node using that server', function () {
   let env;
+  let verification;
 
   dumpLogsOnFailure(() => env);
 
@@ -80,7 +81,7 @@ describe('a name its own DNS server never answers leaves a node using that serve
   it('asks its own DNS server for the dead name when a registration names it', async function () {
     // The condition under test, shown present: the node really asked for the name.
     this.timeout(90000);
-    verifyRegistration({
+    verification = verifyRegistration({
       version: 8,
       name: `e2edeadname${Date.now()}`,
       description: 'a registry host its DNS server never answers',
@@ -109,10 +110,18 @@ describe('a name its own DNS server never answers leaves a node using that serve
       nodes: [],
       staticip: false,
       enterprise: '',
-    }).catch(() => null);
+    }).catch((error) => ({ requestError: error.message }));
     await waitFor(async () => ((await via(DEAD_HOST)).own?.A ?? 0) > 0, {
       timeout: 60000, label: `the shaped node to ask its own server for ${DEAD_HOST}`,
     });
+  });
+
+  it('fails the registration with the public servers\' DNS error, not the operating system resolver\'s', async function () {
+    // The public servers never answer the dead name either, so nothing has an address for it.
+    this.timeout(90000);
+    const answer = JSON.stringify(await verification);
+    expect(answer).to.include(`ETIMEOUT: ${DEAD_HOST}`);
+    expect(answer).to.not.include('EAI_AGAIN');
   });
 
   it(`keeps looking the policy host up through its own DNS server over ${LOOKUPS} more lookups`, async function () {

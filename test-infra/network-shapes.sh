@@ -38,6 +38,13 @@
 #                       the node's resolv.conf lists a server that never answers
 #                       (192.0.2.1, counted as in silent-dns) ahead of the fleet's
 #                       resolver.
+#   all-dns-silent      no DNS server answers: the node's own server is 192.0.2.1
+#                       as in silent-dns, and the public resolvers FluxOS asks next
+#                       are sent to 192.0.2.2, which nothing holds either. A
+#                       target-less rule counts the queries sent to each.
+#   direct-nameserver   the node's resolv.conf names the fleet's resolver itself,
+#                       as a host that lists a public resolver does, rather than
+#                       Docker's embedded server in front of it.
 set -euo pipefail
 
 shape="$1"
@@ -114,6 +121,22 @@ case "$shape" in
     : "${FLUX_E2E_RESOLVER:?}"
     printf 'nameserver 192.0.2.1\nnameserver %s\n' "$FLUX_E2E_RESOLVER" > /etc/resolv.conf
     iptables -A OUTPUT -d 192.0.2.1 -p udp --dport 53
+    ;;
+  all-dns-silent)
+    echo 'nameserver 192.0.2.1' > /etc/resolv.conf
+    iptables -A OUTPUT -d 192.0.2.1 -p udp --dport 53
+    # dnsLookup.js's PUBLIC_DNS_SERVERS. The nat table rewrites the destination before the
+    # filter table's OUTPUT chain counts it.
+    for resolver in 1.1.1.1 8.8.8.8 9.9.9.9; do
+      for proto in udp tcp; do
+        iptables -t nat -A OUTPUT -d "$resolver" -p "$proto" --dport 53 -j DNAT --to-destination 192.0.2.2:53
+      done
+    done
+    iptables -A OUTPUT -d 192.0.2.2 -p udp --dport 53
+    ;;
+  direct-nameserver)
+    : "${FLUX_E2E_RESOLVER:?}"
+    printf 'nameserver %s\n' "$FLUX_E2E_RESOLVER" > /etc/resolv.conf
     ;;
   *)
     echo "network-shapes: unknown shape '$shape'" >&2
