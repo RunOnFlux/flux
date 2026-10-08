@@ -197,6 +197,7 @@ describe('registryManager tests', () => {
   describe('getRegistryStatus tests', () => {
     const infoCollection = config.database.appsglobal.collections.appsInformation;
     const hashesCollection = config.database.daemon.collections.appsHashes;
+    const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
     let daemonDatabase;
     let syncStateBefore;
 
@@ -208,6 +209,7 @@ describe('registryManager tests', () => {
       daemonDatabase = db.db(config.database.daemon.database);
       await database.collection(infoCollection).deleteMany({});
       await daemonDatabase.collection(hashesCollection).deleteMany({});
+      await daemonDatabase.collection(scannedHeightCollection).deleteMany({});
       syncStateBefore = globalState.appSyncState;
     });
 
@@ -215,6 +217,7 @@ describe('registryManager tests', () => {
       globalState.appSyncState = syncStateBefore;
       await database.collection(infoCollection).deleteMany({});
       await daemonDatabase.collection(hashesCollection).deleteMany({});
+      await daemonDatabase.collection(scannedHeightCollection).deleteMany({});
     });
 
     it('reports the sync state and counts the registry, the recorded transactions and those without a message', async () => {
@@ -224,6 +227,7 @@ describe('registryManager tests', () => {
       await daemonDatabase.collection(hashesCollection).insertMany([
         hashRecord(1, true), hashRecord(2, true), hashRecord(3, false), hashRecord(4, true), hashRecord(5, false),
       ]);
+      await daemonDatabase.collection(scannedHeightCollection).insertOne({ generalScannedHeight: 2983500 });
       globalState.appSyncState = 'READY';
       const res = { json: sinon.fake((param) => param) };
 
@@ -233,7 +237,7 @@ describe('registryManager tests', () => {
       expect(result).to.deep.equal({
         status: 'success',
         data: {
-          syncState: 'READY', apps: 3, transactions: 5, missingMessages: 2, messagesNotFound: 0,
+          syncState: 'READY', scannedHeight: 2983500, apps: 3, transactions: 5, missingMessages: 2, messagesNotFound: 0,
         },
       });
     });
@@ -251,7 +255,7 @@ describe('registryManager tests', () => {
         expect(result).to.deep.equal({
           status: 'success',
           data: {
-            syncState, apps: 0, transactions: 2, missingMessages: 2, messagesNotFound: 0,
+            syncState, scannedHeight: null, apps: 0, transactions: 2, missingMessages: 2, messagesNotFound: 0,
           },
         });
       }

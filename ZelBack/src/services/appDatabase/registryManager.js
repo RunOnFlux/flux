@@ -33,13 +33,14 @@ const { Privilege, authOf } = require('../utils/privileges');
 let reindexRunning = false;
 
 /**
- * The state of this node's app registry: the app sync state, how many apps it
- * holds, how many app transactions the explorer has recorded, how many of those
- * this node still has no message for, and how many of the missing ones it has
+ * The state of this node's app registry: the app sync state, the height its
+ * explorer has scanned to (null before the first scan), how many apps it holds,
+ * how many app transactions the explorer has recorded, how many of those this
+ * node still has no message for, and how many of the missing ones it has
  * stopped looking for. A node answers in every sync state, READY or not.
  * @param {object} _req - Request object (unused)
  * @param {object} res - Response object
- * @returns {Promise<object>} {syncState, apps, transactions, missingMessages, messagesNotFound}
+ * @returns {Promise<object>} {syncState, scannedHeight, apps, transactions, missingMessages, messagesNotFound}
  */
 async function getRegistryStatus(_req, res) {
   try {
@@ -49,7 +50,13 @@ async function getRegistryStatus(_req, res) {
     // The totals count the _id index rather than reading every document; the
     // missing counts are answered by the message index.
     const wholeCollection = { hint: { _id: 1 } };
-    const [apps, transactions, missingMessages, messagesNotFound] = await Promise.all([
+    const [scanned, apps, transactions, missingMessages, messagesNotFound] = await Promise.all([
+      dbHelper.findOneInDatabase(
+        daemonDatabase,
+        scannedHeightCollection,
+        { generalScannedHeight: { $gte: 0 } },
+        { projection: { _id: 0, generalScannedHeight: 1 } },
+      ),
       dbHelper.countInDatabase(appsDatabase, globalAppsInformation, {}, wholeCollection),
       dbHelper.countInDatabase(daemonDatabase, appsHashesCollection, {}, wholeCollection),
       dbHelper.countInDatabase(daemonDatabase, appsHashesCollection, { message: false }),
@@ -57,6 +64,7 @@ async function getRegistryStatus(_req, res) {
     ]);
     const status = {
       syncState: globalState.appSyncState,
+      scannedHeight: scanned ? serviceHelper.ensureNumber(scanned.generalScannedHeight) : null,
       apps,
       transactions,
       missingMessages,
