@@ -91,6 +91,7 @@ describe('appHashSyncService tests', () => {
     };
 
     messageVerifierStub = {
+      alignStoredMessagesWithPayments: sinon.stub().resolves([]),
       checkAndRequestApp: sinon.stub().resolves(true),
       appHashHasMessage: sinon.stub().resolves(),
       appHashHasMessageNotFound: sinon.stub().resolves(),
@@ -352,6 +353,47 @@ describe('appHashSyncService tests', () => {
       expect(threw).to.equal(true);
     });
 
+    it('should have a message stored since the missing hashes were read follow this node\'s payment record', async () => {
+      const manyMissing = Array(600).fill(null).map((_, i) => ({
+        hash: `hash${i}`, txid: `tx${i}`, height: 1000 + i, value: 100, message: false,
+      }));
+      const bulkFetchResult = [{
+        type: 'fluxappregister', version: 4, hash: 'hash7', timestamp: Date.now(),
+        signature: 'sig', appSpecifications: { name: 'app7' }, valueSat: 1e8, txid: 'peer-tx', height: 1,
+      }];
+      let getMissingCalls = 0;
+      let existenceChecks = 0;
+      dbHelperStub.findInDatabase.callsFake((db, col, query) => {
+        if (col === config.database.daemon.collections.appsHashes) {
+          getMissingCalls += 1;
+          return Promise.resolve(getMissingCalls === 1 ? manyMissing : []);
+        }
+        if (col === config.database.appsglobal.collections.appsMessages && query?.hash?.$in) {
+          existenceChecks += 1;
+          // Not stored when the missing hashes were read; stored by the time the peers answered.
+          return Promise.resolve(existenceChecks === 1 ? [] : [{ hash: 'hash7' }].filter(({ hash }) => query.hash.$in.includes(hash)));
+        }
+        return Promise.resolve([]);
+      });
+      dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+      serviceHelperStub.axiosGet.callsFake((url) => {
+        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkFetchResult));
+        return Promise.resolve({ data: { status: 'success', data: true } });
+      });
+
+      await appHashSyncService.syncMissingHashes();
+
+      const aligned = messageVerifierStub.alignStoredMessagesWithPayments.getCalls().map((call) => call.args[0]);
+      expect(aligned).to.have.length(1);
+      expect(aligned[0].map(({
+        hash, txid, height, value,
+      }) => ({
+        hash, txid, height, value,
+      }))).to.deep.equal([{
+        hash: 'hash7', txid: 'tx7', height: 1007, value: 100,
+      }]);
+    });
+
     it('should batch existence checks and skip existing messages via bulk fetch', async () => {
       const manyMissing = Array(600).fill(null).map((_, i) => ({
         hash: `hash${i}`, txid: `tx${i}`, height: 1000 + i, value: 100, message: false,
@@ -379,7 +421,7 @@ describe('appHashSyncService tests', () => {
           return Promise.resolve([]);
         }
         if (col === config.database.appsglobal.collections.appsMessages && query && query.hash && query.hash.$in) {
-          return Promise.resolve(existingPermanent);
+          return Promise.resolve(existingPermanent.filter(({ hash }) => query.hash.$in.includes(hash)));
         }
         return Promise.resolve([]);
       });
@@ -392,6 +434,12 @@ describe('appHashSyncService tests', () => {
       });
 
       await appHashSyncService.syncMissingHashes();
+
+      // The stored messages follow this node's payment records: those found locally, and those the
+      // bulk fetch finds already stored.
+      const expectedRecords = existingPermanent.map(({ hash }) => manyMissing.find((record) => record.hash === hash));
+      const aligned = messageVerifierStub.alignStoredMessagesWithPayments.getCalls().map((call) => call.args[0]);
+      expect(aligned).to.deep.equal([expectedRecords]);
 
       // 6 resolved locally via bulkWrite before bulk fetch
       expect(collectionStub.bulkWrite.called).to.be.true;
@@ -797,6 +845,7 @@ describe('appHashSyncService tests', () => {
       };
 
       localMessageVerifierStub = {
+        alignStoredMessagesWithPayments: sinon.stub().resolves([]),
         checkAndRequestApp: sinon.stub().resolves(true),
         appHashHasMessage: sinon.stub().resolves(),
         appHashHasMessageNotFound: sinon.stub().resolves(),

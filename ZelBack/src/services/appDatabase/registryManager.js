@@ -1601,6 +1601,16 @@ async function appMessagesThatCount(appName) {
 }
 
 /**
+ * The permanent message that governs an app: the newest that counts (appMessageChain), or null.
+ * @param {string} appName
+ * @returns {Promise<object|null>}
+ */
+async function governingAppMessage(appName) {
+  const counted = await appMessagesThatCount(appName);
+  return counted.length > 0 ? counted[counted.length - 1] : null;
+}
+
+/**
  * Whether a permanent message is the one that governs its app: the newest that counts
  * (appMessageChain). A message fetched late (missing-hash sync) must not end an app that a newer
  * message keeps alive, and another owner's registration of a held name governs nothing.
@@ -1609,8 +1619,8 @@ async function appMessagesThatCount(appName) {
  * @returns {Promise<boolean>}
  */
 async function isGoverningAppMessage(appName, hash) {
-  const counted = await appMessagesThatCount(appName);
-  return counted.length > 0 && counted[counted.length - 1].hash === hash;
+  const governing = await governingAppMessage(appName);
+  return governing !== null && governing.hash === hash;
 }
 
 /**
@@ -2284,6 +2294,7 @@ module.exports = {
   availableApps,
   checkApplicationRegistrationNameConflicts,
   storeAppSpecificationInForce,
+  governingAppMessage,
   isGoverningAppMessage,
   getAppSpecificationFromDb,
   getAllAppsInformation,

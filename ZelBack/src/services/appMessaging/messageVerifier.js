@@ -12,7 +12,9 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const { appPricePerMonth, specificationFormatter } = require('../utils/appUtilities');
 const { getChainParamsPriceUpdates, getChainTeamSupportAddressUpdates } = require('../utils/chainUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { storeAppSpecificationInForce, getPreviousAppSpecifications, isGoverningAppMessage } = require('../appDatabase/registryManager');
+const {
+  storeAppSpecificationInForce, getPreviousAppSpecifications, isGoverningAppMessage, governingAppMessage,
+} = require('../appDatabase/registryManager');
 const { withRegistryWrite } = require('../appDatabase/registryWriteLock');
 const {
   globalAppsMessages,
@@ -515,6 +517,46 @@ async function checkAppMessageExistence(hash) {
 }
 
 /**
+ * Sets each stored message's chain facts - txid, height and payment - to this node's record of
+ * its payment where they differ. A payment mined again in another block after a reorg is recorded
+ * at its new height, and the message it places follows.
+ * @param {Array<{hash: string, txid: string, height: number, value: number}>} records
+ * @returns {Promise<string[]>} the names of the apps with a message that moved
+ */
+async function alignStoredMessagesWithPayments(records) {
+  if (records.length === 0) return [];
+  const appsDatabase = dbHelper.databaseConnection().db(config.database.appsglobal.database);
+  const stored = await dbHelper.findInDatabase(
+    appsDatabase,
+    globalAppsMessages,
+    { hash: { $in: records.map((record) => record.hash) } },
+    {
+      projection: {
+        _id: 0, hash: 1, txid: 1, height: 1, valueSat: 1, 'appSpecifications.name': 1,
+      },
+    },
+  );
+  const recordOf = new Map(records.map((record) => [record.hash, record]));
+  const operations = [];
+  const moved = new Set();
+  stored.forEach((message) => {
+    const record = recordOf.get(message.hash);
+    if (message.txid === record.txid && message.height === record.height && message.valueSat === record.value) return;
+    log.warn(`App message ${message.hash} of ${message.appSpecifications.name} was stored at txid ${message.txid} height ${message.height}, `
+      + `this node's payment record is txid ${record.txid} height ${record.height}; taking the record's`);
+    operations.push({
+      updateOne: {
+        filter: { hash: message.hash },
+        update: { $set: { txid: record.txid, height: record.height, valueSat: record.value } },
+      },
+    });
+    moved.add(message.appSpecifications.name);
+  });
+  if (operations.length) await dbHelper.bulkWriteInDatabase(appsDatabase, globalAppsMessages, operations);
+  return [...moved];
+}
+
+/**
  * Check if app temporary message exists
  * @param {string} hash - Message hash to check
  * @returns {Promise<object|boolean>} Message object if found, false otherwise
@@ -965,7 +1007,15 @@ async function checkAndRequestRecordedApp(hash, txid, height, valueSat, i = 0) {
       }
       return false;
     }
-    // update apphashes that we already have it stored
+    // Stored already: it follows this node's payment record, and the app's spec is applied again
+    // when the message moved.
+    const [moved] = await alignStoredMessagesWithPayments([{
+      hash, txid, height, value: valueSat,
+    }]);
+    if (moved) {
+      const governing = await governingAppMessage(moved);
+      if (governing) await storeAppSpecificationInForce({ ...governing.appSpecifications, hash: governing.hash, height: governing.height });
+    }
     await appHashHasMessage(hash);
     return true;
   } catch (error) {
@@ -1020,6 +1070,7 @@ module.exports = {
   requestAppMessageAPI,
   checkAppMessageExistence,
   checkAppTemporaryMessageExistence,
+  alignStoredMessagesWithPayments,
   appHashHasMessage,
   appHashHasMessageNotFound,
   getAppsTemporaryMessages,
