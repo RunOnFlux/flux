@@ -79,7 +79,6 @@ let appsCountAvailableToInstallOnMyNode = 0;
 
 const collisionWaitMs = config.fluxapps.installCollisionWaitMs;
 const { spawnReconfirmDelayMs } = config.fluxapps;
-const nonEnterpriseSpawnDelayMs = config.fluxapps.nonEnterpriseSpawnDelayMs ?? 2 * 60 * 1000;
 
 let spawnLoopRunning = false;
 
@@ -875,20 +874,7 @@ async function trySpawningGlobalApplication() {
       const tier = await generalService.nodeTier();
       const appHWrequirements = hwRequirements.totalAppHWRequirements(appSpecifications, tier);
       let delay = false;
-      const isArcane = Boolean(process.env.FLUXOS_PATH);
-      if (!appToRunAux.enterprise && isArcane) {
-        const appToCheck = {
-          timeToCheck: Date.now() + nonEnterpriseSpawnDelayMs,
-          appName: appToRun,
-          hash: appHash,
-          required: minInstances,
-        };
-        log.info(`trySpawningGlobalApplication - App ${appToRun} specs not enterprise, will check in around ${Math.round(nonEnterpriseSpawnDelayMs / 1000)}s if instances are still missing`);
-        globalState.appsToBeCheckedLater.push(appToCheck);
-        globalState.trySpawningGlobalAppCache.delete(appHash);
-        fluxEventBus.publish('spawner:deferred', { appName: appToRun, reason: 'non_enterprise_on_arcane', delayMs: nonEnterpriseSpawnDelayMs });
-        delay = true;
-      } else if (!appSpecifications.staticip && geolocationService.isStaticIP()) {
+      if (!appSpecifications.staticip && geolocationService.isStaticIP()) {
         const deferral = config.fluxapps.spawnDeferrals.staticIpMs;
         const appToCheck = {
           timeToCheck: Date.now() + (appToRunAux.enterprise ? deferral.enterprise : deferral.standard),

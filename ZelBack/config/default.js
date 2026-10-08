@@ -582,7 +582,6 @@ module.exports = {
     // that were never required to agree on the time.
     siblingAskValidityMs: 60000,
     spawnReconfirmDelayMs: 7500000,
-    nonEnterpriseSpawnDelayMs: 120000,
     globalCmdDelayMs: 500,
     // How many times a global command retries a node that answers 503 while it
     // is still reconciling its apps after boot. The refusal carries a 15s

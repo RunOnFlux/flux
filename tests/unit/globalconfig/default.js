@@ -316,7 +316,6 @@ module.exports = {
     // (outboundPathService).
     outboundPathCheckIntervalMs: 10 * 60 * 1000,
     spawnReconfirmDelayMs: 7500000,
-    nonEnterpriseSpawnDelayMs: 120000,
     globalCmdDelayMs: 500,
     discoveryAutostart: true,
     discoveryRetryMs: 60000,
