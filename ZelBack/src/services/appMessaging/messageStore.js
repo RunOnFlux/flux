@@ -29,6 +29,7 @@ const {
   INSTALLING_EXPIRY_MS,
   INSTALLING_ERRORS_EXPIRY_MS,
   EVICTED_EXPIRY_MS,
+  SIGTERM_EXPIRY_MS,
 } = require('../utils/appConstants');
 
 // Cap on how many location operations are handed to one bulk write. The driver
@@ -538,14 +539,57 @@ async function storeAppRemovedMessage(message) {
     return false;
   }
 
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const query = { ip: message.ip, name: message.appName };
-  const projection = {};
-  await dbHelper.findOneAndDeleteInDatabase(database, globalAppsLocations, query, projection);
+  await removeLocationForAppRemoved(message.ip, message.appName, message.broadcastedAt);
 
   // all stored, rebroadcast
   return true;
+}
+
+/**
+ * Shortens the location rows a node's shutdown speaks for.
+ *
+ * A sigterm covers only what its node broadcast before it: a row from a later
+ * apprunning broadcast is the node running again and keeps its own expiry, which
+ * is the same rule the event-derived view applies. A sigterm may arrive long
+ * after it was sent (a peer sync replays every unexpired event), so the new
+ * expiry can already be in the past and must never be applied to a newer row.
+ *
+ * @param {string} ip - The node's socket address
+ * @param {number} broadcastedAt - The sigterm's broadcast time, ms
+ * @returns {Promise<void>}
+ */
+async function expireLocationsForSigterm(ip, broadcastedAt) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  await dbHelper.updateInDatabase(
+    database,
+    globalAppsLocations,
+    { ip, broadcastedAt: { $lt: new Date(broadcastedAt) } },
+    { $min: { expireAt: new Date(broadcastedAt + SIGTERM_EXPIRY_MS) } },
+  );
+}
+
+/**
+ * Removes the location row an appremoved broadcast speaks for: the app's row on
+ * that node, when it was broadcast no later than the removal. A row from a later
+ * apprunning broadcast is the app installed again and stays. The same rule as
+ * the event-derived view, which keeps a report only when it is newer than the
+ * node's removal of that app.
+ *
+ * @param {string} ip - The node's socket address
+ * @param {string} appName - The removed app
+ * @param {number} broadcastedAt - The removal's broadcast time, ms
+ * @returns {Promise<void>}
+ */
+async function removeLocationForAppRemoved(ip, appName, broadcastedAt) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  await dbHelper.findOneAndDeleteInDatabase(
+    database,
+    globalAppsLocations,
+    { ip, name: appName, broadcastedAt: { $lte: new Date(broadcastedAt) } },
+    {},
+  );
 }
 
 /**
@@ -842,20 +886,73 @@ async function handleAppRemovedStateEvent({ message, envelope }) {
   }
 }
 
-async function handleEvictedEvent({ ip }) {
+/**
+ * The time an eviction speaks from: when the evicting node made it, never later
+ * than now. Evictions are unsigned, so a time in the future is taken as now
+ * rather than trusted to outrank broadcasts that have not happened yet, and an
+ * unreadable one is taken as now.
+ *
+ * @param {number} evictedAt - The eviction's time, ms
+ * @returns {number}
+ */
+function evictionTime(evictedAt) {
+  const now = Date.now();
+  return Number.isFinite(evictedAt) ? Math.min(evictedAt, now) : now;
+}
+
+/**
+ * Records a node's eviction under the time it was made. The record keeps that
+ * time wherever a peer sync carries it, so it expires one location lifetime
+ * after the eviction however often it is passed on, and it is dated before any
+ * broadcast the node makes on its return. Of two evictions of one node the
+ * newer is kept.
+ *
+ * @param {object} payload
+ * @param {string} payload.ip - The evicted node's socket address
+ * @param {number} [payload.evictedAt] - When the eviction was made, ms; now when absent
+ * @returns {Promise<void>}
+ */
+async function handleEvictedEvent({ ip, evictedAt }) {
   if (!ip) return;
+  const at = evictionTime(evictedAt);
   try {
-    const now = new Date();
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     await database.collection(globalAppStateEvents).updateOne(
       { ip, type: APP_STATE_EVENT_TYPES.EVICTED, dedupKey: 'evicted' },
-      { $set: { ip, type: APP_STATE_EVENT_TYPES.EVICTED, dedupKey: 'evicted', createdAt: now, expireAt: new Date(now.getTime() + EVICTED_EXPIRY_MS), receivedAt: now } },
+      {
+        $set: { receivedAt: new Date() },
+        $max: { createdAt: new Date(at), expireAt: new Date(at + EVICTED_EXPIRY_MS) },
+      },
       { upsert: true },
     );
   } catch (err) {
     log.error(`storeAppStateEvent(evicted): ${err.message}`);
   }
+}
+
+/**
+ * Applies a node's eviction: records it, and removes the node's location rows
+ * broadcast before it. A row from a broadcast after the eviction is the node
+ * back on the network and stays. An eviction older than a location lifetime
+ * changes nothing.
+ *
+ * @param {string} ip - The evicted node's socket address
+ * @param {number} [evictedAt] - When the eviction was made, ms; now when absent
+ * @returns {Promise<void>}
+ */
+async function applyEviction(ip, evictedAt) {
+  if (!ip) return;
+  const at = evictionTime(evictedAt);
+  if (at + EVICTED_EXPIRY_MS <= Date.now()) return;
+  await handleEvictedEvent({ ip, evictedAt: at });
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  await dbHelper.removeDocumentsFromCollection(
+    database,
+    globalAppsLocations,
+    { ip, broadcastedAt: { $lt: new Date(at) } },
+  );
 }
 
 async function handleIPChangedEvent({ message, envelope }) {
@@ -1153,6 +1250,9 @@ module.exports = {
   storeSignedAppInstallingBroadcast,
   storeBatchAppInstallingMessages,
   storeAppRemovedMessage,
+  expireLocationsForSigterm,
+  removeLocationForAppRemoved,
+  applyEviction,
   storeAppInstallingErrorMessage,
   storeSignedAppInstallingErrorBroadcast,
   storeBatchAppInstallingErrorMessages,

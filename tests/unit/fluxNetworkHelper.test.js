@@ -13,6 +13,8 @@ globalThis.userconfig = {
   },
 };
 
+const dgram = require('dgram');
+const { EventEmitter } = require('events');
 const chai = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire');
@@ -37,6 +39,22 @@ const networkStateService = require('../../ZelBack/src/services/networkStateServ
 const { requireMongo } = require('./dbTestHelper');
 const upnpService = require('../../ZelBack/src/services/upnpService');
 const geolocationService = require('../../ZelBack/src/services/geolocationService');
+
+/**
+ * A UDP socket whose connect resolves to a source address, or fails.
+ */
+function fakeUdpSocket({ source = null, error = null }) {
+  const fake = new EventEmitter();
+  fake.connect = sinon.spy(function connect() {
+    setImmediate(function settle() {
+      if (error) fake.emit('error', error);
+      else fake.emit('connect');
+    });
+  });
+  fake.address = function address() { return { address: source, family: 'IPv4', port: 40000 }; };
+  fake.close = sinon.spy();
+  return fake;
+}
 
 const net = require('node:net');
 
@@ -3411,44 +3429,54 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
+  describe('local socket address announcements', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('announces an address only when it differs from the last one learned', () => {
+      const listener = sinon.spy();
+      fluxNetworkHelper.onLocalSocketAddressChange(listener);
+
+      fluxNetworkHelper.setLocalSocketAddress('198.51.100.10');
+      fluxNetworkHelper.setLocalSocketAddress('198.51.100.10:16127');
+      fluxNetworkHelper.setLocalSocketAddress(null);
+      fluxNetworkHelper.setLocalSocketAddress('198.51.100.10');
+      fluxNetworkHelper.setLocalSocketAddress('198.51.100.11:16137');
+      fluxNetworkHelper.offLocalSocketAddressChange(listener);
+      fluxNetworkHelper.setLocalSocketAddress('198.51.100.12');
+
+      expect(listener.args).to.eql([['198.51.100.10:16127'], ['198.51.100.11:16137']]);
+      expect(fluxNetworkHelper.getKnownLocalSocketAddress()).to.equal('198.51.100.12:16127');
+    });
+
+    it('keeps the last address learned when the benchmark stops answering', () => {
+      fluxNetworkHelper.setLocalSocketAddress('198.51.100.20');
+      fluxNetworkHelper.setLocalSocketAddress(null);
+
+      expect(fluxNetworkHelper.getKnownLocalSocketAddress()).to.equal('198.51.100.20:16127');
+    });
+  });
+
   describe('hasPublicIpOnInterface', () => {
     afterEach(() => {
       sinon.restore();
     });
 
-    it('returns NULL when the routing table cannot be read, not false', async () => {
-      // The distinction the static-IP verdict turns on. "There is no public
-      // address on any interface" is a fact about the node and means it is
-      // behind NAT; "I could not read /proc/net/route" is a fact about this
-      // process, and answering the second with the first asserts NAT on a node
-      // that may well hold a public address on its own interface.
-      sinon.stub(fs, 'readFile').rejects(new Error('EACCES: permission denied'));
+    it('is true for a public address on the device the traffic leaves by', async () => {
+      sinon.stub(dgram, 'createSocket').returns(fakeUdpSocket({ source: '203.0.113.7' }));
+      sinon.stub(os, 'networkInterfaces').returns({
+        eth0: [{ family: 'IPv4', internal: false, address: '203.0.113.7' }],
+      });
 
-      const result = await fluxNetworkHelper.hasPublicIpOnInterface();
-
-      expect(result).to.equal(null);
+      expect(await fluxNetworkHelper.hasPublicIpOnInterface()).to.equal(true);
     });
 
-    it('returns false, not null, when the routing table simply has no routes', async () => {
-      // Readable and empty is an answer: there is no default route, so there is
-      // no public address on one.
-      sinon.stub(fs, 'readFile').resolves('Iface\tDestination\tGateway\n');
-
-      const result = await fluxNetworkHelper.hasPublicIpOnInterface();
-
-      expect(result).to.equal(false);
-    });
-
-    it('finds a public address that is not the first one on the interface', async () => {
+    it('finds a public address that is not the first one on the device', async () => {
       // An interface can carry a private primary and a public secondary - the
-      // shape add-on and failover addresses arrive in. The question is whether
-      // a public address is bound to the default-route interface; which address
-      // the kernel lists first is not part of the question.
-      const routeTable = 'Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n'
-        + 'eth0\t00000000\t0101A8C0\t0003\t0\t0\t0\t00000000\t0\t0\t0\n';
-      const readFile = sinon.stub(fs, 'readFile');
-      readFile.withArgs('/proc/net/route', 'utf8').resolves(routeTable);
-      readFile.withArgs('/sys/class/net/eth0/operstate', 'utf8').resolves('up\n');
+      // shape add-on and failover addresses arrive in. The kernel picks the
+      // primary as the source; the device still holds the public address.
+      sinon.stub(dgram, 'createSocket').returns(fakeUdpSocket({ source: '192.168.1.50' }));
       sinon.stub(os, 'networkInterfaces').returns({
         eth0: [
           { family: 'IPv4', internal: false, address: '192.168.1.50' },
@@ -3456,9 +3484,119 @@ describe('fluxNetworkHelper tests', () => {
         ],
       });
 
-      const result = await fluxNetworkHelper.hasPublicIpOnInterface();
+      expect(await fluxNetworkHelper.hasPublicIpOnInterface()).to.equal(true);
+    });
 
-      expect(result).to.equal(true);
+    it('finds a public address bound under a label on the device', async () => {
+      sinon.stub(dgram, 'createSocket').returns(fakeUdpSocket({ source: '192.168.1.50' }));
+      sinon.stub(os, 'networkInterfaces').returns({
+        eth0: [{ family: 'IPv4', internal: false, address: '192.168.1.50' }],
+        'eth0:1': [{ family: 'IPv4', internal: false, address: '203.0.113.7' }],
+      });
+
+      expect(await fluxNetworkHelper.hasPublicIpOnInterface()).to.equal(true);
+    });
+
+    it('is false behind NAT', async () => {
+      sinon.stub(dgram, 'createSocket').returns(fakeUdpSocket({ source: '192.168.1.50' }));
+      sinon.stub(os, 'networkInterfaces').returns({
+        eth0: [{ family: 'IPv4', internal: false, address: '192.168.1.50' }],
+      });
+
+      expect(await fluxNetworkHelper.hasPublicIpOnInterface()).to.equal(false);
+    });
+
+    it('is false for a public address on a device the traffic does not leave by', async () => {
+      // A wg-quick full tunnel: the public address stays on eth0 while every
+      // packet leaves by wg0.
+      sinon.stub(dgram, 'createSocket').returns(fakeUdpSocket({ source: '10.66.0.2' }));
+      sinon.stub(os, 'networkInterfaces').returns({
+        eth0: [{ family: 'IPv4', internal: false, address: '203.0.113.7' }],
+        wg0: [{ family: 'IPv4', internal: false, address: '10.66.0.2' }],
+      });
+
+      expect(await fluxNetworkHelper.hasPublicIpOnInterface()).to.equal(false);
+    });
+
+    it('is NULL, not false, when the device cannot be named', async () => {
+      // "No public address on the device" is a fact about the node and means it
+      // is behind NAT; "no route out" is not an answer to that question.
+      sinon.stub(dgram, 'createSocket').returns(fakeUdpSocket({ error: Object.assign(new Error('connect ENETUNREACH'), { code: 'ENETUNREACH' }) }));
+
+      expect(await fluxNetworkHelper.hasPublicIpOnInterface()).to.equal(null);
+    });
+  });
+
+  describe('interfaceDevice', () => {
+    it('names the device a labelled address is bound on', () => {
+      expect(fluxNetworkHelper.interfaceDevice('eth0:1')).to.equal('eth0');
+    });
+
+    it('names an unlabelled interface as itself', () => {
+      expect(fluxNetworkHelper.interfaceDevice('enp3s0')).to.equal('enp3s0');
+    });
+  });
+
+  describe('egressDevice', () => {
+    let socket;
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('names the device holding the source address the kernel chose', async () => {
+      socket = fakeUdpSocket({ source: '10.66.0.2' });
+      sinon.stub(dgram, 'createSocket').returns(socket);
+      sinon.stub(os, 'networkInterfaces').returns({
+        eth0: [{ family: 'IPv4', internal: false, address: '10.0.0.5' }],
+        wg0: [{ family: 'IPv4', internal: false, address: '10.66.0.2' }],
+      });
+
+      expect(await fluxNetworkHelper.egressDevice('1.1.1.1')).to.equal('wg0');
+      sinon.assert.calledWith(socket.connect, sinon.match.number, '1.1.1.1');
+      sinon.assert.calledOnce(socket.close);
+    });
+
+    it('names the device when the source address is bound under a label', async () => {
+      socket = fakeUdpSocket({ source: '203.0.113.7' });
+      sinon.stub(dgram, 'createSocket').returns(socket);
+      sinon.stub(os, 'networkInterfaces').returns({
+        eth0: [{ family: 'IPv4', internal: false, address: '10.0.0.5' }],
+        'eth0:1': [{ family: 'IPv4', internal: false, address: '203.0.113.7' }],
+      });
+
+      expect(await fluxNetworkHelper.egressDevice('1.1.1.1')).to.equal('eth0');
+    });
+
+    it('is null when the source address is on no listed interface', async () => {
+      socket = fakeUdpSocket({ source: '10.8.0.2' });
+      sinon.stub(dgram, 'createSocket').returns(socket);
+      sinon.stub(os, 'networkInterfaces').returns({
+        eth0: [{ family: 'IPv4', internal: false, address: '10.0.0.5' }],
+      });
+
+      expect(await fluxNetworkHelper.egressDevice('1.1.1.1')).to.equal(null);
+    });
+
+    it('asks by default for the route to an address no network routes on its own', async () => {
+      socket = fakeUdpSocket({ source: '10.0.0.5' });
+      sinon.stub(dgram, 'createSocket').returns(socket);
+      sinon.stub(os, 'networkInterfaces').returns({
+        eth0: [{ family: 'IPv4', internal: false, address: '10.0.0.5' }],
+      });
+
+      expect(await fluxNetworkHelper.egressDevice()).to.equal('eth0');
+      sinon.assert.calledWith(socket.connect, sinon.match.number, '203.0.113.1');
+    });
+
+    it('is null, and closes the socket, when there is no route', async () => {
+      socket = fakeUdpSocket({ error: Object.assign(new Error('connect ENETUNREACH'), { code: 'ENETUNREACH' }) });
+      sinon.stub(dgram, 'createSocket').returns(socket);
+      const interfaces = sinon.stub(os, 'networkInterfaces');
+
+      expect(await fluxNetworkHelper.egressDevice('1.1.1.1')).to.equal(null);
+      sinon.assert.calledOnce(socket.close);
+      sinon.assert.notCalled(interfaces);
     });
   });
 });

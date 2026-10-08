@@ -67,6 +67,22 @@
  *                 it with an image user (registry-helper.pushTestApp's `user`)
  *                 to probe a mount the way a non-root application meets it.
  *
+ *   WRITE_FILE    a path. At start, after WRITE_PROBE, the app writes
+ *                 WRITE_CONTENT (default `written at start`) to it, creating or
+ *                 truncating it, as the user the container runs as, and sets its
+ *                 mode to WRITE_MODE (octal, default 0644) exactly rather than
+ *                 through the umask. It logs `write file ok: <path> (uid <n>)`,
+ *                 or `write file failed: ...` and exits WRITE_PROBE_EXIT_CODE.
+ *
+ *   WRITE_ON_SIGNAL a path. On SIGTERM/SIGINT the app writes `written on
+ *                 signal` to it, creating or truncating it, before it exits:
+ *                 an application's final save, the write a graceful stop exists
+ *                 to let happen.
+ *
+ *   WRITE_ON_SIGNAL_DELAY_MS if > 0, the app takes this long over that save:
+ *                 the file lands, and the app exits, this many milliseconds
+ *                 after the signal - an application slow to save.
+ *
  * On SIGTERM/SIGINT (i.e. `docker stop`) it exits with EXIT_CODE, so a test can
  * deterministically produce a clean exit 0 or any non-zero code on demand.
  * Static + freestanding: it runs in an otherwise-empty rootfs (no libc loader,
@@ -80,15 +96,47 @@
 #include <unistd.h>
 #include <signal.h>
 #include <time.h>
+#include <sys/stat.h>
 
 #define WRITE_PROBE_EXIT_CODE 73
 
 static int exit_code = 0;
+static char signal_file[4096];
+static struct timespec signal_delay;
 
+/* nanosleep, open, write, fsync and close are async-signal-safe; nothing else is used here. */
 static void on_signal(int sig)
 {
     (void)sig;
+    if (signal_file[0] != '\0') {
+        static const char saved[] = "written on signal\n";
+        nanosleep(&signal_delay, NULL);
+        int fd = open(signal_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd >= 0) {
+            (void)!write(fd, saved, sizeof(saved) - 1);
+            fsync(fd);
+            close(fd);
+        }
+    }
     _exit(exit_code);
+}
+
+/* Returns 0 on success. */
+static int write_file(const char *path, const char *content, mode_t mode)
+{
+    const unsigned uid = (unsigned)getuid();
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0 || write(fd, content, strlen(content)) < 0 || fchmod(fd, mode) < 0) {
+        fprintf(stderr, "write file failed: %s (uid %u): %s\n", path, uid, strerror(errno));
+        if (fd >= 0)
+            close(fd);
+        return -1;
+    }
+    fsync(fd);
+    close(fd);
+    printf("write file ok: %s (uid %u)\n", path, uid);
+    fflush(stdout);
+    return 0;
 }
 
 /* Returns the number of directories that refused a write. */
@@ -123,6 +171,27 @@ int main(void)
     const char *probe = getenv("WRITE_PROBE");
     if (probe && write_probe(probe) > 0)
         return WRITE_PROBE_EXIT_CODE;
+
+    const char *file = getenv("WRITE_FILE");
+    if (file && *file) {
+        const char *content = getenv("WRITE_CONTENT");
+        const char *mode = getenv("WRITE_MODE");
+        if (write_file(file, content ? content : "written at start\n",
+                       mode ? (mode_t)strtoul(mode, NULL, 8) : 0644) != 0)
+            return WRITE_PROBE_EXIT_CODE;
+    }
+
+    const char *on_signal_file = getenv("WRITE_ON_SIGNAL");
+    if (on_signal_file)
+        snprintf(signal_file, sizeof(signal_file), "%s", on_signal_file);
+    const char *on_signal_delay = getenv("WRITE_ON_SIGNAL_DELAY_MS");
+    if (on_signal_delay) {
+        long ms = atol(on_signal_delay);
+        if (ms > 0) {
+            signal_delay.tv_sec = (time_t)(ms / 1000);
+            signal_delay.tv_nsec = (ms % 1000) * 1000000L;
+        }
+    }
 
     const char *ec = getenv("EXIT_CODE");
     if (ec)

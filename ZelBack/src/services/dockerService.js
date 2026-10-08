@@ -1354,6 +1354,7 @@ async function appDockerUpdateCpu(idOrName, nanoCpus) {
  * @returns {string} message
  */
 async function appDockerStart(idOrName) {
+  if (globalState.shutdownInProgress) throw new Error(`Not starting ${idOrName}: this node is shutting down`);
   try {
     // container ID or name
     const dockerContainer = await getDockerContainerByIdOrName(idOrName);
@@ -1432,6 +1433,7 @@ async function appDockerStop(idOrName, timeout) {
  * @returns {string} message
  */
 async function appDockerRestart(idOrName) {
+  if (globalState.shutdownInProgress) throw new Error(`Not restarting ${idOrName}: this node is shutting down`);
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 

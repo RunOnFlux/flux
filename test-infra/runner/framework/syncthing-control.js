@@ -44,6 +44,65 @@ export async function getFolderWrites(ip) {
   return node ? node.folderWrites : [];
 }
 
+// A node's folder writes that have arrived and not yet taken effect.
+export async function getPendingFolderWrites(ip) {
+  const state = await getSyncthingState();
+  return state.nodes.find((n) => n.ip === ip)?.pendingFolderWrites ?? [];
+}
+
+// One node's config for one folder, as the stub holds it; undefined if none.
+export async function getFolderConfig(ip, folder) {
+  const state = await getSyncthingState();
+  return state.nodes.find((n) => n.ip === ip)?.folders.find((f) => f.id === folder);
+}
+
+// Changes fields of one node's folder config as something other than FluxOS
+// would: not recorded as a folder write.
+export async function setFolderConfig({ ip, folder, fields }) {
+  return post('/folder-config', { ip, id: folder, fields });
+}
+
+// How long a scan of a folder takes; omit ip or folder for every one, 0 clears.
+export async function setScanDuration({ ip = '*', folder = '*', ms = 0 }) {
+  return post('/scan-duration', { ip, folder, ms });
+}
+
+// How long a folder takes to restart after its config changes, on every node.
+// Omitted, the stub's default.
+export async function setFolderRestartMs(ms) {
+  return post('/folder-restart-ms', ms === undefined ? {} : { ms });
+}
+
+// The scans this node has asked for, in order: { id, seq }. seq is numbered from
+// the same sequence as getFolderWrites' entries, so a scan and a write can be
+// ordered against each other.
+export async function getFolderScans(ip) {
+  const state = await getSyncthingState();
+  const node = state.nodes.find((n) => n.ip === ip);
+  return node ? node.folderScans : [];
+}
+
+// The scans this node has asked for that are still running: { id, arrivedSeq, arrivedAt }.
+export async function getPendingFolderScans(ip) {
+  const state = await getSyncthingState();
+  return state.nodes.find((n) => n.ip === ip)?.pendingFolderScans ?? [];
+}
+
+// What one node's syncthing reports as a device's lastSeen. `lastSeen` is a Date
+// or ISO string, or null for a device the node has never been connected to.
+// Omit viewerIp to set it for every node.
+export async function setDeviceLastSeen({ viewerIp = '*', deviceIp, lastSeen }) {
+  const device = await stubDeviceId(deviceIp);
+  const value = lastSeen instanceof Date ? lastSeen.toISOString() : lastSeen;
+  return post('/device-last-seen', { ip: viewerIp === '*' ? '*' : viewerIp.split(':')[0], device, lastSeen: value });
+}
+
+// Back to "every device was last seen now" for this device.
+export async function clearDeviceLastSeen({ viewerIp = '*', deviceIp }) {
+  const device = await stubDeviceId(deviceIp);
+  return post('/device-last-seen', { ip: viewerIp === '*' ? '*' : viewerIp.split(':')[0], device });
+}
+
 // The paused/resumed pairs this operation applied, in order, as folder ids.
 export async function getPauseWrites(ip) {
   return (await getFolderWrites(ip))
@@ -65,14 +124,14 @@ export async function getPauseWrites(ip) {
 // because nobody had said otherwise, and the deadlock the suite is named for could not
 // occur in it. Stating the number is cheap; being handed one is not.
 //
-// globalFiles says WHICH KIND of claim globalBytes is, and the mount-safety check reads
-// the disk on those terms: claiming files is answered by files, claiming bytes and no
-// files is a folder whose payload is directories. It defaults to 0 - the directories
-// reading - because that is what the count on a real volume's mount structure answers,
-// and a suite whose premise is a claim over FILES states the number.
+// The stub reports no directories, so globalBytes are bytes in files; left out,
+// globalFiles is the one file they need. The node's volume holds the bytes it reports
+// in sync, as a real sync leaves them - the harness writes them there
+// (synced-data-keeper.js). A suite describing an index the disk contradicts, such as a
+// stale index over a wiped volume, passes onDisk: false.
 export async function setSyncState({
-  ip = '*', folder, state = 'idle', globalBytes = 0, globalFiles = 0, inSyncBytes = 0,
-  receiveOnlyChangedFiles, localChanged = null,
+  ip = '*', folder, state = 'idle', globalBytes = 0, globalFiles, inSyncBytes = 0,
+  receiveOnlyChangedFiles, localChanged = null, onDisk = true,
 }) {
   if (receiveOnlyChangedFiles === undefined && !Array.isArray(localChanged)) {
     throw new Error(
@@ -83,8 +142,14 @@ export async function setSyncState({
     );
   }
   return post('/sync-state', {
-    ip, folder, state, globalBytes, globalFiles, inSyncBytes, receiveOnlyChangedFiles, localChanged,
+    ip, folder, state, globalBytes, globalFiles, inSyncBytes, receiveOnlyChangedFiles, localChanged, onDisk,
   });
+}
+
+// The bytes each node's volume should hold per folder, as the stub's declared sync
+// state puts them: [{ ip, folder, bytes }], ip '*' for every node without its own.
+export async function getDiskClaims() {
+  return get('/disk-claims');
 }
 
 // Fully synced (reads as 100% -> safe to start).
@@ -183,15 +248,18 @@ export async function setPeerDisconnected({ ip = '*', folder }) {
 // disconnected. A suite that cuts a declared source off from the fleet
 // declares this consequence too, or the fleet keeps trusting a connection
 // that no longer exists.
-export async function severPeerSync({ folder, deviceIp, viewerIp = '*' }) {
+// The device id the stub gives a node, by its address. A write against a device
+// the stub does not know would fall back to a wildcard or to nothing - a fixture
+// that silently does nothing - so an unknown node fails loudly.
+async function stubDeviceId(deviceIp) {
   const bare = deviceIp.split(':')[0];
   const device = ((await getSyncthingState()).nodes || []).find((n) => n.ip.split(':')[0] === bare)?.deviceId;
-  if (!device) {
-    // Without the device id this would fall back to a wildcard write, which
-    // loses to the source's device-specific testimony - a sever that silently
-    // severs nothing. A fixture that cannot do what it claims fails loudly.
-    throw new Error(`severPeerSync: the stub has no device for ${deviceIp} (folder ${folder})`);
-  }
+  if (!device) throw new Error(`syncthing-control: the stub has no device for ${deviceIp}`);
+  return device;
+}
+
+export async function severPeerSync({ folder, deviceIp, viewerIp = '*' }) {
+  const device = await stubDeviceId(deviceIp);
   return setPeerCompletion({
     ip: viewerIp === '*' ? '*' : viewerIp.split(':')[0], folder, device, completion: 0, remoteState: 'unknown',
   });
@@ -256,9 +324,9 @@ export async function resetSyncState() {
   return post('/sync-reset');
 }
 
-// Hold a node's folder PATCH calls open, stretching the window in which a
-// masterSlave primary has committed to a component but has not started its
-// container. ms=0 clears.
+// Make a node's folder PATCHes take `ms` to apply, as a syncthing slow to apply
+// a change would; every config change queued behind one waits for it. ms=0
+// clears.
 export async function setFolderPatchDelay({ ip = '*', ms = 0 }) {
   return post('/folder-patch-delay', { ip, ms });
 }

@@ -4,6 +4,7 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const eventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 // Create mocks for all dependencies
 const dbHelperMock = {
@@ -33,6 +34,7 @@ const syncthingServiceMock = {
   adjustConfigFolders: sinon.stub().resolves(),
   getFolderIdErrors: sinon.stub(),
   systemRestart: sinon.stub().resolves(),
+  systemResume: sinon.stub().resolves(),
   getDbStatus: sinon.stub(),
 };
 
@@ -58,12 +60,11 @@ const appReconcilerMock = {
 const syncthingMonitorHelpersMock = {
   sortAndFilterLocations: sinon.stub((locs) => locs),
   buildDeviceConfiguration: sinon.stub().resolves([]),
-  createSyncthingFolderConfig: sinon.stub((id, label, path, devices, type) => ({
+  createSyncthingFolderConfig: sinon.stub((id, label, path, devices) => ({
     id,
     label,
     path,
     devices,
-    type: type || 'sendreceive',
   })),
   ensureStfolderExists: sinon.stub().resolves(true),
   getContainerFolderPath: sinon.stub().returns(''),
@@ -112,6 +113,16 @@ const peerFolderLivenessMock = {
 // Load module with mocked dependencies
 const appTamperingDetectionServiceMock = { recordEvent: sinon.stub().resolves() };
 
+// The real writers, over the same syncthing mock the monitor reads.
+const syncthingFolderWrites = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingFolderWrites', {
+  '../serviceHelper': serviceHelperMock,
+  '../syncthingService': syncthingServiceMock,
+});
+const primaryRole = proxyquire('../../ZelBack/src/services/appLifecycle/primaryRole', {
+  '../appMonitoring/appReconciler': appReconcilerMock,
+  '../appMonitoring/syncthingFolderWrites': syncthingFolderWrites,
+});
+
 const syncthingMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingMonitor', {
   './peerFolderLiveness': peerFolderLivenessMock,
   '../dbHelper': dbHelperMock,
@@ -123,6 +134,8 @@ const syncthingMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/sy
   '../utils/volumeService': volumeServiceMock,
   '../appTamperingDetectionService': appTamperingDetectionServiceMock,
   './appReconciler': appReconcilerMock,
+  './syncthingFolderWrites': syncthingFolderWrites,
+  '../appLifecycle/primaryRole': primaryRole,
   './syncthingFolderStateMachine': syncthingFolderStateMachineMock,
   './syncthingMonitorHelpers': syncthingMonitorHelpersMock,
   '../appSystem/syncthingIgnorePolicy': syncthingIgnorePolicyMock,
@@ -167,6 +180,8 @@ describe('syncthingMonitor tests', () => {
     syncthingServiceMock.adjustConfigFolders.reset();
     syncthingServiceMock.getFolderIdErrors.reset();
     syncthingServiceMock.systemRestart.reset();
+    syncthingServiceMock.systemResume.reset();
+    syncthingServiceMock.systemResume.resolves();
     fluxNetworkHelperMock.getLocalSocketAddress.reset();
     dockerServiceMock.dockerContainerInspect.reset();
     dockerServiceMock.appDockerStart.reset();
@@ -296,6 +311,68 @@ describe('syncthingMonitor tests', () => {
     });
   });
 
+  // A syncthing started paused pauses every device, and only the monitor
+  // resumes them.
+  describe('resuming paused devices', () => {
+    // eslint-disable-next-line global-require
+    const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+
+    const runOnePass = async () => {
+      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+      );
+      await clock.tickAsync(10000);
+    };
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('resumes every paused peer device, and leaves running ones and its own alone', async () => {
+      const published = sinon.spy(fluxEventBus, 'publish');
+      syncthingServiceMock.getConfigDevices.resolves([
+        { deviceID: 'DEVICE-ID', paused: true },
+        { deviceID: 'PEER-PAUSED-1', paused: true },
+        { deviceID: 'PEER-RUNNING', paused: false },
+        { deviceID: 'PEER-PAUSED-2', paused: true },
+      ]);
+
+      await runOnePass();
+
+      expect(syncthingServiceMock.systemResume.args.map(([id]) => id)).to.have.members(['PEER-PAUSED-1', 'PEER-PAUSED-2']);
+      const event = published.getCalls().find((call) => call.args[0] === 'syncthing:devicesResumed');
+      expect(event?.args[1]).to.deep.equal({ devices: ['PEER-PAUSED-1', 'PEER-PAUSED-2'] });
+    });
+
+    it('resumes nothing and says nothing when no device is paused', async () => {
+      const published = sinon.spy(fluxEventBus, 'publish');
+      syncthingServiceMock.getConfigDevices.resolves([{ deviceID: 'PEER-RUNNING', paused: false }]);
+
+      await runOnePass();
+
+      sinon.assert.notCalled(syncthingServiceMock.systemResume);
+      expect(published.getCalls().filter((call) => call.args[0] === 'syncthing:devicesResumed')).to.have.lengthOf(0);
+    });
+
+    it('resumes the others and goes on with the pass when one resume fails', async () => {
+      const published = sinon.spy(fluxEventBus, 'publish');
+      syncthingServiceMock.getConfigDevices.resolves([
+        { deviceID: 'PEER-STUCK', paused: true },
+        { deviceID: 'PEER-PAUSED', paused: true },
+      ]);
+      syncthingServiceMock.systemResume.withArgs('PEER-STUCK').rejects(new Error('syncthing refused'));
+
+      await runOnePass();
+
+      const event = published.getCalls().find((call) => call.args[0] === 'syncthing:devicesResumed');
+      expect(event?.args[1]).to.deep.equal({ devices: ['PEER-PAUSED'] });
+      sinon.assert.called(syncthingHealthMonitorMock.monitorFolderHealth);
+    });
+  });
+
   describe('syncthingApps tests', () => {
     it('should return control object with stop and isActive methods', () => {
       mockInstalledAppsFn.resolves({ status: 'success', data: [] });
@@ -335,6 +412,25 @@ describe('syncthingMonitor tests', () => {
       expect(monitorControl.isActive()).to.be.true;
       monitorControl.stop();
       expect(monitorControl.isActive()).to.be.false;
+    });
+
+    it('changes no folder while the node is shutting down', async () => {
+      mockState.shutdownInProgress = true;
+      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+        mockAppDockerStopFn,
+        mockAppDockerRestartFn,
+        mockAppDeleteDataFn,
+        mockRemoveAppLocallyFn,
+      );
+
+      await clock.tickAsync(100);
+
+      sinon.assert.notCalled(mockInstalledAppsFn);
     });
 
     it('should not run if installation in progress', async () => {
@@ -696,6 +792,130 @@ describe('syncthingMonitor tests', () => {
 
       sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
       sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigFolders, 'delete', undefined, 'brokenapp');
+    });
+
+    describe('folders a peer offers', () => {
+      // Held out of the pass, the app stands the unused-device sweep down, so the
+      // configured peer device is kept and only its auto-accept is in question.
+      function aPeerDeviceIsKept(device) {
+        mockInstalledAppsFn.resolves({
+          status: 'success',
+          data: [{ name: 'brokenapp', version: 3, containerData: 'g:/appdata' }],
+        });
+        syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+        syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['brokenapp']);
+        syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
+        volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+        syncthingServiceMock.getConfigFolders.resolves([{ id: 'brokenapp', type: 'receiveonly' }]);
+        syncthingServiceMock.getConfigDevices.resolves([device]);
+        syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+        syncthingServiceMock.adjustConfigDevices.resolves({ status: 'success', data: {} });
+      }
+
+      it('stops a configured peer device auto-accepting folders', async function () {
+        aPeerDeviceIsKept({ deviceID: 'PEER-DEVICE', autoAcceptFolders: true });
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        sinon.assert.calledWith(syncthingServiceMock.adjustConfigDevices, 'patch', { autoAcceptFolders: false }, 'PEER-DEVICE');
+        sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
+      });
+
+      it('reaches a configured peer device over TCP alone', async function () {
+        aPeerDeviceIsKept({ deviceID: 'PEER-DEVICE', autoAcceptFolders: false, addresses: ['tcp://10.0.0.2:16129', 'quic://10.0.0.2:16129'] });
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        sinon.assert.calledWith(syncthingServiceMock.adjustConfigDevices, 'patch', { addresses: ['tcp://10.0.0.2:16129'] }, 'PEER-DEVICE');
+      });
+
+      it('corrects a peer device in one write when it auto-accepts and is reached over QUIC', async function () {
+        aPeerDeviceIsKept({ deviceID: 'PEER-DEVICE', autoAcceptFolders: true, addresses: ['tcp://10.0.0.2:16129', 'quic://10.0.0.2:16129'] });
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        const patches = syncthingServiceMock.adjustConfigDevices.getCalls().filter((call) => call.args[0] === 'patch' && call.args[2] === 'PEER-DEVICE');
+        expect(patches.map((call) => call.args[1])).to.deep.equal([{ autoAcceptFolders: false, addresses: ['tcp://10.0.0.2:16129'] }]);
+      });
+
+      it('leaves a peer device with no TCP address as it is', async function () {
+        aPeerDeviceIsKept({ deviceID: 'PEER-DEVICE', autoAcceptFolders: false, addresses: ['dynamic'] });
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'patch', sinon.match.any, 'PEER-DEVICE');
+      });
+
+      it('writes nothing for a peer device that does not auto-accept', async function () {
+        aPeerDeviceIsKept({ deviceID: 'PEER-DEVICE', autoAcceptFolders: false, addresses: ['tcp://10.0.0.2:16129'] });
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'patch', sinon.match.any, 'PEER-DEVICE');
+      });
+
+      it('removes an unused auto-accepting device rather than rewriting it', async function () {
+        mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+        syncthingServiceMock.getConfigFolders.resolves([]);
+        syncthingServiceMock.getConfigDevices.resolves([{ deviceID: 'PEER-DEVICE', autoAcceptFolders: true }]);
+        syncthingServiceMock.adjustConfigDevices.resolves({ status: 'success', data: {} });
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        sinon.assert.calledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
+        sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'patch', sinon.match.any, 'PEER-DEVICE');
+      });
+    });
+
+    // The container writes over the bad mount too, and holding it needs nothing
+    // from syncthing.
+    describe('the container of a component that syncs the folder', () => {
+      const unsafeSyncingApp = () => {
+        mockInstalledAppsFn.resolves({
+          status: 'success',
+          data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
+        });
+        syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+        syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['testapp']);
+        syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'unmounted_with_content' });
+        volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+        syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+        fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      };
+      const demotion = () => syncthingServiceMock.adjustConfigFolders.getCalls()
+        .find((call) => call.args[0] === 'patch' && call.args[2] === 'testapp' && call.args[1].type === 'receiveonly');
+
+      it('is held before the folder is demoted', async function () {
+        unsafeSyncingApp();
+        syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        const hold = appReconcilerMock.setControllerDesired.getCalls().find((call) => call.args[0] === 'testapp' && call.args[1] === 'stopped');
+        expect(hold, 'the container was held').to.not.equal(undefined);
+        expect(demotion(), 'the folder was demoted').to.not.equal(undefined);
+        expect(hold.calledBefore(demotion()), 'held before the demotion').to.equal(true);
+        expect(appReconcilerMock.setControllerDesired.getCalls().filter((call) => call.args[0] === 'testapp'), 'held once').to.have.lengthOf(1);
+      });
+
+      it('is held when the demotion fails', async function () {
+        unsafeSyncingApp();
+        syncthingServiceMock.adjustConfigFolders.resolves({ status: 'error', data: { code: 'ECONNREFUSED', message: 'connect ECONNREFUSED 127.0.0.1:8384' } });
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        expect(demotion(), 'the demotion was attempted').to.not.equal(undefined);
+        sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'testapp', 'stopped');
+        sinon.assert.notCalled(syncthingEventsConsumerMock.resolveMountVerify);
+      });
     });
 
     it('keeps the flag standing when the demotion fails, so the next pass retries', async function () {
@@ -1186,6 +1406,7 @@ describe('syncthingMonitor tests', () => {
     // where promotedFolderIds is reconciled for the same reason.
     it('drops the published holding of a folder it promotes', async () => {
       writesAFolder();
+      syncthingMonitorHelpersMock.getContainerDataFlags.returns('r');
       globalState.folderHoldings = new Map([
         ['testapp', { bytes: 5821604997, newestModified: 200 }],
         ['untouchedapp', { bytes: 4096, newestModified: 100 }],
@@ -1203,6 +1424,204 @@ describe('syncthingMonitor tests', () => {
       // A folder this pass did not promote keeps its claim: the drop is scoped to
       // what changed, not a clear of everything the node has answered for.
       expect(globalState.folderHoldings.has('untouchedapp')).to.equal(true);
+    });
+
+    // The election reads a folder as ready to start once it is writable, so a
+    // harness suite waits on this to know a holder became eligible.
+    describe('the folder becoming writable', () => {
+      // eslint-disable-next-line global-require
+      const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+      let publish;
+
+      beforeEach(() => {
+        publish = sinon.stub(fluxEventBus, 'publish');
+      });
+
+      afterEach(() => {
+        publish.restore();
+      });
+
+      const writtenAs = () => syncthingServiceMock.adjustConfigFolders.getCalls()
+        .find((c) => c.args[0] === 'put' && Array.isArray(c.args[1]))
+        ?.args[1].find((f) => f.id === 'testapp')?.type;
+
+      it('publishes it when the write turns a folder writable', async () => {
+        writesAFolder();
+        syncthingMonitorHelpersMock.getContainerDataFlags.returns('r');
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        expect(writtenAs(), 'the folder was not written sendreceive, so this asserts nothing').to.equal('sendreceive');
+        sinon.assert.calledOnceWithExactly(publish.withArgs('syncthing:folderWritable'), 'syncthing:folderWritable', { folder: 'testapp' });
+      });
+
+      it('publishes it once for a folder a write turned writable since the last pass', async () => {
+        writesAFolder();
+        syncthingMonitorHelpersMock.getContainerDataFlags.returns('r');
+        syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'sendreceive' }]);
+        const savedWritable = globalState.promotedFolderIds;
+        globalState.promotedFolderIds = new Set();
+
+        try {
+          monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+          await clock.tickAsync(100);
+        } finally {
+          globalState.promotedFolderIds = savedWritable;
+        }
+
+        sinon.assert.calledOnceWithExactly(publish.withArgs('syncthing:folderWritable'), 'syncthing:folderWritable', { folder: 'testapp' });
+      });
+
+      it('does not publish it for a folder that was already writable', async () => {
+        writesAFolder();
+        syncthingMonitorHelpersMock.getContainerDataFlags.returns('r');
+        syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'sendreceive' }]);
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        expect(writtenAs(), 'the folder was not rewritten, so this asserts nothing').to.equal('sendreceive');
+        sinon.assert.neverCalledWith(publish, 'syncthing:folderWritable');
+      });
+    });
+
+    // A g: folder's type is its primary role's: the monitor names one only to
+    // create the folder, and otherwise changes only the fields it owns.
+    // The returning-primary decision tells "no other holder" from "the records
+    // could not be read"; the read it is handed must not collapse the two.
+    it('hands the state machine a location read that fails when the records cannot be read', async () => {
+      writesAFolder();
+      dbHelperMock.databaseConnection.throws(new Error('database unavailable'));
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      const params = syncthingFolderStateMachineMock.manageFolderSyncState.firstCall?.args[0];
+      expect(params, 'the state machine was not reached, so this asserts nothing').to.not.equal(undefined);
+      expect(await params.appLocation('testapp'), 'the tolerant read').to.deep.equal([]);
+      let failure = null;
+      await params.readAppLocation('testapp').catch((error) => { failure = error; });
+      expect(failure?.message).to.equal('database unavailable');
+    });
+
+    describe('the type of a g: folder', () => {
+      const folderCalls = () => syncthingServiceMock.adjustConfigFolders.getCalls()
+        .filter((c) => c.args[0] === 'put' || c.args[0] === 'patch');
+
+      it('creates the folder receiving', async () => {
+        writesAFolder();
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        const [put] = folderCalls();
+        expect(put?.args[0], 'the folder was not created, so this asserts nothing').to.equal('put');
+        expect(put.args[1].find((f) => f.id === 'testapp').type).to.equal('receiveonly');
+      });
+
+      it('changes an existing folder without sending a type, whatever type the pass read', async () => {
+        writesAFolder();
+        // The pass reads the folder receiving; the role makes it send before the
+        // pass writes. Nothing the pass sends may carry the type it read.
+        syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'receiveonly' }]);
+        syncthingFolderStateMachineMock.manageFolderSyncState.resolves({
+          syncthingFolder: { id: 'testapp', devices: [{ deviceID: 'PEER' }], type: 'receiveonly' },
+          cache: null,
+        });
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        const calls = folderCalls();
+        expect(calls.map((c) => c.args[0]), 'the folder was not written, so this asserts nothing').to.deep.equal(['patch']);
+        const [, fields, folderId] = calls[0].args;
+        expect(folderId).to.equal('testapp');
+        expect(fields.devices).to.deep.equal([{ deviceID: 'PEER' }]);
+        expect(fields).to.not.have.property('type');
+      });
+    });
+
+    // A type written after the pass read the folder list is what syncthing
+    // holds, and what peers are told.
+    describe('the folders it tells peers are writable', () => {
+      it('counts a folder the role made writable after the pass read it', async () => {
+        writesAFolder();
+        syncthingServiceMock.getConfigFolders.callsFake(async () => {
+          await syncthingFolderWrites.patchFolder('testapp', { type: 'sendreceive' });
+          return [{ id: 'testapp', type: 'receiveonly' }];
+        });
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        expect(globalState.promotedFolderIds?.has('testapp')).to.equal(true);
+      });
+
+      it('publishes what the read shows when nothing was written since', async () => {
+        writesAFolder();
+        syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'sendreceive' }]);
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        expect([...globalState.promotedFolderIds]).to.deep.equal(['testapp']);
+      });
+    });
+
+    // A single-writer standby stays receiveonly, so readiness, not the folder
+    // type, is when the election first reads it as eligible to take over.
+    describe('a holder becoming ready', () => {
+      // eslint-disable-next-line global-require
+      const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+      let publish;
+
+      beforeEach(() => {
+        publish = sinon.stub(fluxEventBus, 'publish');
+      });
+
+      afterEach(() => {
+        publish.restore();
+      });
+
+      const passReturns = (restarted) => syncthingFolderStateMachineMock.manageFolderSyncState.resolves({
+        syncthingFolder: { type: 'receiveonly' },
+        cache: { restarted, numberOfExecutions: 1 },
+      });
+
+      it('publishes it on the pass that makes the holder ready', async () => {
+        writesAFolder();
+        passReturns(true);
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        expect(mockState.receiveOnlySyncthingAppsCache.get('testapp')?.restarted, 'the pass never stored the entry').to.equal(true);
+        sinon.assert.calledOnceWithExactly(publish.withArgs('syncthing:folderReady'), 'syncthing:folderReady', { folder: 'testapp' });
+      });
+
+      it('does not publish it for a holder that was already ready', async () => {
+        writesAFolder();
+        mockState.receiveOnlySyncthingAppsCache.set('testapp', { restarted: true, numberOfExecutions: 1 });
+        passReturns(true);
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        sinon.assert.called(syncthingFolderStateMachineMock.manageFolderSyncState);
+        sinon.assert.neverCalledWith(publish, 'syncthing:folderReady');
+      });
+
+      it('does not publish it while the holder is not ready', async () => {
+        writesAFolder();
+        passReturns(false);
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        sinon.assert.called(syncthingFolderStateMachineMock.manageFolderSyncState);
+        sinon.assert.neverCalledWith(publish, 'syncthing:folderReady');
+      });
     });
   });
 
@@ -1280,6 +1699,27 @@ describe('syncthingMonitor tests', () => {
       await clock.tickAsync(100);
 
       sinon.assert.notCalled(syncthingIgnorePolicyMock.ensureStignoreCovers);
+    });
+
+    it('counts each pass that skips a folder whose volume is not mounted', async () => {
+      const count = sinon.spy(eventBus, 'count');
+      syncthingMonitorHelpersMock.getContainerDataFlags.returns('g');
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingMonitorHelpersMock.ensureStfolderExists.resolves(false);
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'sendreceive' }]);
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      try {
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        sinon.assert.calledWith(count, 'syncthing:folderPass', 'testapp', 'volumeNotMounted');
+      } finally {
+        count.restore();
+      }
     });
   });
 

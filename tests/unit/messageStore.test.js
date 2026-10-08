@@ -727,7 +727,7 @@ describe('messageStore tests', () => {
       expect(result.message).to.include('appName cannot be empty');
     });
 
-    it('should store valid removed message and delete location', async () => {
+    it('should store valid removed message and delete the location broadcast no later than it', async () => {
       const message = {
         type: 'fluxappremoved',
         version: 1,
@@ -745,7 +745,7 @@ describe('messageStore tests', () => {
       expect(result).to.be.true;
       expect(dbHelperStub.findOneAndDeleteInDatabase.calledOnce).to.be.true;
       expect(dbHelperStub.findOneAndDeleteInDatabase.firstCall.args[2]).to.deep.equal({
-        ip: '192.168.1.1', name: 'testapp',
+        ip: '192.168.1.1', name: 'testapp', broadcastedAt: { $lte: new Date(message.broadcastedAt) },
       });
     });
   });
@@ -943,7 +943,7 @@ describe('messageStore tests', () => {
       expect(filter.type).to.equal('evicted');
       expect(filter.dedupKey).to.equal('evicted');
       const update = collectionStub.updateOne.firstCall.args[1];
-      expect(update.$set.createdAt).to.be.instanceOf(Date);
+      expect(update.$max.createdAt).to.be.instanceOf(Date);
     });
 
     it('should reject expired apprunning events', async () => {

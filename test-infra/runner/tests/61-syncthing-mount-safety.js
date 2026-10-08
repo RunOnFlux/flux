@@ -4,12 +4,16 @@ import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, getAppContainerStatus } from '../framework/container.js';
 import {
   setSyncState, setSynced, setSyncing, getSyncthingState, resetSyncState,
-  injectSyncthingEvent,
+  injectSyncthingEvent, setStatusUnreadable,
 } from '../framework/syncthing-control.js';
 import {
   waitFor, waitForReconcilerDesiredChanged, waitForReconcileActuated, assertNoEvent,
 } from '../framework/wait.js';
-import { bootAndPeer, seedSyncthingApp, seedSyncScopedData } from '../framework/reconciler-suite.js';
+import {
+  bootAndPeer, seedSyncthingApp, seedSyncScopedData, installOnNodes,
+} from '../framework/reconciler-suite.js';
+import { pushImage } from '../framework/registry-helper.js';
+import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -36,6 +40,8 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // log lines - asserted here before any state is broken.
 
 const subnet = getSubnetConfig();
+const BEFORE_PROMOTION_CHECK = 'syncthing:beforePromotionCheck';
+const BEFORE_SEED_CHECK = 'syncthing:beforeSeedCheck';
 
 const appId = (name) => `flux${name}_${name}`;
 const appDir = (name) => `/mnt/appdata/flux-apps/${appId(name)}`;
@@ -170,7 +176,7 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     // mounted volume holds none - in sendreceive, syncthing would broadcast
     // every "missing" file as a deletion
     await setSyncState({
-      ip: ip1, folder: phantomFolder, state: 'idle', globalBytes: 100000, globalFiles: 12, inSyncBytes: 100000, receiveOnlyChangedFiles: 0,
+      ip: ip1, folder: phantomFolder, state: 'idle', globalBytes: 100000, globalFiles: 12, inSyncBytes: 100000, receiveOnlyChangedFiles: 0, onDisk: false,
     });
     // flag the folder: steady state is never swept, so the verify (which
     // includes the phantom-index check) runs when syncthing flags the folder
@@ -249,5 +255,87 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     expect(marker.exitCode).to.not.equal(0);
     const entries = await execInContainer(client.container, `find ${dir} -mindepth 1 2>/dev/null`);
     expect(entries.stdout.trim()).to.equal(`${dir}/leaked.db`);
+  });
+
+  // A folder about to become writable judges the disk against the status it
+  // decided on. Read again, a status that failed in between said there was
+  // nothing to check, and an empty volume under an index claiming files became
+  // writable - its missing files sent to every peer as deletions. Both ways a
+  // folder becomes writable are held at that moment, over an emptied volume, while
+  // the status is made unreadable.
+  describe('a folder about to become writable judges the disk on the status it decided on', () => {
+    const claimSyncedOverEmptyDisk = (ip, folder) => setSyncState({
+      ip, folder, state: 'idle', globalBytes: 100000, globalFiles: 12, inSyncBytes: 100000, receiveOnlyChangedFiles: 0, onDisk: false,
+    });
+
+    // Held at the checkpoint, the volume is emptied and the status made unreadable;
+    // let go, the pass judges the disk.
+    const holdEmptyAndRelease = async ({ index, name, afterId, checkpoint }) => {
+      const folder = appId(name);
+      const client = env.clients[index];
+      const ip = subnet.nodeIp(index + 1);
+      try {
+        await client.waitForEvent('checkpoint:held', (d) => d.name === checkpoint && d.key === folder, 180000, { afterId });
+        const wipe = await execInContainer(client.container, `sh -c 'find ${appDir(name)}/appdata -mindepth 1 -delete'`);
+        expect(wipe.exitCode, `could not empty appdata: ${wipe.output}`).to.equal(0);
+        await setStatusUnreadable({ ip, folder });
+      } finally {
+        await client.releaseCheckpoint(checkpoint, folder);
+      }
+      const released = client.getLastEventId();
+      await waitFor(() => client.getEventBuffer().filter((e) => e.id > released && e.event === 'syncthing:passComplete').length >= 2, {
+        timeout: 120000, interval: 1000, label: 'two monitor passes once the folder was let go',
+      });
+    };
+
+    it('does not seed an empty volume as the elected leader', async function () {
+      this.timeout(420000);
+      const index = 2;
+      const name = `e2eseedcheck${ts}`;
+      const folder = appId(name);
+      const client = env.clients[index];
+      const afterId = client.getLastEventId();
+      const refusedFrom = await client.getDecisionCount('syncthing:seedRefused', folder, 'phantom_index_empty_disk');
+      // The only holder, and the only one the app wants, so the election names it,
+      // and the index claims a whole copy from its first pass. Installed without
+      // seeding: seeded data declares the cold start, an empty index the leader
+      // rightly seeds over.
+      await pushImage(name, 'v1');
+      const app = await buildSeedableSyncthingApp({ name, mode: 'r', instances: 1 });
+      await client.holdCheckpoint(BEFORE_SEED_CHECK, folder);
+      await claimSyncedOverEmptyDisk(subnet.nodeIp(index + 1), folder);
+      await installOnNodes(env, app, [index]);
+      await waitForReconcileActuated(client, `${name}_${name}`, 'dataCleared', 60000, { afterId });
+
+      await holdEmptyAndRelease({ index, name, afterId, checkpoint: BEFORE_SEED_CHECK });
+
+      expect(await client.getDecisionCount('syncthing:seedRefused', folder, 'phantom_index_empty_disk'),
+        'the seed refused over the empty volume').to.be.above(refusedFrom);
+      expect(await folderType(subnet.nodeIp(index + 1), folder), 'the empty volume seeded').to.equal('receiveonly');
+      await assertNoEvent(client, 'reconciler:desiredChanged', (d) => d.identifier === `${name}_${name}` && d.state === 'running', 0, { afterId });
+    });
+
+    it('does not promote an empty volume as a standby found synced', async function () {
+      this.timeout(420000);
+      const index = 3;
+      const name = `e2estandbycheck${ts}`;
+      const folder = appId(name);
+      const client = env.clients[index];
+      // A running peer is ahead of it, so it promotes only once synced.
+      await seedSyncthingApp(env, { name, mode: 'r', index, forceNonLeader: true });
+      expect(await folderType(subnet.nodeIp(index + 1), folder), 'fixture: the standby receives').to.equal('receiveonly');
+
+      const afterId = client.getLastEventId();
+      const refusedFrom = await client.getDecisionCount('syncthing:promotionRefused', folder, 'phantom_index_empty_disk');
+      await client.holdCheckpoint(BEFORE_PROMOTION_CHECK, folder);
+      await claimSyncedOverEmptyDisk(subnet.nodeIp(index + 1), folder);
+
+      await holdEmptyAndRelease({ index, name, afterId, checkpoint: BEFORE_PROMOTION_CHECK });
+
+      expect(await client.getDecisionCount('syncthing:promotionRefused', folder, 'phantom_index_empty_disk'),
+        'the promotion refused over the empty volume').to.be.above(refusedFrom);
+      expect(await folderType(subnet.nodeIp(index + 1), folder), 'the empty volume promoted').to.equal('receiveonly');
+      await assertNoEvent(client, 'reconciler:desiredChanged', (d) => d.identifier === `${name}_${name}` && d.state === 'running', 0, { afterId });
+    });
   });
 });

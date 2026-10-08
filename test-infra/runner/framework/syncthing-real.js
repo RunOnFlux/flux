@@ -11,9 +11,14 @@
 // 127.0.0.1 inside it and its API key is whatever it generated for itself.
 import { execInContainer } from './container.js';
 
+// The daemon's home as FluxOS resolves it: SYNCTHING_PATH where the node sets it
+// (Arcane), otherwise ~/.config/syncthing of the account FluxOS runs as (legacy).
+export const SYNCTHING_HOME = '${SYNCTHING_PATH:-$(getent passwd "${FLUX_FLUXOS_USER:-root}" | cut -d: -f6)/.config/syncthing}';
+const CONFIG_XML = `"${SYNCTHING_HOME}/config.xml"`;
+
 async function apiKey(client) {
   const r = await execInContainer(client.container,
-    "sed -n 's|.*<apikey>\\(.*\\)</apikey>.*|\\1|p' /dat/usr/lib/syncthing/config.xml | head -1");
+    `sed -n 's|.*<apikey>\\(.*\\)</apikey>.*|\\1|p' ${CONFIG_XML} | head -1`);
   const key = r.stdout.trim();
   if (!key) throw new Error('syncthing-real: no api key in the node\'s config.xml - is this env booted with syncthing: "binary"?');
   return key;
@@ -68,12 +73,55 @@ export async function isFolderSynced(client, folderId) {
   }
 }
 
+// The devices this node's syncthing is configured with, as {deviceID, name}.
+export async function getConfiguredDevices(client) {
+  const devices = await api(client, '/rest/config/devices');
+  return devices.map(({ deviceID, name }) => ({ deviceID, name }));
+}
+
+// Configure a device on this node's syncthing directly, as an older FluxOS that
+// took any answer at an address for that address's device would have left it.
+export async function addDevice(client, { deviceID, name, address }) {
+  const key = await apiKey(client);
+  const body = Buffer.from(JSON.stringify({ deviceID, name, addresses: [address] })).toString('base64');
+  const r = await execInContainer(client.container,
+    `echo ${body} | base64 -d | curl -sS -X POST -H "X-API-Key: ${key}" -H "Content-Type: application/json" `
+    + '--data-binary @- "http://127.0.0.1:8384/rest/config/devices"');
+  if (r.exitCode !== 0) throw new Error(`syncthing-real: adding device ${name} failed: ${r.stderr || r.output}`);
+}
+
 // Which peers this node is actually connected to, by device id.
 export async function getConnectedDevices(client) {
   const conns = await api(client, '/rest/system/connections');
   return Object.entries(conns.connections || {})
     .filter(([, c]) => c.connected)
     .map(([id]) => id);
+}
+
+// This node's live connections, each with the transport syncthing reports for it
+// (tcp-client, tcp-server, quic-client, quic-server, relay-...).
+export async function getConnections(client) {
+  const conns = await api(client, '/rest/system/connections');
+  return Object.entries(conns.connections || {})
+    .filter(([, c]) => c.connected)
+    .map(([deviceID, c]) => ({ deviceID, type: c.type }));
+}
+
+// The release this node's running syncthing reports, without its leading v.
+export async function getDaemonVersion(client) {
+  return (await api(client, '/rest/system/version')).version.replace(/^v/, '');
+}
+
+// The syncthing release the node's image installed.
+export async function installedSyncthingVersion(client) {
+  const r = await execInContainer(client.container, "dpkg-query -W -f='${Version}' syncthing");
+  if (r.exitCode !== 0) throw new Error(`syncthing-real: no installed syncthing package: ${r.output}`);
+  return r.stdout.trim();
+}
+
+// The addresses this node's syncthing listens on.
+export async function getListenAddresses(client) {
+  return (await api(client, '/rest/config/options')).listenAddresses;
 }
 
 // Ask the daemon to look at the folder NOW. Without this a test that writes into a
@@ -92,3 +140,161 @@ export async function listFolderFiles(client, path) {
   const r = await execInContainer(client.container, `ls -A "${path}" 2>/dev/null | sort | tr '\\n' ' '`);
   return r.stdout.trim();
 }
+
+// One folder's config as the daemon holds it: type, syncOwnership,
+// maxConflicts, devices and the rest. Null when the folder does not exist.
+export async function getFolderConfig(client, folderId) {
+  const folders = await getFolders(client);
+  return folders.find((f) => f.id === folderId) ?? null;
+}
+
+// Owner and mode of a path on the node's disk, as numbers: { uid, gid, mode }
+// with mode the octal permission string stat prints (e.g. '755'). Null when
+// the path does not exist.
+export async function statPath(client, path) {
+  const r = await execInContainer(client.container, `stat -c '%u %g %a' "${path}" 2>/dev/null`);
+  const [uid, gid, mode] = r.stdout.trim().split(' ');
+  if (r.exitCode !== 0 || mode === undefined) return null;
+  return { uid: Number(uid), gid: Number(gid), mode };
+}
+
+// One file's record in the daemon's index: `global` is the version the cluster
+// agrees on, with `global.platform.Unix` the owner it carries ({ UID, GID,
+// OwnerName, GroupName }), `local` this node's own. `file` is relative to the
+// folder root.
+export async function getFileInfo(client, folderId, file) {
+  return api(client, `/rest/db/file?folder=${encodeURIComponent(folderId)}&file=${encodeURIComponent(file)}`);
+}
+
+// Whether the daemon's index holds a version of a file that the cluster would
+// pull: a global record that is neither invalid nor deleted. A receive-only
+// folder announces its local changes as invalid, which no peer pulls. `file` is
+// relative to the folder root.
+export async function holdsValidVersion(client, folderId, file) {
+  const key = await apiKey(client);
+  const r = await execInContainer(client.container,
+    `curl -sS -w '\\n%{http_code}' -H "X-API-Key: ${key}" "http://127.0.0.1:8384/rest/db/file?folder=${encodeURIComponent(folderId)}&file=${encodeURIComponent(file)}"`);
+  const lines = r.stdout.trimEnd().split('\n');
+  const status = lines.pop();
+  if (status === '404') return false;
+  if (status !== '200') throw new Error(`syncthing-real: index read for ${file} answered ${status || r.output}`);
+  const { global } = JSON.parse(lines.join('\n'));
+  return !!global && !global.invalid && !global.deleted;
+}
+
+// The node's own syncthing processes, as FluxOS matches them: by name, in the
+// node's PID namespace. An app's syncthing runs in its container's.
+const NODE_SYNCTHING = 'pgrep -x syncthing --ns 1 --nslist pid';
+
+// What each of the node's own syncthing processes resolves owners against: the
+// sha256 of its /etc/passwd followed by its /etc/group, as that process sees
+// them - the value numericIdTables.js calls TABLES_SHA256 when they are the
+// numeric id tables. Empty when no syncthing runs.
+export async function syncthingIdTables(client) {
+  const r = await execInContainer(client.container,
+    `for p in $(${NODE_SYNCTHING}); do echo "$p $(cat /proc/$p/root/etc/passwd /proc/$p/root/etc/group | sha256sum | cut -c1-64)"; done`);
+  return r.stdout.trim().split('\n').filter(Boolean).map((line) => {
+    const [pid, tables] = line.split(' ');
+    return { pid: Number(pid), tables };
+  });
+}
+
+// A file's content on the node's disk, or null when it does not exist.
+export async function readPath(client, path) {
+  const r = await execInContainer(client.container, `cat "${path}" 2>/dev/null`);
+  return r.exitCode === 0 ? r.stdout : null;
+}
+
+// Start the node's own daemon again after something stopped it, the way the OS
+// starts it, and wait until it answers.
+// `paused` true or false starts it with or without --paused whatever the node
+// was built with; left out, as the node's OS would.
+export async function startDaemon(client, { timeout = 60000, interval = 1000, paused } = {}) {
+  const pausedEnv = paused === undefined ? '' : `FLUX_SYNCTHING_PAUSED=${paused ? '1' : ''} `;
+  const r = await execInContainer(client.container, `${pausedEnv}/flux/test-infra/start-syncthing.sh`);
+  if (r.exitCode !== 0) throw new Error(`syncthing-real: could not start the daemon: ${r.output}`);
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    // eslint-disable-next-line no-await-in-loop
+    if (await isDaemonUp(client)) return;
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => { setTimeout(resolve, interval); });
+  }
+  throw new Error(`syncthing-real: the daemon did not answer within ${timeout}ms of starting`);
+}
+
+// Stop the node's own daemon outright, as a machine going down stops it.
+export async function stopDaemon(client) {
+  await execInContainer(client.container, 'pkill -KILL -x syncthing --ns 1 --nslist pid; true');
+}
+
+// The daemon's own event log since `since`, optionally of named types - e.g.
+// StateChanged (a folder starting a scan) and ConfigSaved (a folder's type
+// changed). Event ids are ordered, so two events can be put in order, and
+// they restart from 1 when the daemon does.
+//
+// Filtered here, not with the API's `events=`: syncthing creates the
+// subscription for a filter the first time it is asked for, so a filtered read
+// holds nothing from before that. The default subscription runs from start-up.
+export async function getDaemonEvents(client, { since = 0, events = [] } = {}) {
+  const all = await api(client, `/rest/events?since=${since}&timeout=1`);
+  return events.length ? all.filter((e) => events.includes(e.type)) : all;
+}
+
+// The id of the newest event the daemon holds, to measure later events from.
+export async function lastDaemonEventId(client) {
+  const all = await getDaemonEvents(client);
+  return all.length ? all[all.length - 1].id : 0;
+}
+
+// What the daemon records about each device: { <deviceID>: { lastSeen, ... } }.
+// lastSeen is 1970-01-01 for a device it has never been connected to.
+export async function getDeviceStats(client) {
+  return api(client, '/rest/stats/device');
+}
+
+// The folders peers have offered this daemon that it holds no folder for:
+// { <folderID>: { offeredBy: { <deviceID>: { time, label, ... } } } }.
+export async function getPendingFolders(client) {
+  return api(client, '/rest/cluster/pending/folders');
+}
+
+// The devices the daemon has configured, as syncthing holds them.
+export async function getConfigDevices(client) {
+  return api(client, '/rest/config/devices');
+}
+
+// The command line of every syncthing process on the node, each as one string.
+export async function syncthingCommandLines(client) {
+  const r = await execInContainer(client.container,
+    'for p in $(pgrep -x syncthing); do tr "\\0" " " < /proc/$p/cmdline; echo; done');
+  return r.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
+}
+
+// Wait for an event in the daemon's own stream, the one `match` accepts, after
+// `since` (an event id of this daemon; ids restart with it). Reads the stream by
+// long poll, so it returns once syncthing has recorded the event, not on a
+// schedule. Answers the event.
+export async function waitForDaemonEvent(client, match, { since = 0, timeout = 120000, label = 'a daemon event' } = {}) {
+  const deadline = Date.now() + timeout;
+  let after = since;
+  while (Date.now() < deadline) {
+    const waitS = Math.max(1, Math.min(30, Math.floor((deadline - Date.now()) / 1000)));
+    // eslint-disable-next-line no-await-in-loop
+    const events = await api(client, `/rest/events?since=${after}&timeout=${waitS}`).catch(() => []);
+    const found = events.find(match);
+    if (found) return found;
+    if (events.length) after = events[events.length - 1].id;
+  }
+  throw new Error(`syncthing-real: no ${label} within ${timeout}ms`);
+}
+
+// The daemon recording a folder config with these fields, e.g.
+// { type: 'receiveonly', paused: false }.
+export const folderSaved = (folderId, fields) => (event) => event.type === 'ConfigSaved'
+  && (event.data?.folders || []).some((f) => f.id === folderId && Object.entries(fields).every(([key, value]) => f[key] === value));
+
+// The daemon finishing one file: pulled onto this node ('update') or removed
+// from it ('delete'), without an error.
+export const itemFinished = (folderId, item, action) => (event) => event.type === 'ItemFinished'
+  && event.data?.folder === folderId && event.data?.item === item && event.data?.action === action && !event.data?.error;

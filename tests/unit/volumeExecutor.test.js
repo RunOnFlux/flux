@@ -1425,6 +1425,25 @@ describe('volumeExecutor tests', () => {
       ]);
     });
 
+    it('passes --inherit-owner only when asked, so a copy keeps its owners', async () => {
+      const vol = await openSession();
+      const staging = await vol.resolve('.flux-op/55555555-5555-5555-5555-555555555555', { allowReserved: true });
+      const destination = await vol.resolve('out');
+
+      await volumeExecutor.run(vol, ['tar', '-xzf', '/work/a.tgz'], {
+        publish: { staging, destination }, mkdirStaging: true, inheritOwner: true,
+      });
+      await volumeExecutor.run(vol, ['cp'], { publish: { staging, destination } });
+
+      const asked = dockerServiceStub.createContainer.firstCall.args[0].Cmd;
+      const notAsked = dockerServiceStub.createContainer.secondCall.args[0].Cmd;
+      expect(flags(asked)).to.deep.equal([
+        'flux-op', '--root', '/work', '--discard-staging', '--mkdir',
+        '--inherit-owner', '/work/.flux-op/55555555-5555-5555-5555-555555555555', '/work/out',
+      ]);
+      expect(notAsked).to.not.include('--inherit-owner');
+    });
+
     it('omits --merge by default, so an occupied directory is never replaced wholesale', async () => {
       const vol = await openSession();
       const staging = await vol.resolve('.flux-op/44444444-4444-4444-4444-444444444444', { allowReserved: true });

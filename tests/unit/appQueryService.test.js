@@ -1,6 +1,9 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
+const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+const primaryRoleChanges = require('../../ZelBack/src/services/appLifecycle/primaryRoleChanges');
 
 describe('appQueryService tests', () => {
   let appQueryService;
@@ -10,6 +13,8 @@ describe('appQueryService tests', () => {
   let networkStateServiceStub;
   let dbHelperStub;
   let messageHelperStub;
+  let peerIdentityServiceStub;
+  let syncthingServiceStub;
   let dockerServiceStub;
   let registryManagerStub;
   let enterpriseHelperStub;
@@ -61,6 +66,12 @@ describe('appQueryService tests', () => {
     messageHelperStub = {
       createDataMessage: sinon.stub(),
       createErrorMessage: sinon.stub(),
+    };
+
+    // The answer as it goes out unsigned; a case about the signing says otherwise.
+    peerIdentityServiceStub = {
+      AnswerPurpose: { HELD_COMPONENTS: 'held', PROMOTED_FOLDERS: 'promoted' },
+      answerSealer: sinon.stub().returns(async (fields) => fields),
     };
 
     dockerServiceStub = {
@@ -120,6 +131,7 @@ describe('appQueryService tests', () => {
       BROADCAST_CLOCK_SKEW_MS: 120_000,
     };
     networkStateServiceStub = { isReady: sinon.stub().returns(true) };
+    syncthingServiceStub = { getConfigFolders: sinon.stub().resolves([]) };
     appQueryService = proxyquire('../../ZelBack/src/services/appQuery/appQueryService', {
       config: configStub,
       '../dbHelper': dbHelperStub,
@@ -134,6 +146,8 @@ describe('appQueryService tests', () => {
       '../fluxNetworkHelper': fluxNetworkHelperStub,
       '../fluxCommunicationUtils': fluxCommunicationUtilsStub,
       '../networkStateService': networkStateServiceStub,
+      '../peerIdentityService': peerIdentityServiceStub,
+      '../syncthingService': syncthingServiceStub,
       '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
         config: configStub,
       }),
@@ -566,20 +580,57 @@ describe('appQueryService tests', () => {
     // What a peer mid-election is told this node owns. Answering short here is not
     // a stale reading - it is a second container started on a volume this node is
     // already writing, which corrupts it.
-    // eslint-disable-next-line global-require
-    const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
-    // eslint-disable-next-line global-require
-    const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
 
+    // A primary back from a stop: its folder still sends, paused, and nothing runs
+    // or is committed while it decides whether another holder took over.
+    it('reports a component whose folder sends here, with nothing running, committed or stopped', async () => {
+      syncthingServiceStub.getConfigFolders.resolves([{ id: 'fluxwww_App', type: 'sendreceive' }]);
+
+      const result = await held();
+
+      expect(result).to.deep.equal(['fluxwww_App']);
+    });
+
+    it('reports a folder that sends while syncthing is paused, and not one that receives', async () => {
+      syncthingServiceStub.getConfigFolders.resolves([
+        { id: 'fluxwww_App', type: 'sendreceive', paused: true },
+        { id: 'fluxdb_App', type: 'receiveonly', paused: true },
+      ]);
+
+      const result = await held();
+
+      expect(result).to.deep.equal(['fluxwww_App']);
+    });
+
+    it('answers that it cannot say yet while syncthing cannot say which folders send', async () => {
+      syncthingServiceStub.getConfigFolders.rejects(new Error('connect ECONNREFUSED'));
+      messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
+
+      const result = await held({ running: ['fluxdb_App'] });
+
+      expect(result.status).to.equal('error');
+      expect(result.data.message).to.equal('Which folders send here is not known yet');
+    });
     // The three sources, each independently switchable, because the point of every
     // case below is which one carried the answer.
-    const held = async ({ running = [], committed = [], stopped = [] } = {}) => {
+    const held = async ({
+      running = [], committed = [], stopped = [], promoting = [],
+    } = {}) => {
       dockerServiceStub.dockerListContainers.resolves(running.map((name) => ({ Names: [`/${name}`] })));
       sinon.stub(appReconciler, 'committedIdentifiers').returns(committed);
-      sinon.stub(appsRuntimeState, 'operatorStoppedIdentifiers').resolves(stopped);
+      sinon.stub(primaryRoleChanges, 'promotingIdentifiers').returns(promoting);
+      sinon.stub(appsRuntimeState, 'operatorHeldIdentifiers').resolves(stopped);
       messageHelperStub.createDataMessage.returnsArg(0);
       return appQueryService.heldComponents();
     };
+
+    // A node becoming the primary has committed before its folder sends and long
+    // before its container runs. A peer asking in that window must hear held.
+    it('reports a component this node is becoming the primary of, before anything runs', async () => {
+      const result = await held({ promoting: ['www_App'] });
+
+      expect(result).to.deep.equal(['fluxwww_App']);
+    });
 
     it('reports a component the operator stopped, with no container and nothing committed', async () => {
       // The regression. `appstop` is durable and node-local: the election skips
@@ -641,13 +692,145 @@ describe('appQueryService tests', () => {
       // node that answered nothing.
       dockerServiceStub.dockerListContainers.resolves([{ Names: ['/fluxwww_App'] }]);
       sinon.stub(appReconciler, 'committedIdentifiers').returns([]);
-      sinon.stub(appsRuntimeState, 'operatorStoppedIdentifiers').rejects(new Error('no primary available'));
+      sinon.stub(appsRuntimeState, 'operatorHeldIdentifiers').rejects(new Error('no primary available'));
       messageHelperStub.createErrorMessage.returns({ status: 'error' });
 
       const result = await appQueryService.heldComponents();
 
       expect(result).to.deep.equal({ status: 'error' });
       expect(messageHelperStub.createDataMessage.called, 'answered with a list built from a failed read').to.be.false;
+    });
+  });
+
+  // The same account as a peer asks it: sealed - signed over the caller's
+  // challenge, by the route - and read at most once a second.
+  describe('heldComponentsAnswer', () => {
+    // A clock this suite moves: every case starts well past the last case's read.
+    let nowNs = 10n ** 15n;
+    const res = () => ({ json: sinon.stub().returnsArg(0) });
+    const sealWith = (seal) => peerIdentityServiceStub.answerSealer.returns(seal);
+
+    beforeEach(() => {
+      nowNs += 10n ** 10n;
+      sinon.stub(process.hrtime, 'bigint').callsFake(() => nowNs);
+      dockerServiceStub.dockerListContainers.resolves([{ Names: ['/fluxwww_App'] }]);
+      sinon.stub(appReconciler, 'committedIdentifiers').returns([]);
+      sinon.stub(appsRuntimeState, 'operatorHeldIdentifiers').resolves([]);
+      messageHelperStub.createDataMessage.callsFake((data) => ({ status: 'success', data }));
+      messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
+      sealWith((fields) => Promise.resolve({ ...fields, sealed: true }));
+    });
+
+    it('answers what this node holds, as `held` and `decided`, signed as held components over the request', async () => {
+      const req = { body: { challenge: 'c'.repeat(32) } };
+
+      const answer = await appQueryService.heldComponentsAnswer(req, res());
+
+      expect(answer).to.deep.equal({ status: 'success', data: { held: ['fluxwww_App'], decided: ['fluxwww_App'], sealed: true } });
+      sinon.assert.calledOnceWithExactly(peerIdentityServiceStub.answerSealer, 'held', req.body);
+    });
+
+    it('holds a component whose folder alone sends here without having decided it', async () => {
+      syncthingServiceStub.getConfigFolders.resolves([{ id: 'fluxgame_App', type: 'sendreceive' }]);
+
+      const answer = await appQueryService.heldComponentsAnswer({}, res());
+
+      expect(answer.data.held).to.have.members(['fluxwww_App', 'fluxgame_App']);
+      expect(answer.data.decided).to.deep.equal(['fluxwww_App']);
+    });
+
+    it('answers that it cannot say yet, unsigned, while syncthing cannot say which folders send here', async () => {
+      syncthingServiceStub.getConfigFolders.rejects(new Error('connect ECONNREFUSED'));
+      const seal = sinon.spy((fields) => Promise.resolve(fields));
+      sealWith(seal);
+
+      const answer = await appQueryService.heldComponentsAnswer({}, res());
+
+      expect(answer.status).to.equal('error');
+      expect(answer.data.message).to.equal('Which folders send here is not known yet');
+      sinon.assert.notCalled(seal);
+    });
+
+    it('reads the account at most once a second however often it is asked', async () => {
+      await appQueryService.heldComponentsAnswer({}, res());
+      nowNs += 999n * 10n ** 6n;
+      await appQueryService.heldComponentsAnswer({}, res());
+      expect(dockerServiceStub.dockerListContainers.callCount).to.equal(1);
+      expect(syncthingServiceStub.getConfigFolders.callCount).to.equal(1);
+
+      nowNs += 10n ** 6n;
+      await appQueryService.heldComponentsAnswer({}, res());
+      expect(dockerServiceStub.dockerListContainers.callCount).to.equal(2);
+      expect(syncthingServiceStub.getConfigFolders.callCount).to.equal(2);
+    });
+
+    it('signs each answer for its own call, even when the account is reused', async () => {
+      peerIdentityServiceStub.answerSealer.callsFake((purpose, body) => (fields) => Promise.resolve({ ...fields, challenge: body.challenge }));
+
+      const first = await appQueryService.heldComponentsAnswer({ body: { challenge: 'one' } }, res());
+      const second = await appQueryService.heldComponentsAnswer({ body: { challenge: 'two' } }, res());
+
+      expect(first.data.challenge).to.equal('one');
+      expect(second.data.challenge).to.equal('two');
+    });
+
+    it('passes a failed account on as the error it is, unsigned and not remembered', async () => {
+      appsRuntimeState.operatorHeldIdentifiers.rejects(new Error('no primary available'));
+      const seal = sinon.spy((fields) => Promise.resolve(fields));
+      sealWith(seal);
+
+      const answer = await appQueryService.heldComponentsAnswer({}, res());
+      appsRuntimeState.operatorHeldIdentifiers.resolves([]);
+      const next = await appQueryService.heldComponentsAnswer({}, res());
+
+      expect(answer.status).to.equal('error');
+      expect(seal.calledOnce, 'only the good account was signed').to.equal(true);
+      expect(next.data.held).to.deep.equal(['fluxwww_App']);
+    });
+
+    it('answers an error when the answer cannot be signed, rather than send it unsigned', async () => {
+      sealWith(() => Promise.reject(new Error('This node cannot sign as itself')));
+
+      const answer = await appQueryService.heldComponentsAnswer({}, res());
+
+      expect(answer).to.deep.equal({ status: 'error', data: { message: 'This node cannot sign as itself' } });
+    });
+  });
+
+  // The same account, asked by this node of itself: a primary its owner stopped
+  // to work on is still the primary, and its folder must stay writable.
+  describe('holdsComponent', () => {
+    const account = ({ running = [], stopped = [] } = {}) => {
+      dockerServiceStub.dockerListContainers.resolves(running.map((name) => ({ Names: [`/${name}`] })));
+      sinon.stub(appReconciler, 'committedIdentifiers').returns([]);
+      sinon.stub(appsRuntimeState, 'operatorHeldIdentifiers').resolves(stopped);
+      messageHelperStub.createDataMessage.callsFake((data) => ({ status: 'success', data }));
+    };
+
+    it('holds a component its owner stopped here, with no container running', async () => {
+      account({ stopped: ['probe_gsyncprobe'] });
+
+      expect(await appQueryService.holdsComponent('fluxprobe_gsyncprobe')).to.equal(true);
+    });
+
+    it('does not count a folder that sends here: that is what it asks about', async () => {
+      syncthingServiceStub.getConfigFolders.resolves([{ id: 'fluxprobe_gsyncprobe', type: 'sendreceive' }]);
+      account();
+
+      expect(await appQueryService.holdsComponent('fluxprobe_gsyncprobe')).to.equal(false);
+    });
+
+    it('does not hold a component that is neither running, committed nor stopped here', async () => {
+      account({ running: ['fluxother_App'] });
+
+      expect(await appQueryService.holdsComponent('fluxprobe_gsyncprobe')).to.equal(false);
+    });
+
+    it('answers null when the account cannot be read', async () => {
+      dockerServiceStub.dockerListContainers.rejects(new Error('docker down'));
+      messageHelperStub.createErrorMessage.returns({ status: 'error' });
+
+      expect(await appQueryService.holdsComponent('fluxprobe_gsyncprobe')).to.equal(null);
     });
   });
 
@@ -718,6 +901,7 @@ describe('appQueryService tests', () => {
 
       afterEach(() => {
         globalState.folderHoldings = null;
+        globalState.seedMarks.clear();
       });
 
       it('serves the holdings to a node on the deterministic list', async () => {
@@ -726,6 +910,17 @@ describe('appQueryService tests', () => {
         const result = await appQueryService.promotedFolderHoldings({ body: signed() });
 
         expect(result.holding).to.deep.equal({ fluxa_a: { bytes: 5821604997, newestModified: 200 } });
+      });
+
+      // Where this node stands in deciding a cold-start seed carries the same figures
+      // as its holdings, so it goes where they go.
+      it('serves this node\'s seed marks beside the holdings', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+        globalState.seedMarks.set('fluxb_b', { stage: 'deciding', bytes: 10, newestModified: 5 });
+
+        const result = await appQueryService.promotedFolderHoldings({ body: signed() });
+
+        expect(result.seeding).to.deep.equal({ fluxb_b: { stage: 'deciding', bytes: 10, newestModified: 5 } });
       });
 
       it('serves the holdings to the flux team', async () => {
@@ -847,6 +1042,28 @@ describe('appQueryService tests', () => {
         await appQueryService.promotedFolderHoldings({ body: { target: '10.0.0.9:16127' } });
 
         expect(fluxNetworkHelperStub.verifySignedFluxnodeMessage.called).to.equal(false);
+      });
+
+      it('signs the whole answer, holdings and seed marks included, as promoted folders over the request', async () => {
+        fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
+        const seal = sinon.stub().callsFake(async (fields) => ({ ...fields, sealed: true }));
+        peerIdentityServiceStub.answerSealer.returns(seal);
+        const body = signed({ challenge: 'c'.repeat(32) });
+
+        const result = await appQueryService.promotedFolderHoldings({ body });
+
+        sinon.assert.calledOnceWithExactly(peerIdentityServiceStub.answerSealer, 'promoted', body);
+        expect(seal.firstCall.args[0]).to.have.keys('ready', 'folders', 'holding', 'seeding');
+        expect(result.sealed).to.equal(true);
+      });
+
+      it('answers an error when the answer cannot be signed, rather than send it unsigned', async () => {
+        messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
+        peerIdentityServiceStub.answerSealer.returns(() => Promise.reject(new Error('This node cannot sign as itself')));
+
+        const result = await appQueryService.promotedFolderHoldings({ body: signed() });
+
+        expect(result).to.deep.equal({ status: 'error', data: { message: 'This node cannot sign as itself' } });
       });
     });
 

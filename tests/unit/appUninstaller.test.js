@@ -574,6 +574,7 @@ describe('appUninstaller tests', () => {
         runningAppsCache: new Set(),
         receiveOnlySyncthingAppsCache: new Map(),
         folderHoldings: new Map(),
+        seedMarks: new Map(),
       };
       return proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
         '../utils/globalState': globalStateStub,
@@ -722,10 +723,14 @@ describe('appUninstaller tests', () => {
         ['fluxcomp1_testapp', { bytes: 5821604997, newestModified: 200 }],
         ['otherapp', { bytes: 4096, newestModified: 100 }],
       ]);
+      globalStateStub.seedMarks.set('fluxcomp1_testapp', { stage: 'intent', bytes: 5821604997, newestModified: 200 });
+      globalStateStub.seedMarks.set('otherapp', { stage: 'intent', bytes: 4096, newestModified: 100 });
 
       await uninstaller.removeAppLocally('comp1_testapp', res, true);
 
       expect(globalStateStub.folderHoldings.has('fluxcomp1_testapp'), 'a removed app still claims to hold its data').to.equal(false);
+      expect(globalStateStub.seedMarks.has('fluxcomp1_testapp'), 'a removed app still offers to seed').to.equal(false);
+      expect(globalStateStub.seedMarks.has('otherapp')).to.equal(true);
       // Scoped to what was removed - a component-scoped removal is not a clear of
       // everything this node has answered for.
       expect(globalStateStub.folderHoldings.has('otherapp')).to.equal(true);

@@ -1,13 +1,10 @@
 const config = require('config');
-const util = require('util');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 const path = require('node:path');
 const {
   SYNCTHING_FOLDER_MARKER, SYNCTHING_IGNORE_FILE, syncthingIgnoreLines,
 } = require('../appSystem/volumeReservedNames');
-const nodecmd = require('node-cmd');
-const axios = require('axios');
 const dbHelper = require('../dbHelper');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
@@ -41,9 +38,16 @@ const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const volumeService = require('../utils/volumeService');
 const mountParser = require('../utils/mountParser');
 const appReconciler = require('../appMonitoring/appReconciler');
-const { createPeerFolderLiveness, silenceVerdict, SilenceVerdict } = require('../appMonitoring/peerFolderLiveness');
+const syncthingFolderWrites = require('../appMonitoring/syncthingFolderWrites');
+const primaryRole = require('./primaryRole');
+const primaryRoleChanges = require('./primaryRoleChanges');
+const { createPeerFolderLiveness } = require('../appMonitoring/peerFolderLiveness');
+const {
+  PeerComponent, peerComponentState, componentStateOnPeers, componentStateOnOtherHolders, peerUndecided,
+} = require('../appMonitoring/peerComponent');
 const syncthingFolderStateMachine = require('../appMonitoring/syncthingFolderStateMachine');
 const syncthingServiceModule = require('../syncthingService');
+const registryManagerModule = require('../appDatabase/registryManager');
 const { getContainerDataFlags, requiresSyncing } = require('../appMonitoring/syncthingMonitorHelpers');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const { stopAppMonitoring } = require('../appManagement/appInspector');
@@ -138,7 +142,6 @@ const operatorStoppedNoted = new Set();
 const RESTORE_TYPES = ['local', 'remote', 'upload'];
 
 // Promisified functions
-const cmdAsync = util.promisify(nodecmd.run);
 
 /**
  * Runs a command as root via execFile (no shell, args passed as params) and
@@ -614,6 +617,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     // each node says it holds, so the old volume's figures describe the one being
     // replaced and can win the election for a volume that is about to be empty.
     globalState.folderHoldings?.delete(appId);
+    globalState.seedMarks.delete(appId);
     await execAsRoot('fallocate', ['-l', `${appSpecifications.hdd}G`, volumeFile]);
     const allocateSpace2 = {
       status: 'Space allocated',
@@ -2171,8 +2175,7 @@ async function stopSyncthingApp(appComponentName, res) {
     const appId = dockerService.getAppIdentifier(identifier);
     const folder = `${appsFolder + appId}`;
     // eslint-disable-next-line global-require
-    const syncthingService = require('../syncthingService');
-    const allSyncthingFolders = await syncthingService.getConfigFolders();
+    const allSyncthingFolders = await syncthingServiceModule.getConfigFolders();
     let folderId = null;
     // eslint-disable-next-line no-restricted-syntax
     for (const syncthingFolder of allSyncthingFolders) {
@@ -2185,7 +2188,7 @@ async function stopSyncthingApp(appComponentName, res) {
         };
         // remove folder from syncthing
         // eslint-disable-next-line no-await-in-loop
-        await syncthingService.adjustConfigFolders('delete', undefined, folderId);
+        await syncthingFolderWrites.deleteFolder(folderId);
         const adjustSyncthingB = {
           status: 'Syncthing adjusted',
         };
@@ -2203,54 +2206,6 @@ async function stopSyncthingApp(appComponentName, res) {
     }
   } catch (error) {
     log.error(error);
-  }
-}
-
-/**
- * Helper function to change syncthing folder type
- * @param {string} folderId - Syncthing folder ID (e.g., appId)
- * @param {string} folderType - 'receiveonly' or 'sendreceive'
- * @returns {Promise<boolean>} - true if successful, false otherwise
- */
-async function changeSyncthingFolderType(folderId, folderType) {
-  try {
-    // eslint-disable-next-line global-require
-    const syncthingService = require('../syncthingService');
-
-    log.info(`Changing syncthing folder ${folderId} to ${folderType} mode`);
-
-    // Get current folder configuration
-    const folders = await syncthingService.getConfigFolders();
-
-    // Find the folder by path
-    // Syncthing syncs the entire appId folder (includes all subdirectories)
-    const folderPath = `${appsFolder}${folderId}`;
-    const folder = folders.find((f) => f.path === folderPath);
-
-    if (!folder) {
-      log.error(`Syncthing folder not found for path: ${folderPath}`);
-      return false;
-    }
-
-    // Check if already in desired mode
-    if (folder.type === folderType) {
-      log.info(`Syncthing folder ${folderId} is already in ${folderType} mode`);
-      return true;
-    }
-
-    // Update folder type using PATCH
-    const patchData = { type: folderType };
-    const updateResponse = await syncthingService.adjustConfigFolders('patch', patchData, folder.id);
-
-    if (updateResponse.status === 'success') {
-      log.info(`Successfully changed syncthing folder ${folderId} to ${folderType} mode`);
-      return true;
-    }
-    log.error(`Failed to change syncthing folder type: ${JSON.stringify(updateResponse)}`);
-    return false;
-  } catch (error) {
-    log.error(`Error changing syncthing folder type for ${folderId}: ${error.message}`);
-    return false;
   }
 }
 
@@ -2280,13 +2235,22 @@ function syncthingFolderIdForComponent(appname, componentName) {
  * A paused/resumed folder never sets syncthing's restart-required flag, so no
  * process restart is involved (verified against syncthing v2 - the folder
  * runner is stopped and, when unpausing, started again in place).
+ * A folder already paused is held still without this operation, which then
+ * leaves its pause to whatever set it: a planned shutdown, a syncthing started
+ * paused, or another operation.
  * @param {string} folderId - Syncthing folder ID
  * @param {boolean} paused - Desired paused state
- * @returns {Promise<boolean>} - true if applied, false otherwise
+ * @returns {Promise<string>} 'held' when this call paused or resumed it,
+ *   'alreadyPaused' when a pause found it paused, 'absent' when syncthing holds
+ *   no such folder, 'failed' otherwise
  */
 async function setSyncthingFolderPaused(folderId, paused) {
   try {
-    const response = await syncthingServiceModule.adjustConfigFolders('patch', { paused }, folderId);
+    if (paused && (await syncthingFolderWrites.folderConfig(folderId))?.paused) {
+      log.info(`setSyncthingFolderPaused - ${folderId} is already paused; its pause is not this operation's to release`);
+      return 'alreadyPaused';
+    }
+    const response = await syncthingFolderWrites.patchFolder(folderId, { paused });
     if (response.status === 'success') {
       log.info(`setSyncthingFolderPaused - ${folderId} paused=${paused}`);
       return 'held';
@@ -2360,32 +2324,6 @@ function syncedComponentsOfApp(appDetails, appname) {
       componentName: comp.name,
       folderId: syncthingFolderIdForComponent(appname, comp.name),
     }));
-}
-
-/**
- * Helper function to apply permissions fix on persistent container data
- * Fixes permissions on appdata and all additional mount points
- * @param {string} appId - Application ID
- * @returns {Promise<boolean>} - true if successful, false otherwise
- */
-async function applyPermissionsFix(appId) {
-  try {
-    // Fix permissions on entire app directory to cover appdata and all additional mounts
-    const appPath = `${appsFolder}${appId}`;
-
-    log.info(`Applying permissions fix for app: ${appId}`);
-
-    // Apply 777 permissions to entire app directory recursively
-    // This covers both appdata (primary mount) and all additional mounts at the same level
-    const execPERM = `sudo chmod -R 777 ${appPath}`;
-    await cmdAsync(execPERM);
-
-    log.info(`Successfully applied permissions fix for app: ${appId} (includes appdata and all mount points)`);
-    return true;
-  } catch (error) {
-    log.error(`Error applying permissions fix for ${appId}: ${error.message}`);
-    return false;
-  }
 }
 
 /**
@@ -2619,55 +2557,111 @@ async function appDockerRestart(appname) {
 }
 
 /**
- * Helper function to restart app with permissions fix workflow for new primary
- * This is specifically for g: mode apps becoming primary
- * @param {string} appname - App name
- * @param {string} appId - Application ID for syncthing folder
+ * Syncthing device ids of the nodes that have announced a shutdown and not come
+ * back. The monitor names each device after its node's socket address.
+ * @returns {Promise<Set<string>>}
+ */
+async function shuttingDownDevices() {
+  const departing = await registryManagerModule.shuttingDownNodes();
+  if (!departing.length) return new Set();
+  const devices = await syncthingServiceModule.getConfigDevices();
+  return new Set((devices || [])
+    .filter((device) => departing.some((ip) => socketAddressesMatch(ip, device.name)))
+    .map((device) => device.deviceID));
+}
+
+/**
+ * Begins making this node the primary of a single-writer component - see
+ * primaryRole. A pass that runs again while the last one's promotion is still in
+ * progress, or after this node became the primary, begins nothing.
+ * @param {string} identifier `<component>_<app>`
+ * @param {string} appId Syncthing folder id
+ * @returns {boolean} Whether a promotion began
+ */
+function startAsPrimary(identifier, appId) {
+  if (primaryRole.promote(identifier, appId)) return true;
+  fluxEventBus.count('masterSlave:decision', identifier, 'startInFlight');
+  return false;
+}
+
+/**
+ * Withdraws this node's mark that it seeds a folder, once the election has
+ * decided another node runs the folder's component. The mark tells a holder
+ * reaching its own cold start to stand aside, and this node will not seed.
+ * Becoming the primary here needs no withdrawal: a folder that sends clears its
+ * mark (syncthingFolderWrites).
+ * @param {string} appId Syncthing folder id
+ * @param {string} outcome What the election decided, for the log.
+ * @returns {void}
+ */
+function withdrawSeedMark(appId, outcome) {
+  if (!globalState.seedMarks.delete(appId)) return;
+  log.info(`masterSlaveApps: withdrew this node's mark that it seeds ${appId} - ${outcome}`);
+  fluxEventBus.count('syncthing:seedMark', appId, 'withdrawn');
+}
+
+/**
+ * Lifts the stop lock of a g: component its operator has started, once the
+ * election has decided who runs it - see appsRuntimeState.requestOperatorStart.
+ *
+ * Written through the reconciler's per-key slot, as the operator's own writes
+ * are, so a stop given after the start was asked for is never lifted by this. A
+ * lock that could not be lifted stays, and the next pass decides again.
+ * @param {string} identifier `<component>_<app>`
+ * @param {string} outcome What the election decided, for the log and the event.
  * @returns {Promise<void>}
  */
-async function requestMasterStartWithPermissionsFix(appname, appId) {
-  // Claimed before the ownership fix, not after it: the fix takes long enough
-  // that a peer probing "is anyone running this?" would otherwise get a truthful
-  // no from a node that has already committed, and start alongside it. Released
-  // in the finally - from a successful start the controllerDesired below carries
-  // the claim, and a failed one must stop claiming.
-  appReconciler.claimStarting(appname);
-  // A fact - this node has decided to become primary and is committing to it.
-  // The cadence around this decision is a counter, not an event: see the rule at
-  // the top of fluxEventBus.js.
-  fluxEventBus.publish('masterSlave:started', { identifier: appname });
-  fluxEventBus.count('masterSlave:decision', appname, 'started');
+async function settleOperatorStart(identifier, outcome) {
+  let released = false;
   try {
-    log.info(`Preparing masterSlave primary ${appname}: fixing permissions before start`);
-
-    // sync must be paused while we fix ownership on the persistent data, or
-    // syncthing would propagate the changes mid-fix
-    const toReceiveOnly = await changeSyncthingFolderType(appId, 'receiveonly');
-    if (!toReceiveOnly) {
-      log.warn(`Failed to change syncthing folder to receiveonly for ${appname}, continuing anyway...`);
-    }
-
-    const permissionsApplied = await applyPermissionsFix(appId);
-    if (!permissionsApplied) {
-      log.error(`Failed to apply permissions fix for ${appname}, not requesting start`);
-      return;
-    }
-
-    const toSendReceive = await changeSyncthingFolderType(appId, 'sendreceive');
-    if (!toSendReceive) {
-      log.error(`Failed to change syncthing folder to sendreceive for ${appname}, not requesting start - cannot become primary without sendreceive mode`);
-      return;
-    }
-
-    // hand the run-state decision to the reconciler (the single container actuator)
-    appReconciler.setControllerDesired(appname, 'running', 'masterSlave primary (synced)');
-    log.info(`Requested start for masterSlave primary ${appname}`);
+    await appReconciler.applyIntent(identifier, async () => {
+      released = await appsRuntimeState.releaseOperatorStart(identifier);
+    });
   } catch (error) {
-    log.error(`Error preparing masterSlave primary ${appname}: ${error.message}`);
-    // leave it stopped if the permissions-fix workflow failed
-  } finally {
-    appReconciler.releaseStarting(appname);
+    log.error(`masterSlaveApps: the stop lock of ${identifier} could not be lifted (${outcome}); the next pass decides again: ${error.message}`);
+    return;
   }
+  if (!released) return;
+  log.info(`masterSlaveApps: lifted the stop lock of ${identifier} - ${outcome}`);
+  fluxEventBus.publish('masterSlave:operatorStartSettled', { identifier, outcome });
+}
+
+/**
+ * Starts a g: component its operator has started, and lifts its stop lock, in
+ * one hold of the reconciler's per-key slot - the slot the operator's own writes
+ * go through. This pass read the lock before its peer probes; a stop given since
+ * withdrew the start, and inside the slot none can land between the check and
+ * the promotion.
+ *
+ * The lock is lifted once this node holds the component by commitment - a
+ * promotion under way, or a desire to run it - so there is no moment it is held
+ * by nothing. A lock that could not be lifted stays, and the next pass decides
+ * again.
+ * @param {string} identifier `<component>_<app>`
+ * @param {string} appId Syncthing folder id
+ * @returns {Promise<boolean>} Whether a promotion was begun.
+ */
+async function startOperatorStarted(identifier, appId) {
+  let begun = false;
+  let released = false;
+  try {
+    await appReconciler.applyIntent(identifier, async () => {
+      // A read that fails answers "not started", which leaves the lock.
+      if (!(await appsRuntimeState.operatorStopState(identifier)).startRequested) return;
+      begun = startAsPrimary(identifier, appId);
+      const committed = appReconciler.committedIdentifiers().includes(identifier)
+        || primaryRoleChanges.promotingIdentifiers().includes(identifier);
+      if (committed) released = await appsRuntimeState.releaseOperatorStart(identifier);
+    });
+  } catch (error) {
+    log.error(`masterSlaveApps: the stop lock of ${identifier} could not be lifted (it starts here); the next pass decides again: ${error.message}`);
+    return begun;
+  }
+  if (released) {
+    log.info(`masterSlaveApps: lifted the stop lock of ${identifier} - it starts here`);
+    fluxEventBus.publish('masterSlave:operatorStartSettled', { identifier, outcome: 'it starts here' });
+  }
+  return begun;
 }
 
 /**
@@ -3240,7 +3234,7 @@ async function appendRestoreTask(req, res) {
         // read whose failure silently reads as "nothing to protect". A folder
         // syncthing does not know answers 404 - nothing is replicating the
         // partial data, so there is nothing to demote.
-        const demote = await syncthingServiceModule.adjustConfigFolders('patch', { type: 'receiveonly' }, swapInFlight.folderId);
+        const demote = await primaryRole.demoteForSafety(swapInFlight.folderId);
         if (demote.status !== 'success' && demote.data?.httpStatus !== 404) {
           // Still sendreceive over partial data. Paused it transmits nothing;
           // resumed it would hand the deletions and the wreckage to every
@@ -3885,8 +3879,6 @@ async function checkAndRemoveApplicationInstance() {
     const evacuationSafety = require('./appEvacuationSafety');
     // eslint-disable-next-line global-require
     const residentialNodeDosService = require('../residentialNodeDosService');
-    // eslint-disable-next-line global-require
-    const { findSyncedPeer } = require('../appMonitoring/syncthingFolderStateMachine');
 
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
     if (!localSocketAddr) {
@@ -4027,9 +4019,10 @@ async function checkAndRemoveApplicationInstance() {
       const safety = await evacuationSafety.canSafelyRemoveApp(installedApp.name, {
         appLocation: registryManager.appLocation,
         getApplicationGlobalSpecifications: registryManager.getApplicationGlobalSpecifications,
-        findSyncedPeer,
+        findSyncedPeer: syncthingFolderStateMachine.findSyncedPeer,
         isElectedPrimary: (name) => isElectedPrimaryHere(name, localSocketAddr),
         isComponentRunningLocally,
+        shuttingDownDevices,
       });
       fluxEventBus.publish('giveUp:safety', {
         appName: installedApp.name,
@@ -4308,7 +4301,6 @@ async function reinstallOldApplications() {
           }
           // Specs differ - log for debugging purposes
           log.info(`Application ${installedApp.name} has actual specification changes, proceeding with redeployment.`);
-
 
           // check if node is capable to run it according to specifications
           // run the verification
@@ -4805,36 +4797,27 @@ async function forceAppRemovals() {
 }
 
 /**
- * What this node can show about a peer's copy of a g: component. UNKNOWN is not
- * a soft NOT_RUNNING: only NOT_RUNNING releases the component for a start here,
- * because starting is what puts a second writer on a shared volume.
- */
-const PeerComponent = Object.freeze({
-  RUNNING: 'running',
-  NOT_RUNNING: 'notRunning',
-  UNKNOWN: 'unknown',
-});
-
-// Bounded so a slow peer cannot hold a promotion open, and deliberately not
-// shortened: a peer cut short answers UNKNOWN and holds the start, so a tighter
-// budget buys nothing and costs availability.
-const PEER_PROBE_TIMEOUT_MS = 10 * 1000;
-
-/**
  * How long an instance waits per place in the queue before it may take a primary
  * FDM is reporting as empty.
  *
  * The stagger serialises the candidates so they do not all start against the same
  * volume at once, and its length is set by how long FDM takes to register a node
- * that HAS started - measured at ~110s in production. A place is worth more than
- * that or the wait does not cover what it exists to cover.
+ * that HAS started: FDM keeps naming a stopped primary until 90s have passed AND
+ * three checks have failed, checks at most every 25s, and serves its answer from a
+ * 20s cache (fdm domainService.js G_APP_UNHEALTHY_THRESHOLD_MS,
+ * G_APP_MIN_CONFIRMATIONS, G_PASS_MIN_INTERVAL_MS; routes.js). A place is worth
+ * more than that or the wait does not cover what it exists to cover.
  *
- * Read from config on every call, and per place rather than as a total, because
- * the only consumer that overrides it is a test: at three minutes a place, every
- * staggered-start path costs minutes of wall clock to reach, which is why none of
- * them has rig coverage. A suite exercising one compresses it in its own
- * configOverrides - not in the shared harness config, which would re-time every
- * existing g: election suite for the benefit of the one that needs it.
+ * Each standby counts its wait from the pass on which it proves the component
+ * free, so the order holds while standbys prove it within one place of each
+ * other. A silent holder is proved gone by this node's own syncthing dropping its
+ * connection, which syncthing does ReceiveTimeout (300s) after the last message,
+ * and a live peer sends one at least every PingSendInterval (90s): standbys prove
+ * it at most 90s plus one election pass (masterSlaveIntervalMs, 30s) apart, inside
+ * the 180s place.
+ *
+ * Read from config on every call, and per place rather than as a total, so a
+ * fleet running a shorter stagger reaches every staggered path in proportion.
  *
  * @param {number} places how far down the election order, 0 for no wait
  * @returns {number} milliseconds
@@ -4843,126 +4826,6 @@ function staggerMs(places) {
   return places * (config.fluxapps.masterSlaveStaggerMs ?? 3 * 60 * 1000);
 }
 
-// Why a silent peer was left alone, in the words an operator reading the log
-// needs: each one is a different thing to go and look at.
-const SILENCE_REASONS = Object.freeze({
-  [SilenceVerdict.CONNECTION_ALIVE]: "this node's syncthing still holds a live connection to it",
-  [SilenceVerdict.NO_EVIDENCE]: 'this node cannot ask its own syncthing about it',
-  [SilenceVerdict.LOCALLY_ISOLATED]: 'this node cannot see the fleet either',
-});
-
-/**
- * What this node can show one peer to be doing with a component.
- *
- * Lifted out of masterSlaveApps so the election and the surplus rule ask this
- * question through the same code. Two implementations of "is that peer running
- * it" drift, and they drift towards whatever answer each caller finds
- * convenient - which for one of them is a removal.
- *
- * `label` names the peer the way its caller knows it, so a log line reads the
- * same whether the peer came from the election order, from the remembered
- * primary, or from the instance order the surplus rule ranks.
- * @param {string} peerSocketAddr The peer's socket address.
- * @param {object} ctx Everything the probe needs that is not the peer.
- * @param {string} ctx.appId Container name for the component.
- * @param {string} ctx.identifier `<component>_<app>` the election keys on.
- * @param {string} ctx.appName Global app name, for the log lines.
- * @param {object} ctx.liveness Peer folder liveness, for judging silence.
- * @param {string} ctx.label How the caller knows this peer.
- * @param {string} ctx.logPrefix Which caller is asking.
- * @returns {Promise<string>} A PeerComponent state.
- */
-async function peerComponentState(peerSocketAddr, {
-  appId, identifier, appName, liveness, label, logPrefix,
-}) {
-  // Docker reports names with a leading slash, and getAppIdentifier yields
-  // exactly the container name for this component. Compare whole names: a
-  // substring test also matches a longer app whose name merely begins the same
-  // way - myapp against myapp2, or simplexsmp against simplexsmp1 - and a false
-  // positive here means the component is never started at all.
-  const peerRunsThisComponent = (appsRunning) => appsRunning.some(
-    (app) => (app.Names || []).some((name) => name.replace(/^\//, '') === appId),
-  );
-  const ipToCheck = extractIp(peerSocketAddr);
-  const portToCheck = extractPort(peerSocketAddr);
-  const { CancelToken } = axios;
-  const source = CancelToken.source();
-  // Cleared once the request settles: every probe otherwise leaves a
-  // live 10s timer behind, and this runs for each peer on every pass
-  // until the component is running locally.
-  const cancelTimer = setTimeout(() => source.cancel('Operation canceled by timeout.'), PEER_PROBE_TIMEOUT_MS);
-
-  try {
-    // heldcomponents, not listrunningapps: a peer part-way through
-    // its own pre-start ownership fix has committed but has no
-    // container, and answering from containers alone reports the
-    // component free. A peer too old to serve it falls back below.
-    const heldResponse = await axios.get(`http://${ipToCheck}:${portToCheck}/apps/heldcomponents`, { timeout: PEER_PROBE_TIMEOUT_MS, cancelToken: source.token })
-      .catch((error) => {
-        // A status is an answer: the peer is alive and merely too old
-        // for this endpoint, so fall through to the container list. No
-        // reply at all is the case this function exists to judge, and
-        // it belongs to the handler below.
-        if (!error.response) throw error;
-        return null;
-      });
-    const held = heldResponse?.data?.data;
-    if (Array.isArray(held)) {
-      if (held.includes(appId)) {
-        fluxEventBus.count('masterSlave:decision', identifier, 'heldOnPeer');
-        log.info(`${logPrefix}: component:${identifier} is held on peer node (${label}) at ${ipToCheck}, will not start`);
-        return PeerComponent.RUNNING;
-      }
-      return PeerComponent.NOT_RUNNING;
-    }
-
-    // The peer HAS the endpoint and it failed. FluxOS answers
-    // errors in band, so this arrives as a 200 carrying an error
-    // object rather than a list - indistinguishable from a peer
-    // too old for the route by shape alone, which is why it is
-    // separated here.
-    // Falling through would answer from the container list a
-    // question the peer has just said it cannot answer, and that
-    // list cannot see the durable stop lock at all: a primary its
-    // owner stopped to work on reads as free, and this node
-    // elects itself over them. Alive and unreadable is UNKNOWN.
-    if (heldResponse?.data?.status === 'error') {
-      log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} could not answer what it holds for app:${appName} - alive, and cannot be ruled out, will not start`);
-      return PeerComponent.UNKNOWN;
-    }
-
-    const response = await axios.get(`http://${ipToCheck}:${portToCheck}/apps/listrunningapps`, { timeout: PEER_PROBE_TIMEOUT_MS, cancelToken: source.token });
-    const appsRunning = response.data?.data;
-    // A reply this node cannot read is not a clearance. The peer
-    // answered, so it is alive; what it is running is simply unknown.
-    if (!Array.isArray(appsRunning)) {
-      log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} is alive but did not list what it runs for app:${appName}, will not start`);
-      return PeerComponent.UNKNOWN;
-    }
-    // Match on the g: component identifier, not the app name: non-g siblings
-    // (e.g. a DB cluster component) run on every node and must not be mistaken
-    // for the master/slave component being active there.
-    if (peerRunsThisComponent(appsRunning)) {
-      log.info(`${logPrefix}: component:${identifier} is running on peer node (${label}) at ${ipToCheck}, will not start`);
-      return PeerComponent.RUNNING;
-    }
-    return PeerComponent.NOT_RUNNING;
-  } catch (error) {
-    if (error.response) {
-      log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} answered ${error.response.status} for app:${appName} - alive, and cannot be ruled out, will not start`);
-      return PeerComponent.UNKNOWN;
-    }
-    const verdict = await silenceVerdict(appId, peerSocketAddr, liveness);
-    if (verdict === SilenceVerdict.GONE) {
-      log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} is silent and this node's syncthing shows its connection for ${appId} gone - the component is free there`);
-      return PeerComponent.NOT_RUNNING;
-    }
-    log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} is silent for app:${appName} and ${SILENCE_REASONS[verdict]}, will not start`);
-    return PeerComponent.UNKNOWN;
-  } finally {
-    clearTimeout(cancelTimer);
-  }
-}
 /**
  * Manages syncthing master/slave application coordination using FDM services.
  * State (the busy lists, the receive-only cache) is read off globalStateParam at
@@ -4981,7 +4844,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
     // eslint-disable-next-line no-param-reassign
     globalStateParam.masterSlaveAppsRunning = true;
     // do not run if installationInProgress or removalInProgress or softRedeployInProgress or hardRedeployInProgress
-    if (globalStateParam.installationInProgress || globalStateParam.removalInProgress || globalStateParam.softRedeployInProgress || globalStateParam.hardRedeployInProgress) {
+    if (globalStateParam.installationInProgress || globalStateParam.removalInProgress || globalStateParam.softRedeployInProgress || globalStateParam.hardRedeployInProgress
+      || globalStateParam.shutdownInProgress) {
       return;
     }
 
@@ -5108,22 +4972,18 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
         // eslint-disable-next-line no-continue
         continue;
       }
-      if (installedApp.version <= 3) {
-        identifier = installedApp.name;
+      // Check all g: mode apps, not just those in cache with restarted flag
+      // The cache tracks sync state, but shouldn't gate primary selection
+      identifier = mountParser.electedComponentIdentifier(installedApp);
+      if (identifier) {
         appId = dockerService.getAppIdentifier(identifier);
-        // Check all g: mode apps, not just those in cache with restarted flag
-        // The cache tracks sync state, but shouldn't gate primary selection
-        needsToBeChecked = mountParser.isGComponent(installedApp.containerData);
-      } else {
-        const componentUsingMasterSlave = installedApp.compose.find((comp) => mountParser.isGComponent(comp.containerData));
-        if (componentUsingMasterSlave) {
-          identifier = `${componentUsingMasterSlave.name}_${installedApp.name}`;
-          appId = dockerService.getAppIdentifier(identifier);
-          // Check all g: mode apps, not just those in cache with restarted flag
-          needsToBeChecked = true;
-        }
+        needsToBeChecked = true;
       }
       if (needsToBeChecked) {
+        // One per pass per g: component, whatever the pass decides. Every start
+        // counts 'started', so passes counted from an event with no new start
+        // is a decision not to start, taken that many times.
+        fluxEventBus.count('masterSlave:decision', identifier, 'evaluated');
         // This node stopped the component in order to hand the app back, so it
         // is not a candidate. Without this the election restores it within one
         // cycle: the component is not running here, this node's own stale
@@ -5137,8 +4997,10 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
           continue;
         }
         // operator explicitly stopped this g: component; don't elect or act on it
+        // until they start it
         // eslint-disable-next-line no-await-in-loop
-        if (await appsRuntimeState.isOperatorStopped(identifier)) {
+        const operatorStop = await appsRuntimeState.operatorStopState(identifier);
+        if (operatorStop.stopped && !operatorStop.startRequested) {
           // Outside the once-guard below on purpose: the log line reports the
           // state change, the counter reports every pass that honoured it, which
           // is what a test asserting "the election kept skipping it" needs.
@@ -5151,6 +5013,18 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
           continue;
         }
         operatorStoppedNoted.delete(identifier);
+        // Started by its operator, and still locked: this pass decides it, and
+        // the lock - which is what keeps this node holding the component - is
+        // lifted only by a decision. Starting it here, or finding it runs
+        // elsewhere, lifts it; a pass that cannot tell leaves it for the next.
+        const resuming = operatorStop.startRequested;
+        if (resuming) {
+          fluxEventBus.count('masterSlave:decision', identifier, 'operatorStartPending');
+          log.info(`masterSlaveApps: ${identifier} was started by its operator - deciding it with the stop lock held`);
+        }
+        const start = async () => (resuming ? startOperatorStarted(identifier, appId) : startAsPrimary(identifier, appId));
+        // eslint-disable-next-line no-await-in-loop
+        await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.MASTERSLAVE_BEFORE_DECISION, identifier);
         // Get master IP from FDM using the new /appips endpoint
         // eslint-disable-next-line no-await-in-loop
         const fdmResult = await getMasterIpFromFdm(installedApp.name, axiosOptions);
@@ -5220,8 +5094,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 }
 
                 if (!isReady) {
+                  fluxEventBus.count('masterSlave:decision', identifier, 'notReady');
                   log.info(`masterSlaveApps: app:${installedApp.name} is not ready yet (syncthing not synced), skipping primary selection for this cycle`);
-                  // eslint-disable-next-line global-require
                   // eslint-disable-next-line no-continue
                   continue;
                 }
@@ -5249,18 +5123,16 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   log.info(`masterSlaveApps: cleared this node's own stale primary record for ${identifier} - it is not running here`);
                 }
 
-                // Probe peers to see whether the g: component is already running
-                // somewhere else. `scope` selects which peers:
-                //   'lower' - only nodes ahead of us in the election order, the
-                //             pre-existing check used by the staggered starts.
-                //   'all'   - every other node. An index-0 start needs this: it has
-                //             no lower-index nodes, so a lower-only check always
-                //             answers "nobody" and the start proceeds blind. FDM
-                //             registration lags a node actually starting (measured
-                //             at ~110s in production), and throughout that window
-                //             FDM reports no primary while an instance is live - so
-                //             without this an index-0 node starts a second writer
-                //             on a shared volume.
+                // Probe every other holder to see whether the g: component is
+                // already running, committed or held somewhere else. Every start
+                // path asks all of them, whatever this node's place in the order:
+                // the order decides who goes first, not who can have started. A
+                // node further down can hold a booking made before the one ahead
+                // was released, so its turn can come first, and a start that asked
+                // only the nodes ahead would put a second writer beside it. FDM
+                // registration lags a node actually starting (measured at ~110s in
+                // production), so "FDM names no primary" is no proxy for "nobody
+                // is running it" either.
                 // A peer that does not answer is UNKNOWN, not free. FluxOS and the
                 // container fail independently: a node whose API is down for a
                 // restart still holds the volume and still writes to it, so its
@@ -5287,60 +5159,51 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   appId, identifier, appName: installedApp.name, liveness, logPrefix: 'masterSlaveApps',
                 };
 
-                const checkPeersRunning = async (scope) => {
-                  // A lower-only scope with nobody in it is not an answer. At index 0
-                  // there is no node ahead to ask, and index -1 - this node absent
-                  // from the location list - has none either, so the walk below asks
-                  // NOBODY and the caller reads that as clear.
-                  //
-                  // That is the same blind start the index-0 branch takes scope 'all'
-                  // to avoid, reached from the staggered paths instead. It is not
-                  // unreachable there: the stagger is booked at index >= 2, index is
-                  // re-derived from the location list every pass, and the instances
-                  // ahead can age out of that list before the booked turn arrives -
-                  // leaving a node at index 0 holding a schedule. FDM's registration
-                  // lags a node actually starting (~110s in production), so through
-                  // that whole window it reports no primary while an instance is live,
-                  // and starting on "nobody is ahead of me" puts a second writer on
-                  // the shared volume.
-                  //
-                  // Escalate rather than answer: a start is never issued without some
-                  // peer having been asked. An empty 'all' is a real answer - there is
-                  // genuinely no one to ask - and falls through below.
-                  const effectiveScope = scope === 'lower' && index <= 0 ? 'all' : scope;
-                  const limit = effectiveScope === 'all' ? runningAppList.length : index;
-                  if (limit <= 0) return PeerComponent.NOT_RUNNING; // nobody to ask at all
-
+                const checkPeersRunning = async () => {
                   const peers = [];
-                  for (let i = 0; i < limit; i += 1) {
+                  for (let i = 0; i < runningAppList.length; i += 1) {
                     if (i === index) continue; // never probe ourselves
-                    if (runningAppList[i]) peers.push({ i, node: runningAppList[i] });
+                    if (runningAppList[i]) peers.push({ ip: runningAppList[i].ip, label: `index ${i}` });
                   }
-                  if (!peers.length) return PeerComponent.NOT_RUNNING;
-
-                  const states = await Promise.all(
-                    peers.map(({ i, node }) => peerComponentState(node.ip, { ...probeCtx, label: `index ${i}` })),
-                  );
-                  // One peer that cannot be ruled out holds the start on its own:
-                  // every other peer answering "not me" says nothing about that one.
-                  if (states.includes(PeerComponent.RUNNING)) return PeerComponent.RUNNING;
-                  if (states.includes(PeerComponent.UNKNOWN)) return PeerComponent.UNKNOWN;
-                  return PeerComponent.NOT_RUNNING;
+                  const state = await componentStateOnPeers(peers, probeCtx);
+                  if (state === PeerComponent.RUNNING) {
+                    withdrawSeedMark(appId, 'a peer holds it');
+                    if (resuming) await settleOperatorStart(identifier, 'a peer holds it');
+                  }
+                  return state;
                 };
-                const checkLowerIndexNodesRunning = () => checkPeersRunning('lower');
 
-                if (index === 0 && !mastersRunningGSyncthingApps.has(identifier)) {
+                if (resuming && operatorStop.asPrimary) {
+                  // Its owner started an app this node was the primary of when it
+                  // was stopped. The start returns it here, whatever this node's
+                  // place in the order: every other node that was stopped with it
+                  // reads this one as holding it, and stands aside.
+                  // eslint-disable-next-line no-await-in-loop
+                  const peerState = await checkPeersRunning();
+                  if (peerState !== PeerComponent.NOT_RUNNING) {
+                    log.info(`masterSlaveApps: not resuming app:${installedApp.name} as its primary - a peer ${peerState === PeerComponent.RUNNING ? 'holds it' : 'could not be ruled out'}`);
+                  } else {
+                    // eslint-disable-next-line no-await-in-loop
+                    if (await start()) {
+                      fluxEventBus.count('masterSlave:decision', identifier, 'primaryResumed');
+                      log.info(`masterSlaveApps: resuming docker component:${identifier} as its primary, index: ${index}`);
+                    }
+                  }
+                  timeTostartNewMasterApp.delete(identifier);
+                } else if (index === 0 && !mastersRunningGSyncthingApps.has(identifier)) {
                   // Index 0 with no history starts - but only once no peer is
                   // already running it. Without this probe the start is issued
                   // blind, and FDM's registration lag makes "FDM says no primary"
                   // an unreliable proxy for "nobody is running it".
                   // eslint-disable-next-line no-await-in-loop
-                  const peerState = await checkPeersRunning('all');
+                  const peerState = await checkPeersRunning();
                   if (peerState !== PeerComponent.NOT_RUNNING) {
                     log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a peer ${peerState === PeerComponent.RUNNING ? 'is already running it' : 'could not be ruled out'}`);
                   } else {
-                    requestMasterStartWithPermissionsFix(identifier, appId);
-                    log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
+                    // eslint-disable-next-line no-await-in-loop
+                    if (await start()) {
+                      log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
+                    }
                   }
                 } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && !ipsMatch(mastersRunningGSyncthingApps.get(identifier), localSocketAddr)) {
                   // There was a previous master (not me), and it's no longer on FDM
@@ -5357,6 +5220,11 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // eslint-disable-next-line no-await-in-loop
                   const previousMasterState = await peerComponentState(previousMasterAddr, { ...probeCtx, label: 'previous primary' });
                   if (previousMasterState !== PeerComponent.NOT_RUNNING) {
+                    if (previousMasterState === PeerComponent.RUNNING) withdrawSeedMark(appId, 'the previous primary runs it');
+                    if (resuming && previousMasterState === PeerComponent.RUNNING) {
+                      // eslint-disable-next-line no-await-in-loop
+                      await settleOperatorStart(identifier, 'the previous primary runs it');
+                    }
                     // Only THIS app is settled - the previous master still holds it,
                     // so there is nothing to elect. Returning here would abandon the
                     // whole pass and silently skip every remaining g: app, for as
@@ -5368,8 +5236,10 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   }
                   // Previous master is not running, determine next primary
                   if (index === 0) {
-                    requestMasterStartWithPermissionsFix(identifier, appId);
-                    log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
+                    // eslint-disable-next-line no-await-in-loop
+                    if (await start()) {
+                      log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
+                    }
                   } else {
                     const previousMasterIndex = runningAppList.findIndex((x) => ipsMatch(x.ip, mastersRunningGSyncthingApps.get(identifier)));
                     let timetoStartApp = Date.now();
@@ -5384,37 +5254,44 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                       timetoStartApp += staggerMs(index);
                     }
                     if (timetoStartApp <= Date.now()) {
-                      // Time to start, but check if lower-index nodes are running
+                      // Time to start, once no peer is running it
                       // eslint-disable-next-line no-await-in-loop
-                      const lowerNodeState = await checkLowerIndexNodesRunning();
-                      if (lowerNodeState === PeerComponent.NOT_RUNNING) {
-                        requestMasterStartWithPermissionsFix(identifier, appId);
-                        log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
+                      const peerState = await checkPeersRunning();
+                      if (peerState === PeerComponent.NOT_RUNNING) {
+                        // eslint-disable-next-line no-await-in-loop
+                        if (await start()) {
+                          fluxEventBus.count('masterSlave:decision', identifier, 'staggeredStart');
+                          log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
+                        }
                       } else {
-                        log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a lower-index node ${lowerNodeState === PeerComponent.RUNNING ? 'is already running it' : 'could not be ruled out'}`);
+                        log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a peer ${peerState === PeerComponent.RUNNING ? 'is already running it' : 'could not be ruled out'}`);
                       }
                     } else {
+                      fluxEventBus.count('masterSlave:decision', identifier, 'staggerBooked');
                       log.info(`masterSlaveApps: will start docker app:${installedApp.name} at ${timetoStartApp.toString()}`);
                       timeTostartNewMasterApp.set(identifier, timetoStartApp);
                     }
                   }
                 } else if (timeTostartNewMasterApp.has(identifier) && timeTostartNewMasterApp.get(identifier) <= Date.now()) {
-                  // Scheduled start time has arrived, check if lower-index nodes are running
+                  // Scheduled start time has arrived, once no peer is running it
                   // eslint-disable-next-line no-await-in-loop
-                  const lowerNodeState = await checkLowerIndexNodesRunning();
-                  if (lowerNodeState === PeerComponent.NOT_RUNNING) {
-                    requestMasterStartWithPermissionsFix(identifier, appId);
-                    log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
+                  const peerState = await checkPeersRunning();
+                  if (peerState === PeerComponent.NOT_RUNNING) {
+                    // eslint-disable-next-line no-await-in-loop
+                    if (await start()) {
+                      fluxEventBus.count('masterSlave:decision', identifier, 'staggeredStart');
+                      log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
+                    }
                     timeTostartNewMasterApp.delete(identifier);
-                  } else if (lowerNodeState === PeerComponent.RUNNING) {
-                    log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - lower-index node is already running`);
+                  } else if (peerState === PeerComponent.RUNNING) {
+                    log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a peer is already running it`);
                     timeTostartNewMasterApp.delete(identifier);
                   } else {
                     // The schedule is KEPT. Its due time has passed, so the next pass
                     // re-probes and starts the moment the peer can be ruled out -
                     // whereas dropping it sends this node back through a fresh
                     // index * 3min wait for a peer it may be able to read in seconds.
-                    log.info(`masterSlaveApps: holding the scheduled start of app:${installedApp.name} index: ${index} - a lower-index node could not be ruled out`);
+                    log.info(`masterSlaveApps: holding the scheduled start of app:${installedApp.name} index: ${index} - a peer could not be ruled out`);
                   }
                 } else if (index > 0 && !mastersRunningGSyncthingApps.has(identifier)
                   && globalStateParam.receiveOnlySyncthingAppsCache.get(appId)?.designatedLeader) {
@@ -5423,14 +5300,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // instance is receiveonly with nothing to sync from, so serving
                   // the index stagger would wait on nodes that provably cannot
                   // become ready.
-                  //
-                  // Every peer is probed, not just the lower-index ones. A
-                  // lower-only check belongs to the staggered starts, where index
-                  // order is what serialises the candidates; this branch exists
-                  // precisely to leave that order, so it starts as blind as an
-                  // index-0 start does and needs the same 'all' scope.
                   // eslint-disable-next-line no-await-in-loop
-                  const peerState = await checkPeersRunning('all');
+                  const peerState = await checkPeersRunning();
                   if (peerState === PeerComponent.UNKNOWN) {
                     // The claim is NOT spent. It is what this decision is made from,
                     // and no decision was reached - a peer this node could not read
@@ -5442,8 +5313,10 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     if (peerState === PeerComponent.RUNNING) {
                       log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a peer is already running it`);
                     } else {
-                      requestMasterStartWithPermissionsFix(identifier, appId);
-                      log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} - designated leader seeds without the index stagger`);
+                      // eslint-disable-next-line no-await-in-loop
+                      if (await start()) {
+                        log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} - designated leader seeds without the index stagger`);
+                      }
                     }
                     // Any stagger already scheduled for this node is moot: the seed has
                     // just been handled here, and leaving the entry lets the scheduled
@@ -5461,10 +5334,21 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     if (seedCache) seedCache.designatedLeader = false;
                   }
                 } else if (index > 0 && !mastersRunningGSyncthingApps.has(identifier) && !timeTostartNewMasterApp.has(identifier)) {
-                  // Non-primary node with no history - schedule start based on index
-                  const timetoStartApp = Date.now() + staggerMs(index);
-                  log.info(`masterSlaveApps: scheduling app:${installedApp.name} index: ${index} to start at ${timetoStartApp.toString()}`);
-                  timeTostartNewMasterApp.set(identifier, timetoStartApp);
+                  // Non-primary node with no history - schedule start based on
+                  // index, counted from the pass that finds no holder running it.
+                  // A turn booked while a holder runs comes due at a time set by
+                  // when this node last looked rather than by the holder stopping,
+                  // and a node further down the order can then come due first.
+                  // eslint-disable-next-line no-await-in-loop
+                  const peerState = await checkPeersRunning();
+                  if (peerState === PeerComponent.NOT_RUNNING) {
+                    const timetoStartApp = Date.now() + staggerMs(index);
+                    fluxEventBus.count('masterSlave:decision', identifier, 'staggerBooked');
+                    log.info(`masterSlaveApps: scheduling app:${installedApp.name} index: ${index} to start at ${timetoStartApp.toString()}`);
+                    timeTostartNewMasterApp.set(identifier, timetoStartApp);
+                  } else {
+                    log.info(`masterSlaveApps: not scheduling app:${installedApp.name} index: ${index} - a peer ${peerState === PeerComponent.RUNNING ? 'is running it' : 'could not be ruled out'}`);
+                  }
                 } else {
                   // All other cases: don't start
                   log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - conditions not met for primary selection`);
@@ -5480,11 +5364,53 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 log.info(`masterSlaveApps: app:${installedApp.name} removed from timeTostartNewMasterApp cache, already started on another standby node`);
                 timeTostartNewMasterApp.delete(identifier);
               }
-              if (!ipsMatch(localSocketAddr, ip) && runningAppsNames.includes(identifier)) {
-                // Stop only the g: component on this standby node. Non-g siblings (e.g. a DB
-                // cluster component that needs all instances running) must keep running.
-                appReconciler.setControllerDesired(identifier, 'stopped', 'masterSlave standby');
-                log.info(`masterSlaveApps: requesting stop of component:${identifier} - primary runs on ip:${ip}, localSocketAddr is: ${localSocketAddr}`);
+              // Every other holder, and the node FDM names as well: what a node that
+              // has not decided its role asks before it does.
+              const probeCtx = {
+                appId, identifier, appName: installedApp.name, liveness, logPrefix: 'masterSlaveApps',
+              };
+              const othersHold = () => componentStateOnOtherHolders(
+                (name) => registryManagerModule.appLocation(name),
+                localSocketAddr,
+                probeCtx,
+                { also: [ip] },
+              );
+              const holdsHere = runningAppsNames.includes(identifier)
+                || primaryRole.inTransition(identifier) === primaryRole.Role.PROMOTING
+                || appReconciler.committedIdentifiers().includes(identifier);
+              if (!ipsMatch(localSocketAddr, ip)) {
+                withdrawSeedMark(appId, `FDM names ${ip} its primary`);
+                if (resuming) {
+                  // eslint-disable-next-line no-await-in-loop
+                  await settleOperatorStart(identifier, `FDM names ${ip} its primary`);
+                }
+                // FDM names a node that runs the component, and also one that only
+                // holds it - by a stop lock, a promotion, or a sending folder - while
+                // nothing runs it anywhere. This node stands down for a node that has
+                // decided it holds the component, or that cannot be shown not to have.
+                // One that has not decided gives way to a node that has, and FDM
+                // names this one once it runs.
+                // eslint-disable-next-line no-await-in-loop
+                if (holdsHere && await peerUndecided(`${extractIp(ip)}:${extractPort(ip)}`, { ...probeCtx, label: 'FDM primary' })) {
+                  log.info(`masterSlaveApps: keeping component:${identifier} - FDM names ip:${ip}, which has not decided it holds it`);
+                // Stands down only the g: component on this node. Non-g siblings (e.g. a
+                // DB cluster component that needs all instances running) keep running.
+                } else if (primaryRole.standDown(identifier, appId, { running: runningAppsNames.includes(identifier) })) {
+                  log.info(`masterSlaveApps: standing down as primary of component:${identifier} - FDM names ip:${ip}, localSocketAddr is: ${localSocketAddr}`);
+                } else {
+                  // A standby's folder receives and never sends: what it holds is the
+                  // primary's, and anything written here is a local change for the
+                  // primary's copy to overwrite. A folder that returned paused asks
+                  // every other holder whether it runs the component, as the monitor
+                  // does, and the node FDM names as well.
+                  // eslint-disable-next-line no-await-in-loop
+                  await primaryRole.holdAsStandby(identifier, appId, { othersHold });
+                }
+              } else if (runningAppsNames.includes(identifier)) {
+                // The primary runs here, so its folder sends - whatever demoted it
+                // while the container was down.
+                // eslint-disable-next-line no-await-in-loop
+                await primaryRole.holdAsPrimary(identifier, appId);
               } else if (ipsMatch(localSocketAddr, ip) && !runningAppsNames.includes(identifier)) {
                 // Check if app is ready (syncthing data is synced) before starting
                 let isReady = globalStateParam.receiveOnlySyncthingAppsCache.has(appId) && globalStateParam.receiveOnlySyncthingAppsCache.get(appId).restarted;
@@ -5513,11 +5439,24 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   }
                 }
 
-                if (isReady) {
-                  requestMasterStartWithPermissionsFix(identifier, appId);
-                  log.info(`masterSlaveApps: starting docker component:${identifier}`);
-                } else {
+                // FDM also names a node that only holds the component while
+                // another has taken it over and is not running it yet, so a start
+                // here asks every other holder first and does not start beside one
+                // that holds it. A holder this node cannot rule out does not stop
+                // it: FDM found nothing running it from where FDM stands, and a
+                // holder that was taking it over stands down for a node FDM names
+                // that has decided it holds it.
+                // eslint-disable-next-line no-await-in-loop
+                const others = isReady && !holdsHere ? await othersHold() : PeerComponent.NOT_RUNNING;
+                if (!isReady) {
+                  fluxEventBus.count('masterSlave:decision', identifier, 'notReady');
                   log.info(`masterSlaveApps: app:${installedApp.name} is registered as primary on FDM but not ready yet (syncthing not synced), skipping start for this cycle`);
+                } else if (others === PeerComponent.RUNNING) {
+                  fluxEventBus.count('masterSlave:decision', identifier, 'namedButHeldElsewhere');
+                  log.info(`masterSlaveApps: not starting app:${installedApp.name} that FDM names this node the primary of - a peer holds it`);
+                // eslint-disable-next-line no-await-in-loop
+                } else if (await start()) {
+                  log.info(`masterSlaveApps: starting docker component:${identifier}`);
                 }
               }
             }

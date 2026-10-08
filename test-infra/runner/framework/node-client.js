@@ -186,6 +186,7 @@ export function nodeClient(nodeNum) {
       for (const name of [
         'block:processed',
         'masterSlave:started',
+        'masterSlave:operatorStartSettled',
         'stream:gap',
         'boot:settled',
         'confirmation:changed',
@@ -229,6 +230,11 @@ export function nodeClient(nodeNum) {
         // just as happily.
         'peerSetStability:dos',
         'peerSetStability:released',
+        // Whether this node's calls to other nodes reach them: proven redirected
+        // by two observers answering as other nodes, and clear again once one
+        // answers as itself. dos:changed cannot carry it, for the same reason.
+        'outboundPath:redirected',
+        'outboundPath:clear',
         // The bundle this node holds changed, from whichever rung produced it. What makes
         // it worth a stream rather than a counter is that things DOWNSTREAM of policy are
         // driven by it - the location table is fetched on this, not on a timer - so a suite
@@ -253,6 +259,21 @@ export function nodeClient(nodeNum) {
         'syncthing:holderRetained',
         'syncthing:holderExcluded',
         'syncthing:passComplete',
+        'syncthing:ownersByNumber',
+        'syncthing:namesVisible',
+        'syncthing:localChangesReverted',
+        'syncthing:devicesResumed',
+        'pm2:killTimeoutRaiseFailed',
+        'pm2:killTimeoutUnchanged',
+        'pm2:killTimeoutRaiseUnanswered',
+        'pm2:killTimeoutRaiseFailedLate',
+        'pm2:registrationUnread',
+        'checkpoint:held',
+        'syncthing:folderWritable',
+        'syncthing:folderReady',
+        'primaryRole:changed',
+        'primaryRole:returned',
+        'shutdown:paused',
         'system:packages-checked',
         'system:apt-command',
         'spawner:blocked',
@@ -269,6 +290,8 @@ export function nodeClient(nodeNum) {
         'network:appmessage',
         'network:ipchanged',
         'network:sigterm',
+        'shutdown:started',
+        'shutdown:drained',
         'ephemeralSync:requested',
         'ephemeralSync:peerComplete',
         'ephemeralSync:allComplete',
@@ -276,6 +299,7 @@ export function nodeClient(nodeNum) {
         'ephemeralSync:peerTimedOut',
         'ephemeralSync:peerUnverified',
         'ephemeralSync:peerDisconnected',
+        'ephemeralSync:budgetSpent',
         'sync:chunkVerified',
         'hashSync:complete',
         'hashSync:bulkFetched',
@@ -402,6 +426,29 @@ export function nodeClient(nodeNum) {
     return res.status === 'success' ? res.data : {};
   }
 
+  // Pauses a named code path on this node until released - see checkpoint() in
+  // fluxEventBus.js. A paused path announces itself as checkpoint:held. The node
+  // refuses a name no code path declares, and that refusal throws here.
+  async function checkpointControl(body) {
+    const res = await post('/flux/testcheckpoints', body);
+    if (res.status !== 'success') {
+      throw new Error(`checkpoint ${body.action} ${body.name ?? ''} refused: ${res.data?.message ?? JSON.stringify(res)}`);
+    }
+    return res.data;
+  }
+
+  // State as it is at the moment of asking - see the rule at the top of
+  // ZelBack/src/services/utils/fluxEventBus.js. Throws rather than answering
+  // empty when the node does not serve it: an empty state would satisfy every
+  // "holds nothing" assertion for the wrong reason.
+  async function getTestState(name) {
+    const res = await get(`/flux/teststate/${encodeURIComponent(name)}`);
+    if (res?.status !== 'success') {
+      throw new Error(`test state ${name} unavailable: ${JSON.stringify(res?.data ?? res)}`);
+    }
+    return res.data;
+  }
+
   // Times a loop has been observed taking a given decision about a component.
   // Absent counters read as 0, so a caller can difference two reads without
   // caring whether the loop has run yet.
@@ -431,7 +478,11 @@ export function nodeClient(nodeNum) {
     disconnectEventStream,
     waitForEvent,
     getTestCounters,
+    getTestState,
     getDecisionCount,
+    holdCheckpoint: (name, key) => checkpointControl({ name, key, action: 'hold' }),
+    releaseCheckpoint: (name, key) => checkpointControl({ name, key, action: 'release' }),
+    releaseAllCheckpoints: () => checkpointControl({ action: 'releaseAll' }),
     getLastEventId,
     getEventBuffer: () => [...eventBuffer],
     getVersion: () => get('/flux/version'),
@@ -446,6 +497,8 @@ export function nodeClient(nodeNum) {
     setDOSState: (dosState, dosMessage, zelidauth) =>
       post('/flux/dosstate', { dosState, dosMessage }, { zelidauth }),
     getAppLocations: (name) => get(`/apps/location/${name}`),
+    // The folders this node tells peers it holds writable: { ready, folders }.
+    getPromotedFolders: () => get('/apps/promotedfolders'),
     getPermanentMessages: () => get('/apps/permanentmessages'),
     getTempMessages: (hash) => get(`/apps/temporarymessages/${hash}`),
     getAppSpecs: (name) => get(`/apps/appspecifications/${name}`),

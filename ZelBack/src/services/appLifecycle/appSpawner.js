@@ -73,6 +73,7 @@ const { InstallOutcome } = require('../utils/installOutcome');
 const appUninstaller = require('./appUninstaller');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
 const fluxEventBus = require('../utils/fluxEventBus');
+const outboundPathService = require('../outboundPathService');
 
 let appsCountAvailableToInstallOnMyNode = 0;
 
@@ -81,6 +82,21 @@ const { spawnReconfirmDelayMs } = config.fluxapps;
 const nonEnterpriseSpawnDelayMs = config.fluxapps.nonEnterpriseSpawnDelayMs ?? 2 * 60 * 1000;
 
 let spawnLoopRunning = false;
+
+/**
+ * Whether an application keeps a synced volume.
+ *
+ * Canonical classification: sync flags are only valid on the primary mount, so a
+ * g:/r:/s: in an invalid position (or inside a word like 'logs:') is NOT a synced app.
+ * @param {object} appSpecifications
+ * @returns {boolean}
+ */
+function isSyncedApp(appSpecifications) {
+  if (appSpecifications.version <= 3) {
+    return mountParser.isSyncedComponent(appSpecifications.containerData);
+  }
+  return appSpecifications.compose.some((comp) => mountParser.isSyncedComponent(comp.containerData));
+}
 
 function initialize() {
   appSyncEvents.on(SYNC_EVENTS.SPAWNER_READY, () => {
@@ -587,6 +603,20 @@ async function trySpawningGlobalApplication() {
       return shortDelayTime;
     }
 
+    // A synced app runs on this node asking its partners who holds what. A node
+    // whose calls to other nodes are redirected cannot ask: it reads every
+    // partner as unknown and never promotes, so a new app it was chosen to seed
+    // would wait on it for good. It keeps hosting everything else.
+    if (outboundPathService.isRedirected() && isSyncedApp(appSpecifications)) {
+      log.warn(`trySpawningGlobalApplication - ${appSpecifications.name} keeps a synced volume, and this node's calls to other nodes are redirected. Not taking it.`);
+      fluxEventBus.publish('spawner:deferred', {
+        appName: appSpecifications.name,
+        reason: 'outbound_redirected',
+        delayMs: shortDelayTime,
+      });
+      return shortDelayTime;
+    }
+
     // Needed by the public availability check below.
     const appPorts = appUtilities.getAppPorts(appSpecifications);
 
@@ -712,15 +742,9 @@ async function trySpawningGlobalApplication() {
       return shortDelayTime;
     }
 
-    // canonical classification: sync flags are only valid on the primary mount, so a
-    // g:/r:/s: in an invalid position (or inside a word like 'logs:') is NOT a synced
-    // app and the same-IP-range placement caution below must not apply to it
-    let syncthingApp = false;
-    if (appSpecifications.version <= 3) {
-      syncthingApp = mountParser.isSyncedComponent(appSpecifications.containerData);
-    } else {
-      syncthingApp = appSpecifications.compose.some((comp) => mountParser.isSyncedComponent(comp.containerData));
-    }
+    // A mis-flagged mount is not a synced app, and the same-IP-range placement
+    // caution below must not apply to it.
+    const syncthingApp = isSyncedApp(appSpecifications);
 
     // An owner who names exactly as many nodes as instances has assigned the
     // placement, and the diversity share does not second-guess it. A longer

@@ -3,15 +3,18 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const { makePeerIdentityDouble } = require('./peerIdentityTestDouble');
 
 const axiosMock = { get: sinon.stub(), post: sinon.stub() };
 const fluxCommunicationMock = { peerResponsiveness: sinon.stub() };
 const nodeSignerMock = { nodeSigner: sinon.stub() };
+const peerIdentityMock = makePeerIdentityDouble({ post: axiosMock.post });
 
 const { createPeerFolderLiveness } = proxyquire('../../ZelBack/src/services/appMonitoring/peerFolderLiveness', {
   axios: axiosMock,
   '../fluxCommunication': fluxCommunicationMock,
   '../utils/nodeSigner': nodeSignerMock,
+  '../peerIdentityService': peerIdentityMock,
 });
 
 const holding = (folders) => ({ data: { data: { ready: true, folders } } });
@@ -28,6 +31,7 @@ const refuses = (error) => { axiosMock.get.rejects(error); axiosMock.post.reject
 
 describe('peerFolderLiveness', () => {
   beforeEach(() => {
+    peerIdentityMock.reset();
     axiosMock.get.reset();
     answers(holding([]));
     axiosMock.post.reset();
@@ -36,6 +40,88 @@ describe('peerFolderLiveness', () => {
     nodeSignerMock.nodeSigner.resolves({ pubKey: 'PUB', sign: () => 'SIG' });
     fluxCommunicationMock.peerResponsiveness.reset();
     fluxCommunicationMock.peerResponsiveness.returns({ responding: 8, total: 8 });
+  });
+
+  describe('a peer whose address another node answers', () => {
+    it('is reachable, cannot be asked, and says so - and is not asked what it holds', async () => {
+      peerIdentityMock.misrouted('10.0.0.2:16127', '10.0.0.7:16137');
+      const liveness = createPeerFolderLiveness();
+
+      const answer = await liveness.read('10.0.0.2:16127');
+
+      expect(answer).to.deep.equal({
+        reachable: true, answerable: false, misrouted: true, ready: false, folders: [], holding: {}, seeding: {},
+      });
+      expect(probes(), 'what another node holds is not this peer\'s answer').to.equal(0);
+    });
+
+    it('asks a peer that proves who it is, as before', async () => {
+      peerIdentityMock.verified('10.0.0.2:16127');
+      answers(holding(['app1']));
+      const liveness = createPeerFolderLiveness();
+
+      const answer = await liveness.read('10.0.0.2:16127');
+
+      expect(answer.folders).to.deep.equal(['app1']);
+      expect(answer.misrouted).to.equal(undefined);
+    });
+
+    it('asks for an answer signed as promoted folders, at the peer\'s own address', async () => {
+      peerIdentityMock.verified('10.0.0.2:16127');
+      const liveness = createPeerFolderLiveness();
+
+      await liveness.read('10.0.0.2:16127');
+
+      sinon.assert.calledOnceWithMatch(
+        peerIdentityMock.askSigned,
+        '10.0.0.2:16127',
+        '/apps/promotedfolders',
+        peerIdentityMock.AnswerPurpose.PROMOTED_FOLDERS,
+      );
+    });
+  });
+
+  // A peer that has proven who it is signs every answer. A reply from its address
+  // that does not prove it came from it came from somewhere else - whatever this
+  // node proved of that address before.
+  describe('a reply that does not prove it came from the peer', () => {
+    it('knows nothing of what a peer that can prove itself holds, and reads nothing unsigned', async () => {
+      peerIdentityMock.verified('10.0.0.2:16127');
+      peerIdentityMock.repliesUnsigned('10.0.0.2:16127');
+      answers(holding([]));
+      const liveness = createPeerFolderLiveness();
+
+      const answer = await liveness.read('10.0.0.2:16127');
+
+      expect(answer).to.deep.equal({
+        reachable: true, answerable: false, unproven: true, ready: false, folders: [], holding: {}, seeding: {},
+      });
+      sinon.assert.notCalled(axiosMock.get);
+    });
+
+    it('reads an unproven reply of not-ready as not ready, which only blocks', async () => {
+      peerIdentityMock.verified('10.0.0.2:16127');
+      peerIdentityMock.repliesUnsigned('10.0.0.2:16127');
+      axiosMock.post.rejects(Object.assign(new Error('Request failed with status code 503'), { response: { status: 503 } }));
+      const liveness = createPeerFolderLiveness();
+
+      const answer = await liveness.read('10.0.0.2:16127');
+
+      expect(answer).to.deep.equal({
+        reachable: true, answerable: true, ready: false, folders: [], holding: {}, seeding: {},
+      });
+    });
+
+    it('reads the unsigned reply of a peer that cannot prove who it is at all', async () => {
+      answers(holding(['app1']));
+      const liveness = createPeerFolderLiveness();
+
+      const answer = await liveness.read('10.0.0.2:16127');
+
+      expect(answer.answerable).to.equal(true);
+      expect(answer.folders).to.deep.equal(['app1']);
+      sinon.assert.notCalled(axiosMock.get);
+    });
   });
 
   // `holding` is the tenant's - a size and a last-write time per app - so a peer serves
@@ -58,6 +144,21 @@ describe('peerFolderLiveness', () => {
       expect(body.pubKey).to.equal('PUB');
       expect(body.signature).to.equal('SIG');
       expect(body.timestamp, 'a body that names no moment never expires').to.be.at.least(before);
+      expect(body.challenge, 'a body that names no call can be replayed').to.match(/^c+$/);
+    });
+
+    // The peer verifies the signature over the body it receives, less the signature
+    // itself - so the signed text has to be exactly that, challenge included.
+    it('signs exactly the body it sends', async () => {
+      const sign = sinon.stub().returns('SIG');
+      nodeSignerMock.nodeSigner.resolves({ pubKey: 'PUB', sign });
+      const liveness = createPeerFolderLiveness();
+
+      await liveness.read('10.0.0.2:16127');
+
+      const { signature, ...sent } = axiosMock.post.firstCall.args[1];
+      expect(signature).to.equal('SIG');
+      expect(sign.firstCall.args[0]).to.equal(JSON.stringify(sent));
     });
 
     it('asks a peer whose release has no such route over the open endpoint', async () => {
@@ -87,29 +188,33 @@ describe('peerFolderLiveness', () => {
       const answer = await liveness.read('10.0.0.2:16127');
 
       expect(answer).to.deep.equal({
-        reachable: true, answerable: true, ready: false, folders: [], holding: {},
+        reachable: true, answerable: true, ready: false, folders: [], holding: {}, seeding: {},
       });
       sinon.assert.notCalled(axiosMock.get);
     });
 
-    it('asks over the open endpoint when this node cannot sign as itself', async () => {
+    // The answer is signed whether or not the request is: the peer proves who it is
+    // to anyone who asks, and withholds only `holding`.
+    it('asks unsigned, for a signed answer, when this node cannot sign as itself', async () => {
       nodeSignerMock.nodeSigner.resolves(null);
 
       const liveness = createPeerFolderLiveness();
       await liveness.read('10.0.0.2:16127');
 
-      sinon.assert.notCalled(axiosMock.post);
-      sinon.assert.calledOnce(axiosMock.get);
+      sinon.assert.calledOnce(axiosMock.post);
+      expect(Object.keys(axiosMock.post.firstCall.args[1]), 'nothing but the challenge').to.deep.equal(['challenge']);
+      sinon.assert.notCalled(axiosMock.get);
     });
 
-    it('asks over the open endpoint when the signature cannot be produced', async () => {
+    it('asks unsigned, for a signed answer, when the signature cannot be produced', async () => {
       nodeSignerMock.nodeSigner.resolves({ pubKey: 'PUB', sign: () => null });
 
       const liveness = createPeerFolderLiveness();
       await liveness.read('10.0.0.2:16127');
 
-      sinon.assert.notCalled(axiosMock.post);
-      sinon.assert.calledOnce(axiosMock.get);
+      sinon.assert.calledOnce(axiosMock.post);
+      expect(Object.keys(axiosMock.post.firstCall.args[1]), 'nothing but the challenge').to.deep.equal(['challenge']);
+      sinon.assert.notCalled(axiosMock.get);
     });
 
     it('does not retry a peer that never answered at all', async () => {
@@ -229,7 +334,7 @@ describe('peerFolderLiveness', () => {
       const answer = await liveness.read('10.0.0.2:16127');
 
       expect(answer).to.deep.equal({
-        reachable: false, answerable: false, ready: false, folders: [], holding: {},
+        reachable: false, answerable: false, ready: false, folders: [], holding: {}, seeding: {},
       });
     });
 
@@ -245,7 +350,7 @@ describe('peerFolderLiveness', () => {
       const answer = await liveness.read('10.0.0.2:16127');
 
       expect(answer).to.deep.equal({
-        reachable: true, answerable: false, ready: false, folders: [], holding: {},
+        reachable: true, answerable: false, ready: false, folders: [], holding: {}, seeding: {},
       });
     });
 
@@ -289,7 +394,7 @@ describe('peerFolderLiveness', () => {
       const answer = await liveness.read('10.0.0.2:16127');
 
       expect(answer).to.deep.equal({
-        reachable: true, answerable: true, ready: false, folders: [], holding: {},
+        reachable: true, answerable: true, ready: false, folders: [], holding: {}, seeding: {},
       });
     });
 

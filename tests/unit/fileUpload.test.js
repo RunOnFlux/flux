@@ -133,6 +133,7 @@ describe('fileSystemManager upload tests', () => {
     expect(options.input, 'nothing was streamed in').to.not.equal(undefined);
     expect(options.publish.destination.relative).to.equal('photos/notes.txt');
     expect(options.slotHeld, 'the operation took a second slot').to.equal(true);
+    expect(options.inheritOwner, 'an upload would be owned by root, not by the app').to.equal(true);
     expect(release.called, 'the slot was never released').to.equal(true);
   });
 
