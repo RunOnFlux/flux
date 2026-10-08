@@ -100,19 +100,29 @@ function requirePolicyReady(req, res, next) {
 }
 
 /**
- * Answer 503 when `error` says the daemon cannot answer yet: it is still loading
- * (RPC_IN_WARMUP) or nothing is listening. A handler that asks the daemon for a
- * verdict - the node's tier, its health - has none to give in that state, so the
- * caller is told to come back rather than handed the daemon's error as the
- * answer. Any other error is the handler's to report.
- * @param {object} res Response
+ * Whether `error` says the daemon cannot answer yet: it is still loading
+ * (RPC_IN_WARMUP) or nothing is listening. That is a state the node passes
+ * through at every daemon start, not a fault.
  * @param {Error|object} error What the daemon RPC client raised; `code` is the
  *   daemon's RPC error code, or the connection error's
+ * @returns {boolean}
+ */
+function isDaemonUnavailable(error) {
+  const code = error && error.code;
+  return code === RPC_IN_WARMUP || DAEMON_UNREACHABLE_CODES.has(code);
+}
+
+/**
+ * Answer 503 when `error` says the daemon cannot answer yet. A handler that asks
+ * the daemon for a verdict - the node's tier - has none to give in that state,
+ * so the caller is told to come back rather than handed the daemon's error as
+ * the answer. Any other error is the handler's to report.
+ * @param {object} res Response
+ * @param {Error|object} error What the daemon RPC client raised
  * @returns {boolean} whether the response was sent
  */
 function answerDaemonUnavailable(res, error) {
-  const code = error && error.code;
-  if (code !== RPC_IN_WARMUP && !DAEMON_UNREACHABLE_CODES.has(code)) return false;
+  if (!isDaemonUnavailable(error)) return false;
   serviceUnavailable(res, error.message, DAEMON_RETRY_AFTER_SECONDS);
   return true;
 }
@@ -230,5 +240,6 @@ function cache(duration) {
 }
 
 module.exports = {
-  answerDaemonUnavailable, asyncRoute, cache, rejectQueryParameters, requireBootSettled, requirePolicyReady,
+  answerDaemonUnavailable, asyncRoute, cache, isDaemonUnavailable, rejectQueryParameters, requireBootSettled,
+  requirePolicyReady,
 };

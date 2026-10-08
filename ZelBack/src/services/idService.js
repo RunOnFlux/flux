@@ -14,6 +14,7 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const appInspector = require('./appManagement/appInspector');
 const signatureVerifier = require('./signatureVerifier');
 const { Privilege, authOf } = require('./utils/privileges');
+const { isDaemonUnavailable } = require('./utils/routeGuards');
 
 /**
  * What /id/checkprivilege answers.
@@ -46,18 +47,33 @@ async function deleteLoginPhrase(phrase) {
 
 
 /**
- * To check if the hardware specification requirements of the node tier are being met by the node (RAM and CPU threads).
- * @returns {boolean} True or an error is thrown.
+ * What one fitness check found, as /flux/health reports it per check.
+ * OK: checked and passed. UNMEASURED: no reading yet; it refuses nobody.
+ * DEGRADED: failing, but it does not decide this node's fitness. FAIL: failing;
+ * the node is unfit.
+ */
+const CHECK = Object.freeze({
+  OK: 'ok',
+  UNMEASURED: 'unmeasured',
+  DEGRADED: 'degraded',
+  FAIL: 'fail',
+});
+
+/**
+ * Whether the node meets its tier's RAM and CPU thread requirements. The tier
+ * comes from the daemon, so while the daemon cannot answer there is nothing to
+ * measure against and the answer is UNMEASURED.
+ * @returns {Promise<string>} CHECK.OK, CHECK.FAIL or CHECK.UNMEASURED.
  */
 async function confirmNodeTierHardware() {
-  try {
-    const tier = await generalService.nodeTier().catch((error) => {
-      log.error(error);
-    });
+  const unread = (error) => {
+    if (!isDaemonUnavailable(error)) log.error(error);
+  };
+  const tier = await generalService.nodeTier().catch(unread);
+  const collateral = await generalService.nodeCollateral().catch(unread);
+  if (tier === undefined || collateral === undefined) return CHECK.UNMEASURED;
 
-    const collateral = await generalService.nodeCollateral().catch((error) => {
-      log.error(error);
-    });
+  try {
     const nodeRam = os.totalmem() / 1024 / 1024 / 1024;
     const nodeCpuThreads = os.cpus().length;
     log.info(`Node Tier: ${tier}`);
@@ -107,10 +123,10 @@ async function confirmNodeTierHardware() {
         throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below new Cumulus requirements`);
       }
     }
-    return true;
+    return CHECK.OK;
   } catch (error) {
     log.error(error);
-    return false;
+    return CHECK.FAIL;
   }
 }
 
@@ -156,7 +172,9 @@ function unfit(check, error, checks) {
     lastFitnessVerdict = verdict;
     log.warn(`Node is not fit to serve the network: ${check} - ${error.message || error.name}`);
   }
-  return { ok: false, error, checks };
+  return {
+    ok: false, error, failed: check, checks: { ...checks, [check]: CHECK.FAIL },
+  };
 }
 
 /**
@@ -167,7 +185,9 @@ function fit(checks) {
     lastFitnessVerdict = 'ok';
     log.info('Node is fit to serve the network again');
   }
-  return { ok: true, error: null, checks };
+  return {
+    ok: true, error: null, failed: null, checks,
+  };
 }
 
 /**
@@ -175,7 +195,9 @@ function fit(checks) {
  * network. Shared by loginPhrase and the health endpoint so both gate
  * identically. Returns the first failing check; never throws. Logs a change of
  * verdict, not the verdict - see lastFitnessVerdict.
- * @returns {Promise<{ok: boolean, error: (object|null), checks: object}>}
+ * @returns {Promise<{ok: boolean, error: (object|null), failed: (string|null), checks: object}>}
+ *   `checks` maps each check run to a CHECK value; `failed` names the one that
+ *   made the node unfit, which reads CHECK.FAIL.
  */
 async function checkNodeFitness() {
   const checks = {};
@@ -186,7 +208,7 @@ async function checkNodeFitness() {
     const database = db.db(config.database.local.database);
     const collection = config.database.local.collections.activeLoginPhrases;
     await dbHelper.findOneInDatabase(database, collection, { loginPhrase: 'TestLoginPhraseForDBTest' }, {});
-    checks.db = 'ok';
+    checks.db = CHECK.OK;
   } catch (error) {
     return unfit('db', { message: error.message, name: error.name, code: error.code }, checks);
   }
@@ -216,23 +238,23 @@ async function checkNodeFitness() {
     const error = new Error('Syncthing is not running properly');
     return unfit('syncthing', { message: error.message, name: error.name, code: error.code }, checks);
   }
-  checks.syncthing = syncthingBroken ? 'degraded' : syncthingState;
+  checks.syncthing = syncthingBroken ? CHECK.DEGRADED : syncthingState;
 
   // docker: listing images proves the daemon answers
   try {
     await dockerService.dockerListImages();
-    checks.docker = 'ok';
+    checks.docker = CHECK.OK;
   } catch (error) {
     return unfit('docker', { message: error.message, name: error.name, code: error.code }, checks);
   }
 
   // hardware: the node must still meet its tier requirements
-  const hwPassed = await confirmNodeTierHardware();
-  if (hwPassed === false) {
+  const hardware = await confirmNodeTierHardware();
+  if (hardware === CHECK.FAIL) {
     const error = new Error('Node hardware requirements not met');
     return unfit('hardware', { message: error.message, name: error.name, code: error.code }, checks);
   }
-  checks.hardware = 'ok';
+  checks.hardware = hardware;
 
   // DOS state (contains daemon checks). getDOSState answers with
   // createDataMessage, which hardcodes status 'success', so there is no error
@@ -252,14 +274,14 @@ async function checkNodeFitness() {
     }
     return unfit('dos', error, checks);
   }
-  checks.dos = 'ok';
+  checks.dos = CHECK.OK;
 
   // Apps DOS state
   const dosAppsState = appInspector.getAppsDOSState();
   if (dosAppsState.status === 'success' && dosAppsState.data.dosState >= 100) {
     return unfit('appsDos', { message: dosAppsState.data.dosMessage, name: 'DOS', code: dosAppsState.data.dosState }, checks);
   }
-  checks.appsDos = 'ok';
+  checks.appsDos = CHECK.OK;
 
   return fit(checks);
 }
@@ -267,6 +289,11 @@ async function checkNodeFitness() {
 /**
  * Node health endpoint. Reports whether this node is fit to serve the network,
  * using the same checks loginPhrase gates on. GET /flux/health.
+ *
+ * Always HTTP 200. Fit: a success message whose data maps each check to a
+ * CHECK value. Unfit: an error message (code, name, message) whose data also
+ * carries `failed`, the check that refused the node, and `checks`, every check
+ * run up to and including it.
  * @param {object} req Request.
  * @param {object} res Response.
  */
@@ -274,7 +301,10 @@ async function nodeHealth(_, res) {
   try {
     const fitness = await checkNodeFitness();
     if (!fitness.ok) {
-      res.json(messageHelper.createErrorMessage(fitness.error.message, fitness.error.name, fitness.error.code));
+      const errMessage = messageHelper.createErrorMessage(fitness.error.message, fitness.error.name, fitness.error.code);
+      errMessage.data.failed = fitness.failed;
+      errMessage.data.checks = fitness.checks;
+      res.json(errMessage);
       return;
     }
     res.json(messageHelper.createDataMessage(fitness.checks));
@@ -1012,5 +1042,6 @@ module.exports = {
   checkLoggedUser,
 
   // exports for testing purposes
+  CHECK,
   confirmNodeTierHardware,
 };
