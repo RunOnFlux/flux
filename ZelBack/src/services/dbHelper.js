@@ -236,11 +236,12 @@ async function findOneAndUpdateInDatabase(database, collection, query, update, o
  * @param {string} database
  * @param {string} collection
  * @param {object} query
+ * @param {object} [options] countDocuments options, such as an index `hint`
  *
  * @returns count of documents
  */
-async function countInDatabase(database, collection, query) {
-  const result = await database.collection(collection).countDocuments(query);
+async function countInDatabase(database, collection, query, options = {}) {
+  const result = await database.collection(collection).countDocuments(query, options);
   return result;
 }
 

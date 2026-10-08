@@ -6,6 +6,7 @@ const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxEventBus = require('../utils/fluxEventBus');
+const globalState = require('../utils/globalState');
 // Removed appsService to avoid circular dependency - will use dynamic require where needed
 const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession } = require('../utils/enterpriseHelper');
 const { specificationFormatter, updateToLatestAppSpecifications } = require('../utils/appUtilities');
@@ -30,6 +31,57 @@ const {
 const { Privilege, authOf } = require('../utils/privileges');
 
 let reindexRunning = false;
+
+/**
+ * The state of this node's app registry: the app sync state, the height its
+ * explorer has scanned to (null before the first scan), how many apps it holds,
+ * how many app transactions the explorer has recorded, how many of those this
+ * node still has no message for, and how many of the missing ones it has
+ * stopped looking for. A node answers in every sync state, READY or not.
+ * @param {object} _req - Request object (unused)
+ * @param {object} res - Response object
+ * @returns {Promise<object>} {syncState, scannedHeight, apps, transactions, missingMessages, messagesNotFound}
+ */
+async function getRegistryStatus(_req, res) {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+    const appsDatabase = dbopen.db(config.database.appsglobal.database);
+    const daemonDatabase = dbopen.db(config.database.daemon.database);
+    // The totals count the _id index rather than reading every document; the
+    // missing counts are answered by the message index.
+    const wholeCollection = { hint: { _id: 1 } };
+    const [scanned, apps, transactions, missingMessages, messagesNotFound] = await Promise.all([
+      dbHelper.findOneInDatabase(
+        daemonDatabase,
+        scannedHeightCollection,
+        { generalScannedHeight: { $gte: 0 } },
+        { projection: { _id: 0, generalScannedHeight: 1 } },
+      ),
+      dbHelper.countInDatabase(appsDatabase, globalAppsInformation, {}, wholeCollection),
+      dbHelper.countInDatabase(daemonDatabase, appsHashesCollection, {}, wholeCollection),
+      dbHelper.countInDatabase(daemonDatabase, appsHashesCollection, { message: false }),
+      dbHelper.countInDatabase(daemonDatabase, appsHashesCollection, { message: false, messageNotFound: true }),
+    ]);
+    const status = {
+      syncState: globalState.appSyncState,
+      scannedHeight: scanned ? serviceHelper.ensureNumber(scanned.generalScannedHeight) : null,
+      apps,
+      transactions,
+      missingMessages,
+      messagesNotFound,
+    };
+    const statusResponse = messageHelper.createDataMessage(status);
+    return res ? res.json(statusResponse) : statusResponse;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
 
 /**
  * Get all app hashes from the blockchain
@@ -2236,6 +2288,7 @@ async function shuttingDownNodes() {
 module.exports = {
   shuttingDownNodes,
   getAppHashes,
+  getRegistryStatus,
   getPreviousAppSpecifications,
   appLocation,
   appLocationFromEvents,

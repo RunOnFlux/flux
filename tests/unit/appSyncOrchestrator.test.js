@@ -1223,6 +1223,27 @@ describe('AppSyncOrchestrator', () => {
       expect(orchestrator.state).to.equal(mod.STATES.READY);
     });
 
+    it('mirrors every state change into globalState', async () => {
+      const { mod, orchestrator } = makeAtTwoMinutes();
+      await orchestrator.start(defaultBootContext);
+      peersUp();
+      await clock.tickAsync(0);
+
+      await driveBlocks(2555000, 1);
+      expect(globalStateStub.appSyncState).to.equal(mod.STATES.SYNCING);
+
+      peerEmitter.emit('peersBelowThreshold', 3);
+      await clock.tickAsync(0);
+      expect(globalStateStub.appSyncState).to.equal(mod.STATES.DEGRADED);
+
+      peersUp();
+      await clock.tickAsync(0);
+      expect(globalStateStub.appSyncState).to.equal(mod.STATES.RESYNCING);
+
+      await driveBlocks(2555001, FALLBACK_BLOCKS);
+      expect(globalStateStub.appSyncState).to.equal(mod.STATES.READY);
+    });
+
     // THE CASE NO STATE CHANGE MARKS. #onPeersDegraded only acts from READY and
     // SYNCING, so a node that has already recovered once - it is in RESYNCING -
     // and then loses its peers again transitions nowhere. Nothing about the

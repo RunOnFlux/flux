@@ -119,6 +119,44 @@ describe('dbHelper tests', () => {
     });
   });
 
+  describe('countInDatabase tests', () => {
+    let database;
+    let collection;
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      const db = dbHelper.databaseConnection();
+      database = db.db(config.database.appsglobal.database);
+      collection = config.database.appsglobal.collections.appsInformation;
+
+      try {
+        await database.collection(collection).drop();
+      } catch (err) {
+        console.log('Collection not found.');
+      }
+
+      await database.collection(collection).insertMany(testInsert);
+    });
+
+    it('counts the documents a query matches', async () => {
+      expect(await dbHelper.countInDatabase(database, collection, {})).to.equal(4);
+      expect(await dbHelper.countInDatabase(database, collection, { name: 'App1' })).to.equal(2);
+    });
+
+    it('counts from the index it is given', async () => {
+      expect(await dbHelper.countInDatabase(database, collection, {}, { hint: { _id: 1 } })).to.equal(4);
+    });
+
+    it('passes its options to Mongo, which refuses a hint naming no index', async () => {
+      let error;
+      try {
+        await dbHelper.countInDatabase(database, collection, {}, { hint: { noSuchField: 1 } });
+      } catch (e) {
+        error = e;
+      }
+      expect(error, 'a hint naming no index was not passed to Mongo').to.be.an('error');
+    });
+  });
+
   describe('findInDatabase tests', () => {
     let database;
     let collection;
