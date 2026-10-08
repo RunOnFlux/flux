@@ -86,6 +86,7 @@ else process.env.FLUXOS_PATH = fluxPathOutsideArcane;
 const generateResponse = () => {
   const res = { test: 'testing' };
   res.status = sinon.stub().returns(res);
+  res.setHeader = sinon.stub();
   res.json = sinon.fake((param) => `Response: ${param}`);
   res.download = sinon.fake(() => 'File downloaded');
   res.end = sinon.stub();
@@ -2879,6 +2880,51 @@ describe('fluxService tests', () => {
       await fluxService.getNodeTier(undefined, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    // generalService.nodeTier raises the daemon's own error envelope, a plain
+    // object carrying the RPC error code.
+    it('answers 503 with a Retry-After while the daemon is still loading', async () => {
+      generalServiceNodeTierStub.rejects({ code: -28, name: 'Error', message: 'Loading block index...' });
+      const res = generateResponse();
+      const expectedResponse = {
+        status: 'error',
+        data: { code: 503, name: 'ServiceUnavailable', message: 'Loading block index...' },
+      };
+
+      await fluxService.getNodeTier(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.setHeader, 'Retry-After', '5');
+      sinon.assert.calledOnceWithExactly(res.status, 503);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('answers 503 while nothing is listening on the daemon port', async () => {
+      generalServiceNodeTierStub.rejects({ code: 'ECONNREFUSED', name: 'Error', message: 'connect ECONNREFUSED 127.0.0.1:16124' });
+      const res = generateResponse();
+
+      await fluxService.getNodeTier(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.status, 503);
+      sinon.assert.calledOnceWithExactly(res.setHeader, 'Retry-After', '5');
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: { code: 503, name: 'ServiceUnavailable', message: 'connect ECONNREFUSED 127.0.0.1:16124' },
+      });
+    });
+
+    it('reports a daemon error that is an answer as a 200 error envelope', async () => {
+      generalServiceNodeTierStub.rejects({ code: -8, name: 'Error', message: 'Invalid parameter' });
+      const res = generateResponse();
+
+      await fluxService.getNodeTier(undefined, res);
+
+      sinon.assert.notCalled(res.status);
+      sinon.assert.notCalled(res.setHeader);
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: { code: -8, name: 'Error', message: 'Invalid parameter' },
+      });
     });
 
     it('should return cumulus if tier is basic and collateral is 10000', async () => {
