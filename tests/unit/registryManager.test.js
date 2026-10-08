@@ -233,7 +233,7 @@ describe('registryManager tests', () => {
       expect(result).to.deep.equal({
         status: 'success',
         data: {
-          ready: true, apps: 3, transactions: 5, missingMessages: 2,
+          ready: true, apps: 3, transactions: 5, missingMessages: 2, messagesNotFound: 0,
         },
       });
     });
@@ -247,7 +247,7 @@ describe('registryManager tests', () => {
       expect(result).to.deep.equal({
         status: 'success',
         data: {
-          ready: false, apps: 0, transactions: 2, missingMessages: 2,
+          ready: false, apps: 0, transactions: 2, missingMessages: 2, messagesNotFound: 0,
         },
       });
     });
@@ -261,6 +261,20 @@ describe('registryManager tests', () => {
 
       expect(result.data.transactions).to.equal(2);
       expect(result.data.missingMessages).to.equal(0);
+    });
+
+    it('counts a missing message the node stopped looking for in both missing counts', async () => {
+      await daemonDatabase.collection(hashesCollection).insertMany([
+        { ...hashRecord(1, false), messageNotFound: true },
+        { ...hashRecord(2, false), messageNotFound: false },
+        hashRecord(3, false),
+        { ...hashRecord(4, true), messageNotFound: true },
+      ]);
+
+      const result = await registryManager.getRegistryStatus(undefined, undefined);
+
+      expect(result.data.missingMessages).to.equal(3);
+      expect(result.data.messagesNotFound).to.equal(1);
     });
 
     it('counts both totals from the _id index rather than reading every document', async () => {

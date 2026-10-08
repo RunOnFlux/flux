@@ -34,12 +34,13 @@ let reindexRunning = false;
 
 /**
  * The state of this node's app registry as counts: whether it is built, how many
- * apps it holds, how many app transactions the explorer has recorded, and how
- * many of those this node still has no message for. A node that is not ready
- * answers too, with `ready: false`.
+ * apps it holds, how many app transactions the explorer has recorded, how many
+ * of those this node still has no message for, and how many of the missing ones
+ * it has stopped looking for. A node that is not ready answers too, with
+ * `ready: false`.
  * @param {object} _req - Request object (unused)
  * @param {object} res - Response object
- * @returns {Promise<object>} {ready, apps, transactions, missingMessages}
+ * @returns {Promise<object>} {ready, apps, transactions, missingMessages, messagesNotFound}
  */
 async function getRegistryStatus(_req, res) {
   try {
@@ -47,18 +48,20 @@ async function getRegistryStatus(_req, res) {
     const appsDatabase = dbopen.db(config.database.appsglobal.database);
     const daemonDatabase = dbopen.db(config.database.daemon.database);
     // The totals count the _id index rather than reading every document; the
-    // missing count is answered by the message index.
+    // missing counts are answered by the message index.
     const wholeCollection = { hint: { _id: 1 } };
-    const [apps, transactions, missingMessages] = await Promise.all([
+    const [apps, transactions, missingMessages, messagesNotFound] = await Promise.all([
       dbHelper.countInDatabase(appsDatabase, globalAppsInformation, {}, wholeCollection),
       dbHelper.countInDatabase(daemonDatabase, appsHashesCollection, {}, wholeCollection),
       dbHelper.countInDatabase(daemonDatabase, appsHashesCollection, { message: false }),
+      dbHelper.countInDatabase(daemonDatabase, appsHashesCollection, { message: false, messageNotFound: true }),
     ]);
     const status = {
       ready: globalState.dbReady,
       apps,
       transactions,
       missingMessages,
+      messagesNotFound,
     };
     const statusResponse = messageHelper.createDataMessage(status);
     return res ? res.json(statusResponse) : statusResponse;
