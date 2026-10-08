@@ -142,7 +142,7 @@ loses the property, so the factor is pinned by a unit test.
 | `fluxapps.spawnDeferrals.datacenterMs.enterprise` | 1620000 | 250 | 6480.0x |
 | `fluxapps.spawnDeferrals.datacenterMs.standard` | 3420000 | 500 | 6840.0x |
 | `fluxapps.spawnDeferrals.domainShareMs.enterprise` | 1920000 | 600000 | 3.2x |
-| `fluxapps.spawnDeferrals.domainShareMs.standard` | 7320000 | 600000 | 12.2x |
+| `fluxapps.spawnDeferrals.domainShareMs.standard` | 1920000 | 600000 | 3.2x |
 | `fluxapps.spawnDeferrals.staticIpMs.enterprise` | 1620000 | 200 | 8100.0x |
 | `fluxapps.spawnDeferrals.staticIpMs.standard` | 3420000 | 400 | 8550.0x |
 | `fluxapps.spawnDelayMultiplier` | 1 | 0.002 | 500.0x |

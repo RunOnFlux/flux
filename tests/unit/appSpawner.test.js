@@ -37,7 +37,7 @@ describe('appSpawner tests', () => {
         daemonPONFork: 2020000,
         blocksLasting: 22000,
         newMinBlocksAllowance: 100,
-        spawnDeferrals: { domainShareMs: { enterprise: 1920000, standard: 7320000 } },
+        spawnDeferrals: { domainShareMs: { enterprise: 1920000, standard: 1920000 } },
         ...overrides,
       },
     };
@@ -1336,18 +1336,18 @@ describe('appSpawner tests', () => {
         placementShare: { domainCount: 10, maxPerDomain: 1 },
       });
       expect(installStub.called).to.be.false;
-      expect(logged('will check in around 122m if instances are still missing')).to.be.true;
+      expect(logged('will check in around 32m if instances are still missing')).to.be.true;
       const deferred = globalStateStub.appsToBeCheckedLater.find((app) => app.appName === 'testApp');
       expect(deferred, 'the app was not queued for a later look').to.exist;
       expect(deferred.reason).to.equal('domain_share');
       expect(deferred.required).to.equal(3);
-      expect(deferred.timeToCheck - Date.now()).to.be.within(7300000, 7320000);
+      expect(deferred.timeToCheck - Date.now()).to.be.within(1900000, 1920000);
       // The twelve-hour selection cache would otherwise keep the app from this node
       // long after the deferral is up.
       expect(globalStateStub.trySpawningGlobalAppCache.has('abc123')).to.be.false;
     });
 
-    it('steps aside for the shorter enterprise deferral when the spec is enterprise', async () => {
+    it('steps aside for the enterprise deferral when the spec is enterprise', async () => {
       await runAttempt({
         appSpec: { ...syncedSpec, version: 8, enterprise: 'sealed' },
         appLocations: sameDomainLocation,

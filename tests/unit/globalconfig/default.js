@@ -331,7 +331,7 @@ module.exports = {
         mediumMs: { enterprise: 1260000, standard: 5220000 },
         smallMs: { enterprise: 720000, standard: 3420000 },
       },
-      domainShareMs: { enterprise: 1920000, standard: 7320000 },
+      domainShareMs: { enterprise: 1920000, standard: 1920000 },
     },
     spawnDelayMultiplier: 1,
     daemonInfoIntervalMs: 30000,

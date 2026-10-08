@@ -630,11 +630,15 @@ module.exports = {
       },
       // A synced app's node steps aside for a better-placed fault domain this long
       // before it places the copy in its own; another domain is preferred if it takes
-      // the copy within the window. Kept above every deferral above, so a node in
-      // another domain that picked the app up at the same moment is not beaten by
-      // sitting one of them out. Each node picks apps on its own schedule, so the
-      // window says nothing about a node that picks the app up later.
-      domainShareMs: { enterprise: 1920000, standard: 7320000 },
+      // the copy within the window. The enterprise window is kept above every
+      // enterprise deferral above, so a node in another domain that picked the app
+      // up at the same moment is not beaten by sitting one of them out. The standard
+      // window is the same 32m: a standard node elsewhere that is sitting out a
+      // longer deferral above can be beaten by the copy in this domain, which is
+      // accepted to get a short synced app back to its count sooner. Each node
+      // picks apps on its own schedule, so the window says nothing about a node
+      // that picks the app up later.
+      domainShareMs: { enterprise: 1920000, standard: 1920000 },
     },
     spawnDelayMultiplier: 1,
     daemonInfoIntervalMs: 30000,
