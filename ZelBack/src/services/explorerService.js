@@ -1783,12 +1783,16 @@ async function restartBlockProcessing(req, res) {
 }
 
 /**
- * To reindex Flux explorer database. Only accessible by admins and Flux team members.
+ * To reindex Flux explorer database.
+ *
+ * Flux team only. With the apps flag it drops the application registry, messages
+ * and locations and refills them over the whole chain, and until the refill ends
+ * this node serves every app read from stores that are empty or partial.
  * @param {object} req Request.
  * @param {object} res Response.
  */
 async function reindexExplorer(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
   if (authorized === true) {
     // stop block processing
     const i = 0;
@@ -1831,13 +1835,17 @@ async function reindexExplorer(req, res) {
 }
 
 /**
- * To rescan Flux explorer database from a specific block height. Only accessible by admins and Flux team members.
+ * To rescan Flux explorer database from a specific block height.
+ *
+ * Flux team only. With the apps flag it drops the application registry, messages
+ * and locations and refills them over the whole chain, and until the refill ends
+ * this node serves every app read from stores that are empty or partial.
  * @param {object} req Request.
  * @param {object} res Response.
  */
 async function rescanExplorer(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
     if (authorized === true) {
       // since what blockheight
       let { blockheight } = req?.params || {}; // we accept both help/command and help?command=getinfo
