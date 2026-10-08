@@ -2061,13 +2061,17 @@ async function reindexGlobalAppsLocation() {
 }
 
 /**
- * To reindex global apps location via API. Only accessible by admins and Flux team members.
+ * To reindex global apps location via API.
+ *
+ * Flux team only. It drops the location store and the app state events, and
+ * until peers announce again this node serves every location read from an
+ * empty store.
  * @param {object} req Request.
  * @param {object} res Response.
  */
 async function reindexGlobalAppsLocationAPI(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
     if (authorized === true) {
       await reindexGlobalAppsLocation();
       const message = messageHelper.createSuccessMessage('Reindex successfull');
