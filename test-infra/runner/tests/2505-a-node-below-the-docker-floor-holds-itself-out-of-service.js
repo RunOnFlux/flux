@@ -3,12 +3,14 @@
 // restart FluxOS. A node at or above the floor is not held.
 //
 // Harness nodes run one Docker release, at or above the real floor, so the node under
-// test is given a floor above it (minimumDockerAllowedVersion), and the node beside it
-// keeps the real one: the canary that the check passes a Docker that meets the floor.
+// test is given a floor above it (minimumDockerAllowedVersion) and FluxOS restarted
+// on it, and the node beside it keeps the real one: the canary that the check passes a
+// Docker that meets the floor. The fleet boots first, since a node out of service
+// refuses the login the harness boots a fleet through.
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { execInContainer } from '../framework/container.js';
+import { execInContainer, restartFluxos } from '../framework/container.js';
 import { waitFor, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -24,14 +26,20 @@ describe('2505 a node below the Docker floor holds itself out of service', funct
   dumpLogsOnFailure(() => env);
 
   before(async function hook() {
-    env = await createTestEnv({
-      hookCtx: this,
-      nodes: 2,
-      tickerAutostart: false,
-      nodeConfigOverrides: { [BELOW]: { minimumDockerAllowedVersion: RAISED_FLOOR } },
-    });
+    env = await createTestEnv({ hookCtx: this, nodes: 2, tickerAutostart: false });
     await Promise.all(env.clients.map((client) => waitForBootSettled(client, 240000)));
-    dockerVersion = (await execInContainer(env.clients[BELOW].container, 'docker version -f {{.Server.Version}}')).stdout.trim();
+    const node = env.clients[BELOW];
+    dockerVersion = (await execInContainer(node.container, 'docker version -f {{.Server.Version}}')).stdout.trim();
+    // The floor raised in the node's own config, merged over it as the entrypoint merges the harness's.
+    const raised = await execInContainer(node.container, `node -e '
+      const fs = require("fs");
+      const target = "/flux/ZelBack/config/local.js";
+      const config = require(target);
+      config.minimumDockerAllowedVersion = "${RAISED_FLOOR}";
+      fs.writeFileSync(target, "module.exports = " + JSON.stringify(config, null, 2) + ";\\n");
+    '`);
+    expect(raised.exitCode, raised.stderr).to.equal(0);
+    await restartFluxos(node.container);
   });
 
   after(async () => {
