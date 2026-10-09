@@ -13,6 +13,7 @@ const systemService = require('../../ZelBack/src/services/systemService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const ufw = require('../../ZelBack/src/services/utils/ufw');
+const ufwHelper = require('../../ZelBack/src/services/utils/ufwHelper');
 
 const testKeys = ['ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITESTKEYONLYFORTESTS fluxteam-legacy'];
 
@@ -42,6 +43,8 @@ describe('fluxadmService tests', () => {
 
   beforeEach(() => {
     runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ ...cmdOk });
+    // The installed copy of the ufw helper is the one to run (utils/ufwHelper has its own tests).
+    sinon.stub(ufwHelper, 'path').resolves(ufwHelper.UFW_HELPER);
     systemdStub = sinon.stub(fsSync, 'existsSync').callThrough();
     systemdStub.withArgs('/run/systemd/system').returns(true);
   });
