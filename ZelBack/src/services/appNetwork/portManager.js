@@ -1248,6 +1248,7 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
 module.exports = {
   appPortsUnique,
   ensureAppUniquePorts,
+  appsWithPorts,
   assignedPortsInstalledApps,
   assignedPortsGlobalApps,
   ensureApplicationPortsNotUsed,
