@@ -1270,6 +1270,14 @@ function startResolver(port, route) {
   const server = dgram.createSocket('udp4');
 
   server.on('message', (query, rinfo) => {
+    if (route === BROKEN_ROUTE) {
+      const { type, end } = parseQuestion(query);
+      const typeName = DNS_TYPES[type] ?? String(type);
+      brokenServed[typeName] = (brokenServed[typeName] ?? 0) + 1;
+      if (typeName === 'AAAA') server.send(dnsResponse(query, end, 2), rinfo.port, rinfo.address);
+      return;
+    }
+
     const recorded = recordedAnswer(query, route);
     if (recorded) {
       if (recorded.response === NO_REPLY) return;
@@ -1347,8 +1355,20 @@ function startResolver(port, route) {
 
 const PUBLIC_ROUTE_PORT = 5354;
 
+// A resolver whose upstream is gone the way unbound's goes: it leaves every A query unanswered
+// and answers every AAAA query SERVFAIL, whatever the name. The aaaa-servfail-dns network shape
+// sends a node's own DNS here. Counted by record type.
+const BROKEN_ROUTE = 'broken';
+const BROKEN_ROUTE_PORT = 5355;
+const brokenServed = {};
+
+control.get('/dns-broken-served', (req, res) => {
+  res.json(brokenServed);
+});
+
 startResolver(53, 'own');
 startResolver(PUBLIC_ROUTE_PORT, 'public');
+startResolver(BROKEN_ROUTE_PORT, BROKEN_ROUTE);
 
 app.listen(PORT, () => {
   console.log(`External HTTP stub listening on port ${PORT}`);

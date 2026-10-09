@@ -42,6 +42,11 @@
 #                       as in silent-dns, and the public resolvers FluxOS asks next
 #                       are sent to 192.0.2.2, which nothing holds either. A
 #                       target-less rule counts the queries sent to each.
+#   aaaa-servfail-dns   the node's own DNS server leaves every A query unanswered and
+#                       answers every AAAA query SERVFAIL, as a resolver whose upstream is
+#                       gone does: resolv.conf names 192.0.2.3, sent to the fleet resolver's
+#                       broken route (port 5355), which counts each query by type. The
+#                       public resolvers FluxOS asks next are the fleet's resolver.
 #   direct-nameserver   the node's resolv.conf names the fleet's resolver itself,
 #                       as a host that lists a public resolver does, rather than
 #                       Docker's embedded server in front of it.
@@ -133,6 +138,19 @@ case "$shape" in
       done
     done
     iptables -A OUTPUT -d 192.0.2.2 -p udp --dport 53
+    ;;
+  aaaa-servfail-dns)
+    : "${FLUX_E2E_RESOLVER:?}"
+    echo 'nameserver 192.0.2.3' > /etc/resolv.conf
+    for proto in udp tcp; do
+      iptables -t nat -A OUTPUT -d 192.0.2.3 -p "$proto" --dport 53 -j DNAT --to-destination "$FLUX_E2E_RESOLVER:5355"
+    done
+    # dnsLookup.js's PUBLIC_DNS_SERVERS.
+    for resolver in 1.1.1.1 8.8.8.8 9.9.9.9; do
+      for proto in udp tcp; do
+        iptables -t nat -A OUTPUT -d "$resolver" -p "$proto" --dport 53 -j DNAT --to-destination "$FLUX_E2E_RESOLVER:53"
+      done
+    done
     ;;
   direct-nameserver)
     : "${FLUX_E2E_RESOLVER:?}"

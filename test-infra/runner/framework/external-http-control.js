@@ -79,6 +79,16 @@ export async function dnsRecordsServed() {
 }
 
 /**
+ * Queries the broken resolver route (the aaaa-servfail-dns network shape's own DNS server) has
+ * received, by record type: `{ A: n, AAAA: n }`.
+ * @returns {Promise<Object<string, number>>}
+ */
+export async function dnsBrokenServed() {
+  const res = await fetch(`${CONTROL}/dns-broken-served`);
+  return res.json();
+}
+
+/**
  * Publish the typed blocklist every node fetches, each entry naming the kind of
  * thing it refuses: `{ kind, value, reason, added }` with kind one of hash, name,
  * owner, image or org.
