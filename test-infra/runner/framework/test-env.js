@@ -1681,6 +1681,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       client.container = container;
       await client.connectEventStream();
       clients[index] = client;
+      env.syncedDataKeeper?.watch(client);
       deferredBuilders.delete(index);
       return client;
     },
