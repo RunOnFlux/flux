@@ -1022,7 +1022,7 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('checkDockerVersionAllowed tests', () => {
-    // minimumDockerAllowedVersion = '28.0.0'
+    // minimumDockerAllowedVersion = '28.1.1'
     const { DOCKER_FLOOR, RESIDENTIAL_DOS } = fluxNetworkHelper.StickyDosOwner;
 
     function helperWithFloor(floor) {
@@ -1044,21 +1044,21 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('allows the floor itself', () => {
-      expect(fluxNetworkHelper.checkDockerVersionAllowed('28.0.0')).to.equal(true);
+      expect(fluxNetworkHelper.checkDockerVersionAllowed('28.1.1')).to.equal(true);
       expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
     });
 
     it('takes a node below the floor out of service, and says which version it found and what to do', () => {
       expect(fluxNetworkHelper.checkDockerVersionAllowed('27.5.1')).to.equal(false);
       const reported = fluxNetworkHelper.getDOSState().data;
-      expect(reported.dosMessage).to.include('28.0.0');
+      expect(reported.dosMessage).to.include('28.1.1');
       expect(reported.dosMessage).to.include('27.5.1');
       expect(reported.dosMessage).to.include('restart FluxOS');
       expect(reported.dosState).to.equal(100);
     });
 
     it('refuses every release below the floor the fleet still runs', () => {
-      ['26.1.3', '26.1.4', '27.3.1', '27.99.99'].forEach((version) => {
+      ['26.1.3', '26.1.4', '27.3.1', '27.5.1', '28.0.0', '28.0.4', '28.1.0'].forEach((version) => {
         fluxNetworkHelper.clearStickyDos(DOCKER_FLOOR);
         expect(fluxNetworkHelper.checkDockerVersionAllowed(version), version).to.equal(false);
       });
@@ -1089,7 +1089,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('refuses on the loaded floor, so the instance is reading the one it was given', () => {
-      const helper = helperWithFloor('28.0.0');
+      const helper = helperWithFloor('28.1.1');
 
       expect(helper.checkDockerVersionAllowed('26.1.3')).to.equal(false);
       expect(helper.getDOSState().data.dosState).to.equal(100);

@@ -102,7 +102,7 @@ module.exports = {
   minimumFluxOSAllowedVersion: '8.0.0',
   minimumNodeJsAllowedVersion: '20.8.0',
   minimumSyncthingAllowedVersion: '1.27.6',
-  minimumDockerAllowedVersion: '28.0.0',
+  minimumDockerAllowedVersion: '28.1.1',
   fluxTeamFluxID: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
   fluxSupportTeamFluxID: ['16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP'],
   deterministicNodesStart: 558000,
