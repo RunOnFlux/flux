@@ -1,26 +1,23 @@
-import { getDiskClaims } from './syncthing-control.js';
+import { getDiskClaims, onSyncDeclaration } from './syncthing-control.js';
 import { execInContainer } from './container.js';
 
 // A real syncthing leaves a folder's data on every node that syncs it, and FluxOS
 // reads that disk: the stale-index check refuses a folder whose index claims bytes
 // the disk does not hold. The syncthing stub moves no data, so this puts the bytes
 // there: a mounted volume that holds none of the owner's data while the stub reports
-// bytes in sync gets them, in one file. It is written again after FluxOS clears the
-// volume - as a sync would refill it - and removed once the stub reports nothing in
-// sync, or a declaration says the disk does not hold it (setSyncState's onDisk:
-// false). A volume a suite has put data on itself is left as it is, and so is a
-// folder its node has paused: a paused folder moves no data.
+// bytes in sync gets them, in one file, and loses it once the stub reports nothing
+// in sync or a declaration says the disk does not hold it (setSyncState's onDisk:
+// false). A volume a suite has put data on itself is left as it is.
 //
-// A pass acts on what one read of the stub said, so a folder paused after that read
-// must not be written. Each write and removal is made only while the node's clock is
-// within READ_VALID_MS of the read. FluxOS clears a folder's appdata at least 5 s
-// after pausing it - appendRestoreTask pauses, stops the app, waits 5 s and only then
-// clears - so a write made within READ_VALID_MS of a read that found the folder
-// running lands before that clear, and never between the clear and the unpack.
+// A volume is written only at the moments a sync would write it: when a declaration
+// changes, when FluxOS builds the volume (app:installed, a hard component redeploy),
+// and when FluxOS empties it for a sync to refill (reconciler:actuated dataCleared).
+// A restore empties a volume for the owner's archive, not for a sync, so nothing
+// here writes into it. A node whose event stream opens or reports a gap may have
+// missed one of those moments, and is brought to every declaration at once.
 
 const SYNCED_FILE = 'appdata/.harness-synced';
-const INTERVAL_MS = 1000;
-const READ_VALID_MS = 1000;
+const APPS_DIR = '/mnt/appdata/flux-apps';
 const SAFE_NAME = /^[A-Za-z0-9_.-]+$/;
 
 // The bytes each node should hold per folder: the node's own declaration where it
@@ -32,70 +29,96 @@ function bytesByFolder(claims, ip) {
   return wanted;
 }
 
-// The folders a node's config has paused.
-function pausedFolders(paused, ip) {
-  return new Set(paused.filter((p) => p.ip === ip).map((p) => p.folder));
+// The syncthing folder id of a component identifier, as dockerService.getAppIdentifier
+// derives it.
+function folderOf(identifier) {
+  return /^(flux|zel)/.test(identifier) ? identifier : `flux${identifier}`;
+}
+
+// Whether a folder belongs to an app: its single component's, or one of its composed
+// components' (flux<component>_<app>).
+function belongsTo(folder, app) {
+  return folder === folderOf(app) || folder.endsWith(`_${app}`);
 }
 
 /**
  * @param {Array<[string, number]>} entries folder -> bytes it should hold (0: none)
- * @param {number} deadline epoch ms after which nothing is written or removed
+ * @param {boolean} sweep Also remove the file from every folder not in entries.
  * @returns {string}
  */
-function script(entries, deadline) {
-  const inTime = `[ "$(( $(date +%s%N) / 1000000 ))" -lt ${deadline} ]`;
-  return entries.map(([folder, bytes]) => {
-    const dir = `/mnt/appdata/flux-apps/${folder}`;
+function script(entries, sweep) {
+  const lines = entries.map(([folder, bytes]) => {
+    const dir = `${APPS_DIR}/${folder}`;
     const file = `${dir}/${SYNCED_FILE}`;
     const ownData = `find ${dir}/appdata -type f -size +0 ! -path ${file} -print -quit`;
     const write = bytes > 0
       ? `[ -n "$(${ownData})" ] || [ "$(stat -c %s ${file} 2>/dev/null)" = "${bytes}" ] || head -c ${bytes} /dev/zero > ${file}`
       : `rm -f ${file}`;
-    return `if ${inTime} && grep -qs " ${dir} " /proc/mounts && [ -d ${dir}/appdata ]; then ${write}; fi`;
-  }).join('\n');
+    return `if grep -qs " ${dir} " /proc/mounts && [ -d ${dir}/appdata ]; then ${write}; fi`;
+  });
+  if (sweep) {
+    const keep = entries.map(([folder]) => `${APPS_DIR}/${folder}/${SYNCED_FILE}`).join(' ');
+    lines.push(`for f in ${APPS_DIR}/*/${SYNCED_FILE}; do case " ${keep} " in *" $f "*) ;; *) rm -f "$f" ;; esac; done`);
+  }
+  return lines.join('\n');
 }
 
 /**
  * Keeps every node's volumes holding what the syncthing stub reports they hold in
  * sync, until stopped.
- * @param {object} env The test environment; its clients are read on every pass, so a
- *   node started later is covered from then on.
- * @returns {{stop: () => Promise<void>}}
+ * @param {object} env The test environment; each of its clients is watched from the
+ *   start, and a node started later from watch().
+ * @returns {{watch: (client: object) => void, stop: () => Promise<void>}}
  */
 export function startSyncedDataKeeper(env) {
-  let stopped = false;
-  const kept = new Map(); // node ip -> folders it was given bytes for
-  const pass = async () => {
-    const readAt = Date.now();
-    const read = await getDiskClaims().catch(() => null);
-    if (!Array.isArray(read?.claims) || !Array.isArray(read?.paused)) return;
-    const deadline = readAt + READ_VALID_MS;
-    await Promise.all((env.clients || []).filter((client) => client?.container).map(async (client) => {
-      const wanted = bytesByFolder(read.claims, client.ip);
-      const previouslyKept = kept.get(client.ip) || new Set();
-      // A folder this node was given bytes for and no longer claims loses them.
-      previouslyKept.forEach((folder) => { if (!wanted.has(folder)) wanted.set(folder, 0); });
-      const paused = pausedFolders(read.paused, client.ip);
-      const entries = [...wanted].filter(([folder]) => SAFE_NAME.test(folder) && !paused.has(folder));
-      // A paused folder keeps whatever it was given until it runs again.
-      const stillKept = [...previouslyKept].filter((folder) => paused.has(folder));
-      kept.set(client.ip, new Set([...stillKept, ...entries.filter(([, bytes]) => bytes > 0).map(([folder]) => folder)]));
-      if (!entries.length) return;
-      await execInContainer(client.container, script(entries, deadline)).catch(() => {});
-    }));
+  const queues = new Map(); // node ip -> its applies, run one at a time
+  const watched = new Set();
+  const unsubscribes = [];
+
+  // Brings one node's volumes to the declared bytes: the folders `pick` accepts, or
+  // every declared folder - and no file in any other - when pick is null.
+  const apply = (client, pick) => {
+    const run = async () => {
+      const claims = await getDiskClaims().catch(() => null);
+      if (!Array.isArray(claims)) return;
+      const entries = [...bytesByFolder(claims, client.ip)]
+        .filter(([folder]) => SAFE_NAME.test(folder) && (!pick || pick(folder)));
+      if (pick && !entries.length) return;
+      await execInContainer(client.container, script(entries, !pick)).catch(() => {});
+    };
+    const next = (queues.get(client.ip) || Promise.resolve()).then(run);
+    queues.set(client.ip, next);
+    return next;
   };
-  const loop = (async () => {
-    while (!stopped) {
-      // eslint-disable-next-line no-await-in-loop
-      await pass();
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise((resolve) => { setTimeout(resolve, INTERVAL_MS); });
-    }
-  })();
+
+  const watch = (client) => {
+    if (!client?.container || watched.has(client)) return;
+    watched.add(client);
+    const everything = () => { apply(client, null); };
+    unsubscribes.push(
+      client.subscribe('stream:open', everything),
+      client.subscribe('stream:gap', everything),
+      client.subscribe('app:installed', ({ data }) => { apply(client, (folder) => belongsTo(folder, data.name)); }),
+      client.subscribe('app:componentRedeployed', ({ data }) => {
+        if (data.hard) apply(client, (folder) => folder === folderOf(data.identifier));
+      }),
+      client.subscribe('reconciler:actuated', ({ data }) => {
+        if (data.action === 'dataCleared') apply(client, (folder) => folder === folderOf(data.identifier));
+      }),
+    );
+    everything();
+  };
+
+  (env.clients || []).forEach(watch);
+  unsubscribes.push(onSyncDeclaration((change) => Promise.all([...watched]
+    .filter((client) => change.all || change.ip === '*' || change.ip === client.ip)
+    .map((client) => apply(client, change.all ? null : (folder) => folder === change.folder)))));
+
   return {
+    watch,
     async stop() {
-      stopped = true;
-      await loop;
+      unsubscribes.forEach((unsubscribe) => unsubscribe());
+      await Promise.all(queues.values());
     },
   };
 }

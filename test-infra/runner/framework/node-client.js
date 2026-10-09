@@ -151,6 +151,10 @@ export function nodeClient(nodeNum) {
   const eventBuffer = [];
   const emitter = new EventEmitter();
   emitter.on('error', () => {});
+  // Listeners that outlive a disconnect: every event this client receives from any
+  // stream it opens, and 'stream:open' each time a stream (re)connects - the moment
+  // a subscriber learns that events may have been missed.
+  const subscribers = new EventEmitter();
 
   function connectEventStream(timeout = 60000) {
     return new Promise((resolve, reject) => {
@@ -163,6 +167,7 @@ export function nodeClient(nodeNum) {
       eventSource.onopen = () => {
         clearTimeout(timer);
         resolve();
+        subscribers.emit('stream:open');
       };
 
       eventSource.onerror = (err) => {
@@ -333,6 +338,7 @@ export function nodeClient(nodeNum) {
           };
           eventBuffer.push(entry);
           emitter.emit(e.type, entry);
+          subscribers.emit(e.type, entry);
         });
       }
     });
@@ -477,6 +483,15 @@ export function nodeClient(nodeNum) {
     connectEventStream,
     disconnectEventStream,
     waitForEvent,
+    /**
+     * @param {string} name An event this client subscribes to, or 'stream:open'.
+     * @param {(entry?: {event: string, data: object, id: number}) => void} listener
+     * @returns {() => void} Removes the listener.
+     */
+    subscribe(name, listener) {
+      subscribers.on(name, listener);
+      return () => subscribers.removeListener(name, listener);
+    },
     getTestCounters,
     getTestState,
     getDecisionCount,

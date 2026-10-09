@@ -24,6 +24,24 @@ async function get(path) {
   return res.json();
 }
 
+const declarationListeners = new Set();
+
+/**
+ * Calls `listener` after each change to a folder's declared sync state, and the
+ * declaring call returns only once it has settled.
+ * @param {(change: {ip: string, folder: string} | {all: true}) => Promise<void>} listener
+ *   ip '*' is every node; {all: true} is a reset of every declaration.
+ * @returns {() => void} Removes the listener.
+ */
+export function onSyncDeclaration(listener) {
+  declarationListeners.add(listener);
+  return () => declarationListeners.delete(listener);
+}
+
+async function declared(change) {
+  await Promise.all([...declarationListeners].map((listener) => listener(change)));
+}
+
 export async function getSyncthingState() {
   return get('/state');
 }
@@ -141,9 +159,11 @@ export async function setSyncState({
       + 'and this suite belongs on syncthing: \'binary\' instead.',
     );
   }
-  return post('/sync-state', {
+  const result = await post('/sync-state', {
     ip, folder, state, globalBytes, globalFiles, inSyncBytes, receiveOnlyChangedFiles, localChanged, onDisk,
   });
+  await declared({ ip, folder });
+  return result;
 }
 
 // The bytes each node's volume should hold per folder, as the stub's declared sync
@@ -311,17 +331,23 @@ export async function getDeviceConfigRefusals(ip) {
 // The folder status endpoint errors for this folder - the node can verify
 // NOTHING (post-redesign contract: never remove without evidence; wait).
 export async function setStatusUnreadable({ ip = '*', folder }) {
-  return post('/sync-state', {
+  const result = await post('/sync-state', {
     ip, folder, statusUnreadable: true,
   });
+  await declared({ ip, folder });
+  return result;
 }
 
 export async function clearStatusUnreadable({ ip = '*', folder }) {
-  return post('/sync-state', { ip, folder }); // plain override, readable again
+  const result = await post('/sync-state', { ip, folder }); // plain override, readable again
+  await declared({ ip, folder });
+  return result;
 }
 
 export async function resetSyncState() {
-  return post('/sync-reset');
+  const result = await post('/sync-reset');
+  await declared({ all: true });
+  return result;
 }
 
 // Make a node's folder PATCHes take `ms` to apply, as a syncthing slow to apply
