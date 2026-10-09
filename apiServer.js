@@ -23,6 +23,7 @@ const axios = require('axios').default;
 const config = require('config');
 
 const serviceManager = require('./ZelBack/src/services/serviceManager');
+const systemdNotify = require('./ZelBack/src/services/utils/systemdNotify');
 const fluxServer = require('./ZelBack/src/lib/fluxServer');
 const log = require('./ZelBack/src/lib/log');
 
@@ -297,6 +298,9 @@ async function initiate() {
 
   log.info(`Flux listening on port ${apiPort}!`);
   log.info(`Flux https listening on port ${apiPortHttps}!`);
+  // Ready means the API answers. Mongo, Docker and fluxd come up behind this,
+  // each with its own unit.
+  await systemdNotify.notifyReady();
 
   setAxiosDefaults([httpServer.socketIo, httpsServer.socketIo]);
 
