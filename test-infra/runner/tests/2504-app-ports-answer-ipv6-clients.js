@@ -14,11 +14,11 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { execInContainer } from '../framework/container.js';
+import { execInContainer, restartFluxos } from '../framework/container.js';
 import { pushBusybox } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
-import { waitForAppRemoved } from '../framework/wait.js';
+import { waitForAppRemoved, waitForBootSettled } from '../framework/wait.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { authenticate } from '../auth.js';
@@ -137,13 +137,35 @@ describe('2504 app ports answer IPv6 clients on a firewalled node', function sui
     expect(ipv4.said, ipv4.why).to.equal('ok');
   });
 
-  it('closes the port to IPv6 clients when the app is removed', async function removal() {
+  // A ufw reset deletes every rule; the owner then turns ufw back on. FluxOS's next
+  // start opens the installed app's port to IPv6 again, before the app starts.
+  it('opens the port to IPv6 clients again at the next start after a ufw reset', async function reset() {
+    this.timeout(300000);
+    const wiped = await inNode('ufw --force reset >/dev/null && ufw default deny incoming >/dev/null && ufw --force enable >/dev/null && ufw status');
+    expect(wiped.exitCode, wiped.stderr).to.equal(0);
+    expect((await portRules(appPort)).ipv6, 'the reset deleted the rule').to.deep.equal([]);
+
+    const afterId = node.getLastEventId();
+    await restartFluxos(node.container);
+    await waitForBootSettled(node, 240000, { afterId });
+
+    expect((await portRules(appPort)).ipv6, 'an IPv6 rule for the port').to.have.length(1);
+    const ipv6 = await answerFrom(NODE_V6, appPort);
+    expect(ipv6.said, ipv6.why).to.equal('ok');
+  });
+
+  it('closes the port to IPv6 clients when the app is removed, and leaves the owner\'s own rules', async function removal() {
     this.timeout(180000);
+    const owned = await inNode(`ufw allow 22 >/dev/null && ufw allow ${appPort}/tcp >/dev/null`);
+    expect(owned.exitCode, owned.stderr).to.equal(0);
     const auth = await authenticate(node.url, fluxTeamKey());
     const res = await fetch(`${node.url}/apps/appremove/${appName}`, { headers: { zelidauth: auth.zelidauth } });
     await res.text();
     await waitForAppRemoved(node, appName, 120000);
 
     expect(await portRules(appPort)).to.deep.equal({ ipv4: [], ipv6: [] });
+    const status = (await inNode('ufw status; true')).stdout.split('\n').map((line) => line.trim());
+    expect(status.filter((line) => /^22\s+ALLOW/.test(line)), 'the owner\'s rule for 22').to.have.length(1);
+    expect(status.filter((line) => new RegExp(`^${appPort}/tcp\\s+ALLOW`).test(line)), `the owner's rule for ${appPort}/tcp`).to.have.length(1);
   });
 });
