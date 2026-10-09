@@ -417,7 +417,6 @@ async function verifyLogin(req, res) {
             const newLogin = {
               zelid: address,
               loginPhrase: message,
-              signature,
               createdAt,
               expireAt,
             };
@@ -435,6 +434,15 @@ async function verifyLogin(req, res) {
             } else if (address === adminZelid) {
               privilage = PRIVILEGE_RESPONSE.NODE_OPERATOR;
             }
+            // The signature is the session's credential. The login websocket hands it
+            // to whoever holds the login phrase, so it is kept apart from the login,
+            // in a collection whose TTL index expires it a minute after the login. It
+            // is written first, so the websocket finds it as soon as it finds the login.
+            await dbHelper.insertOneToDatabase(database, config.database.local.collections.loginSignatures, {
+              loginPhrase: message,
+              signature,
+              createdAt: new Date(),
+            });
             const loggedUsersCollection = config.database.local.collections.loggedUsers;
             const value = newLogin;
             await dbHelper.insertOneToDatabase(database, loggedUsersCollection, value);
@@ -450,17 +458,6 @@ async function verifyLogin(req, res) {
             const resMessage = messageHelper.createDataMessage(resData);
             res.json(resMessage);
             deleteLoginPhrase(message);
-            setTimeout(async () => {
-              // after 1 minute remove signature from database
-              const updatedDocument = {
-                signature: '',
-              };
-              const update = { $unset: updatedDocument };
-              const options = {
-                upsert: false,
-              };
-              await dbHelper.updateOneInDatabase(database, loggedUsersCollection, query, update, options);
-            }, 60000);
           } else {
             throw new Error('Invalid signature');
           }
@@ -802,6 +799,7 @@ async function wsRespondLoginPhrase(ws, loginphrase) {
       });
       if (result) {
         // user is logged, all ok
+        const loginSignature = await dbHelper.findOneInDatabase(database, config.database.local.collections.loginSignatures, query, projection);
         const adminZelid = verificationHelperUtils.nodeOperatorZelid();
         if (!adminZelid) {
           throw new Error('Node is still starting and cannot establish privileges yet');
@@ -816,7 +814,7 @@ async function wsRespondLoginPhrase(ws, loginphrase) {
           message: 'Successfully logged in',
           zelid: result.zelid,
           loginPhrase: result.loginPhrase,
-          signature: result.signature,
+          signature: loginSignature ? loginSignature.signature : undefined,
           privilage,
           createdAt: result.createdAt,
           expireAt: result.expireAt,

@@ -49,6 +49,9 @@ module.exports = {
         loggedUsers: 'loggedusers',
         activeLoginPhrases: 'activeloginphrases',
         activeSignatures: 'activesignatures',
+        // a login's signature, read by the login websocket for the first minute
+        // after the login; a login row never holds it
+        loginSignatures: 'loginsignatures',
         geolocation: 'geolocation',
         benchmark: 'benchmark',
         appTamperingEvents: 'apptamperingevents',

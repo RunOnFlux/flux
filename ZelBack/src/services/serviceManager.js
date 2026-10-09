@@ -324,7 +324,12 @@ async function startFluxFunctions() {
     const database = db.db(config.database.local.database);
     // Logins survive a restart: every request re-verifies its signature and
     // re-checks its privilege against the node's current config, and each
-    // session collection's TTL index expires its rows.
+    // session collection's TTL index expires its rows. A login row never holds
+    // the session's signature (loginSignatures does, for a minute); one that
+    // does loses it here.
+    await dbHelper.updateInDatabase(database, config.database.local.collections.loggedUsers, { signature: { $exists: true } }, { $unset: { signature: '' } }).catch((error) => {
+      log.error(error);
+    });
     // Named literally because they are no longer part of the schema: the payment
     // request and receipt collections outlived the endpoint that wrote them, and
     // a node's word was never the payment record - the chain is. Dropping is
@@ -343,6 +348,10 @@ async function startFluxFunctions() {
     ]);
     await ensureIndexes(database.collection(config.database.local.collections.activeSignatures), [
       { key: { createdAt: 1 }, expireAfterSeconds: 900 },
+    ]);
+    await ensureIndexes(database.collection(config.database.local.collections.loginSignatures), [
+      { key: { createdAt: 1 }, expireAfterSeconds: 60 },
+      { key: { loginPhrase: 1 } },
     ]);
     // legacy pre-incident-schema rows expire via detectedAt; current incident
     // documents expire via lastSeen. The tamper service purges pre-schema
