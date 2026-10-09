@@ -265,6 +265,24 @@ async function packageVersionAtLeast(version, minimum) {
 }
 
 /**
+ * Gets a package's dpkg status: want, error flag and state, e.g.
+ * 'install ok installed', 'install ok unpacked', 'deinstall ok config-files'.
+ * This doesn't use the apt lock
+ * @param {string} systemPackage the target package to check
+ * @returns {Promise<string>} The status, or '' when dpkg has no record of the package
+ */
+async function getPackageStatus(systemPackage) {
+  const { stdout, error } = await serviceHelper.runCommand('dpkg-query', {
+    logError: false,
+    // eslint-disable-next-line no-template-curly-in-string
+    params: ['--showformat=${Status}', '--show', systemPackage],
+  });
+
+  if (error || !stdout) return '';
+  return stdout.trim();
+}
+
+/**
  * Updates the apt cache and installs latest version of package
  * @param {string} package The package to update
  * @returns {Promise<Boolean>} If there was an error
@@ -1191,6 +1209,7 @@ module.exports = {
   enableFluxdZmq,
   ensureChronyd,
   ensurePackageVersion,
+  getPackageStatus,
   getPackageVersion,
   getQueue,
   monitorAptCache,

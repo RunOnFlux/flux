@@ -32,6 +32,23 @@ const sessionUnits = 'fluxadm-sshd@*.service';
 const ufwBinaryPath = '/usr/sbin/ufw';
 // The openssh-server package's own units: a general-purpose sshd on port 22.
 const distroSshdUnits = ['ssh.service', 'ssh.socket'];
+// Debian enables a package's units on its first install through `systemctl
+// preset`, so with this preset in place openssh-server's own units are never
+// enabled, and a crash at any point of FluxOS's install leaves nothing to start
+// sshd on the next boot. Held until dpkg has the package fully installed: from
+// then on its units' recorded state decides, and keeps them disabled through an
+// upgrade. A preset only sets a first install's default; it never stops the
+// node owner enabling the units.
+const sshdPresetDir = '/etc/systemd/system-preset';
+const sshdPresetPath = `${sshdPresetDir}/00-fluxadm.preset`;
+const sshdPreset = `# FluxOS: openssh-server's own sshd stays disabled while FluxOS installs it.\n${distroSshdUnits.map((unit) => `disable ${unit}`).join('\n')}\n`;
+// Where Debian records, per unit, the links it created to enable it. A removed
+// (not purged) package keeps both the record and the links.
+const unitStateDir = '/var/lib/systemd/deb-systemd-helper-enabled';
+const systemUnitDir = '/etc/systemd/system/';
+// dpkg states of a package that is unpacked but not configured: configuring it
+// is what enables its units, so the preset stays while it is in one of these.
+const unconfiguredPackageStates = ['unpacked', 'half-configured', 'half-installed'];
 // Debian's hook for package installs: a policy-rc.d that exits 101 stops every
 // maintainer script starting a service. Held only across FluxOS's own install
 // of openssh-server, and marked so a copy left by an interrupted one is known.
@@ -327,11 +344,66 @@ StandardInput=socket
 }
 
 /**
+ * Removes the sshd preset unless openssh-server is unpacked and not yet
+ * configured, which is the one state in which a configure still to come would
+ * enable its units. Runs on every pass, so a preset left by an install that was
+ * interrupted goes once dpkg has finished the package.
+ * @returns {Promise<void>}
+ */
+async function releaseSshdPreset() {
+  if (!(await fs.access(sshdPresetPath).then(() => true).catch(() => false))) return;
+  const status = await systemService.getPackageStatus('openssh-server');
+  if (unconfiguredPackageStates.includes(status.split(' ')[2])) return;
+  const { error } = await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-f', sshdPresetPath] });
+  if (error) log.error(`fluxadm access - could not remove ${sshdPresetPath}, retrying on the next pass`);
+}
+
+/**
+ * Removes the enablement a removed (not purged) openssh-server leaves behind:
+ * the links Debian recorded creating for its units, which point at nothing
+ * until the package's unit files return and then enable them before any preset
+ * is read. Only a recorded link that is under /etc/systemd/system and points at
+ * nothing is removed, so a unit file that exists is never disabled. The units
+ * are stopped too, so nothing from before the removal is left running.
+ * @returns {Promise<boolean>}
+ */
+async function clearRemovedSshdEnablement() {
+  const recorded = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const unit of distroSshdUnits) {
+    // eslint-disable-next-line no-await-in-loop
+    const state = (await readFileIfExists(`${unitStateDir}/${unit}.dsh-also`)) || '';
+    recorded.push(...state.split('\n').map((line) => line.trim()).filter((line) => line.startsWith(systemUnitDir)));
+  }
+
+  const dangling = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const link of recorded) {
+    // eslint-disable-next-line no-await-in-loop
+    const isLink = await fs.lstat(link).then((stat) => stat.isSymbolicLink()).catch(() => false);
+    // eslint-disable-next-line no-await-in-loop
+    if (isLink && !(await fs.stat(link).then(() => true).catch(() => false))) dangling.push(link);
+  }
+
+  if (dangling.length) {
+    const { error } = await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-f', ...dangling] });
+    if (error) {
+      log.error(`fluxadm access - could not remove the links a removed openssh-server left: ${dangling.join(', ')}`);
+      return false;
+    }
+    log.info(`fluxadm access - removed the links a removed openssh-server left: ${dangling.join(', ')}`);
+  }
+
+  await serviceHelper.runCommand('systemctl', { runAsRoot: true, logError: false, params: ['stop', ...distroSshdUnits] });
+  return true;
+}
+
+/**
  * Installs openssh-server for the sshd binary and host keys the maintenance
- * sshd needs, leaving the package's own sshd installed and disabled, as a node
- * owner would disable it. The install runs with service starts held off, so
- * the package's sshd never starts and port 22 never opens; the package records
- * its units' state as on any install, so an upgrade keeps them disabled. A
+ * sshd needs, leaving the package's own sshd installed and disabled. A preset
+ * keeps its units from ever being enabled, and service starts are held off
+ * across the install, so the package's sshd never starts and port 22 never
+ * opens, whether the install completes, fails or is interrupted. A
  * policy-rc.d that is not FluxOS's is never replaced: the install waits for a
  * node without one.
  * @returns {Promise<boolean>}
@@ -340,6 +412,15 @@ async function installOpensshServer() {
   const existing = await readFileIfExists(policyRcPath);
   if (existing !== null && existing !== policyRc) {
     log.error(`fluxadm access - ${policyRcPath} is the node owner's, not installing openssh-server`);
+    return false;
+  }
+  if (!(await clearRemovedSshdEnablement())) return false;
+  const { error: presetDirError } = await serviceHelper.runCommand('install', {
+    runAsRoot: true,
+    params: ['-d', '-m', '0755', sshdPresetDir],
+  });
+  if (presetDirError || !(await installFileAsRoot(sshdPreset, sshdPresetPath, { mode: '0644' }))) {
+    log.error(`fluxadm access - cannot write ${sshdPresetPath}, not installing openssh-server`);
     return false;
   }
   if (existing === null && !(await installFileAsRoot(policyRc, policyRcPath, { mode: '0755' }))) {
@@ -353,18 +434,10 @@ async function installOpensshServer() {
   } finally {
     const { error: rmError } = await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-f', policyRcPath] });
     if (rmError) log.error(`fluxadm access - could not remove ${policyRcPath}; no package can start a service until it is removed`);
+    await releaseSshdPreset();
   }
   if (installError) {
     log.error('fluxadm access - openssh-server is not installable, cannot start maintenance sshd');
-    return false;
-  }
-
-  const { error: disableError } = await serviceHelper.runCommand('systemctl', {
-    runAsRoot: true,
-    params: ['disable', ...distroSshdUnits],
-  });
-  if (disableError) {
-    log.error(`fluxadm access - openssh-server installed, but ${distroSshdUnits.join(' and ')} could not be disabled`);
     return false;
   }
   log.info('fluxadm access - openssh-server installed, its own sshd disabled');
@@ -563,6 +636,8 @@ async function reconcileAccess() {
       log.warn('fluxadm access - systemd is not this node\'s init, maintenance access unavailable');
       return { outcome: 'skipped' };
     }
+
+    await releaseSshdPreset();
 
     const keys = fluxadmPort.getConfiguredKeys();
     if (!keys.length) {

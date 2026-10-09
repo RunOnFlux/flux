@@ -1224,6 +1224,29 @@ describe('system Services tests', () => {
     });
   });
 
+  describe('getPackageStatus tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('answers the package\'s dpkg status', async () => {
+      const runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: 'deinstall ok config-files\n' });
+
+      expect(await systemService.getPackageStatus('openssh-server')).to.equal('deinstall ok config-files');
+      sinon.assert.calledOnceWithExactly(runCommandStub, 'dpkg-query', {
+        logError: false,
+        // eslint-disable-next-line no-template-curly-in-string
+        params: ['--showformat=${Status}', '--show', 'openssh-server'],
+      });
+    });
+
+    it('answers an empty status for a package dpkg has no record of', async () => {
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: new Error('no packages found matching openssh-server'), stdout: '' });
+
+      expect(await systemService.getPackageStatus('openssh-server')).to.equal('');
+    });
+  });
+
   describe('queueAptGetCommand option forwarding tests', () => {
     afterEach(() => {
       sinon.restore();
