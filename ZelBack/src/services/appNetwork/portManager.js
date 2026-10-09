@@ -830,7 +830,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       // now open this port properly and launch listening on it
       if (firewallActive) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxNetworkHelper.allowPort(portToTest);
+        await fluxNetworkHelper.allowTestPort(portToTest);
       }
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
@@ -1088,7 +1088,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     for (const portToTest of portsToTest) {
       if (firewallActive) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxNetworkHelper.deleteAllowPortRule(portToTest);
+        await fluxNetworkHelper.deleteTestPortRule(portToTest);
       }
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
@@ -1115,7 +1115,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     for (const portToTest of portsToTest) {
       if (firewallActive) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxNetworkHelper.deleteAllowPortRule(portToTest).catch((e) => log.error(e));
+        await fluxNetworkHelper.deleteTestPortRule(portToTest).catch((e) => log.error(e));
       }
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop

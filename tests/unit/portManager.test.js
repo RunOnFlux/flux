@@ -1182,6 +1182,24 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
     expect(result.port).to.equal(port);
   });
 
+  // ufw counts the IPv6 half of a rule for both families as the same rule as an app
+  // port's IPv6 rule, so a test that opened and deleted one would delete the app's.
+  it('opens each port under test to IPv4 only while it tests it, and deletes only that rule', async () => {
+    fluxNetworkHelper.isFirewallActive.resolves(true);
+    const allowTest = sinon.stub(fluxNetworkHelper, 'allowTestPort').resolves({ status: true, message: 'Rule added' });
+    const deleteTest = sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves({ status: true, message: 'Rule deleted' });
+    const allowBoth = sinon.stub(fluxNetworkHelper, 'allowPort').resolves({ status: true });
+    const deleteBoth = sinon.stub(fluxNetworkHelper, 'deleteAllowPortRule').resolves({ status: true });
+
+    await withPeers([UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE]);
+
+    sinon.assert.calledOnceWithExactly(allowTest, port);
+    sinon.assert.calledWith(deleteTest, port);
+    expect(deleteTest.firstCall.calledAfter(allowTest.firstCall)).to.equal(true);
+    sinon.assert.notCalled(allowBoth);
+    sinon.assert.notCalled(deleteBoth);
+  });
+
   it('proceeds when no peer answered at all, and says so', async () => {
     const result = await withPeers([UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE]);
 

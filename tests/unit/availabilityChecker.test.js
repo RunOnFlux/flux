@@ -337,9 +337,9 @@ describe('availabilityChecker tests', () => {
       sinon.stub(fluxNetworkHelper, 'isPortUPNPBanned').returns(false);
       sinon.stub(networkStateService, 'getRandomExternalObserver').resolves('192.168.1.200:16127');
       sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
-      sinon.stub(fluxNetworkHelper, 'allowPort').resolves();
+      sinon.stub(fluxNetworkHelper, 'allowTestPort').resolves();
       sinon.stub(upnpService, 'mapUpnpPort').resolves(false); // Failed
-      sinon.stub(fluxNetworkHelper, 'deleteAllowPortRule').resolves();
+      sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves();
       sinon.stub(upnpService, 'removeMapUpnpPort').resolves();
 
       await availabilityChecker.checkMyAppsAvailability(
@@ -351,6 +351,31 @@ describe('availabilityChecker tests', () => {
       );
 
       expect(mockDosState.lastUPNPMapFailed).to.be.true;
+    });
+
+    it('opens the port under test to IPv4 only, and deletes only that rule', async () => {
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
+      sinon.stub(generalService, 'isNodeStatusConfirmed').resolves(true);
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.100:16127');
+      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+      sinon.stub(upnpService, 'isUPNP').returns(true);
+      sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
+      sinon.stub(fluxNetworkHelper, 'isPortUPNPBanned').returns(false);
+      sinon.stub(networkStateService, 'getRandomExternalObserver').resolves('192.168.1.200:16127');
+      sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
+      const allowTest = sinon.stub(fluxNetworkHelper, 'allowTestPort').resolves();
+      const deleteTest = sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves();
+      const allowBoth = sinon.stub(fluxNetworkHelper, 'allowPort').resolves();
+      const deleteBoth = sinon.stub(fluxNetworkHelper, 'deleteAllowPortRule').resolves();
+      sinon.stub(upnpService, 'mapUpnpPort').resolves(false);
+      sinon.stub(upnpService, 'removeMapUpnpPort').resolves();
+
+      await availabilityChecker.checkMyAppsAvailability(mockInstalledAppsFn, mockDosState, mockPortsNotWorking, mockFailedNodesCache, isArcane);
+
+      sinon.assert.calledOnceWithExactly(allowTest, mockDosState.testingPort);
+      sinon.assert.calledWith(deleteTest, mockDosState.testingPort);
+      sinon.assert.notCalled(allowBoth);
+      sinon.assert.notCalled(deleteBoth);
     });
 
     it('should increase DOS state on repeated UPNP failures', async () => {
@@ -371,9 +396,9 @@ describe('availabilityChecker tests', () => {
       sinon.stub(fluxNetworkHelper, 'isPortUPNPBanned').returns(false);
       sinon.stub(networkStateService, 'getRandomExternalObserver').resolves('192.168.1.200:16127');
       sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
-      sinon.stub(fluxNetworkHelper, 'allowPort').resolves();
+      sinon.stub(fluxNetworkHelper, 'allowTestPort').resolves();
       sinon.stub(upnpService, 'mapUpnpPort').resolves(false);
-      sinon.stub(fluxNetworkHelper, 'deleteAllowPortRule').resolves();
+      sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves();
       sinon.stub(upnpService, 'removeMapUpnpPort').resolves();
 
       await availabilityChecker.checkMyAppsAvailability(

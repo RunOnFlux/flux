@@ -2593,6 +2593,41 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
+  describe('test port rules', () => {
+    let runUfw;
+
+    beforeEach(() => {
+      runUfw = sinon.stub(ufw, 'runUfw').resolves({ error: null, stdout: 'Rule added\n', stderr: '', locked: false });
+    });
+
+    it('opens a port under test to IPv4 clients only', async () => {
+      expect(await fluxNetworkHelper.allowTestPort(31350)).to.deep.equal({ status: true, message: 'Rule added\n' });
+      sinon.assert.calledOnceWithExactly(runUfw, ['allow', 'from', '0.0.0.0/0', 'to', 'any', 'port', '31350']);
+    });
+
+    it('deletes that rule and no other, a rule already gone counting as deleted', async () => {
+      runUfw.resolves({ error: null, stdout: 'Could not delete non-existent rule\n', stderr: '', locked: false });
+      expect((await fluxNetworkHelper.deleteTestPortRule('31350')).status).to.equal(true);
+      sinon.assert.calledOnceWithExactly(runUfw, ['delete', 'allow', 'from', '0.0.0.0/0', 'to', 'any', 'port', '31350']);
+    });
+
+    it('never writes the rule an app port\'s IPv6 rule shares a form with', async () => {
+      await fluxNetworkHelper.allowTestPort(31350);
+      await fluxNetworkHelper.deleteTestPortRule(31350);
+      runUfw.getCalls().forEach((call) => {
+        expect(call.args[0], 'a rule for both families').to.include('0.0.0.0/0');
+        expect(call.args[0]).to.not.include('::/0');
+      });
+    });
+
+    it('reports a held lock and refuses a port that is not a number', async () => {
+      runUfw.resolves({ error: null, stdout: '', stderr: '', locked: true });
+      expect(await fluxNetworkHelper.allowTestPort(31350)).to.deep.equal({ status: false, message: 'ufw is locked by another ufw command' });
+      expect(await fluxNetworkHelper.deleteTestPortRule(31350)).to.deep.equal({ status: false, message: 'ufw is locked by another ufw command' });
+      expect((await fluxNetworkHelper.allowTestPort('x')).status).to.equal(false);
+    });
+  });
+
   describe('purgeUFW tests', () => {
     afterEach(() => {
       sinon.restore();

@@ -26,7 +26,7 @@ async function handleTestShutdown(testingPort, testHttpServer, isArcane, options
 
   if (updateFirewall) {
     await fluxNetworkHelper
-      .deleteAllowPortRule(testingPort)
+      .deleteTestPortRule(testingPort)
       .catch((e) => log.error(e));
   }
 
@@ -206,7 +206,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
 
     const firewallActive = isArcane ? true : await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
-      await fluxNetworkHelper.allowPort(dosState.testingPort);
+      await fluxNetworkHelper.allowTestPort(dosState.testingPort);
     }
 
     if (isUpnp) {

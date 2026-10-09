@@ -2095,6 +2095,40 @@ async function allowPort(port) {
   return cmdStat;
 }
 
+// The ufw rule that admits IPv4 clients to a port FluxOS opens for a moment, to
+// test it from outside, and no IPv6 client. ufw counts the IPv6 half of a rule
+// for both families as the same rule as an app port's IPv6 rule, so a test that
+// opened and deleted one would delete the app's.
+const testPortRule = (port) => ['from', '0.0.0.0/0', 'to', 'any', 'port', String(port)];
+
+/**
+ * Opens a port to IPv4 clients while FluxOS tests it from outside: the only rule
+ * for the port that deleteTestPortRule deletes.
+ * @param {number|string} port Port.
+ * @returns {Promise<{status: boolean, message: (string|null)}>}
+ */
+async function allowTestPort(port) {
+  if (Number.isNaN(+port)) return { status: false, message: 'Port needs to be a number' };
+  const ran = await ufw.runUfw(['allow', ...testPortRule(port)]);
+  if (ran.locked) return { status: false, message: 'ufw is locked by another ufw command' };
+  const cmdres = ran.stdout + ran.stderr;
+  return { status: /added|updated|existing/.test(cmdres), message: cmdres };
+}
+
+/**
+ * Deletes the rule allowTestPort writes, and no other rule for the port. A rule
+ * already gone counts as deleted.
+ * @param {number|string} port Port.
+ * @returns {Promise<{status: boolean, message: (string|null)}>}
+ */
+async function deleteTestPortRule(port) {
+  if (Number.isNaN(+port)) return { status: false, message: 'Port needs to be a number' };
+  const ran = await ufw.runUfw(['delete', 'allow', ...testPortRule(port)]);
+  if (ran.locked) return { status: false, message: 'ufw is locked by another ufw command' };
+  const cmdres = ran.stdout + ran.stderr;
+  return { status: cmdres.includes('delete'), message: cmdres };
+}
+
 /**
  * To deny a port.
  * @param {string} port Port.
@@ -2705,7 +2739,9 @@ module.exports = {
   denyPort,
   deleteAllowPortRule,
   allowAppPortsIpv6,
+  allowTestPort,
   deleteAppPortRules,
+  deleteTestPortRule,
   allowPortApi,
   adjustFirewall,
   ensureUfwDefaults,
