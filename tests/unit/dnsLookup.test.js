@@ -50,7 +50,7 @@ describe('dnsLookup tests', () => {
   }
 
   function isProbe(hostname) {
-    return hostname !== HOSTNAME && /^[0-9a-f]{12}\.com$/.test(hostname);
+    return hostname !== HOSTNAME && /^[0-9a-f]{32}\.com$/.test(hostname);
   }
 
   function answerFrom(resolver, hostname, family, syscall) {
@@ -557,6 +557,16 @@ describe('dnsLookup tests', () => {
       expect(silent()).to.deep.equal([]);
     });
 
+    it('should probe with a random 128-bit name under .com', async () => {
+      await lookupAsync(HOSTNAME, { all: true });
+      await lookupAsync(HOSTNAME, { all: true });
+
+      const names = dns.promises.Resolver.prototype.resolve4.getCalls().map((call) => call.args[0]).filter((name) => name !== HOSTNAME);
+      expect(names).to.have.length(2);
+      names.forEach((name) => expect(name).to.match(/^[0-9a-f]{32}\.com$/));
+      expect(names[0]).to.not.equal(names[1]);
+    });
+
     it('should send one probe for lookups that meet the server together', async () => {
       answers.probe.system = 'ETIMEOUT';
 
@@ -614,6 +624,102 @@ describe('dnsLookup tests', () => {
 
         expect(result).to.deep.equal([{ address: '203.0.113.72', family: 4 }]);
         expect(asked).to.include('system:4');
+      });
+    });
+  });
+
+  describe('every outcome of the A query against every outcome of the AAAA query', () => {
+    const SYSTEM_A = '203.0.113.81';
+    const SYSTEM_AAAA = '2001:db8::81';
+    const PUBLIC_A = '203.0.113.82';
+    const PUBLIC_AAAA = '2001:db8::82';
+    const OUTCOMES = {
+      addresses: { 4: [SYSTEM_A], 6: [SYSTEM_AAAA] },
+      'no records': 'ENODATA',
+      'no such name': 'ENOTFOUND',
+      SERVFAIL: 'ESERVFAIL',
+      'no reply': 'ETIMEOUT',
+      refused: 'ECONNREFUSED',
+    };
+    const system4 = [{ address: SYSTEM_A, family: 4 }];
+    const system6 = [{ address: SYSTEM_AAAA, family: 6 }];
+    const system46 = [...system4, ...system6];
+    const fromPublic = [{ address: PUBLIC_A, family: 4 }, { address: PUBLIC_AAAA, family: 6 }];
+
+    // A query          AAAA query       the lookup's answer   probe sent
+    const CASES = [
+      ['addresses', 'addresses', system46, false],
+      ['addresses', 'no records', system4, false],
+      ['addresses', 'no such name', system4, false],
+      ['addresses', 'SERVFAIL', system4, false],
+      ['addresses', 'no reply', system4, false],
+      ['addresses', 'refused', system4, false],
+      ['no records', 'addresses', system6, false],
+      ['no records', 'no records', 'ENODATA', false],
+      ['no records', 'no such name', 'ENODATA', false],
+      ['no records', 'SERVFAIL', fromPublic, false],
+      ['no records', 'no reply', fromPublic, true],
+      ['no records', 'refused', fromPublic, true],
+      ['no such name', 'addresses', system6, false],
+      ['no such name', 'no records', 'ENOTFOUND', false],
+      ['no such name', 'no such name', 'ENOTFOUND', false],
+      ['no such name', 'SERVFAIL', fromPublic, false],
+      ['no such name', 'no reply', fromPublic, true],
+      ['no such name', 'refused', fromPublic, true],
+      ['SERVFAIL', 'addresses', system6, false],
+      ['SERVFAIL', 'no records', fromPublic, false],
+      ['SERVFAIL', 'no such name', fromPublic, false],
+      ['SERVFAIL', 'SERVFAIL', fromPublic, false],
+      ['SERVFAIL', 'no reply', fromPublic, true],
+      ['SERVFAIL', 'refused', fromPublic, true],
+      ['no reply', 'addresses', system6, false],
+      ['no reply', 'no records', fromPublic, true],
+      ['no reply', 'no such name', fromPublic, true],
+      ['no reply', 'SERVFAIL', fromPublic, true],
+      ['no reply', 'no reply', fromPublic, true],
+      ['no reply', 'refused', fromPublic, true],
+      ['refused', 'addresses', system6, false],
+      ['refused', 'no records', fromPublic, true],
+      ['refused', 'no such name', fromPublic, true],
+      ['refused', 'SERVFAIL', fromPublic, true],
+      ['refused', 'no reply', fromPublic, true],
+      ['refused', 'refused', fromPublic, true],
+    ];
+
+    it('should cover every pair of outcomes', () => {
+      const outcomes = Object.keys(OUTCOMES);
+      const pairs = CASES.map(([a, aaaa]) => `${a}|${aaaa}`);
+      expect(new Set(pairs).size).to.equal(outcomes.length ** 2);
+      outcomes.forEach((a) => outcomes.forEach((aaaa) => expect(pairs).to.include(`${a}|${aaaa}`)));
+    });
+
+    CASES.forEach(([a, aaaa, expected, probed]) => {
+      const answer = Array.isArray(expected) ? (expected === fromPublic ? 'the public servers\' addresses' : 'its addresses') : expected;
+      it(`A ${a}, AAAA ${aaaa}: should answer ${answer}, ${probed ? 'probing' : 'not probing'} the server`, async () => {
+        answers.system = {
+          4: a === 'addresses' ? OUTCOMES.addresses[4] : OUTCOMES[a],
+          6: aaaa === 'addresses' ? OUTCOMES.addresses[6] : OUTCOMES[aaaa],
+        };
+        answers.public = { 4: [PUBLIC_A], 6: [PUBLIC_AAAA] };
+
+        let result = null;
+        let caught = null;
+        try {
+          result = await lookupAsync(HOSTNAME, { all: true });
+        } catch (error) {
+          caught = error;
+        }
+
+        if (Array.isArray(expected)) {
+          expect(caught).to.equal(null);
+          expect(result).to.deep.equal(expected);
+        } else {
+          expect(result).to.equal(null);
+          expect(caught.code).to.equal(expected);
+        }
+        expect(asked.includes('system:probe'), 'probe sent').to.equal(probed);
+        expect(asked.some((entry) => entry.startsWith('public:')), 'public servers asked').to.equal(expected === fromPublic);
+        expect(dnsLookup.systemServerStates().filter((state) => state.silent), 'remembered as silent').to.deep.equal([]);
       });
     });
   });

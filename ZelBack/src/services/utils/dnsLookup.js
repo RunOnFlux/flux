@@ -31,15 +31,15 @@
  * queries costs a lookup that delay, not the query timeout, and a resolver that answers AAAA
  * before A still yields the IPv4 addresses. Each query is one try of QUERY_TIMEOUT_MS.
  *
- * A system server that does not answer a lookup at all is either down or unable to resolve that
- * one name: a resolver whose upstream cannot reach a name's authoritative servers does not
- * answer for that name, and does not answer for any name once its own upstream is gone. Which
- * of the two is told by a probe for a random name under .com, sent to that server at once: no
- * cache holds an answer for a name never asked, and .com's NSEC3 opt-out denial cannot be
- * synthesised from cached records (RFC 8198), so only a server that can reach the internet's
- * DNS resolves it. The probe passes when the server resolves the name - it answers that the
- * name does not exist, or with an address - and fails otherwise, a SERVFAIL included: a
- * resolver whose upstream is gone answers some names with SERVFAIL and leaves others
+ * A system server that leaves a lookup's query for either family unanswered is either down or
+ * unable to resolve that one name: a resolver whose upstream cannot reach a name's authoritative
+ * servers does not answer for that name, and does not answer for any name once its own upstream
+ * is gone. Which of the two is told by a probe for a random 128-bit name under .com, sent to that
+ * server at once: no cache holds an answer for a name never asked, and .com's NSEC3 opt-out
+ * denial cannot be synthesised from cached records (RFC 8198), so only a server that can reach
+ * the internet's DNS resolves it. The probe passes when the server resolves the name - it
+ * answers that the name does not exist, or with an address - and fails otherwise, a SERVFAIL
+ * included: a resolver whose upstream is gone answers some names with SERVFAIL and leaves others
  * unanswered.
  *
  * - The probe passes: the server works and the name was the failure. This lookup moves on to
@@ -68,8 +68,8 @@
  *   AAAA answered first, A answered later          the A answer                  IPv4 and IPv6
  *   AAAA answered SERVFAIL, A answered             the server's answer           IPv4 addresses
  *   name does not exist (/etc/hosts not read)      the server's answer           ENOTFOUND
- *   name a working system server never answers     a query wait, 1 s / 3 s,      public's addresses
- *                                                  then the public servers
+ *   name a working system server does not answer   a query wait, 1 s / 3 s,      public's addresses
+ *   within the query wait                          then the public servers
  *   name a system server answers SERVFAIL          the public servers' answer    public's addresses
  *   system server down: the lookup that finds it   a query + a probe, 2-4 s /    public's addresses
  *                                                  5-6 s
@@ -206,7 +206,7 @@ function settleWithResolutionDelay(queries) {
  * @returns {Promise<{addresses: Array<{address: string, family: number}>, error: ?Error, failed: boolean, noReply: boolean}>}
  *   error: when there is no address, the error of a query that errored if any did, else of the
  *   first family's query. failed: no address, and at least one family's query errored. noReply:
- *   no address, and no family's query was answered.
+ *   no address, and at least one family's query was not answered.
  */
 async function queryResolver(resolver, hostname, families) {
   const results = (await settleWithResolutionDelay(
@@ -218,7 +218,7 @@ async function queryResolver(resolver, hostname, families) {
     addresses,
     error: addresses.length ? null : errored.error,
     failed: !addresses.length && results.some((result) => result.failed),
-    noReply: !addresses.length && results.length > 0 && results.every((result) => result.noReply),
+    noReply: !addresses.length && results.some((result) => result.noReply),
   };
 }
 
@@ -232,7 +232,7 @@ function probe(server) {
   if (server.probing) return server.probing;
   /* eslint-disable no-param-reassign */
   server.probedAt = performance.now();
-  const name = `${crypto.randomBytes(6).toString('hex')}.com`;
+  const name = `${crypto.randomBytes(16).toString('hex')}.com`;
   server.probing = server.resolver.resolve4(name).then(
     () => true,
     (error) => NO_ADDRESS_CODES.has(error.code),
