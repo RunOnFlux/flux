@@ -110,10 +110,10 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
 
   if (!test) {
     const appPorts = appSpecifications.ports ?? (appSpecifications.port ? [appSpecifications.port] : []);
-    const { failed, locked } = await fluxNetworkHelper.allowAppPortsIpv6(appPorts.map((port) => serviceHelper.ensureNumber(port)));
-    // IPv4 clients reach the ports either way, so the install goes on.
-    if (locked) log.warn(`Ports of ${appName} not opened to IPv6: ufw is locked by another ufw command`);
-    failed.forEach(({ rule, error }) => log.warn(`Port of ${appName} not opened to IPv6: ufw ${rule}: ${error}`));
+    const { failed, locked } = await fluxNetworkHelper.allowAppPorts(appPorts.map((port) => serviceHelper.ensureNumber(port)));
+    // Clients outside the node reach the ports over IPv4 either way, so the install goes on.
+    if (locked) log.warn(`Ports of ${appName} not opened in the firewall: ufw is locked by another ufw command`);
+    failed.forEach(({ rule, error }) => log.warn(`Port of ${appName} not opened in the firewall: ufw ${rule}: ${error}`));
   }
 
   if (!test && appSpecifications.ports) {

@@ -118,12 +118,9 @@ module.exports = {
   // startFluxFunctions, whose catch re-enters it.
   minimumNodeJsAllowedVersion: '20.8.0',
   minimumSyncthingAllowedVersion: '2.0.10',
-  // The Docker a node runs. From 28, Docker forwards a container's connection to
-  // a published port at the node's own address in the kernel, which the
-  // container firewall relies on; earlier releases answer it through
-  // docker-proxy on the host, behind the host firewall. 28.1.1 rather than 28.0.0:
-  // 28.0 rewrote Docker's networking rules and its patch releases fixed them,
-  // and 28.1.1 is the oldest release the fleet runs in numbers.
+  // The Docker a node runs: the oldest release FluxOS supports. 28.0 rewrote
+  // Docker's networking rules and its patch releases fixed them; 28.1.1 is the
+  // oldest release the fleet runs in numbers.
   minimumDockerAllowedVersion: '28.1.1',
   fluxTeamFluxID: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   // A list, so support can be granted to (or revoked from) an identity without

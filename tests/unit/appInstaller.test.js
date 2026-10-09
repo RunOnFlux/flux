@@ -159,7 +159,7 @@ describe('appInstaller tests', () => {
       },
       '../fluxNetworkHelper': {
         getNumberOfPeers: sinon.stub().returns(15),
-        allowAppPortsIpv6: sinon.stub().resolves({ failed: [], locked: false }),
+        allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
         allowPort: sinon.stub().resolves({ status: true }),
       },
       '../geolocationService': {
@@ -791,7 +791,7 @@ describe('appInstaller tests', () => {
         },
         '../fluxNetworkHelper': {
           getNumberOfPeers: sinon.stub().returns(15),
-          allowAppPortsIpv6: sinon.stub().resolves({ failed: [], locked: false }),
+          allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
           allowPort: sinon.stub().resolves({ status: true }),
         },
         '../geolocationService': {
@@ -1006,7 +1006,7 @@ describe('appInstaller tests', () => {
         },
         '../fluxNetworkHelper': {
           getNumberOfPeers: sinon.stub().returns(15),
-          allowAppPortsIpv6: sinon.stub().resolves({ failed: [], locked: false }),
+          allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
           allowPort: sinon.stub().resolves({ status: true }),
         },
         '../geolocationService': {
@@ -1204,7 +1204,7 @@ describe('appInstaller tests', () => {
         },
         '../fluxNetworkHelper': {
           getNumberOfPeers: sinon.stub().returns(15),
-          allowAppPortsIpv6: sinon.stub().resolves({ failed: [], locked: false }),
+          allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
           allowPort: sinon.stub().resolves({ status: true }),
           getLocalSocketAddress: sinon.stub().resolves('1.2.3.4:16127'),
         },
@@ -1427,7 +1427,7 @@ describe('appInstaller tests', () => {
         },
         '../fluxNetworkHelper': {
           getNumberOfPeers: sinon.stub().returns(15),
-          allowAppPortsIpv6: sinon.stub().resolves({ failed: [], locked: false }),
+          allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
           allowPort: sinon.stub().resolves({ status: true }),
           getLocalSocketAddress: sinon.stub().resolves('1.2.3.4:16127'),
         },
@@ -1530,7 +1530,7 @@ describe('appInstaller tests', () => {
         '../fluxNetworkHelper': {
           getLocalSocketAddress: sinon.stub().resolves('192.168.1.1:16127'),
           getNumberOfPeers: sinon.stub().returns(15),
-          allowAppPortsIpv6: sinon.stub().resolves({ failed: [], locked: false }),
+          allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
           allowPort: sinon.stub().resolves({ status: true }),
         },
         '../geolocationService': { isStaticIP: sinon.stub().returns(true) },
@@ -1591,7 +1591,7 @@ describe('appInstaller tests', () => {
       firewallStub = {
         isFirewallActive: sinon.stub().resolves(true),
         allowPort: sinon.stub().resolves({ status: true }),
-        allowAppPortsIpv6: sinon.stub().resolves({ failed: [], locked: false }),
+        allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
       };
       upnpStub = { isUPNP: sinon.stub().returns(true), mapUpnpPort: sinon.stub().resolves(true) };
       logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
@@ -1606,36 +1606,36 @@ describe('appInstaller tests', () => {
       sinon.restore();
     });
 
-    it('maps app ports on the router and opens them in the host firewall to IPv6 only', async () => {
+    it('maps app ports on the router and opens them in the host firewall', async () => {
       await appInstallerPorts.setupApplicationPorts({ ports: [31000, 31001] }, 'myapp', false, null);
 
       expect(firewallStub.allowPort.called).to.be.false;
-      expect(firewallStub.allowAppPortsIpv6.args).to.deep.equal([[[31000, 31001]]]);
+      expect(firewallStub.allowAppPorts.args).to.deep.equal([[[31000, 31001]]]);
       expect(upnpStub.mapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
       expect(upnpStub.mapUpnpPort.calledWith(31001, 'Flux_App_myapp')).to.be.true;
     });
 
-    it('maps a v1 app port and opens it in the host firewall to IPv6 only', async () => {
+    it('maps a v1 app port and opens it in the host firewall', async () => {
       await appInstallerPorts.setupApplicationPorts({ port: 31000 }, 'myapp', false, null);
 
       expect(firewallStub.allowPort.called).to.be.false;
-      expect(firewallStub.allowAppPortsIpv6.args).to.deep.equal([[[31000]]]);
+      expect(firewallStub.allowAppPorts.args).to.deep.equal([[[31000]]]);
       expect(upnpStub.mapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
     });
 
-    it('installs on with a warning when a port cannot be opened to IPv6', async () => {
-      firewallStub.allowAppPortsIpv6.resolves({ failed: [{ rule: 'allow from ::/0 to any port 31000', error: 'ERROR: Bad port' }], locked: false });
+    it('installs on with a warning when a port cannot be opened in the firewall', async () => {
+      firewallStub.allowAppPorts.resolves({ failed: [{ rule: 'allow 31000', error: 'ERROR: Bad port' }], locked: false });
 
       await appInstallerPorts.setupApplicationPorts({ ports: [31000] }, 'myapp', false, null);
 
-      sinon.assert.calledWithMatch(logStub.warn, 'Port of myapp not opened to IPv6: ufw allow from ::/0 to any port 31000: ERROR: Bad port');
+      sinon.assert.calledWithMatch(logStub.warn, 'Port of myapp not opened in the firewall: ufw allow 31000: ERROR: Bad port');
       expect(upnpStub.mapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
     });
 
     it('opens nothing for a test install', async () => {
       await appInstallerPorts.setupApplicationPorts({ ports: [31000] }, 'myapp', false, null, true);
 
-      sinon.assert.notCalled(firewallStub.allowAppPortsIpv6);
+      sinon.assert.notCalled(firewallStub.allowAppPorts);
     });
   });
 

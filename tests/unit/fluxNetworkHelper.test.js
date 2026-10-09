@@ -2616,7 +2616,6 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('app port rules', () => {
-    const ipv6 = (port) => ['from', '::/0', 'to', 'any', 'port', String(port)];
     let runCommandStub;
     let readFile;
     const ufwFiles = ({ enabled = 'yes', ipv6Filtered = 'yes' } = {}) => {
@@ -2636,46 +2635,44 @@ describe('fluxNetworkHelper tests', () => {
       sinon.restore();
     });
 
-    it('admits IPv6 clients to every port of an app, and no IPv4 client, in one batch', async () => {
+    it('admits every client to every port of an app, IPv4 and IPv6, in one batch', async () => {
       ufwFiles();
 
-      expect(await fluxNetworkHelper.allowAppPortsIpv6([31000, 31001])).to.deep.equal({ failed: [], locked: false });
-      expect(batches()).to.deep.equal([[['allow', ...ipv6(31000)], ['allow', ...ipv6(31001)]]]);
+      expect(await fluxNetworkHelper.allowAppPorts([31000, 31001])).to.deep.equal({ failed: [], locked: false });
+      expect(batches()).to.deep.equal([[['allow', '31000'], ['allow', '31001']]]);
       sinon.assert.calledOnce(runCommandStub);
     });
 
-    it('writes nothing while ufw is disabled or leaves IPv6 alone', async () => {
+    it('writes nothing while ufw is disabled, and no rule for a port apps are not given', async () => {
       ufwFiles({ enabled: 'no' });
-      await fluxNetworkHelper.allowAppPortsIpv6([31000]);
-      ufwFiles({ ipv6Filtered: 'no' });
-      await fluxNetworkHelper.allowAppPortsIpv6([31000]);
-
+      await fluxNetworkHelper.allowAppPorts([31000]);
       sinon.assert.notCalled(runCommandStub);
+
+      ufwFiles();
+      await fluxNetworkHelper.allowAppPorts([31000, 16127, 22]);
+      expect(batches()).to.deep.equal([[['allow', '31000']]]);
     });
 
     it('reports a port ufw refused', async () => {
       ufwFiles();
-      const failed = [{ rule: `allow ${ipv6(31000).join(' ')}`, error: 'ERROR: Bad port' }];
+      const failed = [{ rule: 'allow 31000', error: 'ERROR: Bad port' }];
       runCommandStub.resolves(batched({ failed }));
 
-      expect(await fluxNetworkHelper.allowAppPortsIpv6([31000])).to.deep.equal({ failed, locked: false });
+      expect(await fluxNetworkHelper.allowAppPorts([31000])).to.deep.equal({ failed, locked: false });
     });
 
-    it('deletes each port\'s IPv6 rule and an earlier FluxOS\'s allow for it in one batch, while ufw is disabled too', async () => {
+    it('deletes each port\'s rule in one batch, while ufw is disabled too', async () => {
       ufwFiles({ enabled: 'no' });
 
       await fluxNetworkHelper.deleteAppPortRules([31000, 31001]);
 
-      expect(batches()).to.deep.equal([[
-        ['delete', 'allow', ...ipv6(31000)], ['delete', 'allow', '31000'],
-        ['delete', 'allow', ...ipv6(31001)], ['delete', 'allow', '31001'],
-      ]]);
+      expect(batches()).to.deep.equal([[['delete', 'allow', '31000'], ['delete', 'allow', '31001']]]);
     });
 
-    it('deletes no IPv6 rule while ufw leaves IPv6 alone, and no allow for a port apps are not given', async () => {
-      ufwFiles({ ipv6Filtered: 'no' });
+    it('deletes no rule for a port apps are not given', async () => {
+      ufwFiles();
 
-      await fluxNetworkHelper.deleteAppPortRules([31000, 16127]);
+      await fluxNetworkHelper.deleteAppPortRules([31000, 16127, 22]);
 
       expect(batches()).to.deep.equal([[['delete', 'allow', '31000']]]);
     });
@@ -2688,23 +2685,23 @@ describe('fluxNetworkHelper tests', () => {
       runUfw = sinon.stub(ufw, 'runUfw').resolves({ error: null, stdout: 'Rule added\n', stderr: '', locked: false });
     });
 
-    it('opens a port under test to IPv4 clients only', async () => {
+    it('opens a port under test to IPv4 TCP clients only', async () => {
       expect(await fluxNetworkHelper.allowTestPort(31350)).to.deep.equal({ status: true, message: 'Rule added\n' });
-      sinon.assert.calledOnceWithExactly(runUfw, ['allow', 'from', '0.0.0.0/0', 'to', 'any', 'port', '31350']);
+      sinon.assert.calledOnceWithExactly(runUfw, ['allow', 'proto', 'tcp', 'from', '0.0.0.0/0', 'to', 'any', 'port', '31350']);
     });
 
     it('deletes that rule and no other, a rule already gone counting as deleted', async () => {
       runUfw.resolves({ error: null, stdout: 'Could not delete non-existent rule\n', stderr: '', locked: false });
       expect((await fluxNetworkHelper.deleteTestPortRule('31350')).status).to.equal(true);
-      sinon.assert.calledOnceWithExactly(runUfw, ['delete', 'allow', 'from', '0.0.0.0/0', 'to', 'any', 'port', '31350']);
+      sinon.assert.calledOnceWithExactly(runUfw, ['delete', 'allow', 'proto', 'tcp', 'from', '0.0.0.0/0', 'to', 'any', 'port', '31350']);
     });
 
-    it('never writes the rule an app port\'s IPv6 rule shares a form with', async () => {
+    it('names a protocol, so ufw keeps it apart from the app port rule allow <port>', async () => {
       await fluxNetworkHelper.allowTestPort(31350);
       await fluxNetworkHelper.deleteTestPortRule(31350);
       runUfw.getCalls().forEach((call) => {
-        expect(call.args[0], 'a rule for both families').to.include('0.0.0.0/0');
-        expect(call.args[0]).to.not.include('::/0');
+        expect(call.args[0].slice(-8, -6), 'a protocol named').to.deep.equal(['proto', 'tcp']);
+        expect(call.args[0], 'IPv4 alone').to.include('0.0.0.0/0');
       });
     });
 

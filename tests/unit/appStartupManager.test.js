@@ -37,7 +37,7 @@ describe('appStartupManager tests', () => {
     fluxNetworkHelperStub = {
       getLocalSocketAddress: sinon.stub(),
       isNodeDos: sinon.stub().returns(false),
-      allowAppPortsIpv6: sinon.stub().resolves({ failed: [], locked: false }),
+      allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
     };
 
     portManagerStub = {
@@ -622,7 +622,7 @@ describe('appStartupManager tests', () => {
     });
   });
 
-  describe('opening installed apps\' ports to IPv6 at boot', () => {
+  describe('opening installed apps\' ports at boot', () => {
     const KEEP = { machineRebooted: false, downtimeMs: 1000, cleanShutdown: true };
     const SPECS = [{ name: 'web' }, { name: 'db' }];
 
@@ -636,9 +636,9 @@ describe('appStartupManager tests', () => {
       await appStartupManager.manageAppsOnBoot(KEEP);
 
       sinon.assert.calledOnceWithExactly(portManagerStub.appsWithPorts, SPECS);
-      sinon.assert.calledOnceWithExactly(fluxNetworkHelperStub.allowAppPortsIpv6, [31000, 31001, 32000]);
+      sinon.assert.calledOnceWithExactly(fluxNetworkHelperStub.allowAppPorts, [31000, 31001, 32000]);
       const reconcileStart = logStub.info.getCalls().find((call) => /Starting boot reconciliation/.test(call.args[0]));
-      expect(fluxNetworkHelperStub.allowAppPortsIpv6.firstCall.calledBefore(reconcileStart), 'opened before the reconcile began').to.equal(true);
+      expect(fluxNetworkHelperStub.allowAppPorts.firstCall.calledBefore(reconcileStart), 'opened before the reconcile began').to.equal(true);
     });
 
     it('opens nothing when no installed app has a port', async () => {
@@ -646,7 +646,7 @@ describe('appStartupManager tests', () => {
 
       await appStartupManager.manageAppsOnBoot(KEEP);
 
-      sinon.assert.notCalled(fluxNetworkHelperStub.allowAppPortsIpv6);
+      sinon.assert.notCalled(fluxNetworkHelperStub.allowAppPorts);
     });
 
     it('opens the ports it can read, and says how many apps it could not', async () => {
@@ -654,27 +654,27 @@ describe('appStartupManager tests', () => {
 
       await appStartupManager.manageAppsOnBoot(KEEP);
 
-      sinon.assert.calledOnceWithExactly(fluxNetworkHelperStub.allowAppPortsIpv6, [31000]);
-      expect(logStub.warn.calledWithMatch(/1 installed app\(s\) not opened to IPv6: specification unreadable/)).to.equal(true);
+      sinon.assert.calledOnceWithExactly(fluxNetworkHelperStub.allowAppPorts, [31000]);
+      expect(logStub.warn.calledWithMatch(/1 installed app\(s\) not opened in the firewall: specification unreadable/)).to.equal(true);
     });
 
     it('logs each rule ufw refused, and a held lock, and still reconciles the apps', async () => {
-      fluxNetworkHelperStub.allowAppPortsIpv6.resolves({ failed: [{ rule: 'allow from ::/0 to any port 31000', error: 'ERROR: Bad port' }], locked: false });
+      fluxNetworkHelperStub.allowAppPorts.resolves({ failed: [{ rule: 'allow 31000', error: 'ERROR: Bad port' }], locked: false });
       await appStartupManager.manageAppsOnBoot(KEEP);
-      expect(logStub.warn.calledWithMatch(/ufw allow from ::\/0 to any port 31000: ERROR: Bad port/)).to.equal(true);
+      expect(logStub.warn.calledWithMatch(/ufw allow 31000: ERROR: Bad port/)).to.equal(true);
 
-      fluxNetworkHelperStub.allowAppPortsIpv6.resolves({ failed: [], locked: true });
+      fluxNetworkHelperStub.allowAppPorts.resolves({ failed: [], locked: true });
       await appStartupManager.manageAppsOnBoot(KEEP);
       expect(logStub.warn.calledWithMatch(/ufw is locked/)).to.equal(true);
       expect(logStub.info.calledWithMatch(/node confirmed, reconciling/)).to.equal(true);
     });
 
     it('logs a failure and still reconciles the apps', async () => {
-      fluxNetworkHelperStub.allowAppPortsIpv6.rejects(new Error('helper crashed'));
+      fluxNetworkHelperStub.allowAppPorts.rejects(new Error('helper crashed'));
 
       await appStartupManager.manageAppsOnBoot(KEEP);
 
-      expect(logStub.error.calledWithMatch(/not opened to IPv6: helper crashed/)).to.equal(true);
+      expect(logStub.error.calledWithMatch(/not opened in the firewall: helper crashed/)).to.equal(true);
       expect(dbHelperStub.findInDatabase.callCount, 'the reconcile read the installed apps').to.equal(2);
     });
 
@@ -685,7 +685,7 @@ describe('appStartupManager tests', () => {
       fluxNetworkHelperStub.isNodeDos.returns(true);
       await appStartupManager.manageAppsOnBoot(KEEP);
 
-      sinon.assert.notCalled(fluxNetworkHelperStub.allowAppPortsIpv6);
+      sinon.assert.notCalled(fluxNetworkHelperStub.allowAppPorts);
     });
   });
 });

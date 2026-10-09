@@ -270,9 +270,9 @@ async function restoreFluxPortsSupport() {
 }
 
 /**
- * Restores applications' UPnP mappings. An app port's host firewall rule needs
- * no restoring: it admits IPv6 only, and ufw keeps it across restarts
- * (fluxNetworkHelper.allowAppPortsIpv6).
+ * Restores applications' UPnP mappings. An app port's host firewall rule is
+ * written at install and re-applied at boot (appStartupManager), and ufw keeps
+ * it across restarts.
  * @returns {Promise<void>}
  */
 async function restoreAppsPortsSupport() {
