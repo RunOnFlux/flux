@@ -20,9 +20,9 @@ async function notifyReady() {
   const { error } = await serviceHelper.runCommand('systemd-notify', { params: ['--ready'], logError: false });
   if (error) {
     log.warn(`systemd-notify --ready failed: ${error.message}`);
-  } else {
-    log.info('Readiness reported to systemd');
+    return false;
   }
+  log.info('Readiness reported to systemd');
   return true;
 }
 

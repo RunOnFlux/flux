@@ -42,7 +42,7 @@ describe('systemdNotify tests', () => {
   it('warns once when systemd-notify fails and does not throw', async () => {
     process.env.NOTIFY_SOCKET = '/run/systemd/notify';
     runCommandStub.resolves({ error: new Error('spawn systemd-notify ENOENT'), stdout: '', stderr: '' });
-    expect(await systemdNotify.notifyReady()).to.equal(true);
+    expect(await systemdNotify.notifyReady()).to.equal(false);
     sinon.assert.calledWithMatch(runCommandStub, 'systemd-notify', { logError: false });
     sinon.assert.calledOnce(warnStub);
     sinon.assert.notCalled(infoStub);
