@@ -1990,6 +1990,9 @@ function isFluxNetworkName(name) {
 
 /**
  * The bridges the container firewall names, read from Docker's network list.
+ * Docker lists networks in no fixed order, so each list is sorted: the chain
+ * built from them is the same for the same networks, and one that already
+ * matches is left alone.
  * @returns {Promise<{fluxBridges: string[], dockerBridges: string[]}>} fluxBridges:
  *   the bridge of each network FluxOS creates. dockerBridges: the bridge of every
  *   docker bridge network, docker0 included.
@@ -1997,8 +2000,8 @@ function isFluxNetworkName(name) {
 async function containerFirewallBridges() {
   const networks = (await docker.listNetworks()).filter((network) => network.Driver === 'bridge');
   return {
-    fluxBridges: networks.filter((network) => isFluxNetworkName(network.Name)).map(bridgeInterfaceName),
-    dockerBridges: networks.map(bridgeInterfaceName),
+    fluxBridges: networks.filter((network) => isFluxNetworkName(network.Name)).map(bridgeInterfaceName).sort(),
+    dockerBridges: networks.map(bridgeInterfaceName).sort(),
   };
 }
 

@@ -482,9 +482,20 @@ describe('dockerService tests', () => {
     it('lists the bridges of the networks FluxOS creates, by exact name, and of every docker bridge network', async () => {
       expect(await dockerService.containerFirewallBridges()).to.deep.equal({
         fluxBridges: ['br-111111111111', 'br-222222222222'],
-        dockerBridges: ['docker0', 'br-111111111111', 'br-222222222222', 'br-333333333333', 'br-444444444444'],
+        dockerBridges: ['br-111111111111', 'br-222222222222', 'br-333333333333', 'br-444444444444', 'docker0'],
       });
       expect(listNetworks.firstCall.args, 'the whole list, not a name filter').to.deep.equal([]);
+    });
+
+    it('lists the same bridges in the same order however Docker orders its networks', async () => {
+      const first = await dockerService.containerFirewallBridges();
+      listNetworks.resolves([...NETWORKS].reverse());
+      const second = await dockerService.containerFirewallBridges();
+      listNetworks.resolves([NETWORKS[3], NETWORKS[0], NETWORKS[6], NETWORKS[2], NETWORKS[5], NETWORKS[1], NETWORKS[4]]);
+      const third = await dockerService.containerFirewallBridges();
+
+      expect(second).to.deep.equal(first);
+      expect(third).to.deep.equal(first);
     });
 
     it('applies the chain for the networks Docker holds', async () => {
@@ -492,7 +503,7 @@ describe('dockerService tests', () => {
 
       sinon.assert.calledOnceWithExactly(apply, {
         fluxBridges: ['br-111111111111', 'br-222222222222'],
-        dockerBridges: ['docker0', 'br-111111111111', 'br-222222222222', 'br-333333333333', 'br-444444444444'],
+        dockerBridges: ['br-111111111111', 'br-222222222222', 'br-333333333333', 'br-444444444444', 'docker0'],
       });
     });
 
