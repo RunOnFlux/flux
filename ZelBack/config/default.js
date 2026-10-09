@@ -118,7 +118,11 @@ module.exports = {
   // startFluxFunctions, whose catch re-enters it.
   minimumNodeJsAllowedVersion: '20.8.0',
   minimumSyncthingAllowedVersion: '2.0.10',
-  minimumDockerAllowedVersion: '26.1.2',
+  // The Docker a node runs. From 28, Docker forwards a container's connection to
+  // a published port at the node's own address in the kernel, which the
+  // container firewall relies on; earlier releases answer it through
+  // docker-proxy on the host, behind the host firewall.
+  minimumDockerAllowedVersion: '28.0.0',
   fluxTeamFluxID: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   // A list, so support can be granted to (or revoked from) an identity without
   // touching every privilege check. A bare string is still read as a one entry

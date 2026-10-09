@@ -1021,6 +1021,94 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
+  describe('checkDockerVersionAllowed tests', () => {
+    // minimumDockerAllowedVersion = '28.0.0'
+    const { DOCKER_FLOOR, RESIDENTIAL_DOS } = fluxNetworkHelper.StickyDosOwner;
+
+    function helperWithFloor(floor) {
+      return proxyquire('../../ZelBack/src/services/fluxNetworkHelper', {
+        config: { ...config, minimumDockerAllowedVersion: floor },
+      });
+    }
+
+    afterEach(() => {
+      fluxNetworkHelper.clearStickyDos(DOCKER_FLOOR);
+      fluxNetworkHelper.clearStickyDos(RESIDENTIAL_DOS);
+      fluxNetworkHelper.setDosStateValue(0);
+      fluxNetworkHelper.setDosMessage(null);
+    });
+
+    it('allows the Docker the fleet runs', () => {
+      expect(fluxNetworkHelper.checkDockerVersionAllowed('29.3.1')).to.equal(true);
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+    });
+
+    it('allows the floor itself', () => {
+      expect(fluxNetworkHelper.checkDockerVersionAllowed('28.0.0')).to.equal(true);
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+    });
+
+    it('takes a node below the floor out of service, and says which version it found and what to do', () => {
+      expect(fluxNetworkHelper.checkDockerVersionAllowed('27.5.1')).to.equal(false);
+      const reported = fluxNetworkHelper.getDOSState().data;
+      expect(reported.dosMessage).to.include('28.0.0');
+      expect(reported.dosMessage).to.include('27.5.1');
+      expect(reported.dosMessage).to.include('restart FluxOS');
+      expect(reported.dosState).to.equal(100);
+    });
+
+    it('refuses every release below the floor the fleet still runs', () => {
+      ['26.1.3', '26.1.4', '27.3.1', '27.99.99'].forEach((version) => {
+        fluxNetworkHelper.clearStickyDos(DOCKER_FLOOR);
+        expect(fluxNetworkHelper.checkDockerVersionAllowed(version), version).to.equal(false);
+      });
+    });
+
+    it('gives no verdict when Docker did not report its version', () => {
+      expect(fluxNetworkHelper.checkDockerVersionAllowed(null)).to.equal(true);
+      expect(fluxNetworkHelper.checkDockerVersionAllowed(undefined)).to.equal(true);
+      expect(fluxNetworkHelper.checkDockerVersionAllowed('')).to.equal(true);
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+      expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(0);
+    });
+
+    it('survives the clear a successful availability pass performs', () => {
+      fluxNetworkHelper.checkDockerVersionAllowed('27.5.1');
+
+      fluxNetworkHelper.setDosStateValue(0);
+      fluxNetworkHelper.setDosMessage(null);
+
+      const reported = fluxNetworkHelper.getDOSState().data;
+      expect(reported.dosMessage).to.include('27.5.1');
+      expect(reported.dosState).to.equal(100);
+    });
+
+    it('allows when no floor is configured, or it is empty, on a version a floor would refuse', () => {
+      expect(helperWithFloor(undefined).checkDockerVersionAllowed('26.1.3')).to.equal(true);
+      expect(helperWithFloor('').checkDockerVersionAllowed('26.1.3')).to.equal(true);
+    });
+
+    it('refuses on the loaded floor, so the instance is reading the one it was given', () => {
+      const helper = helperWithFloor('28.0.0');
+
+      expect(helper.checkDockerVersionAllowed('26.1.3')).to.equal(false);
+      expect(helper.getDOSState().data.dosState).to.equal(100);
+      helper.clearStickyDos(DOCKER_FLOOR);
+    });
+
+    it("records its verdict beside another owner's, and outlives that owner's release", () => {
+      const theirs = 'Residential node not running ArcaneOS. Migrate this node to ArcaneOS or move it to a data center connection.';
+      fluxNetworkHelper.setStickyDos(RESIDENTIAL_DOS, theirs);
+      fluxNetworkHelper.checkDockerVersionAllowed('27.5.1');
+
+      fluxNetworkHelper.clearStickyDos(RESIDENTIAL_DOS);
+
+      const reported = fluxNetworkHelper.getDOSState().data;
+      expect(reported.dosMessage).to.include('27.5.1');
+      expect(reported.dosState).to.equal(100);
+    });
+  });
+
   describe('checkFluxbenchVersionAllowed tests', () => {
     // minimumFluxBenchAllowedVersion = '6.2.0';
     let benchmarkInfoResponseStub;

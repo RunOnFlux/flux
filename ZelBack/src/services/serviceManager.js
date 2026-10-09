@@ -271,6 +271,10 @@ async function startFluxFunctions() {
     // Hard dependencies — nothing starts until these are confirmed.
     await dbHelper.waitForMongo();
     await dockerService.waitForDocker();
+    // As soon as Docker answers, before the container firewall is applied: a
+    // below-floor node stays up holding a sticky DOS, so /flux/info names the
+    // version found and the version required.
+    fluxNetworkHelper.checkDockerVersionAllowed(await dockerService.dockerVersion().then((version) => version.Version, () => null));
     // Before any work that a restart would cut short: a registration that
     // needs its kill timeout raised restarts FluxOS, and this waits for it.
     await fluxService.ensurePm2KillTimeout();

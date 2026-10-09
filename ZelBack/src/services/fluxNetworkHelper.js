@@ -60,6 +60,7 @@ const StickyDosOwner = Object.freeze({
   APP_TAMPERING: 'appTampering',
   PEER_SET_STABILITY: 'peerSetStability',
   NODEJS_FLOOR: 'nodejsFloor',
+  DOCKER_FLOOR: 'dockerFloor',
 });
 
 // Declares the node unfit for the apps it already runs, and is not moved by the
@@ -1223,6 +1224,42 @@ function checkNodeJsVersionAllowed() {
   setStickyDos(
     StickyDosOwner.NODEJS_FLOOR,
     `NodeJS Version Error. Current lower version allowed is v${minimumVersion} found v${nodeJsVersion}`,
+  );
+  return false;
+}
+
+/**
+ * Whether the Docker this node runs meets the network minimum. The container
+ * firewall relies on Docker forwarding a container's connection to a published
+ * port at the node's own address in the kernel, as it does from 28; below that
+ * Docker answers it through docker-proxy on the host instead, behind the host
+ * firewall, where an app port holds no IPv4 rule.
+ *
+ * Asked once, when Docker first answers at startup. Upgrading Docker restarts
+ * Docker, not FluxOS, so the verdict stands until FluxOS next starts, and the
+ * message says so. A version that could not be read gives no verdict: a Docker
+ * API failing for a moment is not a node below the floor.
+ * @param {?string} dockerVersion The version Docker reports, or null when it
+ *   could not be read.
+ * @returns {boolean} True unless the version is known and below the floor.
+ */
+function checkDockerVersionAllowed(dockerVersion) {
+  const minimumVersion = config.minimumDockerAllowedVersion;
+  // As with the NodeJS floor: no floor configured allows, never refuses.
+  if (!minimumVersion) {
+    log.error('checkDockerVersionAllowed - no minimum Docker version configured, skipping the check');
+    return true;
+  }
+  if (!dockerVersion) {
+    log.error('checkDockerVersionAllowed - Docker did not report its version, no verdict');
+    return true;
+  }
+  if (serviceHelper.minVersionSatisfy(dockerVersion, minimumVersion)) {
+    return true;
+  }
+  setStickyDos(
+    StickyDosOwner.DOCKER_FLOOR,
+    `Docker Version Error. Current lower version allowed is v${minimumVersion} found v${dockerVersion}. Upgrade Docker and restart FluxOS`,
   );
   return false;
 }
@@ -2750,6 +2787,7 @@ module.exports = {
   closeIncomingConnection,
   checkFluxbenchVersionAllowed,
   checkNodeJsVersionAllowed,
+  checkDockerVersionAllowed,
   checkMyFluxAvailability,
   adjustExternalIP,
   setOnAddressChanged,
