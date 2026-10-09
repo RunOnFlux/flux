@@ -131,11 +131,12 @@ describe('2502 app containers are kept off private networks and off each other\'
     return stdout.trim();
   }
 
-  // A docker network's bridge, as Docker names it.
+  // A docker network's bridge, as Docker names it: its bridge.name option, else br- and
+  // the first 12 characters of its id.
   async function bridgeOf(network) {
-    const { stdout } = await inNode(`docker network inspect -f '{{index .Options "com.docker.network.bridge.name"}} {{.Id}}' ${network}`);
-    const [option, id] = stdout.trim().split(' ').length === 2 ? stdout.trim().split(' ') : ['', stdout.trim()];
-    return option || `br-${id.slice(0, 12)}`;
+    const { stdout } = await inNode(`docker network inspect -f '{{json .Options}} {{.Id}}' ${network}`);
+    const [options, id] = stdout.trim().split(' ');
+    return JSON.parse(options)['com.docker.network.bridge.name'] || `br-${id.slice(0, 12)}`;
   }
 
   async function tcpAnswer(name, host, port) {
@@ -194,18 +195,21 @@ describe('2502 app containers are kept off private networks and off each other\'
   // What nc said, for an assertion message: its exit code and its error output.
   const ncSaid = ({ exitCode, stderr }) => `nc exit ${exitCode}: ${(stderr || '').trim()}`;
 
+  // A UDP responder: answers each datagram with "ok", one nc after another.
+  const udpResponder = (bb, port) => `${bb} sh -c "while true; do echo ok | ${bb} nc -u -l -p ${port} -w 1; done"`;
+
   // An app container serving TCP 8080, 8100 and 53 and UDP 9001.
   const serving = (name, network, extra = '') => `docker run -d --name ${name} --network ${network} ${extra} --entrypoint /bin/busybox ${image} sh -c '`
     + `/bin/busybox nc -lk -p ${TCP_PORT} -e /bin/busybox echo ok & /bin/busybox nc -lk -p ${UNPUBLISHED_PORT} -e /bin/busybox echo ok & `
-    + `/bin/busybox nc -lk -p 53 -e /bin/busybox echo ok & /bin/busybox udpsvd 0 ${UDP_PORT} /bin/busybox echo ok & exec /bin/busybox sleep 2147483647' >/dev/null`;
+    + `/bin/busybox nc -lk -p 53 -e /bin/busybox echo ok & ${udpResponder('/bin/busybox', UDP_PORT)} & exec /bin/busybox sleep 2147483647' >/dev/null`;
 
   // A host on one of the owner's LANs, in a namespace of its own, serving TCP 8080 and 53
   // and UDP 9001 and 53.
   const lanHost = (ns) => [
     `ip netns exec ${ns} setsid ${BUSYBOX} nc -lk -p ${TCP_PORT} -e ${BUSYBOX} echo ok >/dev/null 2>&1 &`,
     `ip netns exec ${ns} setsid ${BUSYBOX} nc -lk -p 53 -e ${BUSYBOX} echo ok >/dev/null 2>&1 &`,
-    `ip netns exec ${ns} setsid ${BUSYBOX} udpsvd 0 ${UDP_PORT} ${BUSYBOX} echo ok >/dev/null 2>&1 &`,
-    `ip netns exec ${ns} setsid ${BUSYBOX} udpsvd 0 53 ${BUSYBOX} echo ok >/dev/null 2>&1 &`,
+    `ip netns exec ${ns} setsid ${udpResponder(BUSYBOX, UDP_PORT)} >/dev/null 2>&1 &`,
+    `ip netns exec ${ns} setsid ${udpResponder(BUSYBOX, 53)} >/dev/null 2>&1 &`,
   ];
 
   before(async function hook() {
