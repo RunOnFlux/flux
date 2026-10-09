@@ -67,6 +67,10 @@
  *   AAAA never answered, A answered                RESOLUTION_DELAY_MS           IPv4 addresses
  *   AAAA answered first, A answered later          the A answer                  IPv4 and IPv6
  *   AAAA answered SERVFAIL, A answered             the server's answer           IPv4 addresses
+ *   A not answered, AAAA answered SERVFAIL or      a query wait, 1-2 s / 2 s,    public's addresses
+ *   with no records, by a working server           a probe, the public servers
+ *   a server that answers no A query and fails     a query + a probe, 2 s /      public's addresses
+ *   every AAAA query: the lookup that finds it     4-5 s; later lookups as down
  *   name does not exist (/etc/hosts not read)      the server's answer           ENOTFOUND
  *   name a working system server does not answer   a query wait, 1 s / 3 s,      public's addresses
  *   within the query wait                          then the public servers
