@@ -299,8 +299,8 @@ async function initiate() {
   log.info(`Flux listening on port ${apiPort}!`);
   log.info(`Flux https listening on port ${apiPortHttps}!`);
   // Ready means the API answers. Mongo, Docker and fluxd come up behind this,
-  // each with its own unit.
-  await systemdNotify.notifyReady();
+  // each with its own unit. Not awaited: nothing below depends on it.
+  systemdNotify.notifyReady();
 
   setAxiosDefaults([httpServer.socketIo, httpsServer.socketIo]);
 

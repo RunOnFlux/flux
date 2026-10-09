@@ -806,6 +806,15 @@ describe('apiServer initiate readiness', () => {
     sinon.assert.callOrder(listen, notifyReady, startFluxFunctions);
   });
 
+  it('does not hold startup on the readiness report', async () => {
+    notifyReady.returns(new Promise(() => {}));
+
+    await apiServer.initiate();
+
+    sinon.assert.calledOnce(notifyReady);
+    sinon.assert.calledOnce(startFluxFunctions);
+  });
+
   it('reports nothing when the API cannot listen', async () => {
     listen.rejects(new Error('EADDRINUSE'));
     sinon.stub(serviceHelper, 'delay').resolves();
