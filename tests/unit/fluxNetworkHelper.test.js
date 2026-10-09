@@ -3419,8 +3419,10 @@ describe('fluxNetworkHelper tests', () => {
     const liveChain = (rules) => runCommandStub.withArgs('iptables', iptablesCall(['-S', 'DOCKER-USER']))
       .resolves({ error: null, stdout: ['-N DOCKER-USER', ...rules, ''].join('\n'), stderr: '' });
 
-    it('matches packets by the docker bridge they come from, never by source address', () => {
-      const rules = fluxNetworkHelper.containerEgressRules();
+    const BRIDGES = { fluxBridges: ['br-aaaaaaaaaaaa', 'br-bbbbbbbbbbbb'], dockerBridges: ['docker0', 'br-aaaaaaaaaaaa', 'br-bbbbbbbbbbbb', 'br-cccccccccccc'] };
+
+    it('matches packets out of a container by the docker bridge they come from, never by source address', () => {
+      const rules = fluxNetworkHelper.containerEgressRules(BRIDGES);
 
       expect(rules.filter((rule) => / -s /.test(rule))).to.deep.equal([]);
       ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '169.254.0.0/16', '198.18.0.0/15', '240.0.0.0/4'].forEach((network) => {
@@ -3429,38 +3431,71 @@ describe('fluxNetworkHelper tests', () => {
       });
     });
 
-    it('returns replies, traffic to a container and DNS before any drop', () => {
-      const rules = fluxNetworkHelper.containerEgressRules();
-      const firstDrop = rules.findIndex((rule) => rule.endsWith('-j DROP'));
-      const before = rules.slice(0, firstDrop);
+    it('lets traffic into a container through only on docker0 and each FluxOS network, within the network or to a published port', () => {
+      const rules = fluxNetworkHelper.containerEgressRules(BRIDGES);
 
-      expect(rules[0]).to.equal('-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN');
-      expect(before).to.include('-A DOCKER-USER -d 172.23.0.0/16 -j RETURN');
-      expect(before).to.include('-A DOCKER-USER -o docker0 -j RETURN');
-      expect(rules.filter((rule) => /physdev/.test(rule))).to.deep.equal([]);
-      // A host interface can carry a name like br-<id>; only docker0 is Docker's alone.
-      expect(rules.filter((rule) => / -o /.test(rule)), 'rules matching where a packet goes').to.deep.equal(['-A DOCKER-USER -o docker0 -j RETURN']);
+      expect(rules.slice(0, 7)).to.deep.equal([
+        '-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN',
+        '-A DOCKER-USER -i docker0 -o docker0 -j RETURN',
+        '-A DOCKER-USER -o docker0 -m conntrack --ctstate DNAT -j RETURN',
+        '-A DOCKER-USER -i br-aaaaaaaaaaaa -o br-aaaaaaaaaaaa -j RETURN',
+        '-A DOCKER-USER -o br-aaaaaaaaaaaa -m conntrack --ctstate DNAT -j RETURN',
+        '-A DOCKER-USER -i br-bbbbbbbbbbbb -o br-bbbbbbbbbbbb -j RETURN',
+        '-A DOCKER-USER -o br-bbbbbbbbbbbb -m conntrack --ctstate DNAT -j RETURN',
+      ]);
+      const returnsInto = rules.filter((rule) => / -o /.test(rule) && rule.endsWith('-j RETURN'));
+      expect(returnsInto, 'no exception for a network FluxOS did not create').to.not.satisfy((list) => list.some((rule) => rule.includes('br-cccccccccccc')));
+      expect(rules.filter((rule) => /-d 172\.23\./.test(rule)), 'no exception by address').to.deep.equal([]);
+      expect(rules.filter((rule) => /br-\+/.test(rule) && / -o /.test(rule)), 'no exception by a bridge name pattern').to.deep.equal([]);
+    });
+
+    it('drops everything else headed into any docker network, ahead of the DNS exception', () => {
+      const rules = fluxNetworkHelper.containerEgressRules(BRIDGES);
+      const intoDrops = BRIDGES.dockerBridges.map((bridge) => `-A DOCKER-USER -o ${bridge} -j DROP`);
+      const lastException = Math.max(...rules.map((rule, i) => (/conntrack --ctstate DNAT/.test(rule) ? i : -1)));
+      const firstDns = rules.findIndex((rule) => /--dport 53/.test(rule));
+
+      expect(rules.slice(lastException + 1, lastException + 1 + intoDrops.length)).to.deep.equal(intoDrops);
+      expect(firstDns).to.be.above(lastException + intoDrops.length);
+    });
+
+    it('returns DNS from any container before the non-public drops, uses no physdev match, and ends by returning', () => {
+      const rules = fluxNetworkHelper.containerEgressRules(BRIDGES);
+      const firstRangeDrop = rules.findIndex((rule) => / -d /.test(rule) && rule.endsWith('-j DROP'));
+
       ['docker0', 'br-+'].forEach((bridge) => ['udp', 'tcp'].forEach((proto) => {
-        expect(before).to.include(`-A DOCKER-USER -i ${bridge} -p ${proto} -m ${proto} --dport 53 -j RETURN`);
+        expect(rules.indexOf(`-A DOCKER-USER -i ${bridge} -p ${proto} -m ${proto} --dport 53 -j RETURN`)).to.be.within(0, firstRangeDrop);
       }));
+      expect(rules.filter((rule) => /physdev/.test(rule))).to.deep.equal([]);
       expect(rules[rules.length - 1]).to.equal('-A DOCKER-USER -j RETURN');
+    });
+
+    it('names only docker0 when FluxOS has no network yet', () => {
+      const rules = fluxNetworkHelper.containerEgressRules({ fluxBridges: [], dockerBridges: ['docker0'] });
+
+      expect(rules.slice(0, 4)).to.deep.equal([
+        '-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN',
+        '-A DOCKER-USER -i docker0 -o docker0 -j RETURN',
+        '-A DOCKER-USER -o docker0 -m conntrack --ctstate DNAT -j RETURN',
+        '-A DOCKER-USER -o docker0 -j DROP',
+      ]);
     });
 
     it('replaces the whole chain in one iptables-restore when it differs', async () => {
       liveChain(['-A DOCKER-USER -s 172.23.0.0/16 -d 10.0.0.0/8 -j DROP']);
 
-      const res = await fluxNetworkHelper.applyContainerEgressRules();
+      const res = await fluxNetworkHelper.applyContainerEgressRules(BRIDGES);
 
       expect(res).to.equal(true);
       sinon.assert.calledWith(runCommandStub, 'iptables-restore', sinon.match({ runAsRoot: true, params: sinon.match.array.startsWith(['--noflush']) }));
-      expect(written.split('\n')).to.deep.equal(['*filter', ':DOCKER-USER - [0:0]', ...fluxNetworkHelper.containerEgressRules(), 'COMMIT', '']);
+      expect(written.split('\n')).to.deep.equal(['*filter', ':DOCKER-USER - [0:0]', ...fluxNetworkHelper.containerEgressRules(BRIDGES), 'COMMIT', '']);
       sinon.assert.calledOnceWithExactly(publishStub, 'firewall:containerEgressApplied', {});
     });
 
     it('writes nothing when the chain already matches', async () => {
-      liveChain(fluxNetworkHelper.containerEgressRules());
+      liveChain(fluxNetworkHelper.containerEgressRules(BRIDGES));
 
-      const res = await fluxNetworkHelper.applyContainerEgressRules();
+      const res = await fluxNetworkHelper.applyContainerEgressRules(BRIDGES);
 
       expect(res).to.equal(true);
       sinon.assert.neverCalledWith(runCommandStub, 'iptables-restore');
@@ -3470,7 +3505,7 @@ describe('fluxNetworkHelper tests', () => {
     it('reports failure when the restore fails', async () => {
       runCommandStub.withArgs('iptables-restore').resolves({ error: new Error('restore failed'), stdout: '', stderr: '' });
 
-      const res = await fluxNetworkHelper.applyContainerEgressRules();
+      const res = await fluxNetworkHelper.applyContainerEgressRules(BRIDGES);
 
       expect(res).to.equal(false);
       sinon.assert.notCalled(publishStub);
@@ -3479,7 +3514,7 @@ describe('fluxNetworkHelper tests', () => {
     it('reports failure, not a rejection, when the rules file cannot be written', async () => {
       fs.writeFile.rejects(new Error('ENOSPC'));
 
-      const res = await fluxNetworkHelper.applyContainerEgressRules();
+      const res = await fluxNetworkHelper.applyContainerEgressRules(BRIDGES);
 
       expect(res).to.equal(false);
       sinon.assert.neverCalledWith(runCommandStub, 'iptables-restore');
@@ -3487,15 +3522,15 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('puts back a missing FORWARD jump to DOCKER-USER, and only then', async () => {
-      liveChain(fluxNetworkHelper.containerEgressRules());
+      liveChain(fluxNetworkHelper.containerEgressRules(BRIDGES));
       runCommandStub.withArgs('iptables', iptablesCall(['-C', 'FORWARD', '-j', 'DOCKER-USER'])).resolves({ error: new Error('missing'), stdout: '', stderr: '' });
 
-      await fluxNetworkHelper.applyContainerEgressRules();
+      await fluxNetworkHelper.applyContainerEgressRules(BRIDGES);
       sinon.assert.calledWith(runCommandStub, 'iptables', iptablesCall(['-I', 'FORWARD', '-j', 'DOCKER-USER']));
 
       runCommandStub.resetHistory();
       runCommandStub.withArgs('iptables', iptablesCall(['-C', 'FORWARD', '-j', 'DOCKER-USER'])).resolves({ error: null, stdout: '', stderr: '' });
-      await fluxNetworkHelper.applyContainerEgressRules();
+      await fluxNetworkHelper.applyContainerEgressRules(BRIDGES);
       sinon.assert.neverCalledWith(runCommandStub, 'iptables', iptablesCall(['-I', 'FORWARD', '-j', 'DOCKER-USER']));
     });
   });

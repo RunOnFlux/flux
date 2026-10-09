@@ -250,9 +250,9 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
  * (docker prune, daemon restart) must be re-created before any container can be
  * re-created onto it.
  *
- * When the network already exists this returns EARLY, with no allocation. No
- * firewall work happens either way: the node-wide DOCKER-USER rules match every
- * docker bridge, a new one included.
+ * When the network already exists this returns EARLY, with no allocation.
+ * Creating the network re-applies the container firewall with its bridge
+ * (dockerService.dockerCreateNetwork) before any container is created on it.
  *
  * Allocation is deterministic (lowest free octet) but collision-safe: many heals can
  * run concurrently after a mass prune, so a create that loses its octet to another

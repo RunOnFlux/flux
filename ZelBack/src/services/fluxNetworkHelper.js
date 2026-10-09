@@ -2489,8 +2489,8 @@ async function purgeUFW() {
   }
 }
 
-// Docker's own bridges: the default one and every user-defined network,
-// whichever app it belongs to.
+// The bridges a container's traffic can come from: the default one and every
+// user-defined docker network.
 const containerBridges = ['docker0', 'br-+'];
 // Addresses an app container may not reach beyond its own node: every
 // non-public IPv4 range, the node owner's private networks and a cloud host's
@@ -2501,33 +2501,38 @@ const containerBlockedNetworks = NON_PUBLIC_IPV4;
 /**
  * The DOCKER-USER chain, as `iptables -S DOCKER-USER` prints it.
  *
- * The chain governs traffic from a container to anything that is not a
- * container on this node. Traffic to a container - an app network's address,
- * or out to docker0 - is returned to Docker's own rules, which pass it within
- * one network and drop it between networks unless it is for a published port,
- * whose address Docker has already rewritten to the container's (Docker's
- * documented bridge isolation). The drops below therefore never see
- * container-to-container traffic, whether or not the br_netfilter kernel module
- * sends bridged traffic through iptables, and a host interface whose name
- * resembles a docker bridge's leads nowhere they do not cover.
+ * Traffic into a container is let through only on FluxOS's own networks (the
+ * default bridge docker0 and each network FluxOS creates): traffic that stays
+ * on the network it came from, and connections to a published port, whose
+ * destination Docker has rewritten to the container's (conntrack state DNAT).
+ * Everything else headed into any docker network is dropped: one app network
+ * reaches another only through a published port at the node's address, and a
+ * network FluxOS did not create receives nothing it did not ask for. These
+ * rules name each bridge, so a host interface named like a docker bridge gets
+ * no exception, and they hold whether or not Docker's own isolation rules are
+ * present and whether or not the br_netfilter kernel module sends bridged
+ * traffic through iptables.
  *
- * A packet's origin is matched by the bridge it comes from, never by its source
- * address, so a container cannot leave the drops by forging its source. A host
- * bridge named like a docker one is treated as a container's, so the drops also
- * stop traffic the host forwards from it to a non-public address. DNS stays
- * open to every private address, for a node owner who runs their own resolver.
+ * Traffic from a container to anywhere else is matched by the bridge it comes
+ * from, never by its source address, so a container cannot leave the drops by
+ * forging its source; every non-public range is dropped. DNS stays open to
+ * every private address, for a node owner who runs their own resolver.
  *
  * No rule uses the physdev match: the kernel loads br_netfilter the first time
  * a physdev rule is added, which sends bridged traffic on every bridge on the
  * host - an operator's VMs included - through iptables.
+ * @param {{fluxBridges: string[], dockerBridges: string[]}} bridges fluxBridges:
+ *   the bridge of each network FluxOS creates, docker0 aside. dockerBridges: the
+ *   bridge of every docker bridge network, docker0 included.
  * @returns {string[]}
  */
-function containerEgressRules() {
-  const rules = [
-    '-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN',
-    `-A DOCKER-USER -d ${fluxAppDockerNetworks} -j RETURN`,
-    '-A DOCKER-USER -o docker0 -j RETURN',
-  ];
+function containerEgressRules({ fluxBridges, dockerBridges }) {
+  const rules = ['-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN'];
+  ['docker0', ...fluxBridges].forEach((bridge) => {
+    rules.push(`-A DOCKER-USER -i ${bridge} -o ${bridge} -j RETURN`);
+    rules.push(`-A DOCKER-USER -o ${bridge} -m conntrack --ctstate DNAT -j RETURN`);
+  });
+  dockerBridges.forEach((bridge) => rules.push(`-A DOCKER-USER -o ${bridge} -j DROP`));
   containerBridges.forEach((bridge) => {
     ['udp', 'tcp'].forEach((proto) => rules.push(`-A DOCKER-USER -i ${bridge} -p ${proto} -m ${proto} --dport 53 -j RETURN`));
   });
@@ -2539,14 +2544,17 @@ function containerEgressRules() {
 }
 
 /**
- * Keeps app containers off private and link-local networks. The DOCKER-USER
- * chain is replaced in one iptables-restore transaction, so no moment passes
- * without its rules, and is left untouched when it already matches. Docker
- * never writes DOCKER-USER, and its FORWARD jump is put back if missing.
+ * Keeps app containers off private and link-local networks and off each
+ * other's networks. The DOCKER-USER chain is replaced in one iptables-restore
+ * transaction, so no moment passes without its rules, and is left untouched
+ * when it already matches. Docker never writes DOCKER-USER, and its FORWARD
+ * jump is put back if missing.
+ * @param {{fluxBridges: string[], dockerBridges: string[]}} bridges As
+ *   containerEgressRules takes them.
  * @returns {Promise<boolean>} True when the chain is in place. Never rejects.
  */
-async function applyContainerEgressRules() {
-  const desired = containerEgressRules();
+async function applyContainerEgressRules(bridges) {
+  const desired = containerEgressRules(bridges);
   const { stdout: current, error: readError } = await serviceHelper.runCommand('iptables', {
     runAsRoot: true, logError: false, params: ['-S', 'DOCKER-USER'],
   });

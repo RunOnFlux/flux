@@ -117,6 +117,7 @@ function getAppDockerNameIdentifier(appName) {
  */
 async function dockerCreateNetwork(options) {
   const network = await docker.createNetwork(options);
+  await applyContainerFirewall();
   return network;
 }
 
@@ -129,6 +130,7 @@ async function dockerCreateNetwork(options) {
  */
 async function dockerRemoveNetwork(netw) {
   const network = await netw.remove();
+  await applyContainerFirewall();
   return network;
 }
 
@@ -1967,6 +1969,65 @@ async function createFluxDockerNetwork() {
 }
 
 /**
+ * The interface of a docker bridge network: its com.docker.network.bridge.name
+ * option when set, as on the default network (docker0), else br- and the first
+ * 12 characters of its id.
+ * @param {{Id: string, Options?: Object<string, string>}} network
+ * @returns {string}
+ */
+function bridgeInterfaceName(network) {
+  return (network.Options && network.Options['com.docker.network.bridge.name']) || `br-${network.Id.slice(0, 12)}`;
+}
+
+/**
+ * Whether a network is one FluxOS creates: the system network or an app's.
+ * @param {string} name
+ * @returns {boolean}
+ */
+function isFluxNetworkName(name) {
+  return name === 'fluxDockerNetwork' || name.startsWith('fluxDockerNetwork_');
+}
+
+/**
+ * The bridges the container firewall names, read from Docker's network list.
+ * @returns {Promise<{fluxBridges: string[], dockerBridges: string[]}>} fluxBridges:
+ *   the bridge of each network FluxOS creates. dockerBridges: the bridge of every
+ *   docker bridge network, docker0 included.
+ */
+async function containerFirewallBridges() {
+  const networks = (await docker.listNetworks()).filter((network) => network.Driver === 'bridge');
+  return {
+    fluxBridges: networks.filter((network) => isFluxNetworkName(network.Name)).map(bridgeInterfaceName),
+    dockerBridges: networks.map(bridgeInterfaceName),
+  };
+}
+
+let containerFirewallRuns = Promise.resolve();
+
+/**
+ * Applies the container firewall for the networks Docker holds now. Runs one at
+ * a time, each reading the network list afresh, so a run that begins after a
+ * network is created or removed accounts for it. When Docker does not answer,
+ * the chain is left as it is.
+ * @returns {Promise<boolean>} True when the chain is in place. Never rejects.
+ */
+function applyContainerFirewall() {
+  const run = async () => {
+    let bridges;
+    try {
+      bridges = await containerFirewallBridges();
+    } catch (error) {
+      log.error(`IPTABLES: docker networks unreadable, DOCKER-USER left as it is: ${error.message}`);
+      return false;
+    }
+    return fluxNetworkHelper.applyContainerEgressRules(bridges);
+  };
+  const result = containerFirewallRuns.then(run, run);
+  containerFirewallRuns = result.catch(() => {});
+  return result;
+}
+
+/**
  *
  * @returns {Promise<Docker.NetworkInspectInfo[]>}
  */
@@ -2450,6 +2511,9 @@ module.exports = {
   appDockerStart,
   appDockerStop,
   appDockerTop,
+  applyContainerFirewall,
+  bridgeInterfaceName,
+  containerFirewallBridges,
   createFluxAppDockerNetwork,
   createFluxDockerNetwork,
   dockerContainerChanges,
