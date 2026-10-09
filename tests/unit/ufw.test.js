@@ -3,12 +3,15 @@ const sinon = require('sinon');
 
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const ufw = require('../../ZelBack/src/services/utils/ufw');
+const ufwHelper = require('../../ZelBack/src/services/utils/ufwHelper');
 
 describe('ufw runner', () => {
   let runCommand;
 
   beforeEach(() => {
     runCommand = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: 'Rule added\n', stderr: '' });
+    // The installed copy of the helper is the one to run (utils/ufwHelper has its own tests).
+    sinon.stub(ufwHelper, 'path').resolves(ufwHelper.UFW_HELPER);
   });
 
   afterEach(() => {

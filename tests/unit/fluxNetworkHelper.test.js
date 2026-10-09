@@ -41,6 +41,7 @@ const { requireMongo } = require('./dbTestHelper');
 const upnpService = require('../../ZelBack/src/services/upnpService');
 const geolocationService = require('../../ZelBack/src/services/geolocationService');
 const ufw = require('../../ZelBack/src/services/utils/ufw');
+const ufwHelper = require('../../ZelBack/src/services/utils/ufwHelper');
 
 /**
  * A UDP socket whose connect resolves to a source address, or fails.
@@ -72,6 +73,8 @@ describe('fluxNetworkHelper tests', () => {
     sinon.stub(upnpService, 'isUPNP').returns(false);
     sinon.stub(upnpService, 'removeMapUpnpPort').resolves(true);
     sinon.stub(upnpService, 'mapUpnpPort').resolves(true);
+    // The installed copy of the ufw helper is the one to run (utils/ufwHelper has its own tests).
+    sinon.stub(ufwHelper, 'path').resolves(ufwHelper.UFW_HELPER);
   });
 
   afterEach(() => {
@@ -2810,7 +2813,7 @@ describe('fluxNetworkHelper tests', () => {
   describe('adjustFirewall tests', () => {
     // api, home, ssl and syncthing ports, http(s), fluxd, then every flux api port
     const ports = () => ['16127', '16126', '16128', '16129', '80', '443', '16125', ...config.server.allowedPorts.map(String)];
-    const applierCall = sinon.match({ runAsRoot: true, params: sinon.match((params) => /helpers\/ufw\/apply-node-firewall\.py$/.test(params[0]) && params.includes('--rules')) });
+    const applierCall = sinon.match({ runAsRoot: true, params: sinon.match((params) => params[0] === ufwHelper.UFW_HELPER && params.includes('--rules')) });
     let runCommandStub;
     let publishStub;
     let warnSpy;

@@ -1,6 +1,6 @@
 const fs = require('node:fs/promises');
-const path = require('node:path');
 const serviceHelper = require('../serviceHelper');
+const ufwHelper = require('./ufwHelper');
 
 // How long FluxOS waits on ufw's lock. ufw's slowest ordinary hold, a reload
 // of ~100 rules, is under 2 s, so a lock held this long is held by a command
@@ -12,7 +12,7 @@ const UFW_LOCK_UNAVAILABLE = 75;
 const UFW_LIBRARY_UNUSABLE = 69;
 
 // Changes ufw's rules with ufw's lock taken before the rules are read.
-const UFW_HELPER = path.join(__dirname, '../../../../helpers/ufw/apply-node-firewall.py');
+const { UFW_HELPER } = ufwHelper;
 
 let previous = Promise.resolve();
 
@@ -44,7 +44,7 @@ async function runUfw(params) {
     const ran = await serviceHelper.runCommand('python3', {
       runAsRoot: true,
       logError: false,
-      params: [UFW_HELPER, '--wait', String(UFW_LOCK_WAIT_MS / 1000), '--command', JSON.stringify(params)],
+      params: [await ufwHelper.path(), '--wait', String(UFW_LOCK_WAIT_MS / 1000), '--command', JSON.stringify(params)],
       timeout: 2 * UFW_LOCK_WAIT_MS,
     });
     if (ran.error?.code !== UFW_LIBRARY_UNUSABLE) return ran;
@@ -78,7 +78,7 @@ async function runUfwCommands(commands) {
     const ran = await serviceHelper.runCommand('python3', {
       runAsRoot: true,
       logError: false,
-      params: [UFW_HELPER, '--wait', String(UFW_LOCK_WAIT_MS / 1000), '--keep-outbound', '--rules', JSON.stringify(commands)],
+      params: [await ufwHelper.path(), '--wait', String(UFW_LOCK_WAIT_MS / 1000), '--keep-outbound', '--rules', JSON.stringify(commands)],
       timeout: 2 * UFW_LOCK_WAIT_MS,
     });
     if (ran.error?.code === UFW_LOCK_UNAVAILABLE || ran.error?.killed) return { failed: [], locked: true };

@@ -26,6 +26,7 @@ const networkStateService = require('./networkStateService');
 const fluxEventBus = require('./utils/fluxEventBus');
 const { NON_PUBLIC_IPV4 } = require('./utils/nonPublicNetworks');
 const ufw = require('./utils/ufw');
+const ufwHelper = require('./utils/ufwHelper');
 const {
   normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch, parseSocketAddress, ipsMatch,
 } = require('./utils/socketAddressUtils');
@@ -2393,10 +2394,10 @@ async function adjustFirewall() {
     }
     const rules = await nodeFirewallRules();
 
-    const { stdout, stderr, error } = await ufw.oneAtATime(() => serviceHelper.runCommand('python3', {
+    const { stdout, stderr, error } = await ufw.oneAtATime(async () => serviceHelper.runCommand('python3', {
       runAsRoot: true,
       logError: false,
-      params: [ufw.UFW_HELPER, '--wait', String(ufw.UFW_LOCK_WAIT_MS / 1000), '--rules', JSON.stringify(rules)],
+      params: [await ufwHelper.path(), '--wait', String(ufw.UFW_LOCK_WAIT_MS / 1000), '--rules', JSON.stringify(rules)],
       timeout: 2 * ufw.UFW_LOCK_WAIT_MS,
     }));
     if (error?.code === ufw.UFW_LOCK_UNAVAILABLE) {
