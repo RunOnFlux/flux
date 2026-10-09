@@ -505,6 +505,28 @@ describe('2401 legacy node maintenance access', function suite() {
     expect(stdout.trim(), `nothing listening on ${SSH_PORT}`).to.not.equal('');
   });
 
+  // systemd's per-trigger rate limit fails an Accept=yes socket on a connection
+  // burst; off, with the connection count capped instead, a burst cannot take
+  // maintenance access offline.
+  it('serves the maintenance socket with its rate limit off and its connections capped', async () => {
+    // one property per call: `systemctl show --value` returns multiple -p in
+    // systemd's own order, not the order asked for
+    const trigger = await execInContainer(legacy.container, 'systemctl show fluxadm-sshd.socket -p TriggerLimitIntervalUSec --value');
+    const maxConn = await execInContainer(legacy.container, 'systemctl show fluxadm-sshd.socket -p MaxConnections --value');
+    expect(trigger.stdout.trim(), 'the trigger rate limit must be off').to.equal('0');
+    expect(maxConn.stdout.trim(), 'concurrent connections must be capped').to.equal('10');
+  });
+
+  it('keeps the maintenance socket serving after a burst of connections, and a login still works', async function burst() {
+    this.timeout(120000);
+    // 400 connect-and-close from one source, well over systemd's 200-per-2s default
+    const flood = await execInContainer(legacy.container,
+      `for i in $(seq 1 400); do (exec 3<>/dev/tcp/127.0.0.1/${SSH_PORT}) 2>/dev/null; done; echo done`);
+    expect(flood.stdout.trim()).to.equal('done');
+    expect(await unitState(legacy.container, 'fluxadm-sshd.socket'), 'the socket must survive the burst').to.equal('active');
+    await loginOrThrow('current');
+  });
+
   it('installs nothing on an Arcane node with the same key list', async () => {
     const probe = 'id fluxadm >/dev/null 2>&1 && echo user; '
       + 'test -e /etc/systemd/system/fluxadm-sshd.socket && echo unit; '
