@@ -8,6 +8,7 @@ const log = require('../../ZelBack/src/lib/log');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const ufw = require('../../ZelBack/src/services/utils/ufw');
+const ufwHelper = require('../../ZelBack/src/services/utils/ufwHelper');
 
 const ufwRun = (args) => sinon.match({ runAsRoot: true, params: [ufw.UFW_HELPER, '--wait', '30', '--command', JSON.stringify(args)] });
 // The ufw commands each batch handed to the helper.
@@ -42,6 +43,8 @@ describe('upnpService tests', () => {
     let originalUserConfig;
 
     beforeEach(() => {
+      // The installed copy of the ufw helper is the one to run (utils/ufwHelper has its own tests).
+      sinon.stub(ufwHelper, 'path').resolves(ufwHelper.UFW_HELPER);
       originalUserConfig = globalThis.userconfig;
       globalThis.userconfig = { initial: { ...originalUserConfig.initial, routerIP: '192.168.1.1' } };
     });
