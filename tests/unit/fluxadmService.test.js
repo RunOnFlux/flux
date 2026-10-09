@@ -441,7 +441,8 @@ describe('fluxadmService tests', () => {
       const presetInstalled = sinon.match({ params: sinon.match.array.endsWith([presetPath]) });
       const presetRemoved = sinon.match({ params: ['-f', presetPath] });
       const anyDistroUnit = sinon.match({ params: sinon.match.some(sinon.match(/^ssh\.(service|socket)$/)) });
-      let upgradeStub;
+      let aptStub;
+      let updateAptCacheStub;
       let statusStub;
       let readFileStub;
       let accessStub;
@@ -459,7 +460,8 @@ describe('fluxadmService tests', () => {
           .resolves({ ...cmdOk, stdout: 'enabled\n' });
         runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-active', 'fluxadm-sshd.socket'] }))
           .resolves({ ...cmdOk, stdout: 'active\n' });
-        upgradeStub = sinon.stub(systemService, 'upgradePackage').resolves(false);
+        updateAptCacheStub = sinon.stub(systemService, 'updateAptCache').resolves();
+        aptStub = sinon.stub(systemService, 'queueAptGetCommand').resolves({ error: null });
         statusStub = sinon.stub(systemService, 'getPackageStatus').resolves('install ok installed');
       });
 
@@ -467,12 +469,14 @@ describe('fluxadmService tests', () => {
         const res = await fluxadmService.ensureSshdInstance(16122);
 
         expect(res).to.equal(true);
-        sinon.assert.calledWithExactly(upgradeStub, 'openssh-server');
+        sinon.assert.calledWith(aptStub, 'install', sinon.match({ wait: true, params: ['openssh-server'] }));
+        // the apt cache update runs before the hold, so the hold spans only the install
+        sinon.assert.callOrder(updateAptCacheStub, runCommandStub.withArgs('install', holdInstalled));
         sinon.assert.callOrder(
           runCommandStub.withArgs('install', presetDirMade),
           runCommandStub.withArgs('install', presetInstalled),
           runCommandStub.withArgs('install', holdInstalled),
-          upgradeStub,
+          aptStub,
           runCommandStub.withArgs('rm', holdRemoved),
           runCommandStub.withArgs('rm', presetRemoved),
         );
@@ -503,7 +507,7 @@ describe('fluxadmService tests', () => {
         const res = await fluxadmService.ensureSshdInstance(16122);
 
         expect(res).to.equal(false);
-        sinon.assert.notCalled(upgradeStub);
+        sinon.assert.notCalled(aptStub);
         sinon.assert.neverCalledWith(runCommandStub, 'install', holdInstalled);
       });
 
@@ -513,11 +517,11 @@ describe('fluxadmService tests', () => {
         const res = await fluxadmService.ensureSshdInstance(16122);
 
         expect(res).to.equal(false);
-        sinon.assert.notCalled(upgradeStub);
+        sinon.assert.notCalled(aptStub);
       });
 
       it('should remove the hold and the preset when apt fails after the package is installed', async () => {
-        upgradeStub.resolves(true);
+        aptStub.resolves({ error: new Error('apt failed') });
 
         const res = await fluxadmService.ensureSshdInstance(16122);
 
@@ -528,7 +532,7 @@ describe('fluxadmService tests', () => {
 
       for (const state of ['unpacked', 'half-configured', 'half-installed']) {
         it(`should keep the preset while the package is ${state}, so configuring it later leaves its units disabled`, async () => {
-          upgradeStub.resolves(true);
+          aptStub.resolves({ error: new Error('apt failed') });
           statusStub.resolves(`install ok ${state}`);
 
           const res = await fluxadmService.ensureSshdInstance(16122);
@@ -545,7 +549,7 @@ describe('fluxadmService tests', () => {
         const res = await fluxadmService.ensureSshdInstance(16122);
 
         expect(res).to.equal(false);
-        sinon.assert.notCalled(upgradeStub);
+        sinon.assert.notCalled(aptStub);
         sinon.assert.neverCalledWith(runCommandStub, 'install', holdInstalled);
         sinon.assert.neverCalledWith(runCommandStub, 'install', presetInstalled);
         sinon.assert.neverCalledWith(runCommandStub, 'rm', holdRemoved);
@@ -558,7 +562,7 @@ describe('fluxadmService tests', () => {
 
         expect(res).to.equal(true);
         sinon.assert.neverCalledWith(runCommandStub, 'install', holdInstalled);
-        sinon.assert.callOrder(upgradeStub, runCommandStub.withArgs('rm', holdRemoved));
+        sinon.assert.callOrder(aptStub, runCommandStub.withArgs('rm', holdRemoved));
       });
 
       describe('when a removed openssh-server left its enablement behind', () => {
@@ -592,7 +596,7 @@ describe('fluxadmService tests', () => {
             runCommandStub.withArgs('rm', linksRemoved),
             runCommandStub.withArgs('systemctl', sinon.match({ params: ['stop', 'ssh.service', 'ssh.socket'] })),
             runCommandStub.withArgs('install', presetInstalled),
-            upgradeStub,
+            aptStub,
           );
         });
 
@@ -622,7 +626,7 @@ describe('fluxadmService tests', () => {
           const res = await fluxadmService.ensureSshdInstance(16122);
 
           expect(res).to.equal(false);
-          sinon.assert.notCalled(upgradeStub);
+          sinon.assert.notCalled(aptStub);
           sinon.assert.neverCalledWith(runCommandStub, 'install', presetInstalled);
         });
       });
@@ -665,11 +669,11 @@ describe('fluxadmService tests', () => {
     it('should leave an sshd the node owner already has untouched', async () => {
       sinon.stub(fs, 'access').resolves();
       sinon.stub(fs, 'readFile').resolves(null);
-      const upgradeStub = sinon.stub(systemService, 'upgradePackage').resolves(false);
+      const aptStub = sinon.stub(systemService, 'queueAptGetCommand').resolves({ error: null });
 
       await fluxadmService.ensureSshdInstance(16122);
 
-      sinon.assert.notCalled(upgradeStub);
+      sinon.assert.notCalled(aptStub);
       sinon.assert.neverCalledWith(runCommandStub, 'systemctl', sinon.match({ params: sinon.match.some(sinon.match(/^ssh\./)) }));
     });
   });

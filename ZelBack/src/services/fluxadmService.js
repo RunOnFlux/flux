@@ -417,9 +417,10 @@ async function clearRemovedSshdEnablement() {
  * sshd needs, leaving the package's own sshd installed and disabled. A preset
  * keeps its units from ever being enabled, and service starts are held off
  * across the install, so the package's sshd never starts and port 22 never
- * opens, whether the install completes, fails or is interrupted. A
- * policy-rc.d that is not FluxOS's is never replaced: the install waits for a
- * node without one.
+ * opens, whether the install completes, fails or is interrupted. The apt cache
+ * update runs before the hold, so the hold - which stops every package on the
+ * node starting a service - spans only the install itself. A policy-rc.d that
+ * is not FluxOS's is never replaced: the install waits for a node without one.
  * @returns {Promise<boolean>}
  */
 async function installOpensshServer() {
@@ -437,6 +438,12 @@ async function installOpensshServer() {
     log.error(`fluxadm access - cannot write ${sshdPresetPath}, not installing openssh-server`);
     return false;
   }
+
+  // Update the apt cache before holding service starts: the hold is only for
+  // the install, so it spans as little of the node's service-start suppression
+  // as possible.
+  await systemService.updateAptCache();
+
   if (existing === null && !(await installFileAsRoot(policyRc, policyRcPath, { mode: '0755' }))) {
     log.error(`fluxadm access - cannot hold service starts with ${policyRcPath}, not installing openssh-server`);
     return false;
@@ -444,7 +451,8 @@ async function installOpensshServer() {
 
   let installError;
   try {
-    installError = await systemService.upgradePackage('openssh-server');
+    const { error } = await systemService.queueAptGetCommand('install', { wait: true, params: ['openssh-server'] });
+    installError = Boolean(error);
   } finally {
     const { error: rmError } = await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-f', policyRcPath] });
     if (rmError) log.error(`fluxadm access - could not remove ${policyRcPath}; no package can start a service until it is removed`);
