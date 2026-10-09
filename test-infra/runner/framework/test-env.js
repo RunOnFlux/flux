@@ -174,12 +174,11 @@ const image = (name) => `${name}:${IMAGE_TAG}`;
 // node resolves the real fdm-*.runonflux.io over the internet.
 //
 // FluxOS installs dnsLookup on the global http/https agents, which asks the system's DNS
-// servers and then public ones via dns.resolve (c-ares) before it falls back to
-// dns.lookup — and c-ares does NOT consult /etc/hosts. A name in extra_hosts alone is
-// therefore resolved on the internet first. The names must be served by Docker's
-// embedded DNS, which we do by setting them as network aliases on the stub (see
-// StaticIpContainer.withStaticIp). extra_hosts are kept for any getaddrinfo-based path
-// (curl, dns.lookup).
+// servers and then public ones via dns.resolve (c-ares) and never reads /etc/hosts. A
+// name in extra_hosts alone is therefore resolved on the internet. The names must be
+// served by Docker's embedded DNS, which we do by setting them as network aliases on the
+// stub (see StaticIpContainer.withStaticIp). extra_hosts are kept for any
+// getaddrinfo-based path (curl).
 function fdmHostnames() {
   const names = [];
   for (let i = 1; i <= 4; i++) {
