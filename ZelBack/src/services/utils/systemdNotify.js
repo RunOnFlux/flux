@@ -18,6 +18,11 @@ const serviceHelper = require('../serviceHelper');
 // Above systemd-notify's own 5 s wait for systemd to process the message.
 const TIMEOUT_MS = 10 * 1000;
 
+// EX_CONFIG: FluxOS cannot run with its configuration and a restart would fail
+// the same way. Arcane's fluxos.service names it in RestartPreventExitStatus;
+// pm2 restarts on any exit.
+const EXIT_CONFIG = 78;
+
 /**
  * Send READY=1 to systemd, when systemd is listening. Never rejects.
  * @returns {Promise<boolean>} True when READY=1 was sent.
@@ -37,5 +42,6 @@ async function notifyReady() {
 
 module.exports = {
   notifyReady,
+  EXIT_CONFIG,
   TIMEOUT_MS,
 };

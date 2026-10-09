@@ -825,4 +825,17 @@ describe('apiServer initiate readiness', () => {
     sinon.assert.notCalled(notifyReady);
     sinon.assert.notCalled(startFluxFunctions);
   });
+
+  ['http', 'https'].forEach((mode, failing) => {
+    it(`exits as a configuration error when the ${mode} listener cannot listen`, async () => {
+      listen.onCall(failing).rejects(new Error('EADDRINUSE'));
+      sinon.stub(serviceHelper, 'delay').resolves();
+      const exit = sinon.stub(process, 'exit');
+
+      await apiServer.initiate();
+      await new Promise(setImmediate);
+
+      sinon.assert.calledOnceWithExactly(exit, systemdNotify.EXIT_CONFIG);
+    });
+  });
 });
