@@ -288,6 +288,20 @@ function nodeAppArmor() {
   return nodeAppArmorProfile;
 }
 
+// Unloads the node profile this process loaded, so it does not outlive the run
+// in the host kernel, and resets the cache so a later env in the same process
+// reloads it. A no-op where none was loaded.
+function unloadNodeAppArmor() {
+  if (!nodeAppArmorProfile) return;
+  const profile = fileURLToPath(new URL('../../apparmor/flux-e2e-node', import.meta.url));
+  try {
+    execFileSync('sudo', ['-n', 'apparmor_parser', '-R', profile], { stdio: 'pipe' });
+  } catch {
+    // leaving a profile loaded does not fail the run; it is unloaded next time
+  }
+  nodeAppArmorProfile = undefined;
+}
+
 class StaticIpContainer extends GenericContainer {
   #staticIp;
   #networkName;
@@ -749,6 +763,10 @@ function makeEnvShell(networkName) {
       for (const cfg of nodeConfigs) {
         if (cfg.bootIdDir) rmSync(cfg.bootIdDir, { recursive: true, force: true });
       }
+      // The nodes are down, so the profile they ran under is no longer needed;
+      // unload it rather than leave it in the host kernel after the run.
+      unloadNodeAppArmor();
+      step('apparmor-unload');
       http.globalAgent.destroy();
       console.log(`# teardown [${networkName}] complete ${Date.now() - tStart}ms`);
     },
