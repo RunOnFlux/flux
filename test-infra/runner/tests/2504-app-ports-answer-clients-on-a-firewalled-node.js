@@ -1,9 +1,13 @@
-// An app's published port answers IPv6 clients on a node whose firewall is on.
+// An app's published port answers every client on a node whose firewall is on:
+// IPv4 and IPv6 clients outside the node, and a container on the node connecting
+// to it at the node's own address.
 //
-// Docker forwards an IPv4 connection to a published port ahead of ufw's inbound
-// rules, but answers an IPv6 one through docker-proxy on the node itself, behind
-// them. FluxOS opens each app port to IPv6 when it installs the app and closes it
-// when it removes the app.
+// Docker forwards an IPv4 connection from outside to a published port ahead of
+// ufw's inbound rules, but answers an IPv6 one, and on some Docker releases a
+// container's connection at the node's own address, through docker-proxy on the
+// node itself, behind them. FluxOS opens each app port with `allow <port>` when it
+// installs the app, re-applies it at every start, and deletes it when it removes
+// the app.
 //
 // The fleet network carries no IPv6, so the node and the client outside it are
 // given addresses of their own on it before anything is published: Docker binds a
@@ -34,7 +38,7 @@ const V6_PREFIX = 'fd25:2504::';
 const NODE_V6 = `${V6_PREFIX}1`;
 const OUTSIDE_V6 = `${V6_PREFIX}2`;
 
-describe('2504 app ports answer IPv6 clients on a firewalled node', function suite() {
+describe('2504 app ports answer every client on a firewalled node', function suite() {
   this.timeout(600000);
 
   let env;
@@ -126,59 +130,74 @@ describe('2504 app ports answer IPv6 clients on a firewalled node', function sui
     expect(ipv6.said, `an IPv6 client was answered: ${ipv6.why}`).to.equal('');
   });
 
-  it('opens an installed app\'s port to IPv6 clients, by a rule that admits no IPv4 client', async () => {
+  // What a container on the node is answered on a port at the node's own address.
+  const answerFromAContainer = async (port) => {
+    const { stdout, exitCode, stderr } = await inNode(`docker run --rm --entrypoint /bin/busybox ${image} sh -c 'echo | /bin/busybox nc -w 3 ${node.ip} ${port}'`);
+    return { said: stdout.trim(), why: `exit ${exitCode}: ${(stderr || '').trim()}` };
+  };
+
+  it('opens an installed app\'s port to every client, by one rule for both families', async () => {
     const rules = await portRules(appPort);
-    expect(rules.ipv6, 'an IPv6 rule for the port').to.have.length(1);
-    expect(rules.ipv4, 'an IPv4 rule for the port').to.deep.equal([]);
+    expect(rules.ipv4, 'the IPv4 half of the port\'s rule').to.have.length(1);
+    expect(rules.ipv6, 'the IPv6 half of the port\'s rule').to.have.length(1);
 
     const ipv6 = await answerFrom(NODE_V6, appPort);
-    expect(ipv6.said, ipv6.why).to.equal('ok');
+    expect(ipv6.said, `an IPv6 client outside the node: ${ipv6.why}`).to.equal('ok');
     const ipv4 = await answerFrom(node.ip, appPort);
-    expect(ipv4.said, ipv4.why).to.equal('ok');
+    expect(ipv4.said, `an IPv4 client outside the node: ${ipv4.why}`).to.equal('ok');
+    const fromContainer = await answerFromAContainer(appPort);
+    expect(fromContainer.said, `a container on the node, at the node's address: ${fromContainer.why}`).to.equal('ok');
   });
 
   // FluxOS opens a port for a moment to test it from outside (before installing an app,
-  // and in its availability check) with a rule for IPv4 alone. ufw counts the IPv6 half
-  // of a rule for both families as the same rule as an app port's IPv6 rule, so a test
-  // that opened and deleted one would delete the app's: the canary shows it on a port
-  // no app holds.
-  it('keeps the app\'s IPv6 rule through a port test on its port', async () => {
+  // and in its availability check) with `allow proto tcp from 0.0.0.0/0 to any port
+  // <port>`. ufw counts a rule naming no protocol as the same rule as the matching half
+  // of an app port's `allow <port>`, so a test that opened and deleted one would delete
+  // that half: the canary shows it on a port no app holds.
+  it('keeps the app\'s rule whole through a port test on its port', async () => {
     const canary = await inNode([
-      `ufw allow from ::/0 to any port ${CANARY_PORT} >/dev/null`,
       `ufw allow ${CANARY_PORT} >/dev/null`,
-      `ufw delete allow ${CANARY_PORT} >/dev/null`,
+      `ufw allow from 0.0.0.0/0 to any port ${CANARY_PORT} >/dev/null`,
+      `ufw delete allow from 0.0.0.0/0 to any port ${CANARY_PORT} >/dev/null`,
     ].join(' && '));
     expect(canary.exitCode, canary.stderr).to.equal(0);
-    expect((await portRules(CANARY_PORT)).ipv6, 'the canary: a both-families delete takes the IPv6 rule').to.deep.equal([]);
+    expect((await portRules(CANARY_PORT)).ipv4, 'the canary: a delete naming no protocol takes the IPv4 half').to.deep.equal([]);
+    await inNode(`ufw delete allow ${CANARY_PORT} >/dev/null`);
 
     const tested = await inNode([
-      `ufw allow from 0.0.0.0/0 to any port ${appPort} >/dev/null`,
-      `ufw delete allow from 0.0.0.0/0 to any port ${appPort} >/dev/null`,
+      `ufw allow proto tcp from 0.0.0.0/0 to any port ${appPort} >/dev/null`,
+      `ufw delete allow proto tcp from 0.0.0.0/0 to any port ${appPort} >/dev/null`,
     ].join(' && '));
     expect(tested.exitCode, tested.stderr).to.equal(0);
-    expect((await portRules(appPort)).ipv6, 'the app\'s IPv6 rule after the port test').to.have.length(1);
-    const ipv6 = await answerFrom(NODE_V6, appPort);
-    expect(ipv6.said, ipv6.why).to.equal('ok');
+    const rules = await portRules(appPort);
+    expect(rules.ipv4, 'the IPv4 half after the port test').to.have.length(1);
+    expect(rules.ipv6, 'the IPv6 half after the port test').to.have.length(1);
+    const fromContainer = await answerFromAContainer(appPort);
+    expect(fromContainer.said, fromContainer.why).to.equal('ok');
   });
 
   // A ufw reset deletes every rule; the owner then turns ufw back on. FluxOS's next
-  // start opens the installed app's port to IPv6 again, before the app starts.
-  it('opens the port to IPv6 clients again at the next start after a ufw reset', async function reset() {
+  // start opens the installed app's port again, before the app starts.
+  it('opens the port again at the next start after a ufw reset', async function reset() {
     this.timeout(300000);
     const wiped = await inNode('ufw --force reset >/dev/null && ufw default deny incoming >/dev/null && ufw --force enable >/dev/null && ufw status');
     expect(wiped.exitCode, wiped.stderr).to.equal(0);
-    expect((await portRules(appPort)).ipv6, 'the reset deleted the rule').to.deep.equal([]);
+    expect(await portRules(appPort), 'the reset deleted the rule').to.deep.equal({ ipv4: [], ipv6: [] });
 
     const afterId = node.getLastEventId();
     await restartFluxos(node.container);
     await waitForBootSettled(node, 240000, { afterId });
 
-    expect((await portRules(appPort)).ipv6, 'an IPv6 rule for the port').to.have.length(1);
+    const rules = await portRules(appPort);
+    expect(rules.ipv4, 'the IPv4 half').to.have.length(1);
+    expect(rules.ipv6, 'the IPv6 half').to.have.length(1);
     const ipv6 = await answerFrom(NODE_V6, appPort);
     expect(ipv6.said, ipv6.why).to.equal('ok');
+    const fromContainer = await answerFromAContainer(appPort);
+    expect(fromContainer.said, fromContainer.why).to.equal('ok');
   });
 
-  it('closes the port to IPv6 clients when the app is removed, and leaves the owner\'s own rules', async function removal() {
+  it('closes the port when the app is removed, and leaves the owner\'s own rules', async function removal() {
     this.timeout(180000);
     const owned = await inNode(`ufw allow 22 >/dev/null && ufw allow ${appPort}/tcp >/dev/null`);
     expect(owned.exitCode, owned.stderr).to.equal(0);

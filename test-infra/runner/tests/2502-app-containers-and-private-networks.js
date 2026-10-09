@@ -661,10 +661,17 @@ describe('2502 app containers are kept off private networks and off each other\'
       expect(await outHits('DROP', otherBridge)).to.be.above(before);
     });
 
-    it('still passes another app\'s published port, by its DNAT exception', async () => {
+    // Where Docker's NAT table skips traffic that comes from a container bridge
+    // (`-A DOCKER -i <bridge> -j RETURN`, Docker before 29), the connection is answered by
+    // docker-proxy on the node and never crosses this chain; elsewhere it is rewritten to
+    // the container and passes by the DNAT exception.
+    it('still passes another app\'s published port at the node\'s address', async () => {
+      const appBridge = await bridgeOf(APP_NETWORK.name);
+      const { stdout: nat } = await inNode('iptables -t nat -S DOCKER');
+      const proxied = nat.split('\n').includes(`-A DOCKER -i ${appBridge} -j RETURN`);
       const before = await outHits('RETURN', await bridgeOf(OTHER_NETWORK.name), { dnat: true });
       expect(await tcpAnswer('fluxe2eprobe', node.ip, OTHER_PUBLISHED_PORT)).to.equal('ok');
-      expect(await outHits('RETURN', await bridgeOf(OTHER_NETWORK.name), { dnat: true })).to.be.above(before);
+      if (!proxied) expect(await outHits('RETURN', await bridgeOf(OTHER_NETWORK.name), { dnat: true }), 'passed by the DNAT exception').to.be.above(before);
     });
 
     it('drops traffic into networks FluxOS did not create, the public one included', async () => {
