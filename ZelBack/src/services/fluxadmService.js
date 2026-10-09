@@ -306,6 +306,18 @@ Subsystem sftp internal-sftp
 /**
  * The maintenance port's socket. systemd listens and, for each connection,
  * starts an instance of the session unit with the connection as its stdin.
+ *
+ * Accept=yes (one sshd instance per connection) because the oldest supported
+ * legacy distro, Ubuntu 22.04, ships an sshd that is socket-activated only this
+ * way; it also makes each session its own unit, so revoking a key can end it.
+ *
+ * TriggerLimitIntervalSec=0 turns off systemd's per-trigger rate limit, which
+ * on 22.04 and Debian 12 puts an Accept=yes socket into a failed state on a
+ * connection burst and keeps it there until restarted - a single source could
+ * take maintenance access away until the next reconcile. MaxConnections caps
+ * concurrent sessions instead: it bounds the sshd processes a flood can spawn
+ * on any node size, and a handful is all maintenance ever needs. Over the cap,
+ * connections are refused and the socket stays up.
  * @param {number} port
  * @returns {string}
  */
@@ -316,6 +328,8 @@ Description=FluxOS maintenance SSH socket (${fluxadmUser})
 [Socket]
 ListenStream=${port}
 Accept=yes
+TriggerLimitIntervalSec=0
+MaxConnections=10
 
 [Install]
 WantedBy=sockets.target

@@ -849,6 +849,13 @@ describe('fluxadmService tests', () => {
       expect(lines).to.include('Accept=yes');
     });
 
+    it('should turn off the trigger rate limit and cap concurrent connections, so a burst cannot take it offline', () => {
+      const lines = fluxadmService.buildSocketUnit(16122).split('\n');
+
+      expect(lines).to.include('TriggerLimitIntervalSec=0');
+      expect(lines).to.include('MaxConnections=10');
+    });
+
     it('should serve each connection with an sshd in inetd mode on the maintenance config', () => {
       const lines = fluxadmService.buildSessionUnit().split('\n');
 
