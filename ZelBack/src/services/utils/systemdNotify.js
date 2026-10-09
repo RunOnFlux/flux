@@ -17,7 +17,7 @@ const serviceHelper = require('../serviceHelper');
  */
 async function notifyReady() {
   if (!process.env.NOTIFY_SOCKET) return false;
-  const { error } = await serviceHelper.runCommand('systemd-notify', { params: ['--ready'] });
+  const { error } = await serviceHelper.runCommand('systemd-notify', { params: ['--ready'], logError: false });
   if (error) {
     log.warn(`systemd-notify --ready failed: ${error.message}`);
   } else {
