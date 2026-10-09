@@ -23,6 +23,9 @@ const UNFIREWALLED = 2;
 // apiport 16127 - 5
 const FLUXADM_PORT = 16122;
 const FLUXOS_RULES_TIMEOUT_MS = 180000;
+// The helper FluxOS ships, and the root-owned copy root runs (utils/ufwHelper.js).
+const SHIPPED_HELPER = '/flux/helpers/ufw/apply-node-firewall.py';
+const INSTALLED_HELPER = '/usr/local/lib/fluxos/apply-node-firewall.py';
 
 describe('2501 firewalled nodes', function suite() {
   this.timeout(600000);
@@ -95,6 +98,33 @@ describe('2501 firewalled nodes', function suite() {
       // Port 80 inbound is opened by FluxOS's adjustFirewall and by neither baseline.
       // eslint-disable-next-line no-await-in-loop
       expect(await ufwStatus(index), `FluxOS's own rules on node ${index}`).to.match(/^80\s+ALLOW IN\s+Anywhere\s*$/m);
+    }
+  });
+
+  // The FluxOS tree belongs to the node's FluxOS user (uid 1000), as on a legacy node.
+  // ufw warns whenever root runs a program another user owns, so root runs a
+  // root-owned copy of the helper, outside the tree.
+  it('runs the ufw helper from a root-owned copy outside the FluxOS tree, which ufw does not warn about', async () => {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const index of [LEGACY, ARCANE]) {
+      // eslint-disable-next-line no-await-in-loop
+      await firewallAdjusted(index);
+      const inNode = (command) => execInContainer(env.clients[index].container, command);
+      // eslint-disable-next-line no-await-in-loop
+      const { stdout: owners } = await inNode(`stat -c '%U %a %n' ${INSTALLED_HELPER} ${SHIPPED_HELPER}`);
+      const [installed, shipped] = owners.trim().split('\n');
+      expect(installed, `the installed copy on node ${index}`).to.equal(`root 755 ${INSTALLED_HELPER}`);
+      expect(shipped.split(' ')[0], `the shipped helper's owner on node ${index}, the condition under test`).to.not.equal('root');
+      // eslint-disable-next-line no-await-in-loop
+      expect((await inNode(`cmp ${INSTALLED_HELPER} ${SHIPPED_HELPER}`)).exitCode, 'the copy is the shipped helper').to.equal(0);
+
+      const run = (helper) => inNode(`python3 ${helper} --wait 30 --command '["status"]' 2>&1 >/dev/null`);
+      // eslint-disable-next-line no-await-in-loop
+      const fromTree = await run(SHIPPED_HELPER);
+      expect(fromTree.stdout, `the canary: ufw warns when root runs the shipped helper on node ${index}`).to.match(/WARN: uid is 0 but '[^']*' is owned by 1000/);
+      // eslint-disable-next-line no-await-in-loop
+      const fromCopy = await run(INSTALLED_HELPER);
+      expect(fromCopy.stdout, `ufw's warnings running the installed copy on node ${index}`).to.not.match(/uid is 0/);
     }
   });
 
