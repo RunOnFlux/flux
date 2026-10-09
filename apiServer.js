@@ -23,6 +23,7 @@ const axios = require('axios').default;
 const config = require('config');
 
 const serviceManager = require('./ZelBack/src/services/serviceManager');
+const systemdNotify = require('./ZelBack/src/services/utils/systemdNotify');
 const fluxServer = require('./ZelBack/src/lib/fluxServer');
 const log = require('./ZelBack/src/lib/log');
 
@@ -238,7 +239,7 @@ async function configReload() {
  */
 async function initiate() {
   if (!config.server.allowedPorts.includes(+apiPort)) {
-    await logErrorAndExit(`Flux port ${apiPort} is not supported. Shutting down.`);
+    await logErrorAndExit(`Flux port ${apiPort} is not supported. Shutting down.`, { exitCode: systemdNotify.EXIT_CONFIG });
   }
 
   process.on('uncaughtException', (err) => {
@@ -280,23 +281,22 @@ async function initiate() {
   const httpError = await httpServer.listen(apiPort).catch((err) => err);
 
   if (httpError) {
-    // Exits 0: pm2 restarts FluxOS on any exit; Arcane's fluxos.service
-    // (Restart=on-failure) does not.
-    logErrorAndExit(`Flux api server unable to start. ${httpError}`);
+    logErrorAndExit(`Flux api server unable to start. ${httpError}`, { exitCode: systemdNotify.EXIT_CONFIG });
     return '';
   }
 
   const httpsError = await httpsServer.listen(apiPortHttps).catch((err) => err);
 
   if (httpsError) {
-    // Exits 0: pm2 restarts FluxOS on any exit; Arcane's fluxos.service
-    // (Restart=on-failure) does not.
-    logErrorAndExit(`Flux api server unable to start. ${httpsError}`);
+    logErrorAndExit(`Flux api server unable to start. ${httpsError}`, { exitCode: systemdNotify.EXIT_CONFIG });
     return '';
   }
 
   log.info(`Flux listening on port ${apiPort}!`);
   log.info(`Flux https listening on port ${apiPortHttps}!`);
+  // Ready means the API answers. Mongo, Docker and fluxd come up behind this,
+  // each with its own unit. Not awaited: nothing below depends on it.
+  systemdNotify.notifyReady();
 
   setAxiosDefaults([httpServer.socketIo, httpsServer.socketIo]);
 

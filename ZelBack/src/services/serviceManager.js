@@ -52,6 +52,7 @@ const pgpService = require('./pgpService');
 const dockerService = require('./dockerService');
 const backupRestoreService = require('./backupRestoreService');
 const systemService = require('./systemService');
+const systemdNotify = require('./utils/systemdNotify');
 const fluxNodeService = require('./fluxNodeService');
 const volumeValidationService = require('./volumeValidationService');
 const watchdogService = require('./watchdogService');
@@ -261,7 +262,7 @@ async function startFluxFunctions() {
   try {
     if (!config.server.allowedPorts.includes(+apiPort)) {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
-      process.exit();
+      process.exit(systemdNotify.EXIT_CONFIG);
     }
     // Ahead of anything that might call a runtime API this NodeJS lacks. A
     // below-floor node stays up holding a sticky DOS, so /flux/info names the

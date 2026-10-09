@@ -1,6 +1,8 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const fs = require('node:fs');
+const http = require('node:http');
+const https = require('node:https');
 const apiServer = require('../../apiServer');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const dockerService = require('../../ZelBack/src/services/dockerService');
@@ -13,6 +15,11 @@ const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper'
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
 const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
 const { PM2_KILL_TIMEOUT_MS } = require('../../ZelBack/src/services/fluxService');
+const serviceManager = require('../../ZelBack/src/services/serviceManager');
+const systemdNotify = require('../../ZelBack/src/services/utils/systemdNotify');
+const upnpService = require('../../ZelBack/src/services/upnpService');
+const configManager = require('../../ZelBack/src/services/utils/configManager');
+const fluxServer = require('../../ZelBack/src/lib/fluxServer');
 
 /**
  * These tests isolate and test the SIGTERM handling logic from apiServer.js
@@ -754,5 +761,81 @@ describe('handleSigterm drains syncthing folders before it exits', () => {
   it('answers SIGINT with the same handler as SIGTERM', () => {
     expect(process.listeners('SIGINT')).to.include(apiServer.handleSigterm);
     expect(process.listeners('SIGTERM')).to.include(apiServer.handleSigterm);
+  });
+});
+
+describe('apiServer initiate readiness', () => {
+  let listen;
+  let notifyReady;
+  let startFluxFunctions;
+  let uncaughtBefore;
+
+  beforeEach(() => {
+    uncaughtBefore = process.listeners('uncaughtException');
+    listen = sinon.stub().resolves();
+    sinon.stub(fluxServer, 'FluxServer').callsFake(() => ({ listen, app: {}, socketIo: {} }));
+    notifyReady = sinon.stub(systemdNotify, 'notifyReady').resolves(true);
+    startFluxFunctions = sinon.stub(serviceManager, 'startFluxFunctions');
+    sinon.stub(upnpService, 'verifyUPNPsupport').resolves(true);
+    sinon.stub(upnpService, 'setupUPNP').resolves(true);
+    sinon.stub(configManager, 'startWatching').resolves();
+    sinon.stub(fs, 'existsSync').returns(true);
+    const readFileSync = fs.readFileSync.bind(fs);
+    sinon.stub(fs, 'readFileSync').callsFake((file, ...rest) => (
+      String(file).includes('certs/v1.') ? 'pem' : readFileSync(file, ...rest)));
+  });
+
+  afterEach(() => {
+    sinon.restore();
+    process.listeners('uncaughtException')
+      .filter((listener) => !uncaughtBefore.includes(listener))
+      .forEach((listener) => process.removeListener('uncaughtException', listener));
+    const cacheable = apiServer.getCacheable();
+    if (cacheable) {
+      cacheable.uninstall(http.globalAgent);
+      cacheable.uninstall(https.globalAgent);
+    }
+    apiServer.resetCacheable();
+  });
+
+  it('reports ready once both listeners are up, before the startup that waits on Mongo, Docker and fluxd', async () => {
+    await apiServer.initiate();
+
+    sinon.assert.calledTwice(listen);
+    sinon.assert.calledOnce(notifyReady);
+    sinon.assert.callOrder(listen, notifyReady, startFluxFunctions);
+  });
+
+  it('does not hold startup on the readiness report', async () => {
+    notifyReady.returns(new Promise(() => {}));
+
+    await apiServer.initiate();
+
+    sinon.assert.calledOnce(notifyReady);
+    sinon.assert.calledOnce(startFluxFunctions);
+  });
+
+  it('reports nothing when the API cannot listen', async () => {
+    listen.rejects(new Error('EADDRINUSE'));
+    sinon.stub(serviceHelper, 'delay').resolves();
+    sinon.stub(process, 'exit');
+
+    await apiServer.initiate();
+
+    sinon.assert.notCalled(notifyReady);
+    sinon.assert.notCalled(startFluxFunctions);
+  });
+
+  ['http', 'https'].forEach((mode, failing) => {
+    it(`exits as a configuration error when the ${mode} listener cannot listen`, async () => {
+      listen.onCall(failing).rejects(new Error('EADDRINUSE'));
+      sinon.stub(serviceHelper, 'delay').resolves();
+      const exit = sinon.stub(process, 'exit');
+
+      await apiServer.initiate();
+      await new Promise(setImmediate);
+
+      sinon.assert.calledOnceWithExactly(exit, systemdNotify.EXIT_CONFIG);
+    });
   });
 });
