@@ -19,6 +19,14 @@
 // The installer already allows the whole 16100-16199 range, so a login says
 // nothing about that rule: the rule itself is what is asserted.
 //
+// Four more legacy nodes without sshd each have FluxOS's openssh-server install go
+// wrong: on a node with a broken dpkg state, apt fails after the package is
+// configured; FluxOS is killed after the package is installed, and between unpack
+// and configure (a dpkg hook); and, on a node whose owner had sshd enabled and
+// then removed the package without purging it, apt fails after the package is
+// configured. A reboot of each must find the package's own sshd disabled and
+// nothing on port 22.
+//
 // A list that drops a key ends every open maintenance session, together with what
 // it runs through sudo. The node without sshd has no pam_systemd, so its sessions
 // stay in their connection's session unit; the node with the node owner's sshd
@@ -45,12 +53,20 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 const LEGACY = 0;
 const NODE_OWNER_SSHD = 1;
 const ARCANE = 2;
+const APT_FAILS = 3;
+const KILLED_INSTALLED = 4;
+const KILLED_UNPACKED = 5;
+const OWNER_REMOVED = 6;
+const FAULTED = [APT_FAILS, KILLED_INSTALLED, KILLED_UNPACKED, OWNER_REMOVED];
 
 const KEY_NAMES = ['current', 'next', 'stranger'];
 
 // apiport 16127 - 5
 const SSH_PORT = 16122;
 const CLIENT_KEY_DIR = '/root/.fluxadm-keys';
+
+const SSHD_PRESET = '/etc/systemd/system-preset/00-fluxadm.preset';
+const POLICY_RC = '/usr/sbin/policy-rc.d';
 
 const MANAGED_FILES = [
   '/etc/ssh/fluxadm_sshd_config',
@@ -163,6 +179,83 @@ describe('2401 legacy node maintenance access', function suite() {
     return { present: new RegExp(`^${SSH_PORT}/tcp\\s+LIMIT IN\\s+Anywhere\\s*$`, 'm').test(stdout), status: stdout };
   }
 
+  // A dpkg hook that fires once, after the first dpkg call that leaves
+  // openssh-server in the given state, and runs the given command. It runs
+  // inside FluxOS's install, so killing FluxOS's unit kills the apt and dpkg
+  // that install runs.
+  async function armDpkgFault(client, state, command) {
+    const hook = [
+      '#!/bin/sh',
+      '[ -e /var/tmp/e2e-dpkg-fault-fired ] && exit 0',
+      `[ "$(dpkg-query -W -f='\${Status}' openssh-server 2>/dev/null)" = 'install ok ${state}' ] || exit 0`,
+      'touch /var/tmp/e2e-dpkg-fault-fired',
+      command,
+      '',
+    ].join('\n');
+    const { exitCode, stderr } = await execInContainer(client.container, [
+      'sh', '-c',
+      'printf "%s" "$1" > /usr/local/sbin/e2e-dpkg-fault && chmod 755 /usr/local/sbin/e2e-dpkg-fault'
+      + ' && echo post-invoke=/usr/local/sbin/e2e-dpkg-fault > /etc/dpkg/dpkg.cfg.d/zz-e2e-fault',
+      'sh', hook,
+    ]);
+    expect(exitCode, `dpkg fault hook failed: ${stderr}`).to.equal(0);
+  }
+
+  // A broken dpkg state: a package whose configure always fails, left
+  // half-configured. Every apt run from then on configures what it installs and
+  // exits non-zero, so FluxOS's install of openssh-server fails after the
+  // package is configured, and so does every retry of it.
+  async function breakDpkg(client) {
+    const { exitCode, stdout, stderr } = await execInContainer(client.container, [
+      'sh', '-c',
+      'd=$(mktemp -d) && mkdir -p "$d/DEBIAN"'
+      + ' && printf "Package: e2e-broken\\nVersion: 1\\nArchitecture: all\\nMaintainer: e2e\\nDescription: fails to configure\\n" > "$d/DEBIAN/control"'
+      + ' && printf "#!/bin/sh\\nexit 1\\n" > "$d/DEBIAN/postinst" && chmod 755 "$d/DEBIAN/postinst"'
+      + ' && dpkg-deb -b "$d" /var/tmp/e2e-broken.deb >/dev/null && rm -rf "$d"'
+      + ' && { dpkg -i /var/tmp/e2e-broken.deb >/dev/null 2>&1; true; }'
+      + " && dpkg-query -W -f='${Status}' e2e-broken",
+    ]);
+    expect(exitCode, `breaking dpkg failed: ${stderr}`).to.equal(0);
+    expect(stdout.trim()).to.equal('install ok half-configured');
+  }
+
+  async function repairDpkg(client) {
+    // waits for the dpkg lock, which FluxOS's own apt runs take
+    const { exitCode, stderr } = await execInContainer(client.container,
+      'DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 purge -y e2e-broken');
+    expect(exitCode, `repairing dpkg failed: ${stderr}`).to.equal(0);
+  }
+
+  async function dpkgFaultFired(client) {
+    const { exitCode } = await execInContainer(client.container, 'test -e /var/tmp/e2e-dpkg-fault-fired');
+    return exitCode === 0;
+  }
+
+  // The package's own sshd and FluxOS's install state, one line each.
+  async function distroSshdState(client) {
+    const { stdout } = await execInContainer(client.container,
+      `test -x /usr/sbin/sshd && echo sshd; dpkg-query -W -f='\${Status}\n' openssh-server 2>/dev/null; `
+      + 'systemctl is-enabled ssh.service ssh.socket; systemctl is-active ssh.service ssh.socket; '
+      + `test -e ${SSHD_PRESET} && echo preset; test -e ${POLICY_RC} && echo hold; true`);
+    return stdout.trim().split('\n').join(' | ');
+  }
+
+  const DISTRO_SSHD_OFF = 'sshd | install ok installed | disabled | disabled | inactive | inactive';
+
+  // The node's first fluxadm pass after afterId that was not deferred, whatever
+  // its outcome.
+  async function anyPass(client, afterId) {
+    const { data } = await client.waitForEvent('fluxadm:pass', (d) => d.outcome !== 'deferred', PASS_TIMEOUT_MS, { afterId });
+    return data;
+  }
+
+  // A reboot: systemd starts whatever is enabled before FluxOS runs, so port 22
+  // after it shows whether the package's sshd was left enabled.
+  async function reboot(index) {
+    await env.restartNode(index);
+    return env.clients[index];
+  }
+
   async function port22Listening(client) {
     const { stdout } = await execInContainer(client.container, "ss -Hltn 'sport = :22'");
     return stdout.trim() !== '';
@@ -228,8 +321,8 @@ describe('2401 legacy node maintenance access', function suite() {
     generateKeys();
     env = await createTestEnv({
       hookCtx: this,
-      nodes: 3,
-      legacyNodes: [LEGACY, NODE_OWNER_SSHD],
+      nodes: 7,
+      legacyNodes: [LEGACY, NODE_OWNER_SSHD, ...FAULTED],
       firewall: [LEGACY],
       systemdMode: true,
       tickerAutostart: false,
@@ -252,9 +345,27 @@ describe('2401 legacy node maintenance access', function suite() {
     await startOwnerSshd();
     ownerSshdBefore = await ownerSshdState();
 
+    // The node owner's sshd, enabled as the package enables it, then removed
+    // without a purge: the package's enablement stays behind.
+    const removed = env.clients[OWNER_REMOVED];
+    const ownerInstall = await execInContainer(removed.container,
+      'DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y openssh-server'
+      + ' && DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 remove -y openssh-server'
+      + " && dpkg-query -W -f='${Status}' openssh-server && ls /etc/systemd/system/sockets.target.wants/");
+    expect(ownerInstall.exitCode, `node owner's install and removal failed: ${ownerInstall.stderr}`).to.equal(0);
+    expect(ownerInstall.stdout, 'the removal must leave the package enabled, unpurged')
+      .to.match(/deinstall ok config-files/).and.to.match(/ssh\.socket/);
+
+    await breakDpkg(env.clients[APT_FAILS]);
+    await armDpkgFault(env.clients[KILLED_INSTALLED], 'installed', 'systemctl kill -s KILL fluxos.service');
+    await armDpkgFault(env.clients[KILLED_UNPACKED], 'unpacked', 'systemctl kill -s KILL fluxos.service');
+    await breakDpkg(removed);
+
     // Every node boots attested, so the boot's own pass skipped. Marked legacy and
     // restarted, each node's next start is its first pass as a legacy node.
-    for (const [client, ip] of [[legacy, legacyIp], [owner, ownerIp]]) {
+    const legacyClients = [[legacy, legacyIp], [owner, ownerIp]]
+      .concat(FAULTED.map((i) => [env.clients[i], subnet.nodeIp(i + 1)]));
+    for (const [client, ip] of legacyClients) {
       await setSystemSecure(ip, false);
       legacyStartedAfter.set(client, client.getLastEventId());
       await restartFluxos(client.container);
@@ -295,6 +406,65 @@ describe('2401 legacy node maintenance access', function suite() {
       'systemctl is-enabled ssh.service ssh.socket; systemctl is-active ssh.service ssh.socket; true');
     expect(stdout.trim().split('\n')).to.deep.equal(['disabled', 'disabled', 'inactive', 'inactive']);
     expect(await port22Listening(legacy), 'nothing may listen on port 22').to.equal(false);
+  });
+
+  it('leaves the sshd it ships disabled through a reboot when apt fails after installing it', async () => {
+    const client = env.clients[APT_FAILS];
+    const pass = await anyPass(client, legacyStartedAfter.get(client));
+    expect(pass, 'the install reports the failure').to.deep.equal({ outcome: 'failed', step: 'sshd' });
+    expect(await distroSshdState(client)).to.equal(DISTRO_SSHD_OFF);
+    await repairDpkg(client);
+    const rebooted = await reboot(APT_FAILS);
+    expect(await distroSshdState(rebooted)).to.equal(DISTRO_SSHD_OFF);
+    expect(await port22Listening(rebooted), 'nothing may listen on port 22 after a reboot').to.equal(false);
+  });
+
+  it("lets the node owner turn the sshd it ships on, once FluxOS has installed it", async () => {
+    const client = env.clients[APT_FAILS];
+    const { exitCode, stderr } = await execInContainer(client.container, 'systemctl enable --now ssh.service');
+    expect(exitCode, `enable failed: ${stderr}`).to.equal(0);
+    await waitFor(() => port22Listening(client), { timeout: 30000, interval: 1000, label: "the node owner's sshd on port 22" });
+  });
+
+  it('leaves the sshd it ships disabled through a reboot when FluxOS is killed right after installing it', async () => {
+    const client = env.clients[KILLED_INSTALLED];
+    await reconciledPass(client, legacyStartedAfter.get(client));
+    expect(await dpkgFaultFired(client), 'the dpkg fault must have fired').to.equal(true);
+    expect(await distroSshdState(client), 'the next pass releases the preset and the hold').to.equal(DISTRO_SSHD_OFF);
+    const rebooted = await reboot(KILLED_INSTALLED);
+    expect(await distroSshdState(rebooted)).to.equal(DISTRO_SSHD_OFF);
+    expect(await port22Listening(rebooted), 'nothing may listen on port 22 after a reboot').to.equal(false);
+  });
+
+  it('leaves the sshd it ships disabled when FluxOS is killed between unpacking and configuring it', async () => {
+    const client = env.clients[KILLED_UNPACKED];
+    await anyPass(client, legacyStartedAfter.get(client));
+    expect(await dpkgFaultFired(client), 'the dpkg fault must have fired').to.equal(true);
+    const unpacked = await reboot(KILLED_UNPACKED);
+    expect(await port22Listening(unpacked), 'nothing may listen on port 22 while the package is unpacked').to.equal(false);
+    // what the node owner, unattended-upgrades or FluxOS's own apt runs next
+    const configure = await execInContainer(unpacked.container, 'DEBIAN_FRONTEND=noninteractive dpkg --configure -a');
+    expect(configure.exitCode, `dpkg --configure -a failed: ${configure.stderr}`).to.equal(0);
+    expect(await port22Listening(unpacked), 'configuring the package must not start its sshd').to.equal(false);
+    const rebooted = await reboot(KILLED_UNPACKED);
+    expect(await port22Listening(rebooted), 'nothing may listen on port 22 after a reboot').to.equal(false);
+    await waitFor(async () => (await distroSshdState(rebooted)) === DISTRO_SSHD_OFF,
+      { timeout: PASS_TIMEOUT_MS, interval: 3000, label: 'the sshd it ships disabled and the preset released' });
+    await waitFor(() => loginOrThrow('current', { ip: subnet.nodeIp(KILLED_UNPACKED + 1) }), {
+      timeout: PASS_TIMEOUT_MS, interval: 3000, label: 'a maintenance login once the package is configured',
+    });
+  });
+
+  it("leaves the sshd it ships disabled through a reboot over a removed package the node owner had enabled", async () => {
+    const client = env.clients[OWNER_REMOVED];
+    const pass = await anyPass(client, legacyStartedAfter.get(client));
+    expect(pass, 'the install reports the failure').to.deep.equal({ outcome: 'failed', step: 'sshd' });
+    expect(await distroSshdState(client)).to.equal(DISTRO_SSHD_OFF);
+    expect(await port22Listening(client), 'nothing may listen on port 22').to.equal(false);
+    await repairDpkg(client);
+    const rebooted = await reboot(OWNER_REMOVED);
+    expect(await distroSshdState(rebooted)).to.equal(DISTRO_SSHD_OFF);
+    expect(await port22Listening(rebooted), 'nothing may listen on port 22 after a reboot').to.equal(false);
   });
 
   it('lets the configured key in on a node whose node owner runs sshd', async () => {
