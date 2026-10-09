@@ -21,8 +21,8 @@ import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, restartFluxos } from '../framework/container.js';
 import { pushBusybox } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
-import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
-import { waitForAppRemoved, waitForBootSettled } from '../framework/wait.js';
+import { bootAndPeer, seedSpawnerApp } from '../framework/reconciler-suite.js';
+import { waitForAppInstalled, waitForAppRemoved, waitForBootSettled } from '../framework/wait.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { authenticate } from '../auth.js';
@@ -113,7 +113,10 @@ describe('2504 app ports answer every client on a firewalled node', function sui
       }],
     });
     [appPort] = app.spec.compose[0].ports;
-    await installOnNodes(env, app, [NODE]);
+    const mark = node.getLastEventId();
+    // The node's own spawner installs it, as apps land in production: seeded to this node alone, it is the only one that can select it.
+    await seedSpawnerApp(env, app, [NODE]);
+    await waitForAppInstalled(node, appName, 240000, { afterId: mark });
   });
 
   after(async () => {

@@ -16,9 +16,9 @@ import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, restartFluxos } from '../framework/container.js';
 import { pushBusybox } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
-import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
+import { bootAndPeer, seedSpawnerApp } from '../framework/reconciler-suite.js';
 import { REGISTRY_REPO_HOST, REGISTRY_PORT, getSubnetConfig } from '../framework/subnet-config.js';
-import { waitForBootSettled } from '../framework/wait.js';
+import { waitForAppInstalled, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const NODE = 0;
@@ -224,7 +224,10 @@ describe('2503 app containers on a node with br_netfilter loaded', function suit
       repoauth: '',
     });
     const app = await buildSeedableApp({ name: appName, env, compose: [component('front'), component('back')] });
-    await installOnNodes(env, app, [NODE]);
+    const mark = node.getLastEventId();
+    // The node's own spawner installs it, as apps land in production: seeded to this node alone, it is the only one that can select it.
+    await seedSpawnerApp(env, app, [NODE]);
+    await waitForAppInstalled(node, appName, 240000, { afterId: mark });
 
     const bridge = await bridgeOf(`fluxDockerNetwork_${appName}`);
     const before = await bridgeHits('RETURN', bridge, bridge);
