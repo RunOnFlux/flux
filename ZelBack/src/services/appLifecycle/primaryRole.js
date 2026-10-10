@@ -197,6 +197,20 @@ function standDown(identifier, appId, { running = false } = {}) {
 }
 
 /**
+ * Records a verdict the component's container already shows where this process
+ * holds none. Asked first, as an adoption takes the component's reconcile slot.
+ * @param {string} identifier `<component>_<app>`
+ * @param {'running'|'stopped'} state
+ * @param {string} reason
+ */
+async function adopt(identifier, state, reason) {
+  if (appReconciler.hasControllerOpinion(identifier)) return;
+  if (await appReconciler.adoptControllerDesired(identifier, state, reason)) {
+    fluxEventBus.count('masterSlave:decision', identifier, 'adopted');
+  }
+}
+
+/**
  * Keeps the folder of the primary running here sending, and records 'running' as
  * the reconciler's desired state where this process holds none: after a FluxOS
  * restart the container runs with no opinion recorded, and the reconciler acts on
@@ -210,9 +224,7 @@ function standDown(identifier, appId, { running = false } = {}) {
 async function holdAsPrimary(identifier, appId) {
   if (changes.get(identifier)) return false;
   const held = await syncthingFolderWrites.changeSyncthingFolderType(appId, 'sendreceive');
-  if (await appReconciler.adoptControllerDesired(identifier, 'running', 'masterSlave primary')) {
-    fluxEventBus.count('primaryRole:adopted', identifier, 'running');
-  }
+  await adopt(identifier, 'running', 'masterSlave primary');
   return held;
 }
 
@@ -266,9 +278,7 @@ function heldByOperation(identifier) {
  */
 async function holdAsStandby(identifier, appId, { othersHold } = {}) {
   if (changes.get(identifier) || isPrimary(identifier)) return false;
-  if (await appReconciler.adoptControllerDesired(identifier, 'stopped', 'masterSlave standby')) {
-    fluxEventBus.count('primaryRole:adopted', identifier, 'stopped');
-  }
+  await adopt(identifier, 'stopped', 'masterSlave standby');
   const folder = await syncthingFolderWrites.folderConfig(appId);
   if (folder?.paused && folder.type === 'sendreceive') {
     const others = othersHold ? await othersHold() : PeerComponent.UNKNOWN;
