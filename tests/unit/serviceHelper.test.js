@@ -759,6 +759,7 @@ describe('serviceHelper tests', () => {
 
     [
       '28.1', '28', '28.1.1.1', '028.1.1', '28.01.1', '28.1.01', '28.1.x', 'V1.2.3', '', 'dev', 'v',
+      '9007199254740992.0.0', '1.9007199254740992.0',
       '1:28.1.1', '5:28.1.1-1~ubuntu.22.04~jammy', '20230311ubuntu0.22.04.1', '1.218-4ubuntu1',
       null, undefined, 28, {}, [],
     ].forEach((input) => {
@@ -791,6 +792,8 @@ describe('serviceHelper tests', () => {
         ['1.0.0-rc.1', '1.0.0-rc.2', false], ['1.0.0-rc.10', '1.0.0-rc.2', true], ['1.0.0-rc.2', '1.0.0-rc.2', true],
         ['1.0.0-beta', '1.0.0-rc.1', false], ['1.0.0-alpha', '1.0.0-alpha.1', false], ['1.0.0-alpha.1', '1.0.0-alpha', true],
         ['1.0.0-alpha.beta', '1.0.0-alpha.1', true], ['1.0.0-1', '1.0.0-alpha', false],
+        // A numeric identifier is below an alphanumeric one, though '-' sorts before digits in ASCII.
+        ['1.0.0-1', '1.0.0--x', false], ['1.0.0--x', '1.0.0-1', true],
       ],
       'build metadata ignored on either side': [
         ['28.1.1+dfsg1', '28.1.1', true], ['28.1.0+build.99', '28.1.1', false],
@@ -802,7 +805,7 @@ describe('serviceHelper tests', () => {
         ['', '28.1.1', false], ['dev', '28.1.1', false], ['latest', '28.1.1', false], ['v', '28.1.1', false],
         ['1:28.1.1', '28.1.1', false], ['5:28.1.1-1~ubuntu.22.04~jammy', '28.1.1', false], ['28.1.x', '28.1.1', false],
         [null, '28.1.1', false], [undefined, '28.1.1', false], [28, '28.1.1', false], [{}, '28.1.1', false],
-        ['999.0.0x', '28.1.1', false],
+        ['999.0.0x', '28.1.1', false], ['9007199254740992.0.0', '28.1.1', false],
       ],
       'a minimum that is not SemVer': [
         ['28.1.1', '28.1', false], ['28.1.1', '', false], ['28.1.1', null, false], ['28.1.1', undefined, false],

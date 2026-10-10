@@ -8,7 +8,6 @@ const { spawn } = require('node:child_process');
 
 const axios = require('axios').default;
 const qs = require('qs');
-const semver = require('semver');
 
 const asyncLock = require('./utils/asyncLock');
 const log = require('../lib/log');
@@ -730,31 +729,76 @@ async function runCommand(userCmd, options = {}) {
 }
 
 
+// SemVer 2.0.0's grammar (semver.org): MAJOR.MINOR.PATCH, numbers without leading zeros, then
+// an optional pre-release (-) and build metadata (+), each dot-separated identifiers.
+const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*)?$/;
+
 /**
- * A version as SemVer 2.0.0 reads it, with a leading v or = allowed (v20.8.0).
+ * A version's parts as SemVer 2.0.0 reads it, with surrounding space and one leading v or =
+ * allowed (v20.8.0).
  * @param {*} version
- * @returns {?string} The version without its prefix, or null when it is not a
- *   SemVer version: a missing part (28.1), a fourth part, a leading zero, or
+ * @returns {?{core: number[], pre: string[]}} null when it is not a SemVer version: a missing
+ *   part (28.1), a fourth part, a leading zero, a part beyond Number.MAX_SAFE_INTEGER, or
  *   anything that is not a string.
  */
-function parseSemver(version) {
+function semverParts(version) {
   if (typeof version !== 'string') return null;
-  return semver.clean(version);
+  const match = SEMVER.exec(version.trim().replace(/^[v=]/, ''));
+  if (!match) return null;
+  const core = match.slice(1, 4).map(Number);
+  if (!core.every(Number.isSafeInteger)) return null;
+  return { core, pre: match[4] === undefined ? [] : match[4].split('.') };
 }
 
 /**
- * Whether a version is at least a minimum, by SemVer precedence: a pre-release
- * is below its release (28.1.1-rc.1 < 28.1.1) and build metadata is ignored
- * (20.10.24+dfsg1 = 20.10.24).
+ * A version as SemVer 2.0.0 reads it, without its prefix or build metadata.
+ * @param {*} version
+ * @returns {?string} null when it is not a SemVer version (see semverParts).
+ */
+function parseSemver(version) {
+  const parts = semverParts(version);
+  if (!parts) return null;
+  return `${parts.core.join('.')}${parts.pre.length ? `-${parts.pre.join('.')}` : ''}`;
+}
+
+/**
+ * Two pre-release identifiers by SemVer precedence: numeric ones by value and below
+ * alphanumeric ones, alphanumeric ones in ASCII order.
+ * @param {string} a
+ * @param {string} b
+ * @returns {number} Negative, zero or positive.
+ */
+function comparePreReleaseIdentifiers(a, b) {
+  const aNumeric = /^\d+$/.test(a);
+  const bNumeric = /^\d+$/.test(b);
+  if (aNumeric && bNumeric) return Number(a) - Number(b);
+  if (aNumeric !== bNumeric) return aNumeric ? -1 : 1;
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
+/**
+ * Whether a version is at least a minimum, by SemVer 2.0.0 precedence: major, minor and patch
+ * by value; a pre-release is below its release (28.1.1-rc.1 < 28.1.1) and pre-releases are
+ * ordered identifier by identifier, a shorter one first when all it has are equal; build
+ * metadata is ignored (20.10.24+dfsg1 = 20.10.24).
  * @param {*} version
  * @param {*} minimum
- * @returns {boolean} False when either is not a SemVer version (parseSemver).
+ * @returns {boolean} False when either is not a SemVer version (see semverParts).
  */
 function semverAtLeast(version, minimum) {
-  const parsed = parseSemver(version);
-  const floor = parseSemver(minimum);
-  if (!parsed || !floor) return false;
-  return semver.gte(parsed, floor);
+  const a = semverParts(version);
+  const b = semverParts(minimum);
+  if (!a || !b) return false;
+  for (let i = 0; i < 3; i += 1) {
+    if (a.core[i] !== b.core[i]) return a.core[i] > b.core[i];
+  }
+  if (!a.pre.length || !b.pre.length) return !a.pre.length;
+  for (let i = 0; i < Math.min(a.pre.length, b.pre.length); i += 1) {
+    const order = comparePreReleaseIdentifiers(a.pre[i], b.pre[i]);
+    if (order) return order > 0;
+  }
+  return a.pre.length >= b.pre.length;
 }
 
 /**
