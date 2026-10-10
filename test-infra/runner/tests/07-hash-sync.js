@@ -179,7 +179,7 @@ describe('Hash sync: stale state recovery', function () {
 
   it('marks the lost message missing', async () => {
     expect(audit.status, JSON.stringify(audit)).to.equal('success');
-    expect(audit.data.changed).to.equal(1);
+    expect(audit.data.message.changed).to.equal(1);
   });
 
   it('should re-resolve hash by fetching message from peers', async function () {

@@ -27,6 +27,7 @@ const { Privilege, authOf } = require('../utils/privileges');
 
 const appsHashesCollection = config.database.daemon.collections.appsHashes;
 const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
+const globalAppsTempMessages = config.database.appsglobal.collections.appsTemporaryMessages;
 
 const SETTLE_TIME_MS = config.fluxapps.hashSyncSettleMs ?? 4000;
 const RESPONSE_TIME_PER_HASH_MS = config.fluxapps.hashSyncResponseTimePerHashMs ?? 150;
@@ -669,8 +670,23 @@ async function syncMissingHashes(options = {}) {
         localResolved += found.length;
       }
     }
-    if (localResolved > 0) {
-      log.info(`syncMissingHashes - Resolved ${localResolved} hashes from local permanent messages`);
+    // A message this node holds unpromoted is promoted from that copy, as a block's scan
+    // promotes it; a peer's copy of a message already held is not taken (messageStore).
+    let poolResolved = 0;
+    for (let i = 0; i < missingHashes.length; i += CHUNK_SIZE) {
+      const chunk = missingHashes.slice(i, i + CHUNK_SIZE);
+      // eslint-disable-next-line no-await-in-loop
+      const held = await dbHelper.findInDatabase(appsGlobalDb, globalAppsTempMessages, { hash: { $in: chunk.map((h) => h.hash) } }, { projection: { _id: 0, hash: 1 } });
+      const heldHashes = new Set(held.map((m) => m.hash));
+      // eslint-disable-next-line no-restricted-syntax
+      for (const record of chunk.filter((r) => heldHashes.has(r.hash))) {
+        // eslint-disable-next-line no-await-in-loop
+        if (await messageVerifier.checkAndRequestApp(record.hash, record.txid, record.height, record.value, 2)) poolResolved += 1;
+      }
+    }
+    if (localResolved > 0 || poolResolved > 0) {
+      log.info(`syncMissingHashes - Resolved ${localResolved} hashes from local permanent messages, ${poolResolved} from unpromoted ones`);
+      localResolved += poolResolved;
       missingHashes = await getMissingHashes({ force, currentHeight });
     }
 
