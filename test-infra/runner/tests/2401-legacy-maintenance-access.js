@@ -540,15 +540,19 @@ describe('2401 legacy node maintenance access', function suite() {
 
   it('keeps the maintenance socket serving after a burst of connections, and a login still works', async function burst() {
     this.timeout(120000);
-    const accepted = async () => Number((await execInContainer(legacy.container, 'systemctl show fluxadm-sshd.socket -p NAccepted --value')).stdout.trim());
-    const acceptedBefore = await accepted();
+    // Every connection the socket took, served or refused over a cap, one property per call.
+    const reached = async () => {
+      const count = async (property) => Number((await execInContainer(legacy.container, `systemctl show fluxadm-sshd.socket -p ${property} --value`)).stdout.trim());
+      return (await count('NAccepted')) + (await count('NRefused'));
+    };
+    const reachedBefore = await reached();
     // 400 connect-and-close from one source, well over systemd's 200-per-2s
     // default. bash, for /dev/tcp: the node's sh is dash.
     const flood = await execInContainer(legacy.container, ['bash', '-c',
       `for i in $(seq 1 400); do (exec 3<>/dev/tcp/127.0.0.1/${SSH_PORT}) 2>/dev/null; done; echo done`]);
     expect(flood.stdout.trim()).to.equal('done');
     // The canary: the burst reached the socket.
-    expect(await accepted() - acceptedBefore, 'connections the socket accepted during the burst').to.be.at.least(400);
+    expect(await reached() - reachedBefore, 'connections the socket took during the burst').to.be.at.least(400);
     expect(await unitState(legacy.container, 'fluxadm-sshd.socket'), 'the socket must survive the burst').to.equal('active');
     await loginOrThrow('current');
   });
