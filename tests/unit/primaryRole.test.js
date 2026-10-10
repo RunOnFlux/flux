@@ -45,6 +45,7 @@ function loadRole({
     dockerActual: sinon.stub().resolves({ reachable: true, exists: true, running: false }),
     // Records a verdict where none is held; what it answers is the reconciler's.
     adoptControllerDesired: sinon.stub().resolves(true),
+    hasControllerOpinion: sinon.stub().returns(false),
   };
   // Records each type change with the options that shape it; `changeType` decides
   // what the write answers.
@@ -372,7 +373,7 @@ describe('primaryRole', () => {
       await t.role.holdAsPrimary(APP, FOLDER);
 
       sinon.assert.calledOnceWithExactly(t.reconciler.adoptControllerDesired, APP, 'running', 'masterSlave primary');
-      sinon.assert.calledWith(t.bus.count, 'primaryRole:adopted', APP, 'running');
+      sinon.assert.calledWith(t.bus.count, 'masterSlave:decision', APP, 'adopted');
     });
 
     it('records stopped for a standby', async () => {
@@ -381,7 +382,7 @@ describe('primaryRole', () => {
       await t.role.holdAsStandby(APP, FOLDER);
 
       sinon.assert.calledOnceWithExactly(t.reconciler.adoptControllerDesired, APP, 'stopped', 'masterSlave standby');
-      sinon.assert.calledWith(t.bus.count, 'primaryRole:adopted', APP, 'stopped');
+      sinon.assert.calledWith(t.bus.count, 'masterSlave:decision', APP, 'adopted');
     });
 
     it('counts no adoption the reconciler did not make', async () => {
@@ -390,7 +391,17 @@ describe('primaryRole', () => {
 
       expect(await t.role.holdAsPrimary(APP, FOLDER)).to.equal(true);
 
-      sinon.assert.neverCalledWith(t.bus.count, 'primaryRole:adopted');
+      sinon.assert.neverCalledWith(t.bus.count, 'masterSlave:decision', APP, 'adopted');
+    });
+
+    it('asks no adoption for a component this process holds an opinion on', async () => {
+      const t = loadRole({ primary: true });
+      t.reconciler.hasControllerOpinion.returns(true);
+
+      expect(await t.role.holdAsPrimary(APP, FOLDER)).to.equal(true);
+
+      sinon.assert.calledWith(t.reconciler.hasControllerOpinion, APP);
+      sinon.assert.notCalled(t.reconciler.adoptControllerDesired);
     });
 
     ['holdAsPrimary', 'holdAsStandby'].forEach((hold) => {
