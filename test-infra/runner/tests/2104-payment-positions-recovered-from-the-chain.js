@@ -4,6 +4,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { restartFluxos } from '../framework/container.js';
 import { waitFor } from '../framework/wait.js';
+import { queueAppTx } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { confirmTwoUpdatesInOneBlock } from '../framework/same-block-updates.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -13,7 +14,8 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // before positions were recorded - gets them back from the daemon's address
 // index when FluxOS starts, and holds the same spec as before. A record at a
 // height its transaction is not at takes the chain's, and its stored message
-// and the registry follow.
+// and the registry follow. A record the chain does not hold is no payment, and a
+// block paying its hash records the payment in its place.
 
 const NODES = 4;
 const NODE = 0;
@@ -88,5 +90,29 @@ describe('payment positions a node never recorded are recovered from the chain a
     expect((await db.permanentMessages({ hash }))[0].height).to.equal(chainHeight);
     const rows = await db.appSpecRows(name);
     expect(rows.map((row) => [row.hash, row.height])).to.deep.equal([[hash, chainHeight]]);
+  });
+
+  it('records a block\'s payment of a hash in place of a record the chain does not hold, and the message and registry follow it', async function () {
+    this.timeout(300000);
+    const { hash } = outcome.standing;
+    const before = await db.appHashRecord(hash);
+    await db.markNotOnChain(hash);
+    // The canary: the record is marked before the block pays the hash.
+    expect((await db.appHashRecord(hash)).notOnChain).to.equal(true);
+
+    const { nextBlockHeight } = await queueAppTx(hash);
+    await waitFor(async () => {
+      const record = await db.appHashRecord(hash);
+      return record.notOnChain === undefined && record.height >= nextBlockHeight;
+    }, { timeout: 180000, interval: 2000, label: 'the block\'s payment recorded in place of the marked record' });
+
+    const record = await db.appHashRecord(hash);
+    expect(record.txid).to.not.equal(before.txid);
+    await waitFor(async () => (await db.permanentMessages({ hash }))[0].height === record.height,
+      { timeout: 120000, interval: 2000, label: 'the stored message at the new payment\'s height' });
+    await waitFor(async () => {
+      const rows = await db.appSpecRows(name);
+      return rows.length === 1 && rows[0].hash === hash && rows[0].height === record.height;
+    }, { timeout: 120000, interval: 2000, label: 'the registry at the new payment\'s height' });
   });
 });

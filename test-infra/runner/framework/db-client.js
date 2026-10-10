@@ -249,6 +249,13 @@ export function dbClient(nodeNum) {
       if (result.matchedCount !== 1) throw new Error(`no payment record for ${hash}`);
     },
 
+    // Mark a payment record as one whose transaction the chain does not hold.
+    async markNotOnChain(hash) {
+      const explorerDb = await db('explorer');
+      const result = await explorerDb.collection('zelappshashes').updateOne({ hash }, { $set: { notOnChain: true } });
+      if (result.matchedCount !== 1) throw new Error(`no payment record for ${hash}`);
+    },
+
     // Store a permanent message at another height, as one placed by such a record was.
     async setPermanentMessageHeight(hash, height) {
       const globalDb = await db('appsGlobal');

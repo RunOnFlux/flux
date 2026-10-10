@@ -306,6 +306,26 @@ async function processSoftFork(txid, height, message) {
 }
 
 /**
+ * The payment record this node holds for an app message hash, or null. A record whose transaction
+ * the chain does not hold (notOnChain) is no payment: it is removed, so the block paying that hash
+ * records the payment in its place.
+ * @param {object} database the daemon database
+ * @param {string} hash
+ * @returns {Promise<object|null>}
+ */
+async function standingAppPayment(database, hash) {
+  const record = await dbHelper.findOneInDatabase(database, appsHashesCollection, { hash }, {
+    projection: {
+      _id: 0, txid: 1, hash: 1, height: 1, value: 1, message: 1, notOnChain: 1,
+    },
+  });
+  if (!record?.notOnChain) return record;
+  await dbHelper.removeDocumentsFromCollection(database, appsHashesCollection, { hash, notOnChain: true });
+  log.info(`Explorer - payment of ${hash} recorded at txid ${record.txid} height ${record.height} is not on the chain; recording the one this block holds`);
+  return null;
+}
+
+/**
  * To process verbose block data for entry to Insight database.
  * @param {object} blockDataVerbose Verbose block data.
  * @param {string} database Database.
@@ -357,32 +377,13 @@ async function processInsight(blockDataVerbose, database) {
             txid: tx.txid, height: blockDataVerbose.height, txIndex, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
             syncAttempts: 0, nextRetryHeight: blockDataVerbose.height, retryFromHeight: blockDataVerbose.height,
           };
-          // Unique hash - If we already have a hash of this app in our database, do not insert it!
-          try {
-            // 5501c7dd6516c3fc2e68dee8d4fdd20d92f57f8cfcdc7b4fcbad46499e43ed6f
-            const querySearch = {
-              hash: message,
-            };
-            const projectionSearch = {
-              projection: {
-                _id: 0,
-                txid: 1,
-                hash: 1,
-                height: 1,
-                value: 1,
-                message: 1,
-              },
-            };
-            // eslint-disable-next-line no-await-in-loop
-            const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
-            if (!result) {
-              appsTransactions.push(appTxRecord);
-            } else {
-              throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
-            }
-          } catch (error) {
+          // A hash is paid once: a payment this node already holds stands.
+          // eslint-disable-next-line no-await-in-loop
+          const standing = await standingAppPayment(database, message);
+          if (standing) {
             log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
-            log.error(error);
+          } else {
+            appsTransactions.push(appTxRecord);
           }
         }
       }
@@ -534,31 +535,12 @@ async function processStandard(blockDataVerbose, database) {
             txid: tx.txid, height: blockDataVerbose.height, txIndex, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
             syncAttempts: 0, nextRetryHeight: blockDataVerbose.height, retryFromHeight: blockDataVerbose.height,
           };
-          // Unique hash - If we already have a hash of this app in our database, do not insert it!
-          try {
-            // 5501c7dd6516c3fc2e68dee8d4fdd20d92f57f8cfcdc7b4fcbad46499e43ed6f
-            const querySearch = {
-              hash: message,
-            };
-            const projectionSearch = {
-              projection: {
-                _id: 0,
-                txid: 1,
-                hash: 1,
-                height: 1,
-                value: 1,
-                message: 1,
-              },
-            };
-            const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
-            if (!result) {
-              appsTransactions.push(appTxRecord);
-            } else {
-              throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
-            }
-          } catch (error) {
+          // A hash is paid once: a payment this node already holds stands.
+          const standing = await standingAppPayment(database, message);
+          if (standing) {
             log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
-            log.error(error);
+          } else {
+            appsTransactions.push(appTxRecord);
           }
         }
       }
