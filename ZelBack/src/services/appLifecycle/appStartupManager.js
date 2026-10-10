@@ -26,6 +26,11 @@ const { getNonGComponentIdentifiers, parseContainerName, appHasValidLocationOnNo
 
 const SYNC_TIMEOUT_MS = config.system.bootSyncTimeoutMs ?? 300000;
 
+// How long mapping one app port on the router may hold the boot gate, and how
+// long mapping them all may.
+const BOOT_UPNP_PORT_TIMEOUT_MS = 15 * 1000;
+const BOOT_UPNP_BUDGET_MS = 2 * 60 * 1000;
+
 /**
  * Await a promise, giving up after a deadline. The timer is cleared however the
  * race ends, so work that finishes early leaves nothing pending behind it.
@@ -132,12 +137,21 @@ async function mapInstalledAppPorts() {
   try {
     const { apps, unreadable } = await portManager.appsWithPorts(await getInstalledAppsFromDb());
     if (unreadable.length) log.warn(`appStartupManager - ports of ${unreadable.length} installed app(s) not mapped via UPnP: specification unreadable`);
+    // The router's requests have no timeout of their own, and this holds the boot
+    // gate: a port gets its time, the mapping as a whole gets its budget, and
+    // whatever is left is the restore's.
+    const deadline = performance.now() + BOOT_UPNP_BUDGET_MS;
     // eslint-disable-next-line no-restricted-syntax
     for (const app of apps) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of app.ports) {
+        if (performance.now() >= deadline) {
+          log.warn(`appStartupManager - mapping ports via UPnP stopped after ${BOOT_UPNP_BUDGET_MS / 1000}s; the restore maps the rest`);
+          return;
+        }
         // eslint-disable-next-line no-await-in-loop
-        const mapped = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${app.name}`);
+        const mapped = await awaitWithin(upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${app.name}`), BOOT_UPNP_PORT_TIMEOUT_MS, 'upnp_timeout')
+          .catch(() => false);
         if (!mapped) log.warn(`appStartupManager - port ${port} of ${app.name} not mapped via UPnP; the restore tries again`);
       }
     }

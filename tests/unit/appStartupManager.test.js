@@ -732,6 +732,30 @@ describe('appStartupManager tests', () => {
       expect(logStub.info.calledWithMatch(/node confirmed, reconciling/)).to.equal(true);
     });
 
+    it('gives up on a port the router never answers after 15 s, and maps the next', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+      upnpServiceStub.mapUpnpPort.onFirstCall().returns(new Promise(() => {}));
+
+      const mapping = appStartupManager.mapInstalledAppPorts();
+      await clock.tickAsync(15 * 1000);
+      await mapping;
+      clock.restore();
+
+      sinon.assert.callCount(upnpServiceStub.mapUpnpPort, 3);
+      expect(logStub.warn.calledWithMatch(/port 31000 of web not mapped via UPnP/)).to.equal(true);
+    });
+
+    it('stops mapping once its 2 minute budget is spent, leaving the rest to the restore', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+      upnpServiceStub.mapUpnpPort.callsFake(async () => { clock.tick(70 * 1000); return true; });
+
+      await appStartupManager.mapInstalledAppPorts();
+      clock.restore();
+
+      sinon.assert.calledTwice(upnpServiceStub.mapUpnpPort);
+      expect(logStub.warn.calledWithMatch(/stopped after 120s; the restore maps the rest/)).to.equal(true);
+    });
+
     it('maps nothing on a node without UPnP', async () => {
       upnpServiceStub.isUPNP.returns(false);
 
@@ -759,12 +783,22 @@ describe('appStartupManager tests', () => {
       expect(logStub.warn.calledWithMatch(/1 installed app\(s\) not mapped via UPnP: specification unreadable/)).to.equal(true);
     });
 
-    it('logs a failure and still reconciles the apps', async () => {
-      upnpServiceStub.mapUpnpPort.rejects(new Error('router gone'));
+    it('goes on past a port whose mapping throws, and still reconciles the apps', async () => {
+      upnpServiceStub.mapUpnpPort.onFirstCall().rejects(new Error('router gone'));
 
       await appStartupManager.manageAppsOnBoot(KEEP);
 
-      expect(logStub.error.calledWithMatch(/not mapped via UPnP: router gone/)).to.equal(true);
+      sinon.assert.callCount(upnpServiceStub.mapUpnpPort, 3);
+      expect(logStub.warn.calledWithMatch(/port 31000 of web not mapped via UPnP/)).to.equal(true);
+      expect(logStub.info.calledWithMatch(/node confirmed, reconciling/)).to.equal(true);
+    });
+
+    it('logs a failure to read the apps and still reconciles them', async () => {
+      portManagerStub.appsWithPorts.onSecondCall().rejects(new Error('benchd down'));
+
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      expect(logStub.error.calledWithMatch(/app ports not mapped via UPnP: benchd down/)).to.equal(true);
       expect(logStub.info.calledWithMatch(/node confirmed, reconciling/)).to.equal(true);
     });
 

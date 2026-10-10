@@ -46,8 +46,34 @@ const staleMappingsSeen = new Map();
 // port mid-test, an app installing - whatever the app table says so far.
 const recentlyMapped = new Map();
 let sweeping = false;
+// The library's requests have no timeout of their own: a router that restarts
+// with one in flight never answers it, and a sweep waiting on it would hold
+// `sweeping` - and so every later sweep - until FluxOS restarts.
+const SWEEP_LISTING_TIMEOUT_MS = 60 * 1000;
+const SWEEP_REMOVAL_TIMEOUT_MS = 15 * 1000;
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
+
+/**
+ * Settles with `work`, or rejects once `timeoutMs` has passed.
+ * @param {Promise<*>} work
+ * @param {number} timeoutMs
+ * @param {string} what what is waited for, for the error
+ * @returns {Promise<*>}
+ */
+async function withinTime(work, timeoutMs, what) {
+  let timer;
+  try {
+    return await Promise.race([
+      work,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${what}: the router did not answer within ${timeoutMs / 1000}s`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 if (config.upnp.gatewayUrl) {
   // eslint-disable-next-line global-require
@@ -386,7 +412,7 @@ async function removeStaleMappings(heldPorts) {
   if (sweeping) return 0;
   sweeping = true;
   try {
-    const mappings = await client.getMappings({ local: true });
+    const mappings = await withinTime(client.getMappings({ local: true }), SWEEP_LISTING_TIMEOUT_MS, 'listing the mappings');
     const keep = new Set([...await heldPorts()].map(Number));
     const now = monotonicMs();
     const staleNow = new Set();
@@ -412,7 +438,7 @@ async function removeStaleMappings(heldPorts) {
       const protocol = mapping.protocol.toUpperCase();
       try {
         // eslint-disable-next-line no-await-in-loop
-        await client.removeMapping({ public: { host: mapping.public.host, port }, protocol });
+        await withinTime(client.removeMapping({ public: { host: mapping.public.host, port }, protocol }), SWEEP_REMOVAL_TIMEOUT_MS, 'removing the mapping');
         removed += 1;
         staleNow.delete(key);
         log.info(`UPnP - stale mapping removed: ${protocol} ${port} (${mapping.description})`);

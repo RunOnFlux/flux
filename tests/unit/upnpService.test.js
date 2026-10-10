@@ -733,6 +733,35 @@ describe('upnpService tests', () => {
       sinon.assert.calledTwice(getMappingsStub);
     });
 
+    it('should give up on a listing the router never answers, and leave the next sweep free to run', async () => {
+      getMappingsStub.onFirstCall().returns(new Promise(() => {}));
+      getMappingsStub.resolves([]);
+
+      let error;
+      const sweeping = upnpService.removeStaleMappings(async () => []).catch((err) => { error = err; });
+      await clock.tickAsync(60 * 1000);
+      await sweeping;
+
+      expect(error.message).to.match(/listing the mappings: the router did not answer within 60s/);
+      await upnpService.removeStaleMappings(async () => []);
+      sinon.assert.calledTwice(getMappingsStub);
+    });
+
+    it('should count a removal the router never answers as refused, and go on to the next', async () => {
+      getMappingsStub.resolves([mapping(31000, 'Flux_App_a'), mapping(31001, 'Flux_App_b')]);
+      await upnpService.removeStaleMappings(async () => []);
+      clock.tick(31 * 60 * 1000);
+      removeMappingStub.onFirstCall().returns(new Promise(() => {}));
+
+      const sweeping = upnpService.removeStaleMappings(async () => []);
+      await clock.tickAsync(15 * 1000);
+      const removed = await sweeping;
+
+      expect(removed).to.equal(1);
+      sinon.assert.calledTwice(removeMappingStub);
+      expect(upnpService.staleMappingsSeen.has('tcp::31000:Flux_App_a'), 'retried on the next sweep').to.equal(true);
+    });
+
     it('should remove nothing when what is held cannot be read', async () => {
       getMappingsStub.resolves([mapping(31000, 'Flux_App_gone')]);
       await upnpService.removeStaleMappings(async () => []);
