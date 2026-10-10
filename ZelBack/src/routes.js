@@ -15,7 +15,13 @@ const fluxshareService = require('./services/fluxshareService');
 const paymentRelayService = require('./services/paymentRelayService');
 const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
 const {
-  asyncRoute, cache, rejectQueryParameters, requireBootSettled, requirePolicyReady,
+  asyncRoute,
+  cache,
+  rejectQueryParameters,
+  requireAppStateReady,
+  requireBootSettled,
+  requirePolicyReady,
+  requireRegistryReady,
 } = require('./services/utils/routeGuards');
 const { alwaysRespond, isLocal, requireHttps } = require('./middlewares');
 
@@ -476,7 +482,7 @@ module.exports = (app) => {
   app.get('/apps/permanentmessages/:hash?/:owner?/:appname?', cache('2 minutes'), asyncRoute((req, res) => {
     return messageVerifier.getAppsPermanentMessages(req, res);
   }));
-  app.get('/apps/globalappsspecifications/:hash?/:owner?/:appname?', cache('30 seconds'), asyncRoute((req, res) => {
+  app.get('/apps/globalappsspecifications/:hash?/:owner?/:appname?', requireRegistryReady, cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getGlobalAppsSpecifications(req, res);
   }));
   app.get('/apps/latestspecificationversion', cache('5 minutes'), asyncRoute((req, res) => {
@@ -491,16 +497,16 @@ module.exports = (app) => {
   app.get('/apps/updatetolatestspecs/:appname', asyncRoute((req, res) => {
     return registryManager.updateApplicationSpecificationAPI(req, res);
   }));
-  app.get('/apps/appspecifications/:appname/:decrypt?', asyncRoute((req, res) => {
+  app.get('/apps/appspecifications/:appname/:decrypt?', requireRegistryReady, asyncRoute((req, res) => {
     return registryManager.getApplicationSpecificationAPI(req, res);
   }));
   // Component names and their election mode, for the flux team. Not cached: the
   // answer depends on who is asking, and a shared cache in front of a
   // privilege-checked route serves one caller's answer to the next.
-  app.get('/apps/appcomponentnames/:appname?', asyncRoute((req, res) => {
+  app.get('/apps/appcomponentnames/:appname?', requireRegistryReady, asyncRoute((req, res) => {
     return registryManager.getApplicationComponentNamesAPI(req, res);
   }));
-  app.get('/apps/appowner/:appname?', cache('30 seconds'), asyncRoute((req, res) => {
+  app.get('/apps/appowner/:appname?', requireRegistryReady, cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getApplicationOwnerAPI(req, res);
   }));
   app.get('/apps/apporiginalowner/:appname?', cache('30 seconds'), asyncRoute((req, res) => {
@@ -515,22 +521,22 @@ module.exports = (app) => {
   app.get('/apps/registrystatus', rejectQueryParameters, cache('10 seconds'), asyncRoute((req, res) => {
     return registryManager.getRegistryStatus(req, res);
   }));
-  app.get('/apps/location/:appname?', cache('30 seconds'), asyncRoute((req, res) => {
+  app.get('/apps/location/:appname?', requireAppStateReady, cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getAppsLocation(req, res);
   }));
-  app.get('/apps/locations', cache('30 seconds'), asyncRoute((req, res) => {
+  app.get('/apps/locations', requireAppStateReady, cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getAppsLocations(req, res);
   }));
-  app.get('/apps/installinglocation/:appname?', cache('30 seconds'), asyncRoute((req, res) => {
+  app.get('/apps/installinglocation/:appname?', requireAppStateReady, cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getAppInstallingLocation(req, res);
   }));
-  app.get('/apps/installinglocations', cache('30 seconds'), asyncRoute((req, res) => {
+  app.get('/apps/installinglocations', requireAppStateReady, cache('30 seconds'), asyncRoute((req, res) => {
     return appQueryService.getAppsInstallingLocations(req, res);
   }));
-  app.get('/apps/installingerrorslocation/:appname?', cache('30 seconds'), asyncRoute((req, res) => {
+  app.get('/apps/installingerrorslocation/:appname?', requireAppStateReady, cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getAppInstallingErrorsLocation(req, res);
   }));
-  app.get('/apps/installingerrorslocations', cache('30 seconds'), asyncRoute((req, res) => {
+  app.get('/apps/installingerrorslocations', requireAppStateReady, cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getAppsInstallingErrorsLocations(req, res);
   }));
   app.post('/apps/calculateprice', asyncRoute((req, res) => { // returns price in flux for both new registration of app and update of app

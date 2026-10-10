@@ -13,6 +13,7 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 // App modular services - replacing appsService
 const appInstaller = require('./appLifecycle/appInstaller');
 const appUninstaller = require('./appLifecycle/appUninstaller');
+const localRemovalQueue = require('./appLifecycle/localRemovalQueue');
 const appController = require('./appManagement/appController');
 const monitoringOrchestrator = require('./appMonitoring/monitoringOrchestrator');
 const portManager = require('./appNetwork/portManager');
@@ -43,6 +44,7 @@ const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSend
 const appQueryService = require('./appQuery/appQueryService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
+const paymentPositions = require('./migrations/paymentPositions');
 const fluxService = require('./fluxService');
 const geolocationService = require('./geolocationService');
 const ipLocationSync = require('./appPlacement/ipLocationSync');
@@ -503,6 +505,15 @@ async function startFluxFunctions() {
     await daemonServiceMiscRpcs.daemonBlockchainInfoService();
     globalState.daemonReady = true;
 
+    // App payments are placed in chain order from the daemon's address index: it
+    // positions the payments recorded before the scan recorded positions, and a
+    // node with no app history yet fetches its payments through it.
+    if (!daemonServiceMiscRpcs.isAddressIndex()) {
+      log.error('fluxd is running without addressindex=1. FluxOS needs the address index to order app messages. Set addressindex=1 in flux.conf and reindex the daemon, or reinstall the node. FluxOS is stopping.');
+      process.exit(1);
+    }
+    await paymentPositions.backfillPaymentPositions();
+
     // Initialize app sync orchestrator and spawner
     const orchestrator = new AppSyncOrchestrator({
       blockEmitter: explorerService.getBlockEmitter(),
@@ -602,6 +613,8 @@ async function startFluxFunctions() {
     // a removed component's in-memory controller verdict dies with it - a
     // reinstalled g:/r: app must await a fresh election, not inherit a stale one
     appUninstaller.setOnComponentRemoved((id) => appReconciler.forgetDesiredState(id));
+    // an app the registry stops listing is removed here and its removal told to peers
+    localRemovalQueue.setRemover((appName) => appUninstaller.removeAppLocally(appName, null, true, false, true));
     // the node's address moved, so every app that survived it has to come up on
     // the new one - asked for durably here rather than driven from the network
     // layer, which sits underneath the reconciler and cannot require it

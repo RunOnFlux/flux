@@ -24,7 +24,12 @@ const registerRoutes = require('../../ZelBack/src/routes');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const { FluxRpc } = require('../../ZelBack/src/services/utils/fluxRpc');
 const {
-  asyncRoute, cache, rejectQueryParameters, requireBootSettled,
+  asyncRoute,
+  cache,
+  rejectQueryParameters,
+  requireAppStateReady,
+  requireBootSettled,
+  requireRegistryReady,
 } = require('../../ZelBack/src/services/utils/routeGuards');
 
 /**
@@ -224,6 +229,36 @@ describe('route wiring', () => {
         const route = table.find((entry) => entry.path === path && entry.method === 'get');
 
         expect(route, `${path} is not registered as a GET - a required :appname would read as a different path`).to.not.equal(undefined);
+      });
+    });
+  });
+
+  // A read of a store that is rebuilt at boot answers 503 until the store stands,
+  // so a caller such as FDM waits and asks again instead of taking an empty or
+  // partial answer as the network's. The guard runs ahead of the cache, so a
+  // closed gate is never answered with a response remembered while it was open.
+  describe('endpoints held until the store they read is ready', () => {
+    const storeGated = [
+      { guard: requireRegistryReady, path: '/apps/globalappsspecifications/:hash?/:owner?/:appname?' },
+      { guard: requireRegistryReady, path: '/apps/appspecifications/:appname/:decrypt?' },
+      { guard: requireRegistryReady, path: '/apps/appcomponentnames/:appname?' },
+      { guard: requireRegistryReady, path: '/apps/appowner/:appname?' },
+      { guard: requireAppStateReady, path: '/apps/location/:appname?' },
+      { guard: requireAppStateReady, path: '/apps/locations' },
+      { guard: requireAppStateReady, path: '/apps/installinglocation/:appname?' },
+      { guard: requireAppStateReady, path: '/apps/installinglocations' },
+      { guard: requireAppStateReady, path: '/apps/installingerrorslocation/:appname?' },
+      { guard: requireAppStateReady, path: '/apps/installingerrorslocations' },
+    ];
+
+    storeGated.forEach(({ guard, path }) => {
+      it(`GET ${path} is held by ${guard.name}, ahead of any cache`, () => {
+        const route = table.find((entry) => entry.path === path && entry.method === 'get');
+        expect(route, `${path} is not registered as a GET`).to.not.equal(undefined);
+        const guardAt = route.chain.indexOf(guard);
+        expect(guardAt, `${path} does not carry ${guard.name}`).to.not.equal(-1);
+        const cacheAt = route.chain.findIndex((fn) => fn && fn.name === 'cache');
+        if (cacheAt !== -1) expect(guardAt).to.be.lessThan(cacheAt);
       });
     });
   });

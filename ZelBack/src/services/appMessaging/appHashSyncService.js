@@ -21,12 +21,13 @@ const { appSyncEvents, EVENTS } = require('../utils/appSyncEvents');
 const { HASH_EXPIRY_BLOCKS, HASH_RETRY_BACKOFF } = require('../utils/appConstants');
 const log = require('../../lib/log');
 const fluxEventBus = require('../utils/fluxEventBus');
-const { isBefore } = require('../utils/appMessageChain');
+const { isBefore, messagesThatCount } = require('../utils/appMessageChain');
 const { invalidMessages } = require('../invalidMessages');
 const { Privilege, authOf } = require('../utils/privileges');
 
 const appsHashesCollection = config.database.daemon.collections.appsHashes;
 const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
+const globalAppsTempMessages = config.database.appsglobal.collections.appsTemporaryMessages;
 
 const SETTLE_TIME_MS = config.fluxapps.hashSyncSettleMs ?? 4000;
 const RESPONSE_TIME_PER_HASH_MS = config.fluxapps.hashSyncResponseTimePerHashMs ?? 150;
@@ -56,7 +57,8 @@ async function getMissingHashes(options = {}) {
   const { force = false, currentHeight = 0 } = options;
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
-  const query = { message: false };
+  // A payment whose transaction is not on the chain (notOnChain) has no message to fetch.
+  const query = { message: false, notOnChain: { $ne: true } };
   if (!force) {
     query.messageNotFound = { $ne: true };
     query.$or = [
@@ -297,8 +299,10 @@ async function processMessages(messages, records, onProgress) {
     );
     const existingSet = new Set(existingDocs.map((d) => d.hash));
 
-    // 2. Batch mark existing hashes as message:true
+    // 2. Batch mark existing hashes as message:true, the stored message following this node's
+    // payment record
     if (existingSet.size > 0) {
+      await messageVerifier.alignStoredMessagesWithPayments([...existingSet].map((hash) => ({ hash, ...records.get(hash) })));
       const hashOps = [...existingSet].map((hash) => ({
         updateOne: { filter: { hash }, update: { $set: { message: true, messageNotFound: false } } },
       }));
@@ -337,6 +341,17 @@ async function processMessages(messages, records, onProgress) {
         prevSpecsMap.get(name).push(doc);
       }
     }
+
+    // Who holds a name is decided by the chain (appMessageChain): an update is verified against
+    // the message before it among those that count, from this node's payment records.
+    const paymentFacts = await dbHelper.appPaymentFacts(
+      daemonDb,
+      [...[...prevSpecsMap.values()].flat(), ...newMessages].map((message) => message.hash),
+    );
+    const countedBefore = (list) => messagesThatCount(
+      list.filter((message) => !paymentFacts.notOnChain.has(message.hash)),
+      paymentFacts.positions,
+    );
 
     // 4. Verify each message and collect for batch insert
     const permInserts = [];
@@ -389,7 +404,7 @@ async function processMessages(messages, records, onProgress) {
           );
         } else {
           const prevSpecsList = prevSpecsMap.get(appSpecFormatted.name);
-          const prevMsg = prevSpecsList ? findPrevSpec(prevSpecsList, height, messageTimestamp) : null;
+          const prevMsg = prevSpecsList ? findPrevSpec(countedBefore(prevSpecsList), height, messageTimestamp) : null;
           if (!prevMsg) {
             failed += 1;
             continue;
@@ -645,14 +660,33 @@ async function syncMissingHashes(options = {}) {
       // eslint-disable-next-line no-await-in-loop
       const found = await dbHelper.findInDatabase(appsGlobalDb, globalAppsMessages, { hash: { $in: hashValues } }, { projection: { _id: 0, hash: 1 } });
       if (found.length > 0) {
+        // The stored message follows this node's payment record.
+        const foundHashes = new Set(found.map((m) => m.hash));
+        // eslint-disable-next-line no-await-in-loop
+        await messageVerifier.alignStoredMessagesWithPayments(chunk.filter((record) => foundHashes.has(record.hash)));
         const ops = found.map((m) => ({ updateOne: { filter: { hash: m.hash }, update: { $set: { message: true, messageNotFound: false } } } }));
         // eslint-disable-next-line no-await-in-loop
         await daemonDb.collection(appsHashesCollection).bulkWrite(ops, { ordered: false });
         localResolved += found.length;
       }
     }
-    if (localResolved > 0) {
-      log.info(`syncMissingHashes - Resolved ${localResolved} hashes from local permanent messages`);
+    // A message this node holds unpromoted is promoted from that copy, as a block's scan
+    // promotes it; a peer's copy of a message already held is not taken (messageStore).
+    let poolResolved = 0;
+    for (let i = 0; i < missingHashes.length; i += CHUNK_SIZE) {
+      const chunk = missingHashes.slice(i, i + CHUNK_SIZE);
+      // eslint-disable-next-line no-await-in-loop
+      const held = await dbHelper.findInDatabase(appsGlobalDb, globalAppsTempMessages, { hash: { $in: chunk.map((h) => h.hash) } }, { projection: { _id: 0, hash: 1 } });
+      const heldHashes = new Set(held.map((m) => m.hash));
+      // eslint-disable-next-line no-restricted-syntax
+      for (const record of chunk.filter((r) => heldHashes.has(r.hash))) {
+        // eslint-disable-next-line no-await-in-loop
+        if (await messageVerifier.checkAndRequestApp(record.hash, record.txid, record.height, record.value, 2)) poolResolved += 1;
+      }
+    }
+    if (localResolved > 0 || poolResolved > 0) {
+      log.info(`syncMissingHashes - Resolved ${localResolved} hashes from local permanent messages, ${poolResolved} from unpromoted ones`);
+      localResolved += poolResolved;
       missingHashes = await getMissingHashes({ force, currentHeight });
     }
 

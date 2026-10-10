@@ -219,6 +219,7 @@ export function dbClient(nodeNum) {
         hash,
         height,
         txid: hash,
+        txIndex: 0,
         value: 200000000,
         message: resolved,
         messageNotFound: false,
@@ -226,27 +227,57 @@ export function dbClient(nodeNum) {
       });
     },
 
-    async markHashUnresolved(hash) {
+    // The node's record of an app payment, including its position in the block.
+    async appHashRecord(hash) {
       const explorerDb = await db('explorer');
-      await explorerDb.collection('zelappshashes').updateOne(
-        { hash },
-        { $set: { message: false, messageNotFound: false } },
-      );
+      return explorerDb.collection('zelappshashes').findOne({ hash }, { projection: { _id: 0 } });
+    },
+
+    // Remove a payment record's position, leaving it as a record made before
+    // positions were recorded.
+    async unsetTxIndex(hash) {
+      const explorerDb = await db('explorer');
+      const result = await explorerDb.collection('zelappshashes').updateOne({ hash }, { $unset: { txIndex: '' } });
+      if (result.matchedCount !== 1) throw new Error(`no payment record for ${hash}`);
+    },
+
+    // Record a payment at another height, as a record written from a block that later left the
+    // chain carries it.
+    async setAppHashHeight(hash, height) {
+      const explorerDb = await db('explorer');
+      const result = await explorerDb.collection('zelappshashes').updateOne({ hash }, { $set: { height } });
+      if (result.matchedCount !== 1) throw new Error(`no payment record for ${hash}`);
+    },
+
+    // Mark a payment record as one whose transaction the chain does not hold.
+    async markNotOnChain(hash) {
+      const explorerDb = await db('explorer');
+      const result = await explorerDb.collection('zelappshashes').updateOne({ hash }, { $set: { notOnChain: true } });
+      if (result.matchedCount !== 1) throw new Error(`no payment record for ${hash}`);
+    },
+
+    // Store a permanent message at another height, as one placed by such a record was.
+    async setPermanentMessageHeight(hash, height) {
+      const globalDb = await db('appsGlobal');
+      const result = await globalDb.collection('zelappsmessages').updateOne({ hash }, { $set: { height } });
+      if (result.matchedCount !== 1) throw new Error(`no permanent message for ${hash}`);
+    },
+
+    // Every registry row this node holds for an app, straight from its store.
+    async appSpecRows(name) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappsinformation').find({ name }, { projection: { _id: 0 } }).toArray();
     },
 
     async deletePermanentMessage(hash) {
-      const explorerDb = await db('explorer');
-      await explorerDb.collection('zelappsmessages').deleteOne({ hash });
+      const globalDb = await db('appsGlobal');
+      const result = await globalDb.collection('zelappsmessages').deleteOne({ hash });
+      if (result.deletedCount !== 1) throw new Error(`no permanent message for ${hash}`);
     },
 
     async deleteAppHash(hash) {
       const explorerDb = await db('explorer');
       await explorerDb.collection('zelappshashes').deleteOne({ hash });
-    },
-
-    async deleteAppSpec(name) {
-      const explorerDb = await db('explorer');
-      await explorerDb.collection('zelappsinformation').deleteOne({ name });
     },
 
     async writeHeartbeat({ lastAlive, shutdownReason, machineBootId }) {
@@ -279,7 +310,11 @@ export function dbClient(nodeNum) {
 
     async globalAppSpecs() {
       const globalDb = await db('appsGlobal');
-      return globalDb.collection('zelappsinformation').find({}, { projection: { _id: 0, name: 1, hash: 1 } }).toArray();
+      return globalDb.collection('zelappsinformation').find({}, {
+        projection: {
+          _id: 0, name: 1, hash: 1, height: 1,
+        },
+      }).toArray();
     },
 
     // zelappsinformation holds one row per app - the CURRENT specification. An
@@ -302,10 +337,18 @@ export function dbClient(nodeNum) {
       await globalDb.collection('zelappsmessages').insertMany(msgs.map((msg) => ({ ...msg })));
     },
 
-    // The node's record of app payments its scan found: { hash, txid, height, value, message }.
+    // The node's record of app payments its scan found: { hash, txid, height, txIndex, value,
+    // message }. An entry without a position takes the next one at its height, in entry order.
     async seedAppHashes(entries) {
       const explorerDb = await db('explorer');
-      await explorerDb.collection('zelappshashes').insertMany(entries.map((entry) => ({ ...entry })));
+      const nextAtHeight = new Map();
+      const records = entries.map((entry) => {
+        if (Number.isInteger(entry.txIndex)) return { ...entry };
+        const txIndex = nextAtHeight.get(entry.height) ?? 0;
+        nextAtHeight.set(entry.height, txIndex + 1);
+        return { ...entry, txIndex };
+      });
+      await explorerDb.collection('zelappshashes').insertMany(records);
     },
 
     async permanentMessages(query = {}) {

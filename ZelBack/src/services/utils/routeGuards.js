@@ -100,6 +100,51 @@ function requirePolicyReady(req, res, next) {
 }
 
 /**
+ * Refuse a read of the global application registry while this node's registry
+ * is not current.
+ *
+ * The registry is rebuilt from the permanent messages once the boot hash sync
+ * completes, and stops being current when this node loses the peers new
+ * messages reach it through. Until then a read answers from a registry that is
+ * unbuilt or behind, and a caller cannot tell that answer from a network with
+ * fewer apps: FDM takes it as the app list and routes to it.
+ *
+ * Keyed on dbReady, which the sync orchestrator opens when a rebuild finishes
+ * and closes when it degrades. Runs ahead of the cache, so a refusal is never
+ * stored and a stored answer is never served while the registry is not current.
+ * @param {object} req Request
+ * @param {object} res Response
+ * @param {Function} next Next handler
+ * @returns {*} next(), or a 503 carrying a Retry-After
+ */
+function requireRegistryReady(req, res, next) {
+  if (globalState.dbReady) return next();
+  return serviceUnavailable(res, 'Node application registry is not current', BOOT_RETRY_AFTER_SECONDS);
+}
+
+/**
+ * Refuse a read of where applications run, install or fail before this node's
+ * view of that is complete.
+ *
+ * Locations are what other nodes have announced to this one. After a restart
+ * the store holds whatever outlived the outage until the orchestrator's state
+ * sync has heard the network, and an answer drawn from it reads the same as one
+ * from a node that knows.
+ *
+ * Keyed on appStateAuthoritative, the orchestrator's verdict on that store.
+ * Named separately from the registry guard: the two stores are filled by
+ * different syncs and come up at different times.
+ * @param {object} req Request
+ * @param {object} res Response
+ * @param {Function} next Next handler
+ * @returns {*} next(), or a 503 carrying a Retry-After
+ */
+function requireAppStateReady(req, res, next) {
+  if (globalState.appStateAuthoritative) return next();
+  return serviceUnavailable(res, 'Node has not yet synchronised application locations', BOOT_RETRY_AFTER_SECONDS);
+}
+
+/**
  * Answer 503 when `error` says the daemon cannot answer yet: it is still loading
  * (RPC_IN_WARMUP) or nothing is listening. A handler that asks the daemon for a
  * verdict - the node's tier, its health - has none to give in that state, so the
@@ -230,5 +275,12 @@ function cache(duration) {
 }
 
 module.exports = {
-  answerDaemonUnavailable, asyncRoute, cache, rejectQueryParameters, requireBootSettled, requirePolicyReady,
+  answerDaemonUnavailable,
+  asyncRoute,
+  cache,
+  rejectQueryParameters,
+  requireAppStateReady,
+  requireBootSettled,
+  requirePolicyReady,
+  requireRegistryReady,
 };

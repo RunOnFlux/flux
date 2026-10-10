@@ -15,6 +15,7 @@ const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const chainUtilities = require('./utils/chainUtilities');
 const messageVerifier = require('./appMessaging/messageVerifier');
 const registryManager = require('./appDatabase/registryManager');
+const { appPaymentPositions } = require('./appPaymentPositions');
 const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const benchmarkService = require('./benchmarkService');
 const fluxNetworkhelper = require('./fluxNetworkHelper');
@@ -305,6 +306,26 @@ async function processSoftFork(txid, height, message) {
 }
 
 /**
+ * The payment record this node holds for an app message hash, or null. A record whose transaction
+ * the chain does not hold (notOnChain) is no payment: it is removed, so the block paying that hash
+ * records the payment in its place.
+ * @param {object} database the daemon database
+ * @param {string} hash
+ * @returns {Promise<object|null>}
+ */
+async function standingAppPayment(database, hash) {
+  const record = await dbHelper.findOneInDatabase(database, appsHashesCollection, { hash }, {
+    projection: {
+      _id: 0, txid: 1, hash: 1, height: 1, value: 1, message: 1, notOnChain: 1,
+    },
+  });
+  if (!record?.notOnChain) return record;
+  await dbHelper.removeDocumentsFromCollection(database, appsHashesCollection, { hash, notOnChain: true });
+  log.info(`Explorer - payment of ${hash} recorded at txid ${record.txid} height ${record.height} is not on the chain; recording the one this block holds`);
+  return null;
+}
+
+/**
  * To process verbose block data for entry to Insight database.
  * @param {object} blockDataVerbose Verbose block data.
  * @param {string} database Database.
@@ -312,9 +333,10 @@ async function processSoftFork(txid, height, message) {
 async function processInsight(blockDataVerbose, database) {
   // get Block Deltas information
   const txs = blockDataVerbose.tx;
-  // go through each transaction in deltas
+  // go through each transaction in deltas. The index is the transaction's position
+  // in the block: a verbose block lists its transactions in block order.
   // eslint-disable-next-line no-restricted-syntax
-  for (const tx of txs) {
+  for (const [txIndex, tx] of txs.entries()) {
     if (tx.version < 5 && tx.version > 0) {
       let message = '';
       let isFluxAppMessageValue = 0;
@@ -352,35 +374,16 @@ async function processInsight(blockDataVerbose, database) {
         // MAY contain App transaction. Store it.
         if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of X flux had to be paid for us bothering checking
           const appTxRecord = {
-            txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
+            txid: tx.txid, height: blockDataVerbose.height, txIndex, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
             syncAttempts: 0, nextRetryHeight: blockDataVerbose.height, retryFromHeight: blockDataVerbose.height,
           };
-          // Unique hash - If we already have a hash of this app in our database, do not insert it!
-          try {
-            // 5501c7dd6516c3fc2e68dee8d4fdd20d92f57f8cfcdc7b4fcbad46499e43ed6f
-            const querySearch = {
-              hash: message,
-            };
-            const projectionSearch = {
-              projection: {
-                _id: 0,
-                txid: 1,
-                hash: 1,
-                height: 1,
-                value: 1,
-                message: 1,
-              },
-            };
-            // eslint-disable-next-line no-await-in-loop
-            const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
-            if (!result) {
-              appsTransactions.push(appTxRecord);
-            } else {
-              throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
-            }
-          } catch (error) {
+          // A hash is paid once: a payment this node already holds stands.
+          // eslint-disable-next-line no-await-in-loop
+          const standing = await standingAppPayment(database, message);
+          if (standing) {
             log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
-            log.error(error);
+          } else {
+            appsTransactions.push(appTxRecord);
           }
         }
       }
@@ -476,7 +479,9 @@ async function processStandard(blockDataVerbose, database) {
   // utxoDetail = { txid, vout, height, address, satoshis, scriptPubKey )
   // and can create addressTransactionIndex.
   // amount in address can be calculated from utxos. We do not need to store it.
-  await Promise.all(transactions.map(async (tx) => {
+  // processBlockTransactions keeps the block's order, so the index is the
+  // transaction's position in the block.
+  await Promise.all(transactions.map(async (tx, txIndex) => {
     // normal transactions
     if (tx.version < 5 && tx.version > 0) {
       let message = '';
@@ -527,34 +532,15 @@ async function processStandard(blockDataVerbose, database) {
         // MAY contain App transaction. Store it.
         if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
           const appTxRecord = {
-            txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
+            txid: tx.txid, height: blockDataVerbose.height, txIndex, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
             syncAttempts: 0, nextRetryHeight: blockDataVerbose.height, retryFromHeight: blockDataVerbose.height,
           };
-          // Unique hash - If we already have a hash of this app in our database, do not insert it!
-          try {
-            // 5501c7dd6516c3fc2e68dee8d4fdd20d92f57f8cfcdc7b4fcbad46499e43ed6f
-            const querySearch = {
-              hash: message,
-            };
-            const projectionSearch = {
-              projection: {
-                _id: 0,
-                txid: 1,
-                hash: 1,
-                height: 1,
-                value: 1,
-                message: 1,
-              },
-            };
-            const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
-            if (!result) {
-              appsTransactions.push(appTxRecord);
-            } else {
-              throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
-            }
-          } catch (error) {
+          // A hash is paid once: a payment this node already holds stands.
+          const standing = await standingAppPayment(database, message);
+          if (standing) {
             log.error(`Hash ${message} already exists. Not adding at height ${blockDataVerbose.height}`);
-            log.error(error);
+          } else {
+            appsTransactions.push(appTxRecord);
           }
         }
       }
@@ -660,9 +646,6 @@ async function processBlock(blockHeight, isInsightExplorer) {
           try {
             const reconstructResult = await registryManager.reconstructAppMessagesHashCollection();
             log.info(`Validation of App Messages Hash Collection — ${reconstructResult.changed} corrected`);
-            if (reconstructResult.changed > 0) {
-              blockEmitter.emit('hashesChanged');
-            }
           } catch (error) {
             log.error(error);
           }
@@ -738,10 +721,9 @@ async function processBlock(blockHeight, isInsightExplorer) {
 /**
  * To restore database to specified block height.
  * @param {number} height Block height.
- * @param {boolean} rescanGlobalApps Value set to false on function call.
  * @returns {boolean} Value set to true after database is restored.
  */
-async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = false) {
+async function restoreDatabaseToBlockheightState(height) {
   if (!height) {
     throw new Error('No blockheight for restoring provided');
   }
@@ -765,14 +747,8 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
   // restore appsHashes collection
   await dbHelper.removeDocumentsFromCollection(database, appsHashesCollection, query);
   log.info('Rescanning Blockchain Parameters!');
-  const databaseGlobal = dbopen.db(config.database.appsglobal.database);
   const databaseUpdates = dbopen.db(config.database.chainparams.database);
   await dbHelper.removeDocumentsFromCollection(databaseUpdates, chainParamsMessagesCollection, query);
-  if (rescanGlobalApps === true) {
-    log.info('Rescanning Apps!');
-    await dbHelper.removeDocumentsFromCollection(databaseGlobal, config.database.appsglobal.collections.appsMessages, query);
-    await dbHelper.removeDocumentsFromCollection(databaseGlobal, config.database.appsglobal.collections.appsInformation, query);
-  }
   log.info('Rescan completed');
   return true;
 }
@@ -849,7 +825,6 @@ async function migrateZelAppSpecifications(databaseGlobal) {
  * To start the block processor.
  * @param {boolean} restoreDatabase True if database is to be restored.
  * @param {boolean} deepRestore True if a deep restore is required.
- * @param {boolean} reindexOrRescanGlobalApps True if apps collections are to be reindexed.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 
@@ -933,7 +908,15 @@ async function bootstrapSoftForks(currentDaemonHeight) {
   log.info(`Bootstrap: Stored ${totalForks} soft fork messages`);
 }
 
-function processBootstrapTx(tx, priceSpecs, seenHashes, hashBatch) {
+/**
+ * Records the app payment a transaction makes, unless its hash already has one.
+ * @param {object} tx Verbose transaction
+ * @param {Array<{height: number, minPrice: number}>} priceSpecs
+ * @param {Set<string>} seenHashes Hashes already recorded
+ * @param {object[]} hashBatch Records to insert
+ * @param {number} txIndex The transaction's position in its block
+ */
+function processBootstrapTx(tx, priceSpecs, seenHashes, hashBatch, txIndex) {
   if (tx.version >= 5 || tx.version <= 0) return;
   const { height } = tx;
   if (!height) return;
@@ -962,7 +945,7 @@ function processBootstrapTx(tx, priceSpecs, seenHashes, hashBatch) {
       && height >= config.fluxapps.epochstart && !seenHashes.has(message)) {
       seenHashes.add(message);
       hashBatch.push({
-        txid: tx.txid, height, hash: message, value: appValue,
+        txid: tx.txid, height, txIndex, hash: message, value: appValue,
         message: false, syncAttempts: 0, nextRetryHeight: height, retryFromHeight: height,
       });
     }
@@ -970,28 +953,17 @@ function processBootstrapTx(tx, priceSpecs, seenHashes, hashBatch) {
 
 }
 
+/**
+ * Records every app payment from `epochstart` to a height without scanning
+ * blocks: each hash's first payment in chain order (height, then position in
+ * the block).
+ * @param {number} currentDaemonHeight
+ */
 async function bootstrapAppHashes(currentDaemonHeight) {
-  const appAddresses = [
-    config.fluxapps.address,
-    config.fluxapps.addressMultisig,
-    config.fluxapps.addressMultisigB,
-  ];
-  if (config.development) {
-    appAddresses.push(config.fluxapps.addressDevelopment);
-  }
-
-  log.info(`Bootstrap: Fetching txids for ${appAddresses.length} app addresses from height ${config.fluxapps.epochstart} to ${currentDaemonHeight}`);
-
-  const txidResult = await daemonServiceUtils.executeCall('getaddresstxids', [{
-    addresses: appAddresses,
-    start: config.fluxapps.epochstart,
-    end: currentDaemonHeight,
-  }]);
-  if (txidResult.status !== 'success') {
-    throw new Error(`getaddresstxids failed: ${txidResult.data.message || txidResult.data}`);
-  }
-
-  const allTxids = [...new Set(txidResult.data)];
+  log.info(`Bootstrap: Fetching app payments from height ${config.fluxapps.epochstart} to ${currentDaemonHeight}`);
+  const positions = await appPaymentPositions(config.fluxapps.epochstart, currentDaemonHeight);
+  const allTxids = [...positions.keys()].sort((a, b) => positions.get(a).height - positions.get(b).height
+    || positions.get(a).txIndex - positions.get(b).txIndex);
   log.info(`Bootstrap: ${allTxids.length} unique txids to process`);
 
   await bootstrapSoftForks(currentDaemonHeight);
@@ -1021,7 +993,7 @@ async function bootstrapAppHashes(currentDaemonHeight) {
         log.warn(`Bootstrap: failed to fetch tx: ${response.error.message || JSON.stringify(response.error)}`);
         continue;
       }
-      processBootstrapTx(response.result, priceSpecs, seenHashes, hashBatch);
+      processBootstrapTx(response.result, priceSpecs, seenHashes, hashBatch, positions.get(response.result.txid).txIndex);
     }
 
     if (hashBatch.length >= INSERT_THRESHOLD || i + BATCH_SIZE >= allTxids.length) {
@@ -1200,8 +1172,7 @@ async function recoverAndRestart(restoreDatabase, deepRestore) {
 }
 
 // do a deepRestore of 100 blocks if daemon if enouncters an error (mostly flux daemon was down) or if its initial start of flux
-// use reindexGlobalApps with caution!!!
-async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps) {
+async function initiateBlockProcessor(restoreDatabase, deepRestore) {
   try {
     await waitForDaemonSync();
 
@@ -1277,37 +1248,6 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
 
       const databaseGlobal = db.db(config.database.appsglobal.database);
       log.info('Preparing apps collections');
-      if (reindexOrRescanGlobalApps === true) {
-        const resultE = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsMessages).catch((error) => {
-          if (error.message !== 'ns not found') throw error;
-        });
-        const resultF = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsInformation).catch((error) => {
-          if (error.message !== 'ns not found') throw error;
-        });
-        const resultG = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsLocations).catch((error) => {
-          if (error.message !== 'ns not found') throw error;
-        });
-        const resultH = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsInstallingLocations).catch((error) => {
-          if (error.message !== 'ns not found') throw error;
-        });
-        const resultI = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsInstallingErrorsLocations).catch((error) => {
-          if (error.message !== 'ns not found') throw error;
-        });
-        const resultJ = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsInstallingErrorsBroadcasts).catch((error) => {
-          if (error.message !== 'ns not found') throw error;
-        });
-        const resultK = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appStateEvents).catch((error) => {
-          if (error.message !== 'ns not found') throw error;
-        });
-        const resultL = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsInstallingBroadcasts).catch((error) => {
-          if (error.message !== 'ns not found') throw error;
-        });
-        log.info(resultE, resultF, resultG, resultH, resultI, resultJ, resultK, resultL);
-        await databaseGlobal.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });
-        await databaseGlobal.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ ip: 1, type: 1, dedupKey: 1 }, { unique: true });
-        await databaseGlobal.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ broadcastedAt: 1 });
-        await databaseGlobal.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ createdAt: 1 });
-      }
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash', unique: true });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ txid: 1 }, { name: 'query for getting zelapp message based on txid' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ height: 1 }, { name: 'query for getting zelapp message based on height' });
@@ -1340,7 +1280,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
         if (deepRestore && deepRestoreBlocks > 0) {
           log.info('Deep restoring of database...');
           scannedBlockHeight = Math.max(scannedBlockHeight - deepRestoreBlocks, 0);
-          await restoreDatabaseToBlockheightState(scannedBlockHeight, reindexOrRescanGlobalApps);
+          await restoreDatabaseToBlockheightState(scannedBlockHeight);
           await dbHelper.updateOneInDatabase(database, scannedHeightCollection,
             { generalScannedHeight: { $gte: 0 } },
             { $set: { generalScannedHeight: scannedBlockHeight } },
@@ -1348,7 +1288,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
           log.info('Database restored OK');
         } else if (!deepRestore) {
           log.info('Restoring database...');
-          await restoreDatabaseToBlockheightState(scannedBlockHeight, reindexOrRescanGlobalApps);
+          await restoreDatabaseToBlockheightState(scannedBlockHeight);
           log.info('Database restored OK');
         }
       }
@@ -1783,18 +1723,39 @@ async function restartBlockProcessing(req, res) {
 }
 
 /**
- * To reindex Flux explorer database. Only accessible by admins and Flux team members.
+ * Refuse the apps flag of an explorer reindex or rescan. The explorer reset
+ * covers chain data only: the app messages come from the network, not the chain,
+ * and the registry has its own rebuild, which keeps the live registry until the
+ * new one is complete.
+ * @param {object} res Response.
+ * @returns {*} the sent response
+ */
+function refuseAppsFlag(res) {
+  const errMessage = messageHelper.createErrorMessage(
+    'The explorer reset covers chain data only. Rebuild the app registry with /apps/reindexglobalappsinformation.',
+    'BadRequest',
+    400,
+  );
+  return res.status(400).json(errMessage);
+}
+
+/**
+ * To reindex Flux explorer database.
+ *
+ * Flux team only. Chain data only: the apps flag is refused (refuseAppsFlag).
  * @param {object} req Request.
  * @param {object} res Response.
  */
 async function reindexExplorer(req, res) {
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
   if (authorized === true) {
+    const { reindexapps } = req?.params || {};
+    if (serviceHelper.ensureBoolean(reindexapps ?? req?.query?.rescanapps ?? false)) {
+      refuseAppsFlag(res);
+      return;
+    }
     // stop block processing
     const i = 0;
-    let { reindexapps } = req?.params || {};
-    reindexapps = reindexapps ?? req?.query?.rescanapps ?? false;
-    reindexapps = serviceHelper.ensureBoolean(reindexapps);
     checkBlockProcessingStopped(i, async (response) => {
       if (response.status === 'error') {
         res.json(response);
@@ -1815,7 +1776,7 @@ async function reindexExplorer(req, res) {
         });
         operationBlocked = false;
         if (resultOfDropping === true || resultOfDropping === undefined) {
-          initiateBlockProcessor(true, false, reindexapps); // restore database and possibly do reindex of apps
+          initiateBlockProcessor(true, false);
           const message = messageHelper.createSuccessMessage('Explorer database reindex initiated');
           res.json(message);
         } else {
@@ -1831,14 +1792,21 @@ async function reindexExplorer(req, res) {
 }
 
 /**
- * To rescan Flux explorer database from a specific block height. Only accessible by admins and Flux team members.
+ * To rescan Flux explorer database from a specific block height.
+ *
+ * Flux team only. Chain data only: the apps flag is refused (refuseAppsFlag).
  * @param {object} req Request.
  * @param {object} res Response.
  */
 async function rescanExplorer(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
     if (authorized === true) {
+      const { rescanapps } = req?.params || {};
+      if (serviceHelper.ensureBoolean(rescanapps ?? req?.query?.rescanapps ?? false)) {
+        refuseAppsFlag(res);
+        return;
+      }
       // since what blockheight
       let { blockheight } = req?.params || {}; // we accept both help/command and help?command=getinfo
       blockheight = blockheight || req?.query?.blockheight;
@@ -1866,9 +1834,6 @@ async function rescanExplorer(req, res) {
       if (blockheight < 0) {
         throw new Error('BlockHeight lower than 0');
       }
-      let { rescanapps } = req?.params || {};
-      rescanapps = rescanapps ?? req?.query?.rescanapps ?? false;
-      rescanapps = serviceHelper.ensureBoolean(rescanapps);
       // stop block processing
       const i = 0;
       checkBlockProcessingStopped(i, async (response) => {
@@ -1886,7 +1851,7 @@ async function rescanExplorer(req, res) {
           // update scanned Height in scannedBlockHeightCollection
           await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
           operationBlocked = false;
-          initiateBlockProcessor(true, false, rescanapps); // restore database and possibly do rescan of apps
+          initiateBlockProcessor(true, false);
           const message = messageHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
           res.json(message);
         }

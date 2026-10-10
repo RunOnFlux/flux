@@ -6,11 +6,15 @@ const proxyquire = require('proxyquire');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+const appMessageChain = require('../../ZelBack/src/services/utils/appMessageChain');
 // eslint-disable-next-line no-unused-vars
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
+const localRemovalQueue = require('../../ZelBack/src/services/appLifecycle/localRemovalQueue');
+const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 const { requireMongo } = require('./dbTestHelper');
 
 describe('registryManager tests', () => {
@@ -30,6 +34,11 @@ describe('registryManager tests', () => {
   });
 
   describe('getPreviousAppSpecifications tests', () => {
+    // The messages the stubbed log returns, under the name rule with no payment facts.
+    beforeEach(() => {
+      sinon.stub(dbHelper, 'appMessagesThatCount').callsFake(async (daemonDb, messages) => appMessageChain.messagesThatCount(messages));
+    });
+
     it('should return null if no previous message found', async () => {
       const specifications = { name: 'NewApp' };
       const verificationTimestamp = Date.now();
@@ -111,6 +120,19 @@ describe('registryManager tests', () => {
       expect(previous.description).to.equal('registration');
       // without its timestamp the whole block is left out
       expect(await registryManager.getPreviousAppSpecifications({ name: 'OutOfOrderApp' }, 500)).to.equal(null);
+    });
+
+    it('should check the holder\'s update against the holder\'s spec, past another owner\'s registration of the held name', async () => {
+      const alice = '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC';
+      const mallory = '1Q9sjqQcR2jSFt8pdaF7fhv9ozqD4qLnHu';
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findInDatabase').resolves([
+        { type: 'fluxappregister', height: 100, timestamp: 1000, appSpecifications: { ...specLabelled('alice registers'), owner: alice } },
+        { type: 'fluxappregister', height: 200, timestamp: 2000, appSpecifications: { ...specLabelled('mallory registers'), owner: mallory } },
+      ]);
+
+      const previous = await registryManager.getPreviousAppSpecifications({ name: 'OutOfOrderApp' }, 300, 3000);
+      expect(previous.owner).to.equal(alice);
     });
 
     it('should not let a backdated update be checked against the spec before a transfer', async () => {
@@ -836,7 +858,9 @@ describe('registryManager tests', () => {
     const { appsInformation } = config.database.appsglobal.collections;
     const owner = '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC';
     let installed;
-    let removeAppLocallyStub;
+    let queueRemovalsStub;
+    // every installed app the pass queued for removal
+    const queued = () => queueRemovalsStub.args.flatMap(([names]) => names);
 
     beforeEach(async () => {
       const daemonDb = db.db(config.database.daemon.database);
@@ -846,10 +870,7 @@ describe('registryManager tests', () => {
       installed = [];
       // eslint-disable-next-line global-require
       sinon.stub(require('../../ZelBack/src/services/appQuery/appQueryService'), 'installedApps').callsFake(async () => ({ status: 'success', data: installed }));
-      // eslint-disable-next-line global-require
-      removeAppLocallyStub = sinon.stub(require('../../ZelBack/src/services/appLifecycle/appUninstaller'), 'removeAppLocally').resolves();
-      // eslint-disable-next-line global-require
-      sinon.stub(require('../../ZelBack/src/services/serviceHelper'), 'delay').resolves();
+      queueRemovalsStub = sinon.stub(localRemovalQueue, 'queueRemovals');
     });
 
     const spec = (name, hash, height, expire) => ({
@@ -864,8 +885,7 @@ describe('registryManager tests', () => {
 
       const left = await database.collection(appsInformation).find({}).toArray();
       expect(left.map((a) => a.name)).to.deep.equal(['LiveApp']);
-      sinon.assert.calledOnce(removeAppLocallyStub);
-      sinon.assert.calledWith(removeAppLocallyStub, 'DeadApp');
+      expect(queued()).to.deep.equal(['DeadApp']);
     });
 
     it('should expire an app at its expiration height, installed or only global', async () => {
@@ -877,8 +897,7 @@ describe('registryManager tests', () => {
 
       const left = await database.collection(appsInformation).find({}).toArray();
       expect(left.map((a) => a.name)).to.deep.equal(['LiveApp']);
-      sinon.assert.calledOnce(removeAppLocallyStub);
-      sinon.assert.calledWith(removeAppLocallyStub, 'LocalEndsNowApp');
+      expect(queued()).to.deep.equal(['LocalEndsNowApp']);
     });
 
     it('should not keep an installed app for a renewal whose term ends at the tip', async () => {
@@ -893,8 +912,7 @@ describe('registryManager tests', () => {
 
       await registryManager.expireGlobalApplications();
 
-      sinon.assert.calledOnce(removeAppLocallyStub);
-      sinon.assert.calledWith(removeAppLocallyStub, 'RenewedApp');
+      expect(queued()).to.deep.equal(['RenewedApp']);
     });
 
     it('should keep a renewal stored between reading the expired spec and deleting it', async () => {
@@ -911,7 +929,7 @@ describe('registryManager tests', () => {
 
       const left = await database.collection(appsInformation).findOne({ name: 'RenewedApp' });
       expect(left.hash).to.equal('renewal');
-      sinon.assert.notCalled(removeAppLocallyStub);
+      expect(queued()).to.deep.equal([]);
     });
 
     it('should still uninstall it when the live spec is a re-registration of its name by someone else', async () => {
@@ -920,8 +938,7 @@ describe('registryManager tests', () => {
 
       await registryManager.expireGlobalApplications();
 
-      sinon.assert.calledOnce(removeAppLocallyStub);
-      sinon.assert.calledWith(removeAppLocallyStub, 'TakenApp');
+      expect(queued()).to.deep.equal(['TakenApp']);
     });
 
     it('should not uninstall an app whose installed record is stale but the network renewed', async () => {
@@ -931,8 +948,7 @@ describe('registryManager tests', () => {
 
       await registryManager.expireGlobalApplications();
 
-      sinon.assert.calledOnce(removeAppLocallyStub);
-      sinon.assert.calledWith(removeAppLocallyStub, 'GoneApp');
+      expect(queued()).to.deep.equal(['GoneApp']);
     });
 
     it('should keep a renewed app whose 0x owner the renewal spells in another case', async () => {
@@ -942,8 +958,7 @@ describe('registryManager tests', () => {
 
       await registryManager.expireGlobalApplications();
 
-      sinon.assert.calledOnce(removeAppLocallyStub);
-      sinon.assert.calledWith(removeAppLocallyStub, 'GoneApp');
+      expect(queued()).to.deep.equal(['GoneApp']);
     });
   });
 
@@ -971,6 +986,177 @@ describe('registryManager tests', () => {
     });
   });
 
+  describe('reindexGlobalAppsInformation tests', () => {
+    let rebuildStub;
+    const deferred = () => {
+      let resolve;
+      let reject;
+      const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+      return { promise, resolve, reject };
+    };
+    const settled = (promise) => {
+      const state = { done: false };
+      promise.then(() => { state.done = true; }, () => { state.done = true; });
+      return state;
+    };
+    // the rebuild reads the scanned height from mongo before it reaches the stub
+    const rebuildsStarted = async (count) => {
+      for (let i = 0; i < 1000 && rebuildStub.callCount < count; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setImmediate(resolve); });
+      }
+      expect(rebuildStub.callCount).to.equal(count);
+    };
+
+    beforeEach(async () => {
+      const daemonDb = db.db(config.database.daemon.database);
+      await daemonDb.collection(config.database.daemon.collections.scannedHeight).deleteMany({});
+      await daemonDb.collection(config.database.daemon.collections.scannedHeight).insertOne({ generalScannedHeight: 3008000 });
+      rebuildStub = sinon.stub(dbHelper, 'reindexGlobalAppsInformation');
+    });
+
+    it('should resolve once the registry is swapped in, while the apps it ends are still being removed', async () => {
+      rebuildStub.resolves(['GoneApp', 'OtherGoneApp']);
+      const removal = deferred();
+      const removed = [];
+      localRemovalQueue.setRemover(async (name) => {
+        removed.push(name);
+        await removal.promise;
+      });
+      sinon.stub(serviceHelper, 'delay').resolves();
+
+      expect(await registryManager.reindexGlobalAppsInformation()).to.equal(true);
+
+      // the first removal has begun and not finished; the second waits behind it
+      expect(removed).to.deep.equal(['GoneApp']);
+      removal.resolve();
+      await localRemovalQueue.drained();
+      expect(removed).to.deep.equal(['GoneApp', 'OtherGoneApp']);
+      localRemovalQueue.setRemover(null);
+    });
+
+    it('should resolve with nothing to remove', async () => {
+      rebuildStub.resolves([]);
+      const queueStub = sinon.stub(localRemovalQueue, 'queueRemovals');
+
+      expect(await registryManager.reindexGlobalAppsInformation()).to.equal(true);
+
+      sinon.assert.calledOnceWithExactly(queueStub, []);
+    });
+
+    it('should answer every call made during a rebuild with one rebuild after it', async () => {
+      sinon.stub(localRemovalQueue, 'queueRemovals');
+      const first = deferred();
+      const second = deferred();
+      rebuildStub.onFirstCall().returns(first.promise);
+      rebuildStub.onSecondCall().returns(second.promise);
+
+      const p1 = registryManager.reindexGlobalAppsInformation();
+      await rebuildsStarted(1);
+      const p2 = registryManager.reindexGlobalAppsInformation();
+      const p3 = registryManager.reindexGlobalAppsInformation();
+      const s2 = settled(p2);
+      // neither call starts a rebuild beside the running one
+      await new Promise((resolve) => { setImmediate(resolve); });
+      sinon.assert.calledOnce(rebuildStub);
+
+      first.resolve([]);
+      expect(await p1).to.equal(true);
+      await rebuildsStarted(2);
+      expect(s2.done).to.equal(false);
+
+      second.resolve([]);
+      expect(await p2).to.equal(true);
+      expect(await p3).to.equal(true);
+      sinon.assert.calledTwice(rebuildStub);
+    });
+
+    it('should run the rebuild after a failed one, and fail only the call that failed', async () => {
+      sinon.stub(localRemovalQueue, 'queueRemovals');
+      const first = deferred();
+      rebuildStub.onFirstCall().returns(first.promise);
+      rebuildStub.onSecondCall().resolves([]);
+
+      const p1 = registryManager.reindexGlobalAppsInformation();
+      await rebuildsStarted(1);
+      const p2 = registryManager.reindexGlobalAppsInformation();
+      first.reject(new Error('rebuild failed'));
+
+      let failure = null;
+      await p1.catch((error) => { failure = error; });
+      expect(failure.message).to.equal('rebuild failed');
+      expect(await p2).to.equal(true);
+      sinon.assert.calledTwice(rebuildStub);
+    });
+
+    it('should start a new rebuild for a call made after the last one finished', async () => {
+      sinon.stub(localRemovalQueue, 'queueRemovals');
+      rebuildStub.resolves([]);
+
+      await registryManager.reindexGlobalAppsInformation();
+      await registryManager.reindexGlobalAppsInformation();
+
+      sinon.assert.calledTwice(rebuildStub);
+    });
+  });
+
+  describe('reconstructAppMessagesHashCollection tests', () => {
+    const { appsMessages } = config.database.appsglobal.collections;
+    const { appsHashes } = config.database.daemon.collections;
+    let daemonDb;
+    let emitSpy;
+    const record = (hash, fields) => ({
+      hash, txid: `tx${hash}`, height: 3000000, value: 1, retryFromHeight: 3000000, nextRetryHeight: 3000000, syncAttempts: 0, ...fields,
+    });
+    const message = (hash) => ({
+      type: 'fluxappregister', hash, height: 3000000, timestamp: 1, appSpecifications: { name: `App${hash}`, version: 3, owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC' },
+    });
+    const unresolvedSignals = () => emitSpy.args.filter(([event]) => event === SYNC_EVENTS.HASH_UNRESOLVED).length;
+
+    beforeEach(async () => {
+      daemonDb = db.db(config.database.daemon.database);
+      await daemonDb.collection(appsHashes).deleteMany({});
+      await database.collection(appsMessages).deleteMany({});
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 3000100 } });
+      emitSpy = sinon.spy(appSyncEvents, 'emit');
+    });
+
+    it('should signal a hash to fetch when it marks a received message missing', async () => {
+      await daemonDb.collection(appsHashes).insertOne(record('lost', { message: true }));
+
+      await registryManager.reconstructAppMessagesHashCollection();
+
+      expect((await daemonDb.collection(appsHashes).findOne({ hash: 'lost' })).message).to.equal(false);
+      expect(unresolvedSignals()).to.equal(1);
+    });
+
+    it('should not signal when it only marks a held message received, or fills in retry fields', async () => {
+      await daemonDb.collection(appsHashes).insertMany([
+        record('held', { message: false }),
+        { hash: 'old', txid: 'txold', height: 3000000, value: 1, message: true },
+      ]);
+      await database.collection(appsMessages).insertMany([message('held'), message('old')]);
+
+      const { changed } = await registryManager.reconstructAppMessagesHashCollection();
+
+      // the canary: the audit did correct both records
+      expect(changed).to.equal(2);
+      expect((await daemonDb.collection(appsHashes).findOne({ hash: 'held' })).message).to.equal(true);
+      expect(unresolvedSignals()).to.equal(0);
+    });
+
+    it('should signal from the operator route', async () => {
+      await daemonDb.collection(appsHashes).insertOne(record('lost', { message: true }));
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      const res = { json: sinon.fake() };
+
+      await registryManager.reconstructAppMessagesHashCollectionAPI({ headers: {} }, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('success');
+      expect(unresolvedSignals()).to.equal(1);
+    });
+  });
+
   describe('storeAppSpecificationInForce tests', () => {
     const { appsMessages, appsInformation } = config.database.appsglobal.collections;
     const owner = '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC';
@@ -992,15 +1178,15 @@ describe('registryManager tests', () => {
     const stored = (name) => database.collection(appsInformation).findOne({ name });
     const atHeight = (height) => sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height } });
 
-    it('should break a same-block tie by timestamp when deciding the newest message', async () => {
+    it('should break a same-block tie by timestamp when deciding the governing message', async () => {
       await logMessages('SameBlockApp', [
         { hash: 'first', height: 371, timestamp: 1000 },
         { hash: 'second', height: 371, timestamp: 2000 },
       ]);
 
-      expect(await registryManager.isNewestAppMessage('SameBlockApp', 'second')).to.equal(true);
-      expect(await registryManager.isNewestAppMessage('SameBlockApp', 'first')).to.equal(false);
-      expect(await registryManager.isNewestAppMessage('NoSuchApp', 'second')).to.equal(false);
+      expect(await registryManager.isGoverningAppMessage('SameBlockApp', 'second')).to.equal(true);
+      expect(await registryManager.isGoverningAppMessage('SameBlockApp', 'first')).to.equal(false);
+      expect(await registryManager.isGoverningAppMessage('NoSuchApp', 'second')).to.equal(false);
     });
 
     it('should store a registration, then the update that follows it', async () => {
@@ -1017,6 +1203,21 @@ describe('registryManager tests', () => {
       const result = await registryManager.getApplicationSpecifications('UpdateTestApp');
       expect(result.height).to.equal(200);
       expect(result.hash).to.equal('newhash');
+    });
+
+    it('should not store another owner\'s registration of a live app over its holder', async () => {
+      atHeight(250);
+      const holder = { type: 'fluxappregister', hash: 'holderhash', height: 100 };
+      const taker = {
+        type: 'fluxappregister', hash: 'takerhash', height: 200, spec: { owner: '1Q9sjqQcR2jSFt8pdaF7fhv9ozqD4qLnHu' },
+      };
+      await logMessages('HeldApp', [holder]);
+      await promote('HeldApp', holder);
+
+      await database.collection(appsMessages).insertOne(messageOf('HeldApp', taker));
+      await promote('HeldApp', taker);
+
+      expect((await stored('HeldApp')).hash).to.equal('holderhash');
     });
 
     it('should not store a message whose term ends at the current block', async () => {
@@ -1133,10 +1334,10 @@ describe('registryManager tests', () => {
       await logMessages('ConcurrentApp', [older]);
       // The newer message confirms and is promoted while the older one's promotion is between
       // reading the log and writing the spec.
-      const realFindOne = dbHelper.findOneInDatabase;
+      const realFind = dbHelper.findInDatabase;
       let newerPromotion = null;
-      sinon.stub(dbHelper, 'findOneInDatabase').callsFake(async (dbase, collection, query, options) => {
-        const result = await realFindOne(dbase, collection, query, options);
+      sinon.stub(dbHelper, 'findInDatabase').callsFake(async (dbase, collection, query, options) => {
+        const result = await realFind(dbase, collection, query, options);
         if (!newerPromotion && collection === appsMessages && query['appSpecifications.name'] === 'ConcurrentApp') {
           await database.collection(appsMessages).insertOne(messageOf('ConcurrentApp', newer));
           newerPromotion = promote('ConcurrentApp', newer);

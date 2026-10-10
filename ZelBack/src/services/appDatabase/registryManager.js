@@ -7,11 +7,12 @@ const verificationHelper = require('../verificationHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxEventBus = require('../utils/fluxEventBus');
 const globalState = require('../utils/globalState');
+const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
 // Removed appsService to avoid circular dependency - will use dynamic require where needed
 const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession } = require('../utils/enterpriseHelper');
 const { specificationFormatter, updateToLatestAppSpecifications } = require('../utils/appUtilities');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
-const { AsyncLock } = require('../utils/asyncLock');
+const { withRegistryWrite } = require('./registryWriteLock');
 const appMessageChain = require('../utils/appMessageChain');
 const mountParser = require('../utils/mountParser');
 const signatureVerifier = require('../signatureVerifier');
@@ -29,8 +30,11 @@ const {
   scannedHeightCollection,
 } = require('../utils/appConstants');
 const { Privilege, authOf } = require('../utils/privileges');
+const localRemovalQueue = require('../appLifecycle/localRemovalQueue');
 
-let reindexRunning = false;
+// The rebuild running now, and the one that follows it for every caller that asked after it began.
+let rebuildRunning = null;
+let rebuildFollowing = null;
 
 /**
  * The state of this node's app registry: the app sync state, the height its
@@ -1309,27 +1313,6 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
 }
 
 /**
- * Store app specification in permanent storage
- * @param {object} appSpec - Application specification
- * @returns {Promise<object>} Storage result
- */
-async function storeAppSpecificationInPermanentStorage(appSpec) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    await dbHelper.insertOneToDatabase(database, globalAppsInformation, appSpec);
-
-    fluxEventBus.publish('app:specStored', { name: appSpec.name, hash: appSpec.hash });
-    log.info(`App specification stored permanently for ${appSpec.name}`);
-    return { status: 'success', message: 'App specification stored' };
-  } catch (error) {
-    log.error(`Error storing app specification: ${error.message}`);
-    throw error;
-  }
-}
-
-/**
  * Get app specification from database
  * @param {string} appName - Application name
  * @returns {Promise<object|null>} App specification
@@ -1507,31 +1490,33 @@ async function expireGlobalApplications() {
         _id: 0, name: 1, hash: 1, expire: 1, height: 1,
       },
     };
-    const results = await dbHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
-    // registered/updated on height, expires in expireIn is lower than current height
-    const appsToExpire = results.filter((appSpecs) => !appMessageChain.isInForce(appSpecs.height, appSpecs.expire, explorerHeight));
-    const appNamesToExpire = [];
-    // remove expired apps from global database
-    // eslint-disable-next-line no-restricted-syntax
-    for (const app of appsToExpire) {
-      // Delete the spec that was read as expired, not whatever holds the name now: promotions
-      // run concurrently with this pass, and a renewal stored since the read above stays.
-      // eslint-disable-next-line no-await-in-loop
-      const deleted = await dbHelper.findOneAndDeleteInDatabase(databaseApps, globalAppsInformation, { name: app.name, hash: app.hash }, projectionApps);
-      if (!deleted) {
-        log.info(`Application ${app.name} was updated while expiring, keeping it`);
-        // eslint-disable-next-line no-continue
-        continue;
-      }
-      log.info(`Expiring application ${app.name}`);
-      appNamesToExpire.push(app.name);
+    // Read, decide and delete under the registry write lock: a promotion cannot store a renewal
+    // between the read and the delete, and a rebuild's rename cannot bring back an app deleted here.
+    const appNamesToExpire = await withRegistryWrite(async () => {
+      const results = await dbHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
+      const appsToExpire = results.filter((appSpecs) => !appMessageChain.isInForce(appSpecs.height, appSpecs.expire, explorerHeight));
+      const expired = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const app of appsToExpire) {
+        // Delete the spec that was read as expired, not whatever holds the name now.
+        // eslint-disable-next-line no-await-in-loop
+        const deleted = await dbHelper.findOneAndDeleteInDatabase(databaseApps, globalAppsInformation, { name: app.name, hash: app.hash }, projectionApps);
+        if (!deleted) {
+          log.info(`Application ${app.name} was updated while expiring, keeping it`);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+        log.info(`Expiring application ${app.name}`);
+        expired.push(app.name);
 
-      const queryDeleteAppErrors = { name: app.name };
-      // eslint-disable-next-line no-await-in-loop
-      await dbHelper.removeDocumentsFromCollection(databaseApps, globalAppsInstallingErrorsLocations, queryDeleteAppErrors);
-      // eslint-disable-next-line no-await-in-loop
-      await dbHelper.removeDocumentsFromCollection(databaseApps, globalAppsInstallingErrorsBroadcasts, { 'data.name': app.name });
-    }
+        const queryDeleteAppErrors = { name: app.name };
+        // eslint-disable-next-line no-await-in-loop
+        await dbHelper.removeDocumentsFromCollection(databaseApps, globalAppsInstallingErrorsLocations, queryDeleteAppErrors);
+        // eslint-disable-next-line no-await-in-loop
+        await dbHelper.removeDocumentsFromCollection(databaseApps, globalAppsInstallingErrorsBroadcasts, { 'data.name': app.name });
+      }
+      return expired;
+    });
 
     // get list of locally installed apps.
     // Use dynamic require to avoid circular dependency
@@ -1583,84 +1568,69 @@ async function expireGlobalApplications() {
       });
     }
     const appsToRemoveNames = appsToRemove.map((app) => app.name);
-
-    // remove appsToRemoveNames apps from locally running
-    // Use dynamic require to avoid circular dependency
-    // eslint-disable-next-line global-require
-    const appUninstaller = require('../appLifecycle/appUninstaller');
-    // eslint-disable-next-line no-restricted-syntax
-    for (const appName of appsToRemoveNames) {
+    appsToRemoveNames.forEach((appName) => {
       log.warn(`Application ${appName} is expired, removing`);
       log.warn(`REMOVAL REASON: App expired - ${appName} reached expiration date (registryManager)`);
-      // eslint-disable-next-line no-await-in-loop
-      await appUninstaller.removeAppLocally(appName, null, true, false, true);
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(1 * 60 * 1000); // wait for 1 min
-    }
+    });
+    localRemovalQueue.queueRemovals(appsToRemoveNames);
   } catch (error) {
     log.error(error);
   }
 }
 
-// Every write of a global app spec reads what is stored, then decides. Promotions run
-// concurrently (the block scanner schedules them without awaiting, and a message fetched from
-// peers is promoted on its own), so two of them for one app could both read, and the older could
-// write last - or, with the app missing, both upsert and leave two documents for one name.
-// Serialised here: each write is a couple of quick queries.
-const appSpecWriteLock = new AsyncLock();
-
-async function withAppSpecWriteLock(write) {
-  await appSpecWriteLock.enable();
-  try {
-    return await write();
-  } finally {
-    appSpecWriteLock.disable();
-  }
-}
-
 /**
- * The newest permanent message for an app name: the one in force while its term runs
- * (appMessageChain).
+ * The permanent messages of an app name that count (appMessageChain.messagesThatCount), oldest
+ * first.
  * @param {string} appName
- * @returns {Promise<{hash: string, height: number}|null>}
+ * @returns {Promise<object[]>}
  */
-async function newestAppMessage(appName) {
+async function appMessagesThatCount(appName) {
   const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const newest = await dbHelper.findOneInDatabase(
-    database,
+  const messages = await dbHelper.findInDatabase(
+    db.db(config.database.appsglobal.database),
     globalAppsMessages,
     { 'appSpecifications.name': appName },
-    { projection: { _id: 0, hash: 1, height: 1 }, sort: { height: -1, timestamp: -1 } },
+    { projection: { _id: 0 } },
   );
-  return newest;
+  return dbHelper.appMessagesThatCount(db.db(config.database.daemon.database), messages);
 }
 
 /**
- * Whether a permanent message is the newest for its app. A message fetched late (missing-hash
- * sync) must not end an app that a newer message keeps alive.
+ * The permanent message that governs an app: the newest that counts (appMessageChain), or null.
+ * @param {string} appName
+ * @returns {Promise<object|null>}
+ */
+async function governingAppMessage(appName) {
+  const counted = await appMessagesThatCount(appName);
+  return counted.length > 0 ? counted[counted.length - 1] : null;
+}
+
+/**
+ * Whether a permanent message is the one that governs its app: the newest that counts
+ * (appMessageChain). A message fetched late (missing-hash sync) must not end an app that a newer
+ * message keeps alive, and another owner's registration of a held name governs nothing.
  * @param {string} appName
  * @param {string} hash
  * @returns {Promise<boolean>}
  */
-async function isNewestAppMessage(appName, hash) {
-  const newest = await newestAppMessage(appName);
-  return Boolean(newest) && newest.hash === hash;
+async function isGoverningAppMessage(appName, hash) {
+  const governing = await governingAppMessage(appName);
+  return governing !== null && governing.hash === hash;
 }
 
 /**
  * Stores a promoted message's specifications as its app's global spec when that message is in
- * force (appMessageChain): the newest for the name in the message log, and alive at the current
- * block. Any other message changes nothing: a newer one governs the app, or its term has ended.
+ * force (appMessageChain): the one that governs the name in the message log, and alive at the
+ * current block. Any other message changes nothing: a newer one governs the app, or its term has ended.
  * A registration and an update are stored alike, so an update renews an app this node's expiry
  * pass has already removed, and this node holds what a rebuild from the log would.
  * @param {object} appSpecs the message's specifications, with its hash and height
  * @returns {Promise<boolean>} false when the write failed
  */
 async function storeAppSpecificationInForce(appSpecs) {
-  return withAppSpecWriteLock(async () => {
+  return withRegistryWrite(async () => {
     try {
-      if (!await isNewestAppMessage(appSpecs.name, appSpecs.hash)) return true;
+      if (!await isGoverningAppMessage(appSpecs.name, appSpecs.hash)) return true;
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const currentHeight = syncStatus && syncStatus.data ? syncStatus.data.height : 0;
       if (!appMessageChain.isInForce(appSpecs.height, appSpecs.expire, currentHeight)) return true;
@@ -1678,76 +1648,87 @@ async function storeAppSpecificationInForce(appSpecs) {
   });
 }
 
-/**
- * Rebuild the global apps information collection from messages collection.
- *
- * Wrapper around dbHelper.reindexGlobalAppsInformation. Rebuilds the
- * globalAppsInformation collection from appsMessages via aggregation,
- * then removes any locally installed apps that are no longer in the
- * global spec set (expired).
- *
- * @returns {Promise<boolean>} True on success
- */
-async function reindexGlobalAppsInformation() {
+async function rebuildRegistry() {
+  log.info('Reindexing global application list');
+
+  const db = dbHelper.databaseConnection();
+  const appsGlobalDb = db.db(config.database.appsglobal.database);
+  const appsLocalDb = db.db(config.database.appslocal.database);
+  const daemonDb = db.db(config.database.daemon.database);
+
+  const scannedHeightResult = await dbHelper.findOneInDatabase(
+    daemonDb,
+    scannedHeightCollection,
+    { generalScannedHeight: { $gte: 0 } },
+    { projection: { _id: 0, generalScannedHeight: 1 } },
+  );
+  if (!scannedHeightResult) {
+    throw new Error('Scanning not initiated');
+  }
+  const scannedHeight = serviceHelper.ensureNumber(
+    scannedHeightResult.generalScannedHeight,
+  );
+
+  const appsToRemove = await dbHelper.reindexGlobalAppsInformation(
+    appsGlobalDb,
+    appsLocalDb,
+    globalAppsMessages,
+    globalAppsInformation,
+    localAppsInformation,
+    scannedHeight,
+    daemonDb,
+  );
+
+  log.info('Reindexing of global application list finished.');
+
+  appsToRemove.forEach((appName) => {
+    log.warn(`Application ${appName} is expired, removing`);
+    log.warn(`REMOVAL REASON: App expired - ${appName} reached expiration date (reindex)`);
+  });
+  localRemovalQueue.queueRemovals(appsToRemove);
+}
+
+async function runRebuild() {
   try {
-    if (reindexRunning) {
-      return 'Previous app reindex not yet finished. Skipping.';
-    }
-    reindexRunning = true;
-    log.info('Reindexing global application list');
-
-    const db = dbHelper.databaseConnection();
-    const appsGlobalDb = db.db(config.database.appsglobal.database);
-    const appsLocalDb = db.db(config.database.appslocal.database);
-    const daemonDb = db.db(config.database.daemon.database);
-
-    const scannedHeightResult = await dbHelper.findOneInDatabase(
-      daemonDb,
-      scannedHeightCollection,
-      { generalScannedHeight: { $gte: 0 } },
-      { projection: { _id: 0, generalScannedHeight: 1 } },
-    );
-    if (!scannedHeightResult) {
-      throw new Error('Scanning not initiated');
-    }
-    const scannedHeight = serviceHelper.ensureNumber(
-      scannedHeightResult.generalScannedHeight,
-    );
-
-    // Under the spec write lock: the rebuild empties the collection and refills it, and a
-    // promotion landing in between would find no app, or be overwritten by the refill.
-    // eslint-disable-next-line no-use-before-define
-    const appsToRemove = await withAppSpecWriteLock(() => dbHelper.reindexGlobalAppsInformation(
-      appsGlobalDb,
-      appsLocalDb,
-      globalAppsMessages,
-      globalAppsInformation,
-      localAppsInformation,
-      scannedHeight,
-    ));
-
-    log.info('Reindexing of global application list finished.');
-
-    if (appsToRemove.length) {
-      // eslint-disable-next-line global-require
-      const appUninstaller = require('../appLifecycle/appUninstaller');
-      for (const appName of appsToRemove) {
-        log.warn(`Application ${appName} is expired, removing`);
-        log.warn(`REMOVAL REASON: App expired - ${appName} reached expiration date (reindex)`);
-        // eslint-disable-next-line no-await-in-loop
-        await appUninstaller.removeAppLocally(appName, null, true, false, true);
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(60_000);
-      }
-    }
-
-    return true;
+    await rebuildRegistry();
   } catch (error) {
     log.error(error);
     throw error;
   } finally {
-    reindexRunning = false;
+    rebuildRunning = null;
   }
+}
+
+async function rebuildAfter(running) {
+  try {
+    await running;
+  } catch {
+    // the rebuild that follows reads the log afresh, whatever this one did
+  }
+  rebuildFollowing = null;
+  // eslint-disable-next-line no-use-before-define
+  return reindexGlobalAppsInformation();
+}
+
+/**
+ * Rebuild the global apps information collection from the message log, and queue the removal of
+ * every installed app it no longer lists (localRemovalQueue).
+ *
+ * Resolves once a rebuild that began after this call has swapped the registry in, without
+ * waiting for the removals. A call made while a rebuild runs is answered by one more rebuild after
+ * it, which every such call shares, so a message stored after the running rebuild read the log is
+ * in the registry this call resolves with.
+ *
+ * @returns {Promise<true>}
+ */
+async function reindexGlobalAppsInformation() {
+  if (!rebuildRunning) {
+    rebuildRunning = runRebuild();
+    await rebuildRunning;
+    return true;
+  }
+  if (!rebuildFollowing) rebuildFollowing = rebuildAfter(rebuildRunning);
+  return rebuildFollowing;
 }
 
 /**
@@ -1769,6 +1750,7 @@ async function reconstructAppMessagesHashCollection() {
     const permHashSet = new Set(permanentMessages.map((m) => m.hash));
 
     const ops = [];
+    let markedMissing = 0;
     // eslint-disable-next-line no-restricted-syntax
     for (const appHash of appHashes) {
       const filter = { hash: appHash.hash, txid: appHash.txid };
@@ -1787,6 +1769,7 @@ async function reconstructAppMessagesHashCollection() {
           },
         });
       } else if (!hasPermanent && appHash.message) {
+        markedMissing += 1;
         ops.push({
           updateOne: {
             filter,
@@ -1812,6 +1795,9 @@ async function reconstructAppMessagesHashCollection() {
       [{ $set: { retryFromHeight: '$height', nextRetryHeight: { $ifNull: ['$nextRetryHeight', '$height'] }, syncAttempts: { $ifNull: ['$syncAttempts', 0] } } }],
     );
     changed += backfillResult.modifiedCount;
+
+    // a message this node no longer holds is fetched from peers on the next block
+    if (markedMissing > 0) appSyncEvents.emit(SYNC_EVENTS.HASH_UNRESOLVED);
 
     return { changed };
   } catch (error) {
@@ -2061,13 +2047,17 @@ async function reindexGlobalAppsLocation() {
 }
 
 /**
- * To reindex global apps location via API. Only accessible by admins and Flux team members.
+ * To reindex global apps location via API.
+ *
+ * Flux team only. It drops the location store and the app state events, and
+ * until peers announce again this node serves every location read from an
+ * empty store.
  * @param {object} req Request.
  * @param {object} res Response.
  */
 async function reindexGlobalAppsLocationAPI(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
     if (authorized === true) {
       await reindexGlobalAppsLocation();
       const message = messageHelper.createSuccessMessage('Reindex successfull');
@@ -2124,9 +2114,7 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
   // Rebuilt from the whole message log by the same rule as the reindex: an app not updated since
   // the requested height is still in force, so a partial replay would lose it.
   log.info(`rescanGlobalAppsInformation - rebuilding from the full message log (requested from ${height}, removeLastInformation ${removeLastInformation})`);
-  // eslint-disable-next-line no-use-before-define
-  const result = await reindexGlobalAppsInformation();
-  if (result !== true) throw new Error(result || 'Rescan could not run');
+  await reindexGlobalAppsInformation();
   return true;
 }
 
@@ -2215,7 +2203,10 @@ async function getPreviousAppSpecifications(specifications, beforeHeight, before
   const appsQuery = {
     'appSpecifications.name': specifications.name,
   };
-  const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+  const logged = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+  // Only a message that counts can be the previous spec: another owner's registration of a name
+  // held at its block holds nothing (appMessageChain).
+  const permanentAppMessage = await dbHelper.appMessagesThatCount(db.db(config.database.daemon.database), logged);
   // The previous spec is the message right below ours on chain: the highest height under the
   // block ours confirmed in (in that block, one signed before ours), or, for a live submission
   // not yet on chain, the newest one. The bulk hash sync replays history by the same rule
@@ -2314,8 +2305,8 @@ module.exports = {
   availableApps,
   checkApplicationRegistrationNameConflicts,
   storeAppSpecificationInForce,
-  isNewestAppMessage,
-  storeAppSpecificationInPermanentStorage,
+  governingAppMessage,
+  isGoverningAppMessage,
   getAppSpecificationFromDb,
   getAllAppsInformation,
   getInstalledApps,

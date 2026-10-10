@@ -519,6 +519,7 @@ export function nodeClient(nodeNum) {
     getAppSpecs: (name) => get(`/apps/appspecifications/${name}`),
     // Rebuilds the global app list from this node's message log (node operator or Flux team).
     reindexGlobalApps: (zelidauth) => getAuthed('/apps/reindexglobalappsinformation', zelidauth),
+    reconstructHashes: (zelidauth) => getAuthed('/apps/reconstructhashes', zelidauth),
     getInstalledApps: () => get('/apps/installedapps'),
     getRunningApps: () => get('/apps/runningapps'),
     getLoginPhrase: () => get('/id/loginphrase'),

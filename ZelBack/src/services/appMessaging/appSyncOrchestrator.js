@@ -117,7 +117,6 @@ class AppSyncOrchestrator {
   #ephemeralUnverifiedHandler = null;
   #ephemeralProgressHandler = null;
   #hashUnresolvedHandler = null;
-  #hashesChangedHandler = null;
   #broadcastStarted = null;
   #started = false;
   #syncInProgress = false;
@@ -265,9 +264,6 @@ class AppSyncOrchestrator {
       this.#onBlocksProcessed(blockHeight);
     };
     this.#blockEmitter.on('blocksProcessed', this.#blockReceivedHandler);
-
-    this.#hashesChangedHandler = () => this.#onHashesChanged();
-    this.#blockEmitter.on('hashesChanged', this.#hashesChangedHandler);
 
     fluxEventBus.publish('orchestrator:started', { state: this.#state, bootContext });
 
@@ -883,12 +879,6 @@ class AppSyncOrchestrator {
     this.#nextHashRetryHeight = 0;
   }
 
-  #onHashesChanged() {
-    if (!this.#hashSyncComplete) return;
-    log.info('AppSyncOrchestrator - Reconstruct audit found changes, scheduling immediate hash recheck');
-    this.#nextHashRetryHeight = 0;
-  }
-
   async #checkHashRetry(blockHeight) {
     if (!this.#hashSyncComplete) return;
     if (!this.#canSendMessages) return;
@@ -901,10 +891,9 @@ class AppSyncOrchestrator {
       this.#nextHashRetryHeight = result.nextRetryHeight ?? (this.#lastBlockHeight + FALLBACK_RECHECK_BLOCKS);
       // A retry stores the messages it resolves without promoting them, so nothing else applies
       // them: a renewal fetched here would never reach globalAppsInformation, and the app would
-      // expire on this node alone. Rebuild from the log, as the initial sync does - not awaited,
-      // since removing the apps it ends waits a minute per app; it skips itself if one is running.
+      // expire on this node alone. Rebuild from the log, as the initial sync does.
       if (result.resolved > 0) {
-        registryManager.reindexGlobalAppsInformation()
+        await registryManager.reindexGlobalAppsInformation()
           .catch((error) => log.error(`AppSyncOrchestrator - Rebuild after hash retry failed: ${error.message}`));
       }
       if (result.missing > 0) {
@@ -1221,9 +1210,6 @@ class AppSyncOrchestrator {
     }
     if (this.#blockReceivedHandler) {
       this.#blockEmitter.removeListener('blocksProcessed', this.#blockReceivedHandler);
-    }
-    if (this.#hashesChangedHandler) {
-      this.#blockEmitter.removeListener('hashesChanged', this.#hashesChangedHandler);
     }
     if (this.#peerThresholdHandler) {
       this.#offPeerEvent('peerThresholdReached', this.#peerThresholdHandler);
