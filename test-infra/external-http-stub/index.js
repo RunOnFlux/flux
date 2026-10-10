@@ -1,5 +1,6 @@
 const zlib = require('zlib');
 const dgram = require('dgram');
+const net = require('net');
 const fs = require('fs');
 const crypto = require('crypto');
 const https = require('https');
@@ -13,9 +14,9 @@ const CONTROL_PORT = parseInt(process.env.CONTROL_PORT || '3001', 10);
 const STORAGE_PORT = parseInt(process.env.STORAGE_PORT || '443', 10);
 const STORAGE_TLS_DIR = process.env.STORAGE_TLS_DIR || '/certs';
 
-// The harness fleet lives in 198.18.0.0/15 (RFC 2544 benchmarking range).
-const HARNESS_NET_START = (198 * 2 ** 24) + (18 * 2 ** 16);
-const HARNESS_NET_END = HARNESS_NET_START + (2 * 2 ** 16) - 1;
+// The harness fleet lives in 31.200.0.0/20.
+const HARNESS_NET_START = (31 * 2 ** 24) + (200 * 2 ** 16);
+const HARNESS_NET_END = HARNESS_NET_START + (16 * 2 ** 8) - 1;
 
 const GEO_MAGIC = 'FLXGEO';
 const GEO_FORMAT = 2;
@@ -133,7 +134,7 @@ function regionAssignment(domains, withRegions) {
  * written against that keep their meaning while now exercising the real table
  * reader rather than skipping it.
  *
- * `domains: n` with a `subnet` (`198.18.5`) assigns that /24's addresses to n
+ * `domains: n` with a `subnet` (`31.200.5`) assigns that /24's addresses to n
  * organisations ROUND-ROBIN, one range per address. The harness gives its
  * nodes consecutive addresses from .10, so anything coarser than per-address
  * puts the whole fleet in one bucket; interleaving is what actually splits it.
@@ -154,7 +155,7 @@ function regionAssignment(domains, withRegions) {
  * classification should see: an organisation with no verdict is one nothing
  * enforces against.
  * @param {number} domains How many organisations to split across
- * @param {string} [subnet] Dotted /24 prefix to split, e.g. '198.18.5'
+ * @param {string} [subnet] Dotted /24 prefix to split, e.g. '31.200.5'
  * @param {boolean} [withRegions] Whether rows carry a region
  * @param {object} [networkClasses] Organisation index -> 'residential'|'hosting'
  * @returns {object} artifact in format 1
@@ -213,7 +214,7 @@ function buildIpLocationArtifact(domains, subnet, withRegions = false, networkCl
 
 /**
  * Append one unsigned LEB128 varint. Plain arithmetic rather than shifts:
- * range bounds run past 2^31 (198.18.0.0 is 3,323,068,416), which the signed
+ * range bounds run past 2^31 (31.200.0.0 is 3,323,068,416), which the signed
  * 32-bit shift operators cannot carry.
  * @param {number[]} bytes Output byte list, appended in place
  * @param {number} value Non-negative integer
@@ -1129,6 +1130,29 @@ control.post('/dns-attempts/reset', (req, res) => {
   res.json({ ok: true });
 });
 
+// Names this resolver answers itself instead of relaying, per record type:
+// { name, records: { A: <answer>, AAAA: <answer> } }, where an answer is an address of the
+// type's family, 'SERVFAIL', 'NXDOMAIN', 'NO_REPLY', or { answer, afterMs } to send that answer afterMs
+// after the query arrives. NO_REPLY leaves the query unanswered. A type left out is relayed
+// as any other query is. `routes: { <route>: { A, AAAA } }` answers a query that came in on
+// that route with its own records instead.
+// Each query for a recorded type is counted - in `served` by type, and in `via` by the route
+// it came in on and type - so a suite can show the node asked the question it meant to fail,
+// and by which route, rather than only that it went on to succeed.
+const dnsRecords = new Map();
+
+control.post('/dns-records', (req, res) => {
+  const { name, records, routes = {} } = req.body;
+  dnsRecords.set(name.toLowerCase(), {
+    records, routes, served: {}, via: {},
+  });
+  res.json({ ok: true });
+});
+
+control.get('/dns-records', (req, res) => {
+  res.json(Object.fromEntries(dnsRecords));
+});
+
 // The fleet's resolver.
 //
 // Blocking a network is not the same as failing loudly on it: a blocked packet
@@ -1144,7 +1168,12 @@ control.post('/dns-attempts/reset', (req, res) => {
 const dnsAttempts = [];
 
 function questionName(query) {
-  // QNAME begins after the 12-byte header, as length-prefixed labels ending in 0.
+  return parseQuestion(query).name;
+}
+
+// The query's one question: QNAME begins after the 12-byte header, as length-prefixed
+// labels ending in 0, and QTYPE and QCLASS follow it. `end` is where the question stops.
+function parseQuestion(query) {
   let offset = 12;
   const labels = [];
   while (offset < query.length) {
@@ -1153,13 +1182,113 @@ function questionName(query) {
     labels.push(query.subarray(offset + 1, offset + 1 + len).toString('ascii'));
     offset += len + 1;
   }
-  return labels.join('.');
+  const typeAt = offset + 1;
+  return {
+    name: labels.join('.'),
+    type: typeAt + 2 <= query.length ? query.readUInt16BE(typeAt) : 0,
+    end: typeAt + 4,
+  };
 }
 
-function startResolver() {
+const DNS_TYPES = { 1: 'A', 28: 'AAAA' };
+
+// A response carrying the query's id and question, with RCODE and answers as given. Any
+// additional section the query carried (an EDNS OPT record) is not echoed.
+function dnsResponse(query, end, rcode, answers = []) {
+  const header = Buffer.alloc(12);
+  query.copy(header, 0, 0, 2);
+  // QR, the query's RD, RA; then RCODE.
+  header[2] = 0x80 | (query[2] & 0x01);
+  header[3] = 0x80 | rcode;
+  header.writeUInt16BE(1, 4);
+  header.writeUInt16BE(answers.length, 6);
+  return Buffer.concat([header, query.subarray(12, end), ...answers]);
+}
+
+// An AAAA record for a full or compressed IPv6 address, laid out as aRecord's.
+function aaaaRecord(ip) {
+  const record = Buffer.alloc(28);
+  record.writeUInt16BE(0xc00c, 0);
+  record.writeUInt16BE(28, 2);
+  record.writeUInt16BE(1, 4);
+  record.writeUInt32BE(60, 6);
+  record.writeUInt16BE(16, 10);
+  const [head, tail = ''] = ip.split('::');
+  const headGroups = head ? head.split(':') : [];
+  const tailGroups = tail ? tail.split(':') : [];
+  const groups = ip.includes('::')
+    ? [...headGroups, ...Array(8 - headGroups.length - tailGroups.length).fill('0'), ...tailGroups]
+    : headGroups;
+  groups.forEach((group, index) => record.writeUInt16BE(parseInt(group, 16), 12 + index * 2));
+  return record;
+}
+
+function aRecord(ip) {
+  const record = Buffer.alloc(16);
+  // A pointer to the question's name at offset 12, type A, class IN, TTL 60, 4 bytes.
+  record.writeUInt16BE(0xc00c, 0);
+  record.writeUInt16BE(1, 2);
+  record.writeUInt16BE(1, 4);
+  record.writeUInt32BE(60, 6);
+  record.writeUInt16BE(4, 10);
+  ip.split('.').forEach((octet, index) => { record[12 + index] = Number(octet); });
+  return record;
+}
+
+// The answer recordedAnswer gives a query it leaves unanswered.
+const NO_REPLY = Symbol('no reply');
+
+/**
+ * This resolver's own answer to a query for a name in dnsRecords, and how long after the query
+ * to send it: a response, or NO_REPLY; or null to relay the query.
+ * @param {Buffer} query
+ * @param {string} route The listener the query came in on.
+ * @returns {{response: Buffer|symbol, afterMs: number}|null}
+ */
+function recordedAnswer(query, route) {
+  const { name, type, end } = parseQuestion(query);
+  const entry = dnsRecords.get(name.toLowerCase());
+  const typeName = DNS_TYPES[type];
+  const record = entry && typeName ? (entry.routes[route] ?? entry.records)[typeName] : undefined;
+  if (record === undefined) return null;
+
+  entry.served[typeName] = (entry.served[typeName] ?? 0) + 1;
+  entry.via[route] = entry.via[route] ?? {};
+  entry.via[route][typeName] = (entry.via[route][typeName] ?? 0) + 1;
+  const { answer, afterMs } = typeof record === 'object' ? record : { answer: record, afterMs: 0 };
+  if (answer === 'NO_REPLY') return { response: NO_REPLY, afterMs };
+  if (answer === 'SERVFAIL') return { response: dnsResponse(query, end, 2), afterMs };
+  if (answer === 'NXDOMAIN') return { response: dnsResponse(query, end, 3), afterMs };
+  const addressRecord = net.isIPv6(answer) ? aaaaRecord(answer) : aRecord(answer);
+  return { response: dnsResponse(query, end, 0, [addressRecord]), afterMs };
+}
+
+/**
+ * The fleet's resolver on one port. Port 53 is the route a node's own DNS takes ('own'); the
+ * public-dns-counted network shape sends a node's queries to the public DNS servers to
+ * PUBLIC_ROUTE_PORT ('public'), so a recorded name's counts tell the two routes apart.
+ * @param {number} port
+ * @param {string} route
+ */
+function startResolver(port, route) {
   const server = dgram.createSocket('udp4');
 
   server.on('message', (query, rinfo) => {
+    if (route === BROKEN_ROUTE) {
+      const { type, end } = parseQuestion(query);
+      const typeName = DNS_TYPES[type] ?? String(type);
+      brokenServed[typeName] = (brokenServed[typeName] ?? 0) + 1;
+      if (typeName === 'AAAA') server.send(dnsResponse(query, end, 2), rinfo.port, rinfo.address);
+      return;
+    }
+
+    const recorded = recordedAnswer(query, route);
+    if (recorded) {
+      if (recorded.response === NO_REPLY) return;
+      setTimeout(() => server.send(recorded.response, rinfo.port, rinfo.address), recorded.afterMs);
+      return;
+    }
+
     const name = questionName(query);
     const upstream = dgram.createSocket('udp4');
     let settled = false;
@@ -1216,19 +1345,34 @@ function startResolver() {
   let bound = false;
   server.on('error', (error) => {
     if (!bound) {
-      console.error(`External HTTP stub resolver could not bind to 53: ${error.message}`);
+      console.error(`External HTTP stub resolver could not bind to ${port}: ${error.message}`);
       process.exit(1);
     }
     console.error(`External HTTP stub resolver socket error: ${error.message}`);
   });
 
-  server.bind(53, () => {
+  server.bind(port, () => {
     bound = true;
-    console.log('External HTTP stub resolver on port 53');
+    console.log(`External HTTP stub resolver on port ${port} (${route})`);
   });
 }
 
-startResolver();
+const PUBLIC_ROUTE_PORT = 5354;
+
+// A resolver whose upstream is gone the way unbound's goes: it leaves every A query unanswered
+// and answers every AAAA query SERVFAIL, whatever the name. The aaaa-servfail-dns network shape
+// sends a node's own DNS here. Counted by record type.
+const BROKEN_ROUTE = 'broken';
+const BROKEN_ROUTE_PORT = 5355;
+const brokenServed = {};
+
+control.get('/dns-broken-served', (req, res) => {
+  res.json(brokenServed);
+});
+
+startResolver(53, 'own');
+startResolver(PUBLIC_ROUTE_PORT, 'public');
+startResolver(BROKEN_ROUTE_PORT, BROKEN_ROUTE);
 
 app.listen(PORT, () => {
   console.log(`External HTTP stub listening on port ${PORT}`);

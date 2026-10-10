@@ -524,12 +524,14 @@ describe('portManager tests', () => {
       portManager.upnpMapFailures.clear();
     });
 
-    it('should setup firewall for app ports when active', async () => {
+    it('should write no host firewall rule for app ports, even with the firewall active', async () => {
       fluxNetworkHelper.isFirewallActive.resolves(true);
+      upnpService.isUPNP.returns(true);
 
       await portManager.restoreAppsPortsSupport();
 
-      sinon.assert.called(fluxNetworkHelper.allowPort);
+      sinon.assert.notCalled(fluxNetworkHelper.allowPort);
+      sinon.assert.called(upnpService.mapUpnpPort);
     });
 
     it('should setup UPNP for app ports when active', async () => {
@@ -541,7 +543,8 @@ describe('portManager tests', () => {
     });
 
     it('should handle errors gracefully', async () => {
-      fluxNetworkHelper.allowPort.rejects(new Error('Firewall error'));
+      upnpService.isUPNP.returns(true);
+      upnpService.mapUpnpPort.rejects(new Error('UPnP error'));
 
       // Should not throw
       await portManager.restoreAppsPortsSupport();
@@ -1177,6 +1180,24 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
     expect(result.ok, 'refused on a single witness after running out of peers').to.equal(true);
     expect(result.reason).to.equal('singleWitness');
     expect(result.port).to.equal(port);
+  });
+
+  // ufw counts the IPv6 half of a rule for both families as the same rule as an app
+  // port's IPv6 rule, so a test that opened and deleted one would delete the app's.
+  it('opens each port under test to IPv4 only while it tests it, and deletes only that rule', async () => {
+    fluxNetworkHelper.isFirewallActive.resolves(true);
+    const allowTest = sinon.stub(fluxNetworkHelper, 'allowTestPort').resolves({ status: true, message: 'Rule added' });
+    const deleteTest = sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves({ status: true, message: 'Rule deleted' });
+    const allowBoth = sinon.stub(fluxNetworkHelper, 'allowPort').resolves({ status: true });
+    const deleteBoth = sinon.stub(fluxNetworkHelper, 'deleteAllowPortRule').resolves({ status: true });
+
+    await withPeers([UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE]);
+
+    sinon.assert.calledOnceWithExactly(allowTest, port);
+    sinon.assert.calledWith(deleteTest, port);
+    expect(deleteTest.firstCall.calledAfter(allowTest.firstCall)).to.equal(true);
+    sinon.assert.notCalled(allowBoth);
+    sinon.assert.notCalled(deleteBoth);
   });
 
   it('proceeds when no peer answered at all, and says so', async () => {

@@ -6,6 +6,44 @@ const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileg
 const { RemovalOutcome } = require('../../ZelBack/src/services/utils/removalOutcome');
 
 describe('appUninstaller tests', () => {
+  describe('cleanupPorts tests', () => {
+    let appUninstallerPorts;
+    let firewallStub;
+    let upnpStub;
+
+    beforeEach(() => {
+      firewallStub = {
+        isFirewallActive: sinon.stub().resolves(true),
+        deleteAppPortRules: sinon.stub().resolves({ failed: [], locked: false }),
+      };
+      upnpStub = { isUPNP: sinon.stub().returns(true), removeMapUpnpPort: sinon.stub().resolves(true) };
+      appUninstallerPorts = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        '../fluxNetworkHelper': firewallStub,
+        '../upnpService': upnpStub,
+        '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
+      });
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('removes app port mappings from the router and the ports\' rules from the host firewall, an earlier FluxOS\'s included', async () => {
+      await appUninstallerPorts.cleanupPorts({ ports: [31000, 31001] }, 'myapp', null, 'myapp');
+
+      expect(firewallStub.deleteAppPortRules.args).to.deep.equal([[[31000, 31001]]]);
+      expect(upnpStub.removeMapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
+      expect(upnpStub.removeMapUpnpPort.calledWith(31001, 'Flux_App_myapp')).to.be.true;
+    });
+
+    it('removes a v1 app port mapping and the port\'s rules', async () => {
+      await appUninstallerPorts.cleanupPorts({ port: 31000 }, 'myapp', null, 'myapp');
+
+      expect(firewallStub.deleteAppPortRules.args).to.deep.equal([[[31000]]]);
+      expect(upnpStub.removeMapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
+    });
+  });
+
   let appUninstaller;
   let verificationHelperStub;
   let messageHelperStub;
@@ -83,6 +121,7 @@ describe('appUninstaller tests', () => {
       '../utils/volumeService': volumeServiceStub,
       '../serviceHelper': {
         ensureString: sinon.stub().returnsArg(0),
+        ensureNumber: sinon.stub().callsFake(Number),
         runCommand: runCommandStub,
         ensureBoolean: sinon.stub().returnsArg(0),
       },
@@ -109,7 +148,7 @@ describe('appUninstaller tests', () => {
       },
       '../fluxNetworkHelper': {
         closeConnection: sinon.stub().resolves(),
-        isFirewallActive: sinon.stub().resolves(false),
+        deleteAppPortRules: sinon.stub().resolves({ failed: [], locked: false }),
         allowPort: sinon.stub().resolves(true),
       },
       '../fluxCommunicationMessagesSender': {
@@ -393,6 +432,7 @@ describe('appUninstaller tests', () => {
         '../utils/volumeService': { getVolumeFilePath: sinon.stub().resolves({ path: null, conclusive: true }), isPathMounted: sinon.stub().resolves(false) },
         '../serviceHelper': {
           ensureString: sinon.stub().returnsArg(0),
+          ensureNumber: sinon.stub().callsFake(Number),
           runCommand: sinon.stub().resolves({ error: null, stdout: '', stderr: '' }),
           ensureBoolean: sinon.stub().returnsArg(0),
           delay: sinon.stub().resolves(),
@@ -424,7 +464,7 @@ describe('appUninstaller tests', () => {
         },
         '../fluxNetworkHelper': {
           closeConnection: sinon.stub().resolves(),
-          isFirewallActive: sinon.stub().resolves(false),
+          deleteAppPortRules: sinon.stub().resolves({ failed: [], locked: false }),
           allowPort: sinon.stub().resolves(true),
         },
         '../fluxCommunicationMessagesSender': {
@@ -466,6 +506,7 @@ describe('appUninstaller tests', () => {
         '../utils/volumeService': { getVolumeFilePath: sinon.stub().resolves({ path: null, conclusive: true }), isPathMounted: sinon.stub().resolves(false) },
         '../serviceHelper': {
           ensureString: sinon.stub().returnsArg(0),
+          ensureNumber: sinon.stub().callsFake(Number),
           runCommand: sinon.stub().resolves({ error: null, stdout: '', stderr: '' }),
           ensureBoolean: sinon.stub().returnsArg(0),
         },
@@ -507,7 +548,7 @@ describe('appUninstaller tests', () => {
         },
         '../fluxNetworkHelper': {
           closeConnection: sinon.stub().resolves(),
-          isFirewallActive: sinon.stub().resolves(false),
+          deleteAppPortRules: sinon.stub().resolves({ failed: [], locked: false }),
           allowPort: sinon.stub().resolves(true),
         },
         '../fluxCommunicationMessagesSender': {
@@ -626,7 +667,7 @@ describe('appUninstaller tests', () => {
         },
         '../fluxNetworkHelper': {
           closeConnection: sinon.stub().resolves(),
-          isFirewallActive: sinon.stub().resolves(false),
+          deleteAppPortRules: sinon.stub().resolves({ failed: [], locked: false }),
           allowPort: sinon.stub().resolves(true),
           deleteAllowPortRule: sinon.stub().resolves(true),
           getLocalSocketAddress: getLocalSocketAddressStub,
@@ -1001,6 +1042,7 @@ describe('appUninstaller tests', () => {
         '../utils/volumeService': { getVolumeFilePath: sinon.stub().resolves({ path: null, conclusive: true }), isPathMounted: sinon.stub().resolves(false) },
         '../serviceHelper': {
           ensureString: sinon.stub().returnsArg(0),
+          ensureNumber: sinon.stub().callsFake(Number),
           runCommand: sinon.stub().resolves({ error: null, stdout: '', stderr: '' }),
           ensureBoolean: sinon.stub().returnsArg(0),
           delay: sinon.stub().resolves(),
@@ -1033,7 +1075,7 @@ describe('appUninstaller tests', () => {
         },
         '../fluxNetworkHelper': {
           closeConnection: sinon.stub().resolves(),
-          isFirewallActive: sinon.stub().resolves(false),
+          deleteAppPortRules: sinon.stub().resolves({ failed: [], locked: false }),
           allowPort: sinon.stub().resolves(true),
         },
         '../fluxCommunicationMessagesSender': {
@@ -1088,6 +1130,7 @@ describe('appUninstaller tests', () => {
         '../utils/volumeService': { getVolumeFilePath: sinon.stub().resolves({ path: null, conclusive: true }), isPathMounted: sinon.stub().resolves(false) },
         '../serviceHelper': {
           ensureString: sinon.stub().returnsArg(0),
+          ensureNumber: sinon.stub().callsFake(Number),
           runCommand: sinon.stub().resolves({ error: null, stdout: '', stderr: '' }),
           ensureBoolean: sinon.stub().returnsArg(0),
         },
@@ -1132,7 +1175,7 @@ describe('appUninstaller tests', () => {
         },
         '../fluxNetworkHelper': {
           closeConnection: sinon.stub().resolves(),
-          isFirewallActive: sinon.stub().resolves(false),
+          deleteAppPortRules: sinon.stub().resolves({ failed: [], locked: false }),
           allowPort: sinon.stub().resolves(true),
         },
         '../fluxCommunicationMessagesSender': {

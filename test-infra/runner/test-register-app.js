@@ -6,7 +6,7 @@ import { authenticate, signBtcMessage } from './auth.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(__dirname, '..', 'fixtures');
 
-const NODE_URL = process.env.NODE_URL || 'http://198.18.1.0:16127';
+const NODE_URL = process.env.NODE_URL || 'http://31.200.1.0:16127';
 const NODE_COUNT = 16;
 
 const nodeKeypair = JSON.parse(readFileSync(join(fixturesDir, 'keys', 'node-01.json'), 'utf-8'));
@@ -91,7 +91,7 @@ async function main() {
 
   let nodesWithTemp = 0;
   for (let i = 1; i <= NODE_COUNT; i++) {
-    const nodeIp = `198.18.${i}.0`;
+    const nodeIp = `31.200.${i}.0`;
     try {
       const res = await fetch(`http://${nodeIp}:16127/apps/temporarymessages/${appHash}`);
       const data = await res.json();
@@ -103,7 +103,7 @@ async function main() {
   console.log(`Temp messages propagated to ${nodesWithTemp}/${NODE_COUNT} nodes`);
 
   console.log('\n=== Step 5: Queue blockchain confirmation ===');
-  const DAEMON_CONTROL = process.env.DAEMON_CONTROL || 'http://198.18.0.3:18232';
+  const DAEMON_CONTROL = process.env.DAEMON_CONTROL || 'http://31.200.0.3:18232';
   const queueRes = await fetch(`${DAEMON_CONTROL}/queue-app-tx`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -137,7 +137,7 @@ async function main() {
   console.log('\n=== Step 6: Check permanent registration ===');
   let nodesWithSpec = 0;
   for (let i = 1; i <= NODE_COUNT; i++) {
-    const nodeIp = `198.18.${i}.0`;
+    const nodeIp = `31.200.${i}.0`;
     try {
       const res = await fetch(`http://${nodeIp}:16127/apps/appspecifications/e2eTestApp`);
       const data = await res.json();

@@ -15,8 +15,6 @@ if (typeof AbortController === 'undefined') {
 }
 
 const fs = require('node:fs');
-const http = require('node:http');
-const https = require('node:https');
 const path = require('node:path');
 
 const axios = require('axios').default;
@@ -29,6 +27,7 @@ const log = require('./ZelBack/src/lib/log');
 
 const serviceHelper = require('./ZelBack/src/services/serviceHelper');
 const upnpService = require('./ZelBack/src/services/upnpService');
+const dnsLookup = require('./ZelBack/src/services/utils/dnsLookup');
 const requestHistoryStore = require('./ZelBack/src/services/utils/requestHistory');
 const globalState = require('./ZelBack/src/services/utils/globalState');
 const fluxEventBus = require('./ZelBack/src/services/utils/fluxEventBus');
@@ -56,65 +55,8 @@ const apiPortHttps = +apiPort + 1;
 let requestHistory = null;
 let axiosDefaultsSet = false;
 
-/**
- * The Cacheable. So we only instantiate it once (and for testing)
- */
-let cacheable = null;
-
 function getrequestHistory() {
   return requestHistory;
-}
-
-/**
- * Gets the cacheable CacheableLookup() for testing
- */
-function getCacheable() {
-  return cacheable;
-}
-
-/**
- * Gets the cacheable CacheableLookup() for testing
- */
-function resetCacheable() {
-  cacheable = null;
-}
-
-/**
- * Adds extra servers to DNS, if they are not being used already. This is just
- * within the NodeJS process, not systemwide.
- *
- * Sets these globally for both http and https (axios) It will use the OS servers
- * by default, and if they fail, move on to our added servers, if a server fails, requests
- * go to an active server immediately, for a period.
- * @param {Map?} userCache An optional cache, we use this as a reference for testing
- * @returns {Promise<void>}
- */
-async function createDnsCache(userCache) {
-  try {
-    if (cacheable) return;
-
-    const cache = userCache || new Map();
-
-    // we have to dynamic import here as cacheable-lookup only supports ESM.
-    const { default: CacheableLookup } = await import('cacheable-lookup');
-    cacheable = new CacheableLookup({ maxTtl: 360, cache });
-
-    cacheable.install(http.globalAgent);
-    cacheable.install(https.globalAgent);
-
-    const cloudflareDns = '1.1.1.1';
-    const googleDns = '8.8.8.8';
-    const quad9Dns = '9.9.9.9';
-
-    const backupServers = [cloudflareDns, googleDns, quad9Dns];
-
-    const existingServers = cacheable.servers;
-
-    // it dedupes any servers
-    cacheable.servers = [...existingServers, ...backupServers];
-  } catch (error) {
-    log.error(error);
-  }
 }
 
 function setAxiosDefaults(socketIoServers) {
@@ -253,7 +195,7 @@ async function initiate() {
     logErrorAndExit(err, { exitCode: 1 });
   });
 
-  await createDnsCache();
+  dnsLookup.install();
 
   await loadUpnpIfRequired();
 
@@ -573,11 +515,8 @@ if (require.main === module) {
 }
 
 module.exports = {
-  createDnsCache,
-  getCacheable,
   getrequestHistory,
   handleSigterm,
   initiate,
   isSystemShuttingDown,
-  resetCacheable,
 };

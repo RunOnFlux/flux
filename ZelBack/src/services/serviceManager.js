@@ -38,6 +38,7 @@ const hardwareValidationService = require('./appLifecycle/hardwareValidationServ
 const globalState = require('./utils/globalState');
 const { peerManager } = require('./utils/peerState');
 const enterpriseNetwork = require('./utils/enterpriseNetwork');
+const ufwHelper = require('./utils/ufwHelper');
 const policyStore = require('./policyStore');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const appQueryService = require('./appQuery/appQueryService');
@@ -53,6 +54,7 @@ const dockerService = require('./dockerService');
 const backupRestoreService = require('./backupRestoreService');
 const systemService = require('./systemService');
 const systemdNotify = require('./utils/systemdNotify');
+const fluxadmService = require('./fluxadmService');
 const fluxNodeService = require('./fluxNodeService');
 const volumeValidationService = require('./volumeValidationService');
 const watchdogService = require('./watchdogService');
@@ -271,9 +273,23 @@ async function startFluxFunctions() {
     // Hard dependencies — nothing starts until these are confirmed.
     await dbHelper.waitForMongo();
     await dockerService.waitForDocker();
+    // As soon as Docker answers, before the container firewall is applied: a
+    // below-floor node stays up holding a sticky DOS, so /flux/info names the
+    // version found and the version required.
+    fluxNetworkHelper.checkDockerVersionAllowed(await dockerService.dockerVersion().then((version) => version.Version, () => null));
     // Before any work that a restart would cut short: a registration that
     // needs its kill timeout raised restarts FluxOS, and this waits for it.
     await fluxService.ensurePm2KillTimeout();
+    // Before anything runs the ufw helper: the copy root runs is installed once
+    // per start.
+    await ufwHelper.path();
+    // Before anything reads or changes the firewall: a node whose ufw defaults
+    // file is broken has no firewall until this repairs it.
+    await fluxNetworkHelper.ensureUfwDefaults().catch((error) => log.error(error));
+    // The node's own firewall rules, before any other code writes to the
+    // firewall and before any app starts.
+    await fluxNetworkHelper.adjustFirewall();
+    log.info('Firewalls checked');
 
     // Check and update CloudUI if needed (for legacy nodes without watchdog)
     log.info('Checking CloudUI installation...');
@@ -301,23 +317,18 @@ async function startFluxFunctions() {
     await systemService.mongoDBConfig();
     systemService.monitorSystem();
     log.info('System service initiated');
+    fluxadmService.start();
+    log.info('Fluxadm access service initiated');
     log.info('Preparing local database...');
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.local.database);
-    await dbHelper.dropCollection(database, config.database.local.collections.loggedUsers).catch((error) => { // drop currently logged users
-      if (error.message !== 'ns not found') {
-        log.error(error);
-      }
-    });
-    await dbHelper.dropCollection(database, config.database.local.collections.activeLoginPhrases).catch((error) => {
-      if (error.message !== 'ns not found') {
-        log.error(error);
-      }
-    });
-    await dbHelper.dropCollection(database, config.database.local.collections.activeSignatures).catch((error) => {
-      if (error.message !== 'ns not found') {
-        log.error(error);
-      }
+    // Logins survive a restart: every request re-verifies its signature and
+    // re-checks its privilege against the node's current config, and each
+    // session collection's TTL index expires its rows. A login row never holds
+    // the session's signature (loginSignatures does, for a minute); one that
+    // does loses it here.
+    await dbHelper.updateInDatabase(database, config.database.local.collections.loggedUsers, { signature: { $exists: true } }, { $unset: { signature: '' } }).catch((error) => {
+      log.error(error);
     });
     // Named literally because they are no longer part of the schema: the payment
     // request and receipt collections outlived the endpoint that wrote them, and
@@ -337,6 +348,10 @@ async function startFluxFunctions() {
     ]);
     await ensureIndexes(database.collection(config.database.local.collections.activeSignatures), [
       { key: { createdAt: 1 }, expireAfterSeconds: 900 },
+    ]);
+    await ensureIndexes(database.collection(config.database.local.collections.loginSignatures), [
+      { key: { createdAt: 1 }, expireAfterSeconds: 60 },
+      { key: { loginPhrase: 1 } },
     ]);
     // legacy pre-incident-schema rows expire via detectedAt; current incident
     // documents expire via lastSeen. The tamper service purges pre-schema
@@ -480,6 +495,13 @@ async function startFluxFunctions() {
     // Read boot context early — determines startup behavior for container management.
     const bootContext = await AppSyncOrchestrator.readBootContext();
 
+    // The rules that keep app containers off private networks and off each
+    // other's networks, applied before any app container starts. A failure is
+    // logged and apps still start. Rechecked so a removed chain returns; each
+    // network FluxOS creates or removes re-applies them as it goes.
+    await dockerService.applyContainerFirewall();
+    setInterval(() => dockerService.applyContainerFirewall(), 10 * 60 * 1000);
+
     // App startup manager owns all boot-time container lifecycle decisions:
     // Locations expired → remove all. Otherwise wait for daemon/DB, then reconcile.
     appStartupManager.manageAppsOnBoot(bootContext).catch((error) => {
@@ -608,8 +630,6 @@ async function startFluxFunctions() {
     fluxNetworkHelper.setOnAddressChanged((apps, reason) => appReconciler.requestRestartOf(apps, reason));
     log.info('App Spawner initialized');
 
-    fluxNetworkHelper.adjustFirewall();
-    log.info('Firewalls checked');
     fluxNetworkHelper.allowNodeToBindPrivilegedPorts();
     log.info('Node allowed to bind privileged ports');
     fluxCommunication.keepConnectionsAlive();
@@ -740,8 +760,6 @@ async function startFluxFunctions() {
     // await throughput.start();
 
     setTimeout(async () => {
-      const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
-      await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
       log.info('Rechecking firewall app rules');
       await fluxNetworkHelper.purgeUFW();
     }, bootDelay(30 * 1000));

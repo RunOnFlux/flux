@@ -45,15 +45,23 @@ RUN set -eu; \
     iputils-ping \
     socat \
     iptables \
+    conntrack \
+    tcpdump \
     e2fsprogs \
+    systemd \
+    dbus \
+    openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
+# The node's docker: the newest release unless DOCKER_VERSION names one, as apt
+# spells it (5:27.5.1-1~ubuntu.24.04~noble), for a run against an older docker.
+ARG DOCKER_VERSION=
 RUN install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
     && chmod a+r /etc/apt/keyrings/docker.asc \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
-    && apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io \
+    && apt-get install -y --no-install-recommends "docker-ce${DOCKER_VERSION:+=$DOCKER_VERSION}" "docker-ce-cli${DOCKER_VERSION:+=$DOCKER_VERSION}" containerd.io \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
@@ -97,7 +105,7 @@ RUN test -n "$SYNCTHING_VERSION" \
     && apt-get update \
     && apt-get install -y --no-install-recommends dpkg-dev apt-utils \
     && rm -rf /var/cache/apt/archives/*.deb \
-    && apt-get install -y --download-only chrony netcat-openbsd \
+    && apt-get install -y --download-only chrony netcat-openbsd openssh-server libpam-systemd \
     && chmod +x /usr/local/bin/fetch-syncthing-deb.sh /usr/local/bin/build-apt-repo.sh \
     && /usr/local/bin/fetch-syncthing-deb.sh "$SYNCTHING_VERSION" /var/cache/apt/archives \
     && /usr/local/bin/build-apt-repo.sh /opt/flux-apt-repo
@@ -121,7 +129,12 @@ COPY --from=debcache /opt/flux-apt-repo /opt/flux-apt-repo
 # config, so the keyring fetch, the source write and apt's HTTP transport are
 # all exercised as they are on a node.
 #
-# Seeded here, so a normal fleet boots into the steady state.
+# Seeded here, so a normal fleet boots into the steady state. openssh-server is
+# served but never seeded: a legacy node installs it itself when maintenance
+# access is configured, and that install is part of what the suite exercises.
+# libpam-systemd is served but never seeded either: a node without it keeps an
+# ssh session in the sshd unit's cgroup, a node with it gives the session its
+# own logind scope, and a suite installs it where it needs the second shape.
 RUN rm -f /etc/apt/sources.list.d/* /etc/apt/sources.list \
     && cp /opt/flux-apt-repo/keyring.gpg /usr/share/keyrings/flux-e2e-archive-keyring.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/flux-e2e-archive-keyring.gpg] file:///opt/flux-apt-repo ubuntu main" \

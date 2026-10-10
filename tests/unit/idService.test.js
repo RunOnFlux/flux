@@ -797,10 +797,6 @@ describe('idService tests', () => {
     let bitcoinMessageStub;
 
     beforeEach(() => {
-      // A successful login defers stripping the signature from the database by
-      // a minute. Left real, that timer outlives this file and writes to the
-      // database against restored stubs.
-      sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
       bitcoinMessageStub = sinon.stub(bitcoinMessage, 'verify');
     });
 
@@ -1151,6 +1147,38 @@ describe('idService tests', () => {
       await serviceHelper.delay(100);
 
       sinon.assert.calledOnceWithMatch(res.json, expectedError);
+    });
+
+    it('should keep the signature off the login, in its own collection, written first and with no timer', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
+      bitcoinMessageStub.returns(true);
+      const timestamp = Date.now();
+      const message = `${timestamp - 300000}11111111111111111111111111111`;
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves({ loginPhrase: message });
+      const insertStub = sinon.stub(dbHelper, 'insertOneToDatabase').resolves(true);
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify({ zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg', signature: '1234356asdf', message }));
+      mockStream.end();
+      const res = generateResponse();
+
+      await idService.verifyLogin(mockStream, res);
+      await serviceHelper.delay(100);
+
+      const signatureInsert = insertStub.withArgs(sinon.match.any, 'loginsignatures');
+      const loginInsert = insertStub.withArgs(sinon.match.any, 'loggedusers');
+      sinon.assert.calledOnceWithExactly(signatureInsert, sinon.match.any, 'loginsignatures', {
+        loginPhrase: message,
+        signature: '1234356asdf',
+        createdAt: sinon.match.date,
+      });
+      sinon.assert.calledOnce(loginInsert);
+      expect(loginInsert.firstCall.args[2]).to.not.have.property('signature');
+      sinon.assert.callOrder(signatureInsert, loginInsert);
+      // the database driver keeps its own short timers; a login schedules nothing
+      const minuteOut = Object.values(clock.timers).filter((timer) => timer.delay >= 60000);
+      expect(minuteOut).to.have.length(0);
     });
   });
 
@@ -1595,13 +1623,13 @@ describe('idService tests', () => {
     });
 
     it('should return proper message if user is fluxTeamFluxID', async () => {
-      dbStub.resolves({
+      dbStub.withArgs(sinon.match.any, 'loggedusers').resolves({
         zelid: adminConfig.fluxTeamFluxID,
         loginPhrase: '12333345656',
-        signature: 'signature1',
         createdAt: '168450311',
         expireAt: '168460311',
       });
+      dbStub.withArgs(sinon.match.any, 'loginsignatures').resolves({ loginPhrase: '12333345656', signature: 'signature1' });
       const ws = generateWebsocket();
       const req = {
         params: {
@@ -1616,13 +1644,13 @@ describe('idService tests', () => {
     });
 
     it('should return proper message if user is admin', async () => {
-      dbStub.resolves({
+      dbStub.withArgs(sinon.match.any, 'loggedusers').resolves({
         zelid: adminConfig.initial.zelid,
         loginPhrase: '12333345656',
-        signature: 'signature1',
         createdAt: '168450311',
         expireAt: '168460311',
       });
+      dbStub.withArgs(sinon.match.any, 'loginsignatures').resolves({ loginPhrase: '12333345656', signature: 'signature1' });
       const ws = generateWebsocket();
       const req = {
         params: {
@@ -1636,6 +1664,25 @@ describe('idService tests', () => {
       sinon.assert.calledOnceWithExactly(
         ws.send,
         'status=success&data%5Bmessage%5D=Successfully%20logged%20in&data%5Bzelid%5D=1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC&data%5BloginPhrase%5D=12333345656&data%5Bsignature%5D=signature1&data%5Bprivilage%5D=admin&data%5BcreatedAt%5D=168450311&data%5BexpireAt%5D=168460311',
+      );
+    });
+
+    it('should answer a login without its signature once the signature has expired', async () => {
+      dbStub.withArgs(sinon.match.any, 'loggedusers').resolves({
+        zelid: adminConfig.initial.zelid,
+        loginPhrase: '12333345656',
+        createdAt: '168450311',
+        expireAt: '168460311',
+      });
+      dbStub.withArgs(sinon.match.any, 'loginsignatures').resolves(null);
+      const ws = generateWebsocket();
+
+      await idService.wsRespondLoginPhrase(ws, '12333345656');
+      await serviceHelper.delay(150);
+
+      sinon.assert.calledOnceWithExactly(
+        ws.send,
+        'status=success&data%5Bmessage%5D=Successfully%20logged%20in&data%5Bzelid%5D=1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC&data%5BloginPhrase%5D=12333345656&data%5Bprivilage%5D=admin&data%5BcreatedAt%5D=168450311&data%5BexpireAt%5D=168460311',
       );
     });
 

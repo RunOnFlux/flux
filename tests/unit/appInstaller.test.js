@@ -16,7 +16,6 @@ const makeDockerServiceStub = (overrides = {}) => ({
   dockerNetworkState: sinon.stub().resolves('absent'),
   getFreeFluxAppNetworkOctet: sinon.stub().resolves(1),
   createFluxAppDockerNetwork: sinon.stub().resolves('network-created'),
-  getFluxDockerNetworkPhysicalInterfaceNames: sinon.stub().resolves([]),
   appDockerCreate: sinon.stub().resolves(),
   appDockerStart: sinon.stub().resolves('container-started'),
   getAppIdentifier: sinon.stub().returns('testapp'),
@@ -160,9 +159,8 @@ describe('appInstaller tests', () => {
       },
       '../fluxNetworkHelper': {
         getNumberOfPeers: sinon.stub().returns(15),
-        isFirewallActive: sinon.stub().resolves(false),
+        allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
         allowPort: sinon.stub().resolves({ status: true }),
-        removeDockerContainerAccessToNonRoutable: sinon.stub().resolves(true),
       },
       '../geolocationService': {
         isStaticIP: sinon.stub().returns(true),
@@ -793,9 +791,8 @@ describe('appInstaller tests', () => {
         },
         '../fluxNetworkHelper': {
           getNumberOfPeers: sinon.stub().returns(15),
-          isFirewallActive: sinon.stub().resolves(false),
+          allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
           allowPort: sinon.stub().resolves({ status: true }),
-          removeDockerContainerAccessToNonRoutable: sinon.stub().resolves(true),
         },
         '../geolocationService': {
           isStaticIP: sinon.stub().returns(true),
@@ -1009,9 +1006,8 @@ describe('appInstaller tests', () => {
         },
         '../fluxNetworkHelper': {
           getNumberOfPeers: sinon.stub().returns(15),
-          isFirewallActive: sinon.stub().resolves(false),
+          allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
           allowPort: sinon.stub().resolves({ status: true }),
-          removeDockerContainerAccessToNonRoutable: sinon.stub().resolves(true),
         },
         '../geolocationService': {
           isStaticIP: sinon.stub().returns(true),
@@ -1208,9 +1204,8 @@ describe('appInstaller tests', () => {
         },
         '../fluxNetworkHelper': {
           getNumberOfPeers: sinon.stub().returns(15),
-          isFirewallActive: sinon.stub().resolves(false),
+          allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
           allowPort: sinon.stub().resolves({ status: true }),
-          removeDockerContainerAccessToNonRoutable: sinon.stub().resolves(true),
           getLocalSocketAddress: sinon.stub().resolves('1.2.3.4:16127'),
         },
         '../geolocationService': {
@@ -1432,9 +1427,8 @@ describe('appInstaller tests', () => {
         },
         '../fluxNetworkHelper': {
           getNumberOfPeers: sinon.stub().returns(15),
-          isFirewallActive: sinon.stub().resolves(false),
+          allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
           allowPort: sinon.stub().resolves({ status: true }),
-          removeDockerContainerAccessToNonRoutable: sinon.stub().resolves(true),
           getLocalSocketAddress: sinon.stub().resolves('1.2.3.4:16127'),
         },
         '../geolocationService': { isStaticIP: sinon.stub().returns(true) },
@@ -1536,9 +1530,8 @@ describe('appInstaller tests', () => {
         '../fluxNetworkHelper': {
           getLocalSocketAddress: sinon.stub().resolves('192.168.1.1:16127'),
           getNumberOfPeers: sinon.stub().returns(15),
-          isFirewallActive: sinon.stub().resolves(false),
+          allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
           allowPort: sinon.stub().resolves({ status: true }),
-          removeDockerContainerAccessToNonRoutable: sinon.stub().resolves(true),
         },
         '../geolocationService': { isStaticIP: sinon.stub().returns(true) },
         '../dockerService': makeDockerServiceStub({
@@ -1588,19 +1581,77 @@ describe('appInstaller tests', () => {
     });
   });
 
+  describe('setupApplicationPorts tests', () => {
+    let appInstallerPorts;
+    let firewallStub;
+    let upnpStub;
+    let logStub;
+
+    beforeEach(() => {
+      firewallStub = {
+        isFirewallActive: sinon.stub().resolves(true),
+        allowPort: sinon.stub().resolves({ status: true }),
+        allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
+      };
+      upnpStub = { isUPNP: sinon.stub().returns(true), mapUpnpPort: sinon.stub().resolves(true) };
+      logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
+      appInstallerPorts = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        '../fluxNetworkHelper': firewallStub,
+        '../upnpService': upnpStub,
+        '../../lib/log': logStub,
+      });
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('maps app ports on the router and opens them in the host firewall', async () => {
+      await appInstallerPorts.setupApplicationPorts({ ports: [31000, 31001] }, 'myapp', false, null);
+
+      expect(firewallStub.allowPort.called).to.be.false;
+      expect(firewallStub.allowAppPorts.args).to.deep.equal([[[31000, 31001]]]);
+      expect(upnpStub.mapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
+      expect(upnpStub.mapUpnpPort.calledWith(31001, 'Flux_App_myapp')).to.be.true;
+    });
+
+    it('maps a v1 app port and opens it in the host firewall', async () => {
+      await appInstallerPorts.setupApplicationPorts({ port: 31000 }, 'myapp', false, null);
+
+      expect(firewallStub.allowPort.called).to.be.false;
+      expect(firewallStub.allowAppPorts.args).to.deep.equal([[[31000]]]);
+      expect(upnpStub.mapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
+    });
+
+    it('installs on with a warning when a port cannot be opened in the firewall', async () => {
+      firewallStub.allowAppPorts.resolves({ failed: [{ rule: 'allow 31000', error: 'ERROR: Bad port' }], locked: false });
+
+      await appInstallerPorts.setupApplicationPorts({ ports: [31000] }, 'myapp', false, null);
+
+      sinon.assert.calledWithMatch(logStub.warn, 'Port of myapp not opened in the firewall: ufw allow 31000: ERROR: Bad port');
+      expect(upnpStub.mapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
+    });
+
+    it('opens nothing for a test install', async () => {
+      await appInstallerPorts.setupApplicationPorts({ ports: [31000] }, 'myapp', false, null, true);
+
+      sinon.assert.notCalled(firewallStub.allowAppPorts);
+    });
+  });
+
   describe('ensureAppDockerNetwork tests', () => {
     let appInstallerNet;
     let dockerServiceStub;
-    let removeAccessStub;
+    let egressRulesStub;
 
     beforeEach(() => {
       process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
       dockerServiceStub = makeDockerServiceStub({ getFreeFluxAppNetworkOctet: sinon.stub().resolves(7) });
-      removeAccessStub = sinon.stub().resolves(true);
+      egressRulesStub = sinon.stub().resolves(true);
       appInstallerNet = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
         '../serviceHelper': { ensureString: sinon.stub().returnsArg(0) },
         '../dockerService': dockerServiceStub,
-        '../fluxNetworkHelper': { removeDockerContainerAccessToNonRoutable: removeAccessStub },
+        '../fluxNetworkHelper': { applyContainerEgressRules: egressRulesStub },
         '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
       });
     });
@@ -1616,9 +1667,7 @@ describe('appInstaller tests', () => {
 
       expect(dockerServiceStub.getFreeFluxAppNetworkOctet.called).to.be.false;
       expect(dockerServiceStub.createFluxAppDockerNetwork.called).to.be.false;
-      // intact network: its interface is already in DOCKER-USER, so no iptables churn
-      expect(dockerServiceStub.getFluxDockerNetworkPhysicalInterfaceNames.called).to.be.false;
-      expect(removeAccessStub.called).to.be.false;
+      expect(egressRulesStub.called).to.be.false;
       expect(result).to.include('already exists');
     });
 
@@ -1628,7 +1677,8 @@ describe('appInstaller tests', () => {
       await appInstallerNet.ensureAppDockerNetwork('myapp');
 
       expect(dockerServiceStub.createFluxAppDockerNetwork.calledOnceWithExactly('myapp', 7)).to.be.true;
-      expect(removeAccessStub.calledOnce).to.be.true;
+      // the node-wide DOCKER-USER rules match every bridge, a new one included
+      expect(egressRulesStub.called).to.be.false;
     });
 
     it('re-scans for the next free octet when a create collides', async () => {

@@ -108,29 +108,15 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
     if (res.flush) res.flush();
   }
 
+  if (!test) {
+    const appPorts = appSpecifications.ports ?? (appSpecifications.port ? [appSpecifications.port] : []);
+    const { failed, locked } = await fluxNetworkHelper.allowAppPorts(appPorts.map((port) => serviceHelper.ensureNumber(port)));
+    // Clients outside the node reach the ports over IPv4 either way, so the install goes on.
+    if (locked) log.warn(`Ports of ${appName} not opened in the firewall: ufw is locked by another ufw command`);
+    failed.forEach(({ rule, error }) => log.warn(`Port of ${appName} not opened in the firewall: ufw ${rule}: ${error}`));
+  }
+
   if (!test && appSpecifications.ports) {
-    const firewallActive = await fluxNetworkHelper.isFirewallActive();
-    if (firewallActive) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of appSpecifications.ports) {
-        // eslint-disable-next-line no-await-in-loop
-        const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
-        if (portResponse.status === true) {
-          const portStatus = {
-            status: `Port ${port} OK`,
-          };
-          log.info(portStatus);
-          if (res) {
-            res.write(serviceHelper.ensureString(portStatus));
-            if (res.flush) res.flush();
-          }
-        } else {
-          throw new Error(`Error: Port ${port} FAILed to open.`);
-        }
-      }
-    } else {
-      log.info('Firewall not active, application ports are open');
-    }
     const isUPNP = upnpService.isUPNP();
     if (isUPNP) {
       log.info('Custom port specified, mapping ports');
@@ -154,24 +140,6 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
     }
   } else if (!test && appSpecifications.port) {
     // v1 compatibility
-    const firewallActive = await fluxNetworkHelper.isFirewallActive();
-    if (firewallActive) {
-      const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
-      if (portResponse.status === true) {
-        const portStatus = {
-          status: `Port ${appSpecifications.port} OK`,
-        };
-        log.info(portStatus);
-        if (res) {
-          res.write(serviceHelper.ensureString(portStatus));
-          if (res.flush) res.flush();
-        }
-      } else {
-        throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
-      }
-    } else {
-      log.info('Firewall not active, application ports are open');
-    }
     const isUPNP = upnpService.isUPNP();
     if (isUPNP) {
       log.info('Custom port specified, mapping ports');
@@ -282,11 +250,9 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
  * (docker prune, daemon restart) must be re-created before any container can be
  * re-created onto it.
  *
- * When the network already exists this returns EARLY - no allocation and, crucially,
- * no firewall work: its interface is already in the node-wide DOCKER-USER rules, so
- * re-running removeDockerContainerAccessToNonRoutable here would flush and rebuild
- * the whole chain on every heal recreate for no gain (briefly dropping RFC1918
- * protection for every flux container on the node).
+ * When the network already exists this returns EARLY, with no allocation.
+ * Creating the network re-applies the container firewall with its bridge
+ * (dockerService.dockerCreateNetwork) before any container is created on it.
  *
  * Allocation is deterministic (lowest free octet) but collision-safe: many heals can
  * run concurrently after a mass prune, so a create that loses its octet to another
@@ -350,15 +316,6 @@ async function ensureAppDockerNetwork(appName, res) {
     throw new Error(`Flux App network of ${appName} failed to initiate. Not possible to create docker application network.`);
   }
   log.info(serviceHelper.ensureString(fluxNet));
-  const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
-  const accessRemoved = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
-  const accessRemovedRes = {
-    status: accessRemoved ? `Private network access removed for ${appName}` : `Error removing private network access for ${appName}`,
-  };
-  if (res) {
-    res.write(serviceHelper.ensureString(accessRemovedRes));
-    if (res.flush) res.flush();
-  }
   const fluxNetResponse = {
     status: `Docker network of ${appName} initiated.`,
   };
@@ -1418,4 +1375,5 @@ module.exports = {
   checkAppRequirements,
   testAppInstall,
   setOnInstallComplete,
+  setupApplicationPorts,
 };

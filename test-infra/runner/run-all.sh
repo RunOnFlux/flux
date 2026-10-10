@@ -46,6 +46,11 @@ if [ -z "${E2E_ALLOW_HOST_FLUXOS:-}" ]; then
 fi
 
 LOG_DIR="${E2E_LOG_DIR:-/tmp/e2e-logs}"
+# Exported, not merely read: the suite process writes here too — a systemd node
+# mounts its journal under this directory (test-env.js) so the node's own logs
+# outlive its container. Exporting the RESOLVED value keeps the suite and the
+# runner pointed at one directory even when the default applied.
+export E2E_LOG_DIR="$LOG_DIR"
 SUITE_GLOB="${SUITE_GLOB:-tests/*.js}"
 SUITE_TIMEOUT_MS="${SUITE_TIMEOUT_MS:-300000}"
 mkdir -p "$LOG_DIR"
@@ -70,10 +75,10 @@ export E2E_RUN_LABEL="$RUN_LABEL"
 export TESTCONTAINERS_RYUK_DISABLED=true
 
 # Pick the /24 subnet base (three octets) all suites in this run will use. Each suite
-# creates+tears down its own /24 network; a single run defaults to 198.18.0 (back
-# compat), and parallel run-all.sh invocations auto-pick distinct free /24s so their
-# fleets don't collide. The pool is the 512 /24s of 198.18.0.0/15 (the RFC 2544 range
-# FluxOS accepts as public — see subnet-config.js). Override with TEST_SUBNET_BASE=a.b.c.
+# creates+tears down its own /24 network; a single run defaults to 31.200.0, and
+# parallel run-all.sh invocations auto-pick distinct free /24s so their fleets don't
+# collide. The pool is the 16 /24s of 31.200.0.0/20 (see subnet-config.js). Override
+# with TEST_SUBNET_BASE=a.b.c.
 #
 # A base is claimed by creating a lock directory (mkdir is atomic), so two run-all
 # processes scanning at once can never grab the same /24 — closing the read-then-create
@@ -84,27 +89,25 @@ LOCK_ROOT="${E2E_BASE_LOCK_DIR:-/tmp/e2e-base-locks}"
 mkdir -p "$LOCK_ROOT" 2>/dev/null
 CLAIMED_BASE=""
 _scan_and_claim() {            # sets CLAIMED_BASE ('' if the pool is exhausted)
-  local used o2 o3 b owner
+  local used o3 b owner
   used="$(docker network ls -q | xargs -r docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null)"
-  for o2 in 18 19; do
-    for o3 in $(seq 0 255); do
-      b="198.$o2.$o3"
-      case " $used " in *" $b.0/24 "*) continue;; esac   # a live network already owns it
-      if [ -d "$LOCK_ROOT/$b" ]; then
-        owner="$(cat "$LOCK_ROOT/$b/pid" 2>/dev/null)"
-        if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then continue; fi  # claimed by a live run
-        rm -rf "$LOCK_ROOT/$b"                            # stale claim from a dead run — reclaim
-      fi
-      if mkdir "$LOCK_ROOT/$b" 2>/dev/null; then
-        # The run label as well as the pid. A gate-level sweep reaps by run label
-        # and the claim is the only place a live run's label can be read from
-        # outside it - without it the sweep cannot tell a leftover from a fleet
-        # that is still using its containers.
-        echo "$$" > "$LOCK_ROOT/$b/pid"
-        echo "$RUN_LABEL" > "$LOCK_ROOT/$b/run-label"
-        CLAIMED_BASE="$b"; return 0
-      fi
-    done
+  for o3 in $(seq 0 15); do
+    b="31.200.$o3"
+    case " $used " in *" $b.0/24 "*) continue;; esac   # a live network already owns it
+    if [ -d "$LOCK_ROOT/$b" ]; then
+      owner="$(cat "$LOCK_ROOT/$b/pid" 2>/dev/null)"
+      if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then continue; fi  # claimed by a live run
+      rm -rf "$LOCK_ROOT/$b"                            # stale claim from a dead run — reclaim
+    fi
+    if mkdir "$LOCK_ROOT/$b" 2>/dev/null; then
+      # The run label as well as the pid. A gate-level sweep reaps by run label
+      # and the claim is the only place a live run's label can be read from
+      # outside it - without it the sweep cannot tell a leftover from a fleet
+      # that is still using its containers.
+      echo "$$" > "$LOCK_ROOT/$b/pid"
+      echo "$RUN_LABEL" > "$LOCK_ROOT/$b/run-label"
+      CLAIMED_BASE="$b"; return 0
+    fi
   done
 }
 pick_free_base() {             # sets CLAIMED_BASE
@@ -151,7 +154,7 @@ cleanup_on_exit() {
 trap cleanup_on_exit EXIT INT TERM
 if [ -z "${TEST_SUBNET_BASE:-}" ]; then
   pick_free_base
-  export TEST_SUBNET_BASE="${CLAIMED_BASE:-198.18.0}"   # 198.18.0 fallback if pool exhausted
+  export TEST_SUBNET_BASE="${CLAIMED_BASE:-31.200.0}"   # 31.200.0 fallback if pool exhausted
 fi
 echo "###SUBNET-BASE $TEST_SUBNET_BASE"
 

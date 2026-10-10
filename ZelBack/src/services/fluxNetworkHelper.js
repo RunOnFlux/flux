@@ -24,6 +24,9 @@ const { CLOSE_CODES, DIRECTION } = require('./utils/FluxPeerSocket');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const fluxEventBus = require('./utils/fluxEventBus');
+const { NON_PUBLIC_IPV4 } = require('./utils/nonPublicNetworks');
+const ufw = require('./utils/ufw');
+const ufwHelper = require('./utils/ufwHelper');
 const {
   normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch, parseSocketAddress, ipsMatch,
 } = require('./utils/socketAddressUtils');
@@ -57,6 +60,7 @@ const StickyDosOwner = Object.freeze({
   APP_TAMPERING: 'appTampering',
   PEER_SET_STABILITY: 'peerSetStability',
   NODEJS_FLOOR: 'nodejsFloor',
+  DOCKER_FLOOR: 'dockerFloor',
 });
 
 // Declares the node unfit for the apps it already runs, and is not moved by the
@@ -417,7 +421,7 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     if (fluxResponse.data.status !== 'success') return false;
 
     const fluxVersion = fluxResponse.data.data;
-    const versionMinOK = serviceHelper.minVersionSatisfy(fluxVersion, config.minimumFluxOSAllowedVersion);
+    const versionMinOK = serviceHelper.semverAtLeast(fluxVersion, config.minimumFluxOSAllowedVersion);
     if (!versionMinOK) return false;
 
     const homePort = +port - 1;
@@ -1214,7 +1218,7 @@ function checkNodeJsVersionAllowed() {
     return true;
   }
   const nodeJsVersion = process.versions.node;
-  if (serviceHelper.minVersionSatisfy(nodeJsVersion, minimumVersion)) {
+  if (serviceHelper.semverAtLeast(nodeJsVersion, minimumVersion)) {
     return true;
   }
   setStickyDos(
@@ -1225,12 +1229,52 @@ function checkNodeJsVersionAllowed() {
 }
 
 /**
+ * Whether the Docker this node runs meets the network minimum: the oldest
+ * release FluxOS supports, whose networking rules the container firewall and
+ * the app port rules are tested against.
+ *
+ * Asked once, when Docker first answers at startup. Upgrading Docker restarts
+ * Docker, not FluxOS, so the verdict stands until FluxOS next starts, and the
+ * message says so. A version that could not be read, or is not a SemVer
+ * version, gives no verdict: a Docker API failing for a moment, or a build
+ * naming itself oddly, is not a node below the floor. A pre-release is below
+ * its release (28.1.1-rc.1 < 28.1.1).
+ * @param {?string} dockerVersion The version Docker reports, or null when it
+ *   could not be read.
+ * @returns {boolean} True unless the version is known and below the floor.
+ */
+function checkDockerVersionAllowed(dockerVersion) {
+  const minimumVersion = config.minimumDockerAllowedVersion;
+  // As with the NodeJS floor: no floor configured allows, never refuses.
+  if (!minimumVersion) {
+    log.error('checkDockerVersionAllowed - no minimum Docker version configured, skipping the check');
+    return true;
+  }
+  if (!dockerVersion) {
+    log.error('checkDockerVersionAllowed - Docker did not report its version, no verdict');
+    return true;
+  }
+  if (!serviceHelper.parseSemver(dockerVersion)) {
+    log.error(`checkDockerVersionAllowed - Docker reported ${dockerVersion}, which is not a SemVer version, no verdict`);
+    return true;
+  }
+  if (serviceHelper.semverAtLeast(dockerVersion, minimumVersion)) {
+    return true;
+  }
+  setStickyDos(
+    StickyDosOwner.DOCKER_FLOOR,
+    `Docker Version Error. Current lower version allowed is v${minimumVersion} found v${dockerVersion}. Upgrade Docker and restart FluxOS`,
+  );
+  return false;
+}
+
+/**
  * To check if Flux benchmark version is allowed.
  * @returns {boolean} True if version is verified as allowed. Otherwise false.
  */
 async function checkFluxbenchVersionAllowed() {
   if (storedFluxBenchAllowed) {
-    const versionOK = serviceHelper.minVersionSatisfy(storedFluxBenchAllowed, config.minimumFluxBenchAllowedVersion);
+    const versionOK = serviceHelper.semverAtLeast(storedFluxBenchAllowed, config.minimumFluxBenchAllowedVersion);
     return versionOK;
   }
   try {
@@ -1239,7 +1283,7 @@ async function checkFluxbenchVersionAllowed() {
       log.info(benchmarkInfoResponse);
       const benchmarkVersion = benchmarkInfoResponse.data.version;
       setStoredFluxBenchAllowed(benchmarkVersion);
-      const versionOK = serviceHelper.minVersionSatisfy(benchmarkVersion, config.minimumFluxBenchAllowedVersion);
+      const versionOK = serviceHelper.semverAtLeast(benchmarkVersion, config.minimumFluxBenchAllowedVersion);
       if (versionOK) {
         return true;
       }
@@ -2066,7 +2110,6 @@ async function setDOSStateApi(req, res) {
  * @returns {object} Command status.
  */
 async function allowPort(port) {
-  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -2075,12 +2118,16 @@ async function allowPort(port) {
     cmdStat.message = 'Port needs to be a number';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw allow ${port} && sudo ufw allow out ${port}`;
-  const cmdres = await cmdAsync(exec);
+  const ran = await ufw.runUfw(['allow', String(port)]);
+  if (ran.locked) {
+    cmdStat.message = 'ufw is locked by another ufw command';
+    return cmdStat;
+  }
+  const cmdres = ran.stdout + ran.stderr;
   cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
+  if (cmdres.includes('updated') || cmdres.includes('added')) {
     cmdStat.status = true;
-  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
+  } else if (cmdres.includes('existing')) {
     cmdStat.status = true;
     cmdStat.message = 'existing';
   } else {
@@ -2089,33 +2136,39 @@ async function allowPort(port) {
   return cmdStat;
 }
 
+// The ufw rule that admits IPv4 TCP clients to a port FluxOS opens for a moment,
+// to test it from outside, and nothing else. ufw counts a rule that names no
+// protocol as the same rule as the matching half of an app port's
+// `allow <port>`, so a test that opened and deleted one would delete that half;
+// a TCP rule is a rule of its own.
+const testPortRule = (port) => ['proto', 'tcp', 'from', '0.0.0.0/0', 'to', 'any', 'port', String(port)];
+
 /**
- * To allow out a port.
- * @param {string} port Port.
- * @returns {object} Command status.
+ * Opens a port to IPv4 TCP clients while FluxOS tests it from outside: the only rule
+ * for the port that deleteTestPortRule deletes.
+ * @param {number|string} port Port.
+ * @returns {Promise<{status: boolean, message: (string|null)}>}
  */
-async function allowOutPort(port) {
-  const cmdAsync = util.promisify(nodecmd.run);
-  const cmdStat = {
-    status: false,
-    message: null,
-  };
-  if (Number.isNaN(+port)) {
-    cmdStat.message = 'Port needs to be a number';
-    return cmdStat;
-  }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw allow out ${port}`;
-  const cmdres = await cmdAsync(exec);
-  cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
-    cmdStat.status = true;
-  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
-    cmdStat.status = true;
-    cmdStat.message = 'existing';
-  } else {
-    cmdStat.status = false;
-  }
-  return cmdStat;
+async function allowTestPort(port) {
+  if (Number.isNaN(+port)) return { status: false, message: 'Port needs to be a number' };
+  const ran = await ufw.runUfw(['allow', ...testPortRule(port)]);
+  if (ran.locked) return { status: false, message: 'ufw is locked by another ufw command' };
+  const cmdres = ran.stdout + ran.stderr;
+  return { status: /added|updated|existing/.test(cmdres), message: cmdres };
+}
+
+/**
+ * Deletes the rule allowTestPort writes, and no other rule for the port. A rule
+ * already gone counts as deleted.
+ * @param {number|string} port Port.
+ * @returns {Promise<{status: boolean, message: (string|null)}>}
+ */
+async function deleteTestPortRule(port) {
+  if (Number.isNaN(+port)) return { status: false, message: 'Port needs to be a number' };
+  const ran = await ufw.runUfw(['delete', 'allow', ...testPortRule(port)]);
+  if (ran.locked) return { status: false, message: 'ufw is locked by another ufw command' };
+  const cmdres = ran.stdout + ran.stderr;
+  return { status: cmdres.includes('delete'), message: cmdres };
 }
 
 /**
@@ -2124,7 +2177,6 @@ async function allowOutPort(port) {
  * @returns {object} Command status.
  */
 async function denyPort(port) {
-  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -2138,12 +2190,16 @@ async function denyPort(port) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw deny ${port} && sudo ufw deny out ${port}`;
-  const cmdres = await cmdAsync(exec);
+  const ran = await ufw.runUfw(['deny', String(port)]);
+  if (ran.locked) {
+    cmdStat.message = 'ufw is locked by another ufw command';
+    return cmdStat;
+  }
+  const cmdres = ran.stdout + ran.stderr;
   cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
+  if (cmdres.includes('updated') || cmdres.includes('added')) {
     cmdStat.status = true;
-  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
+  } else if (cmdres.includes('existing')) {
     cmdStat.status = true;
     cmdStat.message = 'existing';
   } else {
@@ -2158,7 +2214,6 @@ async function denyPort(port) {
  * @returns {object} Command status.
  */
 async function deleteAllowPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -2172,10 +2227,14 @@ async function deleteAllowPortRule(port) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw delete allow ${port} && sudo ufw delete allow out ${port}`;
-  const cmdres = await cmdAsync(exec);
+  const ran = await ufw.runUfw(['delete', 'allow', String(port)]);
+  if (ran.locked) {
+    cmdStat.message = 'ufw is locked by another ufw command';
+    return cmdStat;
+  }
+  const cmdres = ran.stdout + ran.stderr;
   cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
+  if (cmdres.includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
     cmdStat.status = true;
   } else {
     cmdStat.status = false;
@@ -2189,7 +2248,6 @@ async function deleteAllowPortRule(port) {
  * @returns {object} Command status.
  */
 async function deleteDenyPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -2203,10 +2261,14 @@ async function deleteDenyPortRule(port) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw delete deny ${port} && sudo ufw delete deny out ${port}`;
-  const cmdres = await cmdAsync(exec);
+  const ran = await ufw.runUfw(['delete', 'deny', String(port)]);
+  if (ran.locked) {
+    cmdStat.message = 'ufw is locked by another ufw command';
+    return cmdStat;
+  }
+  const cmdres = ran.stdout + ran.stderr;
   cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
+  if (cmdres.includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
     cmdStat.status = true;
   } else {
     cmdStat.status = false;
@@ -2215,34 +2277,40 @@ async function deleteDenyPortRule(port) {
 }
 
 /**
- * To delete a ufw allow rule on port.
- * @param {string} port Port.
- * @returns {object} Command status.
+ * Whether a port is in the range FluxOS gives apps, and so one FluxOS may open
+ * and delete a rule for.
+ * @param {number|string} port Port.
+ * @returns {boolean}
  */
-async function deleteAllowOutPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.run);
-  const cmdStat = {
-    status: false,
-    message: null,
-  };
-  if (Number.isNaN(+port)) {
-    cmdStat.message = 'Port needs to be a number';
-    return cmdStat;
-  }
-  const portBanned = isPortBanned(+port);
-  if (portBanned || +port < config.fluxapps.portMin || +port > config.fluxapps.portMax) {
-    cmdStat.message = 'Port out of deletable app ports range';
-    return cmdStat;
-  }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw delete allow out ${port}`;
-  const cmdres = await cmdAsync(exec);
-  cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
-    cmdStat.status = true;
-  } else {
-    cmdStat.status = false;
-  }
-  return cmdStat;
+function isAppPort(port) {
+  return !Number.isNaN(+port) && !isPortBanned(+port) && +port >= config.fluxapps.portMin && +port <= config.fluxapps.portMax;
+}
+
+/**
+ * Opens an app's published ports to every client, IPv4 and IPv6, in one ufw
+ * batch: `allow <port>`. Docker forwards a connection from outside the node to
+ * a published port ahead of ufw's inbound rules, but an IPv6 one, and on some
+ * Docker releases a container's connection to a published port at the node's
+ * own address, it answers through docker-proxy on the host, behind them. ufw
+ * keeps the rules across restarts, so they are written when the app is
+ * installed and deleted when it is removed. Nothing is written while ufw is
+ * disabled.
+ * @param {Array<number|string>} ports Ports.
+ * @returns {Promise<{failed: Array<{rule: string, error: string}>, locked: boolean}>}
+ */
+async function allowAppPorts(ports) {
+  if (!await ufw.ufwEnabled()) return { failed: [], locked: false };
+  return ufw.runUfwCommands(ports.filter(isAppPort).map((port) => ['allow', String(port)]));
+}
+
+/**
+ * Deletes the rules allowAppPorts writes for an app's ports, in one ufw batch.
+ * A rule already gone counts as deleted.
+ * @param {Array<number|string>} ports Ports.
+ * @returns {Promise<{failed: Array<{rule: string, error: string}>, locked: boolean}>}
+ */
+async function deleteAppPortRules(ports) {
+  return ufw.runUfwCommands(ports.filter(isAppPort).map((port) => ['delete', 'allow', String(port)]));
 }
 
 /**
@@ -2277,106 +2345,177 @@ async function allowPortApi(req, res) {
   return res.json(message);
 }
 
+const ufwDefaultsPath = '/etc/default/ufw';
+// /etc/default/ufw exactly as the ufw package ships it on Ubuntu 20.04 to 26.04.
+const ufwDefaultsSource = path.join(__dirname, '../../../helpers/ufw/default');
+// ufw refuses to run, and ufw-init refuses to start the firewall at boot, when
+// any of these is missing.
+const ufwPolicies = ['INPUT', 'OUTPUT', 'FORWARD', 'APPLICATION'];
+
 /**
- * To check if a firewall is active.
- * @returns {Promise<boolean>} True if a firewall is active. Otherwise false.
+ * Keeps /etc/default/ufw whole and its outbound policy ACCEPT. A file missing
+ * any policy is replaced by ufw's own defaults; one that denies outbound has
+ * that line set to ACCEPT. The new file is renamed over the old, so it is never
+ * seen part-written, and an enabled firewall is reloaded to take it up - which
+ * also starts one that could not start at boot. ufw's own `default` command
+ * rewrites the file in place and is never used.
+ * @returns {Promise<void>}
  */
-async function isFirewallActive() {
-  try {
-    const cmdAsync = util.promisify(nodecmd.run);
-    const execA = 'LANG="en_US.UTF-8" && sudo ufw status | grep Status';
-    const cmdresA = await cmdAsync(execA);
-    if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
-      return true;
-    }
-    return false;
-  } catch (error) {
-    // command ufw not found is the most likely reason
-    log.error(error);
-    return false;
+async function ensureUfwDefaults() {
+  const ufwConf = await fs.readFile('/etc/ufw/ufw.conf', 'utf8').catch(() => null);
+  if (ufwConf === null) return;
+  const current = await fs.readFile(ufwDefaultsPath, 'utf8').catch(() => '');
+
+  const whole = ufwPolicies.every((policy) => new RegExp(`^DEFAULT_${policy}_POLICY=`, 'm').test(current));
+  let desired;
+  if (!whole) {
+    desired = await fs.readFile(ufwDefaultsSource, 'utf8');
+  } else if (!/^DEFAULT_OUTPUT_POLICY="ACCEPT"$/m.test(current)) {
+    desired = current.replace(/^DEFAULT_OUTPUT_POLICY=.*$/m, 'DEFAULT_OUTPUT_POLICY="ACCEPT"');
+  } else {
+    return;
   }
+
+  const staged = `${ufwDefaultsPath}.flux-new`;
+  let tempDir = null;
+  try {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-ufw-'));
+    const source = path.join(tempDir, 'ufw');
+    await fs.writeFile(source, desired, { mode: 0o644 });
+    const { error: stageError } = await serviceHelper.runCommand('install', {
+      runAsRoot: true, logError: false, params: ['-m', '0644', '-o', 'root', '-g', 'root', source, staged],
+    });
+    const { error: renameError } = stageError ? { error: stageError } : await serviceHelper.runCommand('mv', {
+      runAsRoot: true, logError: false, params: ['-f', staged, ufwDefaultsPath],
+    });
+    if (renameError) {
+      log.error(`Firewall defaults not written: ${renameError.message}`);
+      return;
+    }
+  } finally {
+    if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+  log.info(whole ? 'Firewall outbound policy set to ACCEPT' : 'Firewall defaults restored');
+
+  if (/^ENABLED=yes$/m.test(ufwConf)) {
+    const { error, locked } = await ufw.runUfw(['reload']);
+    if (locked) log.error('Firewall not reloaded: ufw is locked by another ufw command');
+    else if (error) log.error(`Firewall not reloaded: ${error.message}`);
+  }
+  fluxEventBus.publish('firewall:defaultsWritten', { restored: !whole });
+}
+
+// The docker networks app containers are on.
+const fluxAppDockerNetworks = '172.23.0.0/16';
+/**
+ * Reports a firewall step that stopped because another ufw command held ufw's lock.
+ */
+function reportUfwLocked() {
+  log.error('Firewall not adjusted: ufw is locked by another ufw command');
+  fluxEventBus.publish('firewall:locked', {});
 }
 
 /**
- * To adjust a firewall to allow ports for Flux.
+ * The node's own firewall rules, each the arguments of one ufw command, in the
+ * order they are applied.
+ * @returns {Promise<string[][]>}
+ */
+async function nodeFirewallRules() {
+  const apiPort = userconfig.initial.apiport || config.server.apiport;
+  const ports = [apiPort, +apiPort - 1, +apiPort + 1, +apiPort + 2, 80, 443, 16125, ...config.server.allowedPorts];
+  const rules = [['delete', 'allow', 'in', 'proto', 'udp', 'to', 'any', 'port', '53']];
+  // this should also be limit, but existing nodes use allow (needs to be updated)
+  if (isArcane) rules.push(['prepend', 'allow', 'to', 'any', 'app', 'FluxadmSSH']);
+  // the OpenSSH profile exists only where openssh-server is installed
+  rules.push(['prepend', 'limit', 'to', 'any', 'app', 'OpenSSH']);
+
+  const { stdout: routes } = await serviceHelper.runCommand('ip', { logError: false, params: ['route'] });
+  const routerIP = serviceHelper.ensureString(routes).split('\n')[0].trim().split(/\s+/)[2] || '';
+  if (serviceHelper.validIpv4Address(routerIP)
+    && (routerIP.startsWith('192.168.') || routerIP.startsWith('10.') || routerIP.startsWith('172.16.')
+      || routerIP.startsWith('100.64.') || routerIP.startsWith('198.18.') || routerIP.startsWith('169.254.'))) {
+    rules.push(['prepend', 'allow', 'from', routerIP, 'to', 'any', 'proto', 'udp']);
+  }
+  ports.forEach((port) => rules.push(['allow', String(port)]));
+  // app containers reach the fluxnode service; the rest of loopback is refused
+  // by allowOnlyDockerNetworksToFluxNodeService, as ufw does not filter loopback
+  rules.push(['allow', 'from', fluxAppDockerNetworks, 'proto', 'tcp', 'to', `${config.server.fluxNodeServiceAddress}/32`, 'port', '16101']);
+  return rules;
+}
+
+/**
+ * Applies the node's own firewall rules. Outbound traffic is governed by the
+ * default policy alone, so every outbound rule is removed, whoever added it;
+ * then the node's own inbound rules are applied. Both happen in one pass under
+ * ufw's lock (helpers/ufw/apply-node-firewall.py), and ufw is reloaded only
+ * when outbound rules were removed. Where ufw's library cannot be used, the
+ * rules are applied one ufw command each.
+ *
+ * Every ufw command waits on ufw's lock for as long as another holds it, so a
+ * lock held past ufw.UFW_LOCK_WAIT_MS stops the step: no ufw command is run, the
+ * firewall is left as it is, and the next start applies it.
  */
 async function adjustFirewall() {
   try {
-    const cmdAsync = util.promisify(nodecmd.run);
-    const apiPort = userconfig.initial.apiport || config.server.apiport;
-    const homePort = +apiPort - 1;
-    const apiSSLPort = +apiPort + 1;
-    const syncthingPort = +apiPort + 2;
-    let ports = [apiPort, homePort, apiSSLPort, syncthingPort, 80, 443, 16125];
-    const fluxCommunicationPorts = config.server.allowedPorts;
-    ports = ports.concat(fluxCommunicationPorts);
-    const firewallActive = await isFirewallActive();
-    if (firewallActive) {
-      // set default allow outgoing
-      const execAllowA = 'LANG="en_US.UTF-8" && sudo ufw default allow outgoing';
-      await cmdAsync(execAllowA);
-      // allow speedtests
-      const execAllowB = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out 5060';
-      const execAllowC = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out 8080';
-      await cmdAsync(execAllowB);
-      await cmdAsync(execAllowC);
-      // remove inbound DNS traffic
-      const removeInboundDns = 'LANG="en_US.UTF-8" && sudo ufw delete allow in proto udp to any port 53 > /dev/null 2>&1';
-      await cmdAsync(removeInboundDns);
-      // allow outgoing DNS traffic
-      const execAllowE = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out proto udp to any port 53';
-      const execAllowF = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out proto tcp to any port 53';
-      await cmdAsync(execAllowE);
-      await cmdAsync(execAllowF);
-      log.info('Firewall adjusted for DNS traffic');
+    if (!await ufw.ufwEnabled()) {
+      log.info('Firewall is not active. Adjusting not applied');
+      return;
+    }
+    const rules = await nodeFirewallRules();
 
-      // fix up for ssh being misteriously removed (needs tracing)
-      if (isArcane) {
-        // this should also be limit, but existing nodes use allow (needs to be updated)
-        const execAllowFluxadmSsh = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow to any app FluxadmSSH > /dev/null 2>&1';
-        await cmdAsync(execAllowFluxadmSsh);
-      }
-
-      const execAllowOpenSsh = 'LANG="en_US.UTF-8" && sudo ufw insert 1 limit to any app OpenSSH > /dev/null 2>&1';
-      await cmdAsync(execAllowOpenSsh);
-
-      const commandGetRouterIP = 'ip rout | head -n1 | awk \'{print $3}\'';
-      let routerIP = await cmdAsync(commandGetRouterIP);
-      routerIP = routerIP.replace(/(\r\n|\n|\r)/gm, '');
-      log.info(`Router IP: ${routerIP}`);
-      if (serviceHelper.validIpv4Address(routerIP)
-        && (routerIP.startsWith('192.168.') || routerIP.startsWith('10.') || routerIP.startsWith('172.16.')
-          || routerIP.startsWith('100.64.') || routerIP.startsWith('198.18.') || routerIP.startsWith('169.254.'))) {
-        const execRouterAllowA = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow out from any to ${routerIP} proto tcp > /dev/null 2>&1`;
-        const execRouterAllowB = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow from ${routerIP} to any proto udp > /dev/null 2>&1`;
-        await cmdAsync(execRouterAllowA);
-        await cmdAsync(execRouterAllowB);
-        log.info(`Firewall adjusted for comms with router on local ip ${routerIP}`);
-      }
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of ports) {
-        const execB = `LANG="en_US.UTF-8" && sudo ufw allow ${port}`;
-        const execC = `LANG="en_US.UTF-8" && sudo ufw allow out ${port}`;
-
-        // eslint-disable-next-line no-await-in-loop
-        const cmdresB = await cmdAsync(execB);
-        if (serviceHelper.ensureString(cmdresB).includes('updated') || serviceHelper.ensureString(cmdresB).includes('existing') || serviceHelper.ensureString(cmdresB).includes('added')) {
-          log.info(`Firewall adjusted for port ${port}`);
-        } else {
-          log.info(`Failed to adjust Firewall for port ${port}`);
-        }
-
-        // eslint-disable-next-line no-await-in-loop
-        const cmdresC = await cmdAsync(execC);
-        if (serviceHelper.ensureString(cmdresC).includes('updated') || serviceHelper.ensureString(cmdresC).includes('existing') || serviceHelper.ensureString(cmdresC).includes('added')) {
-          log.info(`Firewall out adjusted for port ${port}`);
-        } else {
-          log.info(`Failed to adjust Firewall out for port ${port}`);
-        }
+    const { stdout, stderr, error } = await ufw.oneAtATime(async () => serviceHelper.runCommand('python3', {
+      runAsRoot: true,
+      logError: false,
+      params: [await ufwHelper.path(), '--wait', String(ufw.UFW_LOCK_WAIT_MS / 1000), '--rules', JSON.stringify(rules)],
+      timeout: 2 * ufw.UFW_LOCK_WAIT_MS,
+    }));
+    if (error?.code === ufw.UFW_LOCK_UNAVAILABLE) {
+      reportUfwLocked();
+      return;
+    }
+    let result = null;
+    if (!error) {
+      try {
+        result = JSON.parse(serviceHelper.ensureString(stdout));
+      } catch {
+        log.warn(`Firewall applier answered unreadably: ${serviceHelper.ensureString(stdout).trim()}`);
       }
     } else {
-      log.info('Firewall is not active. Adjusting not applied');
+      log.warn(`Firewall applier failed: ${serviceHelper.ensureString(stderr).trim() || error.message}`);
     }
+
+    const outboundRemoved = result?.removed ?? 0;
+    let failed = result?.failed ?? [];
+    if (!result?.applied) {
+      if (result?.reason) log.warn(`Firewall rules applied one ufw command each: ${result.reason}`);
+      failed = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const rule of rules) {
+        // eslint-disable-next-line no-await-in-loop
+        const ran = await ufw.runUfw(rule);
+        if (ran.locked) {
+          reportUfwLocked();
+          return;
+        }
+        if (ran.error) failed.push({ rule: rule.join(' '), error: ran.stderr.trim() || ran.error.message });
+      }
+    }
+    // a delete finds nothing to delete once the rule is gone
+    failed = failed.filter(({ rule, error: why }) => !(rule.startsWith('delete ') && /non-existent rule/.test(why)));
+    failed.forEach(({ rule, error: why }) => log.warn(`Firewall rule not applied: ufw ${rule}: ${why}`));
+
+    if (outboundRemoved) {
+      const reload = await ufw.runUfw(['reload']);
+      if (reload.locked) {
+        reportUfwLocked();
+        return;
+      }
+      if (reload.error) log.error(`Firewall not reloaded after removing outbound rules: ${reload.error.message}`);
+      log.info(`Firewall outbound rules removed: ${outboundRemoved}`);
+    }
+    fluxEventBus.publish('firewall:adjusted', {
+      outboundRemoved, rulesFailed: failed.map(({ rule }) => rule), appliedBy: result?.applied ? 'library' : 'commands',
+    });
   } catch (error) {
     log.error(error);
   }
@@ -2387,12 +2526,11 @@ async function adjustFirewall() {
  */
 async function purgeUFW() {
   try {
-    const cmdAsync = util.promisify(nodecmd.run);
-    const firewallActive = await isFirewallActive();
+    const firewallActive = await ufw.isFirewallActive();
     if (firewallActive) {
-      const execB = 'LANG="en_US.UTF-8" && sudo ufw status | grep \'DENY\'';
-      const cmdresB = await cmdAsync(execB).catch(() => { }) || ''; // fail silently,
-      if (serviceHelper.ensureString(cmdresB).includes('DENY')) {
+      const status = await ufw.runUfw(['status']);
+      const cmdresB = status.stdout.split('\n').filter((line) => line.includes('DENY')).join('\n');
+      if (cmdresB.includes('DENY')) {
         const deniedPorts = cmdresB.split('\n'); // split by new line
         const portsToDelete = [];
         deniedPorts.forEach((port) => {
@@ -2412,19 +2550,6 @@ async function purgeUFW() {
       } else {
         log.info('No UFW deny on ports rules found');
       }
-      const execDelDenyA = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 10.0.0.0/8';
-      const execDelDenyB = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 172.16.0.0/12';
-      const execDelDenyC = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 192.168.0.0/16';
-      const execDelDenyD = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 100.64.0.0/10';
-      const execDelDenyE = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 198.18.0.0/15';
-      const execDelDenyF = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 169.254.0.0/16';
-      await cmdAsync(execDelDenyA);
-      await cmdAsync(execDelDenyB);
-      await cmdAsync(execDelDenyC);
-      await cmdAsync(execDelDenyD);
-      await cmdAsync(execDelDenyE);
-      await cmdAsync(execDelDenyF);
-      log.info('UFW app deny netscans rules purged');
     } else {
       log.info('Firewall is not active. Purging UFW not necessary');
     }
@@ -2433,173 +2558,113 @@ async function purgeUFW() {
   }
 }
 
+// The bridges a container's traffic can come from: the default one and every
+// user-defined docker network.
+const containerBridges = ['docker0', 'br-+'];
+// Addresses an app container may not reach beyond its own node: every
+// non-public IPv4 range, the node owner's private networks and a cloud host's
+// metadata service among them. fluxnode.service lives on this node's loopback,
+// so a container reaches it through INPUT and these FORWARD rules never see it.
+const containerBlockedNetworks = NON_PUBLIC_IPV4;
+
 /**
- * This fix a docker security issue where docker containers can access private node operator networks, for example to create port forwarding on hosts.
+ * The DOCKER-USER chain, as `iptables -S DOCKER-USER` prints it.
  *
- * Docker should create a DOCKER-USER chain. If this doesn't exist - we create it, then jump to this chain immediately from the FORWARD CHAIN.
- * This allows rules to be added via -I (insert) and -A (append) to the DOCKER-USER chain individually, so we can ALWAYS append the
- * drop traffic rule, and insert the ACCEPT rules. If no matches are found in the DOCKER-USER chain, rule evaluation continues
- * from the next rule in the FORWARD chain.
+ * Traffic into a container is let through only on FluxOS's own networks (the
+ * default bridge docker0 and each network FluxOS creates): traffic that stays
+ * on the network it came from, and connections to a published port, whose
+ * destination Docker has rewritten to the container's (conntrack state DNAT).
+ * Everything else headed into any docker network is dropped: one app network
+ * reaches another only through a published port at the node's address, and a
+ * network FluxOS did not create receives nothing it did not ask for. These
+ * rules name each bridge, so a host interface named like a docker bridge gets
+ * no exception, and they hold whether or not Docker's own isolation rules are
+ * present and whether or not the br_netfilter kernel module sends bridged
+ * traffic through iptables.
  *
- * If needed in the future, we can actually create a JUMP from the DOCKER-USER chain to a custom chain. The reason why we MUST use the DOCKER-USER
- * chain is that whenever docker creates a new network, it re-jumps the DOCKER-USER chain at the head of the FORWARD chain.
+ * Traffic from a container to anywhere else is matched by the bridge it comes
+ * from, never by its source address, so a container cannot leave the drops by
+ * forging its source; every non-public range is dropped. DNS stays open to
+ * every private address, for a node owner who runs their own resolver.
  *
- * As can be seen in this example:
- *
- * Originally, was using the FLUX chain, but you can see docker inserted the br-72d1725e481c network ahead, as well as the JUMP to DOCKER-USER,
- * which invalidates any rules in the FLUX chain, as there is basically an accept any:
- *
- * FORWARD -i br-72d1725e481c ! -o br-72d1725e481c -j ACCEPT
- *
- * ```bash
- * -A INPUT -j ufw-track-input
- * -A FORWARD -j DOCKER-USER
- * -A FORWARD -j DOCKER-ISOLATION-STAGE-1
- * -A FORWARD -o br-72d1725e481c -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
- * -A FORWARD -o br-72d1725e481c -j DOCKER
- * -A FORWARD -i br-72d1725e481c ! -o br-72d1725e481c -j ACCEPT
- * -A FORWARD -i br-72d1725e481c -o br-72d1725e481c -j ACCEPT
- * -A FORWARD -j FLUX
- * -A FORWARD -o br-048fde111132 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
- * -A FORWARD -o br-048fde111132 -j DOCKER
- * -A FORWARD -i br-048fde111132 ! -o br-048fde111132 -j ACCEPT
- * -A FORWARD -i br-048fde111132 -o br-048fde111132 -j ACCEPT
- *```
- * This means if a user or someone was to delete a single rule, we are able to recover correctly from it.
- *
- * The other option - is just to Flush all rules on every run, and reset them all. This is what we are doing now.
- *
- * @param {string[]} fluxNetworkInterfaces The network interfaces, br-<12 character string>
- * @returns  {Promise<Boolean>}
+ * No rule uses the physdev match: the kernel loads br_netfilter the first time
+ * a physdev rule is added, which sends bridged traffic on every bridge on the
+ * host - an operator's VMs included - through iptables.
+ * @param {{fluxBridges: string[], dockerBridges: string[]}} bridges fluxBridges:
+ *   the bridge of each network FluxOS creates, docker0 aside. dockerBridges: the
+ *   bridge of every docker bridge network, docker0 included.
+ * @returns {string[]}
  */
-async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
-  const cmdAsync = util.promisify(nodecmd.run);
-
-  const checkIptables = 'sudo iptables --version';
-  const iptablesInstalled = await cmdAsync(checkIptables).catch(() => {
-    log.error('Unable to find iptables binary');
-    return false;
+function containerEgressRules({ fluxBridges, dockerBridges }) {
+  const rules = ['-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN'];
+  ['docker0', ...fluxBridges].forEach((bridge) => {
+    rules.push(`-A DOCKER-USER -i ${bridge} -o ${bridge} -j RETURN`);
+    rules.push(`-A DOCKER-USER -o ${bridge} -m conntrack --ctstate DNAT -j RETURN`);
   });
-
-  if (!iptablesInstalled) return false;
-
-  // check if rules have been created, as iptables is NOT idempotent.
-  const checkDockerUserChain = 'sudo iptables -L DOCKER-USER';
-  // iptables 1.8.4 doesn't return anything - so have updated command a little
-  const checkJumpChain = 'sudo iptables -C FORWARD -j DOCKER-USER && echo true';
-
-  const dockerUserChainExists = await cmdAsync(checkDockerUserChain).catch(async () => {
-    try {
-      await cmdAsync('sudo iptables -N DOCKER-USER');
-      log.info('IPTABLES: DOCKER-USER chain created');
-    } catch (err) {
-      log.error('IPTABLES: Error adding DOCKER-USER chain');
-      // if we can't add chain, we can't proceed
-      return new Error();
-    }
-    return null;
+  dockerBridges.forEach((bridge) => rules.push(`-A DOCKER-USER -o ${bridge} -j DROP`));
+  containerBridges.forEach((bridge) => {
+    ['udp', 'tcp'].forEach((proto) => rules.push(`-A DOCKER-USER -i ${bridge} -p ${proto} -m ${proto} --dport 53 -j RETURN`));
   });
-
-  if (dockerUserChainExists instanceof Error) return false;
-  if (dockerUserChainExists) log.info('IPTABLES: DOCKER-USER chain already created');
-
-  const checkJumpToDockerChain = await cmdAsync(checkJumpChain).catch(async () => {
-    // Ubuntu 20.04 @ iptables 1.8.4 Error: "iptables: No chain/target/match by that name."
-    // Ubuntu 22.04 @ iptables 1.8.7 Error: "iptables: Bad rule (does a matching rule exist in that chain?)."
-    const jumpToFluxChain = 'sudo iptables -I FORWARD -j DOCKER-USER';
-    try {
-      await cmdAsync(jumpToFluxChain);
-      log.info('IPTABLES: New rule in FORWARD inserted to jump to DOCKER-USER chain');
-    } catch (err) {
-      log.error('IPTABLES: Error inserting FORWARD jump to DOCKER-USER chain');
-      // if we can't jump, we need to bail out
-      return new Error();
-    }
-
-    return null;
+  containerBridges.forEach((bridge) => {
+    containerBlockedNetworks.forEach((network) => rules.push(`-A DOCKER-USER -d ${network} -i ${bridge} -j DROP`));
   });
+  rules.push('-A DOCKER-USER -j RETURN');
+  return rules;
+}
 
-  if (checkJumpToDockerChain instanceof Error) return false;
-  if (checkJumpToDockerChain) log.info('IPTABLES: Jump to DOCKER-USER chain already enabled');
+/**
+ * Keeps app containers off private and link-local networks and off each
+ * other's networks. The DOCKER-USER chain is replaced in one iptables-restore
+ * transaction, so no moment passes without its rules, and is left untouched
+ * when it already matches. Docker never writes DOCKER-USER, and its FORWARD
+ * jump is put back if missing.
+ * @param {{fluxBridges: string[], dockerBridges: string[]}} bridges As
+ *   containerEgressRules takes them.
+ * @returns {Promise<boolean>} True when the chain is in place. Never rejects.
+ */
+async function applyContainerEgressRules(bridges) {
+  const desired = containerEgressRules(bridges);
+  const { stdout: current, error: readError } = await serviceHelper.runCommand('iptables', {
+    runAsRoot: true, logError: false, params: ['-S', 'DOCKER-USER'],
+  });
+  const currentRules = serviceHelper.ensureString(current).split('\n').map((line) => line.trim()).filter((line) => line.startsWith('-A '));
+  const inPlace = !readError && currentRules.length === desired.length && currentRules.every((rule, i) => rule === desired[i]);
 
-  const rfc1918Networks = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'];
-  const fluxSrc = '172.23.0.0/16';
-
-  const baseDropCmd = `sudo iptables -A DOCKER-USER -s ${fluxSrc} -d #DST -j DROP`;
-  const baseAllowToFluxNetworksCmd = 'sudo iptables -I DOCKER-USER -i #INT -o #INT -j ACCEPT';
-  const baseAllowEstablishedCmd = `sudo iptables -I DOCKER-USER -s ${fluxSrc} -d #DST -m state --state RELATED,ESTABLISHED -j ACCEPT`;
-  const baseAllowDnsCmd = `sudo iptables -I DOCKER-USER -s ${fluxSrc} -d #DST -p udp --dport 53 -j ACCEPT`;
-
-  const addReturnCmd = 'sudo iptables -A DOCKER-USER -j RETURN';
-  const flushDockerUserCmd = 'sudo iptables -F DOCKER-USER';
-
-  try {
-    await cmdAsync(flushDockerUserCmd);
-    log.info('IPTABLES: DOCKER-USER table flushed');
-  } catch (err) {
-    log.error(`IPTABLES: Error flushing DOCKER-USER table. ${err}`);
-    return false;
-  }
-
-  // add for legacy apps
-  fluxNetworkInterfaces.push('docker0');
-
-  // eslint-disable-next-line no-restricted-syntax
-  for (const int of fluxNetworkInterfaces) {
-    // if this errors, we need to bail, as if the deny succeedes, we may cut off access
-    const giveFluxNetworkAccess = baseAllowToFluxNetworksCmd.replace(/#INT/g, int);
+  if (!inPlace) {
+    let tempDir = null;
     try {
-      // eslint-disable-next-line no-await-in-loop
-      await cmdAsync(giveFluxNetworkAccess);
-      log.info(`IPTABLES: Traffic on Flux interface ${int} accepted`);
-    } catch (err) {
-      log.error(`IPTABLES: Error allowing traffic on Flux interface ${int}. ${err}`);
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-docker-user-'));
+      const rulesFile = path.join(tempDir, 'rules');
+      await fs.writeFile(rulesFile, ['*filter', ':DOCKER-USER - [0:0]', ...desired, 'COMMIT', ''].join('\n'), { mode: 0o644 });
+      const { error } = await serviceHelper.runCommand('iptables-restore', {
+        runAsRoot: true, logError: false, params: ['--noflush', rulesFile],
+      });
+      if (error) {
+        log.error(`IPTABLES: DOCKER-USER rules not applied: ${error.message}`);
+        return false;
+      }
+      log.info('IPTABLES: DOCKER-USER rules applied');
+      fluxEventBus.publish('firewall:containerEgressApplied', {});
+    } catch (error) {
+      log.error(`IPTABLES: DOCKER-USER rules not applied: ${error.message}`);
       return false;
+    } finally {
+      if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }
   }
 
-  // eslint-disable-next-line no-restricted-syntax
-  for (const network of rfc1918Networks) {
-    // if any of these error, we need to bail, as if the deny succeedes, we may cut off access
-
-    const giveHostAccessToDockerNetwork = baseAllowEstablishedCmd.replace('#DST', network);
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      await cmdAsync(giveHostAccessToDockerNetwork);
-      log.info(`IPTABLES: Access to Flux containers from ${network} accepted`);
-    } catch (err) {
-      log.error(`IPTABLES: Error allowing access to Flux containers from ${network}. ${err}`);
+  const { error: jumpMissing } = await serviceHelper.runCommand('iptables', {
+    runAsRoot: true, logError: false, params: ['-C', 'FORWARD', '-j', 'DOCKER-USER'],
+  });
+  if (jumpMissing) {
+    const { error } = await serviceHelper.runCommand('iptables', {
+      runAsRoot: true, logError: false, params: ['-I', 'FORWARD', '-j', 'DOCKER-USER'],
+    });
+    if (error) {
+      log.error(`IPTABLES: FORWARD jump to DOCKER-USER not restored: ${error.message}`);
       return false;
     }
-
-    const giveContainerAccessToDNS = baseAllowDnsCmd.replace('#DST', network);
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      await cmdAsync(giveContainerAccessToDNS);
-      log.info(`IPTABLES: DNS access to ${network} from Flux containers accepted`);
-    } catch (err) {
-      log.error(`IPTABLES: Error allowing DNS access to ${network} from Flux containers. ${err}`);
-      return false;
-    }
-
-    // This always gets appended, so the drop is at the end
-    const dropAccessToHostNetwork = baseDropCmd.replace('#DST', network);
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      await cmdAsync(dropAccessToHostNetwork);
-      log.info(`IPTABLES: Access to ${network} from Flux containers removed`);
-    } catch (err) {
-      log.error(`IPTABLES: Error denying access to ${network} from Flux containers. ${err}`);
-      return false;
-    }
-  }
-
-  try {
-    await cmdAsync(addReturnCmd);
-    log.info('IPTABLES: DOCKER-USER explicit return to FORWARD chain added');
-  } catch (err) {
-    log.error(`IPTABLES: Error adding explicit return to Forward chain. ${err}`);
-    return false;
+    log.info('IPTABLES: FORWARD jump to DOCKER-USER restored');
   }
   return true;
 }
@@ -2621,34 +2686,20 @@ async function allowNodeToBindPrivilegedPorts() {
 }
 
 /**
- * docker network including mask to allow to verification. For example: 172.23.123.0/24
+ * Refuses the fluxnode service's address on loopback to everything but the app
+ * containers' networks. ufw does not filter loopback, so this is an iptables
+ * rule; the containers' own allow is one of the node's firewall rules.
  * @returns {Promise<void>}
  */
 async function allowOnlyDockerNetworksToFluxNodeService() {
-  const firewallActive = await isFirewallActive();
+  if (!await ufw.ufwEnabled()) return;
 
-  if (!firewallActive) return;
-
-  const fluxAppDockerNetworks = '172.23.0.0/16';
   const { fluxNodeServiceAddress } = config.server;
-  const allowDockerNetworks = `LANG="en_US.UTF-8" && sudo ufw allow from ${fluxAppDockerNetworks} proto tcp to ${fluxNodeServiceAddress}/32 port 16101`;
-  // have to use iptables here as ufw won't filter loopback
   const denyRule = `INPUT -i lo ! -s ${fluxAppDockerNetworks} -d ${fluxNodeServiceAddress}/32 -j DROP`;
   const checkDenyRule = `LANG="en_US.UTF-8" && sudo iptables -C ${denyRule}`;
   const denyAllElse = `LANG="en_US.UTF-8" && sudo iptables -I ${denyRule}`;
 
   const cmdAsync = util.promisify(nodecmd.run);
-
-  try {
-    const cmd = await cmdAsync(allowDockerNetworks);
-    if (serviceHelper.ensureString(cmd).includes('updated') || serviceHelper.ensureString(cmd).includes('existing') || serviceHelper.ensureString(cmd).includes('added')) {
-      log.info(`Firewall adjusted for network: ${fluxAppDockerNetworks} to address: ${fluxNodeServiceAddress}/32`);
-    } else {
-      log.warn(`Failed to adjust Firewall for network: ${fluxAppDockerNetworks} to address: ${fluxNodeServiceAddress}/32`);
-    }
-  } catch (err) {
-    log.error(err);
-  }
 
   const denied = await cmdAsync(checkDenyRule).catch(async (err) => {
     if (err.message.includes('Bad rule')) {
@@ -2722,20 +2773,24 @@ module.exports = {
   hasPublicIpOnInterface,
   denyPort,
   deleteAllowPortRule,
-  deleteAllowOutPortRule,
+  allowAppPorts,
+  allowTestPort,
+  deleteAppPortRules,
+  deleteTestPortRule,
   allowPortApi,
   adjustFirewall,
+  ensureUfwDefaults,
   purgeUFW,
   closeConnection,
   closeIncomingConnection,
   checkFluxbenchVersionAllowed,
   checkNodeJsVersionAllowed,
+  checkDockerVersionAllowed,
   checkMyFluxAvailability,
   adjustExternalIP,
   setOnAddressChanged,
   allowPort,
-  allowOutPort,
-  isFirewallActive,
+  isFirewallActive: ufw.isFirewallActive,
   // Exports for testing purposes
   resetNtpSource,
   parseChronyOffset,
@@ -2771,7 +2826,8 @@ module.exports = {
   isPortBanned,
   isPortUPNPBanned,
   allowNodeToBindPrivilegedPorts,
-  removeDockerContainerAccessToNonRoutable,
+  applyContainerEgressRules,
+  containerEgressRules,
   getMaxNumberOfIpChanges,
   allowOnlyDockerNetworksToFluxNodeService,
   addFluxNodeServiceIpToLoopback,

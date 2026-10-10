@@ -25,9 +25,9 @@
  * that does. On a node whose IPv6 is configured but drops packets, a lookup in the system order
  * puts IPv6 first, so every connection would wait the full timeout on a dead address before it
  * reached IPv4. Lookups therefore return IPv4 addresses first: every node has working public
- * IPv4, so the first address dialled is one that can answer. The DNS cache apiServer installs on
- * the main thread's global agents already orders IPv4 first; this applies the same order to every
- * other lookup, including the cloud SDKs' own agents and every worker thread.
+ * IPv4, so the first address dialled is one that can answer. dnsLookup, which apiServer installs
+ * on the main thread's global agents, orders by DNS_RESULT_ORDER; this applies the same order to
+ * every other lookup, including the cloud SDKs' own agents and every worker thread.
  *
  * PER THREAD. Each worker thread has its own `node:net` and `node:dns`, so a default set in one
  * thread does not reach another. apiServer calls `applyNetworkDefaults()` at the top of the module,

@@ -10,7 +10,7 @@ const express = require('express');
 const PORT = parseInt(process.env.FDM_PORT || '16130', 10);
 const CONTROL_PORT = parseInt(process.env.CONTROL_PORT || '16131', 10);
 
-// appName -> elected primary IP (bare, e.g. "198.18.1.0"). Absent => no primary,
+// appName -> elected primary IP (bare, e.g. "31.200.1.0"). Absent => no primary,
 // which mirrors the real FDM returning an empty ips array (the node waits).
 const elected = new Map();
 

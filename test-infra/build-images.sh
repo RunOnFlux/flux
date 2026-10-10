@@ -54,6 +54,13 @@ fi
 if [ -n "${UBUNTU_SECURITY_MIRROR:-}" ]; then
   MIRROR_ARGS+=(--build-arg "UBUNTU_SECURITY_MIRROR=${UBUNTU_SECURITY_MIRROR}")
 fi
+# The node's docker release, as apt spells it; unset builds the newest. Build the
+# whole set under its own tag, so it replaces no other build:
+#
+#   DOCKER_VERSION=5:27.5.1-1~ubuntu.24.04~noble FLUX_E2E_TAG=firewall-d27 ./test-infra/build-images.sh
+if [ -n "${DOCKER_VERSION:-}" ]; then
+  MIRROR_ARGS+=(--build-arg "DOCKER_VERSION=${DOCKER_VERSION}")
+fi
 
 # The stub set is DERIVED, never listed: it differs by lineage (v9 carries a
 # fluxdrive-stub the development lineage neither builds nor references), and a
@@ -65,15 +72,16 @@ mapfile -t STUBS < <(
 )
 
 build_fluxos() {
-  # The app binary the fixtures need; gitignored, so it survives branch switches
-  # and is easy to forget after a clean. Not guarded on the script existing: it
-  # is present on every lineage, and a guard there would let this produce a
-  # complete image set with no binary in it - which surfaces as eight suites
-  # failing twenty minutes later, looking like product bugs. Built BEFORE the
-  # digest is taken - it sits in the build context, so it is part of what the
-  # image is.
-  echo "==> test-app binary"
-  bash test-infra/test-app/build.sh
+  # The fixture binaries the suites need (test-infra/fixtures.sh): gitignored,
+  # so they survive branch switches and are easy to forget after a clean. Each is
+  # built only when a product is missing or older than its sources. Built BEFORE
+  # the digest is taken - they sit in the build context, so they are part of
+  # what the image is.
+  local fixture
+  for fixture in $(test-infra/fixtures.sh stale); do
+    echo "==> fixture ${fixture}"
+    bash "${fixture}/build.sh"
+  done
   echo "==> flux-e2e-fluxos-01:${TAG} (syncthing ${SYNCTHING_VERSION})"
   docker build -f test-infra/Dockerfile.fluxos \
     ${MIRROR_ARGS[@]+"${MIRROR_ARGS[@]}"} \

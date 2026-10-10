@@ -9,7 +9,7 @@ const deviceHelper = require('./deviceHelper');
 const serviceHelper = require('./serviceHelper');
 const { URL } = require('url');
 const { measureTree } = require('./utils/treeSize');
-const { validateUrlWithDns } = require('./utils/urlSecurity');
+const { validateUrl, guardedRequestOptions } = require('./utils/urlSecurity');
 
 /**
  * Maximum number of redirects to follow when validating each redirect target.
@@ -17,8 +17,9 @@ const { validateUrlWithDns } = require('./utils/urlSecurity');
 const MAX_REDIRECTS = 5;
 
 /**
- * Make an HTTP request with validated redirects.
- * Each redirect target is validated against SSRF checks before following.
+ * Make an HTTP request to a URL someone else chose, following its redirects. Each URL is checked
+ * for an allowed protocol and host before it is requested, and every connection is made through
+ * the guarded agents, which refuse a private or reserved address as it is dialled.
  *
  * @param {string} url - The URL to request
  * @param {string} method - HTTP method ('GET' or 'HEAD')
@@ -30,8 +31,7 @@ async function requestWithValidatedRedirects(url, method = 'GET', axiosOptions =
   let currentUrl = url;
   let redirectCount = 0;
 
-  // Validate the initial URL with DNS resolution
-  await validateUrlWithDns(currentUrl);
+  validateUrl(currentUrl);
 
   while (redirectCount < MAX_REDIRECTS) {
     // Make request without following redirects
@@ -41,6 +41,7 @@ async function requestWithValidatedRedirects(url, method = 'GET', axiosOptions =
       maxRedirects: 0,
       validateStatus: (status) => status >= 200 && status < 400,
       ...axiosOptions,
+      ...guardedRequestOptions(),
     }).catch((error) => {
       // Axios throws on 3xx when maxRedirects is 0, extract the response
       if (error.response && error.response.status >= 300 && error.response.status < 400) {
@@ -65,8 +66,7 @@ async function requestWithValidatedRedirects(url, method = 'GET', axiosOptions =
     // Resolve relative redirects
     const redirectUrl = new URL(location, currentUrl).href;
 
-    // Validate the redirect target before following
-    await validateUrlWithDns(redirectUrl);
+    validateUrl(redirectUrl);
 
     // Clean up stream if present (for responseType: 'stream')
     if (response.data && typeof response.data.destroy === 'function') {

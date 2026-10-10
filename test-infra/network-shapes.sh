@@ -23,6 +23,33 @@
 #   dns-route           a VPN client's DNS leak protection: routes to the
 #                       public resolvers 1.1.1.1 and 8.8.8.8 alone over a
 #                       tunnel device, the default left on the fleet device
+#   silent-dns          the node's own DNS server never answers, and the
+#                       public resolvers FluxOS asks next are the fleet's
+#                       resolver (FLUX_E2E_RESOLVER). The silent server is
+#                       192.0.2.1, which nothing on the internal fleet network
+#                       holds; a target-less rule counts the queries sent to it
+#                       without failing their send. Everything in the node that
+#                       resolves through /etc/resolv.conf meets the silent server.
+#   public-dns-counted  the node's own DNS server is the fleet's resolver as on
+#                       every node, and the public resolvers FluxOS asks next are
+#                       the fleet's resolver on its public-route port, so the
+#                       resolver counts a query by the route it came in on.
+#   dead-first-nameserver
+#                       the node's resolv.conf lists a server that never answers
+#                       (192.0.2.1, counted as in silent-dns) ahead of the fleet's
+#                       resolver.
+#   all-dns-silent      no DNS server answers: the node's own server is 192.0.2.1
+#                       as in silent-dns, and the public resolvers FluxOS asks next
+#                       are sent to 192.0.2.2, which nothing holds either. A
+#                       target-less rule counts the queries sent to each.
+#   aaaa-servfail-dns   the node's own DNS server leaves every A query unanswered and
+#                       answers every AAAA query SERVFAIL, as a resolver whose upstream is
+#                       gone does: resolv.conf names 192.0.2.3, sent to the fleet resolver's
+#                       broken route (port 5355), which counts each query by type. The
+#                       public resolvers FluxOS asks next are the fleet's resolver.
+#   direct-nameserver   the node's resolv.conf names the fleet's resolver itself,
+#                       as a host that lists a public resolver does, rather than
+#                       Docker's embedded server in front of it.
 set -euo pipefail
 
 shape="$1"
@@ -74,6 +101,60 @@ case "$shape" in
     ip link set wg2 up
     ip route add 1.1.1.1/32 dev wg2
     ip route add 8.8.8.8/32 dev wg2
+    ;;
+  silent-dns)
+    : "${FLUX_E2E_RESOLVER:?}"
+    echo 'nameserver 192.0.2.1' > /etc/resolv.conf
+    iptables -A OUTPUT -d 192.0.2.1 -p udp --dport 53
+    # dnsLookup.js's PUBLIC_DNS_SERVERS.
+    for resolver in 1.1.1.1 8.8.8.8 9.9.9.9; do
+      for proto in udp tcp; do
+        iptables -t nat -A OUTPUT -d "$resolver" -p "$proto" --dport 53 -j DNAT --to-destination "$FLUX_E2E_RESOLVER:53"
+      done
+    done
+    ;;
+  public-dns-counted)
+    : "${FLUX_E2E_RESOLVER:?}"
+    # dnsLookup.js's PUBLIC_DNS_SERVERS, to the resolver's public-route port.
+    for resolver in 1.1.1.1 8.8.8.8 9.9.9.9; do
+      for proto in udp tcp; do
+        iptables -t nat -A OUTPUT -d "$resolver" -p "$proto" --dport 53 -j DNAT --to-destination "$FLUX_E2E_RESOLVER:5354"
+      done
+    done
+    ;;
+  dead-first-nameserver)
+    : "${FLUX_E2E_RESOLVER:?}"
+    printf 'nameserver 192.0.2.1\nnameserver %s\n' "$FLUX_E2E_RESOLVER" > /etc/resolv.conf
+    iptables -A OUTPUT -d 192.0.2.1 -p udp --dport 53
+    ;;
+  all-dns-silent)
+    echo 'nameserver 192.0.2.1' > /etc/resolv.conf
+    iptables -A OUTPUT -d 192.0.2.1 -p udp --dport 53
+    # dnsLookup.js's PUBLIC_DNS_SERVERS. The nat table rewrites the destination before the
+    # filter table's OUTPUT chain counts it.
+    for resolver in 1.1.1.1 8.8.8.8 9.9.9.9; do
+      for proto in udp tcp; do
+        iptables -t nat -A OUTPUT -d "$resolver" -p "$proto" --dport 53 -j DNAT --to-destination 192.0.2.2:53
+      done
+    done
+    iptables -A OUTPUT -d 192.0.2.2 -p udp --dport 53
+    ;;
+  aaaa-servfail-dns)
+    : "${FLUX_E2E_RESOLVER:?}"
+    echo 'nameserver 192.0.2.3' > /etc/resolv.conf
+    for proto in udp tcp; do
+      iptables -t nat -A OUTPUT -d 192.0.2.3 -p "$proto" --dport 53 -j DNAT --to-destination "$FLUX_E2E_RESOLVER:5355"
+    done
+    # dnsLookup.js's PUBLIC_DNS_SERVERS.
+    for resolver in 1.1.1.1 8.8.8.8 9.9.9.9; do
+      for proto in udp tcp; do
+        iptables -t nat -A OUTPUT -d "$resolver" -p "$proto" --dport 53 -j DNAT --to-destination "$FLUX_E2E_RESOLVER:53"
+      done
+    done
+    ;;
+  direct-nameserver)
+    : "${FLUX_E2E_RESOLVER:?}"
+    printf 'nameserver %s\n' "$FLUX_E2E_RESOLVER" > /etc/resolv.conf
     ;;
   *)
     echo "network-shapes: unknown shape '$shape'" >&2

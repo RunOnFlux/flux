@@ -23,6 +23,9 @@ module.exports = {
     apiport: 16127, // homeport is -1, ssl port is +1
     fluxNodeServiceAddress: '169.254.43.43',
   },
+  fluxadm: {
+    sshAuthorizedKeys: [],
+  },
   database: {
     url: database,
     port: 27017,
@@ -32,6 +35,7 @@ module.exports = {
         loggedUsers: 'loggedusers',
         activeLoginPhrases: 'activeloginphrases',
         activeSignatures: 'activesignatures',
+        loginSignatures: 'loginsignatures',
         geolocation: 'geolocation',
         policyDocuments: 'policydocuments', // last-known-good network policy documents, so an unreachable source does not drop enforcement
         benchmark: 'benchmark',
@@ -102,7 +106,7 @@ module.exports = {
   minimumFluxOSAllowedVersion: '8.0.0',
   minimumNodeJsAllowedVersion: '20.8.0',
   minimumSyncthingAllowedVersion: '1.27.6',
-  minimumDockerAllowedVersion: '26.1.2',
+  minimumDockerAllowedVersion: '28.1.1',
   fluxTeamFluxID: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
   fluxSupportTeamFluxID: ['16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP'],
   deterministicNodesStart: 558000,

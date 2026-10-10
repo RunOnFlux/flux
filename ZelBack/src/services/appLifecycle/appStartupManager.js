@@ -16,6 +16,7 @@ const registryManager = require('../appDatabase/registryManager');
 const appReconciler = require('../appMonitoring/appReconciler');
 const appUninstaller = require('./appUninstaller');
 const appNetworkLinker = require('./appNetworkLinker');
+const portManager = require('../appNetwork/portManager');
 const globalState = require('../utils/globalState');
 const fluxEventBus = require('../utils/fluxEventBus');
 const nodeConfirmationService = require('../nodeConfirmationService');
@@ -93,6 +94,27 @@ async function getStoppedFluxContainers() {
   } catch (error) {
     log.error(`appStartupManager - Error getting stopped containers: ${error.message}`);
     return [];
+  }
+}
+
+/**
+ * Opens every installed app's ports in the firewall, in one ufw batch, before
+ * the apps start. ufw keeps the rules across restarts and skips one it already
+ * holds, so this changes nothing unless the rules were lost, as a ufw reset
+ * loses them. An app whose specification cannot be read is left out and
+ * logged; a failure is logged and the apps still start.
+ */
+async function openInstalledAppPorts() {
+  try {
+    const { apps, unreadable } = await portManager.appsWithPorts(await getInstalledAppsFromDb());
+    if (unreadable.length) log.warn(`appStartupManager - ports of ${unreadable.length} installed app(s) not opened in the firewall: specification unreadable`);
+    const ports = apps.flatMap((app) => app.ports).map((port) => serviceHelper.ensureNumber(port));
+    if (!ports.length) return;
+    const { failed, locked } = await fluxNetworkHelper.allowAppPorts(ports);
+    if (locked) log.warn('appStartupManager - app ports not opened in the firewall: ufw is locked by another ufw command');
+    failed.forEach(({ rule, error }) => log.warn(`appStartupManager - app port not opened in the firewall: ufw ${rule}: ${error}`));
+  } catch (error) {
+    log.error(`appStartupManager - app ports not opened in the firewall: ${error.message}`);
   }
 }
 
@@ -333,6 +355,7 @@ async function manageAppsOnBoot(bootContext) {
     }
 
     log.info('appStartupManager - Daemon, DB, and node confirmed, reconciling apps');
+    await openInstalledAppPorts();
     await reconcileAppsOnBoot();
   } finally {
     globalState.bootContainerStateSettled = true;
@@ -343,6 +366,7 @@ async function manageAppsOnBoot(bootContext) {
 
 module.exports = {
   manageAppsOnBoot,
+  openInstalledAppPorts,
   reconcileAppsOnBoot,
   getStoppedFluxContainers,
   getInstalledAppsFromDb,

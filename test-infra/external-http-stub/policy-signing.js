@@ -22,7 +22,7 @@
 //              a different refusal from an untrusted one.
 //
 // These are test keys. They are in the repository on purpose and sign nothing outside a fleet
-// of containers on 198.18.0.0/15.
+// of containers on 31.200.0.0/20.
 
 const crypto = require('crypto');
 

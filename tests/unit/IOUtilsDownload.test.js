@@ -18,9 +18,11 @@ describe('IOUtils downloadFileFromUrl', () => {
   const requests = [];
   const seen = [];
 
-  // The SSRF check refuses loopback, which is all a test server can be.
+  // The URL check and the guarded agents refuse loopback, which is all a test
+  // server can be, so both stand aside: without guarded agents a request goes
+  // through the global ones. The guard is IOUtilsGuardedRequests.test.js's.
   const IOUtils = proxyquire('../../ZelBack/src/services/IOUtils', {
-    './utils/urlSecurity': { validateUrlWithDns: async () => {} },
+    './utils/urlSecurity': { validateUrl: () => {}, guardedRequestOptions: () => ({}) },
     '../lib/log': { info: () => {}, error: () => {}, warn: () => {} },
   });
 

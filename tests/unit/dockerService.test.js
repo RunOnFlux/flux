@@ -11,6 +11,8 @@ const dockerService = require('../../ZelBack/src/services/dockerService');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const log = require('../../ZelBack/src/lib/log');
 
 // Docker's own answers, recorded by tests/unit/fixtures/docker/record.js. The functions
 // below resolve a container by name, send one request and return the response unchanged,
@@ -204,6 +206,16 @@ describe('dockerService tests', () => {
     const options = {
       name: 'Testnetwork',
     };
+    let firewallStub;
+
+    // The container firewall is applied on the host only by the code that owns it.
+    before(() => {
+      firewallStub = sinon.stub(fluxNetworkHelper, 'applyContainerEgressRules').resolves(true);
+    });
+
+    after(() => {
+      firewallStub.restore();
+    });
 
     afterEach(async () => {
       await dockerService.dockerRemoveNetwork(network);
@@ -222,6 +234,16 @@ describe('dockerService tests', () => {
     const options = {
       name: 'Testnetwork',
     };
+    let firewallStub;
+
+    // The container firewall is applied on the host only by the code that owns it.
+    before(() => {
+      firewallStub = sinon.stub(fluxNetworkHelper, 'applyContainerEgressRules').resolves(true);
+    });
+
+    after(() => {
+      firewallStub.restore();
+    });
 
     beforeEach(async () => {
       network = await dockerService.dockerCreateNetwork(options);
@@ -248,6 +270,16 @@ describe('dockerService tests', () => {
     const options = {
       name: 'Testnetwork',
     };
+    let firewallStub;
+
+    // The container firewall is applied on the host only by the code that owns it.
+    before(() => {
+      firewallStub = sinon.stub(fluxNetworkHelper, 'applyContainerEgressRules').resolves(true);
+    });
+
+    after(() => {
+      firewallStub.restore();
+    });
 
     beforeEach(async () => {
       network = await dockerService.dockerCreateNetwork(options);
@@ -407,6 +439,138 @@ describe('dockerService tests', () => {
     it('isContainerDetachedFromNetwork tolerates missing input', () => {
       expect(dockerService.isContainerDetachedFromNetwork(undefined)).to.equal(false);
       expect(dockerService.isContainerDetachedFromNetwork(null)).to.equal(false);
+    });
+  });
+
+  describe('container firewall tests', () => {
+    const network = (Name, Id, Driver = 'bridge', Options = {}) => ({ Name, Id, Driver, Options });
+    const NETWORKS = [
+      network('bridge', 'b'.repeat(64), 'bridge', { 'com.docker.network.bridge.name': 'docker0' }),
+      network('fluxDockerNetwork', '1'.repeat(64)),
+      network('fluxDockerNetwork_web', '2'.repeat(12) + 'f'.repeat(52)),
+      network('myfluxDockerNetworkX', '3'.repeat(64)),
+      network('opnet', '4'.repeat(64)),
+      network('host', '5'.repeat(64), 'host'),
+      network('lan', '6'.repeat(64), 'macvlan'),
+    ];
+    let listNetworks;
+    let apply;
+
+    beforeEach(() => {
+      listNetworks = sinon.stub(Dockerode.prototype, 'listNetworks').resolves(NETWORKS);
+      apply = sinon.stub(fluxNetworkHelper, 'applyContainerEgressRules').resolves(true);
+      sinon.stub(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    // A promise and the function that settles it.
+    const deferred = () => {
+      let resolve;
+      const promise = new Promise((r) => { resolve = r; });
+      return { promise, resolve };
+    };
+
+    it('names a bridge by its bridge.name option, else br- and the first 12 characters of its id', () => {
+      expect(dockerService.bridgeInterfaceName(NETWORKS[0])).to.equal('docker0');
+      expect(dockerService.bridgeInterfaceName(NETWORKS[2])).to.equal('br-222222222222');
+      expect(dockerService.bridgeInterfaceName({ Id: 'a'.repeat(64) })).to.equal('br-aaaaaaaaaaaa');
+    });
+
+    it('lists the bridges of the networks FluxOS creates, by exact name, and of every docker bridge network', async () => {
+      expect(await dockerService.containerFirewallBridges()).to.deep.equal({
+        fluxBridges: ['br-111111111111', 'br-222222222222'],
+        dockerBridges: ['br-111111111111', 'br-222222222222', 'br-333333333333', 'br-444444444444', 'docker0'],
+      });
+      expect(listNetworks.firstCall.args, 'the whole list, not a name filter').to.deep.equal([]);
+    });
+
+    it('lists the same bridges in the same order however Docker orders its networks', async () => {
+      const first = await dockerService.containerFirewallBridges();
+      listNetworks.resolves([...NETWORKS].reverse());
+      const second = await dockerService.containerFirewallBridges();
+      listNetworks.resolves([NETWORKS[3], NETWORKS[0], NETWORKS[6], NETWORKS[2], NETWORKS[5], NETWORKS[1], NETWORKS[4]]);
+      const third = await dockerService.containerFirewallBridges();
+
+      expect(second).to.deep.equal(first);
+      expect(third).to.deep.equal(first);
+    });
+
+    it('applies the chain for the networks Docker holds', async () => {
+      expect(await dockerService.applyContainerFirewall()).to.equal(true);
+
+      sinon.assert.calledOnceWithExactly(apply, {
+        fluxBridges: ['br-111111111111', 'br-222222222222'],
+        dockerBridges: ['br-111111111111', 'br-222222222222', 'br-333333333333', 'br-444444444444', 'docker0'],
+      });
+    });
+
+    it('leaves the chain as it is, and says so, when Docker does not answer', async () => {
+      listNetworks.rejects(new Error('connect ENOENT /var/run/docker.sock'));
+
+      expect(await dockerService.applyContainerFirewall()).to.equal(false);
+
+      sinon.assert.notCalled(apply);
+      sinon.assert.calledOnce(log.error);
+    });
+
+    it('runs one apply at a time, each reading the network list after the one before it ends', async () => {
+      const first = deferred();
+      apply.onFirstCall().returns(first.promise);
+      const one = dockerService.applyContainerFirewall();
+      const two = dockerService.applyContainerFirewall();
+      await new Promise((r) => { setImmediate(r); });
+
+      expect(listNetworks.callCount, 'the second waits for the first').to.equal(1);
+      first.resolve(true);
+      expect(await one).to.equal(true);
+      expect(await two).to.equal(true);
+      expect(listNetworks.callCount).to.equal(2);
+      expect(listNetworks.secondCall.calledAfter(apply.firstCall)).to.equal(true);
+    });
+
+    it('goes on to the next apply after one that failed', async () => {
+      apply.onFirstCall().rejects(new Error('unexpected'));
+
+      await dockerService.applyContainerFirewall().catch(() => {});
+
+      expect(await dockerService.applyContainerFirewall()).to.equal(true);
+      sinon.assert.calledTwice(apply);
+    });
+
+    it('applies the chain after creating a network, before returning it', async () => {
+      const created = { id: 'new' };
+      const createNetwork = sinon.stub(Dockerode.prototype, 'createNetwork').resolves(created);
+      const applied = deferred();
+      apply.returns(applied.promise);
+      let returned = false;
+
+      const creating = dockerService.dockerCreateNetwork({ Name: 'fluxDockerNetwork_web' }).then((result) => { returned = true; return result; });
+      await new Promise((r) => { setImmediate(r); });
+
+      sinon.assert.calledOnce(apply);
+      expect(apply.firstCall.calledAfter(createNetwork.firstCall)).to.equal(true);
+      expect(returned, 'returned before the chain was applied').to.equal(false);
+      applied.resolve(true);
+      expect(await creating).to.equal(created);
+    });
+
+    it('applies the chain after removing a network', async () => {
+      const remove = sinon.stub().resolves(Buffer.alloc(0));
+
+      await dockerService.dockerRemoveNetwork({ remove });
+
+      sinon.assert.calledOnce(apply);
+      expect(apply.firstCall.calledAfter(remove.firstCall)).to.equal(true);
+    });
+
+    it('applies nothing when the create fails', async () => {
+      sinon.stub(Dockerode.prototype, 'createNetwork').rejects(new Error('Pool overlaps with other one on this address space'));
+
+      await expect(dockerService.dockerCreateNetwork({ Name: 'fluxDockerNetwork_web' })).to.be.rejectedWith('Pool overlaps');
+      sinon.assert.notCalled(apply);
     });
   });
 

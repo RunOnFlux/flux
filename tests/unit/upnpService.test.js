@@ -6,6 +6,15 @@ const sinon = require('sinon');
 const proxyquire = require('proxyquire');
 const log = require('../../ZelBack/src/lib/log');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const ufw = require('../../ZelBack/src/services/utils/ufw');
+const ufwHelper = require('../../ZelBack/src/services/utils/ufwHelper');
+
+const ufwRun = (args) => sinon.match({ runAsRoot: true, params: [ufw.UFW_HELPER, '--wait', '30', '--command', JSON.stringify(args)] });
+// The ufw commands each batch handed to the helper.
+const batches = (stub) => stub.getCalls()
+  .filter((call) => call.args[0] === 'python3' && call.args[1].params.includes('--keep-outbound'))
+  .map((call) => ({ commands: JSON.parse(call.args[1].params[call.args[1].params.indexOf('--rules') + 1]), options: call.args[1] }));
 
 const { expect } = chai;
 
@@ -24,12 +33,71 @@ const generateResponse = () => {
   return res;
 };
 
+const fluxadmPortStub = {
+  isArcane: false,
+  sshPortFor: (apiPort) => +apiPort - 5,
+  sshdSocket: 'fluxadm-sshd.socket',
+};
+
 const upnpService = proxyquire(
   '../../ZelBack/src/services/upnpService',
-  { config },
+  { config, './fluxadmPort': fluxadmPortStub },
 );
 
 describe('upnpService tests', () => {
+  describe('adjustFirewallForUPNP tests', () => {
+    let originalUserConfig;
+
+    beforeEach(() => {
+      // The installed copy of the ufw helper is the one to run (utils/ufwHelper has its own tests).
+      sinon.stub(ufwHelper, 'path').resolves(ufwHelper.UFW_HELPER);
+      originalUserConfig = globalThis.userconfig;
+      globalThis.userconfig = { initial: { ...originalUserConfig.initial, routerIP: '192.168.1.1' } };
+    });
+
+    afterEach(() => {
+      globalThis.userconfig = originalUserConfig;
+      sinon.restore();
+    });
+
+    it('should allow UDP in from the router and write no outbound rule, in one bounded ufw batch', async () => {
+      const runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '{"removed": 0, "applied": true, "failed": [], "reason": null}\n', stderr: '' });
+      runCommandStub.withArgs('python3', ufwRun(['status'])).resolves({ error: null, stdout: 'Status: active\n', stderr: '' });
+
+      await upnpService.adjustFirewallForUPNP();
+
+      const sent = batches(runCommandStub);
+      expect(sent).to.have.lengthOf(1);
+      const params = sent[0].commands.map((command) => command.join(' '));
+      expect(params).to.include('prepend allow from 192.168.1.1 to any proto udp');
+      expect(params).to.include('prepend allow in proto tcp from any to 192.168.1.1 port 16137');
+      expect(params.filter((rule) => /\bout\b/.test(rule))).to.deep.equal([]);
+      expect(sent[0].options).to.include({ runAsRoot: true, timeout: 60000 });
+    });
+
+    it('should log each rule ufw refused', async () => {
+      const failed = [{ rule: 'prepend allow from 192.168.1.1 to any proto udp', error: 'ERROR: Bad rule' }];
+      const runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: `${JSON.stringify({ removed: 0, applied: true, failed, reason: null })}\n`, stderr: '' });
+      runCommandStub.withArgs('python3', ufwRun(['status'])).resolves({ error: null, stdout: 'Status: active\n', stderr: '' });
+      const warnSpy = sinon.spy(log, 'warn');
+
+      await upnpService.adjustFirewallForUPNP();
+
+      sinon.assert.calledWith(warnSpy, 'Firewall rule not applied for UPNP: ufw prepend allow from 192.168.1.1 to any proto udp: ERROR: Bad rule');
+    });
+
+    it('should stop when ufw is locked by another ufw command', async () => {
+      const runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: Object.assign(new Error('killed'), { killed: true }), stdout: '', stderr: '' });
+      runCommandStub.withArgs('python3', ufwRun(['status'])).resolves({ error: null, stdout: 'Status: active\n', stderr: '' });
+      const errorSpy = sinon.spy(log, 'error');
+
+      await upnpService.adjustFirewallForUPNP();
+
+      expect(batches(runCommandStub)).to.have.lengthOf(1);
+      sinon.assert.calledWith(errorSpy, 'Firewall not adjusted for UPNP: ufw is locked by another ufw command');
+    });
+  });
+
   describe('verifyUPNPsupport tests', () => {
     let logSpy;
 
@@ -158,14 +226,120 @@ describe('upnpService tests', () => {
   describe('setupUPNP tests', () => {
     let logSpy;
     let createMappingSpy;
+    let getMappingsStub;
+    let removeMappingStub;
+    let unitStateStub;
+
+    // What `systemctl is-enabled fluxadm-sshd.socket` prints, and whether it failed.
+    const sshdSocket = (stdout, error = null) => unitStateStub.resolves({ error, stdout, stderr: '' });
 
     beforeEach(() => {
       logSpy = sinon.spy(log, 'error');
+      unitStateStub = sinon.stub(serviceHelper, 'runCommand')
+        .withArgs('systemctl', sinon.match({ params: ['is-enabled', 'fluxadm-sshd.socket'] }));
+      sshdSocket('disabled\n');
       createMappingSpy = sinon.stub(natUpnp.Client.prototype, 'createMapping');
+      getMappingsStub = sinon.stub(natUpnp.Client.prototype, 'getMappings').resolves([]);
+      removeMappingStub = sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
     });
 
     afterEach(() => {
+      fluxadmPortStub.isArcane = false;
       sinon.restore();
+    });
+
+    const fluxadmMapping = (overrides = {}) => ({
+      public: { host: '', port: 118 },
+      private: { host: '192.168.1.10', port: 118 },
+      protocol: 'tcp',
+      description: 'Flux_Fluxadm_SSH',
+      ttl: 0,
+      local: true,
+      ...overrides,
+    });
+
+    async function runSetup(apiport) {
+      const clock = sinon.useFakeTimers();
+      const promise = upnpService.setupUPNP(apiport);
+      await clock.tickAsync(2_000);
+      return promise;
+    }
+
+    it('should map the maintenance ssh port beside the core ports while its socket is enabled', async () => {
+      createMappingSpy.returns(true);
+      sshdSocket('enabled\n');
+
+      const result = await runSetup(123);
+
+      expect(result).to.equal(true);
+      sinon.assert.callCount(createMappingSpy, 5);
+      sinon.assert.calledWithExactly(createMappingSpy, {
+        public: 118, private: 118, ttl: 0, description: 'Flux_Fluxadm_SSH',
+      });
+      sinon.assert.notCalled(removeMappingStub);
+    });
+
+    it('should remove its own maintenance ssh mapping while its socket is not enabled', async () => {
+      createMappingSpy.returns(true);
+      getMappingsStub.resolves([fluxadmMapping()]);
+
+      const result = await runSetup(123);
+
+      expect(result).to.equal(true);
+      sinon.assert.callCount(createMappingSpy, 4);
+      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 118, protocol: 'TCP' });
+    });
+
+    it('should remove its own maintenance ssh mapping once its socket is gone, or systemctl cannot answer', async () => {
+      createMappingSpy.returns(true);
+      getMappingsStub.resolves([fluxadmMapping()]);
+      sshdSocket('', new Error('Failed to get unit file state for fluxadm-sshd.socket: No such file or directory'));
+
+      const result = await runSetup(123);
+
+      expect(result).to.equal(true);
+      sinon.assert.callCount(createMappingSpy, 4);
+      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 118, protocol: 'TCP' });
+    });
+
+    it('should keep a mapping of the same port that it did not make', async () => {
+      createMappingSpy.returns(true);
+      getMappingsStub.resolves([
+        fluxadmMapping({ description: 'node owner ssh' }),
+        fluxadmMapping({ local: false }),
+      ]);
+
+      const result = await runSetup(123);
+
+      expect(result).to.equal(true);
+      sinon.assert.calledOnce(getMappingsStub);
+      sinon.assert.notCalled(removeMappingStub);
+    });
+
+    it('should neither map nor unmap the maintenance ssh port on ArcaneOS', async () => {
+      createMappingSpy.returns(true);
+      fluxadmPortStub.isArcane = true;
+      sshdSocket('enabled\n');
+      getMappingsStub.resolves([fluxadmMapping()]);
+
+      const result = await runSetup(123);
+
+      expect(result).to.equal(true);
+      sinon.assert.callCount(createMappingSpy, 4);
+      sinon.assert.notCalled(getMappingsStub);
+      sinon.assert.notCalled(removeMappingStub);
+    });
+
+    it('should still report the core ports mapped when the maintenance ssh mapping fails', async () => {
+      createMappingSpy.returns(true);
+      createMappingSpy.withArgs(sinon.match({ description: 'Flux_Fluxadm_SSH' })).rejects(new Error('conflict'));
+      sshdSocket('enabled\n');
+
+      const result = await runSetup(123);
+
+      expect(result).to.equal(true);
+      sinon.assert.callCount(createMappingSpy, 5);
+      sinon.assert.calledOnce(logSpy);
     });
 
     it('should return true if all client responses are valid', async () => {

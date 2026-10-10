@@ -120,6 +120,68 @@ if [ "$FLUX_APT_BAD_SOURCE" = "true" ]; then
     > /etc/apt/sources.list.d/flux-e2e-unreachable.list
 fi
 
+# A firewalled node boots with ufw active as its install leaves it, before
+# dockerd and FluxOS start, so FluxOS meets an active firewall and adds its own
+# rules on top exactly as it does on a node.
+#
+# Legacy: fluxnode-multitool install_pro.sh, rule for rule, with this node's ssh
+# port (22). Arcane: the ISO (flux_iso flux_fs/conf/user.rules - ufw's stock
+# policies and a limit on OpenSSH) plus the FluxadmSSH profile flux_configd
+# writes (config_builder.py, FluxadmSshUfwConfig), which FluxOS then allows.
+# flux_configd's own runtime rules - its config webserver, the app profiles it
+# manages and the SSDP reply rule behind NAT - are not reproduced: nothing here
+# runs flux_configd.
+#
+# The OpenSSH profile comes with openssh-server. The ISO ships it, so an Arcane
+# node gets the profile the package installs. The legacy installer's
+# `ufw limit OpenSSH` fails silently where openssh-server is absent, so a legacy
+# node carries that rule only when the profile exists.
+#
+# NOT swallowed: a node that should be firewalled and is not would pass every
+# assertion about a firewall it does not have.
+if [ "$FLUX_FIREWALL" = "true" ]; then
+  if [ -n "$FLUXOS_PATH" ]; then
+    cat > /etc/ufw/applications.d/openssh-server <<PROFILE
+[OpenSSH]
+title=Secure shell server, an rshd replacement
+description=OpenSSH is a free implementation of the Secure Shell protocol.
+ports=22/tcp
+PROFILE
+    cat > /etc/ufw/applications.d/fluxadm-ssh <<PROFILE
+[FluxadmSSH]
+title=Fluxadm admin ssh port
+description=Temporary debug port until we get decent error reporting
+ports=$((${FLUX_API_PORT:-16127} - 5))/tcp
+PROFILE
+    ufw_baseline="logging low
+limit OpenSSH"
+  else
+    ufw_baseline="allow 22/tcp
+logging on
+default deny incoming
+allow out from any to any port 123
+allow out to any port 80
+allow out to any port 443
+allow out to any port 53
+allow 16100:16199/tcp"
+    if [ -f /etc/ufw/applications.d/openssh-server ]; then
+      ufw_baseline="$ufw_baseline
+limit OpenSSH"
+    fi
+  fi
+  while IFS= read -r rule; do
+    # shellcheck disable=SC2086
+    if ! ufw $rule >/dev/null; then
+      echo "ERROR: ufw $rule failed; this node would boot without the firewall it was asked for" >&2
+      exit 1
+    fi
+  done <<< "$ufw_baseline"
+  if ! ufw --force enable >/dev/null; then
+    echo "ERROR: ufw would not enable; this node would boot without the firewall it was asked for" >&2
+    exit 1
+  fi
+fi
+
 # cgroup v2: move this container's processes into an init sub-cgroup so the root
 # can hand its controllers down (same approach as official docker:dind). A group
 # holding processes is refused permission to delegate, so the move has to leave
@@ -150,7 +212,8 @@ if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
 fi
 
 # Syncthing listens on apiport+2 in production. The availability checker tests
-# that port.
+# that port. In systemd mode the stub forward runs as a unit instead
+# (syncthing-forward.service), so systemd supervises it like everything else.
 SYNCTHING_LISTEN_PORT=$((${FLUX_API_PORT:-16127} + 2))
 if [ "$FLUX_SYNCTHING_MODE" = "binary" ]; then
   # A real daemon, one per node. Nothing here writes syncthing's config: it
@@ -175,7 +238,7 @@ if [ "$FLUX_SYNCTHING_MODE" = "binary" ]; then
     # the flags a real Arcane node is supervised with, read off a live one
     /flux/test-infra/start-syncthing.sh
   fi
-elif [ -n "$FLUX_SYNCTHING_HOST" ]; then
+elif [ -n "$FLUX_SYNCTHING_HOST" ] && [ "$FLUX_SYSTEMD_MODE" != "true" ]; then
   socat TCP-LISTEN:${SYNCTHING_LISTEN_PORT},fork,reuseaddr TCP:${FLUX_SYNCTHING_HOST}:${FLUX_SYNCTHING_PORT:-8384} &
 fi
 
@@ -185,6 +248,117 @@ fi
 if [ -f /usr/local/share/ca-certificates/test-registry.crt ]; then
   mkdir -p "/etc/docker/certs.d/fluxregistry:5000"
   cp /usr/local/share/ca-certificates/test-registry.crt "/etc/docker/certs.d/fluxregistry:5000/ca.crt"
+fi
+
+# Write boot_id for test harness control.
+# FLUX_BOOT_ID is set per-container by the test harness.
+# The harness seeds a heartbeat with matching or different value to
+# control machineRebooted detection in readBootContext().
+if [ -n "$FLUX_BOOT_ID" ]; then
+  echo "$FLUX_BOOT_ID" > /tmp/flux-boot-id
+fi
+
+# ── systemd mode (opt-in) ──────────────────────────────────────────────────
+# The node runs a real systemd as PID 1: dockerd and fluxos become units, as
+# they are on a production host, and anything FluxOS manages through systemctl
+# behaves as it does there. Everything below this block is the default path
+# and is unreachable in this mode; the fault-injection lever that lives there
+# (/tmp/fluxos.pid — restartFluxos) does not exist under systemd, and
+# framework/systemd-control.js holds the equivalents.
+if [ "$FLUX_SYSTEMD_MODE" = "true" ]; then
+  # fluxos.service runs FluxOS as root. An unprivileged node is a different
+  # install shape, and booting it as root would test the wrong one.
+  if [ -n "$FLUX_FLUXOS_USER" ]; then
+    echo "[entrypoint] FATAL: systemd mode runs FluxOS as root; FLUX_FLUXOS_USER=$FLUX_FLUXOS_USER is not supported here" >&2
+    exit 1
+  fi
+
+  # The Ubuntu base image's policy-rc.d refuses every service start a package
+  # install asks for. A host has none, so a package installed here starts its
+  # service as it does on a node.
+  rm -f /usr/sbin/policy-rc.d
+
+  # Container env does not cross into systemd services (the manager
+  # environment arrives empty), so dump it for the
+  # units' EnvironmentFile. node writes C-style-quoted values, which keeps
+  # NODE_CONFIG's embedded JSON quoting intact.
+  node -e '
+    const fs = require("fs");
+    const skip = new Set(["PATH", "HOSTNAME", "HOME", "PWD", "OLDPWD", "SHLVL", "TERM", "SHELL", "_", "DEBIAN_FRONTEND", "LS_COLORS"]);
+    const lines = Object.entries(process.env)
+      .filter(([k]) => !skip.has(k))
+      .map(([k, v]) => `${k}=${JSON.stringify(v)}`);
+    fs.writeFileSync("/etc/fluxos-harness.env", lines.join("\n") + "\n");
+  '
+
+  cp /flux/test-infra/systemd/*.service /etc/systemd/system/
+  mkdir -p /etc/systemd/system/multi-user.target.wants
+  ln -sf /etc/systemd/system/dockerd.service /etc/systemd/system/multi-user.target.wants/dockerd.service
+  ln -sf /etc/systemd/system/fluxos.service /etc/systemd/system/multi-user.target.wants/fluxos.service
+  if [ -n "$FLUX_SYNCTHING_HOST" ]; then
+    ln -sf /etc/systemd/system/syncthing-forward.service /etc/systemd/system/multi-user.target.wants/syncthing-forward.service
+  fi
+
+  # Container hygiene: kernel modules cannot be loaded here, and a tmpfs
+  # over /tmp would shadow the harness's /tmp/flux-boot-config bind mount.
+  # kernel.*, fs.*, vm.* and binfmt_misc are the host's, not the container's,
+  # and a privileged node can write them: systemd-sysctl and systemd-binfmt
+  # would apply the image's settings to the shared runner host.
+  ln -sf /dev/null /etc/systemd/system/systemd-modules-load.service
+  ln -sf /dev/null /etc/systemd/system/systemd-sysctl.service
+  ln -sf /dev/null /etc/systemd/system/systemd-binfmt.service
+  ln -sf /dev/null /etc/systemd/system/tmp.mount
+
+  # docker-ce's packaged containerd.service would boot under systemd and
+  # dockerd then prefers it — with its snapshotter on the overlayfs root
+  # (EINVAL on overlay-on-overlay). Masked, dockerd spawns its own
+  # containerd under the data-root, exactly like the default mode.
+  ln -sf /dev/null /etc/systemd/system/containerd.service
+
+  # docker-ce's own docker.service and docker.socket start a second dockerd on
+  # the same daemon.json. It takes the volume store's lock, then waits for the
+  # masked containerd, and dockerd.service can never open the store. Masked,
+  # dockerd.service is the node's only daemon.
+  ln -sf /dev/null /etc/systemd/system/docker.service
+  ln -sf /dev/null /etc/systemd/system/docker.socket
+
+  # The default mode's data-root, in the file the dockerd unit reads its
+  # configuration from.
+  mkdir -p /etc/docker
+  cat > /etc/docker/daemon.json <<EOF
+{
+  "data-root": "/mnt/appdata/docker"
+}
+EOF
+
+  # The handoff marker. Everything above runs as PID 1's shell, whose output IS the
+  # container's stdout; everything after it belongs to systemd, whose output is not.
+  # So a container that died with this line in `docker logs` failed under systemd (read
+  # its journal), and one that died WITHOUT it failed in the setup above, where the
+  # failing command's own stderr is the diagnosis.
+  # systemd's FIRST act is to create an inotify instance to watch cgroups, and
+  # fs.inotify.max_user_instances is a PER-UID, HOST-WIDE pool that every container
+  # on the box draws from as root. Exhaust it and systemd cannot allocate its manager
+  # object and PID 1 exits 255 — having written the reason to /dev/console, which a
+  # container without a TTY does not have. That is total silence: no docker logs, no
+  # journal (journald never started), nothing.
+  #
+  # So ask the question here, where the answer can be printed. node is in this image;
+  # fs.watch allocates exactly the resource systemd is about to need.
+  if ! node -e 'const w=require("fs").watch("/tmp",()=>{}); w.close();' 2>/dev/null; then
+    echo "[entrypoint] FATAL: cannot allocate an inotify instance — systemd will exit 255." >&2
+    echo "[entrypoint] fs.inotify.max_user_instances=$(cat /proc/sys/fs/inotify/max_user_instances 2>/dev/null) is a HOST-WIDE per-uid pool" >&2
+    echo "[entrypoint] shared by every container on this box. Raise it on the HOST, not here." >&2
+    exit 3
+  fi
+  echo "[entrypoint] setup complete, handing off to systemd as pid 1"
+  # journal-or-kmsg, not the default: systemd's own messages go to the journal once
+  # journald exists, and to the KERNEL RING BUFFER before it does — which is the exact
+  # window a boot failure happens in. The default target leaves that window writing to
+  # /dev/console, and a container without a TTY has none, so a systemd that dies before
+  # journald is completely mute. The fallback only fires when the journal is
+  # unavailable, so a healthy boot writes nothing to kmsg.
+  exec /lib/systemd/systemd --log-target=journal-or-kmsg
 fi
 
 # Start dockerd under a tiny watchdog so it is respawned if it exits. Production
@@ -228,12 +402,19 @@ if [ -n "${FLUX_E2E_NETWORK_SHAPE:-}" ]; then
   fi
 fi
 
-# Write boot_id for test harness control.
-# FLUX_BOOT_ID is set per-container by the test harness.
-# The harness seeds a heartbeat with matching or different value to
-# control machineRebooted detection in readBootContext().
-if [ -n "$FLUX_BOOT_ID" ]; then
-  echo "$FLUX_BOOT_ID" > /tmp/flux-boot-id
+# A global IPv6 address, declared per node by the suite (createTestEnv globalIpv6). It sits on
+# a device of its own with no IPv6 route beyond it, so the node holds a routable IPv6 address
+# as a dual-stack host does while every IPv6 connection fails at once (ENETUNREACH): an IPv6
+# that is configured and does not route. Independent of the network shape, and built before
+# FluxOS starts for the same reason.
+if [ -n "${FLUX_E2E_GLOBAL_IPV6:-}" ]; then
+  if ! { ip link add flux6 type dummy \
+      && sysctl -qw net.ipv6.conf.flux6.disable_ipv6=0 \
+      && ip link set flux6 up \
+      && ip -6 addr add "$FLUX_E2E_GLOBAL_IPV6/64" dev flux6 nodad; }; then
+    echo "ERROR: could not add the global IPv6 address $FLUX_E2E_GLOBAL_IPV6" >&2
+    exit 1
+  fi
 fi
 
 # WHO FLUXOS RUNS AS. Root unless the fleet names an account, which is the Arcane

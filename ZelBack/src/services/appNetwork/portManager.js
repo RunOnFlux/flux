@@ -270,26 +270,15 @@ async function restoreFluxPortsSupport() {
 }
 
 /**
- * Restores applications firewall, UPNP rules
+ * Restores applications' UPnP mappings. An app port's host firewall rule is
+ * written at install and re-applied at boot (appStartupManager), and ufw keeps
+ * it across restarts.
  * @returns {Promise<void>}
  */
 async function restoreAppsPortsSupport() {
   try {
     const currentAppsPorts = await assignedPortsInstalledApps();
     const isUPNP = upnpService.isUPNP();
-
-    const firewallActive = await fluxNetworkHelper.isFirewallActive();
-    // setup UFW for apps
-    if (firewallActive) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const application of currentAppsPorts) {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const port of application.ports) {
-          // eslint-disable-next-line no-await-in-loop
-          await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
-        }
-      }
-    }
 
     // UPNP
     if (isUPNP) {
@@ -841,7 +830,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       // now open this port properly and launch listening on it
       if (firewallActive) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxNetworkHelper.allowPort(portToTest);
+        await fluxNetworkHelper.allowTestPort(portToTest);
       }
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
@@ -1099,7 +1088,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     for (const portToTest of portsToTest) {
       if (firewallActive) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxNetworkHelper.deleteAllowPortRule(portToTest);
+        await fluxNetworkHelper.deleteTestPortRule(portToTest);
       }
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
@@ -1126,7 +1115,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     for (const portToTest of portsToTest) {
       if (firewallActive) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxNetworkHelper.deleteAllowPortRule(portToTest).catch((e) => log.error(e));
+        await fluxNetworkHelper.deleteTestPortRule(portToTest).catch((e) => log.error(e));
       }
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
@@ -1259,6 +1248,7 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
 module.exports = {
   appPortsUnique,
   ensureAppUniquePorts,
+  appsWithPorts,
   assignedPortsInstalledApps,
   assignedPortsGlobalApps,
   ensureApplicationPortsNotUsed,

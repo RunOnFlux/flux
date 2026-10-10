@@ -30,6 +30,16 @@ module.exports = {
     apiport: 16127, // homeport is -1, ssl port is +1
     fluxNodeServiceAddress: '169.254.43.43',
   },
+  fluxadm: {
+    // ed25519 public keys granted maintenance SSH access on legacy nodes via a
+    // dedicated hardened sshd instance on apiport - 5. Nodes reconcile
+    // authorized_keys to exactly this list, so rolling a key is a normal
+    // FluxOS release. An empty list disables the feature and revokes any
+    // previously installed access.
+    sshAuthorizedKeys: [
+      'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIfVQ1HBlOYD61OEzV19gSWPG6yVWvz+TyHXflXIHsPg fluxadm-legacy',
+    ],
+  },
   database: {
     url: '127.0.0.1',
     port: 27017,
@@ -39,6 +49,9 @@ module.exports = {
         loggedUsers: 'loggedusers',
         activeLoginPhrases: 'activeloginphrases',
         activeSignatures: 'activesignatures',
+        // a login's signature, read by the login websocket for the first minute
+        // after the login; a login row never holds it
+        loginSignatures: 'loginsignatures',
         geolocation: 'geolocation',
         benchmark: 'benchmark',
         appTamperingEvents: 'apptamperingevents',
@@ -118,7 +131,10 @@ module.exports = {
   // startFluxFunctions, whose catch re-enters it.
   minimumNodeJsAllowedVersion: '20.8.0',
   minimumSyncthingAllowedVersion: '2.0.10',
-  minimumDockerAllowedVersion: '26.1.2',
+  // The Docker a node runs: the oldest release FluxOS supports. 28.0 rewrote
+  // Docker's networking rules and its patch releases fixed them; 28.1.1 is the
+  // oldest release the fleet runs in numbers.
+  minimumDockerAllowedVersion: '28.1.1',
   fluxTeamFluxID: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   // A list, so support can be granted to (or revoked from) an identity without
   // touching every privilege check. A bare string is still read as a one entry

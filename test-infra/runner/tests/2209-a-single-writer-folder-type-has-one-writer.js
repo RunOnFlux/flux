@@ -243,12 +243,10 @@ describe('a single-writer folder type has one writer', function () {
       await client.waitForEvent('checkpoint:held', (d) => d.name === BEFORE_RUN && d.key === a.identifier, 300000, { afterId: from });
       expect((await getFolderConfig(ipOf(target), a.folder))?.type, 'fixture: the promoting folder sends').to.equal('sendreceive');
 
-      const observed = await electionCount(target, a.appName, 'primaryObserved');
       await electMaster(a.appName, env.clients[other].ip);
-      // A pass that reads the other node off FDM stands this one down in it.
-      await waitFor(async () => (await electionCount(target, a.appName, 'primaryObserved')) > observed, {
-        timeout: 180000, interval: 1000, label: 'the promoting node read the other node off FDM',
-      });
+      // A pass that reads the other node off FDM stands this one down once the
+      // other has decided it holds the component; one before that keeps it.
+      await client.waitForEvent('primaryRole:standDownGiven', (d) => d.identifier === a.identifier, 180000, { afterId: from });
     } finally {
       await client.releaseCheckpoint(BEFORE_RUN, a.identifier)
         .catch((err) => console.warn(`cleanup: checkpoint release failed: ${err.message}`));

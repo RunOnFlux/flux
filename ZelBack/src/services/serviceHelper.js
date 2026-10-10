@@ -729,70 +729,76 @@ async function runCommand(userCmd, options = {}) {
 }
 
 
+// SemVer 2.0.0's grammar (semver.org): MAJOR.MINOR.PATCH, numbers without leading zeros, then
+// an optional pre-release (-) and build metadata (+), each dot-separated identifiers.
+const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*)?$/;
+
 /**
- * Parses a raw version string from dpkg-query into an object
- * @param {string} rawVersion version string from dpkg-query. Eg:
- * 0.36.1-4ubuntu0.1 (ufw)
- * @returns {{version, major, minor, patch} | null} The parsed version
+ * A version's parts as SemVer 2.0.0 reads it, with surrounding space and one leading v or =
+ * allowed (v20.8.0).
+ * @param {*} version
+ * @returns {?{core: number[], pre: string[]}} null when it is not a SemVer version: a missing
+ *   part (28.1), a fourth part, a leading zero, a part beyond Number.MAX_SAFE_INTEGER, or
+ *   anything that is not a string.
  */
-function parseVersion(rawVersion) {
-  // modified this to allow for just major and minor or just major. (and also ~ instead of - after version)
-  // I.e:
-  //    dpkg-query --showformat='${Version}' --show netcat-openbsd    1.218-4ubuntu1
-  //    dpkg-query --showformat='${Version}' --show ca-certificates   20230311ubuntu0.22.04.1
-
-  const versionRegex = /^[^\d]?(?:(?<epoch>[0-9]+):)?(?<version>(?<major>0|[1-9][0-9]*)(?:\.(?<minor>0|[1-9][0-9]*)(?:\.(?<patch>0|[1-9][0-9]*))?)?)/;
-
-  const match = versionRegex.exec(rawVersion);
-
-  if (match) {
-    const {
-      groups: {
-        epoch, version, major, minor, patch,
-      },
-    } = match;
-    return {
-      epoch, version, major, minor, patch,
-    };
-  }
-  return null;
+function semverParts(version) {
+  if (typeof version !== 'string') return null;
+  const match = SEMVER.exec(version.trim().replace(/^[v=]/, ''));
+  if (!match) return null;
+  const core = match.slice(1, 4).map(Number);
+  if (!core.every(Number.isSafeInteger)) return null;
+  return { core, pre: match[4] === undefined ? [] : match[4].split('.') };
 }
 
 /**
- * Check if semantic version is bigger or equal to minimum version
- * @param {string} targetVersion Version to check
- * @param {string} minimumVersion minimum version that version must meet
- * @returns {boolean} True if version is equal or higher to minimum version otherwise false.
+ * A version as SemVer 2.0.0 reads it, without its prefix or build metadata.
+ * @param {*} version
+ * @returns {?string} null when it is not a SemVer version (see semverParts).
  */
-function minVersionSatisfy(targetVersion, minimumVersion) {
-  // remove any leading character that is not a digit i.e. v1.2.6 -> 1.2.6
-  const version = targetVersion.replace(/[^\d.]/g, '');
+function parseSemver(version) {
+  const parts = semverParts(version);
+  if (!parts) return null;
+  return `${parts.core.join('.')}${parts.pre.length ? `-${parts.pre.join('.')}` : ''}`;
+}
 
-  const splittedVersion = version.split('.');
-  const major = Number(splittedVersion[0]);
-  const minor = Number(splittedVersion[1]);
-  const patch = Number(splittedVersion[2]);
+/**
+ * Two pre-release identifiers by SemVer precedence: numeric ones by value and below
+ * alphanumeric ones, alphanumeric ones in ASCII order.
+ * @param {string} a
+ * @param {string} b
+ * @returns {number} Negative, zero or positive.
+ */
+function comparePreReleaseIdentifiers(a, b) {
+  const aNumeric = /^\d+$/.test(a);
+  const bNumeric = /^\d+$/.test(b);
+  if (aNumeric && bNumeric) return Number(a) - Number(b);
+  if (aNumeric !== bNumeric) return aNumeric ? -1 : 1;
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
 
-  const splittedVersionMinimum = minimumVersion.split('.');
-  const majorMinimum = Number(splittedVersionMinimum[0]);
-  const minorMinimum = Number(splittedVersionMinimum[1]);
-  const patchMinimum = Number(splittedVersionMinimum[2]);
-  if (major < majorMinimum) {
-    return false;
+/**
+ * Whether a version is at least a minimum, by SemVer 2.0.0 precedence: major, minor and patch
+ * by value; a pre-release is below its release (28.1.1-rc.1 < 28.1.1) and pre-releases are
+ * ordered identifier by identifier, a shorter one first when all it has are equal; build
+ * metadata is ignored (20.10.24+dfsg1 = 20.10.24).
+ * @param {*} version
+ * @param {*} minimum
+ * @returns {boolean} False when either is not a SemVer version (see semverParts).
+ */
+function semverAtLeast(version, minimum) {
+  const a = semverParts(version);
+  const b = semverParts(minimum);
+  if (!a || !b) return false;
+  for (let i = 0; i < 3; i += 1) {
+    if (a.core[i] !== b.core[i]) return a.core[i] > b.core[i];
   }
-  if (major > majorMinimum) {
-    return true;
+  if (!a.pre.length || !b.pre.length) return !a.pre.length;
+  for (let i = 0; i < Math.min(a.pre.length, b.pre.length); i += 1) {
+    const order = comparePreReleaseIdentifiers(a.pre[i], b.pre[i]);
+    if (order) return order > 0;
   }
-  if (minor < minorMinimum) {
-    return false;
-  }
-  if (minor > minorMinimum) {
-    return true;
-  }
-  if (patch < patchMinimum) {
-    return false;
-  }
-  return true;
+  return a.pre.length >= b.pre.length;
 }
 
 /**
@@ -878,12 +884,12 @@ module.exports = {
   isDecimalLimit,
   isNonRoutableAddress,
   isPrivateAddress,
-  minVersionSatisfy,
-  parseVersion,
   parseInterval,
+  parseSemver,
   randomDelayMs,
   runCommand,
   runStreamingCommand,
+  semverAtLeast,
   validIpv4Address,
   processInSlices,
 };

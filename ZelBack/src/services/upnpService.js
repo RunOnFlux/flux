@@ -3,14 +3,16 @@ const natUpnp = require('@runonflux/nat-upnp');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
-const nodecmd = require('node-cmd');
 // eslint-disable-next-line import/no-extraneous-dependencies
-const util = require('util');
 
 const log = require('../lib/log');
+const ufw = require('./utils/ufw');
+const fluxadmPort = require('./fluxadmPort');
 const { Privilege, authOf } = require('./utils/privileges');
 
 const client = new natUpnp.Client();
+
+const FLUXADM_MAPPING_DESCRIPTION = 'Flux_Fluxadm_SSH';
 
 if (config.upnp.gatewayUrl) {
   // eslint-disable-next-line global-require
@@ -34,26 +36,6 @@ function isUPNP() {
 }
 
 /**
- * To check if a firewall is active.
- * @returns {Promise<boolean>} True if a firewall is active. Otherwise false.
- */
-async function isFirewallActive() {
-  try {
-    const cmdAsync = util.promisify(nodecmd.run);
-    const execA = 'LANG="en_US.UTF-8" && sudo ufw status | grep Status';
-    const cmdresA = await cmdAsync(execA);
-    if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
-      return true;
-    }
-    return false;
-  } catch (error) {
-    // command ufw not found is the most likely reason
-    log.error(error);
-    return false;
-  }
-}
-
-/**
  * To adjust a firewall to allow comms between host and router.
  */
 async function adjustFirewallForUPNP() {
@@ -61,54 +43,23 @@ async function adjustFirewallForUPNP() {
     let { routerIP } = userconfig.initial;
     routerIP = serviceHelper.ensureString(routerIP);
     if (routerIP) {
-      const cmdAsync = util.promisify(nodecmd.run);
-      const firewallActive = await isFirewallActive();
+      const firewallActive = await ufw.isFirewallActive();
       if (firewallActive) {
-        // standard rules for upnp
-        const execA = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out from any to 239.255.255.250 port 1900 proto udp > /dev/null 2>&1';
-        const execB = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow from ${routerIP} port 1900 to any proto udp > /dev/null 2>&1`;
-        const execC = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow out from any to ${routerIP} proto tcp > /dev/null 2>&1`;
-        const execD = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow from ${routerIP} to any proto udp > /dev/null 2>&1`;
-        await cmdAsync(execA);
-        await cmdAsync(execB);
-        await cmdAsync(execC);
-        await cmdAsync(execD);
-
-        const fluxCommunicationPorts = config.server.allowedPorts;
-        // eslint-disable-next-line no-restricted-syntax
-        for (const port of fluxCommunicationPorts) {
-          // create rule for hone nodes ws connections
-          const execAllowHomeComsA = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow in proto tcp from any to ${routerIP} port ${port} > /dev/null 2>&1`;
-          const execAllowHomeComsB = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow out proto tcp to ${routerIP} port ${port} > /dev/null 2>&1`;
-          const execAllowHomeComsC = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow in proto udp from any to ${routerIP} port ${port} > /dev/null 2>&1`;
-          const execAllowHomeComsD = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow out proto udp to ${routerIP} port ${port} > /dev/null 2>&1`;
-          // eslint-disable-next-line no-await-in-loop
-          await cmdAsync(execAllowHomeComsA);
-          // eslint-disable-next-line no-await-in-loop
-          await cmdAsync(execAllowHomeComsB);
-          // eslint-disable-next-line no-await-in-loop
-          await cmdAsync(execAllowHomeComsC);
-          // eslint-disable-next-line no-await-in-loop
-          await cmdAsync(execAllowHomeComsD);
-          log.info(`Firewall adjusted for UPNP local connections on port ${port}`);
+        // standard rules for upnp, then one pair per home node ws port
+        const rules = [
+          ['prepend', 'allow', 'from', routerIP, 'port', '1900', 'to', 'any', 'proto', 'udp'],
+          ['prepend', 'allow', 'from', routerIP, 'to', 'any', 'proto', 'udp'],
+          ...config.server.allowedPorts.flatMap((port) => [
+            ['prepend', 'allow', 'in', 'proto', 'tcp', 'from', 'any', 'to', routerIP, 'port', String(port)],
+            ['prepend', 'allow', 'in', 'proto', 'udp', 'from', 'any', 'to', routerIP, 'port', String(port)],
+          ]),
+        ];
+        const { failed, locked } = await ufw.runUfwCommands(rules);
+        if (locked) {
+          log.error('Firewall not adjusted for UPNP: ufw is locked by another ufw command');
+          return;
         }
-        // delete and recreate deny rule at end
-        let routerIpNetwork = `${routerIP.split('.')[0]}.${routerIP.split('.')[1]}.0.0`;
-        if (routerIpNetwork === '10.0.0.0') {
-          routerIpNetwork += '/8';
-        } else if (routerIpNetwork === '172.16.0.0') {
-          routerIpNetwork += '/12';
-        } else if (routerIpNetwork === '192.168.0.0') {
-          routerIpNetwork += '/16';
-        } else if (routerIpNetwork === '100.64.0.0') {
-          routerIpNetwork += '/10';
-        } else if (routerIpNetwork === '198.18.0.0') {
-          routerIpNetwork += '/15';
-        } else if (routerIpNetwork === '169.254.0.0') {
-          routerIpNetwork += '/16';
-        }
-        const execDelete = `LANG="en_US.UTF-8" && sudo ufw delete deny out from any to ${routerIpNetwork}`;
-        await cmdAsync(execDelete);
+        failed.forEach(({ rule, error }) => log.warn(`Firewall rule not applied for UPNP: ufw ${rule}: ${error}`));
         log.info('Firewall adjusted for UPNP');
       } else {
         log.info('RouterIP is set but firewall is not active. Adjusting not applied for UPNP');
@@ -192,6 +143,46 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
 }
 
 /**
+ * Maps the maintenance sshd's port (apiport - 5) while its socket is enabled -
+ * the fluxadm reconcile enables it only once it has installed access - and
+ * otherwise removes a mapping of that port only when this code made it, so a
+ * node owner's own mapping of the same port keeps. ArcaneOS maps its own and
+ * is never touched. A failure here is logged and never fails the core mapping
+ * it runs beside.
+ * @param {number|string} apiport
+ * @returns {Promise<void>}
+ */
+async function reconcileFluxadmMapping(apiport) {
+  if (fluxadmPort.isArcane) return;
+  const port = fluxadmPort.sshPortFor(apiport);
+  try {
+    const { stdout: unitState } = await serviceHelper.runCommand('systemctl', {
+      logError: false,
+      params: ['is-enabled', fluxadmPort.sshdSocket],
+    });
+    if (serviceHelper.ensureString(unitState).trim() === 'enabled') {
+      await client.createMapping({
+        public: port,
+        private: port,
+        ttl: 0,
+        description: FLUXADM_MAPPING_DESCRIPTION,
+      });
+      return;
+    }
+    const mappings = await client.getMappings();
+    const ours = mappings.some((mapping) => mapping.local
+      && mapping.public.port === port
+      && mapping.description === FLUXADM_MAPPING_DESCRIPTION);
+    if (ours) {
+      await client.removeMapping({ public: port, protocol: 'TCP' });
+      log.info(`fluxadm access - UPnP mapping for port ${port} removed`);
+    }
+  } catch (error) {
+    log.error(`fluxadm access - UPnP mapping for port ${port} failed: ${error.message}`);
+  }
+}
+
+/**
  * To set up UPnP (Universal Plug and Play) support.
  * @param {number} apiport Port number.
  * @returns {Promise<boolean>} True if port mappings can be set. Otherwise false.
@@ -233,6 +224,8 @@ async function setupUPNP(apiport = config.server.apiport) {
     });
 
     await serviceHelper.delay(500);
+
+    await reconcileFluxadmMapping(apiport);
 
     return true;
   } catch (error) {
