@@ -47,6 +47,8 @@ describe('fluxadmService tests', () => {
     sinon.stub(ufwHelper, 'path').resolves(ufwHelper.UFW_HELPER);
     systemdStub = sinon.stub(fsSync, 'existsSync').callThrough();
     systemdStub.withArgs('/run/systemd/system').returns(true);
+    // No package operation holds dpkg's lock, whatever the host running the tests.
+    sinon.stub(systemService, 'dpkgFrontendLocked').resolves(false);
   });
 
   afterEach(() => {
@@ -463,7 +465,6 @@ describe('fluxadmService tests', () => {
         updateAptCacheStub = sinon.stub(systemService, 'updateAptCache').resolves();
         aptStub = sinon.stub(systemService, 'queueAptGetCommand').resolves({ error: null });
         statusStub = sinon.stub(systemService, 'getPackageStatus').resolves('install ok installed');
-        sinon.stub(systemService, 'dpkgFrontendLocked').resolves(false);
       });
 
       it('should write the preset and the hold before the install, and remove both once the package is installed', async () => {
@@ -1004,7 +1005,7 @@ describe('fluxadmService tests', () => {
         sinon.stub(fs, 'access').rejects(new Error('missing')).withArgs(presetPath).resolves();
         runCommandStub.withArgs('cat').resolves({ ...cmdFail });
         statusStub = sinon.stub(systemService, 'getPackageStatus').resolves('install ok installed');
-        lockedStub = sinon.stub(systemService, 'dpkgFrontendLocked').resolves(false);
+        lockedStub = systemService.dpkgFrontendLocked;
       });
 
       it('should be removed at the start of a pass once openssh-server is installed, also with no keys configured', async () => {
