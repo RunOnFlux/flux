@@ -551,8 +551,12 @@ describe('2401 legacy node maintenance access', function suite() {
     const flood = await execInContainer(legacy.container, ['bash', '-c',
       `for i in $(seq 1 400); do (exec 3<>/dev/tcp/127.0.0.1/${SSH_PORT}) 2>/dev/null; done; echo done`]);
     expect(flood.stdout.trim()).to.equal('done');
-    // The canary: the burst reached the socket.
-    expect(await reached() - reachedBefore, 'connections the socket took during the burst').to.be.at.least(400);
+    // The canary: the burst reached the socket. systemd 255 and later pause a
+    // socket that is triggered faster than its poll limit, so the last of the
+    // burst is taken from the backlog once the pause ends.
+    await waitFor(async () => (await reached()) - reachedBefore >= 400, {
+      timeout: 30000, interval: 1000, label: 'the socket to take every connection of the burst',
+    });
     expect(await unitState(legacy.container, 'fluxadm-sshd.socket'), 'the socket must survive the burst').to.equal('active');
     await loginOrThrow('current');
   });
