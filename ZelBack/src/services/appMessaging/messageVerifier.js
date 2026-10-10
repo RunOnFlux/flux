@@ -519,7 +519,8 @@ async function checkAppMessageExistence(hash) {
 /**
  * Sets each stored message's chain facts - txid, height and payment - to this node's record of
  * its payment where they differ. A payment mined again in another block after a reorg is recorded
- * at its new height, and the message it places follows.
+ * at its new height, and the message it places follows; so does the registry row of each app with
+ * a message that moved, which takes the message that governs the app now (storeAppSpecificationInForce).
  * @param {Array<{hash: string, txid: string, height: number, value: number}>} records
  * @returns {Promise<string[]>} the names of the apps with a message that moved
  */
@@ -553,6 +554,13 @@ async function alignStoredMessagesWithPayments(records) {
     moved.add(message.appSpecifications.name);
   });
   if (operations.length) await dbHelper.bulkWriteInDatabase(appsDatabase, globalAppsMessages, operations);
+  // eslint-disable-next-line no-restricted-syntax
+  for (const name of moved) {
+    // eslint-disable-next-line no-await-in-loop
+    const governing = await governingAppMessage(name);
+    // eslint-disable-next-line no-await-in-loop
+    if (governing) await storeAppSpecificationInForce({ ...governing.appSpecifications, hash: governing.hash, height: governing.height });
+  }
   return [...moved];
 }
 
@@ -1007,15 +1015,10 @@ async function checkAndRequestRecordedApp(hash, txid, height, valueSat, i = 0) {
       }
       return false;
     }
-    // Stored already: it follows this node's payment record, and the app's spec is applied again
-    // when the message moved.
-    const [moved] = await alignStoredMessagesWithPayments([{
+    // Stored already: it follows this node's payment record.
+    await alignStoredMessagesWithPayments([{
       hash, txid, height, value: valueSat,
     }]);
-    if (moved) {
-      const governing = await governingAppMessage(moved);
-      if (governing) await storeAppSpecificationInForce({ ...governing.appSpecifications, hash: governing.hash, height: governing.height });
-    }
     await appHashHasMessage(hash);
     return true;
   } catch (error) {

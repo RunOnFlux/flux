@@ -88,6 +88,31 @@ describe('a stored message follows this node\'s payment record', () => {
       expect((await globalDb.collection(appsMessages).findOne({ hash: 'movedhash' })).valueSat).to.equal(250);
     });
 
+    it('moves the registry row of an app with a message that moved, whichever path moved it', async () => {
+      await globalDb.collection(appsMessages).insertOne(message('MovedApp', 'movedhash', before));
+      await globalDb.collection(appsInformation).insertOne({
+        ...message('MovedApp', 'movedhash', before).appSpecifications, hash: 'movedhash', height: HEIGHT,
+      });
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: HEIGHT + 10 } });
+
+      await messageVerifier.alignStoredMessagesWithPayments([payment('movedhash', after)]);
+
+      const rows = await globalDb.collection(appsInformation).find({ name: 'MovedApp' }).toArray();
+      expect(rows.map((row) => [row.hash, row.height])).to.deep.equal([['movedhash', HEIGHT + 3]]);
+    });
+
+    it('leaves the registry row of an app whose message did not move', async () => {
+      await globalDb.collection(appsMessages).insertOne(message('StillApp', 'stillhash', before));
+      await globalDb.collection(appsInformation).insertOne({
+        ...message('StillApp', 'stillhash', before).appSpecifications, hash: 'stillhash', height: HEIGHT, marker: 'untouched',
+      });
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: HEIGHT + 10 } });
+
+      await messageVerifier.alignStoredMessagesWithPayments([payment('stillhash', before)]);
+
+      expect((await globalDb.collection(appsInformation).findOne({ name: 'StillApp' })).marker).to.equal('untouched');
+    });
+
     it('asks nothing for no records', async () => {
       const find = sinon.spy(dbHelper, 'findInDatabase');
       expect(await messageVerifier.alignStoredMessagesWithPayments([])).to.deep.equal([]);
