@@ -742,123 +742,84 @@ describe('serviceHelper tests', () => {
     });
   });
 
-  describe('minVersionSatisfy tests', () => {
-    const minimalVersion = '3.4.12';
-    const majorMinorOnly = '3.4';
-    const majorOnly = '20230311';
-
-    it('should return true if major version is higher than minimalVersion', async () => {
-      const versionAllowed = await serviceHelper.minVersionSatisfy('5.0.0', minimalVersion);
-
-      expect(versionAllowed).to.equal(true);
+  describe('parseSemver tests', () => {
+    [
+      ['20.8.0', '20.8.0'],
+      ['v20.8.0', '20.8.0'],
+      ['=1.2.3', '1.2.3'],
+      [' 1.2.3 ', '1.2.3'],
+      ['1.2.3-rc.1', '1.2.3-rc.1'],
+      ['1.2.3-rc.1+build.5', '1.2.3-rc.1'],
+      ['1.2.3+dfsg1', '1.2.3'],
+    ].forEach(([input, parsed]) => {
+      it(`reads ${JSON.stringify(input)} as ${parsed}`, () => {
+        expect(serviceHelper.parseSemver(input)).to.equal(parsed);
+      });
     });
 
-    it('should return true if minor version is higher than minimalVersion', async () => {
-      const versionAllowed = await serviceHelper.minVersionSatisfy('3.6.0', minimalVersion);
-
-      expect(versionAllowed).to.equal(true);
-    });
-
-    it('should return true if patch version is higher than minimalVersion', async () => {
-      const versionAllowed = await serviceHelper.minVersionSatisfy('3.4.13', minimalVersion);
-
-      expect(versionAllowed).to.equal(true);
-    });
-
-    it('should return true if patch version is equal to minimalVersion', async () => {
-      const versionAllowed = await serviceHelper.minVersionSatisfy('3.4.12', minimalVersion);
-
-      expect(versionAllowed).to.equal(true);
-    });
-
-    it('should return false if patch version is below to minimalVersion', async () => {
-      const versionAllowed = await serviceHelper.minVersionSatisfy('3.4.11', minimalVersion);
-
-      expect(versionAllowed).to.equal(false);
-    });
-
-    it('should return false if minor version is below to minimalVersion', async () => {
-      const versionAllowed = await serviceHelper.minVersionSatisfy('3.3.11', minimalVersion);
-
-      expect(versionAllowed).to.equal(false);
-    });
-
-    it('should return false if major version is below to minimalVersion', async () => {
-      const versionAllowed = await serviceHelper.minVersionSatisfy('2.3.11', minimalVersion);
-
-      expect(versionAllowed).to.equal(false);
-    });
-
-    it('should return false if minor version is below to minimalVersion and no patch', async () => {
-      const versionAllowed = await serviceHelper.minVersionSatisfy('3.3', majorMinorOnly);
-
-      expect(versionAllowed).to.equal(false);
-    });
-
-    it('should return false if major version is below to minimalVersion and no patch', async () => {
-      const versionAllowed = await serviceHelper.minVersionSatisfy('2.3', majorMinorOnly);
-
-      expect(versionAllowed).to.equal(false);
-    });
-
-    it('should return true if major version is higher than minimalVersion and no patch', async () => {
-      const versionAllowed = await serviceHelper.minVersionSatisfy('4.0', majorMinorOnly);
-
-      expect(versionAllowed).to.equal(true);
-    });
-
-    it('should return true if minor version is higher than minimalVersion and no patch', async () => {
-      const versionAllowed = await serviceHelper.minVersionSatisfy('3.6', majorMinorOnly);
-
-      expect(versionAllowed).to.equal(true);
-    });
-
-    it('should return true if major version is higher than minimalVersion and no minor or patch', async () => {
-      const versionAllowed = await serviceHelper.minVersionSatisfy('20240507', majorOnly);
-
-      expect(versionAllowed).to.equal(true);
-    });
-
-    it('should return false if major version is lower than minimalVersion and no minor or patch', async () => {
-      const versionAllowed = await serviceHelper.minVersionSatisfy('20221023', majorOnly);
-
-      expect(versionAllowed).to.equal(false);
+    [
+      '28.1', '28', '28.1.1.1', '028.1.1', '28.01.1', '28.1.01', '28.1.x', 'V1.2.3', '', 'dev', 'v',
+      '1:28.1.1', '5:28.1.1-1~ubuntu.22.04~jammy', '20230311ubuntu0.22.04.1', '1.218-4ubuntu1',
+      null, undefined, 28, {}, [],
+    ].forEach((input) => {
+      it(`reads ${JSON.stringify(input) ?? String(input)} as not a SemVer version`, () => {
+        expect(serviceHelper.parseSemver(input)).to.equal(null);
+      });
     });
   });
 
-  describe('parseVersion tests', () => {
-    it('should parse all semantic versions and also dpkg versions', () => {
-      const versions = [
-        ['20230311ubuntu0.22.04.1', '20230311'],
-        ['1.2', '1.2'],
-        ['5.7-prerelease', '5.7'],
-        ['1.218-4ubuntu1', '1.218'],
-        ['1.219~d12', '1.219'],
-        ['0.0.4', '0.0.4'],
-        ['1.2.3', '1.2.3'],
-        ['10.20.30', '10.20.30'],
-        ['1.1.2-prerelease+meta', '1.1.2'],
-        ['1.1.2+meta', '1.1.2'],
-        ['1.0.0-alpha', '1.0.0'],
-        ['1.0.0-alpha.beta', '1.0.0'],
-        ['1.0.0-alpha.1', '1.0.0'],
-        ['1.0.0-alpha.0valid', '1.0.0'],
-        ['1.0.0-rc.1+build.1', '1.0.0'],
-        ['1.2.3-beta', '1.2.3'],
-        ['10.2.3-DEV-SNAPSHOT', '10.2.3'],
-        ['1.2.3-SNAPSHOT-123', '1.2.3'],
-        ['1.0.0', '1.0.0'],
-        ['2.0.0+build.1848', '2.0.0'],
-        ['2.0.1-alpha.1227', '2.0.1'],
-        ['1.0.0-alpha+beta', '1.0.0'],
-        ['1.2.3----RC-SNAPSHOT.12.9.1--.12+788', '1.2.3'],
-        ['5:26.1.3-1~ubuntu.22.04~jammy', '26.1.3'],
-      ];
+  describe('semverAtLeast tests', () => {
+    // [version, minimum, at least], each by SemVer 2.0.0's precedence rules.
+    const cases = {
+      'equal versions': [['28.1.1', '28.1.1', true], ['0.0.0', '0.0.0', true]],
+      'patch above and below': [['28.1.2', '28.1.1', true], ['28.1.0', '28.1.1', false], ['0.0.1', '0.0.0', true], ['0.0.0', '0.0.1', false]],
+      'minor above and below': [['28.2.0', '28.1.1', true], ['28.0.9', '28.1.1', false]],
+      'major above and below': [['29.0.0', '28.1.1', true], ['27.99.99', '28.1.1', false]],
+      'numbers compared as numbers, not as text': [
+        ['28.10.0', '28.9.0', true], ['8.9.0', '8.18.0', false], ['8.18.0', '8.9.0', true],
+        ['100.0.0', '99.0.0', true], ['9.9.9', '10.0.0', false],
+      ],
+      'a leading v or =, and surrounding space': [
+        ['v28.1.1', '28.1.1', true], ['=28.1.1', '28.1.1', true], [' 28.1.1 ', '28.1.1', true],
+        ['v28.1.0', '28.1.1', false], ['28.1.1', 'v28.1.1', true],
+      ],
+      'a pre-release below its release and above the release before': [
+        ['28.1.1-rc.1', '28.1.1', false], ['28.1.1-0', '28.1.1', false], ['28.1.2-rc.1', '28.1.1', true],
+        ['28.1.0-1', '28.1.1', false], ['28.1.1-1', '28.1.1', false], ['1.0.0', '1.0.0-rc.1', true],
+      ],
+      'pre-releases ordered among themselves': [
+        ['1.0.0-rc.1', '1.0.0-rc.2', false], ['1.0.0-rc.10', '1.0.0-rc.2', true], ['1.0.0-rc.2', '1.0.0-rc.2', true],
+        ['1.0.0-beta', '1.0.0-rc.1', false], ['1.0.0-alpha', '1.0.0-alpha.1', false], ['1.0.0-alpha.1', '1.0.0-alpha', true],
+        ['1.0.0-alpha.beta', '1.0.0-alpha.1', true], ['1.0.0-1', '1.0.0-alpha', false],
+      ],
+      'build metadata ignored on either side': [
+        ['28.1.1+dfsg1', '28.1.1', true], ['28.1.0+build.99', '28.1.1', false],
+        ['28.1.1', '28.1.1+anything', true], ['20.10.24+dfsg1', '28.1.1', false],
+      ],
+      'a version that is not SemVer': [
+        ['28.1', '28.1.1', false], ['28', '28.1.1', false], ['28.1.1.1', '28.1.1', false],
+        ['028.1.1', '28.1.1', false], ['28.01.1', '28.1.1', false], ['28.1.01', '28.1.1', false],
+        ['', '28.1.1', false], ['dev', '28.1.1', false], ['latest', '28.1.1', false], ['v', '28.1.1', false],
+        ['1:28.1.1', '28.1.1', false], ['5:28.1.1-1~ubuntu.22.04~jammy', '28.1.1', false], ['28.1.x', '28.1.1', false],
+        [null, '28.1.1', false], [undefined, '28.1.1', false], [28, '28.1.1', false], [{}, '28.1.1', false],
+        ['999.0.0x', '28.1.1', false],
+      ],
+      'a minimum that is not SemVer': [
+        ['28.1.1', '28.1', false], ['28.1.1', '', false], ['28.1.1', null, false], ['28.1.1', undefined, false],
+        ['999.0.0', 'latest', false],
+      ],
+      'the versions the floors read': [
+        ['20.8.0', '20.8.0', true], ['22.12.0', '20.8.0', true], ['20.7.0', '20.8.0', false],
+        ['29.3.1', '28.1.1', true], ['6.2.0', '6.2.0', true], ['6.1.9', '6.2.0', false],
+      ],
+    };
 
-      for (let index = 0; index < versions.length; index += 1) {
-        const { version } = serviceHelper.parseVersion(versions[index][0]);
-        expect(version).to.equal(versions[index][1]);
-      }
+    Object.entries(cases).forEach(([name, rows]) => {
+      it(`compares ${name}`, () => {
+        rows.forEach(([version, minimum, atLeast]) => {
+          expect(serviceHelper.semverAtLeast(version, minimum), `${JSON.stringify(version)} at least ${JSON.stringify(minimum)}`).to.equal(atLeast);
+        });
+      });
     });
   });
 

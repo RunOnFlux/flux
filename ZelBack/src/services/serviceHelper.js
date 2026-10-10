@@ -8,6 +8,7 @@ const { spawn } = require('node:child_process');
 
 const axios = require('axios').default;
 const qs = require('qs');
+const semver = require('semver');
 
 const asyncLock = require('./utils/asyncLock');
 const log = require('../lib/log');
@@ -730,69 +731,30 @@ async function runCommand(userCmd, options = {}) {
 
 
 /**
- * Parses a raw version string from dpkg-query into an object
- * @param {string} rawVersion version string from dpkg-query. Eg:
- * 0.36.1-4ubuntu0.1 (ufw)
- * @returns {{version, major, minor, patch} | null} The parsed version
+ * A version as SemVer 2.0.0 reads it, with a leading v or = allowed (v20.8.0).
+ * @param {*} version
+ * @returns {?string} The version without its prefix, or null when it is not a
+ *   SemVer version: a missing part (28.1), a fourth part, a leading zero, or
+ *   anything that is not a string.
  */
-function parseVersion(rawVersion) {
-  // modified this to allow for just major and minor or just major. (and also ~ instead of - after version)
-  // I.e:
-  //    dpkg-query --showformat='${Version}' --show netcat-openbsd    1.218-4ubuntu1
-  //    dpkg-query --showformat='${Version}' --show ca-certificates   20230311ubuntu0.22.04.1
-
-  const versionRegex = /^[^\d]?(?:(?<epoch>[0-9]+):)?(?<version>(?<major>0|[1-9][0-9]*)(?:\.(?<minor>0|[1-9][0-9]*)(?:\.(?<patch>0|[1-9][0-9]*))?)?)/;
-
-  const match = versionRegex.exec(rawVersion);
-
-  if (match) {
-    const {
-      groups: {
-        epoch, version, major, minor, patch,
-      },
-    } = match;
-    return {
-      epoch, version, major, minor, patch,
-    };
-  }
-  return null;
+function parseSemver(version) {
+  if (typeof version !== 'string') return null;
+  return semver.clean(version);
 }
 
 /**
- * Check if semantic version is bigger or equal to minimum version
- * @param {string} targetVersion Version to check
- * @param {string} minimumVersion minimum version that version must meet
- * @returns {boolean} True if version is equal or higher to minimum version otherwise false.
+ * Whether a version is at least a minimum, by SemVer precedence: a pre-release
+ * is below its release (28.1.1-rc.1 < 28.1.1) and build metadata is ignored
+ * (20.10.24+dfsg1 = 20.10.24).
+ * @param {*} version
+ * @param {*} minimum
+ * @returns {boolean} False when either is not a SemVer version (parseSemver).
  */
-function minVersionSatisfy(targetVersion, minimumVersion) {
-  // remove any leading character that is not a digit i.e. v1.2.6 -> 1.2.6
-  const version = targetVersion.replace(/[^\d.]/g, '');
-
-  const splittedVersion = version.split('.');
-  const major = Number(splittedVersion[0]);
-  const minor = Number(splittedVersion[1]);
-  const patch = Number(splittedVersion[2]);
-
-  const splittedVersionMinimum = minimumVersion.split('.');
-  const majorMinimum = Number(splittedVersionMinimum[0]);
-  const minorMinimum = Number(splittedVersionMinimum[1]);
-  const patchMinimum = Number(splittedVersionMinimum[2]);
-  if (major < majorMinimum) {
-    return false;
-  }
-  if (major > majorMinimum) {
-    return true;
-  }
-  if (minor < minorMinimum) {
-    return false;
-  }
-  if (minor > minorMinimum) {
-    return true;
-  }
-  if (patch < patchMinimum) {
-    return false;
-  }
-  return true;
+function semverAtLeast(version, minimum) {
+  const parsed = parseSemver(version);
+  const floor = parseSemver(minimum);
+  if (!parsed || !floor) return false;
+  return semver.gte(parsed, floor);
 }
 
 /**
@@ -878,12 +840,12 @@ module.exports = {
   isDecimalLimit,
   isNonRoutableAddress,
   isPrivateAddress,
-  minVersionSatisfy,
-  parseVersion,
   parseInterval,
+  parseSemver,
   randomDelayMs,
   runCommand,
   runStreamingCommand,
+  semverAtLeast,
   validIpv4Address,
   processInSlices,
 };

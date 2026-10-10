@@ -1,5 +1,6 @@
 const chai = require('chai');
 const sinon = require('sinon');
+const { spawnSync } = require('node:child_process');
 const proxyquire = require('proxyquire').noCallThru();
 
 const { expect } = chai;
@@ -13,6 +14,13 @@ const log = require('../../ZelBack/src/lib/log');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 
 const systemService = require('../../ZelBack/src/services/systemService');
+
+// dpkg --compare-versions for the plain x.y.z versions the syncthing tests use:
+// exit 0 when the comparison holds, 1 when it does not.
+function fakeDpkgCompare({ params: [, version, , minimum] }) {
+  if (serviceHelper.semverAtLeast(version, minimum)) return { error: null, stdout: '' };
+  return { error: Object.assign(new Error('dpkg exited 1'), { code: 1 }), stdout: '' };
+}
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 
 describe('system Services tests', () => {
@@ -60,6 +68,113 @@ describe('system Services tests', () => {
   // way, so an apt-get that could not find the package read back the same as one
   // that installed it. The queue is stubbed rather than driven: a real failure
   // walks five retries a minute apart, which is not what is under test here.
+  describe('packageVersionAtLeast tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('asks dpkg whether the version is at least the minimum, as the node\'s user', async () => {
+      const runCommand = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '' });
+
+      expect(await systemService.packageVersionAtLeast('1:2.4.1-1ubuntu2', '2.4.1')).to.equal(true);
+
+      sinon.assert.calledOnceWithExactly(runCommand, 'dpkg', { logError: false, params: ['--compare-versions', '1:2.4.1-1ubuntu2', 'ge', '2.4.1'] });
+    });
+
+    it('answers false when dpkg says the version is below the minimum, and logs nothing', async () => {
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: Object.assign(new Error('exit 1'), { code: 1 }), stdout: '' });
+      const logged = sinon.stub(log, 'error');
+
+      expect(await systemService.packageVersionAtLeast('1.27.6', '2.0.10')).to.equal(false);
+      sinon.assert.notCalled(logged);
+    });
+
+    it('answers false, and logs it, when dpkg cannot compare them', async () => {
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: Object.assign(new Error('bad syntax'), { code: 2 }), stdout: '' });
+      const logged = sinon.stub(log, 'error');
+
+      expect(await systemService.packageVersionAtLeast('2.0.10', 'not a version!')).to.equal(false);
+      sinon.assert.calledOnce(logged);
+    });
+
+    describe('against dpkg itself', () => {
+      before(function requireDpkg() {
+        // CI runs on Ubuntu, which has dpkg; a host without it has no dpkg ordering to check.
+        if (spawnSync('dpkg', ['--version']).error) this.skip();
+      });
+
+      // [version, minimum, at least], by Debian policy's ordering: epoch, then the
+      // upstream version, then the revision; digits compare as numbers, letters
+      // sort before non-letters, and ~ sorts before anything, even the end.
+      [
+        ['2.0.10', '2.0.10', true],
+        ['2.0.11', '2.0.10', true],
+        ['2.0.9', '2.0.10', false],
+        ['2.10.0', '2.9.0', true],
+        ['2.0.10~rc1', '2.0.10', false],
+        ['2.0.10', '2.0.10~rc1', true],
+        ['2.0.10~rc1', '2.0.10~rc2', false],
+        ['2.0.10~', '2.0.10~~', true],
+        ['2.0.10-1', '2.0.10', true],
+        ['2.0.10', '2.0.10-1', false],
+        ['2.0.10-2', '2.0.10-10', false],
+        ['1:1.0', '2.0', true],
+        ['2.0', '1:1.0', false],
+        ['0:2.0', '2.0', true],
+        ['1.218-4ubuntu1', '1.187', true],
+        ['1.187-1', '1.218', false],
+        ['20230311ubuntu0.22.04.1', '20230311', true],
+        ['20230310', '20230311', false],
+        ['2.0.10+dfsg1', '2.0.10', true],
+        ['1.27.6', '2.0.0', false],
+        ['1.27.6', '2.0.10', false],
+        ['2.0.0', '2.0.0', true],
+        ['5:28.1.1-1~ubuntu.22.04~jammy', '5:28.1.1-1', false],
+        ['5:28.1.1-1~ubuntu.22.04~jammy', '28.1.1', true],
+        ['1.0a', '1.0', true],
+        ['1.0', '1.0a', false],
+        ['1.0+', '1.0', true],
+        ['1.0.', '1.0', true],
+        ['2.0.10', 'not a version!', false],
+        ['2.0.10', '1:', false],
+        ['', '1.0', false],
+      ].forEach(([version, minimum, atLeast]) => {
+        it(`answers ${atLeast} for ${JSON.stringify(version)} at least ${JSON.stringify(minimum)}`, async () => {
+          sinon.stub(log, 'error');
+          expect(await systemService.packageVersionAtLeast(version, minimum)).to.equal(atLeast);
+        });
+      });
+    });
+  });
+
+  describe('getPackageVersion tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    [
+      ["'1:2.4.1-1ubuntu2|install ok installed'", '1:2.4.1-1ubuntu2'],
+      ["'1.218-4ubuntu1|install ok installed'", '1.218-4ubuntu1'],
+      ["'20230311ubuntu0.22.04.1|install ok installed'", '20230311ubuntu0.22.04.1'],
+      ["'2.0.10|install ok installed'", '2.0.10'],
+      ["'2.0.10|deinstall ok config-files'", ''],
+      ["'2.0.10'", ''],
+      ['', ''],
+    ].forEach(([stdout, version]) => {
+      it(`reads ${JSON.stringify(stdout)} as ${JSON.stringify(version)}`, async () => {
+        sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout });
+
+        expect(await systemService.getPackageVersion('syncthing')).to.equal(version);
+      });
+    });
+
+    it('answers empty when dpkg-query fails', async () => {
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: new Error('no packages found'), stdout: '' });
+
+      expect(await systemService.getPackageVersion('syncthing')).to.equal('');
+    });
+  });
+
   describe('ensurePackageVersion tests', () => {
     function loadWithInstallResult(installError) {
       const instance = {
@@ -345,8 +460,9 @@ describe('system Services tests', () => {
 
       sinon.stub(axios, 'get').resolves(axiosRes);
 
-      const cmdRunner = sinon.fake((cmd) => {
+      const cmdRunner = sinon.fake((cmd, options) => {
         if (cmd === 'dpkg-query') return { error: null, stdout: '1.27.3:install ok installed' };
+        if (cmd === 'dpkg') return fakeDpkgCompare(options);
         if (cmd === 'env') return { error: null };
         return null;
       });
@@ -383,8 +499,9 @@ describe('system Services tests', () => {
 
       sinon.stub(axios, 'get').resolves(axiosRes);
 
-      const cmdRunner = sinon.fake((cmd) => {
+      const cmdRunner = sinon.fake((cmd, options) => {
         if (cmd === 'dpkg-query') return { error: null, stdout: '2.2.2:deinstall ok config-files' };
+        if (cmd === 'dpkg') return fakeDpkgCompare(options);
         if (cmd === 'env') return { error: null };
         return null;
       });
@@ -429,8 +546,9 @@ describe('system Services tests', () => {
         return { data: Buffer.from('fake-keyring') };
       });
 
-      const cmdRunner = sinon.fake((cmd) => {
+      const cmdRunner = sinon.fake((cmd, options) => {
         if (cmd === 'dpkg-query') return { error: null, stdout: "'1.19.2|install ok installed'" };
+        if (cmd === 'dpkg') return fakeDpkgCompare(options);
         if (cmd === 'cat') return { error: null, stdout: '' };
         return { error: null, stdout: '' };
       });
@@ -458,8 +576,9 @@ describe('system Services tests', () => {
 
       sinon.stub(axios, 'get').resolves(axiosRes);
 
-      const cmdRunner = sinon.fake((cmd) => {
+      const cmdRunner = sinon.fake((cmd, options) => {
         if (cmd === 'dpkg-query') return { error: null, stdout: dpgkVersion };
+        if (cmd === 'dpkg') return fakeDpkgCompare(options);
         if (cmd === 'apt-get') return { error: null };
         return null;
       });
@@ -477,6 +596,8 @@ describe('system Services tests', () => {
       // monitorSyncthingPackage calls getPackageVersion once (optimized):
       // The current version is fetched once and passed to ensurePackageVersion
       sinon.assert.calledOnce(runCmdStub.withArgs('dpkg-query'));
+      sinon.assert.calledWith(runCmdStub, 'dpkg', sinon.match({ params: ['--compare-versions', '2.2.2', 'ge', '2.2.2'] }));
+      sinon.assert.neverCalledWith(runCmdStub, 'env');
     });
   });
 

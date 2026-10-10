@@ -421,7 +421,7 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     if (fluxResponse.data.status !== 'success') return false;
 
     const fluxVersion = fluxResponse.data.data;
-    const versionMinOK = serviceHelper.minVersionSatisfy(fluxVersion, config.minimumFluxOSAllowedVersion);
+    const versionMinOK = serviceHelper.semverAtLeast(fluxVersion, config.minimumFluxOSAllowedVersion);
     if (!versionMinOK) return false;
 
     const homePort = +port - 1;
@@ -1218,7 +1218,7 @@ function checkNodeJsVersionAllowed() {
     return true;
   }
   const nodeJsVersion = process.versions.node;
-  if (serviceHelper.minVersionSatisfy(nodeJsVersion, minimumVersion)) {
+  if (serviceHelper.semverAtLeast(nodeJsVersion, minimumVersion)) {
     return true;
   }
   setStickyDos(
@@ -1235,8 +1235,10 @@ function checkNodeJsVersionAllowed() {
  *
  * Asked once, when Docker first answers at startup. Upgrading Docker restarts
  * Docker, not FluxOS, so the verdict stands until FluxOS next starts, and the
- * message says so. A version that could not be read gives no verdict: a Docker
- * API failing for a moment is not a node below the floor.
+ * message says so. A version that could not be read, or is not a SemVer
+ * version, gives no verdict: a Docker API failing for a moment, or a build
+ * naming itself oddly, is not a node below the floor. A pre-release is below
+ * its release (28.1.1-rc.1 < 28.1.1).
  * @param {?string} dockerVersion The version Docker reports, or null when it
  *   could not be read.
  * @returns {boolean} True unless the version is known and below the floor.
@@ -1252,7 +1254,11 @@ function checkDockerVersionAllowed(dockerVersion) {
     log.error('checkDockerVersionAllowed - Docker did not report its version, no verdict');
     return true;
   }
-  if (serviceHelper.minVersionSatisfy(dockerVersion, minimumVersion)) {
+  if (!serviceHelper.parseSemver(dockerVersion)) {
+    log.error(`checkDockerVersionAllowed - Docker reported ${dockerVersion}, which is not a SemVer version, no verdict`);
+    return true;
+  }
+  if (serviceHelper.semverAtLeast(dockerVersion, minimumVersion)) {
     return true;
   }
   setStickyDos(
@@ -1268,7 +1274,7 @@ function checkDockerVersionAllowed(dockerVersion) {
  */
 async function checkFluxbenchVersionAllowed() {
   if (storedFluxBenchAllowed) {
-    const versionOK = serviceHelper.minVersionSatisfy(storedFluxBenchAllowed, config.minimumFluxBenchAllowedVersion);
+    const versionOK = serviceHelper.semverAtLeast(storedFluxBenchAllowed, config.minimumFluxBenchAllowedVersion);
     return versionOK;
   }
   try {
@@ -1277,7 +1283,7 @@ async function checkFluxbenchVersionAllowed() {
       log.info(benchmarkInfoResponse);
       const benchmarkVersion = benchmarkInfoResponse.data.version;
       setStoredFluxBenchAllowed(benchmarkVersion);
-      const versionOK = serviceHelper.minVersionSatisfy(benchmarkVersion, config.minimumFluxBenchAllowedVersion);
+      const versionOK = serviceHelper.semverAtLeast(benchmarkVersion, config.minimumFluxBenchAllowedVersion);
       if (versionOK) {
         return true;
       }

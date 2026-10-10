@@ -464,7 +464,7 @@ describe('fluxNetworkHelper tests', () => {
       const mockResponse = {
         data: {
           status: 'success',
-          data: '2.01.0', // minimum allowed version is 3.19.0
+          data: '2.1.0', // below minimumFluxOSAllowedVersion
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
@@ -475,6 +475,31 @@ describe('fluxNetworkHelper tests', () => {
 
       sinon.assert.calledWithExactly(stub, expectedAddress, axiosConfig);
       expect(isFluxAvailableResult).to.equal(false);
+    });
+
+    [
+      ['8.0.0-rc.1', false, 'a pre-release of the minimum'],
+      ['8.0.1-rc.1', true, 'a pre-release above the minimum'],
+      ['v8.2.0', true, 'a version with a leading v'],
+      ['8.2.0+build.7', true, 'a version with build metadata'],
+      ['8.2', false, 'a version missing its patch'],
+      ['8.2.0.1', false, 'a version with a fourth part'],
+      ['latest', false, 'a version that is not one'],
+      ['', false, 'an empty version'],
+    ].forEach(([version, available, what]) => {
+      it(`Should return ${available} for ${what} (${JSON.stringify(version)}), minimum 8.0.0`, async () => {
+        // Every check after the version passes, so the version alone decides.
+        const mockResponse = { data: { status: 'success', data: version } };
+        Object.setPrototypeOf(mockResponse.data, { includes() { return true; } });
+        const get = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
+        sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
+        sinon.stub(net.Socket.prototype, 'connect').callsFake((_port, _ip, callback) => {
+          callback();
+        });
+
+        expect(await fluxNetworkHelper.isFluxAvailable(ip, port)).to.equal(available);
+        expect(get.calledWith('http://127.0.0.1:16126/health'), 'checked past the version').to.equal(available);
+      });
     });
 
     it('Should return false if response status is not success', async () => {
@@ -931,6 +956,23 @@ describe('fluxNetworkHelper tests', () => {
       expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(100);
     });
 
+    it('refuses a pre-release of the floor, and allows a nightly of a later major', () => {
+      runningOn('20.8.0-pre');
+      expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
+      fluxNetworkHelper.clearStickyDos(NODEJS_FLOOR);
+
+      runningOn('25.0.0-nightly20261001abcdef');
+      expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(true);
+    });
+
+    it('compares each part as a number', () => {
+      runningOn('20.10.0');
+      expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(true);
+
+      runningOn('9.11.2');
+      expect(fluxNetworkHelper.checkNodeJsVersionAllowed()).to.equal(false);
+    });
+
     it('survives the clear a successful availability pass performs', () => {
       // checkMyFluxAvailability ends a good pass with dosState = 0 and
       // setDosMessage(null). The runtime verdict is asked once at startup, so if
@@ -1064,6 +1106,28 @@ describe('fluxNetworkHelper tests', () => {
       });
     });
 
+    it('refuses a pre-release of the floor, and a packaged build of the release before it', () => {
+      ['28.1.1-rc.1', '28.1.1-beta.2', '28.1.0-1', '28.1.0+dfsg1'].forEach((version) => {
+        fluxNetworkHelper.clearStickyDos(DOCKER_FLOOR);
+        expect(fluxNetworkHelper.checkDockerVersionAllowed(version), version).to.equal(false);
+      });
+    });
+
+    it('allows a build of the floor or later, and a pre-release of a later release', () => {
+      ['28.1.1+dfsg1', 'v28.1.1', '28.1.2', '28.2.0', '29.0.0-rc.1', '100.0.0'].forEach((version) => {
+        expect(fluxNetworkHelper.checkDockerVersionAllowed(version), version).to.equal(true);
+      });
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+    });
+
+    it('gives no verdict when Docker reports a version that is not SemVer', () => {
+      ['28.1', 'dev', '28.1.1.1', '5:28.1.1-1~ubuntu.22.04~jammy', 'master-dockerproject-2026-10-01'].forEach((version) => {
+        expect(fluxNetworkHelper.checkDockerVersionAllowed(version), version).to.equal(true);
+      });
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+      expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(0);
+    });
+
     it('gives no verdict when Docker did not report its version', () => {
       expect(fluxNetworkHelper.checkDockerVersionAllowed(null)).to.equal(true);
       expect(fluxNetworkHelper.checkDockerVersionAllowed(undefined)).to.equal(true);
@@ -1144,6 +1208,21 @@ describe('fluxNetworkHelper tests', () => {
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
       expect(isFluxbenchVersionAllowed).to.equal(false);
+    });
+
+    [
+      ['6.2.0-rc.1', false, 'a pre-release of the minimum'],
+      ['6.10.0', true, 'a minor compared as a number'],
+      ['6.2.0+build.3', true, 'the minimum with build metadata'],
+      ['v6.2.0', true, 'the minimum with a leading v'],
+      ['6.2', false, 'a version missing its patch'],
+      ['dev', false, 'a version that is not one'],
+    ].forEach(([version, allowed, what]) => {
+      it(`should return ${allowed} for ${what} (${JSON.stringify(version)}), minimum 6.2.0`, async () => {
+        benchmarkInfoResponseStub.returns({ status: 'success', data: { version } });
+
+        expect(await fluxNetworkHelper.checkFluxbenchVersionAllowed()).to.equal(allowed);
+      });
     });
 
     it('should return true if the version is higher than minimal and is not set in cache', async () => {

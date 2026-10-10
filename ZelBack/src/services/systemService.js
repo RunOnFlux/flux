@@ -215,9 +215,11 @@ async function updateAptCache(options = {}) {
 }
 
 /**
- * Gets an installed packages version. This doesn't use the apt lock
+ * An installed package's version, as dpkg records it: [epoch:]upstream[-revision]
+ * (1:2.4.1-1ubuntu2). Compare it with packageVersionAtLeast. This doesn't use
+ * the apt lock.
  * @param systemPackage the target package to check
- * @returns {Promise<string>}
+ * @returns {Promise<string>} Empty when the package is not installed.
  */
 async function getPackageVersion(systemPackage) {
   const { stdout, error } = await serviceHelper.runCommand('dpkg-query', {
@@ -242,15 +244,24 @@ async function getPackageVersion(systemPackage) {
 
   if (status !== 'install ok installed') return '';
 
-  // The version format is: [epoch:]upstream_version[-debian_revision]
+  return version.trim();
+}
 
-  const parsedVersion = serviceHelper.parseVersion(version);
-
-  if (parsedVersion) {
-    return parsedVersion.version;
-  }
-
-  return '';
+/**
+ * Whether a Debian package version is at least a minimum, by dpkg's own
+ * ordering: the epoch first, then the upstream version, then the revision, with
+ * ~ sorting before anything (2.0.10~rc1 < 2.0.10).
+ * @param {string} version As getPackageVersion returns it.
+ * @param {string} minimum
+ * @returns {Promise<boolean>} False, and logged, when dpkg cannot compare them.
+ */
+async function packageVersionAtLeast(version, minimum) {
+  const { error } = await serviceHelper.runCommand('dpkg', {
+    logError: false, params: ['--compare-versions', version, 'ge', minimum],
+  });
+  // dpkg exits 1 when the comparison is false, and 2 when it cannot compare.
+  if (error && error.code !== 1) log.error(`dpkg cannot compare package version ${version} with ${minimum}: ${error.message}`);
+  return !error;
 }
 
 /**
@@ -532,7 +543,7 @@ async function ensurePackageVersion(systemPackage, requiredVersion, currentVersi
     }
 
     log.info(`Package ${systemPackage} version ${actualVersion} found`);
-    const versionOk = serviceHelper.minVersionSatisfy(actualVersion, requiredVersion);
+    const versionOk = await packageVersionAtLeast(actualVersion, requiredVersion);
 
     if (versionOk) return false; // Already at correct version, no upgrade
 
@@ -575,7 +586,7 @@ async function monitorSyncthingPackage() {
 
       // We only check if the package / sources are up to date if it's installed
       if (currentSyncthingVersion) {
-        const upToDate = serviceHelper.minVersionSatisfy(
+        const upToDate = await packageVersionAtLeast(
           currentSyncthingVersion,
           minSyncthingVersion,
         );
@@ -590,7 +601,7 @@ async function monitorSyncthingPackage() {
         await addSyncthingRepository();
 
         // The sources changed at version 2.0.0 from stable, to stable-v2
-        const hasNewSources = serviceHelper.minVersionSatisfy(
+        const hasNewSources = await packageVersionAtLeast(
           currentSyncthingVersion,
           '2.0.0',
         );
@@ -1184,6 +1195,7 @@ module.exports = {
   getQueue,
   monitorAptCache,
   monitorSyncthingPackage,
+  packageVersionAtLeast,
   queueAptGetCommand,
   resetTimers,
   updateAptCache,
