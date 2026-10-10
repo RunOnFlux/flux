@@ -1,8 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const fs = require('node:fs');
-const http = require('node:http');
-const https = require('node:https');
 const apiServer = require('../../apiServer');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const dockerService = require('../../ZelBack/src/services/dockerService');
@@ -18,6 +16,7 @@ const { PM2_KILL_TIMEOUT_MS } = require('../../ZelBack/src/services/fluxService'
 const serviceManager = require('../../ZelBack/src/services/serviceManager');
 const systemdNotify = require('../../ZelBack/src/services/utils/systemdNotify');
 const upnpService = require('../../ZelBack/src/services/upnpService');
+const dnsLookup = require('../../ZelBack/src/services/utils/dnsLookup');
 const configManager = require('../../ZelBack/src/services/utils/configManager');
 const fluxServer = require('../../ZelBack/src/lib/fluxServer');
 
@@ -776,6 +775,7 @@ describe('apiServer initiate readiness', () => {
     sinon.stub(fluxServer, 'FluxServer').callsFake(() => ({ listen, app: {}, socketIo: {} }));
     notifyReady = sinon.stub(systemdNotify, 'notifyReady').resolves(true);
     startFluxFunctions = sinon.stub(serviceManager, 'startFluxFunctions');
+    sinon.stub(dnsLookup, 'install');
     sinon.stub(upnpService, 'verifyUPNPsupport').resolves(true);
     sinon.stub(upnpService, 'setupUPNP').resolves(true);
     sinon.stub(configManager, 'startWatching').resolves();
@@ -790,12 +790,6 @@ describe('apiServer initiate readiness', () => {
     process.listeners('uncaughtException')
       .filter((listener) => !uncaughtBefore.includes(listener))
       .forEach((listener) => process.removeListener('uncaughtException', listener));
-    const cacheable = apiServer.getCacheable();
-    if (cacheable) {
-      cacheable.uninstall(http.globalAgent);
-      cacheable.uninstall(https.globalAgent);
-    }
-    apiServer.resetCacheable();
   });
 
   it('reports ready once both listeners are up, before the startup that waits on Mongo, Docker and fluxd', async () => {
