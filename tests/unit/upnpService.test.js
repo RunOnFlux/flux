@@ -816,6 +816,23 @@ describe('upnpService tests', () => {
       ]);
     });
 
+    it('should release the node\'s own api mappings first, so a deadline cannot leave them behind', async () => {
+      getMappingsStub.resolves([
+        mapping(31000, 'Flux_App_a'),
+        mapping(31001, 'Flux_Test_App'),
+        mapping(16127, 'Flux_Backend_API'),
+        mapping(16122, 'Flux_Fluxadm_SSH'),
+        mapping(16126, 'Flux_Home_UI'),
+        mapping(16128, 'Flux_Backend_API_SSL'),
+      ]);
+      removeMappingStub.callsFake(async () => { clock.tick(4000); });
+
+      const result = await upnpService.releaseOwnMappings([], 10000);
+
+      expect(result.removed).to.equal(3);
+      expect(removeMappingStub.getCalls().map((call) => call.args[0].public.port)).to.deep.equal([16127, 16126, 16128]);
+    });
+
     it('should settle by its deadline when the router does not answer', async () => {
       getMappingsStub.returns(new Promise(() => {}));
 

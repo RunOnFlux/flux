@@ -29,6 +29,10 @@ const OWNED_MAPPING_DESCRIPTIONS = new Set([
   FLUXADM_MAPPING_DESCRIPTION,
 ]);
 const OWNED_MAPPING_PREFIXES = ['Flux_App_', 'Flux_Prelaunch_App_'];
+// The node's own api mappings: one of these left on the router to an address
+// the node no longer has makes setupUPNP fail at its next start, and a node with
+// a custom api port or a router IP then refuses to start at all.
+const CORE_MAPPING_DESCRIPTIONS = new Set(['Flux_Backend_API', 'Flux_Backend_API_SSL', 'Flux_Home_UI', 'Flux_Syncthing']);
 
 // A mapping is removed only once it has been stale on two sweeps at least this
 // far apart. The test and prelaunch mappings live for seconds to minutes, and
@@ -474,7 +478,7 @@ async function removeMappingsBefore(mappings, deadline, tally) {
  * code made, the app containers being stopped already. A node that never comes
  * back would otherwise leave them on the router for good, and one that comes
  * back on another address finds them in the way of its own - neither of which
- * the sweep can reach. Mappings on `holdPorts` are left and handed back, for a
+ * the sweep can reach. The node's own api mappings go first. Mappings on `holdPorts` are left and handed back, for a
  * service still at work to be released with removeMappingsWithin once done.
  *
  * Never rejects, and settles within `timeoutMs` whatever the router does.
@@ -492,7 +496,11 @@ async function releaseOwnMappings(holdPorts, timeoutMs) {
       && Number.isInteger(mapping.public && mapping.public.port)
       && isOwnedMappingDescription(mapping.description));
     result.held = ours.filter((mapping) => hold.has(mapping.public.port));
-    await removeMappingsBefore(ours.filter((mapping) => !hold.has(mapping.public.port)), deadline, result);
+    // the core ones first: a deadline that cuts the work short must not leave
+    // behind the one kind that keeps the node from starting again
+    const isCore = (mapping) => CORE_MAPPING_DESCRIPTIONS.has(mapping.description);
+    const release = ours.filter((mapping) => !hold.has(mapping.public.port));
+    await removeMappingsBefore([...release.filter(isCore), ...release.filter((mapping) => !isCore(mapping))], deadline, result);
   })();
   await settleBefore(work, deadline);
   log.info(`UPnP - ${result.removed} mapping(s) released for the shutdown`);

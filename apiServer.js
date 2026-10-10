@@ -49,9 +49,10 @@ const SHUTDOWN_BUDGET_MS = PM2_KILL_TIMEOUT_MS - SHUTDOWN_EXIT_MS;
 const SHUTDOWN_PAUSE_MS = 3000;
 // How long releasing the router's UPnP mappings may take, beside the drain.
 const SHUTDOWN_UPNP_RELEASE_MS = 15000;
-// How much of SHUTDOWN_EXIT_MS releasing syncthing's mapping may take, once the
-// folders are paused; it runs beside the wait for the broadcast.
-const SHUTDOWN_UPNP_SYNCTHING_MS = 1000;
+// How long releasing syncthing's mapping may take once the drain is over. It
+// runs beside the folder pause, so it spends SHUTDOWN_PAUSE_MS of the exit
+// budget, not time of its own.
+const SHUTDOWN_UPNP_SYNCTHING_MS = SHUTDOWN_PAUSE_MS;
 const verifyPool = require('./ZelBack/src/services/utils/verifyPool');
 
 const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
@@ -142,6 +143,9 @@ async function logErrorAndExit(msg, options = {}) {
 }
 
 async function loadUpnpIfRequired() {
+  // a config reload landing mid-shutdown: the mappings are being released, and
+  // setupUPNP refusing them is not a failure to verify or to map
+  if (globalState.shutdownInProgress) return;
   try {
     let verifyUpnp = false;
     let setupUpnp = false;
@@ -490,16 +494,17 @@ async function shutDown() {
     log.warn(`Shutdown drain failed: ${error.message}`);
   }
 
+  // The drain was the last thing to need syncthing's mapping; the pause is
+  // syncthing's own api, so the mapping goes beside it.
+  const syncthingReleased = upnpReleased
+    .then(({ held }) => upnpService.removeMappingsWithin(held, SHUTDOWN_UPNP_SYNCTHING_MS));
+
   // syncthing keeps a folder's pause across its own restart, so the next start
   // sends nothing until the election has decided who holds each folder.
   await pauseFoldersForShutdown();
 
-  const { held } = await upnpReleased;
   // Give some time for the broadcast to complete
-  await Promise.all([
-    serviceHelper.delay(1000),
-    upnpService.removeMappingsWithin(held, SHUTDOWN_UPNP_SYNCTHING_MS),
-  ]);
+  await Promise.all([serviceHelper.delay(1000), syncthingReleased]);
 
   verifyPool.stop();
   log.info('Graceful shutdown complete, exiting...');
