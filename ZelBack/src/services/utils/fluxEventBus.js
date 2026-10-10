@@ -43,6 +43,10 @@ const Checkpoint = Object.freeze({
   // restart covered, and has not yet asked for the container to run. Keyed by
   // the component identifier.
   MASTERSLAVE_BEFORE_RUN: 'masterSlave:beforeRun',
+  // An adoption of a controller opinion holds the component's slot and has found
+  // no opinion recorded; it has not yet read the operator lock or docker. Keyed by
+  // the component identifier.
+  RECONCILER_BEFORE_ADOPT: 'reconciler:beforeAdopt',
   // An election pass is about to decide a g: component it does not skip. Keyed
   // by the component identifier.
   MASTERSLAVE_BEFORE_DECISION: 'masterSlave:beforeDecision',

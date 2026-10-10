@@ -1603,6 +1603,7 @@ async function adoptControllerDesired(rawIdentifier, state, reason) {
     if (controllerDesired.has(identifier)) return;
     // a pending data clear runs on a stopped component, whatever it shows now
     if (dataDesired.has(identifier)) return;
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.RECONCILER_BEFORE_ADOPT, identifier);
     try {
       if (await appsRuntimeState.operatorStoppedOrThrow(identifier)) return;
     } catch (error) {
