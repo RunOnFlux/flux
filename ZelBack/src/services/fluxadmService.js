@@ -320,7 +320,8 @@ Subsystem sftp internal-sftp
  * connections are refused and the socket stays up. MaxConnectionsPerSource
  * keeps one address to two of them, so a single source cannot hold every slot,
  * and the sshd config's LoginGraceTime ends a connection that has not logged in
- * within 10 s.
+ * within 10 s. It listens on IPv4 alone: systemd counts a source by its full
+ * address, and one IPv6 host holds a /64 of them.
  * @param {number} port
  * @returns {string}
  */
@@ -329,7 +330,7 @@ function buildSocketUnit(port) {
 Description=FluxOS maintenance SSH socket (${fluxadmUser})
 
 [Socket]
-ListenStream=${port}
+ListenStream=0.0.0.0:${port}
 Accept=yes
 TriggerLimitIntervalSec=0
 MaxConnections=10

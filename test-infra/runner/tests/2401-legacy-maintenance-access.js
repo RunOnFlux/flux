@@ -508,10 +508,12 @@ describe('2401 legacy node maintenance access', function suite() {
     expect(present, status).to.equal(true);
   });
 
-  it('listens for the maintenance sshd with its own socket, on apiport - 5', async () => {
+  it('listens for the maintenance sshd with its own socket, on apiport - 5, on IPv4 alone', async () => {
     expect(await unitState(legacy.container, 'fluxadm-sshd.socket')).to.equal('active');
-    const { stdout } = await execInContainer(legacy.container, `ss -Hltn 'sport = :${SSH_PORT}'`);
-    expect(stdout.trim(), `nothing listening on ${SSH_PORT}`).to.not.equal('');
+    const listening = async (family) => (await execInContainer(legacy.container, `ss -Hltn${family} 'sport = :${SSH_PORT}'`)).stdout.trim();
+    expect(await listening(4), `nothing listening on ${SSH_PORT} over IPv4`).to.not.equal('');
+    // systemd counts a source by its full address, and one IPv6 host holds a /64 of them.
+    expect(await listening(6), `listening on ${SSH_PORT} over IPv6`).to.equal('');
   });
 
   // systemd's per-trigger rate limit fails an Accept=yes socket on a connection

@@ -69,7 +69,7 @@ describe('system Services tests', () => {
   // that installed it. The queue is stubbed rather than driven: a real failure
   // walks five retries a minute apart, which is not what is under test here.
   describe('dpkgFrontendLocked tests', () => {
-    // /var/lib/dpkg/lock-frontend on device 8:2 (major 8, minor 2), inode 114071576.
+    // /var/lib/dpkg/lock-frontend: device 8:2, inode 114071576.
     const lockFile = { dev: 0x802n, ino: 114071576n };
     const held = '14: POSIX  ADVISORY  WRITE 2132266 08:02:114071576 0 EOF\n';
     let statStub;
@@ -105,28 +105,22 @@ describe('system Services tests', () => {
       expect(await systemService.dpkgFrontendLocked()).to.equal(false);
     });
 
-    it('answers false for a lock on the same inode of another device', async () => {
-      lockTable('14: POSIX  ADVISORY  WRITE 2132266 08:03:114071576 0 EOF\n');
+    it('answers true for a lock on the lock file\'s inode whatever device the table names, as btrfs and ZFS report another', async () => {
+      lockTable('14: POSIX  ADVISORY  WRITE 2132266 00:2f:114071576 0 EOF\n');
+
+      expect(await systemService.dpkgFrontendLocked()).to.equal(true);
+    });
+
+    it('answers false for a lock on an inode that only begins or ends with the lock file\'s', async () => {
+      lockTable('14: POSIX  ADVISORY  WRITE 2132266 08:02:1140715760 0 EOF\n15: POSIX  ADVISORY  WRITE 9 08:02:4114071576 0 EOF\n');
 
       expect(await systemService.dpkgFrontendLocked()).to.equal(false);
     });
 
-    it('answers false for a lock on an inode that only begins with the lock file\'s', async () => {
-      lockTable('14: POSIX  ADVISORY  WRITE 2132266 08:02:1140715760 0 EOF\n');
+    it('matches only the file field, not a process id equal to the inode', async () => {
+      lockTable('14: POSIX  ADVISORY  WRITE 114071576 08:02:99 0 EOF\n');
 
       expect(await systemService.dpkgFrontendLocked()).to.equal(false);
-    });
-
-    it('reads the device as the kernel prints it: major and minor in hex', async () => {
-      // an overlay root: major 0, minor 56
-      statStub.resolves({ dev: 56n, ino: 33723009n });
-      lockTable('14: POSIX  ADVISORY  WRITE 18 00:38:33723009 0 EOF\n');
-      expect(await systemService.dpkgFrontendLocked()).to.equal(true);
-
-      // NVMe: major 259, minor 1
-      statStub.resolves({ dev: (259n << 8n) | 1n, ino: 42n });
-      lockTable('3: POSIX  ADVISORY  WRITE 77 103:01:42 0 EOF\n');
-      expect(await systemService.dpkgFrontendLocked()).to.equal(true);
     });
 
     it('answers false when there is no lock file, as on a host without dpkg', async () => {

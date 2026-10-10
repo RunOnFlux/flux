@@ -854,10 +854,10 @@ describe('fluxadmService tests', () => {
   });
 
   describe('maintenance sshd unit tests', () => {
-    it('should listen on the port and start one session unit per connection', () => {
+    it('should listen on the port, on IPv4 alone, and start one session unit per connection', () => {
       const lines = fluxadmService.buildSocketUnit(16122).split('\n');
 
-      expect(lines).to.include('ListenStream=16122');
+      expect(lines).to.include('ListenStream=0.0.0.0:16122');
       expect(lines).to.include('Accept=yes');
     });
 
