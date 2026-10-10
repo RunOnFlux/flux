@@ -241,6 +241,21 @@ export function dbClient(nodeNum) {
       if (result.matchedCount !== 1) throw new Error(`no payment record for ${hash}`);
     },
 
+    // Record a payment at another height, as a record written from a block that later left the
+    // chain carries it.
+    async setAppHashHeight(hash, height) {
+      const explorerDb = await db('explorer');
+      const result = await explorerDb.collection('zelappshashes').updateOne({ hash }, { $set: { height } });
+      if (result.matchedCount !== 1) throw new Error(`no payment record for ${hash}`);
+    },
+
+    // Store a permanent message at another height, as one placed by such a record was.
+    async setPermanentMessageHeight(hash, height) {
+      const globalDb = await db('appsGlobal');
+      const result = await globalDb.collection('zelappsmessages').updateOne({ hash }, { $set: { height } });
+      if (result.matchedCount !== 1) throw new Error(`no permanent message for ${hash}`);
+    },
+
     // Every registry row this node holds for an app, straight from its store.
     async appSpecRows(name) {
       const globalDb = await db('appsGlobal');

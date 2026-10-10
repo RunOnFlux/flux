@@ -9,6 +9,7 @@ const config = require('config');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
+const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
 const { appPaymentAddresses, appPaymentPositions } = require('../../ZelBack/src/services/appPaymentPositions');
 const { backfillPaymentPositions } = require('../../ZelBack/src/services/migrations/paymentPositions');
 
@@ -87,12 +88,14 @@ describe('app payment positions', () => {
   describe('backfillPaymentPositions', () => {
     let findInDatabase;
     let bulkWriteInDatabase;
+    let alignStoredMessagesWithPayments;
     const TIP = 1000;
 
     beforeEach(() => {
       sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
       findInDatabase = sinon.stub(dbHelper, 'findInDatabase');
       bulkWriteInDatabase = sinon.stub(dbHelper, 'bulkWriteInDatabase').resolves();
+      alignStoredMessagesWithPayments = sinon.stub(messageVerifier, 'alignStoredMessagesWithPayments').resolves([]);
       executeCall.withArgs('getBlockCount').resolves({ status: 'success', data: TIP });
     });
 
@@ -126,6 +129,37 @@ describe('app payment positions', () => {
         positioned: 2, heightsCorrected: 1, notOnChain: 0, aboveTip: 0,
       });
       expect(executeCall.withArgs('getaddressdeltas').firstCall.args[1][0]).to.include({ start: config.fluxapps.epochstart, end: TIP });
+    });
+
+    it('moves the stored message of a record whose height it corrects, after writing the record', async () => {
+      findInDatabase.resolves([
+        {
+          hash: 'hsame', txid: 'same', height: 500, value: 5,
+        },
+        {
+          hash: 'hmoved', txid: 'moved', height: 501, value: 7,
+        },
+      ]);
+      executeCall.withArgs('getaddressdeltas').resolves({ status: 'success', data: [delta('same', 500, 4), delta('moved', 503, 1)] });
+
+      await backfillPaymentPositions();
+
+      sinon.assert.calledOnceWithExactly(alignStoredMessagesWithPayments, [{
+        hash: 'hmoved', txid: 'moved', height: 503, value: 7,
+      }]);
+      sinon.assert.callOrder(bulkWriteInDatabase, alignStoredMessagesWithPayments);
+    });
+
+    it('moves no stored message when no height is corrected', async () => {
+      findInDatabase.resolves([{
+        hash: 'hsame', txid: 'same', height: 500, value: 5,
+      }]);
+      executeCall.withArgs('getaddressdeltas').resolves({ status: 'success', data: [delta('same', 500, 4)] });
+
+      await backfillPaymentPositions();
+
+      expect(writes()).to.deep.equal([['same', { txIndex: 4, height: 500 }]]);
+      sinon.assert.calledOnceWithExactly(alignStoredMessagesWithPayments, []);
     });
 
     it('marks a record whose transaction the chain does not hold as not on the chain', async () => {
