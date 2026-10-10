@@ -271,18 +271,14 @@ export function dbClient(nodeNum) {
     },
 
     async deletePermanentMessage(hash) {
-      const explorerDb = await db('explorer');
-      await explorerDb.collection('zelappsmessages').deleteOne({ hash });
+      const globalDb = await db('appsGlobal');
+      const result = await globalDb.collection('zelappsmessages').deleteOne({ hash });
+      if (result.deletedCount !== 1) throw new Error(`no permanent message for ${hash}`);
     },
 
     async deleteAppHash(hash) {
       const explorerDb = await db('explorer');
       await explorerDb.collection('zelappshashes').deleteOne({ hash });
-    },
-
-    async deleteAppSpec(name) {
-      const explorerDb = await db('explorer');
-      await explorerDb.collection('zelappsinformation').deleteOne({ name });
     },
 
     async writeHeartbeat({ lastAlive, shutdownReason, machineBootId }) {
