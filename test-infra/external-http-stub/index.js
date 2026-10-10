@@ -1134,15 +1134,18 @@ control.post('/dns-attempts/reset', (req, res) => {
 // { name, records: { A: <answer>, AAAA: <answer> } }, where an answer is an address of the
 // type's family, 'SERVFAIL', 'NXDOMAIN', 'NO_REPLY', or { answer, afterMs } to send that answer afterMs
 // after the query arrives. NO_REPLY leaves the query unanswered. A type left out is relayed
-// as any other query is.
+// as any other query is. `routes: { <route>: { A, AAAA } }` answers a query that came in on
+// that route with its own records instead.
 // Each query for a recorded type is counted - in `served` by type, and in `via` by the route
 // it came in on and type - so a suite can show the node asked the question it meant to fail,
 // and by which route, rather than only that it went on to succeed.
 const dnsRecords = new Map();
 
 control.post('/dns-records', (req, res) => {
-  const { name, records } = req.body;
-  dnsRecords.set(name.toLowerCase(), { records, served: {}, via: {} });
+  const { name, records, routes = {} } = req.body;
+  dnsRecords.set(name.toLowerCase(), {
+    records, routes, served: {}, via: {},
+  });
   res.json({ ok: true });
 });
 
@@ -1246,7 +1249,7 @@ function recordedAnswer(query, route) {
   const { name, type, end } = parseQuestion(query);
   const entry = dnsRecords.get(name.toLowerCase());
   const typeName = DNS_TYPES[type];
-  const record = entry && typeName ? entry.records[typeName] : undefined;
+  const record = entry && typeName ? (entry.routes[route] ?? entry.records)[typeName] : undefined;
   if (record === undefined) return null;
 
   entry.served[typeName] = (entry.served[typeName] ?? 0) + 1;

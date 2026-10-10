@@ -32,12 +32,13 @@
  * before A still yields the IPv4 addresses. Each query is one try of QUERY_TIMEOUT_MS.
  *
  * An answer that the name does not exist (NXDOMAIN) is an answer for every family: nothing
- * exists at the name (RFC 8020). Unless a family has addresses, a source that answers either
- * family's query so answers that the name does not exist, whatever the other family's query
- * returned, and the lookup ends there. When the family dialled first answers so, the other is
- * waited for RESOLUTION_DELAY_MS, as when it answers with addresses. When the other family
- * answers so, the first is still waited for: a server that answers AAAA queries NXDOMAIN for a
- * name that has IPv4 addresses (RFC 4074 section 4.2) still yields them.
+ * exists at the name (RFC 8020). Unless a family has addresses, a source whose A query is
+ * answered NXDOMAIN answers that the name does not exist, whatever its AAAA query returned, and
+ * the lookup ends there. An AAAA query answered NXDOMAIN counts only when the A query was
+ * answered too: some servers answer AAAA queries NXDOMAIN for names that exist (RFC 4074
+ * section 4.2), so one whose A query failed or went unanswered is judged as if its AAAA query
+ * had failed. An NXDOMAIN on the A query, dialled first, starts RESOLUTION_DELAY_MS as its
+ * addresses do; one on the AAAA query never does, so the A answer is always waited for.
  *
  * A system server that leaves a lookup's query for either family unanswered, and answers neither
  * with addresses nor that the name does not exist, is either down or
@@ -84,9 +85,12 @@
  *   A answered name does not exist, AAAA failed    the server's answers          ENOTFOUND
  *   A answered name does not exist, AAAA not       RESOLUTION_DELAY_MS           ENOTFOUND
  *   answered
- *   AAAA answered name does not exist, A failed    the A answer                  ENOTFOUND
- *   AAAA answered name does not exist, A not       a query wait, 1-2 s / 2 s     ENOTFOUND
- *   answered
+ *   AAAA answered name does not exist, A answered  the server's answers          ENOTFOUND
+ *   with no records
+ *   AAAA answered name does not exist, A failed    the server's answers, then    public's addresses
+ *                                                  the public servers
+ *   AAAA answered name does not exist, A not       a query wait, 1-2 s / 2 s,    public's addresses
+ *   answered                                       a probe, the public servers
  *   name a working system server does not answer   a query wait, 1 s / 3 s,      public's addresses
  *   within the query wait                          then the public servers
  *   name a system server answers SERVFAIL          the public servers' answer    public's addresses
@@ -171,7 +175,7 @@ let systemServers = new dns.promises.Resolver().getServers().map(systemServer);
  * @param {dns.promises.Resolver} resolver
  * @param {string} hostname
  * @param {4|6} family
- * @returns {Promise<{addresses: Array<{address: string, family: number}>, error: ?Error, failed: boolean, noReply: boolean, nameAbsent: boolean}>}
+ * @returns {Promise<{family: 4|6, addresses: Array<{address: string, family: number}>, error: ?Error, failed: boolean, noReply: boolean, nameAbsent: boolean}>}
  *   error: the query's error, null when it answered with addresses. failed: the query errored
  *   rather than being answered. noReply: the server did not answer. nameAbsent: the server
  *   answered that the name does not exist.
@@ -182,10 +186,11 @@ async function queryFamily(resolver, hostname, family) {
       ? await resolver.resolve4(hostname)
       : await resolver.resolve6(hostname);
     return {
-      addresses: addresses.map((address) => ({ address, family })), error: null, failed: false, noReply: false, nameAbsent: false,
+      family, addresses: addresses.map((address) => ({ address, family })), error: null, failed: false, noReply: false, nameAbsent: false,
     };
   } catch (error) {
     return {
+      family,
       addresses: [],
       error,
       failed: !NO_ADDRESS_CODES.has(error.code),
@@ -197,13 +202,13 @@ async function queryFamily(resolver, hostname, family) {
 
 /**
  * The families' results once every query has settled, or once RESOLUTION_DELAY_MS has passed
- * since the first family's query answered with addresses or that the name does not exist,
- * whichever is sooner. Only the first family's answer starts the delay: a later family that
- * answers first is held until the first family's query settles, so the addresses dialled first
- * are never dropped for being slow.
- * @param {Array<Promise<{addresses: Array<{address: string, family: number}>, nameAbsent: boolean}>>} queries
+ * since the first family's query answered with addresses, or since an A query dialled first
+ * answered that the name does not exist, whichever is sooner. Only the first family's answer
+ * starts the delay: a later family that answers first is held until the first family's query
+ * settles, so the addresses dialled first are never dropped for being slow.
+ * @param {Array<Promise<{family: 4|6, addresses: Array<{address: string, family: number}>, nameAbsent: boolean}>>} queries
  *   In the order the families' addresses are dialled.
- * @returns {Promise<Array<{addresses: Array<{address: string, family: number}>, nameAbsent: boolean}|null>>}
+ * @returns {Promise<Array<{family: 4|6, addresses: Array<{address: string, family: number}>, nameAbsent: boolean}|null>>}
  *   Index-aligned with queries; null for a query still unsettled when the delay ran out.
  */
 function settleWithResolutionDelay(queries) {
@@ -219,7 +224,7 @@ function settleWithResolutionDelay(queries) {
       results[index] = result;
       unsettled -= 1;
       if (!unsettled) finish();
-      else if (index === 0 && (result.addresses.length || result.nameAbsent)) delay = setTimeout(finish, RESOLUTION_DELAY_MS);
+      else if (index === 0 && (result.addresses.length || (result.nameAbsent && result.family === 4))) delay = setTimeout(finish, RESOLUTION_DELAY_MS);
     }));
   });
 }
@@ -230,17 +235,19 @@ function settleWithResolutionDelay(queries) {
  * @param {Array<4|6>} families In the order the addresses are returned.
  * @returns {Promise<{addresses: Array<{address: string, family: number}>, error: ?Error, failed: boolean, noReply: boolean}>}
  *   error: when there is no address, the error of a query answered that the name does not
- *   exist if any was, else of a query that errored if any did, else of the first family's query.
- *   failed: no address, no family's query answered that the name does not exist, and at least
- *   one family's query errored. noReply: as failed, and at least one family's query was not
- *   answered.
+ *   exist if one counts, else of a query that errored if any did, else of the first family's
+ *   query. An A answer that the name does not exist counts; an AAAA one counts when the A query
+ *   was answered. failed: no address, no answer that the name does not exist counts, and at
+ *   least one family's query errored. noReply: as failed, and at least one family's query was
+ *   not answered.
  */
 async function queryResolver(resolver, hostname, families) {
   const results = (await settleWithResolutionDelay(
     families.map((family) => queryFamily(resolver, hostname, family)),
   )).filter(Boolean);
   const addresses = results.flatMap((result) => result.addresses);
-  const absent = results.find((result) => result.nameAbsent);
+  const aAnswered = results.some((result) => result.family === 4 && !result.failed);
+  const absent = results.find((result) => result.nameAbsent && (result.family === 4 || aAnswered));
   if (addresses.length || absent) {
     return {
       addresses, error: addresses.length ? null : absent.error, failed: false, noReply: false,

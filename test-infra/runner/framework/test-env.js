@@ -1279,7 +1279,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
 
   // Names the fleet's resolver answers itself, set before any node starts so the first
   // lookup a node makes already meets them. Each entry is the stub's own /dns-records
-  // body: { name, records: { A: '<ipv4>' | 'SERVFAIL', AAAA: 'SERVFAIL' } }.
+  // body: { name, records: { A: '<ipv4>' | 'SERVFAIL', AAAA: 'SERVFAIL' }, routes }.
   for (const entry of dnsRecords) {
     const set = await fetch(`http://${EXTERNAL_STUB_IP}:3001/dns-records`, {
       method: 'POST',

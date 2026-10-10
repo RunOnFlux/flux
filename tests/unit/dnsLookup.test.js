@@ -8,6 +8,12 @@ const sinon = require('sinon');
 const proxyquire = require('proxyquire');
 
 const dnsLookup = require('../../ZelBack/src/services/utils/dnsLookup');
+const networkDefaults = require('../../ZelBack/src/services/utils/networkDefaults');
+
+// The module as a host that dials IPv6 first loads it.
+const dnsLookupIpv6First = proxyquire('../../ZelBack/src/services/utils/dnsLookup', {
+  './networkDefaults': { ...networkDefaults, DNS_RESULT_ORDER: 'ipv6first' },
+});
 
 // A hostname no real resolver answers for, so only the stubbed sources can resolve it.
 const HOSTNAME = 'flux-dns-lookup-test.invalid';
@@ -266,6 +272,19 @@ describe('dnsLookup tests', () => {
         await clock.tickAsync(999);
         expect(settled).to.equal(false);
         await clock.tickAsync(1);
+
+        expect(await lookup).to.deep.equal([{ address: '93.184.216.34', family: 4 }]);
+      });
+
+      it('should wait for the IPv4 addresses when the AAAA query is dialled first and says the name does not exist', async () => {
+        dnsLookupIpv6First.useSystemServers([SYSTEM]);
+        answers.system[6] = 'ENOTFOUND';
+        answers.system[4] = { afterMs: 1000, addresses: ['93.184.216.34'] };
+
+        const lookup = new Promise((resolve, reject) => {
+          dnsLookupIpv6First.lookup(HOSTNAME, { all: true }, (error, addresses) => (error ? reject(error) : resolve(addresses)));
+        });
+        await clock.tickAsync(1000);
 
         expect(await lookup).to.deep.equal([{ address: '93.184.216.34', family: 4 }]);
       });
@@ -707,19 +726,19 @@ describe('dnsLookup tests', () => {
       ['no such name', 'refused', 'ENOTFOUND', false],
       ['SERVFAIL', 'addresses', system6, false],
       ['SERVFAIL', 'no records', fromPublic, false],
-      ['SERVFAIL', 'no such name', 'ENOTFOUND', false],
+      ['SERVFAIL', 'no such name', fromPublic, false],
       ['SERVFAIL', 'SERVFAIL', fromPublic, false],
       ['SERVFAIL', 'no reply', fromPublic, true],
       ['SERVFAIL', 'refused', fromPublic, true],
       ['no reply', 'addresses', system6, false],
       ['no reply', 'no records', fromPublic, true],
-      ['no reply', 'no such name', 'ENOTFOUND', false],
+      ['no reply', 'no such name', fromPublic, true],
       ['no reply', 'SERVFAIL', fromPublic, true],
       ['no reply', 'no reply', fromPublic, true],
       ['no reply', 'refused', fromPublic, true],
       ['refused', 'addresses', system6, false],
       ['refused', 'no records', fromPublic, true],
-      ['refused', 'no such name', 'ENOTFOUND', false],
+      ['refused', 'no such name', fromPublic, true],
       ['refused', 'SERVFAIL', fromPublic, true],
       ['refused', 'no reply', fromPublic, true],
       ['refused', 'refused', fromPublic, true],
