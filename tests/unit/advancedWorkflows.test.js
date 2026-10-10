@@ -1997,7 +1997,6 @@ describe('advancedWorkflows tests', () => {
       const residentialNodeDosService = require('../../ZelBack/src/services/residentialNodeDosService');
       const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
       const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
-      const dockerService = require('../../ZelBack/src/services/dockerService');
 
       sinon.stub(generalService, 'checkSynced').resolves(true);
       sinon.stub(appUninstaller, 'removeAppLocally').resolves();
@@ -2010,7 +2009,8 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(evacuationSafety, 'canSafelyRemoveApp').resolves({
         safe: false, code: 'STAND_DOWN_REQUIRED', reason: 'stop the component first', standDown: [identifier],
       });
-      const stopStub = sinon.stub(dockerService, 'appDockerStop').resolves();
+      const stopStub = sinon.stub(appReconciler, 'setControllerDesiredAndWait').resolves(true);
+      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, indeterminate: false, running: false });
       sinon.stub(dbHelper, 'findInDatabase').resolves([{ name: appName, instances: 3 }]);
       // The give-up pass runs before electionFixture arms this, and a pass that
       // cannot learn its own address returns before it reaches the safety gate.
@@ -2031,6 +2031,55 @@ describe('advancedWorkflows tests', () => {
 
       expect(linesMatching(logInfo, 'standing down to be handed back')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    // A stand-down whose stop is not confirmed leaves the node a candidate: it still
+    // runs the component, and excluding it would leave the app with no electable holder.
+    it('keeps a component whose stand-down was not confirmed stopped in the election', async () => {
+      const appName = 'unconfirmedstandownapp';
+      const componentName = 'server';
+      const identifier = `${componentName}_${appName}`;
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+
+      const generalService = require('../../ZelBack/src/services/generalService');
+      const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      const evacuationSafety = require('../../ZelBack/src/services/appLifecycle/appEvacuationSafety');
+      const residentialNodeDosService = require('../../ZelBack/src/services/residentialNodeDosService');
+      const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+      const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+
+      sinon.stub(generalService, 'checkSynced').resolves(true);
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(registryManager, 'getApplicationGlobalSpecifications').resolves({ name: appName, version: 8 });
+      sinon.stub(appQueryService, 'listRunningApps').resolves({ status: 'success', data: [{ Names: [`/flux${identifier}`] }] });
+      sinon.stub(residentialNodeDosService, 'isEvacuating').returns(true);
+      sinon.stub(residentialNodeDosService, 'mayEvacuateApp').returns({ ok: true, reason: 'ready' });
+      sinon.stub(residentialNodeDosService, 'forgetAppObservation');
+      sinon.stub(residentialNodeDosService, 'noteEvacuated');
+      sinon.stub(evacuationSafety, 'canSafelyRemoveApp').resolves({
+        safe: false, code: 'STAND_DOWN_REQUIRED', reason: 'stop the component first', standDown: [identifier],
+      });
+      const stopStub = sinon.stub(appReconciler, 'setControllerDesiredAndWait').resolves(true);
+      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, indeterminate: false, running: true });
+      sinon.stub(dbHelper, 'findInDatabase').resolves([{ name: appName, instances: 3 }]);
+      // The give-up pass runs before electionFixture arms this, and a pass that
+      // cannot learn its own address returns before it reaches the safety gate.
+      fluxNetworkHelperStub.resolves('192.168.1.5:16127');
+      registryManagerStub.resolves([{ name: appName, ip: '192.168.1.5:16127', runningSince: '2026-01-01T00:00:00.000Z' }]);
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      sinon.assert.calledWith(stopStub, identifier);
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, [], { componentName });
+      serviceHelperStub.resolves({ data: [] });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'standing down to be handed back')).to.have.lengthOf(0);
     });
 
     it('seeds a confirmed leader even when a stagger was already scheduled for it', async () => {
@@ -7416,10 +7465,14 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
 
   describe('standing down to hand a g: app back', () => {
     const dockerService = require('../../ZelBack/src/services/dockerService');
+    const STOPPED = { reachable: true, indeterminate: false, running: false };
     let stopStub;
+    let actualStub;
 
     beforeEach(() => {
-      stopStub = sinon.stub(dockerService, 'appDockerStop').resolves();
+      // the reconciler's stop, which returns once its pass has run, then docker's word
+      stopStub = sinon.stub(appReconciler, 'setControllerDesiredAndWait').resolves(true);
+      actualStub = sinon.stub(appReconciler, 'dockerActual').resolves(STOPPED);
       residentialNodeDosService.isEvacuating.returns(true);
       registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
       evacuationSafety.canSafelyRemoveApp.resolves({
@@ -7433,24 +7486,21 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
     it('stops the component instead of removing the app', async () => {
       await advancedWorkflows.checkAndRemoveApplicationInstance();
 
-      sinon.assert.calledOnceWithExactly(stopStub, 'server_appone');
+      sinon.assert.calledOnceWithExactly(stopStub, 'server_appone', 'stopped', 'standing down to hand the app back');
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
     });
 
-    it('tells the controller the component should be stopped, not just docker', async () => {
-      // Found on a live fleet, not here. appReconciler takes a g: component's
-      // desired state from controllerDesired; stopping the container while that
-      // still reads 'running' means the reconciler starts it again on its next
-      // sweep. The stand-down then reports success, the component keeps running,
-      // and every later pass refuses with ELECTION_UNKNOWN because this node has
-      // excluded itself from the election that would refresh the verdict.
-      const desiredStub = sinon.stub(appReconciler, 'setControllerDesired');
+    // appReconciler takes a g: component's desired state from controllerDesired: a
+    // container stopped while that still reads 'running' is started again on the
+    // next pass, and the node, excluded from the election, never leaves.
+    it('stops it through the reconciler, never by stopping the container itself', async () => {
+      const directStop = sinon.stub(dockerService, 'appDockerStop').resolves();
 
       await advancedWorkflows.checkAndRemoveApplicationInstance();
 
-      sinon.assert.calledWith(desiredStub, 'server_appone', 'stopped');
-      // Before the container stop, so no sweep can land in between and undo it.
-      sinon.assert.callOrder(desiredStub, stopStub);
+      sinon.assert.calledOnce(stopStub);
+      sinon.assert.notCalled(directStop);
+      sinon.assert.callOrder(stopStub, actualStub);
     });
 
     it('does not count as a departure, so the pacing interval is not spent', async () => {
@@ -7538,7 +7588,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
     it('leaves a component it could not stop unmarked, so the next pass retries', async () => {
       // Marking a component this node is still writing to would make it
       // unelectable for something it is running - the worst of both states.
-      stopStub.rejects(new Error('docker unreachable'));
+      stopStub.rejects(new Error('lock store unreadable'));
 
       await advancedWorkflows.checkAndRemoveApplicationInstance();
       await advancedWorkflows.checkAndRemoveApplicationInstance();
@@ -7558,8 +7608,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       // Marking it there excludes this node from the election for a component it
       // is still running - precisely the state the guard's own comment says it
       // exists to avoid - for up to STAND_DOWN_PASSES_BEFORE_GIVING_UP passes.
-      sinon.stub(appReconciler, 'dockerActual')
-        .resolves({ reachable: true, indeterminate: false, running: true });
+      actualStub.resolves({ reachable: true, indeterminate: false, running: true });
       const logWarn = sinon.stub(log, 'warn');
 
       await advancedWorkflows.checkAndRemoveApplicationInstance();

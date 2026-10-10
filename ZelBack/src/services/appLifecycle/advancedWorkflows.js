@@ -4059,44 +4059,29 @@ async function checkAndRemoveApplicationInstance() {
         // this there would stop a container for a case that cannot arise.
         // eslint-disable-next-line no-restricted-syntax
         for (const identifier of safety.standDown) {
+          // Marked before anything changes, so an election pass that reaches the
+          // component from here on leaves it alone (masterSlaveApps), and unmarked
+          // unless it is confirmed stopped: a component this node still runs is
+          // one it must stay electable for, and the next pass tries again.
+          standingDown.set(identifier, 0);
           try {
-            // The controller's opinion FIRST, and it is not optional. For a g:
-            // component appReconciler reads its desired state from
-            // controllerDesired, so a container stopped while that still says
-            // 'running' is one the reconciler starts again on its next sweep:
-            // the stand-down reports success, the component keeps running, the
-            // election entry goes stale because this node has excluded itself,
-            // and every later pass refuses with ELECTION_UNKNOWN while the node
-            // never leaves. This is the same lever masterSlaveApps pulls to put
-            // a node into standby, which is what standing down makes this one.
-            appReconciler.setControllerDesired(identifier, 'stopped', 'standing down to hand the app back');
+            // The stop is the reconciler's, the container's only actuator, and
+            // returns once its pass has run. The folder keeps sending until the
+            // syncthing pass finds this node no longer holds the component and
+            // makes it receive scanned first (primaryRole.holdAsStandby), so what
+            // was written here before the stop reaches the peer that takes over.
             // eslint-disable-next-line no-await-in-loop
-            const stop = await appDockerStop(identifier);
-            // THE VERDICT, not the fact that the call returned. appDockerStop
-            // REPORTS a refusal rather than throwing one - it catches internally
-            // and answers { stopped, running, unavailable, errors }, where
-            // `stopped` is read back from docker rather than taken from the stop
-            // call. So the catch below can only fire on an unexpected throw, and
-            // marking here on the strength of having CALLED the stop marked a
-            // component that may still be up: docker refusing, or never becoming
-            // able to answer, both come back as stopped:false with no throw.
-            if (!stop || !stop.stopped) {
-              // Same reasoning as the catch, for the case that actually happens
-              // on a node. Unmarked, so the next pass tries again rather than
-              // this node excluding itself from the election for a component it
-              // is still running.
-              log.error(`${installedApp.name}: could not stand down ${identifier}: `
-                + `running=[${(stop?.running ?? []).join(', ')}] `
-                + `unavailable=${stop?.unavailable ?? 'unknown'} `
-                + `errors=[${(stop?.errors ?? []).join('; ')}]`);
+            await appReconciler.setControllerDesiredAndWait(identifier, 'stopped', 'standing down to hand the app back');
+            // eslint-disable-next-line no-await-in-loop
+            const actual = await appReconciler.dockerActual(identifier);
+            if (!actual.reachable || actual.indeterminate || actual.running) {
+              standingDown.delete(identifier);
+              log.error(`${installedApp.name}: could not stand down ${identifier}: it is not confirmed stopped`);
             } else {
-              standingDown.set(identifier, 0);
               log.warn(`${installedApp.name}: standing down as ${identifier}'s primary so the app can be handed back`);
             }
           } catch (error) {
-            // Left unmarked deliberately: a component this node failed to stop
-            // is one it is still writing to, and marking it would make the node
-            // unelectable for a component it is running. The next pass retries.
+            standingDown.delete(identifier);
             log.error(`${installedApp.name}: could not stand down ${identifier}: ${error.message}`);
           }
         }
