@@ -241,6 +241,9 @@ describe('2401 legacy node maintenance access', function suite() {
   }
 
   const DISTRO_SSHD_OFF = 'sshd | install ok installed | disabled | disabled | inactive | inactive';
+  // The state without the preset, which stays while a package operation holds
+  // dpkg's lock: after a failed install, FluxOS's apt queue repairs dpkg at once.
+  const withoutPreset = (state) => state.split(' | ').filter((part) => part !== 'preset').join(' | ');
 
   // The node's first fluxadm pass after afterId that was not deferred, whatever
   // its outcome.
@@ -412,9 +415,12 @@ describe('2401 legacy node maintenance access', function suite() {
     const client = env.clients[APT_FAILS];
     const pass = await anyPass(client, legacyStartedAfter.get(client));
     expect(pass, 'the install reports the failure').to.deep.equal({ outcome: 'failed', step: 'sshd' });
-    expect(await distroSshdState(client)).to.equal(DISTRO_SSHD_OFF);
+    expect(withoutPreset(await distroSshdState(client))).to.equal(DISTRO_SSHD_OFF);
     await repairDpkg(client);
+    const rebootedAfter = client.getLastEventId();
     const rebooted = await reboot(APT_FAILS);
+    // The first pass once dpkg is free releases the preset.
+    await anyPass(rebooted, rebootedAfter);
     expect(await distroSshdState(rebooted)).to.equal(DISTRO_SSHD_OFF);
     expect(await port22Listening(rebooted), 'nothing may listen on port 22 after a reboot').to.equal(false);
   });
@@ -459,10 +465,13 @@ describe('2401 legacy node maintenance access', function suite() {
     const client = env.clients[OWNER_REMOVED];
     const pass = await anyPass(client, legacyStartedAfter.get(client));
     expect(pass, 'the install reports the failure').to.deep.equal({ outcome: 'failed', step: 'sshd' });
-    expect(await distroSshdState(client)).to.equal(DISTRO_SSHD_OFF);
+    expect(withoutPreset(await distroSshdState(client))).to.equal(DISTRO_SSHD_OFF);
     expect(await port22Listening(client), 'nothing may listen on port 22').to.equal(false);
     await repairDpkg(client);
+    const rebootedAfter = client.getLastEventId();
     const rebooted = await reboot(OWNER_REMOVED);
+    // The first pass once dpkg is free releases the preset.
+    await anyPass(rebooted, rebootedAfter);
     expect(await distroSshdState(rebooted)).to.equal(DISTRO_SSHD_OFF);
     expect(await port22Listening(rebooted), 'nothing may listen on port 22 after a reboot').to.equal(false);
   });
