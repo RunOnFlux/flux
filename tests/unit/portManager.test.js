@@ -15,6 +15,7 @@ const fluxHttpTestServer = require('../../ZelBack/src/services/utils/fluxHttpTes
 const { requireMongo } = require('./dbTestHelper');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
+const globalState = require('../../ZelBack/src/services/utils/globalState');
 
 describe('portManager tests', () => {
   before(requireMongo);
@@ -614,6 +615,18 @@ describe('portManager tests', () => {
 
       // Should not throw
       await portManager.restoreAppsPortsSupport();
+    });
+
+    it('should neither map nor count a failure during a shutdown, so no removal finishes on the way out', async () => {
+      upnpService.isUPNP.returns(true);
+      sinon.stub(globalState, 'shutdownInProgress').get(() => true);
+      portManager.upnpMapFailures.set('App1', { cycles: 2, firstFailureAtMs: 0 });
+
+      await portManager.restoreAppsPortsSupport();
+
+      sinon.assert.notCalled(upnpService.mapUpnpPort);
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      expect(portManager.upnpMapFailures.get('App1').cycles).to.equal(2);
     });
 
     it('should NOT remove an app on a single UPNP mapping failure', async () => {

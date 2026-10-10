@@ -697,7 +697,8 @@ describe('appStartupManager tests', () => {
   });
 
   describe('mapping installed apps\' ports at boot', () => {
-    const KEEP = { machineRebooted: false, downtimeMs: 1000, cleanShutdown: true };
+    // the machine restarted, briefly enough that the apps keep their locations
+    const KEEP = { machineRebooted: true, downtimeMs: 1000, cleanShutdown: true };
     const SPECS = [{ name: 'web' }, { name: 'db' }];
 
     beforeEach(() => {
@@ -716,6 +717,19 @@ describe('appStartupManager tests', () => {
       const reconcileStart = logStub.info.getCalls().find((call) => /Starting boot reconciliation/.test(call.args[0]));
       expect(upnpServiceStub.mapUpnpPort.lastCall.calledBefore(reconcileStart), 'mapped before the reconcile began').to.equal(true);
       expect(upnpServiceStub.mapUpnpPort.firstCall.calledAfter(fluxNetworkHelperStub.allowAppPorts.firstCall)).to.equal(true);
+    });
+
+    it('maps them after a system-shutdown path that ended in a restart on the same boot', async () => {
+      await appStartupManager.manageAppsOnBoot({ ...KEEP, machineRebooted: false, cleanShutdown: true });
+
+      sinon.assert.callCount(upnpServiceStub.mapUpnpPort, 3);
+    });
+
+    it('maps nothing on a restart of FluxOS alone, whose mappings are still on the router', async () => {
+      await appStartupManager.manageAppsOnBoot({ ...KEEP, machineRebooted: false, cleanShutdown: false });
+
+      sinon.assert.notCalled(upnpServiceStub.mapUpnpPort);
+      expect(logStub.info.calledWithMatch(/node confirmed, reconciling/)).to.equal(true);
     });
 
     it('maps nothing on a node without UPnP', async () => {

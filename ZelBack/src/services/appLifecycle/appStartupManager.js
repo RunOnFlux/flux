@@ -121,8 +121,9 @@ async function openInstalledAppPorts() {
 
 /**
  * Maps every installed app's ports on the router, before the apps start. A
- * system shutdown releases the node's mappings, so after a reboot there are
- * none until this puts them back; the periodic restore would, but on a timer of
+ * system shutdown releases the node's mappings, and a router that restarted with
+ * the machine has lost them, so after a reboot there are none until this puts
+ * them back; the periodic restore would, but on a timer of
  * its own that the apps do not wait for. One attempt per port: a failure is
  * logged, the apps still start and the restore tries again.
  */
@@ -383,7 +384,13 @@ async function manageAppsOnBoot(bootContext) {
 
     log.info('appStartupManager - Daemon, DB, and node confirmed, reconciling apps');
     await openInstalledAppPorts();
-    await mapInstalledAppPorts();
+    // Only when the mappings can be gone: the machine restarted (its router may
+    // have too), or the last FluxOS took the system-shutdown path, which releases
+    // them - a shutdown it judged wrongly ends in a restart on the same boot. A
+    // restart of FluxOS alone leaves them in place, and each port mapped here
+    // holds the boot gate - and every route behind requireBootSettled - for
+    // another second.
+    if (bootContext.machineRebooted || bootContext.cleanShutdown) await mapInstalledAppPorts();
     await reconcileAppsOnBoot();
   } finally {
     globalState.bootContainerStateSettled = true;

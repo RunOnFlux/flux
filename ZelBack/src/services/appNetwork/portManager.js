@@ -15,6 +15,7 @@ const { localAppsInformation, globalAppsInformation } = require('../utils/appCon
 const appUtilities = require('../utils/appUtilities');
 const { Privilege, authOf } = require('../utils/privileges');
 const fluxCaching = require('../utils/cacheManager');
+const globalState = require('../utils/globalState');
 const fluxEventBus = require('../utils/fluxEventBus');
 const { nodeSigner } = require('../utils/nodeSigner');
 
@@ -280,6 +281,9 @@ async function restoreFluxPortsSupport() {
  * @returns {Promise<void>}
  */
 async function restoreAppsPortsSupport() {
+  // mapUpnpPort refuses during a shutdown, and a refusal counted as a failure
+  // could finish an app's removal - with its broadcast - on the way out
+  if (globalState.shutdownInProgress) return;
   try {
     const currentAppsPorts = await assignedPortsInstalledApps();
     const isUPNP = upnpService.isUPNP();
