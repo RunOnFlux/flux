@@ -9,7 +9,9 @@ import {
   waitFor, waitForReconcileActuated, waitForReconcilerDesiredChanged, waitForElectionDecisions, electionDecisionCount,
   assertNoEvent,
 } from '../framework/wait.js';
-import { setSynced, resetSyncState, injectSyncthingEvent } from '../framework/syncthing-control.js';
+import {
+  setSynced, resetSyncState, injectSyncthingEvent, getSyncthingState,
+} from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -22,7 +24,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //
 // The adoption is held at its checkpoint, after it has found no opinion recorded
 // and before those reads, while the volume under the component goes away and the
-// mount-safety block holds the container.
+// mount-safety block holds the container. Its folder, demoted to receive, is not
+// made to send again by the election while the volume is gone, and so the
+// component is not promoted over it either.
 
 const subnet = getSubnetConfig();
 const BEFORE_ADOPT = 'reconciler:beforeAdopt';
@@ -30,6 +34,13 @@ const BEFORE_ADOPT = 'reconciler:beforeAdopt';
 const appId = (name) => `flux${name}_${name}`;
 const appDir = (name) => `/mnt/appdata/flux-apps/${appId(name)}`;
 const volFile = (name) => `/mnt/appdata/${appId(name)}FLUXFSVOL`;
+
+// the folder type as the (stub) syncthing daemon has it configured for a node
+async function folderType(nodeIp, folderId) {
+  const state = await getSyncthingState();
+  const node = state.nodes.find((n) => n.ip === nodeIp);
+  return node?.folders?.find((f) => f.id === folderId)?.type ?? null;
+}
 
 async function isUp(client, appName) {
   const status = await getAppContainerStatus(client.container, appName);
@@ -108,5 +119,13 @@ describe('a safety stop outranks a verdict decided while it landed', function ()
     await waitFor(async () => !(await isUp(client, appName)), {
       timeout: 60000, interval: 2000, label: 'the primary over the broken volume is held stopped',
     });
+    // past several election passes, with the container stopped
+    for (let i = 0; i < 6; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      expect(await folderType(ip, folder), 'a folder over a directory with no volume mounted sends').to.equal('receiveonly');
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((resolve) => { setTimeout(resolve, 5000); });
+    }
+    await assertNoEvent(client, 'reconciler:desiredChanged', (d) => d.identifier === identifier && d.state === 'running', 1000, { afterId: beforeRelease });
   });
 });

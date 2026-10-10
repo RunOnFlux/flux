@@ -9,9 +9,15 @@ const globalState = require('../../ZelBack/src/services/utils/globalState');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
 const { OWNED_FOLDER_SETTINGS } = require('../../ZelBack/src/services/appMonitoring/syncthingMonitorHelpers');
+const volumeService = require('../../ZelBack/src/services/utils/volumeService');
 const syncthingFolderWrites = require('../../ZelBack/src/services/appMonitoring/syncthingFolderWrites');
 
+// Every app directory here has its volume mounted unless a test says otherwise.
+const mountEveryVolume = () => sinon.stub(volumeService, 'isPathMounted').resolves(true);
+
 describe('changeSyncthingFolderType', () => {
+  beforeEach(mountEveryVolume);
+
   afterEach(() => {
     sinon.restore();
   });
@@ -148,6 +154,8 @@ function heldWrite() {
 const tick = () => new Promise((resolve) => { setImmediate(resolve); });
 
 describe('syncthing folder writes', () => {
+  beforeEach(mountEveryVolume);
+
   let savedWritable;
 
   beforeEach(() => {
@@ -236,6 +244,8 @@ describe('syncthing folder writes', () => {
       expect(await change).to.equal(true);
       await next;
       sinon.assert.calledTwice(adjust);
+      // the cover the change began runs on this test's stubs, not the next test's
+      await syncthingFolderWrites.whenCovered('fluxprobe_app');
     });
 
     it('asks whether to abandon a type change once the folder is its turn, and writes nothing if so', async () => {
@@ -584,7 +594,69 @@ describe('syncthing folder writes', () => {
   });
 });
 
+// A folder sends what its directory holds; with no volume mounted there that is
+// nothing of the app's, and every file reads as deleted.
+describe('a folder whose volume is not mounted', () => {
+  beforeEach(mountEveryVolume);
+
+  const folder = 'fluxapp_app';
+  const path = `${appsFolder}${folder}`;
+  let adjust;
+
+  beforeEach(() => {
+    volumeService.isPathMounted.withArgs(path).resolves(false);
+    sinon.stub(syncthingService, 'getConfigFolders').resolves([{ id: folder, path, type: 'receiveonly' }]);
+    adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+  });
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  it('is not made to send', async () => {
+    expect(await syncthingFolderWrites.changeSyncthingFolderType(folder, 'sendreceive')).to.equal(false);
+    sinon.assert.notCalled(adjust);
+  });
+
+  it('is not kept sending when it already sends', async () => {
+    syncthingService.getConfigFolders.resolves([{ id: folder, path, type: 'sendreceive' }]);
+
+    expect(await syncthingFolderWrites.changeSyncthingFolderType(folder, 'sendreceive')).to.equal(false);
+  });
+
+  it('is still made to receive', async () => {
+    syncthingService.getConfigFolders.resolves([{ id: folder, path, type: 'sendreceive' }]);
+
+    expect(await syncthingFolderWrites.changeSyncthingFolderType(folder, 'receiveonly')).to.equal(true);
+    sinon.assert.calledWithMatch(adjust, 'patch', { type: 'receiveonly' }, folder);
+  });
+
+  it('refuses a patch that would make it send', async () => {
+    const response = await syncthingFolderWrites.patchFolder(folder, { type: 'sendreceive' });
+
+    expect(response.status).to.equal('error');
+    sinon.assert.notCalled(adjust);
+  });
+
+  it('refuses a whole-folder write that would make it send, writing nothing', async () => {
+    let error = null;
+    await syncthingFolderWrites.putFolders([{ id: folder, path, type: 'sendreceive' }]).catch((err) => { error = err; });
+
+    expect(error?.message).to.include(folder);
+    sinon.assert.notCalled(adjust);
+  });
+
+  it('is made to send once its volume is mounted', async () => {
+    volumeService.isPathMounted.withArgs(path).resolves(true);
+
+    expect(await syncthingFolderWrites.changeSyncthingFolderType(folder, 'sendreceive')).to.equal(true);
+    sinon.assert.calledWithMatch(adjust, 'patch', { type: 'sendreceive' }, folder);
+  });
+});
+
 describe('folderConfig', () => {
+  beforeEach(mountEveryVolume);
+
   afterEach(() => {
     sinon.restore();
   });
@@ -612,6 +684,8 @@ describe('folderConfig', () => {
 });
 
 describe('a planned shutdown', () => {
+  beforeEach(mountEveryVolume);
+
   let shuttingDown;
 
   beforeEach(() => {
@@ -671,6 +745,8 @@ describe('a planned shutdown', () => {
 });
 
 describe('pauseAllFolders', () => {
+  beforeEach(mountEveryVolume);
+
   afterEach(() => {
     sinon.restore();
   });
