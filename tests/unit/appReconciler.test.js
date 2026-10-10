@@ -727,6 +727,18 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
     });
 
+    // A recreate spans an image pull, during which the desired state can change: the
+    // container is created, not started, and the pass the recreate enqueues starts it.
+    it('creates a missing container without starting it', async () => {
+      stubs.dockerService.dockerContainerInspect.rejects(new Error('Container www_App not found'));
+      stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
+
+      await appReconciler.reconcile('www_App');
+
+      sinon.assert.calledOnceWithExactly(stubs.containerHealthMonitor.recreateMissingContainers, 'www_App', { start: false });
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
     it('recreates a container FluxOS removed itself without calling it tampering', async () => {
       // container_vanished is the heaviest tampering signal the node emits and
       // it means one thing: a container went away and FluxOS did not take it.
@@ -1714,7 +1726,7 @@ describe('appReconciler tests', () => {
       expect(stubs.appInspector.stopAppMonitoring.calledWith('www_App', true), 'stops the stats monitor before removing').to.be.true;
       expect(stubs.dockerService.appDockerForceRemove.calledWith('www_App', false), 'force-removes keeping bind-mounted data').to.be.true;
       expect(
-        stubs.containerHealthMonitor.recreateMissingContainers.calledOnceWith('www_App', { softOnly: true }),
+        stubs.containerHealthMonitor.recreateMissingContainers.calledOnceWith('www_App', { softOnly: true, start: false }),
         'the recreate must never be allowed to fall back to a hard install: that reformats the data volume',
       ).to.be.true;
       expect(stubs.appUninstaller.removeAppLocally.called, 'the heal must NEVER uninstall the app').to.be.false;

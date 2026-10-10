@@ -280,6 +280,23 @@ describe('appInstaller tests', () => {
       return { ensureStignoreCovers, ensureMountPathsExist };
     };
 
+    // A soft install the reconciler asks for creates the container and leaves the
+    // start to its next pass, which starts it against the desired state then.
+    [true, false].forEach((start) => {
+      it(`${start ? 'starts' : 'does not start'} a non-g: component when asked ${start ? 'to' : 'not to'}`, async () => {
+        const installer = softInstaller({ ensureMountPathsExist: sinon.stub().resolves() }, { ensureStignoreCovers: sinon.stub().resolves() });
+        const { appDockerStart } = baseStubs['../dockerService'];
+        appDockerStart.resetHistory();
+        const spec = {
+          name: 'web', repotag: 'a/b:1', containerData: 'r:/data', ports: [], domains: [], environmentParameters: [], commands: [],
+        };
+
+        await installer.installApplicationSoft(spec, 'myapp', true, null, { name: 'myapp', compose: [spec] }, { start });
+
+        expect(appDockerStart.calledWith('web_myapp'), 'the soft install reached its start step').to.equal(start);
+      });
+    });
+
     it('asserts the ignore policy before the directory is created', async () => {
       const { ensureStignoreCovers, ensureMountPathsExist } = await drive('r:/data|ml:cache:/cache');
 

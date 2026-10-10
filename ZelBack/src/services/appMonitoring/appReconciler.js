@@ -463,10 +463,13 @@ async function recreateMissing(identifier) {
     await appTamperingDetectionService.recordEvent(mainAppName, 'container_vanished', `Container ${identifier} missing, not found in Docker`);
   }
   try {
-    await containerHealthMonitor.recreateMissingContainers(identifier);
+    // Created, not started: the pass this enqueues starts it against the desired
+    // state as it is then, which a recreate of minutes may have changed.
+    await containerHealthMonitor.recreateMissingContainers(identifier, { start: false });
     appInspector.startAppMonitoring(identifier);
     log.info(`appReconciler - recreated missing container ${identifier}`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreated' });
+    enqueue(identifier);
     scheduleRetry(identifier, POST_START_VERIFY_MS); // verify it came up attached
   } catch (err) {
     // Removal must be justified by the state of the world NOW, not at
@@ -498,9 +501,8 @@ async function recreateMissing(identifier) {
  * Deliberately NOT recreateMissing: a failure here must not escalate to
  * uninstalling the whole app (the trigger is a transient host-networking
  * conflict, not tampering). On failure we just re-arm a retry; the next pass
- * paces it on the heal ladder. For a g: component recreateMissingContainers
- * creates but does not start - the normal reconcile flow starts it on a later
- * pass. The durable heal-removal flag is NOT cleared here: only seeing the
+ * paces it on the heal ladder. The container is created, not started: the pass
+ * this enqueues starts it against the desired state. The durable heal-removal flag is NOT cleared here: only seeing the
  * container back proves the heal worked.
  */
 async function recreateForNetworkHeal(identifier) {
@@ -509,10 +511,11 @@ async function recreateForNetworkHeal(identifier) {
     // softOnly: a hard install would REFORMAT the app's data volume (createAppVolume
     // fallocates + mke2fs). We removed a live container whose data was intact, so a
     // recreate that cannot verify the volume must fail and be retried - never wipe it.
-    await containerHealthMonitor.recreateMissingContainers(identifier, { softOnly: true });
+    await containerHealthMonitor.recreateMissingContainers(identifier, { softOnly: true, start: false });
     appInspector.startAppMonitoring(identifier);
     log.info(`appReconciler - recreated ${identifier} to clear a detached network endpoint`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreated', reason: 'networkDetached' });
+    enqueue(identifier);
     scheduleRetry(identifier, POST_START_VERIFY_MS); // verify it came up attached
   } catch (err) {
     // Same diagnostics the vanished path emits - minus the uninstall escalation.
