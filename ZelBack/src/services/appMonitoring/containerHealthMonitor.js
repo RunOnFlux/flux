@@ -20,11 +20,14 @@ const { verifyAppVolumeMount } = require('../utils/volumeService');
  * the user's data. Such callers pass softOnly and get a throw instead, so they
  * can retry rather than reformat.
  *
+ * start: false creates a soft-installed container without starting it, for the
+ * reconciler, whose next pass starts it against the component's desired state.
+ *
  * @param {string} componentIdentifier
- * @param {{softOnly?: boolean}} [options]
+ * @param {{softOnly?: boolean, start?: boolean}} [options]
  */
 async function recreateMissingContainers(componentIdentifier, options = {}) {
-  const { softOnly = false } = options;
+  const { softOnly = false, start = true } = options;
   const mainAppName = componentIdentifier.split('_')[1] || componentIdentifier;
   const dbopen = dbHelper.databaseConnection();
   const appsDatabase = dbopen.db(config.database.appslocal.database);
@@ -78,7 +81,7 @@ async function recreateMissingContainers(componentIdentifier, options = {}) {
       // volume not mounted
     }
     if (volumeMounted) {
-      await appInstaller.installApplicationSoft(componentSpec, mainAppName, true, null, appSpec);
+      await appInstaller.installApplicationSoft(componentSpec, mainAppName, true, null, appSpec, { start });
     } else {
       if (softOnly) {
         throw new Error(`Cannot recreate ${componentIdentifier} without reformatting its volume: the data volume for ${mainAppName} could not be verified as mounted`);
@@ -102,7 +105,7 @@ async function recreateMissingContainers(componentIdentifier, options = {}) {
       }
       if (volumeMounted) {
         // eslint-disable-next-line no-await-in-loop
-        await appInstaller.installApplicationSoft(componentSpec, mainAppName, true, null, appSpec);
+        await appInstaller.installApplicationSoft(componentSpec, mainAppName, true, null, appSpec, { start });
       } else {
         if (softOnly) {
           throw new Error(`Cannot recreate ${componentIdentifier} without reformatting its volume: the data volume for ${mainAppName} could not be verified as mounted`);
