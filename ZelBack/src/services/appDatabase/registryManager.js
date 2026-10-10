@@ -29,8 +29,11 @@ const {
   scannedHeightCollection,
 } = require('../utils/appConstants');
 const { Privilege, authOf } = require('../utils/privileges');
+const localRemovalQueue = require('../appLifecycle/localRemovalQueue');
 
-let reindexRunning = false;
+// The rebuild running now, and the one that follows it for every caller that asked after it began.
+let rebuildRunning = null;
+let rebuildFollowing = null;
 
 /**
  * The state of this node's app registry: the app sync state, the height its
@@ -1564,20 +1567,11 @@ async function expireGlobalApplications() {
       });
     }
     const appsToRemoveNames = appsToRemove.map((app) => app.name);
-
-    // remove appsToRemoveNames apps from locally running
-    // Use dynamic require to avoid circular dependency
-    // eslint-disable-next-line global-require
-    const appUninstaller = require('../appLifecycle/appUninstaller');
-    // eslint-disable-next-line no-restricted-syntax
-    for (const appName of appsToRemoveNames) {
+    appsToRemoveNames.forEach((appName) => {
       log.warn(`Application ${appName} is expired, removing`);
       log.warn(`REMOVAL REASON: App expired - ${appName} reached expiration date (registryManager)`);
-      // eslint-disable-next-line no-await-in-loop
-      await appUninstaller.removeAppLocally(appName, null, true, false, true);
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(1 * 60 * 1000); // wait for 1 min
-    }
+    });
+    localRemovalQueue.queueRemovals(appsToRemoveNames);
   } catch (error) {
     log.error(error);
   }
@@ -1653,74 +1647,87 @@ async function storeAppSpecificationInForce(appSpecs) {
   });
 }
 
-/**
- * Rebuild the global apps information collection from messages collection.
- *
- * Wrapper around dbHelper.reindexGlobalAppsInformation. Rebuilds the
- * globalAppsInformation collection from appsMessages via aggregation,
- * then removes any locally installed apps that are no longer in the
- * global spec set (expired).
- *
- * @returns {Promise<boolean>} True on success
- */
-async function reindexGlobalAppsInformation() {
+async function rebuildRegistry() {
+  log.info('Reindexing global application list');
+
+  const db = dbHelper.databaseConnection();
+  const appsGlobalDb = db.db(config.database.appsglobal.database);
+  const appsLocalDb = db.db(config.database.appslocal.database);
+  const daemonDb = db.db(config.database.daemon.database);
+
+  const scannedHeightResult = await dbHelper.findOneInDatabase(
+    daemonDb,
+    scannedHeightCollection,
+    { generalScannedHeight: { $gte: 0 } },
+    { projection: { _id: 0, generalScannedHeight: 1 } },
+  );
+  if (!scannedHeightResult) {
+    throw new Error('Scanning not initiated');
+  }
+  const scannedHeight = serviceHelper.ensureNumber(
+    scannedHeightResult.generalScannedHeight,
+  );
+
+  const appsToRemove = await dbHelper.reindexGlobalAppsInformation(
+    appsGlobalDb,
+    appsLocalDb,
+    globalAppsMessages,
+    globalAppsInformation,
+    localAppsInformation,
+    scannedHeight,
+    daemonDb,
+  );
+
+  log.info('Reindexing of global application list finished.');
+
+  appsToRemove.forEach((appName) => {
+    log.warn(`Application ${appName} is expired, removing`);
+    log.warn(`REMOVAL REASON: App expired - ${appName} reached expiration date (reindex)`);
+  });
+  localRemovalQueue.queueRemovals(appsToRemove);
+}
+
+async function runRebuild() {
   try {
-    if (reindexRunning) {
-      return 'Previous app reindex not yet finished. Skipping.';
-    }
-    reindexRunning = true;
-    log.info('Reindexing global application list');
-
-    const db = dbHelper.databaseConnection();
-    const appsGlobalDb = db.db(config.database.appsglobal.database);
-    const appsLocalDb = db.db(config.database.appslocal.database);
-    const daemonDb = db.db(config.database.daemon.database);
-
-    const scannedHeightResult = await dbHelper.findOneInDatabase(
-      daemonDb,
-      scannedHeightCollection,
-      { generalScannedHeight: { $gte: 0 } },
-      { projection: { _id: 0, generalScannedHeight: 1 } },
-    );
-    if (!scannedHeightResult) {
-      throw new Error('Scanning not initiated');
-    }
-    const scannedHeight = serviceHelper.ensureNumber(
-      scannedHeightResult.generalScannedHeight,
-    );
-
-    const appsToRemove = await dbHelper.reindexGlobalAppsInformation(
-      appsGlobalDb,
-      appsLocalDb,
-      globalAppsMessages,
-      globalAppsInformation,
-      localAppsInformation,
-      scannedHeight,
-      daemonDb,
-    );
-
-    log.info('Reindexing of global application list finished.');
-
-    if (appsToRemove.length) {
-      // eslint-disable-next-line global-require
-      const appUninstaller = require('../appLifecycle/appUninstaller');
-      for (const appName of appsToRemove) {
-        log.warn(`Application ${appName} is expired, removing`);
-        log.warn(`REMOVAL REASON: App expired - ${appName} reached expiration date (reindex)`);
-        // eslint-disable-next-line no-await-in-loop
-        await appUninstaller.removeAppLocally(appName, null, true, false, true);
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(60_000);
-      }
-    }
-
-    return true;
+    await rebuildRegistry();
   } catch (error) {
     log.error(error);
     throw error;
   } finally {
-    reindexRunning = false;
+    rebuildRunning = null;
   }
+}
+
+async function rebuildAfter(running) {
+  try {
+    await running;
+  } catch {
+    // the rebuild that follows reads the log afresh, whatever this one did
+  }
+  rebuildFollowing = null;
+  // eslint-disable-next-line no-use-before-define
+  return reindexGlobalAppsInformation();
+}
+
+/**
+ * Rebuild the global apps information collection from the message log, and queue the removal of
+ * every installed app it no longer lists (localRemovalQueue).
+ *
+ * Resolves once a rebuild that began after this call has swapped the registry in, without
+ * waiting for the removals. A call made while a rebuild runs is answered by one more rebuild after
+ * it, which every such call shares, so a message stored after the running rebuild read the log is
+ * in the registry this call resolves with.
+ *
+ * @returns {Promise<true>}
+ */
+async function reindexGlobalAppsInformation() {
+  if (!rebuildRunning) {
+    rebuildRunning = runRebuild();
+    await rebuildRunning;
+    return true;
+  }
+  if (!rebuildFollowing) rebuildFollowing = rebuildAfter(rebuildRunning);
+  return rebuildFollowing;
 }
 
 /**
@@ -2101,9 +2108,7 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
   // Rebuilt from the whole message log by the same rule as the reindex: an app not updated since
   // the requested height is still in force, so a partial replay would lose it.
   log.info(`rescanGlobalAppsInformation - rebuilding from the full message log (requested from ${height}, removeLastInformation ${removeLastInformation})`);
-  // eslint-disable-next-line no-use-before-define
-  const result = await reindexGlobalAppsInformation();
-  if (result !== true) throw new Error(result || 'Rescan could not run');
+  await reindexGlobalAppsInformation();
   return true;
 }
 

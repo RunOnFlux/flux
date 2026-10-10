@@ -1,11 +1,18 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { nodeKey } from '../framework/keys.js';
-import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
+import { nodeKey, fluxTeamKey } from '../framework/keys.js';
+import { authenticate } from '../auth.js';
+import { buildAppSpec, registerApp, registerAndConfirm } from '../framework/app-helper.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
-import { restartFluxos } from '../framework/container.js';
-import { waitFor } from '../framework/wait.js';
+import {
+  crashFluxos, getAppContainerStatus, releaseFluxos, restartFluxos,
+} from '../framework/container.js';
+import {
+  advanceBlock, getState, queueAppTx, startTicker, stopTicker,
+} from '../framework/daemon-control.js';
+import { dbClient } from '../framework/db-client.js';
+import { waitFor, waitForInstallSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // A restarting node rebuilds its application registry once its boot hash sync
@@ -103,5 +110,110 @@ describe('registry and location reads wait for their store after a restart', fun
     const r = await read('/apps/globalappsspecifications');
     expect(r.success).to.equal(true);
     expect(appNames.every((n) => r.names.includes(n))).to.equal(true);
+  });
+
+  // Two apps installed on the restarted node end their term while it is down. Its boot rebuild
+  // no longer lists them and queues their removal, and the registry stands from the rebuild's
+  // swap: its routes answer while the second app is still installed, as removals run 5 s apart.
+  describe('apps that ended while the node was down', function () {
+    // An app's term, in blocks: the spawner leaves an app with under newMinBlocksAllowance (100)
+    // blocks left alone, so these run only where they are installed by hand.
+    const TERM = 24;
+    const stamp = Date.now();
+    const endedNames = [`e2eregistryended0${stamp}`, `e2eregistryended1${stamp}`];
+    const node = () => env.clients[RESTARTED];
+    const others = () => env.clients.map((c, i) => i).filter((i) => i !== RESTARTED);
+    const installed = async (name) => (await getAppContainerStatus(node().container, name, { all: true })) !== null;
+    let endHeight;
+
+    // Mines one block at a time until every other node has processed the given height.
+    const mineTo = async (height) => {
+      const processed = async () => {
+        const heights = await Promise.all(others().map((i) => dbClient(i + 1).explorerHeight()));
+        return heights.every((h) => h >= height);
+      };
+      while (!await processed()) {
+        // eslint-disable-next-line no-await-in-loop
+        if ((await getState()).currentHeight < height) await advanceBlock();
+        // eslint-disable-next-line no-await-in-loop
+        await waitFor(async () => {
+          const { currentHeight } = await getState();
+          const heights = await Promise.all(others().map((i) => dbClient(i + 1).explorerHeight()));
+          return heights.every((h) => h >= Math.min(currentHeight, height));
+        }, { timeout: 150000, interval: 1000, label: `every other node processes block ${height}` });
+      }
+    };
+
+    before(async function () {
+      this.timeout(900000);
+      await stopTicker();
+      const hashes = [];
+      for (const name of endedNames) {
+        // eslint-disable-next-line no-await-in-loop
+        const result = await registerApp(node().url, nodeKey(1), buildAppSpec({ name, instances: 1, expire: TERM }), 'fluxappregister');
+        expect(result.status, JSON.stringify(result)).to.equal('success');
+        hashes.push(result.data);
+      }
+      await waitFor(async () => {
+        const held = await Promise.all(env.clients.flatMap((c) => hashes.map(async (h) => (await c.getTempMessages(h)).data?.length > 0)));
+        return held.every(Boolean);
+      }, { timeout: 30000, interval: 2000, label: 'both registrations relayed to every node' });
+      await Promise.all(hashes.map((h) => queueAppTx(h)));
+      await advanceBlock();
+      await waitFor(async () => {
+        const specs = await Promise.all(endedNames.map((n) => dbClient(RESTARTED + 1).globalAppSpec(n)));
+        return specs.every((spec) => spec?.height);
+      }, { timeout: 150000, interval: 1000, label: 'both apps registered on the restarted node' });
+      const specs = await Promise.all(endedNames.map((n) => dbClient(RESTARTED + 1).globalAppSpec(n)));
+      endHeight = Math.max(...specs.map((spec) => spec.height + TERM));
+
+      const auth = await authenticate(node().url, fluxTeamKey());
+      for (const name of endedNames) {
+        const mark = node().getLastEventId();
+        // eslint-disable-next-line no-await-in-loop
+        await node().installAppLocally(name, auth.zelidauth);
+        // eslint-disable-next-line no-await-in-loop
+        await waitForInstallSettled(node(), name, 120000, { afterId: mark });
+      }
+      // Canary: both are installed here before the node goes down, so their presence after it
+      // returns is this install, not an absence the probe cannot see.
+      expect(await Promise.all(endedNames.map(installed))).to.deep.equal([true, true]);
+
+      await crashFluxos(node().container, { hold: true });
+      await mineTo(endHeight + 1);
+      // the rest of the fleet no longer lists them
+      const listedElsewhere = await Promise.all(others().flatMap((i) => endedNames.map((n) => dbClient(i + 1).globalAppSpec(n))));
+      expect(listedElsewhere.filter(Boolean)).to.deep.equal([]);
+    });
+
+    after(async function () {
+      this.timeout(120000);
+      await releaseFluxos(node().container).catch(() => {});
+      await startTicker();
+    });
+
+    it('answers the whole registry while an app it no longer lists is still installed', async function () {
+      this.timeout(420000);
+      await releaseFluxos(node().container);
+
+      let answered = null;
+      await waitFor(async () => {
+        const r = await read('/apps/globalappsspecifications');
+        if (!r.success) return false;
+        // read after the answer: installed now means installed when it answered
+        answered = { ...r, stillInstalled: await Promise.all(endedNames.map(installed)) };
+        return true;
+      }, { timeout: 360000, interval: POLL_MS, label: 'the restarted node\'s registry answering 200' });
+
+      expect(appNames.every((n) => answered.names.includes(n)), `the answer listed ${answered.listed} apps`).to.equal(true);
+      expect(endedNames.filter((n) => answered.names.includes(n)), 'an ended app listed').to.deep.equal([]);
+      expect(answered.stillInstalled.some(Boolean), 'the registry answered only once every ended app was removed').to.equal(true);
+    });
+
+    it('removes both ended apps from the restarted node', async function () {
+      this.timeout(300000);
+      await waitFor(async () => (await Promise.all(endedNames.map(installed))).every((present) => !present),
+        { timeout: 240000, interval: 2000, label: 'both ended apps removed from the restarted node' });
+    });
   });
 });
