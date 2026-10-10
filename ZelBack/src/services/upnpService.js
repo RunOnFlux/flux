@@ -8,6 +8,7 @@ const verificationHelper = require('./verificationHelper');
 const log = require('../lib/log');
 const ufw = require('./utils/ufw');
 const fluxadmPort = require('./fluxadmPort');
+const globalState = require('./utils/globalState');
 const { Privilege, authOf } = require('./utils/privileges');
 
 const client = new natUpnp.Client();
@@ -218,6 +219,8 @@ async function reconcileFluxadmMapping(apiport) {
  * @returns {Promise<boolean>} True if port mappings can be set. Otherwise false.
  */
 async function setupUPNP(apiport = config.server.apiport) {
+  // a shutdown has released this node's mappings, and nothing may put them back
+  if (globalState.shutdownInProgress) return false;
   try {
     await client.createMapping({
       public: +apiport,
@@ -271,6 +274,8 @@ async function setupUPNP(apiport = config.server.apiport) {
  * @returns {Promise<boolean>} True if port mappings can be created for both TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) protocols. Otherwise false.
  */
 async function mapUpnpPort(port, description) {
+  // a shutdown has released this node's mappings, and nothing may put them back
+  if (globalState.shutdownInProgress) return false;
   try {
     await client.createMapping({
       public: port,
@@ -419,6 +424,93 @@ async function removeStaleMappings(heldPorts) {
   } finally {
     sweeping = false;
   }
+}
+
+/**
+ * Settles with `work`, or once `deadline` (monotonic ms) has passed, whichever
+ * comes first. A router that stops answering leaves its call behind: the
+ * caller is on its way out.
+ * @param {Promise<void>} work
+ * @param {number} deadline
+ * @returns {Promise<void>}
+ */
+async function settleBefore(work, deadline) {
+  let timer;
+  const expired = new Promise((resolve) => { timer = setTimeout(resolve, Math.max(0, deadline - monotonicMs())); });
+  try {
+    await Promise.race([work.catch((error) => log.warn(`UPnP - mappings not released: ${error.message}`)), expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Removes the given mappings, one after the other, until `deadline` passes.
+ * @param {object[]} mappings as getMappings lists them
+ * @param {number} deadline monotonic ms
+ * @param {{removed: number}} tally counted as each one goes, so a deadline
+ *   that cuts the work short still reports what was done
+ * @returns {Promise<void>}
+ */
+async function removeMappingsBefore(mappings, deadline, tally) {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const mapping of mappings) {
+    if (monotonicMs() >= deadline) return;
+    const { host, port } = mapping.public;
+    const protocol = mapping.protocol.toUpperCase();
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await client.removeMapping({ public: { host, port }, protocol });
+      // eslint-disable-next-line no-param-reassign
+      tally.removed += 1;
+    } catch (error) {
+      log.warn(`UPnP - mapping ${protocol} ${port} (${mapping.description}) not released: ${error.message}`);
+    }
+  }
+}
+
+/**
+ * On a system shutdown or reboot: removes every mapping to this node that this
+ * code made, the app containers being stopped already. A node that never comes
+ * back would otherwise leave them on the router for good, and one that comes
+ * back on another address finds them in the way of its own - neither of which
+ * the sweep can reach. Mappings on `holdPorts` are left and handed back, for a
+ * service still at work to be released with removeMappingsWithin once done.
+ *
+ * Never rejects, and settles within `timeoutMs` whatever the router does.
+ * @param {number[]} holdPorts
+ * @param {number} timeoutMs
+ * @returns {Promise<{removed: number, held: object[]}>}
+ */
+async function releaseOwnMappings(holdPorts, timeoutMs) {
+  const deadline = monotonicMs() + timeoutMs;
+  const hold = new Set(holdPorts.map(Number));
+  const result = { removed: 0, held: [] };
+  const work = (async () => {
+    const mappings = await client.getMappings({ local: true });
+    const ours = mappings.filter((mapping) => mapping.local
+      && Number.isInteger(mapping.public && mapping.public.port)
+      && isOwnedMappingDescription(mapping.description));
+    result.held = ours.filter((mapping) => hold.has(mapping.public.port));
+    await removeMappingsBefore(ours.filter((mapping) => !hold.has(mapping.public.port)), deadline, result);
+  })();
+  await settleBefore(work, deadline);
+  log.info(`UPnP - ${result.removed} mapping(s) released for the shutdown`);
+  return result;
+}
+
+/**
+ * Removes the given mappings within `timeoutMs`. Never rejects.
+ * @param {object[]} mappings as releaseOwnMappings hands them back
+ * @param {number} timeoutMs
+ * @returns {Promise<number>} how many were removed
+ */
+async function removeMappingsWithin(mappings, timeoutMs) {
+  if (!mappings.length) return 0;
+  const deadline = monotonicMs() + timeoutMs;
+  const tally = { removed: 0 };
+  await settleBefore(removeMappingsBefore(mappings, deadline, tally), deadline);
+  return tally.removed;
 }
 
 /**
@@ -597,6 +689,8 @@ module.exports = {
   removeMapUpnpPort,
   corePorts,
   removeStaleMappings,
+  releaseOwnMappings,
+  removeMappingsWithin,
   staleMappingsSeen,
   recentlyMapped,
   mapPortApi,

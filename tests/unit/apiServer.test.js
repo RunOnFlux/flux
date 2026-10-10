@@ -699,6 +699,64 @@ describe('handleSigterm drains syncthing folders before it exits', () => {
     sinon.assert.calledOnce(exitStub);
   });
 
+  describe('releasing the router\'s UPnP mappings', () => {
+    let releaseStub;
+    let removeWithinStub;
+    const syncthing = { public: { host: '', port: 16129 }, protocol: 'tcp', description: 'Flux_Syncthing' };
+
+    beforeEach(() => {
+      sinon.stub(upnpService, 'isUPNP').returns(true);
+      releaseStub = sinon.stub(upnpService, 'releaseOwnMappings').resolves({ removed: 3, held: [syncthing] });
+      removeWithinStub = sinon.stub(upnpService, 'removeMappingsWithin').resolves(1);
+    });
+
+    it('releases them once the containers are stopped, beside the drain, holding syncthing\'s', async () => {
+      await apiServer.handleSigterm();
+
+      sinon.assert.calledOnce(releaseStub);
+      expect(releaseStub.firstCall.callId).to.be.greaterThan(stopStub.lastCall.callId);
+      expect(releaseStub.firstCall.callId, 'started before the drain, not after it').to.be.lessThan(drainStub.firstCall.callId);
+      expect(releaseStub.firstCall.args[0]).to.deep.equal([16129, 16129]);
+      expect(releaseStub.firstCall.args[1]).to.equal(15000);
+    });
+
+    it('releases syncthing\'s once the folders are paused, before exiting', async () => {
+      await apiServer.handleSigterm();
+
+      sinon.assert.calledOnceWithExactly(removeWithinStub, [syncthing], 1000);
+      expect(removeWithinStub.firstCall.callId).to.be.greaterThan(syncthingFolderWrites.pauseAllFolders.firstCall.callId);
+      expect(exitStub.firstCall.callId).to.be.greaterThan(removeWithinStub.firstCall.callId);
+    });
+
+    it('gives the release no more than what is left of the stop budget', async () => {
+      const now = sinon.stub(performance, 'now').returns(1000);
+      stopStub.callsFake(async () => { now.returns(1000 + PM2_KILL_TIMEOUT_MS - 5000 - 4000); });
+
+      await apiServer.handleSigterm();
+
+      expect(releaseStub.firstCall.args[1]).to.equal(4000);
+    });
+
+    it('releases nothing on a node without UPnP', async () => {
+      upnpService.isUPNP.returns(false);
+
+      await apiServer.handleSigterm();
+
+      sinon.assert.notCalled(releaseStub);
+      sinon.assert.calledOnceWithExactly(removeWithinStub, [], 1000);
+      sinon.assert.calledWith(exitStub, 0);
+    });
+
+    it('releases nothing on a restart of the service alone', async () => {
+      fs.existsSync.callsFake(() => false);
+      serviceHelper.runCommand.resolves({ stdout: '', error: null });
+
+      await apiServer.handleSigterm();
+
+      expect(exitStub.firstCall.callId).to.be.lessThan(releaseStub.firstCall?.callId ?? Infinity);
+    });
+  });
+
   describe('pausing every folder', () => {
     let pauseStub;
 

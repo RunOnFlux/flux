@@ -47,6 +47,11 @@ const SHUTDOWN_EXIT_MS = 5000;
 const SHUTDOWN_BUDGET_MS = PM2_KILL_TIMEOUT_MS - SHUTDOWN_EXIT_MS;
 // How much of SHUTDOWN_EXIT_MS pausing the folders may take.
 const SHUTDOWN_PAUSE_MS = 3000;
+// How long releasing the router's UPnP mappings may take, beside the drain.
+const SHUTDOWN_UPNP_RELEASE_MS = 15000;
+// How much of SHUTDOWN_EXIT_MS releasing syncthing's mapping may take, once the
+// folders are paused; it runs beside the wait for the broadcast.
+const SHUTDOWN_UPNP_SYNCTHING_MS = 1000;
 const verifyPool = require('./ZelBack/src/services/utils/verifyPool');
 
 const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
@@ -391,9 +396,9 @@ async function pauseFoldersForShutdown() {
 
 /**
  * Stops FluxOS. On a system shutdown or reboot it announces the shutdown to its
- * peers, stops the app containers, drains every sendreceive folder to the
- * connected peers and pauses every folder before exiting; on a restart of the
- * service alone it exits at once.
+ * peers, stops the app containers, releases the router's UPnP mappings to this
+ * node, drains every sendreceive folder to the connected peers and pauses every
+ * folder before exiting; on a restart of the service alone it exits at once.
  */
 async function shutDown() {
   const deadline = performance.now() + SHUTDOWN_BUDGET_MS;
@@ -461,6 +466,15 @@ async function shutDown() {
   await stopFluxAppContainers();
   await stopFluxAppContainers();
 
+  // With the containers stopped the router's mappings to this node serve
+  // nothing, and a node that never comes back - or comes back on another
+  // address - would leave them behind for good. Released beside the drain;
+  // syncthing's is held until the drain and the pause are over.
+  const syncthingPorts = [+apiPort + 2, +(globalThis.userconfig.initial.apiport || config.server.apiport) + 2];
+  const upnpReleased = upnpService.isUPNP()
+    ? upnpService.releaseOwnMappings(syncthingPorts, Math.max(0, Math.min(SHUTDOWN_UPNP_RELEASE_MS, deadline - performance.now())))
+    : Promise.resolve({ removed: 0, held: [] });
+
   // The peers can only take over from what they hold, and syncthing is stopped
   // right after this process exits. The drain has what is left of the budget
   // once the containers are stopped.
@@ -480,8 +494,12 @@ async function shutDown() {
   // sends nothing until the election has decided who holds each folder.
   await pauseFoldersForShutdown();
 
+  const { held } = await upnpReleased;
   // Give some time for the broadcast to complete
-  await serviceHelper.delay(1000);
+  await Promise.all([
+    serviceHelper.delay(1000),
+    upnpService.removeMappingsWithin(held, SHUTDOWN_UPNP_SYNCTHING_MS),
+  ]);
 
   verifyPool.stop();
   log.info('Graceful shutdown complete, exiting...');
