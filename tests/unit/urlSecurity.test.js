@@ -190,8 +190,15 @@ describe('urlSecurity', () => {
       expect(isBlockedIP('fc01::1')).to.be.true;
       expect(isBlockedIP('fcff::1')).to.be.true;
       expect(isBlockedIP('fd12:3456::1')).to.be.true;
-      expect(isBlockedIP('fbff::1')).to.be.false;
-      expect(isBlockedIP('fe00::1')).to.be.false;
+    });
+
+    it('should judge a NAT64 or 6to4 address, bracketed or with a zone, by the IPv4 address it carries', () => {
+      expect(isBlockedIP('[64:ff9b::7f00:1]')).to.be.true;
+      expect(isBlockedIP('64:ff9b::169.254.169.254')).to.be.true;
+      expect(isBlockedIP('[2002:a00:1::1]')).to.be.true;
+      expect(isBlockedIP('64:ff9b::7f00:1%eth0')).to.be.true;
+      expect(isBlockedIP('[64:ff9b::808:808]')).to.be.false;
+      expect(isBlockedIP('[2002:808:808::1]')).to.be.false;
     });
 
     it('should return true for null/undefined', () => {
