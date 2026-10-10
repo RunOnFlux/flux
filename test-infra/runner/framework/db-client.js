@@ -310,7 +310,11 @@ export function dbClient(nodeNum) {
 
     async globalAppSpecs() {
       const globalDb = await db('appsGlobal');
-      return globalDb.collection('zelappsinformation').find({}, { projection: { _id: 0, name: 1, hash: 1 } }).toArray();
+      return globalDb.collection('zelappsinformation').find({}, {
+        projection: {
+          _id: 0, name: 1, hash: 1, height: 1,
+        },
+      }).toArray();
     },
 
     // zelappsinformation holds one row per app - the CURRENT specification. An
