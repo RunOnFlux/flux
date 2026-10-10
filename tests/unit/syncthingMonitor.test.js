@@ -613,6 +613,36 @@ describe('syncthingMonitor tests', () => {
       expect(mockState.receiveOnlySyncthingAppsCache.get('testapp').restarted).to.not.equal(true);
     });
 
+    // The demotion abandons a promotion in progress as it is called, so a promotion
+    // cannot ask to run the component after the hold is written.
+    it('demotes before it holds the container', async () => {
+      mockInstalledAppsFn.resolves({
+        status: 'success',
+        data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
+      });
+      syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['testapp']);
+      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'unmounted_with_content' });
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+      // its folder syncs, so its container is held before the demotion
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      const demote = sinon.spy(primaryRole, 'demoteForSafety');
+
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+      );
+      await clock.tickAsync(100);
+
+      sinon.assert.calledWith(demote, 'testapp');
+      sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'testapp', 'stopped');
+      sinon.assert.callOrder(demote, appReconcilerMock.setControllerDesired);
+      demote.restore();
+    });
+
     it('demotes a sendreceive folder over an unrepairable mount and holds it out of the pass', async function () {
       // syncthing raised FolderErrors for the folder (storage went bad) and the
       // repair fails (no backing image) - a folder left sendreceive over the bad
