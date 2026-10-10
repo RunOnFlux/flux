@@ -531,13 +531,14 @@ describe('upnpService tests', () => {
 
     // Two sweeps far enough apart for a stale mapping to be taken on the second.
     async function sweepTwice(keepPorts) {
-      await upnpService.removeStaleMappings(keepPorts);
+      await upnpService.removeStaleMappings(async () => keepPorts);
       clock.tick(31 * 60 * 1000);
-      return upnpService.removeStaleMappings(keepPorts);
+      return upnpService.removeStaleMappings(async () => keepPorts);
     }
 
     beforeEach(() => {
       upnpService.staleMappingsSeen.clear();
+      upnpService.recentlyMapped.clear();
       clock = sinon.useFakeTimers();
       sinon.stub(serviceHelper, 'delay').resolves();
       getMappingsStub = sinon.stub(natUpnp.Client.prototype, 'getMappings');
@@ -552,7 +553,7 @@ describe('upnpService tests', () => {
     it('should ask only for the mappings to this node', async () => {
       getMappingsStub.resolves([]);
 
-      await upnpService.removeStaleMappings([16127]);
+      await upnpService.removeStaleMappings(async () => [16127]);
 
       sinon.assert.calledOnceWithExactly(getMappingsStub, { local: true });
     });
@@ -560,7 +561,7 @@ describe('upnpService tests', () => {
     it('should only note a stale mapping on the first sweep that finds it', async () => {
       getMappingsStub.resolves([mapping(31000, 'Flux_App_gone')]);
 
-      const removed = await upnpService.removeStaleMappings([16127]);
+      const removed = await upnpService.removeStaleMappings(async () => [16127]);
 
       expect(removed).to.equal(0);
       sinon.assert.notCalled(removeMappingStub);
@@ -579,9 +580,9 @@ describe('upnpService tests', () => {
     it('should not remove a stale mapping found again sooner than 30 minutes later', async () => {
       getMappingsStub.resolves([mapping(31000, 'Flux_App_gone')]);
 
-      await upnpService.removeStaleMappings([16127]);
+      await upnpService.removeStaleMappings(async () => [16127]);
       clock.tick(29 * 60 * 1000);
-      const removed = await upnpService.removeStaleMappings([16127]);
+      const removed = await upnpService.removeStaleMappings(async () => [16127]);
 
       expect(removed).to.equal(0);
       sinon.assert.notCalled(removeMappingStub);
@@ -589,14 +590,14 @@ describe('upnpService tests', () => {
 
     it('should start over a mapping that was missing from a sweep in between', async () => {
       getMappingsStub.resolves([mapping(31000, 'Flux_Test_App')]);
-      await upnpService.removeStaleMappings([16127]);
+      await upnpService.removeStaleMappings(async () => [16127]);
       clock.tick(31 * 60 * 1000);
       getMappingsStub.resolves([]);
-      await upnpService.removeStaleMappings([16127]);
+      await upnpService.removeStaleMappings(async () => [16127]);
       getMappingsStub.resolves([mapping(31000, 'Flux_Test_App')]);
       clock.tick(31 * 60 * 1000);
 
-      const removed = await upnpService.removeStaleMappings([16127]);
+      const removed = await upnpService.removeStaleMappings(async () => [16127]);
 
       expect(removed).to.equal(0);
       sinon.assert.notCalled(removeMappingStub);
@@ -664,16 +665,82 @@ describe('upnpService tests', () => {
 
       clock.tick(60 * 60 * 1000);
       getMappingsStub.resolves([mapping(31000, 'Flux_App_a')]);
-      expect(await upnpService.removeStaleMappings([16127])).to.equal(1);
+      expect(await upnpService.removeStaleMappings(async () => [16127])).to.equal(1);
     });
 
     it('should reject when the router\'s mappings cannot be listed', async () => {
       getMappingsStub.rejects(new Error('Incorrect response'));
 
       let error;
-      await upnpService.removeStaleMappings([16127]).catch((err) => { error = err; });
+      await upnpService.removeStaleMappings(async () => [16127]).catch((err) => { error = err; });
 
       expect(error.message).to.equal('Incorrect response');
+      sinon.assert.notCalled(removeMappingStub);
+    });
+
+    it('should ask what is held only after the router has been listed', async () => {
+      getMappingsStub.resolves([]);
+      const held = sinon.stub().resolves([16127]);
+
+      await upnpService.removeStaleMappings(held);
+
+      sinon.assert.callOrder(getMappingsStub, held);
+    });
+
+    it('should not remove a port mapUpnpPort mapped less than 30 minutes ago and nobody has unmapped', async () => {
+      sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
+      getMappingsStub.resolves([mapping(31000, 'Flux_Test_App')]);
+      await upnpService.removeStaleMappings(async () => []);
+      clock.tick(31 * 60 * 1000);
+      await upnpService.mapUpnpPort(31000, 'Flux_Test_App');
+
+      const removed = await upnpService.removeStaleMappings(async () => []);
+
+      expect(removed).to.equal(0);
+      sinon.assert.notCalled(removeMappingStub);
+    });
+
+    it('should remove a port mapUpnpPort mapped once removeMapUpnpPort has given it up, even if the router refused', async () => {
+      sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
+      await upnpService.mapUpnpPort(31000, 'Flux_App_gone');
+      removeMappingStub.onFirstCall().rejects(new Error('ActionFailed'));
+      await upnpService.removeMapUpnpPort(31000);
+      removeMappingStub.reset();
+      removeMappingStub.resolves();
+      getMappingsStub.resolves([mapping(31000, 'Flux_App_gone')]);
+
+      const removed = await sweepTwice([]);
+
+      expect(removed).to.equal(1);
+      sinon.assert.calledOnce(removeMappingStub);
+    });
+
+    it('should not start a sweep while another is still running', async () => {
+      let release;
+      getMappingsStub.onFirstCall().returns(new Promise((resolve) => { release = resolve; }));
+      const held = sinon.stub().resolves([]);
+
+      const first = upnpService.removeStaleMappings(held);
+      const second = await upnpService.removeStaleMappings(held);
+      release([]);
+      await first;
+
+      expect(second).to.equal(0);
+      sinon.assert.calledOnce(getMappingsStub);
+      getMappingsStub.resolves([]);
+      await upnpService.removeStaleMappings(held);
+      sinon.assert.calledTwice(getMappingsStub);
+    });
+
+    it('should remove nothing when what is held cannot be read', async () => {
+      getMappingsStub.resolves([mapping(31000, 'Flux_App_gone')]);
+      await upnpService.removeStaleMappings(async () => []);
+      clock.tick(31 * 60 * 1000);
+
+      let error;
+      await upnpService.removeStaleMappings(async () => { throw new Error('unreadable'); }).catch((err) => { error = err; });
+
+      expect(error.message).to.equal('unreadable');
       sinon.assert.notCalled(removeMappingStub);
     });
   });

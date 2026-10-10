@@ -493,6 +493,7 @@ describe('portManager tests', () => {
   describe('removeStaleUpnpMappings tests', () => {
     let database;
     let originalUserConfig;
+    let held;
     const collection = config.database.appslocal.collections.appsInformation;
 
     beforeEach(async () => {
@@ -505,21 +506,26 @@ describe('portManager tests', () => {
       ]);
       originalUserConfig = globalThis.userconfig;
       globalThis.userconfig = { initial: { ...originalUserConfig.initial, apiport: 16137 } };
+      held = undefined;
       sinon.stub(upnpService, 'isUPNP').returns(true);
-      sinon.stub(upnpService, 'removeStaleMappings').resolves(0);
+      sinon.stub(upnpService, 'corePorts').callsFake((apiport) => [+apiport - 1, +apiport]);
+      // what the sweep was told is held, as it would ask once the router is listed
+      sinon.stub(upnpService, 'removeStaleMappings').callsFake(async (heldPorts) => {
+        held = [...await heldPorts()].sort();
+        return 0;
+      });
     });
 
     afterEach(() => {
       globalThis.userconfig = originalUserConfig;
     });
 
-    it('should keep the node\'s own ports for its api port and every installed app\'s', async () => {
+    it('should hold the node\'s own ports for the api port it listens on and the one its config names, and every installed app\'s', async () => {
+      // the suite's config listens on 16127; a reload has named 16137 without a restart
       await portManager.removeStaleUpnpMappings();
 
       sinon.assert.calledOnce(upnpService.removeStaleMappings);
-      expect([...upnpService.removeStaleMappings.firstCall.args[0]].sort()).to.deep.equal(
-        [16132, 16136, 16137, 16138, 16139, 30001, 30002, 30003].sort(),
-      );
+      expect(held).to.deep.equal([16126, 16127, 16136, 16137, 30001, 30002, 30003].sort());
     });
 
     it('should not sweep a node without UPnP', async () => {
@@ -540,7 +546,7 @@ describe('portManager tests', () => {
 
       await portManager.removeStaleUpnpMappings();
 
-      sinon.assert.notCalled(upnpService.removeStaleMappings);
+      expect(held).to.equal(undefined);
     });
 
     it('should not throw when the router cannot be read', async () => {

@@ -36,6 +36,11 @@ const OWNED_MAPPING_PREFIXES = ['Flux_App_', 'Flux_Prelaunch_App_'];
 const STALE_MAPPING_MIN_AGE_MS = 30 * 60 * 1000;
 // `${protocol}:${host}:${port}:${description}` -> first sweep it was seen stale (monotonic ms)
 const staleMappingsSeen = new Map();
+// port -> when mapUpnpPort last mapped it (monotonic ms), until removeMapUpnpPort
+// unmaps it. A port mapped here that nobody has unmapped yet is in use - a test
+// port mid-test, an app installing - whatever the app table says so far.
+const recentlyMapped = new Map();
+let sweeping = false;
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
@@ -285,6 +290,8 @@ async function mapUpnpPort(port, description) {
       description,
     });
 
+    recentlyMapped.set(+port, monotonicMs());
+
     await serviceHelper.delay(500);
 
     return true;
@@ -300,6 +307,8 @@ async function mapUpnpPort(port, description) {
  * @returns {Promise<boolean>} True if port mappings have been removed for both TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) protocols. Otherwise false.
  */
 async function removeMapUpnpPort(port) {
+  // unmapped by intent even if the router refuses: what is left is the sweep's
+  recentlyMapped.delete(+port);
   try {
     await client.removeMapping({
       public: port,
@@ -335,6 +344,16 @@ function isOwnedMappingDescription(description) {
 }
 
 /**
+ * The ports FluxOS itself maps for an api port: the home UI, the api and its
+ * SSL port, syncthing and the maintenance sshd.
+ * @param {number|string} apiport
+ * @returns {number[]}
+ */
+function corePorts(apiport) {
+  return [+apiport - 1, +apiport, +apiport + 1, +apiport + 2, fluxadmPort.sshPortFor(apiport)];
+}
+
+/**
  * Removes the router's mappings to this node that this code made and nothing
  * here holds any more: an app removed while the router was unreachable, a
  * FluxOS that died between mapping and unmapping, a node reinstalled on the
@@ -345,46 +364,61 @@ function isOwnedMappingDescription(description) {
  * Only mappings to this node's own address are looked at - several nodes behind
  * one router is an ordinary setup - and only those with a description this code
  * gives. Each is removed on the first sweep that finds it stale at least
- * STALE_MAPPING_MIN_AGE_MS after an earlier sweep first did.
- * @param {Iterable<number>} keepPorts every port something on this node holds
+ * STALE_MAPPING_MIN_AGE_MS after an earlier sweep first did, and never while
+ * mapUpnpPort holds it.
+ *
+ * What is held is asked for only after the router has been listed: an app's
+ * record is written before its ports are mapped, so every mapping the listing
+ * holds already has its app in the answer.
+ * @param {function(): Promise<Iterable<number>>} heldPorts every port something on this node holds
  * @returns {Promise<number>} how many mappings were removed
  */
-async function removeStaleMappings(keepPorts) {
-  const keep = new Set([...keepPorts].map(Number));
-  const mappings = await client.getMappings({ local: true });
-  const now = monotonicMs();
-  const staleNow = new Set();
-  let removed = 0;
-  // eslint-disable-next-line no-restricted-syntax
-  for (const mapping of mappings) {
-    const port = mapping.public && mapping.public.port;
-    // eslint-disable-next-line no-continue
-    if (!mapping.local || !Number.isInteger(port) || keep.has(port) || !isOwnedMappingDescription(mapping.description)) continue;
-    const key = `${mapping.protocol}:${mapping.public.host}:${port}:${mapping.description}`;
-    staleNow.add(key);
-    const firstSeen = staleMappingsSeen.get(key);
-    if (firstSeen === undefined) {
-      staleMappingsSeen.set(key, now);
+async function removeStaleMappings(heldPorts) {
+  if (sweeping) return 0;
+  sweeping = true;
+  try {
+    const mappings = await client.getMappings({ local: true });
+    const keep = new Set([...await heldPorts()].map(Number));
+    const now = monotonicMs();
+    const staleNow = new Set();
+    let removed = 0;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const mapping of mappings) {
+      const port = mapping.public && mapping.public.port;
       // eslint-disable-next-line no-continue
-      continue;
-    }
-    // eslint-disable-next-line no-continue
-    if (now - firstSeen < STALE_MAPPING_MIN_AGE_MS) continue;
-    try {
+      if (!mapping.local || !Number.isInteger(port) || keep.has(port) || !isOwnedMappingDescription(mapping.description)) continue;
+      const key = `${mapping.protocol}:${mapping.public.host}:${port}:${mapping.description}`;
+      staleNow.add(key);
+      const firstSeen = staleMappingsSeen.get(key);
+      if (firstSeen === undefined) {
+        staleMappingsSeen.set(key, now);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      // read at the moment of removal: a test or an install can map the port
+      // while this sweep is still working through the ones before it
+      const mappedAt = recentlyMapped.get(port);
+      // eslint-disable-next-line no-continue
+      if (now - firstSeen < STALE_MAPPING_MIN_AGE_MS || (mappedAt !== undefined && monotonicMs() - mappedAt < STALE_MAPPING_MIN_AGE_MS)) continue;
+      const protocol = mapping.protocol.toUpperCase();
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await client.removeMapping({ public: { host: mapping.public.host, port }, protocol });
+        removed += 1;
+        staleNow.delete(key);
+        log.info(`UPnP - stale mapping removed: ${protocol} ${port} (${mapping.description})`);
+      } catch (error) {
+        log.warn(`UPnP - stale mapping ${protocol} ${port} (${mapping.description}) not removed: ${error.message}`);
+      }
       // eslint-disable-next-line no-await-in-loop
-      await client.removeMapping({ public: { host: mapping.public.host, port }, protocol: mapping.protocol.toUpperCase() });
-      removed += 1;
-      staleNow.delete(key);
-      log.info(`UPnP - stale mapping removed: ${mapping.protocol.toUpperCase()} ${port} (${mapping.description})`);
-    } catch (error) {
-      log.warn(`UPnP - stale mapping ${mapping.protocol.toUpperCase()} ${port} (${mapping.description}) not removed: ${error.message}`);
+      await serviceHelper.delay(500);
     }
-    // eslint-disable-next-line no-await-in-loop
-    await serviceHelper.delay(500);
+    // what is no longer stale, or no longer there, starts over if it comes back
+    [...staleMappingsSeen.keys()].filter((key) => !staleNow.has(key)).forEach((key) => staleMappingsSeen.delete(key));
+    return removed;
+  } finally {
+    sweeping = false;
   }
-  // what is no longer stale, or no longer there, starts over if it comes back
-  [...staleMappingsSeen.keys()].filter((key) => !staleNow.has(key)).forEach((key) => staleMappingsSeen.delete(key));
-  return removed;
 }
 
 /**
@@ -561,8 +595,10 @@ module.exports = {
   setupUPNP,
   mapUpnpPort,
   removeMapUpnpPort,
+  corePorts,
   removeStaleMappings,
   staleMappingsSeen,
+  recentlyMapped,
   mapPortApi,
   removeMapPortApi,
   getMapApi,
