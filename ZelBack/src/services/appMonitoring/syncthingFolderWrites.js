@@ -5,6 +5,7 @@ const globalState = require('../utils/globalState');
 const fluxEventBus = require('../utils/fluxEventBus');
 const { appsFolder } = require('../utils/appConstants');
 const { OWNED_FOLDER_SETTINGS } = require('./syncthingMonitorHelpers');
+const volumeService = require('../utils/volumeService');
 
 // Every write FluxOS makes to an app folder's syncthing config goes through this
 // module, one at a time per folder.
@@ -233,8 +234,22 @@ function leavesSending(folderId, fields) {
 // before the election has decided; from its start, no write unpauses one.
 const SHUTDOWN_REFUSAL = Object.freeze({ status: 'error', data: { message: 'this node is shutting down: its folders stay paused' } });
 
+// A folder sends what its directory holds, and an app directory with no volume
+// mounted on it holds nothing of the app's: sending it offers every file as
+// deleted. No write makes a folder send while its directory is not a mountpoint.
+const UNMOUNTED_REFUSAL = Object.freeze({ status: 'error', data: { message: 'its volume is not mounted: the folder does not send' } });
+
+/**
+ * @param {string} folderId
+ * @returns {Promise<boolean>} whether the folder's app directory has its volume mounted
+ */
+function volumeMounted(folderId) {
+  return volumeService.isPathMounted(`${appsFolder}${folderId}`);
+}
+
 async function patchNow(folderId, fields) {
   if (globalState.shutdownInProgress && fields.paused === false) return SHUTDOWN_REFUSAL;
+  if (fields.type === 'sendreceive' && !(await volumeMounted(folderId))) return UNMOUNTED_REFUSAL;
   const response = await syncthingService.adjustConfigFolders('patch', fields, folderId);
   if (response.status === 'success' && fields.type) recordType(folderId, fields.type);
   return response;
@@ -250,6 +265,11 @@ async function putFolders(folders) {
   const untyped = folders.filter((folder) => !folder.type).map((folder) => folder.id);
   if (untyped.length) {
     return Promise.reject(new Error(`folder config without a type would be written as syncthing's default: ${untyped.join(', ')}`));
+  }
+  const sending = folders.filter((folder) => folder.type === 'sendreceive');
+  const unmounted = (await Promise.all(sending.map(async (folder) => ((await volumeMounted(folder.id)) ? null : folder.id)))).filter(Boolean);
+  if (unmounted.length) {
+    return Promise.reject(new Error(`folder config would send over a directory with no volume mounted: ${unmounted.join(', ')}`));
   }
   const response = await exclusive(folders.map((folder) => folder.id), async () => {
     if (globalState.shutdownInProgress) return SHUTDOWN_REFUSAL;
@@ -415,6 +435,12 @@ async function changeSyncthingFolderType(folderId, folderType, {
   const changed = await exclusive([folderId], async () => {
     try {
       if (abandonIf()) return false;
+      // asked of a folder already sending too: one whose volume went away is not
+      // kept sending, and a start over it waits for the volume
+      if (folderType === 'sendreceive' && !(await volumeMounted(folderId))) {
+        log.warn(`Syncthing folder ${folderId} is not made to send: its volume is not mounted`);
+        return false;
+      }
       const folders = await syncthingService.getConfigFolders();
 
       // Syncthing syncs the entire appId folder (includes all subdirectories)

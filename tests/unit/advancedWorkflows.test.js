@@ -609,6 +609,8 @@ describe('advancedWorkflows tests', () => {
 
     beforeEach(() => {
       recursionCounter = 0;
+      // every app directory has its volume mounted unless a test says otherwise
+      sinon.stub(volumeService, 'isPathMounted').resolves(true);
       globalState = require('../../ZelBack/src/services/utils/globalState');
       globalState.masterSlaveAppsRunning = false;
       globalState.installationInProgress = false;
@@ -3653,6 +3655,28 @@ describe('advancedWorkflows tests', () => {
 
       sinon.assert.calledWithMatch(adjust, 'patch', { type: 'sendreceive' });
       sinon.assert.neverCalledWith(setControllerDesired, appName, 'running');
+    });
+
+    // A folder over a directory with no volume mounted is never made to send, so the
+    // primary it would hold is never asked to run.
+    it('does not start a primary whose volume is not mounted', async () => {
+      const appName = 'unmountedprimaryapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const setRunning = sinon.stub(appReconciler, 'setRunningUnlessOperatorStopped').resolves(appReconciler.RunRequest.WRITTEN);
+      volumeService.isPathMounted.withArgs(`${appsFolder}flux${appName}`).resolves(false);
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      syncthingServiceStub.resolves([{ id: `flux${appName}`, path: `${appsFolder}flux${appName}`, type: 'receiveonly' }]);
+      const adjust = sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+      serviceHelperStub.resolves(fdmNoPrimary());
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+      await runPass();
+      expect(primaryRole.inTransition(appName), 'the start was never attempted, so this proves nothing').to.equal('promoting');
+      await primaryRole.whenSettled(appName);
+
+      sinon.assert.neverCalledWithMatch(adjust, 'patch', { type: 'sendreceive' });
+      sinon.assert.notCalled(setRunning);
     });
 
     it('starts a primary once a flip syncthing did not answer shows in its config', async function () {

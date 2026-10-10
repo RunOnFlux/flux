@@ -51,6 +51,8 @@ const syncthingFolderStateMachineMock = {
 
 const volumeServiceMock = {
   ensureAppVolumeMounted: sinon.stub().resolves({ mounted: true, alreadyMounted: true }),
+  // every app directory has its volume mounted unless a test says otherwise
+  isPathMounted: sinon.stub().resolves(true),
 };
 
 const appReconcilerMock = {
@@ -117,6 +119,7 @@ const appTamperingDetectionServiceMock = { recordEvent: sinon.stub().resolves() 
 const syncthingFolderWrites = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingFolderWrites', {
   '../serviceHelper': serviceHelperMock,
   '../syncthingService': syncthingServiceMock,
+  '../utils/volumeService': volumeServiceMock,
 });
 const primaryRole = proxyquire('../../ZelBack/src/services/appLifecycle/primaryRole', {
   '../appMonitoring/appReconciler': appReconcilerMock,
