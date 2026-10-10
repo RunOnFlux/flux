@@ -701,13 +701,12 @@ describe('handleSigterm drains syncthing folders before it exits', () => {
 
   describe('releasing the router\'s UPnP mappings', () => {
     let releaseStub;
-    let removeWithinStub;
-    const syncthing = { public: { host: '', port: 16129 }, protocol: 'tcp', description: 'Flux_Syncthing' };
+    let releasePortsStub;
 
     beforeEach(() => {
       sinon.stub(upnpService, 'isUPNP').returns(true);
-      releaseStub = sinon.stub(upnpService, 'releaseOwnMappings').resolves({ removed: 3, held: [syncthing] });
-      removeWithinStub = sinon.stub(upnpService, 'removeMappingsWithin').resolves(1);
+      releaseStub = sinon.stub(upnpService, 'releaseOwnMappings').resolves(3);
+      releasePortsStub = sinon.stub(upnpService, 'releaseOwnPorts').resolves(1);
     });
 
     it('releases them once the containers are stopped, beside the drain, holding syncthing\'s', async () => {
@@ -716,8 +715,9 @@ describe('handleSigterm drains syncthing folders before it exits', () => {
       sinon.assert.calledOnce(releaseStub);
       expect(releaseStub.firstCall.callId).to.be.greaterThan(stopStub.lastCall.callId);
       expect(releaseStub.firstCall.callId, 'started before the drain, not after it').to.be.lessThan(drainStub.firstCall.callId);
-      expect(releaseStub.firstCall.args[0]).to.deep.equal([16129, 16129]);
-      expect(releaseStub.firstCall.args[1]).to.equal(15000);
+      expect(releaseStub.firstCall.args[0], 'the core ports of the listening and the configured api port, first').to.deep.equal([...upnpService.corePorts(16127), ...upnpService.corePorts(16127)]);
+      expect(releaseStub.firstCall.args[1]).to.deep.equal([16129, 16129]);
+      expect(releaseStub.firstCall.args[2]).to.equal(15000);
     });
 
     it('releases syncthing\'s once the drain is over, beside the folder pause, before exiting', async () => {
@@ -727,17 +727,17 @@ describe('handleSigterm drains syncthing folders before it exits', () => {
       const stopping = apiServer.handleSigterm();
       await new Promise(setImmediate);
 
-      sinon.assert.calledOnceWithExactly(removeWithinStub, [syncthing], 3000);
-      expect(removeWithinStub.firstCall.callId).to.be.greaterThan(drainStub.firstCall.callId);
+      sinon.assert.calledOnceWithExactly(releasePortsStub, [16129, 16129], 3000);
+      expect(releasePortsStub.firstCall.callId).to.be.greaterThan(drainStub.firstCall.callId);
       sinon.assert.notCalled(exitStub);
       pausing({ paused: [], failed: [] });
       await stopping;
-      expect(exitStub.firstCall.callId).to.be.greaterThan(removeWithinStub.firstCall.callId);
+      expect(exitStub.firstCall.callId).to.be.greaterThan(releasePortsStub.firstCall.callId);
     });
 
     it('waits for syncthing\'s release before exiting', async () => {
       let releasing;
-      removeWithinStub.callsFake(() => new Promise((resolve) => { releasing = resolve; }));
+      releasePortsStub.callsFake(() => new Promise((resolve) => { releasing = resolve; }));
 
       const stopping = apiServer.handleSigterm();
       await new Promise(setImmediate);
@@ -754,7 +754,7 @@ describe('handleSigterm drains syncthing folders before it exits', () => {
 
       await apiServer.handleSigterm();
 
-      expect(releaseStub.firstCall.args[1]).to.equal(4000);
+      expect(releaseStub.firstCall.args[2]).to.equal(4000);
     });
 
     it('releases nothing on a node without UPnP', async () => {
@@ -763,7 +763,7 @@ describe('handleSigterm drains syncthing folders before it exits', () => {
       await apiServer.handleSigterm();
 
       sinon.assert.notCalled(releaseStub);
-      sinon.assert.calledOnceWithExactly(removeWithinStub, [], 3000);
+      sinon.assert.notCalled(releasePortsStub);
       sinon.assert.calledWith(exitStub, 0);
     });
 

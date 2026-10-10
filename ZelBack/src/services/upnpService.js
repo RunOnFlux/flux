@@ -49,7 +49,9 @@ let sweeping = false;
 // The library's requests have no timeout of their own: a router that restarts
 // with one in flight never answers it, and a sweep waiting on it would hold
 // `sweeping` - and so every later sweep - until FluxOS restarts.
-const SWEEP_LISTING_TIMEOUT_MS = 60 * 1000;
+// The listing walks the whole router table, siblings' entries included, one
+// request each: generous, since all it has to do is end.
+const SWEEP_LISTING_TIMEOUT_MS = 5 * 60 * 1000;
 const SWEEP_REMOVAL_TIMEOUT_MS = 15 * 1000;
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
@@ -500,50 +502,103 @@ async function removeMappingsBefore(mappings, deadline, tally) {
 }
 
 /**
+ * Removes this node's own TCP mapping of `port`, looked up by the port alone -
+ * two requests, however large the router's table. Taken only when it maps to
+ * this node's address with a description this code gives: DeletePortMapping
+ * goes by the external port whoever it maps to.
+ * @param {number} port
+ * @returns {Promise<boolean>} whether it was removed
+ */
+async function releaseOwnPort(port) {
+  const { gateway, address } = await client.getGateway();
+  let data;
+  try {
+    data = await gateway.run('GetSpecificPortMappingEntry', [['NewRemoteHost', ''], ['NewExternalPort', port], ['NewProtocol', 'TCP']]);
+  } catch (error) {
+    // 714 NoSuchEntryInArray: nothing on that port
+    return false;
+  }
+  const key = Object.keys(data || {}).find((k) => /^GetSpecificPortMappingEntryResponse/.test(k));
+  const entry = key && data[key];
+  if (!entry || entry.NewInternalClient !== address || !isOwnedMappingDescription(entry.NewPortMappingDescription)) return false;
+  await client.removeMapping({ public: port, protocol: 'TCP' });
+  return true;
+}
+
+/**
+ * Removes this node's own TCP mapping of each of `ports` until `deadline`.
+ * @param {number[]} ports
+ * @param {number} deadline monotonic ms
+ * @param {{removed: number}} tally
+ * @returns {Promise<void>}
+ */
+async function releaseOwnPortsBefore(ports, deadline, tally) {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const port of [...new Set(ports.map(Number))]) {
+    if (monotonicMs() >= deadline) return;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const released = await releaseOwnPort(port);
+      // eslint-disable-next-line no-param-reassign
+      if (released) tally.removed += 1;
+    } catch (error) {
+      log.warn(`UPnP - mapping TCP ${port} not released: ${error.message}`);
+    }
+  }
+}
+
+/**
  * On a system shutdown or reboot: removes every mapping to this node that this
  * code made, the app containers being stopped already. A node that never comes
  * back would otherwise leave them on the router for good, and one that comes
  * back on another address finds them in the way of its own - neither of which
- * the sweep can reach. The node's own api mappings go first. Mappings on `holdPorts` are left and handed back, for a
- * service still at work to be released with removeMappingsWithin once done.
+ * the sweep can reach.
+ *
+ * `firstPorts` - the node's own api ports - go first and by port, not from the
+ * listing: one of them left to an address the node no longer has keeps it from
+ * starting again, and the listing walks the whole table, siblings' entries
+ * included, which a deadline can cut short. Mappings on `holdPorts` are left,
+ * for releaseOwnPorts once the service on them is done.
  *
  * Never rejects, and settles within `timeoutMs` whatever the router does.
+ * @param {number[]} firstPorts
  * @param {number[]} holdPorts
  * @param {number} timeoutMs
- * @returns {Promise<{removed: number, held: object[]}>}
+ * @returns {Promise<number>} how many mappings were removed
  */
-async function releaseOwnMappings(holdPorts, timeoutMs) {
+async function releaseOwnMappings(firstPorts, holdPorts, timeoutMs) {
   const deadline = monotonicMs() + timeoutMs;
   const hold = new Set(holdPorts.map(Number));
-  const result = { removed: 0, held: [] };
+  const tally = { removed: 0 };
   const work = (async () => {
+    await releaseOwnPortsBefore(firstPorts.filter((port) => !hold.has(Number(port))), deadline, tally);
+    if (monotonicMs() >= deadline) return;
     const mappings = await client.getMappings({ local: true });
     const ours = mappings.filter((mapping) => mapping.local
       && Number.isInteger(mapping.public && mapping.public.port)
+      && !hold.has(mapping.public.port)
       && isOwnedMappingDescription(mapping.description));
-    result.held = ours.filter((mapping) => hold.has(mapping.public.port));
-    // the core ones first: a deadline that cuts the work short must not leave
-    // behind the one kind that keeps the node from starting again
+    // any api mapping the lookup by port missed still goes first
     const isCore = (mapping) => CORE_MAPPING_DESCRIPTIONS.has(mapping.description);
-    const release = ours.filter((mapping) => !hold.has(mapping.public.port));
-    await removeMappingsBefore([...release.filter(isCore), ...release.filter((mapping) => !isCore(mapping))], deadline, result);
+    await removeMappingsBefore([...ours.filter(isCore), ...ours.filter((mapping) => !isCore(mapping))], deadline, tally);
   })();
   await settleBefore(work, deadline);
-  log.info(`UPnP - ${result.removed} mapping(s) released for the shutdown`);
-  return result;
+  log.info(`UPnP - ${tally.removed} mapping(s) released for the shutdown`);
+  return tally.removed;
 }
 
 /**
- * Removes the given mappings within `timeoutMs`. Never rejects.
- * @param {object[]} mappings as releaseOwnMappings hands them back
+ * Removes this node's own TCP mapping of each of `ports` within `timeoutMs`,
+ * looked up by port. Never rejects.
+ * @param {number[]} ports
  * @param {number} timeoutMs
  * @returns {Promise<number>} how many were removed
  */
-async function removeMappingsWithin(mappings, timeoutMs) {
-  if (!mappings.length) return 0;
+async function releaseOwnPorts(ports, timeoutMs) {
+  if (!ports.length) return 0;
   const deadline = monotonicMs() + timeoutMs;
   const tally = { removed: 0 };
-  await settleBefore(removeMappingsBefore(mappings, deadline, tally), deadline);
+  await settleBefore(releaseOwnPortsBefore(ports, deadline, tally), deadline);
   return tally.removed;
 }
 
@@ -724,7 +779,7 @@ module.exports = {
   corePorts,
   removeStaleMappings,
   releaseOwnMappings,
-  removeMappingsWithin,
+  releaseOwnPorts,
   staleMappingsSeen,
   recentlyMapped,
   mapPortApi,

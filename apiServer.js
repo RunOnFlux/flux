@@ -474,10 +474,12 @@ async function shutDown() {
   // nothing, and a node that never comes back - or comes back on another
   // address - would leave them behind for good. Released beside the drain;
   // syncthing's is held until the drain and the pause are over.
-  const syncthingPorts = [+apiPort + 2, +(globalThis.userconfig.initial.apiport || config.server.apiport) + 2];
-  const upnpReleased = upnpService.isUPNP()
-    ? upnpService.releaseOwnMappings(syncthingPorts, Math.max(0, Math.min(SHUTDOWN_UPNP_RELEASE_MS, deadline - performance.now())))
-    : Promise.resolve({ removed: 0, held: [] });
+  const upnp = upnpService.isUPNP();
+  const apiPorts = [+apiPort, +(globalThis.userconfig.initial.apiport || config.server.apiport)];
+  const syncthingPorts = apiPorts.map((port) => port + 2);
+  const upnpReleased = upnp
+    ? upnpService.releaseOwnMappings(apiPorts.flatMap(upnpService.corePorts), syncthingPorts, Math.max(0, Math.min(SHUTDOWN_UPNP_RELEASE_MS, deadline - performance.now())))
+    : Promise.resolve(0);
 
   // The peers can only take over from what they hold, and syncthing is stopped
   // right after this process exits. The drain has what is left of the budget
@@ -497,7 +499,7 @@ async function shutDown() {
   // The drain was the last thing to need syncthing's mapping; the pause is
   // syncthing's own api, so the mapping goes beside it.
   const syncthingReleased = upnpReleased
-    .then(({ held }) => upnpService.removeMappingsWithin(held, SHUTDOWN_UPNP_SYNCTHING_MS));
+    .then(() => (upnp ? upnpService.releaseOwnPorts(syncthingPorts, SHUTDOWN_UPNP_SYNCTHING_MS) : 0));
 
   // syncthing keeps a folder's pause across its own restart, so the next start
   // sends nothing until the election has decided who holds each folder.
