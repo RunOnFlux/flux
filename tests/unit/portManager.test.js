@@ -490,6 +490,66 @@ describe('portManager tests', () => {
     });
   });
 
+  describe('removeStaleUpnpMappings tests', () => {
+    let database;
+    let originalUserConfig;
+    const collection = config.database.appslocal.collections.appsInformation;
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      database = dbHelper.databaseConnection().db(config.database.appslocal.database);
+      await database.collection(collection).drop().catch(() => {});
+      await dbHelper.insertManyToDatabase(database, collection, [
+        { name: 'App1', version: 3, ports: [30001, 30002] },
+        { name: 'App2', version: 3, ports: [30003] },
+      ]);
+      originalUserConfig = globalThis.userconfig;
+      globalThis.userconfig = { initial: { ...originalUserConfig.initial, apiport: 16137 } };
+      sinon.stub(upnpService, 'isUPNP').returns(true);
+      sinon.stub(upnpService, 'removeStaleMappings').resolves(0);
+    });
+
+    afterEach(() => {
+      globalThis.userconfig = originalUserConfig;
+    });
+
+    it('should keep the node\'s own ports for its api port and every installed app\'s', async () => {
+      await portManager.removeStaleUpnpMappings();
+
+      sinon.assert.calledOnce(upnpService.removeStaleMappings);
+      expect([...upnpService.removeStaleMappings.firstCall.args[0]].sort()).to.deep.equal(
+        [16132, 16136, 16137, 16138, 16139, 30001, 30002, 30003].sort(),
+      );
+    });
+
+    it('should not sweep a node without UPnP', async () => {
+      upnpService.isUPNP.returns(false);
+
+      await portManager.removeStaleUpnpMappings();
+
+      sinon.assert.notCalled(upnpService.removeStaleMappings);
+    });
+
+    it('should not sweep when an installed app\'s ports cannot be read', async () => {
+      await dbHelper.insertOneToDatabase(database, collection, { name: 'Sealed', version: 8, enterprise: 'blob', hash: 'h1' });
+      sinon.stub(appQueryService, 'decryptEnterpriseApps').resolves({
+        inPlace: [{ name: 'Sealed', version: 8, enterprise: 'blob', compose: [] }],
+        readable: [],
+        unreadable: [{ name: 'Sealed' }],
+      });
+
+      await portManager.removeStaleUpnpMappings();
+
+      sinon.assert.notCalled(upnpService.removeStaleMappings);
+    });
+
+    it('should not throw when the router cannot be read', async () => {
+      upnpService.removeStaleMappings.rejects(new Error('Incorrect response'));
+
+      await portManager.removeStaleUpnpMappings();
+    });
+  });
+
   describe('restoreAppsPortsSupport tests', () => {
     let db;
     let database;

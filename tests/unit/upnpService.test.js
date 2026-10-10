@@ -513,6 +513,171 @@ describe('upnpService tests', () => {
     });
   });
 
+  describe('removeStaleMappings tests', () => {
+    let getMappingsStub;
+    let removeMappingStub;
+    let clock;
+
+    const mapping = (port, description, overrides = {}) => ({
+      public: { host: '', port },
+      private: { host: '192.168.1.10', port },
+      protocol: 'tcp',
+      enabled: true,
+      description,
+      ttl: 0,
+      local: true,
+      ...overrides,
+    });
+
+    // Two sweeps far enough apart for a stale mapping to be taken on the second.
+    async function sweepTwice(keepPorts) {
+      await upnpService.removeStaleMappings(keepPorts);
+      clock.tick(31 * 60 * 1000);
+      return upnpService.removeStaleMappings(keepPorts);
+    }
+
+    beforeEach(() => {
+      upnpService.staleMappingsSeen.clear();
+      clock = sinon.useFakeTimers();
+      sinon.stub(serviceHelper, 'delay').resolves();
+      getMappingsStub = sinon.stub(natUpnp.Client.prototype, 'getMappings');
+      removeMappingStub = sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
+    });
+
+    afterEach(() => {
+      fluxadmPortStub.isArcane = false;
+      sinon.restore();
+    });
+
+    it('should ask only for the mappings to this node', async () => {
+      getMappingsStub.resolves([]);
+
+      await upnpService.removeStaleMappings([16127]);
+
+      sinon.assert.calledOnceWithExactly(getMappingsStub, { local: true });
+    });
+
+    it('should only note a stale mapping on the first sweep that finds it', async () => {
+      getMappingsStub.resolves([mapping(31000, 'Flux_App_gone')]);
+
+      const removed = await upnpService.removeStaleMappings([16127]);
+
+      expect(removed).to.equal(0);
+      sinon.assert.notCalled(removeMappingStub);
+    });
+
+    it('should remove a stale mapping found again on a sweep at least 30 minutes later, by its own protocol', async () => {
+      getMappingsStub.resolves([mapping(31000, 'Flux_App_gone', { protocol: 'udp' })]);
+
+      const removed = await sweepTwice([16127]);
+
+      expect(removed).to.equal(1);
+      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: { host: '', port: 31000 }, protocol: 'UDP' });
+      expect(upnpService.staleMappingsSeen.size).to.equal(0);
+    });
+
+    it('should not remove a stale mapping found again sooner than 30 minutes later', async () => {
+      getMappingsStub.resolves([mapping(31000, 'Flux_App_gone')]);
+
+      await upnpService.removeStaleMappings([16127]);
+      clock.tick(29 * 60 * 1000);
+      const removed = await upnpService.removeStaleMappings([16127]);
+
+      expect(removed).to.equal(0);
+      sinon.assert.notCalled(removeMappingStub);
+    });
+
+    it('should start over a mapping that was missing from a sweep in between', async () => {
+      getMappingsStub.resolves([mapping(31000, 'Flux_Test_App')]);
+      await upnpService.removeStaleMappings([16127]);
+      clock.tick(31 * 60 * 1000);
+      getMappingsStub.resolves([]);
+      await upnpService.removeStaleMappings([16127]);
+      getMappingsStub.resolves([mapping(31000, 'Flux_Test_App')]);
+      clock.tick(31 * 60 * 1000);
+
+      const removed = await upnpService.removeStaleMappings([16127]);
+
+      expect(removed).to.equal(0);
+      sinon.assert.notCalled(removeMappingStub);
+    });
+
+    it('should keep every mapping on a port something holds, whatever its description', async () => {
+      getMappingsStub.resolves([mapping(16127, 'Flux_Backend_API'), mapping(31000, 'Flux_App_other')]);
+
+      const removed = await sweepTwice([16127, 31000]);
+
+      expect(removed).to.equal(0);
+      sinon.assert.notCalled(removeMappingStub);
+    });
+
+    it('should remove the core mappings of an api port the node no longer uses', async () => {
+      getMappingsStub.resolves([
+        mapping(16127, 'Flux_Backend_API'),
+        mapping(16128, 'Flux_Backend_API_SSL'),
+        mapping(16126, 'Flux_Home_UI'),
+        mapping(16129, 'Flux_Syncthing'),
+        mapping(16137, 'Flux_Backend_API'),
+      ]);
+
+      const removed = await sweepTwice([16132, 16136, 16137, 16138, 16139]);
+
+      expect(removed).to.equal(4);
+      expect(removeMappingStub.getCalls().map((call) => call.args[0].public.port)).to.deep.equal([16127, 16128, 16126, 16129]);
+    });
+
+    it('should never touch a mapping to another address, the operator\'s manual entries or anything it did not make', async () => {
+      getMappingsStub.resolves([
+        mapping(31000, 'Flux_App_sibling', { local: false, private: { host: '192.168.1.11', port: 31000 } }),
+        mapping(31001, 'Flux_manual_entry'),
+        mapping(22, 'ssh'),
+        mapping(31002, undefined),
+        mapping(31003, 'Flux_A'),
+      ]);
+
+      const removed = await sweepTwice([16127]);
+
+      expect(removed).to.equal(0);
+      sinon.assert.notCalled(removeMappingStub);
+    });
+
+    it('should leave ArcaneOS\'s own maintenance ssh mapping alone', async () => {
+      fluxadmPortStub.isArcane = true;
+      getMappingsStub.resolves([mapping(16100, 'Flux_Fluxadm_SSH')]);
+
+      const removed = await sweepTwice([16127]);
+
+      expect(removed).to.equal(0);
+      sinon.assert.notCalled(removeMappingStub);
+    });
+
+    it('should go on past a removal the router refuses, and try it again on the next sweep', async () => {
+      getMappingsStub.resolves([mapping(31000, 'Flux_App_a'), mapping(31001, 'Flux_Prelaunch_App_31001')]);
+      removeMappingStub.onFirstCall().rejects(new Error('ActionFailed'));
+      const warnSpy = sinon.spy(log, 'warn');
+
+      const removed = await sweepTwice([16127]);
+
+      expect(removed).to.equal(1);
+      sinon.assert.calledTwice(removeMappingStub);
+      sinon.assert.calledOnce(warnSpy);
+
+      clock.tick(60 * 60 * 1000);
+      getMappingsStub.resolves([mapping(31000, 'Flux_App_a')]);
+      expect(await upnpService.removeStaleMappings([16127])).to.equal(1);
+    });
+
+    it('should reject when the router\'s mappings cannot be listed', async () => {
+      getMappingsStub.rejects(new Error('Incorrect response'));
+
+      let error;
+      await upnpService.removeStaleMappings([16127]).catch((err) => { error = err; });
+
+      expect(error.message).to.equal('Incorrect response');
+      sinon.assert.notCalled(removeMappingStub);
+    });
+  });
+
   describe('mapPortApi tests', () => {
     let verifyPrivilegeStub;
     let createMappingSpy;

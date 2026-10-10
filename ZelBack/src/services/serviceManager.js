@@ -806,6 +806,14 @@ async function startFluxFunctions() {
       setInterval(() => {
         portManager.restorePortsSupport();
       }, portRestoreIntervalMs);
+      // Mappings to this node that nothing holds any more are only ever removed
+      // here; a removal needs two sweeps, so the first only notes them.
+      setTimeout(() => {
+        portManager.removeStaleUpnpMappings();
+        setInterval(() => {
+          portManager.removeStaleUpnpMappings();
+        }, 60 * 60 * 1000);
+      }, bootDelay(15 * 60 * 1000));
     };
     startDbDependentServices();
     log.info('Starting setting Node Geolocation');

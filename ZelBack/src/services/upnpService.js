@@ -14,6 +14,31 @@ const client = new natUpnp.Client();
 
 const FLUXADM_MAPPING_DESCRIPTION = 'Flux_Fluxadm_SSH';
 
+// The descriptions this code gives the mappings it makes. Only these are ever
+// swept: 'Flux_manual_entry' is the operator's own request through the API, and
+// anything else on the router - the owner's own forwards, another program's, a
+// description the router truncated - is not ours to judge.
+const OWNED_MAPPING_DESCRIPTIONS = new Set([
+  'Flux_Backend_API',
+  'Flux_Backend_API_SSL',
+  'Flux_Home_UI',
+  'Flux_Syncthing',
+  'Flux_UPNP_Mapping_Test',
+  'Flux_Test_App',
+  FLUXADM_MAPPING_DESCRIPTION,
+]);
+const OWNED_MAPPING_PREFIXES = ['Flux_App_', 'Flux_Prelaunch_App_'];
+
+// A mapping is removed only once it has been stale on two sweeps at least this
+// far apart. The test and prelaunch mappings live for seconds to minutes, and
+// an app's ports are mapped after its record is written, so nothing in flight
+// is old enough to be taken.
+const STALE_MAPPING_MIN_AGE_MS = 30 * 60 * 1000;
+// `${protocol}:${host}:${port}:${description}` -> first sweep it was seen stale (monotonic ms)
+const staleMappingsSeen = new Map();
+
+const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
+
 if (config.upnp.gatewayUrl) {
   // eslint-disable-next-line global-require
   const { Device } = require('@runonflux/nat-upnp/build/src/nat-upnp/device');
@@ -298,6 +323,71 @@ async function removeMapUpnpPort(port) {
 }
 
 /**
+ * Whether a mapping's description is one this code makes.
+ * @param {string} description
+ * @returns {boolean}
+ */
+function isOwnedMappingDescription(description) {
+  if (typeof description !== 'string') return false;
+  if (description === FLUXADM_MAPPING_DESCRIPTION && fluxadmPort.isArcane) return false;
+  return OWNED_MAPPING_DESCRIPTIONS.has(description)
+    || OWNED_MAPPING_PREFIXES.some((prefix) => description.startsWith(prefix));
+}
+
+/**
+ * Removes the router's mappings to this node that this code made and nothing
+ * here holds any more: an app removed while the router was unreachable, a
+ * FluxOS that died between mapping and unmapping, a node reinstalled on the
+ * same address without the apps it ran, an api port that moved. They are made
+ * with an indefinite lease (or the router's longest, a week under IGDv2), so
+ * nothing else ever takes them, and home routers hold only so many.
+ *
+ * Only mappings to this node's own address are looked at - several nodes behind
+ * one router is an ordinary setup - and only those with a description this code
+ * gives. Each is removed on the first sweep that finds it stale at least
+ * STALE_MAPPING_MIN_AGE_MS after an earlier sweep first did.
+ * @param {Iterable<number>} keepPorts every port something on this node holds
+ * @returns {Promise<number>} how many mappings were removed
+ */
+async function removeStaleMappings(keepPorts) {
+  const keep = new Set([...keepPorts].map(Number));
+  const mappings = await client.getMappings({ local: true });
+  const now = monotonicMs();
+  const staleNow = new Set();
+  let removed = 0;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const mapping of mappings) {
+    const port = mapping.public && mapping.public.port;
+    // eslint-disable-next-line no-continue
+    if (!mapping.local || !Number.isInteger(port) || keep.has(port) || !isOwnedMappingDescription(mapping.description)) continue;
+    const key = `${mapping.protocol}:${mapping.public.host}:${port}:${mapping.description}`;
+    staleNow.add(key);
+    const firstSeen = staleMappingsSeen.get(key);
+    if (firstSeen === undefined) {
+      staleMappingsSeen.set(key, now);
+      // eslint-disable-next-line no-continue
+      continue;
+    }
+    // eslint-disable-next-line no-continue
+    if (now - firstSeen < STALE_MAPPING_MIN_AGE_MS) continue;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await client.removeMapping({ public: { host: mapping.public.host, port }, protocol: mapping.protocol.toUpperCase() });
+      removed += 1;
+      staleNow.delete(key);
+      log.info(`UPnP - stale mapping removed: ${mapping.protocol.toUpperCase()} ${port} (${mapping.description})`);
+    } catch (error) {
+      log.warn(`UPnP - stale mapping ${mapping.protocol.toUpperCase()} ${port} (${mapping.description}) not removed: ${error.message}`);
+    }
+    // eslint-disable-next-line no-await-in-loop
+    await serviceHelper.delay(500);
+  }
+  // what is no longer stale, or no longer there, starts over if it comes back
+  [...staleMappingsSeen.keys()].filter((key) => !staleNow.has(key)).forEach((key) => staleMappingsSeen.delete(key));
+  return removed;
+}
+
+/**
  * To map a specified port and show a message if successfully mapped. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {Promise<object>} res Response.
@@ -471,6 +561,8 @@ module.exports = {
   setupUPNP,
   mapUpnpPort,
   removeMapUpnpPort,
+  removeStaleMappings,
+  staleMappingsSeen,
   mapPortApi,
   removeMapPortApi,
   getMapApi,
