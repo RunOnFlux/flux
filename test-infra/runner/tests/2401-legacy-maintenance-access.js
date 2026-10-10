@@ -523,11 +523,12 @@ describe('2401 legacy node maintenance access', function suite() {
   it('keeps one source to two connections, so idle connections from it cannot lock a login out', async function heldSlots() {
     this.timeout(120000);
     const holders = 10;
-    const started = await execInContainer(legacy.container, [
+    // bash, for /dev/tcp: the node's sh is dash.
+    const started = await execInContainer(legacy.container, ['bash', '-c', [
       'rm -f /tmp/fluxadm-hold-*',
-      `for i in $(seq 1 ${holders}); do setsid sh -c "exec 3<>/dev/tcp/127.0.0.1/${SSH_PORT} && timeout 8 cat <&3 > /tmp/fluxadm-hold-$i" >/dev/null 2>&1 & done`,
+      `for i in $(seq 1 ${holders}); do setsid bash -c "exec 3<>/dev/tcp/127.0.0.1/${SSH_PORT} && timeout 8 cat <&3 > /tmp/fluxadm-hold-$i" >/dev/null 2>&1 & done`,
       'sleep 2',
-    ].join('\n'));
+    ].join('\n')]);
     expect(started.exitCode, `holders did not start: ${started.stderr}`).to.equal(0);
 
     const loggedIn = await loginResult('current');
@@ -539,10 +540,15 @@ describe('2401 legacy node maintenance access', function suite() {
 
   it('keeps the maintenance socket serving after a burst of connections, and a login still works', async function burst() {
     this.timeout(120000);
-    // 400 connect-and-close from one source, well over systemd's 200-per-2s default
-    const flood = await execInContainer(legacy.container,
-      `for i in $(seq 1 400); do (exec 3<>/dev/tcp/127.0.0.1/${SSH_PORT}) 2>/dev/null; done; echo done`);
+    const accepted = async () => Number((await execInContainer(legacy.container, 'systemctl show fluxadm-sshd.socket -p NAccepted --value')).stdout.trim());
+    const acceptedBefore = await accepted();
+    // 400 connect-and-close from one source, well over systemd's 200-per-2s
+    // default. bash, for /dev/tcp: the node's sh is dash.
+    const flood = await execInContainer(legacy.container, ['bash', '-c',
+      `for i in $(seq 1 400); do (exec 3<>/dev/tcp/127.0.0.1/${SSH_PORT}) 2>/dev/null; done; echo done`]);
     expect(flood.stdout.trim()).to.equal('done');
+    // The canary: the burst reached the socket.
+    expect(await accepted() - acceptedBefore, 'connections the socket accepted during the burst').to.be.at.least(400);
     expect(await unitState(legacy.container, 'fluxadm-sshd.socket'), 'the socket must survive the burst').to.equal('active');
     await loginOrThrow('current');
   });
