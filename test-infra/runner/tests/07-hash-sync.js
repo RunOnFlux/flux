@@ -142,8 +142,8 @@ describe('Hash sync: network partition', function () {
 });
 
 // A node that has lost a message it received finds the loss with the hash audit, which an
-// operator runs through /apps/reconstructhashes, and fetches the message from its peers on the
-// next block.
+// operator runs through /apps/reconstructhashes, and stores the message again on the next block,
+// from the copy its temporary pool still holds.
 describe('Hash sync: stale state recovery', function () {
   let env;
   dumpLogsOnFailure(() => env);
@@ -182,14 +182,14 @@ describe('Hash sync: stale state recovery', function () {
     expect(audit.data.message.changed).to.equal(1);
   });
 
-  it('should re-resolve hash by fetching message from peers', async function () {
+  it('stores the message again on the next block', async function () {
     this.timeout(150000);
     await waitFor(async () => (await db.appHashRecord(appHash))?.message === true
       && (await db.permanentMessages({ hash: appHash })).length === 1,
-    { timeout: 120000, interval: 2000, label: `node ${env.nodeCount} fetched the message again` });
+    { timeout: 120000, interval: 2000, label: `node ${env.nodeCount} stored the message again` });
   });
 
-  it('should re-create permanent message', async () => {
+  it('holds exactly that message again', async () => {
     expect((await db.permanentMessages({ hash: appHash })).map((m) => m.hash)).to.deep.equal([appHash]);
   });
 });
