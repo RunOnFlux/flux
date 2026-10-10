@@ -146,6 +146,6 @@ describe('a node that joins takes a slice of the mainnet message log in bulk', f
     const wrong = [...expected]
       .filter(([name, m]) => held.get(name)?.hash !== m.hash || held.get(name)?.height !== m.height)
       .map(([name, m]) => `${name}: ${held.get(name)?.hash}@${held.get(name)?.height} not ${m.hash}@${m.height}`);
-    expect(wrong, `${wrong.length} apps at another message or height`).to.deep.equal([]);
+    expect(wrong.length, `${wrong.length} apps at another message or height: ${wrong.join('; ')}`).to.equal(0);
   });
 });
