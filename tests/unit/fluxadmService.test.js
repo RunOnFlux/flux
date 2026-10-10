@@ -843,6 +843,12 @@ describe('fluxadmService tests', () => {
 
       expect(lines.filter((line) => line.startsWith('AuthorizedKeysFile'))).to.deep.equal(['AuthorizedKeysFile /etc/ssh/fluxadm_authorized_keys']);
     });
+
+    it('should end a connection that has not logged in within 10 s', () => {
+      const lines = fluxadmService.buildSshdConfig().split('\n');
+
+      expect(lines.filter((line) => line.startsWith('LoginGraceTime'))).to.deep.equal(['LoginGraceTime 10']);
+    });
   });
 
   describe('maintenance sshd unit tests', () => {
@@ -858,6 +864,12 @@ describe('fluxadmService tests', () => {
 
       expect(lines).to.include('TriggerLimitIntervalSec=0');
       expect(lines).to.include('MaxConnections=10');
+    });
+
+    it('should keep one address to two connections, so a single source cannot hold every slot', () => {
+      const lines = fluxadmService.buildSocketUnit(16122).split('\n');
+
+      expect(lines).to.include('MaxConnectionsPerSource=2');
     });
 
     it('should serve each connection with an sshd in inetd mode on the maintenance config', () => {

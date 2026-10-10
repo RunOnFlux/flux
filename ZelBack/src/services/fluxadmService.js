@@ -295,7 +295,7 @@ UsePAM yes
 KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org
 Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com
 MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com
-LoginGraceTime 30
+LoginGraceTime 10
 MaxAuthTries 3
 X11Forwarding no
 PrintMotd no
@@ -317,7 +317,10 @@ Subsystem sftp internal-sftp
  * take maintenance access away until the next reconcile. MaxConnections caps
  * concurrent sessions instead: it bounds the sshd processes a flood can spawn
  * on any node size, and a handful is all maintenance ever needs. Over the cap,
- * connections are refused and the socket stays up.
+ * connections are refused and the socket stays up. MaxConnectionsPerSource
+ * keeps one address to two of them, so a single source cannot hold every slot,
+ * and the sshd config's LoginGraceTime ends a connection that has not logged in
+ * within 10 s.
  * @param {number} port
  * @returns {string}
  */
@@ -330,6 +333,7 @@ ListenStream=${port}
 Accept=yes
 TriggerLimitIntervalSec=0
 MaxConnections=10
+MaxConnectionsPerSource=2
 
 [Install]
 WantedBy=sockets.target

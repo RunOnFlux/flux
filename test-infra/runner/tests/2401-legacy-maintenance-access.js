@@ -517,6 +517,26 @@ describe('2401 legacy node maintenance access', function suite() {
     expect(maxConn.stdout.trim(), 'concurrent connections must be capped').to.equal('10');
   });
 
+  // Ten connections from one address that never log in, held for less than
+  // LoginGraceTime. Opened from the node itself over loopback, which ufw does not
+  // filter, so the firewall's rate limit is not what stops them.
+  it('keeps one source to two connections, so idle connections from it cannot lock a login out', async function heldSlots() {
+    this.timeout(120000);
+    const holders = 10;
+    const started = await execInContainer(legacy.container, [
+      'rm -f /tmp/fluxadm-hold-*',
+      `for i in $(seq 1 ${holders}); do setsid sh -c "exec 3<>/dev/tcp/127.0.0.1/${SSH_PORT} && timeout 8 cat <&3 > /tmp/fluxadm-hold-$i" >/dev/null 2>&1 & done`,
+      'sleep 2',
+    ].join('\n'));
+    expect(started.exitCode, `holders did not start: ${started.stderr}`).to.equal(0);
+
+    const loggedIn = await loginResult('current');
+    // The sshd sends its banner at once: a connection that holds a slot has it.
+    const { stdout: answered } = await execInContainer(legacy.container, 'sleep 7; grep -l "^SSH-2.0" /tmp/fluxadm-hold-* | wc -l');
+    expect(loggedIn.ok, `a login from another address while one source held its connections: ${loggedIn.stderr}`).to.equal(true);
+    expect(Number(answered.trim()), 'connections from the one source that sshd answered').to.equal(2);
+  });
+
   it('keeps the maintenance socket serving after a burst of connections, and a login still works', async function burst() {
     this.timeout(120000);
     // 400 connect-and-close from one source, well over systemd's 200-per-2s default
