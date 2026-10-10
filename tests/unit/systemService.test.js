@@ -68,6 +68,82 @@ describe('system Services tests', () => {
   // way, so an apt-get that could not find the package read back the same as one
   // that installed it. The queue is stubbed rather than driven: a real failure
   // walks five retries a minute apart, which is not what is under test here.
+  describe('dpkgFrontendLocked tests', () => {
+    // /var/lib/dpkg/lock-frontend on device 8:2 (major 8, minor 2), inode 114071576.
+    const lockFile = { dev: 0x802n, ino: 114071576n };
+    const held = '14: POSIX  ADVISORY  WRITE 2132266 08:02:114071576 0 EOF\n';
+    let statStub;
+    let readFileStub;
+
+    beforeEach(() => {
+      statStub = sinon.stub(fs, 'stat').withArgs('/var/lib/dpkg/lock-frontend', { bigint: true }).resolves(lockFile);
+      readFileStub = sinon.stub(fs, 'readFile');
+      sinon.stub(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    const lockTable = (table) => readFileStub.withArgs('/proc/locks', 'utf-8').resolves(table);
+
+    it('answers true when a process holds a lock on the lock file', async () => {
+      lockTable(`1: FLOCK  ADVISORY  WRITE 9 00:19:1234 0 EOF\n${held}`);
+
+      expect(await systemService.dpkgFrontendLocked()).to.equal(true);
+    });
+
+    it('answers false when no lock is held on the lock file', async () => {
+      lockTable('1: FLOCK  ADVISORY  WRITE 9 00:19:1234 0 EOF\n');
+
+      expect(await systemService.dpkgFrontendLocked()).to.equal(false);
+    });
+
+    it('answers false for an empty lock table', async () => {
+      lockTable('');
+
+      expect(await systemService.dpkgFrontendLocked()).to.equal(false);
+    });
+
+    it('answers false for a lock on the same inode of another device', async () => {
+      lockTable('14: POSIX  ADVISORY  WRITE 2132266 08:03:114071576 0 EOF\n');
+
+      expect(await systemService.dpkgFrontendLocked()).to.equal(false);
+    });
+
+    it('answers false for a lock on an inode that only begins with the lock file\'s', async () => {
+      lockTable('14: POSIX  ADVISORY  WRITE 2132266 08:02:1140715760 0 EOF\n');
+
+      expect(await systemService.dpkgFrontendLocked()).to.equal(false);
+    });
+
+    it('reads the device as the kernel prints it: major and minor in hex', async () => {
+      // an overlay root: major 0, minor 56
+      statStub.resolves({ dev: 56n, ino: 33723009n });
+      lockTable('14: POSIX  ADVISORY  WRITE 18 00:38:33723009 0 EOF\n');
+      expect(await systemService.dpkgFrontendLocked()).to.equal(true);
+
+      // NVMe: major 259, minor 1
+      statStub.resolves({ dev: (259n << 8n) | 1n, ino: 42n });
+      lockTable('3: POSIX  ADVISORY  WRITE 77 103:01:42 0 EOF\n');
+      expect(await systemService.dpkgFrontendLocked()).to.equal(true);
+    });
+
+    it('answers false when there is no lock file, as on a host without dpkg', async () => {
+      statStub.rejects(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+
+      expect(await systemService.dpkgFrontendLocked()).to.equal(false);
+      sinon.assert.notCalled(readFileStub);
+    });
+
+    it('answers true, and logs, when the lock table cannot be read', async () => {
+      readFileStub.withArgs('/proc/locks', 'utf-8').rejects(new Error('EACCES'));
+
+      expect(await systemService.dpkgFrontendLocked()).to.equal(true);
+      sinon.assert.calledOnce(log.error);
+    });
+  });
+
   describe('packageVersionAtLeast tests', () => {
     afterEach(() => {
       sinon.restore();

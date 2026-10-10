@@ -463,6 +463,7 @@ describe('fluxadmService tests', () => {
         updateAptCacheStub = sinon.stub(systemService, 'updateAptCache').resolves();
         aptStub = sinon.stub(systemService, 'queueAptGetCommand').resolves({ error: null });
         statusStub = sinon.stub(systemService, 'getPackageStatus').resolves('install ok installed');
+        sinon.stub(systemService, 'dpkgFrontendLocked').resolves(false);
       });
 
       it('should write the preset and the hold before the install, and remove both once the package is installed', async () => {
@@ -996,12 +997,14 @@ describe('fluxadmService tests', () => {
       const presetPath = '/etc/systemd/system-preset/00-fluxadm.preset';
       const presetRemoved = sinon.match({ runAsRoot: true, params: ['-f', presetPath] });
       let statusStub;
+      let lockedStub;
 
       beforeEach(() => {
         sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'success', data: { systemsecure: false } });
         sinon.stub(fs, 'access').rejects(new Error('missing')).withArgs(presetPath).resolves();
         runCommandStub.withArgs('cat').resolves({ ...cmdFail });
         statusStub = sinon.stub(systemService, 'getPackageStatus').resolves('install ok installed');
+        lockedStub = sinon.stub(systemService, 'dpkgFrontendLocked').resolves(false);
       });
 
       it('should be removed at the start of a pass once openssh-server is installed, also with no keys configured', async () => {
@@ -1010,6 +1013,27 @@ describe('fluxadmService tests', () => {
         expect(res).to.equal('reconciled');
         sinon.assert.calledWithExactly(statusStub, 'openssh-server');
         sinon.assert.calledWithExactly(runCommandStub, 'rm', presetRemoved);
+      });
+
+      it('should stay while a package operation holds dpkg\'s lock, the package not yet unpacked', async () => {
+        // An apt install that outlived a crashed FluxOS, still downloading.
+        lockedStub.resolves(true);
+        statusStub.resolves('unknown ok not-installed');
+
+        await fluxadmService.ensureFluxadmAccess();
+
+        sinon.assert.neverCalledWith(runCommandStub, 'rm', presetRemoved);
+      });
+
+      it('should be removed on the first pass after dpkg\'s lock is released', async () => {
+        lockedStub.resolves(true);
+        statusStub.resolves('unknown ok not-installed');
+        await fluxadmService.ensureFluxadmAccess();
+        lockedStub.resolves(false);
+
+        await fluxadmService.ensureFluxadmAccess();
+
+        sinon.assert.calledOnceWithExactly(runCommandStub.withArgs('rm', presetRemoved), 'rm', presetRemoved);
       });
 
       it('should be removed once openssh-server is gone', async () => {

@@ -282,6 +282,42 @@ async function getPackageStatus(systemPackage) {
   return stdout.trim();
 }
 
+const dpkgFrontendLockPath = '/var/lib/dpkg/lock-frontend';
+
+/**
+ * A file as the kernel's lock table names it: device major and minor in hex,
+ * then the inode in decimal (/proc/locks, `08:02:114071576`).
+ * @param {bigint} dev
+ * @param {bigint} ino
+ * @returns {string}
+ */
+function lockTableId(dev, ino) {
+  const major = ((dev >> 8n) & 0xfffn) | ((dev >> 32n) & ~0xfffn);
+  const minor = (dev & 0xffn) | ((dev >> 12n) & ~0xffn);
+  return `${major.toString(16).padStart(2, '0')}:${minor.toString(16).padStart(2, '0')}:${ino}`;
+}
+
+/**
+ * Whether a process holds dpkg's frontend lock. apt holds it for the whole of an
+ * install, downloading included, while the package's dpkg status still reads
+ * not-installed. Read from the kernel's lock table, so it needs no access to the
+ * holder and never takes the lock itself.
+ * @returns {Promise<boolean>} True, too, when the lock table cannot be read.
+ */
+async function dpkgFrontendLocked() {
+  const lockFile = await fs.stat(dpkgFrontendLockPath, { bigint: true }).catch(() => null);
+  if (!lockFile) return false;
+  let table;
+  try {
+    table = await fs.readFile('/proc/locks', 'utf-8');
+  } catch (error) {
+    log.error(`Cannot read /proc/locks, treating dpkg as locked: ${error.message}`);
+    return true;
+  }
+  const id = lockTableId(lockFile.dev, lockFile.ino);
+  return table.split('\n').some((line) => line.trim().split(/\s+/).includes(id));
+}
+
 /**
  * Updates the apt cache and installs latest version of package
  * @param {string} package The package to update
@@ -1208,6 +1244,7 @@ module.exports = {
   cacheUpdateTime,
   enableFluxdZmq,
   ensureChronyd,
+  dpkgFrontendLocked,
   ensurePackageVersion,
   getPackageStatus,
   getPackageVersion,

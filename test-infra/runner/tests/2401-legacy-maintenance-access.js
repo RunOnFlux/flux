@@ -561,6 +561,36 @@ describe('2401 legacy node maintenance access', function suite() {
     await loginOrThrow('current');
   });
 
+  // An apt install outlives a FluxOS that crashed under pm2, and holds dpkg's
+  // lock from before its download, while dpkg still reads the package as not
+  // installed: the preset an interrupted install left stays until the lock is
+  // released. The lock is taken here as apt takes it, a POSIX lock.
+  it('keeps the sshd preset while a package operation holds dpkg\'s lock, and removes it on the first pass after', async function heldLock() {
+    this.timeout(PASS_TIMEOUT_MS * 2 + 120000);
+    const inNode = (command) => execInContainer(legacy.container, command);
+    const presetPresent = async () => (await inNode(`test -e ${SSHD_PRESET}`)).exitCode === 0;
+    const holding = await inNode([
+      `printf 'disable ssh.service\\ndisable ssh.socket\\n' > ${SSHD_PRESET}`,
+      'rm -f /tmp/dpkg-lock-held',
+      'setsid python3 -c \'import fcntl, time; f = open("/var/lib/dpkg/lock-frontend", "w"); fcntl.lockf(f, fcntl.LOCK_EX); open("/tmp/dpkg-lock-held", "w").close(); time.sleep(3600)\' >/dev/null 2>&1 & echo $! > /tmp/dpkg-lock.pid',
+      'for i in $(seq 1 100); do [ -e /tmp/dpkg-lock-held ] && break; sleep 0.1; done',
+      'test -e /tmp/dpkg-lock-held',
+    ].join('\n'));
+    expect(holding.exitCode, `the lock holder did not start: ${holding.stderr}`).to.equal(0);
+    try {
+      const lockedId = legacy.getLastEventId();
+      await restartFluxos(legacy.container);
+      await anyPass(legacy, lockedId);
+      expect(await presetPresent(), 'the preset, after a pass while dpkg\'s lock is held').to.equal(true);
+    } finally {
+      await inNode('kill "$(cat /tmp/dpkg-lock.pid)"; rm -f /tmp/dpkg-lock-held /tmp/dpkg-lock.pid');
+    }
+    const releasedId = legacy.getLastEventId();
+    await restartFluxos(legacy.container);
+    await anyPass(legacy, releasedId);
+    expect(await presetPresent(), 'the preset, after a pass once dpkg\'s lock is released').to.equal(false);
+  });
+
   it('installs nothing on an Arcane node with the same key list', async () => {
     const probe = 'id fluxadm >/dev/null 2>&1 && echo user; '
       + 'test -e /etc/systemd/system/fluxadm-sshd.socket && echo unit; '

@@ -362,14 +362,17 @@ StandardInput=socket
 }
 
 /**
- * Removes the sshd preset unless openssh-server is unpacked and not yet
- * configured, which is the one state in which a configure still to come would
- * enable its units. Runs on every pass, so a preset left by an install that was
- * interrupted goes once dpkg has finished the package.
+ * Removes the sshd preset unless a configure still to come could enable
+ * openssh-server's units: while a package operation holds dpkg's lock (an apt
+ * install, which outlives a FluxOS that crashed under it, holds it from before
+ * its download), or while openssh-server is unpacked and not yet configured.
+ * Runs on every pass, so a preset left by an install that was interrupted goes
+ * once dpkg has finished the package.
  * @returns {Promise<void>}
  */
 async function releaseSshdPreset() {
   if (!(await fs.access(sshdPresetPath).then(() => true).catch(() => false))) return;
+  if (await systemService.dpkgFrontendLocked()) return;
   const status = await systemService.getPackageStatus('openssh-server');
   if (unconfiguredPackageStates.includes(status.split(' ')[2])) return;
   const { error } = await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-f', sshdPresetPath] });
