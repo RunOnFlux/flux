@@ -243,6 +243,38 @@ describe('masterSlave recovery after an operator stop', function () {
     expect(await runningCount(), 'the restart must not hand the app to a second holder').to.equal(1);
   });
 
+  // FDM stops naming a primary whose app stops answering its health check, which
+  // is when an owner reaches for a restart. The holder is still the node running
+  // it, so its verdict is adopted with no primary named as well.
+  it('restarts the holder when its owner asks, after a FluxOS restart, with no primary named', async function () {
+    this.timeout(240000);
+
+    const flags = await runningFlags();
+    const holder = holders[flags.indexOf(true)];
+    const client = env.clients[holder];
+
+    await clearMaster(appName);
+
+    const beforeFluxosRestart = client.getLastEventId();
+    await restartFluxos(client.container, { readyTimeoutMs: 45000 });
+    const adopted = await waitForReconcilerDesiredChanged(client, identifier, 'running', 120000, { afterId: beforeFluxosRestart });
+    expect(adopted.data.adopted, 'the verdict is recorded without a start, the holder being up already').to.equal(true);
+    expect(adopted.data.reason, 'and it is the no-primary branch that recorded it').to.equal('masterSlave holder, no primary named');
+
+    const auth = await authenticate(client.url, appOwnerKey());
+    const beforeRequest = client.getLastEventId();
+    const res = await client.getAuthed(`/apps/apprestart/${appName}`, auth.zelidauth);
+
+    const bounced = await waitForReconcileActuated(client, identifier, 'restarted', 60000, { afterId: beforeRequest });
+    expect(bounced.data.reason).to.equal('operatorRequested');
+    expect(res.data, 'and it is reported only once it has happened').to.equal(`Application ${appName} restarted`);
+
+    await waitFor(async () => isUp(client, appName), {
+      timeout: 45000, interval: 2000, label: 'the holder is running again after the restart',
+    });
+    expect(await runningCount(), 'with no primary named, the restart must not let a peer start a second writer').to.equal(1);
+  });
+
   it('keeps the primary with its owner across a FluxOS restart, instead of letting a peer elect over it', async function () {
     this.timeout(210000);
 
