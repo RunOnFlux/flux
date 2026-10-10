@@ -123,9 +123,9 @@ async function openInstalledAppPorts() {
  * Maps every installed app's ports on the router, before the apps start. A
  * system shutdown releases the node's mappings, and a router that restarted with
  * the machine has lost them, so after a reboot there are none until this puts
- * them back; the periodic restore would, but on a timer of
- * its own that the apps do not wait for. One attempt per port: a failure is
- * logged, the apps still start and the restore tries again.
+ * them back; the periodic restore would, but on a timer of its own that the apps
+ * do not wait for. One attempt per port: a failure is logged, the apps still
+ * start and the restore tries again.
  */
 async function mapInstalledAppPorts() {
   if (!upnpService.isUPNP()) return;
