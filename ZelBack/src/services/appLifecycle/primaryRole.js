@@ -98,17 +98,30 @@ async function sendThenRun(identifier, appId, change) {
   await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.MASTERSLAVE_BEFORE_RUN, identifier);
   // A stand-down given while this waited for the reconciler's slot is read in
   // it, so the container is never asked to run.
-  if (!(await appReconciler.setRunningUnlessOperatorStopped(identifier, 'masterSlave primary', { unless: () => change.standDown }))) {
-    if (change.standDown) {
-      await syncthingFolderWrites.changeSyncthingFolderType(appId, 'receiveonly');
-      return { to: Role.STANDBY, reason: 'stood down before it ran' };
-    }
+  let outcome;
+  try {
+    outcome = await appReconciler.setRunningUnlessOperatorStopped(identifier, 'masterSlave primary', { unless: () => change.standDown });
+  } catch (error) {
+    // an unread lock is not an absent one, and nothing holds the component: its
+    // folder stops sending
+    log.error(`primaryRole - not starting ${identifier}: ${error.message}`);
+    await syncthingFolderWrites.changeSyncthingFolderType(appId, 'receiveonly');
+    return { to: Role.STANDBY, reason: 'its operator lock could not be read' };
+  }
+  const { RunRequest } = appReconciler;
+  if (outcome === RunRequest.WRITTEN) return Role.PRIMARY;
+  if (outcome === RunRequest.OPERATOR_STOPPED) {
     // An operator stop given while the folder was turning keeps the component
     // down: it stays held by the lock, its folder sending, until the election
     // decides an operator start.
     return { to: Role.STANDBY, reason: 'its operator stopped it' };
   }
-  return Role.PRIMARY;
+  // Stood down, or another decision was made while it waited: nothing runs it
+  // here, so its folder stops sending, and the next election pass decides again.
+  await syncthingFolderWrites.changeSyncthingFolderType(appId, 'receiveonly');
+  return outcome === RunRequest.STOOD_DOWN || change.standDown
+    ? { to: Role.STANDBY, reason: 'stood down before it ran' }
+    : { to: Role.STANDBY, reason: 'another decision was made while it waited' };
 }
 
 // A stand-down ends an error: FDM names another node that has decided it holds

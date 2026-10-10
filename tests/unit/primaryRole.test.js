@@ -7,6 +7,7 @@ const proxyquire = require('proxyquire').noCallThru();
 
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 const peerComponent = require('../../ZelBack/src/services/appMonitoring/peerComponent');
+const { RunRequest } = require('../../ZelBack/src/services/appMonitoring/appReconciler');
 
 const { PeerComponent } = peerComponent;
 
@@ -19,7 +20,7 @@ const FOLDER = 'fluxn8n_n8napp';
  * to one shared log.
  */
 function loadRole({
-  primary = false, changeType, folder = null, operatorStopped = false, inSlot = async () => {}, afterRun = () => {},
+  primary = false, changeType, folder = null, operatorStopped = false, superseded = false, inSlot = async () => {}, afterRun = () => {},
 } = {}) {
   const calls = [];
   const note = (name) => (...args) => { calls.push([name, ...args]); };
@@ -29,13 +30,16 @@ function loadRole({
     // Writes the desire to run only when the caller's `unless` and the operator
     // allow it, as the reconciler decides it in its per-key slot. `inSlot` runs
     // once the slot is held, `afterRun` once the desire is written.
+    RunRequest,
     setRunningUnlessOperatorStopped: sinon.spy(async (id, _reason, { unless = () => false } = {}) => {
       note('setRunningUnlessOperatorStopped')(id, { operatorStopped });
       await inSlot();
-      if (unless() || operatorStopped) return false;
+      if (unless()) return RunRequest.STOOD_DOWN;
+      if (operatorStopped) return RunRequest.OPERATOR_STOPPED;
+      if (superseded) return RunRequest.SUPERSEDED;
       reconciler.committed = [id];
       afterRun();
-      return true;
+      return RunRequest.WRITTEN;
     }),
     setControllerDesiredAndWait: sinon.spy(async (id, state) => {
       note('setControllerDesiredAndWait')(id, state);
@@ -133,6 +137,39 @@ describe('primaryRole', () => {
       ]);
       expect(t.reconciler.committed).to.deep.equal([]);
       expect(t.changes.promotingIdentifiers()).to.deep.equal([]);
+    });
+
+    it('makes the folder receive again when another decision was made while the start waited', async () => {
+      const t = loadRole({ superseded: true });
+
+      expect(t.role.promote(APP, FOLDER)).to.equal(true);
+      await t.role.whenSettled(APP);
+
+      expect(t.calls).to.deep.equal([
+        ['checkpoint', 'masterSlave:beforeStart', APP],
+        ['folder', FOLDER, 'sendreceive'],
+        ['checkpoint', 'masterSlave:beforeRun', APP],
+        ['setRunningUnlessOperatorStopped', APP, { operatorStopped: false }],
+        ['folder', FOLDER, 'receiveonly'],
+      ]);
+      expect(t.roleEvents()).to.deep.equal([
+        { identifier: APP, from: 'standby', to: 'promoting' },
+        { identifier: APP, from: 'promoting', to: 'standby', reason: 'another decision was made while it waited' },
+      ]);
+      expect(t.reconciler.committed).to.deep.equal([]);
+    });
+
+    it('makes the folder receive again when the operator lock cannot be read', async () => {
+      const t = loadRole();
+      t.reconciler.setRunningUnlessOperatorStopped = sinon.spy(async () => { throw new Error('lock store unreadable'); });
+
+      expect(t.role.promote(APP, FOLDER)).to.equal(true);
+      await t.role.whenSettled(APP);
+
+      expect(t.calls.filter(([name]) => name === 'folder')).to.deep.equal([['folder', FOLDER, 'sendreceive'], ['folder', FOLDER, 'receiveonly']]);
+      expect(t.roleEvents().at(-1)).to.deep.equal({
+        identifier: APP, from: 'promoting', to: 'standby', reason: 'its operator lock could not be read',
+      });
     });
 
     it('holds the component while promoting, and not once the change has ended', async () => {
