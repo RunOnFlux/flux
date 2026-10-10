@@ -14,6 +14,7 @@ const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 const localRemovalQueue = require('../../ZelBack/src/services/appLifecycle/localRemovalQueue');
+const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 const { requireMongo } = require('./dbTestHelper');
 
 describe('registryManager tests', () => {
@@ -1096,6 +1097,63 @@ describe('registryManager tests', () => {
       await registryManager.reindexGlobalAppsInformation();
 
       sinon.assert.calledTwice(rebuildStub);
+    });
+  });
+
+  describe('reconstructAppMessagesHashCollection tests', () => {
+    const { appsMessages } = config.database.appsglobal.collections;
+    const { appsHashes } = config.database.daemon.collections;
+    let daemonDb;
+    let emitSpy;
+    const record = (hash, fields) => ({
+      hash, txid: `tx${hash}`, height: 3000000, value: 1, retryFromHeight: 3000000, nextRetryHeight: 3000000, syncAttempts: 0, ...fields,
+    });
+    const message = (hash) => ({
+      type: 'fluxappregister', hash, height: 3000000, timestamp: 1, appSpecifications: { name: `App${hash}`, version: 3, owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC' },
+    });
+    const unresolvedSignals = () => emitSpy.args.filter(([event]) => event === SYNC_EVENTS.HASH_UNRESOLVED).length;
+
+    beforeEach(async () => {
+      daemonDb = db.db(config.database.daemon.database);
+      await daemonDb.collection(appsHashes).deleteMany({});
+      await database.collection(appsMessages).deleteMany({});
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 3000100 } });
+      emitSpy = sinon.spy(appSyncEvents, 'emit');
+    });
+
+    it('should signal a hash to fetch when it marks a received message missing', async () => {
+      await daemonDb.collection(appsHashes).insertOne(record('lost', { message: true }));
+
+      await registryManager.reconstructAppMessagesHashCollection();
+
+      expect((await daemonDb.collection(appsHashes).findOne({ hash: 'lost' })).message).to.equal(false);
+      expect(unresolvedSignals()).to.equal(1);
+    });
+
+    it('should not signal when it only marks a held message received, or fills in retry fields', async () => {
+      await daemonDb.collection(appsHashes).insertMany([
+        record('held', { message: false }),
+        { hash: 'old', txid: 'txold', height: 3000000, value: 1, message: true },
+      ]);
+      await database.collection(appsMessages).insertMany([message('held'), message('old')]);
+
+      const { changed } = await registryManager.reconstructAppMessagesHashCollection();
+
+      // the canary: the audit did correct both records
+      expect(changed).to.equal(2);
+      expect((await daemonDb.collection(appsHashes).findOne({ hash: 'held' })).message).to.equal(true);
+      expect(unresolvedSignals()).to.equal(0);
+    });
+
+    it('should signal from the operator route', async () => {
+      await daemonDb.collection(appsHashes).insertOne(record('lost', { message: true }));
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      const res = { json: sinon.fake() };
+
+      await registryManager.reconstructAppMessagesHashCollectionAPI({ headers: {} }, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('success');
+      expect(unresolvedSignals()).to.equal(1);
     });
   });
 

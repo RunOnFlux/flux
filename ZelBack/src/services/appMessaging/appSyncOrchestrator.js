@@ -117,7 +117,6 @@ class AppSyncOrchestrator {
   #ephemeralUnverifiedHandler = null;
   #ephemeralProgressHandler = null;
   #hashUnresolvedHandler = null;
-  #hashesChangedHandler = null;
   #broadcastStarted = null;
   #started = false;
   #syncInProgress = false;
@@ -265,9 +264,6 @@ class AppSyncOrchestrator {
       this.#onBlocksProcessed(blockHeight);
     };
     this.#blockEmitter.on('blocksProcessed', this.#blockReceivedHandler);
-
-    this.#hashesChangedHandler = () => this.#onHashesChanged();
-    this.#blockEmitter.on('hashesChanged', this.#hashesChangedHandler);
 
     fluxEventBus.publish('orchestrator:started', { state: this.#state, bootContext });
 
@@ -883,12 +879,6 @@ class AppSyncOrchestrator {
     this.#nextHashRetryHeight = 0;
   }
 
-  #onHashesChanged() {
-    if (!this.#hashSyncComplete) return;
-    log.info('AppSyncOrchestrator - Reconstruct audit found changes, scheduling immediate hash recheck');
-    this.#nextHashRetryHeight = 0;
-  }
-
   async #checkHashRetry(blockHeight) {
     if (!this.#hashSyncComplete) return;
     if (!this.#canSendMessages) return;
@@ -1220,9 +1210,6 @@ class AppSyncOrchestrator {
     }
     if (this.#blockReceivedHandler) {
       this.#blockEmitter.removeListener('blocksProcessed', this.#blockReceivedHandler);
-    }
-    if (this.#hashesChangedHandler) {
-      this.#blockEmitter.removeListener('hashesChanged', this.#hashesChangedHandler);
     }
     if (this.#peerThresholdHandler) {
       this.#offPeerEvent('peerThresholdReached', this.#peerThresholdHandler);

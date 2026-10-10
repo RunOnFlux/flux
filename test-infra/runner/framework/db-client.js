@@ -262,14 +262,6 @@ export function dbClient(nodeNum) {
       return globalDb.collection('zelappsinformation').find({ name }, { projection: { _id: 0 } }).toArray();
     },
 
-    async markHashUnresolved(hash) {
-      const explorerDb = await db('explorer');
-      await explorerDb.collection('zelappshashes').updateOne(
-        { hash },
-        { $set: { message: false, messageNotFound: false } },
-      );
-    },
-
     async deletePermanentMessage(hash) {
       const globalDb = await db('appsGlobal');
       const result = await globalDb.collection('zelappsmessages').deleteOne({ hash });
