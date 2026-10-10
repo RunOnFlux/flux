@@ -17,6 +17,7 @@ const appReconciler = require('../appMonitoring/appReconciler');
 const appUninstaller = require('./appUninstaller');
 const appNetworkLinker = require('./appNetworkLinker');
 const portManager = require('../appNetwork/portManager');
+const upnpService = require('../upnpService');
 const globalState = require('../utils/globalState');
 const fluxEventBus = require('../utils/fluxEventBus');
 const nodeConfirmationService = require('../nodeConfirmationService');
@@ -115,6 +116,32 @@ async function openInstalledAppPorts() {
     failed.forEach(({ rule, error }) => log.warn(`appStartupManager - app port not opened in the firewall: ufw ${rule}: ${error}`));
   } catch (error) {
     log.error(`appStartupManager - app ports not opened in the firewall: ${error.message}`);
+  }
+}
+
+/**
+ * Maps every installed app's ports on the router, before the apps start. A
+ * system shutdown releases the node's mappings, so after a reboot there are
+ * none until this puts them back; the periodic restore would, but on a timer of
+ * its own that the apps do not wait for. One attempt per port: a failure is
+ * logged, the apps still start and the restore tries again.
+ */
+async function mapInstalledAppPorts() {
+  if (!upnpService.isUPNP()) return;
+  try {
+    const { apps, unreadable } = await portManager.appsWithPorts(await getInstalledAppsFromDb());
+    if (unreadable.length) log.warn(`appStartupManager - ports of ${unreadable.length} installed app(s) not mapped via UPnP: specification unreadable`);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of apps) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of app.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        const mapped = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${app.name}`);
+        if (!mapped) log.warn(`appStartupManager - port ${port} of ${app.name} not mapped via UPnP; the restore tries again`);
+      }
+    }
+  } catch (error) {
+    log.error(`appStartupManager - app ports not mapped via UPnP: ${error.message}`);
   }
 }
 
@@ -356,6 +383,7 @@ async function manageAppsOnBoot(bootContext) {
 
     log.info('appStartupManager - Daemon, DB, and node confirmed, reconciling apps');
     await openInstalledAppPorts();
+    await mapInstalledAppPorts();
     await reconcileAppsOnBoot();
   } finally {
     globalState.bootContainerStateSettled = true;
@@ -367,6 +395,7 @@ async function manageAppsOnBoot(bootContext) {
 module.exports = {
   manageAppsOnBoot,
   openInstalledAppPorts,
+  mapInstalledAppPorts,
   reconcileAppsOnBoot,
   getStoppedFluxContainers,
   getInstalledAppsFromDb,
