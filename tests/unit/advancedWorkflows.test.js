@@ -3746,6 +3746,7 @@ describe('advancedWorkflows tests', () => {
       const identifier = `valheim_${appName}`;
       let adoptStub;
       let setControllerDesiredStub;
+      let hasOpinionStub;
 
       const installed = () => sinon.stub().resolves({
         status: 'success',
@@ -3760,6 +3761,7 @@ describe('advancedWorkflows tests', () => {
         dockerServiceStub.returns(`flux${identifier}`);
         adoptStub = sinon.stub(appReconciler, 'adoptControllerDesired').resolves(true);
         setControllerDesiredStub = sinon.stub(appReconciler, 'setControllerDesired');
+        hasOpinionStub = sinon.stub(appReconciler, 'hasControllerOpinion').returns(false);
         serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['90.228.196.203'] } } });
       });
 
@@ -3779,6 +3781,25 @@ describe('advancedWorkflows tests', () => {
         sinon.assert.notCalled(setControllerDesiredStub);
       });
 
+      // FDM stops naming a primary whose app stops answering its health check,
+      // and that is when an owner reaches for a restart.
+      it('adopts running on the holder when FDM names no primary', async () => {
+        serviceHelperStub.resolves(fdmNoPrimary());
+        fluxNetworkHelperStub.resolves('90.228.196.203:16127');
+        await advancedWorkflows.masterSlaveApps(globalState, installed(), running([`flux${identifier}`]), https);
+
+        sinon.assert.calledOnceWithExactly(adoptStub, identifier, 'running', 'masterSlave holder, no primary named');
+        sinon.assert.notCalled(setControllerDesiredStub);
+      });
+
+      it('leaves an opinion this process already holds alone', async () => {
+        hasOpinionStub.returns(true);
+        fluxNetworkHelperStub.resolves('90.228.196.203:16127');
+        await advancedWorkflows.masterSlaveApps(globalState, installed(), running([`flux${identifier}`]), https);
+
+        sinon.assert.calledWith(hasOpinionStub, identifier);
+        sinon.assert.notCalled(adoptStub);
+      });
     });
   });
 
