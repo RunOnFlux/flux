@@ -3815,50 +3815,55 @@ describe('advancedWorkflows tests', () => {
       });
     });
 
-    // The election loop's decision table, one row per cell. FDM naming nobody for
-    // a stopped component is an election, covered by the election tests above.
+    // The election loop's decision table, one row per cell: the role action it takes
+    // for a g: component. Whether a hold records a verdict where none is held is the
+    // primary role's (primaryRole tests). FDM naming nobody for a stopped component
+    // is an election, covered by the election tests above.
     describe('decision table', () => {
       const appName = 'valheim1777035136949';
       const identifier = `valheim_${appName}`;
       const here = '90.228.196.203:16127';
       const elsewhere = '192.168.1.5:16127';
       const ROWS = [
-        { fdm: 'here', running: true, opinion: false, expect: ['adopt', 'running', 'masterSlave primary'] },
-        { fdm: 'here', running: true, opinion: true, expect: ['nothing'] },
-        { fdm: 'here', running: false, opinion: false, expect: ['start'] },
-        { fdm: 'here', running: false, opinion: true, expect: ['start'] },
-        { fdm: 'other', running: true, opinion: false, expect: ['set', 'stopped', 'masterSlave standby'] },
-        { fdm: 'other', running: true, opinion: true, expect: ['set', 'stopped', 'masterSlave standby'] },
-        { fdm: 'other', running: false, opinion: false, expect: ['adopt', 'stopped', 'masterSlave standby'] },
-        { fdm: 'other', running: false, opinion: true, expect: ['nothing'] },
+        { fdm: 'here', running: true, expect: ['holdAsPrimary'] },
+        { fdm: 'here', running: false, expect: ['promote'] },
+        { fdm: 'other', running: true, expect: ['standDown'] },
+        // standDown is asked first and finds nothing to stand down from
+        { fdm: 'other', running: false, expect: ['standDown', 'holdAsStandby'] },
         { fdm: 'none', running: true, opinion: false, expect: ['adopt', 'running', 'masterSlave holder, no primary named'] },
         { fdm: 'none', running: true, opinion: true, expect: ['nothing'] },
         {
-          fdm: 'here', running: true, opinion: false, operatorStopped: true, expect: ['nothing'],
+          fdm: 'here', running: true, operatorStopped: true, expect: ['nothing'],
         },
       ];
+      const ROLE_ACTIONS = ['promote', 'standDown', 'holdAsPrimary', 'holdAsStandby'];
 
       ROWS.forEach((row) => {
         const label = `FDM names ${row.fdm === 'here' ? 'this node' : row.fdm === 'other' ? 'another node' : 'nobody'}, `
-          + `${row.running ? 'running' : 'stopped'} here, opinion ${row.opinion ? 'held' : 'unknown'}`
+          + `${row.running ? 'running' : 'stopped'} here`
+          + `${row.opinion === undefined ? '' : `, opinion ${row.opinion ? 'held' : 'unknown'}`}`
           + `${row.operatorStopped ? ', operator-stopped' : ''} -> ${row.expect.join(' ')}`;
 
         it(label, async () => {
           dockerServiceStub.returns(`flux${identifier}`);
           const adopt = sinon.stub(appReconciler, 'adoptControllerDesired').resolves(true);
-          const set = sinon.stub(appReconciler, 'setControllerDesired');
-          sinon.stub(appReconciler, 'hasControllerOpinion').returns(row.opinion);
-          const claimStarting = sinon.stub(appReconciler, 'claimStarting');
-          const releaseStarting = sinon.stub(appReconciler, 'releaseStarting');
-          sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(row.operatorStopped === true);
+          sinon.stub(appReconciler, 'hasControllerOpinion').returns(row.opinion === true);
+          const role = Object.fromEntries(ROLE_ACTIONS.map((name) => [name, sinon.stub(primaryRole, name).returns(true)]));
+          // as primaryRole answers: nothing to stand down from where the component is not running
+          role.standDown.returns(row.running);
+          sinon.stub(appsRuntimeState, 'operatorStopState').resolves(row.operatorStopped
+            ? { stopped: true, startRequested: false }
+            : UNLOCKED);
           globalState.receiveOnlySyncthingAppsCache.set(`flux${identifier}`, { restarted: true });
+          syncthingServiceStub.resolves([{ id: `flux${identifier}`, path: `${appsFolder}flux${identifier}`, type: 'sendreceive' }]);
+          axiosGetStub.resetBehavior();
+          axiosGetStub.callsFake(peerAnswers({ held: [] }));
           const ips = { here: ['90.228.196.203'], other: ['10.9.9.9'], none: [] }[row.fdm];
           serviceHelperStub.resolves({ data: { status: 'success', data: { ips } } });
           fluxNetworkHelperStub.resolves(row.fdm === 'other' ? elsewhere : here);
-          const installedApps = sinon.stub().resolves({
-            status: 'success',
-            data: [{ name: appName, version: 8, compose: [{ name: 'valheim', containerData: 'g:/root/.config/valheim' }] }],
-          });
+          const installedApps = installedOnFirstPass([
+            { name: appName, version: 8, compose: [{ name: 'valheim', containerData: 'g:/root/.config/valheim' }] },
+          ]);
           const listRunningApps = sinon.stub().resolves({
             status: 'success',
             data: row.running ? [{ Names: [`/flux${identifier}`] }] : [],
@@ -3867,27 +3872,17 @@ describe('advancedWorkflows tests', () => {
           await advancedWorkflows.masterSlaveApps(globalState, installedApps, listRunningApps, https);
 
           const [what, state, reason] = row.expect;
+          const taken = ROLE_ACTIONS.filter((name) => role[name].called);
           if (what === 'adopt') {
             sinon.assert.calledOnceWithExactly(adopt, identifier, state, reason);
-            sinon.assert.notCalled(set);
-            sinon.assert.notCalled(claimStarting);
-          } else if (what === 'set') {
-            sinon.assert.calledOnceWithExactly(set, identifier, state, reason);
+            expect(taken).to.deep.equal([]);
+          } else if (what === 'nothing') {
             sinon.assert.notCalled(adopt);
-            sinon.assert.notCalled(claimStarting);
-          } else if (what === 'start') {
-            // The start is not awaited by the pass; wait for this attempt to end.
-            for (let tick = 0; tick < 100 && !releaseStarting.calledWith(identifier); tick += 1) {
-              // eslint-disable-next-line no-await-in-loop
-              await new Promise((resolve) => { setTimeout(resolve, 20); });
-            }
-            sinon.assert.calledWith(claimStarting, identifier);
-            sinon.assert.notCalled(adopt);
-            sinon.assert.neverCalledWith(set, identifier, 'stopped');
+            expect(taken).to.deep.equal([]);
           } else {
+            expect(taken).to.deep.equal(row.expect);
+            row.expect.forEach((name) => sinon.assert.calledWith(role[name], identifier));
             sinon.assert.notCalled(adopt);
-            sinon.assert.notCalled(set);
-            sinon.assert.notCalled(claimStarting);
           }
         });
       });
