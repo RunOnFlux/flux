@@ -13,6 +13,7 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 // App modular services - replacing appsService
 const appInstaller = require('./appLifecycle/appInstaller');
 const appUninstaller = require('./appLifecycle/appUninstaller');
+const localRemovalQueue = require('./appLifecycle/localRemovalQueue');
 const appController = require('./appManagement/appController');
 const monitoringOrchestrator = require('./appMonitoring/monitoringOrchestrator');
 const portManager = require('./appNetwork/portManager');
@@ -612,6 +613,8 @@ async function startFluxFunctions() {
     // a removed component's in-memory controller verdict dies with it - a
     // reinstalled g:/r: app must await a fresh election, not inherit a stale one
     appUninstaller.setOnComponentRemoved((id) => appReconciler.forgetDesiredState(id));
+    // an app the registry stops listing is removed here and its removal told to peers
+    localRemovalQueue.setRemover((appName) => appUninstaller.removeAppLocally(appName, null, true, false, true));
     // the node's address moved, so every app that survived it has to come up on
     // the new one - asked for durably here rather than driven from the network
     // layer, which sits underneath the reconciler and cannot require it

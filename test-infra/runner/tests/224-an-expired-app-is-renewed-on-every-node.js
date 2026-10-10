@@ -10,9 +10,7 @@
  * The chain moves only when this suite advances it: the ticker is stopped after boot, and
  * submissions are paid with queueAppTx and mined by driveFleetUntil. A node runs its expiry pass
  * and promotes a payment only on a block that is still the tip when it fetches it, so each block
- * is mined only once every node has processed the one before. A holder's expiry pass waits a
- * minute after each app it uninstalls, and its block scan waits on the pass, so a block may
- * take that long.
+ * is mined only once every node has processed the one before.
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
