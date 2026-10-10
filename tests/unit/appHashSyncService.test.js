@@ -340,6 +340,61 @@ describe('appHashSyncService tests', () => {
       expect(logStub.info.calledWith(sinon.match('streaming bulk fetch'))).to.be.true;
     });
 
+    describe('a missing hash whose message this node holds unpromoted', () => {
+      const { appsMessages, appsTemporaryMessages } = config.database.appsglobal.collections;
+      const record = {
+        hash: 'pooled', txid: 'txpooled', height: 2555000, value: 10, message: false,
+      };
+      let stillMissing;
+
+      beforeEach(() => {
+        stillMissing = [record];
+        dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+      });
+
+      const fake = (pool) => dbHelperStub.findInDatabase.callsFake(async (db, col) => {
+        if (col === appsMessages) return [];
+        if (col === appsTemporaryMessages) return pool;
+        return stillMissing;
+      });
+
+      it('should promote it from that copy, and ask no peer', async () => {
+        fake([{ hash: 'pooled' }]);
+        messageVerifierStub.checkAndRequestApp.callsFake(async () => { stillMissing = []; return true; });
+
+        const result = await appHashSyncService.syncMissingHashes();
+
+        sinon.assert.calledOnceWithExactly(messageVerifierStub.checkAndRequestApp, 'pooled', 'txpooled', 2555000, 10, 2);
+        expect(result.resolved).to.equal(1);
+        expect(logStub.info.calledWith(sinon.match('requesting from peers'))).to.equal(false);
+      });
+
+      it('should ask its peers when it holds no copy', async () => {
+        const clock = sinon.useFakeTimers();
+        serviceHelperStub.delay = (ms) => { clock.tick(ms); return Promise.resolve(); };
+        fake([]);
+
+        await appHashSyncService.syncMissingHashes();
+        clock.restore();
+
+        sinon.assert.notCalled(messageVerifierStub.checkAndRequestApp);
+        expect(logStub.info.calledWith(sinon.match('requesting from peers'))).to.equal(true);
+      });
+
+      it('should ask its peers when the copy it holds is not promoted', async () => {
+        const clock = sinon.useFakeTimers();
+        serviceHelperStub.delay = (ms) => { clock.tick(ms); return Promise.resolve(); };
+        fake([{ hash: 'pooled' }]);
+        messageVerifierStub.checkAndRequestApp.resolves(false);
+
+        await appHashSyncService.syncMissingHashes();
+        clock.restore();
+
+        sinon.assert.calledOnce(messageVerifierStub.checkAndRequestApp);
+        expect(logStub.info.calledWith(sinon.match('requesting from peers'))).to.equal(true);
+      });
+    });
+
     it('should propagate errors to caller', async () => {
       dbHelperStub.findInDatabase.rejects(new Error('DB error'));
 
@@ -1151,7 +1206,7 @@ describe('appHashSyncService tests', () => {
       let emissions = 0;
       let findCallCount = 0;
       dbHelperStub.findInDatabase.callsFake((db, col) => {
-        if (col === config.database.appsglobal.collections.appsMessages) return Promise.resolve([]);
+        if (col === config.database.appsglobal.collections.appsMessages || col === config.database.appsglobal.collections.appsTemporaryMessages) return Promise.resolve([]);
         findCallCount += 1;
         if (findCallCount === 1) return Promise.resolve(missing3);
         // Emit response events for first 3 polls to keep settle alive
@@ -1193,7 +1248,7 @@ describe('appHashSyncService tests', () => {
       // Subsequent polls: stays at 1, settles after 4s.
       let findCallCount = 0;
       dbHelperStub.findInDatabase.callsFake((db, col) => {
-        if (col === config.database.appsglobal.collections.appsMessages) return Promise.resolve([]);
+        if (col === config.database.appsglobal.collections.appsMessages || col === config.database.appsglobal.collections.appsTemporaryMessages) return Promise.resolve([]);
         findCallCount += 1;
         if (findCallCount === 1) return Promise.resolve(missing3);
         return Promise.resolve(missing1);
