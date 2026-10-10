@@ -231,6 +231,45 @@ describe('dnsLookup tests', () => {
         ]);
       });
 
+      it('should answer that the name does not exist once the delay passes when the A query says so and the AAAA query is never answered', async () => {
+        answers.system[4] = 'ENOTFOUND';
+        answers.system[6] = NO_REPLY;
+        let settled = false;
+
+        const lookup = lookupAsync(HOSTNAME, { all: true }).catch((error) => error);
+        lookup.then(() => { settled = true; });
+        await clock.tickAsync(dnsLookup.RESOLUTION_DELAY_MS - 1);
+        expect(settled).to.equal(false);
+        await clock.tickAsync(1);
+
+        expect((await lookup).code).to.equal('ENOTFOUND');
+        expect(asked).to.deep.equal(['system:4', 'system:6']);
+      });
+
+      it('should include the IPv6 addresses that answer within the delay after the A query says the name does not exist', async () => {
+        answers.system[4] = 'ENOTFOUND';
+        answers.system[6] = { afterMs: dnsLookup.RESOLUTION_DELAY_MS - 1, addresses: ['2606:2800:220:1::1'] };
+
+        const lookup = lookupAsync(HOSTNAME, { all: true });
+        await clock.tickAsync(dnsLookup.RESOLUTION_DELAY_MS);
+
+        expect(await lookup).to.deep.equal([{ address: '2606:2800:220:1::1', family: 6 }]);
+      });
+
+      it('should wait for the IPv4 addresses when the AAAA query says the name does not exist', async () => {
+        answers.system[4] = { afterMs: 1000, addresses: ['93.184.216.34'] };
+        answers.system[6] = 'ENOTFOUND';
+        let settled = false;
+
+        const lookup = lookupAsync(HOSTNAME, { all: true });
+        lookup.then(() => { settled = true; });
+        await clock.tickAsync(999);
+        expect(settled).to.equal(false);
+        await clock.tickAsync(1);
+
+        expect(await lookup).to.deep.equal([{ address: '93.184.216.34', family: 4 }]);
+      });
+
       it('should answer with the IPv6 addresses when the A query fails after the AAAA query answered', async () => {
         answers.system[4] = 'ESERVFAIL';
         answers.system[6] = ['2606:2800:220:1::1'];
@@ -656,31 +695,31 @@ describe('dnsLookup tests', () => {
       ['addresses', 'refused', system4, false],
       ['no records', 'addresses', system6, false],
       ['no records', 'no records', 'ENODATA', false],
-      ['no records', 'no such name', 'ENODATA', false],
+      ['no records', 'no such name', 'ENOTFOUND', false],
       ['no records', 'SERVFAIL', fromPublic, false],
       ['no records', 'no reply', fromPublic, true],
       ['no records', 'refused', fromPublic, true],
       ['no such name', 'addresses', system6, false],
       ['no such name', 'no records', 'ENOTFOUND', false],
       ['no such name', 'no such name', 'ENOTFOUND', false],
-      ['no such name', 'SERVFAIL', fromPublic, false],
-      ['no such name', 'no reply', fromPublic, true],
-      ['no such name', 'refused', fromPublic, true],
+      ['no such name', 'SERVFAIL', 'ENOTFOUND', false],
+      ['no such name', 'no reply', 'ENOTFOUND', false],
+      ['no such name', 'refused', 'ENOTFOUND', false],
       ['SERVFAIL', 'addresses', system6, false],
       ['SERVFAIL', 'no records', fromPublic, false],
-      ['SERVFAIL', 'no such name', fromPublic, false],
+      ['SERVFAIL', 'no such name', 'ENOTFOUND', false],
       ['SERVFAIL', 'SERVFAIL', fromPublic, false],
       ['SERVFAIL', 'no reply', fromPublic, true],
       ['SERVFAIL', 'refused', fromPublic, true],
       ['no reply', 'addresses', system6, false],
       ['no reply', 'no records', fromPublic, true],
-      ['no reply', 'no such name', fromPublic, true],
+      ['no reply', 'no such name', 'ENOTFOUND', false],
       ['no reply', 'SERVFAIL', fromPublic, true],
       ['no reply', 'no reply', fromPublic, true],
       ['no reply', 'refused', fromPublic, true],
       ['refused', 'addresses', system6, false],
       ['refused', 'no records', fromPublic, true],
-      ['refused', 'no such name', fromPublic, true],
+      ['refused', 'no such name', 'ENOTFOUND', false],
       ['refused', 'SERVFAIL', fromPublic, true],
       ['refused', 'no reply', fromPublic, true],
       ['refused', 'refused', fromPublic, true],

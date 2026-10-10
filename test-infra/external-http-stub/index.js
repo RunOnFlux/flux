@@ -1132,7 +1132,7 @@ control.post('/dns-attempts/reset', (req, res) => {
 
 // Names this resolver answers itself instead of relaying, per record type:
 // { name, records: { A: <answer>, AAAA: <answer> } }, where an answer is an address of the
-// type's family, 'SERVFAIL', 'NO_REPLY', or { answer, afterMs } to send that answer afterMs
+// type's family, 'SERVFAIL', 'NXDOMAIN', 'NO_REPLY', or { answer, afterMs } to send that answer afterMs
 // after the query arrives. NO_REPLY leaves the query unanswered. A type left out is relayed
 // as any other query is.
 // Each query for a recorded type is counted - in `served` by type, and in `via` by the route
@@ -1255,6 +1255,7 @@ function recordedAnswer(query, route) {
   const { answer, afterMs } = typeof record === 'object' ? record : { answer: record, afterMs: 0 };
   if (answer === 'NO_REPLY') return { response: NO_REPLY, afterMs };
   if (answer === 'SERVFAIL') return { response: dnsResponse(query, end, 2), afterMs };
+  if (answer === 'NXDOMAIN') return { response: dnsResponse(query, end, 3), afterMs };
   const addressRecord = net.isIPv6(answer) ? aaaaRecord(answer) : aRecord(answer);
   return { response: dnsResponse(query, end, 0, [addressRecord]), afterMs };
 }
