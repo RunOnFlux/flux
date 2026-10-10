@@ -7,6 +7,7 @@ const verificationHelper = require('../verificationHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxEventBus = require('../utils/fluxEventBus');
 const globalState = require('../utils/globalState');
+const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
 // Removed appsService to avoid circular dependency - will use dynamic require where needed
 const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession } = require('../utils/enterpriseHelper');
 const { specificationFormatter, updateToLatestAppSpecifications } = require('../utils/appUtilities');
@@ -1749,6 +1750,7 @@ async function reconstructAppMessagesHashCollection() {
     const permHashSet = new Set(permanentMessages.map((m) => m.hash));
 
     const ops = [];
+    let markedMissing = 0;
     // eslint-disable-next-line no-restricted-syntax
     for (const appHash of appHashes) {
       const filter = { hash: appHash.hash, txid: appHash.txid };
@@ -1767,6 +1769,7 @@ async function reconstructAppMessagesHashCollection() {
           },
         });
       } else if (!hasPermanent && appHash.message) {
+        markedMissing += 1;
         ops.push({
           updateOne: {
             filter,
@@ -1792,6 +1795,9 @@ async function reconstructAppMessagesHashCollection() {
       [{ $set: { retryFromHeight: '$height', nextRetryHeight: { $ifNull: ['$nextRetryHeight', '$height'] }, syncAttempts: { $ifNull: ['$syncAttempts', 0] } } }],
     );
     changed += backfillResult.modifiedCount;
+
+    // a message this node no longer holds is fetched from peers on the next block
+    if (markedMissing > 0) appSyncEvents.emit(SYNC_EVENTS.HASH_UNRESOLVED);
 
     return { changed };
   } catch (error) {

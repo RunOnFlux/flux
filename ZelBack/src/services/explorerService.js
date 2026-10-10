@@ -664,9 +664,6 @@ async function processBlock(blockHeight, isInsightExplorer) {
           try {
             const reconstructResult = await registryManager.reconstructAppMessagesHashCollection();
             log.info(`Validation of App Messages Hash Collection — ${reconstructResult.changed} corrected`);
-            if (reconstructResult.changed > 0) {
-              blockEmitter.emit('hashesChanged');
-            }
           } catch (error) {
             log.error(error);
           }
