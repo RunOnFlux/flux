@@ -126,22 +126,26 @@ describe('registry and location reads wait for their store after a restart', fun
     const installed = async (name) => (await getAppContainerStatus(node().container, name, { all: true })) !== null;
     let endHeight;
 
-    // Mines one block at a time until every other node has processed the given height.
-    const mineTo = async (height) => {
-      const processed = async () => {
-        const heights = await Promise.all(others().map((i) => dbClient(i + 1).explorerHeight()));
-        return heights.every((h) => h >= height);
-      };
-      while (!await processed()) {
+    // Past the term, plus two expiry passes (every 8 blocks) on the nodes still up.
+    const EXPIRY_BUDGET = TERM + 16;
+    const listedElsewhere = async () => (await Promise.all(others().flatMap((i) => endedNames.map((n) => dbClient(i + 1).globalAppSpec(n)))))
+      .filter(Boolean).length;
+    // Mines one block at a time, each once every other node has processed the one before, until
+    // the condition holds.
+    const mineUntil = async (condition, { blocks, label }) => {
+      for (let mined = 0; mined < blocks; mined += 1) {
         // eslint-disable-next-line no-await-in-loop
-        if ((await getState()).currentHeight < height) await advanceBlock();
+        if (await condition()) return;
+        // eslint-disable-next-line no-await-in-loop
+        await advanceBlock();
         // eslint-disable-next-line no-await-in-loop
         await waitFor(async () => {
           const { currentHeight } = await getState();
           const heights = await Promise.all(others().map((i) => dbClient(i + 1).explorerHeight()));
-          return heights.every((h) => h >= Math.min(currentHeight, height));
-        }, { timeout: 150000, interval: 1000, label: `every other node processes block ${height}` });
+          return heights.every((h) => h >= currentHeight);
+        }, { timeout: 150000, interval: 1000, label: `every other node processes the block (${label})` });
       }
+      if (!await condition()) throw new Error(`${label}: not reached within ${blocks} blocks`);
     };
 
     before(async function () {
@@ -180,10 +184,9 @@ describe('registry and location reads wait for their store after a restart', fun
       expect(await Promise.all(endedNames.map(installed))).to.deep.equal([true, true]);
 
       await crashFluxos(node().container, { hold: true });
-      await mineTo(endHeight + 1);
-      // the rest of the fleet no longer lists them
-      const listedElsewhere = await Promise.all(others().flatMap((i) => endedNames.map((n) => dbClient(i + 1).globalAppSpec(n))));
-      expect(listedElsewhere.filter(Boolean)).to.deep.equal([]);
+      // the rest of the fleet has ended both
+      await mineUntil(async () => (await getState()).currentHeight > endHeight && await listedElsewhere() === 0,
+        { blocks: EXPIRY_BUDGET, label: 'both apps ended on every other node' });
     });
 
     after(async function () {
