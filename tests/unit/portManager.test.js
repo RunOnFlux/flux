@@ -15,6 +15,7 @@ const fluxHttpTestServer = require('../../ZelBack/src/services/utils/fluxHttpTes
 const { requireMongo } = require('./dbTestHelper');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
+const globalState = require('../../ZelBack/src/services/utils/globalState');
 
 describe('portManager tests', () => {
   before(requireMongo);
@@ -490,6 +491,72 @@ describe('portManager tests', () => {
     });
   });
 
+  describe('removeStaleUpnpMappings tests', () => {
+    let database;
+    let originalUserConfig;
+    let held;
+    const collection = config.database.appslocal.collections.appsInformation;
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      database = dbHelper.databaseConnection().db(config.database.appslocal.database);
+      await database.collection(collection).drop().catch(() => {});
+      await dbHelper.insertManyToDatabase(database, collection, [
+        { name: 'App1', version: 3, ports: [30001, 30002] },
+        { name: 'App2', version: 3, ports: [30003] },
+      ]);
+      originalUserConfig = globalThis.userconfig;
+      globalThis.userconfig = { initial: { ...originalUserConfig.initial, apiport: 16137 } };
+      held = undefined;
+      sinon.stub(upnpService, 'isUPNP').returns(true);
+      sinon.stub(upnpService, 'corePorts').callsFake((apiport) => [+apiport - 1, +apiport]);
+      // what the sweep was told is held, as it would ask once the router is listed
+      sinon.stub(upnpService, 'removeStaleMappings').callsFake(async (heldPorts) => {
+        held = [...await heldPorts()].sort();
+        return 0;
+      });
+    });
+
+    afterEach(() => {
+      globalThis.userconfig = originalUserConfig;
+    });
+
+    it('should hold the node\'s own ports for the api port it listens on and the one its config names, and every installed app\'s', async () => {
+      // the suite's config listens on 16127; a reload has named 16137 without a restart
+      await portManager.removeStaleUpnpMappings();
+
+      sinon.assert.calledOnce(upnpService.removeStaleMappings);
+      expect(held).to.deep.equal([16126, 16127, 16136, 16137, 30001, 30002, 30003].sort());
+    });
+
+    it('should not sweep a node without UPnP', async () => {
+      upnpService.isUPNP.returns(false);
+
+      await portManager.removeStaleUpnpMappings();
+
+      sinon.assert.notCalled(upnpService.removeStaleMappings);
+    });
+
+    it('should not sweep when an installed app\'s ports cannot be read', async () => {
+      await dbHelper.insertOneToDatabase(database, collection, { name: 'Sealed', version: 8, enterprise: 'blob', hash: 'h1' });
+      sinon.stub(appQueryService, 'decryptEnterpriseApps').resolves({
+        inPlace: [{ name: 'Sealed', version: 8, enterprise: 'blob', compose: [] }],
+        readable: [],
+        unreadable: [{ name: 'Sealed' }],
+      });
+
+      await portManager.removeStaleUpnpMappings();
+
+      expect(held).to.equal(undefined);
+    });
+
+    it('should not throw when the router cannot be read', async () => {
+      upnpService.removeStaleMappings.rejects(new Error('Incorrect response'));
+
+      await portManager.removeStaleUpnpMappings();
+    });
+  });
+
   describe('restoreAppsPortsSupport tests', () => {
     let db;
     let database;
@@ -548,6 +615,18 @@ describe('portManager tests', () => {
 
       // Should not throw
       await portManager.restoreAppsPortsSupport();
+    });
+
+    it('should neither map nor count a failure during a shutdown, so no removal finishes on the way out', async () => {
+      upnpService.isUPNP.returns(true);
+      sinon.stub(globalState, 'shutdownInProgress').get(() => true);
+      portManager.upnpMapFailures.set('App1', { cycles: 2, firstFailureAtMs: 0 });
+
+      await portManager.restoreAppsPortsSupport();
+
+      sinon.assert.notCalled(upnpService.mapUpnpPort);
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      expect(portManager.upnpMapFailures.get('App1').cycles).to.equal(2);
     });
 
     it('should NOT remove an app on a single UPNP mapping failure', async () => {

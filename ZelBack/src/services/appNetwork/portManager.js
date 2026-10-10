@@ -15,6 +15,7 @@ const { localAppsInformation, globalAppsInformation } = require('../utils/appCon
 const appUtilities = require('../utils/appUtilities');
 const { Privilege, authOf } = require('../utils/privileges');
 const fluxCaching = require('../utils/cacheManager');
+const globalState = require('../utils/globalState');
 const fluxEventBus = require('../utils/fluxEventBus');
 const { nodeSigner } = require('../utils/nodeSigner');
 
@@ -36,6 +37,10 @@ const UPNP_MAP_RETRY_DELAY_MS = 30 * 1000;
 const upnpMapFailures = new Map();
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
+
+// The api port this FluxOS listens on, read once as apiServer reads it: a config
+// reload can name another without a restart.
+const listeningApiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
 
 /**
  * Check if ports in array are unique
@@ -276,6 +281,9 @@ async function restoreFluxPortsSupport() {
  * @returns {Promise<void>}
  */
 async function restoreAppsPortsSupport() {
+  // mapUpnpPort refuses during a shutdown, and a refusal counted as a failure
+  // could finish an app's removal - with its broadcast - on the way out
+  if (globalState.shutdownInProgress) return;
   try {
     const currentAppsPorts = await assignedPortsInstalledApps();
     const isUPNP = upnpService.isUPNP();
@@ -342,6 +350,31 @@ async function restoreAppsPortsSupport() {
     }
   } catch (error) {
     log.error(error);
+  }
+}
+
+/**
+ * Removes the router's UPnP mappings to this node that nothing here holds any
+ * more (see upnpService.removeStaleMappings). What this node holds is its own
+ * ports - for the api port it listens on, and for the one its config names now,
+ * which a config reload changes without a restart - and every installed app's.
+ * A listing of the installed apps that cannot be read stops the sweep: an app
+ * missing from it would lose its mappings.
+ * @returns {Promise<void>}
+ */
+async function removeStaleUpnpMappings() {
+  try {
+    if (!upnpService.isUPNP()) return;
+    const removed = await upnpService.removeStaleMappings(async () => {
+      const configuredApiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
+      const held = [...upnpService.corePorts(listeningApiPort), ...upnpService.corePorts(configuredApiPort)];
+      const installedApps = await assignedPortsInstalledApps();
+      installedApps.forEach((app) => held.push(...app.ports));
+      return held;
+    });
+    if (removed) log.info(`removeStaleUpnpMappings - ${removed} stale UPnP mapping(s) removed`);
+  } catch (error) {
+    log.error(`removeStaleUpnpMappings - ${error.message}`);
   }
 }
 
@@ -1255,6 +1288,7 @@ module.exports = {
   restoreFluxPortsSupport,
   restoreAppsPortsSupport,
   restorePortsSupport,
+  removeStaleUpnpMappings,
   getAllUsedPorts,
   portsInUse,
   portsInUseApi,

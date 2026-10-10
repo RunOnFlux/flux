@@ -17,6 +17,7 @@ describe('appStartupManager tests', () => {
   let globalStateStub;
   let appQueryServiceStub;
   let portManagerStub;
+  let upnpServiceStub;
 
   beforeEach(() => {
     logStub = {
@@ -42,6 +43,11 @@ describe('appStartupManager tests', () => {
 
     portManagerStub = {
       appsWithPorts: sinon.stub().resolves({ apps: [], unreadable: [] }),
+    };
+
+    upnpServiceStub = {
+      isUPNP: sinon.stub().returns(false),
+      mapUpnpPort: sinon.stub().resolves(true),
     };
 
     registryManagerStub = {
@@ -91,6 +97,7 @@ describe('appStartupManager tests', () => {
       '../dockerService': dockerServiceStub,
       '../serviceHelper': { delay: sinon.stub().resolves(), ensureNumber: (value) => Number(value) },
       '../appNetwork/portManager': portManagerStub,
+      '../upnpService': upnpServiceStub,
       '../fluxNetworkHelper': fluxNetworkHelperStub,
       '../appDatabase/registryManager': registryManagerStub,
       './advancedWorkflows': advancedWorkflowsStub,
@@ -688,5 +695,121 @@ describe('appStartupManager tests', () => {
       sinon.assert.notCalled(fluxNetworkHelperStub.allowAppPorts);
     });
   });
-});
 
+  describe('mapping installed apps\' ports at boot', () => {
+    // the machine restarted, briefly enough that the apps keep their locations
+    const KEEP = { machineRebooted: true, downtimeMs: 1000, cleanShutdown: true };
+    const SPECS = [{ name: 'web' }, { name: 'db' }];
+
+    beforeEach(() => {
+      dockerServiceStub.dockerListContainers.resolves([]);
+      dbHelperStub.findInDatabase.resolves(SPECS);
+      portManagerStub.appsWithPorts.resolves({ apps: [{ name: 'web', ports: [31000, '31001'] }, { name: 'db', ports: [32000] }], unreadable: [] });
+      upnpServiceStub.isUPNP.returns(true);
+    });
+
+    it('maps every installed app\'s ports on the router, after the firewall and before the apps are reconciled', async () => {
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      expect(upnpServiceStub.mapUpnpPort.getCalls().map((call) => call.args)).to.deep.equal([
+        [31000, 'Flux_App_web'], [31001, 'Flux_App_web'], [32000, 'Flux_App_db'],
+      ]);
+      const reconcileStart = logStub.info.getCalls().find((call) => /Starting boot reconciliation/.test(call.args[0]));
+      expect(upnpServiceStub.mapUpnpPort.lastCall.calledBefore(reconcileStart), 'mapped before the reconcile began').to.equal(true);
+      expect(upnpServiceStub.mapUpnpPort.firstCall.calledAfter(fluxNetworkHelperStub.allowAppPorts.firstCall)).to.equal(true);
+    });
+
+    it('maps them after a system-shutdown path that ended in a restart on the same boot', async () => {
+      await appStartupManager.manageAppsOnBoot({ ...KEEP, machineRebooted: false, cleanShutdown: true });
+
+      sinon.assert.callCount(upnpServiceStub.mapUpnpPort, 3);
+    });
+
+    it('maps nothing on a restart of FluxOS alone, whose mappings are still on the router', async () => {
+      await appStartupManager.manageAppsOnBoot({ ...KEEP, machineRebooted: false, cleanShutdown: false });
+
+      sinon.assert.notCalled(upnpServiceStub.mapUpnpPort);
+      expect(logStub.info.calledWithMatch(/node confirmed, reconciling/)).to.equal(true);
+    });
+
+    it('gives up on a port the router never answers after 15 s, and maps the next', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+      upnpServiceStub.mapUpnpPort.onFirstCall().returns(new Promise(() => {}));
+
+      const mapping = appStartupManager.mapInstalledAppPorts();
+      await clock.tickAsync(15 * 1000);
+      await mapping;
+      clock.restore();
+
+      sinon.assert.callCount(upnpServiceStub.mapUpnpPort, 3);
+      expect(logStub.warn.calledWithMatch(/port 31000 of web not mapped via UPnP/)).to.equal(true);
+    });
+
+    it('stops mapping once its 2 minute budget is spent, leaving the rest to the restore', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+      upnpServiceStub.mapUpnpPort.callsFake(async () => { clock.tick(70 * 1000); return true; });
+
+      await appStartupManager.mapInstalledAppPorts();
+      clock.restore();
+
+      sinon.assert.calledTwice(upnpServiceStub.mapUpnpPort);
+      expect(logStub.warn.calledWithMatch(/stopped after 120s; the restore maps the rest/)).to.equal(true);
+    });
+
+    it('maps nothing on a node without UPnP', async () => {
+      upnpServiceStub.isUPNP.returns(false);
+
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      sinon.assert.notCalled(upnpServiceStub.mapUpnpPort);
+    });
+
+    it('tries each port once, logs the ones the router refused, and still reconciles the apps', async () => {
+      upnpServiceStub.mapUpnpPort.withArgs(31001).resolves(false);
+
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      sinon.assert.callCount(upnpServiceStub.mapUpnpPort, 3);
+      expect(logStub.warn.calledWithMatch(/port 31001 of web not mapped via UPnP/)).to.equal(true);
+      expect(logStub.info.calledWithMatch(/node confirmed, reconciling/)).to.equal(true);
+    });
+
+    it('maps the ports it can read, and says how many apps it could not', async () => {
+      portManagerStub.appsWithPorts.resolves({ apps: [{ name: 'web', ports: [31000] }], unreadable: [{ name: 'sealed' }] });
+
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      sinon.assert.calledOnceWithExactly(upnpServiceStub.mapUpnpPort, 31000, 'Flux_App_web');
+      expect(logStub.warn.calledWithMatch(/1 installed app\(s\) not mapped via UPnP: specification unreadable/)).to.equal(true);
+    });
+
+    it('goes on past a port whose mapping throws, and still reconciles the apps', async () => {
+      upnpServiceStub.mapUpnpPort.onFirstCall().rejects(new Error('router gone'));
+
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      sinon.assert.callCount(upnpServiceStub.mapUpnpPort, 3);
+      expect(logStub.warn.calledWithMatch(/port 31000 of web not mapped via UPnP/)).to.equal(true);
+      expect(logStub.info.calledWithMatch(/node confirmed, reconciling/)).to.equal(true);
+    });
+
+    it('logs a failure to read the apps and still reconciles them', async () => {
+      portManagerStub.appsWithPorts.onSecondCall().rejects(new Error('benchd down'));
+
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      expect(logStub.error.calledWithMatch(/app ports not mapped via UPnP: benchd down/)).to.equal(true);
+      expect(logStub.info.calledWithMatch(/node confirmed, reconciling/)).to.equal(true);
+    });
+
+    it('maps nothing when the apps are all being removed', async () => {
+      appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'web' }] });
+      await appStartupManager.manageAppsOnBoot({ machineRebooted: true, downtimeMs: 8000000, cleanShutdown: false });
+
+      fluxNetworkHelperStub.isNodeDos.returns(true);
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      sinon.assert.notCalled(upnpServiceStub.mapUpnpPort);
+    });
+  });
+});

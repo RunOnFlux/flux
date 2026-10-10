@@ -699,6 +699,84 @@ describe('handleSigterm drains syncthing folders before it exits', () => {
     sinon.assert.calledOnce(exitStub);
   });
 
+  describe('releasing the router\'s UPnP mappings', () => {
+    let releaseStub;
+    let releasePortsStub;
+
+    beforeEach(() => {
+      sinon.stub(upnpService, 'isUPNP').returns(true);
+      releaseStub = sinon.stub(upnpService, 'releaseOwnMappings').resolves(3);
+      releasePortsStub = sinon.stub(upnpService, 'releaseOwnPorts').resolves(1);
+    });
+
+    it('releases them once the containers are stopped, beside the drain, holding syncthing\'s', async () => {
+      await apiServer.handleSigterm();
+
+      sinon.assert.calledOnce(releaseStub);
+      expect(releaseStub.firstCall.callId).to.be.greaterThan(stopStub.lastCall.callId);
+      expect(releaseStub.firstCall.callId, 'started before the drain, not after it').to.be.lessThan(drainStub.firstCall.callId);
+      expect(releaseStub.firstCall.args[0], 'the core ports of the listening and the configured api port, first').to.deep.equal([...upnpService.corePorts(16127), ...upnpService.corePorts(16127)]);
+      expect(releaseStub.firstCall.args[1]).to.deep.equal([16129, 16129]);
+      expect(releaseStub.firstCall.args[2]).to.equal(15000);
+    });
+
+    it('releases syncthing\'s once the drain is over, beside the folder pause, before exiting', async () => {
+      let pausing;
+      syncthingFolderWrites.pauseAllFolders.callsFake(() => new Promise((resolve) => { pausing = resolve; }));
+
+      const stopping = apiServer.handleSigterm();
+      await new Promise(setImmediate);
+
+      sinon.assert.calledOnceWithExactly(releasePortsStub, [16129, 16129], 3000);
+      expect(releasePortsStub.firstCall.callId).to.be.greaterThan(drainStub.firstCall.callId);
+      sinon.assert.notCalled(exitStub);
+      pausing({ paused: [], failed: [] });
+      await stopping;
+      expect(exitStub.firstCall.callId).to.be.greaterThan(releasePortsStub.firstCall.callId);
+    });
+
+    it('waits for syncthing\'s release before exiting', async () => {
+      let releasing;
+      releasePortsStub.callsFake(() => new Promise((resolve) => { releasing = resolve; }));
+
+      const stopping = apiServer.handleSigterm();
+      await new Promise(setImmediate);
+
+      sinon.assert.notCalled(exitStub);
+      releasing(1);
+      await stopping;
+      sinon.assert.calledWith(exitStub, 0);
+    });
+
+    it('gives the release no more than what is left of the stop budget', async () => {
+      const now = sinon.stub(performance, 'now').returns(1000);
+      stopStub.callsFake(async () => { now.returns(1000 + PM2_KILL_TIMEOUT_MS - 5000 - 4000); });
+
+      await apiServer.handleSigterm();
+
+      expect(releaseStub.firstCall.args[2]).to.equal(4000);
+    });
+
+    it('releases nothing on a node without UPnP', async () => {
+      upnpService.isUPNP.returns(false);
+
+      await apiServer.handleSigterm();
+
+      sinon.assert.notCalled(releaseStub);
+      sinon.assert.notCalled(releasePortsStub);
+      sinon.assert.calledWith(exitStub, 0);
+    });
+
+    it('releases nothing on a restart of the service alone', async () => {
+      fs.existsSync.callsFake(() => false);
+      serviceHelper.runCommand.resolves({ stdout: '', error: null });
+
+      await apiServer.handleSigterm();
+
+      expect(exitStub.firstCall.callId).to.be.lessThan(releaseStub.firstCall?.callId ?? Infinity);
+    });
+  });
+
   describe('pausing every folder', () => {
     let pauseStub;
 
@@ -818,6 +896,47 @@ describe('apiServer initiate readiness', () => {
 
     sinon.assert.notCalled(notifyReady);
     sinon.assert.notCalled(startFluxFunctions);
+  });
+
+  describe('a config reload', () => {
+    let reload;
+    let shuttingDown;
+    let originalUserConfig;
+
+    beforeEach(async () => {
+      // both are module-wide, and other suites leave them as they found them or not
+      originalUserConfig = globalThis.userconfig;
+      globalThis.userconfig = { initial: { ...originalUserConfig.initial, apiport: 16137 } };
+      shuttingDown = false;
+      sinon.stub(globalState, 'shutdownInProgress').get(() => shuttingDown);
+      configManager.startWatching.callsFake(async (logger, onChange) => { reload = onChange; });
+      await apiServer.initiate();
+      await new Promise(setImmediate);
+      upnpService.verifyUPNPsupport.resetHistory();
+      upnpService.setupUPNP.resetHistory();
+    });
+
+    afterEach(() => {
+      globalThis.userconfig = originalUserConfig;
+    });
+
+    it('verifies and maps UPnP again for a new api port', async () => {
+      await reload({ initial: { apiport: 16137 } });
+
+      sinon.assert.calledOnce(upnpService.verifyUPNPsupport);
+      sinon.assert.calledOnce(upnpService.setupUPNP);
+    });
+
+    it('leaves UPnP alone mid-shutdown, when the mappings are being released', async () => {
+      shuttingDown = true;
+      const exit = sinon.stub(process, 'exit');
+
+      await reload({ initial: { apiport: 16137 } });
+
+      sinon.assert.notCalled(upnpService.verifyUPNPsupport);
+      sinon.assert.notCalled(upnpService.setupUPNP);
+      sinon.assert.notCalled(exit);
+    });
   });
 
   ['http', 'https'].forEach((mode, failing) => {

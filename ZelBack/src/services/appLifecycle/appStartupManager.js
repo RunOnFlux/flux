@@ -17,6 +17,7 @@ const appReconciler = require('../appMonitoring/appReconciler');
 const appUninstaller = require('./appUninstaller');
 const appNetworkLinker = require('./appNetworkLinker');
 const portManager = require('../appNetwork/portManager');
+const upnpService = require('../upnpService');
 const globalState = require('../utils/globalState');
 const fluxEventBus = require('../utils/fluxEventBus');
 const nodeConfirmationService = require('../nodeConfirmationService');
@@ -24,6 +25,11 @@ const { localAppsInformation, SIGTERM_EXPIRY_MS, RUNNING_EXPIRY_MS } = require('
 const { getNonGComponentIdentifiers, parseContainerName, appHasValidLocationOnNode } = require('../utils/appUtilities');
 
 const SYNC_TIMEOUT_MS = config.system.bootSyncTimeoutMs ?? 300000;
+
+// How long mapping one app port on the router may hold the boot gate, and how
+// long mapping them all may.
+const BOOT_UPNP_PORT_TIMEOUT_MS = 15 * 1000;
+const BOOT_UPNP_BUDGET_MS = 2 * 60 * 1000;
 
 /**
  * Await a promise, giving up after a deadline. The timer is cleared however the
@@ -115,6 +121,42 @@ async function openInstalledAppPorts() {
     failed.forEach(({ rule, error }) => log.warn(`appStartupManager - app port not opened in the firewall: ufw ${rule}: ${error}`));
   } catch (error) {
     log.error(`appStartupManager - app ports not opened in the firewall: ${error.message}`);
+  }
+}
+
+/**
+ * Maps every installed app's ports on the router, before the apps start. A
+ * system shutdown releases the node's mappings, and a router that restarted with
+ * the machine has lost them, so after a reboot there are none until this puts
+ * them back; the periodic restore would, but on a timer of its own that the apps
+ * do not wait for. One attempt per port: a failure is logged, the apps still
+ * start and the restore tries again.
+ */
+async function mapInstalledAppPorts() {
+  if (!upnpService.isUPNP()) return;
+  try {
+    const { apps, unreadable } = await portManager.appsWithPorts(await getInstalledAppsFromDb());
+    if (unreadable.length) log.warn(`appStartupManager - ports of ${unreadable.length} installed app(s) not mapped via UPnP: specification unreadable`);
+    // The router's requests have no timeout of their own, and this holds the boot
+    // gate: a port gets its time, the mapping as a whole gets its budget, and
+    // whatever is left is the restore's.
+    const deadline = performance.now() + BOOT_UPNP_BUDGET_MS;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of apps) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of app.ports) {
+        if (performance.now() >= deadline) {
+          log.warn(`appStartupManager - mapping ports via UPnP stopped after ${BOOT_UPNP_BUDGET_MS / 1000}s; the restore maps the rest`);
+          return;
+        }
+        // eslint-disable-next-line no-await-in-loop
+        const mapped = await awaitWithin(upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${app.name}`), BOOT_UPNP_PORT_TIMEOUT_MS, 'upnp_timeout')
+          .catch(() => false);
+        if (!mapped) log.warn(`appStartupManager - port ${port} of ${app.name} not mapped via UPnP; the restore tries again`);
+      }
+    }
+  } catch (error) {
+    log.error(`appStartupManager - app ports not mapped via UPnP: ${error.message}`);
   }
 }
 
@@ -356,6 +398,13 @@ async function manageAppsOnBoot(bootContext) {
 
     log.info('appStartupManager - Daemon, DB, and node confirmed, reconciling apps');
     await openInstalledAppPorts();
+    // Only when the mappings can be gone: the machine restarted (its router may
+    // have too), or the last FluxOS took the system-shutdown path, which releases
+    // them - a shutdown it judged wrongly ends in a restart on the same boot. A
+    // restart of FluxOS alone leaves them in place, and each port mapped here
+    // holds the boot gate - and every route behind requireBootSettled - for
+    // another second.
+    if (bootContext.machineRebooted || bootContext.cleanShutdown) await mapInstalledAppPorts();
     await reconcileAppsOnBoot();
   } finally {
     globalState.bootContainerStateSettled = true;
@@ -367,6 +416,7 @@ async function manageAppsOnBoot(bootContext) {
 module.exports = {
   manageAppsOnBoot,
   openInstalledAppPorts,
+  mapInstalledAppPorts,
   reconcileAppsOnBoot,
   getStoppedFluxContainers,
   getInstalledAppsFromDb,
