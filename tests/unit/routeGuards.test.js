@@ -12,7 +12,8 @@ const request = require('supertest');
 const apicache = require('apicache');
 
 const {
-  answerDaemonUnavailable, asyncRoute, rejectQueryParameters, requireBootSettled, requirePolicyReady,
+  answerDaemonUnavailable, asyncRoute, isDaemonUnavailable, rejectQueryParameters, requireBootSettled,
+  requirePolicyReady,
 } = require('../../ZelBack/src/services/utils/routeGuards');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 
@@ -239,6 +240,24 @@ describe('routeGuards', () => {
       const res = await get('/apps/redeploy/myapp');
       expect(res.status).to.equal(200);
       expect(handlerCalls).to.equal(1);
+    });
+  });
+
+  describe('isDaemonUnavailable', () => {
+    it('is true while the daemon loads its block index', () => {
+      expect(isDaemonUnavailable({ code: -28, message: 'Loading block index...' })).to.equal(true);
+    });
+
+    it('is true when nothing answers on the daemon port', () => {
+      ['ECONNREFUSED', 'ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT'].forEach((code) => {
+        expect(isDaemonUnavailable({ code }), code).to.equal(true);
+      });
+    });
+
+    it('is false for an answer the daemon gave', () => {
+      expect(isDaemonUnavailable({ code: -5, message: 'No information available about transaction' })).to.equal(false);
+      expect(isDaemonUnavailable(new Error('Unrecognised Flux Node tier'))).to.equal(false);
+      expect(isDaemonUnavailable(undefined)).to.equal(false);
     });
   });
 
