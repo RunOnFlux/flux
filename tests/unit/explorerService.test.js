@@ -1,4 +1,5 @@
 const sinon = require('sinon');
+const config = require('config');
 const explorerService = require('../../ZelBack/src/services/explorerService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
@@ -735,6 +736,154 @@ describe('explorerService tests', () => {
           coinbase: false,
         },
       );
+      sinon.assert.calledWithMatch(logErrorSpy, 'Hash This string is exactly 64 characters long. Including this string already exists. Not adding at height 829000');
+    });
+
+    it('should record the app payment a block holds in place of one the chain does not hold', async () => {
+      const blockVerbose = {
+        tx: [
+          {
+            version: 4,
+            txid: 11222233333,
+            vin: [
+              {
+                txid: 1,
+                vout: 12345,
+              }, {
+                txid: 2,
+                vout: 555454,
+              },
+            ],
+            vout: [{
+              scriptPubKey: {
+                addresses: ['t1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6', 22222, 3333],
+                hex: 0x1AFFF,
+                asm: 'OP_RETURN 5468697320737472696e672069732065786163746c792036342063686172616374657273206c6f6e672e20496e636c7564696e67207468697320737472696e67',
+              },
+              valueSat: 200000000,
+            }],
+          },
+        ],
+        height: 829000,
+      };
+      dbStubFind.callsFake(async (db, collection) => (collection === config.database.daemon.collections.appsHashes ? { hash: 'h', txid: 'old', height: 1, notOnChain: true } : true));
+      const removeStub = sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves();
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').returns({
+        txid: 2222,
+        address: 12345,
+        satoshis: 10000,
+        value: 'my test value',
+      });
+      sinon.stub(dbHelper, 'updateOneInDatabase').returns(true);
+      sinon.stub(daemonServiceTransactionRpcs, 'getRawTransaction').returns({
+        status: 'success',
+        data: {
+          txid: 12345,
+          address: 12345,
+          satoshis: 10000,
+          value: 'my test value',
+          vout: {
+            444: {
+              scriptPubKey:
+                { addresses: ['1ZACDE1234567'] },
+              valueSat: 1000,
+            },
+          },
+        },
+      });
+      dbStubInsert.returns(true);
+
+      await explorerService.processStandard(blockVerbose, database);
+
+      sinon.assert.calledWithMatch(
+        dbStubInsert,
+        sinon.match.object,
+        'utxoindex',
+        {
+          txid: 11222233333,
+          vout: 0,
+          height: 829000,
+          address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
+          satoshis: 200000000,
+          scriptPubKey: 110591,
+          coinbase: false,
+        },
+      );
+      sinon.assert.calledOnceWithExactly(removeStub, sinon.match.object, config.database.daemon.collections.appsHashes, { hash: 'This string is exactly 64 characters long. Including this string', notOnChain: true });
+      sinon.assert.neverCalledWithMatch(logErrorSpy, sinon.match('already exists'));
+    });
+
+    it('should keep an app payment the chain holds, and record no other for its hash', async () => {
+      const blockVerbose = {
+        tx: [
+          {
+            version: 4,
+            txid: 11222233333,
+            vin: [
+              {
+                txid: 1,
+                vout: 12345,
+              }, {
+                txid: 2,
+                vout: 555454,
+              },
+            ],
+            vout: [{
+              scriptPubKey: {
+                addresses: ['t1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6', 22222, 3333],
+                hex: 0x1AFFF,
+                asm: 'OP_RETURN 5468697320737472696e672069732065786163746c792036342063686172616374657273206c6f6e672e20496e636c7564696e67207468697320737472696e67',
+              },
+              valueSat: 200000000,
+            }],
+          },
+        ],
+        height: 829000,
+      };
+      dbStubFind.callsFake(async (db, collection) => (collection === config.database.daemon.collections.appsHashes ? { hash: 'h', txid: 'old', height: 1 } : true));
+      const removeStub = sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves();
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').returns({
+        txid: 2222,
+        address: 12345,
+        satoshis: 10000,
+        value: 'my test value',
+      });
+      sinon.stub(dbHelper, 'updateOneInDatabase').returns(true);
+      sinon.stub(daemonServiceTransactionRpcs, 'getRawTransaction').returns({
+        status: 'success',
+        data: {
+          txid: 12345,
+          address: 12345,
+          satoshis: 10000,
+          value: 'my test value',
+          vout: {
+            444: {
+              scriptPubKey:
+                { addresses: ['1ZACDE1234567'] },
+              valueSat: 1000,
+            },
+          },
+        },
+      });
+      dbStubInsert.returns(true);
+
+      await explorerService.processStandard(blockVerbose, database);
+
+      sinon.assert.calledWithMatch(
+        dbStubInsert,
+        sinon.match.object,
+        'utxoindex',
+        {
+          txid: 11222233333,
+          vout: 0,
+          height: 829000,
+          address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
+          satoshis: 200000000,
+          scriptPubKey: 110591,
+          coinbase: false,
+        },
+      );
+      sinon.assert.notCalled(removeStub);
       sinon.assert.calledWithMatch(logErrorSpy, 'Hash This string is exactly 64 characters long. Including this string already exists. Not adding at height 829000');
     });
   });
