@@ -9,8 +9,17 @@ import {
 } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
+import { PRODUCTION } from '../framework/coupled-knobs.js';
 
 const subnet = getSubnetConfig();
+
+// Production's location expiries. Every fleet here is judged on a downtime the
+// node measures across its own boot, which the harness does not compress, and a
+// boot only ever adds to that measurement. At production's windows a node
+// expires its locations here exactly when a real node with the same boot would.
+const PRODUCTION_EXPIRIES = {
+  fluxapps: { sigtermExpiryS: PRODUCTION.sigtermExpiryS, locationTtlS: PRODUCTION.locationTtlS },
+};
 
 // Assertion conventions in this suite:
 // - Boot-context FACTS (firstBoot / machineRebooted / cleanShutdown) are
@@ -41,7 +50,7 @@ describe('Boot manager: FluxOS-only restart', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false, bootContext: 'running' });
+    env = await createTestEnv({ hookCtx: this, configOverrides: PRODUCTION_EXPIRIES, nodes: 1, tickerAutostart: false, bootContext: 'running' });
     await waitForDaemonReady(env.clients[0]);
     await waitForBootSettledAndLogged(env);
   });
@@ -70,7 +79,7 @@ describe('Boot manager: machine reboot with clean shutdown', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false, bootContext: 'rebooted' });
+    env = await createTestEnv({ hookCtx: this, configOverrides: PRODUCTION_EXPIRIES, nodes: 1, tickerAutostart: false, bootContext: 'rebooted' });
     await waitForDaemonReady(env.clients[0]);
     await waitForBootSettledAndLogged(env);
   });
@@ -101,7 +110,7 @@ describe('Boot manager: first boot', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false, bootContext: 'firstBoot' });
+    env = await createTestEnv({ hookCtx: this, configOverrides: PRODUCTION_EXPIRIES, nodes: 1, tickerAutostart: false, bootContext: 'firstBoot' });
     await waitForDaemonReady(env.clients[0]);
     await waitForBootSettledAndLogged(env);
   });
@@ -136,7 +145,7 @@ describe('Boot manager: daemon timeout', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false, bootContext: 'rebooted', rpcFailures: [subnet.nodeIp(1)] });
+    env = await createTestEnv({ hookCtx: this, configOverrides: PRODUCTION_EXPIRIES, nodes: 1, tickerAutostart: false, bootContext: 'rebooted', rpcFailures: [subnet.nodeIp(1)] });
     await waitForBootSettledAndLogged(env, 0, { timeout: 60000 });
   });
 
@@ -160,7 +169,7 @@ describe('Boot manager: not confirmed', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ hookCtx: this,
+    env = await createTestEnv({ hookCtx: this, configOverrides: PRODUCTION_EXPIRIES,
       nodes: 1,
       tickerAutostart: false,
       bootContext: 'rebooted',
@@ -189,7 +198,7 @@ describe('Boot manager: shutdownReason sequence', function () {
 
     before(async function () {
       this.timeout(120000);
-      env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false, bootContext: 'rebooted' });
+      env = await createTestEnv({ hookCtx: this, configOverrides: PRODUCTION_EXPIRIES, nodes: 1, tickerAutostart: false, bootContext: 'rebooted' });
       await waitForDaemonReady(env.clients[0]);
     });
 
@@ -212,7 +221,7 @@ describe('Boot manager: shutdownReason sequence', function () {
 
     before(async function () {
       this.timeout(120000);
-      env = await createTestEnv({ hookCtx: this,
+      env = await createTestEnv({ hookCtx: this, configOverrides: PRODUCTION_EXPIRIES,
         nodes: 1,
         tickerAutostart: false,
         bootContext: { lastAliveAgoMs: 60000, machineBootId: 'old-boot-id' },

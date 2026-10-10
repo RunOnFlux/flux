@@ -345,7 +345,6 @@ describe('policy reaching a node from its peers', function () {
     for (let i = 0; i < 2; i += 1) {
       await env.partitionGroups([TWO_HOPS], REST);
       await env.healPartition([TWO_HOPS], REST);
-      await env.startDiscovery([TWO_HOPS]);
       // Counted rather than named: the node is cut off from the whole fleet, so its peers
       // go to zero and coming back is unambiguous.
       await waitFor(
@@ -594,6 +593,12 @@ describe('a node whose source answered with something that did not verify', func
       async () => (await stubState(env)).policyFetches.ok >= 3,
       { timeout: 30000, interval: 500, label: 'the source to serve every node' },
     );
+    // Nothing a node holds changes when it refuses what it was served, so each node's
+    // refusal is read from its announcement, not from a store that reads the same before it.
+    const answers = await Promise.all([0, 1, 2].map(
+      (i) => env.clients[i].waitForEvent('policy:backstopAnswered', (d) => d.served, 90000),
+    ));
+    expect(answers.map((a) => a.data.verdict), 'the source served a body, and every node refused it').to.deep.equal(['rejected', 'rejected', 'rejected']);
     const held = await Promise.all([0, 1, 2].map(heldSeq));
     expect(held, 'a valid signature from an untrusted signer is not policy').to.deep.equal([null, null, null]);
   });

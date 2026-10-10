@@ -98,17 +98,30 @@ async function sendThenRun(identifier, appId, change) {
   await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.MASTERSLAVE_BEFORE_RUN, identifier);
   // A stand-down given while this waited for the reconciler's slot is read in
   // it, so the container is never asked to run.
-  if (!(await appReconciler.setRunningUnlessOperatorStopped(identifier, 'masterSlave primary', { unless: () => change.standDown }))) {
-    if (change.standDown) {
-      await syncthingFolderWrites.changeSyncthingFolderType(appId, 'receiveonly');
-      return { to: Role.STANDBY, reason: 'stood down before it ran' };
-    }
+  let outcome;
+  try {
+    outcome = await appReconciler.setRunningUnlessOperatorStopped(identifier, 'masterSlave primary', { unless: () => change.standDown });
+  } catch (error) {
+    // an unread lock is not an absent one, and nothing holds the component: its
+    // folder stops sending
+    log.error(`primaryRole - not starting ${identifier}: ${error.message}`);
+    await syncthingFolderWrites.changeSyncthingFolderType(appId, 'receiveonly');
+    return { to: Role.STANDBY, reason: 'its operator lock could not be read' };
+  }
+  const { RunRequest } = appReconciler;
+  if (outcome === RunRequest.WRITTEN) return Role.PRIMARY;
+  if (outcome === RunRequest.OPERATOR_STOPPED) {
     // An operator stop given while the folder was turning keeps the component
     // down: it stays held by the lock, its folder sending, until the election
     // decides an operator start.
     return { to: Role.STANDBY, reason: 'its operator stopped it' };
   }
-  return Role.PRIMARY;
+  // Stood down, or another decision was made while it waited: nothing runs it
+  // here, so its folder stops sending, and the next election pass decides again.
+  await syncthingFolderWrites.changeSyncthingFolderType(appId, 'receiveonly');
+  return outcome === RunRequest.STOOD_DOWN || change.standDown
+    ? { to: Role.STANDBY, reason: 'stood down before it ran' }
+    : { to: Role.STANDBY, reason: 'another decision was made while it waited' };
 }
 
 // A stand-down ends an error: FDM names another node that has decided it holds
@@ -197,7 +210,25 @@ function standDown(identifier, appId, { running = false } = {}) {
 }
 
 /**
- * Keeps the folder of the primary running here sending.
+ * Records a verdict the component's container already shows where this process
+ * holds none. Asked first, as an adoption takes the component's reconcile slot.
+ * @param {string} identifier `<component>_<app>`
+ * @param {'running'|'stopped'} state
+ * @param {string} reason
+ */
+async function adopt(identifier, state, reason) {
+  if (appReconciler.hasControllerOpinion(identifier)) return;
+  if (await appReconciler.adoptControllerDesired(identifier, state, reason)) {
+    fluxEventBus.count('masterSlave:decision', identifier, 'adopted');
+  }
+}
+
+/**
+ * Keeps the folder of the primary running here sending, and records 'running' as
+ * the reconciler's desired state where this process holds none: after a FluxOS
+ * restart the container runs with no opinion recorded, and the reconciler acts on
+ * the component, a pending restart included, only once one is
+ * (appReconciler.adoptControllerDesired).
  * @param {string} identifier `<component>_<app>`
  * @param {string} appId Syncthing folder id
  * @returns {Promise<boolean>} False when a change of role is in progress, so
@@ -205,7 +236,9 @@ function standDown(identifier, appId, { running = false } = {}) {
  */
 async function holdAsPrimary(identifier, appId) {
   if (changes.get(identifier)) return false;
-  return syncthingFolderWrites.changeSyncthingFolderType(appId, 'sendreceive');
+  const held = await syncthingFolderWrites.changeSyncthingFolderType(appId, 'sendreceive');
+  await adopt(identifier, 'running', 'masterSlave primary');
+  return held;
 }
 
 /**
@@ -244,6 +277,9 @@ function heldByOperation(identifier) {
  * not withdraw: it reaches the other holders once the folder is unpaused.
  *
  * A folder a backup or restore holds stays paused.
+ *
+ * A standby whose container is stopped has 'stopped' recorded as the reconciler's
+ * desired state where this process holds none, as holdAsPrimary records 'running'.
  * @param {string} identifier `<component>_<app>`
  * @param {string} appId Syncthing folder id
  * @param {object} [opts]
@@ -255,6 +291,7 @@ function heldByOperation(identifier) {
  */
 async function holdAsStandby(identifier, appId, { othersHold } = {}) {
   if (changes.get(identifier) || isPrimary(identifier)) return false;
+  await adopt(identifier, 'stopped', 'masterSlave standby');
   const folder = await syncthingFolderWrites.folderConfig(appId);
   if (folder?.paused && folder.type === 'sendreceive') {
     const others = othersHold ? await othersHold() : PeerComponent.UNKNOWN;

@@ -1001,16 +1001,18 @@ async function uploadAppsFiles(req, res) {
     // Before anything has been written the status line is still ours, so a
     // refusal can be answered as one. Once the body has started it cannot, and
     // the envelope goes into the stream where a client parses it out.
-    if (res.headersSent) {
-      try {
+    // Never throws: it is the last step of every way an upload settles, and a
+    // throw from inside a promise chain is a rejection nothing handles.
+    try {
+      if (res.headersSent) {
         res.write(serviceHelper.ensureString(envelope));
         res.end();
-      } catch (writeError) {
-        log.error(writeError);
+        return;
       }
-      return;
+      respondError(res, error);
+    } catch (answerError) {
+      log.error(answerError);
     }
-    respondError(res, error);
   };
 
   try {
@@ -1185,7 +1187,12 @@ async function uploadAppsFiles(req, res) {
     onStall: () => abandon(new Error(`The upload held a slot without sending the ${minUploadBitsPerSecond} bit/s a transfer has to keep`)),
   });
 
-  form.parse(req);
+  // Without a callback, parse returns a promise that rejects with the form's
+  // error - the same error its 'error' event carries to abandon above. Left
+  // unhandled, that rejection takes the process down; routed to abandon, which
+  // settles once whichever reports first, it also covers a failure that never
+  // reaches the event, such as headers the parser refuses.
+  form.parse(req).catch(abandon);
 }
 
 module.exports = {

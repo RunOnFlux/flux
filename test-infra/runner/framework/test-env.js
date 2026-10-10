@@ -26,7 +26,7 @@ import {
 import { acquireBootLock, releaseBootLock, BOOT_LOCK_MAX_WAIT_MS } from './boot-lock.js';
 import { stubPeerClient } from './stub-peer-helper.js';
 import { derivePeerThresholds, ringArc, dialerCount } from './peer-topology.js';
-import { pushImage } from './registry-helper.js';
+import { pushImage, mirrorExecutorImage, executorImageReference } from './registry-helper.js';
 import { MongoClient } from 'mongodb';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey, nodeKey } from './keys.js';
@@ -1485,6 +1485,12 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   // so this costs milliseconds and never contacts Docker Hub.
   await pushImage('e2e-pause', 'v1');
 
+  // The file operation image, which every node fetches at boot and production
+  // nodes get from a registry or a peer. Unset, a node asks the public registry,
+  // which a fleet cannot reach, and keeps retrying a pull that can only fail for
+  // the whole of the suite. Copied before any node boots, from the box's cache.
+  await mirrorExecutorImage();
+
   const rtClient = await getContainerRuntimeClient();
   const { getReaper: getReaperFn } = await import('testcontainers');
   const reaper = await getReaperFn(rtClient);
@@ -1675,6 +1681,12 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       },
     };
     const nodeConfig = mergeConfigs(infraOverride, mergeConfigs(configOverrides, nodeConfigOverrides[i]));
+    // The fleet's own registry serves the file operation image unless the suite
+    // names another source; any other volumeOperations setting it makes stands.
+    nodeConfig.fluxapps = {
+      ...nodeConfig.fluxapps,
+      volumeOperations: { image: executorImageReference(), ...nodeConfig.fluxapps?.volumeOperations },
+    };
     // Checked on the EFFECTIVE config, per node, before anything boots. A
     // compressed harness is a set of ratios and this is where a suite's
     // override lands on top of them - which is exactly where the queue step

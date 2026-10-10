@@ -727,6 +727,18 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
     });
 
+    // A recreate spans an image pull, during which the desired state can change: the
+    // container is created, not started, and the pass the recreate enqueues starts it.
+    it('creates a missing container without starting it', async () => {
+      stubs.dockerService.dockerContainerInspect.rejects(new Error('Container www_App not found'));
+      stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
+
+      await appReconciler.reconcile('www_App');
+
+      sinon.assert.calledOnceWithExactly(stubs.containerHealthMonitor.recreateMissingContainers, 'www_App', { start: false });
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
     it('recreates a container FluxOS removed itself without calling it tampering', async () => {
       // container_vanished is the heaviest tampering signal the node emits and
       // it means one thing: a container went away and FluxOS did not take it.
@@ -836,6 +848,31 @@ describe('appReconciler tests', () => {
       });
       await appReconciler.reconcile('db_App');
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
+    // What the pass decided from is the opinion as it read it: a decider that wrote
+    // in between, even back to 'running', decided after it, and its own enqueue
+    // runs the pass that acts on that.
+    it('does not start when an opinion was written during the pass, even one that reads running again', async () => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.setControllerDesired('db_App', 'running', 'test');
+      stubs.globalState.bootContainerStateSettled = true;
+      stubs.appsRuntimeState.recordRestart.callsFake(async () => {
+        appReconciler.setControllerDesired('db_App', 'stopped', 'mount safety block');
+        appReconciler.setControllerDesired('db_App', 'running', 'syncthing synced start');
+      });
+      await appReconciler.reconcile('db_App');
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
+    it('starts when no opinion was written during the pass', async () => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.setControllerDesired('db_App', 'running', 'test');
+      stubs.globalState.bootContainerStateSettled = true;
+      await appReconciler.reconcile('db_App');
+      expect(stubs.dockerService.appDockerStart.calledOnceWith('db_App')).to.be.true;
     });
 
     it('aborts the start when the controller verdict is cleared mid-reconcile (uninstall seam)', async () => {
@@ -1689,7 +1726,7 @@ describe('appReconciler tests', () => {
       expect(stubs.appInspector.stopAppMonitoring.calledWith('www_App', true), 'stops the stats monitor before removing').to.be.true;
       expect(stubs.dockerService.appDockerForceRemove.calledWith('www_App', false), 'force-removes keeping bind-mounted data').to.be.true;
       expect(
-        stubs.containerHealthMonitor.recreateMissingContainers.calledOnceWith('www_App', { softOnly: true }),
+        stubs.containerHealthMonitor.recreateMissingContainers.calledOnceWith('www_App', { softOnly: true, start: false }),
         'the recreate must never be allowed to fall back to a hard install: that reformats the data volume',
       ).to.be.true;
       expect(stubs.appUninstaller.removeAppLocally.called, 'the heal must NEVER uninstall the app').to.be.false;
@@ -1898,6 +1935,232 @@ describe('appReconciler tests', () => {
       }
     });
   });
+  // The reconcile pass's decision table for a synced component, one row per cell.
+  describe('decision table for a synced component', () => {
+    // lock, opinion, container, restart pending -> what the pass does, and whether
+    // the pending request is carried out.
+    const cells = [
+      { lock: false, opinion: 'unknown', running: true, pending: true, action: 'nothing', carriedOut: false },
+      { lock: false, opinion: 'unknown', running: true, pending: false, action: 'nothing', carriedOut: false },
+      { lock: false, opinion: 'unknown', running: false, pending: true, action: 'nothing', carriedOut: false },
+      { lock: false, opinion: 'unknown', running: false, pending: false, action: 'nothing', carriedOut: false },
+      { lock: false, opinion: 'running', running: true, pending: true, action: 'bounce', carriedOut: true },
+      { lock: false, opinion: 'running', running: true, pending: false, action: 'nothing', carriedOut: false },
+      { lock: false, opinion: 'running', running: false, pending: true, action: 'start', carriedOut: true },
+      { lock: false, opinion: 'running', running: false, pending: false, action: 'start', carriedOut: false },
+      { lock: false, opinion: 'stopped', running: true, pending: true, action: 'stop', carriedOut: false },
+      { lock: false, opinion: 'stopped', running: true, pending: false, action: 'stop', carriedOut: false },
+      { lock: false, opinion: 'stopped', running: false, pending: true, action: 'nothing', carriedOut: false },
+      { lock: false, opinion: 'stopped', running: false, pending: false, action: 'nothing', carriedOut: false },
+      { lock: true, opinion: 'unknown', running: true, pending: true, action: 'stop', carriedOut: false },
+      { lock: true, opinion: 'unknown', running: true, pending: false, action: 'stop', carriedOut: false },
+      { lock: true, opinion: 'unknown', running: false, pending: true, action: 'nothing', carriedOut: false },
+      { lock: true, opinion: 'unknown', running: false, pending: false, action: 'nothing', carriedOut: false },
+      { lock: true, opinion: 'running', running: true, pending: true, action: 'stop', carriedOut: false },
+      { lock: true, opinion: 'running', running: true, pending: false, action: 'stop', carriedOut: false },
+      { lock: true, opinion: 'running', running: false, pending: true, action: 'nothing', carriedOut: false },
+      { lock: true, opinion: 'running', running: false, pending: false, action: 'nothing', carriedOut: false },
+      { lock: true, opinion: 'stopped', running: true, pending: true, action: 'stop', carriedOut: false },
+      { lock: true, opinion: 'stopped', running: true, pending: false, action: 'stop', carriedOut: false },
+      { lock: true, opinion: 'stopped', running: false, pending: true, action: 'nothing', carriedOut: false },
+      { lock: true, opinion: 'stopped', running: false, pending: false, action: 'nothing', carriedOut: false },
+    ];
+
+    cells.forEach((c) => {
+      const label = `lock ${c.lock ? 'on' : 'off'}, opinion ${c.opinion}, ${c.running ? 'running' : 'stopped'}, `
+        + `${c.pending ? 'restart pending' : 'no restart pending'} -> ${c.action}${c.carriedOut ? ', request carried out' : ''}`;
+
+      it(label, async () => {
+        localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+        stubs.appsRuntimeState.operatorStopState.resolves({ stopped: c.lock, force: false });
+        stubs.appsRuntimeState.getState.resolves(c.pending
+          ? { restartGeneration: 2, actuatedRestartGeneration: 1 }
+          : { restartGeneration: 1, actuatedRestartGeneration: 1 });
+        stubs.dockerService.dockerContainerInspect.resolves(c.running
+          ? { State: { Running: true, Status: 'running', ExitCode: 0 } }
+          : { State: { Running: false, Status: 'exited', ExitCode: 0 } });
+        if (c.opinion !== 'unknown') {
+          stubs.globalState.bootContainerStateSettled = false;
+          appReconciler.setControllerDesired('db_App', c.opinion, 'decision table');
+          stubs.globalState.bootContainerStateSettled = true;
+        }
+
+        try {
+          await appReconciler.reconcile('db_App');
+        } finally {
+          appReconciler.forgetDesiredState('db_App');
+        }
+
+        const docker = stubs.dockerService;
+        expect(docker.appDockerStop.called, 'stop').to.equal(c.action === 'stop');
+        expect(docker.appDockerRestart.called, 'bounce').to.equal(c.action === 'bounce');
+        expect(docker.appDockerStart.called, 'start').to.equal(c.action === 'start');
+        expect(stubs.appsRuntimeState.recordRestartGeneration.calledWith('db_App', 2), 'request carried out').to.equal(c.carriedOut);
+      });
+    });
+  });
+
+  describe('adoptControllerDesired', () => {
+    const running = { State: { Running: true, Status: 'running', ExitCode: 0 } };
+    const settle = () => new Promise((resolve) => { setTimeout(resolve, 50); });
+
+    beforeEach(() => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+    });
+
+    afterEach(() => appReconciler.forgetDesiredState('db_App'));
+
+    // The state a FluxOS restart leaves: the primary still running, no opinion in
+    // this process, and an operator's restart waiting on one.
+    it('carries out a restart that was held for want of an opinion', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves(running);
+      stubs.appsRuntimeState.getState.resolves({ restartGeneration: 2, actuatedRestartGeneration: 1 });
+
+      await appReconciler.reconcile('db_App');
+      expect(stubs.dockerService.appDockerRestart.called, 'with no opinion the pass must hold, or the adoption below proves nothing').to.equal(false);
+
+      expect(await appReconciler.adoptControllerDesired('db_App', 'running', 'masterSlave primary')).to.equal(true);
+      await settle();
+
+      expect(appReconciler.hasControllerOpinion('db_App')).to.equal(true);
+      expect(stubs.dockerService.appDockerRestart.calledOnceWith('db_App')).to.equal(true);
+    });
+
+    // A restart never runs a component the controller holds stopped: the request
+    // waits, and a later start satisfies it.
+    it('stops, and does not restart, a component held stopped with a restart pending', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves(running);
+      stubs.appsRuntimeState.getState.resolves({ restartGeneration: 2, actuatedRestartGeneration: 1 });
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.setControllerDesired('db_App', 'stopped', 'masterSlave standby');
+      stubs.globalState.bootContainerStateSettled = true;
+
+      await appReconciler.reconcile('db_App');
+
+      expect(stubs.dockerService.appDockerStop.calledOnceWith('db_App')).to.equal(true);
+      expect(stubs.dockerService.appDockerRestart.called).to.equal(false);
+      expect(stubs.appsRuntimeState.recordRestartGeneration.called, 'the request stays pending').to.equal(false);
+    });
+
+    it('adopts stopped for a container that is stopped', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 0 } });
+
+      expect(await appReconciler.adoptControllerDesired('db_App', 'stopped', 'masterSlave standby')).to.equal(true);
+      expect((await appReconciler.desiredRunState('db_App')).reason).to.equal('controllerDesired');
+    });
+
+    it('never replaces an opinion this process holds', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves(running);
+      appReconciler.setControllerDesired('db_App', 'stopped', 'masterSlave standby');
+      await settle();
+
+      expect(await appReconciler.adoptControllerDesired('db_App', 'running', 'masterSlave primary')).to.equal(false);
+      expect((await appReconciler.desiredRunState('db_App')).reason).to.equal('controllerDesired');
+    });
+
+    it('adopts nothing for an operator-stopped component', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves(running);
+      stubs.appsRuntimeState.operatorStoppedOrThrow.resolves(true);
+
+      expect(await appReconciler.adoptControllerDesired('db_App', 'running', 'masterSlave primary')).to.equal(false);
+      expect(appReconciler.hasControllerOpinion('db_App')).to.equal(false);
+    });
+
+    // an unread lock is not an absent one
+    it('adopts nothing while the operator lock cannot be read', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves(running);
+      stubs.appsRuntimeState.operatorStoppedOrThrow.rejects(new Error('lock store unreadable'));
+
+      expect(await appReconciler.adoptControllerDesired('db_App', 'running', 'masterSlave primary')).to.equal(false);
+      expect(appReconciler.hasControllerOpinion('db_App')).to.equal(false);
+    });
+
+    // An opinion another writer gives while the lock and docker are read decided last.
+    it('adopts nothing over a stop written while it read the lock', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves(running);
+      let read;
+      const reading = new Promise((resolve) => { read = resolve; });
+      stubs.appsRuntimeState.operatorStoppedOrThrow.callsFake(() => reading);
+
+      const adopting = appReconciler.adoptControllerDesired('db_App', 'running', 'masterSlave primary');
+      await new Promise(setImmediate);
+      appReconciler.setControllerDesired('db_App', 'stopped', 'mount safety block');
+      read(false);
+
+      expect(await adopting).to.equal(false);
+      expect((await appReconciler.desiredRunState('db_App')).reason).to.equal('controllerDesired');
+    });
+
+    it('adopts nothing over a stop and clear requested while it read docker', async () => {
+      let answer;
+      // the adoption's own read waits; every later one answers at once
+      stubs.dockerService.dockerContainerInspect.resolves(running);
+      stubs.dockerService.dockerContainerInspect.onFirstCall().callsFake(() => new Promise((resolve) => { answer = resolve; }));
+
+      const adopting = appReconciler.adoptControllerDesired('db_App', 'running', 'masterSlave primary');
+      for (let i = 0; i < 50 && !answer; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise(setImmediate);
+      }
+      appReconciler.requestStopAndClearData('db_App', 'syncthing new app clean install');
+      answer(running);
+
+      expect(await adopting).to.equal(false);
+      expect(appReconciler.hasControllerOpinion('db_App')).to.equal(true);
+      expect((await appReconciler.desiredRunState('db_App')).desired).to.equal(false);
+    });
+
+    it('adopts nothing for a component forgotten while it read the lock', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves(running);
+      let read;
+      const reading = new Promise((resolve) => { read = resolve; });
+      stubs.appsRuntimeState.operatorStoppedOrThrow.callsFake(() => reading);
+
+      const adopting = appReconciler.adoptControllerDesired('db_App', 'running', 'masterSlave primary');
+      await new Promise(setImmediate);
+      appReconciler.forgetDesiredState('db_App');
+      read(false);
+
+      expect(await adopting).to.equal(false);
+      expect(appReconciler.hasControllerOpinion('db_App')).to.equal(false);
+    });
+
+    it('adopts nothing while a data clear is pending', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves(running);
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.requestStopAndClearData('db_App', 'syncthing first-run clean install');
+      appReconciler.clearControllerDesired('db_App');
+
+      expect(await appReconciler.adoptControllerDesired('db_App', 'running', 'masterSlave primary')).to.equal(false);
+      expect(appReconciler.hasControllerOpinion('db_App')).to.equal(false);
+    });
+
+    it('adopts nothing the container no longer shows', async () => {
+      // default inspect: exited
+
+      expect(await appReconciler.adoptControllerDesired('db_App', 'running', 'masterSlave primary')).to.equal(false);
+      expect(appReconciler.hasControllerOpinion('db_App')).to.equal(false);
+    });
+
+    it('adopts nothing while docker cannot answer', async () => {
+      stubs.dockerService.dockerContainerInspect.rejects(new Error('connect ENOENT'));
+      stubs.dockerService.dockerListContainers.rejects(new Error('connect ENOENT'));
+
+      // stopped, because an unreachable daemon also reads as not running
+      expect(await appReconciler.adoptControllerDesired('db_App', 'stopped', 'masterSlave standby')).to.equal(false);
+      expect(appReconciler.hasControllerOpinion('db_App')).to.equal(false);
+    });
+
+    it('adopts nothing while the container state cannot be read', async () => {
+      stubs.dockerService.dockerContainerInspect.rejects(new Error('inspect timed out'));
+      stubs.dockerService.dockerListContainers.resolves([{ Names: ['/fluxdb_App'] }]);
+
+      // stopped, because a container whose inspect failed also reads as not running
+      expect(await appReconciler.adoptControllerDesired('db_App', 'stopped', 'masterSlave standby')).to.equal(false);
+      expect(appReconciler.hasControllerOpinion('db_App')).to.equal(false);
+    });
+  });
+
   describe('applyIntent serialises an intent write against a reconcile pass', () => {
     // The defect this closes: a pass reads isOperatorStopped, then acts on that
     // answer once docker has replied. An operator stop landing in that gap is
@@ -1998,14 +2261,14 @@ describe('appReconciler tests', () => {
   // the lock lifted by any route, with no election pass.
   describe('setRunningUnlessOperatorStopped', () => {
     it('commits an unlocked component to running', async () => {
-      expect(await appReconciler.setRunningUnlessOperatorStopped('www_App', 'test')).to.equal(true);
+      expect(await appReconciler.setRunningUnlessOperatorStopped('www_App', 'test')).to.equal(appReconciler.RunRequest.WRITTEN);
       expect(appReconciler.committedIdentifiers()).to.include('www_App');
     });
 
     it('writes nothing for a component its operator has stopped', async () => {
       stubs.appsRuntimeState.operatorStoppedOrThrow.resolves(true);
 
-      expect(await appReconciler.setRunningUnlessOperatorStopped('www_App', 'test')).to.equal(false);
+      expect(await appReconciler.setRunningUnlessOperatorStopped('www_App', 'test')).to.equal(appReconciler.RunRequest.OPERATOR_STOPPED);
       expect(appReconciler.committedIdentifiers()).to.not.include('www_App');
     });
 
@@ -2024,7 +2287,7 @@ describe('appReconciler tests', () => {
       release();
       await before;
 
-      expect(await running).to.equal(false);
+      expect(await running).to.equal(appReconciler.RunRequest.STOOD_DOWN);
       expect(asked).to.equal(1);
       expect(appReconciler.committedIdentifiers()).to.not.include('www_App');
     });
@@ -2053,8 +2316,55 @@ describe('appReconciler tests', () => {
       land();
       await stop;
 
-      expect(await running, 'the desire was written over a stop already in the slot').to.equal(false);
+      expect(await running, 'the desire was written over a stop already in the slot').to.equal(appReconciler.RunRequest.OPERATOR_STOPPED);
       expect(appReconciler.committedIdentifiers()).to.not.include('www_App');
+    });
+
+    // An opinion another writer gives while the lock is read decided last.
+    it('writes nothing over a stop written while it read the lock', async () => {
+      let read;
+      const reading = new Promise((resolve) => { read = resolve; });
+      stubs.appsRuntimeState.operatorStoppedOrThrow.callsFake(() => reading);
+
+      const running = appReconciler.setRunningUnlessOperatorStopped('www_App', 'test');
+      await new Promise(setImmediate);
+      appReconciler.setControllerDesired('www_App', 'stopped', 'mount safety block');
+      read(false);
+
+      expect(await running).to.equal(appReconciler.RunRequest.SUPERSEDED);
+      expect(appReconciler.committedIdentifiers()).to.not.include('www_App');
+    });
+
+    it('writes nothing when it is stood down while it read the lock', async () => {
+      let read;
+      const reading = new Promise((resolve) => { read = resolve; });
+      stubs.appsRuntimeState.operatorStoppedOrThrow.callsFake(() => reading);
+      let stoodDown = false;
+
+      const running = appReconciler.setRunningUnlessOperatorStopped('www_App', 'test', { unless: () => stoodDown });
+      await new Promise(setImmediate);
+      stoodDown = true;
+      read(false);
+
+      expect(await running).to.equal(appReconciler.RunRequest.STOOD_DOWN);
+      expect(appReconciler.committedIdentifiers()).to.not.include('www_App');
+    });
+
+    it('writes nothing while a data clear is pending', async () => {
+      // boot gate closed: the pass that would carry out the clear is held
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.requestStopAndClearData('www_App', 'syncthing new app clean install');
+
+      expect(await appReconciler.setRunningUnlessOperatorStopped('www_App', 'test')).to.equal(appReconciler.RunRequest.SUPERSEDED);
+      expect(appReconciler.committedIdentifiers()).to.not.include('www_App');
+    });
+
+    it('writes when nothing else was written while it read the lock', async () => {
+      appReconciler.setControllerDesired('www_App', 'stopped', 'masterSlave standby');
+      await new Promise((resolve) => { setTimeout(resolve, 20); });
+
+      expect(await appReconciler.setRunningUnlessOperatorStopped('www_App', 'test')).to.equal(appReconciler.RunRequest.WRITTEN);
+      expect(appReconciler.committedIdentifiers()).to.include('www_App');
     });
   });
 

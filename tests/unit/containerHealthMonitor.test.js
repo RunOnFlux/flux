@@ -121,6 +121,15 @@ describe('containerHealthMonitor tests', () => {
       expect(mainAppName).to.equal('testapp');
     });
 
+    it('passes a no-start request to the soft install, and starts by default', async () => {
+      volumeServiceStub.verifyAppVolumeMount.resolves(true);
+      await containerHealthMonitor.recreateMissingContainers('web_testapp', { start: false });
+      await containerHealthMonitor.recreateMissingContainers('web_testapp');
+
+      expect(appInstallerStub.installApplicationSoft.firstCall.args[5]).to.deep.equal({ start: false });
+      expect(appInstallerStub.installApplicationSoft.secondCall.args[5]).to.deep.equal({ start: true });
+    });
+
     it('ensures the app docker network before recreating any container', async () => {
       // A pruned per-app network (docker prune / daemon restart) is created only
       // at install time; without this the recreate loops on "network not found".

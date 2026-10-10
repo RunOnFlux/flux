@@ -518,6 +518,17 @@ function considerPeerConfirmation() {
 }
 
 /**
+ * Announce what the published source answered.
+ *
+ * The ask is announced before the fetch; this is its answer, and the only place an
+ * unreachable source, a body that did not verify and a verified bundle differ.
+ * @param {string|null} verdict The served body's verdict, or null when nothing was served.
+ */
+function announceBackstopAnswer(verdict) {
+  fluxEventBus.publish('policy:backstopAnswered', { served: verdict !== null, verdict, seq: getSeq() });
+}
+
+/**
  * The peer set has not settled it, so ask the publisher.
  *
  * THE ROUTE THAT CATCHES WHAT THE PEER SET CANNOT, and the only one a node reaches without
@@ -563,10 +574,15 @@ async function considerBackstopFetch() {
     // separates "asked and got nothing" from "has not got there yet".
     fluxEventBus.publish('policy:backstopAsked', { seq: getSeq() });
     const raw = await fetchFromBackstop();
-    if (!raw) return;
+    if (!raw) {
+      announceBackstopAnswer(null);
+      return;
+    }
+    const verdict = await consider(raw, 'backstop');
+    announceBackstopAnswer(verdict);
     // A body that verifies is the publisher answering, which is the one answer that means
     // current rather than merely not-behind-my-neighbours.
-    if (await consider(raw, 'backstop') !== VERDICT.REJECTED) markConfirmed('the published source');
+    if (verdict !== VERDICT.REJECTED) markConfirmed('the published source');
   } finally {
     backstopFetchInFlight = false;
     lastBackstopAttemptAt = monotonicMs();
@@ -632,8 +648,12 @@ async function refresh() {
     backstopFetchInFlight = false;
     lastBackstopAttemptAt = monotonicMs();
   }
-  if (!raw) return false;
+  if (!raw) {
+    announceBackstopAnswer(null);
+    return false;
+  }
   const verdict = await consider(raw, 'backstop');
+  announceBackstopAnswer(verdict);
   // The source answered, and what it said VERIFIED. Even when it carried the sequence we
   // already had - which is the ordinary case - that is the publisher itself, which is the
   // one answer that DOES mean current rather than merely not-behind-my-neighbours.

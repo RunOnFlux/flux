@@ -1,5 +1,6 @@
 import { readFileSync, existsSync, mkdirSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, rename } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import https from 'node:https';
@@ -220,8 +221,10 @@ const MANIFEST_MEDIA_TYPES = [
 
 // Blobs and manifests are content-addressed and immutable, so a fetched one is
 // good forever. The registry container is rebuilt per suite, so the PUSH happens
-// every time (local, fast) but only the first suite of a gate pays for the pull.
-const IMAGE_CACHE_DIR = join(__dirname, '..', '.image-cache');
+// every time (local, fast) but only the first fetch on a box pays for the pull.
+// One cache per user rather than per clone: every clone and lineage reads the
+// same bytes, and each entry is checked against its digest on read.
+const IMAGE_CACHE_DIR = join(homedir(), '.cache', 'flux-e2e-images');
 
 const sourceClient = axios.create({
   maxBodyLength: Infinity,
@@ -255,7 +258,11 @@ async function readCached(digest) {
 async function writeCached(digest, bytes) {
   const path = cachePathFor(digest);
   mkdirSync(dirname(path), { recursive: true });
-  await writeFile(path, bytes);
+  // Written aside and renamed into place, so parallel suites filling the same
+  // entry never expose a partial file to each other.
+  const staging = `${path}.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
+  await writeFile(staging, bytes);
+  await rename(staging, path);
 }
 
 // A registry answers an unauthenticated request with the challenge describing
