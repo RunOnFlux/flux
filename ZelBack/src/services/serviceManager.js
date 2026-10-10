@@ -38,6 +38,7 @@ const hardwareValidationService = require('./appLifecycle/hardwareValidationServ
 const globalState = require('./utils/globalState');
 const { peerManager } = require('./utils/peerState');
 const enterpriseNetwork = require('./utils/enterpriseNetwork');
+const ufwHelper = require('./utils/ufwHelper');
 const policyStore = require('./policyStore');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const appQueryService = require('./appQuery/appQueryService');
@@ -278,6 +279,9 @@ async function startFluxFunctions() {
     // Before any work that a restart would cut short: a registration that
     // needs its kill timeout raised restarts FluxOS, and this waits for it.
     await fluxService.ensurePm2KillTimeout();
+    // Before anything runs the ufw helper: the copy root runs is installed once
+    // per start.
+    await ufwHelper.path();
     // Before anything reads or changes the firewall: a node whose ufw defaults
     // file is broken has no firewall until this repairs it.
     await fluxNetworkHelper.ensureUfwDefaults().catch((error) => log.error(error));

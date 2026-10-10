@@ -25,6 +25,7 @@ describe('ufw helper', () => {
     readFile.withArgs(ufwHelper.UFW_HELPER_SOURCE).resolves(SHIPPED);
     runCommand = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '', stderr: '' });
     sinon.stub(log, 'error');
+    sinon.stub(log, 'info');
   });
 
   afterEach(() => {
@@ -39,14 +40,14 @@ describe('ufw helper', () => {
   it('runs the installed copy and installs nothing when it is the shipped helper', async () => {
     installedCopy(Buffer.from(SHIPPED));
 
-    expect(await ufwHelper.path()).to.equal(ufwHelper.UFW_HELPER);
+    expect(await ufwHelper.install()).to.equal(ufwHelper.UFW_HELPER);
     expect(installCalls()).to.deep.equal([]);
   });
 
   it('creates the directory and installs the copy, root-owned, when there is none', async () => {
     installedCopy(null);
 
-    expect(await ufwHelper.path()).to.equal(ufwHelper.UFW_HELPER);
+    expect(await ufwHelper.install()).to.equal(ufwHelper.UFW_HELPER);
     expect(installCalls()).to.deep.equal([DIR_INSTALL, FILE_INSTALL]);
     runCommand.getCalls().forEach((call) => expect(call.args[1].runAsRoot).to.equal(true));
   });
@@ -54,16 +55,7 @@ describe('ufw helper', () => {
   it('replaces a copy that differs from the shipped helper', async () => {
     installedCopy(Buffer.from('#!/usr/bin/env python3\n# an older helper\n'));
 
-    expect(await ufwHelper.path()).to.equal(ufwHelper.UFW_HELPER);
-    expect(installCalls()).to.deep.equal([DIR_INSTALL, FILE_INSTALL]);
-  });
-
-  it('compares on every call, so a copy removed after it was installed is installed again', async () => {
-    installedCopy(Buffer.from(SHIPPED));
-    await ufwHelper.path();
-    installedCopy(null);
-
-    expect(await ufwHelper.path()).to.equal(ufwHelper.UFW_HELPER);
+    expect(await ufwHelper.install()).to.equal(ufwHelper.UFW_HELPER);
     expect(installCalls()).to.deep.equal([DIR_INSTALL, FILE_INSTALL]);
   });
 
@@ -71,7 +63,7 @@ describe('ufw helper', () => {
     installedCopy(null);
     runCommand.withArgs('install', sinon.match({ params: DIR_INSTALL })).resolves({ error: new Error('read-only file system'), stdout: '', stderr: '' });
 
-    expect(await ufwHelper.path()).to.equal(ufwHelper.UFW_HELPER_SOURCE);
+    expect(await ufwHelper.install()).to.equal(ufwHelper.UFW_HELPER_SOURCE);
     expect(installCalls()).to.deep.equal([DIR_INSTALL]);
     sinon.assert.calledOnce(log.error);
   });
@@ -80,7 +72,23 @@ describe('ufw helper', () => {
     installedCopy(null);
     runCommand.withArgs('install', sinon.match({ params: FILE_INSTALL })).resolves({ error: new Error('no space left on device'), stdout: '', stderr: '' });
 
-    expect(await ufwHelper.path()).to.equal(ufwHelper.UFW_HELPER_SOURCE);
+    expect(await ufwHelper.install()).to.equal(ufwHelper.UFW_HELPER_SOURCE);
     sinon.assert.calledOnce(log.error);
+  });
+
+  it('installs once per start: every call after the first answers the same helper without reading or installing anything', async () => {
+    installedCopy(null);
+    runCommand.withArgs('install').resolves({ error: new Error('read-only file system'), stdout: '', stderr: '' });
+    const first = await ufwHelper.path();
+    readFile.resetHistory();
+    runCommand.resetHistory();
+    log.error.resetHistory();
+
+    const later = await Promise.all([ufwHelper.path(), ufwHelper.path(), ufwHelper.path()]);
+
+    expect(later).to.deep.equal([first, first, first]);
+    sinon.assert.notCalled(readFile);
+    sinon.assert.notCalled(runCommand);
+    sinon.assert.notCalled(log.error);
   });
 });

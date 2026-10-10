@@ -321,4 +321,42 @@ describe('2501 firewalled nodes', function suite() {
     expect(input).to.match(/^-P INPUT DROP$/m);
     expect(input).to.match(/^-A INPUT -j ufw-before-input$/m);
   });
+
+  // The shipped helper changes only with a FluxOS update, which restarts FluxOS,
+  // so the copy is installed once per start: a copy that cannot be installed is
+  // reported once, and every ufw change until the next start runs the shipped
+  // helper.
+  it('installs the helper copy once per start, and reports one that cannot be installed once', async () => {
+    const node = env.clients[LEGACY];
+    const inNode = (command) => execInContainer(node.container, command);
+    const NOT_INSTALLED = 'ufw helper not installed at';
+    const reported = async () => Number((await inNode(`grep -c '${NOT_INSTALLED}' /flux/error.log; true`)).stdout.trim() || 0);
+    const ports = [31961, 31962];
+
+    // A file where the copy's directory goes: the install fails.
+    await inNode('rm -rf /usr/local/lib/fluxos && touch /usr/local/lib/fluxos');
+    const before = await reported();
+    const afterId = node.getLastEventId();
+    await restartFluxos(node.container);
+    await node.waitForEvent('firewall:adjusted', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId });
+
+    const auth = await authenticate(node.url, fluxTeamKey());
+    // eslint-disable-next-line no-restricted-syntax
+    for (const port of ports) {
+      // eslint-disable-next-line no-await-in-loop
+      const answer = await fetch(`${node.url}/flux/allowport/${port}`, { headers: { zelidauth: auth.zelidauth } }).then((res) => res.json());
+      expect(answer.status, JSON.stringify(answer)).to.equal('success');
+    }
+    // The canary: each change ran, through the shipped helper.
+    const rules = await rulesAdded(LEGACY);
+    ports.forEach((port) => expect(rules, `the rule FluxOS added for ${port}`).to.include(`ufw allow ${port}`));
+    expect(await reported() - before, 'reports of the copy not installed, over a start and two ufw changes').to.equal(1);
+
+    await inNode('rm -f /usr/local/lib/fluxos');
+    const reinstalledId = node.getLastEventId();
+    await restartFluxos(node.container);
+    await node.waitForEvent('firewall:adjusted', () => true, FLUXOS_RULES_TIMEOUT_MS, { afterId: reinstalledId });
+    const { stdout: owner } = await inNode(`stat -c '%U %a %n' ${INSTALLED_HELPER}`);
+    expect(owner.trim(), 'the copy, installed at the next start').to.equal(`root 755 ${INSTALLED_HELPER}`);
+  });
 });
