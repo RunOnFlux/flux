@@ -798,7 +798,7 @@ async function trySpawningGlobalApplication() {
         // geolocation admits, with no regard for whether those nodes have room
         // or take apps at all, so the better-placed candidate it assumes may not
         // exist in practice: the other domains can be full, and the refusal also
-        // left the hash in the twelve-hour spawn cache. Seen on mainnet: synced
+        // left the hash in the twelve-hour spawn cache. Seen in production: synced
         // apps pinned to Minnesota and to Missouri sat at 1 of 2, with 41 of 50
         // and 105 of 122 of those states' nodes in the running copy's own domain.
         //

@@ -3,6 +3,8 @@ const { expect } = require('chai');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const log = require('../../ZelBack/src/lib/log');
+const proxyquire = require('proxyquire');
+const { networks, configWith } = require('./fixtures/networkConfig');
 
 const generateResponse = () => {
   const res = { test: 'testing' };
@@ -269,6 +271,17 @@ describe('daemonServiceMiscRpcs tests', () => {
 
       // Verify lastSuccessfulRpcCall was NOT updated
       expect(daemonServiceMiscRpcs.getLastSuccessfulRpcCall()).to.eql(initialTimestamp);
+    });
+  });
+
+  describe('initial header tests', () => {
+    const loadFor = (profile) => proxyquire('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs', {
+      config: configWith({ daemon: { initialHeaderFloor: profile.daemon.initialHeaderFloor } }),
+    });
+
+    it('starts from the network\'s header floor until the daemon reports one', () => {
+      expect(loadFor(networks.labnet).getCurrentDaemonHeader()).to.equal(0);
+      expect(loadFor(networks.mainnet).getCurrentDaemonHeader()).to.equal(1136836);
     });
   });
 });

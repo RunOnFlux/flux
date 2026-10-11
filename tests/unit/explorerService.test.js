@@ -18,6 +18,8 @@ const log = require('../../ZelBack/src/lib/log');
 const { requireMongo } = require('./dbTestHelper');
 const { UNPOSITIONED } = require('../../ZelBack/src/services/migrations/paymentPositions');
 const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
+const proxyquire = require('proxyquire');
+const { networks, configWith } = require('./fixtures/networkConfig');
 
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
@@ -940,6 +942,46 @@ describe('explorerService tests', () => {
       const result = await explorerService.processBlock(blockHeight, isInsightExplorer);
 
       expect(result).to.be.undefined;
+    });
+
+    it('skips the heights the network\'s insight skip ranges name', async () => {
+      explorerService.setBlockProccessingCanContinue(false);
+      dbStubUpdate.returns(true);
+      dbStubCollectionStats.returns({ size: 10000, count: 15, avgObjSize: 1111 });
+      daemonServiceMiscRpcsStub.returns({ data: { synced: true } });
+      daemonServiceBlockchainRpcsStub.callsFake(async (req) => ({
+        status: 'success',
+        data: {
+          tx: [], height: req.params.hashheight, confirmations: 1,
+        },
+      }));
+
+      await explorerService.processBlock(700000, true);
+      await serviceHelper.delay(50);
+
+      sinon.assert.calledWithMatch(daemonServiceBlockchainRpcsStub, { params: { hashheight: 862002 } });
+      sinon.assert.calledWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight', sinon.match.object, { $set: { generalScannedHeight: 862002 } });
+      sinon.assert.neverCalledWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight', sinon.match.object, { $set: { generalScannedHeight: 700000 } });
+    });
+
+    it('scans every height on a network with no insight skip range', async () => {
+      const labExplorer = proxyquire('../../ZelBack/src/services/explorerService', {
+        config: configWith({ fluxapps: { explorerInsightSkipRanges: networks.labnet.fluxapps.explorerInsightSkipRanges } }),
+      });
+      labExplorer.setBlockProccessingCanContinue(false);
+      dbStubUpdate.returns(true);
+      dbStubCollectionStats.returns({ size: 10000, count: 15, avgObjSize: 1111 });
+      daemonServiceMiscRpcsStub.returns({ data: { synced: true } });
+      daemonServiceBlockchainRpcsStub.returns({
+        status: 'success',
+        data: {
+          tx: [], height: 700000, confirmations: 1,
+        },
+      });
+
+      await labExplorer.processBlock(700000, true);
+
+      sinon.assert.calledWithMatch(dbStubUpdate, sinon.match.object, 'scannedheight', sinon.match.object, { $set: { generalScannedHeight: 700000 } });
     });
 
     it('should update db if all parameters are passed correctly, block height == 695000', async () => {

@@ -1154,7 +1154,7 @@ async function daemonDebug(req, res) {
   // check daemon datadir
   const defaultDir = daemonServiceUtils.getFluxdDir();
   const datadir = daemonServiceUtils.getConfigValue('datadir') || defaultDir;
-  const filepath = `${datadir}/debug.log`;
+  const filepath = path.join(`${datadir}`, config.daemon.chainSubdir, 'debug.log');
 
   return res.download(filepath, 'debug.log');
 }
@@ -1199,7 +1199,7 @@ async function tailDaemonDebug(req, res) {
 
   const defaultDir = daemonServiceUtils.getFluxdDir();
   const datadir = daemonServiceUtils.getConfigValue('datadir') || defaultDir;
-  const filepath = path.join(datadir, 'debug.log');
+  const filepath = path.join(datadir, config.daemon.chainSubdir, 'debug.log');
 
   const { stdout, error } = await serviceHelper.runCommand('tail', {
     params: ['-n', '100', filepath],
@@ -1672,7 +1672,7 @@ async function getFluxInfo(req, res) {
     if (appHashes.status === 'error') {
       throw appHashes.data;
     }
-    const hashesOk = appHashes.data.filter((data) => data.height >= 694000);
+    const hashesOk = appHashes.data.filter((data) => data.height >= config.fluxapps.epochstart);
     info.appsHashesTotal = hashesOk.length;
     const mesOK = hashesOk.filter((mes) => mes.message === true);
     info.hashesPresent = mesOK.length;
@@ -2131,7 +2131,7 @@ async function streamChain(req, res) {
     log.info(`Stream chain request received from: ${ip}`);
 
     const homeDir = os.homedir();
-    const base = process.env.FLUXD_PATH || path.join(homeDir, '.flux');
+    const base = path.join(process.env.FLUXD_PATH || path.join(homeDir, '.flux'), config.daemon.chainSubdir);
 
     // the order can matter when doing the stream live, the level db's can be volatile
     const folders = [
