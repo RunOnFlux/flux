@@ -1086,7 +1086,7 @@ describe('advancedWorkflows tests', () => {
       beforeEach(() => {
         sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
         promote = sinon.stub(primaryRole, 'promote').returns(true);
-        sinon.stub(primaryRole, 'holdAsStandby').resolves(true);
+        sinon.stub(primaryRole, 'holdAsStandby').resolves();
         sinon.stub(primaryRole, 'standDown').returns(false);
       });
 
@@ -1187,7 +1187,7 @@ describe('advancedWorkflows tests', () => {
           primaryRoleChanges.set(identifier, { state: 'promoting', appId });
           return true;
         });
-        sinon.stub(primaryRole, 'holdAsStandby').resolves(true);
+        sinon.stub(primaryRole, 'holdAsStandby').resolves();
         sinon.stub(primaryRole, 'standDown').returns(false);
       });
 
@@ -1563,7 +1563,7 @@ describe('advancedWorkflows tests', () => {
       beforeEach(() => {
         sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
         standDown = sinon.stub(primaryRole, 'standDown').returns(true);
-        holdAsStandby = sinon.stub(primaryRole, 'holdAsStandby').resolves(true);
+        holdAsStandby = sinon.stub(primaryRole, 'holdAsStandby').resolves();
         promote = sinon.stub(primaryRole, 'promote').returns(true);
       });
 
@@ -3042,7 +3042,7 @@ describe('advancedWorkflows tests', () => {
       const appName = 'fdmholderapp';
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       sinon.stub(log, 'info');
-      const hold = sinon.stub(primaryRole, 'holdAsStandby').resolves(false);
+      const hold = sinon.stub(primaryRole, 'holdAsStandby').resolves();
       const runPass = electionFixture(appName, ['192.168.1.90:16137', '192.168.1.91:16127']);
       serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
 

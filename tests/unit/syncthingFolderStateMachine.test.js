@@ -164,7 +164,7 @@ const { createPeerFolderLiveness } = peerFolderLivenessMock;
 
 // Load module with mocked dependencies
 const primaryRoleMock = {
-  holdAsStandby: sinon.stub().resolves(true),
+  holdAsStandby: sinon.stub().resolves(),
 };
 const PeerComponent = Object.freeze({ RUNNING: 'running', NOT_RUNNING: 'notRunning', UNKNOWN: 'unknown' });
 const peerComponentMock = {
