@@ -31,6 +31,7 @@ const {
   appsFolder,
   appVolumesPath,
   APP_VOLUME_MOUNT_OPTIONS,
+  SIGTERM_EXPIRY_MS,
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { compareInstanceSeniority } = require('../utils/instanceOrdering');
@@ -125,6 +126,20 @@ const STAND_DOWN_PASSES_BEFORE_GIVING_UP = 6;
 // 10x and this follows exactly, instead of being a constant that silently
 // becomes hundreds of cycles under compression.
 const PRIMARY_ELECTION_STALE_MS = (config.fluxapps.masterSlaveIntervalMs ?? 30 * 1000) * 10;
+// identifier -> { ip, since }: when the remembered primary was first seen to
+// hold no location for its app. A primary is remembered by the address FDM gave
+// for it, and nothing rewrites that memory when the node behind it moves: a
+// node whose public IP changes broadcasts fluxipchanged, every location it held
+// is rewritten to the new address, and the old one is left answering for
+// nobody. Probing it then finds silence that this node's syncthing can never
+// explain - the device is known by its new address - so the previous-primary
+// branch holds the component forever, on every instance at once.
+const previousPrimaryUnlistedSince = new Map();
+// How long the remembered primary must stay without a location before the
+// election stops waiting for it: the time the network gives a node to come back
+// from a restart. A location that is merely late reaching this node arrives
+// well inside it.
+const PREVIOUS_PRIMARY_UNLISTED_GRACE_MS = SIGTERM_EXPIRY_MS;
 const timeTostartNewMasterApp = new Map();
 // Components already reported as operator-stopped, so the exclusion is announced
 // on entry (and again after a restart) instead of every 30s cycle. An operator
@@ -4936,6 +4951,12 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
         log.info(`masterSlaveApps: Cleaned up stale entry from mastersRunningGSyncthingApps: ${identifier}`);
       }
     }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const identifier of previousPrimaryUnlistedSince.keys()) {
+      if (!validIdentifiers.has(identifier)) {
+        previousPrimaryUnlistedSince.delete(identifier);
+      }
+    }
 
     // And the verdict record beside it. An identifier the node no longer holds
     // must not keep answering for the app it names.
@@ -5128,6 +5149,37 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   && !runningAppsNames.includes(identifier)) {
                   mastersRunningGSyncthingApps.delete(identifier);
                   log.info(`masterSlaveApps: cleared this node's own stale primary record for ${identifier} - it is not running here`);
+                }
+
+                // The remembered primary is another node that no longer holds a
+                // location for this app: it moved to a new IP, or it removed the
+                // app. The previous-primary branch would probe that address on
+                // every pass, and the silence there can never be cleared - this
+                // node's syncthing knows the peer under its current address, or
+                // not at all. Once the address has stayed unlisted for the grace,
+                // forget it. Forgetting starts nothing: the no-history paths below
+                // probe every holder in the location list - the moved node among
+                // them, under its new address - and only NOT_RUNNING from all of
+                // them releases a start.
+                if (mastersRunningGSyncthingApps.has(identifier)
+                  && !ipsMatch(mastersRunningGSyncthingApps.get(identifier), localSocketAddr)) {
+                  const rememberedIp = mastersRunningGSyncthingApps.get(identifier);
+                  if (runningAppList.some((x) => ipsMatch(x.ip, rememberedIp))) {
+                    previousPrimaryUnlistedSince.delete(identifier);
+                  } else {
+                    const unlisted = previousPrimaryUnlistedSince.get(identifier);
+                    if (!unlisted || unlisted.ip !== rememberedIp) {
+                      previousPrimaryUnlistedSince.set(identifier, { ip: rememberedIp, since: Date.now() });
+                      log.info(`masterSlaveApps: previous primary ${rememberedIp} holds no location for app:${installedApp.name} - it will be forgotten if it stays unlisted`);
+                    } else if (Date.now() - unlisted.since >= PREVIOUS_PRIMARY_UNLISTED_GRACE_MS) {
+                      mastersRunningGSyncthingApps.delete(identifier);
+                      previousPrimaryUnlistedSince.delete(identifier);
+                      fluxEventBus.count('masterSlave:decision', identifier, 'unlistedPrimaryForgotten');
+                      log.info(`masterSlaveApps: forgot previous primary ${rememberedIp} for ${identifier} - it has held no location for app:${installedApp.name} for ${Math.round((Date.now() - unlisted.since) / 1000)}s`);
+                    }
+                  }
+                } else {
+                  previousPrimaryUnlistedSince.delete(identifier);
                 }
 
                 // Probe every other holder to see whether the g: component is

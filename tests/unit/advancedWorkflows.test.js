@@ -3285,6 +3285,113 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
+    // dragonwilds1789772096076, 2026-10-11: the primary's node changed public IP,
+    // its locations were rewritten to the new address, and the standby kept
+    // probing the old one for fifteen hours - silent, and never explainable by a
+    // syncthing that knows the peer under its new address - while neither
+    // instance ran the app.
+    describe('a remembered primary that no longer holds a location', () => {
+      const OLD_IP = '10.0.0.77';
+      const MOVED = '192.168.1.90:16127';
+      const { SIGTERM_EXPIRY_MS } = require('../../ZelBack/src/services/utils/appConstants');
+
+      // The old address answers nothing; the moved node answers at its new one.
+      const movedPeerAnswers = (held) => (url) => (url.includes(OLD_IP)
+        ? Promise.reject(new Error('old address unreachable'))
+        : peerAnswers({ held })(url));
+
+      const rememberOldAddress = async (runPass) => {
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves({ data: { status: 'success', data: { ips: [OLD_IP] } } });
+        await runPass();
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves(fdmNoPrimary());
+      };
+
+      it('forgets it once it has stayed unlisted for the grace, and starts when no holder runs it', async () => {
+        const appName = 'movedprimaryapp';
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+        const logInfo = sinon.stub(log, 'info');
+        const runPass = electionFixture(appName, [MOVED]);
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(movedPeerAnswers([]));
+        const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+
+        await rememberOldAddress(runPass);
+        logInfo.resetHistory();
+
+        // First pass without a primary: the old address is noticed, not yet dropped.
+        await runPass();
+        expect(linesMatching(logInfo, `previous primary ${OLD_IP} holds no location`)).to.have.lengthOf(1);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+
+        // Still inside the grace: held, as before.
+        clock.tick(SIGTERM_EXPIRY_MS - 1);
+        logInfo.resetHistory();
+        await runPass();
+        expect(linesMatching(logInfo, 'forgot previous primary')).to.have.lengthOf(0);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+
+        // Grace elapsed: forgotten, the moved holder is asked at its new address
+        // and holds nothing, so index 0 starts.
+        clock.tick(1);
+        logInfo.resetHistory();
+        await runPass();
+        expect(linesMatching(logInfo, `forgot previous primary ${OLD_IP}`)).to.have.lengthOf(1);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+        expect(axiosGetStub.getCalls().some((call) => String(call.args[0]).includes('192.168.1.90'))).to.equal(true);
+      });
+
+      it('still does not start when the moved node runs it under its new address', async () => {
+        const appName = 'movedprimaryrunning';
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+        const logInfo = sinon.stub(log, 'info');
+        const runPass = electionFixture(appName, [MOVED]);
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(movedPeerAnswers([`flux${appName}`]));
+        const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+
+        await rememberOldAddress(runPass);
+        await runPass();
+        clock.tick(SIGTERM_EXPIRY_MS);
+        logInfo.resetHistory();
+        await runPass();
+
+        expect(linesMatching(logInfo, `forgot previous primary ${OLD_IP}`)).to.have.lengthOf(1);
+        expect(linesMatching(logInfo, `component:${appName} is held on peer node`)).to.have.lengthOf(1);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      });
+
+      it('keeps waiting for a remembered primary that is still listed', async () => {
+        // A listed primary is the existing previous-primary path's to judge; the
+        // grace never starts for it however long it stays silent.
+        const appName = 'listedprimaryapp';
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+        const logInfo = sinon.stub(log, 'info');
+        const runPass = electionFixture(appName, [MOVED]);
+        const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+        await runPass();
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.rejects(new Error('previous primary unreachable'));
+        logInfo.resetHistory();
+
+        await runPass();
+        clock.tick(SIGTERM_EXPIRY_MS * 2);
+        await runPass();
+
+        expect(linesMatching(logInfo, 'holds no location')).to.have.lengthOf(0);
+        expect(linesMatching(logInfo, 'forgot previous primary')).to.have.lengthOf(0);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      });
+    });
+
     it('keeps electing later g: apps when an earlier one is still held by its previous master', async () => {
       // Two g: apps on one node. The first is settled - its previous master (the
       // peer) still holds it, so there is nothing to elect. That must not cost the
