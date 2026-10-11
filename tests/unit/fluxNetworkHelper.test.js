@@ -4,7 +4,7 @@ globalThis.userconfig = {
     ipaddress: '127.0.0.1',
     zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
     kadena: 'kadena:3a2e6166907d0c2fb28a16cd6966a705de129e8358b9872d9cefe694e910d5b2?chainid=0',
-    testnet: false,
+    network: 'mainnet',
     development: false,
     apiport: 16127,
     routerIP: '',
@@ -1708,7 +1708,7 @@ describe('fluxNetworkHelper tests', () => {
           ipaddress: '127.0.0.1',
           zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
           kadena: 'kadena:3a2e6166907d0c2fb28a16cd6966a705de129e8358b9872d9cefe694e910d5b2?chainid=0',
-          testnet: false,
+          network: 'mainnet',
           development: false,
           apiport: 16127,
           routerIP: '',
@@ -1734,7 +1734,7 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/ipaddress: '127.0.0.66',/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/kadena: 'kadena:3a2e6166907d0c2fb28a16cd6966a705de129e8358b9872d9cefe694e910d5b2\?chainid=0',/gm));
-      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/testnet: false,/gm));
+      sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/network: 'mainnet',/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/development: false,/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/apiport: 16127,/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/routerIP: '',/gm));
@@ -1808,7 +1808,7 @@ describe('fluxNetworkHelper tests', () => {
           ipaddress: '127.0.0.1',
           zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
           kadena: '',
-          testnet: false,
+          network: 'mainnet',
           development: false,
           apiport: 16127,
           routerIP: '',

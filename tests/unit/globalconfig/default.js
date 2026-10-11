@@ -2,6 +2,7 @@
 const database = process.env.FLUX_DATABASE || '127.0.0.1';
 
 module.exports = {
+  network: 'mainnet',
   testEventStream: false,
   system: {
     bootIdPath: '/proc/sys/kernel/random/boot_id',
@@ -116,16 +117,14 @@ module.exports = {
     host: '127.0.0.1',
     port: 16225,
     rpcport: 16224,
-    porttestnet: 26225,
-    rpcporttestnet: 26224,
   },
   daemon: {
     host: '127.0.0.1',
     chainValidHeight: 1062000,
     port: 16125,
     rpcport: 16124,
-    porttestnet: 26125,
-    rpcporttestnet: 26124,
+    initialHeaderFloor: 1136836,
+    chainSubdir: '',
   },
   minimumFluxBenchAllowedVersion: '6.2.0',
   minimumFluxOSAllowedVersion: '8.0.0',
@@ -244,6 +243,7 @@ module.exports = {
     multisigAddressChange: 1670000,
     epochstart: 694000,
     publicepochstart: 705000,
+    explorerInsightSkipRanges: [{ from: 699420, to: 862002 }],
     portMinLegacy: 31000, // ports 30000 - 30999 are reserved for local applications
     portMaxLegacy: 39999,
     portBlockheightChange: 1420000,

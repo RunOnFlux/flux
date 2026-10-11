@@ -29,7 +29,7 @@ async function adjustPGPidentity(privateKey, publicKey) {
     ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
     zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
     kadena: '${userconfig.initial.kadena || ''}',
-    testnet: ${userconfig.initial.testnet || false},
+    network: '${config.network}',
     development: ${userconfig.initial.development || false},
     apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
     routerIP: '${userconfig.initial.routerIP || ''}',
