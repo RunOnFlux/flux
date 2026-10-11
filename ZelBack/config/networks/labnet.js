@@ -41,6 +41,13 @@ module.exports = {
   fluxTeamFluxID: LAB_TEAM_FLUXID,
   fluxSupportTeamFluxID: [LAB_TEAM_FLUXID],
   fluxapps: {
+    // Every app rule applies from the first block.
+    minimumInstancesV8Block: 0,
+    newMinBlocksAllowanceBlock: 0,
+    cancel1BlockMinBlocksAllowanceBlock: 0,
+    removeBlocksAllowanceIntervalBlock: 0,
+    applyMinimumPriceOn3Instances: 0,
+    applyMinimumForExtraInstances: 0,
     price: [
       {
         height: -1,
