@@ -153,6 +153,10 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
     upnpMachine = false;
     return false;
   }
+  // held while the test runs: a cleanup pass taking it between the create and
+  // the remove would fail the verify, and a node with a custom api port or a
+  // router IP exits on that. A test that fails leaves it held.
+  mappedHere.add(+apiport + 3);
   try {
     await client.createMapping({
       public: +apiport + 3,
@@ -190,6 +194,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
     upnpMachine = false;
     return false;
   }
+  mappedHere.delete(+apiport + 3);
 
   upnpMachine = true;
   return true;

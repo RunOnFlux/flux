@@ -127,6 +127,26 @@ describe('upnpService tests', () => {
       sinon.assert.notCalled(logSpy);
     });
 
+    it('should hold the test port from the time it is mapped until it is removed, so a cleanup pass cannot take it mid-test', async () => {
+      upnpService.mappedHere.clear();
+      const heldAt = {};
+      sinon.stub(natUpnp.Client.prototype, 'getPublicIp').resolves(true);
+      sinon.stub(natUpnp.Client.prototype, 'getGateway').resolves(true);
+      sinon.stub(natUpnp.Client.prototype, 'createMapping').callsFake(async () => { heldAt.create = upnpService.mappedHere.has(16130); });
+      sinon.stub(natUpnp.Client.prototype, 'getMappings').resolves(true);
+      sinon.stub(natUpnp.Client.prototype, 'removeMapping').callsFake(async () => { heldAt.remove = upnpService.mappedHere.has(16130); });
+
+      const clock = sinon.useFakeTimers();
+
+      const promise = upnpService.verifyUPNPsupport(16127);
+
+      await clock.tickAsync(2_500);
+
+      expect(await promise).to.equal(true);
+      expect(heldAt).to.deep.equal({ create: true, remove: true });
+      expect(upnpService.mappedHere.has(16130)).to.equal(false);
+    });
+
     it('should log a proper error if getPublicIp throws', async () => {
       sinon.stub(natUpnp.Client.prototype, 'getPublicIp').throws();
       sinon.stub(natUpnp.Client.prototype, 'getGateway').returns(Promise.resolve(true));
