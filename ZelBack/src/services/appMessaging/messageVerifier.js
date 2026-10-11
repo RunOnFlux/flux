@@ -519,12 +519,12 @@ async function checkAppMessageExistence(hash) {
 /**
  * Sets each stored message's chain facts - txid, height and payment - to this node's record of
  * its payment where they differ. A payment mined again in another block after a reorg is recorded
- * at its new height, and the message it places follows; so does the registry row of each app with
- * a message that moved, which takes the message that governs the app now (storeAppSpecificationInForce).
+ * at its new height, and the message it places follows. It writes no registry row
+ * (storeGoverningAppSpecifications does).
  * @param {Array<{hash: string, txid: string, height: number, value: number}>} records
  * @returns {Promise<string[]>} the names of the apps with a message that moved
  */
-async function alignStoredMessagesWithPayments(records) {
+async function moveStoredMessagesToPayments(records) {
   if (records.length === 0) return [];
   const appsDatabase = dbHelper.databaseConnection().db(config.database.appsglobal.database);
   const stored = await dbHelper.findInDatabase(
@@ -554,14 +554,36 @@ async function alignStoredMessagesWithPayments(records) {
     moved.add(message.appSpecifications.name);
   });
   if (operations.length) await dbHelper.bulkWriteInDatabase(appsDatabase, globalAppsMessages, operations);
+  return [...moved];
+}
+
+/**
+ * Writes the registry row of each app from the message that governs it now
+ * (storeAppSpecificationInForce). Which message governs reads the payment records' positions, so
+ * it is called once they are written.
+ * @param {string[]} appNames
+ */
+async function storeGoverningAppSpecifications(appNames) {
   // eslint-disable-next-line no-restricted-syntax
-  for (const name of moved) {
+  for (const name of appNames) {
     // eslint-disable-next-line no-await-in-loop
     const governing = await governingAppMessage(name);
     // eslint-disable-next-line no-await-in-loop
     if (governing) await storeAppSpecificationInForce({ ...governing.appSpecifications, hash: governing.hash, height: governing.height });
   }
-  return [...moved];
+}
+
+/**
+ * Moves each stored message to this node's record of its payment (moveStoredMessagesToPayments),
+ * and writes the registry row of each app with a message that moved
+ * (storeGoverningAppSpecifications).
+ * @param {Array<{hash: string, txid: string, height: number, value: number}>} records
+ * @returns {Promise<string[]>} the names of the apps with a message that moved
+ */
+async function alignStoredMessagesWithPayments(records) {
+  const moved = await moveStoredMessagesToPayments(records);
+  await storeGoverningAppSpecifications(moved);
+  return moved;
 }
 
 /**
@@ -1074,6 +1096,8 @@ module.exports = {
   checkAppMessageExistence,
   checkAppTemporaryMessageExistence,
   alignStoredMessagesWithPayments,
+  moveStoredMessagesToPayments,
+  storeGoverningAppSpecifications,
   appHashHasMessage,
   appHashHasMessageNotFound,
   getAppsTemporaryMessages,

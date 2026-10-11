@@ -120,6 +120,25 @@ describe('a stored message follows this node\'s payment record', () => {
     });
   });
 
+  describe('moveStoredMessagesToPayments', () => {
+    const before = { txid: 'tx-old', height: HEIGHT, valueSat: 100 };
+    const after = { txid: 'tx-new', height: HEIGHT + 3, valueSat: 100 };
+
+    it('moves the message and names its app, writing no registry row', async () => {
+      await globalDb.collection(appsMessages).insertOne(message('MovedApp', 'movedhash', before));
+      await globalDb.collection(appsInformation).insertOne({
+        ...message('MovedApp', 'movedhash', before).appSpecifications, hash: 'movedhash', height: HEIGHT, marker: 'untouched',
+      });
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: HEIGHT + 10 } });
+
+      expect(await messageVerifier.moveStoredMessagesToPayments([payment('movedhash', after)])).to.deep.equal(['MovedApp']);
+
+      expect((await globalDb.collection(appsMessages).findOne({ hash: 'movedhash' })).height).to.equal(HEIGHT + 3);
+      const row = await globalDb.collection(appsInformation).findOne({ name: 'MovedApp' });
+      expect([row.height, row.marker]).to.deep.equal([HEIGHT, 'untouched']);
+    });
+  });
+
   describe('promotion of a message already stored', () => {
     it('moves the message and its registry row to the height this node recorded its payment at', async () => {
       const stale = { txid: 'tx-orphaned', height: HEIGHT, valueSat: 100 };

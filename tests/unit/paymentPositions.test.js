@@ -88,14 +88,16 @@ describe('app payment positions', () => {
   describe('backfillPaymentPositions', () => {
     let findInDatabase;
     let bulkWriteInDatabase;
-    let alignStoredMessagesWithPayments;
+    let moveStoredMessagesToPayments;
+    let storeGoverningAppSpecifications;
     const TIP = 1000;
 
     beforeEach(() => {
       sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
       findInDatabase = sinon.stub(dbHelper, 'findInDatabase');
       bulkWriteInDatabase = sinon.stub(dbHelper, 'bulkWriteInDatabase').resolves();
-      alignStoredMessagesWithPayments = sinon.stub(messageVerifier, 'alignStoredMessagesWithPayments').resolves([]);
+      moveStoredMessagesToPayments = sinon.stub(messageVerifier, 'moveStoredMessagesToPayments').resolves([]);
+      storeGoverningAppSpecifications = sinon.stub(messageVerifier, 'storeGoverningAppSpecifications').resolves();
       executeCall.withArgs('getBlockCount').resolves({ status: 'success', data: TIP });
     });
 
@@ -131,7 +133,7 @@ describe('app payment positions', () => {
       expect(executeCall.withArgs('getaddressdeltas').firstCall.args[1][0]).to.include({ start: config.fluxapps.epochstart, end: TIP });
     });
 
-    it('moves the stored message of a record whose height it corrects, after writing the record', async () => {
+    it('moves the stored message of a record whose height it corrects before writing the record, and writes its app\'s registry row after', async () => {
       findInDatabase.resolves([
         {
           hash: 'hsame', txid: 'same', height: 500, value: 5,
@@ -141,13 +143,39 @@ describe('app payment positions', () => {
         },
       ]);
       executeCall.withArgs('getaddressdeltas').resolves({ status: 'success', data: [delta('same', 500, 4), delta('moved', 503, 1)] });
+      moveStoredMessagesToPayments.resolves(['MovedApp']);
 
       await backfillPaymentPositions();
 
-      sinon.assert.calledOnceWithExactly(alignStoredMessagesWithPayments, [{
+      sinon.assert.calledOnceWithExactly(moveStoredMessagesToPayments, [{
         hash: 'hmoved', txid: 'moved', height: 503, value: 7,
       }]);
-      sinon.assert.callOrder(bulkWriteInDatabase, alignStoredMessagesWithPayments);
+      sinon.assert.calledOnceWithExactly(storeGoverningAppSpecifications, ['MovedApp']);
+      sinon.assert.callOrder(moveStoredMessagesToPayments, bulkWriteInDatabase, storeGoverningAppSpecifications);
+    });
+
+    it('writes no record when moving the stored messages fails, so the next start finds them again', async () => {
+      findInDatabase.resolves([{
+        hash: 'hmoved', txid: 'moved', height: 501, value: 7,
+      }]);
+      executeCall.withArgs('getaddressdeltas').resolves({ status: 'success', data: [delta('moved', 503, 1)] });
+      moveStoredMessagesToPayments.rejects(new Error('mongo gone'));
+
+      await expect(backfillPaymentPositions()).to.be.rejectedWith('mongo gone');
+      sinon.assert.notCalled(bulkWriteInDatabase);
+      sinon.assert.notCalled(storeGoverningAppSpecifications);
+    });
+
+    it('writes no registry row when writing the records fails', async () => {
+      findInDatabase.resolves([{
+        hash: 'hmoved', txid: 'moved', height: 501, value: 7,
+      }]);
+      executeCall.withArgs('getaddressdeltas').resolves({ status: 'success', data: [delta('moved', 503, 1)] });
+      moveStoredMessagesToPayments.resolves(['MovedApp']);
+      bulkWriteInDatabase.rejects(new Error('mongo gone'));
+
+      await expect(backfillPaymentPositions()).to.be.rejectedWith('mongo gone');
+      sinon.assert.notCalled(storeGoverningAppSpecifications);
     });
 
     it('moves no stored message when no height is corrected', async () => {
@@ -159,7 +187,8 @@ describe('app payment positions', () => {
       await backfillPaymentPositions();
 
       expect(writes()).to.deep.equal([['same', { txIndex: 4, height: 500 }]]);
-      sinon.assert.calledOnceWithExactly(alignStoredMessagesWithPayments, []);
+      sinon.assert.calledOnceWithExactly(moveStoredMessagesToPayments, []);
+      sinon.assert.calledOnceWithExactly(storeGoverningAppSpecifications, []);
     });
 
     it('marks a record whose transaction the chain does not hold as not on the chain', async () => {

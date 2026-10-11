@@ -16,8 +16,11 @@ const { appPaymentPositions } = require('../appPaymentPositions');
  *
  * The height is the chain's, not the one recorded: a record written from a block
  * that later left the chain carries a height its transaction is not at. Both are
- * set in one write, and a stored message whose record's height is corrected
- * follows it (messageVerifier.alignStoredMessagesWithPayments).
+ * set in one write. A stored message whose record's height is corrected is moved
+ * to it before the records are written, so a run that stops between the two finds
+ * them again at the next start; the registry row of its app is written after
+ * them, since which message governs reads their positions
+ * (messageVerifier.moveStoredMessagesToPayments, storeGoverningAppSpecifications).
  * @returns {Promise<{positioned: number, heightsCorrected: number, notOnChain: number, aboveTip: number}>}
  */
 async function backfillPaymentPositions() {
@@ -68,8 +71,9 @@ async function backfillPaymentPositions() {
       });
     }
   }
+  const moved = await messageVerifier.moveStoredMessagesToPayments(corrected);
   if (operations.length) await dbHelper.bulkWriteInDatabase(database, collection, operations);
-  await messageVerifier.alignStoredMessagesWithPayments(corrected);
+  await messageVerifier.storeGoverningAppSpecifications(moved);
   log.info(`migrations - payment positions: ${operations.length - notOnChain} positioned, ${heightsCorrected} of them at the chain's height rather than the recorded one, ${notOnChain} not on the chain, ${aboveTip} above the daemon's tip`);
   return {
     positioned: operations.length - notOnChain, heightsCorrected, notOnChain, aboveTip,
