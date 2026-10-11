@@ -5295,9 +5295,20 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   }
                   // Previous master is not running, determine next primary
                   if (index === 0) {
+                    // The previous primary letting go says nothing about the other
+                    // holders. One of them may already have taken over - FDM has not
+                    // registered it yet, its registration lags a start by ~110s - or
+                    // be part-way through its own start, so index 0 asks all of them
+                    // like every other start path does.
                     // eslint-disable-next-line no-await-in-loop
-                    if (await start()) {
-                      log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
+                    const peerState = await checkPeersRunning();
+                    if (peerState !== PeerComponent.NOT_RUNNING) {
+                      log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a peer ${peerState === PeerComponent.RUNNING ? 'is already running it' : 'could not be ruled out'}`);
+                    } else {
+                      // eslint-disable-next-line no-await-in-loop
+                      if (await start()) {
+                        log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
+                      }
                     }
                   } else {
                     const previousMasterIndex = runningAppList.findIndex((x) => ipsMatch(x.ip, mastersRunningGSyncthingApps.get(identifier)));

@@ -3285,6 +3285,35 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
+    it('at index 0, does not start over another holder once the previous primary lets go', async () => {
+      // The previous primary answering "not me" clears that one node only. A
+      // third holder that has already taken over, and that FDM has not
+      // registered yet, still holds the volume.
+      const appName = 'prevprimaryindexzero';
+      sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127', '192.168.1.91:16127']);
+
+      // Cycle 1: FDM names .90, so this node records it as the previous primary.
+      serviceHelperStub.resetBehavior();
+      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+      await runPass();
+      logInfo.resetHistory();
+
+      // Cycle 2: FDM names nobody. .90 holds nothing, but .91 runs it.
+      serviceHelperStub.resetBehavior();
+      serviceHelperStub.resolves(fdmNoPrimary());
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake((url) => peerAnswers({ held: url.includes('192.168.1.91') ? [`flux${appName}`] : [] })(url));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, `component:${appName} is held on peer node (index 2)`)).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
     // dragonwilds1789772096076, 2026-10-11: the primary's node changed public IP,
     // its locations were rewritten to the new address, and the standby kept
     // probing the old one for fifteen hours - silent, and never explainable by a
