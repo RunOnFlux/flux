@@ -48,9 +48,9 @@ async function deleteLoginPhrase(phrase) {
 
 /**
  * What one fitness check found, as /flux/health reports it per check.
- * OK: checked and passed. UNMEASURED: no reading yet; it refuses nobody.
- * DEGRADED: failing, but it does not decide this node's fitness. FAIL: failing;
- * the node is unfit.
+ * OK: checked and passed. UNMEASURED: the check could not be run; it refuses
+ * nobody. DEGRADED: failing, but it does not decide this node's fitness. FAIL:
+ * failing; the node is unfit.
  */
 const CHECK = Object.freeze({
   OK: 'ok',
@@ -61,73 +61,34 @@ const CHECK = Object.freeze({
 
 /**
  * Whether the node meets its tier's RAM and CPU thread requirements. The tier
- * comes from the daemon, so while the daemon cannot answer there is nothing to
- * measure against and the answer is UNMEASURED.
- * @returns {Promise<string>} CHECK.OK, CHECK.FAIL or CHECK.UNMEASURED.
+ * comes from the node's collateral as the daemon reports it: while the daemon
+ * cannot be read the check is UNMEASURED, and a node whose collateral makes it
+ * no tier FAILs.
+ * @returns {Promise<{result: string, reason: (string|undefined)}>} result is
+ *   CHECK.OK, CHECK.FAIL or CHECK.UNMEASURED; reason says why it FAILed.
  */
 async function confirmNodeTierHardware() {
-  const unread = (error) => {
-    if (!isDaemonUnavailable(error)) log.error(error);
-  };
-  const tier = await generalService.nodeTier().catch(unread);
-  const collateral = await generalService.nodeCollateral().catch(unread);
-  if (tier === undefined || collateral === undefined) return CHECK.UNMEASURED;
-
+  let collateralTier;
   try {
-    const nodeRam = os.totalmem() / 1024 / 1024 / 1024;
-    const nodeCpuThreads = os.cpus().length;
-    log.info(`Node Tier: ${tier}`);
-    log.info(`Node Collateral: ${collateral}`);
-    log.info(`Node Total Ram: ${nodeRam}`);
-    log.info(`Node Cpu Threads: ${nodeCpuThreads}`);
-    if (tier === 'bamf' && collateral === 100000) {
-      if (nodeRam < 30) {
-        throw new Error(`Node Total Ram (${nodeRam}) below Stratus requirements`);
-      }
-      if (nodeCpuThreads < 8) {
-        throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below Stratus requirements`);
-      }
-    } else if (tier === 'super' && collateral === 25000) {
-      if (nodeRam < 7) {
-        throw new Error(`Node Total Ram (${nodeRam}) below Nimbus requirements`);
-      }
-      if (nodeCpuThreads < 4) {
-        throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below Nimbus requirements`);
-      }
-    } else if (tier === 'basic' && collateral === 10000) {
-      if (nodeRam < 3) {
-        throw new Error(`Node Total Ram (${nodeRam}) below Cumulus requirements`);
-      }
-      if (nodeCpuThreads < 2) {
-        throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below Cumulus requirements`);
-      }
-    } else if (tier === 'bamf' && collateral === 40000) {
-      if (nodeRam < 61) {
-        throw new Error(`Node Total Ram (${nodeRam}) below new Stratus requirements`);
-      }
-      if (nodeCpuThreads < 16) {
-        throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below new Stratus requirements`);
-      }
-    } else if (tier === 'super' && collateral === 12500) {
-      if (nodeRam < 30) {
-        throw new Error(`Node Total Ram (${nodeRam}) below new Nimbus requirements`);
-      }
-      if (nodeCpuThreads < 8) {
-        throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below new Nimbus requirements`);
-      }
-    } else if (tier === 'basic' && collateral === 1000) {
-      if (nodeRam < 3) {
-        throw new Error(`Node Total Ram (${nodeRam}) below new Cumulus requirements`);
-      }
-      if (nodeCpuThreads < 4) {
-        throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below new Cumulus requirements`);
-      }
-    }
-    return CHECK.OK;
+    collateralTier = await generalService.nodeCollateralTier();
   } catch (error) {
-    log.error(error);
-    return CHECK.FAIL;
+    if (!isDaemonUnavailable(error)) log.error(error);
+    return { result: CHECK.UNMEASURED };
   }
+
+  const { collateral, tier } = collateralTier;
+  if (collateral === null) return { result: CHECK.FAIL, reason: 'Node has no collateral' };
+  if (!tier) return { result: CHECK.FAIL, reason: `Node collateral (${collateral}) matches no Flux Node tier` };
+
+  const nodeRam = os.totalmem() / 1024 / 1024 / 1024;
+  const nodeCpuThreads = os.cpus().length;
+  if (nodeRam < tier.minRamGb) {
+    return { result: CHECK.FAIL, reason: `Node Total Ram (${nodeRam}) below ${tier.label} requirements` };
+  }
+  if (nodeCpuThreads < tier.minCpuThreads) {
+    return { result: CHECK.FAIL, reason: `Node Cpu Threads (${nodeCpuThreads}) below ${tier.label} requirements` };
+  }
+  return { result: CHECK.OK };
 }
 
 /**
@@ -250,11 +211,10 @@ async function checkNodeFitness() {
 
   // hardware: the node must still meet its tier requirements
   const hardware = await confirmNodeTierHardware();
-  if (hardware === CHECK.FAIL) {
-    const error = new Error('Node hardware requirements not met');
-    return unfit('hardware', { message: error.message, name: error.name, code: error.code }, checks);
+  if (hardware.result === CHECK.FAIL) {
+    return unfit('hardware', { message: hardware.reason, name: 'Error', code: undefined }, checks);
   }
-  checks.hardware = hardware;
+  checks.hardware = hardware.result;
 
   // DOS state (contains daemon checks). getDOSState answers with
   // createDataMessage, which hardcodes status 'success', so there is no error

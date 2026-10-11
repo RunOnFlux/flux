@@ -54,15 +54,13 @@ describe('idService tests', () => {
   describe('confirmNodeTierHardware tests', () => {
     let osTotalmemStub;
     let osCpusStub;
-    let tierStub;
-    let collateralStub;
+    let collateralTierStub;
     let logSpy;
 
     beforeEach(() => {
       osTotalmemStub = sinon.stub(os, 'totalmem');
       osCpusStub = sinon.stub(os, 'cpus');
-      tierStub = sinon.stub(generalService, 'nodeTier');
-      collateralStub = sinon.stub(generalService, 'nodeCollateral');
+      collateralTierStub = sinon.stub(generalService, 'nodeCollateralTier');
       logSpy = sinon.spy(log, 'error');
     });
 
@@ -70,201 +68,171 @@ describe('idService tests', () => {
       sinon.restore();
     });
 
-    it('should return fail and log error if stratus (100000) has less than 8 cpu threads', async () => {
-      tierStub.resolves('bamf');
-      collateralStub.resolves(100000);
+    it('should return fail if stratus (100000) has less than 8 cpu threads', async () => {
+      collateralTierStub.resolves({ collateral: 100000, tier: generalService.COLLATERAL_TIERS[100000] });
       osTotalmemStub.returns(30 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(idService.CHECK.FAIL);
-      sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Cpu Threads (4) below Stratus requirements')));
+      expect(response).to.eql({ result: idService.CHECK.FAIL, reason: 'Node Cpu Threads (4) below Stratus requirements' });
     });
 
-    it('should return fail and log error if stratus (100000) has less than 30gb ram', async () => {
-      tierStub.resolves('bamf');
-      collateralStub.resolves(100000);
+    it('should return fail if stratus (100000) has less than 30gb ram', async () => {
+      collateralTierStub.resolves({ collateral: 100000, tier: generalService.COLLATERAL_TIERS[100000] });
       osTotalmemStub.returns(29 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(idService.CHECK.FAIL);
-      sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Total Ram (29) below Stratus requirements')));
+      expect(response).to.eql({ result: idService.CHECK.FAIL, reason: 'Node Total Ram (29) below Stratus requirements' });
     });
 
     it('should return ok if stratus (100000) matches requirements', async () => {
-      tierStub.resolves('bamf');
-      collateralStub.resolves(100000);
+      collateralTierStub.resolves({ collateral: 100000, tier: generalService.COLLATERAL_TIERS[100000] });
       osTotalmemStub.returns(30 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(idService.CHECK.OK);
+      expect(response).to.eql({ result: idService.CHECK.OK });
       sinon.assert.notCalled(logSpy);
     });
 
-    it('should return fail and log error if stratus (40000) has less than 16 cpu threads', async () => {
-      tierStub.resolves('bamf');
-      collateralStub.resolves(40000);
+    it('should return fail if stratus (40000) has less than 16 cpu threads', async () => {
+      collateralTierStub.resolves({ collateral: 40000, tier: generalService.COLLATERAL_TIERS[40000] });
       osTotalmemStub.returns(61 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(idService.CHECK.FAIL);
-      sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Cpu Threads (15) below new Stratus requirements')));
+      expect(response).to.eql({ result: idService.CHECK.FAIL, reason: 'Node Cpu Threads (15) below new Stratus requirements' });
     });
 
-    it('should return fail and log error if stratus (40000) has less than 61gb ram', async () => {
-      tierStub.resolves('bamf');
-      collateralStub.resolves(40000);
+    it('should return fail if stratus (40000) has less than 61gb ram', async () => {
+      collateralTierStub.resolves({ collateral: 40000, tier: generalService.COLLATERAL_TIERS[40000] });
       osTotalmemStub.returns(60 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(idService.CHECK.FAIL);
-      sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Total Ram (60) below new Stratus requirements')));
+      expect(response).to.eql({ result: idService.CHECK.FAIL, reason: 'Node Total Ram (60) below new Stratus requirements' });
     });
 
     it('should return ok if stratus (40000) matches requirements', async () => {
-      tierStub.resolves('bamf');
-      collateralStub.resolves(40000);
+      collateralTierStub.resolves({ collateral: 40000, tier: generalService.COLLATERAL_TIERS[40000] });
       osTotalmemStub.returns(61 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(idService.CHECK.OK);
+      expect(response).to.eql({ result: idService.CHECK.OK });
       sinon.assert.notCalled(logSpy);
     });
 
-    it('should return fail and log error if Nimbus (25000) has less than 4 cpu threads', async () => {
-      tierStub.resolves('super');
-      collateralStub.resolves(25000);
+    it('should return fail if Nimbus (25000) has less than 4 cpu threads', async () => {
+      collateralTierStub.resolves({ collateral: 25000, tier: generalService.COLLATERAL_TIERS[25000] });
       osTotalmemStub.returns(7 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(idService.CHECK.FAIL);
-      sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Cpu Threads (3) below Nimbus requirements')));
+      expect(response).to.eql({ result: idService.CHECK.FAIL, reason: 'Node Cpu Threads (3) below Nimbus requirements' });
     });
 
-    it('should return fail and log error if Nimbus (25000) has less than 7gb ram', async () => {
-      tierStub.resolves('super');
-      collateralStub.resolves(25000);
+    it('should return fail if Nimbus (25000) has less than 7gb ram', async () => {
+      collateralTierStub.resolves({ collateral: 25000, tier: generalService.COLLATERAL_TIERS[25000] });
       osTotalmemStub.returns(6 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(idService.CHECK.FAIL);
-      sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Total Ram (6) below Nimbus requirements')));
+      expect(response).to.eql({ result: idService.CHECK.FAIL, reason: 'Node Total Ram (6) below Nimbus requirements' });
     });
 
     it('should return ok if Nimbus (25000) matches requirements', async () => {
-      tierStub.resolves('super');
-      collateralStub.resolves(25000);
+      collateralTierStub.resolves({ collateral: 25000, tier: generalService.COLLATERAL_TIERS[25000] });
       osTotalmemStub.returns(8 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(idService.CHECK.OK);
+      expect(response).to.eql({ result: idService.CHECK.OK });
       sinon.assert.notCalled(logSpy);
     });
 
-    it('should return fail and log error if Nimbus (12500) has less than 8 cpu threads', async () => {
-      tierStub.resolves('super');
-      collateralStub.resolves(12500);
+    it('should return fail if Nimbus (12500) has less than 8 cpu threads', async () => {
+      collateralTierStub.resolves({ collateral: 12500, tier: generalService.COLLATERAL_TIERS[12500] });
       osTotalmemStub.returns(30 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(idService.CHECK.FAIL);
-      sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Cpu Threads (7) below new Nimbus requirements')));
+      expect(response).to.eql({ result: idService.CHECK.FAIL, reason: 'Node Cpu Threads (7) below new Nimbus requirements' });
     });
 
-    it('should return fail and log error if Nimbus (12500) has less than 30gb ram', async () => {
-      tierStub.resolves('super');
-      collateralStub.resolves(12500);
+    it('should return fail if Nimbus (12500) has less than 30gb ram', async () => {
+      collateralTierStub.resolves({ collateral: 12500, tier: generalService.COLLATERAL_TIERS[12500] });
       osTotalmemStub.returns(29 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(idService.CHECK.FAIL);
-      sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Total Ram (29) below new Nimbus requirements')));
+      expect(response).to.eql({ result: idService.CHECK.FAIL, reason: 'Node Total Ram (29) below new Nimbus requirements' });
     });
 
     it('should return ok if Nimbus (12500) matches requirements', async () => {
-      tierStub.resolves('super');
-      collateralStub.resolves(12500);
+      collateralTierStub.resolves({ collateral: 12500, tier: generalService.COLLATERAL_TIERS[12500] });
       osTotalmemStub.returns(30 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(idService.CHECK.OK);
+      expect(response).to.eql({ result: idService.CHECK.OK });
       sinon.assert.notCalled(logSpy);
     });
 
-    it('should return fail and log error if Cumulus (10000) has less than 2 cpu threads', async () => {
-      tierStub.resolves('basic');
-      collateralStub.resolves(10000);
+    it('should return fail if Cumulus (10000) has less than 2 cpu threads', async () => {
+      collateralTierStub.resolves({ collateral: 10000, tier: generalService.COLLATERAL_TIERS[10000] });
       osTotalmemStub.returns(3 * 1024 ** 3);
       osCpusStub.returns([1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(idService.CHECK.FAIL);
-      sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Cpu Threads (1) below Cumulus requirements')));
+      expect(response).to.eql({ result: idService.CHECK.FAIL, reason: 'Node Cpu Threads (1) below Cumulus requirements' });
     });
 
-    it('should return fail and log error if Cumulus (10000) has less than 3gb ram', async () => {
-      tierStub.resolves('basic');
-      collateralStub.resolves(10000);
+    it('should return fail if Cumulus (10000) has less than 3gb ram', async () => {
+      collateralTierStub.resolves({ collateral: 10000, tier: generalService.COLLATERAL_TIERS[10000] });
       osTotalmemStub.returns(2 * 1024 ** 3);
       osCpusStub.returns([1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(idService.CHECK.FAIL);
-      sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Total Ram (2) below Cumulus requirements')));
+      expect(response).to.eql({ result: idService.CHECK.FAIL, reason: 'Node Total Ram (2) below Cumulus requirements' });
     });
 
     it('should return ok if Cumulus (10000) matches requirements', async () => {
-      tierStub.resolves('basic');
-      collateralStub.resolves(10000);
+      collateralTierStub.resolves({ collateral: 10000, tier: generalService.COLLATERAL_TIERS[10000] });
       osTotalmemStub.returns(3 * 1024 ** 3);
       osCpusStub.returns([1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(idService.CHECK.OK);
+      expect(response).to.eql({ result: idService.CHECK.OK });
       sinon.assert.notCalled(logSpy);
     });
 
-    it('should return fail and log error if Cumulus (1000) has less than 4 cpu threads', async () => {
-      tierStub.resolves('basic');
-      collateralStub.resolves(1000);
+    it('should return fail if Cumulus (1000) has less than 4 cpu threads', async () => {
+      collateralTierStub.resolves({ collateral: 1000, tier: generalService.COLLATERAL_TIERS[1000] });
       osTotalmemStub.returns(3 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(idService.CHECK.FAIL);
-      sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Cpu Threads (3) below new Cumulus requirements')));
+      expect(response).to.eql({ result: idService.CHECK.FAIL, reason: 'Node Cpu Threads (3) below new Cumulus requirements' });
     });
 
-    it('should return fail and log error if Cumulus (1000) has less than 3gb ram', async () => {
-      tierStub.resolves('basic');
-      collateralStub.resolves(1000);
+    it('should return fail if Cumulus (1000) has less than 3gb ram', async () => {
+      collateralTierStub.resolves({ collateral: 1000, tier: generalService.COLLATERAL_TIERS[1000] });
       osTotalmemStub.returns(2 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(idService.CHECK.FAIL);
-      sinon.assert.calledWith(logSpy, sinon.match.instanceOf(Error).and(sinon.match.has('message', 'Node Total Ram (2) below new Cumulus requirements')));
+      expect(response).to.eql({ result: idService.CHECK.FAIL, reason: 'Node Total Ram (2) below new Cumulus requirements' });
     });
 
     it('should return ok if Cumulus (1000) matches requirements', async () => {
-      tierStub.resolves('basic');
-      collateralStub.resolves(1000);
+      collateralTierStub.resolves({ collateral: 1000, tier: generalService.COLLATERAL_TIERS[1000] });
       osTotalmemStub.returns(3 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1]);
       const response = await idService.confirmNodeTierHardware();
 
-      expect(response).to.eql(idService.CHECK.OK);
+      expect(response).to.eql({ result: idService.CHECK.OK });
       sinon.assert.notCalled(logSpy);
     });
   });
@@ -272,8 +240,7 @@ describe('idService tests', () => {
   describe('loginPhrase tests', () => {
     let osTotalmemStub;
     let osCpusStub;
-    let tierStub;
-    let collateralStub;
+    let collateralTierStub;
     let getDOSStateStub;
 
     before(async () => {
@@ -283,8 +250,7 @@ describe('idService tests', () => {
     beforeEach(() => {
       osTotalmemStub = sinon.stub(os, 'totalmem');
       osCpusStub = sinon.stub(os, 'cpus');
-      tierStub = sinon.stub(generalService, 'nodeTier');
-      collateralStub = sinon.stub(generalService, 'nodeCollateral');
+      collateralTierStub = sinon.stub(generalService, 'nodeCollateralTier');
       getDOSStateStub = sinon.stub(fluxNetworkHelper, 'getDOSState');
       syncthingService.setSyncthingRunningState(true);
       // only checks for docker availablity
@@ -297,8 +263,7 @@ describe('idService tests', () => {
 
     it('should return error if hw reqs are not met', async () => {
       const res = generateResponse();
-      tierStub.resolves('basic');
-      collateralStub.resolves(1000);
+      collateralTierStub.resolves({ collateral: 1000, tier: generalService.COLLATERAL_TIERS[1000] });
       osTotalmemStub.returns(1 * 1024 ** 3);
       osCpusStub.returns([1]);
       const expectedResponse = {
@@ -306,7 +271,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'Node hardware requirements not met',
+          message: 'Node Total Ram (1) below new Cumulus requirements',
         },
       };
 
@@ -317,8 +282,7 @@ describe('idService tests', () => {
 
     it('should return error if dosState > 11 and message is Flux IP detection failed', async () => {
       const res = generateResponse();
-      tierStub.resolves('basic');
-      collateralStub.resolves(1000);
+      collateralTierStub.resolves({ collateral: 1000, tier: generalService.COLLATERAL_TIERS[1000] });
       osTotalmemStub.returns(8 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1]);
       getDOSStateStub.returns({
@@ -345,8 +309,7 @@ describe('idService tests', () => {
 
     it('should return error if dosState > 11 and message is Flux collision detection', async () => {
       const res = generateResponse();
-      tierStub.resolves('basic');
-      collateralStub.resolves(1000);
+      collateralTierStub.resolves({ collateral: 1000, tier: generalService.COLLATERAL_TIERS[1000] });
       osTotalmemStub.returns(8 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1]);
       getDOSStateStub.returns({
@@ -373,8 +336,7 @@ describe('idService tests', () => {
 
     it('should return CONNERROR error if dosState > 11 and message is anything else', async () => {
       const res = generateResponse();
-      tierStub.resolves('basic');
-      collateralStub.resolves(1000);
+      collateralTierStub.resolves({ collateral: 1000, tier: generalService.COLLATERAL_TIERS[1000] });
       osTotalmemStub.returns(8 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1]);
       getDOSStateStub.returns({
@@ -410,8 +372,7 @@ describe('idService tests', () => {
     // still take the node out, rather than reading as healthy.
     it('fails on the dos score alone, even with no message paired to it', async () => {
       const res = generateResponse();
-      tierStub.resolves('basic');
-      collateralStub.resolves(1000);
+      collateralTierStub.resolves({ collateral: 1000, tier: generalService.COLLATERAL_TIERS[1000] });
       osTotalmemStub.returns(8 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1]);
       getDOSStateStub.returns({
@@ -434,8 +395,7 @@ describe('idService tests', () => {
 
     it('fails on a message alone, with the score still at zero', async () => {
       const res = generateResponse();
-      tierStub.resolves('basic');
-      collateralStub.resolves(1000);
+      collateralTierStub.resolves({ collateral: 1000, tier: generalService.COLLATERAL_TIERS[1000] });
       osTotalmemStub.returns(8 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1]);
       getDOSStateStub.returns({
@@ -459,8 +419,7 @@ describe('idService tests', () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       const res = generateResponse();
-      tierStub.resolves('basic');
-      collateralStub.resolves(1000);
+      collateralTierStub.resolves({ collateral: 1000, tier: generalService.COLLATERAL_TIERS[1000] });
       osTotalmemStub.returns(8 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1]);
       getDOSStateStub.returns({
@@ -483,15 +442,13 @@ describe('idService tests', () => {
   // not log, because every daemon start passes through that state.
   describe('confirmNodeTierHardware while the daemon cannot answer', () => {
     const warming = { code: -28, name: 'Error', message: 'Loading block index...' };
-    let tierStub;
-    let collateralStub;
+    let collateralTierStub;
     let logSpy;
 
     beforeEach(() => {
       sinon.stub(os, 'totalmem').returns(1 * 1024 ** 3);
       sinon.stub(os, 'cpus').returns([1]);
-      tierStub = sinon.stub(generalService, 'nodeTier');
-      collateralStub = sinon.stub(generalService, 'nodeCollateral');
+      collateralTierStub = sinon.stub(generalService, 'nodeCollateralTier');
       logSpy = sinon.spy(log, 'error');
     });
 
@@ -500,37 +457,60 @@ describe('idService tests', () => {
     });
 
     it('is unmeasured, not ok, while the daemon is warming up', async () => {
-      tierStub.rejects(warming);
-      collateralStub.rejects(warming);
+      collateralTierStub.rejects(warming);
 
-      expect(await idService.confirmNodeTierHardware()).to.equal(idService.CHECK.UNMEASURED);
+      expect(await idService.confirmNodeTierHardware()).to.eql({ result: idService.CHECK.UNMEASURED });
       sinon.assert.notCalled(logSpy);
     });
 
     it('is unmeasured while nothing listens on the daemon port', async () => {
       const refused = { code: 'ECONNREFUSED', name: 'Error', message: 'connect ECONNREFUSED 127.0.0.1:16124' };
-      tierStub.rejects(refused);
-      collateralStub.rejects(refused);
+      collateralTierStub.rejects(refused);
 
-      expect(await idService.confirmNodeTierHardware()).to.equal(idService.CHECK.UNMEASURED);
+      expect(await idService.confirmNodeTierHardware()).to.eql({ result: idService.CHECK.UNMEASURED });
       sinon.assert.notCalled(logSpy);
     });
 
-    it('is unmeasured and logs when the lookup fails for any other reason', async () => {
-      const unknown = new Error('Unrecognised Flux Node tier');
-      tierStub.rejects(unknown);
-      collateralStub.resolves(1000);
+    it('is unmeasured and logs when the daemon answers the lookup with an error', async () => {
+      const unknown = { code: -5, name: 'Error', message: 'No such mempool or blockchain transaction' };
+      collateralTierStub.rejects(unknown);
 
-      expect(await idService.confirmNodeTierHardware()).to.equal(idService.CHECK.UNMEASURED);
+      expect(await idService.confirmNodeTierHardware()).to.eql({ result: idService.CHECK.UNMEASURED });
       sinon.assert.calledOnceWithExactly(logSpy, unknown);
+    });
+  });
+
+  // The daemon answered, and its answer is that this node is no Flux Node tier:
+  // there is nothing to wait for, so the check fails and says why.
+  describe('confirmNodeTierHardware when the collateral makes the node no tier', () => {
+    beforeEach(() => {
+      sinon.stub(os, 'totalmem').returns(64 * 1024 ** 3);
+      sinon.stub(os, 'cpus').returns(new Array(16).fill(1));
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('fails when the node holds no collateral', async () => {
+      sinon.stub(generalService, 'nodeCollateralTier').resolves({ collateral: null, tier: null });
+
+      expect(await idService.confirmNodeTierHardware()).to.eql({ result: idService.CHECK.FAIL, reason: 'Node has no collateral' });
+    });
+
+    it('fails when the collateral is not a tier amount', async () => {
+      sinon.stub(generalService, 'nodeCollateralTier').resolves({ collateral: 5000, tier: null });
+
+      expect(await idService.confirmNodeTierHardware()).to.eql({
+        result: idService.CHECK.FAIL, reason: 'Node collateral (5000) matches no Flux Node tier',
+      });
     });
   });
 
   describe('nodeHealth / checkNodeFitness tests', () => {
     let osTotalmemStub;
     let osCpusStub;
-    let tierStub;
-    let collateralStub;
+    let collateralTierStub;
     let getDOSStateStub;
 
     before(async () => {
@@ -538,8 +518,7 @@ describe('idService tests', () => {
     });
 
     const healthyHardware = () => {
-      tierStub.resolves('basic');
-      collateralStub.resolves(1000);
+      collateralTierStub.resolves({ collateral: 1000, tier: generalService.COLLATERAL_TIERS[1000] });
       osTotalmemStub.returns(8 * 1024 ** 3);
       osCpusStub.returns([1, 1, 1, 1]);
       getDOSStateStub.returns({
@@ -551,8 +530,7 @@ describe('idService tests', () => {
     beforeEach(() => {
       osTotalmemStub = sinon.stub(os, 'totalmem');
       osCpusStub = sinon.stub(os, 'cpus');
-      tierStub = sinon.stub(generalService, 'nodeTier');
-      collateralStub = sinon.stub(generalService, 'nodeCollateral');
+      collateralTierStub = sinon.stub(generalService, 'nodeCollateralTier');
       getDOSStateStub = sinon.stub(fluxNetworkHelper, 'getDOSState');
       syncthingService.setSyncthingRunningState(true);
       sinon.stub(dockerService, 'dockerListImages').returns(true);
@@ -586,8 +564,7 @@ describe('idService tests', () => {
     });
 
     it('nodeHealth gates on hardware exactly as loginPhrase does', async () => {
-      tierStub.resolves('basic');
-      collateralStub.resolves(1000);
+      collateralTierStub.resolves({ collateral: 1000, tier: generalService.COLLATERAL_TIERS[1000] });
       osTotalmemStub.returns(1 * 1024 ** 3);
       osCpusStub.returns([1]);
       const res = generateResponse();
@@ -599,7 +576,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'Node hardware requirements not met',
+          message: 'Node Total Ram (1) below new Cumulus requirements',
           failed: 'hardware',
           checks: {
             db: 'ok', syncthing: 'ok', docker: 'ok', hardware: 'fail',
@@ -681,8 +658,7 @@ describe('idService tests', () => {
       beforeEach(() => {
         healthyHardware();
         const warming = { code: -28, name: 'Error', message: 'Loading block index...' };
-        tierStub.rejects(warming);
-        collateralStub.rejects(warming);
+        collateralTierStub.rejects(warming);
       });
 
       it('keeps the node fit and reports hardware as unmeasured', async () => {
@@ -830,7 +806,7 @@ describe('idService tests', () => {
         const fitness = await idService.checkNodeFitness();
 
         expect(fitness.ok, 'the carve-out let a genuinely unfit node through').to.equal(false);
-        expect(fitness.error.message).to.equal('Node hardware requirements not met');
+        expect(fitness.error.message).to.equal('Node Total Ram (1) below new Cumulus requirements');
       });
     });
 
