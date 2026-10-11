@@ -42,12 +42,16 @@ const CLEANUP_SLOT_COUNT = 8;
 const CLEANUP_SLOT_MS = CLEANUP_CYCLE_MS / CLEANUP_SLOT_COUNT;
 // The library's requests have no timeout of their own: a router that restarts
 // with one in flight never answers it.
-const CLEANUP_REMOVAL_TIMEOUT_MS = 15 * 1000;
+const CLEANUP_REQUEST_TIMEOUT_MS = 15 * 1000;
+// The listing stops asking this long before the slot ends, so that what it has
+// listed by then still has time to be removed.
+const CLEANUP_REMOVAL_RESERVE_MS = 15 * 1000;
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
 /**
- * Settles with `work`, or rejects once `timeoutMs` has passed.
+ * Settles with `work`, or rejects once `timeoutMs` has passed, with an error
+ * marked `timedOut`. Only the wait ends: the request is still in flight.
  * @param {Promise<*>} work
  * @param {number} timeoutMs
  * @param {string} what what is waited for, for the error
@@ -59,7 +63,11 @@ async function withinTime(work, timeoutMs, what) {
     return await Promise.race([
       work,
       new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`${what}: the router did not answer within ${timeoutMs / 1000}s`)), timeoutMs);
+        timer = setTimeout(() => {
+          const error = new Error(`${what}: the router did not answer within ${timeoutMs / 1000}s`);
+          error.timedOut = true;
+          reject(error);
+        }, timeoutMs);
       }),
     ]);
   } finally {
@@ -394,6 +402,53 @@ function msUntilCleanupSlot(apiport, now = Date.now()) {
 }
 
 /**
+ * Lists the router's mappings to this node, one GetGenericPortMappingEntry per
+ * index, as the library's getMappings does. The walk is this code's rather than
+ * the library's so that it can stop: getMappings walks to the end of the table
+ * whatever its caller has given up on, into the next node's slot. No request
+ * goes out once `until` has passed (one already in flight cannot be called
+ * back under nat-upnp 1.x), and what was listed by then is returned: the pass
+ * only removes what it has seen.
+ *
+ * The router's error reply to an index past the last entry ends the table. No
+ * reply at all - a request that times out, a connection refused or reset - is a
+ * router in trouble, and rejects: nothing more is sent to it.
+ * @param {number} until monotonic ms after which no request is sent
+ * @param {number} deadline monotonic ms the whole pass ends at
+ * @returns {Promise<object[]>} the mappings, in the library's getMappings shape
+ */
+async function listOwnMappings(until, deadline) {
+  const timeout = () => Math.min(CLEANUP_REQUEST_TIMEOUT_MS, deadline - monotonicMs());
+  const { gateway, address } = await withinTime(client.getGateway(), timeout(), 'finding the gateway');
+  const mappings = [];
+  for (let index = 0; ; index += 1) {
+    if (monotonicMs() >= until) {
+      log.warn(`UPnP - stale mapping cleanup out of time after ${index} router entries, the rest wait for the next start`);
+      return mappings;
+    }
+    let data;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      data = await withinTime(gateway.run('GetGenericPortMappingEntry', [['NewPortMappingIndex', index]]), timeout(), 'listing the mappings');
+    } catch (error) {
+      if (error.response) return mappings;
+      throw error;
+    }
+    const key = Object.keys(data || {}).find((k) => /^GetGenericPortMappingEntryResponse/.test(k));
+    if (!key) throw new Error('listing the mappings: incorrect response');
+    const entry = data[key];
+    if (entry.NewInternalClient === address) {
+      mappings.push({
+        public: { host: (typeof entry.NewRemoteHost === 'string' && entry.NewRemoteHost) || '', port: parseInt(entry.NewExternalPort, 10) },
+        private: { host: entry.NewInternalClient, port: parseInt(entry.NewInternalPort, 10) },
+        protocol: String(entry.NewProtocol).toLowerCase(),
+        description: entry.NewPortMappingDescription,
+      });
+    }
+  }
+}
+
+/**
  * Removes the router's mappings to this node that this code made and nothing
  * here holds any more: an app removed while the router was unreachable, a
  * FluxOS that died between mapping and unmapping, a node reinstalled on the
@@ -410,8 +465,11 @@ function msUntilCleanupSlot(apiport, now = Date.now()) {
  * record is written before its ports are mapped, so every mapping the listing
  * holds already has its app in the answer.
  *
- * Everything - the listing and each removal - happens within `budgetMs`: what
- * it has not removed by then is left for the next start.
+ * Everything - the listing and each removal - happens within `budgetMs`. The
+ * listing stops asking the router early enough to leave time for removals, and
+ * what has not been listed or removed by the end is left for the next start. A
+ * removal the router refuses is stepped past; one it does not answer ends the
+ * pass, so as not to send more to a router that is not keeping up.
  * @param {function(): Promise<Iterable<number>>} heldPorts every port something on this node holds
  * @param {number} budgetMs
  * @returns {Promise<number>} how many mappings were removed
@@ -419,10 +477,9 @@ function msUntilCleanupSlot(apiport, now = Date.now()) {
 async function removeStaleMappings(heldPorts, budgetMs) {
   const deadline = monotonicMs() + budgetMs;
   const left = () => deadline - monotonicMs();
-  const mappings = await withinTime(client.getMappings({ local: true }), left(), 'listing the mappings');
+  const mappings = await listOwnMappings(deadline - Math.min(CLEANUP_REMOVAL_RESERVE_MS, budgetMs / 2), deadline);
   const keep = new Set([...await heldPorts()].map(Number));
-  const stale = mappings.filter((mapping) => mapping.local
-    && Number.isInteger(mapping.public && mapping.public.port)
+  const stale = mappings.filter((mapping) => Number.isInteger(mapping.public.port)
     && !keep.has(mapping.public.port)
     && isOwnedMappingDescription(mapping.description));
   let removed = 0;
@@ -440,11 +497,15 @@ async function removeStaleMappings(heldPorts, budgetMs) {
     const protocol = mapping.protocol.toUpperCase();
     try {
       // eslint-disable-next-line no-await-in-loop
-      await withinTime(client.removeMapping({ public: { host, port }, protocol }), Math.min(CLEANUP_REMOVAL_TIMEOUT_MS, left()), 'removing the mapping');
+      await withinTime(client.removeMapping({ public: { host, port }, protocol }), Math.min(CLEANUP_REQUEST_TIMEOUT_MS, left()), 'removing the mapping');
       removed += 1;
       log.info(`UPnP - stale mapping removed: ${protocol} ${port} (${mapping.description})`);
     } catch (error) {
       log.warn(`UPnP - stale mapping ${protocol} ${port} (${mapping.description}) not removed: ${error.message}`);
+      if (error.timedOut) {
+        log.warn(`UPnP - stale mapping cleanup stopped, ${stale.length - index - 1} left for the next start`);
+        break;
+      }
     }
     // eslint-disable-next-line no-await-in-loop
     await serviceHelper.delay(500);
