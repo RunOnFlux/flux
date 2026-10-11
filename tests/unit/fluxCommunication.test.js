@@ -1907,6 +1907,58 @@ describe('fluxCommunication tests', () => {
     }).timeout(5000);
   });
 
+  describe('a peer\'s address change is handed to whoever registered for it', () => {
+    const message = (oldIP, newIP) => ({
+      version: 1,
+      timestamp: Date.now(),
+      data: {
+        type: 'fluxipchanged', version: 1, oldIP, newIP, broadcastedAt: Date.now(),
+      },
+    });
+    let storeIPChanged;
+    let hook;
+
+    beforeEach(() => {
+      sinon.stub(messageStore, 'storeAppStateEvent').resolves();
+      storeIPChanged = sinon.stub(messageStore, 'storeIPChangedMessage');
+      // nothing here is about the rebroadcast
+      sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(false);
+      hook = sinon.stub();
+      fluxCommunication.setOnPeerAddressChanged(hook);
+    });
+
+    afterEach(() => {
+      fluxCommunication.setOnPeerAddressChanged(null);
+      sinon.restore();
+    });
+
+    it('tells the hook the old and new address once the change is stored', async () => {
+      storeIPChanged.resolves(true);
+
+      await fluxCommunication.handleIPChangedMessage(message('72.89.45.236:16137', '108.6.236.4:16137'), '127.0.0.5', '16127');
+
+      sinon.assert.calledOnceWithExactly(hook, '72.89.45.236:16137', '108.6.236.4:16137');
+    });
+
+    it('does not tell the hook about a change that was not stored', async () => {
+      storeIPChanged.resolves(false);
+
+      await fluxCommunication.handleIPChangedMessage(message('72.89.45.236:16137', '108.6.236.4:16137'), '127.0.0.5', '16127');
+
+      sinon.assert.notCalled(hook);
+    });
+
+    it('survives a hook that throws', async () => {
+      storeIPChanged.resolves(true);
+      hook.throws(new Error('boom'));
+      const logError = sinon.stub(log, 'error');
+
+      await fluxCommunication.handleIPChangedMessage(message('72.89.45.236:16137', '108.6.236.4:16137'), '127.0.0.5', '16127');
+
+      sinon.assert.calledWithMatch(logError, 'address change hook failed: boom');
+    });
+  });
+
   describe('handleNodeSigtermMessage tests', () => {
     let broadcastHashSpy;
     let findInDatabaseStub;

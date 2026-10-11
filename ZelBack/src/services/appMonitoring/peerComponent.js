@@ -51,10 +51,13 @@ const SILENCE_REASONS = Object.freeze({
  * @param {object} ctx.liveness Peer folder liveness, for judging silence.
  * @param {string} ctx.label How the caller knows this peer.
  * @param {string} ctx.logPrefix Which caller is asking.
+ * @param {object} [ctx.report] Filled with `reason` when the answer is UNKNOWN
+ *   because the peer is silent (`silent:<SilenceVerdict>`) or another node
+ *   answers at its address (`misrouted`), for a caller that weighs those apart.
  * @returns {Promise<string>} A PeerComponent state.
  */
 async function peerComponentState(peerSocketAddr, {
-  appId, identifier, appName, liveness, label, logPrefix,
+  appId, identifier, appName, liveness, label, logPrefix, report,
 }) {
   // Docker reports names with a leading slash, and getAppIdentifier yields
   // exactly the container name for this component. Compare whole names: a
@@ -71,7 +74,7 @@ async function peerComponentState(peerSocketAddr, {
 
   const { IdentityVerdict, AnswerPurpose } = peerIdentityService;
   const silent = () => silentPeerState(peerSocketAddr, {
-    appId, identifier, appName, liveness, label, logPrefix,
+    appId, identifier, appName, liveness, label, logPrefix, report,
   });
 
   // "Not running" is a clearance to start a second writer, so it counts only
@@ -87,6 +90,7 @@ async function peerComponentState(peerSocketAddr, {
     { timeout: PEER_PROBE_TIMEOUT_MS },
   );
   if (asked.verdict === IdentityVerdict.MISROUTED) {
+    if (report) report.reason = 'misrouted';
     fluxEventBus.count('masterSlave:decision', identifier, 'peerMisrouted');
     log.info(`${logPrefix}: a call to peer node (${label}) at ${ipToCheck} was answered by ${asked.answeredAs} for app:${appName} - what it runs is unknown, will not start`);
     return PeerComponent.UNKNOWN;
@@ -193,10 +197,11 @@ async function peerComponentState(peerSocketAddr, {
  * @returns {Promise<string>} NOT_RUNNING or UNKNOWN.
  */
 async function silentPeerState(peerSocketAddr, {
-  appId, identifier, appName, liveness, label, logPrefix,
+  appId, identifier, appName, liveness, label, logPrefix, report,
 }) {
   const ipToCheck = extractIp(peerSocketAddr);
   const verdict = await silenceVerdict(appId, peerSocketAddr, liveness);
+  if (report) report.reason = `silent:${verdict}`;
   fluxEventBus.count('peer:silenceVerdict', identifier, verdict);
   if (verdict === SilenceVerdict.GONE) {
     log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} is silent and this node's syncthing shows its connection for ${appId} gone - the component is free there`);

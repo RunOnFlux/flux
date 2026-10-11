@@ -2,6 +2,7 @@ const config = require('config');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 const path = require('node:path');
+const { performance } = require('node:perf_hooks');
 const {
   SYNCTHING_FOLDER_MARKER, SYNCTHING_IGNORE_FILE, syncthingIgnoreLines,
 } = require('../appSystem/volumeReservedNames');
@@ -42,7 +43,7 @@ const appReconciler = require('../appMonitoring/appReconciler');
 const syncthingFolderWrites = require('../appMonitoring/syncthingFolderWrites');
 const primaryRole = require('./primaryRole');
 const primaryRoleChanges = require('./primaryRoleChanges');
-const { createPeerFolderLiveness } = require('../appMonitoring/peerFolderLiveness');
+const { createPeerFolderLiveness, SilenceVerdict } = require('../appMonitoring/peerFolderLiveness');
 const {
   PeerComponent, peerComponentState, componentStateOnPeers, componentStateOnOtherHolders, peerUndecided,
 } = require('../appMonitoring/peerComponent');
@@ -127,20 +128,128 @@ const STAND_DOWN_PASSES_BEFORE_GIVING_UP = 6;
 // becomes hundreds of cycles under compression.
 const PRIMARY_ELECTION_STALE_MS = (config.fluxapps.masterSlaveIntervalMs ?? 30 * 1000) * 10;
 // identifier -> { ip, since }: when the remembered primary was first seen to
-// hold no location for its app. A primary is remembered by the address FDM gave
-// for it, and nothing rewrites that memory when the node behind it moves: a
-// node whose public IP changes broadcasts fluxipchanged, every location it held
-// is rewritten to the new address, and the old one is left answering for
-// nobody. Probing it then finds silence that this node's syncthing can never
-// explain - the device is known by its new address - so the previous-primary
-// branch holds the component forever, on every instance at once.
+// hold no location for its app, on the monotonic clock. A primary is remembered
+// by the address FDM gave for it. When the node behind it moves, its locations
+// are rewritten to the new address, and peerAddressChanged carries the memory
+// across too - but a node that missed that broadcast is left probing an address
+// that answers for nobody, and its silence there can never be explained by this
+// node's syncthing, which knows the peer by its new address. Without a way out
+// the previous-primary branch holds the component forever, on every instance.
 const previousPrimaryUnlistedSince = new Map();
 // How long the remembered primary must stay without a location before the
-// election stops waiting for it: the time the network gives a node to come back
-// from a restart. A location that is merely late reaching this node arrives
-// well inside it.
+// election will let it go: the time the network gives a node to come back from
+// a restart. A location that is merely late reaching this node arrives well
+// inside it.
 const PREVIOUS_PRIMARY_UNLISTED_GRACE_MS = SIGTERM_EXPIRY_MS;
+// What an unlisted previous primary's address may answer for it to be let go:
+// silence this node has no evidence about, or a different node. Anything else -
+// RUNNING, a live sync connection, an announced restart, this node's own
+// isolation, an unreadable answer - keeps it.
+const UNLISTED_RELEASE_REASONS = new Set([`silent:${SilenceVerdict.NO_EVIDENCE}`, 'misrouted']);
+// This node's own former public IPs, ip -> when it moved off it (monotonic). FDM
+// knows a primary by address and takes a minute or two to learn that the
+// address moved, so right after this node's IP changes FDM names this node by
+// the address it just left. Read as someone else's, that verdict makes a
+// running primary stand down as a standby of itself - and once FDM drops the
+// stale row, every holder waits on an address nobody answers at.
+const ownFormerIps = new Map();
+// Long enough to cover FDM catching up, short enough that the ISP handing the
+// old address to another node holding the same app is not in play.
+const OWN_FORMER_IP_TTL_MS = 15 * 60 * 1000;
+let lastLocalIp = null;
 const timeTostartNewMasterApp = new Map();
+
+/**
+ * Record this node's address for the election, and when it has moved, carry
+ * what the election remembers about the old address over to the new one.
+ * @param {string} localSocketAddr This node's socket address, as of this pass.
+ */
+function noteLocalAddress(localSocketAddr) {
+  const localIp = extractIp(localSocketAddr);
+  const now = performance.now();
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [formerIp, movedAt] of ownFormerIps) {
+    if (now - movedAt > OWN_FORMER_IP_TTL_MS || formerIp === localIp) ownFormerIps.delete(formerIp);
+  }
+  if (!localIp || localIp === lastLocalIp) return;
+  const formerIp = lastLocalIp;
+  lastLocalIp = localIp;
+  if (!formerIp) return;
+  ownFormerIps.set(formerIp, now);
+  log.info(`masterSlaveApps: this node moved from ${formerIp} to ${localIp} - FDM naming ${formerIp} is read as naming this node`);
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [identifier, rememberedIp] of mastersRunningGSyncthingApps) {
+    if (ipsMatch(rememberedIp, formerIp)) {
+      mastersRunningGSyncthingApps.set(identifier, localIp);
+      previousPrimaryUnlistedSince.delete(identifier);
+    }
+  }
+}
+
+/**
+ * The primary FDM names, with this node's own former address read as this node.
+ *
+ * Only while no other holder of the app sits at that address: after this node
+ * moved, its own location there is rewritten to the new address, so a location
+ * still at the old IP under another node's port is a different node that holds
+ * the app there - and FDM may well be naming that one.
+ * @param {string|null} ip The primary FDM names, by IP alone.
+ * @param {string} appName Global app name.
+ * @param {string} localSocketAddr This node's socket address.
+ * @returns {Promise<string|null>} `ip`, or this node's IP when `ip` is this node's former one.
+ */
+async function ownFormerAddressAsLocal(ip, appName, localSocketAddr) {
+  if (!ip || !ownFormerIps.has(extractIp(ip))) return ip;
+  const formerIp = extractIp(ip);
+  let locations;
+  try {
+    locations = await registryManagerModule.appLocation(appName);
+  } catch (error) {
+    log.warn(`masterSlaveApps: FDM names this node's former address ${formerIp} for app:${appName}, and the holders there cannot be read: ${error.message}`);
+    return ip;
+  }
+  const ownFormerSocket = `${formerIp}:${extractPort(localSocketAddr)}`;
+  const otherHolderThere = (locations || []).some(
+    (location) => ipsMatch(location?.ip, formerIp) && !socketAddressesMatch(location.ip, ownFormerSocket),
+  );
+  if (otherHolderThere) {
+    log.info(`masterSlaveApps: FDM names ${formerIp} for app:${appName}, this node's former address, but another holder is listed there - not reading it as this node`);
+    return ip;
+  }
+  return extractIp(localSocketAddr);
+}
+
+/**
+ * A peer announced that its address moved (fluxipchanged), after its locations
+ * were rewritten. Follow any primary remembered at the old address to the new
+ * one, so the election asks the node where it now is instead of waiting on an
+ * address nobody answers at.
+ * @param {string} oldIP The peer's former socket address.
+ * @param {string} newIP Its new socket address.
+ */
+function peerAddressChanged(oldIP, newIP) {
+  const formerIp = extractIp(oldIP);
+  const movedIp = extractIp(newIP);
+  if (!formerIp || !movedIp || formerIp === movedIp) return;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [identifier, rememberedIp] of mastersRunningGSyncthingApps) {
+    if (ipsMatch(rememberedIp, formerIp)) {
+      mastersRunningGSyncthingApps.set(identifier, movedIp);
+      previousPrimaryUnlistedSince.delete(identifier);
+      log.info(`masterSlaveApps: previous primary of ${identifier} moved from ${formerIp} to ${movedIp} - following it`);
+    }
+  }
+}
+
+/**
+ * Clear what the election remembers about addresses - this node's and its
+ * peers'. For tests: in a node this state lives as long as the process.
+ */
+function resetElectionAddressMemory() {
+  lastLocalIp = null;
+  ownFormerIps.clear();
+  previousPrimaryUnlistedSince.clear();
+}
 // Components already reported as operator-stopped, so the exclusion is announced
 // on entry (and again after a restart) instead of every 30s cycle. An operator
 // stop is durable in the DB, so without a line here a g: app sits unelected
@@ -5056,7 +5165,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
         // Get master IP from FDM using the new /appips endpoint
         // eslint-disable-next-line no-await-in-loop
         const fdmResult = await getMasterIpFromFdm(installedApp.name, axiosOptions);
-        const { ip } = fdmResult;
+        let { ip } = fdmResult;
         ({ fdmOk } = fdmResult);
 
         if (!fdmOk) {
@@ -5084,6 +5193,9 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
               // eslint-disable-next-line no-continue
               continue;
             }
+            noteLocalAddress(localSocketAddr);
+            // eslint-disable-next-line no-await-in-loop
+            ip = await ownFormerAddressAsLocal(ip, installedApp.name, localSocketAddr);
             // FDM answered and `ip` is either a primary's address or null for
             // none. Both are verdicts, and it is the verdict rather than the
             // table entry that isElectedPrimaryHere reads - a null ip writes
@@ -5151,32 +5263,20 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   log.info(`masterSlaveApps: cleared this node's own stale primary record for ${identifier} - it is not running here`);
                 }
 
-                // The remembered primary is another node that no longer holds a
-                // location for this app: it moved to a new IP, or it removed the
-                // app. The previous-primary branch would probe that address on
-                // every pass, and the silence there can never be cleared - this
-                // node's syncthing knows the peer under its current address, or
-                // not at all. Once the address has stayed unlisted for the grace,
-                // forget it. Forgetting starts nothing: the no-history paths below
-                // probe every holder in the location list - the moved node among
-                // them, under its new address - and only NOT_RUNNING from all of
-                // them releases a start.
+                // How long the remembered primary - another node - has held no
+                // location for this app: it moved to a new IP this node never
+                // heard about, or it removed the app. Only counted here; whether
+                // that is enough to stop waiting for it is decided where it is
+                // probed, on what its address answers.
                 if (mastersRunningGSyncthingApps.has(identifier)
                   && !ipsMatch(mastersRunningGSyncthingApps.get(identifier), localSocketAddr)) {
                   const rememberedIp = mastersRunningGSyncthingApps.get(identifier);
+                  const unlisted = previousPrimaryUnlistedSince.get(identifier);
                   if (runningAppList.some((x) => ipsMatch(x.ip, rememberedIp))) {
                     previousPrimaryUnlistedSince.delete(identifier);
-                  } else {
-                    const unlisted = previousPrimaryUnlistedSince.get(identifier);
-                    if (!unlisted || unlisted.ip !== rememberedIp) {
-                      previousPrimaryUnlistedSince.set(identifier, { ip: rememberedIp, since: Date.now() });
-                      log.info(`masterSlaveApps: previous primary ${rememberedIp} holds no location for app:${installedApp.name} - it will be forgotten if it stays unlisted`);
-                    } else if (Date.now() - unlisted.since >= PREVIOUS_PRIMARY_UNLISTED_GRACE_MS) {
-                      mastersRunningGSyncthingApps.delete(identifier);
-                      previousPrimaryUnlistedSince.delete(identifier);
-                      fluxEventBus.count('masterSlave:decision', identifier, 'unlistedPrimaryForgotten');
-                      log.info(`masterSlaveApps: forgot previous primary ${rememberedIp} for ${identifier} - it has held no location for app:${installedApp.name} for ${Math.round((Date.now() - unlisted.since) / 1000)}s`);
-                    }
+                  } else if (!unlisted || unlisted.ip !== rememberedIp) {
+                    previousPrimaryUnlistedSince.set(identifier, { ip: rememberedIp, since: performance.now() });
+                    log.info(`masterSlaveApps: previous primary ${rememberedIp} holds no location for app:${installedApp.name}`);
                   }
                 } else {
                   previousPrimaryUnlistedSince.delete(identifier);
@@ -5276,9 +5376,31 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // primary this node cannot read keeps the component. It is the
                   // instance most likely to still hold the volume, and electing over
                   // it is exactly the split-brain this branch is reached to avoid.
+                  const probeReport = {};
                   // eslint-disable-next-line no-await-in-loop
-                  const previousMasterState = await peerComponentState(previousMasterAddr, { ...probeCtx, label: 'previous primary' });
-                  if (previousMasterState !== PeerComponent.NOT_RUNNING) {
+                  const previousMasterState = await peerComponentState(previousMasterAddr, { ...probeCtx, label: 'previous primary', report: probeReport });
+                  // A previous primary that holds no location for the app, and whose
+                  // address has stayed unlisted for the grace, is let go only on what
+                  // that address answers this pass: nothing that this node's syncthing
+                  // can explain, or another node. Its silence there can never clear
+                  // otherwise - this node's syncthing knows a moved peer by its new
+                  // address - and every holder would wait on it forever. A RUNNING
+                  // answer, a live sync connection, an announced restart or this
+                  // node's own isolation all keep it. Letting go starts nothing by
+                  // itself: the start paths below ask every listed holder.
+                  const unlisted = previousPrimaryUnlistedSince.get(identifier);
+                  const forgettable = previousMasterState === PeerComponent.UNKNOWN
+                    && !previousMasterNode
+                    && unlisted && unlisted.ip === previousMasterIp
+                    && performance.now() - unlisted.since >= PREVIOUS_PRIMARY_UNLISTED_GRACE_MS
+                    && UNLISTED_RELEASE_REASONS.has(probeReport.reason);
+                  if (forgettable) {
+                    mastersRunningGSyncthingApps.delete(identifier);
+                    previousPrimaryUnlistedSince.delete(identifier);
+                    fluxEventBus.count('masterSlave:decision', identifier, 'unlistedPrimaryForgotten');
+                    log.info(`masterSlaveApps: forgot previous primary ${previousMasterIp} for ${identifier} - it has held no location for app:${installedApp.name} for ${Math.round((performance.now() - unlisted.since) / 1000)}s and its address answers ${probeReport.reason}`);
+                  }
+                  if (previousMasterState !== PeerComponent.NOT_RUNNING && !forgettable) {
                     if (previousMasterState === PeerComponent.RUNNING) withdrawSeedMark(appId, 'the previous primary runs it');
                     if (resuming && previousMasterState === PeerComponent.RUNNING) {
                       // eslint-disable-next-line no-await-in-loop
@@ -5310,8 +5432,13 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                         log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
                       }
                     }
+                  } else if (index < 0) {
+                    // Not in the location list at all, so there is no place in the
+                    // order to wait for - staggerMs of a negative index is negative,
+                    // and this node would start at once ahead of every listed holder.
+                    log.info(`masterSlaveApps: not starting app:${installedApp.name} - this node holds no location for it yet`);
                   } else {
-                    const previousMasterIndex = runningAppList.findIndex((x) => ipsMatch(x.ip, mastersRunningGSyncthingApps.get(identifier)));
+                    const previousMasterIndex = runningAppList.findIndex((x) => ipsMatch(x.ip, previousMasterIp));
                     let timetoStartApp = Date.now();
                     if (previousMasterIndex >= 0) {
                       log.info(`masterSlaveApps: app:${installedApp.name} had primary running at index: ${previousMasterIndex}`);
@@ -5438,6 +5565,9 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
               // of fluxEventBus.js.
               fluxEventBus.count('masterSlave:decision', identifier, 'primaryObserved');
               mastersRunningGSyncthingApps.set(identifier, ip);
+              // A fresh primary from FDM: any count towards forgetting the last
+              // one belongs to a different observation.
+              previousPrimaryUnlistedSince.delete(identifier);
               if (timeTostartNewMasterApp.has(identifier)) {
                 log.info(`masterSlaveApps: app:${installedApp.name} removed from timeTostartNewMasterApp cache, already started on another standby node`);
                 timeTostartNewMasterApp.delete(identifier);
@@ -5585,5 +5715,7 @@ module.exports = {
   checkAndRemoveEnterpriseAppsOnNonArcane,
   forceAppRemovals,
   masterSlaveApps,
+  peerAddressChanged,
+  resetElectionAddressMemory,
   appDockerStart,
 };

@@ -489,6 +489,15 @@ async function handleAppInstallingErrorMessage(message, fromIP, port) {
   }
 }
 
+// Told when a peer announces that its address moved, after its locations have
+// been rewritten. A seam rather than a require: the election lives in the app
+// layer, which requires this module (mirrors fluxNetworkHelper.setOnAddressChanged).
+// fluxEventBus cannot carry this - it is disabled on a real node.
+let onPeerAddressChanged = null;
+function setOnPeerAddressChanged(callback) {
+  onPeerAddressChanged = callback;
+}
+
 /**
  * To handle IP changed messages.
  * @param {object} message Message.
@@ -502,6 +511,13 @@ async function handleIPChangedMessage(message, fromIP, port) {
     const rebroadcastToPeers = await messageStore.storeIPChangedMessage(message.data);
     if (rebroadcastToPeers) {
       fluxEventBus.publish('network:ipchanged', { oldIP: message.data.oldIP, newIP: message.data.newIP });
+      if (onPeerAddressChanged) {
+        try {
+          onPeerAddressChanged(message.data.oldIP, message.data.newIP);
+        } catch (error) {
+          log.error(`handleIPChangedMessage - address change hook failed: ${error.message}`);
+        }
+      }
     }
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
@@ -1926,6 +1942,7 @@ module.exports = {
   handleAppInstallingSyncResponse,
   handleAppInstallingErrorsSyncResponse,
   handleIPChangedMessage,
+  setOnPeerAddressChanged,
   handleAppRemovedMessage,
   handleNodeSigtermMessage,
   initiateAndHandleConnection,
