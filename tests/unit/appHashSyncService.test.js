@@ -70,6 +70,7 @@ describe('appHashSyncService tests', () => {
       databaseConnection: sinon.stub().returns({ db: sinon.stub().returns(mockDatabase) }),
       findInDatabase: sinon.stub(),
       findOneInDatabase: sinon.stub(),
+      appPaymentFacts: sinon.stub().resolves({ positions: new Map(), notOnChain: new Set() }),
     };
 
     messageHelperStub = {
@@ -90,6 +91,7 @@ describe('appHashSyncService tests', () => {
     };
 
     messageVerifierStub = {
+      alignStoredMessagesWithPayments: sinon.stub().resolves([]),
       checkAndRequestApp: sinon.stub().resolves(true),
       appHashHasMessage: sinon.stub().resolves(),
       appHashHasMessageNotFound: sinon.stub().resolves(),
@@ -257,6 +259,21 @@ describe('appHashSyncService tests', () => {
       expect(result[0].hash).to.equal('valid1');
     });
 
+    // A payment whose transaction is not on the chain has no message to fetch,
+    // forced or not.
+    [false, true].forEach((force) => {
+      it(`should never ask for the message of a payment that is not on the chain (force: ${force})`, async () => {
+        const mockDb = { db: sinon.stub().returns('database') };
+        dbHelperStub.databaseConnection.returns(mockDb);
+        dbHelperStub.findInDatabase.resolves([]);
+
+        await appHashSyncService.getMissingHashes({ force });
+
+        expect(dbHelperStub.findInDatabase.lastCall.args[2]).to.include({ message: false });
+        expect(dbHelperStub.findInDatabase.lastCall.args[2].notOnChain).to.deep.equal({ $ne: true });
+      });
+    });
+
     it('should return empty array when no hashes are missing', async () => {
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
@@ -323,6 +340,61 @@ describe('appHashSyncService tests', () => {
       expect(logStub.info.calledWith(sinon.match('streaming bulk fetch'))).to.be.true;
     });
 
+    describe('a missing hash whose message this node holds unpromoted', () => {
+      const { appsMessages, appsTemporaryMessages } = config.database.appsglobal.collections;
+      const record = {
+        hash: 'pooled', txid: 'txpooled', height: 2555000, value: 10, message: false,
+      };
+      let stillMissing;
+
+      beforeEach(() => {
+        stillMissing = [record];
+        dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+      });
+
+      const fake = (pool) => dbHelperStub.findInDatabase.callsFake(async (db, col) => {
+        if (col === appsMessages) return [];
+        if (col === appsTemporaryMessages) return pool;
+        return stillMissing;
+      });
+
+      it('should promote it from that copy, and ask no peer', async () => {
+        fake([{ hash: 'pooled' }]);
+        messageVerifierStub.checkAndRequestApp.callsFake(async () => { stillMissing = []; return true; });
+
+        const result = await appHashSyncService.syncMissingHashes();
+
+        sinon.assert.calledOnceWithExactly(messageVerifierStub.checkAndRequestApp, 'pooled', 'txpooled', 2555000, 10, 2);
+        expect(result.resolved).to.equal(1);
+        expect(logStub.info.calledWith(sinon.match('requesting from peers'))).to.equal(false);
+      });
+
+      it('should ask its peers when it holds no copy', async () => {
+        const clock = sinon.useFakeTimers();
+        serviceHelperStub.delay = (ms) => { clock.tick(ms); return Promise.resolve(); };
+        fake([]);
+
+        await appHashSyncService.syncMissingHashes();
+        clock.restore();
+
+        sinon.assert.notCalled(messageVerifierStub.checkAndRequestApp);
+        expect(logStub.info.calledWith(sinon.match('requesting from peers'))).to.equal(true);
+      });
+
+      it('should ask its peers when the copy it holds is not promoted', async () => {
+        const clock = sinon.useFakeTimers();
+        serviceHelperStub.delay = (ms) => { clock.tick(ms); return Promise.resolve(); };
+        fake([{ hash: 'pooled' }]);
+        messageVerifierStub.checkAndRequestApp.resolves(false);
+
+        await appHashSyncService.syncMissingHashes();
+        clock.restore();
+
+        sinon.assert.calledOnce(messageVerifierStub.checkAndRequestApp);
+        expect(logStub.info.calledWith(sinon.match('requesting from peers'))).to.equal(true);
+      });
+    });
+
     it('should propagate errors to caller', async () => {
       dbHelperStub.findInDatabase.rejects(new Error('DB error'));
 
@@ -334,6 +406,47 @@ describe('appHashSyncService tests', () => {
         expect(err.message).to.equal('DB error');
       }
       expect(threw).to.equal(true);
+    });
+
+    it('should have a message stored since the missing hashes were read follow this node\'s payment record', async () => {
+      const manyMissing = Array(600).fill(null).map((_, i) => ({
+        hash: `hash${i}`, txid: `tx${i}`, height: 1000 + i, value: 100, message: false,
+      }));
+      const bulkFetchResult = [{
+        type: 'fluxappregister', version: 4, hash: 'hash7', timestamp: Date.now(),
+        signature: 'sig', appSpecifications: { name: 'app7' }, valueSat: 1e8, txid: 'peer-tx', height: 1,
+      }];
+      let getMissingCalls = 0;
+      let existenceChecks = 0;
+      dbHelperStub.findInDatabase.callsFake((db, col, query) => {
+        if (col === config.database.daemon.collections.appsHashes) {
+          getMissingCalls += 1;
+          return Promise.resolve(getMissingCalls === 1 ? manyMissing : []);
+        }
+        if (col === config.database.appsglobal.collections.appsMessages && query?.hash?.$in) {
+          existenceChecks += 1;
+          // Not stored when the missing hashes were read; stored by the time the peers answered.
+          return Promise.resolve(existenceChecks === 1 ? [] : [{ hash: 'hash7' }].filter(({ hash }) => query.hash.$in.includes(hash)));
+        }
+        return Promise.resolve([]);
+      });
+      dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+      serviceHelperStub.axiosGet.callsFake((url) => {
+        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkFetchResult));
+        return Promise.resolve({ data: { status: 'success', data: true } });
+      });
+
+      await appHashSyncService.syncMissingHashes();
+
+      const aligned = messageVerifierStub.alignStoredMessagesWithPayments.getCalls().map((call) => call.args[0]);
+      expect(aligned).to.have.length(1);
+      expect(aligned[0].map(({
+        hash, txid, height, value,
+      }) => ({
+        hash, txid, height, value,
+      }))).to.deep.equal([{
+        hash: 'hash7', txid: 'tx7', height: 1007, value: 100,
+      }]);
     });
 
     it('should batch existence checks and skip existing messages via bulk fetch', async () => {
@@ -363,7 +476,7 @@ describe('appHashSyncService tests', () => {
           return Promise.resolve([]);
         }
         if (col === config.database.appsglobal.collections.appsMessages && query && query.hash && query.hash.$in) {
-          return Promise.resolve(existingPermanent);
+          return Promise.resolve(existingPermanent.filter(({ hash }) => query.hash.$in.includes(hash)));
         }
         return Promise.resolve([]);
       });
@@ -376,6 +489,12 @@ describe('appHashSyncService tests', () => {
       });
 
       await appHashSyncService.syncMissingHashes();
+
+      // The stored messages follow this node's payment records: those found locally, and those the
+      // bulk fetch finds already stored.
+      const expectedRecords = existingPermanent.map(({ hash }) => manyMissing.find((record) => record.hash === hash));
+      const aligned = messageVerifierStub.alignStoredMessagesWithPayments.getCalls().map((call) => call.args[0]);
+      expect(aligned).to.deep.equal([expectedRecords]);
 
       // 6 resolved locally via bulkWrite before bulk fetch
       expect(collectionStub.bulkWrite.called).to.be.true;
@@ -777,9 +896,11 @@ describe('appHashSyncService tests', () => {
         databaseConnection: sinon.stub().returns({ db: sinon.stub().returns(mockDatabase) }),
         findInDatabase: sinon.stub().resolves([]),
         findOneInDatabase: sinon.stub(),
+        appPaymentFacts: sinon.stub().resolves({ positions: new Map(), notOnChain: new Set() }),
       };
 
       localMessageVerifierStub = {
+        alignStoredMessagesWithPayments: sinon.stub().resolves([]),
         checkAndRequestApp: sinon.stub().resolves(true),
         appHashHasMessage: sinon.stub().resolves(),
         appHashHasMessageNotFound: sinon.stub().resolves(),
@@ -820,6 +941,48 @@ describe('appHashSyncService tests', () => {
         '../fluxCommunication': { openEphemeralConnection: sinon.stub().resolves(null) },
         '../fluxNetworkHelper': { getLocalSocketAddress: sinon.stub().resolves('10.0.0.99:16127') },
       });
+    });
+
+    it('should check a synced update against its holder, past another owner\'s registration of the held name', async () => {
+      const bulkMessages = [{
+        type: 'fluxappupdate', version: 4, hash: 'hash1', timestamp: Date.now(),
+        signature: 'sig1', appSpecifications: { name: 'testapp', version: 4, owner: 'alice' },
+        valueSat: 1e8, txid: 'tx1', height: 1001,
+      }];
+      const manyMissing = Array(600).fill(null).map((_, i) => ({
+        hash: `hash${i}`, txid: `tx${i}`, height: 1000 + i, value: 100, message: false,
+      }));
+      let getMissingCalls = 0;
+      localDbHelperStub.findInDatabase.callsFake(() => {
+        getMissingCalls += 1;
+        return Promise.resolve(getMissingCalls === 1 ? manyMissing : []);
+      });
+      localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+      serviceHelperStub.axiosGet.callsFake((url) => {
+        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
+        return Promise.resolve({ data: { status: 'success', data: true } });
+      });
+      localCollectionStub.find.returns({
+        project: sinon.stub().returns({
+          sort: sinon.stub().returns({
+            toArray: sinon.stub().resolves([
+              {
+                type: 'fluxappregister', hash: 'held', height: 990, timestamp: 1,
+                appSpecifications: { name: 'testapp', version: 4, owner: 'alice' },
+              },
+              {
+                type: 'fluxappregister', hash: 'taken', height: 995, timestamp: 2,
+                appSpecifications: { name: 'testapp', version: 4, owner: 'mallory' },
+              },
+            ]),
+          }),
+        }),
+      });
+
+      await localModule.syncMissingHashes();
+
+      sinon.assert.called(localMessageVerifierStub.verifyAppMessageUpdateSignature);
+      expect(localMessageVerifierStub.verifyAppMessageUpdateSignature.firstCall.args[5]).to.equal('alice');
     });
 
     it('should retry with previous owner when signature verification fails due to ownership change', async () => {
@@ -1043,7 +1206,7 @@ describe('appHashSyncService tests', () => {
       let emissions = 0;
       let findCallCount = 0;
       dbHelperStub.findInDatabase.callsFake((db, col) => {
-        if (col === config.database.appsglobal.collections.appsMessages) return Promise.resolve([]);
+        if (col === config.database.appsglobal.collections.appsMessages || col === config.database.appsglobal.collections.appsTemporaryMessages) return Promise.resolve([]);
         findCallCount += 1;
         if (findCallCount === 1) return Promise.resolve(missing3);
         // Emit response events for first 3 polls to keep settle alive
@@ -1085,7 +1248,7 @@ describe('appHashSyncService tests', () => {
       // Subsequent polls: stays at 1, settles after 4s.
       let findCallCount = 0;
       dbHelperStub.findInDatabase.callsFake((db, col) => {
-        if (col === config.database.appsglobal.collections.appsMessages) return Promise.resolve([]);
+        if (col === config.database.appsglobal.collections.appsMessages || col === config.database.appsglobal.collections.appsTemporaryMessages) return Promise.resolve([]);
         findCallCount += 1;
         if (findCallCount === 1) return Promise.resolve(missing3);
         return Promise.resolve(missing1);

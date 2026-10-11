@@ -12,7 +12,14 @@ const request = require('supertest');
 const apicache = require('apicache');
 
 const {
-  answerDaemonUnavailable, asyncRoute, rejectQueryParameters, requireBootSettled, requirePolicyReady,
+  answerDaemonUnavailable,
+  asyncRoute,
+  cache,
+  rejectQueryParameters,
+  requireAppStateReady,
+  requireBootSettled,
+  requirePolicyReady,
+  requireRegistryReady,
 } = require('../../ZelBack/src/services/utils/routeGuards');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 
@@ -320,6 +327,93 @@ describe('routeGuards', () => {
       expect(res.status).to.equal(200);
       expect(res.body.data.message).to.equal('Unrecognised Flux node tier');
       expect(handlerCalls).to.equal(1);
+    });
+  });
+
+  // A store that is rebuilt or resynced is read through a gate that is open only
+  // while the store stands. Both edges matter: a gate that never closes again
+  // serves an empty store the next time it is rebuilt, and one that never opens
+  // turns a booted node away for good. Asserted through the real cache, because
+  // a closed gate must also win over an answer the cache remembered while it was
+  // open.
+  [
+    {
+      guard: requireRegistryReady,
+      flag: 'dbReady',
+      path: '/apps/globalappsspecifications',
+      names: /registry/i,
+      notNames: /location/i,
+    },
+    {
+      guard: requireAppStateReady,
+      flag: 'appStateAuthoritative',
+      path: '/apps/locations',
+      names: /location/i,
+      notNames: /registry/i,
+    },
+  ].forEach(({
+    guard, flag, path, names, notNames,
+  }) => {
+    describe(guard.name, () => {
+      let app;
+      let server;
+      let handlerCalls;
+      let flagBefore;
+
+      beforeEach(() => {
+        apicache.clear();
+        flagBefore = globalState[flag];
+        globalState[flag] = false;
+        handlerCalls = 0;
+        app = express();
+        app.get(path, guard, cache('30 seconds'), (req, res) => {
+          handlerCalls += 1;
+          res.json({ status: 'success', data: [] });
+        });
+      });
+
+      afterEach(() => {
+        globalState[flag] = flagBefore;
+        apicache.clear();
+        if (server) { server.close(); server = null; }
+      });
+
+      const get = () => {
+        if (!server) server = app.listen(0);
+        return request(server).get(path);
+      };
+
+      it('refuses while the store is not ready, and says when to come back', async () => {
+        const res = await get();
+        expect(res.status).to.equal(503);
+        expect(res.headers['retry-after']).to.equal('15');
+        expect(res.body.status).to.equal('error');
+        expect(handlerCalls).to.equal(0);
+      });
+
+      it('names the store it is waiting for', async () => {
+        const res = await get();
+        expect(res.body.data.message).to.match(names);
+        expect(res.body.data.message).to.not.match(notNames);
+      });
+
+      it('answers from the handler once the store is ready, not from a remembered refusal', async () => {
+        await get();
+        globalState[flag] = true;
+        const res = await get();
+        expect(res.status).to.equal(200);
+        expect(handlerCalls).to.equal(1);
+      });
+
+      it('refuses again when the store stops being ready, over an answer the cache remembered', async () => {
+        globalState[flag] = true;
+        const open = await get();
+        expect(open.status).to.equal(200);
+        globalState[flag] = false;
+        const res = await get();
+        expect(res.status).to.equal(503);
+        expect(handlerCalls).to.equal(1);
+      });
     });
   });
 

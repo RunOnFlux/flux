@@ -829,6 +829,7 @@ describe('dbHelper tests', () => {
         appsglobal.collections.appsInformation,
         appslocal.collections.appsInformation,
         scannedHeight,
+        client.db(config.database.daemon.database),
       );
 
       const apps = await appsGlobalDb.collection(appsglobal.collections.appsInformation).find({}).toArray();

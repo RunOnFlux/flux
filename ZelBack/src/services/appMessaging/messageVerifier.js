@@ -12,7 +12,10 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const { appPricePerMonth, specificationFormatter } = require('../utils/appUtilities');
 const { getChainParamsPriceUpdates, getChainTeamSupportAddressUpdates } = require('../utils/chainUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { storeAppSpecificationInForce, getPreviousAppSpecifications, isNewestAppMessage } = require('../appDatabase/registryManager');
+const {
+  storeAppSpecificationInForce, getPreviousAppSpecifications, isGoverningAppMessage, governingAppMessage,
+} = require('../appDatabase/registryManager');
+const { withRegistryWrite } = require('../appDatabase/registryWriteLock');
 const {
   globalAppsMessages,
   globalAppsTempMessages,
@@ -514,6 +517,76 @@ async function checkAppMessageExistence(hash) {
 }
 
 /**
+ * Sets each stored message's chain facts - txid, height and payment - to this node's record of
+ * its payment where they differ. A payment mined again in another block after a reorg is recorded
+ * at its new height, and the message it places follows. It writes no registry row
+ * (storeGoverningAppSpecifications does).
+ * @param {Array<{hash: string, txid: string, height: number, value: number}>} records
+ * @returns {Promise<string[]>} the names of the apps with a message that moved
+ */
+async function moveStoredMessagesToPayments(records) {
+  if (records.length === 0) return [];
+  const appsDatabase = dbHelper.databaseConnection().db(config.database.appsglobal.database);
+  const stored = await dbHelper.findInDatabase(
+    appsDatabase,
+    globalAppsMessages,
+    { hash: { $in: records.map((record) => record.hash) } },
+    {
+      projection: {
+        _id: 0, hash: 1, txid: 1, height: 1, valueSat: 1, 'appSpecifications.name': 1,
+      },
+    },
+  );
+  const recordOf = new Map(records.map((record) => [record.hash, record]));
+  const operations = [];
+  const moved = new Set();
+  stored.forEach((message) => {
+    const record = recordOf.get(message.hash);
+    if (message.txid === record.txid && message.height === record.height && message.valueSat === record.value) return;
+    log.warn(`App message ${message.hash} of ${message.appSpecifications.name} was stored at txid ${message.txid} height ${message.height}, `
+      + `this node's payment record is txid ${record.txid} height ${record.height}; taking the record's`);
+    operations.push({
+      updateOne: {
+        filter: { hash: message.hash },
+        update: { $set: { txid: record.txid, height: record.height, valueSat: record.value } },
+      },
+    });
+    moved.add(message.appSpecifications.name);
+  });
+  if (operations.length) await dbHelper.bulkWriteInDatabase(appsDatabase, globalAppsMessages, operations);
+  return [...moved];
+}
+
+/**
+ * Writes the registry row of each app from the message that governs it now
+ * (storeAppSpecificationInForce). Which message governs reads the payment records' positions, so
+ * it is called once they are written.
+ * @param {string[]} appNames
+ */
+async function storeGoverningAppSpecifications(appNames) {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const name of appNames) {
+    // eslint-disable-next-line no-await-in-loop
+    const governing = await governingAppMessage(name);
+    // eslint-disable-next-line no-await-in-loop
+    if (governing) await storeAppSpecificationInForce({ ...governing.appSpecifications, hash: governing.hash, height: governing.height });
+  }
+}
+
+/**
+ * Moves each stored message to this node's record of its payment (moveStoredMessagesToPayments),
+ * and writes the registry row of each app with a message that moved
+ * (storeGoverningAppSpecifications).
+ * @param {Array<{hash: string, txid: string, height: number, value: number}>} records
+ * @returns {Promise<string[]>} the names of the apps with a message that moved
+ */
+async function alignStoredMessagesWithPayments(records) {
+  const moved = await moveStoredMessagesToPayments(records);
+  await storeGoverningAppSpecifications(moved);
+  return moved;
+}
+
+/**
  * Check if app temporary message exists
  * @param {string} hash - Message hash to check
  * @returns {Promise<object|boolean>} Message object if found, false otherwise
@@ -654,7 +727,8 @@ async function getAppsPermanentMessages(req, res) {
 /**
  * This node's payment record for an app message hash: the txid, block height and payment its
  * own scan recorded. One record per hash, so a hash paid more than once is placed by the payment
- * the scan recorded for it.
+ * the scan recorded for it. A record whose transaction is not on the chain (`notOnChain`) is no
+ * payment.
  * @param {string} hash
  * @returns {Promise<{txid: string, height: number, value: number}|null>}
  */
@@ -664,7 +738,7 @@ async function paymentRecordOf(hash) {
   const record = await dbHelper.findOneInDatabase(
     database,
     appsHashesCollection,
-    { hash },
+    { hash, notOnChain: { $ne: true } },
     { projection: { _id: 0, txid: 1, height: 1, value: 1 } },
   );
   return record;
@@ -915,11 +989,12 @@ async function checkAndRequestRecordedApp(hash, txid, height, valueSat, i = 0) {
           // App has expired (actualExpirationHeight <= daemonHeight)
           // Clean up stale data from both global and local databases
           // This handles the case where an update message was received after the app expired
-          // Only when this message is the newest for the app. An old update fetched late by the
-          // missing-hash sync has long expired by itself, but a newer message may be keeping the
-          // app alive - ending it here would drop a paid app from this node and uninstall it.
-          if (!await isNewestAppMessage(specifications.name, permanentAppMessage.hash)) {
-            log.info(`App message ${permanentAppMessage.hash} for ${specifications.name} has expired, but a newer message governs the app. Nothing to clean up.`);
+          // Only when this message governs the app (appMessageChain). An old update fetched late by
+          // the missing-hash sync has long expired by itself, but a newer message may be keeping
+          // the app alive, and another owner's registration of a held name governs nothing -
+          // ending the app here would drop a paid app from this node and uninstall it.
+          if (!await isGoverningAppMessage(specifications.name, permanentAppMessage.hash)) {
+            log.info(`App message ${permanentAppMessage.hash} for ${specifications.name} has expired, but does not govern the app. Nothing to clean up.`);
             return true;
           }
           log.warn(`App ${specifications.name} has expired (expiration height ${actualExpirationHeight} <= daemon height ${daemonHeight}). Cleaning up stale data.`);
@@ -930,11 +1005,13 @@ async function checkAndRequestRecordedApp(hash, txid, height, valueSat, i = 0) {
           const databaseGlobal = db.db(config.database.appsglobal.database);
           const queryDeleteApp = { name: specifications.name };
           const projectionApps = { projection: { _id: 0, name: 1 } };
-          const existingGlobalApp = await dbHelper.findOneInDatabase(databaseGlobal, globalAppsInformation, queryDeleteApp, projectionApps);
-          if (existingGlobalApp) {
-            log.warn(`Removing expired app ${specifications.name} from global apps database`);
-            await dbHelper.findOneAndDeleteInDatabase(databaseGlobal, globalAppsInformation, queryDeleteApp, projectionApps);
-          }
+          await withRegistryWrite(async () => {
+            const existingGlobalApp = await dbHelper.findOneInDatabase(databaseGlobal, globalAppsInformation, queryDeleteApp, projectionApps);
+            if (existingGlobalApp) {
+              log.warn(`Removing expired app ${specifications.name} from global apps database`);
+              await dbHelper.findOneAndDeleteInDatabase(databaseGlobal, globalAppsInformation, queryDeleteApp, projectionApps);
+            }
+          });
 
           // Check if app is installed locally and remove it
           const databaseLocal = db.db(config.database.appslocal.database);
@@ -960,7 +1037,10 @@ async function checkAndRequestRecordedApp(hash, txid, height, valueSat, i = 0) {
       }
       return false;
     }
-    // update apphashes that we already have it stored
+    // Stored already: it follows this node's payment record.
+    await alignStoredMessagesWithPayments([{
+      hash, txid, height, value: valueSat,
+    }]);
     await appHashHasMessage(hash);
     return true;
   } catch (error) {
@@ -1015,6 +1095,9 @@ module.exports = {
   requestAppMessageAPI,
   checkAppMessageExistence,
   checkAppTemporaryMessageExistence,
+  alignStoredMessagesWithPayments,
+  moveStoredMessagesToPayments,
+  storeGoverningAppSpecifications,
   appHashHasMessage,
   appHashHasMessageNotFound,
   getAppsTemporaryMessages,

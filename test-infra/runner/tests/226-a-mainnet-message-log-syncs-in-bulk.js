@@ -9,9 +9,10 @@
  * re-registered by their owner and by another, hashes paid twice in one block, expiries that
  * cross the PON fork, and apps in force and expired at the scanned height.
  *
- * The peers serve the messages; the joiner holds only the payment records, as its own scan of
- * the chain would have left them. It must keep every message, each at its own record's txid,
- * height and payment, and hold every app whose newest message is still in its term.
+ * The peers serve the messages; the joiner holds the payment records, as its own scan of the
+ * chain would have left them, and one message, stored at a block its payment is not in. It must
+ * keep every message, each at its own record's txid, height and payment, and hold every app whose
+ * newest message is still in its term, at that message's height.
  *
  * The joiner is not an Arcane node. An Arcane node checks a subscription extension signed by a
  * usersToExtend address on an enterprise app by decrypting the spec, which needs keys no harness
@@ -54,6 +55,26 @@ describe('a node that joins takes a slice of the mainnet message log in bulk', f
   const messages = readLines('messages.json.gz');
   const records = readLines('hashes.json.gz');
   const recordOf = new Map(records.map((record) => [record.hash, record]));
+  // The newest message of each app, at its record's height.
+  const newest = new Map();
+  for (const message of messages) {
+    const placed = {
+      hash: message.hash,
+      height: recordOf.get(message.hash).height,
+      timestamp: message.timestamp,
+      expire: message.appSpecifications.expire,
+    };
+    const { name } = message.appSpecifications;
+    const held = newest.get(name);
+    if (!held || placed.height > held.height || (placed.height === held.height && placed.timestamp > held.timestamp)) {
+      newest.set(name, placed);
+    }
+  }
+  // The message the joiner holds before it joins: the newest of an app in its term, stored a block
+  // above its payment, as a record written from a block that later left the chain placed it.
+  const [strayName, strayPlaced] = [...newest]
+    .find(([, m]) => expirationHeight(m.height, m.expire) > manifest.scannedHeight + 1000);
+  const strayMessage = messages.find((m) => m.hash === strayPlaced.hash);
   let fetched;
 
   before(async function () {
@@ -71,6 +92,7 @@ describe('a node that joins takes a slice of the mainnet message log in bulk', f
       await dbClient(i + 1).seedAppHashes(records.map((record) => ({ ...record, message: true, messageNotFound: false })));
     }));
     await dbClient(JOINER + 1).seedAppHashes(records.map((record) => ({ ...record, message: false, messageNotFound: false })));
+    await dbClient(JOINER + 1).seedPermanentMessage({ ...strayMessage, height: strayPlaced.height + 1 });
     await setSystemSecure(getSubnetConfig().nodeIp(JOINER + 1), false);
 
     const joiner = await env.startNode(JOINER);
@@ -91,8 +113,8 @@ describe('a node that joins takes a slice of the mainnet message log in bulk', f
     expect(messages.length, 'enough messages for the bulk path').to.be.above(500);
   });
 
-  it('takes the slice in bulk from a peer', function () {
-    expect(fetched.data.processed, JSON.stringify(fetched.data)).to.equal(messages.length);
+  it('takes the slice in bulk from a peer, but for the message it held', function () {
+    expect(fetched.data.processed, JSON.stringify(fetched.data)).to.equal(messages.length - 1);
   });
 
   it('keeps every message, each at its own record\'s txid, height and payment', async function () {
@@ -112,30 +134,18 @@ describe('a node that joins takes a slice of the mainnet message log in bulk', f
     this.timeout(300000);
     const db = dbClient(JOINER + 1);
     const scanned = await db.explorerHeight();
-    const newest = new Map();
-    for (const message of messages) {
-      const placed = {
-        hash: message.hash,
-        height: recordOf.get(message.hash).height,
-        timestamp: message.timestamp,
-        expire: message.appSpecifications.expire,
-      };
-      const { name } = message.appSpecifications;
-      const held = newest.get(name);
-      if (!held || placed.height > held.height || (placed.height === held.height && placed.timestamp > held.timestamp)) {
-        newest.set(name, placed);
-      }
-    }
-    const expected = new Map([...newest]
-      .filter(([, m]) => expirationHeight(m.height, m.expire) > scanned)
-      .map(([name, m]) => [name, m.hash]));
+    const expected = new Map([...newest].filter(([, m]) => expirationHeight(m.height, m.expire) > scanned));
+    // the app of the message the joiner held is one of them
+    expect(expected.has(strayName)).to.equal(true);
 
     let held = new Map();
     await waitFor(async () => {
-      held = new Map((await db.globalAppSpecs()).map((row) => [row.name, row.hash]));
+      held = new Map((await db.globalAppSpecs()).map((row) => [row.name, row]));
       return held.size === expected.size;
     }, { timeout: 180000, interval: 5000, label: `the joiner holds ${expected.size} apps` });
-    const wrong = [...expected].filter(([name, hash]) => held.get(name) !== hash).map(([name, hash]) => `${name}: ${held.get(name)} not ${hash}`);
-    expect(wrong, `${wrong.length} apps at another message`).to.deep.equal([]);
+    const wrong = [...expected]
+      .filter(([name, m]) => held.get(name)?.hash !== m.hash || held.get(name)?.height !== m.height)
+      .map(([name, m]) => `${name}: ${held.get(name)?.hash}@${held.get(name)?.height} not ${m.hash}@${m.height}`);
+    expect(wrong.length, `${wrong.length} apps at another message or height: ${wrong.join('; ')}`).to.equal(0);
   });
 });
