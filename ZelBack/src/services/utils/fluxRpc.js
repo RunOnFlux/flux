@@ -1,3 +1,5 @@
+const fs = require('node:fs/promises');
+
 const axios = require('axios');
 
 const fluxController = require('./fluxController');
@@ -128,9 +130,16 @@ class FluxRpc {
     ]),
   };
 
+  // Connection failures where the request reached no listener, so sending it
+  // again cannot run the call twice.
+  static #unreachedCodes = new Set(['ENOENT', 'ECONNREFUSED']);
+
   #currentId = 0;
 
   #instance = null;
+
+  // Whether requests go over socketPath: null until the first request decides.
+  #overSocket = null;
 
   constructor(uri, options = {}) {
     // just throw if bad option
@@ -139,10 +148,11 @@ class FluxRpc {
 
     this.auth = options.auth || null;
     this.mode = options.mode || 'fluxd';
-    // A unix socket path routes the request over that socket instead of TCP.
-    // The uri is then only used for the Host header, and no credentials are
-    // sent: reaching the socket at all is what authorizes the caller, and the
-    // socket's own permissions decide that.
+    // A unix socket the daemon serves on instead of TCP. While it exists,
+    // requests go over it and carry no credentials: the socket's own
+    // permissions authorize the caller, and the uri only names the Host header.
+    // Otherwise they go to the uri with `auth`. The first request decides, and
+    // a request that reaches no listener decides again.
     this.socketPath = options.socketPath || null;
     // Originally, this timeout was 60s. However, it got lowered to 10s. Which,
     // due to the chaintips call, is too low. On a Stratus (with average CPU) this
@@ -157,14 +167,32 @@ class FluxRpc {
     this.controller = options.controller || new fluxController.FluxController();
 
     // we don't use the serviceHelper methods here to avoid adding these calls to debug
-    this.#instance = axios.create({
-      baseURL: this.url,
-      auth: this.socketPath ? null : this.auth,
-      timeout,
-      ...(this.socketPath ? { socketPath: this.socketPath } : {}),
-    });
+    this.#instance = axios.create({ baseURL: this.url, timeout });
 
     this.methods = FluxRpc.#methodMap[this.mode];
+  }
+
+  async #chooseTransport() {
+    this.#overSocket = this.socketPath
+      ? await fs.stat(this.socketPath).then((stats) => stats.isSocket(), () => false)
+      : false;
+  }
+
+  #send(body, signal, overSocket) {
+    const transport = overSocket ? { socketPath: this.socketPath } : { auth: this.auth };
+    return this.#instance.post('/', body, { signal, ...transport });
+  }
+
+  async #post(body, signal) {
+    if (this.#overSocket === null) await this.#chooseTransport();
+
+    try {
+      return await this.#send(body, signal, this.#overSocket);
+    } catch (err) {
+      if (!this.socketPath || !FluxRpc.#unreachedCodes.has(err.code)) throw err;
+      await this.#chooseTransport();
+      return this.#send(body, signal, this.#overSocket);
+    }
   }
 
   #createPayload(method, params) {
@@ -190,7 +218,7 @@ class FluxRpc {
     const { signal } = this.controller;
 
     // by default, axios throws for any non 2XX response code
-    const res = await this.#instance.post('/', payload, { signal }).catch((err) => {
+    const res = await this.#post(payload, signal).catch((err) => {
       const { response: { data } = {} } = err;
 
       let errorMessage;
@@ -246,7 +274,7 @@ class FluxRpc {
 
     const { signal } = this.controller;
 
-    const res = await this.#instance.post('/', payloads, { signal }).catch((err) => {
+    const res = await this.#post(payloads, signal).catch((err) => {
       const { response: { data } = {} } = err;
 
       let errorMessage;

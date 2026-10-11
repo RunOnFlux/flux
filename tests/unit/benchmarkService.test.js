@@ -6,6 +6,7 @@ const { PassThrough } = require('stream');
 const fluxRpc = require('../../ZelBack/src/services/utils/fluxRpc');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const fs = require('node:fs/promises');
+const config = require('config');
 
 const { expect } = chai;
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
@@ -40,6 +41,14 @@ describe('benchmarkService tests', () => {
       expect(executeCallResult).to.be.an('object');
       expect(executeCallResult.status).to.equal('success');
       sinon.assert.calledOnceWithExactly(benchmarkStub, 'getstatus', { params });
+    });
+
+    it('should build its client with the benchmark socket and the bench credentials', async () => {
+      await benchmarkService.executeCall('getstatus');
+
+      const client = benchmarkStub.firstCall.thisValue;
+      expect(client.socketPath).to.equal(config.benchmark.socketPath);
+      expect(client.auth.username).to.match(/benchuser$/);
     });
 
     it('should throw error if called function does not exist', async () => {
