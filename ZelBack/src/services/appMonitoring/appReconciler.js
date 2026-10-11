@@ -1122,18 +1122,26 @@ async function reconcile(rawIdentifier) {
   const isComponent = spec.appSpec.version >= 4 && Array.isArray(spec.appSpec.compose);
   await volumeService.ensureMountPathsExist(spec.comp, mainAppName, isComponent, isComponent ? spec.appSpec : null);
 
-  await appsRuntimeState.recordRestart(identifier, crashed);
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.RECONCILER_BEFORE_START, identifier);
   // A decider writes its opinion outside this single-flight, so one may have been
   // written during the awaits above; starting on what this pass read would undo it
   // (a folder a decider has just stopped, or wiped). The writer's own enqueue
-  // drives the next pass, so not starting here needs no retry.
+  // drives the next pass, so not starting here needs no retry. Nothing awaits
+  // between this check and the start.
   if ((spec.isG || spec.isR) && controllerDesired.writes(identifier) !== opinionWrites) {
     log.info(`appReconciler - ${identifier}: a controller opinion was written during this pass, not starting it`);
     return;
   }
+  // The attempt is recorded once it is made, whatever it came to: a pass that
+  // does not start the component walks no ladder.
+  let startError = null;
   try {
     await dockerService.appDockerStart(identifier);
   } catch (err) {
+    startError = err;
+  }
+  await appsRuntimeState.recordRestart(identifier, crashed);
+  if (startError) {
     // No die event fires for a failed start (the container never ran), so a
     // dropped throw here leaves the component down until the hourly sweep.
     // Schedule our own retry. A start that never ran carries no exit code, so it
@@ -1142,8 +1150,8 @@ async function reconcile(rawIdentifier) {
     // (restartBurstCount x MANAGED_RETRY_MS against restartBurstWindowMs). That
     // relationship is what bounds a permanently failing start, and the config
     // comment on the window is where it is stated.
-    log.error(`appReconciler - failed to start ${identifier}: ${err.message}; retrying`);
-    fluxEventBus.publish('reconciler:actuated', { identifier, action: 'startFailed', reason: err.message });
+    log.error(`appReconciler - failed to start ${identifier}: ${startError.message}; retrying`);
+    fluxEventBus.publish('reconciler:actuated', { identifier, action: 'startFailed', reason: startError.message });
     scheduleRetry(identifier, MANAGED_RETRY_MS);
     return;
   }

@@ -858,12 +858,38 @@ describe('appReconciler tests', () => {
       stubs.globalState.bootContainerStateSettled = false;
       appReconciler.setControllerDesired('db_App', 'running', 'test');
       stubs.globalState.bootContainerStateSettled = true;
-      stubs.appsRuntimeState.recordRestart.callsFake(async () => {
+      stubs.volumeService.ensureMountPathsExist.callsFake(async () => {
         appReconciler.setControllerDesired('db_App', 'stopped', 'mount safety block');
         appReconciler.setControllerDesired('db_App', 'running', 'syncthing synced start');
       });
       await appReconciler.reconcile('db_App');
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
+    // A start the pass does not make is no attempt: recording one would walk the
+    // ladder of a component that never ran.
+    it('records no restart attempt when an opinion written during the pass stops it starting', async () => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.setControllerDesired('db_App', 'running', 'test');
+      stubs.globalState.bootContainerStateSettled = true;
+      stubs.volumeService.ensureMountPathsExist.callsFake(async () => {
+        appReconciler.setControllerDesired('db_App', 'stopped', 'mount safety block');
+      });
+      await appReconciler.reconcile('db_App');
+      expect(stubs.dockerService.appDockerStart.called, 'the canary: the pass did not start').to.be.false;
+      expect(stubs.appsRuntimeState.recordRestart.called, 'an attempt was recorded for a start never made').to.be.false;
+    });
+
+    // The check is the last thing before the start: an opinion written while the
+    // attempt is being recorded is one the started container then reads.
+    it('records the attempt after the start is made', async () => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.setControllerDesired('db_App', 'running', 'test');
+      stubs.globalState.bootContainerStateSettled = true;
+      await appReconciler.reconcile('db_App');
+      sinon.assert.callOrder(stubs.dockerService.appDockerStart, stubs.appsRuntimeState.recordRestart);
     });
 
     it('starts when no opinion was written during the pass', async () => {
@@ -1013,8 +1039,8 @@ describe('appReconciler tests', () => {
 
     // No die event fires for a FAILED start (the container never ran), so a start
     // throw that is merely logged leaves the component down until the hourly
-    // sweep. The failure must schedule its own retry; pacing is free because the
-    // attempt was recorded before the start - the retry walks the ladder.
+    // sweep. The failure must schedule its own retry; pacing is free because a
+    // failed start is recorded as an attempt - the retry walks the ladder.
     it('schedules its own retry when the start fails (not the hourly sweep)', async () => {
       const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
       stubs.dockerService.appDockerStart.rejects(new Error('failed to attach network'));
