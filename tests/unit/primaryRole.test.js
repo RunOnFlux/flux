@@ -380,7 +380,7 @@ describe('primaryRole', () => {
     it('keeps the folder of the primary running here sending', async () => {
       const t = loadRole({ primary: true });
 
-      expect(await t.role.holdAsPrimary(APP, FOLDER)).to.equal(true);
+      await t.role.holdAsPrimary(APP, FOLDER);
 
       expect(t.calls).to.deep.equal([['folder', FOLDER, 'sendreceive']]);
     });
@@ -426,7 +426,7 @@ describe('primaryRole', () => {
       const t = loadRole({ primary: true });
       t.reconciler.adoptControllerDesired.resolves(false);
 
-      expect(await t.role.holdAsPrimary(APP, FOLDER)).to.equal(true);
+      await t.role.holdAsPrimary(APP, FOLDER);
 
       sinon.assert.neverCalledWith(t.bus.count, 'masterSlave:decision', APP, 'adopted');
     });
@@ -435,10 +435,21 @@ describe('primaryRole', () => {
       const t = loadRole({ primary: true });
       t.reconciler.hasControllerOpinion.returns(true);
 
-      expect(await t.role.holdAsPrimary(APP, FOLDER)).to.equal(true);
+      await t.role.holdAsPrimary(APP, FOLDER);
 
       sinon.assert.calledWith(t.reconciler.hasControllerOpinion, APP);
       sinon.assert.notCalled(t.reconciler.adoptControllerDesired);
+    });
+
+    // The adoption records what the container shows, so a folder that cannot be
+    // made to send - its volume not mounted - does not withhold it.
+    it('asks the adoption for the primary when its folder cannot be made to send', async () => {
+      const t = loadRole({ primary: true, changeType: () => Promise.resolve(false) });
+
+      await t.role.holdAsPrimary(APP, FOLDER);
+
+      expect(t.calls.filter(([name]) => name === 'folder'), 'the canary: the folder write was asked').to.deep.equal([['folder', FOLDER, 'sendreceive']]);
+      sinon.assert.calledOnceWithExactly(t.reconciler.adoptControllerDesired, APP, 'running', 'masterSlave primary');
     });
 
     ['holdAsPrimary', 'holdAsStandby'].forEach((hold) => {
@@ -449,7 +460,7 @@ describe('primaryRole', () => {
         await new Promise((resolve) => { setImmediate(resolve); });
         expect(t.role.inTransition(APP), 'fixture: a promotion is in progress').to.equal('promoting');
 
-        expect(await t.role[hold](APP, FOLDER)).to.equal(false);
+        await t.role[hold](APP, FOLDER);
 
         expect(t.calls.filter(([name]) => name === 'folder')).to.deep.equal([['folder', FOLDER, 'sendreceive']]);
         sinon.assert.notCalled(t.reconciler.adoptControllerDesired);

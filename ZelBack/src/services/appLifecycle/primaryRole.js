@@ -228,17 +228,17 @@ async function adopt(identifier, state, reason) {
  * the reconciler's desired state where this process holds none: after a FluxOS
  * restart the container runs with no opinion recorded, and the reconciler acts on
  * the component, a pending restart included, only once one is
- * (appReconciler.adoptControllerDesired).
+ * (appReconciler.adoptControllerDesired). Writes nothing while a change of role
+ * is in progress. The folder write may be refused - a volume not mounted - and
+ * the adoption is asked for all the same: it records what the container shows.
  * @param {string} identifier `<component>_<app>`
  * @param {string} appId Syncthing folder id
- * @returns {Promise<boolean>} False when a change of role is in progress, so
- *   nothing was written.
+ * @returns {Promise<void>}
  */
 async function holdAsPrimary(identifier, appId) {
-  if (changes.get(identifier)) return false;
-  const held = await syncthingFolderWrites.changeSyncthingFolderType(appId, 'sendreceive');
+  if (changes.get(identifier)) return;
+  await syncthingFolderWrites.changeSyncthingFolderType(appId, 'sendreceive');
   await adopt(identifier, 'running', 'masterSlave primary');
-  return held;
 }
 
 /**
