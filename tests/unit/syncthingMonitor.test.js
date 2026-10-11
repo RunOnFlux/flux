@@ -1380,6 +1380,59 @@ describe('syncthingMonitor tests', () => {
     });
   });
 
+  // An app directory with no volume mounted is skipped before its folder is
+  // configured, so it never reaches the batch the folder writer refuses whole.
+  describe('an unmounted volume among folders that need writing', () => {
+    const mounted = (dir) => !dir.endsWith('/brokenapp');
+
+    function twoSendingFolders() {
+      mockInstalledAppsFn.resolves({
+        status: 'success',
+        data: [
+          { name: 'brokenapp', version: 3, containerData: 's:/appdata' },
+          { name: 'goodapp', version: 3, containerData: 's:/appdata' },
+        ],
+      });
+      syncthingMonitorHelpersMock.buildDeviceConfiguration.callsFake(async () => []);
+      syncthingMonitorHelpersMock.getContainerDataFlags.returns('s');
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingMonitorHelpersMock.folderNeedsUpdate.returns(true);
+      syncthingServiceMock.getConfigFolders.resolves([]);
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+      volumeServiceMock.isPathMounted.callsFake(async (dir) => mounted(dir));
+    }
+
+    const putFolderIds = () => syncthingServiceMock.adjustConfigFolders.getCalls()
+      .filter((call) => call.args[0] === 'put')
+      .map((call) => call.args[1].map((folder) => folder.id));
+
+    afterEach(() => {
+      volumeServiceMock.isPathMounted.reset();
+      volumeServiceMock.isPathMounted.resolves(true);
+    });
+
+    it('writes the mounted folder and leaves the unmounted one out', async () => {
+      twoSendingFolders();
+      syncthingMonitorHelpersMock.ensureStfolderExists.callsFake(async (dir) => mounted(dir));
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(putFolderIds(), 'one unmounted volume stopped every other folder being written').to.deep.equal([['goodapp']]);
+    });
+
+    it('refuses the whole batch when the unmounted folder reaches it', async () => {
+      // The control: with the skip gone, the folder writer's own check is all
+      // that stands between the batch and syncthing.
+      twoSendingFolders();
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(putFolderIds()).to.deep.equal([]);
+    });
+  });
+
   describe('holds a busy app out of the config write', () => {
     const syncingApp = { name: 'testapp', version: 3, containerData: 'g:/appdata' };
     // Bound while this file loads, which is when the module under test bound its
