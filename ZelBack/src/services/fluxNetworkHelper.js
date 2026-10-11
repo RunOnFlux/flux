@@ -1641,7 +1641,7 @@ async function writeConfiguredIp(ip) {
     ipaddress: '${ip}',
     zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
     kadena: '${userconfig.initial.kadena || ''}',
-    testnet: ${userconfig.initial.testnet || false},
+    network: '${config.network}',
     development: ${userconfig.initial.development || false},
     apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
     routerIP: '${userconfig.initial.routerIP || ''}',

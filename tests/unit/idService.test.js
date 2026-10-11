@@ -24,7 +24,6 @@ const adminConfig = {
     zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
     kadena: '1234kadena',
     apiport: '5550',
-    testnet: true,
   },
 };
 
