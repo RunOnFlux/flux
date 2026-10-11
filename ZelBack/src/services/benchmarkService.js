@@ -23,6 +23,24 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 let benchdClient = null;
 let lastDbUpdateTimestamp = 0;
 
+/**
+ * The socket fluxbench serves FluxOS on, from FLUXBENCH_CONNECTION
+ * (`unix:///run/fluxbenchd/full.sock`). The install that starts fluxbench on
+ * sockets sets it in FluxOS's service unit, and every call then goes over that
+ * socket and never over TCP: fluxbench binds no TCP port there. Unset, every call
+ * goes over TCP with the bench credentials.
+ * @returns {string|null}
+ */
+function benchdSocketPath() {
+  const connection = process.env.FLUXBENCH_CONNECTION;
+  if (!connection) return null;
+  const parsed = new URL(connection);
+  if (parsed.protocol !== 'unix:' || !parsed.pathname || parsed.pathname === '/') {
+    throw new Error(`FLUXBENCH_CONNECTION must be unix:///<socket path>, not ${connection}`);
+  }
+  return parsed.pathname;
+}
+
 async function buildBenchdClient() {
   // just use process.cwd() or os.homedir() or something
   const homeDirPath = path.join(__dirname, '../../../../');
@@ -41,7 +59,10 @@ async function buildBenchdClient() {
 
   const rpcHost = config.benchmark.host;
   const client = new fluxRpc.FluxRpc(`http://${rpcHost}:${rpcPort}`, {
-    auth: { username, password }, timeout: 10_000, mode: 'fluxbenchd',
+    auth: { username, password },
+    socketPath: benchdSocketPath(),
+    timeout: 10_000,
+    mode: 'fluxbenchd',
   });
 
   benchdClient = client;
@@ -427,6 +448,7 @@ if (require.main === module) {
 
 module.exports = {
   // == Export for testing purposes ==
+  buildBenchdClient,
   executeCall,
   // == Benchmarks ==
   getStatus,

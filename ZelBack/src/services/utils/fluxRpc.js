@@ -139,6 +139,11 @@ class FluxRpc {
 
     this.auth = options.auth || null;
     this.mode = options.mode || 'fluxd';
+    // A unix socket the daemon serves on instead of TCP. When given, every
+    // request goes over it with no credentials: the socket's own permissions
+    // authorize the caller, and the uri only names the Host header. Otherwise
+    // every request goes to the uri with `auth`.
+    this.socketPath = options.socketPath || null;
     // Originally, this timeout was 60s. However, it got lowered to 10s. Which,
     // due to the chaintips call, is too low. On a Stratus (with average CPU) this
     // call was about 14s. Now we set it to defauolt 60s here, and the callee can
@@ -152,9 +157,14 @@ class FluxRpc {
     this.controller = options.controller || new fluxController.FluxController();
 
     // we don't use the serviceHelper methods here to avoid adding these calls to debug
-    this.#instance = axios.create({ baseURL: this.url, auth: this.auth, timeout });
+    this.#instance = axios.create({ baseURL: this.url, timeout });
 
     this.methods = FluxRpc.#methodMap[this.mode];
+  }
+
+  #post(body, signal) {
+    const transport = this.socketPath ? { socketPath: this.socketPath } : { auth: this.auth };
+    return this.#instance.post('/', body, { signal, ...transport });
   }
 
   #createPayload(method, params) {
@@ -180,7 +190,7 @@ class FluxRpc {
     const { signal } = this.controller;
 
     // by default, axios throws for any non 2XX response code
-    const res = await this.#instance.post('/', payload, { signal }).catch((err) => {
+    const res = await this.#post(payload, signal).catch((err) => {
       const { response: { data } = {} } = err;
 
       let errorMessage;
@@ -236,7 +246,7 @@ class FluxRpc {
 
     const { signal } = this.controller;
 
-    const res = await this.#instance.post('/', payloads, { signal }).catch((err) => {
+    const res = await this.#post(payloads, signal).catch((err) => {
       const { response: { data } = {} } = err;
 
       let errorMessage;
