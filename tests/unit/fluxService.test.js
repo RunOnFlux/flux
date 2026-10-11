@@ -17,6 +17,7 @@ const { expect } = chai;
 const geolocationService = require('../../ZelBack/src/services/geolocationService');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire');
+const { networks, configWith } = require('./fixtures/networkConfig');
 
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const { Privilege } = require('../../ZelBack/src/services/utils/privileges');
@@ -83,6 +84,19 @@ const fluxServiceOnArcane = proxyquire(
 );
 if (fluxPathOutsideArcane === undefined) delete process.env.FLUXOS_PATH;
 else process.env.FLUXOS_PATH = fluxPathOutsideArcane;
+
+// The same module on a labnet node.
+const labFluxService = proxyquire(
+  '../../ZelBack/src/services/fluxService',
+  {
+    '../../../config/userconfig': adminConfig,
+    'node:fs/promises': fsPromisesStubs,
+    config: configWith({
+      daemon: { chainSubdir: networks.labnet.daemon.chainSubdir },
+      fluxapps: { epochstart: networks.labnet.fluxapps.epochstart },
+    }),
+  },
+);
 
 const generateResponse = () => {
   const res = { test: 'testing' };
@@ -1399,6 +1413,17 @@ describe('fluxService tests', () => {
       expect(result).to.eql(expectedResponse);
       sinon.assert.calledWithMatch(res.download, 'debug.log');
     });
+
+    it('downloads the debug.log fluxd keeps for the network', async () => {
+      verifyPrivilegeStub.returns(true);
+      sinon.stub(daemonServiceUtils, 'getConfigValue').returns(undefined);
+      sinon.stub(daemonServiceUtils, 'getFluxdDir').returns('/home/flux/.flux');
+      const res = generateResponse();
+
+      await labFluxService.daemonDebug(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.download, '/home/flux/.flux/labnet/debug.log', 'debug.log');
+    });
   });
 
   describe('benchmarkDebug tests', () => {
@@ -1512,6 +1537,16 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledWithMatch(runCmdStub, 'tail', { params: ['-n', '100', nodedpath] });
+    });
+
+    it('tails the debug.log fluxd keeps for the network', async () => {
+      verifyPrivilegeStub.returns(true);
+      runCmdStub.resolves({ error: null, stdout: 'tail' });
+      const res = generateResponse();
+
+      await labFluxService.tailDaemonDebug(undefined, res);
+
+      sinon.assert.calledWithMatch(runCmdStub, 'tail', { params: ['-n', '100', path.join(os.homedir(), '.flux', 'labnet', 'debug.log')] });
     });
   });
 
@@ -2054,6 +2089,30 @@ describe('fluxService tests', () => {
       State: 'running',
       Status: 'Up 2 hours',
     };
+
+    it('counts the app hashes from the network\'s epoch start', async () => {
+      daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
+      daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
+      benchmarkServiceGetInfoStub.returns({ status: 'success', data: 'info2 data' });
+      benchmarkServiceGetStatusStub.returns({ status: 'success', data: 'status2 data' });
+      benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
+      appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
+      appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
+      appsServiceAppsResourcesStub.returns({ status: 'success', data: { ...lockedResources } });
+      appsServiceGetAppHashesStub.returns({
+        status: 'success',
+        data: [{ height: 0, message: true }, { height: 1, message: true }, { height: 40, message: false }],
+      });
+      explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
+      fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
+      fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
+      syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+
+      const result = await labFluxService.getFluxInfo();
+
+      expect(result.data.appsHashesTotal).to.equal(2);
+      expect(result.data.hashesPresent).to.equal(1);
+    });
 
     it('carries the staging that is otherwise invisible', async () => {
       // A held node takes no new apps and is in every other respect
@@ -3098,6 +3157,30 @@ describe('fluxService tests', () => {
       expect(res.statusMessage).to.equal('Unable to compress blockchain in unsafe mode, it will corrupt new db.');
       sinon.assert.calledWithExactly(res.status, 422);
       sinon.assert.calledOnce(res.end);
+    });
+
+    it('streams the chain fluxd keeps for the network', async () => {
+      const res = generateResponse();
+      const req = { socket: { remoteAddress: '10.20.30.40' }, body: { unsafe: true, compress: true } };
+      const savedPath = process.env.FLUXD_PATH;
+      delete process.env.FLUXD_PATH;
+      osStub.returns('/home/testuser');
+      fsPromisesStubs.stat.callsFake(async (dir) => {
+        if (dir.startsWith('/home/testuser/.flux/labnet/')) return { isDirectory: () => true };
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      });
+
+      try {
+        await labFluxService.streamChain(req, res);
+      } finally {
+        if (savedPath !== undefined) process.env.FLUXD_PATH = savedPath;
+      }
+
+      // Past the chain check: the next refusal is the unsafe-compression one.
+      expect(res.statusMessage).to.equal('Unable to compress blockchain in unsafe mode, it will corrupt new db.');
+      ['determ_zelnodes', 'chainstate', 'blocks'].forEach((folder) => {
+        sinon.assert.calledWith(fsPromisesStubs.stat, `/home/testuser/.flux/labnet/${folder}`);
+      });
     });
 
     it('should return 503 when fluxd still running when in safe mode', async () => {

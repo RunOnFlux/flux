@@ -53,9 +53,7 @@ async function buildBenchdClient() {
   const username = `${prefix}benchuser`;
   const password = `${prefix}benchpassword`;
 
-  const { initial: { testnet: isTestnet } } = globalThis.userconfig;
-  const portId = isTestnet ? 'rpcporttestnet' : 'rpcport';
-  const rpcPort = config.benchmark[portId];
+  const rpcPort = config.benchmark.rpcport;
 
   const rpcHost = config.benchmark.host;
   const client = new fluxRpc.FluxRpc(`http://${rpcHost}:${rpcPort}`, {

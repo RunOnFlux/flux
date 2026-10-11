@@ -582,9 +582,10 @@ async function processBlock(blockHeight, isInsightExplorer) {
     if (blockDataVerbose.height % 50 === 0) {
       log.info(`Processing Explorer Block Height: ${blockDataVerbose.height}`);
     }
-    if (isInsightExplorer && blockDataVerbose.height > 699420 && blockDataVerbose.height < 862002) {
-      // speed up sync as there were no app messages between these two blocks
-      processBlock(862002, isInsightExplorer);
+    const skip = isInsightExplorer && config.fluxapps.explorerInsightSkipRanges
+      .find(({ from, to }) => blockDataVerbose.height > from && blockDataVerbose.height < to);
+    if (skip) {
+      processBlock(skip.to, isInsightExplorer);
       return;
     }
     if (isInsightExplorer) {

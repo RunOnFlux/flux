@@ -1,4 +1,3 @@
-const log = require('../../lib/log');
 const asyncLock = require('../utils/asyncLock');
 const fluxRpc = require('../utils/fluxRpc');
 const daemonConfig = require('../utils/daemonConfig');
@@ -6,28 +5,10 @@ const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 
 const config = require('config');
-const configManager = require('../utils/configManager');
 const cacheManager = require('../utils/cacheManager').default;
-
-// Helper function to get testnet flag dynamically
-const isTestnet = () => configManager.getConfigValue('initial.testnet') || false;
 
 let fluxdConfig = null;
 let fluxdClient = null;
-let previousTestnetValue = isTestnet();
-
-// Listen for config changes and rebuild RPC client if testnet mode changes
-configManager.on('configReloaded', async (newConfig) => {
-  const newTestnetValue = newConfig.initial?.testnet || false;
-  if (newTestnetValue !== previousTestnetValue) {
-    previousTestnetValue = newTestnetValue;
-    // Rebuild RPC client with new port
-    await buildFluxdClient();
-    const portId = isTestnet() ? 'rpcporttestnet' : 'rpcport';
-    const rpcPort = fluxdConfig?.rpcport || config.daemon[portId];
-    log.info(`Testnet mode changed, rebuilt daemon RPC client on port ${rpcPort}`);
-  }
-});
 
 /**
  * AsyncLock used to limit concurrent calls to the Daemon RPC endpoint.
@@ -74,9 +55,7 @@ async function buildFluxdClient() {
   const username = fluxdConfig.rpcuser || 'rpcuser';
   const password = fluxdConfig.rpcpassword || 'rpcpassword';
 
-  const portId = isTestnet() ? 'rpcporttestnet' : 'rpcport';
-
-  const rpcPort = fluxdConfig.rpcport || config.daemon[portId];
+  const rpcPort = fluxdConfig.rpcport || config.daemon.rpcport;
 
   const rpcHost = config.daemon.host;
   const client = new fluxRpc.FluxRpc(`http://${rpcHost}:${rpcPort}`, {

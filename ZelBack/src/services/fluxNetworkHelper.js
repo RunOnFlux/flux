@@ -3130,7 +3130,7 @@ function reportUfwLocked() {
  */
 async function nodeFirewallRules() {
   const apiPort = userconfig.initial.apiport || config.server.apiport;
-  const ports = [apiPort, +apiPort - 1, +apiPort + 1, +apiPort + 2, 80, 443, 16125, ...config.server.allowedPorts];
+  const ports = [apiPort, +apiPort - 1, +apiPort + 1, +apiPort + 2, 80, 443, config.daemon.port, ...config.server.allowedPorts];
   const rules = [['delete', 'allow', 'in', 'proto', 'udp', 'to', 'any', 'port', '53']];
   // this should also be limit, but existing nodes use allow (needs to be updated)
   if (isArcane) rules.push(['prepend', 'allow', 'to', 'any', 'app', 'FluxadmSSH']);

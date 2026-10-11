@@ -40,6 +40,7 @@ const verificationHelper = require('../../ZelBack/src/services/verificationHelpe
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const { requireMongo } = require('./dbTestHelper');
+const { networks, configWith } = require('./fixtures/networkConfig');
 const upnpService = require('../../ZelBack/src/services/upnpService');
 const geolocationService = require('../../ZelBack/src/services/geolocationService');
 const ufw = require('../../ZelBack/src/services/utils/ufw');
@@ -3239,6 +3240,19 @@ describe('fluxNetworkHelper tests', () => {
       ]);
       expect(ufwCalls(), 'no ufw command of its own').to.deep.equal([]);
       sinon.assert.calledOnceWithExactly(publishStub, 'firewall:adjusted', { outboundRemoved: 0, rulesFailed: [], appliedBy: 'library' });
+    });
+
+    it('opens the network\'s daemon port', async () => {
+      const labHelper = proxyquire('../../ZelBack/src/services/fluxNetworkHelper', {
+        config: configWith({ daemon: { port: networks.labnet.daemon.port } }),
+      });
+      firewallEnabled(true);
+      answered({ removed: 0, applied: true });
+
+      await labHelper.adjustFirewall();
+
+      expect(appliedRules()).to.deep.include(['allow', String(networks.labnet.daemon.port)]);
+      expect(appliedRules()).to.not.deep.include(['allow', String(networks.mainnet.daemon.port)]);
     });
 
     it('should write no outbound rule and never set a default policy', async () => {
