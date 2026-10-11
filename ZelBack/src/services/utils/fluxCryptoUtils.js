@@ -26,6 +26,18 @@ function WIFToPrivKey(wifPk) {
 }
 
 /**
+ * Whether a WIF private key is for a compressed public key. The WIF says so itself: a
+ * 0x01 byte after the 32-byte key. Its leading character comes from the version byte,
+ * which differs between networks, so it cannot say.
+ * @param {string} wifPk - Private key in WIF format.
+ * @returns {boolean} True for a compressed key.
+ */
+function isCompressedWIF(wifPk) {
+  const payload = bs58check.decode(wifPk);
+  return payload.length === 34 && payload[33] === 0x01;
+}
+
+/**
  * Derives a public key from a raw hex private key.
  * @param {string} privKey - Raw private key as hex string.
  * @param {boolean} [toCompressed=false] - Whether to return compressed public key.
@@ -50,4 +62,6 @@ function pubKeyToAddr(pubKey, pubKeyHash) {
   return bs58check.encode(Buffer.from(pubKeyHash + h160, 'hex')).toString('hex');
 }
 
-module.exports = { WIFToPrivKey, privKeyToPubKey, pubKeyToAddr };
+module.exports = {
+  WIFToPrivKey, isCompressedWIF, privKeyToPubKey, pubKeyToAddr,
+};

@@ -1,6 +1,6 @@
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
-const { WIFToPrivKey, privKeyToPubKey } = require('./utils/fluxCryptoUtils');
+const { WIFToPrivKey, isCompressedWIF, privKeyToPubKey } = require('./utils/fluxCryptoUtils');
 const nodecmd = require('node-cmd');
 const fs = require('fs').promises;
 const path = require('path');
@@ -1092,7 +1092,7 @@ async function getFluxNodePrivateKey(privatekey) {
 async function getFluxNodePublicKey(privatekey) {
   try {
     const pkWIF = await getFluxNodePrivateKey(privatekey);
-    const isCompressed = !pkWIF.startsWith('5');
+    const isCompressed = isCompressedWIF(pkWIF);
     const privateKey = WIFToPrivKey(pkWIF);
     const pubKey = privKeyToPubKey(privateKey, isCompressed);
     return pubKey;

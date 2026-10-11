@@ -157,6 +157,25 @@ describe('verificationHelper tests', () => {
   });
 
   describe('signMessage tests', () => {
+    const uncompressedPubKey = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
+    const compressedPubKey = '0374eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0';
+    // One private key in each WIF encoding. Whether a key is compressed is in the key
+    // itself, whatever network's version byte it carries.
+    const sameKey = [
+      { network: 'mainnet', wif: '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh', pubKey: uncompressedPubKey },
+      { network: 'mainnet', wif: 'Kz4dHc95uHGwqxwMipCRZ23C9Vqhti4ffyZ8e7S4aLiJSq5gPFQb', pubKey: compressedPubKey },
+      { network: 'testnet and labnet', wif: '92EHFqyB3a58FbJb1WEGPWMDs1V7vWGG82X3SGcFHsP3enyuEX9', pubKey: uncompressedPubKey },
+      { network: 'testnet and labnet', wif: 'cQRckX8wLLyD1QQd7E1YvLYFmj97ZAAMk1hbkXta5TNJhaAv22hX', pubKey: compressedPubKey },
+    ];
+
+    sameKey.forEach(({ network, wif, pubKey }) => {
+      it(`should sign so that the ${pubKey.startsWith('04') ? 'uncompressed' : 'compressed'} key of a ${network} WIF verifies`, () => {
+        const signature = signMessage('abc', wif);
+
+        expect(verifyMessage('abc', pubKey, signature)).to.be.true;
+      });
+    });
+
     it('should sign a message', async () => {
       const message = 'abc';
       const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
