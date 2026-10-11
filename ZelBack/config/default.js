@@ -328,7 +328,7 @@ module.exports = {
     maxImageSize: 5000000000, // 5000mb
     minimumInstances: net.fluxapps.minimumInstances,
     minimumInstancesV8: 1,
-    minimumInstancesV8Block: 2176519, // block height where v8+ apps can have 1 instance - expected around December 19th 2025
+    minimumInstancesV8Block: net.fluxapps.minimumInstancesV8Block,
     maximumInstances: 100,
     maxAppsPerNode: 200,
     minOutgoing: net.fluxapps.minOutgoing,
@@ -441,14 +441,14 @@ module.exports = {
     blocksLasting: 22000, // by default registered app will live for 22000 of blocks 44000 minutes ~= 1 month
     minBlocksAllowance: 5000, // app can be registered for a minimum of this blocks ~ 1 week
     newMinBlocksAllowance: 100, // app can be registered for a minimum of this blocks ~ 3 hours - to allow users to cancel application subscription
-    newMinBlocksAllowanceBlock: 1630040, // block where we will start looking at new min blocks allowance. block expected on 26th of April 2024
+    newMinBlocksAllowanceBlock: net.fluxapps.newMinBlocksAllowanceBlock,
     cancel1BlockMinBlocksAllowance: 1, // app can be registered for a minimum of 1 block for cancellation purposes
-    cancel1BlockMinBlocksAllowanceBlock: 1964447, // block where we will start allowing 1 block lifetime updates - Expected August 6th 2025
+    cancel1BlockMinBlocksAllowanceBlock: net.fluxapps.cancel1BlockMinBlocksAllowanceBlock,
     maxBlocksAllowance: 264000, // app can be registered up for a maximum of this blocks ~ 1 year
     postPonMaxBlocksAllowance: 1056000, // after PON fork, chain works 4x faster, so max blocks is 4x higher ~ 1 year
     daemonPONFork: net.fluxapps.daemonPONFork,
     blocksAllowanceInterval: 1000, // ap differences can be in 1000s - more than 1 day
-    removeBlocksAllowanceIntervalBlock: 1625000, // after this block we can start having app updates without extending subscription - block expected in April 19th 2024
+    removeBlocksAllowanceIntervalBlock: net.fluxapps.removeBlocksAllowanceIntervalBlock,
     ownerAppAllowance: 1000, // a by-name local install (fluxteam only) runs for this amount of blocks before the expiry sweep removes it
     temporaryAppAllowance: 200, // in case of any user installing some temporary app message for testing purposes, the app will run for this many blocks
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
@@ -458,8 +458,8 @@ module.exports = {
     benchUpnpPeriod: 6480, // every 9 days execute upnp bench
     hddFileSystemMinimum: 10, // right now 10, to be decreased to a minimum of 5GB of free space on hdd for docker with v8 specs activation
     defaultSwap: 2, // 2gb swap memory minimum, this is in gb
-    applyMinimumPriceOn3Instances: 1691000, // after this block we use the min. usd price on prices per 3 instances.
-    applyMinimumForExtraInstances: 1890000,
+    applyMinimumPriceOn3Instances: net.fluxapps.applyMinimumPriceOn3Instances,
+    applyMinimumForExtraInstances: net.fluxapps.applyMinimumForExtraInstances,
     latestAppSpecification: 8,
     bootDelayMultiplier: 1,
     spawnDelayMs: 0,

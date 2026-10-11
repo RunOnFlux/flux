@@ -125,6 +125,23 @@ describe('network profiles', () => {
       expect(lab.analytics.url).to.equal('');
     });
 
+    it('applies every app rule from labnet\'s first block, at mainnet\'s heights on mainnet', () => {
+      const ruleHeights = {
+        minimumInstancesV8Block: 2176519,
+        newMinBlocksAllowanceBlock: 1630040,
+        cancel1BlockMinBlocksAllowanceBlock: 1964447,
+        removeBlocksAllowanceIntervalBlock: 1625000,
+        applyMinimumPriceOn3Instances: 1691000,
+        applyMinimumForExtraInstances: 1890000,
+      };
+      const main = resolveFor({ network: 'mainnet' });
+      const lab = resolveFor({ network: 'labnet' });
+      Object.entries(ruleHeights).forEach(([key, height]) => {
+        expect(main.fluxapps[key], key).to.equal(height);
+        expect(lab.fluxapps[key], key).to.equal(0);
+      });
+    });
+
     it('refuses to load for a network it does not know', () => {
       expect(() => resolveFor({ network: 'testnet' })).to.throw(/initial\.network 'testnet' is not a known network/);
       expect(() => resolveFor({ network: 'constructor' })).to.throw(/is not a known network/);
