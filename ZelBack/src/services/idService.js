@@ -8,6 +8,7 @@ const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const verificationHelperUtils = require('./verificationHelperUtils');
 const generalService = require('./generalService');
+const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const dockerService = require('./dockerService');
 const syncthingService = require('./syncthingService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
@@ -208,6 +209,11 @@ async function checkNodeFitness() {
   } catch (error) {
     return unfit('docker', { message: error.message, name: error.name, code: error.code }, checks);
   }
+
+  // daemon: whether fluxd answers and has caught up with the chain. Reported,
+  // never refused on: a daemon catching up after a restart reads the same as one
+  // that has stopped answering, and daemonHealthMonitor acts on one that stays so.
+  checks.daemon = daemonServiceMiscRpcs.isDaemonSynced().data.synced ? CHECK.OK : CHECK.DEGRADED;
 
   // hardware: the node must still meet its tier requirements
   const hardware = await confirmNodeTierHardware();

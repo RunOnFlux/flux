@@ -14,6 +14,7 @@ const verificationHelper = require('../../ZelBack/src/services/verificationHelpe
 const { requireMongo } = require('./dbTestHelper');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
+const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const dockerService = require('../../ZelBack/src/services/dockerService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
@@ -512,10 +513,13 @@ describe('idService tests', () => {
     let osCpusStub;
     let collateralTierStub;
     let getDOSStateStub;
+    let isDaemonSyncedStub;
 
     before(async () => {
       await dbHelper.initiateDB();
     });
+
+    const daemonSynced = (synced) => isDaemonSyncedStub.returns({ status: 'success', data: { synced } });
 
     const healthyHardware = () => {
       collateralTierStub.resolves({ collateral: 1000, tier: generalService.COLLATERAL_TIERS[1000] });
@@ -532,6 +536,8 @@ describe('idService tests', () => {
       osCpusStub = sinon.stub(os, 'cpus');
       collateralTierStub = sinon.stub(generalService, 'nodeCollateralTier');
       getDOSStateStub = sinon.stub(fluxNetworkHelper, 'getDOSState');
+      isDaemonSyncedStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
+      daemonSynced(true);
       syncthingService.setSyncthingRunningState(true);
       sinon.stub(dockerService, 'dockerListImages').returns(true);
     });
@@ -549,7 +555,9 @@ describe('idService tests', () => {
 
       sinon.assert.calledOnceWithMatch(res.json, {
         status: 'success',
-        data: { db: 'ok', syncthing: 'ok', docker: 'ok', hardware: 'ok', dos: 'ok', appsDos: 'ok' },
+        data: {
+          db: 'ok', syncthing: 'ok', docker: 'ok', daemon: 'ok', hardware: 'ok', dos: 'ok', appsDos: 'ok',
+        },
       });
     });
 
@@ -579,7 +587,7 @@ describe('idService tests', () => {
           message: 'Node Total Ram (1) below new Cumulus requirements',
           failed: 'hardware',
           checks: {
-            db: 'ok', syncthing: 'ok', docker: 'ok', hardware: 'fail',
+            db: 'ok', syncthing: 'ok', docker: 'ok', daemon: 'ok', hardware: 'fail',
           },
         },
       });
@@ -654,11 +662,44 @@ describe('idService tests', () => {
       });
     });
 
+    // A daemon behind the chain or not answering is shown, and refuses nobody.
+    describe('the daemon check', () => {
+      it('reports a daemon that is behind or not answering as degraded, and keeps the node fit', async () => {
+        healthyHardware();
+        daemonSynced(false);
+
+        const fitness = await idService.checkNodeFitness();
+
+        expect(fitness.ok, 'a node was refused over a daemon that may only be catching up').to.equal(true);
+        expect(fitness.checks.daemon).to.equal('degraded');
+        expect(fitness.checks.hardware, 'the checks after the daemon did not run').to.equal('ok');
+      });
+
+      it('reports a synced daemon as ok', async () => {
+        healthyHardware();
+
+        expect((await idService.checkNodeFitness()).checks.daemon).to.equal('ok');
+      });
+
+      it('still refuses on a later check while the daemon is degraded', async () => {
+        healthyHardware();
+        daemonSynced(false);
+        getDOSStateStub.returns({ status: 'success', data: { dosState: 100, dosMessage: 'Flux IP detection failed' } });
+
+        const fitness = await idService.checkNodeFitness();
+
+        expect(fitness.ok).to.equal(false);
+        expect(fitness.failed).to.equal('dos');
+        expect(fitness.checks.daemon).to.equal('degraded');
+      });
+    });
+
     describe('with the daemon still warming up', () => {
       beforeEach(() => {
         healthyHardware();
         const warming = { code: -28, name: 'Error', message: 'Loading block index...' };
         collateralTierStub.rejects(warming);
+        daemonSynced(false);
       });
 
       it('keeps the node fit and reports hardware as unmeasured', async () => {
@@ -669,7 +710,7 @@ describe('idService tests', () => {
         sinon.assert.calledOnceWithExactly(res.json, {
           status: 'success',
           data: {
-            db: 'ok', syncthing: 'ok', docker: 'ok', hardware: 'unmeasured', dos: 'ok', appsDos: 'ok',
+            db: 'ok', syncthing: 'ok', docker: 'ok', daemon: 'degraded', hardware: 'unmeasured', dos: 'ok', appsDos: 'ok',
           },
         });
       });
