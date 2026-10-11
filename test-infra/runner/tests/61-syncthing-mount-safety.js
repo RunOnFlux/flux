@@ -15,6 +15,7 @@ import {
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
+import { destroyVolume } from '../framework/volume-fixture.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // The syncthing mount-safety guard gates on the MOUNTPOINT, not on content
@@ -45,7 +46,6 @@ const BEFORE_SEED_CHECK = 'syncthing:beforeSeedCheck';
 
 const appId = (name) => `flux${name}_${name}`;
 const appDir = (name) => `/mnt/appdata/flux-apps/${appId(name)}`;
-const volFile = (name) => `/mnt/appdata/${appId(name)}FLUXFSVOL`;
 
 async function isUp(client, appName) {
   const status = await getAppContainerStatus(client.container, appName);
@@ -214,8 +214,8 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     // self-heal beat this test's teardown in every earlier run). A lazy
     // unmount detaches the dir under the running container instead; stopping
     // the app is then the GUARD's job, which is exactly what this test is for.
-    const r = await execInContainer(client.container,
-      `umount -l ${dir} && chattr -i ${dir} && touch ${dir}/leaked.db && rm -f ${volFile(leakName)}`);
+    await destroyVolume(client.container, leakName);
+    const r = await execInContainer(client.container, `touch ${dir}/leaked.db`);
     expect(r.exitCode, `leak-state setup failed: ${r.output}`).to.equal(0);
 
     // the vanished mount took the .stfolder marker with it - real syncthing
