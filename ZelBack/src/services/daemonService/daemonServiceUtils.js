@@ -10,11 +10,7 @@ const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 
 const config = require('config');
-const configManager = require('../utils/configManager');
 const cacheManager = require('../utils/cacheManager').default;
-
-// Helper function to get testnet flag dynamically
-const isTestnet = () => configManager.getConfigValue('initial.testnet') || false;
 
 let fluxdConfig = null;
 let fluxdClient = null;
@@ -35,23 +31,6 @@ const FLUXD_POLL_MS = 5000;
 const FLUXD_LOG_MS = 60000;
 const RPC_IN_WARMUP = -28;
 const FLUXD_RPC_PORT_UNPUBLISHED = 'FLUXD_RPC_PORT_UNPUBLISHED';
-let previousTestnetValue = isTestnet();
-
-// Listen for config changes and rebuild RPC client if testnet mode changes
-configManager.on('configReloaded', async (newConfig) => {
-  const newTestnetValue = newConfig.initial?.testnet || false;
-  if (newTestnetValue !== previousTestnetValue) {
-    previousTestnetValue = newTestnetValue;
-    // Rebuild RPC client with new port
-    try {
-      // eslint-disable-next-line no-use-before-define
-      const client = await buildFluxdClient();
-      log.info(`Testnet mode changed, rebuilt daemon RPC client for ${client.url}`);
-    } catch (error) {
-      log.error(`Testnet mode changed, daemon RPC client not rebuilt: ${error.message}`);
-    }
-  }
-});
 
 /**
  * AsyncLock used to limit concurrent calls to the Daemon RPC endpoint.
@@ -138,8 +117,7 @@ async function fluxdRpcPort() {
     }
     return port;
   }
-  const portId = isTestnet() ? 'rpcporttestnet' : 'rpcport';
-  return fluxdConfig.rpcport || config.daemon[portId];
+  return fluxdConfig.rpcport || config.daemon.rpcport;
 }
 
 /**
@@ -488,6 +466,14 @@ function fluxdDataDir() {
 }
 
 /**
+ * The directory fluxd keeps its chain and debug.log in, under its data directory.
+ * @returns {string}
+ */
+function fluxdChainDir() {
+  return path.join(fluxdDataDir(), config.daemon.chainSubdir);
+}
+
+/**
  * The fluxd daemon rpc client
  * @returns {daemonrpc.Client}
  */
@@ -531,6 +517,7 @@ module.exports = {
   executeCall,
   executeBatchCall,
   fluxdDataDir,
+  fluxdChainDir,
   FLUXD_RPC_PORT_UNPUBLISHED,
   getConfigValue,
   getFluxdClient,

@@ -1,5 +1,7 @@
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
 const { expect } = require('chai');
 const { resolveDefaultConfig } = require('./fixtures/resolvedConfig');
 
@@ -7,6 +9,8 @@ const NETWORKS_INDEX = require.resolve('../../ZelBack/config/networks');
 const networks = require('../../ZelBack/config/networks');
 const mainnet = require('../../ZelBack/config/networks/mainnet');
 const labnet = require('../../ZelBack/config/networks/labnet');
+
+const SRC_DIR = path.join(__dirname, '../../ZelBack/src');
 
 /**
  * Every key path of a value, recursing into plain objects only: an array is a
@@ -53,6 +57,14 @@ function resolveWithProfile(name, profile, initial) {
   } finally {
     cached.exports = saved;
   }
+}
+
+function sourceFiles(dir) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) return sourceFiles(full);
+    return /\.(c|m)?js$/.test(entry.name) ? [full] : [];
+  });
 }
 
 describe('network profiles', () => {
@@ -156,6 +168,16 @@ describe('network profiles', () => {
       Object.values(networks).forEach((profile) => {
         expect(profile.fluxapps.epochstart - 1).to.be.at.least(0);
       });
+    });
+  });
+
+  describe('ZelBack/src', () => {
+    it('never names a network: code reads profile values, not the name', () => {
+      const offenders = sourceFiles(SRC_DIR).flatMap((file) => fs.readFileSync(file, 'utf8').split('\n')
+        .map((line, index) => ({ line, at: `${path.relative(SRC_DIR, file)}:${index + 1}` }))
+        .filter(({ line }) => /mainnet|labnet/i.test(line))
+        .map(({ at }) => at));
+      expect(offenders).to.eql([]);
     });
   });
 });
