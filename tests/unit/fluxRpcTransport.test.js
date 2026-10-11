@@ -54,14 +54,6 @@ describe('fluxRpc transport tests', () => {
     return `http://127.0.0.1:${server.address().port}`;
   }
 
-  // An address nothing listens on.
-  async function refusedUri() {
-    const server = await listen(http.createServer(), 0, '127.0.0.1');
-    const { port } = server.address();
-    await new Promise((resolve) => { server.close(resolve); });
-    return `http://127.0.0.1:${port}`;
-  }
-
   function client(uri) {
     return new FluxRpc(uri, { auth, socketPath, mode: 'fluxbenchd' });
   }
@@ -77,7 +69,7 @@ describe('fluxRpc transport tests', () => {
     await fs.rm(socketPath, { force: true });
   });
 
-  it('calls over the socket, with no credentials, while the daemon serves one', async () => {
+  it('calls over the socket, with no credentials', async () => {
     const rpc = client(await tcpDaemon());
     await listen(daemon('socket'), socketPath);
 
@@ -85,86 +77,43 @@ describe('fluxRpc transport tests', () => {
     expect(requests).to.eql([{ via: 'socket', authorization: undefined }]);
   });
 
-  it('calls over TCP with its credentials when there is no socket', async () => {
+  it('carries a batch over the socket', async () => {
     const rpc = client(await tcpDaemon());
-
-    expect(await rpc.run('getstatus')).to.equal('tcp');
-    expect(requests).to.eql([{ via: 'tcp', authorization: basicAuth }]);
-  });
-
-  it('calls over TCP when the socket path holds something other than a socket', async () => {
-    await fs.writeFile(socketPath, '');
-    const rpc = client(await tcpDaemon());
-
-    expect(await rpc.run('getstatus')).to.equal('tcp');
-  });
-
-  it('answers a refused TCP call over the socket the daemon has since bound', async () => {
-    const rpc = client(await refusedUri());
-    await expect(rpc.run('getstatus')).to.be.rejected.and.eventually.have.property('code', 'ECONNREFUSED');
-
     await listen(daemon('socket'), socketPath);
-
-    expect(await rpc.run('getstatus')).to.equal('socket');
-    expect(requests).to.eql([{ via: 'socket', authorization: undefined }]);
-  });
-
-  it('answers over TCP, with its credentials, once the socket is gone', async () => {
-    const rpc = client(await tcpDaemon());
-    const socketDaemon = await listen(daemon('socket'), socketPath);
-    expect(await rpc.run('getstatus')).to.equal('socket');
-
-    await close(socketDaemon);
-
-    expect(await rpc.run('getstatus')).to.equal('tcp');
-    expect(requests).to.eql([
-      { via: 'socket', authorization: undefined },
-      { via: 'tcp', authorization: basicAuth },
-    ]);
-  });
-
-  it('carries a batch over the transport it moves to', async () => {
-    const rpc = client(await tcpDaemon());
-    const socketDaemon = await listen(daemon('socket'), socketPath);
-    await rpc.run('getstatus');
-    await close(socketDaemon);
 
     const [answer] = await rpc.runBatch([{ method: 'getstatus' }]);
 
-    expect(answer.result).to.equal('tcp');
-    expect(requests.map((r) => r.via)).to.eql(['socket', 'tcp']);
+    expect(answer.result).to.equal('socket');
+    expect(requests.map((r) => r.via)).to.eql(['socket']);
   });
 
-  it('never sends a call again once it may have reached the daemon', async () => {
-    const resetting = http.createServer((req) => {
-      requests.push({ via: 'tcp' });
-      req.socket.destroy();
-    });
-    servers.push(resetting);
-    await listen(resetting, 0, '127.0.0.1');
-    const rpc = client(`http://127.0.0.1:${resetting.address().port}`);
+  it('never calls over TCP when the socket is missing, though something answers there', async () => {
+    const rpc = client(await tcpDaemon());
+
+    await expect(rpc.run('getstatus')).to.be.rejected.and.eventually.have.property('code', 'ENOENT');
+
+    expect(requests).to.eql([]);
+  });
+
+  it('never calls over TCP once the socket it used is gone', async () => {
+    const rpc = client(await tcpDaemon());
+    const socketDaemon = await listen(daemon('socket'), socketPath);
+    expect(await rpc.run('getstatus')).to.equal('socket');
+
+    await close(socketDaemon);
+
     await expect(rpc.run('getstatus')).to.be.rejected;
+    expect(requests.map((r) => r.via)).to.eql(['socket']);
+  });
+
+  it('calls over the socket again once the daemon is back on it', async () => {
+    const rpc = client(await tcpDaemon());
+    await expect(rpc.run('getstatus')).to.be.rejected;
+
     await listen(daemon('socket'), socketPath);
 
-    await expect(rpc.run('getstatus')).to.be.rejected;
-
-    expect(requests.map((r) => r.via)).to.eql(['tcp', 'tcp']);
-  });
-
-  it('reports a daemon that is down on both transports', async () => {
-    const rpc = client(await refusedUri());
-
-    await expect(rpc.run('getstatus')).to.be.rejected.and.eventually.have.property('code', 'ECONNREFUSED');
-  });
-
-  it('keeps its transport when the daemon answers with an error', async () => {
-    const rpc = client(await tcpDaemon());
-    await listen(daemon('socket', (id) => ({ result: null, error: { code: -32601, message: 'Method not found' }, id })), socketPath);
-
-    await expect(rpc.run('getstatus')).to.be.rejectedWith('Method not found');
-    await expect(rpc.run('getstatus')).to.be.rejectedWith('Method not found');
-
-    expect(requests.map((r) => r.via)).to.eql(['socket', 'socket']);
+    expect(await rpc.run('getstatus')).to.equal('socket');
+    expect(requests.map((r) => r.via)).to.eql(['socket']);
   });
 
   it('calls over TCP with its credentials when given no socket path', async () => {

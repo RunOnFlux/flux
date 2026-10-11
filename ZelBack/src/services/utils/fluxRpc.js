@@ -1,5 +1,3 @@
-const fs = require('node:fs/promises');
-
 const axios = require('axios');
 
 const fluxController = require('./fluxController');
@@ -130,16 +128,9 @@ class FluxRpc {
     ]),
   };
 
-  // Connection failures where the request reached no listener, so sending it
-  // again cannot run the call twice.
-  static #unreachedCodes = new Set(['ENOENT', 'ECONNREFUSED']);
-
   #currentId = 0;
 
   #instance = null;
-
-  // Whether requests go over socketPath: null until the first request decides.
-  #overSocket = null;
 
   constructor(uri, options = {}) {
     // just throw if bad option
@@ -148,11 +139,10 @@ class FluxRpc {
 
     this.auth = options.auth || null;
     this.mode = options.mode || 'fluxd';
-    // A unix socket the daemon serves on instead of TCP. While it exists,
-    // requests go over it and carry no credentials: the socket's own
-    // permissions authorize the caller, and the uri only names the Host header.
-    // Otherwise they go to the uri with `auth`. The first request decides, and
-    // a request that reaches no listener decides again.
+    // A unix socket the daemon serves on instead of TCP. When given, every
+    // request goes over it with no credentials: the socket's own permissions
+    // authorize the caller, and the uri only names the Host header. Otherwise
+    // every request goes to the uri with `auth`.
     this.socketPath = options.socketPath || null;
     // Originally, this timeout was 60s. However, it got lowered to 10s. Which,
     // due to the chaintips call, is too low. On a Stratus (with average CPU) this
@@ -172,27 +162,9 @@ class FluxRpc {
     this.methods = FluxRpc.#methodMap[this.mode];
   }
 
-  async #chooseTransport() {
-    this.#overSocket = this.socketPath
-      ? await fs.stat(this.socketPath).then((stats) => stats.isSocket(), () => false)
-      : false;
-  }
-
-  #send(body, signal, overSocket) {
-    const transport = overSocket ? { socketPath: this.socketPath } : { auth: this.auth };
+  #post(body, signal) {
+    const transport = this.socketPath ? { socketPath: this.socketPath } : { auth: this.auth };
     return this.#instance.post('/', body, { signal, ...transport });
-  }
-
-  async #post(body, signal) {
-    if (this.#overSocket === null) await this.#chooseTransport();
-
-    try {
-      return await this.#send(body, signal, this.#overSocket);
-    } catch (err) {
-      if (!this.socketPath || !FluxRpc.#unreachedCodes.has(err.code)) throw err;
-      await this.#chooseTransport();
-      return this.#send(body, signal, this.#overSocket);
-    }
   }
 
   #createPayload(method, params) {
