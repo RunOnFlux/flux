@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
-import { execInContainer, getAppContainerStatus, restartFluxos } from '../framework/container.js';
+import { getAppContainerStatus, restartFluxos } from '../framework/container.js';
 import { resetFdm, electMaster } from '../framework/fdm-control.js';
 import {
   waitFor, waitForReconcileActuated, waitForReconcilerDesiredChanged, waitForElectionDecisions, electionDecisionCount,
@@ -14,6 +14,7 @@ import {
 } from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
+import { appId, destroyVolume } from '../framework/volume-fixture.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // A decider that writes a component's controller opinion while another is deciding
@@ -31,9 +32,6 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 const subnet = getSubnetConfig();
 const BEFORE_ADOPT = 'reconciler:beforeAdopt';
 
-const appId = (name) => `flux${name}_${name}`;
-const appDir = (name) => `/mnt/appdata/flux-apps/${appId(name)}`;
-const volFile = (name) => `/mnt/appdata/${appId(name)}FLUXFSVOL`;
 
 // the folder type as the (stub) syncthing daemon has it configured for a node
 async function folderType(nodeIp, folderId) {
@@ -106,9 +104,7 @@ describe('a safety stop outranks a verdict decided while it landed', function ()
     // The volume goes away under the running primary: unmounted and its image
     // removed, so it cannot be repaired, and syncthing raises FolderErrors for it.
     const beforeBreak = client.getLastEventId();
-    const broken = await execInContainer(client.container,
-      `umount -l ${appDir(appName)} && chattr -i ${appDir(appName)} && rm -f ${volFile(appName)}`);
-    expect(broken.exitCode, `could not break the volume: ${broken.output}`).to.equal(0);
+    await destroyVolume(client.container, appName);
     await injectSyncthingEvent({ ip, type: 'FolderErrors', data: { folder, errors: [{ error: 'folder marker missing' }] } });
     await waitForReconcilerDesiredChanged(client, identifier, 'stopped', 120000, { afterId: beforeBreak });
 
