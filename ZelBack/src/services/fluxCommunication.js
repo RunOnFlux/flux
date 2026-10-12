@@ -379,6 +379,7 @@ function announceToPeers(message, excludeKey) {
 
 async function handleCheckMessageHashPresent(messageHash, fromIP, port) {
   try {
+    noteOwnMoveHeardBack(messageHash);
     // The filter, not the store: the question is whether this node already has the
     // message, and it has plenty it never announced - anything the database already
     // held when it arrived. Asking the store would re-request those.
@@ -521,68 +522,130 @@ async function recordOwnAddressMove(oldIP, newIP) {
   await messageStore.storeIPChangedMessage(move);
 }
 
-// This node's moves not yet announced, oldest first, and whether the next
-// peerThresholdReached sends them. `announceRecorded` adds the moves this node
-// recorded to the address it holds now, for a process that started after one.
-const unannouncedMoves = [];
-let announcementArmed = false;
-let announceRecorded = false;
+// A signed copy of a move is re-signed once it is this old, so a peer it reaches
+// still has at least half of the relay window (verifyTimestampInFluxBroadcast's
+// 240s in handleIPChangedMessage) to pass it on.
+const OWN_MOVE_RESIGN_MS = 120 * 1000;
 
-function armAnnouncement() {
-  if (announcementArmed) return;
-  announcementArmed = true;
-  peerManager.once('peerThresholdReached', sendUnannouncedMoves);
+// This node's moves still being told to the network: each is signed once, sent
+// to every peer as it connects, and dropped once a peer announces it back.
+// `recordedLoaded` is whether the moves recorded before this process started
+// have been read yet.
+const pendingOwnMoves = [];
+let sendingOwnMoves = false;
+let recordedLoaded = true;
+
+/**
+ * Sign a move afresh, keeping every hash it has gone out under: a peer can
+ * announce any of them back.
+ * @param {object} move A pending move.
+ * @returns {Promise<void>}
+ */
+async function signOwnMove(move) {
+  const data = {
+    type: 'fluxipchanged', version: 1, oldIP: move.oldIP, newIP: move.newIP, broadcastedAt: Date.now(),
+  };
+  const signed = await fluxCommunicationMessagesSender.serialiseAndSignFluxBroadcast(data);
+  if (!signed) return;
+  /* eslint-disable no-param-reassign */
+  move.signed = signed;
+  move.signedAt = Date.now();
+  /* eslint-enable no-param-reassign */
+  move.hashes.add(hash(data));
+}
+
+function addPendingOwnMove(oldIP, newIP) {
+  const known = pendingOwnMoves.some((move) => socketAddressesMatch(move.oldIP, oldIP) && socketAddressesMatch(move.newIP, newIP));
+  if (!known) {
+    pendingOwnMoves.push({
+      oldIP, newIP, signed: null, signedAt: 0, hashes: new Set(),
+    });
+  }
 }
 
 /**
- * Send each unannounced move once, to the peer set this node has rebuilt at its
- * new address. Built here rather than when the move was seen, so peers take it
- * as fresh and relay it on.
+ * The moves this node recorded to the address it holds now, read once per
+ * process: a restart between noticing a move and the network hearing it would
+ * otherwise leave the network without it.
  */
-async function sendUnannouncedMoves() {
-  announcementArmed = false;
-  const moves = unannouncedMoves.splice(0);
-  if (announceRecorded) {
-    announceRecorded = false;
-    try {
-      const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
-      const recorded = await registryManager.addressMoves();
-      // eslint-disable-next-line no-restricted-syntax
-      for (const [oldIP, { to }] of recorded) {
-        const pending = moves.some((move) => socketAddressesMatch(move.oldIP, oldIP) && socketAddressesMatch(move.newIP, to));
-        if (socketAddressesMatch(to, localSocketAddr) && !pending) moves.push({ oldIP, newIP: to });
-      }
-    } catch (error) {
-      log.warn(`sendUnannouncedMoves - this node's recorded moves cannot be read: ${error.message}`);
+async function loadRecordedOwnMoves() {
+  recordedLoaded = true;
+  try {
+    const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+    const recorded = await registryManager.addressMoves();
+    // eslint-disable-next-line no-restricted-syntax
+    for (const [oldIP, { to }] of recorded) {
+      if (socketAddressesMatch(to, localSocketAddr)) addPendingOwnMove(oldIP, to);
     }
+  } catch (error) {
+    log.warn(`loadRecordedOwnMoves - this node's recorded moves cannot be read: ${error.message}`);
   }
+}
+
+/**
+ * Send every pending move to a peer that has just connected.
+ * @param {string} peerKey
+ */
+async function sendOwnMovesTo(peerKey) {
+  if (!recordedLoaded) await loadRecordedOwnMoves();
+  const peer = peerManager.get(peerKey);
+  if (!peer) return;
   // eslint-disable-next-line no-restricted-syntax
-  for (const { oldIP, newIP } of moves) {
+  for (const move of pendingOwnMoves) {
     try {
       // eslint-disable-next-line no-await-in-loop
-      await fluxCommunicationMessagesSender.broadcastMessageToAll({
-        type: 'fluxipchanged', version: 1, oldIP, newIP, broadcastedAt: Date.now(),
-      });
-      log.info(`Address move from ${oldIP} to ${newIP} announced to ${peerManager.getNumberOfPeers()} peers`);
+      if (!move.signed || Date.now() - move.signedAt > OWN_MOVE_RESIGN_MS) await signOwnMove(move);
+      if (move.signed && peer.send(move.signed)) {
+        log.info(`Address move from ${move.oldIP} to ${move.newIP} sent to ${peerKey}`);
+      }
     } catch (error) {
-      log.error(`sendUnannouncedMoves - the move from ${oldIP} to ${newIP} could not be announced: ${error.message}`);
+      log.error(`sendOwnMovesTo - the move from ${move.oldIP} to ${move.newIP} could not be sent to ${peerKey}: ${error.message}`);
     }
   }
+  if (!pendingOwnMoves.length) stopSendingOwnMoves();
+}
+
+function startSendingOwnMoves() {
+  if (sendingOwnMoves) return;
+  sendingOwnMoves = true;
+  peerManager.on('peerConnected', sendOwnMovesTo);
+}
+
+function stopSendingOwnMoves() {
+  if (!sendingOwnMoves) return;
+  sendingOwnMoves = false;
+  peerManager.off('peerConnected', sendOwnMovesTo);
 }
 
 /**
- * Tell the network, once, that this node moved. Every connection it holds was
- * made to its old address and carries nothing now, so all of them are dropped;
- * the move goes out on the next peerThresholdReached, through peers that reached
- * this node where it is now. Sent while the old connections were still counted,
- * it would reach none of them.
+ * A peer announced, or relayed, a message this node holds the hash of. When it
+ * is one of this node's own moves, the move has gone further than the peers
+ * this node sent it to - a peer never announces a message back to the one it
+ * had it from - and gossip is carrying it: it is no longer sent.
+ * @param {string} messageHash
+ * @returns {boolean} Whether it was one of this node's moves.
+ */
+function noteOwnMoveHeardBack(messageHash) {
+  const index = pendingOwnMoves.findIndex((move) => move.hashes.has(messageHash));
+  if (index === -1) return false;
+  const [move] = pendingOwnMoves.splice(index, 1);
+  log.info(`Address move from ${move.oldIP} to ${move.newIP} heard back from the network - no longer sent`);
+  if (!pendingOwnMoves.length) stopSendingOwnMoves();
+  return true;
+}
+
+/**
+ * Tell the network that this node moved. Every connection it holds was made to
+ * its old address and carries nothing now, so all of them are dropped; the move
+ * goes to each peer as it connects at the new address, until one announces it
+ * back.
  * @param {string} oldIP This node's former socket address.
  * @param {string} newIP Its new socket address.
  */
 function announceOwnAddressMove(oldIP, newIP) {
-  unannouncedMoves.push({ oldIP, newIP });
+  addPendingOwnMove(oldIP, newIP);
   peerManager.dropAllConnections();
-  armAnnouncement();
+  startSendingOwnMoves();
 }
 
 /**
@@ -597,13 +660,12 @@ async function handleOwnAddressMove(oldIP, newIP) {
 }
 
 /**
- * At startup, announce on the first peerThresholdReached the moves this node
- * recorded to the address it holds now. A restart between recording a move and
- * announcing it would otherwise leave the network without it.
+ * At startup, send the moves this node recorded to the address it holds now to
+ * each peer as it connects, until one announces it back.
  */
 function announceRecordedOwnMovesWhenConnected() {
-  announceRecorded = true;
-  armAnnouncement();
+  recordedLoaded = false;
+  startSendingOwnMoves();
 }
 
 /**
@@ -614,6 +676,7 @@ function announceRecordedOwnMovesWhenConnected() {
  */
 async function handleIPChangedMessage(message, fromIP, port) {
   try {
+    noteOwnMoveHeardBack(hash(message.data));
     const envelope = { version: message.version, timestamp: message.timestamp, pubKey: message.pubKey, signature: message.signature };
     await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.IPCHANGED, { message: message.data, envelope });
     // storeIPChangedMessage answers true, false for a move too old to apply, or an
@@ -2051,6 +2114,7 @@ module.exports = {
   announceOwnAddressMove,
   handleOwnAddressMove,
   announceRecordedOwnMovesWhenConnected,
+  noteOwnMoveHeardBack,
   handleAppRemovedMessage,
   handleNodeSigtermMessage,
   initiateAndHandleConnection,

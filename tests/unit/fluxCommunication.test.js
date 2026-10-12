@@ -2593,57 +2593,117 @@ describe('fluxCommunication tests', () => {
   describe('announcing this node\'s own move', () => {
     const OLD = '72.89.45.236:16137';
     const NEW = '108.6.236.4:16137';
-    let broadcast;
     let drop;
+    let peers;
+    let clock;
 
-    // The announcement goes out from a peerThresholdReached listener that awaits
-    // its sends; let them finish before reading what was sent.
-    const peersRebuilt = async () => {
-      peerManager.emit('peerThresholdReached', 12);
+    // A peer that has just connected, and what it was sent.
+    const connect = async (key) => {
+      peers[key] = { send: sinon.stub().returns(true) };
+      peerManager.emit('peerConnected', key, 1);
       await new Promise((resolve) => { setImmediate(resolve); });
       await new Promise((resolve) => { setImmediate(resolve); });
+      return peers[key].send.getCalls().map((call) => JSON.parse(call.args[0]).data)
+        .filter((data) => data.type === 'fluxipchanged')
+        .map(({ oldIP, newIP }) => `${oldIP}>${newIP}`);
     };
-    const announced = () => broadcast.getCalls().map((call) => call.args[0])
-      .filter((data) => data.type === 'fluxipchanged')
-      .map(({ oldIP, newIP }) => `${oldIP}>${newIP}`);
+    const sentData = (key) => JSON.parse(peers[key].send.firstCall.args[0]).data;
 
     beforeEach(() => {
-      broadcast = sinon.stub(fluxCommunicationMessagesSender, 'broadcastMessageToAll').resolves();
+      peers = {};
+      clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+      sinon.stub(fluxCommunicationMessagesSender, 'serialiseAndSignFluxBroadcast').callsFake(async (data) => JSON.stringify({
+        version: 1, timestamp: Date.now(), pubKey: '04own', signature: 'sig', data,
+      }));
       drop = sinon.stub(peerManager, 'dropAllConnections').returns(0);
+      sinon.stub(peerManager, 'get').callsFake((key) => peers[key]);
       sinon.stub(registryManager, 'addressMoves').resolves(new Map());
       sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(NEW);
     });
 
     afterEach(() => {
+      // a move left pending by a test would go on listening into the next one
+      peerManager.listeners('peerConnected').forEach((listener) => {
+        if (listener.name === 'sendOwnMovesTo') peerManager.off('peerConnected', listener);
+      });
       sinon.restore();
     });
 
-    it('drops every connection at once and sends nothing until the peer set is rebuilt', async () => {
+    const heardBack = (key) => fluxCommunication.noteOwnMoveHeardBack(objectHash(sentData(key)));
+
+    it('drops every connection at once and sends the move to each peer as it connects', async () => {
       fluxCommunication.announceOwnAddressMove(OLD, NEW);
 
       sinon.assert.calledOnce(drop);
-      sinon.assert.notCalled(broadcast);
-      await peersRebuilt();
+      expect(await connect('10.0.0.1:16127')).to.deep.equal([`${OLD}>${NEW}`]);
+      expect(await connect('10.0.0.2:16127')).to.deep.equal([`${OLD}>${NEW}`]);
+      heardBack('10.0.0.1:16127');
     });
 
-    it('sends the move once, when the peer set is rebuilt, stamped then', async () => {
+    it('stops once a peer announces the move back', async () => {
       fluxCommunication.announceOwnAddressMove(OLD, NEW);
-      const before = Date.now();
+      await connect('10.0.0.1:16127');
 
-      await peersRebuilt();
-      await peersRebuilt();
+      expect(heardBack('10.0.0.1:16127')).to.equal(true);
 
-      expect(announced()).to.deep.equal([`${OLD}>${NEW}`]);
-      expect(broadcast.firstCall.args[0].broadcastedAt).to.be.at.least(before);
+      expect(await connect('10.0.0.2:16127')).to.deep.equal([]);
     });
 
-    it('sends each of two moves made before the peers came back, once', async () => {
+    it('stops once a peer relays the move itself back', async () => {
+      sinon.stub(messageStore, 'storeAppStateEvent').resolves();
+      sinon.stub(messageStore, 'storeIPChangedMessage').resolves(true);
+      sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(false);
+      fluxCommunication.announceOwnAddressMove(OLD, NEW);
+      await connect('10.0.0.1:16127');
+
+      await fluxCommunication.handleIPChangedMessage({
+        version: 1, timestamp: Date.now(), pubKey: '04own', signature: 'sig', data: sentData('10.0.0.1:16127'),
+      }, '10.0.0.9', '16127');
+
+      expect(await connect('10.0.0.2:16127')).to.deep.equal([]);
+    });
+
+    it('stops once a peer announces the move\'s hash, the way gossip relays it', async () => {
+      sinon.stub(peerManager, 'sendHashRequest');
+      fluxCommunication.announceOwnAddressMove(OLD, NEW);
+      await connect('10.0.0.1:16127');
+      const relayer = {
+        ip: '10.0.0.9', port: '16127', key: '10.0.0.9:16127', direction: 'outgoing', msgMap: new Map([['newHash', 0]]), close: () => {},
+      };
+
+      await peerManager.messageDispatcher({ messageHashPresent: objectHash(sentData('10.0.0.1:16127')) }, relayer);
+      await new Promise((resolve) => { setImmediate(resolve); });
+
+      expect(await connect('10.0.0.2:16127')).to.deep.equal([]);
+    });
+
+    it('signs the move afresh once half the relay window has passed, and stops on either copy coming back', async () => {
+      fluxCommunication.announceOwnAddressMove(OLD, NEW);
+      await connect('10.0.0.1:16127');
+      clock.tick(121 * 1000);
+      await connect('10.0.0.2:16127');
+
+      expect(sentData('10.0.0.2:16127').broadcastedAt).to.be.above(sentData('10.0.0.1:16127').broadcastedAt);
+      expect(heardBack('10.0.0.1:16127')).to.equal(true);
+      expect(await connect('10.0.0.3:16127')).to.deep.equal([]);
+    });
+
+    it('sends each of two moves, and stops each on its own echo', async () => {
       fluxCommunication.announceOwnAddressMove('10.0.0.1:16127', '10.0.0.2:16127');
       fluxCommunication.announceOwnAddressMove('10.0.0.2:16127', '10.0.0.3:16127');
 
-      await peersRebuilt();
+      expect(await connect('10.9.0.1:16127')).to.deep.equal(['10.0.0.1:16127>10.0.0.2:16127', '10.0.0.2:16127>10.0.0.3:16127']);
+      fluxCommunication.noteOwnMoveHeardBack(objectHash(JSON.parse(peers['10.9.0.1:16127'].send.firstCall.args[0]).data));
 
-      expect(announced()).to.deep.equal(['10.0.0.1:16127>10.0.0.2:16127', '10.0.0.2:16127>10.0.0.3:16127']);
+      expect(await connect('10.9.0.2:16127')).to.deep.equal(['10.0.0.2:16127>10.0.0.3:16127']);
+      fluxCommunication.noteOwnMoveHeardBack(objectHash(JSON.parse(peers['10.9.0.2:16127'].send.firstCall.args[0]).data));
+    });
+
+    it('sends a port-only move like any other', async () => {
+      fluxCommunication.announceOwnAddressMove('198.51.100.40:16127', '198.51.100.40:16157');
+
+      expect(await connect('10.0.0.1:16127')).to.deep.equal(['198.51.100.40:16127>198.51.100.40:16157']);
+      heardBack('10.0.0.1:16127');
     });
 
     it('at startup, sends the moves it recorded to the address it holds now, and no others', async () => {
@@ -2653,19 +2713,26 @@ describe('fluxCommunication tests', () => {
       ]));
 
       fluxCommunication.announceRecordedOwnMovesWhenConnected();
-      await peersRebuilt();
 
-      expect(announced()).to.deep.equal([`${OLD}>${NEW}`]);
+      expect(await connect('10.0.0.1:16127')).to.deep.equal([`${OLD}>${NEW}`]);
+      heardBack('10.0.0.1:16127');
     });
 
-    it('at startup, does not send a recorded move twice when the same move is also pending', async () => {
+    it('at startup, sends a move that is both recorded and pending once', async () => {
       registryManager.addressMoves.resolves(new Map([[OLD, { to: NEW, at: Date.now() - 60000 }]]));
 
       fluxCommunication.announceRecordedOwnMovesWhenConnected();
       fluxCommunication.announceOwnAddressMove(OLD, NEW);
-      await peersRebuilt();
 
-      expect(announced()).to.deep.equal([`${OLD}>${NEW}`]);
+      expect(await connect('10.0.0.1:16127')).to.deep.equal([`${OLD}>${NEW}`]);
+      heardBack('10.0.0.1:16127');
+    });
+
+    it('at startup with nothing recorded, stops listening after the first connection', async () => {
+      fluxCommunication.announceRecordedOwnMovesWhenConnected();
+
+      expect(await connect('10.0.0.1:16127')).to.deep.equal([]);
+      expect(peerManager.listeners('peerConnected').some((listener) => listener.name === 'sendOwnMovesTo')).to.equal(false);
     });
   });
 });
