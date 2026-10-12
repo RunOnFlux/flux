@@ -139,14 +139,18 @@ describe('a node judges its own standing from what it can know', function () {
     it('puts that node back in service once reachable, though it is short of peers', async function () {
       this.timeout(300000);
       const node = client(NOT_STARTED);
-      const anchor = node.getLastEventId();
       await execInContainer(node.container, '/flux/test-infra/start-syncthing.sh');
 
-      await node.waitForEvent('availability:checked', (d) => d.available === true, 240000, { afterId: anchor });
+      // Read from the node's DOS state, which says the same thing on every
+      // version: a check that finds it reachable while it is short of peers
+      // leaves it in service.
+      await waitFor(async () => (await dosOf(node)).dosMessage === null, {
+        timeout: 240000, interval: 2000, label: 'the node back in service',
+      });
 
-      const dos = await dosOf(node);
-      expect(dos.dosMessage, 'its DOS message').to.equal(null);
-      expect(dos.dosState, 'its DOS state').to.be.below(10);
+      expect((await dosOf(node)).dosState, 'its DOS state').to.be.below(10);
+      const communication = await node.get(`/flux/checkcommunication?_=${Date.now()}`);
+      expect(communication.status, 'the node is short of peers').to.equal('error');
     });
   });
 
