@@ -518,6 +518,91 @@ async function recordOwnAddressMove(oldIP, newIP) {
   await messageStore.storeIPChangedMessage(move);
 }
 
+// This node's moves not yet announced, oldest first, and whether the next
+// peerThresholdReached sends them. `announceRecorded` adds the moves this node
+// recorded to the address it holds now, for a process that started after one.
+const unannouncedMoves = [];
+let announcementArmed = false;
+let announceRecorded = false;
+
+function armAnnouncement() {
+  if (announcementArmed) return;
+  announcementArmed = true;
+  peerManager.once('peerThresholdReached', sendUnannouncedMoves);
+}
+
+/**
+ * Send each unannounced move once, to the peer set this node has rebuilt at its
+ * new address. Built here rather than when the move was seen, so peers take it
+ * as fresh and relay it on.
+ */
+async function sendUnannouncedMoves() {
+  announcementArmed = false;
+  const moves = unannouncedMoves.splice(0);
+  if (announceRecorded) {
+    announceRecorded = false;
+    try {
+      const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+      const recorded = await registryManager.addressMoves();
+      // eslint-disable-next-line no-restricted-syntax
+      for (const [oldIP, { to }] of recorded) {
+        const pending = moves.some((move) => socketAddressesMatch(move.oldIP, oldIP) && socketAddressesMatch(move.newIP, to));
+        if (socketAddressesMatch(to, localSocketAddr) && !pending) moves.push({ oldIP, newIP: to });
+      }
+    } catch (error) {
+      log.warn(`sendUnannouncedMoves - this node's recorded moves cannot be read: ${error.message}`);
+    }
+  }
+  // eslint-disable-next-line no-restricted-syntax
+  for (const { oldIP, newIP } of moves) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await fluxCommunicationMessagesSender.broadcastMessageToAll({
+        type: 'fluxipchanged', version: 1, oldIP, newIP, broadcastedAt: Date.now(),
+      });
+      log.info(`Address move from ${oldIP} to ${newIP} announced to ${peerManager.getNumberOfPeers()} peers`);
+    } catch (error) {
+      log.error(`sendUnannouncedMoves - the move from ${oldIP} to ${newIP} could not be announced: ${error.message}`);
+    }
+  }
+}
+
+/**
+ * Tell the network, once, that this node moved. Every connection it holds was
+ * made to its old address and carries nothing now, so all of them are dropped;
+ * the move goes out on the next peerThresholdReached, through peers that reached
+ * this node where it is now. Sent while the old connections were still counted,
+ * it would reach none of them.
+ * @param {string} oldIP This node's former socket address.
+ * @param {string} newIP Its new socket address.
+ */
+function announceOwnAddressMove(oldIP, newIP) {
+  unannouncedMoves.push({ oldIP, newIP });
+  peerManager.dropAllConnections();
+  armAnnouncement();
+}
+
+/**
+ * Record this node's own move and announce it: what serviceManager wires to
+ * fluxNetworkHelper's address-moved seam.
+ * @param {string} oldIP This node's former socket address.
+ * @param {string} newIP Its new socket address.
+ */
+async function handleOwnAddressMove(oldIP, newIP) {
+  await recordOwnAddressMove(oldIP, newIP);
+  announceOwnAddressMove(oldIP, newIP);
+}
+
+/**
+ * At startup, announce on the first peerThresholdReached the moves this node
+ * recorded to the address it holds now. A restart between recording a move and
+ * announcing it would otherwise leave the network without it.
+ */
+function announceRecordedOwnMovesWhenConnected() {
+  announceRecorded = true;
+  armAnnouncement();
+}
+
 /**
  * To handle IP changed messages.
  * @param {object} message Message.
@@ -1956,6 +2041,9 @@ module.exports = {
   handleAppInstallingErrorsSyncResponse,
   handleIPChangedMessage,
   recordOwnAddressMove,
+  announceOwnAddressMove,
+  handleOwnAddressMove,
+  announceRecordedOwnMovesWhenConnected,
   handleAppRemovedMessage,
   handleNodeSigtermMessage,
   initiateAndHandleConnection,

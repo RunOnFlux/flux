@@ -1663,7 +1663,6 @@ async function adjustExternalIP(ip) {
       let apps = await appQueryService.installedApps();
       if (apps.status === 'success' && apps.data.length > 0) {
         apps = apps.data;
-        let appsRemoved = 0;
         // The apps still installed once the loop has removed the ones that cannot
         // stay. Handed to whoever registered for an address change; nothing here
         // knows what bringing them back involves.
@@ -1690,7 +1689,6 @@ async function adjustExternalIP(ip) {
               log.warn(`REMOVAL REASON: Static IP required - ${app.name} requires static IP but node IP changed from ${oldIP} to ${newIP}`);
               // eslint-disable-next-line no-await-in-loop
               await appUninstaller.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
-              appsRemoved += 1;
               // eslint-disable-next-line no-continue
               continue;
             }
@@ -1718,7 +1716,6 @@ async function adjustExternalIP(ip) {
             log.warn(`REMOVAL REASON: Duplicate IP detected - ${app.name} already running on network with IP ${ip} (after IP change)`);
             // eslint-disable-next-line no-await-in-loop
             await appUninstaller.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
-            appsRemoved += 1;
           } else {
             staying.push(app);
           }
@@ -1733,20 +1730,6 @@ async function adjustExternalIP(ip) {
         if (staying.length && onAddressChanged) {
           await onAddressChanged(staying, `node ip changed to ${ip}`)
             .catch((error) => log.error(`adjustExternalIP - restart request failed: ${error.message}`));
-        }
-        if (apps.length > appsRemoved) {
-          const broadcastedAt = Date.now();
-          const newIpChangedMessage = {
-            type: 'fluxipchanged',
-            version: 1,
-            oldIP,
-            newIP,
-            broadcastedAt,
-          };
-          // broadcast messages about ip changed to all peers
-          // eslint-disable-next-line global-require
-          const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
-          await fluxCommunicationMessagesSender.broadcastMessageToAll(newIpChangedMessage);
         }
       }
       const result = await daemonServiceFluxnodeRpcs.createConfirmationTransaction();

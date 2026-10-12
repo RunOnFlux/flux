@@ -2497,4 +2497,83 @@ describe('fluxCommunication tests', () => {
       sinon.assert.notCalled(storeMove);
     });
   });
+
+  describe('announcing this node\'s own move', () => {
+    const OLD = '72.89.45.236:16137';
+    const NEW = '108.6.236.4:16137';
+    let broadcast;
+    let drop;
+
+    // The announcement goes out from a peerThresholdReached listener that awaits
+    // its sends; let them finish before reading what was sent.
+    const peersRebuilt = async () => {
+      peerManager.emit('peerThresholdReached', 12);
+      await new Promise((resolve) => { setImmediate(resolve); });
+      await new Promise((resolve) => { setImmediate(resolve); });
+    };
+    const announced = () => broadcast.getCalls().map((call) => call.args[0])
+      .filter((data) => data.type === 'fluxipchanged')
+      .map(({ oldIP, newIP }) => `${oldIP}>${newIP}`);
+
+    beforeEach(() => {
+      broadcast = sinon.stub(fluxCommunicationMessagesSender, 'broadcastMessageToAll').resolves();
+      drop = sinon.stub(peerManager, 'dropAllConnections').returns(0);
+      sinon.stub(registryManager, 'addressMoves').resolves(new Map());
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(NEW);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('drops every connection at once and sends nothing until the peer set is rebuilt', async () => {
+      fluxCommunication.announceOwnAddressMove(OLD, NEW);
+
+      sinon.assert.calledOnce(drop);
+      sinon.assert.notCalled(broadcast);
+      await peersRebuilt();
+    });
+
+    it('sends the move once, when the peer set is rebuilt, stamped then', async () => {
+      fluxCommunication.announceOwnAddressMove(OLD, NEW);
+      const before = Date.now();
+
+      await peersRebuilt();
+      await peersRebuilt();
+
+      expect(announced()).to.deep.equal([`${OLD}>${NEW}`]);
+      expect(broadcast.firstCall.args[0].broadcastedAt).to.be.at.least(before);
+    });
+
+    it('sends each of two moves made before the peers came back, once', async () => {
+      fluxCommunication.announceOwnAddressMove('10.0.0.1:16127', '10.0.0.2:16127');
+      fluxCommunication.announceOwnAddressMove('10.0.0.2:16127', '10.0.0.3:16127');
+
+      await peersRebuilt();
+
+      expect(announced()).to.deep.equal(['10.0.0.1:16127>10.0.0.2:16127', '10.0.0.2:16127>10.0.0.3:16127']);
+    });
+
+    it('at startup, sends the moves it recorded to the address it holds now, and no others', async () => {
+      registryManager.addressMoves.resolves(new Map([
+        [OLD, { to: NEW, at: Date.now() - 60000 }],
+        ['72.89.45.236:16127', { to: '108.6.236.4:16127', at: Date.now() - 60000 }],
+      ]));
+
+      fluxCommunication.announceRecordedOwnMovesWhenConnected();
+      await peersRebuilt();
+
+      expect(announced()).to.deep.equal([`${OLD}>${NEW}`]);
+    });
+
+    it('at startup, does not send a recorded move twice when the same move is also pending', async () => {
+      registryManager.addressMoves.resolves(new Map([[OLD, { to: NEW, at: Date.now() - 60000 }]]));
+
+      fluxCommunication.announceRecordedOwnMovesWhenConnected();
+      fluxCommunication.announceOwnAddressMove(OLD, NEW);
+      await peersRebuilt();
+
+      expect(announced()).to.deep.equal([`${OLD}>${NEW}`]);
+    });
+  });
 });
