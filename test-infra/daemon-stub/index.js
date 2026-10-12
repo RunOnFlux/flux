@@ -106,7 +106,8 @@ const collateralAliases = new Map();
 function aliasedOwnAddress(sourceIp, node) {
   const clean = sourceIp.replace('::ffff:', '');
   if (!collateralAliases.has(clean) || !node) return null;
-  return `${clean}:${node.ip.split(':')[1]}`;
+  const [, port] = node.ip.split(':');
+  return port ? `${clean}:${port}` : clean;
 }
 
 // Where a node really is, versus where the network is told it is.
