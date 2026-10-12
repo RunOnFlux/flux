@@ -1641,10 +1641,6 @@ async function adjustExternalIP(ip) {
       const newIP = normalizeSocketAddress(`${ip}:${userconfig.initial.apiport}`);
       const oldIP = normalizeSocketAddress(`${oldUserConfigIp}:${userconfig.initial.apiport}`);
       log.info(`New public Ip detected: ${newIP}, old Ip: ${oldIP} , updating the FluxNode info on the network`);
-      if (onOwnAddressMoved) {
-        await onOwnAddressMoved(oldIP, newIP)
-          .catch((error) => log.error(`adjustExternalIP - recording the move failed: ${error.message}`));
-      }
       const measuredUptime = fluxUptime();
       if (await ipChangesOverLimit() && measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) {
         log.info('IP changes over the limit allowed, one in 20 hours');
@@ -1661,12 +1657,12 @@ async function adjustExternalIP(ip) {
       // eslint-disable-next-line global-require
       const enterpriseHelper = require('./utils/enterpriseHelper');
       let apps = await appQueryService.installedApps();
+      // The apps still installed once the loop has removed the ones that cannot
+      // stay. Handed to whoever registered for an address change; nothing here
+      // knows what bringing them back involves.
+      const staying = [];
       if (apps.status === 'success' && apps.data.length > 0) {
         apps = apps.data;
-        // The apps still installed once the loop has removed the ones that cannot
-        // stay. Handed to whoever registered for an address change; nothing here
-        // knows what bringing them back involves.
-        const staying = [];
         // eslint-disable-next-line no-restricted-syntax
         for (const app of apps) {
           // Check if app requires static IP - if so, uninstall it since IP changed
@@ -1720,17 +1716,24 @@ async function adjustExternalIP(ip) {
             staying.push(app);
           }
         }
-        // One handover for the whole set, not a call per app: what an app is made
-        // of - a composed one's containers are `<component>_<app>`, and an
-        // enterprise one's names are inside a blob this layer cannot read - is
-        // knowledge the reconciler already holds. Failures stay inside it too, so
-        // one app that cannot be asked costs the others nothing and leaves the
-        // broadcast, the confirmation transaction and the geolocation update below
-        // reachable.
-        if (staying.length && onAddressChanged) {
-          await onAddressChanged(staying, `node ip changed to ${ip}`)
-            .catch((error) => log.error(`adjustExternalIP - restart request failed: ${error.message}`));
-        }
+      }
+      // After the loop: until then this node's own rows are at the old address,
+      // which is what keeps them from reading as another instance at the new one.
+      // Before the restarts: the election must know the move as soon as it sees the
+      // new address, or it reads FDM naming the old one as another node.
+      if (onOwnAddressMoved) {
+        await onOwnAddressMoved(oldIP, newIP)
+          .catch((error) => log.error(`adjustExternalIP - recording the move failed: ${error.message}`));
+      }
+      // One handover for the whole set, not a call per app: what an app is made
+      // of - a composed one's containers are `<component>_<app>`, and an
+      // enterprise one's names are inside a blob this layer cannot read - is
+      // knowledge the reconciler already holds. Failures stay inside it too, so
+      // one app that cannot be asked costs the others nothing and leaves the
+      // confirmation transaction and the geolocation update below reachable.
+      if (staying.length && onAddressChanged) {
+        await onAddressChanged(staying, `node ip changed to ${ip}`)
+          .catch((error) => log.error(`adjustExternalIP - restart request failed: ${error.message}`));
       }
       const result = await daemonServiceFluxnodeRpcs.createConfirmationTransaction();
       log.info(`createConfirmationTransaction: ${JSON.stringify(result)}`);

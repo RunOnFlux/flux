@@ -1717,6 +1717,33 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.callOrder(onOwnAddressMovedSpy, onAddressChangedSpy);
     });
 
+    it('never reads its own rows, carried to the new address by recording the move, as another instance there', async () => {
+      // Recording the move carries this node's location rows to its new address;
+      // the stub answers the way the table would before and after that.
+      let recorded = false;
+      const removeAppLocally = sinon.stub().resolves();
+      onAddressChangedSpy = sinon.stub().resolves();
+      const fluxNetworkHelperWithStubs = proxyquire('../../ZelBack/src/services/fluxNetworkHelper', {
+        './appQuery/appQueryService': { installedApps: sinon.stub().resolves({ status: 'success', data: [{ name: 'normalApp', version: 7, staticip: false }] }) },
+        './appDatabase/registryManager': {
+          appLocation: sinon.stub().callsFake(async () => [{ name: 'normalApp', ip: recorded ? '192.168.1.103:16127' : '127.0.0.1:16127' }]),
+        },
+        './appLifecycle/appUninstaller': { removeAppLocally },
+        './utils/enterpriseHelper': { checkAndDecryptAppSpecs: sinon.stub().callsFake((app) => Promise.resolve(app)) },
+        './geolocationService': { setNodeGeolocation: sinon.stub() },
+        './serviceHelper': serviceHelper,
+        'fs/promises': { writeFile: writeFileStub },
+      });
+      fluxNetworkHelperWithStubs.setLocalSocketAddress('127.0.0.1:16127');
+      fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
+      fluxNetworkHelperWithStubs.setOnOwnAddressMoved(async () => { recorded = true; });
+
+      await fluxNetworkHelperWithStubs.adjustExternalIP('192.168.1.103');
+
+      sinon.assert.notCalled(removeAppLocally);
+      expect(onAddressChangedSpy.firstCall.args[0].map((a) => a.name)).to.deep.equal(['normalApp']);
+    });
+
     it('should decrypt enterprise app specs before checking staticip requirement', async () => {
       const newIp = '192.168.1.101';
 
