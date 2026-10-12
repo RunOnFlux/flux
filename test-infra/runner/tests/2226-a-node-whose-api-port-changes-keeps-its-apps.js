@@ -123,7 +123,9 @@ describe('a node whose api port changes keeps its apps', function () {
     // peers take it there once it has handled its move - or once the budget for
     // that has run out and it has removed every app it held.
     await client(idx).waitForEvent('boot:settled', () => true, BOOT_SYNC_TIMEOUT_MS + 60000);
-    expect(Date.now() - restartedAt, 'from the restart to boot settled').to.be.below(SYNCED_WITHIN_MS);
+    const settledMs = Date.now() - restartedAt;
+    console.log(`# restart to boot settled: ${Math.round(settledMs / 1000)}s of the ${SYNCED_WITHIN_MS / 1000}s allowed`);
+    expect(settledMs, 'from the restart to boot settled').to.be.below(SYNCED_WITHIN_MS);
     const { mappings } = await upnpGatewayState(nodeIp);
     expect(mappings.map((m) => m.externalPort), 'fixture: the node mapped its new api port').to.include(NEW_PORT);
 
