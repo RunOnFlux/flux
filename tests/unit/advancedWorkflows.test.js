@@ -590,6 +590,8 @@ describe('advancedWorkflows tests', () => {
     let serviceHelperDelayStub;
     let fluxNetworkHelperStub;
     let registryManagerStub;
+    let primaryAddressStub;
+    let currentAddressStub;
     let shuttingDownNodesStub;
     let dockerServiceStub;
     let syncthingServiceStub;
@@ -653,6 +655,13 @@ describe('advancedWorkflows tests', () => {
 
       const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
       registryManagerStub = sinon.stub(registryManager, 'appLocation');
+      // default: no node has moved, so FDM's IP is the app's holder there, at its
+      // own port, and a remembered primary answers where it was remembered
+      primaryAddressStub = sinon.stub(registryManager, 'primaryAddressOf').callsFake(async (appName, ip) => {
+        const atIp = ((await registryManagerStub(appName)) || []).filter((location) => location.ip.split(':')[0] === ip.split(':')[0]);
+        return atIp.length === 1 ? atIp[0].ip : ip;
+      });
+      currentAddressStub = sinon.stub(registryManager, 'currentAddressOf').callsFake(async (address) => address);
       // default: no node has announced a shutdown
       shuttingDownNodesStub = sinon.stub(registryManager, 'shuttingDownNodes').resolves([]);
 
@@ -1355,7 +1364,7 @@ describe('advancedWorkflows tests', () => {
         sinon.assert.notCalled(promote);
         sinon.assert.calledOnceWithExactly(releaseOperatorStart, appName);
         sinon.assert.callOrder(releaseOperatorStart, primaryRole.holdAsStandby);
-        expect(settled()).to.deep.equal([{ identifier: appName, outcome: 'FDM names 192.168.1.90 its primary' }]);
+        expect(settled()).to.deep.equal([{ identifier: appName, outcome: `FDM names ${PEER} its primary` }]);
       });
 
       it('lifts the lock when the previous primary runs it, and keeps it when the previous primary cannot be ruled out', async () => {
@@ -3338,6 +3347,84 @@ describe('advancedWorkflows tests', () => {
 
       expect(linesMatching(logInfo, 'this node holds no location for it yet')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    describe('the primary\'s address', () => {
+      const fdmNames = (ip) => ({ data: { status: 'success', data: { ips: [ip] } } });
+
+      it('remembers a primary on a non-default port by that port, and judges its silence by its device there', async () => {
+        const appName = 'upnpprimary';
+        const PRIMARY = '192.168.1.90:16137';
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+        const logInfo = sinon.stub(log, 'info');
+        const runPass = electionFixture(appName, [PRIMARY]);
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves(fdmNames('192.168.1.90'));
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+        await runPass();
+
+        // Its location lapses and FDM names nobody; its address is silent, and this
+        // node's syncthing is connected to its device.
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves(fdmNoPrimary());
+        registryManagerStub.resolves([{ name: appName, ip: '192.168.1.5:16127', runningSince: '2026-01-01T00:00:00.000Z' }]);
+        axiosGetStub.resetBehavior();
+        axiosGetStub.rejects(new Error('silent'));
+        peerSyncthingSays(PRIMARY, 'valid');
+        logInfo.resetHistory();
+        await runPass();
+
+        expect(axiosGetStub.getCalls().some((call) => String(call.args[0]).includes(PRIMARY))).to.equal(true);
+        expect(linesMatching(logInfo, 'still holds a live connection to it')).to.have.lengthOf(1);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      });
+
+      it('reads FDM naming the address this node moved from as naming this node, and starts as its primary', async () => {
+        const appName = 'movedself';
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+        const logInfo = sinon.stub(log, 'info');
+        const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+        primaryAddressStub.callsFake(async (name, ip) => (ip === '10.0.0.77' ? '192.168.1.5:16127' : ip));
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves(fdmNames('10.0.0.77'));
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+      });
+
+      it('follows a remembered primary to the address it moved to, and takes over once it answers there that it stood down', async () => {
+        const appName = 'movedpeer';
+        const OLD = '192.168.1.90:16127';
+        const MOVED = '192.168.1.91:16127';
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+        const logInfo = sinon.stub(log, 'info');
+        const runPass = electionFixture(appName, [OLD]);
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves(fdmNames('192.168.1.90'));
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+        await runPass();
+
+        // The primary moved and stood down. Its old address answers nobody.
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves(fdmNoPrimary());
+        currentAddressStub.callsFake(async (address) => (address === OLD ? MOVED : address));
+        registryManagerStub.resolves([
+          { name: appName, ip: '192.168.1.5:16127', runningSince: '2026-01-01T00:00:00.000Z' },
+          { name: appName, ip: MOVED, runningSince: '2026-01-01T00:01:00.000Z' },
+        ]);
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake((url) => (url.includes(MOVED) ? peerAnswers({ held: [] })(url) : Promise.reject(new Error('old address unreachable'))));
+        logInfo.resetHistory();
+        await runPass();
+
+        expect(linesMatching(logInfo, `moved from ${OLD} to ${MOVED} - following it`)).to.have.lengthOf(1);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+      });
     });
 
     it('keeps electing later g: apps when an earlier one is still held by its previous master', async () => {

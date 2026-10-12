@@ -14,7 +14,7 @@ const verificationHelper = require('../verificationHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const {
-  DEFAULT_API_PORT, extractIp, extractPort, socketAddressesMatch, ipsMatch,
+  extractIp, extractPort, socketAddressesMatch, ipsMatch,
 } = require('../utils/socketAddressUtils');
 const { collateralOutpoint, nodesNameThisNode } = require('../utils/nodePinning');
 const fluxEventBus = require('../utils/fluxEventBus');
@@ -126,6 +126,43 @@ const STAND_DOWN_PASSES_BEFORE_GIVING_UP = 6;
 // becomes hundreds of cycles under compression.
 const PRIMARY_ELECTION_STALE_MS = (config.fluxapps.masterSlaveIntervalMs ?? 30 * 1000) * 10;
 const timeTostartNewMasterApp = new Map();
+
+/**
+ * The full socket address of the primary FDM names by IP: the app's holder at
+ * that IP, at the address it answers on now. The IP as FDM gave it when the
+ * registry cannot be read.
+ * @param {string} appName Global app name.
+ * @param {string} ip The primary FDM names.
+ * @returns {Promise<string>}
+ */
+async function fdmPrimaryAddress(appName, ip) {
+  try {
+    return await registryManagerModule.primaryAddressOf(appName, ip);
+  } catch (error) {
+    log.warn(`masterSlaveApps: the holder FDM names at ${ip} for app:${appName} cannot be looked up: ${error.message}`);
+    return ip;
+  }
+}
+
+/**
+ * Carry a remembered primary to the address it has announced moving to, so the
+ * election asks it - and looks up its syncthing device - where it answers.
+ * @param {string} identifier Component identifier.
+ */
+async function followRememberedPrimary(identifier) {
+  const remembered = mastersRunningGSyncthingApps.get(identifier);
+  if (!remembered) return;
+  let current;
+  try {
+    current = await registryManagerModule.currentAddressOf(remembered);
+  } catch (error) {
+    log.warn(`masterSlaveApps: where the previous primary of ${identifier} at ${remembered} answers now cannot be read: ${error.message}`);
+    return;
+  }
+  if (socketAddressesMatch(current, remembered)) return;
+  mastersRunningGSyncthingApps.set(identifier, current);
+  log.info(`masterSlaveApps: previous primary of ${identifier} moved from ${remembered} to ${current} - following it`);
+}
 // Components already reported as operator-stopped, so the exclusion is announced
 // on entry (and again after a restart) instead of every 30s cycle. An operator
 // stop is durable in the DB, so without a line here a g: app sits unelected
@@ -5035,7 +5072,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
         // Get master IP from FDM using the new /appips endpoint
         // eslint-disable-next-line no-await-in-loop
         const fdmResult = await getMasterIpFromFdm(installedApp.name, axiosOptions);
-        const { ip } = fdmResult;
+        let { ip } = fdmResult;
         ({ fdmOk } = fdmResult);
 
         if (!fdmOk) {
@@ -5063,6 +5100,15 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
               // eslint-disable-next-line no-continue
               continue;
             }
+            // From here the primary is the full address it answers on: FDM's IP
+            // after a move is still that node, at its new address, and this node
+            // when the move was its own.
+            if (ip) {
+              // eslint-disable-next-line no-await-in-loop
+              ip = await fdmPrimaryAddress(installedApp.name, ip);
+            }
+            // eslint-disable-next-line no-await-in-loop
+            await followRememberedPrimary(identifier);
             // FDM answered and `ip` is either a primary's address or null for
             // none. Both are verdicts, and it is the verdict rather than the
             // table entry that isElectedPrimaryHere reads - a null ip writes
@@ -5215,9 +5261,11 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && !ipsMatch(mastersRunningGSyncthingApps.get(identifier), localSocketAddr)) {
                   // There was a previous master (not me), and it's no longer on FDM
                   const previousMasterIp = mastersRunningGSyncthingApps.get(identifier);
-                  // Look up the correct port from runningAppList since FDM API returns IP without port
+                  // Remembered with its port; a listed holder at the same IP gives it
+                  // for a primary remembered by IP alone.
                   const previousMasterNode = runningAppList.find((x) => ipsMatch(x.ip, previousMasterIp));
-                  const previousMasterAddr = `${extractIp(previousMasterIp)}:${previousMasterNode ? extractPort(previousMasterNode.ip) : DEFAULT_API_PORT}`;
+                  const askedAt = previousMasterNode ? previousMasterNode.ip : previousMasterIp;
+                  const previousMasterAddr = `${extractIp(askedAt)}:${extractPort(askedAt)}`;
                   // Asked the same way, and released on the same terms, as any other
                   // peer. FDM dropping a primary is not evidence that it stopped -
                   // its registration lags reality in both directions - so a previous

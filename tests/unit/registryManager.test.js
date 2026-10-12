@@ -393,39 +393,47 @@ describe('registryManager tests', () => {
       it('follows a move to the new address', async () => {
         await moved('72.89.45.236:16137', '108.6.236.4:16137', minutesAgo(5));
 
-        expect(await registryManager.currentAddressOf('72.89.45.236:16137', 0)).to.equal('108.6.236.4:16137');
+        expect(await registryManager.currentAddressOf('72.89.45.236:16137')).to.equal('108.6.236.4:16137');
       });
 
       it('follows a chain of moves, each newer than the last', async () => {
         await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(30));
         await moved('10.0.0.2:16127', '10.0.0.3:16127', minutesAgo(10));
 
-        expect(await registryManager.currentAddressOf('10.0.0.1:16127', 0)).to.equal('10.0.0.3:16127');
+        expect(await registryManager.currentAddressOf('10.0.0.1:16127')).to.equal('10.0.0.3:16127');
       });
 
       it('ends a node that moved away and back at the address it holds now', async () => {
         await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(30));
         await moved('10.0.0.2:16127', '10.0.0.1:16127', minutesAgo(10));
 
-        expect(await registryManager.currentAddressOf('10.0.0.1:16127', 0)).to.equal('10.0.0.1:16127');
+        expect(await registryManager.currentAddressOf('10.0.0.1:16127')).to.equal('10.0.0.1:16127');
       });
 
-      it('does not follow a move made before the address was known to be this node\'s', async () => {
+      it('does not follow a move made before the node now at the address last announced there', async () => {
         await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(30));
+        await runs('anyapp', '10.0.0.1:16127', minutesAgo(20));
 
-        expect(await registryManager.currentAddressOf('10.0.0.1:16127', minutesAgo(20).getTime())).to.equal('10.0.0.1:16127');
+        expect(await registryManager.currentAddressOf('10.0.0.1:16127')).to.equal('10.0.0.1:16127');
+      });
+
+      it('follows a move made after the node last announced at the address', async () => {
+        await runs('anyapp', '10.0.0.1:16127', minutesAgo(20));
+        await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(10));
+
+        expect(await registryManager.currentAddressOf('10.0.0.1:16127')).to.equal('10.0.0.2:16127');
       });
 
       it('ignores an expired move', async () => {
         await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(200), minutesAgo(1));
 
-        expect(await registryManager.currentAddressOf('10.0.0.1:16127', 0)).to.equal('10.0.0.1:16127');
+        expect(await registryManager.currentAddressOf('10.0.0.1:16127')).to.equal('10.0.0.1:16127');
       });
 
       it('reads a bare address as the default port', async () => {
         await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(5));
 
-        expect(await registryManager.currentAddressOf('10.0.0.1', 0)).to.equal('10.0.0.2:16127');
+        expect(await registryManager.currentAddressOf('10.0.0.1')).to.equal('10.0.0.2:16127');
       });
     });
 

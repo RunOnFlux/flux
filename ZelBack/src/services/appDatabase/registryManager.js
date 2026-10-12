@@ -203,15 +203,22 @@ function followAddressMoves(socketAddr, moves, knownAt = 0) {
 }
 
 /**
- * Where the node known at `socketAddr` as of `knownAt` answers now, by the moves
- * recorded since. A move older than `knownAt` was made by whichever node held
- * the address before.
+ * Where the node at `socketAddr` answers now, by the moves recorded since it last
+ * announced its apps there. A move from that address older than the newest
+ * announcement at it was made by whichever node held the address before. Both
+ * times are the announcing node's own, so the comparison never crosses clocks.
  * @param {string} socketAddr A full socket address.
- * @param {number} knownAt When `socketAddr` was known to be the node's (ms).
  * @returns {Promise<string>}
  */
-async function currentAddressOf(socketAddr, knownAt) {
-  return followAddressMoves(socketAddr, await addressMoves(), knownAt);
+async function currentAddressOf(socketAddr) {
+  const address = normalizeSocketAddress(socketAddr);
+  const database = dbHelper.databaseConnection().db(config.database.appsglobal.database);
+  const [newest] = await database.collection(globalAppsLocations).find(
+    { ip: { $in: [address, socketAddr] } },
+    { projection: { _id: 0, broadcastedAt: 1 } },
+  ).sort({ broadcastedAt: -1 }).limit(1).toArray();
+  const knownAt = newest ? new Date(newest.broadcastedAt).getTime() || 0 : 0;
+  return followAddressMoves(address, await addressMoves(), knownAt);
 }
 
 /**
