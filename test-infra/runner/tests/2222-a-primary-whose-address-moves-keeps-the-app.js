@@ -43,7 +43,7 @@ const SIGTERM_EXPIRY_S = 120;
 const DETECTION_MS = 6 * 60 * 1000;
 const ADDRESS_MOVE_PEERS = Object.freeze({ wsPingIntervalMs: 120000, wsMaxMissedPongs: 3 });
 if (peerDeathMs(ADDRESS_MOVE_PEERS) <= DETECTION_MS) {
-  throw new Error('2220: peer liveness must outlast the detection budget, or the move is noticed after its dead connections are gone');
+  throw new Error('2222: peer liveness must outlast the detection budget, or the move is noticed after its dead connections are gone');
 }
 // Election passes after the move in which the primary could stand down: FDM
 // names its old address on every one of them.
