@@ -328,6 +328,26 @@ function portAnswers(ip, port, timeoutMs = 5000) {
   });
 }
 
+/**
+ * Whether a node answers as FluxOS at ip:port the way a real node judges it for
+ * /flux/checkfluxavailability: its api, its home port one below, and its
+ * syncthing port two above.
+ * @param {string} ip
+ * @param {number} port
+ * @returns {Promise<boolean>}
+ */
+async function fluxAnswers(ip, port) {
+  try {
+    const version = await fetch(`http://${ip}:${port}/flux/version`, { signal: AbortSignal.timeout(5000) });
+    if ((await version.json()).status !== 'success') return false;
+    const home = await (await fetch(`http://${ip}:${port - 1}/health`, { signal: AbortSignal.timeout(5000) })).text();
+    if (home !== 'OK' && !home.includes('<title>')) return false;
+  } catch {
+    return false;
+  }
+  return portAnswers(ip, port + 2);
+}
+
 const wsServer = http.createServer(async (req, res) => {
   // The handler awaits, so a request that fails while being read rejects rather
   // than throwing, and an unhandled rejection takes the process with it. Every
@@ -398,6 +418,21 @@ const wsServer = http.createServer(async (req, res) => {
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'success', data: { message: 'Ports are available' } }));
+      return;
+    }
+    if (req.method === 'GET' && req.url.startsWith('/flux/checkfluxavailability')) {
+      // A node asks a random peer whether it can reach the node, and puts itself
+      // out of service when the answer is no. Asked what a real node asks: the
+      // asker's api answers, its home port answers, and its syncthing port is
+      // open. Not whether the list holds the asker, which this stub does not keep.
+      const asked = new URL(req.url, 'http://stub').searchParams;
+      const ip = asked.get('ip');
+      const port = Number(asked.get('port') || 16127);
+      const available = Boolean(ip) && await fluxAnswers(ip, port);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(available
+        ? { status: 'success', data: { message: 'Asking Flux is available' } }
+        : { status: 'error', data: { message: 'Asking Flux is not available' } }));
       return;
     }
     if (req.url === '/flux/version') {

@@ -273,6 +273,7 @@ export function nodeClient(nodeNum) {
         'syncthing:holderExcluded',
         'syncthing:passComplete',
         'syncthing:ownersByNumber',
+        'syncthing:listening',
         'syncthing:namesVisible',
         'syncthing:localChangesReverted',
         'syncthing:devicesResumed',

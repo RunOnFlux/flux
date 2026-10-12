@@ -2165,13 +2165,12 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
         ? indices.map((i) => clients[i]).filter(Boolean)
         : clients.filter(Boolean);
       await Promise.all(targets.map(async (client) => {
-        // Authenticating here races the node's own availability check. Boot
-        // readiness proved the node could serve a login phrase, but the periodic
-        // outside-communication check can flip it unavailable while the mesh is
-        // still forming - and forming the mesh is exactly what this call exists
-        // to do, so that refusal is transient by construction. Wait it out here,
-        // bounded; authenticate() itself stays one-shot so a suite asserting a
-        // node is genuinely unavailable still sees the refusal.
+        // Authenticating here races the node's own availability check. A fleet
+        // boots together, so a node can ask a peer that is not answering yet,
+        // and it refuses logins until its recheck (availabilityRecheckMs) finds
+        // it reachable - a refusal that is transient by construction. Wait it
+        // out here, bounded; authenticate() itself stays one-shot so a suite
+        // asserting a node is genuinely unavailable still sees the refusal.
         //
         // Keyed on the error NAME: the node words this refusal differently depending on
         // which reachability check set it, and the name is the part that identifies the
