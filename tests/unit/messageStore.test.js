@@ -73,6 +73,8 @@ describe('messageStore tests', () => {
         verifyAppSpecifications: sinon.stub().resolves(),
       },
       '../appDatabase/registryManager': {
+        // no node in these tests has moved
+        currentAddressesOf: async (sayings) => sayings.map(({ ip }) => ip),
         checkApplicationRegistrationNameConflicts: sinon.stub().resolves(),
         getPreviousAppSpecifications: sinon.stub().resolves({ owner: 'owner1' }),
       },
@@ -243,6 +245,8 @@ describe('messageStore tests', () => {
           verifyAppSpecifications: sinon.stub().resolves(),
         },
         '../appDatabase/registryManager': {
+          // no node in these tests has moved
+          currentAddressesOf: async (sayings) => sayings.map(({ ip }) => ip),
           checkApplicationRegistrationNameConflicts: sinon.stub().resolves(),
           getPreviousAppSpecifications: sinon.stub().resolves({ owner: 'owner1', version: 5 }),
         },
@@ -308,6 +312,8 @@ describe('messageStore tests', () => {
             verifyAppSpecifications: sinon.stub().resolves(),
           },
           '../appDatabase/registryManager': {
+            // no node in these tests has moved
+            currentAddressesOf: async (sayings) => sayings.map(({ ip }) => ip),
             checkApplicationRegistrationNameConflicts: sinon.stub().resolves(),
             getPreviousAppSpecifications: getPrevious,
           },

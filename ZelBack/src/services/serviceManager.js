@@ -413,6 +413,8 @@ async function startFluxFunctions() {
       { key: { ip: 1, type: 1, dedupKey: 1 }, unique: true, recover: dedupeByKey },
       { key: { broadcastedAt: 1 } },
       { key: { createdAt: 1 } },
+      // the moves that lead to an address
+      { key: { 'data.newIP': 1 }, name: 'moves by the address they lead to', partialFilterExpression: { type: 'ipchanged' } },
     ]);
     log.info('App state events collection prepared');
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).dropIndex('broadcastedAt_1').catch(() => {});

@@ -6,6 +6,7 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const messageVerifier = require('./messageVerifier');
 const appValidator = require('../appRequirements/appValidator');
 const registryManager = require('../appDatabase/registryManager');
+const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const globalState = require('../utils/globalState');
@@ -273,6 +274,20 @@ async function storeAppPermanentMessage(message) {
 }
 
 /**
+ * The runningSince a location write sets. A report written at the address its
+ * node moved to meets the row the move carried there, which is the same
+ * instance: the earlier of the two is kept, as storeIPChangedMessage keeps it.
+ * @param {object} isNewer Expression: the report is newer than the row.
+ * @param {Date} runningSince The report's.
+ * @param {boolean} moved Whether the report was made at an address its node has since left.
+ * @returns {object} Aggregation expression.
+ */
+function runningSinceOf(isNewer, runningSince, moved) {
+  if (moved) return { $min: [{ $ifNull: ['$runningSince', runningSince] }, runningSince] };
+  return { $cond: [isNewer, runningSince, { $ifNull: ['$runningSince', runningSince] }] };
+}
+
+/**
  * Store app running message
  * @param {object} message - Message to store
  * @returns {Promise<boolean|Error>} Whether message should be rebroadcast or Error if invalid
@@ -335,6 +350,7 @@ async function storeAppRunningMessage(message) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const expireAt = new Date(message.broadcastedAt + RUNNING_EXPIRY_MS);
+  const [ip] = await registryManager.currentAddressesOf([{ ip: message.ip, at: message.broadcastedAt }]);
 
   let anyStored = false;
   const incomingDate = new Date(message.broadcastedAt);
@@ -346,21 +362,21 @@ async function storeAppRunningMessage(message) {
     const incoming = {
       name: app.name,
       hash: app.hash,
-      ip: message.ip,
+      ip,
       broadcastedAt: incomingDate,
       expireAt,
       osUptime: message.osUptime,
       staticIp: message.staticIp,
-      runningSince,
     };
     const conditionalSet = Object.fromEntries(
       Object.entries(incoming).map(([k, v]) => [k, { $cond: [isNewer, v, { $ifNull: [`$${k}`, v] }] }]),
     );
+    conditionalSet.runningSince = runningSinceOf(isNewer, runningSince, ip !== message.ip);
 
     // eslint-disable-next-line no-await-in-loop
     const result = await dbHelper.updateOneInDatabase(
       database, globalAppsLocations,
-      { name: app.name, ip: message.ip },
+      { name: app.name, ip },
       [{ $set: conditionalSet }],
       { upsert: true },
     );
@@ -370,10 +386,10 @@ async function storeAppRunningMessage(message) {
   }
 
   if (message.version === 2 && appsMessages.length === 0) {
-    const result = await dbHelper.findInDatabase(database, globalAppsLocations, { ip: message.ip }, { projection: { _id: 0, runningSince: 1 } });
+    const result = await dbHelper.findInDatabase(database, globalAppsLocations, { ip }, { projection: { _id: 0, runningSince: 1 } });
     if (result.length > 0) {
       const broadcastDate = new Date(message.broadcastedAt);
-      const olderThanBroadcast = { ip: message.ip, broadcastedAt: { $lte: broadcastDate } };
+      const olderThanBroadcast = { ip, broadcastedAt: { $lte: broadcastDate } };
       await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, olderThanBroadcast);
       await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingLocations, { ip: message.ip });
       await dbHelper.removeDocumentsFromCollection(database, appsInstallingBroadcasts, { 'data.ip': message.ip });
@@ -553,12 +569,15 @@ async function storeAppRemovedMessage(message) {
  * is the same rule the event-derived view applies. A sigterm may arrive long
  * after it was sent (a peer sync replays every unexpired event), so the new
  * expiry can already be in the past and must never be applied to a newer row.
+ * It applies where its node is now, which differs from where it was signed when
+ * the node has moved since.
  *
- * @param {string} ip - The node's socket address
+ * @param {string} signedAt - The node's socket address when it signed it
  * @param {number} broadcastedAt - The sigterm's broadcast time, ms
  * @returns {Promise<void>}
  */
-async function expireLocationsForSigterm(ip, broadcastedAt) {
+async function expireLocationsForSigterm(signedAt, broadcastedAt) {
+  const [ip] = await registryManager.currentAddressesOf([{ ip: signedAt, at: broadcastedAt }]);
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   await dbHelper.updateInDatabase(
@@ -574,14 +593,16 @@ async function expireLocationsForSigterm(ip, broadcastedAt) {
  * that node, when it was broadcast no later than the removal. A row from a later
  * apprunning broadcast is the app installed again and stays. The same rule as
  * the event-derived view, which keeps a report only when it is newer than the
- * node's removal of that app.
+ * node's removal of that app. It applies where its node is now, which differs
+ * from where it was signed when the node has moved since.
  *
- * @param {string} ip - The node's socket address
+ * @param {string} signedAt - The node's socket address when it signed it
  * @param {string} appName - The removed app
  * @param {number} broadcastedAt - The removal's broadcast time, ms
  * @returns {Promise<void>}
  */
-async function removeLocationForAppRemoved(ip, appName, broadcastedAt) {
+async function removeLocationForAppRemoved(signedAt, appName, broadcastedAt) {
+  const [ip] = await registryManager.currentAddressesOf([{ ip: signedAt, at: broadcastedAt }]);
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   await dbHelper.findOneAndDeleteInDatabase(
@@ -692,15 +713,22 @@ async function storeIPChangedMessage(message) {
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
+  // The rows the move speaks for are the ones reported before it: a later row at
+  // the old address is whoever holds it now. They go where the node is now, which
+  // is further on when it has moved again since, and keep their own report time.
+  const reportedBefore = { ip: message.oldIP, broadcastedAt: { $lt: new Date(message.broadcastedAt) } };
+  const [newIP] = await registryManager.currentAddressesOf([{ ip: message.newIP, at: message.broadcastedAt }]);
+  // the node has since moved back: its rows are where they belong
+  if (socketAddressesMatch(newIP, message.oldIP)) return true;
   // A row the node has already announced at its new address is the same instance
   // as its row at the old one: it keeps the earlier runningSince and the old row
   // goes, so the move leaves one row per app rather than two.
-  const moving = await dbHelper.findInDatabase(database, globalAppsLocations, { ip: message.oldIP }, { projection: { _id: 0, name: 1, runningSince: 1 } });
+  const moving = await dbHelper.findInDatabase(database, globalAppsLocations, reportedBefore, { projection: { _id: 0, name: 1, runningSince: 1 } });
   if (moving.length) {
     const present = await dbHelper.findInDatabase(
       database,
       globalAppsLocations,
-      { ip: message.newIP, name: { $in: moving.map((row) => row.name) } },
+      { ip: newIP, name: { $in: moving.map((row) => row.name) } },
       { projection: { _id: 0, name: 1 } },
     );
     // eslint-disable-next-line no-restricted-syntax
@@ -708,18 +736,16 @@ async function storeIPChangedMessage(message) {
       const { runningSince } = moving.find((row) => row.name === name);
       if (runningSince) {
         // eslint-disable-next-line no-await-in-loop
-        await dbHelper.updateOneInDatabase(database, globalAppsLocations, { ip: message.newIP, name }, [
+        await dbHelper.updateOneInDatabase(database, globalAppsLocations, { ip: newIP, name }, [
           { $set: { runningSince: { $min: ['$runningSince', runningSince] } } },
         ]);
       }
     }
     if (present.length) {
-      await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, { ip: message.oldIP, name: { $in: present.map((row) => row.name) } });
+      await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, { ...reportedBefore, name: { $in: present.map((row) => row.name) } });
     }
   }
-  const query = { ip: message.oldIP };
-  const update = { $set: { ip: message.newIP, broadcastedAt: new Date(message.broadcastedAt) } };
-  await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
+  await dbHelper.updateInDatabase(database, globalAppsLocations, reportedBefore, { $set: { ip: newIP } });
 
   // all stored, rebroadcast
   return true;
@@ -749,10 +775,15 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
       });
   };
 
-  for (const broadcast of verifiedBroadcasts) {
+  const addresses = await registryManager.currentAddressesOf(
+    verifiedBroadcasts.map(({ data }) => ({ ip: data.ip, at: data.broadcastedAt })),
+  );
+
+  for (const [index, broadcast] of verifiedBroadcasts.entries()) {
     const { data } = broadcast;
     const validTill = data.broadcastedAt + RUNNING_EXPIRY_MS;
     if (validTill < Date.now()) continue;
+    const ip = addresses[index];
 
     const apps = data.version === 2 ? (data.apps || []) : [{ name: data.name, hash: data.hash }];
     const incomingDate = new Date(data.broadcastedAt);
@@ -761,7 +792,7 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
     for (const app of apps) {
       const setFields = {
         name: app.name,
-        ip: data.ip,
+        ip,
         hash: { $cond: [isNewer, app.hash, { $ifNull: ['$hash', app.hash] }] },
         broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
         expireAt: { $cond: [isNewer, incomingExpiry, '$expireAt'] },
@@ -770,11 +801,11 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
       };
       const runningSince = data.runningSince ? new Date(data.runningSince) : (app.runningSince ? new Date(app.runningSince) : null);
       if (runningSince) {
-        setFields.runningSince = { $cond: [isNewer, runningSince, { $ifNull: ['$runningSince', runningSince] }] };
+        setFields.runningSince = runningSinceOf(isNewer, runningSince, ip !== data.ip);
       }
       locationOps.push({
         updateOne: {
-          filter: { name: app.name, ip: data.ip },
+          filter: { name: app.name, ip },
           update: [{ $set: setFields }],
           upsert: true,
         },
@@ -821,7 +852,10 @@ async function pruneAppRunningLocations(newestByIp) {
       .catch((err) => log.error(`pruneAppRunningLocations: ${err.message}`));
   };
 
-  for (const [ip, { names, broadcastedAt }] of newestByIp) {
+  const newest = [...newestByIp];
+  const addresses = await registryManager.currentAddressesOf(newest.map(([ip, { broadcastedAt }]) => ({ ip, at: broadcastedAt })));
+  for (const [index, [, { names, broadcastedAt }]] of newest.entries()) {
+    const ip = addresses[index];
     ops.push({
       deleteMany: {
         filter: { ip, name: { $nin: names }, broadcastedAt: { $lte: new Date(broadcastedAt) } },
@@ -971,12 +1005,13 @@ async function applyEviction(ip, evictedAt) {
   const at = evictionTime(evictedAt);
   if (at + EVICTED_EXPIRY_MS <= Date.now()) return;
   await handleEvictedEvent({ ip, evictedAt: at });
+  const [evicted] = await registryManager.currentAddressesOf([{ ip, at }]);
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   await dbHelper.removeDocumentsFromCollection(
     database,
     globalAppsLocations,
-    { ip, broadcastedAt: { $lt: new Date(at) } },
+    { ip: evicted, broadcastedAt: { $lt: new Date(at) } },
   );
 }
 

@@ -1933,6 +1933,7 @@ describe('fluxCommunication tests', () => {
       updateInDatabaseStub = sinon.stub(dbHelper, 'updateInDatabase').resolves();
       sinon.stub(messageStore, 'storeAppStateEvent');
       sinon.stub(registryManager, 'appLocationFromEvents').resolves([]);
+      sinon.stub(registryManager, 'currentAddressesOf').callsFake(async (sayings) => sayings.map(({ ip }) => ip));
 
       logInfoSpy = sinon.spy(log, 'info');
     });

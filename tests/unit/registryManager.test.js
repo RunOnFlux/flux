@@ -1732,7 +1732,9 @@ describe('registryManager tests', () => {
         dedupKey: 'ipchanged',
         broadcastedAt: new Date(broadcastedAt),
         expireAt: new Date(broadcastedAt + 125 * 60 * 1000),
-        data: { oldIP, newIP, broadcastedAt },
+        data: {
+          type: 'fluxipchanged', version: 1, oldIP, newIP, broadcastedAt,
+        },
       };
     }
 
