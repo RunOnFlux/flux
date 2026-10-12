@@ -356,11 +356,25 @@ describe('generalService tests', () => {
       sinon.assert.notCalled(getRawTransactionStub);
     });
 
-    it('answers a collateral output the transaction does not have with nulls', async () => {
+    it('answers a collateral output the transaction does not have by naming it, and asks again next time', async () => {
       getFluxNodeStatusStub.resolves({ status: 'success', data: { collateral: outpoint.replace(', 0)', ', 3)') } });
       getRawTransactionStub.resolves({ status: 'success', data: { vout: [{ value: 1000 }] } });
 
-      expect(await generalService.nodeCollateralTier()).to.eql({ collateral: null, tier: null });
+      expect(await generalService.nodeCollateralTier()).to.eql({
+        collateral: null, tier: null, missingOutput: '6b2f0b581698337758cd045ead702f4cf6d9c96e8a0288bed526146a005ddd0d:3',
+      });
+      await generalService.nodeCollateralTier();
+      sinon.assert.calledTwice(getFluxNodeStatusStub);
+    });
+
+    it('answers an index one past the last output as missing, and the last output as held', async () => {
+      getRawTransactionStub.resolves({ status: 'success', data: { vout: [{ value: 0.5 }, { value: 1000 }] } });
+
+      getFluxNodeStatusStub.resolves({ status: 'success', data: { collateral: outpoint.replace(', 0)', ', 2)') } });
+      expect((await generalService.nodeCollateralTier()).missingOutput).to.equal('6b2f0b581698337758cd045ead702f4cf6d9c96e8a0288bed526146a005ddd0d:2');
+
+      getFluxNodeStatusStub.resolves({ status: 'success', data: { collateral: outpoint.replace(', 0)', ', 1)') } });
+      expect(await generalService.nodeCollateralTier()).to.eql({ collateral: 1000, tier: generalService.COLLATERAL_TIERS[1000] });
     });
 
     it('throws when the daemon cannot say', async () => {

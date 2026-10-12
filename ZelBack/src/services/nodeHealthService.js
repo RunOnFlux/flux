@@ -40,8 +40,11 @@ const SYNCTHING_CHECK = Object.freeze({
  * comes from the node's collateral as the daemon reports it: while the daemon
  * cannot be read the check is UNMEASURED, and a node whose collateral makes it
  * no tier FAILs.
- * @returns {Promise<{result: string, reason: (string|undefined)}>} result is
- *   CHECK.OK, CHECK.FAIL or CHECK.UNMEASURED; reason says why it FAILed.
+ * @returns {Promise<{result: string, reason: (string|undefined), cause: (string|undefined)}>}
+ *   result is CHECK.OK, CHECK.FAIL or CHECK.UNMEASURED. A FAIL carries `reason`,
+ *   which says why for the operator and may carry what was measured, and
+ *   `cause`, which names the failure and stays the same while it holds:
+ *   noCollateral, outputMissing, noTier, ram or cpu.
  */
 async function confirmNodeTierHardware() {
   let collateralTier;
@@ -52,17 +55,20 @@ async function confirmNodeTierHardware() {
     return { result: CHECK.UNMEASURED };
   }
 
-  const { collateral, tier } = collateralTier;
-  if (collateral === null) return { result: CHECK.FAIL, reason: 'Node has no collateral' };
-  if (!tier) return { result: CHECK.FAIL, reason: `Node collateral (${collateral}) matches no Flux Node tier` };
+  const { collateral, tier, missingOutput } = collateralTier;
+  if (missingOutput) {
+    return { result: CHECK.FAIL, reason: `Node collateral output ${missingOutput} not found`, cause: 'outputMissing' };
+  }
+  if (collateral === null) return { result: CHECK.FAIL, reason: 'Node has no collateral', cause: 'noCollateral' };
+  if (!tier) return { result: CHECK.FAIL, reason: `Node collateral (${collateral}) matches no Flux Node tier`, cause: 'noTier' };
 
   const nodeRam = os.totalmem() / 1024 / 1024 / 1024;
   const nodeCpuThreads = os.cpus().length;
   if (nodeRam < tier.minRamGb) {
-    return { result: CHECK.FAIL, reason: `Node Total Ram (${nodeRam}) below ${tier.label} requirements` };
+    return { result: CHECK.FAIL, reason: `Node Total Ram (${nodeRam}) below ${tier.label} requirements`, cause: 'ram' };
   }
   if (nodeCpuThreads < tier.minCpuThreads) {
-    return { result: CHECK.FAIL, reason: `Node Cpu Threads (${nodeCpuThreads}) below ${tier.label} requirements` };
+    return { result: CHECK.FAIL, reason: `Node Cpu Threads (${nodeCpuThreads}) below ${tier.label} requirements`, cause: 'cpu' };
   }
   return { result: CHECK.OK };
 }
@@ -78,14 +84,17 @@ async function confirmNodeTierHardware() {
  * thousands of copies of itself. A level cannot fix that; it only decides who
  * sees the flood.
  *
- * Keyed on the failing check and its message, never the DOS code: the code
- * climbs as the score accrues (11, 13, 15), and keying on it would make every
- * increment a fresh line. A message that genuinely changes IS news.
+ * Keyed on the failing check and the cause of its failure. A check that names
+ * its cause is keyed on that: the hardware message carries the RAM the node
+ * measured, and a hypervisor that balloons memory moves that figure while the
+ * node fails for the same cause. Every other check is keyed on its message,
+ * never the DOS code: the code climbs as the score accrues (11, 13, 15), and
+ * keying on it would make every increment a fresh line. A message that
+ * genuinely changes IS news.
  *
- * The check prefix earns nothing today - all six failures carry distinct
- * messages, so no test can tell the key with it from the key without it, and
- * none pretends to. It is there so a check added later that reuses an existing
- * message still reads as a change of verdict rather than as the same one.
+ * The check prefix is there so a check added later that reuses an existing
+ * message or cause still reads as a change of verdict rather than as the same
+ * one.
  *
  * Starts at ok, so a node that boots fit says nothing and a node that boots
  * unfit says so once.
@@ -96,9 +105,14 @@ let lastFitnessVerdict = 'ok';
  * Refuse the node, logging only if this is not what it was already refusing for.
  * Every failing return goes through here so a check added later cannot be
  * silent by omission.
+ * @param {string} check The failing check.
+ * @param {object} error What the caller is answered with.
+ * @param {object} checks The checks run so far.
+ * @param {string} [cause] Names the failure while it holds; the message is used
+ *   when the check names none.
  */
-function unfit(check, error, checks) {
-  const verdict = `${check}:${error.message}`;
+function unfit(check, error, checks, cause) {
+  const verdict = `${check}:${cause ?? error.message}`;
   if (verdict !== lastFitnessVerdict) {
     lastFitnessVerdict = verdict;
     log.warn(`Node is not fit to serve the network: ${check} - ${error.message || error.name}`);
@@ -184,7 +198,7 @@ async function checkNodeFitness() {
   // hardware: the node must still meet its tier requirements
   const hardware = await confirmNodeTierHardware();
   if (hardware.result === CHECK.FAIL) {
-    return unfit('hardware', { message: hardware.reason, name: 'Error', code: undefined }, checks);
+    return unfit('hardware', { message: hardware.reason, name: 'Error', code: undefined }, checks, hardware.cause);
   }
   checks.hardware = hardware.result;
 

@@ -76,10 +76,11 @@ async function obtainNodeCollateralInformation() {
 /**
  * This node's collateral and the tier it makes the node, as the daemon reports
  * them. Throws only when the daemon cannot say: `collateral` is null when the
- * node holds none, and `tier` is null when its collateral is not one of
- * COLLATERAL_TIERS.
- * @returns {Promise<{collateral: (number|null), tier: (object|null)}>} tier is
- *   the node's COLLATERAL_TIERS entry.
+ * node holds none, or when the collateral's transaction has no output at its
+ * index, and `tier` is null when its collateral is not one of COLLATERAL_TIERS.
+ * @returns {Promise<{collateral: (number|null), tier: (object|null), missingOutput: (string|undefined)}>}
+ *   tier is the node's COLLATERAL_TIERS entry; missingOutput names, as
+ *   `txhash:index`, a collateral output its transaction does not have.
  */
 async function nodeCollateralTier() {
   if (storedCollateralTier) return storedCollateralTier;
@@ -96,7 +97,7 @@ async function nodeCollateralTier() {
     throw txInformation.data;
   }
   const output = txInformation.data.vout[txindex];
-  if (!output) return { collateral: null, tier: null };
+  if (!output) return { collateral: null, tier: null, missingOutput: `${txhash}:${txindex}` };
 
   const collateralTier = { collateral: output.value, tier: COLLATERAL_TIERS[output.value] || null };
   if (collateralTier.tier) storedCollateralTier = collateralTier;

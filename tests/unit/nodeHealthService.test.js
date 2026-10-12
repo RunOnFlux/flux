@@ -48,7 +48,7 @@ describe('nodeHealthService tests', () => {
       osCpusStub.returns([1, 1, 1, 1]);
       const response = await nodeHealthService.confirmNodeTierHardware();
 
-      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Cpu Threads (4) below Stratus requirements' });
+      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Cpu Threads (4) below Stratus requirements', cause: 'cpu' });
     });
 
     it('should return fail if stratus (100000) has less than 30gb ram', async () => {
@@ -57,7 +57,7 @@ describe('nodeHealthService tests', () => {
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1, 1]);
       const response = await nodeHealthService.confirmNodeTierHardware();
 
-      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Total Ram (29) below Stratus requirements' });
+      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Total Ram (29) below Stratus requirements', cause: 'ram' });
     });
 
     it('should return ok if stratus (100000) matches requirements', async () => {
@@ -76,7 +76,7 @@ describe('nodeHealthService tests', () => {
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
       const response = await nodeHealthService.confirmNodeTierHardware();
 
-      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Cpu Threads (15) below new Stratus requirements' });
+      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Cpu Threads (15) below new Stratus requirements', cause: 'cpu' });
     });
 
     it('should return fail if stratus (40000) has less than 61gb ram', async () => {
@@ -85,7 +85,7 @@ describe('nodeHealthService tests', () => {
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
       const response = await nodeHealthService.confirmNodeTierHardware();
 
-      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Total Ram (60) below new Stratus requirements' });
+      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Total Ram (60) below new Stratus requirements', cause: 'ram' });
     });
 
     it('should return ok if stratus (40000) matches requirements', async () => {
@@ -104,7 +104,7 @@ describe('nodeHealthService tests', () => {
       osCpusStub.returns([1, 1, 1]);
       const response = await nodeHealthService.confirmNodeTierHardware();
 
-      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Cpu Threads (3) below Nimbus requirements' });
+      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Cpu Threads (3) below Nimbus requirements', cause: 'cpu' });
     });
 
     it('should return fail if Nimbus (25000) has less than 7gb ram', async () => {
@@ -113,7 +113,7 @@ describe('nodeHealthService tests', () => {
       osCpusStub.returns([1, 1, 1, 1]);
       const response = await nodeHealthService.confirmNodeTierHardware();
 
-      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Total Ram (6) below Nimbus requirements' });
+      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Total Ram (6) below Nimbus requirements', cause: 'ram' });
     });
 
     it('should return ok if Nimbus (25000) matches requirements', async () => {
@@ -132,7 +132,7 @@ describe('nodeHealthService tests', () => {
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1]);
       const response = await nodeHealthService.confirmNodeTierHardware();
 
-      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Cpu Threads (7) below new Nimbus requirements' });
+      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Cpu Threads (7) below new Nimbus requirements', cause: 'cpu' });
     });
 
     it('should return fail if Nimbus (12500) has less than 30gb ram', async () => {
@@ -141,7 +141,7 @@ describe('nodeHealthService tests', () => {
       osCpusStub.returns([1, 1, 1, 1, 1, 1, 1, 1]);
       const response = await nodeHealthService.confirmNodeTierHardware();
 
-      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Total Ram (29) below new Nimbus requirements' });
+      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Total Ram (29) below new Nimbus requirements', cause: 'ram' });
     });
 
     it('should return ok if Nimbus (12500) matches requirements', async () => {
@@ -160,7 +160,7 @@ describe('nodeHealthService tests', () => {
       osCpusStub.returns([1]);
       const response = await nodeHealthService.confirmNodeTierHardware();
 
-      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Cpu Threads (1) below Cumulus requirements' });
+      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Cpu Threads (1) below Cumulus requirements', cause: 'cpu' });
     });
 
     it('should return fail if Cumulus (10000) has less than 3gb ram', async () => {
@@ -169,7 +169,7 @@ describe('nodeHealthService tests', () => {
       osCpusStub.returns([1, 1]);
       const response = await nodeHealthService.confirmNodeTierHardware();
 
-      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Total Ram (2) below Cumulus requirements' });
+      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Total Ram (2) below Cumulus requirements', cause: 'ram' });
     });
 
     it('should return ok if Cumulus (10000) matches requirements', async () => {
@@ -188,7 +188,7 @@ describe('nodeHealthService tests', () => {
       osCpusStub.returns([1, 1, 1]);
       const response = await nodeHealthService.confirmNodeTierHardware();
 
-      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Cpu Threads (3) below new Cumulus requirements' });
+      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Cpu Threads (3) below new Cumulus requirements', cause: 'cpu' });
     });
 
     it('should return fail if Cumulus (1000) has less than 3gb ram', async () => {
@@ -197,7 +197,7 @@ describe('nodeHealthService tests', () => {
       osCpusStub.returns([1, 1, 1, 1]);
       const response = await nodeHealthService.confirmNodeTierHardware();
 
-      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Total Ram (2) below new Cumulus requirements' });
+      expect(response).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node Total Ram (2) below new Cumulus requirements', cause: 'ram' });
     });
 
     it('should return ok if Cumulus (1000) matches requirements', async () => {
@@ -269,15 +269,71 @@ describe('nodeHealthService tests', () => {
     it('fails when the node holds no collateral', async () => {
       sinon.stub(generalService, 'nodeCollateralTier').resolves({ collateral: null, tier: null });
 
-      expect(await nodeHealthService.confirmNodeTierHardware()).to.eql({ result: nodeHealthService.CHECK.FAIL, reason: 'Node has no collateral' });
+      expect(await nodeHealthService.confirmNodeTierHardware()).to.eql({
+        result: nodeHealthService.CHECK.FAIL, reason: 'Node has no collateral', cause: 'noCollateral',
+      });
+    });
+
+    it('fails naming the collateral output its transaction does not have', async () => {
+      sinon.stub(generalService, 'nodeCollateralTier').resolves({ collateral: null, tier: null, missingOutput: 'abc123:3' });
+
+      expect(await nodeHealthService.confirmNodeTierHardware()).to.eql({
+        result: nodeHealthService.CHECK.FAIL, reason: 'Node collateral output abc123:3 not found', cause: 'outputMissing',
+      });
     });
 
     it('fails when the collateral is not a tier amount', async () => {
       sinon.stub(generalService, 'nodeCollateralTier').resolves({ collateral: 5000, tier: null });
 
       expect(await nodeHealthService.confirmNodeTierHardware()).to.eql({
-        result: nodeHealthService.CHECK.FAIL, reason: 'Node collateral (5000) matches no Flux Node tier',
+        result: nodeHealthService.CHECK.FAIL, reason: 'Node collateral (5000) matches no Flux Node tier', cause: 'noTier',
       });
+    });
+  });
+
+  describe('confirmNodeTierHardware at the edge of a tier', () => {
+    const nimbus = generalService.COLLATERAL_TIERS[25000];
+
+    beforeEach(() => {
+      sinon.stub(generalService, 'nodeCollateralTier').resolves({ collateral: 25000, tier: nimbus });
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('passes a node with exactly the minimum RAM and threads', async () => {
+      sinon.stub(os, 'totalmem').returns(nimbus.minRamGb * 1024 ** 3);
+      sinon.stub(os, 'cpus').returns(new Array(nimbus.minCpuThreads).fill(1));
+
+      expect(await nodeHealthService.confirmNodeTierHardware()).to.eql({ result: nodeHealthService.CHECK.OK });
+    });
+
+    it('fails a node one byte short of the minimum RAM', async () => {
+      sinon.stub(os, 'totalmem').returns(nimbus.minRamGb * 1024 ** 3 - 1);
+      sinon.stub(os, 'cpus').returns(new Array(nimbus.minCpuThreads).fill(1));
+
+      const response = await nodeHealthService.confirmNodeTierHardware();
+
+      expect(response.result).to.equal(nodeHealthService.CHECK.FAIL);
+      expect(response.cause).to.equal('ram');
+    });
+
+    it('fails a node one thread short of the minimum', async () => {
+      sinon.stub(os, 'totalmem').returns(nimbus.minRamGb * 1024 ** 3);
+      sinon.stub(os, 'cpus').returns(new Array(nimbus.minCpuThreads - 1).fill(1));
+
+      const response = await nodeHealthService.confirmNodeTierHardware();
+
+      expect(response.result).to.equal(nodeHealthService.CHECK.FAIL);
+      expect(response.cause).to.equal('cpu');
+    });
+
+    it('names the RAM cause when the node is short of both', async () => {
+      sinon.stub(os, 'totalmem').returns(1 * 1024 ** 3);
+      sinon.stub(os, 'cpus').returns([1]);
+
+      expect((await nodeHealthService.confirmNodeTierHardware()).cause).to.equal('ram');
     });
   });
 
@@ -534,6 +590,61 @@ describe('nodeHealthService tests', () => {
 
         expect(warnStub.callCount, 'the node started failing for a new reason and said nothing').to.equal(2);
         expect(warnStub.secondCall.args[0]).to.contain('hardware');
+      });
+
+      it('does not speak again as the measured RAM moves under the same cause', async () => {
+        osTotalmemStub.returns(2 * 1024 ** 3);
+        const first = await nodeHealthService.checkNodeFitness();
+        osTotalmemStub.returns(2.5 * 1024 ** 3);
+        const second = await nodeHealthService.checkNodeFitness();
+        osTotalmemStub.returns(1.75 * 1024 ** 3);
+        await nodeHealthService.checkNodeFitness();
+
+        expect(warnStub.callCount, 'a ballooning VM logged each new RAM figure as a new verdict').to.equal(1);
+        expect(first.error.message).to.equal('Node Total Ram (2) below new Cumulus requirements');
+        expect(second.error.message, 'the caller is answered with what was measured this time').to.equal('Node Total Ram (2.5) below new Cumulus requirements');
+      });
+
+      it('speaks again when the hardware cause changes', async () => {
+        osTotalmemStub.returns(1 * 1024 ** 3);
+        await nodeHealthService.checkNodeFitness();
+
+        osTotalmemStub.returns(8 * 1024 ** 3);
+        osCpusStub.returns([1]);
+        await nodeHealthService.checkNodeFitness();
+
+        collateralTierStub.resolves({ collateral: null, tier: null, missingOutput: 'abc123:3' });
+        await nodeHealthService.checkNodeFitness();
+
+        expect(warnStub.callCount, 'a different hardware failure was taken for the one already logged').to.equal(3);
+        expect(warnStub.thirdCall.args[0]).to.contain('Node collateral output abc123:3 not found');
+      });
+
+      it('speaks again when the same cause returns after the node recovered', async () => {
+        osTotalmemStub.returns(1 * 1024 ** 3);
+        await nodeHealthService.checkNodeFitness();
+        healthyHardware();
+        await nodeHealthService.checkNodeFitness();
+        osTotalmemStub.returns(1 * 1024 ** 3);
+        await nodeHealthService.checkNodeFitness();
+
+        expect(warnStub.callCount, 'the second failure was taken for the first').to.equal(2);
+      });
+
+      it('speaks again when a check that names no cause fails with a new message', async () => {
+        getDOSStateStub.returns({
+          status: 'success',
+          data: { dosState: 11, dosMessage: 'Flux IP detection failed' },
+        });
+        await nodeHealthService.checkNodeFitness();
+
+        getDOSStateStub.returns({
+          status: 'success',
+          data: { dosState: 11, dosMessage: 'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.' },
+        });
+        await nodeHealthService.checkNodeFitness();
+
+        expect(warnStub.callCount, 'a check with no cause stopped being keyed on its message').to.equal(2);
       });
 
       it('says so once when the node recovers, and not again', async () => {
