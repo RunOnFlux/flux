@@ -128,6 +128,24 @@ const PRIMARY_ELECTION_STALE_MS = (config.fluxapps.masterSlaveIntervalMs ?? 30 *
 const timeTostartNewMasterApp = new Map();
 
 /**
+ * This node's address as the election compares it: the address benchmark gives,
+ * carried through a move this node has recorded. Recording a move puts this
+ * node's rows, and the primary FDM's old IP resolves to, at the new address at
+ * once; benchmark reports the new address some seconds later. Read alone through
+ * that gap, this node would take its own new address for another node's.
+ * @param {string} localSocketAddr The address benchmark gives this node.
+ * @returns {Promise<string>}
+ */
+async function ownCurrentAddress(localSocketAddr) {
+  try {
+    return await registryManagerModule.currentAddressOf(localSocketAddr);
+  } catch (error) {
+    log.warn(`masterSlaveApps: whether this node at ${localSocketAddr} has moved cannot be read: ${error.message}`);
+    return localSocketAddr;
+  }
+}
+
+/**
  * The full socket address of the primary FDM names by IP: the app's holder at
  * that IP, at the address it answers on now. The IP as FDM gave it when the
  * registry cannot be read.
@@ -5102,7 +5120,10 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
             }
             // From here the primary is the full address it answers on: FDM's IP
             // after a move is still that node, at its new address, and this node
-            // when the move was its own.
+            // when the move was its own - which this node's address, read the same
+            // way, then matches.
+            // eslint-disable-next-line no-await-in-loop
+            localSocketAddr = await ownCurrentAddress(localSocketAddr);
             if (ip) {
               // eslint-disable-next-line no-await-in-loop
               ip = await fdmPrimaryAddress(installedApp.name, ip);

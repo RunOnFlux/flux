@@ -3396,6 +3396,30 @@ describe('advancedWorkflows tests', () => {
         expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
       });
 
+      it('knows itself at the address it has recorded moving to, before benchmark reports it there', async () => {
+        const appName = 'movedselfwindow';
+        const MOVED_TO = '192.168.1.6:16127';
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+        const logInfo = sinon.stub(log, 'info');
+        const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+        // Benchmark still gives 192.168.1.5; the move this node recorded carried
+        // its rows to 192.168.1.6, and FDM's old IP resolves there.
+        registryManagerStub.resolves([
+          { name: appName, ip: MOVED_TO, runningSince: '2026-01-01T00:00:00.000Z' },
+          { name: appName, ip: '192.168.1.90:16127', runningSince: '2026-01-01T00:01:00.000Z' },
+        ]);
+        currentAddressStub.callsFake(async (address) => (address === '192.168.1.5:16127' ? MOVED_TO : address));
+        primaryAddressStub.callsFake(async (name, ip) => (ip === '192.168.1.5' ? MOVED_TO : ip));
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves(fdmNames('192.168.1.5'));
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+      });
+
       it('follows a remembered primary to the address it moved to, and takes over once it answers there that it stood down', async () => {
         const appName = 'movedpeer';
         const OLD = '192.168.1.90:16127';
