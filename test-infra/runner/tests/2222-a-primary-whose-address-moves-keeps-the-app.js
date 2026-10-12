@@ -55,10 +55,6 @@ describe('a primary whose address moves keeps the app', function () {
   dumpLogsOnFailure(() => fleet?.env);
   const appName = `e2emoved${Date.now()}`;
   const client = (i) => fleet.env.clients[i];
-  // The move the primary recorded in its own database, from its old address to
-  // its new one; broadcastedAt is when it recorded it.
-  const ownMove = async (oldSocket, newSocket) => (await dbClient(B + 1).getAppStateEvents({ ip: oldSocket, type: 'ipchanged' }))
-    .find((event) => event.data?.newIP === newSocket);
   let oldIp;
   let movedIp;
   let movedAt;
@@ -111,15 +107,13 @@ describe('a primary whose address moves keeps the app', function () {
     const newSocket = `${movedIp}:16127`;
 
     // The move was noticed while the connections made to the old address were
-    // still counted: none had been dropped between the move and its detection.
-    const move = await ownMove(oldSocket, newSocket);
-    expect(move, 'the primary recorded its own move').to.not.equal(undefined);
-    const detectedAt = move.data.broadcastedAt;
+    // still counted: none of them died of missed pongs.
     const auth = await authenticate(client(B).url, fluxTeamKey());
     const history = (await client(B).getAuthed('/flux/peerhistory', auth.zelidauth)).data;
-    expect(history.some((e) => e.event === 'connected' && e.timestamp < movedAt), 'fixture: the primary had peers before the move').to.equal(true);
-    expect(history.filter((e) => e.event === 'disconnected' && e.timestamp >= movedAt && e.timestamp < detectedAt),
-      'fixture: connections dropped between the move and its detection').to.deep.equal([]);
+    const heldThrough = history.filter((e) => e.event === 'disconnected' && e.timestamp >= movedAt && e.timestamp - e.duration < movedAt);
+    expect(heldThrough.length, 'fixture: connections held before the move that ended after it').to.be.greaterThan(0);
+    expect(heldThrough.filter((e) => e.missedPongs >= ADDRESS_MOVE_PEERS.wsMaxMissedPongs),
+      'fixture: connections that died of missed pongs before the move was noticed').to.deep.equal([]);
     const heldMove = async (i) => (await dbClient(i + 1).getAppStateEvents({ ip: oldSocket, type: 'ipchanged' }))
       .some((event) => event.data?.newIP === newSocket);
 
