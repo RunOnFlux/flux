@@ -32,10 +32,13 @@ describe('two machines on one collateral', function () {
   dumpLogsOnFailure(() => env);
   const client = (i) => env.clients[i];
   const listedAddress = (i) => `${subnet.nodeIp(i + 1)}:16127`;
+  // A list entry names its address bare when the port is the default.
+  const socketOf = (ip) => (String(ip).includes(':') ? String(ip) : `${ip}:16127`);
   const collateralAt = async () => {
     const list = await client(BYSTANDER).get(`/daemon/viewdeterministiczelnodelist?_=${Date.now()}`);
-    const collateral = (list.data || []).find((node) => node.ip === listedAddress(LISTED) || node.ip === listedAddress(COPY));
-    return collateral ? collateral.ip : null;
+    const collateral = (list.data || []).map((node) => socketOf(node.ip))
+      .find((ip) => ip === listedAddress(LISTED) || ip === listedAddress(COPY));
+    return collateral ?? null;
   };
 
   before(async function () {
