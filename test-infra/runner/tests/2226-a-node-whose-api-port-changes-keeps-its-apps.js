@@ -8,6 +8,7 @@ import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { getAppContainerStatus, restartFluxos, setNodeApiPort } from '../framework/container.js';
 import { setNodeAddress, clearNodeAddress } from '../framework/daemon-control.js';
+import { enableUpnpGateway, upnpGatewayState } from '../framework/external-http-control.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, seedAndInstall } from '../framework/reconciler-suite.js';
@@ -17,7 +18,8 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 const subnet = getSubnetConfig();
 
 // A node's operator moves its api port on the same IP, 16127 to 16157, and
-// restarts FluxOS. Benchmark reports the node at the new port while the network
+// restarts FluxOS. A node on any port but 16127 runs only behind a UPnP gateway
+// it can map its ports on, so it is put behind one first. Benchmark reports the node at the new port while the network
 // still lists it at the old one. The node's collision check finds its own
 // collateral listed on its own IP at a port nothing answers at - its former
 // port - and that is this node's move: it records the move from the old socket
@@ -92,10 +94,13 @@ describe('a node whose api port changes keeps its apps', function () {
     const heldMove = async (i) => (await dbClient(i + 1).getAppStateEvents({ ip: oldSocket, type: 'ipchanged' }))
       .some((event) => event.data?.newIP === newSocket);
 
+    await enableUpnpGateway(nodeIp);
     await setNodeApiPort(client(idx).container, NEW_PORT);
     await setNodeAddress(nodeIp, newSocket, { scope: 'benchmark' });
     await restartFluxos(client(idx).container, { apiPort: NEW_PORT });
     await client(idx).followTo(nodeIp, NEW_PORT);
+    const { mappings } = await upnpGatewayState(nodeIp);
+    expect(mappings.map((m) => m.externalPort), 'fixture: the node mapped its new api port').to.include(NEW_PORT);
 
     await waitFor(() => heldMove(idx), { timeout: DETECTION_MS, interval: 5000, label: 'the node records its own move' });
     const peers = [0, 1, 2].filter((i) => i !== idx);
