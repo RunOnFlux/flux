@@ -31,6 +31,11 @@ const {
 } = require('../utils/appConstants');
 const { Privilege, authOf } = require('../utils/privileges');
 const localRemovalQueue = require('../appLifecycle/localRemovalQueue');
+const { ipsMatch, normalizeSocketAddress } = require('../utils/socketAddressUtils');
+
+// The most moves followed from one address. A node announces each move it makes,
+// so a real chain is one or two long; the bound only ends a chain that loops.
+const MAX_ADDRESS_MOVES_FOLLOWED = 8;
 
 // The rebuild running now, and the one that follows it for every caller that asked after it began.
 let rebuildRunning = null;
@@ -150,6 +155,96 @@ async function appLocation(appname) {
   };
   const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
   return results;
+}
+
+/**
+ * The address moves the network has recorded and that have not expired: each is
+ * a node announcing, signed, that it no longer answers at its old socket address
+ * and now answers at the new one. One per old address - the latest it announced.
+ * @returns {Promise<Map<string, {to: string, at: number}>>} old socket address ->
+ *   the address it moved to and when the move was announced (ms)
+ */
+async function addressMoves() {
+  const database = dbHelper.databaseConnection().db(config.database.appsglobal.database);
+  const events = await database.collection(globalAppStateEvents).find(
+    { type: 'ipchanged', expireAt: { $gt: new Date() } },
+    { projection: { _id: 0, ip: 1, broadcastedAt: 1, 'data.newIP': 1 } },
+  ).toArray();
+  const moves = new Map();
+  // eslint-disable-next-line no-restricted-syntax
+  for (const event of events) {
+    const from = normalizeSocketAddress(event.ip);
+    const to = normalizeSocketAddress(event.data?.newIP);
+    const at = new Date(event.broadcastedAt).getTime();
+    if (from && to && Number.isFinite(at)) moves.set(from, { to, at });
+  }
+  return moves;
+}
+
+/**
+ * Where a node known at `socketAddr` as of `knownAt` answers now. Each move
+ * followed must be newer than the address it moves from was known to be good, so
+ * a node that moved away and back again ends at the address it holds now.
+ * @param {string} socketAddr
+ * @param {Map<string, {to: string, at: number}>} moves From addressMoves.
+ * @param {number} [knownAt] When `socketAddr` was last known to be the node's (ms).
+ * @returns {string} The address, normalised; `socketAddr` when it has not moved.
+ */
+function followAddressMoves(socketAddr, moves, knownAt = 0) {
+  let address = normalizeSocketAddress(socketAddr);
+  let since = knownAt;
+  for (let hop = 0; hop < MAX_ADDRESS_MOVES_FOLLOWED; hop += 1) {
+    const move = moves.get(address);
+    if (!move || move.at <= since) break;
+    address = move.to;
+    since = move.at;
+  }
+  return address;
+}
+
+/**
+ * Where the node known at `socketAddr` as of `knownAt` answers now, by the moves
+ * recorded since. A move older than `knownAt` was made by whichever node held
+ * the address before.
+ * @param {string} socketAddr A full socket address.
+ * @param {number} knownAt When `socketAddr` was known to be the node's (ms).
+ * @returns {Promise<string>}
+ */
+async function currentAddressOf(socketAddr, knownAt) {
+  return followAddressMoves(socketAddr, await addressMoves(), knownAt);
+}
+
+/**
+ * The full socket address of the node FDM names an app's primary.
+ *
+ * FDM names it by IP alone. A node runs at most one instance of an app per IP,
+ * so the app's location at that IP is the node, and its port is the one to ask
+ * it on. A location announced before a move away from it answers for the
+ * address the node moved to. With no location at that IP, the IP may be one a
+ * node has since moved from: the one move away from it that ends at a holder of
+ * the app is that node.
+ *
+ * When neither settles it - two locations at the IP, or no move or several
+ * leading to a holder - the IP comes back as given.
+ * @param {string} appName
+ * @param {string} fdmIp The primary FDM names.
+ * @returns {Promise<string>} A full socket address, or `fdmIp` unresolved.
+ */
+async function primaryAddressOf(appName, fdmIp) {
+  const [locations, moves] = await Promise.all([appLocation(appName), addressMoves()]);
+  const atIp = locations.filter((location) => ipsMatch(location.ip, fdmIp));
+  if (atIp.length === 1) {
+    return followAddressMoves(atIp[0].ip, moves, new Date(atIp[0].broadcastedAt).getTime() || 0);
+  }
+  if (atIp.length > 1) return fdmIp;
+  const holders = new Set(locations.map((location) => normalizeSocketAddress(location.ip)));
+  const reached = new Set(
+    [...moves.keys()]
+      .filter((from) => ipsMatch(from, fdmIp))
+      .map((from) => followAddressMoves(from, moves))
+      .filter((to) => holders.has(to)),
+  );
+  return reached.size === 1 ? [...reached][0] : fdmIp;
 }
 
 // Derives running app locations from the event log. Will replace appLocation() once callers are switched.
@@ -2282,6 +2377,10 @@ module.exports = {
   getRegistryStatus,
   getPreviousAppSpecifications,
   appLocation,
+  addressMoves,
+  followAddressMoves,
+  currentAddressOf,
+  primaryAddressOf,
   appLocationFromEvents,
   appInstallingLocation,
   installingCountsByApp,
