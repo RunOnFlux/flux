@@ -2107,8 +2107,7 @@ describe('fluxNetworkHelper tests', () => {
       // An unknown list is an empty list to every accessor here, and this check
       // reads that as: no collision anywhere, this node absent from the
       // confirmed list, that absence logged as the reason, and the availability
-      // check that clears DOS skipped. It waits for the list instead, the same
-      // way it already waits for an unsynced daemon two lines above.
+      // check that clears DOS skipped. It waits for the list instead.
       const getBenchmarkResponseData = {
         status: 'success',
         data: { ipaddress: '127.0.0.1:5050' },
@@ -2122,6 +2121,22 @@ describe('fluxNetworkHelper tests', () => {
 
       sinon.assert.notCalled(deterministicFluxListStub);
       expect(fluxNetworkHelper.getDosMessage()).to.be.null;
+    });
+
+    it('should run again as soon as the node list arrives', async () => {
+      getBenchmarksStub.resolves({ status: 'success', data: { ipaddress: '127.0.0.1:5050' } });
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns(deterministicFluxnodeListResponse);
+      networkStateService.isReady.returns(false);
+      const onReady = sinon.stub(networkStateService, 'onReady');
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+      sinon.assert.calledOnce(onReady);
+      sinon.assert.notCalled(deterministicFluxListStub);
+
+      networkStateService.isReady.returns(true);
+      await onReady.firstCall.args[0]();
+      sinon.assert.called(deterministicFluxListStub);
     });
 
 

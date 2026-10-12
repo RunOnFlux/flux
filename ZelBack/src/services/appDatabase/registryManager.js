@@ -178,13 +178,13 @@ async function addressMoves() {
 }
 
 const MOVE_PROJECTION = Object.freeze({
-  _id: 0, ip: 1, broadcastedAt: 1, 'data.newIP': 1, 'data.version': 1,
+  _id: 0, ip: 1, broadcastedAt: 1, 'data.newIP': 1, 'data.version': 1, 'envelope.pubKey': 1,
 });
 
 /**
  * Add a stored ipchanged event to `moves` when it is a move: version 1, between
- * two different addresses.
- * @param {Map<string, {to: string, at: number}>} moves
+ * two different addresses. `signer` is the key that signed it, or null.
+ * @param {Map<string, {to: string, at: number, signer: string|null}>} moves
  * @param {object} event
  * @returns {string|null} The address it moves to, or null when it is not a move.
  */
@@ -193,7 +193,7 @@ function addMove(moves, event) {
   const to = typeof event.data?.newIP === 'string' ? normalizeSocketAddress(event.data.newIP) : null;
   const at = new Date(event.broadcastedAt).getTime();
   if (event.data?.version !== 1 || !from || !to || to === from || !Number.isFinite(at)) return null;
-  moves.set(from, { to, at });
+  moves.set(from, { to, at, signer: event.envelope?.pubKey ?? null });
   return to;
 }
 
@@ -237,6 +237,36 @@ async function currentAddressesOf(sayings) {
     const to = followAddressMoves(ip, moves, at);
     return to === normalizeSocketAddress(ip) ? ip : to;
   });
+}
+
+/**
+ * The listed node whose recorded moves lead to `address`, or null. A node moves
+ * only itself, so every move followed is one signed by the key the list holds
+ * for the node, and each is newer than the one before it.
+ * @param {string} address A socket address.
+ * @param {Array<{ip: string, pubkey: string}>} nodeList The deterministic list.
+ * @returns {Promise<object|null>}
+ */
+async function listedNodeMovedTo(address, nodeList) {
+  const target = normalizeSocketAddress(address);
+  const sources = new Set((await addressesLeadingTo(address)).map(normalizeSocketAddress));
+  sources.delete(target);
+  const candidates = nodeList.filter((node) => sources.has(normalizeSocketAddress(node.ip)));
+  // eslint-disable-next-line no-restricted-syntax
+  for (const node of candidates) {
+    // eslint-disable-next-line no-await-in-loop
+    const moves = await addressMovesFrom([node.ip]);
+    let current = normalizeSocketAddress(node.ip);
+    let since = 0;
+    for (let hop = 0; hop < MAX_ADDRESS_MOVES_FOLLOWED; hop += 1) {
+      const move = moves.get(current);
+      if (!move || move.at <= since || move.signer !== node.pubkey) break;
+      current = move.to;
+      since = move.at;
+      if (current === target) return node;
+    }
+  }
+  return null;
 }
 
 /**
@@ -2541,6 +2571,7 @@ module.exports = {
   addressMovesFrom,
   currentAddressesOf,
   addressesLeadingTo,
+  listedNodeMovedTo,
   followAddressMoves,
   currentAddressOf,
   primaryAddressOf,

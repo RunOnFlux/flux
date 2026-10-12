@@ -1913,18 +1913,17 @@ async function checkDeterministicNodesCollisions() {
         }, 120 * 1000);
         return;
       }
-      // Same shape as the daemon check above, for the same reason. The list
-      // accessors wait for the list to arrive, and this loop only re-arms once
-      // it has finished - so awaiting in here would retire it for the life of
-      // the process rather than delay it, and this is the only thing that ever
-      // clears this node's DOS state. Reading an unknown list instead is no
-      // better: it makes every branch below conclude this node is not in the
+      // The list accessors wait for the list to arrive, and this loop only
+      // re-arms once it has finished - so awaiting in here would retire it for
+      // the life of the process rather than delay it, and this is the only thing
+      // that ever clears this node's DOS state. Reading an unknown list instead is
+      // no better: it makes every branch below conclude this node is not in the
       // confirmed list, log that as the reason, and skip the availability check
-      // that would have cleared the DOS.
+      // that would have cleared the DOS. So it runs again when the list arrives:
+      // a node that booted at an address its collateral is not listed at cannot
+      // be dialled by its peers until it has handled that move.
       if (!networkStateService.isReady()) {
-        setTimeout(() => {
-          checkDeterministicNodesCollisions();
-        }, 120 * 1000);
+        networkStateService.onReady(() => checkDeterministicNodesCollisions());
         return;
       }
       const nodeList = await fluxCommunicationUtils.deterministicFluxList();

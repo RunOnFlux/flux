@@ -74,6 +74,41 @@ describe('fluxCommunication tests', () => {
     localWsServer.close(done);
   });
 
+  describe('addOutgoingPeer tests', () => {
+    const listed = { ip: '127.0.0.1:16127', pubkey: '02ownkey' };
+    const ask = (ip) => {
+      const res = { json: sinon.fake((body) => body) };
+      return fluxCommunication.addOutgoingPeer({ params: { ip }, query: {}, ip: '127.0.0.1' }, res).then(() => res.json.firstCall.args[0]);
+    };
+
+    beforeEach(() => {
+      sinon.stub(nodeConfirmationService, 'isConfirmed').returns(true);
+      sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').resolves([listed]);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('connects to a listed node at the address its own move leads to', async () => {
+      sinon.stub(registryManager, 'listedNodeMovedTo').resolves(listed);
+
+      const answer = await ask('127.0.0.1:1');
+
+      expect(answer.status).to.equal('success');
+      sinon.assert.calledWith(registryManager.listedNodeMovedTo, '127.0.0.1:1', [listed]);
+    });
+
+    it('refuses an address no listed node is at or moved to', async () => {
+      sinon.stub(registryManager, 'listedNodeMovedTo').resolves(null);
+
+      const answer = await ask('127.0.0.1:1');
+
+      expect(answer.status).to.equal('error');
+      expect(answer.data.message).to.contain('is not confirmed on the network');
+    });
+  });
+
   describe('initializeDiscovery tests', () => {
     // Being confirmed is not the same as being ready to peer. Every message an
     // inbound peer sends is checked against the node list, so a peer admitted

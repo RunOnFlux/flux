@@ -1657,7 +1657,10 @@ async function addOutgoingPeer(req, res) {
     }
 
     const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-    const fluxNode = nodeList.find((node) => socketAddressesMatch(node.ip, ip));
+    // A listed node that has moved asks from the address its move leads to, which
+    // the list names only once the move is confirmed on chain.
+    const fluxNode = nodeList.find((node) => socketAddressesMatch(node.ip, ip))
+      ?? await registryManager.listedNodeMovedTo(ip, nodeList);
     if (!fluxNode) {
       const errMessage = messageHelper.createErrorMessage(`FluxNode ${peerIp}:${peerPort} is not confirmed on the network.`);
       return res.json(errMessage);
