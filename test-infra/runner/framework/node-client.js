@@ -231,6 +231,7 @@ export function nodeClient(nodeNum) {
         // it. Nothing existing carries that.
         'ports:notOurs',
         'ports:unproven',
+        'discovery:started',
         'peers:added',
         'peers:belowThreshold',
         'peers:removed',

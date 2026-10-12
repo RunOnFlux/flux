@@ -1680,6 +1680,7 @@ async function addOutgoingPeer(req, res) {
 function startDiscovery() {
   if (discoveryRunning) return;
   discoveryRunning = true;
+  fluxEventBus.publish('discovery:started', {});
   // Driven by the node list arriving rather than by a retry that happens to
   // land after it. A peer holds one socket in either direction, so peers that
   // dial us while we are waiting take the very sockets we would have dialled
