@@ -30,9 +30,12 @@ const ADDRESS_MOVE_PEERS = Object.freeze({ wsPingIntervalMs: 120000, wsMaxMissed
 if (peerDeathMs(ADDRESS_MOVE_PEERS) <= DETECTION_MS) {
   throw new Error('2228: peer liveness must outlast the detection budget, or the move is noticed after its dead connections are gone');
 }
-// From the primary's death to the standby running the app: syncthing reporting
-// the device gone, a few election passes and a container start.
-const TAKEOVER_MS = 6 * 60 * 1000;
+// A machine that dies closes none of its connections, so the standby's syncthing
+// holds them until its own receive timeout (5 min, not compressed by the harness)
+// and the standby rightly refuses to start while it does. Then a few election
+// passes and a container start.
+const SYNCTHING_DEAD_CONNECTION_MS = 5 * 60 * 1000;
+const TAKEOVER_MS = SYNCTHING_DEAD_CONNECTION_MS + 4 * 60 * 1000;
 
 describe('a primary that moved and then died is taken over', function () {
   let fleet;
