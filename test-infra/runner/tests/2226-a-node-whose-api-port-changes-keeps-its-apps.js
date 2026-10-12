@@ -48,6 +48,8 @@ if (LOCATION_TTL_S * 1000 <= DETECTION_MS + WATCHED_MS) {
 // take it at that port. Production gives it 300s; the shared harness fleet's 30s
 // would decide that race for the harness rather than for the product.
 const BOOT_SYNC_TIMEOUT_MS = 300000;
+// Inside half of it, so a margin that shrinks fails here before it fails a node.
+const SYNCED_WITHIN_MS = BOOT_SYNC_TIMEOUT_MS / 2;
 
 describe('a node whose api port changes keeps its apps', function () {
   let env;
@@ -114,8 +116,14 @@ describe('a node whose api port changes keeps its apps', function () {
     await enableUpnpGateway(nodeIp);
     await setNodeApiPort(client(idx).container, NEW_PORT);
     await setNodeAddress(nodeIp, newSocket, { scope: 'benchmark' });
+    const restartedAt = Date.now();
     await restartFluxos(client(idx).container, { apiPort: NEW_PORT });
     await client(idx).followTo(nodeIp, NEW_PORT);
+    // Boot settles once the node has synced its app state at its new port - its
+    // peers take it there once it has handled its move - or once the budget for
+    // that has run out and it has removed every app it held.
+    await client(idx).waitForEvent('boot:settled', () => true, BOOT_SYNC_TIMEOUT_MS + 60000);
+    expect(Date.now() - restartedAt, 'from the restart to boot settled').to.be.below(SYNCED_WITHIN_MS);
     const { mappings } = await upnpGatewayState(nodeIp);
     expect(mappings.map((m) => m.externalPort), 'fixture: the node mapped its new api port').to.include(NEW_PORT);
 
