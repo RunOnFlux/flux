@@ -43,7 +43,7 @@ const upnpService = require('../../ZelBack/src/services/upnpService');
 const geolocationService = require('../../ZelBack/src/services/geolocationService');
 const ufw = require('../../ZelBack/src/services/utils/ufw');
 const ufwHelper = require('../../ZelBack/src/services/utils/ufwHelper');
-// Loaded by adjustExternalIP on its first call; loaded here so that load is not
+// Loaded by adjustExternalIp on its first call; loaded here so that load is not
 // inside a test's timeout.
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 require('../../ZelBack/src/services/appDatabase/registryManager');
@@ -1476,9 +1476,10 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
-  describe('adjustExternalIP tests', () => {
+  describe('adjustExternalIp tests', () => {
     let writeFileStub;
     let originalUserConfig;
+    const socketAt = (ip) => (typeof ip === 'string' && ip ? `${ip}:16127` : ip);
 
     beforeEach(() => {
       writeFileStub = sinon.stub(fs, 'writeFile').resolves();
@@ -1501,12 +1502,9 @@ describe('fluxNetworkHelper tests', () => {
           pgpPublicKey: '',
         },
       };
-      // adjustExternalIP defers a change until the node knows its own address.
-      fluxNetworkHelper.setLocalSocketAddress('127.0.0.1');
     });
     afterEach(() => {
       sinon.restore();
-      fluxNetworkHelper.setLocalSocketAddress(null);
       // Restore original userconfig
       globalThis.userconfig = originalUserConfig;
     });
@@ -1515,7 +1513,7 @@ describe('fluxNetworkHelper tests', () => {
       const newIp = '127.0.0.66';
       const callPath = path.join(__dirname, '../../config/userconfig.js');
 
-      await fluxNetworkHelper.adjustExternalIP(newIp);
+      await fluxNetworkHelper.adjustExternalIp('127.0.0.1:16127', socketAt(newIp));
 
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/module.exports = {/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/initial: {/gm));
@@ -1534,7 +1532,7 @@ describe('fluxNetworkHelper tests', () => {
     it('should not write to file if the config already has same exact ip', async () => {
       const newIp = userconfig.initial.ipaddress;
 
-      await fluxNetworkHelper.adjustExternalIP(newIp);
+      await fluxNetworkHelper.adjustExternalIp('127.0.0.1:16127', socketAt(newIp));
 
       sinon.assert.notCalled(writeFileStub);
     });
@@ -1542,7 +1540,7 @@ describe('fluxNetworkHelper tests', () => {
     it('should not write to file if ip does not have a proper format', async () => {
       const newIp = '127111111';
 
-      await fluxNetworkHelper.adjustExternalIP(newIp);
+      await fluxNetworkHelper.adjustExternalIp('127.0.0.1:16127', socketAt(newIp));
 
       sinon.assert.notCalled(writeFileStub);
     });
@@ -1550,7 +1548,7 @@ describe('fluxNetworkHelper tests', () => {
     it('should not write to file if ip is not a string', async () => {
       const newIp = 121;
 
-      await fluxNetworkHelper.adjustExternalIP(newIp);
+      await fluxNetworkHelper.adjustExternalIp('127.0.0.1:16127', socketAt(newIp));
 
       sinon.assert.notCalled(writeFileStub);
     });
@@ -1558,13 +1556,13 @@ describe('fluxNetworkHelper tests', () => {
     it('should not write to file if ip is empty', async () => {
       const newIp = '';
 
-      await fluxNetworkHelper.adjustExternalIP(newIp);
+      await fluxNetworkHelper.adjustExternalIp('127.0.0.1:16127', socketAt(newIp));
 
       sinon.assert.notCalled(writeFileStub);
     });
   });
 
-  describe('adjustExternalIP static IP app handling tests', () => {
+  describe('adjustExternalIp static IP app handling tests', () => {
     let writeFileStub;
     let originalUserConfig;
     let appQueryServiceStub;
@@ -1604,7 +1602,6 @@ describe('fluxNetworkHelper tests', () => {
 
       // Stub fluxNetworkHelper internal functions
       fluxNetworkHelper.setStoredFluxBenchAllowed('6.2.0');
-      fluxNetworkHelper.setLocalSocketAddress('127.0.0.1');
     });
 
     afterEach(() => {
@@ -1673,12 +1670,8 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
 
-      // Each test proxyquires its OWN module instance, so the address has to be set
-      // on THAT one - the beforeEach sets it on the outer module, which this code
-      // never reads. A node reaches adjustExternalIP only once it knows itself.
-      fluxNetworkHelperWithStubs.setLocalSocketAddress('127.0.0.1:16127');
       fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
-      await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
+      await fluxNetworkHelperWithStubs.adjustExternalIp('127.0.0.1:16127', `${newIp}:16127`);
 
       // Verify static IP app was uninstalled
       sinon.assert.calledOnce(appUninstallerStub.removeAppLocally);
@@ -1707,11 +1700,10 @@ describe('fluxNetworkHelper tests', () => {
         './serviceHelper': serviceHelper,
         'fs/promises': { writeFile: writeFileStub },
       });
-      fluxNetworkHelperWithStubs.setLocalSocketAddress('127.0.0.1:16127');
       fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
       fluxNetworkHelperWithStubs.setOnOwnAddressMoved(onOwnAddressMovedSpy);
 
-      await fluxNetworkHelperWithStubs.adjustExternalIP('192.168.1.102');
+      await fluxNetworkHelperWithStubs.adjustExternalIp('127.0.0.1:16127', '192.168.1.102:16127');
 
       sinon.assert.calledOnceWithExactly(onOwnAddressMovedSpy, '127.0.0.1:16127', '192.168.1.102:16127');
       sinon.assert.callOrder(onOwnAddressMovedSpy, onAddressChangedSpy);
@@ -1734,11 +1726,10 @@ describe('fluxNetworkHelper tests', () => {
         './serviceHelper': serviceHelper,
         'fs/promises': { writeFile: writeFileStub },
       });
-      fluxNetworkHelperWithStubs.setLocalSocketAddress('127.0.0.1:16127');
       fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
       fluxNetworkHelperWithStubs.setOnOwnAddressMoved(async () => { recorded = true; });
 
-      await fluxNetworkHelperWithStubs.adjustExternalIP('192.168.1.103');
+      await fluxNetworkHelperWithStubs.adjustExternalIp('127.0.0.1:16127', '192.168.1.103:16127');
 
       sinon.assert.notCalled(removeAppLocally);
       expect(onAddressChangedSpy.firstCall.args[0].map((a) => a.name)).to.deep.equal(['normalApp']);
@@ -1799,12 +1790,8 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
 
-      // Each test proxyquires its OWN module instance, so the address has to be set
-      // on THAT one - the beforeEach sets it on the outer module, which this code
-      // never reads. A node reaches adjustExternalIP only once it knows itself.
-      fluxNetworkHelperWithStubs.setLocalSocketAddress('127.0.0.1:16127');
       fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
-      await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
+      await fluxNetworkHelperWithStubs.adjustExternalIp('127.0.0.1:16127', `${newIp}:16127`);
 
       // Verify enterprise helper was called to decrypt specs
       sinon.assert.calledOnce(enterpriseHelperStub.checkAndDecryptAppSpecs);
@@ -1863,12 +1850,8 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
 
-      // Each test proxyquires its OWN module instance, so the address has to be set
-      // on THAT one - the beforeEach sets it on the outer module, which this code
-      // never reads. A node reaches adjustExternalIP only once it knows itself.
-      fluxNetworkHelperWithStubs.setLocalSocketAddress('127.0.0.1:16127');
       fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
-      await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
+      await fluxNetworkHelperWithStubs.adjustExternalIp('127.0.0.1:16127', `${newIp}:16127`);
 
       // Should skip the app entirely when decryption fails - neither uninstall nor restart
       sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
@@ -1923,12 +1906,8 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
 
-      // Each test proxyquires its OWN module instance, so the address has to be set
-      // on THAT one - the beforeEach sets it on the outer module, which this code
-      // never reads. A node reaches adjustExternalIP only once it knows itself.
-      fluxNetworkHelperWithStubs.setLocalSocketAddress('127.0.0.1:16127');
       fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
-      await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
+      await fluxNetworkHelperWithStubs.adjustExternalIp('127.0.0.1:16127', `${newIp}:16127`);
 
       // v6 apps should not be checked for staticip (only v7+)
       sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
@@ -1940,10 +1919,10 @@ describe('fluxNetworkHelper tests', () => {
     // registration is not another instance - it stores its own running-app row
     // locally, at the address benchmark reports - so what separates "the ports are
     // gone" from "that row is me" is the port, and only the port.
-    // Each call needs an address no earlier test has used: adjustExternalIP keeps a
+    // Each call needs an address no earlier test has used: adjustExternalIp keeps a
     // cache of addresses it has already handled and returns before the app loop for
     // a repeat, which leaves the assertions below passing for the wrong reason.
-    async function runWithLocations(locations, ownSocketAddress, newIp) {
+    async function runWithLocations(locations, ownSocketAddress) {
       appQueryServiceStub = {
         installedApps: sinon.stub().resolves({
           status: 'success',
@@ -1971,16 +1950,14 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
       helper.setStoredFluxBenchAllowed('6.2.0');
-      helper.setLocalSocketAddress(ownSocketAddress);
       helper.setOnAddressChanged(onAddressChangedSpy);
-      await helper.adjustExternalIP(newIp);
+      await helper.adjustExternalIp('127.0.0.1:16127', ownSocketAddress);
     }
 
     it('keeps an app whose only instance at the new address is this node itself', async () => {
       await runWithLocations(
         [{ name: 'normalApp', ip: '192.168.1.110:16127' }],
         '192.168.1.110:16127',
-        '192.168.1.110',
       );
 
       sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
@@ -1989,30 +1966,12 @@ describe('fluxNetworkHelper tests', () => {
       expect(staying.map((a) => a.name)).to.deep.equal(['normalApp']);
     });
 
-    // localSocketAddress is cleared whenever benchmark hiccups, and the change must
-    // survive that rather than be decided on it or dropped. Asserting the userconfig
-    // write did NOT happen is the point: that write is what marks the change handled,
-    // so an unwritten config is a change still pending for the next cycle.
-    it('defers the whole change, unwritten, when it does not know its own address', async () => {
-      await runWithLocations(
-        [{ name: 'normalApp', ip: '192.168.1.112:16157' }],
-        null,
-        '192.168.1.112',
-      );
-
-      sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
-      sinon.assert.notCalled(onAddressChangedSpy);
-      sinon.assert.notCalled(writeFileStub);
-      sinon.assert.notCalled(geolocationServiceStub.setNodeGeolocation);
-    });
-
     it('uninstalls an app another node already holds the ports for on this address', async () => {
       // Same IP, different port: a UPnP sibling behind the shared address. The
       // ports are genuinely gone, so this node cannot run it.
       await runWithLocations(
         [{ name: 'normalApp', ip: '192.168.1.111:16157' }],
         '192.168.1.111:16127',
-        '192.168.1.111',
       );
 
       sinon.assert.calledOnce(appUninstallerStub.removeAppLocally);
@@ -2033,6 +1992,9 @@ describe('fluxNetworkHelper tests', () => {
       // poller. Left real, those timers outlive this file and keep re-entering
       // the check against restored stubs for the rest of the run.
       sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
+      // A move it handles ends in a geolocation update, which reads this node's
+      // stored geolocation into memory for every later test to see.
+      sinon.stub(geolocationService, 'setNodeGeolocation');
       fluxNetworkHelper.setStoredFluxBenchAllowed('6.2.0');
       fluxNetworkHelper.setLocalSocketAddress('129.3.3.3');
       // Each case here declares the node's own address through the benchmark stub, and

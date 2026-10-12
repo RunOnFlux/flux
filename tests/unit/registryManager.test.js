@@ -1725,15 +1725,15 @@ describe('registryManager tests', () => {
       };
     }
 
-    function makeIPChangedEvent(oldIP, newIP, broadcastedAt) {
+    function makeIPChangedEvent(oldIp, newIp, broadcastedAt) {
       return {
-        ip: oldIP,
+        ip: oldIp,
         type: 'ipchanged',
         dedupKey: 'ipchanged',
         broadcastedAt: new Date(broadcastedAt),
         expireAt: new Date(broadcastedAt + 125 * 60 * 1000),
         data: {
-          type: 'fluxipchanged', version: 1, oldIP, newIP, broadcastedAt,
+          type: 'fluxipchanged', version: 1, oldIP: oldIp, newIP: newIp, broadcastedAt,
         },
       };
     }

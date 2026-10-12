@@ -501,16 +501,16 @@ async function handleAppInstallingErrorMessage(message, fromIP, port) {
  * would read FDM naming its old IP, for the minute or two FDM takes to catch up,
  * as another node holding its primary. Carrying its rows also keeps the
  * runningSince it announces, and with it its place in every app's order.
- * @param {string} oldIP This node's former socket address.
- * @param {string} newIP Its new socket address.
+ * @param {string} oldIp This node's former socket address.
+ * @param {string} newIp Its new socket address.
  */
-async function recordOwnAddressMove(oldIP, newIP) {
+async function recordOwnAddressMove(oldIp, newIp) {
   const move = {
-    type: 'fluxipchanged', version: 1, oldIP, newIP, broadcastedAt: Date.now(),
+    type: 'fluxipchanged', version: 1, oldIP: oldIp, newIP: newIp, broadcastedAt: Date.now(),
   };
   const signed = await fluxCommunicationMessagesSender.serialiseAndSignFluxBroadcast(move);
   if (!signed) {
-    log.warn(`recordOwnAddressMove - this node cannot sign as itself; its move from ${oldIP} to ${newIP} is not recorded`);
+    log.warn(`recordOwnAddressMove - this node cannot sign as itself; its move from ${oldIp} to ${newIp} is not recorded`);
     return;
   }
   const {
@@ -543,7 +543,7 @@ let recordedLoaded = true;
  */
 async function signOwnMove(move) {
   const data = {
-    type: 'fluxipchanged', version: 1, oldIP: move.oldIP, newIP: move.newIP, broadcastedAt: Date.now(),
+    type: 'fluxipchanged', version: 1, oldIP: move.oldIp, newIP: move.newIp, broadcastedAt: Date.now(),
   };
   const signed = await fluxCommunicationMessagesSender.serialiseAndSignFluxBroadcast(data);
   if (!signed) return;
@@ -554,11 +554,11 @@ async function signOwnMove(move) {
   move.hashes.add(hash(data));
 }
 
-function addPendingOwnMove(oldIP, newIP) {
-  const known = pendingOwnMoves.some((move) => socketAddressesMatch(move.oldIP, oldIP) && socketAddressesMatch(move.newIP, newIP));
+function addPendingOwnMove(oldIp, newIp) {
+  const known = pendingOwnMoves.some((move) => socketAddressesMatch(move.oldIp, oldIp) && socketAddressesMatch(move.newIp, newIp));
   if (!known) {
     pendingOwnMoves.push({
-      oldIP, newIP, signed: null, signedAt: 0, hashes: new Set(),
+      oldIp, newIp, signed: null, signedAt: 0, hashes: new Set(),
     });
   }
 }
@@ -574,8 +574,8 @@ async function loadRecordedOwnMoves() {
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
     const recorded = await registryManager.addressMoves();
     // eslint-disable-next-line no-restricted-syntax
-    for (const [oldIP, { to }] of recorded) {
-      if (socketAddressesMatch(to, localSocketAddr)) addPendingOwnMove(oldIP, to);
+    for (const [oldIp, { to }] of recorded) {
+      if (socketAddressesMatch(to, localSocketAddr)) addPendingOwnMove(oldIp, to);
     }
   } catch (error) {
     log.warn(`loadRecordedOwnMoves - this node's recorded moves cannot be read: ${error.message}`);
@@ -596,10 +596,10 @@ async function sendOwnMovesTo(peerKey) {
       // eslint-disable-next-line no-await-in-loop
       if (!move.signed || Date.now() - move.signedAt > OWN_MOVE_RESIGN_MS) await signOwnMove(move);
       if (move.signed && peer.send(move.signed)) {
-        log.info(`Address move from ${move.oldIP} to ${move.newIP} sent to ${peerKey}`);
+        log.info(`Address move from ${move.oldIp} to ${move.newIp} sent to ${peerKey}`);
       }
     } catch (error) {
-      log.error(`sendOwnMovesTo - the move from ${move.oldIP} to ${move.newIP} could not be sent to ${peerKey}: ${error.message}`);
+      log.error(`sendOwnMovesTo - the move from ${move.oldIp} to ${move.newIp} could not be sent to ${peerKey}: ${error.message}`);
     }
   }
   if (!pendingOwnMoves.length) stopSendingOwnMoves();
@@ -629,7 +629,7 @@ function noteOwnMoveHeardBack(messageHash) {
   const index = pendingOwnMoves.findIndex((move) => move.hashes.has(messageHash));
   if (index === -1) return false;
   const [move] = pendingOwnMoves.splice(index, 1);
-  log.info(`Address move from ${move.oldIP} to ${move.newIP} heard back from the network - no longer sent`);
+  log.info(`Address move from ${move.oldIp} to ${move.newIp} heard back from the network - no longer sent`);
   if (!pendingOwnMoves.length) stopSendingOwnMoves();
   return true;
 }
@@ -639,11 +639,11 @@ function noteOwnMoveHeardBack(messageHash) {
  * its old address and carries nothing now, so all of them are dropped; the move
  * goes to each peer as it connects at the new address, until one announces it
  * back.
- * @param {string} oldIP This node's former socket address.
- * @param {string} newIP Its new socket address.
+ * @param {string} oldIp This node's former socket address.
+ * @param {string} newIp Its new socket address.
  */
-function announceOwnAddressMove(oldIP, newIP) {
-  addPendingOwnMove(oldIP, newIP);
+function announceOwnAddressMove(oldIp, newIp) {
+  addPendingOwnMove(oldIp, newIp);
   peerManager.dropAllConnections();
   startSendingOwnMoves();
 }
@@ -651,12 +651,12 @@ function announceOwnAddressMove(oldIP, newIP) {
 /**
  * Record this node's own move and announce it: what serviceManager wires to
  * fluxNetworkHelper's address-moved seam.
- * @param {string} oldIP This node's former socket address.
- * @param {string} newIP Its new socket address.
+ * @param {string} oldIp This node's former socket address.
+ * @param {string} newIp Its new socket address.
  */
-async function handleOwnAddressMove(oldIP, newIP) {
-  await recordOwnAddressMove(oldIP, newIP);
-  announceOwnAddressMove(oldIP, newIP);
+async function handleOwnAddressMove(oldIp, newIp) {
+  await recordOwnAddressMove(oldIp, newIp);
+  announceOwnAddressMove(oldIp, newIp);
 }
 
 /**

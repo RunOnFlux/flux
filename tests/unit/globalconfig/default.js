@@ -39,6 +39,7 @@ module.exports = {
         geolocation: 'geolocation',
         policyDocuments: 'policydocuments', // last-known-good network policy documents, so an unreachable source does not drop enforcement
         benchmark: 'benchmark',
+        ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
       },
     },
     daemon: {

@@ -118,9 +118,9 @@ describe('the location table and the event-derived view agree', () => {
       await messageStore.storeAppRunningMessage(data);
     }
 
-    async function move(oldIP, newIP, broadcastedAt) {
+    async function move(oldIp, newIp, broadcastedAt) {
       const message = {
-        type: 'fluxipchanged', version: 1, oldIP, newIP, broadcastedAt,
+        type: 'fluxipchanged', version: 1, oldIP: oldIp, newIP: newIp, broadcastedAt,
       };
       await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.IPCHANGED, { message, envelope });
       await messageStore.storeIPChangedMessage(message);

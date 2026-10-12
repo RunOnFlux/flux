@@ -12,6 +12,7 @@ const net = require('net');
 const util = require('util');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
+const dbHelper = require('./dbHelper');
 const messageHelper = require('./messageHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
@@ -1584,13 +1585,21 @@ function getMaxNumberOfIpChanges() {
 }
 
 /**
- * To adjust an external IP.
- * @param {string} ip IP address.
- * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
+ * Moves this node from the address it last held to the one it holds now: the
+ * move is recorded and told to the network, and the new address confirmed on
+ * chain. An IP move also rewrites the configured IP, applies the limit on IP
+ * changes, removes the apps that cannot follow it - a static-IP app, or one an
+ * instance already holds at the new IP - and restarts the rest on the new IP. A
+ * port move on the same IP keeps every app where it is.
+ * @param {string} previous The socket address the node last held.
+ * @param {string} current The socket address it holds now.
+ * @returns {Promise<void>}
  */
-async function adjustExternalIP(ip) {
+async function adjustExternalIp(previous, current) {
   try {
-    const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+    const previousSocket = normalizeSocketAddress(previous);
+    const currentSocket = normalizeSocketAddress(current);
+    const ip = extractIp(currentSocket);
     // https://github.com/sindresorhus/ip-regex/blob/master/index.js#L8
     const v4 = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]\\d|\\d)(?:\\.(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]\\d|\\d)){3}';
     const v4exact = new RegExp(`^${v4}$`);
@@ -1598,29 +1607,64 @@ async function adjustExternalIP(ip) {
       log.warn(`Gathered IP ${ip} is not a valid format`);
       return;
     }
-    if (ip === userconfig.initial.ipaddress) {
-      return;
+    if (socketAddressesMatch(previousSocket, currentSocket) || myCache.has(currentSocket)) return;
+    myCache.set(currentSocket, '');
+    const ipMoved = !ipsMatch(previousSocket, currentSocket);
+    log.info(`New public Ip detected: ${currentSocket}, old Ip: ${previousSocket} , updating the FluxNode info on the network`);
+
+    let staying = [];
+    if (ipMoved) {
+      if (ip !== userconfig.initial.ipaddress) await writeConfiguredIp(ip);
+      const measuredUptime = fluxUptime();
+      if (await ipChangesOverLimit() && measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) {
+        log.info('IP changes over the limit allowed, one in 20 hours');
+        dosState += 11;
+        setDosMessage('IP changes over the limit allowed, one in 20 hours');
+        log.error(dosMessage);
+      }
+      staying = await appsStayingThroughIpMove(previousSocket, currentSocket);
     }
-    // Everything below needs to know which node this is: whose registration among
-    // the ones found at the new address is our own, which apps are ours to hand
-    // over, and what address the fluxipchanged broadcast is moving FROM.
-    // localSocketAddress is cleared whenever benchmark hiccups, and a comparison
-    // against nothing matches nothing - so acting here would read our own rows as
-    // strangers' and uninstall the apps they belong to.
-    //
-    // Return BEFORE the userconfig write, which is what makes this a deferral
-    // rather than a silent drop: the write is what marks the change handled, so
-    // leaving it unwritten leaves the change pending. checkMyFluxAvailability
-    // already refuses to run while the address is unknown, so nothing reaches here
-    // again until benchmark answers - and then this runs with the node knowing
-    // itself, exactly once, as designed.
-    if (!localSocketAddress) {
-      log.warn(`adjustExternalIP - own address unknown, deferring the change to ${ip} until benchmark answers`);
-      return;
+    // After the apps that cannot stay are removed: until then this node's own
+    // rows are at the old address, which is what keeps them from reading as
+    // another instance at the new one. Before the restarts: the election must
+    // know the move as soon as it sees the new address, or it reads FDM naming
+    // the old one as another node.
+    if (onOwnAddressMoved) {
+      await onOwnAddressMoved(previousSocket, currentSocket)
+        .catch((error) => log.error(`adjustExternalIp - recording the move failed: ${error.message}`));
     }
-    const oldUserConfigIp = userconfig.initial.ipaddress;
-    log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
-    const dataToWrite = `module.exports = {
+    // One handover for the whole set, not a call per app: what an app is made
+    // of - a composed one's containers are `<component>_<app>`, and an
+    // enterprise one's names are inside a blob this layer cannot read - is
+    // knowledge the reconciler already holds. Failures stay inside it too, so
+    // one app that cannot be asked costs the others nothing and leaves the
+    // confirmation transaction and the geolocation update below reachable.
+    if (staying.length && onAddressChanged) {
+      await onAddressChanged(staying, `node ip changed to ${ip}`)
+        .catch((error) => log.error(`adjustExternalIp - restart request failed: ${error.message}`));
+    }
+    const result = await daemonServiceFluxnodeRpcs.createConfirmationTransaction();
+    log.info(`createConfirmationTransaction: ${JSON.stringify(result)}`);
+    if (ipMoved) {
+      // Update geolocation service to track IP change and update static IP status
+      // eslint-disable-next-line global-require
+      const geolocationService = require('./geolocationService');
+      geolocationService.setNodeGeolocation();
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * Writes `ip` as this node's configured IP, keeping every other setting.
+ * @param {string} ip
+ * @returns {Promise<void>}
+ */
+async function writeConfiguredIp(ip) {
+  const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+  log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
+  const dataToWrite = `module.exports = {
   initial: {
     ipaddress: '${ip}',
     zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
@@ -1633,118 +1677,186 @@ async function adjustExternalIP(ip) {
     pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
   }
 }`;
+  await fs.writeFile(fluxDirPath, dataToWrite);
+}
 
-    await fs.writeFile(fluxDirPath, dataToWrite);
-
-    if (oldUserConfigIp && v4exact.test(oldUserConfigIp) && !myCache.has(ip)) {
-      myCache.set(ip, '');
-      const newIP = normalizeSocketAddress(`${ip}:${userconfig.initial.apiport}`);
-      const oldIP = normalizeSocketAddress(`${oldUserConfigIp}:${userconfig.initial.apiport}`);
-      log.info(`New public Ip detected: ${newIP}, old Ip: ${oldIP} , updating the FluxNode info on the network`);
-      const measuredUptime = fluxUptime();
-      if (await ipChangesOverLimit() && measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) {
-        log.info('IP changes over the limit allowed, one in 20 hours');
-        dosState += 11;
-        setDosMessage('IP changes over the limit allowed, one in 20 hours');
-        log.error(dosMessage);
-      }
-      // eslint-disable-next-line global-require
-      const appQueryService = require('./appQuery/appQueryService');
-      // eslint-disable-next-line global-require
-      const registryManager = require('./appDatabase/registryManager');
-      // eslint-disable-next-line global-require
-      const appUninstaller = require('./appLifecycle/appUninstaller');
-      // eslint-disable-next-line global-require
-      const enterpriseHelper = require('./utils/enterpriseHelper');
-      let apps = await appQueryService.installedApps();
-      // The apps still installed once the loop has removed the ones that cannot
-      // stay. Handed to whoever registered for an address change; nothing here
-      // knows what bringing them back involves.
-      const staying = [];
-      if (apps.status === 'success' && apps.data.length > 0) {
-        apps = apps.data;
-        // eslint-disable-next-line no-restricted-syntax
-        for (const app of apps) {
-          // Check if app requires static IP - if so, uninstall it since IP changed
-          // Only decrypt enterprise app specs if the app has enterprise field (v8+)
-          if (app.version >= 7 && (app.staticip === true || app.enterprise)) {
-            let appSpecs = app;
-            // Decrypt enterprise app specs if needed (v8+ with enterprise field)
-            if (app.enterprise) {
-              try {
-                // eslint-disable-next-line no-await-in-loop
-                appSpecs = await enterpriseHelper.checkAndDecryptAppSpecs(app);
-              } catch (decryptError) {
-                log.error(`Failed to decrypt enterprise specs for ${app.name}: ${decryptError.message}`);
-                // eslint-disable-next-line no-continue
-                continue;
-              }
-            }
-            if (appSpecs.staticip === true) {
-              log.info(`Application ${app.name} requires static IP but node IP has changed, uninstalling app`);
-              log.warn(`REMOVAL REASON: Static IP required - ${app.name} requires static IP but node IP changed from ${oldIP} to ${newIP}`);
-              // eslint-disable-next-line no-await-in-loop
-              await appUninstaller.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
-              // eslint-disable-next-line no-continue
-              continue;
-            }
-          }
-
+/**
+ * Removes the installed apps that cannot follow this node to a new IP and
+ * returns the rest: a static-IP app, and one that another instance already
+ * holds at the new IP.
+ * @param {string} previousSocket This node's former socket address.
+ * @param {string} currentSocket Its new socket address.
+ * @returns {Promise<object[]>} The apps that stay.
+ */
+async function appsStayingThroughIpMove(previousSocket, currentSocket) {
+  // eslint-disable-next-line global-require
+  const appQueryService = require('./appQuery/appQueryService');
+  // eslint-disable-next-line global-require
+  const registryManager = require('./appDatabase/registryManager');
+  // eslint-disable-next-line global-require
+  const appUninstaller = require('./appLifecycle/appUninstaller');
+  // eslint-disable-next-line global-require
+  const enterpriseHelper = require('./utils/enterpriseHelper');
+  const staying = [];
+  const apps = await appQueryService.installedApps();
+  if (apps.status !== 'success') return staying;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const app of apps.data) {
+    // Check if app requires static IP - if so, uninstall it since IP changed
+    // Only decrypt enterprise app specs if the app has enterprise field (v8+)
+    if (app.version >= 7 && (app.staticip === true || app.enterprise)) {
+      let appSpecs = app;
+      // Decrypt enterprise app specs if needed (v8+ with enterprise field)
+      if (app.enterprise) {
+        try {
           // eslint-disable-next-line no-await-in-loop
-          const runningAppList = await registryManager.appLocation(app.name);
-          // An instance at this address means the ports are taken and this node
-          // cannot run the app: one instance per IP is enforced by the host port
-          // mapping, so a UPnP sibling on another port holds them just as surely
-          // as a node that owns the address alone. That is why the address is
-          // compared at IP granularity.
-          //
-          // The node's OWN registration is not that. It stores its own running-app
-          // row locally, at the address benchmark reports, so the row sitting at
-          // this address is most often itself - and removing on that is a node
-          // deleting an app that is exactly where it belongs, then telling the
-          // network it is gone. Own-ness is the full socket address, which is what
-          // separates it from the sibling that shares only the IP.
-          const duplicateInstance = runningAppList.find(
-            (instance) => ipsMatch(instance.ip, ip) && !socketAddressesMatch(instance.ip, localSocketAddress),
-          );
-          if (duplicateInstance) {
-            log.info(`Aplication: ${app.name}, was found on the network already running under the same ip, uninstalling app`);
-            log.warn(`REMOVAL REASON: Duplicate IP detected - ${app.name} already running on network with IP ${ip} (after IP change)`);
-            // eslint-disable-next-line no-await-in-loop
-            await appUninstaller.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
-          } else {
-            staying.push(app);
-          }
+          appSpecs = await enterpriseHelper.checkAndDecryptAppSpecs(app);
+        } catch (decryptError) {
+          log.error(`Failed to decrypt enterprise specs for ${app.name}: ${decryptError.message}`);
+          // eslint-disable-next-line no-continue
+          continue;
         }
       }
-      // After the loop: until then this node's own rows are at the old address,
-      // which is what keeps them from reading as another instance at the new one.
-      // Before the restarts: the election must know the move as soon as it sees the
-      // new address, or it reads FDM naming the old one as another node.
-      if (onOwnAddressMoved) {
-        await onOwnAddressMoved(oldIP, newIP)
-          .catch((error) => log.error(`adjustExternalIP - recording the move failed: ${error.message}`));
+      if (appSpecs.staticip === true) {
+        log.info(`Application ${app.name} requires static IP but node IP has changed, uninstalling app`);
+        log.warn(`REMOVAL REASON: Static IP required - ${app.name} requires static IP but node IP changed from ${previousSocket} to ${currentSocket}`);
+        // eslint-disable-next-line no-await-in-loop
+        await appUninstaller.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
+        // eslint-disable-next-line no-continue
+        continue;
       }
-      // One handover for the whole set, not a call per app: what an app is made
-      // of - a composed one's containers are `<component>_<app>`, and an
-      // enterprise one's names are inside a blob this layer cannot read - is
-      // knowledge the reconciler already holds. Failures stay inside it too, so
-      // one app that cannot be asked costs the others nothing and leaves the
-      // confirmation transaction and the geolocation update below reachable.
-      if (staying.length && onAddressChanged) {
-        await onAddressChanged(staying, `node ip changed to ${ip}`)
-          .catch((error) => log.error(`adjustExternalIP - restart request failed: ${error.message}`));
-      }
-      const result = await daemonServiceFluxnodeRpcs.createConfirmationTransaction();
-      log.info(`createConfirmationTransaction: ${JSON.stringify(result)}`);
-      // Update geolocation service to track IP change and update static IP status
-      // eslint-disable-next-line global-require
-      const geolocationService = require('./geolocationService');
-      geolocationService.setNodeGeolocation();
     }
-  } catch (error) {
-    log.error(error);
+
+    // eslint-disable-next-line no-await-in-loop
+    const runningAppList = await registryManager.appLocation(app.name);
+    // An instance at this IP means the ports are taken and this node cannot run
+    // the app: one instance per IP is enforced by the host port mapping, so a
+    // UPnP sibling on another port holds them just as surely as a node that owns
+    // the address alone. That is why the address is compared at IP granularity.
+    //
+    // This node's OWN row is not that: it stores its own running-app row at the
+    // address benchmark reports. Own-ness is the full socket address, which is
+    // what separates it from the sibling that shares only the IP.
+    const duplicateInstance = runningAppList.find((instance) => ipsMatch(instance.ip, currentSocket)
+      && !socketAddressesMatch(instance.ip, currentSocket));
+    if (duplicateInstance) {
+      log.info(`Aplication: ${app.name}, was found on the network already running under the same ip, uninstalling app`);
+      log.warn(`REMOVAL REASON: Duplicate IP detected - ${app.name} already running on network with IP ${extractIp(currentSocket)} (after IP change)`);
+      // eslint-disable-next-line no-await-in-loop
+      await appUninstaller.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
+    } else {
+      staying.push(app);
+    }
   }
+  return staying;
+}
+
+const OWN_ADDRESS_RECORD_ID = 'own';
+
+/**
+ * The address this node last adopted as its own, and the address it moved from
+ * to get there, from its local database: null before it has adopted one.
+ * @returns {Promise<{socketAddress: string, movedFrom: string|null}|null>}
+ */
+async function ownAddressRecord() {
+  const db = dbHelper.databaseConnection();
+  if (!db) return null;
+  const record = await db.db(config.database.local.database).collection(config.database.local.collections.ownAddress)
+    .findOne({ _id: OWN_ADDRESS_RECORD_ID }, { projection: { _id: 0, socketAddress: 1, movedFrom: 1 } });
+  return record ?? null;
+}
+
+async function writeOwnAddressRecord(socketAddress, movedFrom) {
+  const db = dbHelper.databaseConnection();
+  await db.db(config.database.local.database).collection(config.database.local.collections.ownAddress).updateOne(
+    { _id: OWN_ADDRESS_RECORD_ID },
+    { $set: { socketAddress, movedFrom: movedFrom ?? null, recordedAt: new Date() } },
+    { upsert: true },
+  );
+}
+
+// Work on this node's own address, one piece at a time in the order it came.
+let ownAddressWork = Promise.resolve();
+function serialiseOwnAddressWork(work) {
+  const run = ownAddressWork.then(work).catch((error) => log.error(`own address - ${error.message}`));
+  ownAddressWork = run;
+  return run;
+}
+
+/**
+ * The address this node held before `reported`, for a node that has adopted no
+ * address yet: the configured IP when `reported` is on another IP, at the port
+ * the network lists this node's collateral at on that IP or else the reported
+ * port; `reported` itself otherwise.
+ * @param {string} reported
+ * @returns {Promise<string>}
+ */
+async function configuredFormerAddress(reported) {
+  const configuredIp = userconfig.initial.ipaddress;
+  if (!configuredIp || ipsMatch(configuredIp, reported)) return reported;
+  const status = await daemonServiceFluxnodeRpcs.getFluxNodeStatus().catch(() => null);
+  const listed = status?.status === 'success' ? status.data?.ip : null;
+  if (listed && ipsMatch(listed, configuredIp)) return normalizeSocketAddress(listed);
+  return normalizeSocketAddress(`${configuredIp}:${extractPort(reported)}`);
+}
+
+/**
+ * Moves this node from `previous` to `current`, and adopts `current` as its own.
+ * @param {string} previous
+ * @param {string} current
+ * @returns {Promise<void>}
+ */
+function moveOwnAddress(previous, current) {
+  return serialiseOwnAddressWork(async () => {
+    const from = normalizeSocketAddress(previous);
+    const to = normalizeSocketAddress(current);
+    await adjustExternalIp(from, to);
+    await writeOwnAddressRecord(to, from);
+  });
+}
+
+/**
+ * Acts on the address benchmark reports as this node's own. One that differs
+ * from the address the node last adopted is a move, whichever way it came and
+ * whether or not the chain has already listed the node there.
+ * @param {string} current The reported socket address.
+ * @returns {Promise<void>}
+ */
+function handleOwnAddress(current) {
+  return serialiseOwnAddressWork(async () => {
+    const reported = normalizeSocketAddress(current);
+    if (!reported) return;
+    const record = await ownAddressRecord();
+    const previous = record ? record.socketAddress : await configuredFormerAddress(reported);
+    if (!socketAddressesMatch(previous, reported)) {
+      await adjustExternalIp(previous, reported);
+      await writeOwnAddressRecord(reported, previous);
+    } else if (!record) {
+      await writeOwnAddressRecord(reported, null);
+    }
+  });
+}
+
+// The listener watching this node's own address, while one is.
+let ownAddressListener = null;
+
+/**
+ * Acts on every change of this node's own address from here on, and on the one
+ * it already knows. Watches once however often it is called: a boot that is run
+ * again does not add a second watcher.
+ * @returns {function(): void} Stops the watch.
+ */
+function startOwnAddressWatch() {
+  if (!ownAddressListener) {
+    ownAddressListener = (address) => { handleOwnAddress(address); };
+    onLocalSocketAddressChange(ownAddressListener);
+    const known = getKnownLocalSocketAddress();
+    if (known) handleOwnAddress(known);
+  }
+  return () => {
+    if (ownAddressListener) offLocalSocketAddressChange(ownAddressListener);
+    ownAddressListener = null;
+  };
 }
 
 /**
@@ -1826,15 +1938,17 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       const benchIpResponse = await benchmarkService.getPublicIp();
       if (benchIpResponse.status === 'success') {
         log.info(`FluxBench reported public IP: ${benchIpResponse.data}`);
-        const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
-        if (benchMyIP && extractIp(benchMyIP) !== localIp) {
+        const benchMyIp = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
+        if (benchMyIp && extractIp(benchMyIp) !== localIp) {
           daemonServiceUtils.setStandardCache('getbenchmarks[]', null);
           log.info('New IP found... updating network');
           dosState = 0;
           setDosMessage(null);
-          await adjustExternalIP(extractIp(benchMyIP));
+          // Read afresh: a new address is a change of this node's own address,
+          // which its one handler acts on.
+          await getLocalSocketAddress({ fresh: true });
           return true;
-        } if (benchMyIP && extractIp(benchMyIP) === localIp) {
+        } if (benchMyIp && extractIp(benchMyIp) === localIp) {
           log.info('FluxBench reported the same Ip that was already in use');
         } else {
           log.info('FluxBench reported a invalid IP');
@@ -1877,7 +1991,6 @@ async function checkMyFluxAvailability(retryNumber = 0) {
           log.error(dosMessage);
           return false;
         }
-        await adjustExternalIP(localIp);
         return true; // availability ok
       }
     }
@@ -1886,7 +1999,6 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   }
   dosState = 0;
   setDosMessage(null);
-  await adjustExternalIP(localIp);
   return true;
 }
 
@@ -1961,7 +2073,11 @@ async function checkDeterministicNodesCollisions() {
             return;
           }
         }
-        if (nodeStatus.data.status === 'CONFIRMED' && nodeCollateralDifferentIp) {
+        // A listing at the address this node recorded moving from is its own move,
+        // waiting for its confirmation: nothing to judge.
+        const ownRecord = nodeCollateralDifferentIp ? await ownAddressRecord() : null;
+        const movedFromHere = Boolean(ownRecord?.movedFrom) && socketAddressesMatch(ownRecord.movedFrom, nodeCollateralDifferentIp.ip);
+        if (nodeStatus.data.status === 'CONFIRMED' && nodeCollateralDifferentIp && !movedFromHere) {
           let errorCall = false;
           const askingIP = extractIp(nodeCollateralDifferentIp.ip);
           const askingIpPort = extractPort(nodeCollateralDifferentIp.ip);
@@ -1990,24 +2106,15 @@ async function checkDeterministicNodesCollisions() {
           await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/version`, axiosConfig).catch(() => { errorCall = true; });
           // The collateral listed at the IP this node was configured with, and
           // nothing answering there: not another machine, but this node, which has
-          // moved - its IP, or its api port on the same IP. Handled as the move it
-          // is, recorded and told to the network before the new address is
-          // confirmed: a bare takeover would put it on chain first.
+          // moved - its IP, or its api port on the same IP - and has no record of
+          // where it was. Handled as the move it is, recorded and told to the
+          // network before the new address is confirmed: a bare takeover would put
+          // it on chain first.
           const ownFormerAddress = askingIP === userconfig.initial.ipaddress;
-          if (errorCall && ownFormerAddress && extractIp(localSocketAddr) !== askingIP) {
-            log.info(`Our collateral is listed at ${askingIP}:${askingIpPort}, this node's own former address - handling the move`);
-            await adjustExternalIP(extractIp(localSocketAddr));
-          } else if (errorCall && ownFormerAddress) {
-            // The same IP on another port: adjustExternalIP compares IPs alone, so
-            // the move is recorded and told to the network here.
+          if (errorCall && ownFormerAddress) {
             const formerSocket = normalizeSocketAddress(`${askingIP}:${askingIpPort}`);
-            log.info(`Our collateral is listed at ${formerSocket}, this node's own former port - handling the move to ${localSocketAddr}`);
-            if (onOwnAddressMoved) {
-              await onOwnAddressMoved(formerSocket, localSocketAddr)
-                .catch((error) => log.error(`checkDeterministicNodesCollisions - recording the move failed: ${error.message}`));
-            }
-            const daemonResult = await daemonServiceFluxnodeRpcs.createConfirmationTransaction();
-            log.info(`createConfirmationTransaction: ${JSON.stringify(daemonResult)}`);
+            log.info(`Our collateral is listed at ${formerSocket}, this node's own former address - handling the move to ${localSocketAddr}`);
+            await moveOwnAddress(formerSocket, localSocketAddr);
           } else if (errorCall) {
             // Other node is confirmed offline after grace period - take over the collateral
             log.info(`Other node at ${askingIP}:${askingIpPort} confirmed offline. Creating confirmation transaction to take over collateral...`);
@@ -2804,7 +2911,11 @@ module.exports = {
   checkNodeJsVersionAllowed,
   checkDockerVersionAllowed,
   checkMyFluxAvailability,
-  adjustExternalIP,
+  adjustExternalIp,
+  handleOwnAddress,
+  moveOwnAddress,
+  ownAddressRecord,
+  startOwnAddressWatch,
   setOnAddressChanged,
   setOnOwnAddressMoved,
   allowPort,

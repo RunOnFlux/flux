@@ -23,6 +23,7 @@ function databaseConfig(prefix) {
         policyDocuments: 'policydocuments',
         ipRanges: 'ipranges',
         nodeLocations: 'nodelocations',
+        ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
       },
     },
     daemon: {

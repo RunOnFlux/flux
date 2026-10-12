@@ -2641,7 +2641,7 @@ describe('fluxCommunication tests', () => {
       await new Promise((resolve) => { setImmediate(resolve); });
       return peers[key].send.getCalls().map((call) => JSON.parse(call.args[0]).data)
         .filter((data) => data.type === 'fluxipchanged')
-        .map(({ oldIP, newIP }) => `${oldIP}>${newIP}`);
+        .map(({ oldIP: oldIp, newIP: newIp }) => `${oldIp}>${newIp}`);
     };
     const sentData = (key) => JSON.parse(peers[key].send.firstCall.args[0]).data;
 

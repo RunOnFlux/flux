@@ -16,9 +16,9 @@ describe('registryManager listedNodeMovedTo tests', () => {
   const listed = { ip: A, pubkey: OWN_KEY };
   let events;
 
-  async function move(oldIP, newIP, broadcastedAt, pubKey) {
+  async function move(oldIp, newIp, broadcastedAt, pubKey) {
     const message = {
-      type: 'fluxipchanged', version: 1, oldIP, newIP, broadcastedAt,
+      type: 'fluxipchanged', version: 1, oldIP: oldIp, newIP: newIp, broadcastedAt,
     };
     await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.IPCHANGED, {
       message,

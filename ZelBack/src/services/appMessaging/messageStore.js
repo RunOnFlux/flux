@@ -717,9 +717,9 @@ async function storeIPChangedMessage(message) {
   // the old address is whoever holds it now. They go where the node is now, which
   // is further on when it has moved again since, and keep their own report time.
   const reportedBefore = { ip: message.oldIP, broadcastedAt: { $lt: new Date(message.broadcastedAt) } };
-  const [newIP] = await registryManager.currentAddressesOf([{ ip: message.newIP, at: message.broadcastedAt }]);
+  const [newIp] = await registryManager.currentAddressesOf([{ ip: message.newIP, at: message.broadcastedAt }]);
   // the node has since moved back: its rows are where they belong
-  if (socketAddressesMatch(newIP, message.oldIP)) return true;
+  if (socketAddressesMatch(newIp, message.oldIP)) return true;
   // A row the node has already announced at its new address is the same instance
   // as its row at the old one: it keeps the earlier runningSince and the old row
   // goes, so the move leaves one row per app rather than two.
@@ -728,7 +728,7 @@ async function storeIPChangedMessage(message) {
     const present = await dbHelper.findInDatabase(
       database,
       globalAppsLocations,
-      { ip: newIP, name: { $in: moving.map((row) => row.name) } },
+      { ip: newIp, name: { $in: moving.map((row) => row.name) } },
       { projection: { _id: 0, name: 1 } },
     );
     // eslint-disable-next-line no-restricted-syntax
@@ -736,7 +736,7 @@ async function storeIPChangedMessage(message) {
       const { runningSince } = moving.find((row) => row.name === name);
       if (runningSince) {
         // eslint-disable-next-line no-await-in-loop
-        await dbHelper.updateOneInDatabase(database, globalAppsLocations, { ip: newIP, name }, [
+        await dbHelper.updateOneInDatabase(database, globalAppsLocations, { ip: newIp, name }, [
           { $set: { runningSince: { $min: ['$runningSince', runningSince] } } },
         ]);
       }
@@ -745,7 +745,7 @@ async function storeIPChangedMessage(message) {
       await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, { ...reportedBefore, name: { $in: present.map((row) => row.name) } });
     }
   }
-  await dbHelper.updateInDatabase(database, globalAppsLocations, reportedBefore, { $set: { ip: newIP } });
+  await dbHelper.updateInDatabase(database, globalAppsLocations, reportedBefore, { $set: { ip: newIp } });
 
   // all stored, rebroadcast
   return true;
