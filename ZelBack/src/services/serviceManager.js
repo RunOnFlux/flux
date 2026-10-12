@@ -641,9 +641,6 @@ async function startFluxFunctions() {
     // the new one - asked for durably here rather than driven from the network
     // layer, which sits underneath the reconciler and cannot require it
     fluxNetworkHelper.setOnAddressChanged((apps, reason) => appReconciler.requestRestartOf(apps, reason));
-    // a PEER's address moved: the g: election follows a remembered primary to its
-    // new address instead of waiting on the old one
-    fluxCommunication.setOnPeerAddressChanged((oldIP, newIP) => advancedWorkflows.peerAddressChanged(oldIP, newIP));
     log.info('App Spawner initialized');
 
     fluxNetworkHelper.allowNodeToBindPrivilegedPorts();
