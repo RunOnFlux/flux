@@ -206,6 +206,15 @@ export async function revealNodeToPeers(node) {
   return post(`/node-visibility/${String(node).split(':')[0]}`, { hidden: false });
 }
 
+/**
+ * Have benchmark know no address for a node, or know it again: getbenchmarks
+ * reports none and getpublicip fails, as fluxbench does when no public-IP service
+ * answers it.
+ */
+export async function setBenchmarkUnresolved(node, unresolved = true) {
+  return post(`/benchmark-unresolved/${String(node).split(':')[0]}`, { unresolved });
+}
+
 /** Put a node's address back to where it really is. */
 export async function clearNodeAddress(node) {
   return post(`/node-address/${String(node).split(':')[0]}`, {});

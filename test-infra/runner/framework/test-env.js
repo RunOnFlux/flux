@@ -909,6 +909,9 @@ function nodeReadyWaitStrategy(nodeIp) {
   return new HttpPollWaitStrategy(() => `http://${nodeIp}:16127/flux/health?ready=${Date.now()}`, { validate });
 }
 
+// What can be wrong with a node's own syncthing, for createTestEnv's syncthingFaults.
+export const SYNCTHING_FAULT = Object.freeze({ PORT_TAKEN: 'portTaken', NOT_STARTED: 'notStarted' });
+
 // `syncthing` selects what each node talks to. 'stub' (the default) is the
 // shared control-plane stub: it serves every node, moves no files, and is what
 // the gate runs on. 'binary' gives each node its own real daemon from the image
@@ -922,7 +925,7 @@ export async function createTestEnv({
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
   geolocation = {}, locationTable = null, staticIp = true, policy = null, policySeeds = null,
-  awaitPolicy = true, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, collateralOf = {}, rejoinOnRestart = true, networkShapes = {}, globalIpv6 = [], dnsRecords = [],
+  awaitPolicy = true, pm2Nodes = {}, pausedSyncthingNodes = [], syncthingFaults = {}, sharedKeys = {}, collateralOf = {}, rejoinOnRestart = true, networkShapes = {}, globalIpv6 = [], dnsRecords = [],
   // systemd-mode nodes: the entrypoint execs a real systemd as PID 1, so dockerd
   // and fluxos run as units and FluxOS's output goes to the journal. Env-level
   // and uniform across nodes.
@@ -941,6 +944,14 @@ export async function createTestEnv({
   for (const index of pausedSyncthingNodes) {
     if (syncthing !== 'binary') throw new Error('createTestEnv: pausedSyncthingNodes needs syncthing: \'binary\'');
     if (legacyNodes.includes(index)) throw new Error(`createTestEnv: paused syncthing node ${index} is legacy, whose syncthing FluxOS starts`);
+  }
+  // What is wrong with an Arcane node's own syncthing, by node index: 'portTaken',
+  // something else holds its port on loopback so it cannot bind it and nothing
+  // answers there from outside; 'notStarted', the OS never starts it.
+  for (const [key, fault] of Object.entries(syncthingFaults)) {
+    if (!Object.values(SYNCTHING_FAULT).includes(fault)) throw new Error(`createTestEnv: unknown syncthing fault '${fault}' for node ${key}`);
+    if (syncthing !== 'binary') throw new Error('createTestEnv: syncthingFaults needs syncthing: \'binary\'');
+    if (legacyNodes.includes(Number(key))) throw new Error(`createTestEnv: node ${key} is legacy, whose syncthing FluxOS starts`);
   }
   // Nodes whose FluxOS pm2 runs, the way the multitool installs a legacy node:
   // index -> the kill timeout it is started with in ms, or null for pm2's own
@@ -1217,7 +1228,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, systemdMode, firewall, collateralOf);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, systemdMode, firewall, collateralOf, syncthingFaults);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -1246,7 +1257,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], systemdMode = false, firewall = false, collateralOf = {}) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], systemdMode = false, firewall = false, collateralOf = {}, syncthingFaults = {}) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -1606,6 +1617,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     }
     if (!isLegacy) nodeEnv.FLUXOS_PATH = '/flux';
     if (pausedSyncthingNodes.includes(i)) nodeEnv.FLUX_SYNCTHING_PAUSED = '1';
+    if (syncthingFaults[i]) nodeEnv.FLUX_SYNCTHING_FAULT = syncthingFaults[i];
     // WHETHER THIS NODE'S FLUXOS IS ROOT. Declared per node rather than derived from
     // legacy, because the field carries both: Arcane runs FluxOS as root, and an
     // operator's own install runs it as whatever account they installed it under,

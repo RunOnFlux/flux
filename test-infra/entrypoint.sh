@@ -234,7 +234,12 @@ if [ "$FLUX_SYNCTHING_MODE" = "binary" ]; then
   #
   # The two must stay complements. Answer this from a signal FluxOS does not
   # read and a node with one of them gets either two syncthings or none.
-  if [ -n "$FLUXOS_PATH" ]; then
+  if [ "$FLUX_SYNCTHING_FAULT" = "portTaken" ]; then
+    # Something else holds apiport+2 on loopback, so syncthing cannot bind it and
+    # nothing answers on it from outside.
+    socat TCP-LISTEN:${SYNCTHING_LISTEN_PORT},bind=127.0.0.1,fork SYSTEM:true &
+  fi
+  if [ -n "$FLUXOS_PATH" ] && [ "$FLUX_SYNCTHING_FAULT" != "notStarted" ]; then
     # the flags a real Arcane node is supervised with, read off a live one
     /flux/test-infra/start-syncthing.sh
   fi

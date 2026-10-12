@@ -177,6 +177,9 @@ function publicIpAnswerFor(node) {
 // before it will run the availability check at all. Hiding it from everyone,
 // itself included, stops the check ever running.
 const hiddenFromPeers = new Set(); // real ip -> hidden from other nodes' lists
+// Nodes benchmark has no address for, as fluxbench has none when no public-IP
+// service answers it: getbenchmarks reports none and getpublicip fails.
+const unresolvedNodes = new Set(); // real ip
 
 // The list as a given requester sees it: every entry at its reported address,
 // minus any node hidden from that requester. A run with nothing hidden and nothing
@@ -456,8 +459,9 @@ const benchHandlers = {
       stratus: { cores: 16, ram: 62, ssd: 960, hdd: 0, ddwrite: 400, eps: 2000, ping: 2, download_speed: 1000, upload_speed: 500 },
     };
     const s = specs[tier] || specs.cumulus;
+    const unresolved = node && unresolvedNodes.has(node.ip.split(':')[0]);
     return {
-      ipaddress: node ? (aliasedOwnAddress(sourceIp, node) ?? benchmarkAddressOf(node)) : '127.0.0.1',
+      ipaddress: unresolved ? '' : (node ? (aliasedOwnAddress(sourceIp, node) ?? benchmarkAddressOf(node)) : '127.0.0.1'),
       cores: s.cores,
       ram: s.ram,
       ssd: s.ssd,
@@ -489,6 +493,7 @@ const benchHandlers = {
 
   getpublicip: (params, sourceIp) => {
     const node = nodeBySourceIp(sourceIp);
+    if (node && unresolvedNodes.has(node.ip.split(':')[0])) throw new Error('Ipaddress gathered is not valid: ');
     const own = aliasedOwnAddress(sourceIp, node);
     if (own) return own.split(':')[0];
     // fluxbench keeps the address getpublicip measures as its own: getbenchmarks
@@ -784,6 +789,14 @@ control.post('/node-visibility/:ip', (req, res) => {
   return res.json({ node: key, hiddenFromPeers: hidden });
 });
 
+control.post('/benchmark-unresolved/:ip', (req, res) => {
+  const key = String(req.params.ip).split(':')[0];
+  const unresolved = (req.body || {}).unresolved !== false;
+  if (unresolved) unresolvedNodes.add(key);
+  else unresolvedNodes.delete(key);
+  return res.json({ node: key, unresolved });
+});
+
 control.post('/node-address/:ip', (req, res) => {
   const key = String(req.params.ip).split(':')[0];
   const node = deterministicNodeList.find((n) => n.ip.split(':')[0] === key);
@@ -1025,6 +1038,7 @@ control.post('/reset', (req, res) => {
   reportedAddresses.clear();
   pendingConfirmations.clear();
   hiddenFromPeers.clear();
+  unresolvedNodes.clear();
   rpcFailures.clear();
   // Answered, not dropped: a call left waiting on a hold outlives the reset and
   // hangs whatever made it.
