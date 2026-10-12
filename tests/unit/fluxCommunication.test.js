@@ -2135,6 +2135,20 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledOnceWithExactly(removeStub, SENDER, 'app', broadcastedAt);
     });
 
+    it('keeps a synced move signed by the node the list already shows at its new address', async () => {
+      const NEW = '198.51.100.40:16127';
+      networkStateService.getFluxnodeBySocketAddress.callsFake(async (address) => (address === NEW ? { pubkey: 'PUB' } : null));
+      const data = {
+        type: 'fluxipchanged', version: 1, oldIP: SENDER, newIP: NEW, broadcastedAt: Date.now() - 60000,
+      };
+
+      await fluxCommunication.handleAppRunningSyncResponse({
+        data: { type: 'fluxapprunningsync', messages: [{ type: 'ipchanged', ip: SENDER, envelope, data }], done: true },
+      }, PEER_SOCKET);
+
+      sinon.assert.calledWith(messageStore.storeAppStateEvent, 'ipchanged', sinon.match({ message: data }));
+    });
+
     it('hands an eviction to messageStore with the time it was made', async () => {
       const evictStub = sinon.stub(messageStore, 'applyEviction').resolves();
       const createdAt = new Date(Date.now() - 45 * 60 * 1000);

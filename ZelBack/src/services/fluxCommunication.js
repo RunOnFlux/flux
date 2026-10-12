@@ -99,9 +99,12 @@ async function batchVerifyBroadcasts(broadcasts, label) {
     if (target instanceof Map) {
       // pubkey lookup — node exists in network
     } else {
-      const node = await networkStateService.getFluxnodeBySocketAddress(target);
-      if (!node) { nodeCheckFailed.add(i); continue; }
-      if (node.pubkey !== pubKey) { nodeCheckFailed.add(i); continue; }
+      const { signerAddresses, listedSignerVerdict, VerifyResult } = fluxCommunicationUtils;
+      // eslint-disable-next-line no-await-in-loop
+      if (await listedSignerVerdict(signerAddresses(payload, target), pubKey) !== VerifyResult.OK) {
+        nodeCheckFailed.add(i);
+        continue;
+      }
     }
     const message = serviceHelper.ensureString(payload);
     items.push({ index: i, messageToVerify: String(version) + message + String(timestamp), pubKey, signature });

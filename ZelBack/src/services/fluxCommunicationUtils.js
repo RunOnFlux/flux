@@ -112,6 +112,42 @@ const VerifyResult = Object.freeze({
   PUBKEY_MISMATCH: 'pubkeyMismatch',
 });
 
+/**
+ * The addresses a broadcast's signer may be listed at. A move names two, the
+ * address the node left and the one it holds now, and the list shows whichever
+ * the chain has reached: the move's own confirmation can be mined before or
+ * after peers hear the move. The key is that node's at both. Every other
+ * broadcast speaks for the node at one address.
+ * @param {object} payload The broadcast's data.
+ * @param {string} target The one address the broadcast's type names.
+ * @returns {string[]}
+ */
+function signerAddresses(payload, target) {
+  if (payload?.type === 'fluxipchanged') return [payload.oldIP, payload.newIP].filter(Boolean);
+  return [target];
+}
+
+/**
+ * Whether a node listed at one of `addresses` holds `pubKey`.
+ * @param {string[]} addresses
+ * @param {string} pubKey
+ * @returns {Promise<string>} VerifyResult.OK, PUBKEY_MISMATCH when a node is
+ *   listed there under another key, or NODE_NOT_FOUND when none is.
+ */
+async function listedSignerVerdict(addresses, pubKey) {
+  let listed = false;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const address of addresses) {
+    // eslint-disable-next-line no-await-in-loop
+    const node = await networkStateService.getFluxnodeBySocketAddress(address);
+    if (node) {
+      listed = true;
+      if (node.pubkey === pubKey) return VerifyResult.OK;
+    }
+  }
+  return listed ? VerifyResult.PUBKEY_MISMATCH : VerifyResult.NODE_NOT_FOUND;
+}
+
 async function verifyFluxBroadcast(broadcast) {
   const {
     pubKey, timestamp, signature, version, data: payload,
@@ -207,15 +243,14 @@ async function verifyFluxBroadcast(broadcast) {
   if (target instanceof Map) {
     // default case: already verified pubkey exists in network
   } else {
-    const node = await networkStateService.getFluxnodeBySocketAddress(target);
-    if (!node) {
+    const listed = await listedSignerVerdict(signerAddresses(payload, target), pubKey);
+    if (listed === VerifyResult.NODE_NOT_FOUND) {
       log.warn(error);
-      return VerifyResult.NODE_NOT_FOUND;
+      return listed;
     }
-    // verify the sender's pubKey matches the node at the target IP
-    if (node.pubkey !== pubKey) {
+    if (listed === VerifyResult.PUBKEY_MISMATCH) {
       log.warn(`Sender pubkey ${pubKey} does not match node at ${target}`);
-      return VerifyResult.PUBKEY_MISMATCH;
+      return listed;
     }
   }
 
@@ -280,6 +315,8 @@ async function verifyOriginalFluxBroadcast(data, currentTimeStamp) {
 module.exports = {
   BROADCAST_CLOCK_SKEW_MS,
   VerifyResult,
+  signerAddresses,
+  listedSignerVerdict,
   getNodeCount,
   verifyTimestampInFluxBroadcast,
   verifyOriginalFluxBroadcast,
