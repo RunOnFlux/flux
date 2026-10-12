@@ -39,10 +39,12 @@ async function isUp(client, appName) {
  *   a restarted syncthing waits out
  * @param {object} [opts.peers] The fleet's peer liveness, both halves, when the
  *   suite needs other than the shared fleet's
+ * @param {object} [opts.system] The fleet's system settings, when the suite needs
+ *   other than the shared fleet's
  * @returns {Promise<object>}
  */
 export async function placeSilentPrimaryApp({
-  hookCtx, appName, sigtermExpiryS, peers,
+  hookCtx, appName, sigtermExpiryS, peers, system,
 }) {
   const identifier = `${appName}_${appName}`;
   const env = await createTestEnv({
@@ -59,6 +61,7 @@ export async function placeSilentPrimaryApp({
         nodeMonitorIntervalMs: NODE_MONITOR_INTERVAL_MS,
       },
       ...(peers ? { peers } : {}),
+      ...(system ? { system } : {}),
     },
   });
   const client = (i) => env.clients[i];

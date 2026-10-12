@@ -30,6 +30,11 @@ const DETECTION_MS = 8 * 60 * 1000;
 // Election passes after the move in which the primary could stand down.
 const PASSES_WATCHED_MS = 3 * 60 * 1000;
 const TAKEOVER_MS = 6 * 60 * 1000;
+// A node that restarts on its new port has bootSyncTimeoutMs to sync its app
+// state before it removes every app it holds, and it cannot sync until its peers
+// take it at that port. Production gives it 300s; the shared harness fleet's 30s
+// would decide that race for the harness rather than for the product.
+const BOOT_SYNC_TIMEOUT_MS = 300000;
 
 describe('a primary whose api port changes keeps the app', function () {
   let fleet;
@@ -40,7 +45,9 @@ describe('a primary whose api port changes keeps the app', function () {
 
   before(async function () {
     this.timeout(900000);
-    fleet = await placeSilentPrimaryApp({ hookCtx: this, appName, sigtermExpiryS: SIGTERM_EXPIRY_S });
+    fleet = await placeSilentPrimaryApp({
+      hookCtx: this, appName, sigtermExpiryS: SIGTERM_EXPIRY_S, system: { bootSyncTimeoutMs: BOOT_SYNC_TIMEOUT_MS },
+    });
     nodeIp = client(B).ip;
   });
 

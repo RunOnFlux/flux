@@ -43,6 +43,11 @@ const LOCATION_TTL_S = 30 * 60;
 if (LOCATION_TTL_S * 1000 <= DETECTION_MS + WATCHED_MS) {
   throw new Error('2226: a location must outlive the detection budget and the passes watched');
 }
+// A node that restarts on its new port has bootSyncTimeoutMs to sync its app
+// state before it removes every app it holds, and it cannot sync until its peers
+// take it at that port. Production gives it 300s; the shared harness fleet's 30s
+// would decide that race for the harness rather than for the product.
+const BOOT_SYNC_TIMEOUT_MS = 300000;
 
 describe('a node whose api port changes keeps its apps', function () {
   let env;
@@ -62,7 +67,10 @@ describe('a node whose api port changes keeps its apps', function () {
       hookCtx: this,
       nodes: 3,
       tickerAutostart: false,
-      configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1, locationTtlS: LOCATION_TTL_S } },
+      configOverrides: {
+        fluxapps: { minOutgoing: 1, minIncoming: 1, locationTtlS: LOCATION_TTL_S },
+        system: { bootSyncTimeoutMs: BOOT_SYNC_TIMEOUT_MS },
+      },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
     await pushImage(appName, 'v1');
