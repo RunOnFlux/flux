@@ -14,6 +14,7 @@ const chaiAsPromised = require('chai-as-promised');
 chai.use(chaiAsPromised);
 const { expect } = chai;
 
+const geolocationService = require('../../ZelBack/src/services/geolocationService');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire');
 
@@ -2009,6 +2010,8 @@ describe('fluxService tests', () => {
     let syncthingServiceStub;
 
     beforeEach(() => {
+      // what this node knows of its geolocation is module state any earlier test can fill
+      sinon.stub(geolocationService, 'getNodeGeolocation').resolves(null);
       daemonServiceControlRpcsStub = sinon.stub(daemonServiceControlRpcs, 'getInfo');
       daemonServiceFluxnodeRpcsStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus');
       benchmarkServiceGetInfoStub = sinon.stub(benchmarkService, 'getInfo');
