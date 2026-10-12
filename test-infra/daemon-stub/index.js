@@ -116,17 +116,27 @@ const reportedAddresses = new Map(); // real ip -> { reported, scope }
 // probe - benchmark still reports the old address as the node's own, the node is
 // still listed there, and only getpublicip has noticed. That is the state a node
 // is actually in when its address moves, and it is what lets it detect the move at
-// all: the two answers disagreeing IS the detection.
+// all: the two answers disagreeing IS the detection. `benchmark` is the state after
+// it: benchmark reports the new address as the node's own, and the network still
+// lists it at the old one.
 function overrideFor(node) {
   if (!node) return null;
   return reportedAddresses.get(node.ip.split(':')[0]) || null;
 }
 
-// The address the network believes this node has. Unmoved under `publicip`.
+// The address the network believes this node has. Unmoved under `publicip` and
+// `benchmark`.
 function reportedAddressOf(node) {
   if (!node) return null;
   const o = overrideFor(node);
   return o && o.scope === 'all' ? o.reported : node.ip;
+}
+
+// The address benchmark tells the node it has. Moves under `benchmark` and `all`.
+function benchmarkAddressOf(node) {
+  if (!node) return null;
+  const o = overrideFor(node);
+  return o && (o.scope === 'all' || o.scope === 'benchmark') ? o.reported : node.ip;
 }
 
 // What benchmark's public-IP probe answers, which moves under either scope.
@@ -420,7 +430,7 @@ const benchHandlers = {
     };
     const s = specs[tier] || specs.cumulus;
     return {
-      ipaddress: node ? reportedAddressOf(node) : '127.0.0.1',
+      ipaddress: node ? benchmarkAddressOf(node) : '127.0.0.1',
       cores: s.cores,
       ram: s.ram,
       ssd: s.ssd,
@@ -692,6 +702,10 @@ control.post('/set-node-list', (req, res) => {
 // reply about the node itself, getpublicip, its status, and its list entry. That is
 // an address change already settled everywhere.
 //
+// `scope: 'benchmark'` moves benchmark's public-IP probe and its reply about the
+// node itself, and leaves its status and list entry where they were: a node that
+// has noticed the move, before the chain has caught up.
+//
 // `scope: 'publicip'` moves only benchmark's public-IP probe. Everything else still
 // says the node is where it was. That is the state a node is in the moment its
 // address moves and before the chain has caught up - and it is the only state in
@@ -721,8 +735,8 @@ control.post('/node-address/:ip', (req, res) => {
     reportedAddresses.delete(key);
     return res.json({ node: key, reported: node.ip, scope: null });
   }
-  if (scope !== 'all' && scope !== 'publicip') {
-    return res.status(400).json({ error: `scope must be 'all' or 'publicip', got '${scope}'` });
+  if (!['all', 'benchmark', 'publicip'].includes(scope)) {
+    return res.status(400).json({ error: `scope must be 'all', 'benchmark' or 'publicip', got '${scope}'` });
   }
 
   // A bare address keeps the node's own port. The api port is what its peers reach

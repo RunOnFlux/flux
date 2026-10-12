@@ -23,8 +23,10 @@ import { placeSilentPrimaryApp, A, B, C } from '../framework/silent-primary.js';
 //
 // The move is real (moveNodeAddress): the old address leaves the node's
 // interface, so every connection made to it goes dead, as it does when a
-// router's public IP changes. Detection takes several availability cycles
-// (suite 56 measured 4m12s).
+// router's public IP changes. It follows production's order: the node detects
+// the move (suite 56 measured 4m12s), benchmark then reports the new address as
+// its own while the network still lists the old one, and the list catches up
+// last, once the node's confirmation is on chain.
 //
 // A = the standby, B = the primary, C = a bystander the discovery ring needs.
 
@@ -72,6 +74,9 @@ describe('a primary whose address moves keeps the app', function () {
 
     await waitFor(() => heldMove(B), { timeout: DETECTION_MS, interval: 5000, label: 'the primary records its own move' });
     const recordedAt = Date.now();
+    // Benchmark now reports the new address as the node's own; the network still
+    // lists it at the old one until its confirmation is on chain.
+    await setNodeAddress(oldIp, movedIp, { scope: 'benchmark' });
     await waitFor(async () => (await heldMove(A)) && (await heldMove(C)), {
       timeout: 240000, interval: 5000, label: 'every peer holds the move',
     });
@@ -89,6 +94,9 @@ describe('a primary whose address moves keeps the app', function () {
 
   it('is followed to its new address, so the standby takes over once it gives the app up there', async function () {
     this.timeout(TAKEOVER_MS + 240000);
+    // The chain has caught up: the network lists the primary at its new address,
+    // which is what a signed answer from there is checked against.
+    await setNodeAddress(oldIp, movedIp, { scope: 'all' });
     await clearMaster(appName);
     const auth = await authenticate(client(B).url, fluxTeamKey());
     const res = await fetch(`${client(B).url}/apps/appremove/${appName}`, { headers: { zelidauth: auth.zelidauth } });

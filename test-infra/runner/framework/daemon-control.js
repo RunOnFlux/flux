@@ -172,7 +172,9 @@ export async function queueAppTx(appHash) {
  * A bare address keeps the node's own api port.
  *
  * `scope: 'all'` (default) moves every answer at once - an address change already
- * settled. `scope: 'publicip'` moves only benchmark's public-IP probe, leaving the
+ * settled. `scope: 'benchmark'` also moves what benchmark tells the node about itself,
+ * leaving its status and list entry: the node has noticed, the chain has not.
+ * `scope: 'publicip'` moves only benchmark's public-IP probe, leaving the
  * node listed and reporting itself where it was: the state a node is in the moment
  * its address moves, and the only one in which it can notice.
  *
