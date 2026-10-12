@@ -55,7 +55,10 @@ describe('a primary whose address moves keeps the app', function () {
   dumpLogsOnFailure(() => fleet?.env);
   const appName = `e2emoved${Date.now()}`;
   const client = (i) => fleet.env.clients[i];
-  const linesOf = (i) => fleet.env.nodeDiagnostics().find((n) => n.index === i)?.lines ?? [];
+  // The move the primary recorded in its own database, from its old address to
+  // its new one; broadcastedAt is when it recorded it.
+  const ownMove = async (oldSocket, newSocket) => (await dbClient(B + 1).getAppStateEvents({ ip: oldSocket, type: 'ipchanged' }))
+    .find((event) => event.data?.newIP === newSocket);
   let oldIp;
   let movedIp;
   let movedAt;
@@ -79,23 +82,26 @@ describe('a primary whose address moves keeps the app', function () {
 
   it('runs on at its new address while FDM names the one it left', async function () {
     this.timeout(DETECTION_MS + PASSES_WATCHED_MS + 180000);
-    const newSocket = `${movedIp}:16127`;
-    const detected = () => linesOf(B).some((line) => line.includes(`New public Ip detected: ${newSocket}`));
-
     movedAt = Date.now();
     await moveNodeAddress(client(B).container, movedIp, oldIp);
-    await client(B).followTo(movedIp);
+    const followed = await client(B).followTo(movedIp);
     await setNodeAddress(oldIp, movedIp, { scope: 'publicip' });
 
-    await waitFor(detected, { timeout: DETECTION_MS, interval: 5000, label: 'the primary detects its move' });
+    // A node that detects its move restarts its apps for the new address.
+    const restarted = (d) => d.identifier === fleet.identifier && d.action === 'restarted';
+    await client(B).waitForEvent('reconciler:actuated', restarted, DETECTION_MS, { afterId: followed });
     // Benchmark now reports the new address as the node's own; the network still
     // lists it at the old one until its confirmation is on chain.
     await setNodeAddress(oldIp, movedIp, { scope: 'benchmark' });
     await new Promise((resolve) => { setTimeout(resolve, PASSES_WATCHED_MS); });
     await waitForUp(client(B), appName, 'the primary runs the app at its new address', { timeout: 120000, interval: 3000 });
 
-    expect(linesOf(B).filter((line) => line.includes(`standing down as primary of component:${fleet.identifier}`)),
-      'the primary stood down for the address it left').to.deep.equal([]);
+    // The stream reaches past the passes watched, so a change of role in them
+    // would be in the buffer.
+    await client(B).waitForEvent('syncthing:passComplete', () => true, 120000, { afterId: client(B).getLastEventId() });
+    expect(client(B).getEventBuffer().filter((e) => e.event === 'primaryRole:changed' && e.id > followed
+      && e.data.identifier === fleet.identifier && e.data.from === 'primary'),
+      'the primary gave up its role for the address it left').to.deep.equal([]);
     expect(fleet.twoRan, 'moments when more than one node ran the component').to.deep.equal([]);
   });
 
@@ -106,8 +112,9 @@ describe('a primary whose address moves keeps the app', function () {
 
     // The move was noticed while the connections made to the old address were
     // still counted: none had been dropped between the move and its detection.
-    const detectedLine = linesOf(B).find((line) => line.includes(`New public Ip detected: ${newSocket}`));
-    const detectedAt = Date.parse(detectedLine.split(' ')[0]);
+    const move = await ownMove(oldSocket, newSocket);
+    expect(move, 'the primary recorded its own move').to.not.equal(undefined);
+    const detectedAt = move.data.broadcastedAt;
     const auth = await authenticate(client(B).url, fluxTeamKey());
     const history = (await client(B).getAuthed('/flux/peerhistory', auth.zelidauth)).data;
     expect(history.some((e) => e.event === 'connected' && e.timestamp < movedAt), 'fixture: the primary had peers before the move').to.equal(true);
