@@ -89,7 +89,24 @@ function nodeBySourceIp(sourceIp) {
       return deterministicNodeList.find((n) => n.ip.split(':')[0] === realIp) || null;
     }
   }
+  // A machine running on another node's collateral is answered as that node: its
+  // collateral, its status and its list entry are the ones the chain holds.
+  const alias = collateralAliases.get(clean);
+  if (alias) return deterministicNodeList.find((n) => n.ip.split(':')[0] === alias) || null;
   return null;
+}
+
+// Machines that run on another node's collateral: real ip -> the real ip of the
+// listed node they run as. Each is a machine of its own all the same, so what its
+// benchmark measures, and what its confirmation carries, is its own address.
+const collateralAliases = new Map();
+
+// The address benchmark measures for the machine a request comes from, or null
+// when it is not one running on another node's collateral.
+function aliasedOwnAddress(sourceIp, node) {
+  const clean = sourceIp.replace('::ffff:', '');
+  if (!collateralAliases.has(clean) || !node) return null;
+  return `${clean}:${node.ip.split(':')[1]}`;
 }
 
 // Where a node really is, versus where the network is told it is.
@@ -389,7 +406,16 @@ const rpcHandlers = {
     return '0100000000000000000000';
   },
 
-  createconfirmationtransaction: () => ({ hex: 'stub-confirmation-tx-hex' }),
+  // A confirmation carries the address fluxbench measured for the node, and the
+  // next block mines it: the node's list entry and status move there then.
+  createconfirmationtransaction: (params, sourceIp) => {
+    const node = nodeBySourceIp(sourceIp);
+    if (node) {
+      const o = overrideFor(node);
+      pendingConfirmations.set(node.ip.split(':')[0], aliasedOwnAddress(sourceIp, node) ?? (o ? o.reported : node.ip));
+    }
+    return { hex: 'stub-confirmation-tx-hex' };
+  },
 
   getaddressbalance: () => ({ balance: 0, received: 0 }),
   getaddressutxos: () => [],
@@ -430,7 +456,7 @@ const benchHandlers = {
     };
     const s = specs[tier] || specs.cumulus;
     return {
-      ipaddress: node ? benchmarkAddressOf(node) : '127.0.0.1',
+      ipaddress: node ? (aliasedOwnAddress(sourceIp, node) ?? benchmarkAddressOf(node)) : '127.0.0.1',
       cores: s.cores,
       ram: s.ram,
       ssd: s.ssd,
@@ -462,6 +488,8 @@ const benchHandlers = {
 
   getpublicip: (params, sourceIp) => {
     const node = nodeBySourceIp(sourceIp);
+    const own = aliasedOwnAddress(sourceIp, node);
+    if (own) return own.split(':')[0];
     return node ? publicIpAnswerFor(node) : '127.0.0.1';
   },
 
@@ -536,6 +564,22 @@ benchd.use(express.json());
 benchd.post('/', (req, res) => { handleRpc(benchHandlers, req, res).catch((err) => { console.error('benchd rpc:', err); }); });
 benchd.listen(BENCHD_PORT, () => console.log(`Fluxbenchd stub listening on port ${BENCHD_PORT}`));
 
+// Confirmations sent since the last block: real ip -> the address each carries.
+const pendingConfirmations = new Map();
+
+// Mine the confirmations sent since the last block. One carrying an address
+// other than the node's own moves its list entry and status there, as a node's
+// IP-change confirmation does on chain; one carrying the address it already
+// has changes nothing.
+function mineConfirmations() {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [realIp, address] of pendingConfirmations) {
+    const node = deterministicNodeList.find((n) => n.ip.split(':')[0] === realIp);
+    if (node && address !== node.ip) reportedAddresses.set(realIp, { reported: address, scope: 'all' });
+  }
+  pendingConfirmations.clear();
+}
+
 // -- Block ticker --
 const BLOCK_INTERVAL_MS = Number(process.env.BLOCK_INTERVAL_MS) || 5000;
 const TICKER_AUTOSTART = process.env.TICKER_AUTOSTART !== 'false';
@@ -544,6 +588,7 @@ let tickerHandle = null;
 
 function tickBlock() {
   currentHeight += 1;
+  mineConfirmations();
   const txs = [];
   while (pendingAppTxQueue.length > 0) {
     const appHash = pendingAppTxQueue.shift();
@@ -644,6 +689,7 @@ function buildAppRegistrationTx(appHash, height) {
 control.post('/advance-block', (req, res) => {
   const { block, appHash } = req.body;
   currentHeight += 1;
+  mineConfirmations();
   const txs = [];
   if (appHash) {
     txs.push(buildAppRegistrationTx(appHash, currentHeight));
@@ -684,6 +730,14 @@ control.post('/advance-block', (req, res) => {
 control.post('/set-height', (req, res) => {
   currentHeight = req.body.height;
   res.json({ currentHeight });
+});
+
+// Machines that run on another node's collateral, replacing any set before:
+// { aliases: { '<real ip>': '<real ip of the listed node it runs as>' } }.
+control.post('/collateral-aliases', (req, res) => {
+  collateralAliases.clear();
+  Object.entries((req.body || {}).aliases || {}).forEach(([ip, as]) => collateralAliases.set(String(ip).split(':')[0], String(as).split(':')[0]));
+  res.json({ aliases: Object.fromEntries(collateralAliases) });
 });
 
 control.post('/set-node-list', (req, res) => {
@@ -964,6 +1018,7 @@ control.delete('/seed-data', (req, res) => {
 control.post('/reset', (req, res) => {
   nodeStatusOverrides.clear();
   reportedAddresses.clear();
+  pendingConfirmations.clear();
   hiddenFromPeers.clear();
   rpcFailures.clear();
   // Answered, not dropped: a call left waiting on a hold outlives the reset and

@@ -919,7 +919,7 @@ export async function createTestEnv({
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
   geolocation = {}, locationTable = null, staticIp = true, policy = null, policySeeds = null,
-  awaitPolicy = true, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, rejoinOnRestart = true, networkShapes = {}, globalIpv6 = [], dnsRecords = [],
+  awaitPolicy = true, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, collateralOf = {}, rejoinOnRestart = true, networkShapes = {}, globalIpv6 = [], dnsRecords = [],
   // systemd-mode nodes: the entrypoint execs a real systemd as PID 1, so dockerd
   // and fluxos run as units and FluxOS's output goes to the journal. Env-level
   // and uniform across nodes.
@@ -949,6 +949,13 @@ export async function createTestEnv({
   }
   for (const [nodeNumber, keyOf] of Object.entries(sharedKeys)) {
     if (sharedKeys[keyOf] !== undefined) throw new Error(`createTestEnv: node ${nodeNumber} shares the key of node ${keyOf}, which itself shares another's`);
+  }
+  // A node on another's collateral runs as that node: unlisted itself, answered by
+  // the daemon as the listed node, and signing with its key.
+  for (const [nodeNumber, of] of Object.entries(collateralOf)) {
+    if (Number(nodeNumber) === Number(of)) throw new Error(`createTestEnv: node ${nodeNumber} cannot run on its own collateral`);
+    if (collateralOf[of] !== undefined) throw new Error(`createTestEnv: node ${nodeNumber} runs on the collateral of node ${of}, which itself runs on another's`);
+    if (sharedKeys[nodeNumber] !== undefined) throw new Error(`createTestEnv: node ${nodeNumber} runs on node ${of}'s collateral and so signs with its key - give it no sharedKeys entry`);
   }
   // A shape rebuilds a static node's routes (test-infra/network-shapes.sh), so
   // it needs the gateway a static node is given.
@@ -1201,7 +1208,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, sharedKeys, networkShapes, globalIpv6, dnsRecords, systemdMode, firewall);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, systemdMode, firewall, collateralOf);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -1230,7 +1237,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], systemdMode = false, firewall = false) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], systemdMode = false, firewall = false, collateralOf = {}) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -1304,12 +1311,19 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   // baseline. A no-op-equivalent when base === '31.200.0'.
   const runNodeList = deterministicList.slice(0, nodes).map((n, idx) => ({
     ...n, ip: subnet.nodeIp(idx + 1), pubkey: nodeKey(keyNumber(sharedKeys, idx + 1)).pubkey,
-  }));
+  })).filter((n, idx) => collateralOf[idx + 1] === undefined);
   env.nodeKeyOf = (num) => nodeKey(keyNumber(sharedKeys, num));
   await fetch(`http://${DAEMON_IP}:18232/set-node-list`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ nodes: runNodeList }),
+  });
+  await fetch(`http://${DAEMON_IP}:18232/collateral-aliases`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      aliases: Object.fromEntries(Object.entries(collateralOf).map(([num, of]) => [subnet.nodeIp(Number(num)), subnet.nodeIp(Number(of))])),
+    }),
   });
 
   for (const [ip, status] of Object.entries(nodeStatusOverrides)) {
