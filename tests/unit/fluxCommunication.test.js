@@ -2537,6 +2537,45 @@ describe('fluxCommunication tests', () => {
     });
   });
 
+  describe('handleAppRemovedMessage tests', () => {
+    const message = {
+      version: 1,
+      timestamp: Date.now(),
+      pubKey: '04peer',
+      signature: 'sig',
+      data: {
+        type: 'fluxappremoved', version: 1, appName: 'someapp', ip: '72.89.45.236:16137', broadcastedAt: Date.now(),
+      },
+    };
+    let relayed;
+
+    beforeEach(() => {
+      sinon.stub(messageStore, 'storeAppStateEvent').resolves();
+      sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(true);
+      relayed = sinon.stub(peerManager, 'broadcastHash');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('passes on a removal it applied', async () => {
+      sinon.stub(messageStore, 'storeAppRemovedMessage').resolves(true);
+
+      await fluxCommunication.handleAppRemovedMessage(message, '10.0.0.9', '16127');
+
+      sinon.assert.calledOnce(relayed);
+    });
+
+    it('does not pass on a removal it refused', async () => {
+      sinon.stub(messageStore, 'storeAppRemovedMessage').resolves(new Error('Invalid Flux App Removed message appName cannot be empty'));
+
+      await fluxCommunication.handleAppRemovedMessage(message, '10.0.0.9', '16127');
+
+      sinon.assert.notCalled(relayed);
+    });
+  });
+
   describe('announcing this node\'s own move', () => {
     const OLD = '72.89.45.236:16137';
     const NEW = '108.6.236.4:16137';

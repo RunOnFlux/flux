@@ -641,13 +641,15 @@ async function handleAppRemovedMessage(message, fromIP, port) {
     // rebroadcast message to the network if it's valid
     const envelope = { version: message.version, timestamp: message.timestamp, pubKey: message.pubKey, signature: message.signature };
     await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPREMOVED, { message: message.data, envelope });
+    // storeAppRemovedMessage answers true, false for a removal too old to apply, or
+    // an Error for one it refused - only true is a removal worth passing on
     const rebroadcastToPeers = await messageStore.storeAppRemovedMessage(message.data);
-    if (rebroadcastToPeers) {
+    if (rebroadcastToPeers === true) {
       fluxEventBus.publish('network:appremoved', { ip: message.data.ip, name: message.data.appName });
     }
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
-    if (rebroadcastToPeers && timestampOK) {
+    if (rebroadcastToPeers === true && timestampOK) {
       announceToPeers(message, `${fromIP}:${port}`);
     }
   } catch (error) {
