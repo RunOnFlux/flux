@@ -1,17 +1,12 @@
 const config = require('config');
 const qs = require('qs');
-const os = require('os');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const verificationHelperUtils = require('./verificationHelperUtils');
-const generalService = require('./generalService');
-const dockerService = require('./dockerService');
-const syncthingService = require('./syncthingService');
-const fluxNetworkHelper = require('./fluxNetworkHelper');
-const appInspector = require('./appManagement/appInspector');
+const nodeHealthService = require('./nodeHealthService');
 const signatureVerifier = require('./signatureVerifier');
 const { Privilege, authOf } = require('./utils/privileges');
 
@@ -46,247 +41,14 @@ async function deleteLoginPhrase(phrase) {
 
 
 /**
- * To check if the hardware specification requirements of the node tier are being met by the node (RAM and CPU threads).
- * @returns {boolean} True or an error is thrown.
- */
-async function confirmNodeTierHardware() {
-  try {
-    const tier = await generalService.nodeTier().catch((error) => {
-      log.error(error);
-    });
-
-    const collateral = await generalService.nodeCollateral().catch((error) => {
-      log.error(error);
-    });
-    const nodeRam = os.totalmem() / 1024 / 1024 / 1024;
-    const nodeCpuThreads = os.cpus().length;
-    log.info(`Node Tier: ${tier}`);
-    log.info(`Node Collateral: ${collateral}`);
-    log.info(`Node Total Ram: ${nodeRam}`);
-    log.info(`Node Cpu Threads: ${nodeCpuThreads}`);
-    if (tier === 'bamf' && collateral === 100000) {
-      if (nodeRam < 30) {
-        throw new Error(`Node Total Ram (${nodeRam}) below Stratus requirements`);
-      }
-      if (nodeCpuThreads < 8) {
-        throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below Stratus requirements`);
-      }
-    } else if (tier === 'super' && collateral === 25000) {
-      if (nodeRam < 7) {
-        throw new Error(`Node Total Ram (${nodeRam}) below Nimbus requirements`);
-      }
-      if (nodeCpuThreads < 4) {
-        throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below Nimbus requirements`);
-      }
-    } else if (tier === 'basic' && collateral === 10000) {
-      if (nodeRam < 3) {
-        throw new Error(`Node Total Ram (${nodeRam}) below Cumulus requirements`);
-      }
-      if (nodeCpuThreads < 2) {
-        throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below Cumulus requirements`);
-      }
-    } else if (tier === 'bamf' && collateral === 40000) {
-      if (nodeRam < 61) {
-        throw new Error(`Node Total Ram (${nodeRam}) below new Stratus requirements`);
-      }
-      if (nodeCpuThreads < 16) {
-        throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below new Stratus requirements`);
-      }
-    } else if (tier === 'super' && collateral === 12500) {
-      if (nodeRam < 30) {
-        throw new Error(`Node Total Ram (${nodeRam}) below new Nimbus requirements`);
-      }
-      if (nodeCpuThreads < 8) {
-        throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below new Nimbus requirements`);
-      }
-    } else if (tier === 'basic' && collateral === 1000) {
-      if (nodeRam < 3) {
-        throw new Error(`Node Total Ram (${nodeRam}) below new Cumulus requirements`);
-      }
-      if (nodeCpuThreads < 4) {
-        throw new Error(`Node Cpu Threads (${nodeCpuThreads}) below new Cumulus requirements`);
-      }
-    }
-    return true;
-  } catch (error) {
-    log.error(error);
-    return false;
-  }
-}
-
-/**
  * To return a JSON response with the user's login phrase.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-/**
- * The verdict this node last reached, so a failure is logged when it HAPPENS
- * rather than every time somebody asks.
- *
- * The condition is not the event. /id/loginphrase is uncached and fluxbench
- * retries it on a 30s sleep while a node is failing, so logging at the point of
- * refusal would put out a line every half minute for a state that has not moved
- * - roughly 2,880 a day, burying the one line that says when it started under
- * thousands of copies of itself. A level cannot fix that; it only decides who
- * sees the flood.
- *
- * Keyed on the failing check and its message, never the DOS code: the code
- * climbs as the score accrues (11, 13, 15), and keying on it would make every
- * increment a fresh line. A message that genuinely changes IS news.
- *
- * The check prefix earns nothing today - all six failures carry distinct
- * messages, so no test can tell the key with it from the key without it, and
- * none pretends to. It is there so a check added later that reuses an existing
- * message still reads as a change of verdict rather than as the same one.
- *
- * Starts at ok, so a node that boots fit says nothing and a node that boots
- * unfit says so once.
- */
-let lastFitnessVerdict = 'ok';
-
-/**
- * Refuse the node, logging only if this is not what it was already refusing for.
- * Every failing return goes through here so a check added later cannot be
- * silent by omission.
- */
-function unfit(check, error, checks) {
-  const verdict = `${check}:${error.message}`;
-  if (verdict !== lastFitnessVerdict) {
-    lastFitnessVerdict = verdict;
-    log.warn(`Node is not fit to serve the network: ${check} - ${error.message || error.name}`);
-  }
-  return { ok: false, error, checks };
-}
-
-/**
- * Pass the node, saying so only if it was previously refusing.
- */
-function fit(checks) {
-  if (lastFitnessVerdict !== 'ok') {
-    lastFitnessVerdict = 'ok';
-    log.info('Node is fit to serve the network again');
-  }
-  return { ok: true, error: null, checks };
-}
-
-/**
- * Assess node fitness: the checks that decide whether this node can serve the
- * network. Shared by loginPhrase and the health endpoint so both gate
- * identically. Returns the first failing check; never throws. Logs a change of
- * verdict, not the verdict - see lastFitnessVerdict.
- * @returns {Promise<{ok: boolean, error: (object|null), checks: object}>}
- */
-async function checkNodeFitness() {
-  const checks = {};
-
-  // db: a fast read proves the local database answers
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.local.database);
-    const collection = config.database.local.collections.activeLoginPhrases;
-    await dbHelper.findOneInDatabase(database, collection, { loginPhrase: 'TestLoginPhraseForDBTest' }, {});
-    checks.db = 'ok';
-  } catch (error) {
-    return unfit('db', { message: error.message, name: error.name, code: error.code }, checks);
-  }
-
-  // syncthing: measured everywhere, but it only decides fitness where FluxOS
-  // owns the daemon, and only once there is a measurement to decide on.
-  //
-  // This check exists because a legacy operator's syncthing may be absent,
-  // mis-installed, wrongly owned or simply killed - which is why the whole
-  // repair path (stop, install, configure, spawn) and the ownership dance are
-  // held to the same question. Where we do not own it - Arcane ships and
-  // supervises its own - FluxOS has no way to restart it, so failing the node
-  // here would take it off the network for a fault it neither caused nor can
-  // repair. Asked of syncthingService rather than re-derived from the node type,
-  // because the two are not the same question and answering it twice is how
-  // they drift. The app path is unaffected either way: mount-safety, folder
-  // state and the g: election each hold their own syncthing readiness and stand
-  // down on it without help from here.
-  //
-  // Unmeasured refuses nobody. Until the sentinel has started there is no
-  // reading, and a node that answers "Syncthing is not running properly" on the
-  // strength of a check it has not run is reporting its own startup as somebody
-  // else's fault - which is what a slow daemon at boot used to make it do.
-  const syncthingState = syncthingService.healthState();
-  const syncthingBroken = syncthingState === syncthingService.SYNCTHING_HEALTH.UNHEALTHY;
-  if (syncthingBroken && syncthingService.ownsSyncthing()) {
-    const error = new Error('Syncthing is not running properly');
-    return unfit('syncthing', { message: error.message, name: error.name, code: error.code }, checks);
-  }
-  checks.syncthing = syncthingBroken ? 'degraded' : syncthingState;
-
-  // docker: listing images proves the daemon answers
-  try {
-    await dockerService.dockerListImages();
-    checks.docker = 'ok';
-  } catch (error) {
-    return unfit('docker', { message: error.message, name: error.name, code: error.code }, checks);
-  }
-
-  // hardware: the node must still meet its tier requirements
-  const hwPassed = await confirmNodeTierHardware();
-  if (hwPassed === false) {
-    const error = new Error('Node hardware requirements not met');
-    return unfit('hardware', { message: error.message, name: error.name, code: error.code }, checks);
-  }
-  checks.hardware = 'ok';
-
-  // DOS state (contains daemon checks). getDOSState answers with
-  // createDataMessage, which hardcodes status 'success', so there is no error
-  // shape to branch on and no success to test for.
-  //
-  // It answers with dosState and dosMessage and nothing else. The checks here
-  // used to also read nodeHardwareSpecsGood, a field no caller in this repo,
-  // fluxbench or the frontend has ever emitted - so `undefined === false` made
-  // both of its conditions permanently false, including the one that returned
-  // code 100. The hardware question it was reaching for is answered live four
-  // lines above, by confirmNodeTierHardware.
-  const { data: dos } = fluxNetworkHelper.getDOSState();
-  if (dos.dosState > 10 || dos.dosMessage !== null) {
-    let error = { message: dos.dosMessage, name: 'DOS', code: dos.dosState };
-    if (dos.dosMessage !== 'Flux IP detection failed' && dos.dosMessage !== 'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.') {
-      error = { message: dos.dosMessage, name: 'CONNERROR', code: dos.dosState };
-    }
-    return unfit('dos', error, checks);
-  }
-  checks.dos = 'ok';
-
-  // Apps DOS state
-  const dosAppsState = appInspector.getAppsDOSState();
-  if (dosAppsState.status === 'success' && dosAppsState.data.dosState >= 100) {
-    return unfit('appsDos', { message: dosAppsState.data.dosMessage, name: 'DOS', code: dosAppsState.data.dosState }, checks);
-  }
-  checks.appsDos = 'ok';
-
-  return fit(checks);
-}
-
-/**
- * Node health endpoint. Reports whether this node is fit to serve the network,
- * using the same checks loginPhrase gates on. GET /flux/health.
- * @param {object} req Request.
- * @param {object} res Response.
- */
-async function nodeHealth(_, res) {
-  try {
-    const fitness = await checkNodeFitness();
-    if (!fitness.ok) {
-      res.json(messageHelper.createErrorMessage(fitness.error.message, fitness.error.name, fitness.error.code));
-      return;
-    }
-    res.json(messageHelper.createDataMessage(fitness.checks));
-  } catch (error) {
-    log.error(error);
-    res.json(messageHelper.createErrorMessage(error.message, error.name, error.code));
-  }
-}
-
 async function loginPhrase(req, res) {
   try {
-    const fitness = await checkNodeFitness();
+    const fitness = await nodeHealthService.checkNodeFitness();
     if (!fitness.ok) {
       res.json(messageHelper.createErrorMessage(fitness.error.message, fitness.error.name, fitness.error.code));
       return;
@@ -993,8 +755,6 @@ async function checkLoggedUser(req, res) {
 module.exports = {
   PRIVILEGE_RESPONSE,
   loginPhrase,
-  nodeHealth,
-  checkNodeFitness,
   emergencyPhrase,
   verifyLogin,
   provideSign,
@@ -1008,7 +768,4 @@ module.exports = {
   wsRespondLoginPhrase,
   wsRespondSignature,
   checkLoggedUser,
-
-  // exports for testing purposes
-  confirmNodeTierHardware,
 };

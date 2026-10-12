@@ -2853,25 +2853,22 @@ describe('fluxService tests', () => {
   });
 
   describe('getNodeTier tests', () => {
-    let generalServiceNodeTierStub;
-    let generalServiceNodeCollateralStub;
+    let collateralTierStub;
     beforeEach(() => {
-      generalServiceNodeTierStub = sinon.stub(generalService, 'nodeTier');
-      generalServiceNodeCollateralStub = sinon.stub(generalService, 'nodeCollateral');
+      collateralTierStub = sinon.stub(generalService, 'nodeCollateralTier');
     });
 
     afterEach(() => {
       sinon.restore();
     });
 
-    it('should return error if values are not correct', async () => {
-      generalServiceNodeTierStub.returns('test');
-      generalServiceNodeCollateralStub.returns('1');
+    it('should return error if the collateral is not a tier amount', async () => {
+      collateralTierStub.resolves({ collateral: 1, tier: null });
       const res = generateResponse();
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'Unrecognised Flux node tier',
+          message: 'Unrecognised Flux Node tier',
           name: 'Error',
         },
         status: 'error',
@@ -2882,10 +2879,10 @@ describe('fluxService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
 
-    // generalService.nodeTier raises the daemon's own error envelope, a plain
-    // object carrying the RPC error code.
+    // generalService.nodeCollateralTier raises the daemon's own error envelope,
+    // a plain object carrying the RPC error code.
     it('answers 503 with a Retry-After while the daemon is still loading', async () => {
-      generalServiceNodeTierStub.rejects({ code: -28, name: 'Error', message: 'Loading block index...' });
+      collateralTierStub.rejects({ code: -28, name: 'Error', message: 'Loading block index...' });
       const res = generateResponse();
       const expectedResponse = {
         status: 'error',
@@ -2900,7 +2897,7 @@ describe('fluxService tests', () => {
     });
 
     it('answers 503 while nothing is listening on the daemon port', async () => {
-      generalServiceNodeTierStub.rejects({ code: 'ECONNREFUSED', name: 'Error', message: 'connect ECONNREFUSED 127.0.0.1:16124' });
+      collateralTierStub.rejects({ code: 'ECONNREFUSED', name: 'Error', message: 'connect ECONNREFUSED 127.0.0.1:16124' });
       const res = generateResponse();
 
       await fluxService.getNodeTier(undefined, res);
@@ -2914,7 +2911,7 @@ describe('fluxService tests', () => {
     });
 
     it('reports a daemon error that is an answer as a 200 error envelope', async () => {
-      generalServiceNodeTierStub.rejects({ code: -8, name: 'Error', message: 'Invalid parameter' });
+      collateralTierStub.rejects({ code: -8, name: 'Error', message: 'Invalid parameter' });
       const res = generateResponse();
 
       await fluxService.getNodeTier(undefined, res);
@@ -2927,9 +2924,8 @@ describe('fluxService tests', () => {
       });
     });
 
-    it('should return cumulus if tier is basic and collateral is 10000', async () => {
-      generalServiceNodeTierStub.returns('basic');
-      generalServiceNodeCollateralStub.returns(10000);
+    it('should return cumulus for a collateral of 10000', async () => {
+      collateralTierStub.resolves({ collateral: 10000, tier: generalService.COLLATERAL_TIERS[10000] });
       const res = generateResponse();
       const expectedResponse = { status: 'success', data: 'cumulus' };
 
@@ -2938,9 +2934,8 @@ describe('fluxService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
 
-    it('should return nimbus if tier is super and collateral is 25000', async () => {
-      generalServiceNodeTierStub.returns('super');
-      generalServiceNodeCollateralStub.returns(25000);
+    it('should return nimbus for a collateral of 25000', async () => {
+      collateralTierStub.resolves({ collateral: 25000, tier: generalService.COLLATERAL_TIERS[25000] });
       const res = generateResponse();
       const expectedResponse = { status: 'success', data: 'nimbus' };
 
@@ -2949,9 +2944,8 @@ describe('fluxService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
 
-    it('should return stratus if tier is bamf and collateral is 100000', async () => {
-      generalServiceNodeTierStub.returns('bamf');
-      generalServiceNodeCollateralStub.returns(100000);
+    it('should return stratus for a collateral of 100000', async () => {
+      collateralTierStub.resolves({ collateral: 100000, tier: generalService.COLLATERAL_TIERS[100000] });
       const res = generateResponse();
       const expectedResponse = { status: 'success', data: 'stratus' };
 
@@ -2960,9 +2954,8 @@ describe('fluxService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
 
-    it('should return cumulus_new if tier is basic and collateral is 1000', async () => {
-      generalServiceNodeTierStub.returns('basic');
-      generalServiceNodeCollateralStub.returns(1000);
+    it('should return cumulus_new for a collateral of 1000', async () => {
+      collateralTierStub.resolves({ collateral: 1000, tier: generalService.COLLATERAL_TIERS[1000] });
       const res = generateResponse();
       const expectedResponse = { status: 'success', data: 'cumulus_new' };
 
@@ -2971,9 +2964,8 @@ describe('fluxService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
 
-    it('should return nimbus_new if tier is super and collateral is 12500', async () => {
-      generalServiceNodeTierStub.returns('super');
-      generalServiceNodeCollateralStub.returns(12500);
+    it('should return nimbus_new for a collateral of 12500', async () => {
+      collateralTierStub.resolves({ collateral: 12500, tier: generalService.COLLATERAL_TIERS[12500] });
       const res = generateResponse();
       const expectedResponse = { status: 'success', data: 'nimbus_new' };
 
@@ -2982,9 +2974,8 @@ describe('fluxService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
 
-    it('should return stratus_new if tier is bamf and collateral is 40000', async () => {
-      generalServiceNodeTierStub.returns('bamf');
-      generalServiceNodeCollateralStub.returns(40000);
+    it('should return stratus_new for a collateral of 40000', async () => {
+      collateralTierStub.resolves({ collateral: 40000, tier: generalService.COLLATERAL_TIERS[40000] });
       const res = generateResponse();
       const expectedResponse = { status: 'success', data: 'stratus_new' };
 

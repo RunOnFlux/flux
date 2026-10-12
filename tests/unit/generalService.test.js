@@ -39,7 +39,6 @@ describe('generalService tests', () => {
     beforeEach(() => {
       getFluxNodeStatusStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus');
       getRawTransactionStub = sinon.stub(daemonServiceTransactionRpcs, 'getRawTransaction');
-      generalService.setStoredTier(null);
       generalService.setStoredCollateral(null);
     });
 
@@ -47,12 +46,13 @@ describe('generalService tests', () => {
       sinon.restore();
     });
 
-    it('should return storedTier if it is set', async () => {
-      generalService.setStoredTier('CUMULUS');
+    it('should return the held tier without asking the daemon', async () => {
+      generalService.setStoredCollateral(100000);
 
       const result = await generalService.nodeTier();
 
-      expect(result).to.equal('CUMULUS');
+      expect(result).to.equal('bamf');
+      sinon.assert.notCalled(getFluxNodeStatusStub);
     });
 
     it('should throw if getFluxnodeStatus returns error', async () => {
@@ -295,13 +295,103 @@ describe('generalService tests', () => {
     });
   });
 
+  describe('nodeCollateralTier tests', () => {
+    const outpoint = 'COutPoint(6b2f0b581698337758cd045ead702f4cf6d9c96e8a0288bed526146a005ddd0d, 0)';
+    let getFluxNodeStatusStub;
+    let getRawTransactionStub;
+
+    beforeEach(() => {
+      getFluxNodeStatusStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus');
+      getRawTransactionStub = sinon.stub(daemonServiceTransactionRpcs, 'getRawTransaction');
+      generalService.setStoredCollateral(null);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      generalService.setStoredCollateral(null);
+    });
+
+    function holds(value) {
+      getFluxNodeStatusStub.resolves({ status: 'success', data: { collateral: outpoint } });
+      getRawTransactionStub.resolves({ status: 'success', data: { vout: [{ value }] } });
+    }
+
+    it('answers every collateral amount with its tier', async () => {
+      const amounts = Object.keys(generalService.COLLATERAL_TIERS).map(Number);
+      expect(amounts).to.have.members([10000, 25000, 100000, 1000, 12500, 40000]);
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const amount of amounts) {
+        generalService.setStoredCollateral(null);
+        holds(amount);
+        // eslint-disable-next-line no-await-in-loop
+        const { collateral, tier } = await generalService.nodeCollateralTier();
+        expect(collateral).to.equal(amount);
+        expect(tier).to.equal(generalService.COLLATERAL_TIERS[amount]);
+      }
+    });
+
+    it('holds a recognised tier, so the daemon is asked once', async () => {
+      holds(25000);
+
+      await generalService.nodeCollateralTier();
+      const second = await generalService.nodeCollateralTier();
+
+      expect(second.tier.tier).to.equal('super');
+      sinon.assert.calledOnce(getFluxNodeStatusStub);
+    });
+
+    it('answers a collateral that is no tier amount with a null tier, and asks again next time', async () => {
+      holds(12345);
+
+      expect(await generalService.nodeCollateralTier()).to.eql({ collateral: 12345, tier: null });
+      await generalService.nodeCollateralTier();
+      sinon.assert.calledTwice(getFluxNodeStatusStub);
+    });
+
+    it('answers a node with no collateral with nulls', async () => {
+      getFluxNodeStatusStub.resolves({ status: 'success', data: {} });
+
+      expect(await generalService.nodeCollateralTier()).to.eql({ collateral: null, tier: null });
+      sinon.assert.notCalled(getRawTransactionStub);
+    });
+
+    it('answers a collateral output the transaction does not have by naming it, and asks again next time', async () => {
+      getFluxNodeStatusStub.resolves({ status: 'success', data: { collateral: outpoint.replace(', 0)', ', 3)') } });
+      getRawTransactionStub.resolves({ status: 'success', data: { vout: [{ value: 1000 }] } });
+
+      expect(await generalService.nodeCollateralTier()).to.eql({
+        collateral: null, tier: null, missingOutput: '6b2f0b581698337758cd045ead702f4cf6d9c96e8a0288bed526146a005ddd0d:3',
+      });
+      await generalService.nodeCollateralTier();
+      sinon.assert.calledTwice(getFluxNodeStatusStub);
+    });
+
+    it('answers an index one past the last output as missing, and the last output as held', async () => {
+      getRawTransactionStub.resolves({ status: 'success', data: { vout: [{ value: 0.5 }, { value: 1000 }] } });
+
+      getFluxNodeStatusStub.resolves({ status: 'success', data: { collateral: outpoint.replace(', 0)', ', 2)') } });
+      expect((await generalService.nodeCollateralTier()).missingOutput).to.equal('6b2f0b581698337758cd045ead702f4cf6d9c96e8a0288bed526146a005ddd0d:2');
+
+      getFluxNodeStatusStub.resolves({ status: 'success', data: { collateral: outpoint.replace(', 0)', ', 1)') } });
+      expect(await generalService.nodeCollateralTier()).to.eql({ collateral: 1000, tier: generalService.COLLATERAL_TIERS[1000] });
+    });
+
+    it('throws when the daemon cannot say', async () => {
+      const warming = { code: -28, name: 'Error', message: 'Loading block index...' };
+      getFluxNodeStatusStub.resolves({ status: 'error', data: warming });
+
+      await expect(generalService.nodeCollateralTier()).to.eventually.be.rejectedWith(warming);
+    });
+  });
+
   describe('getNewNodeTier tests', () => {
     beforeEach(() => {
-      generalService.setStoredTier(null);
+      generalService.setStoredCollateral(null);
     });
 
     it('should return stratus if node is bamf', async () => {
-      generalService.setStoredTier('bamf');
+      generalService.setStoredCollateral(100000);
 
       const result = await generalService.getNewNodeTier();
 
@@ -309,7 +399,7 @@ describe('generalService tests', () => {
     });
 
     it('should return nimbus if node is super', async () => {
-      generalService.setStoredTier('super');
+      generalService.setStoredCollateral(25000);
 
       const result = await generalService.getNewNodeTier();
 
@@ -317,7 +407,7 @@ describe('generalService tests', () => {
     });
 
     it('should return cumulus if node is basic', async () => {
-      generalService.setStoredTier('basic');
+      generalService.setStoredCollateral(10000);
 
       const result = await generalService.getNewNodeTier();
 
@@ -332,7 +422,6 @@ describe('generalService tests', () => {
     beforeEach(() => {
       getFluxNodeStatusStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus');
       getRawTransactionStub = sinon.stub(daemonServiceTransactionRpcs, 'getRawTransaction');
-      generalService.setStoredTier(null);
       generalService.setStoredCollateral(null);
     });
 

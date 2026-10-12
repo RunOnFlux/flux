@@ -1857,25 +1857,9 @@ async function adjustAPIPort(req, res) {
  */
 async function getNodeTier(req, res) {
   try {
-    let responseAux;
-    const tier = await generalService.nodeTier();
-    const nodeCollateral = await generalService.nodeCollateral();
-    if (tier === 'basic' && nodeCollateral === 10000) {
-      responseAux = 'cumulus';
-    } else if (tier === 'super' && nodeCollateral === 25000) {
-      responseAux = 'nimbus';
-    } else if (tier === 'bamf' && nodeCollateral === 100000) {
-      responseAux = 'stratus';
-    } else if (tier === 'basic' && nodeCollateral === 1000) {
-      responseAux = 'cumulus_new';
-    } else if (tier === 'super' && nodeCollateral === 12500) {
-      responseAux = 'nimbus_new';
-    } else if (tier === 'bamf' && nodeCollateral === 40000) {
-      responseAux = 'stratus_new';
-    } else {
-      throw new Error('Unrecognised Flux node tier'); // shall not happen as nodeTier throws
-    }
-    const response = messageHelper.createDataMessage(responseAux);
+    const { tier } = await generalService.nodeCollateralTier();
+    if (!tier) throw new Error('Unrecognised Flux Node tier');
+    const response = messageHelper.createDataMessage(tier.nodeTier);
     res.json(response);
   } catch (error) {
     if (answerDaemonUnavailable(res, error)) return;

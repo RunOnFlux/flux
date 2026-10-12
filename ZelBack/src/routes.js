@@ -9,6 +9,7 @@ const daemonServiceUtilityRpcs = require('./services/daemonService/daemonService
 const daemonServiceControlRpcs = require('./services/daemonService/daemonServiceControlRpcs');
 const benchmarkService = require('./services/benchmarkService');
 const idService = require('./services/idService');
+const nodeHealthService = require('./services/nodeHealthService');
 const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
 const fluxshareService = require('./services/fluxshareService');
@@ -322,7 +323,7 @@ module.exports = (app) => {
     return fluxNetworkHelper.getDOSState(req, res);
   }));
   app.get('/flux/health', cache('30 seconds'), asyncRoute((req, res) => {
-    return idService.nodeHealth(req, res);
+    return nodeHealthService.nodeHealth(req, res);
   }));
   app.post('/flux/dosstate', asyncRoute((req, res) => {
     return fluxNetworkHelper.setDOSStateApi(req, res);
