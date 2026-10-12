@@ -897,11 +897,16 @@ function keyNumber(sharedKeys, num) {
   return Number(sharedKeys[num] ?? num);
 }
 
+// A node that has taken itself out of service refuses a login phrase for as long
+// as it stays out, while its database answers: /flux/health reports the database
+// check passed and the node unfit for its DOS state alone, and that node is up.
 function nodeReadyWaitStrategy(nodeIp) {
   const validate = async (res) => {
     if (!res.ok) return false;
     const body = await res.json().catch(() => null);
-    return !!(body && body.status === 'success');
+    if (body && body.status === 'success') return true;
+    const health = await fetch(`http://${nodeIp}:16127/flux/health`).then((r) => r.json()).catch(() => null);
+    return health?.data?.failed === 'dos' && health?.data?.checks?.db === 'ok';
   };
   return new HttpPollWaitStrategy(`http://${nodeIp}:16127/id/loginphrase`, { validate });
 }
