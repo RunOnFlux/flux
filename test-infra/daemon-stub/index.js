@@ -491,6 +491,10 @@ const benchHandlers = {
     const node = nodeBySourceIp(sourceIp);
     const own = aliasedOwnAddress(sourceIp, node);
     if (own) return own.split(':')[0];
+    // fluxbench keeps the address getpublicip measures as its own: getbenchmarks
+    // reports it from then on.
+    const o = overrideFor(node);
+    if (o && o.scope === 'publicip') o.scope = 'benchmark';
     return node ? publicIpAnswerFor(node) : '127.0.0.1';
   },
 
@@ -763,9 +767,9 @@ control.post('/set-node-list', (req, res) => {
 //
 // `scope: 'publicip'` moves only benchmark's public-IP probe. Everything else still
 // says the node is where it was. That is the state a node is in the moment its
-// address moves and before the chain has caught up - and it is the only state in
-// which a node can DETECT the move, because detection is precisely those two
-// answers disagreeing.
+// address moves and before the chain has caught up. As fluxbench does, the first
+// getpublicip answer moves benchmark's reply about the node itself too: the scope
+// becomes `benchmark`.
 // Hide a node from its PEERS' view of the network, or put it back. The node keeps
 // seeing itself, which is what lets it still run the availability check that then
 // comes back "unreachable" - deterministically, because a peer answers from its
