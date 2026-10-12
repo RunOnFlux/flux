@@ -490,6 +490,35 @@ async function handleAppInstallingErrorMessage(message, fromIP, port) {
 }
 
 /**
+ * Record this node's own address move the way its peers record it: the signed
+ * ipchanged event, and its location rows carried to the new address. Its own
+ * broadcast reaches it only if a peer happens to relay it back, so without this
+ * the one node that moved would be the one that cannot follow the move - it
+ * would read FDM naming its old IP, for the minute or two FDM takes to catch up,
+ * as another node holding its primary. Carrying its rows also keeps the
+ * runningSince it announces, and with it its place in every app's order.
+ * @param {string} oldIP This node's former socket address.
+ * @param {string} newIP Its new socket address.
+ */
+async function recordOwnAddressMove(oldIP, newIP) {
+  const move = {
+    type: 'fluxipchanged', version: 1, oldIP, newIP, broadcastedAt: Date.now(),
+  };
+  const signed = await fluxCommunicationMessagesSender.serialiseAndSignFluxBroadcast(move);
+  if (!signed) {
+    log.warn(`recordOwnAddressMove - this node cannot sign as itself; its move from ${oldIP} to ${newIP} is not recorded`);
+    return;
+  }
+  const {
+    version, timestamp, pubKey, signature,
+  } = JSON.parse(signed);
+  await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.IPCHANGED, {
+    message: move, envelope: { version, timestamp, pubKey, signature },
+  });
+  await messageStore.storeIPChangedMessage(move);
+}
+
+/**
  * To handle IP changed messages.
  * @param {object} message Message.
  * @param {string} fromIP Sender's IP address.
@@ -1926,6 +1955,7 @@ module.exports = {
   handleAppInstallingSyncResponse,
   handleAppInstallingErrorsSyncResponse,
   handleIPChangedMessage,
+  recordOwnAddressMove,
   handleAppRemovedMessage,
   handleNodeSigtermMessage,
   initiateAndHandleConnection,

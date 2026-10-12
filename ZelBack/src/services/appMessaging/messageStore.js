@@ -692,6 +692,31 @@ async function storeIPChangedMessage(message) {
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
+  // A row the node has already announced at its new address is the same instance
+  // as its row at the old one: it keeps the earlier runningSince and the old row
+  // goes, so the move leaves one row per app rather than two.
+  const moving = await dbHelper.findInDatabase(database, globalAppsLocations, { ip: message.oldIP }, { projection: { _id: 0, name: 1, runningSince: 1 } });
+  if (moving.length) {
+    const present = await dbHelper.findInDatabase(
+      database,
+      globalAppsLocations,
+      { ip: message.newIP, name: { $in: moving.map((row) => row.name) } },
+      { projection: { _id: 0, name: 1 } },
+    );
+    // eslint-disable-next-line no-restricted-syntax
+    for (const { name } of present) {
+      const { runningSince } = moving.find((row) => row.name === name);
+      if (runningSince) {
+        // eslint-disable-next-line no-await-in-loop
+        await dbHelper.updateOneInDatabase(database, globalAppsLocations, { ip: message.newIP, name }, [
+          { $set: { runningSince: { $min: ['$runningSince', runningSince] } } },
+        ]);
+      }
+    }
+    if (present.length) {
+      await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, { ip: message.oldIP, name: { $in: present.map((row) => row.name) } });
+    }
+  }
   const query = { ip: message.oldIP };
   const update = { $set: { ip: message.newIP, broadcastedAt: new Date(message.broadcastedAt) } };
   await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);

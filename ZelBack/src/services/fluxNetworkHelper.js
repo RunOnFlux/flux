@@ -47,6 +47,15 @@ function setOnAddressChanged(callback) {
   onAddressChanged = callback;
 }
 
+// Fired once with this node's old and new socket address when its public IP has
+// moved, before anything else reacts to the move. serviceManager wires it to
+// fluxCommunication, which owns telling the network; a seam for the same reason
+// as onAddressChanged.
+let onOwnAddressMoved = null;
+function setOnOwnAddressMoved(callback) {
+  onOwnAddressMoved = callback;
+}
+
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
@@ -1632,6 +1641,10 @@ async function adjustExternalIP(ip) {
       const newIP = normalizeSocketAddress(`${ip}:${userconfig.initial.apiport}`);
       const oldIP = normalizeSocketAddress(`${oldUserConfigIp}:${userconfig.initial.apiport}`);
       log.info(`New public Ip detected: ${newIP}, old Ip: ${oldIP} , updating the FluxNode info on the network`);
+      if (onOwnAddressMoved) {
+        await onOwnAddressMoved(oldIP, newIP)
+          .catch((error) => log.error(`adjustExternalIP - recording the move failed: ${error.message}`));
+      }
       const measuredUptime = fluxUptime();
       if (await ipChangesOverLimit() && measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) {
         log.info('IP changes over the limit allowed, one in 20 hours');
@@ -2788,6 +2801,7 @@ module.exports = {
   checkMyFluxAvailability,
   adjustExternalIP,
   setOnAddressChanged,
+  setOnOwnAddressMoved,
   allowPort,
   isFirewallActive: ufw.isFirewallActive,
   // Exports for testing purposes

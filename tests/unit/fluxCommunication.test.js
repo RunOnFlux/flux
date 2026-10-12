@@ -2456,4 +2456,45 @@ describe('fluxCommunication tests', () => {
     });
   });
 
+  describe('recordOwnAddressMove tests', () => {
+    const OLD = '72.89.45.236:16137';
+    const NEW = '108.6.236.4:16137';
+    let storeEvent;
+    let storeMove;
+
+    beforeEach(() => {
+      storeEvent = sinon.stub(messageStore, 'storeAppStateEvent').resolves();
+      storeMove = sinon.stub(messageStore, 'storeIPChangedMessage').resolves(true);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('stores its own move as the signed ipchanged event its peers store, and carries its rows to the new address', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'serialiseAndSignFluxBroadcast').callsFake(async (data) => JSON.stringify({
+        version: 1, timestamp: 1791698455000, pubKey: '04own', signature: 'sig', data,
+      }));
+
+      await fluxCommunication.recordOwnAddressMove(OLD, NEW);
+
+      sinon.assert.calledOnce(storeEvent);
+      const [type, { message, envelope }] = storeEvent.firstCall.args;
+      expect(type).to.equal(messageStore.APP_STATE_EVENT_TYPES.IPCHANGED);
+      expect(message).to.include({ type: 'fluxipchanged', version: 1, oldIP: OLD, newIP: NEW });
+      expect(envelope).to.deep.equal({
+        version: 1, timestamp: 1791698455000, pubKey: '04own', signature: 'sig',
+      });
+      sinon.assert.calledOnceWithExactly(storeMove, message);
+    });
+
+    it('records nothing when this node cannot sign as itself', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'serialiseAndSignFluxBroadcast').resolves(null);
+
+      await fluxCommunication.recordOwnAddressMove(OLD, NEW);
+
+      sinon.assert.notCalled(storeEvent);
+      sinon.assert.notCalled(storeMove);
+    });
+  });
 });

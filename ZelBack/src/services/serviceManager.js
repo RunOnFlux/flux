@@ -641,6 +641,9 @@ async function startFluxFunctions() {
     // the new one - asked for durably here rather than driven from the network
     // layer, which sits underneath the reconciler and cannot require it
     fluxNetworkHelper.setOnAddressChanged((apps, reason) => appReconciler.requestRestartOf(apps, reason));
+    // this node's own address moved: it records the move as its peers will, so
+    // it knows FDM naming its old IP means itself
+    fluxNetworkHelper.setOnOwnAddressMoved((oldIP, newIP) => fluxCommunication.recordOwnAddressMove(oldIP, newIP));
     log.info('App Spawner initialized');
 
     fluxNetworkHelper.allowNodeToBindPrivilegedPorts();
