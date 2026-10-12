@@ -1,4 +1,4 @@
-const { pubKeyToAddr, WIFToPrivKey } = require('./utils/fluxCryptoUtils');
+const { pubKeyToAddr, decodeWIF } = require('./utils/fluxCryptoUtils');
 const bitcoinMessage = require('bitcoinjs-message');
 const { randomBytes } = require('crypto');
 
@@ -134,11 +134,9 @@ function signMessage(message, pk) {
     if (!pk || typeof pk !== 'string') {
       throw new Error('Invalid private key provided');
     }
-    const privateKey = WIFToPrivKey(pk);
+    const { privateKey, compressed } = decodeWIF(pk);
 
-    const isCompressed = !pk.startsWith('5');
-
-    signature = bitcoinMessage.sign(message, Buffer.from(privateKey, 'hex'), isCompressed, { extraEntropy: randomBytes(32) });
+    signature = bitcoinMessage.sign(message, Buffer.from(privateKey, 'hex'), compressed, { extraEntropy: randomBytes(32) });
     signature = signature.toString('base64');
     // => different (but valid) signature each time
   } catch (e) {

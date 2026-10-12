@@ -33,6 +33,7 @@ const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/dae
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const { sameKey } = require('./data/wifFixtures');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
@@ -602,6 +603,16 @@ describe('fluxNetworkHelper tests', () => {
   describe('getFluxNodePublicKey tests', () => {
     afterEach(() => {
       sinon.restore();
+    });
+
+    sameKey.forEach(({
+      network, wif, compressed, pubKey,
+    }) => {
+      it(`Should return the ${compressed ? 'compressed' : 'uncompressed'} public key of a ${network} WIF`, async () => {
+        const publicKey = await fluxNetworkHelper.getFluxNodePublicKey(wif);
+
+        expect(publicKey).to.equal(pubKey);
+      });
     });
 
     it('Should properly return publicKey if private key is provided', async () => {
