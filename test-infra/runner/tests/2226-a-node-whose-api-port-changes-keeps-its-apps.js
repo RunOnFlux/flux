@@ -125,5 +125,11 @@ describe('a node whose api port changes keeps its apps', function () {
     expect(await isUp(), 'the app still runs on the node that moved').to.equal(true);
     const rows = await dbClient(idx + 1).getAppLocations(appName);
     expect(rows.map((row) => row.ip), 'the node\'s own rows for the app').to.deep.equal([`${nodeIp}:${NEW_PORT}`]);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const peer of [0, 1, 2].filter((i) => i !== idx)) {
+      // eslint-disable-next-line no-await-in-loop
+      const held = await dbClient(peer + 1).getAppLocations(appName);
+      expect(held.map((row) => row.ip), `node ${peer}'s rows for the app`).to.deep.equal([`${nodeIp}:${NEW_PORT}`]);
+    }
   });
 });
