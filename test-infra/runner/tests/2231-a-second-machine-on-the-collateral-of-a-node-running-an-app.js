@@ -9,7 +9,7 @@ import { buildSeedableApp } from '../framework/seed-helper.js';
 import { crashFluxos, getAppContainerStatus, stopAppContainer } from '../framework/container.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor } from '../framework/wait.js';
-import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
+import { bootAndPeer, installOnNodes, seedGlobalSpec } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -83,6 +83,8 @@ describe('a second machine on the collateral of a node running an app', function
     await installOnNodes(env, app, [LISTED]);
     await waitFor(() => isUp(LISTED), { timeout: 120000, interval: 3000, label: 'the app running on the listed node' });
     await env.startNode(COPY);
+    // Every node holds every app's specification, as on the network.
+    await seedGlobalSpec(env, app, [BYSTANDER, OTHER, COPY]);
   });
 
   after(async function () {
