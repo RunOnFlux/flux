@@ -25,6 +25,7 @@ export const APP_GID = 33;
 
 export const appId = (name) => `flux${name}_${name}`;
 export const volumeRoot = (name) => `/mnt/appdata/flux-apps/${appId(name)}`;
+export const volumeImage = (name) => `/mnt/appdata/${appId(name)}FLUXFSVOL`;
 
 // Single-quote for the shell. Fixture content is chosen by the suites, but a
 // literal $ or backtick in one must stay a literal rather than becoming
@@ -39,6 +40,15 @@ async function run(container, command, what) {
     throw new Error(`${what} failed (exit ${r.exitCode}): ${r.output}`);
   }
   return r.stdout;
+}
+
+/**
+ * Takes an app's volume away for good: unmounted, its directory no longer
+ * immutable, and its image removed, so nothing on the node can mount it again.
+ */
+export async function destroyVolume(container, name) {
+  const root = volumeRoot(name);
+  await run(container, `umount -l ${sq(root)} && chattr -i ${sq(root)} && rm -f ${sq(volumeImage(name))}`, `destroy the volume of ${name}`);
 }
 
 /**

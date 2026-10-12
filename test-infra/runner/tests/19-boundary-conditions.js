@@ -13,6 +13,7 @@ import {
 import { fluxTeamKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { PRODUCTION } from '../framework/coupled-knobs.js';
 
 // Suite 1: Peer threshold boundaries
 
@@ -189,6 +190,15 @@ describe('Boundary: block timer', function () {
 });
 
 // Suite 4: Boot expiry boundaries
+//
+// Both fleets run at production's location expiries. The downtime the node
+// judges is read across its own boot, which the harness does not compress, and
+// a boot only ever adds to it: a pin well inside the window stays inside it for
+// any boot a real node survives, and a pin past it stays past it whatever the
+// boot adds.
+const PRODUCTION_EXPIRIES = {
+  fluxapps: { sigtermExpiryS: PRODUCTION.sigtermExpiryS, locationTtlS: PRODUCTION.locationTtlS },
+};
 
 describe('Boundary: clean shutdown within SIGTERM_EXPIRY', function () {
   let env;
@@ -196,16 +206,10 @@ describe('Boundary: clean shutdown within SIGTERM_EXPIRY', function () {
 
   before(async function () {
     this.timeout(120000);
-    // 1s pinned, which the node reads as ~17s - within the harness's 30s
-    // sigtermExpiryS.
-    //
-    // The pin is not what the node measures. lastAlive is seeded just before
-    // the container starts and the downtime is computed when the node reads it
-    // at boot, so ONE BOOT lands inside the measurement: a 300s pin was read as
-    // 316s on cindy under a full gate. That 16s is why this window cannot be
-    // compressed at production's ratio - 420s at 120x is 3.5s, smaller than the
-    // drift, and nothing could ever land inside it. See coupled-knobs.js.
+    // 1s pinned: inside the window by everything but the boot that lands in the
+    // measurement.
     env = await createTestEnv({ hookCtx: this,
+      configOverrides: PRODUCTION_EXPIRIES,
       nodes: 1,
       tickerAutostart: false,
       bootContext: { lastAliveAgoMs: 1000, machineBootId: 'old-boot-id', shutdownReason: 'sigterm' },
@@ -234,19 +238,18 @@ describe('Boundary: clean shutdown beyond SIGTERM_EXPIRY', function () {
 
   before(async function () {
     this.timeout(120000);
-    // 25s pinned, read as ~41s: past the 30s sigtermExpiryS, and deliberately
-    // still UNDER locationTtlS at 63s.
+    // 600s pinned: past the sigterm window however little the boot adds, and far
+    // under the running expiry however much it adds.
     //
     // That second bound is the one that matters. locationsExpired is
     // `(cleanShutdown && downtime > sigterm) || downtime > running`, so a
     // downtime past the running expiry expires on the second clause and this
-    // test passes without the sigterm window being involved at all. The old
-    // 500s pin did exactly that once locationTtlS became live - green, and
-    // proving nothing about the thing in its name.
+    // test passes without the sigterm window being involved at all.
     env = await createTestEnv({ hookCtx: this,
+      configOverrides: PRODUCTION_EXPIRIES,
       nodes: 1,
       tickerAutostart: false,
-      bootContext: { lastAliveAgoMs: 25000, machineBootId: 'old-boot-id', shutdownReason: 'sigterm' },
+      bootContext: { lastAliveAgoMs: 600000, machineBootId: 'old-boot-id', shutdownReason: 'sigterm' },
     });
   });
 

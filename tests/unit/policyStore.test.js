@@ -1742,6 +1742,60 @@ describe('policyStore', () => {
       m.stop();
     });
 
+    // The ask is announced before the fetch, and nothing about the fetch said how it went:
+    // a body that did not verify changes nothing a caller can read, so a refusal was
+    // indistinguishable from a fetch still in flight.
+    describe('announcing what the source answered', () => {
+      const answers = (eventBus) => eventBus.publish.getCalls()
+        .filter((c) => c.args[0] === 'policy:backstopAnswered')
+        .map((c) => c.args[1]);
+
+      it('announces a body that did not verify as refused', async () => {
+        const axiosGet = sinon.stub().resolves({ data: bundle(7, undefined, OTHER.privateKey) });
+        const { module: m, eventBus } = load({ serviceHelper: { axiosGet } });
+        await m.start();
+        m.setPeerTransport(incapablePeers);
+
+        await m.notePeerAvailable(PEER_A);
+
+        expect(answers(eventBus)).to.deep.equal([{ served: true, verdict: 'rejected', seq: 0 }]);
+        m.stop();
+      });
+
+      it('announces a source that served nothing', async () => {
+        const axiosGet = sinon.stub().rejects(new Error('offline'));
+        const { module: m, eventBus } = load({ serviceHelper: { axiosGet } });
+        await m.start();
+        m.setPeerTransport(incapablePeers);
+
+        await m.notePeerAvailable(PEER_A);
+
+        expect(answers(eventBus)).to.deep.equal([{ served: false, verdict: null, seq: 0 }]);
+        m.stop();
+      });
+
+      it('announces a verified bundle with the sequence it now holds', async () => {
+        const axiosGet = sinon.stub().resolves({ data: bundle(7) });
+        const { module: m, eventBus } = load({ serviceHelper: { axiosGet } });
+        await m.start();
+        m.setPeerTransport(incapablePeers);
+
+        await m.notePeerAvailable(PEER_A);
+
+        expect(answers(eventBus)).to.deep.equal([{ served: true, verdict: 'adopted', seq: 7 }]);
+        m.stop();
+      });
+
+      it('announces the answer to the periodic ask the same way', async () => {
+        const axiosGet = sinon.stub().resolves({ data: bundle(7, undefined, OTHER.privateKey) });
+        const { module: m, eventBus } = load({ serviceHelper: { axiosGet } });
+
+        await m.refresh();
+
+        expect(answers(eventBus)).to.deep.equal([{ served: true, verdict: 'rejected', seq: 0 }]);
+      });
+    });
+
     // THE TICK USES THE SAME DOOR. considerBackstopFetch stands aside for a fetch in flight
     // and paces the one after a refusal; both are facts about this node's traffic to a
     // shared source rather than about which path asked for it. A periodic refresh that

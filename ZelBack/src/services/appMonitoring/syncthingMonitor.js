@@ -718,9 +718,12 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
         // whose spec cannot be read to say it does not, is held before the
         // demotion, whatever the demotion does.
         const held = ownerIds.has(appId) || unreadableIds.has(appId);
+        // The demotion abandons a promotion in progress as it is called, before
+        // the hold is written, so the promotion cannot ask to run it after.
+        const demoting = primaryRole.demoteForSafety(appId);
         if (held) appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${reason}`);
         // eslint-disable-next-line no-await-in-loop
-        const patchResponse = await primaryRole.demoteForSafety(appId);
+        const patchResponse = await demoting;
         if (patchResponse.status === 'success') {
           log.error(`syncthingAppsCore - SAFETY BLOCK: ${appId} folder over an unsafe mount (${reason}); switched to receiveonly and holding the container`);
           if (!held) appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${reason}`);

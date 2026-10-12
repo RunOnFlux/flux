@@ -2557,6 +2557,21 @@ async function appDockerRestart(appname) {
 }
 
 /**
+ * Announce each component a specification update replaced, once the whole app
+ * is back. The same event a component redeploy publishes: the only report that
+ * a single component was replaced, since the app stays installed throughout.
+ * @param {string} appName
+ * @param {Array<{component: string, hard: boolean}>} replaced
+ */
+function announceComponentsRedeployed(appName, replaced) {
+  replaced.forEach(({ component, hard }) => {
+    fluxEventBus.publish('app:componentRedeployed', {
+      name: appName, component, identifier: `${component}_${appName}`, hard,
+    });
+  });
+}
+
+/**
  * Syncthing device ids of the nodes that have announced a shutdown and not come
  * back. The monitor names each device after its node's socket address.
  * @returns {Promise<Set<string>>}
@@ -4044,44 +4059,29 @@ async function checkAndRemoveApplicationInstance() {
         // this there would stop a container for a case that cannot arise.
         // eslint-disable-next-line no-restricted-syntax
         for (const identifier of safety.standDown) {
+          // Marked before anything changes, so an election pass that reaches the
+          // component from here on leaves it alone (masterSlaveApps), and unmarked
+          // unless it is confirmed stopped: a component this node still runs is
+          // one it must stay electable for, and the next pass tries again.
+          standingDown.set(identifier, 0);
           try {
-            // The controller's opinion FIRST, and it is not optional. For a g:
-            // component appReconciler reads its desired state from
-            // controllerDesired, so a container stopped while that still says
-            // 'running' is one the reconciler starts again on its next sweep:
-            // the stand-down reports success, the component keeps running, the
-            // election entry goes stale because this node has excluded itself,
-            // and every later pass refuses with ELECTION_UNKNOWN while the node
-            // never leaves. This is the same lever masterSlaveApps pulls to put
-            // a node into standby, which is what standing down makes this one.
-            appReconciler.setControllerDesired(identifier, 'stopped', 'standing down to hand the app back');
+            // The stop is the reconciler's, the container's only actuator, and
+            // returns once its pass has run. The folder keeps sending until the
+            // syncthing pass finds this node no longer holds the component and
+            // makes it receive scanned first (primaryRole.holdAsStandby), so what
+            // was written here before the stop reaches the peer that takes over.
             // eslint-disable-next-line no-await-in-loop
-            const stop = await appDockerStop(identifier);
-            // THE VERDICT, not the fact that the call returned. appDockerStop
-            // REPORTS a refusal rather than throwing one - it catches internally
-            // and answers { stopped, running, unavailable, errors }, where
-            // `stopped` is read back from docker rather than taken from the stop
-            // call. So the catch below can only fire on an unexpected throw, and
-            // marking here on the strength of having CALLED the stop marked a
-            // component that may still be up: docker refusing, or never becoming
-            // able to answer, both come back as stopped:false with no throw.
-            if (!stop || !stop.stopped) {
-              // Same reasoning as the catch, for the case that actually happens
-              // on a node. Unmarked, so the next pass tries again rather than
-              // this node excluding itself from the election for a component it
-              // is still running.
-              log.error(`${installedApp.name}: could not stand down ${identifier}: `
-                + `running=[${(stop?.running ?? []).join(', ')}] `
-                + `unavailable=${stop?.unavailable ?? 'unknown'} `
-                + `errors=[${(stop?.errors ?? []).join('; ')}]`);
+            await appReconciler.setControllerDesiredAndWait(identifier, 'stopped', 'standing down to hand the app back');
+            // eslint-disable-next-line no-await-in-loop
+            const actual = await appReconciler.dockerActual(identifier);
+            if (!actual.reachable || actual.indeterminate || actual.running) {
+              standingDown.delete(identifier);
+              log.error(`${installedApp.name}: could not stand down ${identifier}: it is not confirmed stopped`);
             } else {
-              standingDown.set(identifier, 0);
               log.warn(`${installedApp.name}: standing down as ${identifier}'s primary so the app can be handed back`);
             }
           } catch (error) {
-            // Left unmarked deliberately: a component this node failed to stop
-            // is one it is still writing to, and marking it would make the node
-            // unelectable for a component it is running. The next pass retries.
+            standingDown.delete(identifier);
             log.error(`${installedApp.name}: could not stand down ${identifier}: ${error.message}`);
           }
         }
@@ -4363,8 +4363,9 @@ async function reinstallOldApplications() {
             log.info(`Database entry created for ${appSpecifications.name} BEFORE component Docker container creation (version upgrade path)`);
 
             // Now install components - containers will be created but app is already in DB
-            // eslint-disable-next-line no-restricted-syntax
             let allComponentsBack = true;
+            const replaced = [];
+            // eslint-disable-next-line no-restricted-syntax
             for (const appComponent of appSpecifications.compose) {
               log.warn(`Continuing Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
               // eslint-disable-next-line no-await-in-loop
@@ -4377,6 +4378,7 @@ async function reinstallOldApplications() {
                 allComponentsBack = false;
                 break;
               }
+              replaced.push({ component: appComponent.name, hard: true });
             }
             // Announced and restarted only if it is actually back. Saying so
             // regardless is what turned a refused install into a node reporting
@@ -4386,6 +4388,7 @@ async function reinstallOldApplications() {
               log.warn(`Restarting application ${appSpecifications.name}`);
               // eslint-disable-next-line no-await-in-loop, no-use-before-define
               await appDockerRestart(appSpecifications.name);
+              announceComponentsRedeployed(appSpecifications.name, replaced);
             }
           } else if (appSpecifications.version <= 3) {
             if (appSpecifications.tiered) {
@@ -4591,6 +4594,7 @@ async function reinstallOldApplications() {
               log.info(`Database entry created for ${appSpecifications.name} BEFORE component Docker container creation (composed redeployment path)`);
 
               let allComponentsBack = true;
+              const replaced = [];
               // Now install components - containers will be created but app is already in DB
               // eslint-disable-next-line no-restricted-syntax
               for (const appComponent of appSpecifications.compose) {
@@ -4619,6 +4623,7 @@ async function reinstallOldApplications() {
                     allComponentsBack = false;
                     break;
                   }
+                  replaced.push({ component: appComponent.name, hard: false });
                 } else {
                   log.warn(`Continuing Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   // eslint-disable-next-line no-await-in-loop
@@ -4631,6 +4636,7 @@ async function reinstallOldApplications() {
                     allComponentsBack = false;
                     break;
                   }
+                  replaced.push({ component: appComponent.name, hard: true });
                 }
               }
               // Announced and restarted only if it is actually back.
@@ -4639,6 +4645,7 @@ async function reinstallOldApplications() {
                 log.warn(`Restarting application ${appSpecifications.name}`);
                 // eslint-disable-next-line no-await-in-loop, no-use-before-define
                 await appDockerRestart(appSpecifications.name);
+                announceComponentsRedeployed(appSpecifications.name, replaced);
               }
             } catch (error) {
               log.error(error);
@@ -5352,6 +5359,14 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 } else {
                   // All other cases: don't start
                   log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - conditions not met for primary selection`);
+                }
+              } else if (!appReconciler.hasControllerOpinion(identifier)) {
+                // Running here with no primary named: this node holds the app, and
+                // the election leaves it running. A named primary elsewhere moves
+                // it to stopped through the standby branch below.
+                // eslint-disable-next-line no-await-in-loop
+                if (await appReconciler.adoptControllerDesired(identifier, 'running', 'masterSlave holder, no primary named')) {
+                  fluxEventBus.count('masterSlave:decision', identifier, 'adopted');
                 }
               }
             } else {

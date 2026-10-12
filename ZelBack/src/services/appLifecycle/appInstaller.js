@@ -923,9 +923,12 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
  * @param {boolean} isComponent True if a Docker Compose component.
  * @param {object} res Response.
  * @param {object} fullAppSpecs Full app specifications.
+ * @param {object} [options]
+ * @param {boolean} [options.start] False creates the container without starting
+ *   it, for a caller whose next reconcile pass starts it.
  * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs) {
+async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs, { start = true } = {}) {
   // Verify the apps this app must be networked with (networkWith token) are
   // installed locally and owned by the same owner. Enforced here too — not just
   // in softRegisterAppLocally — so direct callers that bypass it (container
@@ -983,7 +986,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     res.write(serviceHelper.ensureString(startStatus));
     if (res.flush) res.flush();
   }
-  if (!appSpecifications.containerData.includes('g:')) {
+  if (start && !appSpecifications.containerData.includes('g:')) {
     const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
     const app = await dockerService.appDockerStart(identifier);
     if (!app) {

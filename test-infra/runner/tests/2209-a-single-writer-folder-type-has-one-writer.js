@@ -20,6 +20,7 @@ import {
   waitFor, electionDecisionCount, waitForReconcilerDesiredChanged,
 } from '../framework/wait.js';
 import { bootAndPeer, placeGAppInOrder, seedSyncScopedData } from '../framework/reconciler-suite.js';
+import { destroyVolume } from '../framework/volume-fixture.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // A single-writer (g:) folder's syncthing type has one writer, the primary role
@@ -190,7 +191,6 @@ describe('a single-writer folder type has one writer', function () {
     const a = await settle(`e2eunsafe${stamp}`);
     const target = a.standbys[0];
     const client = env.clients[target];
-    const dir = `/mnt/appdata/flux-apps/${a.folder}`;
     const from = client.getLastEventId();
     const writesBefore = (await writesTo(target, a.folder)).length;
 
@@ -200,9 +200,7 @@ describe('a single-writer folder type has one writer', function () {
       await client.waitForEvent('checkpoint:held', (d) => d.name === BEFORE_START && d.key === a.identifier, 300000, { afterId: from });
       // The volume leaves the directory under the node and cannot be mounted
       // again, as suite 61 does it; syncthing reports the folder's marker gone.
-      const unmount = await execInContainer(client.container,
-        `umount -l ${dir} && chattr -i ${dir} && rm -f /mnt/appdata/${a.folder}FLUXFSVOL`);
-      expect(unmount.exitCode, `fixture: the volume could not be taken away: ${unmount.output}`).to.equal(0);
+      await destroyVolume(client.container, a.appName);
       await injectSyncthingEvent({ ip: ipOf(target), type: 'FolderErrors', data: { folder: a.folder, errors: [{ error: 'folder marker missing' }] } });
       await waitForReconcilerDesiredChanged(client, a.identifier, 'stopped', 120000, { afterId: from });
     } finally {
@@ -278,7 +276,6 @@ describe('a single-writer folder type has one writer', function () {
     const a = await settle(`e2ecover${stamp}`);
     const target = a.standbys[0];
     const client = env.clients[target];
-    const dir = `/mnt/appdata/flux-apps/${a.folder}`;
     const from = client.getLastEventId();
     const writesBefore = (await writesTo(target, a.folder)).length;
     const scansBefore = (await scansOf(target, a.folder)).length;
@@ -294,9 +291,7 @@ describe('a single-writer folder type has one writer', function () {
         .some((scan) => scan.id === a.folder && scan.arrivedSeq > sends.seq), {
         timeout: 60000, interval: 500, label: 'a scan covering the folder\'s restart is under way',
       });
-      const unmount = await execInContainer(client.container,
-        `umount -l ${dir} && chattr -i ${dir} && rm -f /mnt/appdata/${a.folder}FLUXFSVOL`);
-      expect(unmount.exitCode, `fixture: the volume could not be taken away: ${unmount.output}`).to.equal(0);
+      await destroyVolume(client.container, a.appName);
       unmountedAt = Date.now();
       await injectSyncthingEvent({ ip: ipOf(target), type: 'FolderErrors', data: { folder: a.folder, errors: [{ error: 'folder marker missing' }] } });
 

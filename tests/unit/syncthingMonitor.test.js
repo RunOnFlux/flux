@@ -51,6 +51,8 @@ const syncthingFolderStateMachineMock = {
 
 const volumeServiceMock = {
   ensureAppVolumeMounted: sinon.stub().resolves({ mounted: true, alreadyMounted: true }),
+  // every app directory has its volume mounted unless a test says otherwise
+  isPathMounted: sinon.stub().resolves(true),
 };
 
 const appReconcilerMock = {
@@ -117,6 +119,7 @@ const appTamperingDetectionServiceMock = { recordEvent: sinon.stub().resolves() 
 const syncthingFolderWrites = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingFolderWrites', {
   '../serviceHelper': serviceHelperMock,
   '../syncthingService': syncthingServiceMock,
+  '../utils/volumeService': volumeServiceMock,
 });
 const primaryRole = proxyquire('../../ZelBack/src/services/appLifecycle/primaryRole', {
   '../appMonitoring/appReconciler': appReconcilerMock,
@@ -611,6 +614,36 @@ describe('syncthingMonitor tests', () => {
 
       expect(mockState.receiveOnlySyncthingAppsCache.get('testapp').numberOfExecutions).to.equal(0);
       expect(mockState.receiveOnlySyncthingAppsCache.get('testapp').restarted).to.not.equal(true);
+    });
+
+    // The demotion abandons a promotion in progress as it is called, so a promotion
+    // cannot ask to run the component after the hold is written.
+    it('demotes before it holds the container', async () => {
+      mockInstalledAppsFn.resolves({
+        status: 'success',
+        data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
+      });
+      syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['testapp']);
+      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'unmounted_with_content' });
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+      // its folder syncs, so its container is held before the demotion
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      const demote = sinon.spy(primaryRole, 'demoteForSafety');
+
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+      );
+      await clock.tickAsync(100);
+
+      sinon.assert.calledWith(demote, 'testapp');
+      sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'testapp', 'stopped');
+      sinon.assert.callOrder(demote, appReconcilerMock.setControllerDesired);
+      demote.restore();
     });
 
     it('demotes a sendreceive folder over an unrepairable mount and holds it out of the pass', async function () {
@@ -1344,6 +1377,59 @@ describe('syncthingMonitor tests', () => {
       await clock.tickAsync(100);
 
       expect(peerFolderLivenessMock.createPeerFolderLiveness.callCount).to.be.greaterThan(afterFirst);
+    });
+  });
+
+  // An app directory with no volume mounted is skipped before its folder is
+  // configured, so it never reaches the batch the folder writer refuses whole.
+  describe('an unmounted volume among folders that need writing', () => {
+    const mounted = (dir) => !dir.endsWith('/brokenapp');
+
+    function twoSendingFolders() {
+      mockInstalledAppsFn.resolves({
+        status: 'success',
+        data: [
+          { name: 'brokenapp', version: 3, containerData: 's:/appdata' },
+          { name: 'goodapp', version: 3, containerData: 's:/appdata' },
+        ],
+      });
+      syncthingMonitorHelpersMock.buildDeviceConfiguration.callsFake(async () => []);
+      syncthingMonitorHelpersMock.getContainerDataFlags.returns('s');
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingMonitorHelpersMock.folderNeedsUpdate.returns(true);
+      syncthingServiceMock.getConfigFolders.resolves([]);
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+      volumeServiceMock.isPathMounted.callsFake(async (dir) => mounted(dir));
+    }
+
+    const putFolderIds = () => syncthingServiceMock.adjustConfigFolders.getCalls()
+      .filter((call) => call.args[0] === 'put')
+      .map((call) => call.args[1].map((folder) => folder.id));
+
+    afterEach(() => {
+      volumeServiceMock.isPathMounted.reset();
+      volumeServiceMock.isPathMounted.resolves(true);
+    });
+
+    it('writes the mounted folder and leaves the unmounted one out', async () => {
+      twoSendingFolders();
+      syncthingMonitorHelpersMock.ensureStfolderExists.callsFake(async (dir) => mounted(dir));
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(putFolderIds(), 'one unmounted volume stopped every other folder being written').to.deep.equal([['goodapp']]);
+    });
+
+    it('refuses the whole batch when the unmounted folder reaches it', async () => {
+      // The control: with the skip gone, the folder writer's own check is all
+      // that stands between the batch and syncthing.
+      twoSendingFolders();
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(putFolderIds()).to.deep.equal([]);
     });
   });
 

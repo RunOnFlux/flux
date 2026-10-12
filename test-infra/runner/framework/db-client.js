@@ -111,6 +111,17 @@ export function dbClient(nodeNum) {
       return globalDb.collection('zelappslocation').find({ ip }).toArray();
     },
 
+    // The restart attempts this node's reconciler has recorded for a component:
+    // the burst window and the backoff ladder, as many entries as each holds.
+    async restartAttempts(identifier) {
+      const localDb = await db('appsLocal');
+      const state = await localDb.collection('zelappsruntimestate').findOne({ identifier });
+      return {
+        burst: (state?.autoRestartWindow ?? []).length,
+        rungs: (state?.restartHistory ?? []).length,
+      };
+    },
+
     // This node's app state event log, filtered.
     async appStateEvents(query = {}) {
       const globalDb = await db('appsGlobal');
