@@ -92,7 +92,8 @@ const {
 
 // State objects for monitoring services
 const dosState = {
-  dosMessage: null,
+  get dosMessage() { return fluxNetworkHelper.getDosMessage(); },
+  set dosMessage(value) { fluxNetworkHelper.setDosMessage(value); },
   get dosStateValue() { return fluxNetworkHelper.getDosStateValue(); },
   set dosStateValue(value) { fluxNetworkHelper.setDosStateValue(value); },
   testingPort: null,
@@ -672,7 +673,10 @@ async function startFluxFunctions() {
         log.info('Native image update service started');
       }).catch((error) => log.error(`Image update service start error: ${error.message}`));
     }, bootDelay(10 * 60 * 1000)); // 10 minutes after startup
-    fluxNetworkHelper.checkDeterministicNodesCollisions();
+    // this node's own standing on the network - collisions, reachability, its
+    // own address - judged as each thing it depends on changes
+    fluxNetworkHelper.startOwnStandingWatch();
+    syncthingService.onListeningForPeers(fluxNetworkHelper.noteSyncthingListening);
     // STARTED ON THE POLICY, NOT ON BOOT. The blocklist this enforces is a document in the
     // signed bundle, and the bundle is not resolved by the time this line runs. Started
     // here, its first tick reads nothing - and reading nothing is correctly refused rather
@@ -953,4 +957,6 @@ module.exports = {
   ensureIndex,
   ensureIndexes,
   dedupeByKey,
+  // testing exports
+  dosState,
 };

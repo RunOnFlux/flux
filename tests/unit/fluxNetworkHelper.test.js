@@ -1988,10 +1988,6 @@ describe('fluxNetworkHelper tests', () => {
     let deterministicFluxnodeListResponse;
 
     beforeEach(() => {
-      // Every path through the check reschedules itself, by design - it is a
-      // poller. Left real, those timers outlive this file and keep re-entering
-      // the check against restored stubs for the rest of the run.
-      sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
       // A move it handles ends in a geolocation update, which reads this node's
       // stored geolocation into memory for every later test to see.
       sinon.stub(geolocationService, 'setNodeGeolocation');
@@ -2005,9 +2001,8 @@ describe('fluxNetworkHelper tests', () => {
       sinon.stub(daemonServiceFluxnodeRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
       sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
-      // The check defers and re-arms while the node list is unknown, the same
-      // way it does for an unsynced daemon - these cases are all about what it
-      // decides once it HAS the list.
+      // The check decides nothing while the node list is unknown - these cases
+      // are all about what it decides once it HAS the list.
       sinon.stub(networkStateService, 'isReady').returns(true);
       deterministicFluxnodeListResponse = [
         {
@@ -2065,11 +2060,9 @@ describe('fluxNetworkHelper tests', () => {
       expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
     });
 
-    it('does not read the node list while the list is unknown - it defers and re-arms', async () => {
-      // An unknown list is an empty list to every accessor here, and this check
-      // reads that as: no collision anywhere, this node absent from the
-      // confirmed list, that absence logged as the reason, and the availability
-      // check that clears DOS skipped. It waits for the list instead.
+    it('does not read the node list while the list is unknown', async () => {
+      // An unknown list is an empty list to every accessor here, which this
+      // check would read as no collision anywhere.
       const getBenchmarkResponseData = {
         status: 'success',
         data: { ipaddress: '127.0.0.1:5050' },
@@ -2083,78 +2076,6 @@ describe('fluxNetworkHelper tests', () => {
 
       sinon.assert.notCalled(deterministicFluxListStub);
       expect(fluxNetworkHelper.getDosMessage()).to.be.null;
-    });
-
-    it('should run again as soon as the node list arrives', async () => {
-      getBenchmarksStub.resolves({ status: 'success', data: { ipaddress: '127.0.0.1:5050' } });
-      isDaemonSyncedStub.returns({ data: { synced: true } });
-      deterministicFluxListStub.returns(deterministicFluxnodeListResponse);
-      networkStateService.isReady.returns(false);
-      const onReady = sinon.stub(networkStateService, 'onReady');
-
-      await fluxNetworkHelper.checkDeterministicNodesCollisions();
-      sinon.assert.calledOnce(onReady);
-      sinon.assert.notCalled(deterministicFluxListStub);
-
-      networkStateService.isReady.returns(true);
-      await onReady.firstCall.args[0]();
-      sinon.assert.called(deterministicFluxListStub);
-    });
-
-
-    it('should skip availability check when node status is not CONFIRMED', async () => {
-      const ip = '127.0.0.1:5050';
-      const getBenchmarkResponseData = {
-        status: 'success',
-        data: { ipaddress: ip },
-      };
-      getBenchmarksStub.resolves(getBenchmarkResponseData);
-      isDaemonSyncedStub.returns({ data: { synced: true } });
-      // Node is not in the deterministic list (expired)
-      deterministicFluxListStub.returns([]);
-      getFluxNodeStatusStub.returns(
-        {
-          status: 'success',
-          data: {
-            status: 'expired',
-            collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
-          },
-        },
-      );
-
-      await fluxNetworkHelper.checkDeterministicNodesCollisions();
-
-      // Node is expired and not in list — availability check is skipped, no DOS penalty
-      expect(fluxNetworkHelper.getDosMessage()).to.be.null;
-      expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
-    });
-
-    it('should skip availability check when IP is not in confirmed flux list', async () => {
-      const ip = '127.0.0.1:5050';
-      const getBenchmarkResponseData = {
-        status: 'success',
-        data: { ipaddress: ip },
-      };
-      getBenchmarksStub.resolves(getBenchmarkResponseData);
-      isDaemonSyncedStub.returns({ data: { synced: true } });
-      deterministicFluxListStub.returns(deterministicFluxnodeListResponse);
-      getFluxNodeStatusStub.returns(
-        {
-          status: 'success',
-          data: {
-            status: 'CONFIRMED',
-            collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
-          },
-        },
-      );
-      // Our IP changed and is not in the confirmed list
-      fluxCommunicationUtils.socketAddressInFluxList.resolves(false);
-
-      await fluxNetworkHelper.checkDeterministicNodesCollisions();
-
-      // CONFIRMED but IP not in list — availability check is skipped, no DOS penalty
-      expect(fluxNetworkHelper.getDosMessage()).to.be.null;
-      expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
     });
 
     it('should find the same node instances and warn about earlier collision detection', async () => {

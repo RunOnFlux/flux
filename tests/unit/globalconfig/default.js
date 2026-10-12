@@ -238,6 +238,10 @@ module.exports = {
     minIncoming: 4,
     minUniqueIpsIncoming: 3,
     minUpTime: 1800, // 30 mins
+    availabilityCheckIntervalMs: 300000,
+    availabilityRecheckMs: 60000,
+    publicIpAskIntervalMs: 90000,
+    publicIpAsksBeforeDos: 8,
     appSyncPeerThreshold: 12,
     appSyncDegradedThreshold: 4,
     appSyncMinCompletions: 3,

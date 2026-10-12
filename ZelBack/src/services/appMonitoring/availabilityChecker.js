@@ -45,6 +45,34 @@ async function handleTestShutdown(testingPort, testHttpServer, isArcane, options
   }
 }
 
+const UPNP_DOS_MESSAGE = 'Not possible to run applications on the node, router returning exceptions when creating UPNP ports mappings';
+const PORTS_DOS_MESSAGE_PREFIX = 'Ports tested not reachable from outside';
+
+/**
+ * Whether the node's DOS state is this check's to set or clear: there is one
+ * message for every reason a node can be out of service, and this check leaves
+ * another's alone.
+ * @param {string|null} message The node's DOS message.
+ * @returns {boolean}
+ */
+function dosStateIsOwn(message) {
+  return !message || message === UPNP_DOS_MESSAGE || message.startsWith(PORTS_DOS_MESSAGE_PREFIX);
+}
+
+/**
+ * Ends the node's DOS when it is this check's, now that every port it tests is
+ * reachable.
+ * @param {object} dosState
+ * @returns {void}
+ */
+function releaseOwnDos(dosState) {
+  if (!dosStateIsOwn(dosState.dosMessage)) return;
+  // eslint-disable-next-line no-param-reassign
+  dosState.dosMessage = null;
+  // eslint-disable-next-line no-param-reassign
+  dosState.dosStateValue = 0;
+}
+
 /**
  * Check my apps availability by testing ports from external nodes
  * @param {Function} installedAppsFn - Function to get installed apps
@@ -215,9 +243,9 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
         if (dosState.lastUPNPMapFailed) {
           // eslint-disable-next-line no-param-reassign
           dosState.dosStateValue += 4;
-          if (dosState.dosStateValue >= thresholds.dos) {
+          if (dosState.dosStateValue >= thresholds.dos && dosStateIsOwn(dosState.dosMessage)) {
             // eslint-disable-next-line no-param-reassign
-            dosState.dosMessage = 'Not possible to run applications on the node, router returning exceptions when creating UPNP ports mappings';
+            dosState.dosMessage = UPNP_DOS_MESSAGE;
           }
         }
         // eslint-disable-next-line no-param-reassign
@@ -356,8 +384,10 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       waitMs = timeouts.failure;
     } else if (portTestFailed && dosState.dosStateValue >= thresholds.dos) {
       const failedPorts = setRandomPort();
-      // eslint-disable-next-line no-param-reassign
-      dosState.dosMessage = `Ports tested not reachable from outside, DMZ or UPNP required! All ports that have failed: ${JSON.stringify(failedPorts)}`;
+      if (dosStateIsOwn(dosState.dosMessage)) {
+        // eslint-disable-next-line no-param-reassign
+        dosState.dosMessage = `${PORTS_DOS_MESSAGE_PREFIX}, DMZ or UPNP required! All ports that have failed: ${JSON.stringify(failedPorts)}`;
+      }
       waitMs = timeouts.dos;
     } else if (!portTestFailed && portsNotWorking.size > thresholds.portsLowEdge) {
       portsNotWorking.delete(dosState.testingPort);
@@ -369,10 +399,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       dosState.nextTestingPort = null;
       // eslint-disable-next-line no-param-reassign
       dosState.originalPortFailed = null;
-      // eslint-disable-next-line no-param-reassign
-      dosState.dosMessage = null;
-      // eslint-disable-next-line no-param-reassign
-      dosState.dosStateValue = 0;
+      releaseOwnDos(dosState);
       waitMs = timeouts.default;
     }
 
@@ -398,4 +425,5 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
 
 module.exports = {
   checkMyAppsAvailability,
+  releaseOwnDos,
 };

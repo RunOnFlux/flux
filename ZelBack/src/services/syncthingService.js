@@ -2,6 +2,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const childProcess = require('node:child_process');
+const { EventEmitter } = require('node:events');
 
 const axios = require('axios');
 const config = require('config');
@@ -84,6 +85,13 @@ let sentinelStarted = false;
  * number. Stopping syncthing clears it, so each new process is announced.
  */
 let ownersByNumberAnnounced = false;
+
+/**
+ * Whether syncthing has been seen listening for its peers on its port, and who is
+ * told the first time it is.
+ */
+let listeningForPeers = false;
+const listeningForPeersEvents = new EventEmitter();
 
 /**
  * Whether this process has checked the numeric id tables on disk. Only FluxOS
@@ -1272,6 +1280,46 @@ async function installSyncthingIdempotently() {
 }
 
 /**
+ * The port syncthing listens on for its peers: two above the api port, eg 16129.
+ * @returns {number}
+ */
+function syncthingListenPort() {
+  // use env so can run this module as standalone for testing
+  const apiPort = process.env.FLUX_APIPORT || userconfig?.initial.apiport || config.server?.apiport;
+  return +apiPort + 2;
+}
+
+/**
+ * Notes, the first time it holds, that syncthing is listening for its peers on
+ * its port. Syncthing reports a listener without an error only once it is bound.
+ * @returns {Promise<void>}
+ */
+async function noteListeningForPeers() {
+  if (listeningForPeers) return;
+  const status = await getSystemStatus().catch(() => null);
+  const listener = status?.connectionServiceStatus?.[`tcp://:${syncthingListenPort()}`];
+  if (!listener || listener.error) return;
+  listeningForPeers = true;
+  log.info(`Syncthing is listening for its peers on port ${syncthingListenPort()}`);
+  fluxEventBus.publish('syncthing:listening', { port: syncthingListenPort() });
+  listeningForPeersEvents.emit('listening');
+}
+
+/**
+ * Calls `listener` once syncthing is listening for its peers on its port: now,
+ * if it already is.
+ * @param {function(): void} listener
+ * @returns {void}
+ */
+function onListeningForPeers(listener) {
+  if (listeningForPeers) {
+    listener();
+    return;
+  }
+  listeningForPeersEvents.once('listening', listener);
+}
+
+/**
  * Function that adjusts syncthing folders and restarts the service if needed
  * @returns {Promise<void>}
  */
@@ -1286,8 +1334,7 @@ async function adjustSyncthing() {
     const currentConfigOptions = await getConfigOptions().catch(() => null);
     const currentDefaultsFolderOptions = await getConfigDefaultsFolder().catch(() => null);
     // use env so can run this module as standalone for testing
-    const apiPort = process.env.FLUX_APIPORT || userconfig?.initial.apiport || config.server?.apiport;
-    const myPort = +apiPort + 2; // end with 9 eg 16139
+    const myPort = syncthingListenPort();
     // adjust configuration
     const newConfig = {
       globalAnnounceEnabled: false,
@@ -1760,6 +1807,8 @@ async function runSyncthingSentinel() {
       await adjustSyncthing();
     }
 
+    await noteListeningForPeers();
+
     return SYNCTHING_SENTINEL_INTERVAL_MS;
   } catch (error) {
     if (error.name === 'AbortError') return 0;
@@ -1841,6 +1890,10 @@ function setNumericIdTablesChecked(value) {
  */
 function setOwnersByNumberAnnounced(value) {
   ownersByNumberAnnounced = value;
+}
+
+function setListeningForPeers(value) {
+  listeningForPeers = value;
 }
 
 /**
@@ -2671,6 +2724,7 @@ module.exports = {
   adjustConfigDevices,
   // status
   isRunning,
+  onListeningForPeers,
   healthState,
   syncthingHomeDir,
   SYNCTHING_HEALTH,
@@ -2683,6 +2737,8 @@ module.exports = {
   setSyncthingUnmeasured,
   setNumericIdTablesChecked,
   setOwnersByNumberAnnounced,
+  setListeningForPeers,
+  noteListeningForPeers,
   resetDeviceIdCache,
   adjustSyncthing,
   getConfigFile,

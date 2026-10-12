@@ -1073,6 +1073,7 @@ async function getLocalSocketAddress(options = {}) {
   // masterSlave election) never act on a bogus own-IP.
   if (status !== 'success' || !parseSocketAddress(ipaddress)) {
     setLocalSocketAddress(null);
+    localSocketAddressEvents.emit('unresolved');
     return null;
   }
   setLocalSocketAddress(ipaddress);
@@ -1859,6 +1860,23 @@ function startOwnAddressWatch() {
   };
 }
 
+// The DOS messages this node's own reachability checks set. There is one message
+// for every reason a node can be out of service, so each check clears only one it
+// set itself, matched against these.
+const UNREACHABLE_MESSAGE = 'Flux communication is limited, other nodes on the network cannot reach yours through API calls';
+const UNAVAILABLE_MESSAGE = 'Flux is not available for outside communication';
+const BENCH_PUBLIC_IP_MESSAGE = 'Error getting publicIp from FluxBench';
+const REACHABILITY_MESSAGES = [UNREACHABLE_MESSAGE, UNAVAILABLE_MESSAGE, BENCH_PUBLIC_IP_MESSAGE];
+const IP_DETECTION_FAILED_MESSAGE = 'Flux IP detection failed';
+
+function monotonicMs() {
+  return Number(process.hrtime.bigint() / 1000000n);
+}
+
+// When this node last found itself reachable with too few peer connections, while
+// it keeps doing so: null otherwise.
+let peerShortfallSeenAt = null;
+
 /**
  * To check user's FluxNode availability.
  * @param {number} retryNumber Number of retries.
@@ -1917,10 +1935,14 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     },
   );
 
+  // Known limitation, replaced in v9: a failed check retries at once against another
+  // random node, up to seven times, and each failure adds 2 to dosState, so one bad
+  // moment on the network can put the node in DOS within seconds. The re-check a
+  // failure schedules clears it.
   if (!resMyAvailability) {
     dosState += 2;
     if (dosState > 10) {
-      setDosMessage(dosMessage || 'Flux communication is limited, other nodes on the network cannot reach yours through API calls');
+      setDosMessage(dosMessage || UNREACHABLE_MESSAGE);
       log.error(dosMessage);
       return false;
     }
@@ -1952,13 +1974,13 @@ async function checkMyFluxAvailability(retryNumber = 0) {
           log.info('FluxBench reported the same Ip that was already in use');
         } else {
           log.info('FluxBench reported a invalid IP');
-          setDosMessage('Error getting publicIp from FluxBench');
+          setDosMessage(BENCH_PUBLIC_IP_MESSAGE);
           dosState += 15;
           log.error('FluxBench wasnt able to detect flux node public ip');
         }
       } else {
         log.info('FluxBench reported returned error on getpublicipcall');
-        setDosMessage('Error getting publicIp from FluxBench');
+        setDosMessage(BENCH_PUBLIC_IP_MESSAGE);
         dosState += 15;
         log.error(dosMessage);
         return false;
@@ -1966,7 +1988,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     }
     dosState += 2;
     if (dosState > 10) {
-      setDosMessage(dosMessage || 'Flux is not available for outside communication');
+      setDosMessage(dosMessage || UNAVAILABLE_MESSAGE);
       log.error(dosMessage);
       return false;
     }
@@ -1985,9 +2007,19 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       // check sufficient connections
       const connectionInfo = isCommunicationEstablished();
       if (connectionInfo.status === 'error') {
-        dosState += 0.13; // slow increment, DOS after ~75 minutes. 0.13 per minute. This check depends on other nodes being able to connect to my node
+        // Reachable: whatever this check said about reaching it no longer holds.
+        if (REACHABILITY_MESSAGES.includes(dosMessage)) {
+          dosState = 0;
+          setDosMessage(null);
+        }
+        // 0.13 a minute while it lasts, so DOS after ~75 minutes with too few
+        // peers. This depends on other nodes being able to connect to my node.
+        const now = monotonicMs();
+        const minutes = peerShortfallSeenAt === null ? 1 : (now - peerShortfallSeenAt) / 60000;
+        peerShortfallSeenAt = now;
+        dosState += 0.13 * minutes;
         if (dosState > 10) {
-          setDosMessage(connectionInfo.data.message || 'Flux does not have sufficient peers');
+          setDosMessage(dosMessage || connectionInfo.data.message || 'Flux does not have sufficient peers');
           log.error(dosMessage);
           return false;
         }
@@ -1997,14 +2029,19 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   } else if (measuredUptime.status === 'error') {
     log.error('Flux uptime is not available'); // introduce dos increment
   }
+  peerShortfallSeenAt = null;
   dosState = 0;
   setDosMessage(null);
   return true;
 }
 
 /**
- * To check deterministic node collisions (i.e. if multiple FluxNode instances detected).
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * Checks once whether this node's collateral is listed anywhere it should not be:
+ * twice at its own address, or at another address. Runs on each node list
+ * refresh and each change of this node's own address; one that cannot decide
+ * yet - no address, an unsynced daemon, no list - decides nothing and the next
+ * refresh asks again.
+ * @returns {Promise<void>}
  */
 async function checkDeterministicNodesCollisions() {
   const axiosConfig = {
@@ -2019,25 +2056,10 @@ async function checkDeterministicNodesCollisions() {
     const localSocketAddr = await getLocalSocketAddress();
     if (localSocketAddr) {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        setTimeout(() => {
-          checkDeterministicNodesCollisions();
-        }, 120 * 1000);
-        return;
-      }
-      // The list accessors wait for the list to arrive, and this loop only
-      // re-arms once it has finished - so awaiting in here would retire it for
-      // the life of the process rather than delay it, and this is the only thing
-      // that ever clears this node's DOS state. Reading an unknown list instead is
-      // no better: it makes every branch below conclude this node is not in the
-      // confirmed list, log that as the reason, and skip the availability check
-      // that would have cleared the DOS. So it runs again when the list arrives:
-      // a node that booted at an address its collateral is not listed at cannot
-      // be dialled by its peers until it has handled that move.
-      if (!networkStateService.isReady()) {
-        networkStateService.onReady(() => checkDeterministicNodesCollisions());
-        return;
-      }
+      if (!syncStatus.data.synced) return;
+      // An unknown list reads as an empty one to every accessor below, which
+      // would find no collision anywhere.
+      if (!networkStateService.isReady()) return;
       const nodeList = await fluxCommunicationUtils.deterministicFluxList();
       const result = nodeList.filter((node) => socketAddressesMatch(node.ip, localSocketAddr));
       const nodeStatus = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
@@ -2055,9 +2077,6 @@ async function checkDeterministicNodesCollisions() {
               log.error(`Flux earlier collision detection on ip:${localSocketAddr}`);
               dosState = 100;
               setDosMessage(`Flux earlier collision detection on ip:${localSocketAddr}`);
-              setTimeout(() => {
-                checkDeterministicNodesCollisions();
-              }, 60 * 1000);
               return;
             }
           }
@@ -2067,9 +2086,6 @@ async function checkDeterministicNodesCollisions() {
             log.error('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
             dosState = 100;
             setDosMessage('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
-            setTimeout(() => {
-              checkDeterministicNodesCollisions();
-            }, 60 * 1000);
             return;
           }
         }
@@ -2090,9 +2106,6 @@ async function checkDeterministicNodesCollisions() {
             log.error(`Flux collision detection. Node at ${askingIP}:${askingIpPort} is confirmed and reachable on flux network with the same collateral transaction information.`);
             dosState = 100;
             setDosMessage(`Flux collision detection. Node at ${askingIP}:${askingIpPort} is confirmed and reachable on flux network with the same collateral transaction information.`);
-            setTimeout(() => {
-              checkDeterministicNodesCollisions();
-            }, 60 * 1000);
             return;
           }
 
@@ -2132,62 +2145,262 @@ async function checkDeterministicNodesCollisions() {
           }
         }
       }
-      // If this node is not CONFIRMED, or our current IP isn't in the confirmed
-      // list (e.g. IP recently changed), remote nodes will reject the availability
-      // check via the confirmed-list gate in isFluxAvailable. Skip to avoid
-      // spamming the network with requests that will always fail.
-      const isConfirmed = nodeStatus.data?.status === 'CONFIRMED';
-      const inConfirmedList = await fluxCommunicationUtils.socketAddressInFluxList(localSocketAddr);
-      if (!isConfirmed || !inConfirmedList) {
-        const reason = !isConfirmed
-          ? `Node status is ${nodeStatus.data?.status}`
-          : `Our IP ${localSocketAddr} is not in the confirmed flux list`;
-        log.warn(`${reason}. Skipping remote availability check.`);
-        setTimeout(() => {
-          checkDeterministicNodesCollisions();
-        }, 60 * 1000);
-        return;
-      }
-      // early stages of the network or testnet
-      if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
-        await checkMyFluxAvailability();
-      } else { // sufficient amount of nodes has to appear on the network within 6 hours
-        const measuredUptime = fluxUptime();
-        if (measuredUptime.status === 'success' && measuredUptime.data > (config.fluxapps.minUpTime * 12)) {
-          await checkMyFluxAvailability();
-        } else if (measuredUptime.status === 'error') {
-          log.error('Flux uptime unavailable');
-          await checkMyFluxAvailability();
-        }
-      }
-    } else {
-      dosState += 1;
-      if (dosState > 10) {
-        setDosMessage(dosMessage || 'Flux IP detection failed');
-        log.error(dosMessage);
-      } else {
-        const measuredUptime = fluxUptime();
-        if (measuredUptime.status === 'success' && measuredUptime.data > (config.fluxapps.minUpTime)) {
-          const benchIpResponse = await benchmarkService.getPublicIp();
-          if (benchIpResponse.status === 'success') {
-            log.info(`FluxBench was previoulsy without ip and now reported public IP: ${benchIpResponse.data}`);
-            const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
-            if (benchMyIP) {
-              daemonServiceUtils.setStandardCache('getbenchmarks[]', null);
-            }
-          }
-        }
-      }
     }
-    setTimeout(() => {
-      checkDeterministicNodesCollisions();
-    }, 60 * 1000);
   } catch (error) {
     log.error(error);
-    setTimeout(() => {
-      checkDeterministicNodesCollisions();
-    }, 120 * 1000);
   }
+}
+
+// The collision check runs one pass at a time; a trigger arriving during a pass
+// asks for one more pass after it.
+let collisionCheckRunning = null;
+let collisionCheckAgain = false;
+
+/**
+ * Runs the collision check now, or once more after the pass already running.
+ * @returns {Promise<void>}
+ */
+async function requestCollisionCheck() {
+  if (collisionCheckRunning) {
+    collisionCheckAgain = true;
+    return collisionCheckRunning;
+  }
+  collisionCheckRunning = runCollisionChecks();
+  try {
+    await collisionCheckRunning;
+  } finally {
+    collisionCheckRunning = null;
+  }
+  return undefined;
+}
+
+async function runCollisionChecks() {
+  do {
+    collisionCheckAgain = false;
+    // After the work on this node's own address already asked for: a move it is
+    // recording is its own, not a collision.
+    // eslint-disable-next-line no-await-in-loop
+    await ownAddressWork;
+    // eslint-disable-next-line no-await-in-loop
+    await checkDeterministicNodesCollisions();
+  } while (collisionCheckAgain);
+}
+
+// Whether syncthing is listening for its peers: a peer asked whether it can reach
+// this node tests that port along with this node's api and home ports.
+let syncthingListening = false;
+// Whether the availability check has run at the address this node holds now.
+let availabilityCheckedHere = false;
+let availabilityTimer = null;
+let availabilityRunning = null;
+
+/**
+ * Whether asking a peer if it can reach this node can be answered yet: the node
+ * is confirmed and listed at its current address - a peer refuses any other -
+ * and everything the peer tests is listening. On a network of few nodes the
+ * question waits for six hours of uptime.
+ * @returns {Promise<boolean>}
+ */
+async function availabilityCanBeAnswered() {
+  if (!syncthingListening || !networkStateService.isReady()) return false;
+  const localSocketAddr = await getLocalSocketAddress();
+  if (!localSocketAddr) return false;
+  const nodeStatus = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
+  if (nodeStatus.data?.status !== 'CONFIRMED') return false;
+  if (!await fluxCommunicationUtils.socketAddressInFluxList(localSocketAddr)) return false;
+  const nodeCount = await fluxCommunicationUtils.getNodeCount();
+  if (nodeCount > config.fluxapps.minIncoming + config.fluxapps.minOutgoing) return true;
+  const measuredUptime = fluxUptime();
+  return measuredUptime.status !== 'success' || measuredUptime.data > config.fluxapps.minUpTime * 12;
+}
+
+function scheduleAvailabilityCheck(delayMs) {
+  clearTimeout(availabilityTimer);
+  availabilityTimer = setTimeout(requestAvailabilityCheck, delayMs);
+}
+
+/**
+ * Asks whether this node can be reached, when that can be answered, and
+ * schedules the next ask: sooner after a failure, so a false verdict clears.
+ * @returns {Promise<void>}
+ */
+async function runAvailabilityCheck() {
+  try {
+    if (!await availabilityCanBeAnswered()) return;
+    availabilityCheckedHere = true;
+    const available = await checkMyFluxAvailability();
+    scheduleAvailabilityCheck(available
+      ? config.fluxapps.availabilityCheckIntervalMs
+      : config.fluxapps.availabilityRecheckMs);
+  } catch (error) {
+    log.error(`availability check - ${error.message}`);
+    scheduleAvailabilityCheck(config.fluxapps.availabilityRecheckMs);
+  }
+}
+
+/**
+ * Runs the availability check now, unless a run is already under way.
+ * @returns {Promise<void>}
+ */
+async function requestAvailabilityCheck() {
+  if (!availabilityRunning) {
+    availabilityRunning = runAvailabilityCheck();
+    try {
+      await availabilityRunning;
+    } finally {
+      availabilityRunning = null;
+    }
+  }
+}
+
+/**
+ * The first availability check at this node's current address, once it can be
+ * answered. Later ones run on the check's own schedule.
+ * @returns {Promise<void>}
+ */
+async function requestFirstAvailabilityCheck() {
+  if (!availabilityCheckedHere) await requestAvailabilityCheck();
+}
+
+/**
+ * Notes that syncthing is listening for its peers.
+ * @returns {void}
+ */
+function noteSyncthingListening() {
+  syncthingListening = true;
+  requestFirstAvailabilityCheck();
+}
+
+let publicIpAskTimer = null;
+let emptyPublicIpAsks = 0;
+
+/**
+ * While this node knows no address of its own, asks benchmark to detect its
+ * public IP every publicIpAskIntervalMs. After publicIpAsksBeforeDos asks in a
+ * row find none, the node is out of service until one arrives.
+ * @returns {void}
+ */
+function askForPublicIpWhileUnknown() {
+  if (!publicIpAskTimer) publicIpAskTimer = setTimeout(askForPublicIp, config.fluxapps.publicIpAskIntervalMs);
+}
+
+async function askForPublicIp() {
+  publicIpAskTimer = null;
+  try {
+    await askOnceForPublicIp();
+  } catch (error) {
+    log.error(`public ip - ${error.message}`);
+    askForPublicIpWhileUnknown();
+  }
+}
+
+async function askOnceForPublicIp() {
+  const benchIpResponse = await benchmarkService.getPublicIp();
+  if (benchIpResponse?.status === 'success') {
+    log.info(`FluxBench was previously without ip and now reported public IP: ${benchIpResponse.data}`);
+    if (benchIpResponse.data.length > 5) daemonServiceUtils.setStandardCache('getbenchmarks[]', null);
+  }
+  const address = await getLocalSocketAddress({ fresh: true });
+  if (address) {
+    ownAddressKnown();
+    return;
+  }
+  emptyPublicIpAsks += 1;
+  if (emptyPublicIpAsks >= config.fluxapps.publicIpAsksBeforeDos && dosState <= 10) {
+    dosState = 11;
+    setDosMessage(dosMessage || IP_DETECTION_FAILED_MESSAGE);
+    log.error(dosMessage);
+  }
+  askForPublicIpWhileUnknown();
+}
+
+/**
+ * This node knows its address: stops asking for it, and ends the DOS that
+ * asking in vain set.
+ * @returns {void}
+ */
+function ownAddressKnown() {
+  clearTimeout(publicIpAskTimer);
+  publicIpAskTimer = null;
+  emptyPublicIpAsks = 0;
+  if (dosMessage === IP_DETECTION_FAILED_MESSAGE) {
+    dosState = 0;
+    setDosMessage(null);
+  }
+}
+
+/**
+ * A new address of this node's own: what was checked at the old one no longer
+ * holds.
+ * @returns {void}
+ */
+function onOwnAddressChanged() {
+  ownAddressKnown();
+  availabilityCheckedHere = false;
+  clearTimeout(availabilityTimer);
+  requestCollisionCheck();
+  requestFirstAvailabilityCheck();
+}
+
+function onNetworkListUpdated() {
+  requestCollisionCheck();
+  requestFirstAvailabilityCheck();
+}
+
+// Stops the node list listener of the own-standing watch, while it runs.
+let stopListUpdates = null;
+
+/**
+ * Reads this node's address afresh, which tells the watch what it is.
+ * @returns {Promise<void>}
+ */
+async function readOwnAddress() {
+  try {
+    await getLocalSocketAddress({ fresh: true });
+  } catch (error) {
+    log.error(`own standing - ${error.message}`);
+  }
+}
+
+/**
+ * Stops the own-standing watch.
+ * @returns {void}
+ */
+function stopOwnStandingWatch() {
+  if (stopListUpdates) stopListUpdates();
+  stopListUpdates = null;
+  offLocalSocketAddressChange(onOwnAddressChanged);
+  localSocketAddressEvents.off('unresolved', askForPublicIpWhileUnknown);
+  clearTimeout(availabilityTimer);
+  clearTimeout(publicIpAskTimer);
+  publicIpAskTimer = null;
+  emptyPublicIpAsks = 0;
+  availabilityCheckedHere = false;
+  peerShortfallSeenAt = null;
+}
+
+function setSyncthingListening(value) {
+  syncthingListening = value;
+}
+
+function setDosTooManyIpChanges(value) {
+  dosTooManyIpChanges = value;
+}
+
+/**
+ * Watches what decides whether this node stands on the network as itself: its
+ * own address, the node list, and whether it can be reached. Starts once however
+ * often it is called.
+ * @returns {function(): void} Stops the watch.
+ */
+function startOwnStandingWatch() {
+  if (!stopListUpdates) {
+    stopListUpdates = networkStateService.onUpdated(onNetworkListUpdated);
+    onLocalSocketAddressChange(onOwnAddressChanged);
+    localSocketAddressEvents.on('unresolved', askForPublicIpWhileUnknown);
+    readOwnAddress();
+  }
+  return stopOwnStandingWatch;
 }
 
 /**
@@ -2887,6 +3100,11 @@ module.exports = {
   getFluxNodePublicKey,
   MAX_KEEPALIVE_PORTS,
   checkDeterministicNodesCollisions,
+  requestCollisionCheck,
+  requestAvailabilityCheck,
+  noteSyncthingListening,
+  startOwnStandingWatch,
+  stopOwnStandingWatch,
   getIncomingConnections,
   getIncomingConnectionsInfo,
   getDOSState,
@@ -2916,6 +3134,8 @@ module.exports = {
   moveOwnAddress,
   ownAddressRecord,
   startOwnAddressWatch,
+  setSyncthingListening,
+  setDosTooManyIpChanges,
   setOnAddressChanged,
   setOnOwnAddressMoved,
   allowPort,

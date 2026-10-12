@@ -30,8 +30,7 @@ async function deterministicFluxList(options = {}) {
   // those apart get the right answer without each having to remember to ask.
   // Anything on a repeating schedule must NOT reach here unready: it checks
   // networkStateService.isReady() and re-arms, the way it already does for the
-  // daemon. See fluxDiscovery, checkDeterministicNodesCollisions,
-  // monitorNodeStatus.
+  // daemon. See fluxDiscovery, monitorNodeStatus.
   await networkStateService.waitStarted();
 
   if (!filter) {

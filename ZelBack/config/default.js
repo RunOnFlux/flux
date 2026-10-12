@@ -438,6 +438,16 @@ module.exports = {
     minUniqueIpsIncoming: 3,
     minHashSyncPeers: 12,
     minUpTime: 1800, // 30 mins
+    // How often this node asks a peer whether it can reach it: every
+    // availabilityCheckIntervalMs while it can, availabilityRecheckMs after it
+    // could not, so a verdict from one bad moment clears.
+    availabilityCheckIntervalMs: 5 * 60 * 1000,
+    availabilityRecheckMs: 60 * 1000,
+    // While this node knows no address of its own it asks benchmark to detect its
+    // public IP this often, and is out of service after this many asks find none.
+    // Benchmark caches its answer for 69 s.
+    publicIpAskIntervalMs: 90 * 1000,
+    publicIpAsksBeforeDos: 8,
     appSyncPeerThreshold: 12, // peers needed before starting app sync / spawning
     appSyncDegradedThreshold: 4, // below this, pause spawner — gossip unreliable
     appSyncMinCompletions: 3, // sync responses needed per type before spawner can start

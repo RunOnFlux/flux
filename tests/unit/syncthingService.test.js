@@ -2042,4 +2042,77 @@ describe('syncthingService tests', () => {
       expect(logErrorStub.args.some((a) => String(a[0]).includes('2 further'))).to.equal(true);
     });
   });
+  describe('syncthing listening for its peers', () => {
+    let status;
+    let originalApiPort;
+    let statusAsks;
+
+    beforeEach(() => {
+      originalApiPort = process.env.FLUX_APIPORT;
+      process.env.FLUX_APIPORT = '16127';
+      syncthingService.setListeningForPeers(false);
+      statusAsks = 0;
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+      sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
+      sinon.stub(axios, 'create').returns({
+        get: sinon.fake(async (reqPath) => {
+          if (reqPath !== '/rest/system/status') throw new Error(`unexpected ${reqPath}`);
+          statusAsks += 1;
+          return { data: status };
+        }),
+      });
+    });
+
+    afterEach(async () => {
+      if (originalApiPort === undefined) delete process.env.FLUX_APIPORT;
+      else process.env.FLUX_APIPORT = originalApiPort;
+      syncthingService.setListeningForPeers(false);
+      syncthingService.getAxiosCache().reset();
+      await syncthingService.syncthingController().abort();
+      sinon.restore();
+    });
+
+    const listener = (error) => ({ connectionServiceStatus: { 'tcp://:16129': { error, lanAddresses: ['tcp://:16129'] } } });
+
+    it('says so once its listener on two above the api port reports no error, and asks syncthing no more', async () => {
+      status = listener(null);
+      const told = sinon.stub();
+      syncthingService.onListeningForPeers(told);
+
+      await syncthingService.noteListeningForPeers();
+      await syncthingService.noteListeningForPeers();
+
+      sinon.assert.calledOnce(told);
+      expect(statusAsks).to.equal(1);
+    });
+
+    it('does not while that listener reports an error, which it does when it cannot bind', async () => {
+      status = listener('listen tcp :16129: bind: address already in use');
+      const told = sinon.stub();
+      syncthingService.onListeningForPeers(told);
+
+      await syncthingService.noteListeningForPeers();
+
+      sinon.assert.notCalled(told);
+    });
+
+    it('does not while syncthing lists no listener on that port', async () => {
+      status = { connectionServiceStatus: { 'tcp://0.0.0.0:22000': { error: null } } };
+      const told = sinon.stub();
+      syncthingService.onListeningForPeers(told);
+
+      await syncthingService.noteListeningForPeers();
+
+      sinon.assert.notCalled(told);
+    });
+
+    it('tells a listener at once when syncthing is already listening', () => {
+      syncthingService.setListeningForPeers(true);
+      const told = sinon.stub();
+
+      syncthingService.onListeningForPeers(told);
+
+      sinon.assert.calledOnce(told);
+    });
+  });
 });

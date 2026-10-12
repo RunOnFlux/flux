@@ -163,6 +163,26 @@ describe('networkStateService tests', () => {
     await networkStateService.stop();
   });
 
+  it('tells an onUpdated listener of every fetch, registered before start and kept across a stop and start', async () => {
+    const blockEmitter = new EventEmitter();
+    fluxnodeRpcStub.resolves(defaultNetworkState);
+    const listener = sinon.stub();
+    const stopListening = networkStateService.onUpdated(listener);
+
+    await networkStateService.start({ stateEmitter: blockEmitter });
+    sinon.assert.calledOnce(listener);
+    await networkStateService.stop();
+
+    await networkStateService.start({ stateEmitter: blockEmitter });
+    sinon.assert.calledTwice(listener);
+    await networkStateService.stop();
+
+    stopListening();
+    await networkStateService.start({ stateEmitter: blockEmitter });
+    sinon.assert.calledTwice(listener);
+    await networkStateService.stop();
+  });
+
   it('should run an onReady callback immediately when already ready', async () => {
     const blockEmitter = new EventEmitter();
     fluxnodeRpcStub.resolves(defaultNetworkState);
