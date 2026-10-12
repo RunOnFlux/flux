@@ -281,6 +281,14 @@ export async function restartFluxos(container, { apiPort = 16127, readyTimeoutMs
   throw new Error(`restartFluxos: FluxOS did not cycle down and back up within ${readyTimeoutMs}ms`);
 }
 
+// Set the api port a node's FluxOS takes at its next start, as an operator
+// changing it does. The port is read once, when FluxOS starts: restartFluxos with
+// the same apiPort brings it up there.
+export async function setNodeApiPort(container, apiPort) {
+  const r = await execInContainer(container, `sed -i -E 's/^( *apiport:).*,$/\\1 ${Number(apiPort)},/' /flux/config/userconfig.js && grep -q 'apiport: ${Number(apiPort)},' /flux/config/userconfig.js`);
+  if (r.exitCode !== 0) throw new Error(`setNodeApiPort: could not set apiport ${apiPort}: ${r.output}`);
+}
+
 export async function getContainerImageDigest(container, appName, componentName) {
   const containerName = `flux${componentName}_${appName}`;
   const { stdout } = await execInContainer(container,

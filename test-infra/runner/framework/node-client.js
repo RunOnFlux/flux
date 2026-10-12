@@ -9,7 +9,8 @@ export function nodeClient(nodeNum) {
   // node USED to be is a client that cannot see it any more. Every request and the
   // event stream read these, so following a node is a matter of re-pointing them.
   let ip = getSubnetConfig().nodeIp(nodeNum);
-  let url = `http://${ip}:16127`;
+  let port = 16127;
+  let url = `http://${ip}:${port}`;
 
   async function get(path) {
     const res = await controlFetch(`${url}${path}`);
@@ -365,13 +366,15 @@ export function nodeClient(nodeNum) {
    * baseline from what this returns rather than from before it.
    *
    * @param {string} newIp The address the node now answers on.
+   * @param {number} [newPort] The api port it answers on, when that moved too.
    * @returns {Promise<number>} The last event id after reconnecting, as a baseline.
    */
-  async function followTo(newIp) {
+  async function followTo(newIp, newPort = port) {
     const wasStreaming = Boolean(eventSource);
     if (wasStreaming) disconnectEventStream();
     ip = newIp;
-    url = `http://${ip}:16127`;
+    port = newPort;
+    url = `http://${ip}:${port}`;
     if (wasStreaming) await connectEventStream();
     return getLastEventId();
   }
