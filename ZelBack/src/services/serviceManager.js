@@ -819,6 +819,9 @@ async function startFluxFunctions() {
       setInterval(() => {
         portManager.restorePortsSupport();
       }, portRestoreIntervalMs);
+      // Detached: one pass per start, once the boot gate has settled and in
+      // this node's own slot. Nothing waits on it.
+      portManager.removeStaleUpnpMappings();
     };
     startDbDependentServices();
     log.info('Starting setting Node Geolocation');
