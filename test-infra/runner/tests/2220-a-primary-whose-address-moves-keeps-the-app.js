@@ -13,6 +13,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { placeSilentPrimaryApp, A, B, C } from '../framework/silent-primary.js';
+import { peerDeathMs } from '../framework/coupled-knobs.js';
 
 // The primary's public address moves. FDM names a primary by IP and goes on
 // naming the address it left; here it never follows, so every election pass on
@@ -28,10 +29,22 @@ import { placeSilentPrimaryApp, A, B, C } from '../framework/silent-primary.js';
 // its own while the network still lists the old one, and the list catches up
 // last, once the node's confirmation is on chain.
 //
+// Production notices a move while the connections made to the old address are
+// still counted: detection took 28s on 2026-10-11, and a dead connection stays
+// counted for peerDeathMs, 60s at production's settings. The shared harness
+// fleet compresses peer liveness to seconds and leaves detection at minutes,
+// which inverts that. This fleet keeps production's order instead - liveness
+// longer than the detection budget - and the suite checks that every dead
+// connection was still counted when the move was noticed.
+//
 // A = the standby, B = the primary, C = a bystander the discovery ring needs.
 
 const SIGTERM_EXPIRY_S = 120;
-const DETECTION_MS = 8 * 60 * 1000;
+const DETECTION_MS = 6 * 60 * 1000;
+const ADDRESS_MOVE_PEERS = Object.freeze({ wsPingIntervalMs: 120000, wsMaxMissedPongs: 3 });
+if (peerDeathMs(ADDRESS_MOVE_PEERS) <= DETECTION_MS) {
+  throw new Error('2220: peer liveness must outlast the detection budget, or the move is noticed after its dead connections are gone');
+}
 // Election passes after the move in which the primary could stand down: FDM
 // names its old address on every one of them.
 const PASSES_WATCHED_MS = 3 * 60 * 1000;
@@ -45,10 +58,13 @@ describe('a primary whose address moves keeps the app', function () {
   const linesOf = (i) => fleet.env.nodeDiagnostics().find((n) => n.index === i)?.lines ?? [];
   let oldIp;
   let movedIp;
+  let movedAt;
 
   before(async function () {
     this.timeout(900000);
-    fleet = await placeSilentPrimaryApp({ hookCtx: this, appName, sigtermExpiryS: SIGTERM_EXPIRY_S });
+    fleet = await placeSilentPrimaryApp({
+      hookCtx: this, appName, sigtermExpiryS: SIGTERM_EXPIRY_S, peers: ADDRESS_MOVE_PEERS,
+    });
     oldIp = client(B).ip;
     movedIp = oldIp.replace(/\.\d+$/, '.240');
   });
@@ -66,6 +82,7 @@ describe('a primary whose address moves keeps the app', function () {
     const newSocket = `${movedIp}:16127`;
     const detected = () => linesOf(B).some((line) => line.includes(`New public Ip detected: ${newSocket}`));
 
+    movedAt = Date.now();
     await moveNodeAddress(client(B).container, movedIp, oldIp);
     await client(B).followTo(movedIp);
     await setNodeAddress(oldIp, movedIp, { scope: 'publicip' });
@@ -86,6 +103,16 @@ describe('a primary whose address moves keeps the app', function () {
     this.timeout(300000);
     const oldSocket = socketAddr(B + 1);
     const newSocket = `${movedIp}:16127`;
+
+    // The move was noticed while the connections made to the old address were
+    // still counted: none had been dropped between the move and its detection.
+    const detectedLine = linesOf(B).find((line) => line.includes(`New public Ip detected: ${newSocket}`));
+    const detectedAt = Date.parse(detectedLine.split(' ')[0]);
+    const auth = await authenticate(client(B).url, fluxTeamKey());
+    const history = (await client(B).getAuthed('/flux/peerhistory', auth.zelidauth)).data;
+    expect(history.some((e) => e.event === 'connected' && e.timestamp < movedAt), 'fixture: the primary had peers before the move').to.equal(true);
+    expect(history.filter((e) => e.event === 'disconnected' && e.timestamp >= movedAt && e.timestamp < detectedAt),
+      'fixture: connections dropped between the move and its detection').to.deep.equal([]);
     const heldMove = async (i) => (await dbClient(i + 1).getAppStateEvents({ ip: oldSocket, type: 'ipchanged' }))
       .some((event) => event.data?.newIP === newSocket);
 

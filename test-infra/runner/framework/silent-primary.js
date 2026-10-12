@@ -37,9 +37,13 @@ async function isUp(client, appName) {
  * @param {string} opts.appName
  * @param {number} opts.sigtermExpiryS The fleet's shutdown window, and the grace
  *   a restarted syncthing waits out
+ * @param {object} [opts.peers] The fleet's peer liveness, both halves, when the
+ *   suite needs other than the shared fleet's
  * @returns {Promise<object>}
  */
-export async function placeSilentPrimaryApp({ hookCtx, appName, sigtermExpiryS }) {
+export async function placeSilentPrimaryApp({
+  hookCtx, appName, sigtermExpiryS, peers,
+}) {
   const identifier = `${appName}_${appName}`;
   const env = await createTestEnv({
     hookCtx,
@@ -54,6 +58,7 @@ export async function placeSilentPrimaryApp({ hookCtx, appName, sigtermExpiryS }
         locationTtlS: LOCATION_TTL_S,
         nodeMonitorIntervalMs: NODE_MONITOR_INTERVAL_MS,
       },
+      ...(peers ? { peers } : {}),
     },
   });
   const client = (i) => env.clients[i];
