@@ -417,6 +417,14 @@ describe('registryManager tests', () => {
         expect(await registryManager.currentAddressOf('10.0.0.1:16127')).to.equal('10.0.0.1:16127');
       });
 
+      it('keeps an address a new node announced at after the node before it moved away, while the earlier node\'s row remains', async () => {
+        await runs('oldapp', '10.0.0.1:16127', minutesAgo(40));
+        await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(30));
+        await runs('newapp', '10.0.0.1:16127', minutesAgo(5));
+
+        expect(await registryManager.currentAddressOf('10.0.0.1:16127')).to.equal('10.0.0.1:16127');
+      });
+
       it('follows a move made after the node last announced at the address', async () => {
         await runs('anyapp', '10.0.0.1:16127', minutesAgo(20));
         await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(10));
