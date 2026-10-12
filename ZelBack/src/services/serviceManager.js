@@ -676,7 +676,7 @@ async function startFluxFunctions() {
     // this node's own standing on the network - collisions, reachability, its
     // own address - judged as each thing it depends on changes
     fluxNetworkHelper.startOwnStandingWatch();
-    syncthingService.onListeningForPeers(fluxNetworkHelper.noteSyncthingListening);
+    syncthingService.onListenerStateKnown(fluxNetworkHelper.noteSyncthingListenerKnown);
     // STARTED ON THE POLICY, NOT ON BOOT. The blocklist this enforces is a document in the
     // signed bundle, and the bundle is not resolved by the time this line runs. Started
     // here, its first tick reads nothing - and reading nothing is correctly refused rather

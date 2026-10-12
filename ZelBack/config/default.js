@@ -448,6 +448,26 @@ module.exports = {
     // Benchmark caches its answer for 69 s.
     publicIpAskIntervalMs: 90 * 1000,
     publicIpAsksBeforeDos: 8,
+    // The apps port check. timeoutsMs: how long it waits before testing again
+    // after a pass, an error, a failed port, once its count reaches the DOS
+    // threshold, and after an app error. thresholds: once portsHighEdge ports
+    // have failed, each further failure counts four toward dos, where the node is
+    // held out of service; a pass while more than portsLowEdge ports stand failed
+    // retests another of them.
+    appsPortCheck: {
+      timeoutsMs: {
+        default: 3600000,
+        error: 60000,
+        failure: 15000,
+        dos: 300000,
+        appError: 240000,
+      },
+      thresholds: {
+        dos: 100,
+        portsHighEdge: 100,
+        portsLowEdge: 80,
+      },
+    },
     appSyncPeerThreshold: 12, // peers needed before starting app sync / spawning
     appSyncDegradedThreshold: 4, // below this, pause spawner — gossip unreliable
     appSyncMinCompletions: 3, // sync responses needed per type before spawner can start

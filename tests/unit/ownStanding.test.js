@@ -34,7 +34,7 @@ describe('fluxNetworkHelper own standing tests', () => {
 
   // every condition the availability question needs, met; each case unsets one
   const answerable = () => {
-    fluxNetworkHelper.setSyncthingListening(true);
+    fluxNetworkHelper.setSyncthingListenerKnown(true);
     fluxNetworkHelper.setLocalSocketAddress(OWN);
     networkStateService.isReady.returns(true);
     daemonServiceFluxnodeRpcs.getFluxNodeStatus.resolves({ status: 'success', data: { status: 'CONFIRMED', collateral: COLLATERAL } });
@@ -50,7 +50,7 @@ describe('fluxNetworkHelper own standing tests', () => {
     fluxNetworkHelper.setDosTooManyIpChanges(false);
     fluxNetworkHelper.setDosMessage(null);
     fluxNetworkHelper.setDosStateValue(0);
-    fluxNetworkHelper.setSyncthingListening(false);
+    fluxNetworkHelper.setSyncthingListenerKnown(false);
     sinon.stub(geolocationService, 'setNodeGeolocation');
     sinon.stub(networkStateService, 'isReady').returns(false);
     sinon.stub(networkStateService, 'getRandomExternalObserver').resolves('1.2.3.4:16127');
@@ -70,7 +70,7 @@ describe('fluxNetworkHelper own standing tests', () => {
   afterEach(() => {
     sinon.restore();
     fluxNetworkHelper.stopOwnStandingWatch();
-    fluxNetworkHelper.setSyncthingListening(false);
+    fluxNetworkHelper.setSyncthingListenerKnown(false);
     fluxNetworkHelper.setDosMessage(null);
     fluxNetworkHelper.setDosStateValue(0);
   });
@@ -84,9 +84,9 @@ describe('fluxNetworkHelper own standing tests', () => {
       expect(availabilityAsks()).to.equal(1);
     });
 
-    it('does not ask before syncthing is listening, which the asked node tests', async () => {
+    it('does not ask before what syncthing\'s listener is, which the asked node tests, is known', async () => {
       answerable();
-      fluxNetworkHelper.setSyncthingListening(false);
+      fluxNetworkHelper.setSyncthingListenerKnown(false);
 
       await fluxNetworkHelper.requestAvailabilityCheck();
 
@@ -121,11 +121,11 @@ describe('fluxNetworkHelper own standing tests', () => {
       expect(availabilityAsks()).to.equal(0);
     });
 
-    it('asks first when syncthing starts listening, as soon as the rest already holds', async () => {
+    it('asks first when syncthing\'s listener becomes known, as soon as the rest already holds', async () => {
       answerable();
-      fluxNetworkHelper.setSyncthingListening(false);
+      fluxNetworkHelper.setSyncthingListenerKnown(false);
 
-      fluxNetworkHelper.noteSyncthingListening();
+      fluxNetworkHelper.noteSyncthingListenerKnown();
       await clock.tickAsync(0);
 
       expect(availabilityAsks()).to.equal(1);
@@ -171,6 +171,28 @@ describe('fluxNetworkHelper own standing tests', () => {
 
       expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
       expect(fluxNetworkHelper.getDosStateValue()).to.be.below(1);
+    });
+
+    it('ends no DOS of another check\'s once reachable', async () => {
+      fluxNetworkHelper.setDosMessage('Ports tested not reachable from outside');
+      fluxNetworkHelper.setDosStateValue(100);
+      fluxCommunicationUtils.getNodeCount.resolves(1);
+
+      expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(true);
+
+      expect(fluxNetworkHelper.getDosMessage()).to.equal('Ports tested not reachable from outside');
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
+    });
+
+    it('ends its own DOS once reachable with enough peers', async () => {
+      fluxNetworkHelper.setDosMessage(UNAVAILABLE);
+      fluxNetworkHelper.setDosStateValue(12);
+      fluxCommunicationUtils.getNodeCount.resolves(1);
+
+      expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(true);
+
+      expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
     });
 
     it('leaves another check\'s DOS standing', async () => {

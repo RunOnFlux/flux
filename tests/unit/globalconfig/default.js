@@ -242,6 +242,12 @@ module.exports = {
     availabilityRecheckMs: 60000,
     publicIpAskIntervalMs: 90000,
     publicIpAsksBeforeDos: 8,
+    appsPortCheck: {
+      timeoutsMs: {
+        default: 3600000, error: 60000, failure: 15000, dos: 300000, appError: 240000,
+      },
+      thresholds: { dos: 100, portsHighEdge: 100, portsLowEdge: 80 },
+    },
     appSyncPeerThreshold: 12,
     appSyncDegradedThreshold: 4,
     appSyncMinCompletions: 3,

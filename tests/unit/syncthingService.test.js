@@ -1325,6 +1325,22 @@ describe('syncthingService tests', () => {
       }
     });
 
+    it('notes what syncthing\'s listener is on a pass that fails', async () => {
+      syncthingService.setListenerState(null);
+      fs.mkdir.rejects(new Error('EACCES: permission denied'));
+      const told = sinon.stub();
+      syncthingService.onListenerStateKnown(told);
+
+      try {
+        const ms = await syncthingService.runSyncthingSentinel();
+
+        expect(ms, 'the pass failed').to.equal(2 * config.syncthing.sentinelIntervalMs);
+        sinon.assert.calledOnce(told);
+      } finally {
+        syncthingService.setListenerState(null);
+      }
+    });
+
     it('never asks syncthing whether a restart is required', async () => {
       // requiresRestart is a one-way latch FluxOS cannot set: it is written only
       // for auditEnabled/auditFile, which FluxOS never touches. So a true here is
@@ -2042,7 +2058,7 @@ describe('syncthingService tests', () => {
       expect(logErrorStub.args.some((a) => String(a[0]).includes('2 further'))).to.equal(true);
     });
   });
-  describe('syncthing listening for its peers', () => {
+  describe('syncthing\'s listener for its peers', () => {
     let status;
     let originalApiPort;
     let statusAsks;
@@ -2050,7 +2066,8 @@ describe('syncthingService tests', () => {
     beforeEach(() => {
       originalApiPort = process.env.FLUX_APIPORT;
       process.env.FLUX_APIPORT = '16127';
-      syncthingService.setListeningForPeers(false);
+      syncthingService.setListenerState(null);
+      syncthingService.setSyncthingUnmeasured();
       statusAsks = 0;
       sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
       sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
@@ -2058,6 +2075,7 @@ describe('syncthingService tests', () => {
         get: sinon.fake(async (reqPath) => {
           if (reqPath !== '/rest/system/status') throw new Error(`unexpected ${reqPath}`);
           statusAsks += 1;
+          if (!status) throw new Error('connect ECONNREFUSED 127.0.0.1:8384');
           return { data: status };
         }),
       });
@@ -2066,53 +2084,70 @@ describe('syncthingService tests', () => {
     afterEach(async () => {
       if (originalApiPort === undefined) delete process.env.FLUX_APIPORT;
       else process.env.FLUX_APIPORT = originalApiPort;
-      syncthingService.setListeningForPeers(false);
+      syncthingService.setListenerState(null);
+      syncthingService.setSyncthingUnmeasured();
       syncthingService.getAxiosCache().reset();
       await syncthingService.syncthingController().abort();
       sinon.restore();
     });
 
     const listener = (error) => ({ connectionServiceStatus: { 'tcp://:16129': { error, lanAddresses: ['tcp://:16129'] } } });
-
-    it('says so once its listener on two above the api port reports no error, and asks syncthing no more', async () => {
-      status = listener(null);
+    const known = async () => {
       const told = sinon.stub();
-      syncthingService.onListeningForPeers(told);
+      syncthingService.onListenerStateKnown(told);
+      await syncthingService.noteListenerState();
+      return told;
+    };
 
-      await syncthingService.noteListeningForPeers();
-      await syncthingService.noteListeningForPeers();
+    it('is listening once its listener on two above the api port reports no error', async () => {
+      status = listener(null);
+
+      sinon.assert.calledOnceWithExactly(await known(), syncthingService.SYNCTHING_LISTENER.LISTENING);
+    });
+
+    it('cannot listen when that listener reports an error, which it does when it cannot bind', async () => {
+      status = listener('listen tcp :16129: bind: address already in use');
+
+      sinon.assert.calledOnceWithExactly(await known(), syncthingService.SYNCTHING_LISTENER.CANNOT_LISTEN);
+    });
+
+    it('cannot listen when syncthing answers with no listener on that port', async () => {
+      status = { connectionServiceStatus: { 'tcp://0.0.0.0:22000': { error: null } } };
+
+      sinon.assert.calledOnceWithExactly(await known(), syncthingService.SYNCTHING_LISTENER.CANNOT_LISTEN);
+    });
+
+    it('is not running when syncthing does not answer and its health says it is down', async () => {
+      status = null;
+      syncthingService.setSyncthingRunningState(false);
+
+      sinon.assert.calledOnceWithExactly(await known(), syncthingService.SYNCTHING_LISTENER.NOT_RUNNING);
+    });
+
+    it('is not yet known while syncthing does not answer and is not yet judged down', async () => {
+      status = null;
+      syncthingService.noteMeasurementStarted();
+
+      sinon.assert.notCalled(await known());
+    });
+
+    it('is told once, and asks syncthing no more once known', async () => {
+      status = listener(null);
+      const told = await known();
+
+      await syncthingService.noteListenerState();
 
       sinon.assert.calledOnce(told);
       expect(statusAsks).to.equal(1);
     });
 
-    it('does not while that listener reports an error, which it does when it cannot bind', async () => {
-      status = listener('listen tcp :16129: bind: address already in use');
-      const told = sinon.stub();
-      syncthingService.onListeningForPeers(told);
-
-      await syncthingService.noteListeningForPeers();
-
-      sinon.assert.notCalled(told);
-    });
-
-    it('does not while syncthing lists no listener on that port', async () => {
-      status = { connectionServiceStatus: { 'tcp://0.0.0.0:22000': { error: null } } };
-      const told = sinon.stub();
-      syncthingService.onListeningForPeers(told);
-
-      await syncthingService.noteListeningForPeers();
-
-      sinon.assert.notCalled(told);
-    });
-
-    it('tells a listener at once when syncthing is already listening', () => {
-      syncthingService.setListeningForPeers(true);
+    it('tells a listener at once when it is already known', () => {
+      syncthingService.setListenerState(syncthingService.SYNCTHING_LISTENER.CANNOT_LISTEN);
       const told = sinon.stub();
 
-      syncthingService.onListeningForPeers(told);
+      syncthingService.onListenerStateKnown(told);
 
-      sinon.assert.calledOnce(told);
+      sinon.assert.calledOnceWithExactly(told, syncthingService.SYNCTHING_LISTENER.CANNOT_LISTEN);
     });
   });
 });

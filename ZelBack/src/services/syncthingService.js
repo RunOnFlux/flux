@@ -87,11 +87,11 @@ let sentinelStarted = false;
 let ownersByNumberAnnounced = false;
 
 /**
- * Whether syncthing has been seen listening for its peers on its port, and who is
- * told the first time it is.
+ * What syncthing's listener for its peers was first known to be, null until it is
+ * known, and who is told when it is.
  */
-let listeningForPeers = false;
-const listeningForPeersEvents = new EventEmitter();
+let listenerState = null;
+const listenerStateEvents = new EventEmitter();
 
 /**
  * Whether this process has checked the numeric id tables on disk. Only FluxOS
@@ -1290,33 +1290,59 @@ function syncthingListenPort() {
 }
 
 /**
- * Notes, the first time it holds, that syncthing is listening for its peers on
- * its port. Syncthing reports a listener without an error only once it is bound.
- * @returns {Promise<void>}
+ * What syncthing's listener for its peers on its port can be known to be: bound;
+ * unable to bind, which syncthing reports as an error on that listener, or as no
+ * listener there at all; or syncthing not running, which is its health verdict.
  */
-async function noteListeningForPeers() {
-  if (listeningForPeers) return;
+const SYNCTHING_LISTENER = {
+  LISTENING: 'listening',
+  CANNOT_LISTEN: 'cannotListen',
+  NOT_RUNNING: 'notRunning',
+};
+
+/**
+ * Reads what syncthing's listener for its peers is now, from syncthing's own
+ * status: null while that is not yet known.
+ * @returns {Promise<string|null>} A SYNCTHING_LISTENER value, or null.
+ */
+async function readListenerState() {
   const status = await getSystemStatus().catch(() => null);
-  const listener = status?.connectionServiceStatus?.[`tcp://:${syncthingListenPort()}`];
-  if (!listener || listener.error) return;
-  listeningForPeers = true;
-  log.info(`Syncthing is listening for its peers on port ${syncthingListenPort()}`);
-  fluxEventBus.publish('syncthing:listening', { port: syncthingListenPort() });
-  listeningForPeersEvents.emit('listening');
+  if (!status) {
+    // eslint-disable-next-line no-use-before-define
+    return healthState() === SYNCTHING_HEALTH.UNHEALTHY ? SYNCTHING_LISTENER.NOT_RUNNING : null;
+  }
+  // Syncthing reports a listener without an error only once it is bound.
+  const listener = status.connectionServiceStatus?.[`tcp://:${syncthingListenPort()}`];
+  if (!listener || listener.error) return SYNCTHING_LISTENER.CANNOT_LISTEN;
+  return SYNCTHING_LISTENER.LISTENING;
 }
 
 /**
- * Calls `listener` once syncthing is listening for its peers on its port: now,
- * if it already is.
- * @param {function(): void} listener
+ * Notes what syncthing's listener for its peers is, the first time that is known.
+ * @returns {Promise<void>}
+ */
+async function noteListenerState() {
+  if (listenerState) return;
+  const state = await readListenerState();
+  if (!state) return;
+  listenerState = state;
+  log.info(`Syncthing's listener for its peers on port ${syncthingListenPort()} is known: ${state}`);
+  fluxEventBus.publish('syncthing:listenerKnown', { state, port: syncthingListenPort() });
+  listenerStateEvents.emit('known', state);
+}
+
+/**
+ * Calls `listener` with what syncthing's listener for its peers is, once that is
+ * known: now, if it already is.
+ * @param {function(string): void} listener Called with a SYNCTHING_LISTENER value.
  * @returns {void}
  */
-function onListeningForPeers(listener) {
-  if (listeningForPeers) {
-    listener();
+function onListenerStateKnown(listener) {
+  if (listenerState) {
+    listener(listenerState);
     return;
   }
-  listeningForPeersEvents.once('listening', listener);
+  listenerStateEvents.once('known', listener);
 }
 
 /**
@@ -1807,11 +1833,13 @@ async function runSyncthingSentinel() {
       await adjustSyncthing();
     }
 
-    await noteListeningForPeers();
+    await noteListenerState();
 
     return SYNCTHING_SENTINEL_INTERVAL_MS;
   } catch (error) {
     if (error.name === 'AbortError') return 0;
+
+    await noteListenerState();
 
     log.error(error);
     return 2 * SYNCTHING_SENTINEL_INTERVAL_MS;
@@ -1892,8 +1920,8 @@ function setOwnersByNumberAnnounced(value) {
   ownersByNumberAnnounced = value;
 }
 
-function setListeningForPeers(value) {
-  listeningForPeers = value;
+function setListenerState(value) {
+  listenerState = value;
 }
 
 /**
@@ -2724,7 +2752,8 @@ module.exports = {
   adjustConfigDevices,
   // status
   isRunning,
-  onListeningForPeers,
+  onListenerStateKnown,
+  SYNCTHING_LISTENER,
   healthState,
   syncthingHomeDir,
   SYNCTHING_HEALTH,
@@ -2737,8 +2766,8 @@ module.exports = {
   setSyncthingUnmeasured,
   setNumericIdTablesChecked,
   setOwnersByNumberAnnounced,
-  setListeningForPeers,
-  noteListeningForPeers,
+  setListenerState,
+  noteListenerState,
   resetDeviceIdCache,
   adjustSyncthing,
   getConfigFile,

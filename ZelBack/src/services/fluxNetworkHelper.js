@@ -1873,6 +1873,16 @@ function monotonicMs() {
   return Number(process.hrtime.bigint() / 1000000n);
 }
 
+/**
+ * Ends the node's DOS when it is this check's, or when no check holds one.
+ * @returns {void}
+ */
+function releaseReachabilityDos() {
+  if (dosMessage && !REACHABILITY_MESSAGES.includes(dosMessage)) return;
+  dosState = 0;
+  setDosMessage(null);
+}
+
 // When this node last found itself reachable with too few peer connections, while
 // it keeps doing so: null otherwise.
 let peerShortfallSeenAt = null;
@@ -1964,8 +1974,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
         if (benchMyIp && extractIp(benchMyIp) !== localIp) {
           daemonServiceUtils.setStandardCache('getbenchmarks[]', null);
           log.info('New IP found... updating network');
-          dosState = 0;
-          setDosMessage(null);
+          releaseReachabilityDos();
           // Read afresh: a new address is a change of this node's own address,
           // which its one handler acts on.
           await getLocalSocketAddress({ fresh: true });
@@ -2008,10 +2017,9 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       const connectionInfo = isCommunicationEstablished();
       if (connectionInfo.status === 'error') {
         // Reachable: whatever this check said about reaching it no longer holds.
-        if (REACHABILITY_MESSAGES.includes(dosMessage)) {
-          dosState = 0;
-          setDosMessage(null);
-        }
+        // Only its message ends the count: with none, the count is the peer
+        // shortfall's, which goes on below.
+        if (REACHABILITY_MESSAGES.includes(dosMessage)) releaseReachabilityDos();
         // 0.13 a minute while it lasts, so DOS after ~75 minutes with too few
         // peers. This depends on other nodes being able to connect to my node.
         const now = monotonicMs();
@@ -2030,8 +2038,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     log.error('Flux uptime is not available'); // introduce dos increment
   }
   peerShortfallSeenAt = null;
-  dosState = 0;
-  setDosMessage(null);
+  releaseReachabilityDos();
   return true;
 }
 
@@ -2186,9 +2193,9 @@ async function runCollisionChecks() {
   } while (collisionCheckAgain);
 }
 
-// Whether syncthing is listening for its peers: a peer asked whether it can reach
-// this node tests that port along with this node's api and home ports.
-let syncthingListening = false;
+// Whether what syncthing's listener for its peers is has been known: a peer asked
+// whether it can reach this node tests that port along with its api and home ports.
+let syncthingListenerKnown = false;
 // Whether the availability check has run at the address this node holds now.
 let availabilityCheckedHere = false;
 let availabilityTimer = null;
@@ -2197,12 +2204,12 @@ let availabilityRunning = null;
 /**
  * Whether asking a peer if it can reach this node can be answered yet: the node
  * is confirmed and listed at its current address - a peer refuses any other -
- * and everything the peer tests is listening. On a network of few nodes the
- * question waits for six hours of uptime.
+ * and what the peer tests on it is known. On a network of few nodes the question
+ * waits for six hours of uptime.
  * @returns {Promise<boolean>}
  */
 async function availabilityCanBeAnswered() {
-  if (!syncthingListening || !networkStateService.isReady()) return false;
+  if (!syncthingListenerKnown || !networkStateService.isReady()) return false;
   const localSocketAddr = await getLocalSocketAddress();
   if (!localSocketAddr) return false;
   const nodeStatus = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
@@ -2229,6 +2236,7 @@ async function runAvailabilityCheck() {
     if (!await availabilityCanBeAnswered()) return;
     availabilityCheckedHere = true;
     const available = await checkMyFluxAvailability();
+    fluxEventBus.publish('availability:checked', { available, dosState, dosMessage: getDosMessage() });
     scheduleAvailabilityCheck(available
       ? config.fluxapps.availabilityCheckIntervalMs
       : config.fluxapps.availabilityRecheckMs);
@@ -2263,11 +2271,11 @@ async function requestFirstAvailabilityCheck() {
 }
 
 /**
- * Notes that syncthing is listening for its peers.
+ * Notes that what syncthing's listener for its peers is has been known.
  * @returns {void}
  */
-function noteSyncthingListening() {
-  syncthingListening = true;
+function noteSyncthingListenerKnown() {
+  syncthingListenerKnown = true;
   requestFirstAvailabilityCheck();
 }
 
@@ -2379,8 +2387,8 @@ function stopOwnStandingWatch() {
   peerShortfallSeenAt = null;
 }
 
-function setSyncthingListening(value) {
-  syncthingListening = value;
+function setSyncthingListenerKnown(value) {
+  syncthingListenerKnown = value;
 }
 
 function setDosTooManyIpChanges(value) {
@@ -3102,7 +3110,7 @@ module.exports = {
   checkDeterministicNodesCollisions,
   requestCollisionCheck,
   requestAvailabilityCheck,
-  noteSyncthingListening,
+  noteSyncthingListenerKnown,
   startOwnStandingWatch,
   stopOwnStandingWatch,
   getIncomingConnections,
@@ -3134,7 +3142,7 @@ module.exports = {
   moveOwnAddress,
   ownAddressRecord,
   startOwnAddressWatch,
-  setSyncthingListening,
+  setSyncthingListenerKnown,
   setDosTooManyIpChanges,
   setOnAddressChanged,
   setOnOwnAddressMoved,
