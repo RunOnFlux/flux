@@ -34,6 +34,15 @@ const NEW_PORT = 16157;
 const DETECTION_MS = 8 * 60 * 1000;
 // Several surplus-check passes after the move.
 const WATCHED_MS = 6 * 60 * 1000;
+// A node cannot announce its apps from an address it no longer holds, so until it
+// notices the move its rows only age. Production's location lifetime (125 min)
+// outlasts the detection by far; the shared harness fleet's 63s does not, and the
+// moved node's rows would expire everywhere before it could announce again. This
+// fleet keeps production's order.
+const LOCATION_TTL_S = 30 * 60;
+if (LOCATION_TTL_S * 1000 <= DETECTION_MS + WATCHED_MS) {
+  throw new Error('2226: a location must outlive the detection budget and the passes watched');
+}
 
 describe('a node whose api port changes keeps its apps', function () {
   let env;
@@ -53,7 +62,7 @@ describe('a node whose api port changes keeps its apps', function () {
       hookCtx: this,
       nodes: 3,
       tickerAutostart: false,
-      configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1 } },
+      configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1, locationTtlS: LOCATION_TTL_S } },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
     await pushImage(appName, 'v1');
