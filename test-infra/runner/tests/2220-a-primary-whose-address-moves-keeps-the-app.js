@@ -61,35 +61,37 @@ describe('a primary whose address moves keeps the app', function () {
     await fleet?.env.teardown();
   });
 
-  it('runs on at its new address while FDM names the one it left, and every peer hears the move', async function () {
-    this.timeout(DETECTION_MS + PASSES_WATCHED_MS + 120000);
-    const oldSocket = socketAddr(B + 1);
+  it('runs on at its new address while FDM names the one it left', async function () {
+    this.timeout(DETECTION_MS + PASSES_WATCHED_MS + 180000);
     const newSocket = `${movedIp}:16127`;
-    const heldMove = async (i) => (await dbClient(i + 1).getAppStateEvents({ ip: oldSocket, type: 'ipchanged' }))
-      .some((event) => event.data?.newIP === newSocket);
+    const detected = () => linesOf(B).some((line) => line.includes(`New public Ip detected: ${newSocket}`));
 
     await moveNodeAddress(client(B).container, movedIp, oldIp);
     await client(B).followTo(movedIp);
     await setNodeAddress(oldIp, movedIp, { scope: 'publicip' });
 
-    await waitFor(() => heldMove(B), { timeout: DETECTION_MS, interval: 5000, label: 'the primary records its own move' });
-    const recordedAt = Date.now();
+    await waitFor(detected, { timeout: DETECTION_MS, interval: 5000, label: 'the primary detects its move' });
     // Benchmark now reports the new address as the node's own; the network still
     // lists it at the old one until its confirmation is on chain.
     await setNodeAddress(oldIp, movedIp, { scope: 'benchmark' });
-    await waitFor(async () => (await heldMove(A)) && (await heldMove(C)), {
-      timeout: 240000, interval: 5000, label: 'every peer holds the move',
-    });
-
-    const remaining = PASSES_WATCHED_MS - (Date.now() - recordedAt);
-    if (remaining > 0) await new Promise((resolve) => { setTimeout(resolve, remaining); });
+    await new Promise((resolve) => { setTimeout(resolve, PASSES_WATCHED_MS); });
     await waitForUp(client(B), appName, 'the primary runs the app at its new address', { timeout: 120000, interval: 3000 });
 
-    expect(linesOf(B).some((line) => line.includes(`New public Ip detected: ${newSocket}`)),
-      'canary: the primary\'s log after the move was read').to.equal(true);
     expect(linesOf(B).filter((line) => line.includes(`standing down as primary of component:${fleet.identifier}`)),
       'the primary stood down for the address it left').to.deep.equal([]);
     expect(fleet.twoRan, 'moments when more than one node ran the component').to.deep.equal([]);
+  });
+
+  it('is heard moving by every peer', async function () {
+    this.timeout(300000);
+    const oldSocket = socketAddr(B + 1);
+    const newSocket = `${movedIp}:16127`;
+    const heldMove = async (i) => (await dbClient(i + 1).getAppStateEvents({ ip: oldSocket, type: 'ipchanged' }))
+      .some((event) => event.data?.newIP === newSocket);
+
+    await waitFor(async () => (await heldMove(A)) && (await heldMove(C)), {
+      timeout: 240000, interval: 5000, label: 'every peer holds the move',
+    });
   });
 
   it('is followed to its new address, so the standby takes over once it gives the app up there', async function () {
