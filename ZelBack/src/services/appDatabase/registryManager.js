@@ -229,23 +229,26 @@ async function currentAddressOf(socketAddr) {
  * FDM names it by IP alone. A node runs at most one instance of an app per IP,
  * so the app's location at that IP is the node, and its port is the one to ask
  * it on. A location announced before a move away from it answers for the
- * address the node moved to. With no location at that IP, the IP may be one a
- * node has since moved from: the one move away from it that ends at a holder of
- * the app is that node.
+ * address the node moved to - which keeps the IP when only the port moved, so
+ * the IP can carry the node's row from before the move and its row from after:
+ * every location at the IP that ends at the same address is that one node.
+ * With no location at that IP, the IP may be one a node has since moved from:
+ * the one move away from it that ends at a holder of the app is that node.
  *
- * When neither settles it - two locations at the IP, or no move or several
- * leading to a holder - the IP comes back as given.
+ * When neither settles it - locations at the IP that end at different
+ * addresses, or no move or several leading to a holder - the IP comes back as
+ * given.
  * @param {string} appName
  * @param {string} fdmIp The primary FDM names.
  * @returns {Promise<string>} A full socket address, or `fdmIp` unresolved.
  */
 async function primaryAddressOf(appName, fdmIp) {
   const [locations, moves] = await Promise.all([appLocation(appName), addressMoves()]);
-  const atIp = locations.filter((location) => ipsMatch(location.ip, fdmIp));
-  if (atIp.length === 1) {
-    return followAddressMoves(atIp[0].ip, moves, new Date(atIp[0].broadcastedAt).getTime() || 0);
-  }
-  if (atIp.length > 1) return fdmIp;
+  const atIp = new Set(locations
+    .filter((location) => ipsMatch(location.ip, fdmIp))
+    .map((location) => followAddressMoves(location.ip, moves, new Date(location.broadcastedAt).getTime() || 0)));
+  if (atIp.size === 1) return [...atIp][0];
+  if (atIp.size > 1) return fdmIp;
   const holders = new Set(locations.map((location) => normalizeSocketAddress(location.ip)));
   const reached = new Set(
     [...moves.keys()]

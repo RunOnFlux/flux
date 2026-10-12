@@ -63,6 +63,17 @@ describe('messageStore address move tests', () => {
     expect(rows).to.deep.equal([{ name: 'alpha', ip: NEW, runningSince: new Date('2026-09-01T00:00:00Z') }]);
   });
 
+  it('carries the rows of a move of the port alone', async () => {
+    await locations.insertMany([row('alpha', '198.51.100.40:16127', '2026-09-01T00:00:00Z')]);
+
+    await messageStore.storeIPChangedMessage({
+      type: 'fluxipchanged', version: 1, oldIP: '198.51.100.40:16127', newIP: '198.51.100.40:16157', broadcastedAt: Date.now(),
+    });
+
+    const rows = await locations.find({}, { projection: { _id: 0, ip: 1 } }).toArray();
+    expect(rows.map((r) => r.ip)).to.deep.equal(['198.51.100.40:16157']);
+  });
+
   it('leaves rows at other addresses alone', async () => {
     await locations.insertMany([row('alpha', OLD, '2026-09-01T00:00:00Z'), row('alpha', '72.89.45.236:16127', '2026-09-03T00:00:00Z')]);
 

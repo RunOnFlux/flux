@@ -3449,6 +3449,36 @@ describe('advancedWorkflows tests', () => {
         expect(linesMatching(logInfo, `moved from ${OLD} to ${MOVED} - following it`)).to.have.lengthOf(1);
         expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
       });
+
+      it('follows a remembered primary whose port alone moved, and asks it at its new port', async () => {
+        const appName = 'movedport';
+        const OLD = '192.168.1.90:16127';
+        const MOVED = '192.168.1.90:16157';
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+        const logInfo = sinon.stub(log, 'info');
+        const runPass = electionFixture(appName, [OLD]);
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves(fdmNames('192.168.1.90'));
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+        await runPass();
+
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves(fdmNoPrimary());
+        currentAddressStub.callsFake(async (address) => (address === OLD ? MOVED : address));
+        registryManagerStub.resolves([
+          { name: appName, ip: '192.168.1.5:16127', runningSince: '2026-01-01T00:00:00.000Z' },
+          { name: appName, ip: MOVED, runningSince: '2026-01-01T00:01:00.000Z' },
+        ]);
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake((url) => (url.includes(MOVED) ? peerAnswers({ held: [] })(url) : Promise.reject(new Error('old port closed'))));
+        logInfo.resetHistory();
+        await runPass();
+
+        expect(linesMatching(logInfo, `moved from ${OLD} to ${MOVED} - following it`)).to.have.lengthOf(1);
+        expect(axiosGetStub.getCalls().some((call) => String(call.args[0]).includes(MOVED))).to.equal(true);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+      });
     });
 
     it('keeps electing later g: apps when an earlier one is still held by its previous master', async () => {

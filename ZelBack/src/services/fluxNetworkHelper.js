@@ -1989,16 +1989,26 @@ async function checkDeterministicNodesCollisions() {
 
           // Second reachability check after grace period
           await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/version`, axiosConfig).catch(() => { errorCall = true; });
-          const ownFormerAddress = askingIP === userconfig.initial.ipaddress
-            && Number(askingIpPort) === Number(userconfig.initial.apiport || config.server.apiport);
-          if (errorCall && ownFormerAddress) {
-            // The collateral is listed at the address this node was configured with,
-            // and nothing answers there: not another machine, but this node, which
-            // has moved. Handled as the move it is, by the one path that records it,
-            // announces it and confirms the new address - a bare takeover would put
-            // the new address on chain before the network had heard of the move.
+          // The collateral listed at the IP this node was configured with, and
+          // nothing answering there: not another machine, but this node, which has
+          // moved - its IP, or its api port on the same IP. Handled as the move it
+          // is, recorded and told to the network before the new address is
+          // confirmed: a bare takeover would put it on chain first.
+          const ownFormerAddress = askingIP === userconfig.initial.ipaddress;
+          if (errorCall && ownFormerAddress && extractIp(localSocketAddr) !== askingIP) {
             log.info(`Our collateral is listed at ${askingIP}:${askingIpPort}, this node's own former address - handling the move`);
             await adjustExternalIP(extractIp(localSocketAddr));
+          } else if (errorCall && ownFormerAddress) {
+            // The same IP on another port: adjustExternalIP compares IPs alone, so
+            // the move is recorded and told to the network here.
+            const formerSocket = normalizeSocketAddress(`${askingIP}:${askingIpPort}`);
+            log.info(`Our collateral is listed at ${formerSocket}, this node's own former port - handling the move to ${localSocketAddr}`);
+            if (onOwnAddressMoved) {
+              await onOwnAddressMoved(formerSocket, localSocketAddr)
+                .catch((error) => log.error(`checkDeterministicNodesCollisions - recording the move failed: ${error.message}`));
+            }
+            const daemonResult = await daemonServiceFluxnodeRpcs.createConfirmationTransaction();
+            log.info(`createConfirmationTransaction: ${JSON.stringify(daemonResult)}`);
           } else if (errorCall) {
             // Other node is confirmed offline after grace period - take over the collateral
             log.info(`Other node at ${askingIP}:${askingIpPort} confirmed offline. Creating confirmation transaction to take over collateral...`);

@@ -454,6 +454,12 @@ describe('registryManager tests', () => {
         expect(await registryManager.currentAddressOf('10.0.0.1:16127')).to.equal('10.0.0.1:16127');
       });
 
+      it('follows a move of the port alone, on the same IP', async () => {
+        await moved('198.51.100.40:16127', '198.51.100.40:16157', minutesAgo(5));
+
+        expect(await registryManager.currentAddressOf('198.51.100.40:16127')).to.equal('198.51.100.40:16157');
+      });
+
       it('reads a bare address as the default port', async () => {
         await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(5));
 
@@ -473,6 +479,14 @@ describe('registryManager tests', () => {
         await moved('72.89.45.236:16137', '108.6.236.4:16137', minutesAgo(5));
 
         expect(await registryManager.primaryAddressOf('primaryapp', '72.89.45.236')).to.equal('108.6.236.4:16137');
+      });
+
+      it('takes the IP\'s rows from before and after a move of the port alone as the one node, at its new port', async () => {
+        await runs('primaryapp', '198.51.100.40:16127', minutesAgo(10));
+        await moved('198.51.100.40:16127', '198.51.100.40:16157', minutesAgo(5));
+        await runs('primaryapp', '198.51.100.40:16157', minutesAgo(1));
+
+        expect(await registryManager.primaryAddressOf('primaryapp', '198.51.100.40')).to.equal('198.51.100.40:16157');
       });
 
       it('keeps a location announced after a move away from that address', async () => {

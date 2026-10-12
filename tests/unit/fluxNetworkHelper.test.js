@@ -2410,6 +2410,33 @@ describe('fluxNetworkHelper tests', () => {
       expect(lines.some((line) => line.includes('node was confirmed on a different machine'))).to.equal(false);
     });
 
+    it('handles its collateral listed at its own IP on its former port, with nothing answering there, as this node\'s move', async () => {
+      const ip = '192.168.8.100';
+      const collateral = 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)';
+      const originalUserConfig = globalThis.userconfig;
+      globalThis.userconfig = { initial: { ...originalUserConfig.initial, ipaddress: ip, apiport: 16157 } };
+      const moved = sinon.stub().resolves();
+      fluxNetworkHelper.setOnOwnAddressMoved(moved);
+      const logInfo = sinon.spy(log, 'info');
+      getBenchmarksStub.resolves({ status: 'success', data: { ipaddress: `${ip}:16157` } });
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns([{ ...deterministicFluxnodeListResponse[0], collateral, ip: `${ip}:16127` }]);
+      getFluxNodeStatusStub.returns({ status: 'success', data: { status: 'CONFIRMED', collateral } });
+      sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused'));
+
+      try {
+        await fluxNetworkHelper.checkDeterministicNodesCollisions();
+      } finally {
+        globalThis.userconfig = originalUserConfig;
+        fluxNetworkHelper.setOnOwnAddressMoved(null);
+      }
+
+      sinon.assert.calledOnceWithExactly(moved, `${ip}:16127`, `${ip}:16157`);
+      sinon.assert.callOrder(moved, daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      const lines = logInfo.getCalls().map((call) => String(call.args[0]));
+      expect(lines.some((line) => line.includes('node was confirmed on a different machine'))).to.equal(false);
+    });
+
     it('should handle case when other node comes back online during grace period', async () => {
       const myIp = '192.168.1.100:16127';
       const otherIp = '192.168.1.200:16127';
