@@ -1133,8 +1133,8 @@ export async function createTestEnv({
   // CAN IT PEER is arithmetic, and derived here. A node reaches the published source only
   // once its peer set is up and every peer it asked has answered without a bundle, so a
   // fleet that cannot cross appSyncPeerThreshold never asks. That follows from the node
-  // count and the ring's derived arc - the same reachablePeers the peerless override above
-  // uses - and it cannot be wrong. Twenty-seven fleets in this suite set are one or two
+  // count and the ring's derived arc, as the peerless override's reachablePeers above
+  // does, and it cannot be wrong. Twenty-seven fleets in this suite set are one or two
   // nodes and have no opinion about policy at all; their authors should not have to know
   // this wait exists.
   //
@@ -1149,7 +1149,13 @@ export async function createTestEnv({
   // `available: false` missed `signer: 'rogue'` and cost a gate, and the next control added
   // to the stub would break it again. Those fixtures say so with `awaitPolicy: false`,
   // beside the option that creates the condition, where the two cannot drift apart.
-  const policyReachable = awaitPolicy && reachablePeers >= (
+  //
+  // The wait runs when the fleet starts, before any deferred node does, so it counts
+  // only the peers a node has among the nodes that start with it.
+  const peersAtStart = nodes - deferredNodes <= 1
+    ? 0
+    : Math.min(nodes - deferredNodes - 1, 2 * ringArc(dialerCount(nodes, stubPeers.length + deferredNodes)));
+  const policyReachable = awaitPolicy && peersAtStart >= (
     configOverrides?.fluxapps?.appSyncPeerThreshold ?? sharedFluxapps.appSyncPeerThreshold
   );
 
