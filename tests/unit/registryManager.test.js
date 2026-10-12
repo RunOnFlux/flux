@@ -432,6 +432,22 @@ describe('registryManager tests', () => {
         expect(await registryManager.currentAddressOf('10.0.0.1:16127')).to.equal('10.0.0.2:16127');
       });
 
+      it('ignores a move that is not version 1, one to the same address, and one whose new address is not an address', async () => {
+        await database.collection(events).insertMany([
+          {
+            ip: '10.0.0.1:16127', type: 'ipchanged', broadcastedAt: minutesAgo(5), expireAt: new Date(Date.now() + HOUR), data: { version: 2, newIP: '10.0.0.2:16127' },
+          },
+          {
+            ip: '10.0.0.3:16127', type: 'ipchanged', broadcastedAt: minutesAgo(5), expireAt: new Date(Date.now() + HOUR), data: { version: 1, newIP: '10.0.0.3' },
+          },
+          {
+            ip: '10.0.0.4:16127', type: 'ipchanged', broadcastedAt: minutesAgo(5), expireAt: new Date(Date.now() + HOUR), data: { version: 1, newIP: { ip: '10.0.0.5' } },
+          },
+        ]);
+
+        expect([...(await registryManager.addressMoves()).keys()]).to.deep.equal([]);
+      });
+
       it('ignores an expired move', async () => {
         await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(200), minutesAgo(1));
 

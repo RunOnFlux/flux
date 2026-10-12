@@ -2498,6 +2498,45 @@ describe('fluxCommunication tests', () => {
     });
   });
 
+  describe('handleIPChangedMessage tests', () => {
+    const message = {
+      version: 1,
+      timestamp: Date.now(),
+      pubKey: '04peer',
+      signature: 'sig',
+      data: {
+        type: 'fluxipchanged', version: 1, oldIP: '72.89.45.236:16137', newIP: '108.6.236.4:16137', broadcastedAt: Date.now(),
+      },
+    };
+    let relayed;
+
+    beforeEach(() => {
+      sinon.stub(messageStore, 'storeAppStateEvent').resolves();
+      sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(true);
+      relayed = sinon.stub(peerManager, 'broadcastHash');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('passes on a move it applied', async () => {
+      sinon.stub(messageStore, 'storeIPChangedMessage').resolves(true);
+
+      await fluxCommunication.handleIPChangedMessage(message, '10.0.0.9', '16127');
+
+      sinon.assert.calledOnce(relayed);
+    });
+
+    it('does not pass on a move it refused', async () => {
+      sinon.stub(messageStore, 'storeIPChangedMessage').resolves(new Error('Invalid Flux IP Changed message for storing version 2 not supported'));
+
+      await fluxCommunication.handleIPChangedMessage(message, '10.0.0.9', '16127');
+
+      sinon.assert.notCalled(relayed);
+    });
+  });
+
   describe('announcing this node\'s own move', () => {
     const OLD = '72.89.45.236:16137';
     const NEW = '108.6.236.4:16137';

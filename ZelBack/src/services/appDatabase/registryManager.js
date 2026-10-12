@@ -161,6 +161,8 @@ async function appLocation(appname) {
  * The address moves the network has recorded and that have not expired: each is
  * a node announcing, signed, that it no longer answers at its old socket address
  * and now answers at the new one. One per old address - the latest it announced.
+ * Events are stored as they arrive, before anything checks them, so only a
+ * version 1 move between two different addresses counts.
  * @returns {Promise<Map<string, {to: string, at: number}>>} old socket address ->
  *   the address it moved to and when the move was announced (ms)
  */
@@ -168,15 +170,15 @@ async function addressMoves() {
   const database = dbHelper.databaseConnection().db(config.database.appsglobal.database);
   const events = await database.collection(globalAppStateEvents).find(
     { type: 'ipchanged', expireAt: { $gt: new Date() } },
-    { projection: { _id: 0, ip: 1, broadcastedAt: 1, 'data.newIP': 1 } },
+    { projection: { _id: 0, ip: 1, broadcastedAt: 1, 'data.newIP': 1, 'data.version': 1 } },
   ).toArray();
   const moves = new Map();
   // eslint-disable-next-line no-restricted-syntax
   for (const event of events) {
     const from = normalizeSocketAddress(event.ip);
-    const to = normalizeSocketAddress(event.data?.newIP);
+    const to = typeof event.data?.newIP === 'string' ? normalizeSocketAddress(event.data.newIP) : null;
     const at = new Date(event.broadcastedAt).getTime();
-    if (from && to && Number.isFinite(at)) moves.set(from, { to, at });
+    if (event.data?.version === 1 && from && to && to !== from && Number.isFinite(at)) moves.set(from, { to, at });
   }
   return moves;
 }

@@ -613,13 +613,15 @@ async function handleIPChangedMessage(message, fromIP, port) {
   try {
     const envelope = { version: message.version, timestamp: message.timestamp, pubKey: message.pubKey, signature: message.signature };
     await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.IPCHANGED, { message: message.data, envelope });
+    // storeIPChangedMessage answers true, false for a move too old to apply, or an
+    // Error for one it refused - only true is a move worth passing on
     const rebroadcastToPeers = await messageStore.storeIPChangedMessage(message.data);
-    if (rebroadcastToPeers) {
+    if (rebroadcastToPeers === true) {
       fluxEventBus.publish('network:ipchanged', { oldIP: message.data.oldIP, newIP: message.data.newIP });
     }
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
-    if (rebroadcastToPeers && timestampOK) {
+    if (rebroadcastToPeers === true && timestampOK) {
       announceToPeers(message, `${fromIP}:${port}`);
     }
   } catch (error) {
