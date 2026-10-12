@@ -2384,6 +2384,32 @@ describe('fluxNetworkHelper tests', () => {
       expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
     });
 
+    it('handles its collateral listed at its own former address, with nothing answering there, as this node\'s move', async () => {
+      const formerIp = '192.168.7.200';
+      const movedTo = '192.168.7.100:16127';
+      const collateral = 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)';
+      const originalUserConfig = globalThis.userconfig;
+      globalThis.userconfig = { initial: { ...originalUserConfig.initial, ipaddress: formerIp, apiport: 16127 } };
+      sinon.stub(fs, 'writeFile').resolves();
+      const logInfo = sinon.spy(log, 'info');
+      getBenchmarksStub.resolves({ status: 'success', data: { ipaddress: movedTo } });
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns([{ ...deterministicFluxnodeListResponse[0], collateral, ip: `${formerIp}:16127` }]);
+      getFluxNodeStatusStub.returns({ status: 'success', data: { status: 'CONFIRMED', collateral } });
+      sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused'));
+
+      try {
+        await fluxNetworkHelper.checkDeterministicNodesCollisions();
+      } finally {
+        globalThis.userconfig = originalUserConfig;
+      }
+
+      const lines = logInfo.getCalls().map((call) => String(call.args[0]));
+      expect(lines.some((line) => line.includes('this node\'s own former address - handling the move'))).to.equal(true);
+      expect(lines.some((line) => line.includes(`Adjusting External IP from ${formerIp} to 192.168.7.100`))).to.equal(true);
+      expect(lines.some((line) => line.includes('node was confirmed on a different machine'))).to.equal(false);
+    });
+
     it('should handle case when other node comes back online during grace period', async () => {
       const myIp = '192.168.1.100:16127';
       const otherIp = '192.168.1.200:16127';
