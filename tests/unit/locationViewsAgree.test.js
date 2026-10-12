@@ -169,6 +169,16 @@ describe('the location table and the event-derived view agree', () => {
         expected: [],
       },
       {
+        title: 'a removal at the new address before the report, and one at the old address after it',
+        steps: [{ remove: [B, 300] }, { report: [A, 240] }, { remove: [A, 200] }, { move: [A, B, 160] }],
+        expected: [],
+      },
+      {
+        title: 'an eviction of the new address before the report, and one of the old address after it',
+        steps: [{ evict: [B, 300] }, { report: [A, 240] }, { evict: [A, 200] }, { move: [A, B, 160] }],
+        expected: [],
+      },
+      {
         title: 'an eviction at the new address',
         steps: [{ report: [A, 240] }, { move: [A, B, 160] }, { evict: [B, 80] }],
         expected: [],
