@@ -885,11 +885,6 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCent
   }
 }
 
-// A node is ready when it can SERVE AUTH, not merely HTTP: the first thing every
-// suite does against a fresh or restarted node is authenticate (startDiscovery),
-// and /id/loginphrase needs the mongo connection, which comes up after express
-// starts answering /flux/version. During that window the route returns 200 with
-// an error body, so readiness must validate the body, not just res.ok.
 // The node whose key node `num` signs with. `sharedKeys` maps a node number to
 // another's, both 1-based: distinct nodes, with their own collateral and
 // address, on one key - as one operator's nodes often are.
@@ -897,18 +892,21 @@ function keyNumber(sharedKeys, num) {
   return Number(sharedKeys[num] ?? num);
 }
 
-// A node that has taken itself out of service refuses a login phrase for as long
-// as it stays out, while its database answers: /flux/health reports the database
-// check passed and the node unfit for its DOS state alone, and that node is up.
+// A node is ready when it is up: FluxOS answers and its database does, which
+// express answering /flux/version alone does not prove. /flux/health reports its
+// database check whether or not the node is fit to serve, so a node meant to be
+// out of service is ready too; whether a node is fit is the suite's to assert,
+// and one that is not fails the first authentication with its reason. Each poll
+// asks afresh: the route is cached for 30s.
 function nodeReadyWaitStrategy(nodeIp) {
   const validate = async (res) => {
     if (!res.ok) return false;
-    const body = await res.json().catch(() => null);
-    if (body && body.status === 'success') return true;
-    const health = await fetch(`http://${nodeIp}:16127/flux/health`).then((r) => r.json()).catch(() => null);
-    return health?.data?.failed === 'dos' && health?.data?.checks?.db === 'ok';
+    const health = await res.json().catch(() => null);
+    // a fit node answers its checks as `data`; an unfit one under `data.checks`
+    const checks = health?.status === 'success' ? health.data : health?.data?.checks;
+    return checks?.db === 'ok';
   };
-  return new HttpPollWaitStrategy(`http://${nodeIp}:16127/id/loginphrase`, { validate });
+  return new HttpPollWaitStrategy(() => `http://${nodeIp}:16127/flux/health?ready=${Date.now()}`, { validate });
 }
 
 // `syncthing` selects what each node talks to. 'stub' (the default) is the
