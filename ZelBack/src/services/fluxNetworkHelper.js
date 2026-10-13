@@ -21,6 +21,7 @@ const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const { peerManager } = require('./utils/peerState');
+const { RemovalOutcome } = require('./utils/removalOutcome');
 const { CLOSE_CODES, DIRECTION } = require('./utils/FluxPeerSocket');
 const networkStateService = require('./networkStateService');
 const fluxEventBus = require('./utils/fluxEventBus');
@@ -1654,10 +1655,14 @@ async function writeConfiguredIp(ip) {
 /**
  * Removes the installed apps that cannot follow this node to a new IP and
  * returns the rest: a static-IP app, and one that another instance already
- * holds at the new IP.
+ * holds at the new IP. `complete` is false when an app could not be judged or
+ * removed - the installed apps could not be read, an enterprise spec could not
+ * be decrypted, or a removal did not happen - so the next pass judges again.
+ * An app already removed is no longer installed, so a pass repeated removes
+ * nothing twice.
  * @param {string} previousSocket This node's former socket address.
  * @param {string} currentSocket Its new socket address.
- * @returns {Promise<object[]>} The apps that stay.
+ * @returns {Promise<{staying: object[], complete: boolean}>}
  */
 async function appsStayingThroughIpMove(previousSocket, currentSocket) {
   // eslint-disable-next-line global-require
@@ -1669,8 +1674,15 @@ async function appsStayingThroughIpMove(previousSocket, currentSocket) {
   // eslint-disable-next-line global-require
   const enterpriseHelper = require('./utils/enterpriseHelper');
   const staying = [];
+  let complete = true;
+  // Gone, or never there: either way not installed here now.
+  const removed = async (appName) => {
+    const outcome = await appUninstaller.removeAppLocally(appName, null, true, null, true)
+      .catch((error) => { log.error(error); return RemovalOutcome.FAILED; });
+    return outcome === RemovalOutcome.REMOVED || outcome === RemovalOutcome.NOT_INSTALLED;
+  };
   const apps = await appQueryService.installedApps();
-  if (apps.status !== 'success') return staying;
+  if (apps.status !== 'success') return { staying, complete: false };
   // eslint-disable-next-line no-restricted-syntax
   for (const app of apps.data) {
     // Check if app requires static IP - if so, uninstall it since IP changed
@@ -1684,6 +1696,7 @@ async function appsStayingThroughIpMove(previousSocket, currentSocket) {
           appSpecs = await enterpriseHelper.checkAndDecryptAppSpecs(app);
         } catch (decryptError) {
           log.error(`Failed to decrypt enterprise specs for ${app.name}: ${decryptError.message}`);
+          complete = false;
           // eslint-disable-next-line no-continue
           continue;
         }
@@ -1692,7 +1705,7 @@ async function appsStayingThroughIpMove(previousSocket, currentSocket) {
         log.info(`Application ${app.name} requires static IP but node IP has changed, uninstalling app`);
         log.warn(`REMOVAL REASON: Static IP required - ${app.name} requires static IP but node IP changed from ${previousSocket} to ${currentSocket}`);
         // eslint-disable-next-line no-await-in-loop
-        await appUninstaller.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
+        if (!await removed(app.name)) complete = false;
         // eslint-disable-next-line no-continue
         continue;
       }
@@ -1714,12 +1727,12 @@ async function appsStayingThroughIpMove(previousSocket, currentSocket) {
       log.info(`Aplication: ${app.name}, was found on the network already running under the same ip, uninstalling app`);
       log.warn(`REMOVAL REASON: Duplicate IP detected - ${app.name} already running on network with IP ${extractIp(currentSocket)} (after IP change)`);
       // eslint-disable-next-line no-await-in-loop
-      await appUninstaller.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
+      if (!await removed(app.name)) complete = false;
     } else {
       staying.push(app);
     }
   }
-  return staying;
+  return { staying, complete };
 }
 
 const OWN_ADDRESS_RECORD_ID = 'own';
@@ -1876,7 +1889,8 @@ async function confirmOwnAddress(record) {
  * reads what is so before acting or is keyed to the move, so a pass repeated -
  * on each change of this node's address, each node list refresh, and boot -
  * finishes a move a failure or a restart left part done and does nothing twice.
- * Runs only on the own-address queue.
+ * The move is settled once the chain lists the new address and every app has
+ * been handled. Runs only on the own-address queue.
  * @returns {Promise<void>}
  */
 async function reconcileOwnMove() {
@@ -1892,7 +1906,7 @@ async function reconcileOwnMove() {
   // Before the move is recorded: until then this node's own rows are at the old
   // address, which is what keeps them from reading as another instance at the
   // new one.
-  const staying = appsDue ? await appsStayingThroughIpMove(from, to) : [];
+  const apps = appsDue ? await appsStayingThroughIpMove(from, to) : null;
   // The seam records and tells a move once whatever this node's record says,
   // so a pass that told it and stopped before writing announcedAt repeats
   // nothing.
@@ -1900,9 +1914,16 @@ async function reconcileOwnMove() {
     await onOwnAddressMoved(from, to, movedAt);
     await updateOwnAddressRecord({ announcedAt: movedAt });
   }
+  let appsHandled = !ipChanged || !appsDue;
   if (appsDue) {
-    if (staying.length && onAddressChanged) await onAddressChanged(staying, `node ip changed to ${ip}`, `ownMove:${movedAt}`);
-    await updateOwnAddressRecord({ appsHandledAt: movedAt });
+    let restarted = true;
+    if (apps.staying.length && onAddressChanged) {
+      const asked = await onAddressChanged(apps.staying, `node ip changed to ${ip}`, `ownMove:${movedAt}`);
+      restarted = Boolean(asked) && asked.asked === asked.components;
+    }
+    appsHandled = apps.complete && restarted;
+    if (appsHandled) await updateOwnAddressRecord({ appsHandledAt: movedAt });
+    else log.warn(`own address - not every app was handled for the move to ${to}; the next pass handles the rest`);
   }
   if (ipChanged && record.geolocatedAt !== movedAt) {
     // Update geolocation service to track IP change and update static IP status
@@ -1911,7 +1932,9 @@ async function reconcileOwnMove() {
     geolocationService.setNodeGeolocation();
     await updateOwnAddressRecord({ geolocatedAt: movedAt });
   }
-  if (await confirmOwnAddress(record)) await updateOwnAddressRecord({ settledAt: movedAt });
+  // Settled only once its apps are handled too: a settled move is not
+  // reconciled again.
+  if (await confirmOwnAddress(record) && appsHandled) await updateOwnAddressRecord({ settledAt: movedAt });
 }
 
 // Work on this node's own address, one piece at a time in the order it came.

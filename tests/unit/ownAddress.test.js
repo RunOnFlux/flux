@@ -12,6 +12,8 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const geolocationService = require('../../ZelBack/src/services/geolocationService');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+const enterpriseHelper = require('../../ZelBack/src/services/utils/enterpriseHelper');
+const { RemovalOutcome } = require('../../ZelBack/src/services/utils/removalOutcome');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const { requireMongo } = require('./dbTestHelper');
 
@@ -44,7 +46,7 @@ describe('fluxNetworkHelper own address tests', () => {
     sinon.stub(serviceHelper, 'delay').resolves();
     moved = sinon.stub().resolves();
     fluxNetworkHelper.setOnOwnAddressMoved(moved);
-    restarted = sinon.stub().resolves();
+    restarted = sinon.stub().callsFake(async (apps) => ({ asked: apps.length, components: apps.length }));
     fluxNetworkHelper.setOnAddressChanged(restarted);
     // the installed apps the network lists at an address: none unless a case says
     listedHere = sinon.stub().resolves([]);
@@ -322,6 +324,118 @@ describe('fluxNetworkHelper own address tests', () => {
       const { movedAt } = await fullRecord();
       expect(restarted.getCalls().map((call) => call.args[2])).to.deep.equal([`ownMove:${movedAt}`, `ownMove:${movedAt}`]);
       expect((await fullRecord()).appsHandledAt).to.equal(movedAt);
+    });
+
+    describe('the apps a move handles', () => {
+      const STATIC = { name: 'needsfixedip', version: 7, staticip: true };
+      const KEEPS = { name: 'keeps', version: 4 };
+      const handledAt = async () => (await fullRecord()).appsHandledAt;
+
+      it('handles them on the next pass when the installed apps could not be read', async () => {
+        configure('198.51.100.71');
+        await adopt('198.51.100.71:16127');
+        appQueryService.installedApps.onFirstCall().resolves({ status: 'error', data: { message: 'db unavailable' } });
+        appQueryService.installedApps.resolves({ status: 'success', data: [KEEPS] });
+
+        await fluxNetworkHelper.handleOwnAddress('198.51.100.72:16127');
+        expect(await handledAt(), 'after the pass that could not read them').to.equal(null);
+        sinon.assert.notCalled(restarted);
+        await pass('198.51.100.72:16127');
+
+        sinon.assert.calledOnceWithExactly(restarted, [KEEPS], sinon.match.string, `ownMove:${(await fullRecord()).movedAt}`);
+        expect(await handledAt()).to.equal((await fullRecord()).movedAt);
+      });
+
+      it('removes on a later pass an app whose removal was refused or failed', async () => {
+        configure('198.51.100.73');
+        await adopt('198.51.100.73:16127');
+        appQueryService.installedApps.resolves({ status: 'success', data: [STATIC] });
+        const remove = sinon.stub(appUninstaller, 'removeAppLocally');
+        remove.onCall(0).resolves(RemovalOutcome.BUSY);
+        remove.onCall(1).resolves(RemovalOutcome.FAILED);
+        remove.onCall(2).resolves(RemovalOutcome.REMOVED);
+
+        await fluxNetworkHelper.handleOwnAddress('198.51.100.74:16127');
+        expect(await handledAt(), 'after a removal refused as busy').to.equal(null);
+        await pass('198.51.100.74:16127');
+        expect(await handledAt(), 'after a removal that failed').to.equal(null);
+        await pass('198.51.100.74:16127');
+
+        sinon.assert.calledThrice(remove);
+        expect(await handledAt()).to.equal((await fullRecord()).movedAt);
+      });
+
+      it('counts an app already gone as handled', async () => {
+        configure('198.51.100.75');
+        await adopt('198.51.100.75:16127');
+        appQueryService.installedApps.resolves({ status: 'success', data: [STATIC] });
+        sinon.stub(appUninstaller, 'removeAppLocally').resolves(RemovalOutcome.NOT_INSTALLED);
+
+        await fluxNetworkHelper.handleOwnAddress('198.51.100.76:16127');
+
+        expect(await handledAt()).to.equal((await fullRecord()).movedAt);
+      });
+
+      it('judges on the next pass an app whose enterprise spec could not be decrypted', async () => {
+        configure('198.51.100.77');
+        await adopt('198.51.100.77:16127');
+        const ENTERPRISE = { name: 'sealed', version: 8, enterprise: 'blob' };
+        appQueryService.installedApps.resolves({ status: 'success', data: [ENTERPRISE] });
+        const decrypt = sinon.stub(enterpriseHelper, 'checkAndDecryptAppSpecs');
+        decrypt.onFirstCall().rejects(new Error('key not ready'));
+        decrypt.resolves({ ...ENTERPRISE, staticip: false });
+
+        await fluxNetworkHelper.handleOwnAddress('198.51.100.78:16127');
+        expect(await handledAt(), 'after the pass that could not decrypt it').to.equal(null);
+        sinon.assert.notCalled(restarted);
+        await pass('198.51.100.78:16127');
+
+        sinon.assert.calledOnceWithExactly(restarted, [ENTERPRISE], sinon.match.string, sinon.match.string);
+        expect(await handledAt()).to.equal((await fullRecord()).movedAt);
+      });
+
+      it('asks again, under the same key, for a restart that was not asked of every component', async () => {
+        configure('198.51.100.79');
+        await adopt('198.51.100.79:16127');
+        appQueryService.installedApps.resolves({ status: 'success', data: [KEEPS] });
+        restarted.onFirstCall().resolves({ asked: 1, components: 2 });
+        restarted.onSecondCall().resolves({ asked: 2, components: 2 });
+
+        await fluxNetworkHelper.handleOwnAddress('198.51.100.80:16127');
+        expect(await handledAt(), 'after one component of two was asked').to.equal(null);
+        await pass('198.51.100.80:16127');
+
+        const { movedAt } = await fullRecord();
+        expect(restarted.getCalls().map((call) => call.args[2])).to.deep.equal([`ownMove:${movedAt}`, `ownMove:${movedAt}`]);
+        expect(await handledAt()).to.equal(movedAt);
+      });
+
+      it('takes a restart that reports nothing as not asked', async () => {
+        configure('198.51.100.81');
+        await adopt('198.51.100.81:16127');
+        appQueryService.installedApps.resolves({ status: 'success', data: [KEEPS] });
+        restarted.resolves(undefined);
+
+        await fluxNetworkHelper.handleOwnAddress('198.51.100.82:16127');
+
+        expect(await handledAt()).to.equal(null);
+      });
+
+      it('does not settle a move whose apps are not handled, though the chain lists the new address', async () => {
+        configure('198.51.100.83');
+        await adopt('198.51.100.83:16127');
+        daemonServiceFluxnodeRpcs.getFluxNodeStatus.resolves({ status: 'success', data: { ip: '198.51.100.84' } });
+        appQueryService.installedApps.onFirstCall().resolves({ status: 'error', data: { message: 'db unavailable' } });
+        appQueryService.installedApps.resolves({ status: 'success', data: [KEEPS] });
+
+        await fluxNetworkHelper.handleOwnAddress('198.51.100.84:16127');
+        expect((await fullRecord()).settledAt, 'listed at the new address, its apps not yet handled').to.equal(null);
+        await pass('198.51.100.84:16127');
+
+        const { movedAt, settledAt } = await fullRecord();
+        sinon.assert.calledOnce(restarted);
+        expect(settledAt).to.equal(movedAt);
+      });
     });
 
     it('asks again for a refused confirmation, not again for an accepted one, and does nothing once the chain lists the new address', async () => {
