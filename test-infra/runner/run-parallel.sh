@@ -292,32 +292,40 @@ sweep_harness_leftovers(){
 
 sweep_harness_leftovers
 
-# ---- capture sidecars (best-effort; ended on exit) ----
-# The dmesg capture's root half waits on a pipe this driver holds the only write
-# end of, and kills its own `dmesg` when the pipe reaches end of file. A process
-# closes every file it holds however it dies, SIGKILL included, so the root half
-# ends with the driver: an unprivileged kill cannot reach `sudo` or `dmesg`, and
-# `dmesg -wT` notices a closed reader only at the next kernel message. A
-# long-lived process this driver starts must not inherit the write end, or the
-# pipe stays open while it lives: each launch and the other two captures close
-# it.
-exec {CAP_DMESG_HOLD}> >(sudo -n sh -c 'dmesg -wT & d=$!; read -r _; kill "$d"' 2>/dev/null \
-    | grep --line-buffered -iE 'oom|killed process' > "$LOGROOT/cap-dmesg.log")
-( while true; do echo "$(date -u +%H:%M:%S) avail=$(free_mb)MB load=$(cut -d' ' -f1 /proc/loadavg) containers=$(docker ps -q 2>/dev/null | wc -l)"; sleep 5; done ) > "$LOGROOT/cap-mem.log" 2>&1 {CAP_DMESG_HOLD}>&- & CAP2=$!
-( docker events --filter event=die --filter event=kill --filter event=oom \
-    --format '{{.Time}} {{.Action}} name={{.Actor.Attributes.name}} exitCode={{.Actor.Attributes.exitCode}}' ) > "$LOGROOT/cap-events.log" 2>&1 {CAP_DMESG_HOLD}>&- & CAP3=$!
-stop_captures(){
-  local pid kid
-  exec {CAP_DMESG_HOLD}>&-
-  # Children BEFORE parents, and by explicit PID. `$CAPn` is the subshell, whose
-  # children outlive it and reparent to init. Killing the parent first would
-  # lose the ppid link that finds them.
-  for pid in $CAP2 $CAP3; do
-    for kid in $(ps -eo pid,ppid --no-headers 2>/dev/null | awk -v p="$pid" '$2==p{print $1}'); do
-      kill "$kid" 2>/dev/null
-    done
-    kill "$pid" 2>/dev/null
+# ---- capture sidecars (best-effort; ended with the driver) ----
+# Every capture waits on a pipe this driver holds the only write end of, and
+# ends when the pipe reaches end of file. A process closes every file it holds
+# however it dies, SIGKILL included, so the captures end with the driver. The
+# dmesg capture's root half ends itself the same way: an unprivileged kill
+# cannot reach `sudo` or `dmesg`, and `dmesg -wT` notices a closed reader only
+# at the next kernel message. A long-lived process this driver starts must not
+# inherit the write end, or the pipe stays open while it lives: each launch
+# closes it.
+capture_memory(){
+  while true; do
+    echo "$(date -u +%H:%M:%S) avail=$(free_mb)MB load=$(cut -d' ' -f1 /proc/loadavg) containers=$(docker ps -q 2>/dev/null | wc -l)"
+    sleep 5
   done
+}
+# Runs with the pipe's read end as its standard input. An asynchronous command
+# reads /dev/null unless told otherwise, so the root half is handed it as fd 3.
+run_captures(){
+  local mem events
+  exec 3<&0
+  sudo -n sh -c 'dmesg -wT & d=$!; read -r _; kill "$d"' 2>/dev/null <&3 \
+    | grep --line-buffered -iE 'oom|killed process' > "$LOGROOT/cap-dmesg.log" &
+  capture_memory > "$LOGROOT/cap-mem.log" 2>&1 &
+  mem=$!
+  docker events --filter event=die --filter event=kill --filter event=oom \
+    --format '{{.Time}} {{.Action}} name={{.Actor.Attributes.name}} exitCode={{.Actor.Attributes.exitCode}}' \
+    > "$LOGROOT/cap-events.log" 2>&1 &
+  events=$!
+  read -r _ <&3
+  kill "$mem" "$events" 2>/dev/null
+}
+exec {CAPTURE_HOLD}> >(run_captures)
+stop_captures(){
+  exec {CAPTURE_HOLD}>&-
 }
 trap stop_captures EXIT
 
@@ -326,7 +334,7 @@ declare -A PID2SUITE
 launch(){
   local s=$1
   SUITE_GLOB="tests/${s}-*.js" E2E_RUN_LABEL="par-${s}-$$" E2E_LOG_DIR="$LOGROOT/$s" \
-    bash "$RUNNER" > "$LOGROOT/$s.out" 2>&1 {CAP_DMESG_HOLD}>&- &
+    bash "$RUNNER" > "$LOGROOT/$s.out" 2>&1 {CAPTURE_HOLD}>&- &
   PID2SUITE[$!]=$s
   log "LAUNCH  suite $s pid=$! inflight=${#PID2SUITE[@]} avail=$(free_mb)MB"
 }
