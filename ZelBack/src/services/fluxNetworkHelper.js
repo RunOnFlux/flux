@@ -1658,6 +1658,7 @@ async function adjustExternalIp(previous, current, { announceMove = true } = {})
     // another instance at the new one. Before the restarts: the election must
     // know the move as soon as it sees the new address, or it reads FDM naming
     // the old one as another node.
+    noteOwnAddress(currentSocket, previousSocket);
     if (announceMove && onOwnAddressMoved) {
       await onOwnAddressMoved(previousSocket, currentSocket)
         .catch((error) => log.error(`adjustExternalIp - recording the move failed: ${error.message}`));
@@ -1795,7 +1796,35 @@ async function ownAddressRecord() {
   return record ?? null;
 }
 
+// The address this node last adopted as its own, and the addresses it has moved
+// away from, held as each is recorded so reading them costs nothing.
+let adoptedOwnAddress = null;
+const ownAddressesLeft = new Set();
+
+function noteOwnAddress(current, previous) {
+  const to = normalizeSocketAddress(current);
+  if (!to) return;
+  const from = normalizeSocketAddress(previous);
+  if (from && from !== to) ownAddressesLeft.add(from);
+  ownAddressesLeft.delete(to);
+  adoptedOwnAddress = to;
+}
+
+/**
+ * Where this node is, for an address benchmark reports as its own: the address
+ * it adopted when the reported one is an address it has moved away from - a move
+ * is recorded, and its rows carried, before benchmark reports the new address -
+ * and the reported one otherwise.
+ * @param {string} reported
+ * @returns {string|null}
+ */
+function ownAddressFor(reported) {
+  const address = normalizeSocketAddress(reported);
+  return address && adoptedOwnAddress && ownAddressesLeft.has(address) ? adoptedOwnAddress : address;
+}
+
 async function writeOwnAddressRecord(socketAddress, movedFrom) {
+  noteOwnAddress(socketAddress, movedFrom);
   const db = dbHelper.databaseConnection();
   await db.db(config.database.local.database).collection(config.database.local.collections.ownAddress).updateOne(
     { _id: OWN_ADDRESS_RECORD_ID },
@@ -1891,6 +1920,7 @@ function handleOwnAddress(current) {
     const reported = normalizeSocketAddress(current);
     if (!reported) return;
     const record = await ownAddressRecord();
+    if (record) noteOwnAddress(record.socketAddress, record.movedFrom);
     const previous = record ? record.socketAddress : await configuredFormerAddress(reported);
     if (!socketAddressesMatch(previous, reported)) {
       if (!record && await fluxStillAnswersAt(previous)) {
@@ -3228,6 +3258,7 @@ module.exports = {
   setOnAddressChanged,
   setOnOwnAddressMoved,
   setInstalledAppsListedAt,
+  ownAddressFor,
   allowPort,
   isFirewallActive: ufw.isFirewallActive,
   // Exports for testing purposes

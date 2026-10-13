@@ -417,47 +417,33 @@ describe('registryManager tests', () => {
       await database.collection(locations).deleteMany({});
     });
 
-    describe('currentAddressOf', () => {
-      it('follows a move to the new address', async () => {
+    describe('currentAddressesOf', () => {
+      const currentAddressOf = async (ip, at) => (await registryManager.currentAddressesOf([{ ip, at: at.getTime() }]))[0];
+
+      it('follows a move made after the saying to the new address', async () => {
         await moved('72.89.45.236:16137', '108.6.236.4:16137', minutesAgo(5));
 
-        expect(await registryManager.currentAddressOf('72.89.45.236:16137')).to.equal('108.6.236.4:16137');
+        expect(await currentAddressOf('72.89.45.236:16137', minutesAgo(10))).to.equal('108.6.236.4:16137');
       });
 
       it('follows a chain of moves, each newer than the last', async () => {
         await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(30));
         await moved('10.0.0.2:16127', '10.0.0.3:16127', minutesAgo(10));
 
-        expect(await registryManager.currentAddressOf('10.0.0.1:16127')).to.equal('10.0.0.3:16127');
+        expect(await currentAddressOf('10.0.0.1:16127', minutesAgo(40))).to.equal('10.0.0.3:16127');
       });
 
       it('ends a node that moved away and back at the address it holds now', async () => {
         await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(30));
         await moved('10.0.0.2:16127', '10.0.0.1:16127', minutesAgo(10));
 
-        expect(await registryManager.currentAddressOf('10.0.0.1:16127')).to.equal('10.0.0.1:16127');
+        expect(await currentAddressOf('10.0.0.1:16127', minutesAgo(40))).to.equal('10.0.0.1:16127');
       });
 
-      it('does not follow a move made before the node now at the address last announced there', async () => {
+      it('does not follow a move made before the saying: the address was another node\'s by then', async () => {
         await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(30));
-        await runs('anyapp', '10.0.0.1:16127', minutesAgo(20));
 
-        expect(await registryManager.currentAddressOf('10.0.0.1:16127')).to.equal('10.0.0.1:16127');
-      });
-
-      it('keeps an address a new node announced at after the node before it moved away, while the earlier node\'s row remains', async () => {
-        await runs('oldapp', '10.0.0.1:16127', minutesAgo(40));
-        await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(30));
-        await runs('newapp', '10.0.0.1:16127', minutesAgo(5));
-
-        expect(await registryManager.currentAddressOf('10.0.0.1:16127')).to.equal('10.0.0.1:16127');
-      });
-
-      it('follows a move made after the node last announced at the address', async () => {
-        await runs('anyapp', '10.0.0.1:16127', minutesAgo(20));
-        await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(10));
-
-        expect(await registryManager.currentAddressOf('10.0.0.1:16127')).to.equal('10.0.0.2:16127');
+        expect(await currentAddressOf('10.0.0.1:16127', minutesAgo(20))).to.equal('10.0.0.1:16127');
       });
 
       it('ignores a move that is not version 1, one to the same address, and one whose new address is not an address', async () => {
@@ -473,25 +459,49 @@ describe('registryManager tests', () => {
           },
         ]);
 
-        expect([...(await registryManager.addressMoves()).keys()]).to.deep.equal([]);
+        expect([...(await registryManager.addressMovesFrom(['10.0.0.1:16127', '10.0.0.3:16127', '10.0.0.4:16127'])).keys()]).to.deep.equal([]);
       });
 
       it('ignores an expired move', async () => {
         await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(200), minutesAgo(1));
 
-        expect(await registryManager.currentAddressOf('10.0.0.1:16127')).to.equal('10.0.0.1:16127');
+        expect(await currentAddressOf('10.0.0.1:16127', minutesAgo(210))).to.equal('10.0.0.1:16127');
       });
 
       it('follows a move of the port alone, on the same IP', async () => {
         await moved('198.51.100.40:16127', '198.51.100.40:16157', minutesAgo(5));
 
-        expect(await registryManager.currentAddressOf('198.51.100.40:16127')).to.equal('198.51.100.40:16157');
+        expect(await currentAddressOf('198.51.100.40:16127', minutesAgo(10))).to.equal('198.51.100.40:16157');
       });
 
       it('reads a bare address as the default port', async () => {
         await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(5));
 
-        expect(await registryManager.currentAddressOf('10.0.0.1')).to.equal('10.0.0.2:16127');
+        expect(await currentAddressOf('10.0.0.1', minutesAgo(10))).to.equal('10.0.0.2:16127');
+      });
+    });
+
+    describe('addressesMovedFromIp', () => {
+      it('gives the addresses at the IP a move leaves, bare and with a port, and none at an IP it only begins', async () => {
+        await moved('72.89.45.23:16137', '108.6.236.4:16137', minutesAgo(5));
+        await moved('72.89.45.23', '108.6.236.5:16127', minutesAgo(5));
+        await moved('72.89.45.236:16127', '108.6.236.6:16127', minutesAgo(5));
+
+        expect((await registryManager.addressesMovedFromIp('72.89.45.23')).sort()).to.deep.equal(['72.89.45.23', '72.89.45.23:16137']);
+      });
+    });
+
+    describe('addressMovesTo', () => {
+      it('gives the moves to an address, with who signed each and when it was made', async () => {
+        const at = minutesAgo(5);
+        await database.collection(events).insertOne({
+          ip: '10.0.0.1:16127', type: 'ipchanged', dedupKey: 'ipchanged', broadcastedAt: at, expireAt: new Date(Date.now() + HOUR), data: { version: 1, newIP: '10.0.0.9:16127' }, envelope: { pubKey: '04signer' },
+        });
+        await moved('10.0.0.2:16127', '10.0.0.8:16127', at);
+
+        const moves = await registryManager.addressMovesTo('10.0.0.9');
+        expect([...moves.keys()]).to.deep.equal(['10.0.0.1:16127']);
+        expect(moves.get('10.0.0.1:16127')).to.deep.equal({ to: '10.0.0.9:16127', signer: '04signer', at: at.getTime() });
       });
     });
 
@@ -502,19 +512,32 @@ describe('registryManager tests', () => {
         expect(await registryManager.primaryAddressOf('primaryapp', '72.89.45.236')).to.equal('72.89.45.236:16137');
       });
 
-      it('follows a location announced before the node moved away from it', async () => {
-        await runs('primaryapp', '72.89.45.236:16137', minutesAgo(10));
+      it('finds the node at the address its move carried its location to, from the IP it left', async () => {
         await moved('72.89.45.236:16137', '108.6.236.4:16137', minutesAgo(5));
+        await runs('primaryapp', '108.6.236.4:16137', minutesAgo(10));
 
         expect(await registryManager.primaryAddressOf('primaryapp', '72.89.45.236')).to.equal('108.6.236.4:16137');
       });
 
-      it('takes the IP\'s rows from before and after a move of the port alone as the one node, at its new port', async () => {
-        await runs('primaryapp', '198.51.100.40:16127', minutesAgo(10));
+      it('gives the new port of a node whose port alone moved', async () => {
         await moved('198.51.100.40:16127', '198.51.100.40:16157', minutesAgo(5));
-        await runs('primaryapp', '198.51.100.40:16157', minutesAgo(1));
+        await runs('primaryapp', '198.51.100.40:16157', minutesAgo(10));
 
         expect(await registryManager.primaryAddressOf('primaryapp', '198.51.100.40')).to.equal('198.51.100.40:16157');
+      });
+
+      it('takes no move from an IP that only begins with the one FDM names', async () => {
+        await moved('72.89.45.236:16137', '108.6.236.4:16137', minutesAgo(5));
+        await runs('primaryapp', '108.6.236.4:16137', minutesAgo(10));
+
+        expect(await registryManager.primaryAddressOf('primaryapp', '72.89.45.23')).to.equal('72.89.45.23');
+      });
+
+      it('takes a move recorded from the bare IP FDM names', async () => {
+        await moved('72.89.45.236', '108.6.236.4:16127', minutesAgo(5));
+        await runs('primaryapp', '108.6.236.4:16127', minutesAgo(10));
+
+        expect(await registryManager.primaryAddressOf('primaryapp', '72.89.45.236')).to.equal('108.6.236.4:16127');
       });
 
       it('keeps a location announced after a move away from that address', async () => {

@@ -242,6 +242,51 @@ describe('fluxNetworkHelper own address tests', () => {
     sinon.assert.calledOnceWithExactly(moved, '198.51.100.10:16127', '198.51.100.10:16157');
   });
 
+  describe('where this node is, for an address benchmark reports', () => {
+    it('gives the address it moved to for one it moved away from, and any other as given', async () => {
+      configure('198.51.100.31');
+      await adopt('198.51.100.31:16127');
+
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.32:16127');
+
+      expect(fluxNetworkHelper.ownAddressFor('198.51.100.31:16127')).to.equal('198.51.100.32:16127');
+      expect(fluxNetworkHelper.ownAddressFor('198.51.100.31')).to.equal('198.51.100.32:16127');
+      expect(fluxNetworkHelper.ownAddressFor('198.51.100.32:16127')).to.equal('198.51.100.32:16127');
+      expect(fluxNetworkHelper.ownAddressFor('198.51.100.33:16127')).to.equal('198.51.100.33:16127');
+    });
+
+    it('gives the address it holds now for both, after moving away and back', async () => {
+      configure('198.51.100.34');
+      await adopt('198.51.100.34:16127');
+
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.35:16127');
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.34:16127');
+
+      expect(fluxNetworkHelper.ownAddressFor('198.51.100.35:16127')).to.equal('198.51.100.34:16127');
+      expect(fluxNetworkHelper.ownAddressFor('198.51.100.34:16127')).to.equal('198.51.100.34:16127');
+    });
+
+    it('knows a move recorded before this process started, once it reads the record', async () => {
+      configure('198.51.100.36');
+      await adopt('198.51.100.37:16127', '198.51.100.36:16127');
+
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.37:16127');
+
+      expect(fluxNetworkHelper.ownAddressFor('198.51.100.36:16127')).to.equal('198.51.100.37:16127');
+    });
+
+    it('holds the new address from the moment the move carries its rows', async () => {
+      configure('198.51.100.38');
+      await adopt('198.51.100.38:16127');
+      let seenWhileMoving;
+      moved.callsFake(async () => { seenWhileMoving = fluxNetworkHelper.ownAddressFor('198.51.100.38:16127'); });
+
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.39:16127');
+
+      expect(seenWhileMoving).to.equal('198.51.100.39:16127');
+    });
+  });
+
   describe('the collision check', () => {
     beforeEach(() => {
       sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });

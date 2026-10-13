@@ -23,6 +23,7 @@ const {
 const { appsInstallingBroadcasts } = config.database.appsglobal.collections;
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
+const { addressMoveEvents, EVENTS: ADDRESS_MOVE_EVENTS } = require('../utils/addressMoveEvents');
 
 const {
   GOSSIP_VALIDITY_MS,
@@ -672,14 +673,19 @@ async function storeAppInstallingErrorMessage(message) {
   return true;
 }
 
-/**
- * Store IP changed message
- * @param {object} message - Message to store
- * @returns {Promise<boolean>} Whether message should be rebroadcast
- */
-// How long after it was made a move is applied: one older is refused.
-const IP_CHANGED_VALIDITY_MS = 65 * 60 * 1000;
+// How long after it was made a move is applied: as long as a row it carries can
+// stand. One older is refused.
+const IP_CHANGED_VALIDITY_MS = RUNNING_EXPIRY_MS;
 
+/**
+ * Applies a move to the location table: the rows reported at the old address
+ * before the move are carried to where the node is now, and addressMoveEvents
+ * is told. Every path a move arrives by - gossip, sync, this node's own - applies
+ * it here.
+ * @param {object} message - The move
+ * @returns {Promise<boolean|Error>} true when applied, false when too old to
+ *   apply, an Error when refused
+ */
 async function storeIPChangedMessage(message) {
   /* message object
   * @param type string
@@ -749,6 +755,7 @@ async function storeIPChangedMessage(message) {
     }
   }
   await dbHelper.updateInDatabase(database, globalAppsLocations, reportedBefore, { $set: { ip: newIp } });
+  addressMoveEvents.emit(ADDRESS_MOVE_EVENTS.APPLIED, { from: message.oldIP, to: newIp, broadcastedAt: message.broadcastedAt });
 
   // all stored, rebroadcast
   return true;

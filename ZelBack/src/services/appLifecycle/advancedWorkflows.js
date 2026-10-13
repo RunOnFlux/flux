@@ -18,6 +18,7 @@ const {
 } = require('../utils/socketAddressUtils');
 const { collateralOutpoint, nodesNameThisNode } = require('../utils/nodePinning');
 const fluxEventBus = require('../utils/fluxEventBus');
+const { addressMoveEvents, EVENTS: ADDRESS_MOVE_EVENTS } = require('../utils/addressMoveEvents');
 const { InstallOutcome } = require('../utils/installOutcome');
 const generalService = require('../generalService');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
@@ -128,24 +129,6 @@ const PRIMARY_ELECTION_STALE_MS = (config.fluxapps.masterSlaveIntervalMs ?? 30 *
 const timeTostartNewMasterApp = new Map();
 
 /**
- * This node's address as the election compares it: the address benchmark gives,
- * carried through a move this node has recorded. Recording a move puts this
- * node's rows, and the primary FDM's old IP resolves to, at the new address at
- * once; benchmark reports the new address some seconds later. Read alone through
- * that gap, this node would take its own new address for another node's.
- * @param {string} localSocketAddr The address benchmark gives this node.
- * @returns {Promise<string>}
- */
-async function ownCurrentAddress(localSocketAddr) {
-  try {
-    return await registryManagerModule.currentAddressOf(localSocketAddr);
-  } catch (error) {
-    log.warn(`masterSlaveApps: whether this node at ${localSocketAddr} has moved cannot be read: ${error.message}`);
-    return localSocketAddr;
-  }
-}
-
-/**
  * The full socket address of the primary FDM names by IP: the app's holder at
  * that IP, at the address it answers on now. The IP as FDM gave it when the
  * registry cannot be read.
@@ -163,24 +146,34 @@ async function fdmPrimaryAddress(appName, ip) {
 }
 
 /**
- * Carry a remembered primary to the address it has announced moving to, so the
- * election asks it - and looks up its syncthing device - where it answers.
- * @param {string} identifier Component identifier.
+ * Carry each remembered primary at the address a move left to where the node is
+ * now, so the election asks it - and looks up its syncthing device - where it
+ * answers. A row of the app still at the old address once the move is applied
+ * was reported after it, by whichever node holds that address now, and the
+ * primary remembered there stays.
+ * @param {{from: string, to: string}} move A move applied to the location table.
+ * @returns {Promise<void>}
  */
-async function followRememberedPrimary(identifier) {
-  const remembered = mastersRunningGSyncthingApps.get(identifier);
-  if (!remembered) return;
-  let current;
-  try {
-    current = await registryManagerModule.currentAddressOf(remembered);
-  } catch (error) {
-    log.warn(`masterSlaveApps: where the previous primary of ${identifier} at ${remembered} answers now cannot be read: ${error.message}`);
-    return;
+async function followMovedPrimaries({ from, to }) {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [identifier, remembered] of mastersRunningGSyncthingApps) {
+    if (!socketAddressesMatch(remembered, from) || socketAddressesMatch(remembered, to)) continue;
+    const appName = identifier.split('_')[1] || identifier;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const rows = await registryManagerModule.appLocation(appName);
+      if (rows.some((row) => socketAddressesMatch(row.ip, from))) continue;
+    } catch (error) {
+      log.warn(`masterSlaveApps: whether the previous primary of ${identifier} at ${from} moved cannot be read: ${error.message}`);
+      continue;
+    }
+    if (socketAddressesMatch(mastersRunningGSyncthingApps.get(identifier), from)) {
+      mastersRunningGSyncthingApps.set(identifier, to);
+      log.info(`masterSlaveApps: previous primary of ${identifier} moved from ${from} to ${to} - following it`);
+    }
   }
-  if (socketAddressesMatch(current, remembered)) return;
-  mastersRunningGSyncthingApps.set(identifier, current);
-  log.info(`masterSlaveApps: previous primary of ${identifier} moved from ${remembered} to ${current} - following it`);
 }
+addressMoveEvents.on(ADDRESS_MOVE_EVENTS.APPLIED, followMovedPrimaries);
 // Components already reported as operator-stopped, so the exclusion is announced
 // on entry (and again after a restart) instead of every 30s cycle. An operator
 // stop is durable in the DB, so without a line here a g: app sits unelected
@@ -5119,17 +5112,14 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
               continue;
             }
             // From here the primary is the full address it answers on: FDM's IP
-            // after a move is still that node, at its new address, and this node
-            // when the move was its own - which this node's address, read the same
-            // way, then matches.
-            // eslint-disable-next-line no-await-in-loop
-            localSocketAddr = await ownCurrentAddress(localSocketAddr);
+            // after a move is still that node, at its new address. This node's own
+            // address is the one it adopted when benchmark still reports one it has
+            // moved away from.
+            localSocketAddr = fluxNetworkHelper.ownAddressFor(localSocketAddr);
             if (ip) {
               // eslint-disable-next-line no-await-in-loop
               ip = await fdmPrimaryAddress(installedApp.name, ip);
             }
-            // eslint-disable-next-line no-await-in-loop
-            await followRememberedPrimary(identifier);
             // FDM answered and `ip` is either a primary's address or null for
             // none. Both are verdicts, and it is the verdict rather than the
             // table entry that isElectedPrimaryHere reads - a null ip writes

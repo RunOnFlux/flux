@@ -2139,6 +2139,7 @@ describe('fluxCommunication tests', () => {
       sinon.stub(networkStateService, 'getFluxnodeBySocketAddress').resolves({ pubkey: 'PUB' });
       sinon.stub(verifyPool, 'verify').callsFake(async (items) => items.map(() => true));
       sinon.stub(messageStore, 'storeAppStateEvent').resolves();
+      sinon.stub(messageStore, 'storeIPChangedMessage').resolves(true);
       sinon.stub(messageStore, 'pruneAppRunningLocations').resolves();
       expireStub = sinon.stub(messageStore, 'expireLocationsForSigterm').resolves();
       removeStub = sinon.stub(messageStore, 'removeLocationForAppRemoved').resolves();
@@ -2171,6 +2172,19 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledOnceWithExactly(removeStub, SENDER, 'app', broadcastedAt);
     });
 
+    it('applies a synced move to the location rows, as a move that arrives by gossip is', async () => {
+      const NEW = '198.51.100.40:16127';
+      const data = {
+        type: 'fluxipchanged', version: 1, oldIP: SENDER, newIP: NEW, broadcastedAt: Date.now() - 60000,
+      };
+
+      await fluxCommunication.handleAppRunningSyncResponse({
+        data: { type: 'fluxapprunningsync', messages: [{ type: 'ipchanged', ip: SENDER, envelope, data }], done: true },
+      }, PEER_SOCKET);
+
+      sinon.assert.calledOnceWithExactly(messageStore.storeIPChangedMessage, data);
+    });
+
     it('keeps a synced move signed by the node the list already shows at its new address', async () => {
       const NEW = '198.51.100.40:16127';
       networkStateService.getFluxnodeBySocketAddress.callsFake(async (address) => (address === NEW ? { pubkey: 'PUB' } : null));
@@ -2197,6 +2211,7 @@ describe('fluxCommunication tests', () => {
       }, PEER_SOCKET);
 
       sinon.assert.notCalled(messageStore.storeAppStateEvent);
+      sinon.assert.notCalled(messageStore.storeIPChangedMessage);
     });
 
     it('hands an eviction to messageStore with the time it was made', async () => {
@@ -2669,7 +2684,7 @@ describe('fluxCommunication tests', () => {
       }));
       drop = sinon.stub(peerManager, 'dropAllConnections').returns(0);
       sinon.stub(peerManager, 'get').callsFake((key) => peers[key]);
-      sinon.stub(registryManager, 'addressMoves').resolves(new Map());
+      sinon.stub(registryManager, 'addressMovesTo').resolves(new Map());
       sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(NEW);
       sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').resolves('04own');
     });
@@ -2772,9 +2787,8 @@ describe('fluxCommunication tests', () => {
 
     it('at startup, sends the moves it signed to the address it holds now, as they were made, and no others', async () => {
       const at = Date.now() - 60000;
-      registryManager.addressMoves.resolves(new Map([
+      registryManager.addressMovesTo.withArgs(NEW).resolves(new Map([
         [OLD, { to: NEW, at, signer: '04own' }],
-        ['72.89.45.236:16127', { to: '108.6.236.4:16127', at, signer: '04own' }],
         ['72.89.45.237:16137', { to: NEW, at: at - 1000, signer: '04previous' }],
       ]));
 
@@ -2786,7 +2800,7 @@ describe('fluxCommunication tests', () => {
     });
 
     it('at startup, sends a move that is both recorded and pending once', async () => {
-      registryManager.addressMoves.resolves(new Map([[OLD, { to: NEW, at: Date.now() - 60000, signer: '04own' }]]));
+      registryManager.addressMovesTo.withArgs(NEW).resolves(new Map([[OLD, { to: NEW, at: Date.now() - 60000, signer: '04own' }]]));
 
       fluxCommunication.announceRecordedOwnMovesWhenConnected();
       fluxCommunication.announceOwnAddressMove(OLD, NEW, Date.now());

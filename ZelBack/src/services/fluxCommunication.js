@@ -276,8 +276,8 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
     }
 
     // Applied after every slice, once every apprunning row in the response is
-    // stored. Each event removes or shortens only the rows broadcast before it.
-    // An eviction's time is createdAt, when the evicting node made it.
+    // stored. Each event removes, shortens or carries only the rows broadcast
+    // before it. An eviction's time is createdAt, when the evicting node made it.
     for (const event of [...evictions, ...stateEvents]) {
       if (event.type === 'sigterm') {
         await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
@@ -289,6 +289,7 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
         await messageStore.applyEviction(event.ip, Date.parse(event.createdAt));
       } else if (event.type === 'ipchanged') {
         await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
+        await messageStore.storeIPChangedMessage(event.data);
       }
     }
 
@@ -591,10 +592,10 @@ async function loadRecordedOwnMoves() {
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
     const ownKey = await fluxNetworkHelper.getFluxNodePublicKey();
     if (!ownKey) return;
-    const recorded = await registryManager.addressMoves();
+    const recorded = await registryManager.addressMovesTo(localSocketAddr);
     // eslint-disable-next-line no-restricted-syntax
     for (const [oldIp, { to, at, signer }] of recorded) {
-      if (signer === ownKey && socketAddressesMatch(to, localSocketAddr)) addPendingOwnMove(oldIp, to, at);
+      if (signer === ownKey) addPendingOwnMove(oldIp, to, at);
     }
   } catch (error) {
     log.warn(`loadRecordedOwnMoves - this node's recorded moves cannot be read: ${error.message}`);

@@ -2,6 +2,7 @@ const { expect } = require('chai');
 const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
+const { addressMoveEvents, EVENTS: ADDRESS_MOVE_EVENTS } = require('../../ZelBack/src/services/utils/addressMoveEvents');
 const { requireMongo } = require('./dbTestHelper');
 
 describe('messageStore address move tests', () => {
@@ -82,5 +83,64 @@ describe('messageStore address move tests', () => {
 
     const rows = await locations.find({}, { projection: { _id: 0, ip: 1 } }).sort({ ip: 1 }).toArray();
     expect(rows.map((r) => r.ip)).to.deep.equal(['108.6.236.4:16137', '72.89.45.236:16127']);
+  });
+
+  describe('how long after it was made a move is applied', () => {
+    const MINUTE = 60 * 1000;
+    const movedAgo = (minutes) => messageStore.storeIPChangedMessage({
+      type: 'fluxipchanged', version: 1, oldIP: OLD, newIP: NEW, broadcastedAt: Date.now() - minutes * MINUTE,
+    });
+    const reportedAgo = (name, minutes) => ({ ...row(name, OLD, '2026-09-01T00:00:00Z'), broadcastedAt: new Date(Date.now() - minutes * MINUTE) });
+
+    it('applies a move as long as a row it carries can stand', async () => {
+      await locations.insertOne(reportedAgo('alpha', 101));
+
+      expect(await movedAgo(100)).to.equal(true);
+
+      expect((await locations.findOne({ name: 'alpha' })).ip).to.equal(NEW);
+    });
+
+    it('refuses a move older than any row it could carry', async () => {
+      await locations.insertOne(reportedAgo('alpha', 126));
+
+      expect(await movedAgo(125.5)).to.equal(false);
+
+      expect((await locations.findOne({ name: 'alpha' })).ip).to.equal(OLD);
+    });
+  });
+
+  describe('what it tells addressMoveEvents', () => {
+    let heard;
+    const listener = (move) => heard.push(move);
+
+    beforeEach(() => {
+      heard = [];
+      addressMoveEvents.on(ADDRESS_MOVE_EVENTS.APPLIED, listener);
+    });
+
+    afterEach(() => {
+      addressMoveEvents.off(ADDRESS_MOVE_EVENTS.APPLIED, listener);
+    });
+
+    it('tells each move it applies, with the address the rows went to and when it was made', async () => {
+      const broadcastedAt = Date.now();
+
+      await messageStore.storeIPChangedMessage({
+        type: 'fluxipchanged', version: 1, oldIP: OLD, newIP: NEW, broadcastedAt,
+      });
+
+      expect(heard).to.deep.equal([{ from: OLD, to: NEW, broadcastedAt }]);
+    });
+
+    it('tells nothing for a move it refuses or finds too old', async () => {
+      await messageStore.storeIPChangedMessage({
+        type: 'fluxipchanged', version: 2, oldIP: OLD, newIP: NEW, broadcastedAt: Date.now(),
+      });
+      await messageStore.storeIPChangedMessage({
+        type: 'fluxipchanged', version: 1, oldIP: OLD, newIP: NEW, broadcastedAt: Date.now() - 3 * HOUR,
+      });
+
+      expect(heard).to.deep.equal([]);
+    });
   });
 });
