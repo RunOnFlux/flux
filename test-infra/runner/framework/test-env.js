@@ -925,7 +925,7 @@ export async function createTestEnv({
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
   geolocation = {}, locationTable = null, staticIp = true, policy = null, policySeeds = null,
-  awaitPolicy = true, pm2Nodes = {}, pausedSyncthingNodes = [], syncthingFaults = {}, sharedKeys = {}, collateralOf = {}, rejoinOnRestart = true, networkShapes = {}, globalIpv6 = [], dnsRecords = [],
+  awaitPolicy = true, pm2Nodes = {}, pausedSyncthingNodes = [], syncthingFaults = {}, sharedKeys = {}, collateralOf = {}, configuredIp = {}, rejoinOnRestart = true, networkShapes = {}, globalIpv6 = [], dnsRecords = [],
   // systemd-mode nodes: the entrypoint execs a real systemd as PID 1, so dockerd
   // and fluxos run as units and FluxOS's output goes to the journal. Env-level
   // and uniform across nodes.
@@ -970,6 +970,15 @@ export async function createTestEnv({
     if (Number(nodeNumber) === Number(of)) throw new Error(`createTestEnv: node ${nodeNumber} cannot run on its own collateral`);
     if (collateralOf[of] !== undefined) throw new Error(`createTestEnv: node ${nodeNumber} runs on the collateral of node ${of}, which itself runs on another's`);
     if (sharedKeys[nodeNumber] !== undefined) throw new Error(`createTestEnv: node ${nodeNumber} runs on node ${of}'s collateral and so signs with its key - give it no sharedKeys entry`);
+  }
+  // The IP a node's userconfig.js names, where it is not the node's own: a
+  // configuration copied from another machine, or one left from an earlier
+  // address. Keyed by 1-based node number.
+  for (const [nodeNumber, ip] of Object.entries(configuredIp)) {
+    if (!Number.isInteger(Number(nodeNumber)) || Number(nodeNumber) < 1 || Number(nodeNumber) > nodes) {
+      throw new Error(`createTestEnv: configuredIp names node ${nodeNumber}, which is not a node in a fleet of ${nodes}`);
+    }
+    if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(String(ip))) throw new Error(`createTestEnv: configuredIp for node ${nodeNumber} is ${ip}, not an IPv4 address`);
   }
   // A shape rebuilds a static node's routes (test-infra/network-shapes.sh), so
   // it needs the gateway a static node is given.
@@ -1228,7 +1237,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, systemdMode, firewall, collateralOf, syncthingFaults);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, systemdMode, firewall, collateralOf, syncthingFaults, configuredIp);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -1257,7 +1266,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], systemdMode = false, firewall = false, collateralOf = {}, syncthingFaults = {}) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], systemdMode = false, firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -1584,6 +1593,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       FLUX_WATCHDOG_PATH: '/dat/usr/lib/fluxwatchdog',
       FLUX_APPS_FOLDER: '/mnt/appdata/flux-apps',
       FLUX_NODE_IP: nodeIp,
+      FLUX_CONFIGURED_IP: configuredIp[i + 1] ?? nodeIp,
       FLUX_ADMIN_ZELID: nodeManifest.zelid,
       FLUX_API_PORT: '16127',
       FLUX_SYNCTHING_HOST: SYNCTHING_IP,
