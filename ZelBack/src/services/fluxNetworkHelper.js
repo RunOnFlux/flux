@@ -1995,17 +1995,23 @@ async function fluxStillAnswersAt(socketAddress) {
 const PEERS_FINDING_NOTHING = 2;
 const PEER_DRAWS = 5;
 
+// What peers find at an address.
+const PeerFinding = Object.freeze({
+  NOTHING: 'nothing',
+  REACHED: 'reached',
+  UNKNOWN: 'unknown',
+});
+
 /**
- * Whether peers, too, find no Flux node at `socketAddress`: this node's own
- * view of one address can fail where the network's does not. Asks distinct
- * random peers, as the availability check does, until PEERS_FINDING_NOTHING
- * have answered that nothing is available there. A peer that reaches it ends
- * the question, and too few answers decide nothing, so the address is not
- * judged gone.
+ * What peers find at `socketAddress`: this node's own view of one address can
+ * fail where the network's does not. Asks distinct random peers, as the
+ * availability check does. REACHED as soon as one reaches a Flux node there;
+ * NOTHING once PEERS_FINDING_NOTHING have answered that nothing is available
+ * there; UNKNOWN when too few answer to say.
  * @param {string} socketAddress
- * @returns {Promise<boolean>}
+ * @returns {Promise<string>} One of PeerFinding.
  */
-async function peersFindNothingAt(socketAddress) {
+async function peersFindAt(socketAddress) {
   const asked = [socketAddress];
   let foundNothing = 0;
   // eslint-disable-next-line no-restricted-syntax
@@ -2020,11 +2026,13 @@ async function peersFindNothingAt(socketAddress) {
     const status = answer?.data?.status;
     if (status === 'success') {
       log.info(`${peer} reaches a Flux node at ${socketAddress}`);
-      return false;
+      return PeerFinding.REACHED;
     }
     if (status === 'error') foundNothing += 1;
   }
-  return foundNothing >= PEERS_FINDING_NOTHING;
+  if (foundNothing >= PEERS_FINDING_NOTHING) return PeerFinding.NOTHING;
+  log.info(`too few peers answered whether a Flux node is at ${socketAddress} to say`);
+  return PeerFinding.UNKNOWN;
 }
 
 /**
@@ -2036,7 +2044,7 @@ async function peersFindNothingAt(socketAddress) {
  */
 async function fluxGoneFrom(socketAddress) {
   if (await fluxStillAnswersAt(socketAddress)) return false;
-  return peersFindNothingAt(socketAddress);
+  return await peersFindAt(socketAddress) === PeerFinding.NOTHING;
 }
 
 /**
@@ -2452,10 +2460,10 @@ async function checkDeterministicNodesCollisions() {
           log.info(`Other node at ${askingIP}:${askingIpPort} appears unreachable. Waiting 60 seconds to verify before taking over...`);
           await serviceHelper.delay(ANSWER_GRACE_MS);
           const answersHere = await fluxAnswersAt(nodeCollateralDifferentIp.ip);
-          const peersFindNothing = !answersHere && await peersFindNothingAt(nodeCollateralDifferentIp.ip);
-          const errorCall = !answersHere && peersFindNothing;
+          const peersFind = answersHere ? null : await peersFindAt(nodeCollateralDifferentIp.ip);
+          const errorCall = peersFind === PeerFinding.NOTHING;
           fluxEventBus.publish('collision:judged', {
-            address: normalizeSocketAddress(nodeCollateralDifferentIp.ip), answersHere, peersFindNothing, gone: errorCall,
+            address: normalizeSocketAddress(nodeCollateralDifferentIp.ip), answersHere, peersFind, gone: errorCall,
           });
           // The collateral listed at the IP this node was configured with, and
           // nothing answering there: not another machine, but this node, which has
@@ -2474,6 +2482,8 @@ async function checkDeterministicNodesCollisions() {
             const daemonResult = await daemonServiceFluxnodeRpcs.createConfirmationTransaction();
             log.info(`node was confirmed on a different machine ip - createConfirmationTransaction: ${JSON.stringify(daemonResult)}`);
             releaseDosOwnedBy(isCollisionMessage);
+          } else if (peersFind === PeerFinding.UNKNOWN) {
+            log.info(`Whether the node at ${askingIP}:${askingIpPort} is gone cannot be said yet; the next pass asks again`);
           } else {
             // Answering again after the grace, or reached by peers: the other
             // node is there, so this is a collision.

@@ -131,7 +131,7 @@ describe('a machine on a copied configuration makes no move while the original a
 
       expect(await confirmationsSent(), 'confirmations the copy sent').to.equal(0);
       expect(judged.data.answersHere, 'fixture: the copy cannot reach the running node').to.equal(false);
-      expect(judged.data.peersFindNothing, 'peers found nothing at the running node').to.equal(false);
+      expect(judged.data.peersFind, 'what peers found at the running node').to.equal('reached');
       expect(judged.data.gone).to.equal(false);
       expect((await copy.getDOSState()).data?.dosState).to.be.at.least(100);
       expect(await movesHeld(), 'moves the bystander holds').to.deep.equal([]);

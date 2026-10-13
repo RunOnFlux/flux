@@ -2561,6 +2561,7 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(axiosGetStub.getCalls().filter((call) => String(call.args[0]).includes('checkfluxavailability')), 'every peer drawn was asked').to.have.lengthOf(COLLISION_PEERS.length);
       sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      expect(fluxNetworkHelper.getDosStateValue(), 'no collision is claimed on too few answers').to.equal(0);
       fluxNetworkHelper.setDosMessage(null);
       fluxNetworkHelper.setDosStateValue(0);
     });

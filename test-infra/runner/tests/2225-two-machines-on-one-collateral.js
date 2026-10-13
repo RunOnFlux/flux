@@ -20,12 +20,14 @@ const subnet = getSubnetConfig();
 // never at the old address, so it announces no move: the old node's rows are not
 // its to carry.
 //
-// Node 1 runs on its own collateral; node 3 runs on node 1's, joining once the
-// fleet is up. Node 2 is a bystander that reads the list and holds the events.
+// Node 1 runs on its own collateral; node 4 runs on node 1's, joining once the
+// fleet is up. Node 2 is a bystander that reads the list and holds the events;
+// it and node 3 are the peers the copy asks whether node 1 is gone, which takes
+// two of them.
 
 const LISTED = 0;
 const BYSTANDER = 1;
-const COPY = 2;
+const COPY = 3;
 
 describe('two machines on one collateral', function () {
   let env;
@@ -45,9 +47,9 @@ describe('two machines on one collateral', function () {
     this.timeout(600000);
     env = await createTestEnv({
       hookCtx: this,
-      nodes: 3,
+      nodes: 4,
       deferredNodes: 1,
-      collateralOf: { 3: 1 },
+      collateralOf: { [COPY + 1]: LISTED + 1 },
       tickerAutostart: false,
       configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1 } },
     });
