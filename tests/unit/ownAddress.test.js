@@ -20,6 +20,8 @@ const { requireMongo } = require('./dbTestHelper');
 describe('fluxNetworkHelper own address tests', () => {
   before(requireMongo);
 
+  const PEERS = ['203.0.113.201:16127', '203.0.113.202:16127', '203.0.113.203:16127'];
+
   let records;
   let moved;
   let restarted;
@@ -43,6 +45,10 @@ describe('fluxNetworkHelper own address tests', () => {
     sinon.stub(geolocationService, 'setNodeGeolocation');
     sinon.stub(appQueryService, 'installedApps').resolves({ status: 'success', data: [] });
     sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('unreachable'));
+    // the peers asked whether a Flux node is at an address: none finds one unless a case says
+    serviceHelper.axiosGet.withArgs(sinon.match(/\/flux\/checkfluxavailability/)).resolves({ data: { status: 'error' } });
+    sinon.stub(networkStateService, 'getRandomExternalObserver')
+      .callsFake(async (own, { exclude = [] } = {}) => PEERS.find((peer) => !exclude.includes(peer)) ?? null);
     sinon.stub(serviceHelper, 'delay').resolves();
     moved = sinon.stub().resolves();
     fluxNetworkHelper.setOnOwnAddressMoved(moved);
@@ -178,6 +184,30 @@ describe('fluxNetworkHelper own address tests', () => {
     sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
     sinon.assert.notCalled(fs.writeFile);
     expect(await record()).to.deep.equal({ socketAddress: '198.51.100.12:16127', movedFrom: null });
+  });
+
+  it('holding no address, makes no move when it cannot reach the configured address but a peer can', async () => {
+    configure('198.51.100.15');
+    listedHere.resolves(['ranthere']);
+    serviceHelper.axiosGet.withArgs(sinon.match(/\/flux\/checkfluxavailability/)).resolves({ data: { status: 'success' } });
+
+    await fluxNetworkHelper.handleOwnAddress('198.51.100.16:16127');
+
+    sinon.assert.notCalled(moved);
+    sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+    sinon.assert.notCalled(fs.writeFile);
+    expect(await record()).to.deep.equal({ socketAddress: '198.51.100.16:16127', movedFrom: null });
+  });
+
+  it('holding no address, makes no move while fewer peers than it needs answer whether a node is at the configured address', async () => {
+    configure('198.51.100.17');
+    listedHere.resolves(['ranthere']);
+    serviceHelper.axiosGet.withArgs(sinon.match(/\/flux\/checkfluxavailability/)).rejects(new Error('unreachable'));
+
+    await fluxNetworkHelper.handleOwnAddress('198.51.100.18:16127');
+
+    sinon.assert.notCalled(moved);
+    sinon.assert.notCalled(fs.writeFile);
   });
 
   it('holding no address, makes no move when the node at the configured address answers once the restart grace has passed', async () => {

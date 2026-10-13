@@ -2032,6 +2032,9 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('checkDeterministicNodesCollisions tests', () => {
+    const COLLISION_PEERS = ['203.0.113.211:16127', '203.0.113.212:16127', '203.0.113.213:16127'];
+    const versionAsks = (stub) => stub.getCalls().filter((call) => String(call.args[0]).endsWith('/flux/version'));
+    const peersFindNothing = (stub) => stub.withArgs(sinon.match(/\/flux\/checkfluxavailability/)).resolves({ data: { status: 'error' } });
     let getBenchmarksStub;
     let isDaemonSyncedStub;
     let deterministicFluxListStub;
@@ -2055,6 +2058,9 @@ describe('fluxNetworkHelper tests', () => {
       // The check decides nothing while the node list is unknown - these cases
       // are all about what it decides once it HAS the list.
       sinon.stub(networkStateService, 'isReady').returns(true);
+      // the peers asked whether a Flux node is at the other address
+      sinon.stub(networkStateService, 'getRandomExternalObserver')
+        .callsFake(async (own, { exclude = [] } = {}) => COLLISION_PEERS.find((peer) => !exclude.includes(peer)) ?? null);
       deterministicFluxnodeListResponse = [
         {
           collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
@@ -2362,12 +2368,14 @@ describe('fluxNetworkHelper tests', () => {
         },
       });
 
-      // Mock axios to fail (other node unreachable) on both calls
+      // the other node unreachable from here, and to the peers asked
       const axiosGetStub = sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused'));
+      peersFindNothing(axiosGetStub);
 
       await fluxNetworkHelper.checkDeterministicNodesCollisions();
 
-      expect(axiosGetStub.calledTwice).to.be.true;
+      expect(versionAsks(axiosGetStub)).to.have.lengthOf(2);
+      sinon.assert.calledOnce(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
       // DOS state should remain clear since we successfully took over
       expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
     });
@@ -2384,7 +2392,7 @@ describe('fluxNetworkHelper tests', () => {
       isDaemonSyncedStub.returns({ data: { synced: true } });
       deterministicFluxListStub.returns([{ ...deterministicFluxnodeListResponse[0], collateral, ip: `${formerIp}:16127` }]);
       getFluxNodeStatusStub.returns({ status: 'success', data: { status: 'CONFIRMED', collateral } });
-      sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused'));
+      peersFindNothing(sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused')));
 
       try {
         await fluxNetworkHelper.checkDeterministicNodesCollisions();
@@ -2411,7 +2419,7 @@ describe('fluxNetworkHelper tests', () => {
       isDaemonSyncedStub.returns({ data: { synced: true } });
       deterministicFluxListStub.returns([{ ...deterministicFluxnodeListResponse[0], collateral, ip: `${ip}:16127` }]);
       getFluxNodeStatusStub.returns({ status: 'success', data: { status: 'CONFIRMED', collateral } });
-      sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused'));
+      peersFindNothing(sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused')));
 
       try {
         await fluxNetworkHelper.checkDeterministicNodesCollisions();
@@ -2427,7 +2435,7 @@ describe('fluxNetworkHelper tests', () => {
       expect(lines.some((line) => line.includes('node was confirmed on a different machine'))).to.equal(false);
     });
 
-    it('should handle case when other node comes back online during grace period', async () => {
+    it('holds itself out of service when the other node answers again once the grace has passed', async () => {
       const myIp = '192.168.1.100:16127';
       const otherIp = '192.168.1.200:16127';
       const sharedCollateral = 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)';
@@ -2492,8 +2500,69 @@ describe('fluxNetworkHelper tests', () => {
       await fluxNetworkHelper.checkDeterministicNodesCollisions();
 
       expect(axiosGetStub.calledTwice).to.be.true;
-      // DOS state should remain at 0 since this is not an error condition
-      expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
+      sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(0);
+    });
+
+    it('holds itself out of service when it cannot reach the other node but a peer can', async () => {
+      const otherIp = '192.168.1.201:16127';
+      const collateral = 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)';
+      getBenchmarksStub.resolves({ status: 'success', data: { ipaddress: '192.168.1.101:16127' } });
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns([{ ...deterministicFluxnodeListResponse[0], collateral, ip: otherIp }]);
+      getFluxNodeStatusStub.returns({ status: 'success', data: { status: 'CONFIRMED', collateral } });
+      const axiosGetStub = sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused'));
+      axiosGetStub.withArgs(sinon.match(/\/flux\/checkfluxavailability/))
+        .onFirstCall().resolves({ data: { status: 'error' } })
+        .onSecondCall().resolves({ data: { status: 'success' } });
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      expect(versionAsks(axiosGetStub), 'fixture: it could not reach the other node itself').to.have.lengthOf(2);
+      sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(0);
+    });
+
+    it('takes nothing over once one peer reaches the other node, whatever the peers asked after it would say', async () => {
+      const otherIp = '192.168.1.203:16127';
+      const collateral = 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)';
+      getBenchmarksStub.resolves({ status: 'success', data: { ipaddress: '192.168.1.103:16127' } });
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns([{ ...deterministicFluxnodeListResponse[0], collateral, ip: otherIp }]);
+      getFluxNodeStatusStub.returns({ status: 'success', data: { status: 'CONFIRMED', collateral } });
+      const axiosGetStub = sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused'));
+      const peerAsks = axiosGetStub.withArgs(sinon.match(/\/flux\/checkfluxavailability/));
+      peerAsks.resolves({ data: { status: 'error' } });
+      peerAsks.onFirstCall().resolves({ data: { status: 'success' } });
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(0);
+    });
+
+    it('takes nothing over while too few peers answer whether the other node is there', async () => {
+      const otherIp = '192.168.1.202:16127';
+      const collateral = 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)';
+      getBenchmarksStub.resolves({ status: 'success', data: { ipaddress: '192.168.1.102:16127' } });
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns([{ ...deterministicFluxnodeListResponse[0], collateral, ip: otherIp }]);
+      getFluxNodeStatusStub.returns({ status: 'success', data: { status: 'CONFIRMED', collateral } });
+      // every ask fails: the other node from here, and every peer asked
+      const axiosGetStub = sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused'));
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      expect(axiosGetStub.getCalls().filter((call) => String(call.args[0]).includes('checkfluxavailability')), 'every peer drawn was asked').to.have.lengthOf(COLLISION_PEERS.length);
+      sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(0);
     });
   });
 
