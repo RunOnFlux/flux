@@ -102,13 +102,10 @@ describe('a move told late carries the time it was made', function () {
     if (lateBy > 0) await new Promise((resolve) => { setTimeout(resolve, lateBy); });
     expect(await listedAt(oldSocket), 'fixture: the chain still lists the node at the address it left').to.equal(true);
     await env.startNode(LATE);
+    await client(LATE).waitForEvent('peers:accepting', () => true, 180000);
     const lateAnchor = client(LATE).getLastEventId();
-    // Asked again until the late node, once it accepts peers, holds the connection.
-    await waitFor(async () => {
-      await askToBeDialed(client(LATE), client(MOVER), API_PORT);
-      return client(LATE).waitForEvent('peers:added', (d) => d.ip === toIp, 10000, { afterId: lateAnchor })
-        .then(() => true, () => false);
-    }, { timeout: 240000, interval: 1000, label: 'the late node connected to the moved node' });
+    await askToBeDialed(client(LATE), client(MOVER), API_PORT);
+    await client(LATE).waitForEvent('peers:added', (d) => d.ip === toIp, 120000, { afterId: lateAnchor });
 
     let held;
     await waitFor(async () => { held = await moveHeldBy(LATE, oldSocket, newSocket); return Boolean(held); }, {

@@ -431,6 +431,7 @@ class FluxPeerManager extends EventEmitter {
   allowConnections() {
     this.acceptingConnections = true;
     log.info('Now accepting peer connections');
+    fluxEventBus.publish('peers:accepting', {});
   }
 
   /**

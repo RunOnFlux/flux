@@ -233,6 +233,7 @@ export function nodeClient(nodeNum) {
         'ports:unproven',
         'discovery:started',
         'peers:added',
+        'peers:accepting',
         'peers:belowThreshold',
         'peers:removed',
         'peers:thresholdReached',
