@@ -25,13 +25,14 @@ const subnet = getSubnetConfig();
 // over, but it never ran the running node's app, so it announces no move and
 // carries no row of that app to its own address.
 //
-// Node 1 runs on its own collateral and runs an app; node 3 runs on a copy of
+// Node 1 runs on its own collateral and runs an app; node 4 runs on a copy of
 // node 1's configuration, joining once the fleet is up. Node 2 is a bystander
-// that reads the list and holds the events.
+// that reads the list and holds the events. Node 3 is a third node at start,
+// which the fleet needs to obtain the network policy an install waits for.
 
 const LISTED = 0;
 const BYSTANDER = 1;
-const COPY = 2;
+const COPY = 3;
 // The running node's row has to outlive its crash and the copy's takeover, or
 // the absence of a carried row would prove nothing.
 const LOCATION_TTL_S = 30 * 60;
@@ -57,7 +58,7 @@ describe('a machine on a copied configuration makes no move while the original a
     this.timeout(900000);
     env = await createTestEnv({
       hookCtx: this,
-      nodes: 3,
+      nodes: 4,
       deferredNodes: 1,
       collateralOf: { [COPY + 1]: LISTED + 1 },
       configuredIp: { [COPY + 1]: ipOf(LISTED) },
