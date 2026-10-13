@@ -9,6 +9,7 @@ import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { waitFor } from '../framework/wait.js';
 import { removeFromNodeList } from '../framework/daemon-control.js';
+import { crashFluxos } from '../framework/container.js';
 import { bootAndPeer, seedAndInstall } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
 import { socketAddr } from '../framework/state-events.js';
@@ -19,10 +20,10 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // signed with it: the app holder's address to its own, which every node refuses,
 // then its own address to another port on its IP, which every node keeps. Each
 // node handles one peer's messages in the order they were sent, so a node that
-// holds the second has handled the first. Then the holder drops off the list, as
-// a node does once its own move is mined, and the stub peer signs a move away
+// holds the second has handled the first. Then the holder goes down and drops
+// off the list while its rows still stand, and the stub peer signs a move away
 // from the holder's address again: the key that last sent apprunning from it is
-// the holder's, so every node refuses it.
+// the holder's, so every other node refuses it.
 
 const REAL_NODES = 3;
 const STUB_INDEX = 3;
@@ -118,33 +119,35 @@ describe('a move signed by another node is refused', function () {
     }
   });
 
-  it('refuses a move away from the holder\'s address once nothing is listed there, signed by a node listed at the new one', async function () {
+  it('refuses a move away from the address of a holder that went down and left the list, signed by a node listed at the new one', async function () {
     this.timeout(240000);
     const holder = socketAddr(idx + 1);
     const stubAddress = socketAddr(STUB_INDEX + 1);
     const stubMovedAgain = stubAddress.replace(/:\d+$/, ':16167');
+    const others = realNodes.filter((i) => i !== idx);
 
-    const anchors = realNodes.map((i) => env.clients[i].getLastEventId());
+    await crashFluxos(env.clients[idx].container, { hold: true });
+    const anchors = new Map(others.map((i) => [i, env.clients[i].getLastEventId()]));
     await removeFromNodeList(holder.split(':')[0]);
-    await Promise.all(realNodes.map((i) => env.clients[i].waitForEvent('networkstate:updated', (d) => d.nodes === REAL_NODES, 120000, { afterId: anchors[i] })));
+    await Promise.all(others.map((i) => env.clients[i].waitForEvent('networkstate:updated', (d) => d.nodes === REAL_NODES, 120000, { afterId: anchors.get(i) })));
 
     const forged = await stub.broadcast({
       type: 'fluxipchanged', version: 1, oldIP: holder, newIP: stubAddress, broadcastedAt: Date.now(),
     });
-    expect(forged.sent, 'fixture: the forged move reached every real node').to.equal(REAL_NODES);
+    expect(forged.sent, 'fixture: the forged move reached every node still up').to.be.at.least(others.length);
     const honest = await stub.broadcast({
       type: 'fluxipchanged', version: 1, oldIP: stubAddress, newIP: stubMovedAgain, broadcastedAt: Date.now(),
     });
-    expect(honest.sent, 'fixture: the honest move reached every real node').to.equal(REAL_NODES);
+    expect(honest.sent, 'fixture: the honest move reached every node still up').to.be.at.least(others.length);
 
     const heldHonest = async (i) => (await dbClient(i + 1).getAppStateEvents({ ip: stubAddress, type: 'ipchanged' }))
       .some((event) => event.data?.newIP === stubMovedAgain);
-    await waitFor(async () => (await Promise.all(realNodes.map(heldHonest))).every(Boolean), {
-      timeout: 120000, interval: 2000, label: 'every node holds the stub peer\'s second move of its own',
+    await waitFor(async () => (await Promise.all(others.map(heldHonest))).every(Boolean), {
+      timeout: 120000, interval: 2000, label: 'every node still up holds the stub peer\'s second move of its own',
     });
 
     // eslint-disable-next-line no-restricted-syntax
-    for (const i of realNodes) {
+    for (const i of others) {
       // eslint-disable-next-line no-await-in-loop
       const stored = await dbClient(i + 1).getAppStateEvents({ ip: holder, type: 'ipchanged' });
       expect(stored, `node ${i} stored a move away from the unlisted holder signed by another node`).to.have.length(0);
