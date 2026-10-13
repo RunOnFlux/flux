@@ -7,7 +7,7 @@ import { createTestEnv, SYNCTHING_FAULT } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { execInContainer } from '../framework/container.js';
 import {
-  setBenchmarkUnresolved, getJournal, clearJournal, setNodeList,
+  setBenchmarkUnresolved, getJournal, clearJournal, setNodeList, setNodeStatus, clearNodeStatus,
 } from '../framework/daemon-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor } from '../framework/wait.js';
@@ -117,6 +117,32 @@ describe('a node judges its own standing from what it can know', function () {
       // plus the time one ask takes
       expect(recheckMs, 'after a failure').to.be.within(15000, 45000);
       expect(intervalMs, 'after a pass').to.be.within(55000, 90000);
+    });
+
+    it('asks again on the next node list refresh once a scheduled ask found it not confirmed', async function () {
+      this.timeout(360000);
+      const node = client(HEALTHY[1]);
+      // Longer than the check interval plus one ask, so a scheduled ask lands
+      // while the node is not confirmed.
+      const UNCONFIRMED_MS = 100000;
+      const passAnchor = node.getLastEventId();
+      await node.waitForEvent('availability:checked', (d) => d.available === true, 180000, { afterId: passAnchor });
+
+      await setNodeStatus(node.ip, 'EXPIRED');
+      let quietAnchor;
+      try {
+        quietAnchor = node.getLastEventId();
+        await new Promise((resolve) => { setTimeout(resolve, UNCONFIRMED_MS); });
+      } finally {
+        await clearNodeStatus(node.ip);
+      }
+      const askedUnconfirmed = node.getEventBuffer()
+        .filter((e) => e.event === 'availability:checked' && e.id > quietAnchor);
+      expect(askedUnconfirmed, 'asked while not confirmed').to.have.length(0);
+
+      // The ticker refreshes the node list every block.
+      const confirmedAnchor = node.getLastEventId();
+      await node.waitForEvent('availability:checked', () => true, 120000, { afterId: confirmedAnchor });
     });
 
     it('asks a node whose syncthing never runs once syncthing is judged down, and holds it out of service', async function () {
