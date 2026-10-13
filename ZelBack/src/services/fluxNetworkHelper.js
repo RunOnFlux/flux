@@ -2451,7 +2451,12 @@ async function checkDeterministicNodesCollisions() {
           // This grace period prevents false positives from temporary network issues or node restarts
           log.info(`Other node at ${askingIP}:${askingIpPort} appears unreachable. Waiting 60 seconds to verify before taking over...`);
           await serviceHelper.delay(ANSWER_GRACE_MS);
-          const errorCall = !await fluxAnswersAt(nodeCollateralDifferentIp.ip) && await peersFindNothingAt(nodeCollateralDifferentIp.ip);
+          const answersHere = await fluxAnswersAt(nodeCollateralDifferentIp.ip);
+          const peersFindNothing = !answersHere && await peersFindNothingAt(nodeCollateralDifferentIp.ip);
+          const errorCall = !answersHere && peersFindNothing;
+          fluxEventBus.publish('collision:judged', {
+            address: normalizeSocketAddress(nodeCollateralDifferentIp.ip), answersHere, peersFindNothing, gone: errorCall,
+          });
           // The collateral listed at the IP this node was configured with, and
           // nothing answering there: not another machine, but this node, which has
           // moved - its IP, or its api port on the same IP - and has no record of

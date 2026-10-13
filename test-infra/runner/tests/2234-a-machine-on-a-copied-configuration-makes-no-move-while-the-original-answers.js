@@ -4,7 +4,7 @@ import {
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { configuredIpOf, crashFluxos } from '../framework/container.js';
+import { configuredIpOf, crashFluxos, execInContainer } from '../framework/container.js';
 import { getJournal } from '../framework/daemon-control.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
@@ -21,7 +21,9 @@ const subnet = getSubnetConfig();
 // recorded no address of its own, so the configured IP is where it would have
 // moved from. While the running node answers there it makes no move: it
 // announces none and sends no confirmation, and the collision check holds it
-// out of service. Once the running node is gone the copy takes the collateral
+// out of service. Nor does it while it cannot reach the running node itself and
+// peers can: the address is judged gone only once peers find nothing there too.
+// Once the running node is gone the copy takes the collateral
 // over, but it never ran the running node's app, so it announces no move and
 // carries no row of that app to its own address.
 //
@@ -108,6 +110,34 @@ describe('a machine on a copied configuration makes no move while the original a
     expect(await movesHeld(), 'moves the bystander holds').to.deep.equal([]);
     const confirmations = await getJournal({ method: 'createconfirmationtransaction', sourceIp: ipOf(COPY) });
     expect(confirmations.total, 'confirmations the copy sent').to.equal(0);
+  });
+
+  it('stays out of service, and makes no move, while it cannot reach the running node and peers can', async function () {
+    this.timeout(420000);
+    const copy = client(COPY);
+    const block = `OUTPUT -d ${ipOf(LISTED)} -j REJECT`;
+    const confirmationsSent = async () => (await getJournal({ method: 'createconfirmationtransaction', sourceIp: ipOf(COPY) })).total;
+    const afterId = copy.getLastEventId();
+    await execInContainer(copy.container, `iptables -I ${block}`);
+    try {
+      // A pass that judged the running node's address after the grace, or a
+      // confirmation, which is a takeover.
+      let judged = null;
+      await waitFor(async () => {
+        judged = await copy.waitForEvent('collision:judged', (d) => d.address === listedAddress(LISTED), 1, { afterId })
+          .catch(() => null);
+        return Boolean(judged) || (await confirmationsSent()) > 0;
+      }, { timeout: 360000, interval: 5000, label: 'a collision pass that judged the running node, or a takeover' });
+
+      expect(await confirmationsSent(), 'confirmations the copy sent').to.equal(0);
+      expect(judged.data.answersHere, 'fixture: the copy cannot reach the running node').to.equal(false);
+      expect(judged.data.peersFindNothing, 'peers found nothing at the running node').to.equal(false);
+      expect(judged.data.gone).to.equal(false);
+      expect((await copy.getDOSState()).data?.dosState).to.be.at.least(100);
+      expect(await movesHeld(), 'moves the bystander holds').to.deep.equal([]);
+    } finally {
+      await execInContainer(copy.container, `iptables -D ${block}`);
+    }
   });
 
   it('takes the collateral over once the running node is gone, announcing no move and carrying none of its rows', async function () {

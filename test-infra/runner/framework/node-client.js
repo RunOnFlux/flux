@@ -275,6 +275,7 @@ export function nodeClient(nodeNum) {
         'syncthing:ownersByNumber',
         'syncthing:listenerKnown',
         'availability:checked',
+        'collision:judged',
         'syncthing:namesVisible',
         'syncthing:localChangesReverted',
         'syncthing:devicesResumed',
