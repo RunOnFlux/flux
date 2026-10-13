@@ -2379,13 +2379,14 @@ describe('fluxNetworkHelper tests', () => {
       expect(lines.some((line) => line.includes('node was confirmed on a different machine'))).to.equal(false);
     });
 
-    it('handles its collateral listed at its own IP on its former port, with nothing answering there, as this node\'s move', async () => {
+    it('handles its collateral listed at its own IP on its former port, with nothing answering there, where it ran apps, as this node\'s move', async () => {
       const ip = '192.168.8.100';
       const collateral = 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)';
       const originalUserConfig = globalThis.userconfig;
       globalThis.userconfig = { initial: { ...originalUserConfig.initial, ipaddress: ip, apiport: 16157 } };
       const moved = sinon.stub().resolves();
       fluxNetworkHelper.setOnOwnAddressMoved(moved);
+      fluxNetworkHelper.setInstalledAppsListedAt(sinon.stub().withArgs(`${ip}:16127`).resolves(['ranthere']));
       const logInfo = sinon.spy(log, 'info');
       getBenchmarksStub.resolves({ status: 'success', data: { ipaddress: `${ip}:16157` } });
       isDaemonSyncedStub.returns({ data: { synced: true } });
@@ -2398,6 +2399,7 @@ describe('fluxNetworkHelper tests', () => {
       } finally {
         globalThis.userconfig = originalUserConfig;
         fluxNetworkHelper.setOnOwnAddressMoved(null);
+        fluxNetworkHelper.setInstalledAppsListedAt(null);
       }
 
       sinon.assert.calledOnceWithExactly(moved, `${ip}:16127`, `${ip}:16157`);
