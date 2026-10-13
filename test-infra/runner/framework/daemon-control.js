@@ -316,6 +316,23 @@ export async function disableAllRpcFailure() {
   return assertControlled(await del('/rpc-fail/all'), 'disableAllRpcFailure');
 }
 
+/**
+ * Make one RPC fail for one node `times` times, then answer as usual: a call the
+ * node makes that the daemon refuses, which nothing else about the node shares.
+ * @param {string} ip Node's fleet IP, without a port.
+ * @param {string} method RPC method name, e.g. 'createconfirmationtransaction'.
+ * @param {object} [options]
+ * @param {number} [options.times] How many calls fail.
+ */
+export async function failRpc(ip, method, { times = 1 } = {}) {
+  return assertControlled(await post(`/rpc-fail-method/${ip}`, { method, times }), 'failRpc');
+}
+
+/** Answer every method for one node as usual again. */
+export async function clearRpcFailures(ip) {
+  return del(`/rpc-fail-method/${ip}`);
+}
+
 // -- Request journal --
 
 export async function getJournal({ method, sourceIp } = {}) {

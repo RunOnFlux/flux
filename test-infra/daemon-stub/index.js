@@ -44,6 +44,8 @@ const rpcFailures = new Map();
 // releases it. Failing an RPC ends the operation waiting on it; holding one keeps
 // that operation open, which is how a suite decides when it is in flight.
 const rpcHolds = new Map();
+// One method failing for one node: ip -> method -> how many more calls fail.
+const rpcMethodFailures = new Map();
 // ip -> false. Absent means ArcaneOS, which is what 85% of the real fleet runs
 // and what every suite that does not care about this should see: a node reading
 // systemsecure=true is never a residential-DOS target.
@@ -540,6 +542,12 @@ async function handleRpc(handlers, req, res) {
 
   const lowerMethod = method.toLowerCase();
 
+  const failing = rpcMethodFailures.get(cleanIp);
+  if (failing && failing.get(lowerMethod) > 0) {
+    failing.set(lowerMethod, failing.get(lowerMethod) - 1);
+    return res.json({ result: null, error: { code: -1, message: `${lowerMethod} failed by the harness` }, id });
+  }
+
   const heldMethods = rpcHolds.get(cleanIp);
   const waiters = heldMethods && heldMethods.get(lowerMethod);
   if (waiters) {
@@ -984,6 +992,21 @@ control.delete('/rpc-hold/all', (req, res) => {
   res.json({ held: false, released });
 });
 
+// Fail `method` for one node `times` times, then answer it as usual.
+control.post('/rpc-fail-method/:ip', (req, res) => {
+  const { method, times = 1 } = req.body;
+  if (!method) return res.status(400).json({ error: 'method is required' });
+  if (!Number.isInteger(times) || times < 1) return res.status(400).json({ error: 'times must be a positive integer' });
+  const lower = String(method).toLowerCase();
+  if (!rpcMethodFailures.has(req.params.ip)) rpcMethodFailures.set(req.params.ip, new Map());
+  rpcMethodFailures.get(req.params.ip).set(lower, times);
+  return res.json({ ip: req.params.ip, method: lower, times });
+});
+control.delete('/rpc-fail-method/:ip', (req, res) => {
+  rpcMethodFailures.delete(req.params.ip);
+  res.json({ ip: req.params.ip, cleared: true });
+});
+
 control.post('/rpc-hold/:ip', (req, res) => {
   if (req.params.ip === 'all') return res.status(500).json({ error: 'route order regressed: /rpc-hold/all must be registered first' });
   const { method } = req.body;
@@ -1040,6 +1063,7 @@ control.post('/reset', (req, res) => {
   hiddenFromPeers.clear();
   unresolvedNodes.clear();
   rpcFailures.clear();
+  rpcMethodFailures.clear();
   // Answered, not dropped: a call left waiting on a hold outlives the reset and
   // hangs whatever made it.
   for (const ip of [...rpcHolds.keys()]) releaseHolds(ip);
