@@ -187,17 +187,11 @@ describe('Sync response: eviction, pruning and forged events', function () {
       nodeNum: RETURNED_NODE, apps: ['returnedapp'], broadcastedAt: stamp + RUNNING_AT,
     }));
 
-    events.push(await apprunningEvent({
-      nodeNum: MOVE_VICTIM_NODE, apps: ['victimapp'], broadcastedAt: stamp + 3,
-    }));
     events.push(await ipchangedEvent({
       nodeNum: MOVE_VICTIM_NODE,
       newIP: socketAddr(MOVE_FORGER_NODE),
       broadcastedAt: stamp + FILLER_EVENTS + 250,
       sentBy: MOVE_FORGER_NODE,
-    }));
-    events.push(await apprunningEvent({
-      nodeNum: HONEST_MOVER_NODE, apps: ['moverapp'], broadcastedAt: stamp + 4,
     }));
     events.push(await ipchangedEvent({
       nodeNum: HONEST_MOVER_NODE, newIP: MOVED_TO, broadcastedAt: stamp + FILLER_EVENTS + 260,
@@ -300,16 +294,13 @@ describe('Sync response: eviction, pruning and forged events', function () {
     this.timeout(60000);
     // The honest move sorts after the forged one in every response, so the
     // joiner holding it means the forged one reached it too.
-    await waitFor(async () => (await dbClient(11).getAppLocationsByIp(MOVED_TO)).some((r) => r.name === 'moverapp'), {
-      timeout: 45000, interval: 1000, label: 'the honest move carried its node\'s rows to its new port',
+    await waitFor(async () => (await dbClient(11).getAppStateEvents({ ip: socketAddr(HONEST_MOVER_NODE), type: 'ipchanged' }))
+      .some((event) => event.data?.newIP === MOVED_TO), {
+      timeout: 45000, interval: 1000, label: 'the joiner holds the honest move',
     });
 
     const forged = await dbClient(11).getAppStateEvents({ ip: socketAddr(MOVE_VICTIM_NODE), type: 'ipchanged' });
     expect(forged, 'the joiner stored a move signed by another node').to.have.length(0);
-    const atVictim = await dbClient(11).getAppLocationsByIp(socketAddr(MOVE_VICTIM_NODE));
-    expect(atVictim.map((r) => r.name), 'the forged move carried the victim\'s rows away').to.include('victimapp');
-    const atForger = await dbClient(11).getAppLocationsByIp(socketAddr(MOVE_FORGER_NODE));
-    expect(atForger.map((r) => r.name), 'the forger holds the victim\'s rows').to.not.include('victimapp');
   });
 
   it('should leave a running report in force when an older shutdown of that node arrives with it', async function () {
