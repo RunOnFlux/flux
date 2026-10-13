@@ -95,7 +95,10 @@ function nodeBySourceIp(sourceIp) {
   // collateral, its status and its list entry are the ones the chain holds.
   const alias = collateralAliases.get(clean);
   if (alias) return deterministicNodeList.find((n) => n.ip.split(':')[0] === alias) || null;
-  return null;
+  // A node the list no longer holds is still the machine it was: its own daemon
+  // and benchmark answer with its collateral, key and address. Only the list,
+  // and what a mined confirmation changes, leave it out.
+  return originalNodeList.find((n) => n.ip.split(':')[0] === clean) || null;
 }
 
 // Machines that run on another node's collateral: real ip -> the real ip of the
