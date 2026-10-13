@@ -361,4 +361,106 @@ describe('a node judges its own standing from what it can know', function () {
       await admitAppPorts(BOTH);
     });
   });
+
+  describe('whether its peers can reach it while it has too few peer connections', function () {
+    // The subject is the only real node and the stub peer the only node it can
+    // ask, so every ask of a pass goes to that peer. It never holds enough
+    // distinct peers, so a check that finds it reachable finds it short.
+    const SUBJECT = 0;
+    const OBSERVER = 1;
+    let env;
+    dumpLogsOnFailure(() => env);
+
+    before(async function () {
+      this.timeout(600000);
+      env = await createTestEnv({
+        hookCtx: this,
+        nodes: 2,
+        stubPeers: [OBSERVER],
+        configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 0 } },
+        nodeConfigOverrides: { [SUBJECT]: { fluxapps: { minUniqueIpsOutgoing: 50 } } },
+      });
+      await bootAndPeer(env, { minOutbound: 1, minInbound: 0 });
+    });
+
+    after(async function () {
+      this.timeout(60000);
+      await env?.teardown();
+    });
+
+    it('is not out of service for asks that failed before one reached it', async function () {
+      this.timeout(240000);
+      const node = env.clients[SUBJECT];
+      const observer = env.stubPeerClients.get(OBSERVER);
+      // Set between passes, so one pass meets every answer it is given.
+      await node.waitForEvent('availability:checked', (d) => d.available === true, 120000, { afterId: node.getLastEventId() });
+      const afterId = node.getLastEventId();
+      const { availabilityAsks: asksBefore } = await observer.answerAvailabilityUnreachable(5);
+
+      const checked = await node.waitForEvent('availability:checked', () => true, 120000, { afterId });
+
+      const { availabilityAsks } = await observer.getStats();
+      expect(availabilityAsks - asksBefore, 'fixture: five asks answered "not available", then one truthfully').to.equal(6);
+      expect(checked.data.available, 'the pass whose last ask reached it').to.equal(true);
+      expect((await dosOf(node)).dosMessage).to.equal(null);
+      expect((await dosOf(node)).dosState).to.be.below(10);
+    });
+  });
+
+  describe('whether it has the peer connections it needs', function () {
+    // Stub peers never dial in, so the subject has no incoming connection until
+    // the two deferred nodes start, and each of them dials every listed node.
+    // Its count for too few peers runs fast, so it is out of service for them
+    // within a few minutes rather than production's 77.
+    const SUBJECT = 0;
+    const DIALERS = [4, 5];
+    let env;
+    dumpLogsOnFailure(() => env);
+    const SHORTFALL = /^Not enough incoming connections/;
+
+    before(async function () {
+      this.timeout(600000);
+      env = await createTestEnv({
+        hookCtx: this,
+        nodes: 6,
+        deferredNodes: 2,
+        stubPeers: [1, 2, 3],
+        configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1 } },
+        nodeConfigOverrides: {
+          [SUBJECT]: { fluxapps: { minIncoming: 2, minUniqueIpsOutgoing: 1, minUniqueIpsIncoming: 2, peerShortfallDosPerMinute: 6 } },
+          ...Object.fromEntries(DIALERS.map((i) => [i, { fluxapps: { minOutgoing: 5 } }])),
+        },
+      });
+      await bootAndPeer(env, { minOutbound: 1, minInbound: 0 });
+    });
+
+    after(async function () {
+      this.timeout(60000);
+      await env?.teardown();
+    });
+
+    it('holds itself out of service while it has too few incoming connections', async function () {
+      this.timeout(420000);
+      const node = env.clients[SUBJECT];
+
+      await waitFor(async () => SHORTFALL.test((await dosOf(node)).dosMessage ?? ''), {
+        timeout: 360000, interval: 3000, label: 'the subject out of service for too few incoming connections',
+      });
+
+      expect((await dosOf(node)).dosState).to.be.above(10);
+    });
+
+    it('is back in service as soon as the nodes that make enough connect to it', async function () {
+      this.timeout(300000);
+      const node = env.clients[SUBJECT];
+      expect(SHORTFALL.test((await dosOf(node)).dosMessage ?? ''), 'fixture: out of service for too few incoming connections').to.equal(true);
+
+      await Promise.all(DIALERS.map((i) => env.startNode(i)));
+
+      await waitFor(async () => (await dosOf(node)).dosMessage === null, {
+        timeout: 240000, interval: 2000, label: 'the subject back in service',
+      });
+      expect((await dosOf(node)).dosState).to.equal(0);
+    });
+  });
 });

@@ -443,6 +443,9 @@ module.exports = {
     // could not, so a verdict from one bad moment clears.
     availabilityCheckIntervalMs: 5 * 60 * 1000,
     availabilityRecheckMs: 60 * 1000,
+    // What each minute with too few peer connections adds to a reachable node's
+    // DOS state: out of service once it passes 10, about 77 minutes at 0.13.
+    peerShortfallDosPerMinute: 0.13,
     // While this node knows no address of its own it asks benchmark to detect its
     // public IP this often, and is out of service after this many asks find none.
     // Benchmark caches its answer for 69 s.

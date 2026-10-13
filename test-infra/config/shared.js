@@ -116,6 +116,7 @@ module.exports = {
     minUpTime: 10,
     availabilityCheckIntervalMs: 60000,
     availabilityRecheckMs: 20000,
+    peerShortfallDosPerMinute: 0.13,
     publicIpAskIntervalMs: 15000,
     publicIpAsksBeforeDos: 8,
     maxAppsPerNode: 200,

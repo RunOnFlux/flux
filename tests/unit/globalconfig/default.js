@@ -240,6 +240,7 @@ module.exports = {
     minUpTime: 1800, // 30 mins
     availabilityCheckIntervalMs: 300000,
     availabilityRecheckMs: 60000,
+    peerShortfallDosPerMinute: 0.13,
     publicIpAskIntervalMs: 90000,
     publicIpAsksBeforeDos: 8,
     appsPortCheck: {

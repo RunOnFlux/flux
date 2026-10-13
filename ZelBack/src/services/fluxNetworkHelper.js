@@ -2284,12 +2284,12 @@ async function checkMyFluxAvailability(retryNumber = 0) {
         // Reachable: what this check counted against reaching it no longer
         // holds. The count for too few peers goes on.
         releaseUnreachable();
-        // 0.13 a minute while it lasts, so DOS after ~75 minutes with too few
-        // peers. This depends on other nodes being able to connect to my node.
+        // peerShortfallDosPerMinute for each minute it lasts. This depends on
+        // other nodes being able to connect to my node.
         const now = monotonicMs();
         const minutes = peerShortfallSeenAt === null ? 1 : (now - peerShortfallSeenAt) / 60000;
         peerShortfallSeenAt = now;
-        shortfallPoints += 0.13 * minutes;
+        shortfallPoints += config.fluxapps.peerShortfallDosPerMinute * minutes;
         if (effectiveDosState() > 10) {
           holdAvailabilityDos(connectionInfo.data.message || 'Flux does not have sufficient peers');
           log.error(dosMessage);
