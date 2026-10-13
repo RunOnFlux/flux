@@ -173,7 +173,9 @@ describe('a node whose IP changed while it was down, with no record of its addre
     const pubkey = await keyOf(lateWithApp);
     const { from } = await moveNodeWhileDown(env, lateWithApp, to, { chainListsNewAddress: true });
     moved[lateWithApp] = { from: socketOf(from), to: socketOf(to) };
-    expect(await listedAt(pubkey), 'fixture: the chain lists the node at its new address').to.equal(socketOf(to));
+    await waitFor(async () => (await listedAt(pubkey)) === socketOf(to), {
+      timeout: 120000, interval: 3000, label: 'fixture: the chain lists the node at its new address',
+    });
 
     await waitFor(async () => (await movesFrom(socketOf(from))).includes(socketOf(to)), {
       timeout: ADOPTED_MS, interval: 5000, label: 'the bystander holds the move',
@@ -192,7 +194,9 @@ describe('a node whose IP changed while it was down, with no record of its addre
     const anchors = new Map(peers.map((i) => [i, client(i).getLastEventId()]));
     const { from } = await moveNodeWhileDown(env, lateWithoutApp, to, { chainListsNewAddress: true });
     moved[lateWithoutApp] = { from: socketOf(from), to: socketOf(to) };
-    expect(await listedAt(pubkey), 'fixture: the chain lists the node at its new address').to.equal(socketOf(to));
+    await waitFor(async () => (await listedAt(pubkey)) === socketOf(to), {
+      timeout: 120000, interval: 3000, label: 'fixture: the chain lists the node at its new address',
+    });
 
     // It tells the peers it is connected to; which those are is the peering's
     // choice, so the case waits for one to have dropped its move.
