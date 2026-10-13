@@ -2318,6 +2318,7 @@ async function reindexGlobalAppsLocation() {
     await database.collection(globalAppStateEvents).createIndex({ ip: 1, type: 1, dedupKey: 1 }, { unique: true });
     await database.collection(globalAppStateEvents).createIndex({ broadcastedAt: 1 });
     await database.collection(globalAppStateEvents).createIndex({ createdAt: 1 });
+    await database.collection(globalAppStateEvents).createIndex({ type: 1, expireAt: 1 }, { name: 'events by type and expiry' });
     await database.collection(globalAppStateEvents).createIndex({ 'data.newIP': 1 }, { name: 'moves by the address they lead to', partialFilterExpression: { type: 'ipchanged' } });
     await database.collection(globalAppsLocations).createIndex({ name: 1 }, { name: 'query for getting app location based on app specs name' });
     await database.collection(globalAppsLocations).createIndex({ hash: 1 }, { name: 'query for getting app location based on app hash' });

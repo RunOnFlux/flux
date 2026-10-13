@@ -414,6 +414,8 @@ async function startFluxFunctions() {
       { key: { ip: 1, type: 1, dedupKey: 1 }, unique: true, recover: dedupeByKey },
       { key: { broadcastedAt: 1 } },
       { key: { createdAt: 1 } },
+      // the events of one type still standing, every move among them
+      { key: { type: 1, expireAt: 1 }, name: 'events by type and expiry' },
       // the moves that lead to an address
       { key: { 'data.newIP': 1 }, name: 'moves by the address they lead to', partialFilterExpression: { type: 'ipchanged' } },
     ]);
