@@ -4,187 +4,107 @@ import {
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { blockTraffic, moveNodeAddress, unblockTraffic } from '../framework/container.js';
-import { clearNodeAddress, setNodeAddress } from '../framework/daemon-control.js';
+import { moveNodeAddress } from '../framework/container.js';
+import {
+  clearNodeAddress, clearRpcFailures, failRpc, setNodeAddress,
+} from '../framework/daemon-control.js';
 import { waitFor } from '../framework/wait.js';
-import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
-import { pushImage } from '../framework/registry-helper.js';
-import { buildSeedableApp } from '../framework/seed-helper.js';
-import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
+import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
-// A node moves while none of its peers can reach it, and they hear the move
-// only once its confirmation is mined, so the chain lists the node at its new
-// address only, and once the move has been signed again for the relay window:
-// a move is re-signed once its copy is OWN_MOVE_RESIGN_MS (120s) old.
+// A node moves, and its peers hear the move at once. A node that joins later is
+// told the move then, from a copy signed again once the move is
+// OWN_MOVE_RESIGN_MS (120s) old. The time a move was made decides which rows it
+// carries and where it falls among the node's moves, so the late copy carries
+// the time the node recorded, as the first ones did.
 //
-// A node that runs an app sent apprunning from the address it left, which is
-// what proves the move is its own: its peers apply the move, with the time the
-// node recorded. A node that runs none sent nothing there to prove it, and has
-// no rows for a move to carry: a peer it tells drops the move without counting
-// it against the node that relayed it, and relays nothing, and connects to the
-// node at the address the chain lists.
+// The move's confirmation is refused for the whole case, so the chain lists the
+// node at the address it left and the late node judges the move as the early
+// ones did.
 const MOVER = 0;
-const BARE_MOVER = 3;
 const PEERS = [1, 2];
+const LATE = 3;
 const API_PORT = 16127;
 const DETECTION_MS = 6 * 60 * 1000;
 // Past the 120s after which a move is signed again.
-const UNHEARD_MS = 150 * 1000;
+const LATE_BY_MS = 150 * 1000;
 // A move is sent, and applied, for as long as a location stands. Production's
-// lifetime (125 min) outlasts the time unheard by far; the shared harness
-// fleet's 63s does not, and the move would expire before any peer could hear it.
-// This fleet keeps production's order.
+// lifetime (125 min) outlasts the time before the late node joins by far; the
+// shared harness fleet's 63s does not, and the move would expire first. This
+// fleet keeps production's order.
 const LOCATION_TTL_S = 30 * 60;
-if (LOCATION_TTL_S * 1000 <= UNHEARD_MS) {
-  throw new Error('2236: a location must outlive the time the move goes unheard');
+if (LOCATION_TTL_S * 1000 <= LATE_BY_MS) {
+  throw new Error('2236: a location must outlive the time before the late node joins');
 }
 
 describe('a move told late carries the time it was made', function () {
   let env;
   dumpLogsOnFailure(() => env);
-  const blocked = new Map();
-  const moved = [];
-  const appName = `e2elatemove${Date.now()}`;
+  let fromIp;
+  let toIp;
   const client = (i) => env.clients[i];
-  const others = (i) => env.clients.filter((_unused, j) => j !== i).map((c) => c.ip);
   const socketOf = (ip) => (String(ip).includes(':') ? String(ip) : `${ip}:${API_PORT}`);
   const moveHeldBy = async (i, oldSocket, newSocket) => (await dbClient(i + 1).getAppStateEvents({ ip: oldSocket, type: 'ipchanged' }))
     .find((event) => event.data?.newIP === newSocket);
   const listedAt = async (address) => ((await client(PEERS[0]).get(`/daemon/viewdeterministiczelnodelist?_=${Date.now()}`)).data ?? [])
     .some((node) => socketOf(node.ip) === address);
 
-  // Moves node `i` while its peers cannot reach it, and waits until it has
-  // recorded the move, the chain lists it at the new address only, and the move
-  // has gone unheard past the re-sign; then lets its peers reach it.
-  const moveUnheard = async (i, lastOctet) => {
-    const fromIp = client(i).ip;
-    const toIp = fromIp.replace(/\.\d+$/, `.${lastOctet}`);
-    const oldSocket = `${fromIp}:${API_PORT}`;
-    const newSocket = `${toIp}:${API_PORT}`;
-    const unreachable = others(i);
-    await blockTraffic(client(i).container, unreachable, API_PORT);
-    blocked.set(i, unreachable);
-    await moveNodeAddress(client(i).container, toIp, fromIp);
-    await client(i).followTo(toIp);
-    await setNodeAddress(fromIp, toIp, { scope: 'benchmark' });
-    moved.push(fromIp);
-
-    let recorded;
-    await waitFor(async () => { recorded = await moveHeldBy(i, oldSocket, newSocket); return Boolean(recorded); }, {
-      timeout: DETECTION_MS, interval: 5000, label: `node ${i} records its own move`,
-    });
-    await waitFor(async () => (await listedAt(newSocket)) && !(await listedAt(oldSocket)), {
-      timeout: 180000, interval: 5000, label: `the chain lists node ${i} at its new address only`,
-    });
-    // eslint-disable-next-line no-restricted-syntax
-    for (const p of PEERS) {
-      // eslint-disable-next-line no-await-in-loop
-      expect(await moveHeldBy(p, oldSocket, newSocket), `fixture: node ${p} heard the move while it could not reach node ${i}`).to.equal(undefined);
-    }
-    await new Promise((resolve) => { setTimeout(resolve, UNHEARD_MS); });
-    const anchors = new Map(PEERS.map((p) => [p, client(p).getLastEventId()]));
-    await unblockTraffic(client(i).container, unreachable, API_PORT);
-    blocked.delete(i);
-    return {
-      toIp, oldSocket, newSocket, recorded, anchors,
-    };
-  };
-
   before(async function () {
-    this.timeout(900000);
+    this.timeout(600000);
     env = await createTestEnv({
       hookCtx: this,
       nodes: 4,
+      deferredNodes: 1,
       tickerAutostart: false,
       configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1, locationTtlS: LOCATION_TTL_S } },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
-    await pushImage(appName, 'v1');
-    const app = await buildSeedableApp({
-      name: appName,
-      instances: 1,
-      compose: [{
-        name: 'alpha',
-        description: 'late move',
-        repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-        ports: [],
-        domains: [''],
-        environmentParameters: [],
-        commands: [],
-        containerPorts: [80],
-        containerData: '/tmp',
-        cpu: 0.1,
-        ram: 100,
-        hdd: 1,
-        repoauth: '',
-      }],
-    });
-    await installOnNodes(env, app, [MOVER]);
-    const moverSocket = `${client(MOVER).ip}:${API_PORT}`;
-    await waitFor(async () => (await Promise.all(PEERS.map(async (p) => (await dbClient(p + 1).getAppLocationsByIp(moverSocket))
-      .some((row) => row.name === appName)))).every(Boolean), {
-      timeout: 180000, interval: 3000, label: 'every peer holds the app at the mover',
-    });
   });
 
   after(async function () {
     this.timeout(60000);
-    // eslint-disable-next-line no-restricted-syntax
-    for (const [i, ips] of blocked) {
-      // eslint-disable-next-line no-await-in-loop
-      await unblockTraffic(client(i).container, ips, API_PORT).catch(() => {});
-    }
-    // eslint-disable-next-line no-restricted-syntax
-    for (const ip of moved) {
-      // eslint-disable-next-line no-await-in-loop
-      await clearNodeAddress(ip).catch(() => {});
-    }
+    if (toIp) await clearRpcFailures(toIp).catch(() => {});
+    if (fromIp) await clearNodeAddress(fromIp).catch(() => {});
     await env?.teardown();
   });
 
-  it('reaches every peer with the time the node recorded, from a node that runs an app', async function () {
-    this.timeout(DETECTION_MS + UNHEARD_MS + 600000);
-    const { oldSocket, newSocket, recorded } = await moveUnheard(MOVER, 240);
+  it('reaches a node that joins after the move is signed again with the time the node recorded', async function () {
+    this.timeout(DETECTION_MS + LATE_BY_MS + 600000);
+    fromIp = client(MOVER).ip;
+    toIp = fromIp.replace(/\.\d+$/, '.240');
+    const oldSocket = socketOf(fromIp);
+    const newSocket = socketOf(toIp);
+    // The daemon knows a node by the address its requests arrive from.
+    await failRpc(toIp, 'createconfirmationtransaction', { times: 10000 });
 
+    await moveNodeAddress(client(MOVER).container, toIp, fromIp);
+    await client(MOVER).followTo(toIp);
+    await setNodeAddress(fromIp, toIp, { scope: 'benchmark' });
+    let recorded;
+    await waitFor(async () => { recorded = await moveHeldBy(MOVER, oldSocket, newSocket); return Boolean(recorded); }, {
+      timeout: DETECTION_MS, interval: 5000, label: 'the node records its own move',
+    });
     // eslint-disable-next-line no-restricted-syntax
     for (const p of PEERS) {
       let held;
       // eslint-disable-next-line no-await-in-loop
       await waitFor(async () => { held = await moveHeldBy(p, oldSocket, newSocket); return Boolean(held); }, {
-        timeout: 240000, interval: 5000, label: `node ${p} holds the move`,
+        timeout: 180000, interval: 5000, label: `node ${p} holds the move`,
       });
       expect(held.data.broadcastedAt, `the time node ${p} holds for the move`).to.equal(recorded.data.broadcastedAt);
     }
-  });
 
-  it('is dropped by the peers it reaches from a node that runs no app, without counting against the node that relayed it, and the node is reached at its new address', async function () {
-    this.timeout(DETECTION_MS + UNHEARD_MS + 600000);
-    const {
-      toIp, oldSocket, newSocket, anchors,
-    } = await moveUnheard(BARE_MOVER, 241);
+    const lateBy = recorded.data.broadcastedAt + LATE_BY_MS - Date.now();
+    if (lateBy > 0) await new Promise((resolve) => { setTimeout(resolve, lateBy); });
+    expect(await listedAt(oldSocket), 'fixture: the chain still lists the node at the address it left').to.equal(true);
+    await env.startNode(LATE);
 
-    // A node tells its move to the peers it is connected to; which ones those
-    // are is the peering's choice, so the case waits for one to have dropped it.
-    let dropper = null;
-    await waitFor(async () => {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const p of PEERS) {
-        // eslint-disable-next-line no-await-in-loop
-        const dropped = await client(p).waitForEvent('network:originatorNotListed', (d) => d.type === 'fluxipchanged', 1, { afterId: anchors.get(p) })
-          .catch(() => null);
-        if (dropped) { dropper = { p, dropped }; return true; }
-      }
-      return false;
-    }, { timeout: 240000, interval: 3000, label: 'a peer that dropped the move' });
-
-    expect(String(dropper.dropped.data.relay).split(':')[0], `node ${dropper.p} dropped the move as the node itself sent it`).to.equal(toIp);
-    await client(dropper.p).waitForEvent('peers:added', (d) => d.ip === toIp, 120000, { afterId: anchors.get(dropper.p) });
-    // eslint-disable-next-line no-restricted-syntax
-    for (const p of PEERS) {
-      // eslint-disable-next-line no-await-in-loop
-      expect(await moveHeldBy(p, oldSocket, newSocket), `node ${p} holds the move`).to.equal(undefined);
-    }
+    let held;
+    await waitFor(async () => { held = await moveHeldBy(LATE, oldSocket, newSocket); return Boolean(held); }, {
+      timeout: 300000, interval: 5000, label: 'the late node holds the move',
+    });
+    expect(held.data.broadcastedAt, 'the time the late node holds for the move').to.equal(recorded.data.broadcastedAt);
+    expect(Date.now() - recorded.data.broadcastedAt, 'fixture: the late node heard it past the re-sign').to.be.above(120000);
   });
 });

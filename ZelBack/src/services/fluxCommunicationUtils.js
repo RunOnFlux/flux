@@ -161,6 +161,21 @@ async function lastSignerAt(address) {
  * key to speak for the first (lastSignerAt): a move's confirmation is mined
  * before some peers hear the move, and the chain then lists its node at the
  * new address only.
+ *
+ * For a move, `addresses` is [the address it left, the address it holds]:
+ *
+ *   address left     signer at the new address   last apprunning there   verdict
+ *   listed, signer   -                           -                       OK
+ *   listed, other    -                           -                       PUBKEY_MISMATCH
+ *   not listed       listed, signer              signer's                OK
+ *   not listed       listed, signer              another key's           PUBKEY_MISMATCH
+ *   not listed       listed, signer              none                    NODE_NOT_FOUND
+ *   not listed       listed, other               -                       PUBKEY_MISMATCH
+ *   not listed       not listed                  -                       NODE_NOT_FOUND
+ *
+ * NODE_NOT_FOUND drops the move without counting against the peer that relayed
+ * it. With no apprunning at the address it left, the node has no rows there for
+ * the move to carry, and the chain already lists it where it is.
  * @param {string[]} addresses From signerAddresses.
  * @param {string} pubKey
  * @returns {Promise<string>} VerifyResult.OK; PUBKEY_MISMATCH when the first
