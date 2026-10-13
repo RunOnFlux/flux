@@ -28,9 +28,6 @@ const adminConfig = {
   },
 };
 
-// Set globalThis.userconfig for idService which reads from globalThis
-globalThis.userconfig = adminConfig;
-
 const idService = proxyquire(
   '../../ZelBack/src/services/idService',
   { '../../../config/userconfig': adminConfig },
@@ -48,7 +45,17 @@ const generateResponse = () => {
 };
 
 describe('idService tests', () => {
+  // The modules idService calls read the user config from globalThis. Set for
+  // these tests only: mocha loads every file before running any.
+  let originalUserConfig;
+  before(() => {
+    originalUserConfig = globalThis.userconfig;
+    globalThis.userconfig = adminConfig;
+  });
   before(requireMongo);
+  after(() => {
+    globalThis.userconfig = originalUserConfig;
+  });
 
   describe('loginPhrase tests', () => {
     let osTotalmemStub;
