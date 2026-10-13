@@ -1796,9 +1796,10 @@ async function writeOwnAddressRecord(socketAddress) {
 /**
  * Records this node's move from `previousSocket` to `currentSocket` as its own
  * address record, before anything acts on it: the one decision a move makes.
- * A move to the address the record already holds is decided already, so a
- * second caller decides nothing. The IP change is counted here, from the
- * record, so it is counted once however often the move is acted on.
+ * A move to an address the record already holds as a move is decided already,
+ * so a second caller decides nothing; an address the record holds without a
+ * move takes the move. The IP change is counted here, from the record, so it
+ * is counted once however often the move is acted on.
  * @param {string} previousSocket
  * @param {string} currentSocket
  * @param {boolean} announce Whether the move is told to the network.
@@ -1806,7 +1807,7 @@ async function writeOwnAddressRecord(socketAddress) {
  */
 async function recordOwnMove(previousSocket, currentSocket, announce) {
   const record = await ownAddressRecord();
-  if (record && socketAddressesMatch(record.socketAddress, currentSocket)) return;
+  if (record?.movedFrom && socketAddressesMatch(record.socketAddress, currentSocket)) return;
   const movedAt = Date.now();
   const ipChanged = !ipsMatch(previousSocket, currentSocket);
   const recentIpChanges = (record?.recentIpChanges ?? []).filter((at) => movedAt - at < IP_CHANGE_WINDOW_MS);

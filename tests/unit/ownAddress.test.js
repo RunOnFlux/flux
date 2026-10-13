@@ -446,6 +446,19 @@ describe('fluxNetworkHelper own address tests', () => {
       expect(await record()).to.deep.equal({ socketAddress: '198.51.100.26:16127', movedFrom: '198.51.100.25:16127' });
     });
 
+    it('leaves the configured address it adopted another beside, once nothing answers there, where it ran no apps', async () => {
+      configure('198.51.100.31');
+      await adopt('198.51.100.32:16127');
+      collateralListedAt('198.51.100.31:16127', '198.51.100.32:16127');
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      sinon.assert.notCalled(moved);
+      sinon.assert.calledOnce(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      sinon.assert.calledWithMatch(fs.writeFile, sinon.match.string, sinon.match(/ipaddress: '198.51.100.32',/));
+      expect(await record()).to.deep.equal({ socketAddress: '198.51.100.32:16127', movedFrom: '198.51.100.31:16127' });
+    });
+
     it('takes over a listing at another machine\'s IP that nothing answers, with a confirmation and no move', async () => {
       configure('198.51.100.27');
       collateralListedAt('198.51.100.28:16127', '198.51.100.27:16127');
