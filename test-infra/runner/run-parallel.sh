@@ -292,41 +292,32 @@ sweep_harness_leftovers(){
 
 sweep_harness_leftovers
 
-# ---- capture sidecars (best-effort; killed on exit) ----
-# CAP1 records the PID of its root half so the trap can signal it directly.
-# `kill $CAP1` reaches the subshell and nothing else: `sudo` and the `dmesg` it
-# execs are root-owned, so they survive an unprivileged kill of their parent,
-# reparent to init, and `grep` then blocks forever on a pipe nobody will close.
-# Three processes per gate, and because they stay in the ssh session's cgroup
-# the scope goes `abandoned` and logind never reaps the session - which is why
-# `uptime` reported 54 users on an idle chud with `who` reporting none. Leaking
-# since 2026-08-07 and hand-cleared at least three times without the cause being
-# fixed: 66 runs' worth on chud, 31 on cindy, the oldest there since boot.
-# Killing the root `dmesg` first is what makes the rest fall over - grep sees
-# EOF and exits, and the subshell goes with it.
-CAP_DMESG_PID="$LOGROOT/cap-dmesg.pid"
-( sudo sh -c 'echo $$ >"$1"; exec dmesg -wT' _ "$CAP_DMESG_PID" 2>/dev/null \
-    | grep --line-buffered -iE 'oom|killed process' ) > "$LOGROOT/cap-dmesg.log" 2>&1 & CAP1=$!
-( while true; do echo "$(date -u +%H:%M:%S) avail=$(free_mb)MB load=$(cut -d' ' -f1 /proc/loadavg) containers=$(docker ps -q 2>/dev/null | wc -l)"; sleep 5; done ) > "$LOGROOT/cap-mem.log" 2>&1 & CAP2=$!
+# ---- capture sidecars (best-effort; ended on exit) ----
+# The dmesg capture's root half waits on a pipe this driver holds the only write
+# end of, and kills its own `dmesg` when the pipe reaches end of file. A process
+# closes every file it holds however it dies, SIGKILL included, so the root half
+# ends with the driver: an unprivileged kill cannot reach `sudo` or `dmesg`, and
+# `dmesg -wT` notices a closed reader only at the next kernel message. A
+# long-lived process this driver starts must not inherit the write end, or the
+# pipe stays open while it lives: each launch and the other two captures close
+# it.
+exec {CAP_DMESG_HOLD}> >(sudo -n sh -c 'dmesg -wT & d=$!; read -r _; kill "$d"' 2>/dev/null \
+    | grep --line-buffered -iE 'oom|killed process' > "$LOGROOT/cap-dmesg.log")
+( while true; do echo "$(date -u +%H:%M:%S) avail=$(free_mb)MB load=$(cut -d' ' -f1 /proc/loadavg) containers=$(docker ps -q 2>/dev/null | wc -l)"; sleep 5; done ) > "$LOGROOT/cap-mem.log" 2>&1 {CAP_DMESG_HOLD}>&- & CAP2=$!
 ( docker events --filter event=die --filter event=kill --filter event=oom \
-    --format '{{.Time}} {{.Action}} name={{.Actor.Attributes.name}} exitCode={{.Actor.Attributes.exitCode}}' ) > "$LOGROOT/cap-events.log" 2>&1 & CAP3=$!
+    --format '{{.Time}} {{.Action}} name={{.Actor.Attributes.name}} exitCode={{.Actor.Attributes.exitCode}}' ) > "$LOGROOT/cap-events.log" 2>&1 {CAP_DMESG_HOLD}>&- & CAP3=$!
 stop_captures(){
-  local root_dmesg pid kid
-  root_dmesg=$(cat "$CAP_DMESG_PID" 2>/dev/null)
-  # Root-owned, so it needs sudo, and it has to go first: once `dmesg` is gone
-  # `grep` sees EOF and the subshell follows it out.
-  [ -n "$root_dmesg" ] && sudo -n kill "$root_dmesg" 2>/dev/null
+  local pid kid
+  exec {CAP_DMESG_HOLD}>&-
   # Children BEFORE parents, and by explicit PID. `$CAPn` is the subshell, whose
-  # children outlive it and reparent to init - `docker events` was found orphaned
-  # on cindy beside the dmesg trio, ten hours after the gate that started it.
-  # Killing the parent first would lose the ppid link that finds them.
-  for pid in $CAP1 $CAP2 $CAP3; do
+  # children outlive it and reparent to init. Killing the parent first would
+  # lose the ppid link that finds them.
+  for pid in $CAP2 $CAP3; do
     for kid in $(ps -eo pid,ppid --no-headers 2>/dev/null | awk -v p="$pid" '$2==p{print $1}'); do
       kill "$kid" 2>/dev/null
     done
     kill "$pid" 2>/dev/null
   done
-  rm -f "$CAP_DMESG_PID"
 }
 trap stop_captures EXIT
 
@@ -335,7 +326,7 @@ declare -A PID2SUITE
 launch(){
   local s=$1
   SUITE_GLOB="tests/${s}-*.js" E2E_RUN_LABEL="par-${s}-$$" E2E_LOG_DIR="$LOGROOT/$s" \
-    bash "$RUNNER" > "$LOGROOT/$s.out" 2>&1 &
+    bash "$RUNNER" > "$LOGROOT/$s.out" 2>&1 {CAP_DMESG_HOLD}>&- &
   PID2SUITE[$!]=$s
   log "LAUNCH  suite $s pid=$! inflight=${#PID2SUITE[@]} avail=$(free_mb)MB"
 }
