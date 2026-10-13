@@ -4,7 +4,7 @@ import {
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { moveNodeAddress } from '../framework/container.js';
+import { execInContainer, moveNodeAddress } from '../framework/container.js';
 import {
   clearNodeAddress, clearRpcFailures, failRpc, setNodeAddress,
 } from '../framework/daemon-control.js';
@@ -21,9 +21,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //
 // The move's confirmation is refused for the whole case, so the chain lists the
 // node at the address it left and the late node judges the move as the early
-// ones did. The late node cannot dial the moved node there, so the moved node is
-// asked to dial it (addoutgoingpeer), as its own peering would pick a new node,
-// and tells it the move on that connection.
+// ones did. The late node cannot dial the moved node there, so it asks the moved
+// node to dial it (addoutgoingpeer), as a node asks a peer to dial it back, and
+// the moved node tells it the move on that connection.
 const MOVER = 0;
 const PEERS = [1, 2];
 const LATE = 3;
@@ -102,7 +102,9 @@ describe('a move told late carries the time it was made', function () {
     expect(await listedAt(oldSocket), 'fixture: the chain still lists the node at the address it left').to.equal(true);
     await env.startNode(LATE);
     const lateAnchor = client(LATE).getLastEventId();
-    await client(MOVER).get(`/flux/addoutgoingpeer/${client(LATE).ip}:${API_PORT}`);
+    // Asked from the late node itself: a node dials only the address the ask comes from.
+    const asked = await execInContainer(client(LATE).container, `curl -s http://${toIp}:${API_PORT}/flux/addoutgoingpeer/${client(LATE).ip}:${API_PORT}`);
+    expect(asked.output, 'fixture: the moved node took the ask to dial the late one').to.match(/"status":"success"/);
     await client(LATE).waitForEvent('peers:added', (d) => d.ip === toIp, 120000, { afterId: lateAnchor });
 
     let held;
