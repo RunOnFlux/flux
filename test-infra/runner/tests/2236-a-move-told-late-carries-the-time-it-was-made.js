@@ -4,7 +4,8 @@ import {
 } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { execInContainer, moveNodeAddress } from '../framework/container.js';
+import { moveNodeAddress } from '../framework/container.js';
+import { askToBeDialed } from '../framework/peer-topology.js';
 import {
   clearNodeAddress, clearRpcFailures, failRpc, setNodeAddress,
 } from '../framework/daemon-control.js';
@@ -102,9 +103,7 @@ describe('a move told late carries the time it was made', function () {
     expect(await listedAt(oldSocket), 'fixture: the chain still lists the node at the address it left').to.equal(true);
     await env.startNode(LATE);
     const lateAnchor = client(LATE).getLastEventId();
-    // Asked from the late node itself: a node dials only the address the ask comes from.
-    const asked = await execInContainer(client(LATE).container, `curl -s http://${toIp}:${API_PORT}/flux/addoutgoingpeer/${client(LATE).ip}:${API_PORT}`);
-    expect(asked.output, 'fixture: the moved node took the ask to dial the late one').to.match(/"status":"success"/);
+    await askToBeDialed(client(LATE), client(MOVER), API_PORT);
     await client(LATE).waitForEvent('peers:added', (d) => d.ip === toIp, 120000, { afterId: lateAnchor });
 
     let held;

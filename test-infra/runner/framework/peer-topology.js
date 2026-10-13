@@ -1,3 +1,5 @@
+import { execInContainer } from './container.js';
+
 // What a fleet's peering can be waited on, derived from its shape.
 //
 // Discovery builds a deterministic ring in two halves (fluxCommunication.js):
@@ -28,6 +30,23 @@
 // carry it derives lower; if the two ever diverge this only caps further down,
 // which is the safe direction.
 const RING_ARC = 4;
+
+/**
+ * `asker` asks `dialer` to dial it, as the backward half of discovery does: a
+ * node dials only the address the ask comes from, so it is sent from inside the
+ * asker's container. Throws unless the dialer took it.
+ * @param {object} asker A node client (its container and ip).
+ * @param {object} dialer A node client.
+ * @param {number} [port] The api port both answer on.
+ * @returns {Promise<void>}
+ */
+export async function askToBeDialed(asker, dialer, port = 16127) {
+  const url = `http://${dialer.ip}:${port}/flux/addoutgoingpeer/${asker.ip}:${port}`;
+  const { output } = await execInContainer(asker.container, `curl -s ${url}`);
+  if (!/"status":"success"/.test(output)) {
+    throw new Error(`askToBeDialed: ${dialer.ip} did not take ${asker.ip}'s ask to be dialed: ${output}`);
+  }
+}
 
 // A stub holds an index in the sorted node list, so the ring routes through it,
 // but it never dials and never answers addoutgoingpeer - it cannot supply a
