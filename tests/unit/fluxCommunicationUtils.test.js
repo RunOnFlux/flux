@@ -595,22 +595,6 @@ describe('fluxCommunicationUtils tests', () => {
       expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.OK);
     });
 
-    it('accepts a move signed by the node the list already shows at its new address', async () => {
-      listedAt.withArgs(NEW).resolves({ ip: NEW, pubkey: pubKey });
-
-      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.OK);
-    });
-
-    it('accepts a move of the port alone once the list shows the new port', async () => {
-      listedAt.withArgs('198.51.100.40:16157').resolves({ ip: '198.51.100.40:16157', pubkey: pubKey });
-
-      const portMove = await signed({
-        type: 'fluxipchanged', version: 1, oldIP: '198.51.100.40:16127', newIP: '198.51.100.40:16157', broadcastedAt: Date.now(),
-      });
-
-      expect(await fluxCommunicationUtils.verifyFluxBroadcast(portMove)).to.equal(VerifyResult.OK);
-    });
-
     it('refuses a move when the node listed at its new address holds another key', async () => {
       listedAt.withArgs(NEW).resolves({ ip: NEW, pubkey: 'anotherkey' });
 

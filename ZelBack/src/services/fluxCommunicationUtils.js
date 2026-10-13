@@ -1,4 +1,6 @@
+const config = require('config');
 const log = require('../lib/log');
+const dbHelper = require('./dbHelper');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const networkStateService = require('./networkStateService');
@@ -127,27 +129,62 @@ function signerAddresses(payload, target) {
 }
 
 /**
+ * The key that last spoke for `address`: the signer of the newest unexpired
+ * apprunning event stored for it, which only the node listed there when it was
+ * sent could have signed. The same broadcast wrote this node's rows at the
+ * address, so a node holding rows there holds their signer.
+ * @param {string} address
+ * @returns {Promise<string|null>} Null when none is stored or it cannot be read.
+ */
+async function lastSignerAt(address) {
+  try {
+    const database = dbHelper.databaseConnection().db(config.database.appsglobal.database);
+    const [event] = await database.collection(config.database.appsglobal.collections.appStateEvents)
+      .find(
+        { ip: address, type: 'apprunning', expireAt: { $gt: new Date() } },
+        { projection: { _id: 0, 'envelope.pubKey': 1 } },
+      )
+      .sort({ broadcastedAt: -1 })
+      .limit(1)
+      .toArray();
+    return event?.envelope?.pubKey ?? null;
+  } catch (error) {
+    log.error(`lastSignerAt ${address}: ${error.message}`);
+    return null;
+  }
+}
+
+/**
  * Whether the node `addresses` speaks for holds `pubKey`. A node listed at the
- * first address under another key is the one that address speaks for, whatever
- * the others show; the others count only while nothing is listed at it.
+ * first address is the one it speaks for. While nothing is listed there, a
+ * signer listed at another address speaks for it only when it was the last
+ * key to speak for the first (lastSignerAt): a move's confirmation is mined
+ * before some peers hear the move, and the chain then lists its node at the
+ * new address only.
  * @param {string[]} addresses From signerAddresses.
  * @param {string} pubKey
- * @returns {Promise<string>} VerifyResult.OK, PUBKEY_MISMATCH when a node is
- *   listed there under another key, or NODE_NOT_FOUND when none is.
+ * @returns {Promise<string>} VerifyResult.OK; PUBKEY_MISMATCH when the first
+ *   address is listed under another key, the others are listed only under
+ *   another, or another key last spoke for the first; NODE_NOT_FOUND when
+ *   nothing shows who speaks for it.
  */
 async function listedSignerVerdict(addresses, pubKey) {
-  let listed = false;
+  const [first, ...others] = addresses;
+  const node = await networkStateService.getFluxnodeBySocketAddress(first);
+  if (node) return node.pubkey === pubKey ? VerifyResult.OK : VerifyResult.PUBKEY_MISMATCH;
+  let signerListed = false;
+  let otherListed = false;
   // eslint-disable-next-line no-restricted-syntax
-  for (const [index, address] of addresses.entries()) {
+  for (const address of others) {
     // eslint-disable-next-line no-await-in-loop
-    const node = await networkStateService.getFluxnodeBySocketAddress(address);
-    if (node) {
-      if (node.pubkey === pubKey) return VerifyResult.OK;
-      if (index === 0) return VerifyResult.PUBKEY_MISMATCH;
-      listed = true;
-    }
+    const listed = await networkStateService.getFluxnodeBySocketAddress(address);
+    if (listed?.pubkey === pubKey) signerListed = true;
+    else if (listed) otherListed = true;
   }
-  return listed ? VerifyResult.PUBKEY_MISMATCH : VerifyResult.NODE_NOT_FOUND;
+  if (!signerListed) return otherListed ? VerifyResult.PUBKEY_MISMATCH : VerifyResult.NODE_NOT_FOUND;
+  const lastSigner = await lastSignerAt(first);
+  if (lastSigner === null) return VerifyResult.NODE_NOT_FOUND;
+  return lastSigner === pubKey ? VerifyResult.OK : VerifyResult.PUBKEY_MISMATCH;
 }
 
 async function verifyFluxBroadcast(broadcast) {
@@ -318,6 +355,7 @@ module.exports = {
   BROADCAST_CLOCK_SKEW_MS,
   VerifyResult,
   signerAddresses,
+  lastSignerAt,
   listedSignerVerdict,
   getNodeCount,
   verifyTimestampInFluxBroadcast,

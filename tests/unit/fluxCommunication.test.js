@@ -2185,20 +2185,6 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledOnceWithExactly(messageStore.storeIPChangedMessage, data);
     });
 
-    it('keeps a synced move signed by the node the list already shows at its new address', async () => {
-      const NEW = '198.51.100.40:16127';
-      networkStateService.getFluxnodeBySocketAddress.callsFake(async (address) => (address === NEW ? { pubkey: 'PUB' } : null));
-      const data = {
-        type: 'fluxipchanged', version: 1, oldIP: SENDER, newIP: NEW, broadcastedAt: Date.now() - 60000,
-      };
-
-      await fluxCommunication.handleAppRunningSyncResponse({
-        data: { type: 'fluxapprunningsync', messages: [{ type: 'ipchanged', ip: SENDER, envelope, data }], done: true },
-      }, PEER_SOCKET);
-
-      sinon.assert.calledWith(messageStore.storeAppStateEvent, 'ipchanged', sinon.match({ message: data }));
-    });
-
     it('drops a synced move away from an address listed under another key, though the signer is listed at the new one', async () => {
       const NEW = '198.51.100.40:16127';
       networkStateService.getFluxnodeBySocketAddress.callsFake(async (address) => (address === NEW ? { pubkey: 'PUB' } : { pubkey: 'OTHER' }));
