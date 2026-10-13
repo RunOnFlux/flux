@@ -238,37 +238,31 @@ describe('the location table and the event-derived view agree', () => {
 
     writers.forEach((writer) => {
       scenarios.forEach(({ title, steps, expected }) => {
-        it(`${title}, reported by ${writer.name}: the same answer in every order`, async () => {
-          const now = Date.now();
-          const at = (seconds) => now - seconds * 1000;
-          ips.push(A, B, C, A2);
-          const failures = [];
-          // eslint-disable-next-line no-restricted-syntax
-          for (const order of orders(steps)) {
-            // eslint-disable-next-line no-await-in-loop
-            await locations.deleteMany({ ip: { $in: ips } });
-            // eslint-disable-next-line no-await-in-loop
-            await events.deleteMany({ ip: { $in: ips } });
-            // eslint-disable-next-line no-restricted-syntax
-            for (const step of order) {
-              /* eslint-disable no-await-in-loop */
-              if (step.report) await writer.report(step.report[0], appName, at(step.report[1]));
-              if (step.move) await move(step.move[0], step.move[1], at(step.move[2]));
-              if (step.remove) await remove(step.remove[0], appName, at(step.remove[1]));
-              if (step.evict) await evict(step.evict[0], at(step.evict[1]));
-              if (step.shutDown) await shutDown(step.shutDown[0], at(step.shutDown[1]));
-              /* eslint-enable no-await-in-loop */
-            }
+        describe(`${title}, reported by ${writer.name}: the same answer`, () => {
+          orders(steps).forEach((order) => {
             const describeOrder = order.map((step) => Object.entries(step)[0].join(':')).join(' then ');
-            // eslint-disable-next-line no-await-in-loop
-            const derived = (await registryManager.appLocationFromEvents({ appname: appName })).map((row) => row.ip).sort();
-            // eslint-disable-next-line no-await-in-loop
-            const table = (await registryManager.appLocation(appName)).map((row) => row.ip).sort();
-            if (JSON.stringify(derived) !== JSON.stringify(expected)) failures.push(`event view ${JSON.stringify(derived)} after ${describeOrder}`);
-            const tableHeld = tableHasWhatItNeeds(order);
-            if (tableHeld && JSON.stringify(table) !== JSON.stringify(expected)) failures.push(`table ${JSON.stringify(table)} after ${describeOrder}`);
-          }
-          expect(failures, `expected ${JSON.stringify(expected)}`).to.deep.equal([]);
+            it(`after ${describeOrder}`, async () => {
+              const now = Date.now();
+              const at = (seconds) => now - seconds * 1000;
+              ips.push(A, B, C, A2);
+              // eslint-disable-next-line no-restricted-syntax
+              for (const step of order) {
+                /* eslint-disable no-await-in-loop */
+                if (step.report) await writer.report(step.report[0], appName, at(step.report[1]));
+                if (step.move) await move(step.move[0], step.move[1], at(step.move[2]));
+                if (step.remove) await remove(step.remove[0], appName, at(step.remove[1]));
+                if (step.evict) await evict(step.evict[0], at(step.evict[1]));
+                if (step.shutDown) await shutDown(step.shutDown[0], at(step.shutDown[1]));
+                /* eslint-enable no-await-in-loop */
+              }
+              const derived = (await registryManager.appLocationFromEvents({ appname: appName })).map((row) => row.ip).sort();
+              expect(derived, 'the event view').to.deep.equal(expected);
+              if (tableHasWhatItNeeds(order)) {
+                const table = (await registryManager.appLocation(appName)).map((row) => row.ip).sort();
+                expect(table, 'the table').to.deep.equal(expected);
+              }
+            });
+          });
         });
       });
     });
