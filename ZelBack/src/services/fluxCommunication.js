@@ -17,7 +17,9 @@ const { RUNNING_EXPIRY_MS } = require('./utils/appConstants');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const nodeConfirmationService = require('./nodeConfirmationService');
-const { extractIp, extractPort, parseSocketAddress, socketAddressesMatch } = require('./utils/socketAddressUtils');
+const {
+  extractIp, extractPort, normalizeSocketAddress, parseSocketAddress, socketAddressesMatch,
+} = require('./utils/socketAddressUtils');
 const registryManager = require('./appDatabase/registryManager');
 const fluxEventBus = require('./utils/fluxEventBus');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
@@ -671,13 +673,17 @@ function announceOwnAddressMove(oldIp, newIp, broadcastedAt) {
 }
 
 /**
- * Record this node's own move and announce it: what serviceManager wires to
- * fluxNetworkHelper's address-moved seam.
+ * Record this node's own move and announce it, once: a move already recorded
+ * at the time it was made is left as it is, since the network hears it from
+ * the pending move or, after a restart, from the moves sent at startup. What
+ * serviceManager wires to fluxNetworkHelper's address-moved seam.
  * @param {string} oldIp This node's former socket address.
  * @param {string} newIp Its new socket address.
+ * @param {number} broadcastedAt When the move was made (ms).
  */
-async function handleOwnAddressMove(oldIp, newIp) {
-  const broadcastedAt = Date.now();
+async function handleOwnAddressMove(oldIp, newIp, broadcastedAt) {
+  const recorded = (await registryManager.addressMovesFrom([oldIp])).get(normalizeSocketAddress(oldIp));
+  if (recorded && recorded.at === broadcastedAt && socketAddressesMatch(recorded.to, newIp)) return;
   await recordOwnAddressMove(oldIp, newIp, broadcastedAt);
   announceOwnAddressMove(oldIp, newIp, broadcastedAt);
 }

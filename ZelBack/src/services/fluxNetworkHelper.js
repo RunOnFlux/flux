@@ -22,7 +22,6 @@ const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const { peerManager } = require('./utils/peerState');
 const { CLOSE_CODES, DIRECTION } = require('./utils/FluxPeerSocket');
-const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const fluxEventBus = require('./utils/fluxEventBus');
 const { NON_PUBLIC_IPV4 } = require('./utils/nonPublicNetworks');
@@ -133,12 +132,9 @@ const PlacementHoldOwner = Object.freeze({
 const placementHolds = new Map();
 
 let storedFluxBenchAllowed = null;
-let ipChangeData = null;
 // When this node last changed its IP over the limit (monotonic ms), or null.
 let tooManyIpChangesAt = null;
 let maxNumberOfIpChanges = 0;
-
-const myCache = cacheManager.ipCache;
 const { lruRateLimit } = require('./utils/rateLimit');
 const { Privilege, authOf } = require('./utils/privileges');
 
@@ -1557,52 +1553,40 @@ function isCommunicationEstablished(req, res) {
   return res ? res.json(message) : message;
 }
 
+// How far back the limit on IP changes counts, and how many changes it allows
+// in that time.
+const IP_CHANGE_WINDOW_MS = 20 * 60 * 60 * 1000;
+const IP_CHANGES_ALLOWED = 1;
+
 /**
- * To check ip changes limit. If over limit all apps are uninstalled from the node and it get dos state
- * @returns {boolean} True if a ip as changes more than one time in the last 20h
+ * Applies the limit on IP changes to the changes this node made within
+ * IP_CHANGE_WINDOW_MS, as its own address record holds them: over it, every
+ * installed app is removed and the node is out of service for
+ * IP_CHANGES_HOLD_MS.
+ * @param {number[]} recentIpChanges When each change was made (ms).
+ * @returns {Promise<boolean>} Whether the changes are over the limit.
  */
-async function ipChangesOverLimit() {
-  const currentTime = Date.now();
-  if (ipChangeData) {
-    const oldTime = ipChangeData.time;
-    const timeDifference = currentTime - oldTime;
-    if (timeDifference <= 20 * 60 * 60 * 1000) {
-      ipChangeData.count += 1;
-      if (ipChangeData.count > maxNumberOfIpChanges) {
-        maxNumberOfIpChanges = ipChangeData.count;
-      }
-      if (ipChangeData.count >= 2) {
-        // eslint-disable-next-line global-require
-        const appQueryService = require('./appQuery/appQueryService');
-        // eslint-disable-next-line global-require
-        const appUninstaller = require('./appLifecycle/appUninstaller');
-        let apps = await appQueryService.installedApps();
-        if (apps.status === 'success' && apps.data.length > 0) {
-          apps = apps.data;
-          // eslint-disable-next-line no-restricted-syntax
-          for (const app of apps) {
-            log.warn(`REMOVAL REASON: Too many IP changes - ${app.name} being removed due to ${ipChangeData.count} IP changes in ${timeDifference}ms (DoS protection)`);
-            // eslint-disable-next-line no-await-in-loop
-            await appUninstaller.removeAppLocally(app.name, null, true, null, false).catch((error) => log.error(error)); // we will not send appremove messages because they will not be accepted by the other nodes
-            // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(500);
-          }
-        }
-        tooManyIpChangesAt = monotonicMs();
-        return true;
-      }
-    } else {
-      ipChangeData.time = currentTime;
-      ipChangeData.count = 1;
-      maxNumberOfIpChanges = 1;
+async function applyIpChangeLimit(recentIpChanges) {
+  maxNumberOfIpChanges = recentIpChanges.length;
+  if (recentIpChanges.length <= IP_CHANGES_ALLOWED) return false;
+  // eslint-disable-next-line global-require
+  const appQueryService = require('./appQuery/appQueryService');
+  // eslint-disable-next-line global-require
+  const appUninstaller = require('./appLifecycle/appUninstaller');
+  let apps = await appQueryService.installedApps();
+  if (apps.status === 'success' && apps.data.length > 0) {
+    apps = apps.data;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of apps) {
+      log.warn(`REMOVAL REASON: Too many IP changes - ${app.name} being removed due to ${recentIpChanges.length} IP changes in ${IP_CHANGE_WINDOW_MS}ms (DoS protection)`);
+      // eslint-disable-next-line no-await-in-loop
+      await appUninstaller.removeAppLocally(app.name, null, true, null, false).catch((error) => log.error(error)); // we will not send appremove messages because they will not be accepted by the other nodes
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(500);
     }
-    return false;
   }
-  ipChangeData = {
-    time: currentTime,
-    count: 1,
-  };
-  return false;
+  tooManyIpChangesAt = monotonicMs();
+  return true;
 }
 
 function getMaxNumberOfIpChanges() {
@@ -1610,14 +1594,10 @@ function getMaxNumberOfIpChanges() {
 }
 
 /**
- * Adopts the address this node holds now in place of the one it held: the new
- * address is confirmed on chain, and an IP change also rewrites the configured
- * IP, applies the limit on IP changes, removes the apps that cannot follow it -
- * a static-IP app, or one an instance already holds at the new IP - and
- * restarts the rest on the new IP. A port change on the same IP keeps every app
- * where it is. With `announceMove` the change is also recorded as this node's
- * move and told to the network, which carries the node's rows at the old
- * address to the new one.
+ * Adopts the address this node holds now in place of the one it held: the move
+ * is recorded as this node's own address record, and the node brought to it by
+ * reconcileOwnMove. With `announceMove` the move is also told to the network,
+ * which carries the node's rows at the old address to the new one.
  * @param {string} previous The socket address the node held.
  * @param {string} current The socket address it holds now.
  * @param {object} [options]
@@ -1625,65 +1605,24 @@ function getMaxNumberOfIpChanges() {
  * @returns {Promise<void>}
  */
 async function adjustExternalIp(previous, current, { announceMove = true } = {}) {
-  try {
-    const previousSocket = normalizeSocketAddress(previous);
-    const currentSocket = normalizeSocketAddress(current);
-    const ip = extractIp(currentSocket);
-    // https://github.com/sindresorhus/ip-regex/blob/master/index.js#L8
-    const v4 = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]\\d|\\d)(?:\\.(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]\\d|\\d)){3}';
-    const v4exact = new RegExp(`^${v4}$`);
-    if (!v4exact.test(ip)) {
-      log.warn(`Gathered IP ${ip} is not a valid format`);
-      return;
-    }
-    if (socketAddressesMatch(previousSocket, currentSocket) || myCache.has(currentSocket)) return;
-    myCache.set(currentSocket, '');
-    const ipMoved = !ipsMatch(previousSocket, currentSocket);
-    log.info(`New public Ip detected: ${currentSocket}, old Ip: ${previousSocket} , updating the FluxNode info on the network`);
-
-    let staying = [];
-    if (ipMoved) {
-      if (ip !== userconfig.initial.ipaddress) await writeConfiguredIp(ip);
-      const measuredUptime = fluxUptime();
-      if (await ipChangesOverLimit() && measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) {
-        log.info('IP changes over the limit allowed, one in 20 hours');
-        dosState += 11;
-        setDosMessage(IP_CHANGES_MESSAGE);
-        log.error(dosMessage);
-      }
-      staying = await appsStayingThroughIpMove(previousSocket, currentSocket);
-    }
-    // After the apps that cannot stay are removed: until then this node's own
-    // rows are at the old address, which is what keeps them from reading as
-    // another instance at the new one. Before the restarts: the election must
-    // know the move as soon as it sees the new address, or it reads FDM naming
-    // the old one as another node.
-    noteOwnAddress(currentSocket, previousSocket);
-    if (announceMove && onOwnAddressMoved) {
-      await onOwnAddressMoved(previousSocket, currentSocket)
-        .catch((error) => log.error(`adjustExternalIp - recording the move failed: ${error.message}`));
-    }
-    // One handover for the whole set, not a call per app: what an app is made
-    // of - a composed one's containers are `<component>_<app>`, and an
-    // enterprise one's names are inside a blob this layer cannot read - is
-    // knowledge the reconciler already holds. Failures stay inside it too, so
-    // one app that cannot be asked costs the others nothing and leaves the
-    // confirmation transaction and the geolocation update below reachable.
-    if (staying.length && onAddressChanged) {
-      await onAddressChanged(staying, `node ip changed to ${ip}`)
-        .catch((error) => log.error(`adjustExternalIp - restart request failed: ${error.message}`));
-    }
-    const result = await daemonServiceFluxnodeRpcs.createConfirmationTransaction();
-    log.info(`createConfirmationTransaction: ${JSON.stringify(result)}`);
-    if (ipMoved) {
-      // Update geolocation service to track IP change and update static IP status
-      // eslint-disable-next-line global-require
-      const geolocationService = require('./geolocationService');
-      geolocationService.setNodeGeolocation();
-    }
-  } catch (error) {
-    log.error(error);
+  if (typeof previous !== 'string' || typeof current !== 'string') {
+    log.warn(`Gathered address ${current} is not a valid format`);
+    return;
   }
+  const previousSocket = normalizeSocketAddress(previous);
+  const currentSocket = normalizeSocketAddress(current);
+  const ip = extractIp(currentSocket);
+  // https://github.com/sindresorhus/ip-regex/blob/master/index.js#L8
+  const v4 = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]\\d|\\d)(?:\\.(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]\\d|\\d)){3}';
+  const v4exact = new RegExp(`^${v4}$`);
+  if (!v4exact.test(ip)) {
+    log.warn(`Gathered IP ${ip} is not a valid format`);
+    return;
+  }
+  if (socketAddressesMatch(previousSocket, currentSocket)) return;
+  log.info(`New public Ip detected: ${currentSocket}, old Ip: ${previousSocket} , updating the FluxNode info on the network`);
+  await recordOwnMove(previousSocket, currentSocket, announceMove);
+  await reconcileOwnMove();
 }
 
 /**
@@ -1783,17 +1722,34 @@ async function appsStayingThroughIpMove(previousSocket, currentSocket) {
 
 const OWN_ADDRESS_RECORD_ID = 'own';
 
+function ownAddressCollection() {
+  const db = dbHelper.databaseConnection();
+  return db ? db.db(config.database.local.database).collection(config.database.local.collections.ownAddress) : null;
+}
+
 /**
- * The address this node last adopted as its own, and the address it moved from
- * to get there, from its local database: null before it has adopted one.
- * @returns {Promise<{socketAddress: string, movedFrom: string|null}|null>}
+ * This node's own address record, from its local database: null before it has
+ * adopted an address.
+ *
+ * `socketAddress` is the address it adopted. When a move took it there,
+ * `movedFrom` is where it moved from and `movedAt` when (ms), `ipChanged`
+ * whether the IP changed or only the port, and `announce` whether the move is
+ * told to the network. `recentIpChanges` holds when each IP change of the last
+ * IP_CHANGE_WINDOW_MS was made. The rest records which of the move's steps that
+ * cannot be read back from the node itself are done, each by the `movedAt` of
+ * the move it was done for: `appsHandledAt`, `announcedAt`, `geolocatedAt`,
+ * `confirmationAcceptedAt`, and `settledAt` once the move is wholly in place.
+ * @returns {Promise<object|null>}
  */
 async function ownAddressRecord() {
-  const db = dbHelper.databaseConnection();
-  if (!db) return null;
-  const record = await db.db(config.database.local.database).collection(config.database.local.collections.ownAddress)
-    .findOne({ _id: OWN_ADDRESS_RECORD_ID }, { projection: { _id: 0, socketAddress: 1, movedFrom: 1 } });
+  const records = ownAddressCollection();
+  if (!records) return null;
+  const record = await records.findOne({ _id: OWN_ADDRESS_RECORD_ID }, { projection: { _id: 0 } });
   return record ?? null;
+}
+
+async function updateOwnAddressRecord(fields) {
+  await ownAddressCollection().updateOne({ _id: OWN_ADDRESS_RECORD_ID }, { $set: fields });
 }
 
 // The address this node last adopted as its own, and the addresses it has moved
@@ -1823,14 +1779,136 @@ function ownAddressFor(reported) {
   return address && adoptedOwnAddress && ownAddressesLeft.has(address) ? adoptedOwnAddress : address;
 }
 
-async function writeOwnAddressRecord(socketAddress, movedFrom) {
-  noteOwnAddress(socketAddress, movedFrom);
-  const db = dbHelper.databaseConnection();
-  await db.db(config.database.local.database).collection(config.database.local.collections.ownAddress).updateOne(
+/**
+ * Adopts `socketAddress` as this node's own without a move.
+ * @param {string} socketAddress
+ * @returns {Promise<void>}
+ */
+async function writeOwnAddressRecord(socketAddress) {
+  noteOwnAddress(socketAddress, null);
+  await ownAddressCollection().updateOne(
     { _id: OWN_ADDRESS_RECORD_ID },
-    { $set: { socketAddress, movedFrom: movedFrom ?? null, recordedAt: new Date() } },
+    { $set: { socketAddress, movedFrom: null, movedAt: null, recordedAt: new Date() } },
     { upsert: true },
   );
+}
+
+/**
+ * Records this node's move from `previousSocket` to `currentSocket` as its own
+ * address record, before anything acts on it: the one decision a move makes.
+ * A move to the address the record already holds is decided already, so a
+ * second caller decides nothing. The IP change is counted here, from the
+ * record, so it is counted once however often the move is acted on.
+ * @param {string} previousSocket
+ * @param {string} currentSocket
+ * @param {boolean} announce Whether the move is told to the network.
+ * @returns {Promise<void>}
+ */
+async function recordOwnMove(previousSocket, currentSocket, announce) {
+  const record = await ownAddressRecord();
+  if (record && socketAddressesMatch(record.socketAddress, currentSocket)) return;
+  const movedAt = Date.now();
+  const ipChanged = !ipsMatch(previousSocket, currentSocket);
+  const recentIpChanges = (record?.recentIpChanges ?? []).filter((at) => movedAt - at < IP_CHANGE_WINDOW_MS);
+  if (ipChanged) recentIpChanges.push(movedAt);
+  noteOwnAddress(currentSocket, previousSocket);
+  await ownAddressCollection().updateOne(
+    { _id: OWN_ADDRESS_RECORD_ID },
+    {
+      $set: {
+        socketAddress: currentSocket,
+        movedFrom: previousSocket,
+        movedAt,
+        ipChanged,
+        announce,
+        recentIpChanges,
+        appsHandledAt: null,
+        announcedAt: null,
+        geolocatedAt: null,
+        confirmationAcceptedAt: null,
+        settledAt: null,
+        recordedAt: new Date(),
+      },
+    },
+    { upsert: true },
+  );
+  if (!ipChanged) return;
+  const overLimit = await applyIpChangeLimit(recentIpChanges);
+  const measuredUptime = fluxUptime();
+  if (overLimit && measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) {
+    log.info('IP changes over the limit allowed, one in 20 hours');
+    dosState += 11;
+    setDosMessage(IP_CHANGES_MESSAGE);
+    log.error(dosMessage);
+  }
+}
+
+/**
+ * Whether the chain lists this node at `socketAddress`, and if not, asks for a
+ * confirmation that lists it there, once per move: a refused one is asked for
+ * again on the next pass.
+ * @param {object} record This node's own address record.
+ * @returns {Promise<boolean>} Whether the chain lists it there.
+ */
+async function confirmOwnAddress(record) {
+  const status = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
+  const listed = status?.status === 'success' ? status.data?.ip : null;
+  if (listed && socketAddressesMatch(listed, record.socketAddress)) return true;
+  if (record.confirmationAcceptedAt === record.movedAt) return false;
+  const result = await daemonServiceFluxnodeRpcs.createConfirmationTransaction();
+  if (result?.status === 'success' && result.data?.status !== 'Fail to send') {
+    log.info(`createConfirmationTransaction: ${JSON.stringify(result)}`);
+    await updateOwnAddressRecord({ confirmationAcceptedAt: record.movedAt });
+  } else {
+    log.warn(`own address - the confirmation of ${record.socketAddress} was refused, asked again on the next pass: ${JSON.stringify(result)}`);
+  }
+  return false;
+}
+
+/**
+ * Brings this node to the move its own address record holds, doing only what
+ * is not yet so: its configured IP rewritten, the apps the move cannot keep
+ * removed and the rest restarted, the move recorded and told to the network,
+ * its address confirmed on chain, its geolocation refreshed. Each step either
+ * reads what is so before acting or is keyed to the move, so a pass repeated -
+ * on each change of this node's address, each node list refresh, and boot -
+ * finishes a move a failure or a restart left part done and does nothing twice.
+ * Runs only on the own-address queue.
+ * @returns {Promise<void>}
+ */
+async function reconcileOwnMove() {
+  const record = await ownAddressRecord();
+  if (!record?.movedFrom || !record.movedAt || record.settledAt === record.movedAt) return;
+  const {
+    socketAddress: to, movedFrom: from, movedAt, ipChanged, announce,
+  } = record;
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.OWN_ADDRESS_BEFORE_RECONCILE, to);
+  const ip = extractIp(to);
+  if (ipChanged && ip !== userconfig.initial.ipaddress) await writeConfiguredIp(ip);
+  const appsDue = ipChanged && record.appsHandledAt !== movedAt;
+  // Before the move is recorded: until then this node's own rows are at the old
+  // address, which is what keeps them from reading as another instance at the
+  // new one.
+  const staying = appsDue ? await appsStayingThroughIpMove(from, to) : [];
+  // The seam records and tells a move once whatever this node's record says,
+  // so a pass that told it and stopped before writing announcedAt repeats
+  // nothing.
+  if (announce && onOwnAddressMoved && record.announcedAt !== movedAt) {
+    await onOwnAddressMoved(from, to, movedAt);
+    await updateOwnAddressRecord({ announcedAt: movedAt });
+  }
+  if (appsDue) {
+    if (staying.length && onAddressChanged) await onAddressChanged(staying, `node ip changed to ${ip}`, `ownMove:${movedAt}`);
+    await updateOwnAddressRecord({ appsHandledAt: movedAt });
+  }
+  if (ipChanged && record.geolocatedAt !== movedAt) {
+    // Update geolocation service to track IP change and update static IP status
+    // eslint-disable-next-line global-require
+    const geolocationService = require('./geolocationService');
+    geolocationService.setNodeGeolocation();
+    await updateOwnAddressRecord({ geolocatedAt: movedAt });
+  }
+  if (await confirmOwnAddress(record)) await updateOwnAddressRecord({ settledAt: movedAt });
 }
 
 // Work on this node's own address, one piece at a time in the order it came.
@@ -1897,9 +1975,7 @@ async function fluxStillAnswersAt(socketAddress) {
 function leaveConfiguredAddress(previous, current) {
   return serialiseOwnAddressWork(async () => {
     const from = normalizeSocketAddress(previous);
-    const to = normalizeSocketAddress(current);
-    await adjustExternalIp(from, to, { announceMove: await ranAppsAt(from) });
-    await writeOwnAddressRecord(to, from);
+    await adjustExternalIp(from, current, { announceMove: await ranAppsAt(from) });
   });
 }
 
@@ -1925,13 +2001,14 @@ function handleOwnAddress(current) {
     if (!socketAddressesMatch(previous, reported)) {
       if (!record && await fluxStillAnswersAt(previous)) {
         log.warn(`own address - a Flux node answers at ${previous}, the configured address, so ${reported} is not a move from it`);
-        await writeOwnAddressRecord(reported, null);
+        await writeOwnAddressRecord(reported);
         return;
       }
       await adjustExternalIp(previous, reported, { announceMove: Boolean(record) || await ranAppsAt(previous) });
-      await writeOwnAddressRecord(reported, previous);
     } else if (!record) {
-      await writeOwnAddressRecord(reported, null);
+      await writeOwnAddressRecord(reported);
+    } else {
+      await reconcileOwnMove();
     }
   });
 }
@@ -2461,9 +2538,21 @@ function onOwnAddressChanged() {
   requestUnscheduledAvailabilityCheck();
 }
 
+/**
+ * Brings this node to the move its own address record holds, on the
+ * own-address queue.
+ * @returns {Promise<void>}
+ */
+function requestOwnMoveReconcile() {
+  return serialiseOwnAddressWork(reconcileOwnMove);
+}
+
+/**
+ * What a node list refresh runs.
+ * @returns {Promise<Array>} Settles once each has.
+ */
 function onNetworkListUpdated() {
-  requestCollisionCheck();
-  requestUnscheduledAvailabilityCheck();
+  return Promise.all([requestOwnMoveReconcile(), requestCollisionCheck(), requestUnscheduledAvailabilityCheck()]);
 }
 
 // Stops the node list listener of the own-standing watch, while it runs.

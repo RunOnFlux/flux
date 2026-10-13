@@ -2569,6 +2569,46 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledOnceWithExactly(storeMove, message);
     });
 
+    describe('handleOwnAddressMove', () => {
+      const AT = 1791698450000;
+      let drop;
+
+      beforeEach(() => {
+        sinon.stub(fluxCommunicationMessagesSender, 'serialiseAndSignFluxBroadcast').callsFake(async (data) => JSON.stringify({
+          version: 1, timestamp: AT, pubKey: '04own', signature: 'sig', data,
+        }));
+        drop = sinon.stub(peerManager, 'dropAllConnections').returns(0);
+      });
+
+      afterEach(() => {
+        peerManager.listeners('peerConnected').forEach((listener) => {
+          if (listener.name === 'sendOwnMovesTo') peerManager.off('peerConnected', listener);
+        });
+        fluxCommunication.noteOwnMoveHeardBack(objectHash({
+          type: 'fluxipchanged', version: 1, oldIP: OLD, newIP: NEW, broadcastedAt: AT,
+        }));
+      });
+
+      it('records and announces a move it has not recorded', async () => {
+        sinon.stub(registryManager, 'addressMovesFrom').resolves(new Map());
+
+        await fluxCommunication.handleOwnAddressMove(OLD, NEW, AT);
+
+        sinon.assert.calledOnce(storeEvent);
+        sinon.assert.calledOnce(drop);
+      });
+
+      it('leaves a move it has already recorded at that time as it is: no second record, no connections dropped again', async () => {
+        sinon.stub(registryManager, 'addressMovesFrom').resolves(new Map([[OLD, { to: NEW, at: AT, signer: '04own' }]]));
+
+        await fluxCommunication.handleOwnAddressMove(OLD, NEW, AT);
+
+        sinon.assert.notCalled(storeEvent);
+        sinon.assert.notCalled(storeMove);
+        sinon.assert.notCalled(drop);
+      });
+    });
+
     it('records nothing when this node cannot sign as itself', async () => {
       sinon.stub(fluxCommunicationMessagesSender, 'serialiseAndSignFluxBroadcast').resolves(null);
 

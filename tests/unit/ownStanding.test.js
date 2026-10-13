@@ -173,8 +173,7 @@ describe('fluxNetworkHelper own standing tests', () => {
       expect(availabilityAsks(), 'asked while the question could not be answered').to.equal(asked);
 
       answerable();
-      listUpdated();
-      await clock.tickAsync(0);
+      await listUpdated();
       expect(availabilityAsks(), 'the list refresh did not ask').to.equal(asked + 1);
       await clock.tickAsync(config.fluxapps.availabilityCheckIntervalMs);
       expect(availabilityAsks(), 'the schedule did not resume').to.equal(asked + 2);
@@ -328,12 +327,10 @@ describe('fluxNetworkHelper own standing tests', () => {
     });
 
     it('runs on each node list refresh', async () => {
-      listUpdated();
-      await clock.tickAsync(0);
+      await listUpdated();
       expect(fluxCommunicationUtils.deterministicFluxList.callCount).to.equal(1);
 
-      listUpdated();
-      await clock.tickAsync(0);
+      await listUpdated();
       expect(fluxCommunicationUtils.deterministicFluxList.callCount).to.equal(2);
     });
 
@@ -345,8 +342,7 @@ describe('fluxNetworkHelper own standing tests', () => {
     });
 
     it('runs nowhere else: a pass leaves nothing scheduled to run it again', async () => {
-      listUpdated();
-      await clock.tickAsync(0);
+      await listUpdated();
       const passes = fluxCommunicationUtils.deterministicFluxList.callCount;
       expect(passes).to.equal(1);
 
@@ -392,7 +388,7 @@ describe('fluxNetworkHelper own standing tests', () => {
       await fluxNetworkHelper.requestCollisionCheck();
       await recording;
 
-      sinon.assert.calledOnceWithExactly(moved, '129.3.3.3:16127', '129.3.3.3:16157');
+      sinon.assert.calledOnceWithExactly(moved, '129.3.3.3:16127', '129.3.3.3:16157', sinon.match.number);
     });
   });
 });

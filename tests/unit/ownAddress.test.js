@@ -11,6 +11,7 @@ const networkStateService = require('../../ZelBack/src/services/networkStateServ
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const geolocationService = require('../../ZelBack/src/services/geolocationService');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const { requireMongo } = require('./dbTestHelper');
 
@@ -75,7 +76,7 @@ describe('fluxNetworkHelper own address tests', () => {
 
     await fluxNetworkHelper.handleOwnAddress('198.51.100.2:16157');
 
-    sinon.assert.calledOnceWithExactly(moved, '198.51.100.2:16127', '198.51.100.2:16157');
+    sinon.assert.calledOnceWithExactly(moved, '198.51.100.2:16127', '198.51.100.2:16157', sinon.match.number);
     sinon.assert.notCalled(serviceHelper.axiosGet);
     sinon.assert.calledOnce(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
     sinon.assert.notCalled(fs.writeFile);
@@ -91,7 +92,7 @@ describe('fluxNetworkHelper own address tests', () => {
 
     await fluxNetworkHelper.handleOwnAddress('198.51.100.33:16127');
 
-    sinon.assert.calledOnceWithExactly(moved, '198.51.100.3:16127', '198.51.100.33:16127');
+    sinon.assert.calledOnceWithExactly(moved, '198.51.100.3:16127', '198.51.100.33:16127', sinon.match.number);
     sinon.assert.calledWithMatch(fs.writeFile, sinon.match.string, sinon.match(/ipaddress: '198.51.100.33',/));
     sinon.assert.calledOnce(geolocationService.setNodeGeolocation);
     expect(await record()).to.deep.equal({ socketAddress: '198.51.100.33:16127', movedFrom: '198.51.100.3:16127' });
@@ -104,7 +105,7 @@ describe('fluxNetworkHelper own address tests', () => {
 
     await fluxNetworkHelper.handleOwnAddress('198.51.100.44:16137');
 
-    sinon.assert.calledOnceWithExactly(moved, '198.51.100.4:16137', '198.51.100.44:16137');
+    sinon.assert.calledOnceWithExactly(moved, '198.51.100.4:16137', '198.51.100.44:16137', sinon.match.number);
     sinon.assert.calledTwice(serviceHelper.axiosGet.withArgs('http://198.51.100.4:16137/flux/version'));
   });
 
@@ -115,7 +116,7 @@ describe('fluxNetworkHelper own address tests', () => {
 
       await fluxNetworkHelper.handleOwnAddress('198.51.100.16:16127');
 
-      sinon.assert.calledOnceWithExactly(moved, '198.51.100.15:16127', '198.51.100.16:16127');
+      sinon.assert.calledOnceWithExactly(moved, '198.51.100.15:16127', '198.51.100.16:16127', sinon.match.number);
       sinon.assert.calledOnce(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
       sinon.assert.calledWithMatch(fs.writeFile, sinon.match.string, sinon.match(/ipaddress: '198.51.100.16',/));
       expect(await record()).to.deep.equal({ socketAddress: '198.51.100.16:16127', movedFrom: '198.51.100.15:16127' });
@@ -162,7 +163,7 @@ describe('fluxNetworkHelper own address tests', () => {
     await fluxNetworkHelper.handleOwnAddress('198.51.100.24:16127');
 
     sinon.assert.notCalled(listedHere);
-    sinon.assert.calledOnceWithExactly(moved, '198.51.100.23:16127', '198.51.100.24:16127');
+    sinon.assert.calledOnceWithExactly(moved, '198.51.100.23:16127', '198.51.100.24:16127', sinon.match.number);
   });
 
   it('holding no address, adopts the reported one without a move while a Flux node answers at the configured address', async () => {
@@ -223,7 +224,7 @@ describe('fluxNetworkHelper own address tests', () => {
     stop();
     fluxNetworkHelper.setLocalSocketAddress(null);
 
-    sinon.assert.calledOnceWithExactly(moved, '198.51.100.7:16127', '198.51.100.7:16157');
+    sinon.assert.calledOnceWithExactly(moved, '198.51.100.7:16127', '198.51.100.7:16157', sinon.match.number);
   });
 
   it('acts on each change of the address once the watch has started, and on none once it has stopped', async () => {
@@ -239,7 +240,7 @@ describe('fluxNetworkHelper own address tests', () => {
     await fluxNetworkHelper.handleOwnAddress('198.51.100.10:16157');
     fluxNetworkHelper.setLocalSocketAddress(null);
 
-    sinon.assert.calledOnceWithExactly(moved, '198.51.100.10:16127', '198.51.100.10:16157');
+    sinon.assert.calledOnceWithExactly(moved, '198.51.100.10:16127', '198.51.100.10:16157', sinon.match.number);
   });
 
   describe('where this node is, for an address benchmark reports', () => {
@@ -287,6 +288,116 @@ describe('fluxNetworkHelper own address tests', () => {
     });
   });
 
+  describe('a move finished across passes', () => {
+    const HOUR = 60 * 60 * 1000;
+    const fullRecord = () => records.findOne({ _id: 'own' });
+    // A pass of the reconcile: benchmark reports the address the record holds.
+    const pass = (address) => fluxNetworkHelper.handleOwnAddress(address);
+
+    it('finishes a move a failing step stopped, counting its IP change once and announcing it once', async () => {
+      configure('198.51.100.51');
+      await adopt('198.51.100.51:16127');
+      fs.writeFile.onFirstCall().rejects(new Error('disk full'));
+
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.52:16127');
+      sinon.assert.notCalled(moved);
+      await pass('198.51.100.52:16127');
+
+      sinon.assert.calledOnceWithExactly(moved, '198.51.100.51:16127', '198.51.100.52:16127', sinon.match.number);
+      sinon.assert.calledWithMatch(fs.writeFile, sinon.match.string, sinon.match(/ipaddress: '198.51.100.52',/));
+      expect((await fullRecord()).recentIpChanges).to.have.lengthOf(1);
+    });
+
+    it('announces a move once when a pass stopped after announcing it, and asks the restart again under the same key', async () => {
+      configure('198.51.100.53');
+      await adopt('198.51.100.53:16127');
+      appQueryService.installedApps.resolves({ status: 'success', data: [{ name: 'keeps', version: 4 }] });
+      restarted.onFirstCall().rejects(new Error('reconciler unavailable'));
+
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.54:16127');
+      await pass('198.51.100.54:16127');
+
+      sinon.assert.calledOnce(moved);
+      sinon.assert.calledTwice(restarted);
+      const { movedAt } = await fullRecord();
+      expect(restarted.getCalls().map((call) => call.args[2])).to.deep.equal([`ownMove:${movedAt}`, `ownMove:${movedAt}`]);
+      expect((await fullRecord()).appsHandledAt).to.equal(movedAt);
+    });
+
+    it('asks again for a refused confirmation, not again for an accepted one, and does nothing once the chain lists the new address', async () => {
+      configure('198.51.100.55');
+      await adopt('198.51.100.55:16127');
+      const confirm = daemonServiceFluxnodeRpcs.createConfirmationTransaction;
+      confirm.onFirstCall().resolves({ status: 'error', data: { message: 'benchmark unreachable' } });
+      confirm.onSecondCall().resolves({ status: 'success', data: { status: 'Successfully Sent' } });
+
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.56:16127');
+      await pass('198.51.100.56:16127');
+      await pass('198.51.100.56:16127');
+      expect(confirm.callCount, 'refused, then accepted, then not asked again').to.equal(2);
+
+      daemonServiceFluxnodeRpcs.getFluxNodeStatus.resolves({ status: 'success', data: { ip: '198.51.100.56' } });
+      await pass('198.51.100.56:16127');
+      const { movedAt, settledAt } = await fullRecord();
+      expect(settledAt).to.equal(movedAt);
+      daemonServiceFluxnodeRpcs.getFluxNodeStatus.resetHistory();
+      await pass('198.51.100.56:16127');
+      sinon.assert.notCalled(daemonServiceFluxnodeRpcs.getFluxNodeStatus);
+      expect(confirm.callCount).to.equal(2);
+    });
+
+    it('takes a node out of service for its second IP change within 20 hours, as the record holds them across a restart', async () => {
+      configure('198.51.100.57');
+      await records.insertOne({ _id: 'own', socketAddress: '198.51.100.57:16127', movedFrom: null, recentIpChanges: [Date.now() - HOUR] });
+      appQueryService.installedApps.resolves({ status: 'success', data: [{ name: 'removed', version: 4 }] });
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.58:16127');
+
+      sinon.assert.calledWith(appUninstaller.removeAppLocally, 'removed');
+      expect(fluxNetworkHelper.getMaxNumberOfIpChanges()).to.equal(2);
+      fluxNetworkHelper.setDosTooManyIpChanges(false);
+    });
+
+    it('counts no IP change older than 20 hours', async () => {
+      configure('198.51.100.59');
+      await records.insertOne({ _id: 'own', socketAddress: '198.51.100.59:16127', movedFrom: null, recentIpChanges: [Date.now() - 21 * HOUR] });
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.60:16127');
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      expect((await fullRecord()).recentIpChanges).to.have.lengthOf(1);
+    });
+
+    it('decides a move once when a second caller decides it again', async () => {
+      configure('198.51.100.61');
+      await adopt('198.51.100.61:16127');
+      listedHere.resolves(['ranthere']);
+
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.62:16127');
+      const { movedAt } = await fullRecord();
+      await fluxNetworkHelper.leaveConfiguredAddress('198.51.100.61:16127', '198.51.100.62:16127');
+
+      expect((await fullRecord()).movedAt).to.equal(movedAt);
+      expect((await fullRecord()).recentIpChanges).to.have.lengthOf(1);
+      sinon.assert.calledOnce(moved);
+    });
+
+    it('rewrites no configured IP, handles no apps and counts nothing for a move of the port alone', async () => {
+      configure('198.51.100.63');
+      await adopt('198.51.100.63:16127');
+      appQueryService.installedApps.resolves({ status: 'success', data: [{ name: 'stays', version: 4 }] });
+
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.63:16157');
+
+      sinon.assert.notCalled(fs.writeFile);
+      sinon.assert.notCalled(restarted);
+      expect((await fullRecord()).recentIpChanges).to.deep.equal([]);
+      sinon.assert.calledOnce(moved);
+    });
+  });
+
   describe('the collision check', () => {
     beforeEach(() => {
       sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
@@ -319,7 +430,7 @@ describe('fluxNetworkHelper own address tests', () => {
 
       await fluxNetworkHelper.checkDeterministicNodesCollisions();
 
-      sinon.assert.calledOnceWithExactly(moved, '198.51.100.9:16127', '198.51.100.9:16157');
+      sinon.assert.calledOnceWithExactly(moved, '198.51.100.9:16127', '198.51.100.9:16157', sinon.match.number);
       expect(await record()).to.deep.equal({ socketAddress: '198.51.100.9:16157', movedFrom: '198.51.100.9:16127' });
     });
 

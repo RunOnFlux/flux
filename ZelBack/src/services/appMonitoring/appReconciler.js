@@ -1410,16 +1410,18 @@ async function enqueueAll(reason = 'resync') {
  *
  * @param {Array<object>} installed Records from appQueryService.installedApps().
  * @param {string} reason Why, for the log.
+ * @param {string} [key] What the restart is for: a repeat of the key restarts
+ *   nothing again (appsRuntimeState.requestRestart).
  * @returns {Promise<number>} How many components were asked.
  */
-async function requestRestartOf(installed, reason) {
+async function requestRestartOf(installed, reason, key) {
   const ids = await componentIdsOf(installed);
   let asked = 0;
   // eslint-disable-next-line no-restricted-syntax
   for (const id of ids) {
     // eslint-disable-next-line no-await-in-loop
     await applyIntent(id, async () => {
-      await appsRuntimeState.requestRestart(id);
+      await appsRuntimeState.requestRestart(id, { key });
     }).then(() => { asked += 1; })
       .catch((err) => log.error(`appReconciler - could not request restart of ${id} (${reason}): ${err.message}`));
   }

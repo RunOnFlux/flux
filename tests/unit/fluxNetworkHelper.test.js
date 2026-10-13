@@ -28,6 +28,7 @@ const config = require('config');
 const log = require('../../ZelBack/src/lib/log');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
@@ -1509,6 +1510,15 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('adjustExternalIp tests', () => {
+    // Each case starts with no address of this node's own recorded: the IP
+    // changes the limit counts are read from that record.
+    before(requireMongo);
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      await dbHelper.databaseConnection().db(config.database.local.database)
+        .collection(config.database.local.collections.ownAddress).deleteMany({});
+    });
+
     let writeFileStub;
     let originalUserConfig;
     const socketAt = (ip) => (typeof ip === 'string' && ip ? `${ip}:16127` : ip);
@@ -1595,6 +1605,15 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('adjustExternalIp static IP app handling tests', () => {
+    // Each case starts with no address of this node's own recorded: the IP
+    // changes the limit counts are read from that record.
+    before(requireMongo);
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      await dbHelper.databaseConnection().db(config.database.local.database)
+        .collection(config.database.local.collections.ownAddress).deleteMany({});
+    });
+
     let writeFileStub;
     let originalUserConfig;
     let appQueryServiceStub;
@@ -1737,7 +1756,7 @@ describe('fluxNetworkHelper tests', () => {
 
       await fluxNetworkHelperWithStubs.adjustExternalIp('127.0.0.1:16127', '192.168.1.102:16127');
 
-      sinon.assert.calledOnceWithExactly(onOwnAddressMovedSpy, '127.0.0.1:16127', '192.168.1.102:16127');
+      sinon.assert.calledOnceWithExactly(onOwnAddressMovedSpy, '127.0.0.1:16127', '192.168.1.102:16127', sinon.match.number);
       sinon.assert.callOrder(onOwnAddressMovedSpy, onAddressChangedSpy);
     });
 
@@ -2402,7 +2421,7 @@ describe('fluxNetworkHelper tests', () => {
         fluxNetworkHelper.setInstalledAppsListedAt(null);
       }
 
-      sinon.assert.calledOnceWithExactly(moved, `${ip}:16127`, `${ip}:16157`);
+      sinon.assert.calledOnceWithExactly(moved, `${ip}:16127`, `${ip}:16157`, sinon.match.number);
       sinon.assert.callOrder(moved, daemonServiceFluxnodeRpcs.createConfirmationTransaction);
       const lines = logInfo.getCalls().map((call) => String(call.args[0]));
       expect(lines.some((line) => line.includes('node was confirmed on a different machine'))).to.equal(false);

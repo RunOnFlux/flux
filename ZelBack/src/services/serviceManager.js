@@ -645,11 +645,11 @@ async function startFluxFunctions() {
     // the node's address moved, so every app that survived it has to come up on
     // the new one - asked for durably here rather than driven from the network
     // layer, which sits underneath the reconciler and cannot require it
-    fluxNetworkHelper.setOnAddressChanged((apps, reason) => appReconciler.requestRestartOf(apps, reason));
+    fluxNetworkHelper.setOnAddressChanged((apps, reason, key) => appReconciler.requestRestartOf(apps, reason, key));
     // this node's own address moved: it records the move as its peers will, so
     // it knows FDM naming its old IP means itself, and tells them once it has
     // peers at the new address
-    fluxNetworkHelper.setOnOwnAddressMoved((oldIp, newIp) => fluxCommunication.handleOwnAddressMove(oldIp, newIp));
+    fluxNetworkHelper.setOnOwnAddressMoved((oldIp, newIp, movedAt) => fluxCommunication.handleOwnAddressMove(oldIp, newIp, movedAt));
     // whether this node ran apps at an address it has no record of leaving
     fluxNetworkHelper.setInstalledAppsListedAt((socketAddress) => appQueryService.installedAppsListedAt(socketAddress));
     fluxCommunication.announceRecordedOwnMovesWhenConnected();
