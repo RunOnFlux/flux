@@ -23,6 +23,14 @@ const API_PORT = 16127;
 const DETECTION_MS = 6 * 60 * 1000;
 // Past the 120s after which a move is signed again.
 const UNHEARD_MS = 150 * 1000;
+// A move is sent, and applied, for as long as a location stands. Production's
+// lifetime (125 min) outlasts the time unheard by far; the shared harness
+// fleet's 63s does not, and the move would expire before any peer could hear it.
+// This fleet keeps production's order.
+const LOCATION_TTL_S = 30 * 60;
+if (LOCATION_TTL_S * 1000 <= UNHEARD_MS) {
+  throw new Error('2236: a location must outlive the time the move goes unheard');
+}
 
 describe('a move told late carries the time it was made', function () {
   let env;
@@ -40,7 +48,7 @@ describe('a move told late carries the time it was made', function () {
       hookCtx: this,
       nodes: 3,
       tickerAutostart: false,
-      configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1 } },
+      configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1, locationTtlS: LOCATION_TTL_S } },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
     fromIp = client(MOVER).ip;
