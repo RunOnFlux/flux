@@ -611,10 +611,24 @@ describe('fluxCommunicationUtils tests', () => {
       expect(await fluxCommunicationUtils.verifyFluxBroadcast(portMove)).to.equal(VerifyResult.OK);
     });
 
-    it('refuses a move when the node listed at either address holds another key', async () => {
+    it('refuses a move when the node listed at its new address holds another key', async () => {
       listedAt.withArgs(NEW).resolves({ ip: NEW, pubkey: 'anotherkey' });
 
       expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.PUBKEY_MISMATCH);
+    });
+
+    it('refuses a move away from an address listed under another key, though the signer is listed at the new one', async () => {
+      listedAt.withArgs(OLD).resolves({ ip: OLD, pubkey: 'anotherkey' });
+      listedAt.withArgs(NEW).resolves({ ip: NEW, pubkey: pubKey });
+
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.PUBKEY_MISMATCH);
+    });
+
+    it('accepts a move listed under the signer at both addresses', async () => {
+      listedAt.withArgs(OLD).resolves({ ip: OLD, pubkey: pubKey });
+      listedAt.withArgs(NEW).resolves({ ip: NEW, pubkey: pubKey });
+
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.OK);
     });
 
     it('refuses a move when neither address is listed', async () => {

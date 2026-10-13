@@ -112,11 +112,11 @@ const VerifyResult = Object.freeze({
 });
 
 /**
- * The addresses a broadcast's signer may be listed at. A move names two, the
- * address the node left and the one it holds now, and the list shows whichever
- * the chain has reached: the move's own confirmation can be mined before or
- * after peers hear the move. The key is that node's at both. Every other
- * broadcast speaks for the node at one address.
+ * The addresses a broadcast's signer may be listed at, the one it speaks for
+ * first. A move names two, the address the node left and the one it holds now,
+ * and the list shows whichever the chain has reached: the move's own
+ * confirmation can be mined before or after peers hear the move. The key is that
+ * node's at both. Every other broadcast speaks for the node at one address.
  * @param {object} payload The broadcast's data.
  * @param {string} target The one address the broadcast's type names.
  * @returns {string[]}
@@ -127,8 +127,10 @@ function signerAddresses(payload, target) {
 }
 
 /**
- * Whether a node listed at one of `addresses` holds `pubKey`.
- * @param {string[]} addresses
+ * Whether the node `addresses` speaks for holds `pubKey`. A node listed at the
+ * first address under another key is the one that address speaks for, whatever
+ * the others show; the others count only while nothing is listed at it.
+ * @param {string[]} addresses From signerAddresses.
  * @param {string} pubKey
  * @returns {Promise<string>} VerifyResult.OK, PUBKEY_MISMATCH when a node is
  *   listed there under another key, or NODE_NOT_FOUND when none is.
@@ -136,12 +138,13 @@ function signerAddresses(payload, target) {
 async function listedSignerVerdict(addresses, pubKey) {
   let listed = false;
   // eslint-disable-next-line no-restricted-syntax
-  for (const address of addresses) {
+  for (const [index, address] of addresses.entries()) {
     // eslint-disable-next-line no-await-in-loop
     const node = await networkStateService.getFluxnodeBySocketAddress(address);
     if (node) {
-      listed = true;
       if (node.pubkey === pubKey) return VerifyResult.OK;
+      if (index === 0) return VerifyResult.PUBKEY_MISMATCH;
+      listed = true;
     }
   }
   return listed ? VerifyResult.PUBKEY_MISMATCH : VerifyResult.NODE_NOT_FOUND;
