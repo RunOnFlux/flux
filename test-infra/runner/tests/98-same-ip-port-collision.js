@@ -12,8 +12,9 @@ import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import {
-  setNodeAddress, clearNodeAddress, removeFromNodeList, restoreToNodeList,
+  setNodeAddress, removeFromNodeList, restoreToNodeList,
 } from '../framework/daemon-control.js';
+import { dbClient } from '../framework/db-client.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -60,59 +61,56 @@ const LONE_DISSENT_PORT = 31125; // test 5: installs, one peer dissenting
 
 const STUB_PEERS = [2, 3, 4];
 
+// An app wanting one named port, for either deployment path.
+// The whole suite rests on two apps wanting one port, which is exactly what
+// buildSeedableApp refuses by default. Said out loud, once, here.
+const appWanting = async (name, port) => {
+  await pushImage(name, 'v1');
+  return buildSeedableApp({
+    name,
+    allowPortReuse: true,
+    compose: [{
+      name,
+      description: 'test container',
+      repotag: `${REGISTRY_REPO_HOST}/${name}:v1`,
+      ports: [port],
+      domains: [''],
+      environmentParameters: [],
+      commands: [],
+      containerPorts: [80],
+      containerData: '/tmp',
+      cpu: 0.1,
+      ram: 100,
+      hdd: 1,
+      repoauth: '',
+    }],
+  });
+};
+
+
 describe('a port another Flux node at this address holds', function () {
   let env;
   let subnet;
-  let askerIp;
   let siblingIp;
   dumpLogsOnFailure(() => env);
-
-  // An app wanting one named port, for either deployment path.
-  // The whole suite rests on two apps wanting one port, which is exactly what
-  // buildSeedableApp refuses by default. Said out loud, once, here.
-  const appWanting = async (name, port) => {
-    await pushImage(name, 'v1');
-    return buildSeedableApp({
-      name,
-      allowPortReuse: true,
-      compose: [{
-        name,
-        description: 'test container',
-        repotag: `${REGISTRY_REPO_HOST}/${name}:v1`,
-        ports: [port],
-        domains: [''],
-        environmentParameters: [],
-        commands: [],
-        containerPorts: [80],
-        containerData: '/tmp',
-        cpu: 0.1,
-        ram: 100,
-        hdd: 1,
-        repoauth: '',
-      }],
-    });
-  };
 
   before(async function () {
     this.timeout(600000);
     env = await createTestEnv({ hookCtx: this, nodes: 5, stubPeers: STUB_PEERS });
     subnet = getSubnetConfig();
-    askerIp = subnet.nodeIp(1);
     siblingIp = subnet.nodeIp(2);
     await bootAndPeer(env);
   });
 
   after(async function () {
     this.timeout(60000);
-    await clearNodeAddress(askerIp).catch(() => {});
     await restoreToNodeList(siblingIp).catch(() => {});
     await env?.teardown();
   });
 
   it('reports the ports the node has installed', async function () {
     this.timeout(300000);
-    // Targeted rather than spawned: the sibling test below has to know which
-    // node holds the port, and the spawner picks its own.
+    // Targeted rather than spawned, so the node that answers is the one asked.
     const app = await appWanting('heldportapp', HELD_PORT);
     await installOnNodes(env, app, [1]);
 
@@ -184,31 +182,6 @@ describe('a port another Flux node at this address holds', function () {
     expect(named.status, 'the carve-out was lost').to.equal(202);
   });
 
-  // The front door. The asker reports itself at the sibling's address on a
-  // different api port, which is what a second node behind one router does.
-  it('refuses an install onto a port a Flux node at this address holds', async function () {
-    this.timeout(600000);
-    await setNodeAddress(askerIp, `${siblingIp}:${SIBLING_API_PORT}`, { scope: 'all' });
-
-    // Anchored before the seed: an unanchored wait answers from the buffer, and
-    // this suite publishes these same names in more than one test.
-    const siblingAfter = env.clients[0].getLastEventId();
-    const app = await appWanting('siblingheldapp', HELD_PORT);
-    await seedSpawnerApp(env, app);
-
-    const held = await env.clients[0].waitForEvent(
-      'spawner:deferred',
-      (d) => d.reason === 'sibling_holds_port' && d.appName === 'siblingheldapp',
-      420000,
-      { afterId: siblingAfter },
-    );
-
-    // The sibling and the port are named, so this cannot pass on a deferral for
-    // one of the seven other reasons the spawner stands down for.
-    expect(held.data.port).to.equal(HELD_PORT);
-    expect(held.data.address).to.contain(siblingIp);
-  });
-
   // The decider. Every peer that could be asked answers a pass without ever
   // connecting, which is what the asker receives when the router forwarded its
   // port to a sibling: something answered, and it was not this node.
@@ -217,7 +190,6 @@ describe('a port another Flux node at this address holds', function () {
   // what comes back when the router forwarded that port to a neighbour.
   it('refuses a port answered by an application that is not this node\'s', async function () {
     this.timeout(420000);
-    await clearNodeAddress(askerIp);
     // Only the stubs may be drawn, so every possible answer is the foreign one -
     // and node 0 has to have READ the removal before anything is seeded. The
     // list is polled on a timer, so removing the sibling and seeding straight
@@ -353,5 +325,63 @@ describe('a port another Flux node at this address holds', function () {
       const res = await env.clients[0].getInstalledApps();
       return res.status === 'success' && res.data.some((a) => a.name === 'sightedprobeapp');
     }, { timeout: 300000, label: 'sightedprobeapp installs once peers connect' });
+  });
+});
+
+// The front door, on a fleet whose asker boots behind the sibling's address: it
+// reports itself at the sibling's IP on its own api port from its first
+// reading, which is what a second node behind one router does. It never
+// changes address, so nothing here counts towards the limit on IP changes.
+describe('a port another Flux node at this address holds, asked by a node that shares the address', function () {
+  const SIBLING = 0;
+  const SHARED_STUB_PEERS = [1, 2, 3];
+  const ASKER = 4;
+  let env;
+  let subnet;
+  let siblingIp;
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(900000);
+    env = await createTestEnv({
+      hookCtx: this, nodes: 5, deferredNodes: 1, stubPeers: SHARED_STUB_PEERS,
+    });
+    subnet = getSubnetConfig();
+    siblingIp = subnet.nodeIp(SIBLING + 1);
+    await bootAndPeer(env);
+    await installOnNodes(env, await appWanting('heldportapp', HELD_PORT), [SIBLING]);
+    await setNodeAddress(subnet.nodeIp(ASKER + 1), `${siblingIp}:${SIBLING_API_PORT}`, { scope: 'all' });
+    await env.startNode(ASKER);
+    await waitFor(async () => (await dbClient(ASKER + 1).ownAddressRecord())?.socketAddress === `${siblingIp}:${SIBLING_API_PORT}`, {
+      timeout: 180000, interval: 3000, label: 'the asker holds the sibling\'s address as its own',
+    });
+    const record = await dbClient(ASKER + 1).ownAddressRecord();
+    expect(record.movedFrom, 'fixture: the asker adopted the shared address, it did not move to it').to.equal(null);
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await env?.teardown();
+  });
+
+  it('refuses an install onto a port a Flux node at this address holds', async function () {
+    this.timeout(600000);
+    // Anchored before the seed: an unanchored wait answers from the buffer, and
+    // this suite publishes these same names in more than one test.
+    const siblingAfter = env.clients[ASKER].getLastEventId();
+    const app = await appWanting('siblingheldapp', HELD_PORT);
+    await seedSpawnerApp(env, app);
+
+    const held = await env.clients[ASKER].waitForEvent(
+      'spawner:deferred',
+      (d) => d.reason === 'sibling_holds_port' && d.appName === 'siblingheldapp',
+      420000,
+      { afterId: siblingAfter },
+    );
+
+    // The sibling and the port are named, so this cannot pass on a deferral for
+    // one of the seven other reasons the spawner stands down for.
+    expect(held.data.port).to.equal(HELD_PORT);
+    expect(held.data.address).to.contain(siblingIp);
   });
 });
