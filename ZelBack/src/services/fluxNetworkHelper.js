@@ -113,7 +113,8 @@ const placementHolds = new Map();
 
 let storedFluxBenchAllowed = null;
 let ipChangeData = null;
-let dosTooManyIpChanges = false;
+// When this node last changed its IP over the limit (monotonic ms), or null.
+let tooManyIpChangesAt = null;
 let maxNumberOfIpChanges = 0;
 
 const myCache = cacheManager.ipCache;
@@ -1285,6 +1286,7 @@ function checkDockerVersionAllowed(dockerVersion) {
 async function checkFluxbenchVersionAllowed() {
   if (storedFluxBenchAllowed) {
     const versionOK = serviceHelper.semverAtLeast(storedFluxBenchAllowed, config.minimumFluxBenchAllowedVersion);
+    if (versionOK) releaseDosOwnedBy((message) => message.startsWith(FLUXBENCH_VERSION_MESSAGE_PREFIX));
     return versionOK;
   }
   try {
@@ -1295,6 +1297,7 @@ async function checkFluxbenchVersionAllowed() {
       setStoredFluxBenchAllowed(benchmarkVersion);
       const versionOK = serviceHelper.semverAtLeast(benchmarkVersion, config.minimumFluxBenchAllowedVersion);
       if (versionOK) {
+        releaseDosOwnedBy((message) => message.startsWith(FLUXBENCH_VERSION_MESSAGE_PREFIX));
         return true;
       }
       dosState += 11;
@@ -1564,7 +1567,7 @@ async function ipChangesOverLimit() {
             await serviceHelper.delay(500);
           }
         }
-        dosTooManyIpChanges = true;
+        tooManyIpChangesAt = monotonicMs();
         return true;
       }
     } else {
@@ -1620,7 +1623,7 @@ async function adjustExternalIp(previous, current) {
       if (await ipChangesOverLimit() && measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) {
         log.info('IP changes over the limit allowed, one in 20 hours');
         dosState += 11;
-        setDosMessage('IP changes over the limit allowed, one in 20 hours');
+        setDosMessage(IP_CHANGES_MESSAGE);
         log.error(dosMessage);
       }
       staying = await appsStayingThroughIpMove(previousSocket, currentSocket);
@@ -1860,18 +1863,36 @@ function startOwnAddressWatch() {
   };
 }
 
-// The DOS messages this node's own reachability checks set. There is one message
-// for every reason a node can be out of service, so each check clears only one it
-// set itself, matched against these.
+// The DOS messages this node's own checks set. There is one message for every
+// reason a node can be out of service, so each check clears only one it set
+// itself, matched against these.
 const UNREACHABLE_MESSAGE = 'Flux communication is limited, other nodes on the network cannot reach yours through API calls';
 const UNAVAILABLE_MESSAGE = 'Flux is not available for outside communication';
 const BENCH_PUBLIC_IP_MESSAGE = 'Error getting publicIp from FluxBench';
 const REACHABILITY_MESSAGES = [UNREACHABLE_MESSAGE, UNAVAILABLE_MESSAGE, BENCH_PUBLIC_IP_MESSAGE];
 const IP_DETECTION_FAILED_MESSAGE = 'Flux IP detection failed';
+const IP_CHANGES_MESSAGE = 'IP changes over the limit allowed, one in 20 hours';
+const FLUXBENCH_VERSION_MESSAGE_PREFIX = 'Fluxbench Version Error.';
+const COLLISION_MESSAGE_PREFIXES = ['Flux collision detection.', 'Flux earlier collision detection'];
+// How long a node that changed its IP over the limit stays out of service.
+const IP_CHANGES_HOLD_MS = 20 * 60 * 60 * 1000;
 
 function monotonicMs() {
   return Number(process.hrtime.bigint() / 1000000n);
 }
+
+/**
+ * Ends the node's DOS when the message standing is one `owns` recognises.
+ * @param {function(string): boolean} owns
+ * @returns {void}
+ */
+function releaseDosOwnedBy(owns) {
+  if (!dosMessage || !owns(dosMessage)) return;
+  dosState = 0;
+  setDosMessage(null);
+}
+
+const isCollisionMessage = (message) => COLLISION_MESSAGE_PREFIXES.some((prefix) => message.startsWith(prefix));
 
 /**
  * Ends the node's DOS when it is this check's, or when no check holds one.
@@ -1893,11 +1914,12 @@ let peerShortfallSeenAt = null;
  * @returns {Promise<boolean>} Return value is only for testing
  */
 async function checkMyFluxAvailability(retryNumber = 0) {
-  if (dosTooManyIpChanges) {
+  if (tooManyIpChangesAt !== null && monotonicMs() - tooManyIpChangesAt < IP_CHANGES_HOLD_MS) {
     dosState += 11;
-    setDosMessage('IP changes over the limit allowed, one in 20 hours');
+    setDosMessage(IP_CHANGES_MESSAGE);
     return false;
   }
+  releaseDosOwnedBy((message) => message === IP_CHANGES_MESSAGE);
 
   if (localSocketAddress === null) return false;
 
@@ -2100,6 +2122,8 @@ async function checkDeterministicNodesCollisions() {
         // waiting for its confirmation: nothing to judge.
         const ownRecord = nodeCollateralDifferentIp ? await ownAddressRecord() : null;
         const movedFromHere = Boolean(ownRecord?.movedFrom) && socketAddressesMatch(ownRecord.movedFrom, nodeCollateralDifferentIp.ip);
+        // Listed nowhere it should not be: whatever this check said no longer holds.
+        if (!nodeCollateralDifferentIp || movedFromHere) releaseDosOwnedBy(isCollisionMessage);
         if (nodeStatus.data.status === 'CONFIRMED' && nodeCollateralDifferentIp && !movedFromHere) {
           let errorCall = false;
           const askingIP = extractIp(nodeCollateralDifferentIp.ip);
@@ -2140,12 +2164,7 @@ async function checkDeterministicNodesCollisions() {
             log.info(`Other node at ${askingIP}:${askingIpPort} confirmed offline. Creating confirmation transaction to take over collateral...`);
             const daemonResult = await daemonServiceFluxnodeRpcs.createConfirmationTransaction();
             log.info(`node was confirmed on a different machine ip - createConfirmationTransaction: ${JSON.stringify(daemonResult)}`);
-            // Clear any previous DOS state related to this collision
-            if (getDosMessage() && getDosMessage().includes('is confirmed and reachable on flux network')) {
-              log.info('Clearing previous collision DOS state - this node has successfully taken over the collateral');
-              dosState = 0;
-              setDosMessage(null);
-            }
+            releaseDosOwnedBy(isCollisionMessage);
           } else {
             // Other node came back online during grace period
             log.warn(`Node at ${askingIP}:${askingIpPort} came back online during grace period. Collision still exists.`);
@@ -2399,7 +2418,7 @@ function setSyncthingListenerKnown(value) {
 }
 
 function setDosTooManyIpChanges(value) {
-  dosTooManyIpChanges = value;
+  tooManyIpChangesAt = value ? monotonicMs() : null;
 }
 
 /**

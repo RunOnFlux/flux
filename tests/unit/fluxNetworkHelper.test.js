@@ -1287,6 +1287,38 @@ describe('fluxNetworkHelper tests', () => {
       expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal('2.0.0');
     });
 
+    it('ends its own DOS once the version is read and allowed', async () => {
+      fluxNetworkHelper.setDosMessage('Fluxbench Version Error. Error obtaining FluxBench Version.');
+      fluxNetworkHelper.setDosStateValue(11);
+      benchmarkInfoResponseStub.returns({ status: 'success', data: { version: '6.3.0' } });
+
+      expect(await fluxNetworkHelper.checkFluxbenchVersionAllowed()).to.equal(true);
+
+      expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
+    });
+
+    it('ends its own DOS on an allowed version it already holds', async () => {
+      fluxNetworkHelper.setStoredFluxBenchAllowed('6.3.0');
+      fluxNetworkHelper.setDosMessage('Fluxbench Version Error. Error obtaining Flux Version.');
+      fluxNetworkHelper.setDosStateValue(11);
+
+      expect(await fluxNetworkHelper.checkFluxbenchVersionAllowed()).to.equal(true);
+
+      expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+    });
+
+    it('leaves another check\'s DOS standing once the version is allowed', async () => {
+      fluxNetworkHelper.setDosMessage('Flux is not available for outside communication');
+      fluxNetworkHelper.setDosStateValue(11);
+      benchmarkInfoResponseStub.returns({ status: 'success', data: { version: '6.3.0' } });
+
+      await fluxNetworkHelper.checkFluxbenchVersionAllowed();
+
+      expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux is not available for outside communication');
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(11);
+    });
+
     it('should return false if the version is unattainable from benchmarkInfo', async () => {
       const benchmarkInfoResponse = {
         status: 'error',
@@ -2145,6 +2177,45 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
       expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
+    });
+
+    describe('a pass that finds this node listed only at its own address', () => {
+      const cleanPass = async () => {
+        getBenchmarksStub.resolves({ status: 'success', data: { ipaddress: '127.0.0.1:5050' } });
+        isDaemonSyncedStub.returns({ data: { synced: true } });
+        deterministicFluxListStub.returns([{ ...deterministicFluxnodeListResponse[0], ip: '127.0.0.1:5050' }]);
+        getFluxNodeStatusStub.returns({
+          status: 'success',
+          data: { status: 'CONFIRMED', collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)' },
+        });
+        await fluxNetworkHelper.checkDeterministicNodesCollisions();
+      };
+
+      [
+        'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.',
+        'Flux collision detection. Node at 127.0.0.2:16127 is confirmed and reachable on flux network with the same collateral transaction information.',
+        'Flux earlier collision detection on ip:127.0.0.1:5050',
+      ].forEach((message) => {
+        it(`ends its own DOS: ${message}`, async () => {
+          fluxNetworkHelper.setDosMessage(message);
+          fluxNetworkHelper.setDosStateValue(100);
+
+          await cleanPass();
+
+          expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+          expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
+        });
+      });
+
+      it('leaves another check\'s DOS standing', async () => {
+        fluxNetworkHelper.setDosMessage('Flux is not available for outside communication');
+        fluxNetworkHelper.setDosStateValue(11);
+
+        await cleanPass();
+
+        expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux is not available for outside communication');
+        expect(fluxNetworkHelper.getDosStateValue()).to.equal(11);
+      });
     });
 
     it('should trigger collision detection when same collateral exists on different IP and other node is reachable', async () => {

@@ -198,6 +198,23 @@ describe('fluxNetworkHelper own standing tests', () => {
       expect(fluxNetworkHelper.getDosStateValue()).to.be.below(1);
     });
 
+    it('holds the node out of service for 20 hours after its IP changed over the limit, then ends that DOS', async () => {
+      const IP_CHANGES = 'IP changes over the limit allowed, one in 20 hours';
+      clock.restore();
+      clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'hrtime'] });
+      fluxNetworkHelper.setDosTooManyIpChanges(true);
+
+      expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(false);
+      expect(fluxNetworkHelper.getDosMessage()).to.equal(IP_CHANGES);
+      clock.tick(20 * 60 * 60 * 1000 - 1);
+      expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(false);
+      expect(fluxNetworkHelper.getDosMessage()).to.equal(IP_CHANGES);
+
+      clock.tick(1);
+      expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(true);
+      expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+    });
+
     it('ends no DOS of another check\'s once reachable', async () => {
       fluxNetworkHelper.setDosMessage('Ports tested not reachable from outside');
       fluxNetworkHelper.setDosStateValue(100);
