@@ -2196,8 +2196,10 @@ async function runCollisionChecks() {
 // Whether what syncthing's listener for its peers is has been known: a peer asked
 // whether it can reach this node tests that port along with its api and home ports.
 let syncthingListenerKnown = false;
-// Whether the availability check has run at the address this node holds now.
-let availabilityCheckedHere = false;
+// Whether the availability check's next ask is scheduled at the address this
+// node holds now. While it is not, every change that can make the question
+// answerable asks it.
+let availabilityScheduled = false;
 let availabilityTimer = null;
 let availabilityRunning = null;
 
@@ -2229,12 +2231,17 @@ function scheduleAvailabilityCheck(delayMs) {
 /**
  * Asks whether this node can be reached, when that can be answered, and
  * schedules the next ask: sooner after a failure, so a false verdict clears.
+ * One that cannot be answered schedules nothing, and the next node list
+ * refresh, change of address or known syncthing listener asks again.
  * @returns {Promise<void>}
  */
 async function runAvailabilityCheck() {
   try {
-    if (!await availabilityCanBeAnswered()) return;
-    availabilityCheckedHere = true;
+    if (!await availabilityCanBeAnswered()) {
+      availabilityScheduled = false;
+      return;
+    }
+    availabilityScheduled = true;
     const available = await checkMyFluxAvailability();
     fluxEventBus.publish('availability:checked', { available, dosState, dosMessage: getDosMessage() });
     scheduleAvailabilityCheck(available
@@ -2262,12 +2269,12 @@ async function requestAvailabilityCheck() {
 }
 
 /**
- * The first availability check at this node's current address, once it can be
- * answered. Later ones run on the check's own schedule.
+ * The availability check, when none is scheduled. Once one is, the check runs
+ * on its own schedule.
  * @returns {Promise<void>}
  */
-async function requestFirstAvailabilityCheck() {
-  if (!availabilityCheckedHere) await requestAvailabilityCheck();
+async function requestUnscheduledAvailabilityCheck() {
+  if (!availabilityScheduled) await requestAvailabilityCheck();
 }
 
 /**
@@ -2276,7 +2283,7 @@ async function requestFirstAvailabilityCheck() {
  */
 function noteSyncthingListenerKnown() {
   syncthingListenerKnown = true;
-  requestFirstAvailabilityCheck();
+  requestUnscheduledAvailabilityCheck();
 }
 
 let publicIpAskTimer = null;
@@ -2344,15 +2351,15 @@ function ownAddressKnown() {
  */
 function onOwnAddressChanged() {
   ownAddressKnown();
-  availabilityCheckedHere = false;
+  availabilityScheduled = false;
   clearTimeout(availabilityTimer);
   requestCollisionCheck();
-  requestFirstAvailabilityCheck();
+  requestUnscheduledAvailabilityCheck();
 }
 
 function onNetworkListUpdated() {
   requestCollisionCheck();
-  requestFirstAvailabilityCheck();
+  requestUnscheduledAvailabilityCheck();
 }
 
 // Stops the node list listener of the own-standing watch, while it runs.
@@ -2383,7 +2390,7 @@ function stopOwnStandingWatch() {
   clearTimeout(publicIpAskTimer);
   publicIpAskTimer = null;
   emptyPublicIpAsks = 0;
-  availabilityCheckedHere = false;
+  availabilityScheduled = false;
   peerShortfallSeenAt = null;
 }
 

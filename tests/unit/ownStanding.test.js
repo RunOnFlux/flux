@@ -155,6 +155,30 @@ describe('fluxNetworkHelper own standing tests', () => {
       expect(availabilityAsks()).to.be.greaterThan(asked);
     });
 
+    it('asks on the next node list refresh once a scheduled ask could not be answered, and is on its schedule again', async () => {
+      let listUpdated;
+      sinon.stub(networkStateService, 'onUpdated').callsFake((listener) => {
+        listUpdated = listener;
+        return () => {};
+      });
+      answerable();
+      fluxNetworkHelper.startOwnStandingWatch();
+      await clock.tickAsync(0);
+      await fluxNetworkHelper.requestAvailabilityCheck();
+      const asked = availabilityAsks();
+
+      daemonServiceFluxnodeRpcs.getFluxNodeStatus.resolves({ status: 'error' });
+      await clock.tickAsync(config.fluxapps.availabilityCheckIntervalMs);
+      await clock.tickAsync(config.fluxapps.availabilityCheckIntervalMs);
+      expect(availabilityAsks(), 'asked while the question could not be answered').to.equal(asked);
+
+      answerable();
+      listUpdated();
+      await clock.tickAsync(0);
+      expect(availabilityAsks(), 'the list refresh did not ask').to.equal(asked + 1);
+      await clock.tickAsync(config.fluxapps.availabilityCheckIntervalMs);
+      expect(availabilityAsks(), 'the schedule did not resume').to.equal(asked + 2);
+    });
   });
 
   describe('the DOS the availability check owns', () => {
