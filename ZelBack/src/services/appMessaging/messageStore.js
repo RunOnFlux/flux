@@ -677,6 +677,9 @@ async function storeAppInstallingErrorMessage(message) {
  * @param {object} message - Message to store
  * @returns {Promise<boolean>} Whether message should be rebroadcast
  */
+// How long after it was made a move is applied: one older is refused.
+const IP_CHANGED_VALIDITY_MS = 65 * 60 * 1000;
+
 async function storeIPChangedMessage(message) {
   /* message object
   * @param type string
@@ -705,7 +708,7 @@ async function storeIPChangedMessage(message) {
   log.info('New Flux IP Changed message received.');
   log.info(message);
 
-  const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
+  const validTill = message.broadcastedAt + IP_CHANGED_VALIDITY_MS;
   if (validTill < Date.now()) {
     // reject old message
     return false;
@@ -1306,6 +1309,7 @@ module.exports = {
   storeAppStateEvent,
   storeBatchAppRunningEvents,
   APP_STATE_EVENT_TYPES,
+  IP_CHANGED_VALIDITY_MS,
   storeAppInstallingMessage,
   storeSignedAppInstallingBroadcast,
   storeBatchAppInstallingMessages,

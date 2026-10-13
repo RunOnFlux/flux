@@ -2540,12 +2540,14 @@ describe('fluxCommunication tests', () => {
         version: 1, timestamp: 1791698455000, pubKey: '04own', signature: 'sig', data,
       }));
 
-      await fluxCommunication.recordOwnAddressMove(OLD, NEW);
+      await fluxCommunication.recordOwnAddressMove(OLD, NEW, 1791698450000);
 
       sinon.assert.calledOnce(storeEvent);
       const [type, { message, envelope }] = storeEvent.firstCall.args;
       expect(type).to.equal(messageStore.APP_STATE_EVENT_TYPES.IPCHANGED);
-      expect(message).to.include({ type: 'fluxipchanged', version: 1, oldIP: OLD, newIP: NEW });
+      expect(message).to.deep.equal({
+        type: 'fluxipchanged', version: 1, oldIP: OLD, newIP: NEW, broadcastedAt: 1791698450000,
+      });
       expect(envelope).to.deep.equal({
         version: 1, timestamp: 1791698455000, pubKey: '04own', signature: 'sig',
       });
@@ -2555,7 +2557,7 @@ describe('fluxCommunication tests', () => {
     it('records nothing when this node cannot sign as itself', async () => {
       sinon.stub(fluxCommunicationMessagesSender, 'serialiseAndSignFluxBroadcast').resolves(null);
 
-      await fluxCommunication.recordOwnAddressMove(OLD, NEW);
+      await fluxCommunication.recordOwnAddressMove(OLD, NEW, Date.now());
 
       sinon.assert.notCalled(storeEvent);
       sinon.assert.notCalled(storeMove);
@@ -2669,6 +2671,7 @@ describe('fluxCommunication tests', () => {
       sinon.stub(peerManager, 'get').callsFake((key) => peers[key]);
       sinon.stub(registryManager, 'addressMoves').resolves(new Map());
       sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(NEW);
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').resolves('04own');
     });
 
     afterEach(() => {
@@ -2682,7 +2685,7 @@ describe('fluxCommunication tests', () => {
     const heardBack = (key) => fluxCommunication.noteOwnMoveHeardBack(objectHash(sentData(key)));
 
     it('drops every connection at once and sends the move to each peer as it connects', async () => {
-      fluxCommunication.announceOwnAddressMove(OLD, NEW);
+      fluxCommunication.announceOwnAddressMove(OLD, NEW, Date.now());
 
       sinon.assert.calledOnce(drop);
       expect(await connect('10.0.0.1:16127')).to.deep.equal([`${OLD}>${NEW}`]);
@@ -2691,7 +2694,7 @@ describe('fluxCommunication tests', () => {
     });
 
     it('stops once a peer announces the move back', async () => {
-      fluxCommunication.announceOwnAddressMove(OLD, NEW);
+      fluxCommunication.announceOwnAddressMove(OLD, NEW, Date.now());
       await connect('10.0.0.1:16127');
 
       expect(heardBack('10.0.0.1:16127')).to.equal(true);
@@ -2703,7 +2706,7 @@ describe('fluxCommunication tests', () => {
       sinon.stub(messageStore, 'storeAppStateEvent').resolves();
       sinon.stub(messageStore, 'storeIPChangedMessage').resolves(true);
       sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(false);
-      fluxCommunication.announceOwnAddressMove(OLD, NEW);
+      fluxCommunication.announceOwnAddressMove(OLD, NEW, Date.now());
       await connect('10.0.0.1:16127');
 
       await fluxCommunication.handleIPChangedMessage({
@@ -2715,7 +2718,7 @@ describe('fluxCommunication tests', () => {
 
     it('stops once a peer announces the move\'s hash, the way gossip relays it', async () => {
       sinon.stub(peerManager, 'sendHashRequest');
-      fluxCommunication.announceOwnAddressMove(OLD, NEW);
+      fluxCommunication.announceOwnAddressMove(OLD, NEW, Date.now());
       await connect('10.0.0.1:16127');
       const relayer = {
         ip: '10.0.0.9', port: '16127', key: '10.0.0.9:16127', direction: 'outgoing', msgMap: new Map([['newHash', 0]]), close: () => {},
@@ -2727,20 +2730,31 @@ describe('fluxCommunication tests', () => {
       expect(await connect('10.0.0.2:16127')).to.deep.equal([]);
     });
 
-    it('signs the move afresh once half the relay window has passed, and stops on either copy coming back', async () => {
-      fluxCommunication.announceOwnAddressMove(OLD, NEW);
+    it('signs the move afresh once half the relay window has passed, keeping the time it was made', async () => {
+      fluxCommunication.announceOwnAddressMove(OLD, NEW, Date.now());
       await connect('10.0.0.1:16127');
       clock.tick(121 * 1000);
       await connect('10.0.0.2:16127');
 
-      expect(sentData('10.0.0.2:16127').broadcastedAt).to.be.above(sentData('10.0.0.1:16127').broadcastedAt);
-      expect(heardBack('10.0.0.1:16127')).to.equal(true);
+      const envelope = (key) => JSON.parse(peers[key].send.firstCall.args[0]);
+      expect(envelope('10.0.0.2:16127').timestamp).to.be.above(envelope('10.0.0.1:16127').timestamp);
+      expect(sentData('10.0.0.2:16127')).to.deep.equal(sentData('10.0.0.1:16127'));
+      expect(heardBack('10.0.0.2:16127')).to.equal(true);
       expect(await connect('10.0.0.3:16127')).to.deep.equal([]);
     });
 
+    it('stops sending a move once it is too old to be applied', async () => {
+      fluxCommunication.announceOwnAddressMove(OLD, NEW, Date.now());
+      expect(await connect('10.0.0.1:16127')).to.deep.equal([`${OLD}>${NEW}`]);
+      clock.tick(messageStore.IP_CHANGED_VALIDITY_MS);
+
+      expect(await connect('10.0.0.2:16127')).to.deep.equal([]);
+      expect(peerManager.listeners('peerConnected').some((listener) => listener.name === 'sendOwnMovesTo')).to.equal(false);
+    });
+
     it('sends each of two moves, and stops each on its own echo', async () => {
-      fluxCommunication.announceOwnAddressMove('10.0.0.1:16127', '10.0.0.2:16127');
-      fluxCommunication.announceOwnAddressMove('10.0.0.2:16127', '10.0.0.3:16127');
+      fluxCommunication.announceOwnAddressMove('10.0.0.1:16127', '10.0.0.2:16127', Date.now());
+      fluxCommunication.announceOwnAddressMove('10.0.0.2:16127', '10.0.0.3:16127', Date.now());
 
       expect(await connect('10.9.0.1:16127')).to.deep.equal(['10.0.0.1:16127>10.0.0.2:16127', '10.0.0.2:16127>10.0.0.3:16127']);
       fluxCommunication.noteOwnMoveHeardBack(objectHash(JSON.parse(peers['10.9.0.1:16127'].send.firstCall.args[0]).data));
@@ -2750,29 +2764,32 @@ describe('fluxCommunication tests', () => {
     });
 
     it('sends a port-only move like any other', async () => {
-      fluxCommunication.announceOwnAddressMove('198.51.100.40:16127', '198.51.100.40:16157');
+      fluxCommunication.announceOwnAddressMove('198.51.100.40:16127', '198.51.100.40:16157', Date.now());
 
       expect(await connect('10.0.0.1:16127')).to.deep.equal(['198.51.100.40:16127>198.51.100.40:16157']);
       heardBack('10.0.0.1:16127');
     });
 
-    it('at startup, sends the moves it recorded to the address it holds now, and no others', async () => {
+    it('at startup, sends the moves it signed to the address it holds now, as they were made, and no others', async () => {
+      const at = Date.now() - 60000;
       registryManager.addressMoves.resolves(new Map([
-        [OLD, { to: NEW, at: Date.now() - 60000 }],
-        ['72.89.45.236:16127', { to: '108.6.236.4:16127', at: Date.now() - 60000 }],
+        [OLD, { to: NEW, at, signer: '04own' }],
+        ['72.89.45.236:16127', { to: '108.6.236.4:16127', at, signer: '04own' }],
+        ['72.89.45.237:16137', { to: NEW, at: at - 1000, signer: '04previous' }],
       ]));
 
       fluxCommunication.announceRecordedOwnMovesWhenConnected();
 
       expect(await connect('10.0.0.1:16127')).to.deep.equal([`${OLD}>${NEW}`]);
+      expect(sentData('10.0.0.1:16127').broadcastedAt).to.equal(at);
       heardBack('10.0.0.1:16127');
     });
 
     it('at startup, sends a move that is both recorded and pending once', async () => {
-      registryManager.addressMoves.resolves(new Map([[OLD, { to: NEW, at: Date.now() - 60000 }]]));
+      registryManager.addressMoves.resolves(new Map([[OLD, { to: NEW, at: Date.now() - 60000, signer: '04own' }]]));
 
       fluxCommunication.announceRecordedOwnMovesWhenConnected();
-      fluxCommunication.announceOwnAddressMove(OLD, NEW);
+      fluxCommunication.announceOwnAddressMove(OLD, NEW, Date.now());
 
       expect(await connect('10.0.0.1:16127')).to.deep.equal([`${OLD}>${NEW}`]);
       heardBack('10.0.0.1:16127');
