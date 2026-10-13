@@ -37,6 +37,8 @@ describe('fluxNetworkHelper own address tests', () => {
     sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus').resolves({ status: 'error' });
     sinon.stub(geolocationService, 'setNodeGeolocation');
     sinon.stub(appQueryService, 'installedApps').resolves({ status: 'success', data: [] });
+    sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('unreachable'));
+    sinon.stub(serviceHelper, 'delay').resolves();
     moved = sinon.stub().resolves();
     fluxNetworkHelper.setOnOwnAddressMoved(moved);
     fluxNetworkHelper.setLocalSocketAddress(null);
@@ -65,6 +67,7 @@ describe('fluxNetworkHelper own address tests', () => {
     await fluxNetworkHelper.handleOwnAddress('198.51.100.2:16157');
 
     sinon.assert.calledOnceWithExactly(moved, '198.51.100.2:16127', '198.51.100.2:16157');
+    sinon.assert.notCalled(serviceHelper.axiosGet);
     sinon.assert.calledOnce(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
     sinon.assert.notCalled(fs.writeFile);
     sinon.assert.notCalled(appQueryService.installedApps);
@@ -92,6 +95,32 @@ describe('fluxNetworkHelper own address tests', () => {
     await fluxNetworkHelper.handleOwnAddress('198.51.100.44:16137');
 
     sinon.assert.calledOnceWithExactly(moved, '198.51.100.4:16137', '198.51.100.44:16137');
+    sinon.assert.calledTwice(serviceHelper.axiosGet.withArgs('http://198.51.100.4:16137/flux/version'));
+  });
+
+  it('holding no address, adopts the reported one without a move while a Flux node answers at the configured address', async () => {
+    configure('198.51.100.11');
+    serviceHelper.axiosGet.withArgs('http://198.51.100.11:16127/flux/version').resolves({ data: { status: 'success' } });
+
+    await fluxNetworkHelper.handleOwnAddress('198.51.100.12:16127');
+
+    sinon.assert.notCalled(moved);
+    sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+    sinon.assert.notCalled(fs.writeFile);
+    expect(await record()).to.deep.equal({ socketAddress: '198.51.100.12:16127', movedFrom: null });
+  });
+
+  it('holding no address, makes no move when the node at the configured address answers once the restart grace has passed', async () => {
+    configure('198.51.100.13');
+    serviceHelper.axiosGet.withArgs('http://198.51.100.13:16127/flux/version')
+      .onFirstCall().rejects(new Error('restarting'))
+      .onSecondCall().resolves({ data: { status: 'success' } });
+
+    await fluxNetworkHelper.handleOwnAddress('198.51.100.14:16127');
+
+    sinon.assert.calledOnce(serviceHelper.delay);
+    sinon.assert.notCalled(moved);
+    sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
   });
 
   it('does nothing for the address it already holds', async () => {
@@ -151,8 +180,6 @@ describe('fluxNetworkHelper own address tests', () => {
       sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
       sinon.stub(networkStateService, 'isReady').returns(true);
-      sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('unreachable'));
-      sinon.stub(serviceHelper, 'delay').resolves();
     });
 
     function collateralListedAt(listed, own) {

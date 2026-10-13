@@ -1805,6 +1805,34 @@ async function configuredFormerAddress(reported) {
 }
 
 /**
+ * Whether a Flux node answers at `socketAddress`.
+ * @param {string} socketAddress
+ * @returns {Promise<boolean>}
+ */
+async function fluxAnswersAt(socketAddress) {
+  let answered = true;
+  await serviceHelper.axiosGet(`http://${extractIp(socketAddress)}:${extractPort(socketAddress)}/flux/version`, { timeout: 5000 })
+    .catch(() => { answered = false; });
+  return answered;
+}
+
+// How long a node that does not answer is given to come back before it is
+// judged gone: a restart.
+const ANSWER_GRACE_MS = 60 * 1000;
+
+/**
+ * Whether a Flux node answers at `socketAddress`, now or once the grace a
+ * restarting node is given has passed.
+ * @param {string} socketAddress
+ * @returns {Promise<boolean>}
+ */
+async function fluxStillAnswersAt(socketAddress) {
+  if (await fluxAnswersAt(socketAddress)) return true;
+  await serviceHelper.delay(ANSWER_GRACE_MS);
+  return fluxAnswersAt(socketAddress);
+}
+
+/**
  * Moves this node from `previous` to `current`, and adopts `current` as its own.
  * @param {string} previous
  * @param {string} current
@@ -1822,7 +1850,11 @@ function moveOwnAddress(previous, current) {
 /**
  * Acts on the address benchmark reports as this node's own. One that differs
  * from the address the node last adopted is a move, whichever way it came and
- * whether or not the chain has already listed the node there.
+ * whether or not the chain has already listed the node there. One that differs
+ * from the configured address of a node that has adopted none is a move only
+ * when no Flux node answers there: a machine started on a copy of a running
+ * node's configuration adopts the reported address without moving, and the
+ * collision check judges it.
  * @param {string} current The reported socket address.
  * @returns {Promise<void>}
  */
@@ -1833,6 +1865,11 @@ function handleOwnAddress(current) {
     const record = await ownAddressRecord();
     const previous = record ? record.socketAddress : await configuredFormerAddress(reported);
     if (!socketAddressesMatch(previous, reported)) {
+      if (!record && await fluxStillAnswersAt(previous)) {
+        log.warn(`own address - a Flux node answers at ${previous}, the configured address, so ${reported} is not a move from it`);
+        await writeOwnAddressRecord(reported, null);
+        return;
+      }
       await adjustExternalIp(previous, reported);
       await writeOwnAddressRecord(reported, previous);
     } else if (!record) {
@@ -2073,10 +2110,6 @@ async function checkMyFluxAvailability(retryNumber = 0) {
  * @returns {Promise<void>}
  */
 async function checkDeterministicNodesCollisions() {
-  const axiosConfig = {
-    timeout: 5000,
-  };
-
   try {
     // get my external ip address
     // get node list with filter on this ip address
@@ -2125,14 +2158,11 @@ async function checkDeterministicNodesCollisions() {
         // Listed nowhere it should not be: whatever this check said no longer holds.
         if (!nodeCollateralDifferentIp || movedFromHere) releaseDosOwnedBy(isCollisionMessage);
         if (nodeStatus.data.status === 'CONFIRMED' && nodeCollateralDifferentIp && !movedFromHere) {
-          let errorCall = false;
           const askingIP = extractIp(nodeCollateralDifferentIp.ip);
           const askingIpPort = extractPort(nodeCollateralDifferentIp.ip);
           log.info(`Detected same collateral on different IP: ${askingIP}:${askingIpPort}. Checking if other node is reachable...`);
 
-          // First reachability check
-          await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/version`, axiosConfig).catch(() => { errorCall = true; });
-          if (!errorCall) {
+          if (await fluxAnswersAt(nodeCollateralDifferentIp.ip)) {
             // Other node is reachable and confirmed - this is a collision
             log.error(`Flux collision detection. Node at ${askingIP}:${askingIpPort} is confirmed and reachable on flux network with the same collateral transaction information.`);
             dosState = 100;
@@ -2143,11 +2173,8 @@ async function checkDeterministicNodesCollisions() {
           // First check failed - wait 60 seconds before confirming the other node is truly offline
           // This grace period prevents false positives from temporary network issues or node restarts
           log.info(`Other node at ${askingIP}:${askingIpPort} appears unreachable. Waiting 60 seconds to verify before taking over...`);
-          errorCall = false;
-          await serviceHelper.delay(60 * 1000);
-
-          // Second reachability check after grace period
-          await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/version`, axiosConfig).catch(() => { errorCall = true; });
+          await serviceHelper.delay(ANSWER_GRACE_MS);
+          const errorCall = !await fluxAnswersAt(nodeCollateralDifferentIp.ip);
           // The collateral listed at the IP this node was configured with, and
           // nothing answering there: not another machine, but this node, which has
           // moved - its IP, or its api port on the same IP - and has no record of
