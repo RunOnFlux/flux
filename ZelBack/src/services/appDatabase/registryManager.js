@@ -275,9 +275,10 @@ async function currentAddressesOf(sayings) {
 }
 
 /**
- * The listed node whose recorded moves lead to `address`, or null. A node moves
- * only itself, so every move followed is one signed by the key the list holds
- * for the node, and each is newer than the one before it.
+ * The listed node whose recorded moves end at `address`, or null: an address
+ * it moved on from is no longer the node's. A node moves only itself, so every
+ * move followed is one signed by the key the list holds for the node, and each
+ * is newer than the one before it.
  * @param {string} address A socket address.
  * @param {Array<{ip: string, pubkey: string}>} nodeList The deterministic list.
  * @returns {Promise<object|null>}
@@ -298,8 +299,8 @@ async function listedNodeMovedTo(address, nodeList) {
       if (!move || move.at <= since || move.signer !== node.pubkey) break;
       current = move.to;
       since = move.at;
-      if (current === target) return node;
     }
+    if (current === target) return node;
   }
   return null;
 }

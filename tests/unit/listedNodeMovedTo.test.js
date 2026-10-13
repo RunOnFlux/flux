@@ -58,6 +58,13 @@ describe('registryManager listedNodeMovedTo tests', () => {
     expect(await registryManager.listedNodeMovedTo(C, [listed])).to.equal(listed);
   });
 
+  it('does not take an address the node moved on from as the node', async () => {
+    await move(A, B, Date.now() - 120000, OWN_KEY);
+    await move(B, C, Date.now() - 60000, OWN_KEY);
+
+    expect(await registryManager.listedNodeMovedTo(B, [listed])).to.equal(null);
+  });
+
   it('does not follow a move older than the one before it', async () => {
     await move(A, B, Date.now() - 60000, OWN_KEY);
     await move(B, C, Date.now() - 120000, OWN_KEY);
