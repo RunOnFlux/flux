@@ -8,22 +8,20 @@ import { dbClient } from './db-client.js';
  * under it, benchmark reports the new one while the chain still lists the old,
  * and FluxOS starts again at the new address. Its configured IP is left as it
  * was. `forgetOwnAddress` also drops the address the node recorded adopting, as
- * a node that never kept one. `chainListsNewAddress` lists the node at the new
- * address before FluxOS starts again, as fluxd's own confirmation does.
+ * a node that never kept one.
  * @param {object} env The test env.
  * @param {number} index The node's index.
  * @param {string} to Bare address to move to, inside the fleet's own /24.
  * @param {object} [options]
  * @param {boolean} [options.forgetOwnAddress]
- * @param {boolean} [options.chainListsNewAddress]
  * @returns {Promise<{from: string, to: string}>}
  */
-export async function moveNodeWhileDown(env, index, to, { forgetOwnAddress = false, chainListsNewAddress = false } = {}) {
+export async function moveNodeWhileDown(env, index, to, { forgetOwnAddress = false } = {}) {
   const client = env.clients[index];
   const from = client.ip;
   await crashFluxos(client.container, { hold: true });
   await moveNodeAddress(client.container, to, from);
-  await setNodeAddress(from, to, { scope: chainListsNewAddress ? 'all' : 'benchmark' });
+  await setNodeAddress(from, to, { scope: 'benchmark' });
   if (forgetOwnAddress) await dbClient(index + 1).forgetOwnAddress();
   await releaseFluxos(client.container);
   await client.followTo(to);
