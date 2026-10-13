@@ -34,7 +34,9 @@ const RING_ARC = 4;
 /**
  * `asker` asks `dialer` to dial it, as the backward half of discovery does: a
  * node dials only the address the ask comes from, so it is sent from inside the
- * asker's container. Throws unless the dialer took it.
+ * asker's container. Throws unless the dialer took it or is already connected
+ * to the asker. Taking it is not connecting: a node not yet accepting peers
+ * refuses the dial, and is asked again by the next discovery pass.
  * @param {object} asker A node client (its container and ip).
  * @param {object} dialer A node client.
  * @param {number} [port] The api port both answer on.
@@ -43,7 +45,7 @@ const RING_ARC = 4;
 export async function askToBeDialed(asker, dialer, port = 16127) {
   const url = `http://${dialer.ip}:${port}/flux/addoutgoingpeer/${asker.ip}:${port}`;
   const { output } = await execInContainer(asker.container, `curl -s ${url}`);
-  if (!/"status":"success"/.test(output)) {
+  if (!/"status":"success"/.test(output) && !/Already connected to/.test(output)) {
     throw new Error(`askToBeDialed: ${dialer.ip} did not take ${asker.ip}'s ask to be dialed: ${output}`);
   }
 }
