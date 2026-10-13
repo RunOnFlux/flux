@@ -329,9 +329,10 @@ describe('a port another Flux node at this address holds', function () {
 });
 
 // The front door, on a fleet whose asker boots behind the sibling's address: it
-// reports itself at the sibling's IP on its own api port from its first
-// reading, which is what a second node behind one router does. It never
-// changes address, so nothing here counts towards the limit on IP changes.
+// is configured with the sibling's IP, as a node behind that router is, and
+// reports itself there on its own api port from its first reading, so it adopts
+// that address without a move. It never changes address, so nothing here
+// counts towards the limit on IP changes.
 describe('a port another Flux node at this address holds, asked by a node that shares the address', function () {
   const SIBLING = 0;
   const SHARED_STUB_PEERS = [1, 2, 3];
@@ -343,11 +344,11 @@ describe('a port another Flux node at this address holds, asked by a node that s
 
   before(async function () {
     this.timeout(900000);
-    env = await createTestEnv({
-      hookCtx: this, nodes: 5, deferredNodes: 1, stubPeers: SHARED_STUB_PEERS,
-    });
     subnet = getSubnetConfig();
     siblingIp = subnet.nodeIp(SIBLING + 1);
+    env = await createTestEnv({
+      hookCtx: this, nodes: 5, deferredNodes: 1, stubPeers: SHARED_STUB_PEERS, configuredIp: { [ASKER + 1]: siblingIp },
+    });
     await bootAndPeer(env);
     await installOnNodes(env, await appWanting('heldportapp', HELD_PORT), [SIBLING]);
     await setNodeAddress(subnet.nodeIp(ASKER + 1), `${siblingIp}:${SIBLING_API_PORT}`, { scope: 'all' });
