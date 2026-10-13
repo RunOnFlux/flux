@@ -60,6 +60,14 @@ function parseSocketAddress(raw) {
 // taken at the default API port. -1, 0 or 1 as `a` is lower, equal or higher;
 // null when either does not parse, so no caller mistakes "cannot tell" for an
 // order.
+// The forms a socket address can be stored under: ip:port, and the bare IP when
+// the port is the default.
+function storedSocketAddressForms(address) {
+  const normalized = normalizeSocketAddress(address);
+  if (!normalized) return [];
+  return extractPort(normalized) === DEFAULT_API_PORT ? [normalized, extractIp(normalized)] : [normalized];
+}
+
 function compareSocketAddresses(a, b) {
   const pa = parseSocketAddress(a);
   const pb = parseSocketAddress(b);
@@ -106,4 +114,5 @@ module.exports = {
   socketAddressesMatch,
   compareSocketAddresses,
   ipsMatch,
+  storedSocketAddressForms,
 };

@@ -19,6 +19,8 @@ describe('fluxNetworkHelper own address tests', () => {
 
   let records;
   let moved;
+  let restarted;
+  let listedHere;
   let originalUserConfig;
 
   const configure = (ipaddress) => {
@@ -41,12 +43,19 @@ describe('fluxNetworkHelper own address tests', () => {
     sinon.stub(serviceHelper, 'delay').resolves();
     moved = sinon.stub().resolves();
     fluxNetworkHelper.setOnOwnAddressMoved(moved);
+    restarted = sinon.stub().resolves();
+    fluxNetworkHelper.setOnAddressChanged(restarted);
+    // the installed apps the network lists at an address: none unless a case says
+    listedHere = sinon.stub().resolves([]);
+    fluxNetworkHelper.setInstalledAppsListedAt(listedHere);
     fluxNetworkHelper.setLocalSocketAddress(null);
   });
 
   afterEach(async () => {
     sinon.restore();
     fluxNetworkHelper.setOnOwnAddressMoved(null);
+    fluxNetworkHelper.setOnAddressChanged(null);
+    fluxNetworkHelper.setInstalledAppsListedAt(null);
     globalThis.userconfig = originalUserConfig;
     await records.deleteMany({});
   });
@@ -91,11 +100,69 @@ describe('fluxNetworkHelper own address tests', () => {
   it('holding no address, takes the configured IP at the port the network lists it at as the address it left', async () => {
     configure('198.51.100.4');
     daemonServiceFluxnodeRpcs.getFluxNodeStatus.resolves({ status: 'success', data: { ip: '198.51.100.4:16137' } });
+    listedHere.withArgs('198.51.100.4:16137').resolves(['ranthere']);
 
     await fluxNetworkHelper.handleOwnAddress('198.51.100.44:16137');
 
     sinon.assert.calledOnceWithExactly(moved, '198.51.100.4:16137', '198.51.100.44:16137');
     sinon.assert.calledTwice(serviceHelper.axiosGet.withArgs('http://198.51.100.4:16137/flux/version'));
+  });
+
+  describe('holding no address, with nothing answering at the configured one', () => {
+    it('tells the network it moved when it ran apps there, and confirms the new address', async () => {
+      configure('198.51.100.15');
+      listedHere.withArgs('198.51.100.15:16127').resolves(['ranthere']);
+
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.16:16127');
+
+      sinon.assert.calledOnceWithExactly(moved, '198.51.100.15:16127', '198.51.100.16:16127');
+      sinon.assert.calledOnce(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      sinon.assert.calledWithMatch(fs.writeFile, sinon.match.string, sinon.match(/ipaddress: '198.51.100.16',/));
+      expect(await record()).to.deep.equal({ socketAddress: '198.51.100.16:16127', movedFrom: '198.51.100.15:16127' });
+    });
+
+    it('adopts the new address without a move when it ran no apps there', async () => {
+      configure('198.51.100.17');
+
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.18:16127');
+
+      sinon.assert.notCalled(moved);
+      sinon.assert.calledOnce(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      sinon.assert.calledWithMatch(fs.writeFile, sinon.match.string, sinon.match(/ipaddress: '198.51.100.18',/));
+      sinon.assert.calledOnce(geolocationService.setNodeGeolocation);
+      expect(await record()).to.deep.equal({ socketAddress: '198.51.100.18:16127', movedFrom: '198.51.100.17:16127' });
+    });
+
+    it('restarts its installed apps on the new address, without a move, when the network lists none of them there', async () => {
+      configure('198.51.100.19');
+      appQueryService.installedApps.resolves({ status: 'success', data: [{ name: 'expiredrows', version: 4 }] });
+
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.20:16127');
+
+      sinon.assert.notCalled(moved);
+      sinon.assert.calledOnce(restarted);
+      expect(restarted.firstCall.args[0].map((app) => app.name)).to.deep.equal(['expiredrows']);
+    });
+
+    it('adopts the new address without a move when nothing reports what it ran', async () => {
+      configure('198.51.100.21');
+      fluxNetworkHelper.setInstalledAppsListedAt(null);
+
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.22:16127');
+
+      sinon.assert.notCalled(moved);
+      sinon.assert.calledOnce(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+    });
+  });
+
+  it('tells the network it moved from an address it recorded, whatever the network lists there', async () => {
+    configure('198.51.100.23');
+    await adopt('198.51.100.23:16127');
+
+    await fluxNetworkHelper.handleOwnAddress('198.51.100.24:16127');
+
+    sinon.assert.notCalled(listedHere);
+    sinon.assert.calledOnceWithExactly(moved, '198.51.100.23:16127', '198.51.100.24:16127');
   });
 
   it('holding no address, adopts the reported one without a move while a Flux node answers at the configured address', async () => {
@@ -200,14 +267,53 @@ describe('fluxNetworkHelper own address tests', () => {
       sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
     });
 
-    it('takes a listing at its own configured IP that nothing answers as its move, and adopts the new address', async () => {
+    it('takes a listing at its own configured IP that nothing answers, where it ran apps, as its move, and adopts the new address', async () => {
       configure('198.51.100.9');
       collateralListedAt('198.51.100.9:16127', '198.51.100.9:16157');
+      listedHere.withArgs('198.51.100.9:16127').resolves(['ranthere']);
 
       await fluxNetworkHelper.checkDeterministicNodesCollisions();
 
       sinon.assert.calledOnceWithExactly(moved, '198.51.100.9:16127', '198.51.100.9:16157');
       expect(await record()).to.deep.equal({ socketAddress: '198.51.100.9:16157', movedFrom: '198.51.100.9:16127' });
+    });
+
+    it('adopts the new address without a move from a listing at its own configured IP that nothing answers, where it ran no apps', async () => {
+      configure('198.51.100.25');
+      collateralListedAt('198.51.100.25:16127', '198.51.100.26:16127');
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      sinon.assert.notCalled(moved);
+      sinon.assert.calledOnce(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      sinon.assert.calledWithMatch(fs.writeFile, sinon.match.string, sinon.match(/ipaddress: '198.51.100.26',/));
+      expect(await record()).to.deep.equal({ socketAddress: '198.51.100.26:16127', movedFrom: '198.51.100.25:16127' });
+    });
+
+    it('takes over a listing at another machine\'s IP that nothing answers, with a confirmation and no move', async () => {
+      configure('198.51.100.27');
+      collateralListedAt('198.51.100.28:16127', '198.51.100.27:16127');
+      listedHere.resolves(['ranthere']);
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      sinon.assert.notCalled(moved);
+      sinon.assert.calledOnce(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      sinon.assert.notCalled(fs.writeFile);
+    });
+
+    it('holds itself out of service while something answers at the address its collateral is listed at', async () => {
+      configure('198.51.100.29');
+      collateralListedAt('198.51.100.30:16127', '198.51.100.29:16127');
+      serviceHelper.axiosGet.resolves({ data: { status: 'success' } });
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      sinon.assert.notCalled(moved);
+      sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(0);
     });
   });
 });

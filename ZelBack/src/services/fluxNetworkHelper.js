@@ -57,6 +57,27 @@ function setOnOwnAddressMoved(callback) {
   onOwnAddressMoved = callback;
 }
 
+// The names of the apps installed on this node that the network lists at a
+// socket address. serviceManager wires it to appQueryService.installedAppsListedAt;
+// a seam for the same reason as onAddressChanged.
+let installedAppsListedAt = null;
+function setInstalledAppsListedAt(callback) {
+  installedAppsListedAt = callback;
+}
+
+/**
+ * Whether this node ran apps at `socketAddress`: an app installed here is one
+ * the network lists there. A configuration names an address, and a machine
+ * started on a copy of another's names that machine's; only apps left there
+ * show this node held it.
+ * @param {string} socketAddress
+ * @returns {Promise<boolean>}
+ */
+async function ranAppsAt(socketAddress) {
+  if (!installedAppsListedAt) return false;
+  return (await installedAppsListedAt(socketAddress)).length > 0;
+}
+
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
@@ -1589,17 +1610,21 @@ function getMaxNumberOfIpChanges() {
 }
 
 /**
- * Moves this node from the address it last held to the one it holds now: the
- * move is recorded and told to the network, and the new address confirmed on
- * chain. An IP move also rewrites the configured IP, applies the limit on IP
- * changes, removes the apps that cannot follow it - a static-IP app, or one an
- * instance already holds at the new IP - and restarts the rest on the new IP. A
- * port move on the same IP keeps every app where it is.
- * @param {string} previous The socket address the node last held.
+ * Adopts the address this node holds now in place of the one it held: the new
+ * address is confirmed on chain, and an IP change also rewrites the configured
+ * IP, applies the limit on IP changes, removes the apps that cannot follow it -
+ * a static-IP app, or one an instance already holds at the new IP - and
+ * restarts the rest on the new IP. A port change on the same IP keeps every app
+ * where it is. With `announceMove` the change is also recorded as this node's
+ * move and told to the network, which carries the node's rows at the old
+ * address to the new one.
+ * @param {string} previous The socket address the node held.
  * @param {string} current The socket address it holds now.
+ * @param {object} [options]
+ * @param {boolean} [options.announceMove] Whether the change is told as a move.
  * @returns {Promise<void>}
  */
-async function adjustExternalIp(previous, current) {
+async function adjustExternalIp(previous, current, { announceMove = true } = {}) {
   try {
     const previousSocket = normalizeSocketAddress(previous);
     const currentSocket = normalizeSocketAddress(current);
@@ -1633,7 +1658,7 @@ async function adjustExternalIp(previous, current) {
     // another instance at the new one. Before the restarts: the election must
     // know the move as soon as it sees the new address, or it reads FDM naming
     // the old one as another node.
-    if (onOwnAddressMoved) {
+    if (announceMove && onOwnAddressMoved) {
       await onOwnAddressMoved(previousSocket, currentSocket)
         .catch((error) => log.error(`adjustExternalIp - recording the move failed: ${error.message}`));
     }
@@ -1833,16 +1858,18 @@ async function fluxStillAnswersAt(socketAddress) {
 }
 
 /**
- * Moves this node from `previous` to `current`, and adopts `current` as its own.
+ * Adopts `current` in place of `previous`, the configured address, which this
+ * node has no record of leaving. Told to the network as a move only when this
+ * node ran apps there.
  * @param {string} previous
  * @param {string} current
  * @returns {Promise<void>}
  */
-function moveOwnAddress(previous, current) {
+function leaveConfiguredAddress(previous, current) {
   return serialiseOwnAddressWork(async () => {
     const from = normalizeSocketAddress(previous);
     const to = normalizeSocketAddress(current);
-    await adjustExternalIp(from, to);
+    await adjustExternalIp(from, to, { announceMove: await ranAppsAt(from) });
     await writeOwnAddressRecord(to, from);
   });
 }
@@ -1850,11 +1877,12 @@ function moveOwnAddress(previous, current) {
 /**
  * Acts on the address benchmark reports as this node's own. One that differs
  * from the address the node last adopted is a move, whichever way it came and
- * whether or not the chain has already listed the node there. One that differs
- * from the configured address of a node that has adopted none is a move only
- * when no Flux node answers there: a machine started on a copy of a running
- * node's configuration adopts the reported address without moving, and the
- * collision check judges it.
+ * whether or not the chain has already listed the node there. A node that has
+ * adopted none compares it with its configured address, which a machine
+ * started on a copy of another's configuration shares with that machine: while
+ * a Flux node answers there it adopts the reported address and the collision
+ * check judges it; otherwise it adopts the reported address in place of the
+ * configured one, told as a move only when it ran apps there.
  * @param {string} current The reported socket address.
  * @returns {Promise<void>}
  */
@@ -1870,7 +1898,7 @@ function handleOwnAddress(current) {
         await writeOwnAddressRecord(reported, null);
         return;
       }
-      await adjustExternalIp(previous, reported);
+      await adjustExternalIp(previous, reported, { announceMove: Boolean(record) || await ranAppsAt(previous) });
       await writeOwnAddressRecord(reported, previous);
     } else if (!record) {
       await writeOwnAddressRecord(reported, null);
@@ -2185,7 +2213,7 @@ async function checkDeterministicNodesCollisions() {
           if (errorCall && ownFormerAddress) {
             const formerSocket = normalizeSocketAddress(`${askingIP}:${askingIpPort}`);
             log.info(`Our collateral is listed at ${formerSocket}, this node's own former address - handling the move to ${localSocketAddr}`);
-            await moveOwnAddress(formerSocket, localSocketAddr);
+            await leaveConfiguredAddress(formerSocket, localSocketAddr);
           } else if (errorCall) {
             // Other node is confirmed offline after grace period - take over the collateral
             log.info(`Other node at ${askingIP}:${askingIpPort} confirmed offline. Creating confirmation transaction to take over collateral...`);
@@ -3192,13 +3220,14 @@ module.exports = {
   checkMyFluxAvailability,
   adjustExternalIp,
   handleOwnAddress,
-  moveOwnAddress,
+  leaveConfiguredAddress,
   ownAddressRecord,
   startOwnAddressWatch,
   setSyncthingListenerKnown,
   setDosTooManyIpChanges,
   setOnAddressChanged,
   setOnOwnAddressMoved,
+  setInstalledAppsListedAt,
   allowPort,
   isFirewallActive: ufw.isFirewallActive,
   // Exports for testing purposes

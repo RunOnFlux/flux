@@ -650,6 +650,8 @@ async function startFluxFunctions() {
     // it knows FDM naming its old IP means itself, and tells them once it has
     // peers at the new address
     fluxNetworkHelper.setOnOwnAddressMoved((oldIp, newIp) => fluxCommunication.handleOwnAddressMove(oldIp, newIp));
+    // whether this node ran apps at an address it has no record of leaving
+    fluxNetworkHelper.setInstalledAppsListedAt((socketAddress) => appQueryService.installedAppsListedAt(socketAddress));
     fluxCommunication.announceRecordedOwnMovesWhenConnected();
     // every address benchmark reports as this node's own, from boot on: one that
     // differs from the address it last adopted is its move

@@ -371,6 +371,34 @@ describe('registryManager tests', () => {
     });
   });
 
+  describe('appsListedAt', () => {
+    const locations = config.database.appsglobal.collections.appsLocations;
+    const runs = (name, ip) => database.collection(locations).insertOne({
+      name, hash: 'h', ip, broadcastedAt: new Date(), expireAt: new Date(Date.now() + 3600000),
+    });
+
+    beforeEach(async () => {
+      await database.collection(locations).deleteMany({});
+    });
+
+    it('names each app listed at the address, under either form a default port is stored in', async () => {
+      await runs('withport', '198.51.100.1:16127');
+      await runs('bare', '198.51.100.1');
+      await runs('withport', '198.51.100.1');
+      await runs('otherport', '198.51.100.1:16157');
+      await runs('othernode', '198.51.100.2:16127');
+
+      expect((await registryManager.appsListedAt('198.51.100.1:16127')).sort()).to.deep.equal(['bare', 'withport']);
+    });
+
+    it('names the apps at a non-default port by that port only', async () => {
+      await runs('otherport', '198.51.100.1:16157');
+      await runs('withport', '198.51.100.1:16127');
+
+      expect(await registryManager.appsListedAt('198.51.100.1:16157')).to.deep.equal(['otherport']);
+    });
+  });
+
   describe('address move tests', () => {
     const events = config.database.appsglobal.collections.appStateEvents;
     const locations = config.database.appsglobal.collections.appsLocations;

@@ -31,7 +31,7 @@ const {
 } = require('../utils/appConstants');
 const { Privilege, authOf } = require('../utils/privileges');
 const localRemovalQueue = require('../appLifecycle/localRemovalQueue');
-const { ipsMatch, normalizeSocketAddress } = require('../utils/socketAddressUtils');
+const { ipsMatch, normalizeSocketAddress, storedSocketAddressForms } = require('../utils/socketAddressUtils');
 
 // The most moves followed from one address. A node announces each move it makes,
 // so a real chain is one or two long; the bound only ends a chain that loops.
@@ -133,6 +133,20 @@ async function getAppHashes(_req, res) {
  * @param {string} appname - Optional app name filter
  * @returns {Promise<Array>} Array of app locations
  */
+/**
+ * The names of the apps the network lists at `socketAddress`.
+ * @param {string} socketAddress
+ * @returns {Promise<string[]>}
+ */
+async function appsListedAt(socketAddress) {
+  const forms = storedSocketAddressForms(socketAddress);
+  if (!forms.length) return [];
+  const database = dbHelper.databaseConnection().db(config.database.appsglobal.database);
+  const rows = await database.collection(globalAppsLocations)
+    .find({ ip: { $in: forms } }, { projection: { _id: 0, name: 1 } }).toArray();
+  return [...new Set(rows.map((row) => row.name))];
+}
+
 async function appLocation(appname) {
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appsglobal.database);
@@ -2563,6 +2577,7 @@ async function shuttingDownNodes() {
 }
 
 module.exports = {
+  appsListedAt,
   shuttingDownNodes,
   getAppHashes,
   getRegistryStatus,
