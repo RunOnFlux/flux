@@ -21,7 +21,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //
 // The move's confirmation is refused for the whole case, so the chain lists the
 // node at the address it left and the late node judges the move as the early
-// ones did.
+// ones did. The late node cannot dial the moved node there; the moved node dials
+// it, as it does every node it can, and the late node peers with enough nodes to
+// sync the app state they hold.
 const MOVER = 0;
 const PEERS = [1, 2];
 const LATE = 3;
@@ -58,6 +60,10 @@ describe('a move told late carries the time it was made', function () {
       deferredNodes: 1,
       tickerAutostart: false,
       configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1, locationTtlS: LOCATION_TTL_S } },
+      nodeConfigOverrides: {
+        [MOVER]: { fluxapps: { minOutgoing: 3 } },
+        [LATE]: { fluxapps: { minOutgoing: 3 } },
+      },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
