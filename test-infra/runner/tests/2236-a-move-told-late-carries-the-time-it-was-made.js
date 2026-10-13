@@ -21,9 +21,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //
 // The move's confirmation is refused for the whole case, so the chain lists the
 // node at the address it left and the late node judges the move as the early
-// ones did. The late node cannot dial the moved node there; the moved node dials
-// it, as it does every node it can, and the late node peers with enough nodes to
-// sync the app state they hold.
+// ones did. The late node cannot dial the moved node there, so the moved node is
+// asked to dial it (addoutgoingpeer), as its own peering would pick a new node,
+// and tells it the move on that connection.
 const MOVER = 0;
 const PEERS = [1, 2];
 const LATE = 3;
@@ -60,10 +60,6 @@ describe('a move told late carries the time it was made', function () {
       deferredNodes: 1,
       tickerAutostart: false,
       configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1, locationTtlS: LOCATION_TTL_S } },
-      nodeConfigOverrides: {
-        [MOVER]: { fluxapps: { minOutgoing: 3 } },
-        [LATE]: { fluxapps: { minOutgoing: 3 } },
-      },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
   });
@@ -105,6 +101,9 @@ describe('a move told late carries the time it was made', function () {
     if (lateBy > 0) await new Promise((resolve) => { setTimeout(resolve, lateBy); });
     expect(await listedAt(oldSocket), 'fixture: the chain still lists the node at the address it left').to.equal(true);
     await env.startNode(LATE);
+    const lateAnchor = client(LATE).getLastEventId();
+    await client(MOVER).get(`/flux/addoutgoingpeer/${client(LATE).ip}:${API_PORT}`);
+    await client(LATE).waitForEvent('peers:added', (d) => d.ip === toIp, 120000, { afterId: lateAnchor });
 
     let held;
     await waitFor(async () => { held = await moveHeldBy(LATE, oldSocket, newSocket); return Boolean(held); }, {
