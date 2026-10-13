@@ -381,14 +381,13 @@ describe('registryManager tests', () => {
       await database.collection(locations).deleteMany({});
     });
 
-    it('names each app listed at the address, under either form a default port is stored in', async () => {
-      await runs('withport', '198.51.100.1:16127');
-      await runs('bare', '198.51.100.1');
-      await runs('withport', '198.51.100.1');
+    it('names each app listed at the address, once', async () => {
+      await runs('alpha', '198.51.100.1:16127');
+      await runs('beta', '198.51.100.1:16127');
       await runs('otherport', '198.51.100.1:16157');
       await runs('othernode', '198.51.100.2:16127');
 
-      expect((await registryManager.appsListedAt('198.51.100.1:16127')).sort()).to.deep.equal(['bare', 'withport']);
+      expect((await registryManager.appsListedAt('198.51.100.1:16127')).sort()).to.deep.equal(['alpha', 'beta']);
     });
 
     it('names the apps at a non-default port by that port only', async () => {
@@ -482,12 +481,12 @@ describe('registryManager tests', () => {
     });
 
     describe('addressesMovedFromIp', () => {
-      it('gives the addresses at the IP a move leaves, bare and with a port, and none at an IP it only begins', async () => {
+      it('gives the addresses at the IP a move leaves, and none at an IP it only begins', async () => {
         await moved('72.89.45.23:16137', '108.6.236.4:16137', minutesAgo(5));
-        await moved('72.89.45.23', '108.6.236.5:16127', minutesAgo(5));
+        await moved('72.89.45.23:16127', '108.6.236.5:16127', minutesAgo(5));
         await moved('72.89.45.236:16127', '108.6.236.6:16127', minutesAgo(5));
 
-        expect((await registryManager.addressesMovedFromIp('72.89.45.23')).sort()).to.deep.equal(['72.89.45.23', '72.89.45.23:16137']);
+        expect((await registryManager.addressesMovedFromIp('72.89.45.23')).sort()).to.deep.equal(['72.89.45.23:16127', '72.89.45.23:16137']);
       });
     });
 
@@ -531,13 +530,6 @@ describe('registryManager tests', () => {
         await runs('primaryapp', '108.6.236.4:16137', minutesAgo(10));
 
         expect(await registryManager.primaryAddressOf('primaryapp', '72.89.45.23')).to.equal('72.89.45.23');
-      });
-
-      it('takes a move recorded from the bare IP FDM names', async () => {
-        await moved('72.89.45.236', '108.6.236.4:16127', minutesAgo(5));
-        await runs('primaryapp', '108.6.236.4:16127', minutesAgo(10));
-
-        expect(await registryManager.primaryAddressOf('primaryapp', '72.89.45.236')).to.equal('108.6.236.4:16127');
       });
 
       it('keeps a location announced after a move away from that address', async () => {

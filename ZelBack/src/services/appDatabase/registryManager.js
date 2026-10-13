@@ -32,7 +32,7 @@ const {
 const { Privilege, authOf } = require('../utils/privileges');
 const localRemovalQueue = require('../appLifecycle/localRemovalQueue');
 const {
-  extractIp, ipsMatch, normalizeSocketAddress, storedSocketAddressForms,
+  extractIp, ipsMatch, normalizeSocketAddress,
 } = require('../utils/socketAddressUtils');
 
 // The most moves followed from one address. A node announces each move it makes,
@@ -141,11 +141,11 @@ async function getAppHashes(_req, res) {
  * @returns {Promise<string[]>}
  */
 async function appsListedAt(socketAddress) {
-  const forms = storedSocketAddressForms(socketAddress);
-  if (!forms.length) return [];
+  const ip = normalizeSocketAddress(socketAddress);
+  if (!ip) return [];
   const database = dbHelper.databaseConnection().db(config.database.appsglobal.database);
   const rows = await database.collection(globalAppsLocations)
-    .find({ ip: { $in: forms } }, { projection: { _id: 0, name: 1 } }).toArray();
+    .find({ ip }, { projection: { _id: 0, name: 1 } }).toArray();
   return [...new Set(rows.map((row) => row.name))];
 }
 
@@ -234,7 +234,7 @@ async function addressMovesFrom(addresses) {
 async function addressMovesTo(address) {
   const collection = dbHelper.databaseConnection().db(config.database.appsglobal.database).collection(globalAppStateEvents);
   const events = await collection.find(
-    { type: 'ipchanged', 'data.newIP': { $in: storedSocketAddressForms(address) }, expireAt: { $gt: new Date() } },
+    { type: 'ipchanged', 'data.newIP': normalizeSocketAddress(address), expireAt: { $gt: new Date() } },
     { projection: MOVE_PROJECTION },
   ).toArray();
   const moves = new Map();
@@ -253,7 +253,7 @@ async function addressesMovedFromIp(ip) {
   const collection = dbHelper.databaseConnection().db(config.database.appsglobal.database).collection(globalAppStateEvents);
   const escaped = bare.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const events = await collection.find(
-    { ip: { $in: [bare, new RegExp(`^${escaped}:`)] }, type: 'ipchanged', expireAt: { $gt: new Date() } },
+    { ip: new RegExp(`^${escaped}:`), type: 'ipchanged', expireAt: { $gt: new Date() } },
     { projection: { _id: 0, ip: 1 } },
   ).toArray();
   return [...new Set(events.map((event) => event.ip))];

@@ -9,26 +9,9 @@ const {
   ipsMatch,
   bareIp,
   compareSocketAddresses,
-  storedSocketAddressForms,
 } = require('../../ZelBack/src/services/utils/socketAddressUtils');
 
 describe('socketAddressUtils tests', () => {
-  describe('storedSocketAddressForms', () => {
-    it('gives an address at the default port with its port and bare', () => {
-      expect(storedSocketAddressForms('198.51.100.1:16127')).to.deep.equal(['198.51.100.1:16127', '198.51.100.1']);
-      expect(storedSocketAddressForms('198.51.100.1')).to.deep.equal(['198.51.100.1:16127', '198.51.100.1']);
-    });
-
-    it('gives an address at another port with its port only', () => {
-      expect(storedSocketAddressForms('198.51.100.1:16157')).to.deep.equal(['198.51.100.1:16157']);
-    });
-
-    it('gives none for no address', () => {
-      expect(storedSocketAddressForms(null)).to.deep.equal([]);
-      expect(storedSocketAddressForms('')).to.deep.equal([]);
-    });
-  });
-
   describe('DEFAULT_API_PORT', () => {
     it('should be 16127', () => {
       expect(DEFAULT_API_PORT).to.equal(16127);
