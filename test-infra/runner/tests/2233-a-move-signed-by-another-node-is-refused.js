@@ -21,9 +21,11 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // then its own address to another port on its IP, which every node keeps. Each
 // node handles one peer's messages in the order they were sent, so a node that
 // holds the second has handled the first. Then the holder goes down and drops
-// off the list while its rows still stand, and the stub peer signs a move away
-// from the holder's address again: the key that last sent apprunning from it is
-// the holder's, so every other node refuses it.
+// off the list, and the stub peer signs a move away from the holder's address
+// again: the key that last sent apprunning from it is the holder's, so every
+// other node refuses it and keeps no move for that address. The holder's rows
+// may be gone by then: monitorNodeStatus removes the rows at an address no node
+// is listed at once nothing answers there.
 
 const REAL_NODES = 3;
 const STUB_INDEX = 3;
@@ -151,8 +153,6 @@ describe('a move signed by another node is refused', function () {
       // eslint-disable-next-line no-await-in-loop
       const stored = await dbClient(i + 1).getAppStateEvents({ ip: holder, type: 'ipchanged' });
       expect(stored, `node ${i} stored a move away from the unlisted holder signed by another node`).to.have.length(0);
-      // eslint-disable-next-line no-await-in-loop
-      expect(await rowsAt(i, holder), `node ${i} moved the unlisted holder's row away`).to.include(appName);
       // eslint-disable-next-line no-await-in-loop
       expect(await rowsAt(i, stubAddress), `node ${i} gave the unlisted holder's row to the stub peer`).to.not.include(appName);
     }
