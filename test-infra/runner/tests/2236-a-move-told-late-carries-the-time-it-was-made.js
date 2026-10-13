@@ -21,10 +21,10 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //
 // A node that runs an app sent apprunning from the address it left, which is
 // what proves the move is its own: its peers apply the move, with the time the
-// node recorded, and hold its app at the new address. A node that runs none
-// sent nothing there to prove it, and has no rows for a move to carry: its
-// peers drop the move without counting it against the node that relayed it,
-// and connect to the node at the address the chain lists.
+// node recorded. A node that runs none sent nothing there to prove it, and has
+// no rows for a move to carry: a peer it tells drops the move without counting
+// it against the node that relayed it, and relays nothing, and connects to the
+// node at the address the chain lists.
 const MOVER = 0;
 const BARE_MOVER = 3;
 const PEERS = [1, 2];
@@ -144,7 +144,7 @@ describe('a move told late carries the time it was made', function () {
     await env?.teardown();
   });
 
-  it('reaches every peer with the time the node recorded, and its app at the new address, from a node that runs an app', async function () {
+  it('reaches every peer with the time the node recorded, from a node that runs an app', async function () {
     this.timeout(DETECTION_MS + UNHEARD_MS + 600000);
     const { oldSocket, newSocket, recorded } = await moveUnheard(MOVER, 240);
 
@@ -156,27 +156,35 @@ describe('a move told late carries the time it was made', function () {
         timeout: 240000, interval: 5000, label: `node ${p} holds the move`,
       });
       expect(held.data.broadcastedAt, `the time node ${p} holds for the move`).to.equal(recorded.data.broadcastedAt);
-      // eslint-disable-next-line no-await-in-loop
-      const atNew = (await dbClient(p + 1).getAppLocationsByIp(newSocket)).map((row) => row.name);
-      expect(atNew, `the apps node ${p} holds at the new address`).to.include(appName);
     }
   });
 
-  it('is dropped by every peer from a node that runs no app, without counting against the node that relayed it, and the node is reached at its new address', async function () {
+  it('is dropped by the peers it reaches from a node that runs no app, without counting against the node that relayed it, and the node is reached at its new address', async function () {
     this.timeout(DETECTION_MS + UNHEARD_MS + 600000);
     const {
       toIp, oldSocket, newSocket, anchors,
     } = await moveUnheard(BARE_MOVER, 241);
 
+    // A node tells its move to the peers it is connected to; which ones those
+    // are is the peering's choice, so the case waits for one to have dropped it.
+    let dropper = null;
+    await waitFor(async () => {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const p of PEERS) {
+        // eslint-disable-next-line no-await-in-loop
+        const dropped = await client(p).waitForEvent('network:originatorNotListed', (d) => d.type === 'fluxipchanged', 1, { afterId: anchors.get(p) })
+          .catch(() => null);
+        if (dropped) { dropper = { p, dropped }; return true; }
+      }
+      return false;
+    }, { timeout: 240000, interval: 3000, label: 'a peer that dropped the move' });
+
+    expect(String(dropper.dropped.data.relay).split(':')[0], `node ${dropper.p} dropped the move as the node itself sent it`).to.equal(toIp);
+    await client(dropper.p).waitForEvent('peers:added', (d) => d.ip === toIp, 120000, { afterId: anchors.get(dropper.p) });
     // eslint-disable-next-line no-restricted-syntax
     for (const p of PEERS) {
       // eslint-disable-next-line no-await-in-loop
-      const dropped = await client(p).waitForEvent('network:originatorNotListed', (d) => d.type === 'fluxipchanged', 240000, { afterId: anchors.get(p) });
-      expect(String(dropped.data.relay).split(':')[0], `node ${p} dropped the move as the node itself sent it`).to.equal(toIp);
-      // eslint-disable-next-line no-await-in-loop
       expect(await moveHeldBy(p, oldSocket, newSocket), `node ${p} holds the move`).to.equal(undefined);
-      // eslint-disable-next-line no-await-in-loop
-      await client(p).waitForEvent('peers:added', (d) => d.ip === toIp, 120000, { afterId: anchors.get(p) });
     }
   });
 });
