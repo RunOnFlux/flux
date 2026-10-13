@@ -257,6 +257,16 @@ describe('a node judges its own standing from what it can know', function () {
       expect(afterRefreshMs, 'from the refresh to out of service').to.be.below(10000);
       expect((await dosOf(node)).dosMessage).to.include(`Node at ${ipOf(STUB_PEER)}:16127 is confirmed and reachable`);
     });
+
+    it('is back in service once the node list lists its collateral at its own address only', async function () {
+      this.timeout(240000);
+      const node = client(COLLIDES);
+      // The case before restored the list it found; each block refreshes it.
+      await waitFor(async () => (await dosOf(node)).dosMessage === null, {
+        timeout: 180000, interval: 1000, label: 'the node back in service',
+      });
+      expect((await dosOf(node)).dosState).to.equal(0);
+    });
   });
 
   describe('whether its app ports can be reached', function () {
