@@ -390,22 +390,25 @@ describe('a node judges its own standing from what it can know', function () {
       await env?.teardown();
     });
 
-    it('is not out of service for asks that went unanswered before one reached it', async function () {
+    // Four asks that go unanswered count 8. The ask that then reaches the node
+    // ends that count, so all that is left is its count for too few peers.
+    it('ends what it counted for asks that went unanswered once one reaches it', async function () {
       this.timeout(240000);
       const node = env.clients[SUBJECT];
       const observer = env.stubPeerClients.get(OBSERVER);
+      const DROPPED = 4;
       // Set between passes, so one pass meets every answer it is given.
       await node.waitForEvent('availability:checked', (d) => d.available === true, 120000, { afterId: node.getLastEventId() });
       const afterId = node.getLastEventId();
-      const { availabilityAsks: asksBefore } = await observer.dropAvailabilityAsks(5);
+      const { availabilityAsks: asksBefore } = await observer.dropAvailabilityAsks(DROPPED);
 
       const checked = await node.waitForEvent('availability:checked', () => true, 120000, { afterId });
 
       const { availabilityAsks } = await observer.getStats();
-      expect(availabilityAsks - asksBefore, 'fixture: five asks dropped, then one answered truthfully').to.equal(6);
+      expect(availabilityAsks - asksBefore, 'fixture: four asks dropped, then one answered truthfully').to.equal(DROPPED + 1);
       expect(checked.data.available, 'the pass whose last ask reached it').to.equal(true);
       expect((await dosOf(node)).dosMessage).to.equal(null);
-      expect((await dosOf(node)).dosState).to.be.below(10);
+      expect((await dosOf(node)).dosState, 'what is left once the dropped asks\' count ends').to.be.below(DROPPED * 2);
     });
   });
 
