@@ -935,6 +935,7 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
     // Originator's node is not in the deterministic list — stale list or node went offline.
     // The relay peer is not at fault. Drop the message, don't punish the relay.
     log.warn(`Dropping message from ${peerSocket.direction} peer ${peerSocket.key}: originator pubkey ${pubKey} not found in node list`);
+    fluxEventBus.publish('network:originatorNotListed', { type: msgObj.data?.type, pubKey, relay: peerSocket.key });
   } else {
     releaseSlot();
     // BAD_SIGNATURE or MALFORMED — the message is corrupted or forged.

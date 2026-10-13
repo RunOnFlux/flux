@@ -276,6 +276,7 @@ export function nodeClient(nodeNum) {
         'syncthing:listenerKnown',
         'availability:checked',
         'collision:judged',
+        'network:originatorNotListed',
         'syncthing:namesVisible',
         'syncthing:localChangesReverted',
         'syncthing:devicesResumed',
