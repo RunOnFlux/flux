@@ -407,6 +407,13 @@ export async function unblockTraffic(container, peerIps, port) {
   }
 }
 
+// The IP the node's userconfig.js names as its own.
+export async function configuredIpOf(container) {
+  const r = await execInContainer(container, `node -p "require('/flux/config/userconfig.js').initial.ipaddress"`);
+  if (r.exitCode !== 0) throw new Error(`configuredIpOf: could not read userconfig.js: ${r.output}`);
+  return r.stdout.trim();
+}
+
 // A crash of one node's FluxOS: the process is killed outright, with no
 // shutdown handling at all. `hold` keeps the node down afterwards, as a machine
 // that lost power stays down; releaseFluxos brings it back.
