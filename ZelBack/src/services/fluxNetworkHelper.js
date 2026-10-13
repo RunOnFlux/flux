@@ -2494,7 +2494,7 @@ async function runAvailabilityCheck() {
     }
     availabilityScheduled = true;
     const available = await checkMyFluxAvailability();
-    fluxEventBus.publish('availability:checked', { available, dosState, dosMessage: getDosMessage() });
+    fluxEventBus.publish('availability:checked', { available, dosState: effectiveDosState(), dosMessage: getDosMessage() });
     scheduleAvailabilityCheck(available
       ? config.fluxapps.availabilityCheckIntervalMs
       : config.fluxapps.availabilityRecheckMs);

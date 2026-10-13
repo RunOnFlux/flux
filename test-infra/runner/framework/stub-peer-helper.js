@@ -83,11 +83,11 @@ export function stubPeerClient(ip) {
       return res.json();
     },
 
-    // Answers the next `count` asks whether it can reach the asker "not
-    // available", then answers truthfully again. Resolves with how many it has
-    // been asked so far.
-    async answerAvailabilityUnreachable(count) {
-      const res = await fetch(`${controlUrl}/availability-unreachable`, {
+    // Drops the next `count` asks whether it can reach the asker without an
+    // answer, then answers truthfully again. Resolves with how many it has been
+    // asked so far.
+    async dropAvailabilityAsks(count) {
+      const res = await fetch(`${controlUrl}/availability-drops`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ count }),

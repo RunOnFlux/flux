@@ -89,9 +89,9 @@ let promotedFoldersRefuse = false;
 // receives - a pass for a port the asker was never reached on - which is the
 // only part of it the asker can act on.
 let portProbeAnswersBlind = false;
-// How many of the next reachability asks this peer answers "not available",
-// whatever it finds, and how many it has been asked.
-let availabilityUnreachableLeft = 0;
+// How many of the next reachability asks this peer drops without an answer, as
+// a peer that cannot be reached in time does, and how many it has been asked.
+let availabilityDropsLeft = 0;
 let availabilityAsks = 0;
 
 // Answers the port test with a reading that is NOT the asker's - what the asker
@@ -433,9 +433,12 @@ const wsServer = http.createServer(async (req, res) => {
       const ip = asked.get('ip');
       const port = Number(asked.get('port') || 16127);
       availabilityAsks += 1;
-      const answerUnreachable = availabilityUnreachableLeft > 0;
-      if (answerUnreachable) availabilityUnreachableLeft -= 1;
-      const available = !answerUnreachable && Boolean(ip) && await fluxAnswers(ip, port);
+      if (availabilityDropsLeft > 0) {
+        availabilityDropsLeft -= 1;
+        req.socket.destroy();
+        return;
+      }
+      const available = Boolean(ip) && await fluxAnswers(ip, port);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(available
         ? { status: 'success', data: { message: 'Asking Flux is available' } }
@@ -564,11 +567,11 @@ const controlServer = http.createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === 'POST' && req.url === '/availability-unreachable') {
+    if (req.method === 'POST' && req.url === '/availability-drops') {
       const body = await readBody(req);
-      availabilityUnreachableLeft = Math.max(0, Number(JSON.parse(body).count) || 0);
+      availabilityDropsLeft = Math.max(0, Number(JSON.parse(body).count) || 0);
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ok', availabilityUnreachableLeft, availabilityAsks }));
+      res.end(JSON.stringify({ status: 'ok', availabilityDropsLeft, availabilityAsks }));
       return;
     }
 
