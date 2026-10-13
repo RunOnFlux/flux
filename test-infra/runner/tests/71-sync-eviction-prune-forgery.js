@@ -193,6 +193,9 @@ describe('Sync response: eviction, pruning and forged events', function () {
       broadcastedAt: stamp + FILLER_EVENTS + 250,
       sentBy: MOVE_FORGER_NODE,
     }));
+    events.push(await apprunningEvent({
+      nodeNum: HONEST_MOVER_NODE, apps: ['moverapp'], broadcastedAt: stamp + 4,
+    }));
     events.push(await ipchangedEvent({
       nodeNum: HONEST_MOVER_NODE, newIP: MOVED_TO, broadcastedAt: stamp + FILLER_EVENTS + 260,
     }));
@@ -301,6 +304,19 @@ describe('Sync response: eviction, pruning and forged events', function () {
 
     const forged = await dbClient(11).getAppStateEvents({ ip: socketAddr(MOVE_VICTIM_NODE), type: 'ipchanged' });
     expect(forged, 'the joiner stored a move signed by another node').to.have.length(0);
+  });
+
+  it('should carry a node\'s rows to the address a synced move took it to', async function () {
+    this.timeout(60000);
+    let atNew = [];
+    let atOld = [];
+    await waitFor(async () => {
+      atNew = (await dbClient(11).getAppLocationsByIp(MOVED_TO)).map((r) => r.name);
+      atOld = (await dbClient(11).getAppLocationsByIp(socketAddr(HONEST_MOVER_NODE))).map((r) => r.name);
+      return atNew.includes('moverapp') && !atOld.includes('moverapp');
+    }, {
+      timeout: 45000, interval: 1000, label: 'the joiner holds the mover\'s row at its new port only',
+    });
   });
 
   it('should leave a running report in force when an older shutdown of that node arrives with it', async function () {
