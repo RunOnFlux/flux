@@ -154,6 +154,7 @@ describe('fluxNetworkHelper own standing tests', () => {
       await clock.tickAsync(1);
       expect(availabilityAsks()).to.be.greaterThan(asked);
     });
+
   });
 
   describe('the DOS the availability check owns', () => {
@@ -278,7 +279,10 @@ describe('fluxNetworkHelper own standing tests', () => {
       fluxCommunicationUtils.deterministicFluxList.resetHistory();
     });
 
-    afterEach(() => {
+    // A pass can outlive its test on a real database read, and the next test's
+    // list refresh would join that pass rather than run its own.
+    afterEach(async () => {
+      await fluxNetworkHelper.requestCollisionCheck();
       stopWatch();
     });
 
