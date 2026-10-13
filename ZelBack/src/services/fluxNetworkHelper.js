@@ -960,7 +960,9 @@ function getStickyDosMessage() {
  * @returns {number}
  */
 function effectiveDosState() {
-  return stickyDosHolds.size ? STICKY_DOS_STATE : dosState;
+  if (stickyDosHolds.size) return STICKY_DOS_STATE;
+  const availabilityPoints = unreachablePoints + shortfallPoints;
+  return availabilityPoints ? dosState + availabilityPoints : dosState;
 }
 
 /**
@@ -2067,19 +2069,87 @@ function releaseDosOwnedBy(owns) {
 
 const isCollisionMessage = (message) => COLLISION_MESSAGE_PREFIXES.some((prefix) => message.startsWith(prefix));
 
-/**
- * Ends the node's DOS when it is this check's, or when no check holds one.
- * @returns {void}
- */
-function releaseReachabilityDos() {
-  if (dosMessage && !REACHABILITY_MESSAGES.includes(dosMessage)) return;
-  dosState = 0;
-  setDosMessage(null);
-}
+// What the availability check has counted against this node, apart from the
+// score the other checks share: the asks no peer answered as reachable, and
+// the time it has been reachable with too few peer connections. The node's
+// DOS state is the two added to the shared score (effectiveDosState), so a
+// check that resets the shared score leaves these standing, and the
+// availability check takes off only its own. The message it set is kept to
+// end only that one.
+let unreachablePoints = 0;
+let shortfallPoints = 0;
+let availabilityMessage = null;
 
 // When this node last found itself reachable with too few peer connections, while
 // it keeps doing so: null otherwise.
 let peerShortfallSeenAt = null;
+
+/**
+ * Sets `message` as the availability check's, when no message stands or
+ * `replace` says this one outranks the one standing.
+ * @param {string} message
+ * @param {object} [options]
+ * @param {boolean} [options.replace]
+ * @returns {void}
+ */
+function holdAvailabilityDos(message, { replace = false } = {}) {
+  if (dosMessage && !replace) return;
+  availabilityMessage = message;
+  setDosMessage(message);
+}
+
+/**
+ * Ends what the availability check counted against reaching this node, and the
+ * message it sets for that if it is the one standing: the node was reached.
+ * @returns {void}
+ */
+function releaseUnreachable() {
+  unreachablePoints = 0;
+  if (REACHABILITY_MESSAGES.includes(dosMessage)) {
+    availabilityMessage = null;
+    setDosMessage(null);
+  }
+  publishEffectiveDosState();
+}
+
+/**
+ * Ends what the availability check counted for too few peer connections, and
+ * its message if that is the one standing: the node has enough.
+ * @returns {void}
+ */
+function releaseShortfall() {
+  shortfallPoints = 0;
+  peerShortfallSeenAt = null;
+  if (dosMessage && dosMessage === availabilityMessage && !REACHABILITY_MESSAGES.includes(dosMessage)) {
+    availabilityMessage = null;
+    setDosMessage(null);
+  }
+  publishEffectiveDosState();
+}
+
+/**
+ * Forgets what the availability check counted and the message it set, as a
+ * DOS state set from outside does.
+ * @returns {void}
+ */
+function resetAvailabilityDos() {
+  unreachablePoints = 0;
+  shortfallPoints = 0;
+  peerShortfallSeenAt = null;
+  availabilityMessage = null;
+}
+
+/**
+ * A peer connected: once this node has the connections it needs, what the
+ * availability check counted for too few of them ends now rather than at its
+ * next pass.
+ * @returns {void}
+ */
+function onPeerConnected() {
+  if (peerShortfallSeenAt === null && shortfallPoints === 0) return;
+  if (isCommunicationEstablished().status === 'error') return;
+  releaseShortfall();
+}
 
 /**
  * To check user's FluxNode availability.
@@ -2145,9 +2215,9 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   // moment on the network can put the node in DOS within seconds. The re-check a
   // failure schedules clears it.
   if (!resMyAvailability) {
-    dosState += 2;
-    if (dosState > 10) {
-      setDosMessage(dosMessage || UNREACHABLE_MESSAGE);
+    unreachablePoints += 2;
+    if (effectiveDosState() > 10) {
+      holdAvailabilityDos(UNREACHABLE_MESSAGE);
       log.error(dosMessage);
       return false;
     }
@@ -2160,7 +2230,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   if (resMyAvailability.data.status === 'error' || resMyAvailability.data.data.message.includes('not')) {
     log.error(`My Flux unavailability detected from: ${remoteIp}:${remotePort}`);
     // Asked Flux cannot reach me lets check if ip changed
-    if (retryNumber === 4 || dosState > 10) {
+    if (retryNumber === 4 || effectiveDosState() > 10) {
       log.info('Getting publicIp from FluxBench');
       const benchIpResponse = await benchmarkService.getPublicIp();
       if (benchIpResponse.status === 'success') {
@@ -2169,7 +2239,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
         if (benchMyIp && extractIp(benchMyIp) !== localIp) {
           daemonServiceUtils.setStandardCache('getbenchmarks[]', null);
           log.info('New IP found... updating network');
-          releaseReachabilityDos();
+          releaseUnreachable();
           // Read afresh: a new address is a change of this node's own address,
           // which its one handler acts on.
           await getLocalSocketAddress({ fresh: true });
@@ -2178,21 +2248,21 @@ async function checkMyFluxAvailability(retryNumber = 0) {
           log.info('FluxBench reported the same Ip that was already in use');
         } else {
           log.info('FluxBench reported a invalid IP');
-          setDosMessage(BENCH_PUBLIC_IP_MESSAGE);
-          dosState += 15;
+          holdAvailabilityDos(BENCH_PUBLIC_IP_MESSAGE, { replace: true });
+          unreachablePoints += 15;
           log.error('FluxBench wasnt able to detect flux node public ip');
         }
       } else {
         log.info('FluxBench reported returned error on getpublicipcall');
-        setDosMessage(BENCH_PUBLIC_IP_MESSAGE);
-        dosState += 15;
+        holdAvailabilityDos(BENCH_PUBLIC_IP_MESSAGE, { replace: true });
+        unreachablePoints += 15;
         log.error(dosMessage);
         return false;
       }
     }
-    dosState += 2;
-    if (dosState > 10) {
-      setDosMessage(dosMessage || UNAVAILABLE_MESSAGE);
+    unreachablePoints += 2;
+    if (effectiveDosState() > 10) {
+      holdAvailabilityDos(UNAVAILABLE_MESSAGE);
       log.error(dosMessage);
       return false;
     }
@@ -2211,18 +2281,17 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       // check sufficient connections
       const connectionInfo = isCommunicationEstablished();
       if (connectionInfo.status === 'error') {
-        // Reachable: whatever this check said about reaching it no longer holds.
-        // Only its message ends the count: with none, the count is the peer
-        // shortfall's, which goes on below.
-        if (REACHABILITY_MESSAGES.includes(dosMessage)) releaseReachabilityDos();
+        // Reachable: what this check counted against reaching it no longer
+        // holds. The count for too few peers goes on.
+        releaseUnreachable();
         // 0.13 a minute while it lasts, so DOS after ~75 minutes with too few
         // peers. This depends on other nodes being able to connect to my node.
         const now = monotonicMs();
         const minutes = peerShortfallSeenAt === null ? 1 : (now - peerShortfallSeenAt) / 60000;
         peerShortfallSeenAt = now;
-        dosState += 0.13 * minutes;
-        if (dosState > 10) {
-          setDosMessage(dosMessage || connectionInfo.data.message || 'Flux does not have sufficient peers');
+        shortfallPoints += 0.13 * minutes;
+        if (effectiveDosState() > 10) {
+          holdAvailabilityDos(connectionInfo.data.message || 'Flux does not have sufficient peers');
           log.error(dosMessage);
           return false;
         }
@@ -2232,8 +2301,8 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   } else if (measuredUptime.status === 'error') {
     log.error('Flux uptime is not available'); // introduce dos increment
   }
-  peerShortfallSeenAt = null;
-  releaseReachabilityDos();
+  releaseUnreachable();
+  releaseShortfall();
   return true;
 }
 
@@ -2503,7 +2572,7 @@ async function askOnceForPublicIp() {
     return;
   }
   emptyPublicIpAsks += 1;
-  if (emptyPublicIpAsks >= config.fluxapps.publicIpAsksBeforeDos && dosState <= 10) {
+  if (emptyPublicIpAsks >= config.fluxapps.publicIpAsksBeforeDos && effectiveDosState() <= 10) {
     dosState = 11;
     setDosMessage(dosMessage || IP_DETECTION_FAILED_MESSAGE);
     log.error(dosMessage);
@@ -2580,6 +2649,7 @@ function stopOwnStandingWatch() {
   stopListUpdates = null;
   offLocalSocketAddressChange(onOwnAddressChanged);
   localSocketAddressEvents.off('unresolved', askForPublicIpWhileUnknown);
+  peerManager.off('peerConnected', onPeerConnected);
   clearTimeout(availabilityTimer);
   clearTimeout(publicIpAskTimer);
   publicIpAskTimer = null;
@@ -2607,6 +2677,7 @@ function startOwnStandingWatch() {
     stopListUpdates = networkStateService.onUpdated(onNetworkListUpdated);
     onLocalSocketAddressChange(onOwnAddressChanged);
     localSocketAddressEvents.on('unresolved', askForPublicIpWhileUnknown);
+    peerManager.on('peerConnected', onPeerConnected);
     readOwnAddress();
   }
   return stopOwnStandingWatch;
@@ -2644,6 +2715,7 @@ async function setDOSStateApi(req, res) {
   if (Number.isNaN(newDosState)) {
     return res.json(messageHelper.createErrorMessage('dosState must be a number'));
   }
+  resetAvailabilityDos();
   setDosMessage(body.dosMessage ?? null);
   setDosStateValue(newDosState);
   return res.json(messageHelper.createSuccessMessage({ dosState, dosMessage }));
@@ -3310,6 +3382,7 @@ module.exports = {
   MAX_KEEPALIVE_PORTS,
   checkDeterministicNodesCollisions,
   requestCollisionCheck,
+  resetAvailabilityDos,
   requestAvailabilityCheck,
   noteSyncthingListenerKnown,
   startOwnStandingWatch,

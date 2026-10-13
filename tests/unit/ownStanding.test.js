@@ -12,11 +12,12 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const geolocationService = require('../../ZelBack/src/services/geolocationService');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 const { requireMongo } = require('./dbTestHelper');
 
 const OWN = '129.3.3.3:16127';
 const COLLATERAL = 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)';
-const UNAVAILABLE = 'Flux is not available for outside communication';
+const BENCH_PUBLIC_IP = 'Error getting publicIp from FluxBench';
 const IP_DETECTION_FAILED = 'Flux IP detection failed';
 
 const listing = (ip, collateral = COLLATERAL) => ({
@@ -50,6 +51,7 @@ describe('fluxNetworkHelper own standing tests', () => {
     fluxNetworkHelper.setDosTooManyIpChanges(false);
     fluxNetworkHelper.setDosMessage(null);
     fluxNetworkHelper.setDosStateValue(0);
+    fluxNetworkHelper.resetAvailabilityDos();
     fluxNetworkHelper.setSyncthingListenerKnown(false);
     sinon.stub(geolocationService, 'setNodeGeolocation');
     sinon.stub(networkStateService, 'isReady').returns(false);
@@ -73,6 +75,7 @@ describe('fluxNetworkHelper own standing tests', () => {
     fluxNetworkHelper.setSyncthingListenerKnown(false);
     fluxNetworkHelper.setDosMessage(null);
     fluxNetworkHelper.setDosStateValue(0);
+    fluxNetworkHelper.resetAvailabilityDos();
   });
 
   describe('when the availability question is asked', () => {
@@ -187,14 +190,92 @@ describe('fluxNetworkHelper own standing tests', () => {
       sinon.stub(process, 'uptime').returns(config.fluxapps.minUpTime + 1);
     });
 
+    const dos = () => fluxNetworkHelper.getDOSState().data;
+    // a pass in which no asked peer can reach this node: its own DOS
+    const unreachableEverywhere = async () => {
+      axiosGet.resolves(unreachable);
+      expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(false);
+      axiosGet.resolves(reachable);
+    };
+    // connected to as many peers, from as many addresses, as config asks
+    const enoughPeers = () => {
+      const peers = (count) => Array.from({ length: count }, (_, i) => ({ ip: `198.51.100.${i + 1}` }));
+      sinon.stub(peerManager, 'outboundCount').get(() => config.fluxapps.minOutgoing);
+      sinon.stub(peerManager, 'inboundCount').get(() => config.fluxapps.minIncoming);
+      sinon.stub(peerManager, 'outboundValues').callsFake(() => peers(config.fluxapps.minUniqueIpsOutgoing).values());
+      sinon.stub(peerManager, 'inboundValues').callsFake(() => peers(config.fluxapps.minUniqueIpsIncoming).values());
+    };
+    const minutesLater = (minutes) => sinon.stub(process.hrtime, 'bigint')
+      .returns(process.hrtime.bigint.wrappedMethod() + BigInt(minutes) * 60000n * 1000000n);
+
     it('clears its own "not reachable" once reachable, though this node has too few peers', async () => {
-      fluxNetworkHelper.setDosMessage(UNAVAILABLE);
-      fluxNetworkHelper.setDosStateValue(12);
+      await unreachableEverywhere();
+      expect(dos().dosMessage, 'fixture: its own DOS').to.equal(BENCH_PUBLIC_IP);
 
       expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(true);
 
-      expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
-      expect(fluxNetworkHelper.getDosStateValue()).to.be.below(1);
+      expect(dos().dosMessage).to.equal(null);
+      expect(dos().dosState).to.be.closeTo(0.13, 0.001);
+    });
+
+    it('ends its own DOS once reachable with enough peers', async () => {
+      await unreachableEverywhere();
+      enoughPeers();
+
+      expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(true);
+
+      expect(dos()).to.deep.equal({ dosState: 0, dosMessage: null });
+    });
+
+    it('is not out of service for asks that timed out before one reached it, while it has too few peers', async () => {
+      [0, 1, 2, 3, 4].forEach((call) => axiosGet.onCall(call).rejects(new Error('timeout of 7000ms exceeded')));
+
+      expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(true);
+
+      expect(axiosGet.callCount, 'fixture: five asks timed out, the sixth reached it').to.equal(6);
+      expect(dos().dosMessage).to.equal(null);
+      expect(dos().dosState).to.be.closeTo(0.13, 0.001);
+    });
+
+    it('ends its DOS for too few peers on its next pass once it has enough', async () => {
+      await fluxNetworkHelper.checkMyFluxAvailability();
+      minutesLater(80);
+      expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(false);
+      expect(dos().dosMessage, 'fixture: out of service for too few peers').to.match(/^Not enough outgoing connections/);
+      enoughPeers();
+
+      expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(true);
+
+      expect(dos()).to.deep.equal({ dosState: 0, dosMessage: null });
+    });
+
+    it('ends its DOS for too few peers as soon as the peer that makes enough connects', async () => {
+      fluxNetworkHelper.startOwnStandingWatch();
+      await fluxNetworkHelper.checkMyFluxAvailability();
+      minutesLater(80);
+      await fluxNetworkHelper.checkMyFluxAvailability();
+      expect(dos().dosMessage, 'fixture: out of service for too few peers').to.match(/^Not enough outgoing connections/);
+
+      peerManager.emit('peerConnected', '198.51.100.9:16127', 1);
+      expect(dos().dosMessage, 'a peer that does not make enough ends nothing').to.match(/^Not enough outgoing connections/);
+      enoughPeers();
+      peerManager.emit('peerConnected', '198.51.100.10:16127', 2);
+
+      expect(dos()).to.deep.equal({ dosState: 0, dosMessage: null });
+    });
+
+    it('counts an ask that fails after it was reached', async () => {
+      enoughPeers();
+      await fluxNetworkHelper.checkMyFluxAvailability();
+      axiosGet.onCall(1).rejects(new Error('timeout of 7000ms exceeded'));
+
+      await fluxNetworkHelper.checkMyFluxAvailability();
+
+      expect(axiosGet.callCount, 'fixture: one ask failed, the next reached it').to.equal(3);
+      expect(dos().dosState).to.equal(0);
+      axiosGet.resolves(unreachable);
+      await fluxNetworkHelper.checkMyFluxAvailability(6);
+      expect(dos().dosState, 'two asks that found it unreachable').to.equal(4);
     });
 
     it('holds the node out of service for 20 hours after its IP changed over the limit, then ends that DOS', async () => {
@@ -221,39 +302,40 @@ describe('fluxNetworkHelper own standing tests', () => {
 
       expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(true);
 
-      expect(fluxNetworkHelper.getDosMessage()).to.equal('Ports tested not reachable from outside');
-      expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
+      expect(dos()).to.deep.equal({ dosState: 100, dosMessage: 'Ports tested not reachable from outside' });
     });
 
-    it('ends its own DOS once reachable with enough peers', async () => {
-      fluxNetworkHelper.setDosMessage(UNAVAILABLE);
-      fluxNetworkHelper.setDosStateValue(12);
-      fluxCommunicationUtils.getNodeCount.resolves(1);
-
-      expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(true);
-
-      expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
-      expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
-    });
-
-    it('leaves another check\'s DOS standing', async () => {
+    it('leaves another check\'s DOS standing, with the score that check counted', async () => {
       fluxNetworkHelper.setDosMessage(IP_DETECTION_FAILED);
       fluxNetworkHelper.setDosStateValue(11);
+      await unreachableEverywhere();
+      expect(dos().dosMessage, 'fixture: the message standing is the other check\'s').to.equal(BENCH_PUBLIC_IP);
+      fluxNetworkHelper.setDosMessage(IP_DETECTION_FAILED);
+      enoughPeers();
 
       await fluxNetworkHelper.checkMyFluxAvailability();
 
-      expect(fluxNetworkHelper.getDosMessage()).to.equal(IP_DETECTION_FAILED);
+      expect(dos()).to.deep.equal({ dosState: 11, dosMessage: IP_DETECTION_FAILED });
+    });
+
+    it('keeps what it counted when another check resets the score it shares', async () => {
+      await unreachableEverywhere();
+      const counted = dos().dosState;
+
+      fluxNetworkHelper.setDosStateValue(0);
+
+      expect(dos().dosState).to.equal(counted);
     });
 
     it('counts too few peers by the minute, however far apart the checks are', async () => {
       await fluxNetworkHelper.checkMyFluxAvailability();
-      const afterFirst = fluxNetworkHelper.getDosStateValue();
-      sinon.stub(process.hrtime, 'bigint').returns(process.hrtime.bigint.wrappedMethod() + 5n * 60000n * 1000000n);
+      const afterFirst = dos().dosState;
+      minutesLater(5);
 
       await fluxNetworkHelper.checkMyFluxAvailability();
 
       expect(afterFirst).to.be.closeTo(0.13, 0.001);
-      expect(fluxNetworkHelper.getDosStateValue() - afterFirst).to.be.closeTo(0.65, 0.01);
+      expect(dos().dosState - afterFirst).to.be.closeTo(0.65, 0.01);
     });
   });
 
