@@ -9,7 +9,9 @@ const {
   sanitizePath, verifyRealPath, verifyRealPathOfExistingPath,
 } = require('../utils/pathSecurity');
 const { appsFolder, APP_NAME_REGEX, APP_NAME_REGEX_LEGACY } = require('../utils/appConstants');
-const { STAGING_ROOT, stagingRelative, isReservedName } = require('./volumeReservedNames');
+const {
+  STAGING_ROOT, stagingRelative, isReservedName, isSyncedRootName,
+} = require('./volumeReservedNames');
 const { measureTree, BLOCK_UNIT } = require('../utils/treeSize');
 const { Privilege, authOf } = require('../utils/privileges');
 const log = require('../../lib/log');
@@ -144,7 +146,9 @@ class VolumeSession {
 
   #owner;
 
-  constructor(mount, availableBytes, identifier, owner, brand) {
+  #readOnlyCopy;
+
+  constructor(mount, availableBytes, identifier, owner, brand, readOnlyCopy = false) {
     if (brand !== VolumeSession) {
       throw new Error('VolumeSession cannot be constructed directly - use openVolume');
     }
@@ -152,6 +156,7 @@ class VolumeSession {
     this.#availableBytes = availableBytes;
     this.#identifier = identifier;
     this.#owner = owner;
+    this.#readOnlyCopy = readOnlyCopy;
   }
 
   /** Host mount path. This, and only this, is the executor's bind source. */
@@ -277,6 +282,54 @@ class VolumeSession {
     }
 
     return new VolumePath(hostPath, relative, VolumePath);
+  }
+
+  /**
+   * Refuse a write that would land in the replicated part of a copy that
+   * follows another node's.
+   *
+   * Syncthing never sends a receiveonly folder's changes, and a synced
+   * single-writer standby reverts them, so a write to the replicated tree there
+   * would be lost without the owner being told. What .stignore keeps off the
+   * network is this node's alone and is never reverted: /backup above all,
+   * where a backup taken from the standby - the quiescent instance, which is
+   * where a backup is meant to be taken - writes its archive. Refusing those
+   * too, as openVolume once did for the whole volume, broke every backup tool
+   * that archives on the standby, and protected nothing.
+   *
+   * Decided from where each path LANDS, like the reserved-name rule in
+   * resolve(): an app can `ln -s appdata backup/in` and name `backup/in/x`,
+   * which is spelled under /backup and written into appdata. The entry itself
+   * lives in its parent, so a link at the target is judged by where the link
+   * is, not by what it points to - removing or replacing it touches only that.
+   *
+   * A session on a sendreceive copy, or one with no folder, refuses nothing.
+   *
+   * @param {...VolumePath} targets - every path the operation creates, replaces or removes
+   */
+  async refuseReadOnlyWrite(...targets) {
+    if (!this.#readOnlyCopy) return;
+    const realMount = await verifyRealPath(this.#mount, this.#mount);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const target of targets) {
+      if (!(target instanceof VolumePath)) {
+        throw new Error('refuseReadOnlyWrite requires VolumePaths');
+      }
+      let landsAt = '';
+      if (target.relative !== '') {
+        // eslint-disable-next-line no-await-in-loop
+        const realParent = await verifyRealPath(path.dirname(target.hostPath), this.#mount);
+        landsAt = path.relative(realMount, path.join(realParent, path.basename(target.hostPath)));
+      }
+      const [rootName] = landsAt.split(path.sep);
+      // The volume root itself, and anything under a replicated root name.
+      if (!rootName || isSyncedRootName(rootName)) {
+        const error = new Error('This node holds a read-only copy of this app\'s data, which follows the node running the app. Make changes on that node.');
+        error.name = 'ReadOnlyCopy';
+        error.code = 409;
+        throw error;
+      }
+    }
   }
 
   /**
@@ -552,33 +605,28 @@ class VolumeSession {
 }
 
 /**
- * Refuse a write to a volume whose copy on this node follows another node's.
+ * Whether this node's copy of a volume follows another node's.
  *
- * Syncthing never sends a receiveonly folder's changes, and a synced
- * single-writer standby reverts them, so a write here would be lost without the
- * owner being told. A primary its owner stopped to work on keeps its folder
- * sendreceive and is not refused.
+ * A primary its owner stopped to work on keeps its folder sendreceive and is
+ * not one. The session refuses writes into the replicated tree of one - see
+ * refuseReadOnlyWrite - and lets through what never leaves this node.
  *
- * A syncthing that cannot be asked does not refuse: most volumes have no folder
- * at all, and an outage must not take every app's file browser with it.
+ * A syncthing that cannot be asked answers no: most volumes have no folder at
+ * all, and an outage must not take every app's file browser with it.
  *
  * @param {string} identifier - The volume's component identifier, which is its folder id
+ * @returns {Promise<boolean>}
  */
-async function refuseReadOnlyCopy(identifier) {
+async function isReadOnlyCopy(identifier) {
   let folders;
   try {
     folders = await syncthingService.getConfigFolders();
   } catch (error) {
-    log.warn(`refuseReadOnlyCopy - could not read the syncthing folders for ${identifier}: ${error.message}`);
-    return;
+    log.warn(`isReadOnlyCopy - could not read the syncthing folders for ${identifier}: ${error.message}`);
+    return false;
   }
   const folder = Array.isArray(folders) ? folders.find((f) => f.id === identifier) : null;
-  if (folder?.type === 'receiveonly') {
-    const error = new Error('This node holds a read-only copy of this app\'s data, which follows the node running the app. Make changes on that node.');
-    error.name = 'ReadOnlyCopy';
-    error.code = 409;
-    throw error;
-  }
+  return folder?.type === 'receiveonly';
 }
 
 /**
@@ -645,11 +693,11 @@ async function openVolume(req, options = {}) {
   }
 
   const { mount, availableBytes, identifier } = await resolveVolumeMount(appname, component);
-  await refuseReadOnlyCopy(identifier);
+  const readOnlyCopy = await isReadOnlyCopy(identifier);
   // Read after authorisation succeeded, so this is the identity that passed it.
   const auth = serviceHelper.ensureObject(authOf(req));
   const owner = (auth && auth.zelid) || null;
-  return new VolumeSession(mount, availableBytes, identifier, owner, VolumeSession);
+  return new VolumeSession(mount, availableBytes, identifier, owner, VolumeSession, readOnlyCopy);
 }
 
 /**

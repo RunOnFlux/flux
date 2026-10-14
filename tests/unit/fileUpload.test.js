@@ -97,6 +97,8 @@ describe('fileSystemManager upload tests', () => {
       // refused before a byte was read and the assertions would be made against
       // the error branch; the test below flips it to assert the refusal itself.
       requireCapacity: sinon.stub(),
+      // A copy this node may write to. The refusal is pinned below.
+      refuseReadOnlyWrite: sinon.stub().resolves(),
     };
 
     release = sinon.stub();
@@ -223,6 +225,20 @@ describe('fileSystemManager upload tests', () => {
     // Before the slot as well as before the body: an upload that cannot land
     // should not make the next one queue behind it.
     expect(executorStub.acquireSlot.called, 'a slot was taken by an upload that was refused').to.equal(false);
+  });
+
+  it('refuses an upload into a read-only copy before reading a byte', async () => {
+    const readOnly = Object.assign(new Error('This node holds a read-only copy of this app\'s data, which follows the node running the app. Make changes on that node.'), { name: 'ReadOnlyCopy', code: 409 });
+    sessionStub.refuseReadOnlyWrite.rejects(readOnly);
+
+    const done = concluded();
+    await fileSystemManager.uploadAppsFiles(multipartRequest({ 'a.txt': 'x' }), res);
+    await done;
+
+    expect(sessionStub.refuseReadOnlyWrite.firstCall.args.map((p) => p.relative)).to.deep.equal(['photos']);
+    expect(executorStub.run.called).to.equal(false);
+    expect(executorStub.acquireSlot.called).to.equal(false);
+    expect(res.json.firstCall.args[0].data.message).to.include('read-only copy');
   });
 
   it('releases the slot when the client goes away part way through', async () => {

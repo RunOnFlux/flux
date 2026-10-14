@@ -66,6 +66,8 @@ describe('fileSystemManager tests', () => {
       // decision - left off entirely, compress would throw inside its try and
       // every assertion here would be made against the error branch.
       isDirectory: sinon.stub().resolves(true),
+      // A copy this node may write to; 'a copy that follows another node' below flips it.
+      refuseReadOnlyWrite: sinon.stub().resolves(),
       parent: sinon.stub().callsFake((p) => {
         const at = p.relative.lastIndexOf('/');
         return volumePath(at === -1 ? '' : p.relative.slice(0, at));
@@ -1025,6 +1027,45 @@ describe('fileSystemManager tests', () => {
         // so the refusal is observed where it is built.
         expect(messageHelperStub.createErrorMessage.firstCall.args[0])
           .to.match(/outside allowed directory|does not resolve on the host/);
+      });
+    });
+  });
+
+  // On a standby the session refuses writes into the replicated tree and lets
+  // the rest through (volumeSession.test.js). What each handler must get right
+  // is WHICH paths it asks about: everything it creates, replaces or removes,
+  // and never a path it only reads - compress reads appdata on the standby to
+  // archive it into backup/, which is the reason the refusal is per path.
+  describe('a copy that follows another node', () => {
+    const cases = [
+      ['createAppsFolder', () => { req.params.folder = 'backup/local'; }, ['backup/local']],
+      ['renameAppsObject', () => { req.params.oldpath = 'backup/a.tar.gz'; req.params.newname = 'b.tar.gz'; }, ['backup/a.tar.gz', 'backup/b.tar.gz']],
+      ['removeAppsObject', () => { req.params.object = 'backup/local/a.tar.gz'; }, ['backup/local/a.tar.gz']],
+      ['moveAppsObject', () => { req.body = { source: 'backup/a', destination: 'backup/b' }; }, ['backup/a', 'backup/b']],
+      ['copyAppsObject', () => { req.body = { source: 'appdata/world', destination: 'backup/world' }; }, ['backup/world']],
+      ['compressAppsObject', () => { req.body = { source: ['appdata/world', 'appdata/config'], destination: 'backup/local/a.tar.gz' }; }, ['backup/local/a.tar.gz']],
+      ['extractAppsObject', () => { req.body = { source: 'backup/a.tar.gz', destination: 'backup/out' }; }, ['backup/out']],
+    ];
+
+    cases.forEach(([handler, setUp, written]) => {
+      it(`${handler} asks about exactly the paths it writes`, async () => {
+        setUp();
+        await fileSystemManager[handler](req, res);
+        await settle();
+
+        sinon.assert.calledOnce(sessionStub.refuseReadOnlyWrite);
+        expect(sessionStub.refuseReadOnlyWrite.firstCall.args.map((p) => p.relative)).to.deep.equal(written);
+      });
+
+      it(`${handler} starts nothing when the session refuses`, async () => {
+        const readOnly = Object.assign(new Error('This node holds a read-only copy of this app\'s data, which follows the node running the app. Make changes on that node.'), { name: 'ReadOnlyCopy', code: 409 });
+        sessionStub.refuseReadOnlyWrite.rejects(readOnly);
+        setUp();
+        await fileSystemManager[handler](req, res);
+        await settle();
+
+        expect(executorStub.run.called).to.equal(false);
+        expect(res.json.firstCall.args[0].data.code).to.equal(409);
       });
     });
   });

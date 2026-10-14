@@ -188,6 +188,7 @@ async function createAppsFolder(req, res) {
     const volume = await openVolume(req);
     const folder = requiredParam(req, 'folder');
     const target = await volume.resolve(folder);
+    await volume.refuseReadOnlyWrite(target);
 
     // No command: the folder is created as staging and published under the name
     // the caller asked for, which is the publish every other operation here
@@ -234,6 +235,7 @@ async function renameAppsObject(req, res) {
     const destination = path.posix.join(path.posix.dirname(oldpath), newname);
 
     const { source, destination: target } = await volume.pair(oldpath, destination);
+    await volume.refuseReadOnlyWrite(source, target);
 
     // No command, and `source` rather than `staging`: a rename publishes the
     // caller's own entry where it stands, so there is nothing to run and
@@ -283,6 +285,7 @@ async function removeAppsObject(req, res) {
     // reserved-name guard hold either way; only the existence requirement,
     // which a delete does not need, is dropped.
     const target = await volume.resolve(object);
+    await volume.refuseReadOnlyWrite(target);
 
     return startOperation(
       res,
@@ -734,6 +737,7 @@ async function moveAppsObject(req, res) {
   try {
     const volume = await openVolume(req);
     const { source, destination, noReplace } = await resolveOperands(req, volume);
+    await volume.refuseReadOnlyWrite(source, destination);
 
     // No command: the source IS the result, so publishing it is the whole
     // operation. Going through publish rather than a bare `mv` is what handles
@@ -755,6 +759,7 @@ async function copyAppsObject(req, res) {
   try {
     const volume = await openVolume(req);
     const { source, destination, noReplace } = await resolveOperands(req, volume);
+    await volume.refuseReadOnlyWrite(destination);
 
     // The same measurement serves both the capacity check and the progress
     // denominator - a copy writes as many bytes as it reads, so the figure the
@@ -807,6 +812,8 @@ async function compressAppsObject(req, res) {
     const {
       destination, noReplace, workingDir, operands,
     } = await resolveArchiveOperands(req, volume);
+    // Only the archive is written; its sources are read.
+    await volume.refuseReadOnlyWrite(destination);
 
     const format = archiveFormat(destination.relative);
     if (!format) {
@@ -890,6 +897,7 @@ async function extractAppsObject(req, res) {
   try {
     const volume = await openVolume(req);
     const { source, destination, noReplace } = await resolveOperands(req, volume);
+    await volume.refuseReadOnlyWrite(destination);
 
     // Refused by extension rather than by sniffing the content: a caller who
     // has to name what they uploaded cannot have it interpreted as something
@@ -1020,6 +1028,8 @@ async function uploadAppsFiles(req, res) {
     // Resolved once, before anything is received, so a folder that resolves
     // outside the volume is refused while the caller can still be told.
     const target = await volume.resolve(folder, { allowRoot: true });
+    // Every file lands inside this folder, so the folder decides for all of them.
+    await volume.refuseReadOnlyWrite(target);
 
     // Before a byte is read. What arrives is bounded only by the ceiling below,
     // and on a full volume that ceiling is zero - which is how "no ceiling" is
