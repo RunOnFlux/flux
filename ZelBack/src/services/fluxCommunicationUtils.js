@@ -130,16 +130,21 @@ function signerAddresses(payload, target) {
 }
 
 /**
- * The key that last spoke for `address`: the signer of the newest unexpired
- * apprunning event stored for it, which only the node listed there when it was
- * sent could have signed. The same broadcast wrote this node's rows at the
- * address, so a node holding rows there holds their signer.
+ * The key that signed the location rows standing at `address`: the signer of
+ * the newest unexpired apprunning event stored for it, which only the node
+ * listed there when it was sent could have signed. Rows stand at an address
+ * only when an apprunning came after its eviction and after any move away from
+ * it, so the newest apprunning is the one that wrote them.
  * @param {string} address
- * @returns {Promise<string|null>} Null when none is stored or it cannot be read.
+ * @returns {Promise<string|null>} Null when no rows stand there, no apprunning
+ *   is stored for it, or either cannot be read.
  */
 async function lastSignerAt(address) {
   try {
     const database = dbHelper.databaseConnection().db(config.database.appsglobal.database);
+    const row = await database.collection(config.database.appsglobal.collections.appsLocations)
+      .findOne({ ip: address }, { projection: { _id: 0, ip: 1 } });
+    if (!row) return null;
     const [event] = await database.collection(config.database.appsglobal.collections.appStateEvents)
       .find(
         { ip: address, type: 'apprunning', expireAt: { $gt: new Date() } },
@@ -195,15 +200,15 @@ async function listedSignerVerdict(addresses, pubKey) {
 
 /**
  * Whether `pubKey` speaks for `address`, which a move left and the list no longer
- * shows, by the key that last spoke for it:
+ * shows, by the key that signed the location rows standing there:
  *
- *   last apprunning at the address   verdict
- *   pubKey's                         OK
- *   another key's                    PUBKEY_MISMATCH
- *   none                             NODE_NOT_FOUND
+ *   rows at the address   signed by       verdict
+ *   standing              pubKey          OK
+ *   standing              another key     PUBKEY_MISMATCH
+ *   none                  -               NODE_NOT_FOUND
  *
- * With no apprunning at the address a move left, the node has no rows there for
- * the move to carry, and the chain already lists it where it is.
+ * With no rows at the address a move left, the move has nothing to carry, and
+ * the chain already lists its node where it is.
  * @param {string} address The address the move left.
  * @param {string} pubKey The move's signer.
  * @returns {Promise<{result: string, reason?: string}>}
@@ -211,10 +216,10 @@ async function listedSignerVerdict(addresses, pubKey) {
 async function lastSignerVerdict(address, pubKey) {
   const lastSigner = await lastSignerAt(address);
   if (lastSigner === null) {
-    return { result: VerifyResult.NODE_NOT_FOUND, reason: `No apprunning shows who left ${address}, move signed by ${pubKey}` };
+    return { result: VerifyResult.NODE_NOT_FOUND, reason: `No location rows stand at ${address}, which a move signed by ${pubKey} left` };
   }
   if (lastSigner !== pubKey) {
-    return { result: VerifyResult.PUBKEY_MISMATCH, reason: `Sender pubkey ${pubKey} is not the last to speak for ${address}` };
+    return { result: VerifyResult.PUBKEY_MISMATCH, reason: `Sender pubkey ${pubKey} did not sign the location rows at ${address}` };
   }
   return { result: VerifyResult.OK };
 }

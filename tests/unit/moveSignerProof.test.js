@@ -6,6 +6,7 @@ const networkStateService = require('../../ZelBack/src/services/networkStateServ
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
 const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
+const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const verifyPool = require('../../ZelBack/src/services/utils/verifyPool');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
@@ -23,6 +24,8 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
   const pubKey = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
   const OLD = '203.0.113.170:16127';
   const NEW = '203.0.113.171:16127';
+  // where the address's previous holder moved to
+  const ELSEWHERE = '203.0.113.180:16127';
   const MINUTE = 60 * 1000;
   const HOUR = 60 * MINUTE;
   let events;
@@ -39,35 +42,45 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
   const move = (oldIP = OLD, newIP = NEW) => signed({
     type: 'fluxipchanged', version: 1, oldIP, newIP, broadcastedAt: Date.now(),
   });
-  // apprunning stored for `ip`, signed by `key`, sent `ago` ms before now
-  const ranAt = (ip, key, { ago = 10 * MINUTE, apps = [{ name: 'proofapp' }], dedupKey = 'v2' } = {}) => events.insertOne({
-    ip,
-    type: 'apprunning',
-    dedupKey,
-    broadcastedAt: new Date(Date.now() - ago),
-    expireAt: new Date(Date.now() - ago + HOUR),
-    data: {
-      type: 'fluxapprunning', version: 2, ip, apps, broadcastedAt: Date.now() - ago,
-    },
-    envelope: {
-      version: 1, timestamp: Date.now() - ago, pubKey: key, signature: 'SIG',
-    },
-  });
+  // apprunning stored for `ip`, signed by `key`, sent `ago` ms before now, with
+  // the location row it wrote for each of its apps
+  const ranAt = async (ip, key, { ago = 10 * MINUTE, apps = [{ name: 'proofapp' }], dedupKey = 'v2' } = {}) => {
+    const broadcastedAt = new Date(Date.now() - ago);
+    const expireAt = new Date(broadcastedAt.getTime() + HOUR);
+    if (apps.length) {
+      await locations.insertMany(apps.map(({ name }) => ({
+        name, hash: 'proofhash', ip, broadcastedAt, expireAt, runningSince: broadcastedAt,
+      })));
+    }
+    await events.insertOne({
+      ip,
+      type: 'apprunning',
+      dedupKey,
+      broadcastedAt,
+      expireAt,
+      data: {
+        type: 'fluxapprunning', version: 2, ip, apps, broadcastedAt: broadcastedAt.getTime(),
+      },
+      envelope: {
+        version: 1, timestamp: broadcastedAt.getTime(), pubKey: key, signature: 'SIG',
+      },
+    });
+  };
 
   beforeEach(async () => {
     await dbHelper.initiateDB();
     const database = dbHelper.databaseConnection().db(config.database.appsglobal.database);
     events = database.collection(config.database.appsglobal.collections.appStateEvents);
     locations = database.collection(config.database.appsglobal.collections.appsLocations);
-    await events.deleteMany({ ip: { $in: [OLD, NEW] } });
-    await locations.deleteMany({ ip: { $in: [OLD, NEW] } });
+    await events.deleteMany({ ip: { $in: [OLD, NEW, ELSEWHERE] } });
+    await locations.deleteMany({ ip: { $in: [OLD, NEW, ELSEWHERE] } });
     listedAt = sinon.stub(networkStateService, 'getFluxnodeBySocketAddress').resolves(null);
   });
 
   afterEach(async () => {
     sinon.restore();
-    await events.deleteMany({ ip: { $in: [OLD, NEW] } });
-    await locations.deleteMany({ ip: { $in: [OLD, NEW] } });
+    await events.deleteMany({ ip: { $in: [OLD, NEW, ELSEWHERE] } });
+    await locations.deleteMany({ ip: { $in: [OLD, NEW, ELSEWHERE] } });
   });
 
   describe('a move arriving by gossip, with its node listed at the new address only', () => {
@@ -97,10 +110,28 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
       expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.NODE_NOT_FOUND);
     });
 
-    it('is accepted from a node that stopped all its apps there, whose last apprunning names none', async () => {
+    it('is dropped from a node that stopped all its apps there, as no rows stand there to carry', async () => {
       await ranAt(OLD, pubKey, { apps: [] });
 
-      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.OK);
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.NODE_NOT_FOUND);
+    });
+
+    // The previous holder's apprunning outlives its rows: it is still stored, and
+    // unexpired, once the rows have gone.
+    it('is dropped, not refused, from an address whose previous holder was evicted from it', async () => {
+      await ranAt(OLD, 'theformerholderskey');
+      await messageStore.applyEviction(OLD, Date.now());
+
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.NODE_NOT_FOUND);
+    });
+
+    it('is dropped, not refused, from an address whose previous holder moved away from it', async () => {
+      await ranAt(OLD, 'theformerholderskey');
+      await messageStore.storeIPChangedMessage({
+        type: 'fluxipchanged', version: 1, oldIP: OLD, newIP: ELSEWHERE, broadcastedAt: Date.now() - MINUTE,
+      });
+
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.NODE_NOT_FOUND);
     });
 
     it('is judged by the newest apprunning from an address another node held before', async () => {
