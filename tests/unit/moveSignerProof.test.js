@@ -124,6 +124,34 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
 
       expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move(OLD, portMoved))).to.equal(VerifyResult.OK);
     });
+
+    // A forged signature is refused before the proof reads the database, so it
+    // counts against the peer that sent it rather than being dropped as unproven.
+    it('is refused as a bad signature, without reading the database, when its signature is forged', async () => {
+      const forged = { ...(await move()), signature: (await move(OLD, '203.0.113.172:16127')).signature };
+      const reads = sinon.spy(dbHelper, 'databaseConnection');
+
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(forged)).to.equal(VerifyResult.BAD_SIGNATURE);
+      sinon.assert.notCalled(reads);
+    });
+
+    it('is refused as a bad signature, without reading the database, when the signature checker given rejects it', async () => {
+      await ranAt(OLD, pubKey);
+      const reads = sinon.spy(dbHelper, 'databaseConnection');
+
+      const [verdict] = await fluxCommunicationUtils.verifyBroadcasts([await move()], { verifySignatures: (items) => items.map(() => false) });
+
+      expect(verdict.result).to.equal(VerifyResult.BAD_SIGNATURE);
+      sinon.assert.notCalled(reads);
+    });
+
+    it('is proved once the signature checker given accepts it', async () => {
+      await ranAt(OLD, pubKey);
+
+      const [verdict] = await fluxCommunicationUtils.verifyBroadcasts([await move()], { verifySignatures: (items) => items.map(() => true) });
+
+      expect(verdict.result).to.equal(VerifyResult.OK);
+    });
   });
 
   it('needs no proof for a move whose node is still listed at the address it left', async () => {

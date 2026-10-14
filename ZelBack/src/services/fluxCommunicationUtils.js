@@ -100,11 +100,6 @@ let lastUpdate = 0;
  */
 const BROADCAST_CLOCK_SKEW_MS = 120_000;
 
-/**
- * To verify a Flux broadcast message.
- * @param {FluxNetworkMessage} broadcast Flux network layer message containing public key, timestamp, signature and version.
- * @returns {Promise<boolean>} False unless message is successfully verified.
- */
 const VerifyResult = Object.freeze({
   OK: 'ok',
   MALFORMED: 'malformed',
@@ -112,6 +107,12 @@ const VerifyResult = Object.freeze({
   BAD_SIGNATURE: 'badSignature',
   PUBKEY_MISMATCH: 'pubkeyMismatch',
 });
+
+/**
+ * listedSignerVerdict's answer when the list shows a move's signer at its new
+ * address only, and lastSignerVerdict decides.
+ */
+const SIGNER_AT_NEW_ADDRESS_ONLY = 'signerAtNewAddressOnly';
 
 /**
  * The addresses a broadcast's signer may be listed at, the one it speaks for
@@ -155,33 +156,25 @@ async function lastSignerAt(address) {
 }
 
 /**
- * Whether the node `addresses` speaks for holds `pubKey`. A node listed at the
- * first address is the one it speaks for. While nothing is listed there, a
- * signer listed at another address speaks for it only when it was the last
- * key to speak for the first (lastSignerAt): a move's confirmation is mined
- * before some peers hear the move, and the chain then lists its node at the
- * new address only.
+ * Whether the node `addresses` speaks for holds `pubKey`, by the node list
+ * alone. A node listed at the first address is the one it speaks for. While
+ * nothing is listed there, a signer listed at another address may speak for it:
+ * a move's confirmation is mined before some peers hear the move, and the chain
+ * then lists its node at the new address only. lastSignerVerdict decides that
+ * case.
  *
  * For a move, `addresses` is [the address it left, the address it holds]:
  *
- *   address left     signer at the new address   last apprunning there   verdict
- *   listed, signer   -                           -                       OK
- *   listed, other    -                           -                       PUBKEY_MISMATCH
- *   not listed       listed, signer              signer's                OK
- *   not listed       listed, signer              another key's           PUBKEY_MISMATCH
- *   not listed       listed, signer              none                    NODE_NOT_FOUND
- *   not listed       listed, other               -                       PUBKEY_MISMATCH
- *   not listed       not listed                  -                       NODE_NOT_FOUND
- *
- * NODE_NOT_FOUND drops the move without counting against the peer that relayed
- * it. With no apprunning at the address it left, the node has no rows there for
- * the move to carry, and the chain already lists it where it is.
+ *   address left     signer at the new address   verdict
+ *   listed, signer   -                           OK
+ *   listed, other    -                           PUBKEY_MISMATCH
+ *   not listed       listed, signer              SIGNER_AT_NEW_ADDRESS_ONLY
+ *   not listed       listed, other               PUBKEY_MISMATCH
+ *   not listed       not listed                  NODE_NOT_FOUND
  * @param {string[]} addresses From signerAddresses.
  * @param {string} pubKey
- * @returns {Promise<string>} VerifyResult.OK; PUBKEY_MISMATCH when the first
- *   address is listed under another key, the others are listed only under
- *   another, or another key last spoke for the first; NODE_NOT_FOUND when
- *   nothing shows who speaks for it.
+ * @returns {Promise<string>} VerifyResult.OK, PUBKEY_MISMATCH or NODE_NOT_FOUND,
+ *   or SIGNER_AT_NEW_ADDRESS_ONLY.
  */
 async function listedSignerVerdict(addresses, pubKey) {
   const [first, ...others] = addresses;
@@ -197,34 +190,161 @@ async function listedSignerVerdict(addresses, pubKey) {
     else if (listed) otherListed = true;
   }
   if (!signerListed) return otherListed ? VerifyResult.PUBKEY_MISMATCH : VerifyResult.NODE_NOT_FOUND;
-  const lastSigner = await lastSignerAt(first);
-  if (lastSigner === null) return VerifyResult.NODE_NOT_FOUND;
-  return lastSigner === pubKey ? VerifyResult.OK : VerifyResult.PUBKEY_MISMATCH;
+  return SIGNER_AT_NEW_ADDRESS_ONLY;
 }
 
-async function verifyFluxBroadcast(broadcast) {
+/**
+ * Whether `pubKey` speaks for `address`, which a move left and the list no longer
+ * shows, by the key that last spoke for it:
+ *
+ *   last apprunning at the address   verdict
+ *   pubKey's                         OK
+ *   another key's                    PUBKEY_MISMATCH
+ *   none                             NODE_NOT_FOUND
+ *
+ * With no apprunning at the address a move left, the node has no rows there for
+ * the move to carry, and the chain already lists it where it is.
+ * @param {string} address The address the move left.
+ * @param {string} pubKey The move's signer.
+ * @returns {Promise<{result: string, reason?: string}>}
+ */
+async function lastSignerVerdict(address, pubKey) {
+  const lastSigner = await lastSignerAt(address);
+  if (lastSigner === null) {
+    return { result: VerifyResult.NODE_NOT_FOUND, reason: `No apprunning shows who left ${address}, move signed by ${pubKey}` };
+  }
+  if (lastSigner !== pubKey) {
+    return { result: VerifyResult.PUBKEY_MISMATCH, reason: `Sender pubkey ${pubKey} is not the last to speak for ${address}` };
+  }
+  return { result: VerifyResult.OK };
+}
+
+/**
+ * The address a broadcast's type names its node by, and the refusal when that
+ * node is not listed.
+ * @param {object} payload The broadcast's data.
+ * @param {string} pubKey
+ * @returns {Promise<{target: (string|Map|null), error: string}>} A Map when the
+ *   type names no address and the node is found by its key.
+ */
+async function broadcastTarget(payload, pubKey) {
+  switch (payload.type) {
+    case 'fluxapprunning':
+      // most of invalids are caused because our deterministic list is cached for couple of minutes
+      return { target: payload.ip, error: `Invalid fluxapprunning message, ip: ${payload.ip} pubkey: ${pubKey}` };
+    case 'fluxappinstalling':
+      return { target: payload.ip, error: `Invalid fluxappinstalling message, ip: ${payload.ip} pubkey: ${pubKey}` };
+    case 'fluxappinstallingerror':
+      return { target: payload.ip, error: `Invalid fluxappinstallingerror message, ip: ${payload.ip} pubkey: ${pubKey}` };
+    case 'fluxipchanged':
+      return { target: payload.oldIP, error: `Invalid fluxipchanged message, oldIP: ${payload.oldIP} pubkey: ${pubKey}` };
+    case 'fluxappremoved':
+      return { target: payload.ip, error: `Invalid fluxappremoved message, ip: ${payload.ip} pubkey: ${pubKey}` };
+    case 'fluxnodesigterm':
+      return { target: payload.ip, error: `Invalid fluxnodesigterm message, ip: ${payload.ip} pubkey: ${pubKey}` };
+    // zelappregister zelappupdate fluxappregister fluxappupdate fluxapprequest
+    default:
+      // a pubkey found in the list is good enough; every message should ideally also carry its source ip
+      return {
+        target: await networkStateService.getFluxnodesByPubkey(pubKey),
+        error: `No node belonging to ${pubKey} found for ${payload.type}`,
+      };
+  }
+}
+
+/**
+ * The checks of one broadcast that need no signature: its shape, then the node
+ * list. A refusal, or what its signature is checked over.
+ * @param {FluxNetworkMessage} broadcast
+ * @param {number} now
+ * @returns {Promise<{refused: {result: string, reason?: string}}|{item: object}>}
+ */
+async function checkBeforeSignature(broadcast, now) {
   const {
     pubKey, timestamp, signature, version, data: payload,
   } = broadcast;
 
-  if (version !== 1) return VerifyResult.MALFORMED;
-
+  if (version !== 1 || !payload || !pubKey || !timestamp || !signature) return { refused: { result: VerifyResult.MALFORMED } };
   const message = serviceHelper.ensureString(payload);
-
-  if (!message) return VerifyResult.MALFORMED;
-
-  const { type: msgType } = payload;
-
-  if (!msgType) return VerifyResult.MALFORMED;
-
-  const now = Date.now();
-
+  if (!message || !payload.type) return { refused: { result: VerifyResult.MALFORMED } };
   // message was broadcasted in the future. Allow 120 sec clock sync
   if (now < timestamp - BROADCAST_CLOCK_SKEW_MS) {
-    log.error('VerifyBroadcast: Message from future, rejecting');
-    return VerifyResult.MALFORMED;
+    return { refused: { result: VerifyResult.MALFORMED, reason: 'VerifyBroadcast: Message from future, rejecting' } };
   }
 
+  const { target, error } = await broadcastTarget(payload, pubKey);
+  if (target === null) return { refused: { result: VerifyResult.NODE_NOT_FOUND, reason: error } };
+
+  let proveAt = null;
+  // a Map is the node found by its key: it is listed
+  if (!(target instanceof Map)) {
+    const addresses = signerAddresses(payload, target);
+    const listed = await listedSignerVerdict(addresses, pubKey);
+    if (listed === VerifyResult.NODE_NOT_FOUND) return { refused: { result: listed, reason: error } };
+    if (listed === VerifyResult.PUBKEY_MISMATCH) {
+      return { refused: { result: listed, reason: `Sender pubkey ${pubKey} does not match node at ${target}` } };
+    }
+    if (listed === SIGNER_AT_NEW_ADDRESS_ONLY) [proveAt] = addresses;
+  }
+
+  return {
+    item: {
+      messageToVerify: version + message + timestamp, pubKey, signature, proveAt,
+    },
+  };
+}
+
+function verifySignaturesInline(items) {
+  return items.map(({ messageToVerify, pubKey, signature }) => verificationHelper.verifyMessage(messageToVerify, pubKey, signature));
+}
+
+/**
+ * Verify Flux broadcasts: that each speaks for a listed node, and that the node
+ * signed it.
+ *
+ * A broadcast is refused by the cheapest check that can refuse it, so the checks
+ * run cheapest first: its shape, then the node list (in memory), then its
+ * signature, then anything that reads the database. A broadcast whose signature
+ * fails never costs a database read.
+ *
+ * NODE_NOT_FOUND is the one refusal that does not count against the peer that
+ * relayed the broadcast: the list is cached, and can lag the chain.
+ * @param {FluxNetworkMessage[]} broadcasts
+ * @param {object} [options]
+ * @param {function(object[]): (boolean[]|Promise<boolean[]>)} [options.verifySignatures]
+ *   Whether each item's `signature` over `messageToVerify` is `pubKey`'s, in
+ *   order. Checked here, one by one, unless given: a batch passes a worker pool.
+ * @returns {Promise<Array<{result: string, reason?: string}>>} A VerifyResult per
+ *   broadcast, in order, and why when it was refused.
+ */
+async function verifyBroadcasts(broadcasts, { verifySignatures = verifySignaturesInline } = {}) {
+  const now = Date.now();
+  const verdicts = new Array(broadcasts.length);
+  const unsigned = [];
+  for (let i = 0; i < broadcasts.length; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const { refused, item } = await checkBeforeSignature(broadcasts[i], now);
+    if (refused) verdicts[i] = refused;
+    else unsigned.push({ index: i, ...item });
+  }
+
+  const signed = await verifySignatures(unsigned);
+
+  for (let i = 0; i < unsigned.length; i += 1) {
+    const { index, pubKey, proveAt } = unsigned[i];
+    if (!signed[i]) verdicts[index] = { result: VerifyResult.BAD_SIGNATURE };
+    // eslint-disable-next-line no-await-in-loop
+    else verdicts[index] = proveAt ? await lastSignerVerdict(proveAt, pubKey) : { result: VerifyResult.OK };
+  }
+  return verdicts;
+}
+
+/**
+ * Verify one Flux broadcast, as verifyBroadcasts does.
+ * @param {FluxNetworkMessage} broadcast Flux network layer message containing public key, timestamp, signature and version.
+ * @returns {Promise<string>} A VerifyResult.
+ */
+async function verifyFluxBroadcast(broadcast) {
   counter += 1;
   if (!lastUpdate) lastUpdate = process.hrtime.bigint();
 
@@ -241,81 +361,9 @@ async function verifyFluxBroadcast(broadcast) {
     log.info(`Receiving broadcast message rate: ${rounded} MSG/s`);
   }
 
-  let error = '';
-  let target = '';
-
-  switch (msgType) {
-    case 'fluxapprunning':
-      target = payload.ip;
-      // most of invalids are caused because our deterministic list is cached for couple of minutes
-      error = `Invalid fluxapprunning message, ip: ${payload.ip} pubkey: ${pubKey}`;
-      break;
-
-    case 'fluxappinstalling':
-      target = payload.ip;
-      error = `Invalid fluxappinstalling message, ip: ${payload.ip} pubkey: ${pubKey}`;
-      break;
-
-    case 'fluxappinstallingerror':
-      target = payload.ip;
-      error = `Invalid fluxappinstallingerror message, ip: ${payload.ip} pubkey: ${pubKey}`;
-      break;
-
-    case 'fluxipchanged':
-      target = payload.oldIP;
-      error = `Invalid fluxipchanged message, oldIP: ${payload.oldIP} pubkey: ${pubKey}`;
-      break;
-
-    case 'fluxappremoved':
-      target = payload.ip;
-      error = `Invalid fluxappremoved message, ip: ${payload.ip} pubkey: ${pubKey}`;
-      break;
-
-    case 'fluxnodesigterm':
-      target = payload.ip;
-      error = `Invalid fluxnodesigterm message, ip: ${payload.ip} pubkey: ${pubKey}`;
-      break;
-
-    // zelappregister zelappupdate fluxappregister fluxappupdate fluxapprequest
-    default: {
-      // this used to just take the first node. I.e:
-      //   node = zl.find((key) => key.pubkey === pubKey);
-      // however, that doesn't prove anything. So if we find the pubkey, good enough
-      // ideally - every message should also have the source ip
-      target = await networkStateService.getFluxnodesByPubkey(pubKey);
-      error = `No node belonging to ${pubKey} found for ${msgType}`;
-    }
-  }
-
-  // no public key found in cache
-  if (target === null) {
-    log.warn(error);
-    return VerifyResult.NODE_NOT_FOUND;
-  }
-
-  // if we get a map, we have hit the default case and searched for pubkeys
-  if (target instanceof Map) {
-    // default case: already verified pubkey exists in network
-  } else {
-    const listed = await listedSignerVerdict(signerAddresses(payload, target), pubKey);
-    if (listed === VerifyResult.NODE_NOT_FOUND) {
-      log.warn(error);
-      return listed;
-    }
-    if (listed === VerifyResult.PUBKEY_MISMATCH) {
-      log.warn(`Sender pubkey ${pubKey} does not match node at ${target}`);
-      return listed;
-    }
-  }
-
-  const messageToVerify = version + message + timestamp;
-  const verified = verificationHelper.verifyMessage(
-    messageToVerify,
-    pubKey,
-    signature,
-  );
-
-  return verified ? VerifyResult.OK : VerifyResult.BAD_SIGNATURE;
+  const [{ result, reason }] = await verifyBroadcasts([broadcast]);
+  if (reason) log.warn(reason);
+  return result;
 }
 
 /**
@@ -369,14 +417,12 @@ async function verifyOriginalFluxBroadcast(data, currentTimeStamp) {
 module.exports = {
   BROADCAST_CLOCK_SKEW_MS,
   VerifyResult,
-  signerAddresses,
-  lastSignerAt,
-  listedSignerVerdict,
   getNodeCount,
   verifyTimestampInFluxBroadcast,
   verifyOriginalFluxBroadcast,
   deterministicFluxList,
   socketAddressInFluxList,
   getFluxnodeFromFluxList,
+  verifyBroadcasts,
   verifyFluxBroadcast,
 };

@@ -83,53 +83,19 @@ async function handleAppMessages(message, fromIP, port) {
 async function batchVerifyBroadcasts(broadcasts, label) {
   if (broadcasts.length === 0) return [];
 
-  const items = [];
-  const nodeCheckFailed = new Set();
-  for (let i = 0; i < broadcasts.length; i++) {
-    const b = broadcasts[i];
-    const { pubKey, timestamp, signature, version, data: payload } = b;
-    if (version !== 1 || !pubKey || !timestamp || !signature || !payload) {
-      nodeCheckFailed.add(i);
-      continue;
-    }
-    const { type: msgType } = payload;
-    let target = payload.ip ?? payload.oldIP;
-    if (!target && msgType) {
-      target = await networkStateService.getFluxnodesByPubkey(pubKey);
-    }
-    if (!target) { nodeCheckFailed.add(i); continue; }
-    if (target instanceof Map) {
-      // pubkey lookup — node exists in network
-    } else {
-      const { signerAddresses, listedSignerVerdict, VerifyResult } = fluxCommunicationUtils;
-      // eslint-disable-next-line no-await-in-loop
-      if (await listedSignerVerdict(signerAddresses(payload, target), pubKey) !== VerifyResult.OK) {
-        nodeCheckFailed.add(i);
-        continue;
-      }
-    }
-    const message = serviceHelper.ensureString(payload);
-    items.push({ index: i, messageToVerify: String(version) + message + String(timestamp), pubKey, signature });
+  const { VerifyResult } = fluxCommunicationUtils;
+  const verdicts = await fluxCommunicationUtils.verifyBroadcasts(broadcasts, {
+    verifySignatures: (items) => verifyPool.verify(items),
+  });
+  const verified = broadcasts.filter((broadcast, i) => verdicts[i].result === VerifyResult.OK);
+  const signatureFailures = verdicts.filter(({ result }) => result === VerifyResult.BAD_SIGNATURE).length;
+  const nodeCheckFailures = broadcasts.length - verified.length - signatureFailures;
+
+  if (nodeCheckFailures > 0) {
+    log.warn(`${label} - ${nodeCheckFailures} broadcasts failed node lookup`);
   }
 
-  if (nodeCheckFailed.size > 0) {
-    log.warn(`${label} - ${nodeCheckFailed.size} broadcasts failed node lookup`);
-  }
-
-  if (items.length === 0) return [];
-
-  // The worker reads only the three fields it needs, so items go across as they
-  // are rather than being copied into a narrower shape first
-  const cryptoResults = await verifyPool.verify(items);
-
-  const verified = [];
-  for (let i = 0; i < items.length; i++) {
-    if (cryptoResults[i]) {
-      verified.push(broadcasts[items[i].index]);
-    }
-  }
-
-  log.info(`${label} - Verified ${verified.length}/${broadcasts.length} broadcasts (${nodeCheckFailed.size} node lookup failures, ${items.length - verified.length} signature failures)`);
+  log.info(`${label} - Verified ${verified.length}/${broadcasts.length} broadcasts (${nodeCheckFailures} node lookup failures, ${signatureFailures} signature failures)`);
   return verified;
 }
 
