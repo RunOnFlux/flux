@@ -6,7 +6,7 @@ const serviceHelper = require('../serviceHelper');
 const syncthingService = require('../syncthingService');
 const verificationHelper = require('../verificationHelper');
 const {
-  sanitizePath, verifyRealPath, verifyRealPathOfExistingPath,
+  sanitizePath, verifyRealPath, verifyRealPathOfExistingPath, realLandingPath,
 } = require('../utils/pathSecurity');
 const { appsFolder, APP_NAME_REGEX, APP_NAME_REGEX_LEGACY } = require('../utils/appConstants');
 const {
@@ -298,32 +298,55 @@ class VolumeSession {
    * that archives on the standby, and protected nothing.
    *
    * Decided from where each path LANDS, like the reserved-name rule in
-   * resolve(): an app can `ln -s appdata backup/in` and name `backup/in/x`,
-   * which is spelled under /backup and written into appdata. The entry itself
-   * lives in its parent, so a link at the target is judged by where the link
-   * is, not by what it points to - removing or replacing it touches only that.
+   * resolve(): an app can `ln -s ../appdata backup/in` and name `backup/in/x`,
+   * which is spelled under /backup and written into appdata. A target is
+   * followed to the end, link included: an upload's files go INSIDE its folder,
+   * and a merge or overwrite goes through whatever is at the destination. A
+   * part that does not exist yet is placed below the deepest one that does,
+   * which is where `mkdir -p` creates it. Removals, which act on an entry
+   * itself, go through refuseReadOnlyRemoval instead.
    *
    * A session on a sendreceive copy, or one with no folder, refuses nothing.
    *
-   * @param {...VolumePath} targets - every path the operation creates, replaces or removes
+   * @param {...VolumePath} targets - every path the operation creates, writes into or replaces
    */
   async refuseReadOnlyWrite(...targets) {
+    await this.#refuseReadOnly(targets, true);
+  }
+
+  /**
+   * refuseReadOnlyWrite for entries an operation takes away - a remove's
+   * target, a rename's or a move's source - judged by where the ENTRY is, not
+   * where it points: removing `backup/in`, a link into appdata, unlinks the
+   * link in backup/ and leaves appdata alone.
+   *
+   * @param {...VolumePath} entries
+   */
+  async refuseReadOnlyRemoval(...entries) {
+    await this.#refuseReadOnly(entries, false);
+  }
+
+  async #refuseReadOnly(targets, followLeaf) {
     if (!this.#readOnlyCopy) return;
-    const realMount = await verifyRealPath(this.#mount, this.#mount);
+    const realMount = await realLandingPath(this.#mount, this.#mount);
     // eslint-disable-next-line no-restricted-syntax
     for (const target of targets) {
       if (!(target instanceof VolumePath)) {
         throw new Error('refuseReadOnlyWrite requires VolumePaths');
       }
-      let landsAt = '';
-      if (target.relative !== '') {
+      let landsAt = null;
+      if (followLeaf || target.relative === '') {
         // eslint-disable-next-line no-await-in-loop
-        const realParent = await verifyRealPath(path.dirname(target.hostPath), this.#mount);
-        landsAt = path.relative(realMount, path.join(realParent, path.basename(target.hostPath)));
+        landsAt = await realLandingPath(target.hostPath, this.#mount);
+      } else {
+        // eslint-disable-next-line no-await-in-loop
+        const parent = await realLandingPath(path.dirname(target.hostPath), this.#mount);
+        landsAt = parent && path.join(parent, path.basename(target.hostPath));
       }
-      const [rootName] = landsAt.split(path.sep);
-      // The volume root itself, and anything under a replicated root name.
-      if (!rootName || isSyncedRootName(rootName)) {
+      // Unknown (a dangling link on the way), the volume root, anything outside
+      // it, or under a replicated root name.
+      const rootName = landsAt && realMount ? path.relative(realMount, landsAt).split(path.sep)[0] : '';
+      if (!rootName || rootName === '..' || isSyncedRootName(rootName)) {
         const error = new Error('This node holds a read-only copy of this app\'s data, which follows the node running the app. Make changes on that node.');
         error.name = 'ReadOnlyCopy';
         error.code = 409;

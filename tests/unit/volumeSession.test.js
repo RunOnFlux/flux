@@ -596,18 +596,20 @@ describe('volumeSession tests', () => {
       if (tmpRoot) await realFs.rm(tmpRoot, { recursive: true, force: true });
     });
 
-    const refused = async (...relatives) => {
+    const refusedBy = (check) => async (...relatives) => {
       const targets = [];
       // eslint-disable-next-line no-restricted-syntax
       for (const relative of relatives) {
         // eslint-disable-next-line no-await-in-loop
         targets.push(await vol.resolve(relative, { allowRoot: true }));
       }
-      return vol.refuseReadOnlyWrite(...targets).then(() => false, (error) => {
+      return vol[check](...targets).then(() => false, (error) => {
         expect(error.code).to.equal(409);
         return true;
       });
     };
+    const refused = refusedBy('refuseReadOnlyWrite');
+    const removalRefused = refusedBy('refuseReadOnlyRemoval');
 
     it('refuses a write into the replicated tree', async () => {
       expect(await refused('appdata/world.sav')).to.equal(true);
@@ -640,11 +642,61 @@ describe('volumeSession tests', () => {
       expect(await refused('backup/in/world.sav')).to.equal(true);
     });
 
-    it('judges a link by where the link is, not where it points', async () => {
-      // Removing or replacing the link touches only the entry in backup/.
+    it('refuses a write INTO a folder that is a link into the replicated tree', async () => {
+      // An upload's files go inside its folder, so the folder is followed.
       await realFs.symlink('../appdata', nodePath.join(mount, 'backup', 'in'));
 
-      expect(await refused('backup/in')).to.equal(false);
+      expect(await refused('backup/in')).to.equal(true);
+    });
+
+    it('refuses a folder that does not exist yet below such a link', async () => {
+      // The upload's mkdir -p would create appdata/new/deeper.
+      await realFs.symlink('../appdata', nodePath.join(mount, 'backup', 'in'));
+
+      expect(await refused('backup/in/new/deeper')).to.equal(true);
+    });
+
+    it('refuses a write through a link that resolves nowhere', async () => {
+      // Where a write through it would land cannot be known, so it is not
+      // allowed. (resolve() already refuses one ABOVE the target.)
+      await realFs.symlink('../appdata/gone', nodePath.join(mount, 'backup', 'dangling'));
+
+      expect(await refused('backup/dangling')).to.equal(true);
+    });
+
+    it('judges a removal by where the entry is, not where it points', async () => {
+      // Removing the link unlinks it in backup/ and leaves appdata alone.
+      await realFs.symlink('../appdata', nodePath.join(mount, 'backup', 'in'));
+
+      expect(await removalRefused('backup/in')).to.equal(false);
+      expect(await removalRefused('appdata/world.sav')).to.equal(true);
+      expect(await removalRefused('backup/in/world.sav')).to.equal(true);
+    });
+
+    it('lets backup/ through when the volume root sits behind a link', async () => {
+      // macOS's tmpdir is one: the resolved root and an unresolved path must
+      // never be compared, or every backup/ write computes as `..` and is refused.
+      // The apps folder is reached through a link; the volume is the same one.
+      const linkedApps = nodePath.join(tmpRoot, 'linked-apps');
+      await realFs.symlink(tmpRoot, linkedApps);
+      const linkedMount = nodePath.join(linkedApps, 'fluxcomp_myapp');
+      const behindLink = proxyquire('../../ZelBack/src/services/appSystem/volumeSession', {
+        '../deviceHelper': { listMountedFilesystems: sinon.stub().resolves([mountRow(linkedMount)]) },
+        '../verificationHelper': verificationHelperStub,
+        '../IOUtils': IOUtilsStub,
+        '../utils/pathSecurity': pathSecurity,
+        '../utils/appConstants': {
+          appsFolder: `${linkedApps}/`,
+          APP_NAME_REGEX: /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/,
+          APP_NAME_REGEX_LEGACY: /^[a-zA-Z0-9]+$/,
+        },
+        '../syncthingService': { getConfigFolders: sinon.stub().resolves([{ id: 'fluxcomp_myapp', type: 'receiveonly' }]) },
+      });
+      vol = await behindLink.openVolume(reqFor());
+      expect(vol.mount).to.equal(linkedMount);
+
+      expect(await refused('backup/local/new/backup_comp.tar.gz')).to.equal(false);
+      expect(await refused('appdata/new')).to.equal(true);
     });
 
     it('does not take /backup from a name that only starts with it', async () => {
