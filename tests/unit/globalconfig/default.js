@@ -39,6 +39,7 @@ module.exports = {
         geolocation: 'geolocation',
         policyDocuments: 'policydocuments', // last-known-good network policy documents, so an unreachable source does not drop enforcement
         benchmark: 'benchmark',
+        ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
       },
     },
     daemon: {
@@ -237,6 +238,17 @@ module.exports = {
     minIncoming: 4,
     minUniqueIpsIncoming: 3,
     minUpTime: 1800, // 30 mins
+    availabilityCheckIntervalMs: 300000,
+    availabilityRecheckMs: 60000,
+    peerShortfallDosPerMinute: 0.13,
+    publicIpAskIntervalMs: 90000,
+    publicIpAsksBeforeDos: 8,
+    appsPortCheck: {
+      timeoutsMs: {
+        default: 3600000, error: 60000, failure: 15000, dos: 300000, appError: 240000,
+      },
+      thresholds: { dos: 100, portsHighEdge: 100, portsLowEdge: 80 },
+    },
     appSyncPeerThreshold: 12,
     appSyncDegradedThreshold: 4,
     appSyncMinCompletions: 3,

@@ -281,6 +281,14 @@ export async function restartFluxos(container, { apiPort = 16127, readyTimeoutMs
   throw new Error(`restartFluxos: FluxOS did not cycle down and back up within ${readyTimeoutMs}ms`);
 }
 
+// Set the api port a node's FluxOS takes at its next start, as an operator
+// changing it does. The port is read once, when FluxOS starts: restartFluxos with
+// the same apiPort brings it up there.
+export async function setNodeApiPort(container, apiPort) {
+  const r = await execInContainer(container, `sed -i -E 's/^( *apiport:).*,$/\\1 ${Number(apiPort)},/' /flux/config/userconfig.js && grep -q 'apiport: ${Number(apiPort)},' /flux/config/userconfig.js`);
+  if (r.exitCode !== 0) throw new Error(`setNodeApiPort: could not set apiport ${apiPort}: ${r.output}`);
+}
+
 export async function getContainerImageDigest(container, appName, componentName) {
   const containerName = `flux${componentName}_${appName}`;
   const { stdout } = await execInContainer(container,
@@ -397,6 +405,13 @@ export async function unblockTraffic(container, peerIps, port) {
       await execInContainer(container, `iptables -D ${rule}`);
     }
   }
+}
+
+// The IP the node's userconfig.js names as its own.
+export async function configuredIpOf(container) {
+  const r = await execInContainer(container, `node -p "require('/flux/config/userconfig.js').initial.ipaddress"`);
+  if (r.exitCode !== 0) throw new Error(`configuredIpOf: could not read userconfig.js: ${r.output}`);
+  return r.stdout.trim();
 }
 
 // A crash of one node's FluxOS: the process is killed outright, with no

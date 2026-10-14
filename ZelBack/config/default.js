@@ -59,6 +59,7 @@ module.exports = {
         policyDocuments: 'policydocuments', // last-known-good network policy documents, so an unreachable source does not drop enforcement
         ipRanges: 'ipranges', // the IP location baseline, one document per allocated range, rebuilt and swapped in whole
         nodeLocations: 'nodelocations', // per-node view derived from the baseline, invalidated when a new baseline lands
+        ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
       },
     },
     daemon: {
@@ -437,6 +438,39 @@ module.exports = {
     minUniqueIpsIncoming: 3,
     minHashSyncPeers: 12,
     minUpTime: 1800, // 30 mins
+    // How often this node asks a peer whether it can reach it: every
+    // availabilityCheckIntervalMs while it can, availabilityRecheckMs after it
+    // could not, so a verdict from one bad moment clears.
+    availabilityCheckIntervalMs: 5 * 60 * 1000,
+    availabilityRecheckMs: 60 * 1000,
+    // What each minute with too few peer connections adds to a reachable node's
+    // DOS state: out of service once it passes 10, about 77 minutes at 0.13.
+    peerShortfallDosPerMinute: 0.13,
+    // While this node knows no address of its own it asks benchmark to detect its
+    // public IP this often, and is out of service after this many asks find none.
+    // Benchmark caches its answer for 69 s.
+    publicIpAskIntervalMs: 90 * 1000,
+    publicIpAsksBeforeDos: 8,
+    // The apps port check. timeoutsMs: how long it waits before testing again
+    // after a pass, an error, a failed port, once its count reaches the DOS
+    // threshold, and after an app error. thresholds: once portsHighEdge ports
+    // have failed, each further failure counts four toward dos, where the node is
+    // held out of service; a pass while more than portsLowEdge ports stand failed
+    // retests another of them.
+    appsPortCheck: {
+      timeoutsMs: {
+        default: 3600000,
+        error: 60000,
+        failure: 15000,
+        dos: 300000,
+        appError: 240000,
+      },
+      thresholds: {
+        dos: 100,
+        portsHighEdge: 100,
+        portsLowEdge: 80,
+      },
+    },
     appSyncPeerThreshold: 12, // peers needed before starting app sync / spawning
     appSyncDegradedThreshold: 4, // below this, pause spawner — gossip unreliable
     appSyncMinCompletions: 3, // sync responses needed per type before spawner can start

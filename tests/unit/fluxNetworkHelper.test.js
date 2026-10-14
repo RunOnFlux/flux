@@ -28,6 +28,7 @@ const config = require('config');
 const log = require('../../ZelBack/src/lib/log');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
@@ -43,7 +44,7 @@ const upnpService = require('../../ZelBack/src/services/upnpService');
 const geolocationService = require('../../ZelBack/src/services/geolocationService');
 const ufw = require('../../ZelBack/src/services/utils/ufw');
 const ufwHelper = require('../../ZelBack/src/services/utils/ufwHelper');
-// Loaded by adjustExternalIP on its first call; loaded here so that load is not
+// Loaded by adjustExternalIp on its first call; loaded here so that load is not
 // inside a test's timeout.
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 require('../../ZelBack/src/services/appDatabase/registryManager');
@@ -1287,6 +1288,38 @@ describe('fluxNetworkHelper tests', () => {
       expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal('2.0.0');
     });
 
+    it('ends its own DOS once the version is read and allowed', async () => {
+      fluxNetworkHelper.setDosMessage('Fluxbench Version Error. Error obtaining FluxBench Version.');
+      fluxNetworkHelper.setDosStateValue(11);
+      benchmarkInfoResponseStub.returns({ status: 'success', data: { version: '6.3.0' } });
+
+      expect(await fluxNetworkHelper.checkFluxbenchVersionAllowed()).to.equal(true);
+
+      expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
+    });
+
+    it('ends its own DOS on an allowed version it already holds', async () => {
+      fluxNetworkHelper.setStoredFluxBenchAllowed('6.3.0');
+      fluxNetworkHelper.setDosMessage('Fluxbench Version Error. Error obtaining Flux Version.');
+      fluxNetworkHelper.setDosStateValue(11);
+
+      expect(await fluxNetworkHelper.checkFluxbenchVersionAllowed()).to.equal(true);
+
+      expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+    });
+
+    it('leaves another check\'s DOS standing once the version is allowed', async () => {
+      fluxNetworkHelper.setDosMessage('Flux is not available for outside communication');
+      fluxNetworkHelper.setDosStateValue(11);
+      benchmarkInfoResponseStub.returns({ status: 'success', data: { version: '6.3.0' } });
+
+      await fluxNetworkHelper.checkFluxbenchVersionAllowed();
+
+      expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux is not available for outside communication');
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(11);
+    });
+
     it('should return false if the version is unattainable from benchmarkInfo', async () => {
       const benchmarkInfoResponse = {
         status: 'error',
@@ -1476,9 +1509,19 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
-  describe('adjustExternalIP tests', () => {
+  describe('adjustExternalIp tests', () => {
+    // Each case starts with no address of this node's own recorded: the IP
+    // changes the limit counts are read from that record.
+    before(requireMongo);
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      await dbHelper.databaseConnection().db(config.database.local.database)
+        .collection(config.database.local.collections.ownAddress).deleteMany({});
+    });
+
     let writeFileStub;
     let originalUserConfig;
+    const socketAt = (ip) => (typeof ip === 'string' && ip ? `${ip}:16127` : ip);
 
     beforeEach(() => {
       writeFileStub = sinon.stub(fs, 'writeFile').resolves();
@@ -1501,12 +1544,9 @@ describe('fluxNetworkHelper tests', () => {
           pgpPublicKey: '',
         },
       };
-      // adjustExternalIP defers a change until the node knows its own address.
-      fluxNetworkHelper.setLocalSocketAddress('127.0.0.1');
     });
     afterEach(() => {
       sinon.restore();
-      fluxNetworkHelper.setLocalSocketAddress(null);
       // Restore original userconfig
       globalThis.userconfig = originalUserConfig;
     });
@@ -1515,7 +1555,7 @@ describe('fluxNetworkHelper tests', () => {
       const newIp = '127.0.0.66';
       const callPath = path.join(__dirname, '../../config/userconfig.js');
 
-      await fluxNetworkHelper.adjustExternalIP(newIp);
+      await fluxNetworkHelper.adjustExternalIp('127.0.0.1:16127', socketAt(newIp));
 
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/module.exports = {/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/initial: {/gm));
@@ -1534,7 +1574,7 @@ describe('fluxNetworkHelper tests', () => {
     it('should not write to file if the config already has same exact ip', async () => {
       const newIp = userconfig.initial.ipaddress;
 
-      await fluxNetworkHelper.adjustExternalIP(newIp);
+      await fluxNetworkHelper.adjustExternalIp('127.0.0.1:16127', socketAt(newIp));
 
       sinon.assert.notCalled(writeFileStub);
     });
@@ -1542,7 +1582,7 @@ describe('fluxNetworkHelper tests', () => {
     it('should not write to file if ip does not have a proper format', async () => {
       const newIp = '127111111';
 
-      await fluxNetworkHelper.adjustExternalIP(newIp);
+      await fluxNetworkHelper.adjustExternalIp('127.0.0.1:16127', socketAt(newIp));
 
       sinon.assert.notCalled(writeFileStub);
     });
@@ -1550,7 +1590,7 @@ describe('fluxNetworkHelper tests', () => {
     it('should not write to file if ip is not a string', async () => {
       const newIp = 121;
 
-      await fluxNetworkHelper.adjustExternalIP(newIp);
+      await fluxNetworkHelper.adjustExternalIp('127.0.0.1:16127', socketAt(newIp));
 
       sinon.assert.notCalled(writeFileStub);
     });
@@ -1558,13 +1598,22 @@ describe('fluxNetworkHelper tests', () => {
     it('should not write to file if ip is empty', async () => {
       const newIp = '';
 
-      await fluxNetworkHelper.adjustExternalIP(newIp);
+      await fluxNetworkHelper.adjustExternalIp('127.0.0.1:16127', socketAt(newIp));
 
       sinon.assert.notCalled(writeFileStub);
     });
   });
 
-  describe('adjustExternalIP static IP app handling tests', () => {
+  describe('adjustExternalIp static IP app handling tests', () => {
+    // Each case starts with no address of this node's own recorded: the IP
+    // changes the limit counts are read from that record.
+    before(requireMongo);
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      await dbHelper.databaseConnection().db(config.database.local.database)
+        .collection(config.database.local.collections.ownAddress).deleteMany({});
+    });
+
     let writeFileStub;
     let originalUserConfig;
     let appQueryServiceStub;
@@ -1604,7 +1653,6 @@ describe('fluxNetworkHelper tests', () => {
 
       // Stub fluxNetworkHelper internal functions
       fluxNetworkHelper.setStoredFluxBenchAllowed('6.2.0');
-      fluxNetworkHelper.setLocalSocketAddress('127.0.0.1');
     });
 
     afterEach(() => {
@@ -1673,12 +1721,8 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
 
-      // Each test proxyquires its OWN module instance, so the address has to be set
-      // on THAT one - the beforeEach sets it on the outer module, which this code
-      // never reads. A node reaches adjustExternalIP only once it knows itself.
-      fluxNetworkHelperWithStubs.setLocalSocketAddress('127.0.0.1:16127');
       fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
-      await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
+      await fluxNetworkHelperWithStubs.adjustExternalIp('127.0.0.1:16127', `${newIp}:16127`);
 
       // Verify static IP app was uninstalled
       sinon.assert.calledOnce(appUninstallerStub.removeAppLocally);
@@ -1692,6 +1736,54 @@ describe('fluxNetworkHelper tests', () => {
 
       // Verify geolocation service was called
       sinon.assert.calledOnce(geolocationServiceStub.setNodeGeolocation);
+    });
+
+    it('tells whoever records this node\'s own move its old and new address, before the apps it keeps are restarted', async () => {
+      const onOwnAddressMovedSpy = sinon.stub().resolves();
+      onAddressChangedSpy = sinon.stub().resolves();
+      const fluxNetworkHelperWithStubs = proxyquire('../../ZelBack/src/services/fluxNetworkHelper', {
+        './appQuery/appQueryService': { installedApps: sinon.stub().resolves({ status: 'success', data: [{ name: 'normalApp', version: 7, staticip: false }] }) },
+        './appDatabase/registryManager': { appLocation: sinon.stub().resolves([]) },
+        './appLifecycle/appUninstaller': { removeAppLocally: sinon.stub().resolves() },
+        './utils/enterpriseHelper': { checkAndDecryptAppSpecs: sinon.stub().callsFake((app) => Promise.resolve(app)) },
+        './geolocationService': { setNodeGeolocation: sinon.stub() },
+        './fluxCommunicationMessagesSender': { broadcastMessageToAll: sinon.stub().resolves() },
+        './serviceHelper': serviceHelper,
+        'fs/promises': { writeFile: writeFileStub },
+      });
+      fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
+      fluxNetworkHelperWithStubs.setOnOwnAddressMoved(onOwnAddressMovedSpy);
+
+      await fluxNetworkHelperWithStubs.adjustExternalIp('127.0.0.1:16127', '192.168.1.102:16127');
+
+      sinon.assert.calledOnceWithExactly(onOwnAddressMovedSpy, '127.0.0.1:16127', '192.168.1.102:16127', sinon.match.number);
+      sinon.assert.callOrder(onOwnAddressMovedSpy, onAddressChangedSpy);
+    });
+
+    it('never reads its own rows, carried to the new address by recording the move, as another instance there', async () => {
+      // Recording the move carries this node's location rows to its new address;
+      // the stub answers the way the table would before and after that.
+      let recorded = false;
+      const removeAppLocally = sinon.stub().resolves();
+      onAddressChangedSpy = sinon.stub().resolves();
+      const fluxNetworkHelperWithStubs = proxyquire('../../ZelBack/src/services/fluxNetworkHelper', {
+        './appQuery/appQueryService': { installedApps: sinon.stub().resolves({ status: 'success', data: [{ name: 'normalApp', version: 7, staticip: false }] }) },
+        './appDatabase/registryManager': {
+          appLocation: sinon.stub().callsFake(async () => [{ name: 'normalApp', ip: recorded ? '192.168.1.103:16127' : '127.0.0.1:16127' }]),
+        },
+        './appLifecycle/appUninstaller': { removeAppLocally },
+        './utils/enterpriseHelper': { checkAndDecryptAppSpecs: sinon.stub().callsFake((app) => Promise.resolve(app)) },
+        './geolocationService': { setNodeGeolocation: sinon.stub() },
+        './serviceHelper': serviceHelper,
+        'fs/promises': { writeFile: writeFileStub },
+      });
+      fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
+      fluxNetworkHelperWithStubs.setOnOwnAddressMoved(async () => { recorded = true; });
+
+      await fluxNetworkHelperWithStubs.adjustExternalIp('127.0.0.1:16127', '192.168.1.103:16127');
+
+      sinon.assert.notCalled(removeAppLocally);
+      expect(onAddressChangedSpy.firstCall.args[0].map((a) => a.name)).to.deep.equal(['normalApp']);
     });
 
     it('should decrypt enterprise app specs before checking staticip requirement', async () => {
@@ -1749,12 +1841,8 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
 
-      // Each test proxyquires its OWN module instance, so the address has to be set
-      // on THAT one - the beforeEach sets it on the outer module, which this code
-      // never reads. A node reaches adjustExternalIP only once it knows itself.
-      fluxNetworkHelperWithStubs.setLocalSocketAddress('127.0.0.1:16127');
       fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
-      await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
+      await fluxNetworkHelperWithStubs.adjustExternalIp('127.0.0.1:16127', `${newIp}:16127`);
 
       // Verify enterprise helper was called to decrypt specs
       sinon.assert.calledOnce(enterpriseHelperStub.checkAndDecryptAppSpecs);
@@ -1813,12 +1901,8 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
 
-      // Each test proxyquires its OWN module instance, so the address has to be set
-      // on THAT one - the beforeEach sets it on the outer module, which this code
-      // never reads. A node reaches adjustExternalIP only once it knows itself.
-      fluxNetworkHelperWithStubs.setLocalSocketAddress('127.0.0.1:16127');
       fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
-      await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
+      await fluxNetworkHelperWithStubs.adjustExternalIp('127.0.0.1:16127', `${newIp}:16127`);
 
       // Should skip the app entirely when decryption fails - neither uninstall nor restart
       sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
@@ -1873,12 +1957,8 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
 
-      // Each test proxyquires its OWN module instance, so the address has to be set
-      // on THAT one - the beforeEach sets it on the outer module, which this code
-      // never reads. A node reaches adjustExternalIP only once it knows itself.
-      fluxNetworkHelperWithStubs.setLocalSocketAddress('127.0.0.1:16127');
       fluxNetworkHelperWithStubs.setOnAddressChanged(onAddressChangedSpy);
-      await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
+      await fluxNetworkHelperWithStubs.adjustExternalIp('127.0.0.1:16127', `${newIp}:16127`);
 
       // v6 apps should not be checked for staticip (only v7+)
       sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
@@ -1890,10 +1970,10 @@ describe('fluxNetworkHelper tests', () => {
     // registration is not another instance - it stores its own running-app row
     // locally, at the address benchmark reports - so what separates "the ports are
     // gone" from "that row is me" is the port, and only the port.
-    // Each call needs an address no earlier test has used: adjustExternalIP keeps a
+    // Each call needs an address no earlier test has used: adjustExternalIp keeps a
     // cache of addresses it has already handled and returns before the app loop for
     // a repeat, which leaves the assertions below passing for the wrong reason.
-    async function runWithLocations(locations, ownSocketAddress, newIp) {
+    async function runWithLocations(locations, ownSocketAddress) {
       appQueryServiceStub = {
         installedApps: sinon.stub().resolves({
           status: 'success',
@@ -1921,16 +2001,14 @@ describe('fluxNetworkHelper tests', () => {
         'fs/promises': { writeFile: writeFileStub },
       });
       helper.setStoredFluxBenchAllowed('6.2.0');
-      helper.setLocalSocketAddress(ownSocketAddress);
       helper.setOnAddressChanged(onAddressChangedSpy);
-      await helper.adjustExternalIP(newIp);
+      await helper.adjustExternalIp('127.0.0.1:16127', ownSocketAddress);
     }
 
     it('keeps an app whose only instance at the new address is this node itself', async () => {
       await runWithLocations(
         [{ name: 'normalApp', ip: '192.168.1.110:16127' }],
         '192.168.1.110:16127',
-        '192.168.1.110',
       );
 
       sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
@@ -1939,30 +2017,12 @@ describe('fluxNetworkHelper tests', () => {
       expect(staying.map((a) => a.name)).to.deep.equal(['normalApp']);
     });
 
-    // localSocketAddress is cleared whenever benchmark hiccups, and the change must
-    // survive that rather than be decided on it or dropped. Asserting the userconfig
-    // write did NOT happen is the point: that write is what marks the change handled,
-    // so an unwritten config is a change still pending for the next cycle.
-    it('defers the whole change, unwritten, when it does not know its own address', async () => {
-      await runWithLocations(
-        [{ name: 'normalApp', ip: '192.168.1.112:16157' }],
-        null,
-        '192.168.1.112',
-      );
-
-      sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
-      sinon.assert.notCalled(onAddressChangedSpy);
-      sinon.assert.notCalled(writeFileStub);
-      sinon.assert.notCalled(geolocationServiceStub.setNodeGeolocation);
-    });
-
     it('uninstalls an app another node already holds the ports for on this address', async () => {
       // Same IP, different port: a UPnP sibling behind the shared address. The
       // ports are genuinely gone, so this node cannot run it.
       await runWithLocations(
         [{ name: 'normalApp', ip: '192.168.1.111:16157' }],
         '192.168.1.111:16127',
-        '192.168.1.111',
       );
 
       sinon.assert.calledOnce(appUninstallerStub.removeAppLocally);
@@ -1972,6 +2032,9 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('checkDeterministicNodesCollisions tests', () => {
+    const COLLISION_PEERS = ['203.0.113.211:16127', '203.0.113.212:16127', '203.0.113.213:16127'];
+    const versionAsks = (stub) => stub.getCalls().filter((call) => String(call.args[0]).endsWith('/flux/version'));
+    const peersFindNothing = (stub) => stub.withArgs(sinon.match(/\/flux\/checkfluxavailability/)).resolves({ data: { status: 'error' } });
     let getBenchmarksStub;
     let isDaemonSyncedStub;
     let deterministicFluxListStub;
@@ -1979,10 +2042,9 @@ describe('fluxNetworkHelper tests', () => {
     let deterministicFluxnodeListResponse;
 
     beforeEach(() => {
-      // Every path through the check reschedules itself, by design - it is a
-      // poller. Left real, those timers outlive this file and keep re-entering
-      // the check against restored stubs for the rest of the run.
-      sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
+      // A move it handles ends in a geolocation update, which reads this node's
+      // stored geolocation into memory for every later test to see.
+      sinon.stub(geolocationService, 'setNodeGeolocation');
       fluxNetworkHelper.setStoredFluxBenchAllowed('6.2.0');
       fluxNetworkHelper.setLocalSocketAddress('129.3.3.3');
       // Each case here declares the node's own address through the benchmark stub, and
@@ -1993,10 +2055,12 @@ describe('fluxNetworkHelper tests', () => {
       sinon.stub(daemonServiceFluxnodeRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
       sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
-      // The check defers and re-arms while the node list is unknown, the same
-      // way it does for an unsynced daemon - these cases are all about what it
-      // decides once it HAS the list.
+      // The check decides nothing while the node list is unknown - these cases
+      // are all about what it decides once it HAS the list.
       sinon.stub(networkStateService, 'isReady').returns(true);
+      // the peers asked whether a Flux node is at the other address
+      sinon.stub(networkStateService, 'getRandomExternalObserver')
+        .callsFake(async (own, { exclude = [] } = {}) => COLLISION_PEERS.find((peer) => !exclude.includes(peer)) ?? null);
       deterministicFluxnodeListResponse = [
         {
           collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
@@ -2053,12 +2117,9 @@ describe('fluxNetworkHelper tests', () => {
       expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
     });
 
-    it('does not read the node list while the list is unknown - it defers and re-arms', async () => {
-      // An unknown list is an empty list to every accessor here, and this check
-      // reads that as: no collision anywhere, this node absent from the
-      // confirmed list, that absence logged as the reason, and the availability
-      // check that clears DOS skipped. It waits for the list instead, the same
-      // way it already waits for an unsynced daemon two lines above.
+    it('does not read the node list while the list is unknown', async () => {
+      // An unknown list is an empty list to every accessor here, which this
+      // check would read as no collision anywhere.
       const getBenchmarkResponseData = {
         status: 'success',
         data: { ipaddress: '127.0.0.1:5050' },
@@ -2072,62 +2133,6 @@ describe('fluxNetworkHelper tests', () => {
 
       sinon.assert.notCalled(deterministicFluxListStub);
       expect(fluxNetworkHelper.getDosMessage()).to.be.null;
-    });
-
-
-    it('should skip availability check when node status is not CONFIRMED', async () => {
-      const ip = '127.0.0.1:5050';
-      const getBenchmarkResponseData = {
-        status: 'success',
-        data: { ipaddress: ip },
-      };
-      getBenchmarksStub.resolves(getBenchmarkResponseData);
-      isDaemonSyncedStub.returns({ data: { synced: true } });
-      // Node is not in the deterministic list (expired)
-      deterministicFluxListStub.returns([]);
-      getFluxNodeStatusStub.returns(
-        {
-          status: 'success',
-          data: {
-            status: 'expired',
-            collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
-          },
-        },
-      );
-
-      await fluxNetworkHelper.checkDeterministicNodesCollisions();
-
-      // Node is expired and not in list — availability check is skipped, no DOS penalty
-      expect(fluxNetworkHelper.getDosMessage()).to.be.null;
-      expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
-    });
-
-    it('should skip availability check when IP is not in confirmed flux list', async () => {
-      const ip = '127.0.0.1:5050';
-      const getBenchmarkResponseData = {
-        status: 'success',
-        data: { ipaddress: ip },
-      };
-      getBenchmarksStub.resolves(getBenchmarkResponseData);
-      isDaemonSyncedStub.returns({ data: { synced: true } });
-      deterministicFluxListStub.returns(deterministicFluxnodeListResponse);
-      getFluxNodeStatusStub.returns(
-        {
-          status: 'success',
-          data: {
-            status: 'CONFIRMED',
-            collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
-          },
-        },
-      );
-      // Our IP changed and is not in the confirmed list
-      fluxCommunicationUtils.socketAddressInFluxList.resolves(false);
-
-      await fluxNetworkHelper.checkDeterministicNodesCollisions();
-
-      // CONFIRMED but IP not in list — availability check is skipped, no DOS penalty
-      expect(fluxNetworkHelper.getDosMessage()).to.be.null;
-      expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
     });
 
     it('should find the same node instances and warn about earlier collision detection', async () => {
@@ -2197,6 +2202,45 @@ describe('fluxNetworkHelper tests', () => {
 
       expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
       expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
+    });
+
+    describe('a pass that finds this node listed only at its own address', () => {
+      const cleanPass = async () => {
+        getBenchmarksStub.resolves({ status: 'success', data: { ipaddress: '127.0.0.1:5050' } });
+        isDaemonSyncedStub.returns({ data: { synced: true } });
+        deterministicFluxListStub.returns([{ ...deterministicFluxnodeListResponse[0], ip: '127.0.0.1:5050' }]);
+        getFluxNodeStatusStub.returns({
+          status: 'success',
+          data: { status: 'CONFIRMED', collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)' },
+        });
+        await fluxNetworkHelper.checkDeterministicNodesCollisions();
+      };
+
+      [
+        'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.',
+        'Flux collision detection. Node at 127.0.0.2:16127 is confirmed and reachable on flux network with the same collateral transaction information.',
+        'Flux earlier collision detection on ip:127.0.0.1:5050',
+      ].forEach((message) => {
+        it(`ends its own DOS: ${message}`, async () => {
+          fluxNetworkHelper.setDosMessage(message);
+          fluxNetworkHelper.setDosStateValue(100);
+
+          await cleanPass();
+
+          expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+          expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
+        });
+      });
+
+      it('leaves another check\'s DOS standing', async () => {
+        fluxNetworkHelper.setDosMessage('Flux is not available for outside communication');
+        fluxNetworkHelper.setDosStateValue(11);
+
+        await cleanPass();
+
+        expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux is not available for outside communication');
+        expect(fluxNetworkHelper.getDosStateValue()).to.equal(11);
+      });
     });
 
     it('should trigger collision detection when same collateral exists on different IP and other node is reachable', async () => {
@@ -2324,17 +2368,74 @@ describe('fluxNetworkHelper tests', () => {
         },
       });
 
-      // Mock axios to fail (other node unreachable) on both calls
+      // the other node unreachable from here, and to the peers asked
       const axiosGetStub = sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused'));
+      peersFindNothing(axiosGetStub);
 
       await fluxNetworkHelper.checkDeterministicNodesCollisions();
 
-      expect(axiosGetStub.calledTwice).to.be.true;
+      expect(versionAsks(axiosGetStub)).to.have.lengthOf(2);
+      sinon.assert.calledOnce(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
       // DOS state should remain clear since we successfully took over
       expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
     });
 
-    it('should handle case when other node comes back online during grace period', async () => {
+    it('handles its collateral listed at its own former address, with nothing answering there, as this node\'s move', async () => {
+      const formerIp = '192.168.7.200';
+      const movedTo = '192.168.7.100:16127';
+      const collateral = 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)';
+      const originalUserConfig = globalThis.userconfig;
+      globalThis.userconfig = { initial: { ...originalUserConfig.initial, ipaddress: formerIp, apiport: 16127 } };
+      sinon.stub(fs, 'writeFile').resolves();
+      const logInfo = sinon.spy(log, 'info');
+      getBenchmarksStub.resolves({ status: 'success', data: { ipaddress: movedTo } });
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns([{ ...deterministicFluxnodeListResponse[0], collateral, ip: `${formerIp}:16127` }]);
+      getFluxNodeStatusStub.returns({ status: 'success', data: { status: 'CONFIRMED', collateral } });
+      peersFindNothing(sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused')));
+
+      try {
+        await fluxNetworkHelper.checkDeterministicNodesCollisions();
+      } finally {
+        globalThis.userconfig = originalUserConfig;
+      }
+
+      const lines = logInfo.getCalls().map((call) => String(call.args[0]));
+      expect(lines.some((line) => line.includes('this node\'s own former address - handling the move'))).to.equal(true);
+      expect(lines.some((line) => line.includes(`Adjusting External IP from ${formerIp} to 192.168.7.100`))).to.equal(true);
+      expect(lines.some((line) => line.includes('node was confirmed on a different machine'))).to.equal(false);
+    });
+
+    it('handles its collateral listed at its own IP on its former port, with nothing answering there, where it ran apps, as this node\'s move', async () => {
+      const ip = '192.168.8.100';
+      const collateral = 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)';
+      const originalUserConfig = globalThis.userconfig;
+      globalThis.userconfig = { initial: { ...originalUserConfig.initial, ipaddress: ip, apiport: 16157 } };
+      const moved = sinon.stub().resolves();
+      fluxNetworkHelper.setOnOwnAddressMoved(moved);
+      fluxNetworkHelper.setInstalledAppsListedAt(sinon.stub().withArgs(`${ip}:16127`).resolves(['ranthere']));
+      const logInfo = sinon.spy(log, 'info');
+      getBenchmarksStub.resolves({ status: 'success', data: { ipaddress: `${ip}:16157` } });
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns([{ ...deterministicFluxnodeListResponse[0], collateral, ip: `${ip}:16127` }]);
+      getFluxNodeStatusStub.returns({ status: 'success', data: { status: 'CONFIRMED', collateral } });
+      peersFindNothing(sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused')));
+
+      try {
+        await fluxNetworkHelper.checkDeterministicNodesCollisions();
+      } finally {
+        globalThis.userconfig = originalUserConfig;
+        fluxNetworkHelper.setOnOwnAddressMoved(null);
+        fluxNetworkHelper.setInstalledAppsListedAt(null);
+      }
+
+      sinon.assert.calledOnceWithExactly(moved, `${ip}:16127`, `${ip}:16157`, sinon.match.number);
+      sinon.assert.callOrder(moved, daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      const lines = logInfo.getCalls().map((call) => String(call.args[0]));
+      expect(lines.some((line) => line.includes('node was confirmed on a different machine'))).to.equal(false);
+    });
+
+    it('holds itself out of service when the other node answers again once the grace has passed', async () => {
       const myIp = '192.168.1.100:16127';
       const otherIp = '192.168.1.200:16127';
       const sharedCollateral = 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)';
@@ -2399,8 +2500,70 @@ describe('fluxNetworkHelper tests', () => {
       await fluxNetworkHelper.checkDeterministicNodesCollisions();
 
       expect(axiosGetStub.calledTwice).to.be.true;
-      // DOS state should remain at 0 since this is not an error condition
-      expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
+      sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(0);
+    });
+
+    it('holds itself out of service when it cannot reach the other node but a peer can', async () => {
+      const otherIp = '192.168.1.201:16127';
+      const collateral = 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)';
+      getBenchmarksStub.resolves({ status: 'success', data: { ipaddress: '192.168.1.101:16127' } });
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns([{ ...deterministicFluxnodeListResponse[0], collateral, ip: otherIp }]);
+      getFluxNodeStatusStub.returns({ status: 'success', data: { status: 'CONFIRMED', collateral } });
+      const axiosGetStub = sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused'));
+      axiosGetStub.withArgs(sinon.match(/\/flux\/checkfluxavailability/))
+        .onFirstCall().resolves({ data: { status: 'error' } })
+        .onSecondCall().resolves({ data: { status: 'success' } });
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      expect(versionAsks(axiosGetStub), 'fixture: it could not reach the other node itself').to.have.lengthOf(2);
+      sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(0);
+    });
+
+    it('takes nothing over once one peer reaches the other node, whatever the peers asked after it would say', async () => {
+      const otherIp = '192.168.1.203:16127';
+      const collateral = 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)';
+      getBenchmarksStub.resolves({ status: 'success', data: { ipaddress: '192.168.1.103:16127' } });
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns([{ ...deterministicFluxnodeListResponse[0], collateral, ip: otherIp }]);
+      getFluxNodeStatusStub.returns({ status: 'success', data: { status: 'CONFIRMED', collateral } });
+      const axiosGetStub = sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused'));
+      const peerAsks = axiosGetStub.withArgs(sinon.match(/\/flux\/checkfluxavailability/));
+      peerAsks.resolves({ data: { status: 'error' } });
+      peerAsks.onFirstCall().resolves({ data: { status: 'success' } });
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(0);
+    });
+
+    it('takes nothing over while too few peers answer whether the other node is there', async () => {
+      const otherIp = '192.168.1.202:16127';
+      const collateral = 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)';
+      getBenchmarksStub.resolves({ status: 'success', data: { ipaddress: '192.168.1.102:16127' } });
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns([{ ...deterministicFluxnodeListResponse[0], collateral, ip: otherIp }]);
+      getFluxNodeStatusStub.returns({ status: 'success', data: { status: 'CONFIRMED', collateral } });
+      // every ask fails: the other node from here, and every peer asked
+      const axiosGetStub = sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused'));
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      expect(axiosGetStub.getCalls().filter((call) => String(call.args[0]).includes('checkfluxavailability')), 'every peer drawn was asked').to.have.lengthOf(COLLISION_PEERS.length);
+      sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      expect(fluxNetworkHelper.getDosStateValue(), 'no collision is claimed on too few answers').to.equal(0);
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(0);
     });
   });
 

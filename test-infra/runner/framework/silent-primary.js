@@ -37,13 +37,22 @@ async function isUp(client, appName) {
  * @param {string} opts.appName
  * @param {number} opts.sigtermExpiryS The fleet's shutdown window, and the grace
  *   a restarted syncthing waits out
+ * @param {object} [opts.peers] The fleet's peer liveness, both halves, when the
+ *   suite needs other than the shared fleet's
+ * @param {object} [opts.system] The fleet's system settings, when the suite needs
+ *   other than the shared fleet's
+ * @param {object} [opts.env] More fleet: nodes beyond the three, deferred ones,
+ *   collateral shared between machines - as createTestEnv takes them
  * @returns {Promise<object>}
  */
-export async function placeSilentPrimaryApp({ hookCtx, appName, sigtermExpiryS }) {
+export async function placeSilentPrimaryApp({
+  hookCtx, appName, sigtermExpiryS, peers, system, env: moreFleet = {},
+}) {
   const identifier = `${appName}_${appName}`;
   const env = await createTestEnv({
     hookCtx,
     nodes: 3,
+    ...moreFleet,
     syncthing: 'binary',
     tickerAutostart: false,
     configOverrides: {
@@ -54,11 +63,13 @@ export async function placeSilentPrimaryApp({ hookCtx, appName, sigtermExpiryS }
         locationTtlS: LOCATION_TTL_S,
         nodeMonitorIntervalMs: NODE_MONITOR_INTERVAL_MS,
       },
+      ...(peers ? { peers } : {}),
+      ...(system ? { system } : {}),
     },
   });
   const client = (i) => env.clients[i];
   await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
-  await Promise.all(env.clients.map((c, i) => waitFor(() => isDaemonUp(c), {
+  await Promise.all(env.clients.map((c, i) => c && waitFor(() => isDaemonUp(c), {
     timeout: 180000, interval: 3000, label: `syncthing daemon up on node ${i}`,
   })));
 
@@ -86,7 +97,8 @@ export async function placeSilentPrimaryApp({ hookCtx, appName, sigtermExpiryS }
 
   const twoRan = [];
   const sampler = setInterval(() => {
-    Promise.all([A, B, C].map((i) => isUp(client(i), appName)))
+    // every node the fleet has started, a deferred one included once it has
+    Promise.all(env.clients.filter(Boolean).map((c) => isUp(c, appName)))
       .then((up) => { if (up.filter(Boolean).length > 1) twoRan.push(Date.now()); })
       .catch(() => {});
   }, 2000);

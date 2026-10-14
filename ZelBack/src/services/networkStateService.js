@@ -1,3 +1,4 @@
+const { EventEmitter } = require('node:events');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const networkStateManager = require('./utils/networkStateManager');
 const fluxEventBus = require('./utils/fluxEventBus');
@@ -21,6 +22,12 @@ let stateManager = null;
  */
 let resolveStarted;
 let started = new Promise((resolve) => { resolveStarted = resolve; });
+
+/**
+ * Says each time the node list has been fetched afresh, whether or not it
+ * changed. Outlives a stop and start, so a listener is added once.
+ */
+const listUpdates = new EventEmitter();
 
 /**
  * Throttle state for daemon RPC calls
@@ -83,14 +90,13 @@ async function start(options = {}) {
       resolve();
     });
 
-    // Every refresh, with what the node now believes the fleet to be. Nothing in
-    // production consumes it - the bus is test-only - and it exists because a
-    // test that changes the node list otherwise has no way to know when this
-    // node has read the change: the list is polled on a timer, and the only
-    // endpoints that report one ask the daemon rather than this cache. Sleeping
-    // long enough instead is the thing that turns into a flaky suite.
+    // Every refresh, to onUpdated's listeners and, with what the node now believes
+    // the fleet to be, to the test-only bus: a test that changes the node list
+    // otherwise has no way to know when this node has read the change, because
+    // the endpoints that report one ask the daemon rather than this cache.
     stateManager.on('updated', () => {
       fluxEventBus.publish('networkstate:updated', { nodes: stateManager.nodeCount });
+      listUpdates.emit('updated');
     });
 
     setImmediate(() => stateManager.start());
@@ -154,6 +160,17 @@ function onReady(callback) {
   }
 
   started.then(callback);
+}
+
+/**
+ * Calls `listener` each time the node list has been fetched afresh: about once
+ * a block, and on the first fetch.
+ * @param {function(): void} listener
+ * @returns {function(): void} Stops calling it.
+ */
+function onUpdated(listener) {
+  listUpdates.on('updated', listener);
+  return () => listUpdates.off('updated', listener);
 }
 
 /**
@@ -277,6 +294,7 @@ module.exports = {
   networkState,
   nodeCount,
   onReady,
+  onUpdated,
   pubkeyInNetworkState,
   socketAddressInNetworkState,
   start,

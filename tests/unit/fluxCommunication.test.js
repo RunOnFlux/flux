@@ -74,6 +74,41 @@ describe('fluxCommunication tests', () => {
     localWsServer.close(done);
   });
 
+  describe('addOutgoingPeer tests', () => {
+    const listed = { ip: '127.0.0.1:16127', pubkey: '02ownkey' };
+    const ask = (ip) => {
+      const res = { json: sinon.fake((body) => body) };
+      return fluxCommunication.addOutgoingPeer({ params: { ip }, query: {}, ip: '127.0.0.1' }, res).then(() => res.json.firstCall.args[0]);
+    };
+
+    beforeEach(() => {
+      sinon.stub(nodeConfirmationService, 'isConfirmed').returns(true);
+      sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').resolves([listed]);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('connects to a listed node at the address its own move leads to', async () => {
+      sinon.stub(registryManager, 'listedNodeMovedTo').resolves(listed);
+
+      const answer = await ask('127.0.0.1:1');
+
+      expect(answer.status).to.equal('success');
+      sinon.assert.calledWith(registryManager.listedNodeMovedTo, '127.0.0.1:1', [listed]);
+    });
+
+    it('refuses an address no listed node is at or moved to', async () => {
+      sinon.stub(registryManager, 'listedNodeMovedTo').resolves(null);
+
+      const answer = await ask('127.0.0.1:1');
+
+      expect(answer.status).to.equal('error');
+      expect(answer.data.message).to.contain('is not confirmed on the network');
+    });
+  });
+
   describe('initializeDiscovery tests', () => {
     // Being confirmed is not the same as being ready to peer. Every message an
     // inbound peer sends is checked against the node list, so a peer admitted
@@ -1933,6 +1968,7 @@ describe('fluxCommunication tests', () => {
       updateInDatabaseStub = sinon.stub(dbHelper, 'updateInDatabase').resolves();
       sinon.stub(messageStore, 'storeAppStateEvent');
       sinon.stub(registryManager, 'appLocationFromEvents').resolves([]);
+      sinon.stub(registryManager, 'currentAddressesOf').callsFake(async (sayings) => sayings.map(({ ip }) => ip));
 
       logInfoSpy = sinon.spy(log, 'info');
     });
@@ -2103,6 +2139,7 @@ describe('fluxCommunication tests', () => {
       sinon.stub(networkStateService, 'getFluxnodeBySocketAddress').resolves({ pubkey: 'PUB' });
       sinon.stub(verifyPool, 'verify').callsFake(async (items) => items.map(() => true));
       sinon.stub(messageStore, 'storeAppStateEvent').resolves();
+      sinon.stub(messageStore, 'storeIPChangedMessage').resolves(true);
       sinon.stub(messageStore, 'pruneAppRunningLocations').resolves();
       expireStub = sinon.stub(messageStore, 'expireLocationsForSigterm').resolves();
       removeStub = sinon.stub(messageStore, 'removeLocationForAppRemoved').resolves();
@@ -2133,6 +2170,34 @@ describe('fluxCommunication tests', () => {
       }, PEER_SOCKET);
 
       sinon.assert.calledOnceWithExactly(removeStub, SENDER, 'app', broadcastedAt);
+    });
+
+    it('applies a synced move to the location rows, as a move that arrives by gossip is', async () => {
+      const NEW = '198.51.100.40:16127';
+      const data = {
+        type: 'fluxipchanged', version: 1, oldIP: SENDER, newIP: NEW, broadcastedAt: Date.now() - 60000,
+      };
+
+      await fluxCommunication.handleAppRunningSyncResponse({
+        data: { type: 'fluxapprunningsync', messages: [{ type: 'ipchanged', ip: SENDER, envelope, data }], done: true },
+      }, PEER_SOCKET);
+
+      sinon.assert.calledOnceWithExactly(messageStore.storeIPChangedMessage, data);
+    });
+
+    it('drops a synced move away from an address listed under another key, though the signer is listed at the new one', async () => {
+      const NEW = '198.51.100.40:16127';
+      networkStateService.getFluxnodeBySocketAddress.callsFake(async (address) => (address === NEW ? { pubkey: 'PUB' } : { pubkey: 'OTHER' }));
+      const data = {
+        type: 'fluxipchanged', version: 1, oldIP: SENDER, newIP: NEW, broadcastedAt: Date.now() - 60000,
+      };
+
+      await fluxCommunication.handleAppRunningSyncResponse({
+        data: { type: 'fluxapprunningsync', messages: [{ type: 'ipchanged', ip: SENDER, envelope, data }], done: true },
+      }, PEER_SOCKET);
+
+      sinon.assert.notCalled(messageStore.storeAppStateEvent);
+      sinon.assert.notCalled(messageStore.storeIPChangedMessage);
     });
 
     it('hands an eviction to messageStore with the time it was made', async () => {
@@ -2456,4 +2521,325 @@ describe('fluxCommunication tests', () => {
     });
   });
 
+  describe('recordOwnAddressMove tests', () => {
+    const OLD = '72.89.45.236:16137';
+    const NEW = '108.6.236.4:16137';
+    let storeEvent;
+    let storeMove;
+
+    beforeEach(() => {
+      storeEvent = sinon.stub(messageStore, 'storeAppStateEvent').resolves();
+      storeMove = sinon.stub(messageStore, 'storeIPChangedMessage').resolves(true);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('stores its own move as the signed ipchanged event its peers store, and carries its rows to the new address', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'serialiseAndSignFluxBroadcast').callsFake(async (data) => JSON.stringify({
+        version: 1, timestamp: 1791698455000, pubKey: '04own', signature: 'sig', data,
+      }));
+
+      await fluxCommunication.recordOwnAddressMove(OLD, NEW, 1791698450000);
+
+      sinon.assert.calledOnce(storeEvent);
+      const [type, { message, envelope }] = storeEvent.firstCall.args;
+      expect(type).to.equal(messageStore.APP_STATE_EVENT_TYPES.IPCHANGED);
+      expect(message).to.deep.equal({
+        type: 'fluxipchanged', version: 1, oldIP: OLD, newIP: NEW, broadcastedAt: 1791698450000,
+      });
+      expect(envelope).to.deep.equal({
+        version: 1, timestamp: 1791698455000, pubKey: '04own', signature: 'sig',
+      });
+      sinon.assert.calledOnceWithExactly(storeMove, message);
+    });
+
+    describe('handleOwnAddressMove', () => {
+      const AT = 1791698450000;
+      let drop;
+
+      beforeEach(() => {
+        sinon.stub(fluxCommunicationMessagesSender, 'serialiseAndSignFluxBroadcast').callsFake(async (data) => JSON.stringify({
+          version: 1, timestamp: AT, pubKey: '04own', signature: 'sig', data,
+        }));
+        drop = sinon.stub(peerManager, 'dropAllConnections').returns(0);
+      });
+
+      afterEach(() => {
+        peerManager.listeners('peerConnected').forEach((listener) => {
+          if (listener.name === 'sendOwnMovesTo') peerManager.off('peerConnected', listener);
+        });
+        fluxCommunication.noteOwnMoveHeardBack(objectHash({
+          type: 'fluxipchanged', version: 1, oldIP: OLD, newIP: NEW, broadcastedAt: AT,
+        }));
+      });
+
+      it('records and announces a move it has not recorded', async () => {
+        sinon.stub(registryManager, 'addressMovesFrom').resolves(new Map());
+
+        await fluxCommunication.handleOwnAddressMove(OLD, NEW, AT);
+
+        sinon.assert.calledOnce(storeEvent);
+        sinon.assert.calledOnce(drop);
+      });
+
+      it('leaves a move it has already recorded at that time as it is: no second record, no connections dropped again', async () => {
+        sinon.stub(registryManager, 'addressMovesFrom').resolves(new Map([[OLD, { to: NEW, at: AT, signer: '04own' }]]));
+
+        await fluxCommunication.handleOwnAddressMove(OLD, NEW, AT);
+
+        sinon.assert.notCalled(storeEvent);
+        sinon.assert.notCalled(storeMove);
+        sinon.assert.notCalled(drop);
+      });
+    });
+
+    it('records nothing when this node cannot sign as itself', async () => {
+      sinon.stub(fluxCommunicationMessagesSender, 'serialiseAndSignFluxBroadcast').resolves(null);
+
+      await fluxCommunication.recordOwnAddressMove(OLD, NEW, Date.now());
+
+      sinon.assert.notCalled(storeEvent);
+      sinon.assert.notCalled(storeMove);
+    });
+  });
+
+  describe('handleIPChangedMessage tests', () => {
+    const message = {
+      version: 1,
+      timestamp: Date.now(),
+      pubKey: '04peer',
+      signature: 'sig',
+      data: {
+        type: 'fluxipchanged', version: 1, oldIP: '72.89.45.236:16137', newIP: '108.6.236.4:16137', broadcastedAt: Date.now(),
+      },
+    };
+    let relayed;
+
+    beforeEach(() => {
+      sinon.stub(messageStore, 'storeAppStateEvent').resolves();
+      sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(true);
+      relayed = sinon.stub(peerManager, 'broadcastHash');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('passes on a move it applied', async () => {
+      sinon.stub(messageStore, 'storeIPChangedMessage').resolves(true);
+
+      await fluxCommunication.handleIPChangedMessage(message, '10.0.0.9', '16127');
+
+      sinon.assert.calledOnce(relayed);
+    });
+
+    it('does not pass on a move it refused', async () => {
+      sinon.stub(messageStore, 'storeIPChangedMessage').resolves(new Error('Invalid Flux IP Changed message for storing version 2 not supported'));
+
+      await fluxCommunication.handleIPChangedMessage(message, '10.0.0.9', '16127');
+
+      sinon.assert.notCalled(relayed);
+    });
+  });
+
+  describe('handleAppRemovedMessage tests', () => {
+    const message = {
+      version: 1,
+      timestamp: Date.now(),
+      pubKey: '04peer',
+      signature: 'sig',
+      data: {
+        type: 'fluxappremoved', version: 1, appName: 'someapp', ip: '72.89.45.236:16137', broadcastedAt: Date.now(),
+      },
+    };
+    let relayed;
+
+    beforeEach(() => {
+      sinon.stub(messageStore, 'storeAppStateEvent').resolves();
+      sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(true);
+      relayed = sinon.stub(peerManager, 'broadcastHash');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('passes on a removal it applied', async () => {
+      sinon.stub(messageStore, 'storeAppRemovedMessage').resolves(true);
+
+      await fluxCommunication.handleAppRemovedMessage(message, '10.0.0.9', '16127');
+
+      sinon.assert.calledOnce(relayed);
+    });
+
+    it('does not pass on a removal it refused', async () => {
+      sinon.stub(messageStore, 'storeAppRemovedMessage').resolves(new Error('Invalid Flux App Removed message appName cannot be empty'));
+
+      await fluxCommunication.handleAppRemovedMessage(message, '10.0.0.9', '16127');
+
+      sinon.assert.notCalled(relayed);
+    });
+  });
+
+  describe('announcing this node\'s own move', () => {
+    const OLD = '72.89.45.236:16137';
+    const NEW = '108.6.236.4:16137';
+    let drop;
+    let peers;
+    let clock;
+
+    // A peer that has just connected, and what it was sent.
+    const connect = async (key) => {
+      peers[key] = { send: sinon.stub().returns(true) };
+      peerManager.emit('peerConnected', key, 1);
+      await new Promise((resolve) => { setImmediate(resolve); });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      return peers[key].send.getCalls().map((call) => JSON.parse(call.args[0]).data)
+        .filter((data) => data.type === 'fluxipchanged')
+        .map(({ oldIP: oldIp, newIP: newIp }) => `${oldIp}>${newIp}`);
+    };
+    const sentData = (key) => JSON.parse(peers[key].send.firstCall.args[0]).data;
+
+    beforeEach(() => {
+      peers = {};
+      clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+      sinon.stub(fluxCommunicationMessagesSender, 'serialiseAndSignFluxBroadcast').callsFake(async (data) => JSON.stringify({
+        version: 1, timestamp: Date.now(), pubKey: '04own', signature: 'sig', data,
+      }));
+      drop = sinon.stub(peerManager, 'dropAllConnections').returns(0);
+      sinon.stub(peerManager, 'get').callsFake((key) => peers[key]);
+      sinon.stub(registryManager, 'addressMovesTo').resolves(new Map());
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(NEW);
+      sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').resolves('04own');
+    });
+
+    afterEach(() => {
+      // a move left pending by a test would go on listening into the next one
+      peerManager.listeners('peerConnected').forEach((listener) => {
+        if (listener.name === 'sendOwnMovesTo') peerManager.off('peerConnected', listener);
+      });
+      sinon.restore();
+    });
+
+    const heardBack = (key) => fluxCommunication.noteOwnMoveHeardBack(objectHash(sentData(key)));
+
+    it('drops every connection at once and sends the move to each peer as it connects', async () => {
+      fluxCommunication.announceOwnAddressMove(OLD, NEW, Date.now());
+
+      sinon.assert.calledOnce(drop);
+      expect(await connect('10.0.0.1:16127')).to.deep.equal([`${OLD}>${NEW}`]);
+      expect(await connect('10.0.0.2:16127')).to.deep.equal([`${OLD}>${NEW}`]);
+      heardBack('10.0.0.1:16127');
+    });
+
+    it('stops once a peer announces the move back', async () => {
+      fluxCommunication.announceOwnAddressMove(OLD, NEW, Date.now());
+      await connect('10.0.0.1:16127');
+
+      expect(heardBack('10.0.0.1:16127')).to.equal(true);
+
+      expect(await connect('10.0.0.2:16127')).to.deep.equal([]);
+    });
+
+    it('stops once a peer relays the move itself back', async () => {
+      sinon.stub(messageStore, 'storeAppStateEvent').resolves();
+      sinon.stub(messageStore, 'storeIPChangedMessage').resolves(true);
+      sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(false);
+      fluxCommunication.announceOwnAddressMove(OLD, NEW, Date.now());
+      await connect('10.0.0.1:16127');
+
+      await fluxCommunication.handleIPChangedMessage({
+        version: 1, timestamp: Date.now(), pubKey: '04own', signature: 'sig', data: sentData('10.0.0.1:16127'),
+      }, '10.0.0.9', '16127');
+
+      expect(await connect('10.0.0.2:16127')).to.deep.equal([]);
+    });
+
+    it('stops once a peer announces the move\'s hash, the way gossip relays it', async () => {
+      sinon.stub(peerManager, 'sendHashRequest');
+      fluxCommunication.announceOwnAddressMove(OLD, NEW, Date.now());
+      await connect('10.0.0.1:16127');
+      const relayer = {
+        ip: '10.0.0.9', port: '16127', key: '10.0.0.9:16127', direction: 'outgoing', msgMap: new Map([['newHash', 0]]), close: () => {},
+      };
+
+      await peerManager.messageDispatcher({ messageHashPresent: objectHash(sentData('10.0.0.1:16127')) }, relayer);
+      await new Promise((resolve) => { setImmediate(resolve); });
+
+      expect(await connect('10.0.0.2:16127')).to.deep.equal([]);
+    });
+
+    it('signs the move afresh once half the relay window has passed, keeping the time it was made', async () => {
+      fluxCommunication.announceOwnAddressMove(OLD, NEW, Date.now());
+      await connect('10.0.0.1:16127');
+      clock.tick(121 * 1000);
+      await connect('10.0.0.2:16127');
+
+      const envelope = (key) => JSON.parse(peers[key].send.firstCall.args[0]);
+      expect(envelope('10.0.0.2:16127').timestamp).to.be.above(envelope('10.0.0.1:16127').timestamp);
+      expect(sentData('10.0.0.2:16127')).to.deep.equal(sentData('10.0.0.1:16127'));
+      expect(heardBack('10.0.0.2:16127')).to.equal(true);
+      expect(await connect('10.0.0.3:16127')).to.deep.equal([]);
+    });
+
+    it('stops sending a move once it is too old to be applied', async () => {
+      fluxCommunication.announceOwnAddressMove(OLD, NEW, Date.now());
+      expect(await connect('10.0.0.1:16127')).to.deep.equal([`${OLD}>${NEW}`]);
+      clock.tick(messageStore.IP_CHANGED_VALIDITY_MS);
+
+      expect(await connect('10.0.0.2:16127')).to.deep.equal([]);
+      expect(peerManager.listeners('peerConnected').some((listener) => listener.name === 'sendOwnMovesTo')).to.equal(false);
+    });
+
+    it('sends each of two moves, and stops each on its own echo', async () => {
+      fluxCommunication.announceOwnAddressMove('10.0.0.1:16127', '10.0.0.2:16127', Date.now());
+      fluxCommunication.announceOwnAddressMove('10.0.0.2:16127', '10.0.0.3:16127', Date.now());
+
+      expect(await connect('10.9.0.1:16127')).to.deep.equal(['10.0.0.1:16127>10.0.0.2:16127', '10.0.0.2:16127>10.0.0.3:16127']);
+      fluxCommunication.noteOwnMoveHeardBack(objectHash(JSON.parse(peers['10.9.0.1:16127'].send.firstCall.args[0]).data));
+
+      expect(await connect('10.9.0.2:16127')).to.deep.equal(['10.0.0.2:16127>10.0.0.3:16127']);
+      fluxCommunication.noteOwnMoveHeardBack(objectHash(JSON.parse(peers['10.9.0.2:16127'].send.firstCall.args[0]).data));
+    });
+
+    it('sends a port-only move like any other', async () => {
+      fluxCommunication.announceOwnAddressMove('198.51.100.40:16127', '198.51.100.40:16157', Date.now());
+
+      expect(await connect('10.0.0.1:16127')).to.deep.equal(['198.51.100.40:16127>198.51.100.40:16157']);
+      heardBack('10.0.0.1:16127');
+    });
+
+    it('at startup, sends the moves it signed to the address it holds now, as they were made, and no others', async () => {
+      const at = Date.now() - 60000;
+      registryManager.addressMovesTo.withArgs(NEW).resolves(new Map([
+        [OLD, { to: NEW, at, signer: '04own' }],
+        ['72.89.45.237:16137', { to: NEW, at: at - 1000, signer: '04previous' }],
+      ]));
+
+      fluxCommunication.announceRecordedOwnMovesWhenConnected();
+
+      expect(await connect('10.0.0.1:16127')).to.deep.equal([`${OLD}>${NEW}`]);
+      expect(sentData('10.0.0.1:16127').broadcastedAt).to.equal(at);
+      heardBack('10.0.0.1:16127');
+    });
+
+    it('at startup, sends a move that is both recorded and pending once', async () => {
+      registryManager.addressMovesTo.withArgs(NEW).resolves(new Map([[OLD, { to: NEW, at: Date.now() - 60000, signer: '04own' }]]));
+
+      fluxCommunication.announceRecordedOwnMovesWhenConnected();
+      fluxCommunication.announceOwnAddressMove(OLD, NEW, Date.now());
+
+      expect(await connect('10.0.0.1:16127')).to.deep.equal([`${OLD}>${NEW}`]);
+      heardBack('10.0.0.1:16127');
+    });
+
+    it('at startup with nothing recorded, stops listening after the first connection', async () => {
+      fluxCommunication.announceRecordedOwnMovesWhenConnected();
+
+      expect(await connect('10.0.0.1:16127')).to.deep.equal([]);
+      expect(peerManager.listeners('peerConnected').some((listener) => listener.name === 'sendOwnMovesTo')).to.equal(false);
+    });
+  });
 });

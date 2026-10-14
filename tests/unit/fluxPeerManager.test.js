@@ -1325,6 +1325,63 @@ describe('FluxPeerManager tests', () => {
     });
   });
 
+  describe('dropAllConnections', () => {
+    function addPeers(mgr, prefix, n = 12) {
+      const peers = [];
+      for (let i = 0; i < n; i += 1) {
+        const ip = `${prefix}.${i}.0.1`;
+        peers.push(mgr.add(createMockWs(ip), ip, '16127', { source: PEER_SOURCE.RANDOM }));
+      }
+      return peers;
+    }
+
+    beforeEach(() => {
+      manager.allowConnections();
+    });
+
+    it('closes every connection as dead and keeps accepting new ones', () => {
+      const peers = addPeers(manager, '10');
+
+      expect(manager.dropAllConnections()).to.equal(12);
+
+      expect(manager.getNumberOfPeers()).to.equal(0);
+      expect(manager.acceptingConnections).to.equal(true);
+      peers.forEach((peer) => {
+        sinon.assert.calledOnceWithExactly(peer.ws.close, CLOSE_CODES.DEAD_CONNECTION, 'address moved');
+      });
+    });
+
+    it('queues every dropped outbound peer to be dialled again', () => {
+      addPeers(manager, '10');
+
+      manager.dropAllConnections();
+
+      expect(manager.getReconnectQueue().size).to.equal(12);
+    });
+
+    it('reports the fall as this node\'s own teardown', () => {
+      const falls = [];
+      manager.on('peersBelowThreshold', (count, info) => falls.push(info));
+      addPeers(manager, '10');
+
+      manager.dropAllConnections();
+
+      expect(falls).to.have.lengthOf(1);
+      expect(falls[0].deliberate).to.equal(true);
+    });
+
+    it('re-arms the threshold, so it fires again once the set is rebuilt', () => {
+      const crossings = [];
+      manager.on('peerThresholdReached', (count) => crossings.push(count));
+      addPeers(manager, '10');
+
+      manager.dropAllConnections();
+      addPeers(manager, '11');
+
+      expect(crossings).to.deep.equal([12, 12]);
+    });
+  });
+
   describe('has / get', () => {
     it('should return true/peer for existing key', () => {
       const ws = createMockWs('10.0.0.1', '16127');

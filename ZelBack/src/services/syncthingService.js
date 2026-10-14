@@ -2,6 +2,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const childProcess = require('node:child_process');
+const { EventEmitter } = require('node:events');
 
 const axios = require('axios');
 const config = require('config');
@@ -84,6 +85,13 @@ let sentinelStarted = false;
  * number. Stopping syncthing clears it, so each new process is announced.
  */
 let ownersByNumberAnnounced = false;
+
+/**
+ * What syncthing's listener for its peers was first known to be, null until it is
+ * known, and who is told when it is.
+ */
+let listenerState = null;
+const listenerStateEvents = new EventEmitter();
 
 /**
  * Whether this process has checked the numeric id tables on disk. Only FluxOS
@@ -1272,6 +1280,72 @@ async function installSyncthingIdempotently() {
 }
 
 /**
+ * The port syncthing listens on for its peers: two above the api port, eg 16129.
+ * @returns {number}
+ */
+function syncthingListenPort() {
+  // use env so can run this module as standalone for testing
+  const apiPort = process.env.FLUX_APIPORT || userconfig?.initial.apiport || config.server?.apiport;
+  return +apiPort + 2;
+}
+
+/**
+ * What syncthing's listener for its peers on its port can be known to be: bound;
+ * unable to bind, which syncthing reports as an error on that listener, or as no
+ * listener there at all; or syncthing not running, which is its health verdict.
+ */
+const SYNCTHING_LISTENER = {
+  LISTENING: 'listening',
+  CANNOT_LISTEN: 'cannotListen',
+  NOT_RUNNING: 'notRunning',
+};
+
+/**
+ * Reads what syncthing's listener for its peers is now, from syncthing's own
+ * status: null while that is not yet known.
+ * @returns {Promise<string|null>} A SYNCTHING_LISTENER value, or null.
+ */
+async function readListenerState() {
+  const status = await getSystemStatus().catch(() => null);
+  if (!status) {
+    // eslint-disable-next-line no-use-before-define
+    return healthState() === SYNCTHING_HEALTH.UNHEALTHY ? SYNCTHING_LISTENER.NOT_RUNNING : null;
+  }
+  // Syncthing reports a listener without an error only once it is bound.
+  const listener = status.connectionServiceStatus?.[`tcp://:${syncthingListenPort()}`];
+  if (!listener || listener.error) return SYNCTHING_LISTENER.CANNOT_LISTEN;
+  return SYNCTHING_LISTENER.LISTENING;
+}
+
+/**
+ * Notes what syncthing's listener for its peers is, the first time that is known.
+ * @returns {Promise<void>}
+ */
+async function noteListenerState() {
+  if (listenerState) return;
+  const state = await readListenerState();
+  if (!state) return;
+  listenerState = state;
+  log.info(`Syncthing's listener for its peers on port ${syncthingListenPort()} is known: ${state}`);
+  fluxEventBus.publish('syncthing:listenerKnown', { state, port: syncthingListenPort() });
+  listenerStateEvents.emit('known', state);
+}
+
+/**
+ * Calls `listener` with what syncthing's listener for its peers is, once that is
+ * known: now, if it already is.
+ * @param {function(string): void} listener Called with a SYNCTHING_LISTENER value.
+ * @returns {void}
+ */
+function onListenerStateKnown(listener) {
+  if (listenerState) {
+    listener(listenerState);
+    return;
+  }
+  listenerStateEvents.once('known', listener);
+}
+
+/**
  * Function that adjusts syncthing folders and restarts the service if needed
  * @returns {Promise<void>}
  */
@@ -1286,8 +1360,7 @@ async function adjustSyncthing() {
     const currentConfigOptions = await getConfigOptions().catch(() => null);
     const currentDefaultsFolderOptions = await getConfigDefaultsFolder().catch(() => null);
     // use env so can run this module as standalone for testing
-    const apiPort = process.env.FLUX_APIPORT || userconfig?.initial.apiport || config.server?.apiport;
-    const myPort = +apiPort + 2; // end with 9 eg 16139
+    const myPort = syncthingListenPort();
     // adjust configuration
     const newConfig = {
       globalAnnounceEnabled: false,
@@ -1760,9 +1833,13 @@ async function runSyncthingSentinel() {
       await adjustSyncthing();
     }
 
+    await noteListenerState();
+
     return SYNCTHING_SENTINEL_INTERVAL_MS;
   } catch (error) {
     if (error.name === 'AbortError') return 0;
+
+    await noteListenerState();
 
     log.error(error);
     return 2 * SYNCTHING_SENTINEL_INTERVAL_MS;
@@ -1841,6 +1918,10 @@ function setNumericIdTablesChecked(value) {
  */
 function setOwnersByNumberAnnounced(value) {
   ownersByNumberAnnounced = value;
+}
+
+function setListenerState(value) {
+  listenerState = value;
 }
 
 /**
@@ -2671,6 +2752,8 @@ module.exports = {
   adjustConfigDevices,
   // status
   isRunning,
+  onListenerStateKnown,
+  SYNCTHING_LISTENER,
   healthState,
   syncthingHomeDir,
   SYNCTHING_HEALTH,
@@ -2683,6 +2766,8 @@ module.exports = {
   setSyncthingUnmeasured,
   setNumericIdTablesChecked,
   setOwnersByNumberAnnounced,
+  setListenerState,
+  noteListenerState,
   resetDeviceIdCache,
   adjustSyncthing,
   getConfigFile,

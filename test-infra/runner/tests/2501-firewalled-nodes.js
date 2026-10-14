@@ -165,11 +165,17 @@ describe('2501 firewalled nodes', function suite() {
       'ufw allow in on eth0 to any port 4100',
       "ufw allow 4101 comment 'inbound'",
       'ufw route allow in on eth0 out on eth0 to any port 4102',
+      // the form FluxOS opens an app port in
+      'ufw allow proto tcp from 0.0.0.0/0 to any port 4103',
     ].join(' && '));
     expect(seeded.exitCode, seeded.stdout).to.equal(0);
     const before = await rulesAdded(LEGACY);
     expect(before.filter(isOutbound), 'the seeded outbound rules').to.have.lengthOf(4);
-    const kept = before.filter((rule) => !isOutbound(rule));
+    // The inbound and route rules seeded here. Other code opens and closes rules of
+    // its own meanwhile - an app port being tested - so a rule listed at this moment
+    // can be one its owner is about to delete.
+    const kept = before.filter((rule) => !isOutbound(rule) && /\b410[0-3]\b/.test(rule));
+    expect(kept, 'the seeded inbound and route rules').to.have.lengthOf(4);
     expect(kept.some((rule) => rule.startsWith('ufw route ')), 'a route rule to keep').to.equal(true);
 
     const afterId = node.getLastEventId();
@@ -180,8 +186,6 @@ describe('2501 firewalled nodes', function suite() {
     expect(data.appliedBy, 'the rules applied through ufw\'s library, under one lock').to.equal('library');
     const after = await rulesAdded(LEGACY);
     expect(after.filter(isOutbound), 'outbound rules left').to.deep.equal([]);
-    // Other code adds inbound rules meanwhile - an app port being tested - so
-    // what is checked is that none of the rules there before went.
     const missing = kept.filter((rule) => !after.includes(rule));
     expect(JSON.stringify(missing), 'inbound and route rules gone').to.equal('[]');
     // The live firewall, not only ufw's record of it.

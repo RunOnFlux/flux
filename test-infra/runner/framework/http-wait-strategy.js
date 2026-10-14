@@ -33,7 +33,8 @@ export class HttpPollWaitStrategy {
 
   // `validate` inspects the response beyond res.ok — needed when the target
   // returns 200 with an error body while a dependency (e.g. mongo) is still
-  // coming up. Defaults to res.ok when omitted.
+  // coming up. Defaults to res.ok when omitted. `url` may be a function, called
+  // for each poll, for a target that must be asked afresh each time.
   constructor(url, { pollIntervalMs = 500, probeTimeoutMs = 2000, validate = null } = {}) {
     this.#url = url;
     this.#pollIntervalMs = pollIntervalMs;
@@ -63,13 +64,15 @@ export class HttpPollWaitStrategy {
       // full startup budget proving mongo is gone.
       throwIfInfraDead();
       try {
-        const res = await fetch(this.#url, { signal: AbortSignal.timeout(this.#probeTimeoutMs) });
+        const url = typeof this.#url === 'function' ? this.#url() : this.#url;
+        const res = await fetch(url, { signal: AbortSignal.timeout(this.#probeTimeoutMs) });
         if (this.#validate ? await this.#validate(res) : res.ok) return;
       } catch {
         // not serving yet — keep polling until the deadline
       }
       await sleepUnlessInfraDead(this.#pollIntervalMs);
     }
-    throw new Error(`HttpPollWaitStrategy: ${this.#url} not ready after ${this.#startupTimeoutMs}ms`);
+    const url = typeof this.#url === 'function' ? this.#url() : this.#url;
+    throw new Error(`HttpPollWaitStrategy: ${url} not ready after ${this.#startupTimeoutMs}ms`);
   }
 }

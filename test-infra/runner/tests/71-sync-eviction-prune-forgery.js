@@ -4,7 +4,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { dbClient } from '../framework/db-client.js';
 import { loadSharedConfig } from '../framework/coupled-knobs.js';
 import {
-  apprunningEvent, sigtermEvent, appRemovedEvent, evictedEvent, socketAddr,
+  apprunningEvent, sigtermEvent, appRemovedEvent, evictedEvent, ipchangedEvent, socketAddr,
 } from '../framework/state-events.js';
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
 import {
@@ -48,6 +48,13 @@ describe('Sync response: eviction, pruning and forged events', function () {
   const SIGTERM_NODE = 6;
   const REMOVED_NODE = 5;
   const RETURNED_NODE = 4;
+  // A move is signed by the node listed at the address it leaves. The forger,
+  // listed at its own address, signs the victim's move to it; the mover moves
+  // itself to another port on its IP, which nothing is listed at.
+  const MOVE_VICTIM_NODE = 3;
+  const MOVE_FORGER_NODE = 2;
+  const HONEST_MOVER_NODE = 10;
+  const MOVED_TO = socketAddr(HONEST_MOVER_NODE).replace(/:\d+$/, ':16157');
   const RUNNING_AT = FILLER_EVENTS + 400;
   const EARLIER_AT = FILLER_EVENTS + 350;
   // Stamped when the events are INJECTED, not when mocha loads this file.
@@ -180,6 +187,19 @@ describe('Sync response: eviction, pruning and forged events', function () {
       nodeNum: RETURNED_NODE, apps: ['returnedapp'], broadcastedAt: stamp + RUNNING_AT,
     }));
 
+    events.push(await ipchangedEvent({
+      nodeNum: MOVE_VICTIM_NODE,
+      newIP: socketAddr(MOVE_FORGER_NODE),
+      broadcastedAt: stamp + FILLER_EVENTS + 250,
+      sentBy: MOVE_FORGER_NODE,
+    }));
+    events.push(await apprunningEvent({
+      nodeNum: HONEST_MOVER_NODE, apps: ['moverapp'], broadcastedAt: stamp + 4,
+    }));
+    events.push(await ipchangedEvent({
+      nodeNum: HONEST_MOVER_NODE, newIP: MOVED_TO, broadcastedAt: stamp + FILLER_EVENTS + 260,
+    }));
+
     // Seeded in ONE round trip per node, not one per event.
     //
     // These are broadcasts and their acceptance window is live: messageStore
@@ -271,6 +291,32 @@ describe('Sync response: eviction, pruning and forged events', function () {
     // anything that prunes from unverified data drops targetapp.
     expect(names).to.include('realapp');
     expect(names, 'a forged broadcast pruned a location row').to.include('targetapp');
+  });
+
+  it('should refuse a move signed by a node other than the one listed at the address it leaves', async function () {
+    this.timeout(60000);
+    // The honest move sorts after the forged one in every response, so the
+    // joiner holding it means the forged one reached it too.
+    await waitFor(async () => (await dbClient(11).getAppStateEvents({ ip: socketAddr(HONEST_MOVER_NODE), type: 'ipchanged' }))
+      .some((event) => event.data?.newIP === MOVED_TO), {
+      timeout: 45000, interval: 1000, label: 'the joiner holds the honest move',
+    });
+
+    const forged = await dbClient(11).getAppStateEvents({ ip: socketAddr(MOVE_VICTIM_NODE), type: 'ipchanged' });
+    expect(forged, 'the joiner stored a move signed by another node').to.have.length(0);
+  });
+
+  it('should carry a node\'s rows to the address a synced move took it to', async function () {
+    this.timeout(60000);
+    let atNew = [];
+    let atOld = [];
+    await waitFor(async () => {
+      atNew = (await dbClient(11).getAppLocationsByIp(MOVED_TO)).map((r) => r.name);
+      atOld = (await dbClient(11).getAppLocationsByIp(socketAddr(HONEST_MOVER_NODE))).map((r) => r.name);
+      return atNew.includes('moverapp') && !atOld.includes('moverapp');
+    }, {
+      timeout: 45000, interval: 1000, label: 'the joiner holds the mover\'s row at its new port only',
+    });
   });
 
   it('should leave a running report in force when an older shutdown of that node arrives with it', async function () {

@@ -17,7 +17,9 @@ const { RUNNING_EXPIRY_MS } = require('./utils/appConstants');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const nodeConfirmationService = require('./nodeConfirmationService');
-const { extractIp, extractPort, parseSocketAddress, socketAddressesMatch } = require('./utils/socketAddressUtils');
+const {
+  extractIp, extractPort, normalizeSocketAddress, parseSocketAddress, socketAddressesMatch,
+} = require('./utils/socketAddressUtils');
 const registryManager = require('./appDatabase/registryManager');
 const fluxEventBus = require('./utils/fluxEventBus');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
@@ -81,50 +83,19 @@ async function handleAppMessages(message, fromIP, port) {
 async function batchVerifyBroadcasts(broadcasts, label) {
   if (broadcasts.length === 0) return [];
 
-  const items = [];
-  const nodeCheckFailed = new Set();
-  for (let i = 0; i < broadcasts.length; i++) {
-    const b = broadcasts[i];
-    const { pubKey, timestamp, signature, version, data: payload } = b;
-    if (version !== 1 || !pubKey || !timestamp || !signature || !payload) {
-      nodeCheckFailed.add(i);
-      continue;
-    }
-    const { type: msgType } = payload;
-    let target = payload.ip ?? payload.oldIP;
-    if (!target && msgType) {
-      target = await networkStateService.getFluxnodesByPubkey(pubKey);
-    }
-    if (!target) { nodeCheckFailed.add(i); continue; }
-    if (target instanceof Map) {
-      // pubkey lookup — node exists in network
-    } else {
-      const node = await networkStateService.getFluxnodeBySocketAddress(target);
-      if (!node) { nodeCheckFailed.add(i); continue; }
-      if (node.pubkey !== pubKey) { nodeCheckFailed.add(i); continue; }
-    }
-    const message = serviceHelper.ensureString(payload);
-    items.push({ index: i, messageToVerify: String(version) + message + String(timestamp), pubKey, signature });
+  const { VerifyResult } = fluxCommunicationUtils;
+  const verdicts = await fluxCommunicationUtils.verifyBroadcasts(broadcasts, {
+    verifySignatures: (items) => verifyPool.verify(items),
+  });
+  const verified = broadcasts.filter((broadcast, i) => verdicts[i].result === VerifyResult.OK);
+  const signatureFailures = verdicts.filter(({ result }) => result === VerifyResult.BAD_SIGNATURE).length;
+  const nodeCheckFailures = broadcasts.length - verified.length - signatureFailures;
+
+  if (nodeCheckFailures > 0) {
+    log.warn(`${label} - ${nodeCheckFailures} broadcasts failed node lookup`);
   }
 
-  if (nodeCheckFailed.size > 0) {
-    log.warn(`${label} - ${nodeCheckFailed.size} broadcasts failed node lookup`);
-  }
-
-  if (items.length === 0) return [];
-
-  // The worker reads only the three fields it needs, so items go across as they
-  // are rather than being copied into a narrower shape first
-  const cryptoResults = await verifyPool.verify(items);
-
-  const verified = [];
-  for (let i = 0; i < items.length; i++) {
-    if (cryptoResults[i]) {
-      verified.push(broadcasts[items[i].index]);
-    }
-  }
-
-  log.info(`${label} - Verified ${verified.length}/${broadcasts.length} broadcasts (${nodeCheckFailed.size} node lookup failures, ${items.length - verified.length} signature failures)`);
+  log.info(`${label} - Verified ${verified.length}/${broadcasts.length} broadcasts (${nodeCheckFailures} node lookup failures, ${signatureFailures} signature failures)`);
   return verified;
 }
 
@@ -273,8 +244,8 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
     }
 
     // Applied after every slice, once every apprunning row in the response is
-    // stored. Each event removes or shortens only the rows broadcast before it.
-    // An eviction's time is createdAt, when the evicting node made it.
+    // stored. Each event removes, shortens or carries only the rows broadcast
+    // before it. An eviction's time is createdAt, when the evicting node made it.
     for (const event of [...evictions, ...stateEvents]) {
       if (event.type === 'sigterm') {
         await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
@@ -286,6 +257,7 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
         await messageStore.applyEviction(event.ip, Date.parse(event.createdAt));
       } else if (event.type === 'ipchanged') {
         await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
+        await messageStore.storeIPChangedMessage(event.data);
       }
     }
 
@@ -376,6 +348,7 @@ function announceToPeers(message, excludeKey) {
 
 async function handleCheckMessageHashPresent(messageHash, fromIP, port) {
   try {
+    noteOwnMoveHeardBack(messageHash);
     // The filter, not the store: the question is whether this node already has the
     // message, and it has plenty it never announced - anything the database already
     // held when it arrived. Asking the store would re-request those.
@@ -490,6 +463,207 @@ async function handleAppInstallingErrorMessage(message, fromIP, port) {
 }
 
 /**
+ * Record this node's own address move the way its peers record it: the signed
+ * ipchanged event, and its location rows carried to the new address. Its own
+ * broadcast reaches it only if a peer happens to relay it back, so without this
+ * the one node that moved would be the one that cannot follow the move - it
+ * would read FDM naming its old IP, for the minute or two FDM takes to catch up,
+ * as another node holding its primary. Carrying its rows also keeps the
+ * runningSince it announces, and with it its place in every app's order.
+ * @param {string} oldIp This node's former socket address.
+ * @param {string} newIp Its new socket address.
+ * @param {number} broadcastedAt When the move was made (ms).
+ */
+async function recordOwnAddressMove(oldIp, newIp, broadcastedAt) {
+  const move = {
+    type: 'fluxipchanged', version: 1, oldIP: oldIp, newIP: newIp, broadcastedAt,
+  };
+  const signed = await fluxCommunicationMessagesSender.serialiseAndSignFluxBroadcast(move);
+  if (!signed) {
+    log.warn(`recordOwnAddressMove - this node cannot sign as itself; its move from ${oldIp} to ${newIp} is not recorded`);
+    return;
+  }
+  const {
+    version, timestamp, pubKey, signature,
+  } = JSON.parse(signed);
+  await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.IPCHANGED, {
+    message: move, envelope: { version, timestamp, pubKey, signature },
+  });
+  await messageStore.storeIPChangedMessage(move);
+}
+
+// A signed copy of a move is re-signed once it is this old, so a peer it reaches
+// still has at least half of the relay window (verifyTimestampInFluxBroadcast's
+// 240s in handleIPChangedMessage) to pass it on.
+const OWN_MOVE_RESIGN_MS = 120 * 1000;
+
+// This node's moves still being told to the network: each is sent to every peer
+// as it connects, and dropped once a peer announces it back or it is too old to
+// be applied. A move keeps the time it was made however often it is signed: that
+// time decides which rows it carries and where it falls among the node's moves.
+// `recordedLoaded` is whether the moves recorded before this process started
+// have been read yet.
+const pendingOwnMoves = [];
+let sendingOwnMoves = false;
+let recordedLoaded = true;
+
+/**
+ * Sign a move afresh: a new envelope timestamp over the same move.
+ * @param {object} move A pending move.
+ * @returns {Promise<void>}
+ */
+async function signOwnMove(move) {
+  const signed = await fluxCommunicationMessagesSender.serialiseAndSignFluxBroadcast(move.data);
+  if (!signed) return;
+  /* eslint-disable no-param-reassign */
+  move.signed = signed;
+  move.signedAt = Date.now();
+  /* eslint-enable no-param-reassign */
+}
+
+function addPendingOwnMove(oldIp, newIp, broadcastedAt) {
+  const known = pendingOwnMoves.some((move) => socketAddressesMatch(move.oldIp, oldIp) && socketAddressesMatch(move.newIp, newIp));
+  if (!known) {
+    const data = {
+      type: 'fluxipchanged', version: 1, oldIP: oldIp, newIP: newIp, broadcastedAt,
+    };
+    pendingOwnMoves.push({
+      oldIp, newIp, data, hash: hash(data), signed: null, signedAt: 0,
+    });
+  }
+}
+
+/**
+ * Drops the pending moves too old for a peer to apply.
+ * @returns {void}
+ */
+function dropExpiredOwnMoves() {
+  const now = Date.now();
+  for (let i = pendingOwnMoves.length - 1; i >= 0; i -= 1) {
+    const move = pendingOwnMoves[i];
+    if (now - move.data.broadcastedAt >= messageStore.IP_CHANGED_VALIDITY_MS) {
+      pendingOwnMoves.splice(i, 1);
+      log.info(`Address move from ${move.oldIp} to ${move.newIp} is too old to be applied - no longer sent`);
+    }
+  }
+}
+
+/**
+ * The moves this node signed to the address it holds now, read once per
+ * process: a restart between noticing a move and the network hearing it would
+ * otherwise leave the network without it. A move to this address that another
+ * key signed is the previous holder's.
+ */
+async function loadRecordedOwnMoves() {
+  recordedLoaded = true;
+  try {
+    const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+    const ownKey = await fluxNetworkHelper.getFluxNodePublicKey();
+    if (!ownKey) return;
+    const recorded = await registryManager.addressMovesTo(localSocketAddr);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const [oldIp, { to, at, signer }] of recorded) {
+      if (signer === ownKey) addPendingOwnMove(oldIp, to, at);
+    }
+  } catch (error) {
+    log.warn(`loadRecordedOwnMoves - this node's recorded moves cannot be read: ${error.message}`);
+  }
+}
+
+/**
+ * Send every pending move to a peer that has just connected.
+ * @param {string} peerKey
+ */
+async function sendOwnMovesTo(peerKey) {
+  if (!recordedLoaded) await loadRecordedOwnMoves();
+  dropExpiredOwnMoves();
+  const peer = peerManager.get(peerKey);
+  if (!peer) return;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const move of pendingOwnMoves) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      if (!move.signed || Date.now() - move.signedAt > OWN_MOVE_RESIGN_MS) await signOwnMove(move);
+      if (move.signed && peer.send(move.signed)) {
+        log.info(`Address move from ${move.oldIp} to ${move.newIp} sent to ${peerKey}`);
+      }
+    } catch (error) {
+      log.error(`sendOwnMovesTo - the move from ${move.oldIp} to ${move.newIp} could not be sent to ${peerKey}: ${error.message}`);
+    }
+  }
+  if (!pendingOwnMoves.length) stopSendingOwnMoves();
+}
+
+function startSendingOwnMoves() {
+  if (sendingOwnMoves) return;
+  sendingOwnMoves = true;
+  peerManager.on('peerConnected', sendOwnMovesTo);
+}
+
+function stopSendingOwnMoves() {
+  if (!sendingOwnMoves) return;
+  sendingOwnMoves = false;
+  peerManager.off('peerConnected', sendOwnMovesTo);
+}
+
+/**
+ * A peer announced, or relayed, a message this node holds the hash of. When it
+ * is one of this node's own moves, the move has gone further than the peers
+ * this node sent it to - a peer never announces a message back to the one it
+ * had it from - and gossip is carrying it: it is no longer sent.
+ * @param {string} messageHash
+ * @returns {boolean} Whether it was one of this node's moves.
+ */
+function noteOwnMoveHeardBack(messageHash) {
+  const index = pendingOwnMoves.findIndex((move) => move.hash === messageHash);
+  if (index === -1) return false;
+  const [move] = pendingOwnMoves.splice(index, 1);
+  log.info(`Address move from ${move.oldIp} to ${move.newIp} heard back from the network - no longer sent`);
+  if (!pendingOwnMoves.length) stopSendingOwnMoves();
+  return true;
+}
+
+/**
+ * Tell the network that this node moved. Every connection it holds was made to
+ * its old address and carries nothing now, so all of them are dropped; the move
+ * goes to each peer as it connects at the new address, until one announces it
+ * back.
+ * @param {string} oldIp This node's former socket address.
+ * @param {string} newIp Its new socket address.
+ * @param {number} broadcastedAt When the move was made (ms).
+ */
+function announceOwnAddressMove(oldIp, newIp, broadcastedAt) {
+  addPendingOwnMove(oldIp, newIp, broadcastedAt);
+  peerManager.dropAllConnections();
+  startSendingOwnMoves();
+}
+
+/**
+ * Record this node's own move and announce it, once: a move already recorded
+ * at the time it was made is left as it is, since the network hears it from
+ * the pending move or, after a restart, from the moves sent at startup. What
+ * serviceManager wires to fluxNetworkHelper's address-moved seam.
+ * @param {string} oldIp This node's former socket address.
+ * @param {string} newIp Its new socket address.
+ * @param {number} broadcastedAt When the move was made (ms).
+ */
+async function handleOwnAddressMove(oldIp, newIp, broadcastedAt) {
+  const recorded = (await registryManager.addressMovesFrom([oldIp])).get(normalizeSocketAddress(oldIp));
+  if (recorded && recorded.at === broadcastedAt && socketAddressesMatch(recorded.to, newIp)) return;
+  await recordOwnAddressMove(oldIp, newIp, broadcastedAt);
+  announceOwnAddressMove(oldIp, newIp, broadcastedAt);
+}
+
+/**
+ * At startup, send the moves this node recorded to the address it holds now to
+ * each peer as it connects, until one announces it back.
+ */
+function announceRecordedOwnMovesWhenConnected() {
+  recordedLoaded = false;
+  startSendingOwnMoves();
+}
+
+/**
  * To handle IP changed messages.
  * @param {object} message Message.
  * @param {string} fromIP Sender's IP address.
@@ -497,15 +671,18 @@ async function handleAppInstallingErrorMessage(message, fromIP, port) {
  */
 async function handleIPChangedMessage(message, fromIP, port) {
   try {
+    noteOwnMoveHeardBack(hash(message.data));
     const envelope = { version: message.version, timestamp: message.timestamp, pubKey: message.pubKey, signature: message.signature };
     await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.IPCHANGED, { message: message.data, envelope });
+    // storeIPChangedMessage answers true, false for a move too old to apply, or an
+    // Error for one it refused - only true is a move worth passing on
     const rebroadcastToPeers = await messageStore.storeIPChangedMessage(message.data);
-    if (rebroadcastToPeers) {
+    if (rebroadcastToPeers === true) {
       fluxEventBus.publish('network:ipchanged', { oldIP: message.data.oldIP, newIP: message.data.newIP });
     }
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
-    if (rebroadcastToPeers && timestampOK) {
+    if (rebroadcastToPeers === true && timestampOK) {
       announceToPeers(message, `${fromIP}:${port}`);
     }
   } catch (error) {
@@ -525,13 +702,15 @@ async function handleAppRemovedMessage(message, fromIP, port) {
     // rebroadcast message to the network if it's valid
     const envelope = { version: message.version, timestamp: message.timestamp, pubKey: message.pubKey, signature: message.signature };
     await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPREMOVED, { message: message.data, envelope });
+    // storeAppRemovedMessage answers true, false for a removal too old to apply, or
+    // an Error for one it refused - only true is a removal worth passing on
     const rebroadcastToPeers = await messageStore.storeAppRemovedMessage(message.data);
-    if (rebroadcastToPeers) {
+    if (rebroadcastToPeers === true) {
       fluxEventBus.publish('network:appremoved', { ip: message.data.ip, name: message.data.appName });
     }
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
-    if (rebroadcastToPeers && timestampOK) {
+    if (rebroadcastToPeers === true && timestampOK) {
       announceToPeers(message, `${fromIP}:${port}`);
     }
   } catch (error) {
@@ -722,6 +901,7 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
     // Originator's node is not in the deterministic list — stale list or node went offline.
     // The relay peer is not at fault. Drop the message, don't punish the relay.
     log.warn(`Dropping message from ${peerSocket.direction} peer ${peerSocket.key}: originator pubkey ${pubKey} not found in node list`);
+    fluxEventBus.publish('network:originatorNotListed', { type: msgObj.data?.type, pubKey, relay: peerSocket.key });
   } else {
     releaseSlot();
     // BAD_SIGNATURE or MALFORMED — the message is corrupted or forged.
@@ -1473,7 +1653,10 @@ async function addOutgoingPeer(req, res) {
     }
 
     const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-    const fluxNode = nodeList.find((node) => socketAddressesMatch(node.ip, ip));
+    // A listed node that has moved asks from the address its move leads to, which
+    // the list names only once the move is confirmed on chain.
+    const fluxNode = nodeList.find((node) => socketAddressesMatch(node.ip, ip))
+      ?? await registryManager.listedNodeMovedTo(ip, nodeList);
     if (!fluxNode) {
       const errMessage = messageHelper.createErrorMessage(`FluxNode ${peerIp}:${peerPort} is not confirmed on the network.`);
       return res.json(errMessage);
@@ -1496,6 +1679,7 @@ async function addOutgoingPeer(req, res) {
 function startDiscovery() {
   if (discoveryRunning) return;
   discoveryRunning = true;
+  fluxEventBus.publish('discovery:started', {});
   // Driven by the node list arriving rather than by a retry that happens to
   // land after it. A peer holds one socket in either direction, so peers that
   // dial us while we are waiting take the very sockets we would have dialled
@@ -1926,6 +2110,11 @@ module.exports = {
   handleAppInstallingSyncResponse,
   handleAppInstallingErrorsSyncResponse,
   handleIPChangedMessage,
+  recordOwnAddressMove,
+  announceOwnAddressMove,
+  handleOwnAddressMove,
+  announceRecordedOwnMovesWhenConnected,
+  noteOwnMoveHeardBack,
   handleAppRemovedMessage,
   handleNodeSigtermMessage,
   initiateAndHandleConnection,

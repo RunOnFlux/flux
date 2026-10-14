@@ -31,6 +31,13 @@ const {
 } = require('../utils/appConstants');
 const { Privilege, authOf } = require('../utils/privileges');
 const localRemovalQueue = require('../appLifecycle/localRemovalQueue');
+const {
+  extractIp, ipsMatch, normalizeSocketAddress,
+} = require('../utils/socketAddressUtils');
+
+// The most moves followed from one address. A node announces each move it makes,
+// so a real chain is one or two long; the bound only ends a chain that loops.
+const MAX_ADDRESS_MOVES_FOLLOWED = 8;
 
 // The rebuild running now, and the one that follows it for every caller that asked after it began.
 let rebuildRunning = null;
@@ -128,6 +135,20 @@ async function getAppHashes(_req, res) {
  * @param {string} appname - Optional app name filter
  * @returns {Promise<Array>} Array of app locations
  */
+/**
+ * The names of the apps the network lists at `socketAddress`.
+ * @param {string} socketAddress
+ * @returns {Promise<string[]>}
+ */
+async function appsListedAt(socketAddress) {
+  const ip = normalizeSocketAddress(socketAddress);
+  if (!ip) return [];
+  const database = dbHelper.databaseConnection().db(config.database.appsglobal.database);
+  const rows = await database.collection(globalAppsLocations)
+    .find({ ip }, { projection: { _id: 0, name: 1 } }).toArray();
+  return [...new Set(rows.map((row) => row.name))];
+}
+
 async function appLocation(appname) {
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appsglobal.database);
@@ -152,16 +173,310 @@ async function appLocation(appname) {
   return results;
 }
 
+// A recorded address move is a node announcing, signed, that it no longer
+// answers at its old socket address and now answers at the new one: one per old
+// address, the latest it announced. Events are stored as they arrive, before
+// anything checks them, so only a version 1 move between two different
+// addresses counts.
+const MOVE_PROJECTION = Object.freeze({
+  _id: 0, ip: 1, broadcastedAt: 1, 'data.newIP': 1, 'data.version': 1, 'envelope.pubKey': 1,
+});
+
+/**
+ * Add a stored ipchanged event to `moves` when it is a move: version 1, between
+ * two different addresses. `signer` is the key that signed it, or null.
+ * @param {Map<string, {to: string, at: number, signer: string|null}>} moves
+ * @param {object} event
+ * @returns {string|null} The address it moves to, or null when it is not a move.
+ */
+function addMove(moves, event) {
+  const from = normalizeSocketAddress(event.ip);
+  const to = typeof event.data?.newIP === 'string' ? normalizeSocketAddress(event.data.newIP) : null;
+  const at = new Date(event.broadcastedAt).getTime();
+  if (event.data?.version !== 1 || !from || !to || to === from || !Number.isFinite(at)) return null;
+  moves.set(from, { to, at, signer: event.envelope?.pubKey ?? null });
+  return to;
+}
+
+/**
+ * The recorded moves away from `addresses`, and away from every address those
+ * lead to, read by address rather than by scanning every move.
+ * @param {string[]} addresses Socket addresses.
+ * @returns {Promise<Map<string, {to: string, at: number}>>} As addressMoves.
+ */
+async function addressMovesFrom(addresses) {
+  const collection = dbHelper.databaseConnection().db(config.database.appsglobal.database).collection(globalAppStateEvents);
+  const moves = new Map();
+  const asked = new Set();
+  let frontier = addresses;
+  for (let hop = 0; hop < MAX_ADDRESS_MOVES_FOLLOWED && frontier.length; hop += 1) {
+    // an address may be stored with its port or, when it is the default, without
+    const pending = [...new Set(frontier.flatMap((address) => [address, normalizeSocketAddress(address)]).filter(Boolean))]
+      .filter((address) => !asked.has(address));
+    if (!pending.length) break;
+    pending.forEach((address) => asked.add(address));
+    // eslint-disable-next-line no-await-in-loop
+    const events = await collection.find(
+      { ip: { $in: pending }, type: 'ipchanged', expireAt: { $gt: new Date() } },
+      { projection: MOVE_PROJECTION },
+    ).toArray();
+    frontier = events.map((event) => addMove(moves, event)).filter(Boolean);
+  }
+  return moves;
+}
+
+/**
+ * The recorded moves to `address`.
+ * @param {string} address A socket address.
+ * @returns {Promise<Map<string, {to: string, at: number, signer: string|null}>>}
+ *   old socket address -> the move, as addressMovesFrom gives it
+ */
+async function addressMovesTo(address) {
+  const collection = dbHelper.databaseConnection().db(config.database.appsglobal.database).collection(globalAppStateEvents);
+  const events = await collection.find(
+    { type: 'ipchanged', 'data.newIP': normalizeSocketAddress(address), expireAt: { $gt: new Date() } },
+    { projection: MOVE_PROJECTION },
+  ).toArray();
+  const moves = new Map();
+  events.forEach((event) => addMove(moves, event));
+  return moves;
+}
+
+/**
+ * The socket addresses at `ip` that a recorded move leaves.
+ * @param {string} ip An IP, or a socket address whose IP is meant.
+ * @returns {Promise<string[]>}
+ */
+async function addressesMovedFromIp(ip) {
+  const bare = extractIp(ip);
+  if (!bare) return [];
+  const collection = dbHelper.databaseConnection().db(config.database.appsglobal.database).collection(globalAppStateEvents);
+  const escaped = bare.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const events = await collection.find(
+    { ip: new RegExp(`^${escaped}:`), type: 'ipchanged', expireAt: { $gt: new Date() } },
+    { projection: { _id: 0, ip: 1 } },
+  ).toArray();
+  return [...new Set(events.map((event) => event.ip))];
+}
+
+/**
+ * Where each node that spoke for an address is now. A message signed at an
+ * address speaks for the node that held it when it was signed; when that node
+ * has since moved, what it said holds at the address it moved to.
+ * @param {Array<{ip: string, at: number}>} sayings Each address, and when its message was signed (ms).
+ * @returns {Promise<string[]>} One address per saying: where the node moved to, or `ip` as given when it has not moved.
+ */
+async function currentAddressesOf(sayings) {
+  const moves = await addressMovesFrom(sayings.map(({ ip }) => ip));
+  return sayings.map(({ ip, at }) => {
+    const to = followAddressMoves(ip, moves, at);
+    return to === normalizeSocketAddress(ip) ? ip : to;
+  });
+}
+
+/**
+ * The listed node whose recorded moves end at `address`, or null: an address
+ * it moved on from is no longer the node's. A node moves only itself, so every
+ * move followed is one signed by the key the list holds for the node, and each
+ * is newer than the one before it.
+ * @param {string} address A socket address.
+ * @param {Array<{ip: string, pubkey: string}>} nodeList The deterministic list.
+ * @returns {Promise<object|null>}
+ */
+async function listedNodeMovedTo(address, nodeList) {
+  const target = normalizeSocketAddress(address);
+  const sources = new Set((await addressesLeadingTo(address)).map(normalizeSocketAddress));
+  sources.delete(target);
+  const candidates = nodeList.filter((node) => sources.has(normalizeSocketAddress(node.ip)));
+  // eslint-disable-next-line no-restricted-syntax
+  for (const node of candidates) {
+    // eslint-disable-next-line no-await-in-loop
+    const moves = await addressMovesFrom([node.ip]);
+    let current = normalizeSocketAddress(node.ip);
+    let since = 0;
+    for (let hop = 0; hop < MAX_ADDRESS_MOVES_FOLLOWED; hop += 1) {
+      const move = moves.get(current);
+      if (!move || move.at <= since || move.signer !== node.pubkey) break;
+      current = move.to;
+      since = move.at;
+    }
+    if (current === target) return node;
+  }
+  return null;
+}
+
+/**
+ * The addresses whose recorded moves lead to `address`, and `address` itself.
+ * @param {string} address A socket address.
+ * @returns {Promise<string[]>}
+ */
+async function addressesLeadingTo(address) {
+  const collection = dbHelper.databaseConnection().db(config.database.appsglobal.database).collection(globalAppStateEvents);
+  const found = new Set([address]);
+  let frontier = [address];
+  for (let hop = 0; hop < MAX_ADDRESS_MOVES_FOLLOWED && frontier.length; hop += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const events = await collection.find(
+      { type: 'ipchanged', 'data.newIP': { $in: [...new Set(frontier.flatMap((to) => [to, normalizeSocketAddress(to)]))] }, expireAt: { $gt: new Date() } },
+      { projection: { _id: 0, ip: 1 } },
+    ).toArray();
+    frontier = events.map((event) => event.ip).filter((ip) => !found.has(ip));
+    frontier.forEach((ip) => found.add(ip));
+  }
+  return [...found];
+}
+
+/**
+ * Where a node known at `socketAddr` as of `knownAt` answers now. Each move
+ * followed must be newer than the address it moves from was known to be good, so
+ * a node that moved away and back again ends at the address it holds now.
+ * @param {string} socketAddr
+ * @param {Map<string, {to: string, at: number}>} moves From addressMoves.
+ * @param {number} [knownAt] When `socketAddr` was last known to be the node's (ms).
+ * @returns {string} The address, normalised; `socketAddr` when it has not moved.
+ */
+function followAddressMoves(socketAddr, moves, knownAt = 0) {
+  let address = normalizeSocketAddress(socketAddr);
+  let since = knownAt;
+  for (let hop = 0; hop < MAX_ADDRESS_MOVES_FOLLOWED; hop += 1) {
+    const move = moves.get(address);
+    if (!move || move.at <= since) break;
+    address = move.to;
+    since = move.at;
+  }
+  return address;
+}
+
+/**
+ * The full socket address of the node FDM names an app's primary.
+ *
+ * FDM names it by IP alone. A node runs at most one instance of an app per IP,
+ * so the app's location at that IP is the node, and its port is the one to ask
+ * it on. A move carries a node's rows to where it is now as it is applied, so
+ * the locations are where their nodes are. With no location at that IP, the IP
+ * may be one a node has since moved from, which FDM names until it catches up:
+ * the one move away from it that ends at a holder of the app is that node.
+ *
+ * When neither settles it - locations at the IP at different addresses, or no
+ * move or several leading to a holder - the IP comes back as given.
+ * @param {string} appName
+ * @param {string} fdmIp The primary FDM names.
+ * @returns {Promise<string>} A full socket address, or `fdmIp` unresolved.
+ */
+async function primaryAddressOf(appName, fdmIp) {
+  const locations = await appLocation(appName);
+  const atIp = new Set(locations
+    .filter((location) => ipsMatch(location.ip, fdmIp))
+    .map((location) => normalizeSocketAddress(location.ip)));
+  if (atIp.size === 1) return [...atIp][0];
+  if (atIp.size > 1) return fdmIp;
+  const holders = new Set(locations.map((location) => normalizeSocketAddress(location.ip)));
+  const moves = await addressMovesFrom(await addressesMovedFromIp(fdmIp));
+  const reached = new Set(
+    [...moves.keys()]
+      .filter((from) => ipsMatch(from, fdmIp))
+      .map((from) => followAddressMoves(from, moves))
+      .filter((to) => holders.has(to)),
+  );
+  return reached.size === 1 ? [...reached][0] : fdmIp;
+}
+
+/**
+ * The moves the event-derived view follows: version 1 ipchanged events, one per
+ * old address (the newest), as stored.
+ * @param {string[]|null} addresses Only the moves away from these, when given.
+ * @returns {Promise<Array<{_id: string, newIP: string, changedAt: Date}>>}
+ */
+async function movesForView(addresses) {
+  const collection = dbHelper.databaseConnection().db(config.database.appsglobal.database).collection(globalAppStateEvents);
+  const query = {
+    type: 'ipchanged', 'data.version': 1, 'data.newIP': { $type: 'string' }, expireAt: { $gt: new Date() },
+  };
+  if (addresses) query.ip = { $in: addresses };
+  const events = await collection.find(query, { projection: { _id: 0, ip: 1, broadcastedAt: 1, 'data.newIP': 1 } })
+    .sort({ broadcastedAt: -1 }).toArray();
+  const moves = new Map();
+  events
+    .filter((event) => !moves.has(event.ip))
+    .forEach((event) => moves.set(event.ip, { _id: event.ip, newIP: event.data.newIP, changedAt: event.broadcastedAt }));
+  return [...moves.values()];
+}
+
+/**
+ * An aggregation expression for where the node that held `address` at `at` is
+ * now, following `moves` (from movesForView) the way followAddressMoves does:
+ * each move followed is newer than the address it leaves was known to be the
+ * node's. Stops at the first address with no such move.
+ * @param {*} address Expression for the address.
+ * @param {*} at Expression for when it was known to be the node's.
+ * @param {Array<object>} moves
+ * @param {number} [hop]
+ * @returns {object}
+ */
+function followMovesExpr(address, at, moves, hop = 0) {
+  if (hop === MAX_ADDRESS_MOVES_FOLLOWED) return address;
+  const move = `move${hop}`;
+  return {
+    $let: {
+      vars: {
+        [move]: {
+          $first: {
+            $filter: {
+              input: { $literal: moves },
+              as: 'c',
+              cond: { $and: [{ $eq: ['$$c._id', address] }, { $gt: ['$$c.changedAt', at] }] },
+            },
+          },
+        },
+      },
+      in: {
+        $cond: [
+          { $eq: [{ $ifNull: [`$$${move}`, null] }, null] },
+          address,
+          followMovesExpr(`$$${move}.newIP`, `$$${move}.changedAt`, moves, hop + 1),
+        ],
+      },
+    },
+  };
+}
+
+/**
+ * An aggregation expression for the newest of the document's `shutdowns` at
+ * `address`, or null. Shutdowns made at different addresses can resolve to one.
+ * @param {*} address Expression for the address.
+ * @returns {object}
+ */
+function newestShutdownAt(address) {
+  return {
+    $let: {
+      vars: { address },
+      in: {
+        $reduce: {
+          input: { $filter: { input: '$shutdowns', as: 's', cond: { $eq: ['$$s._id', '$$address'] } } },
+          initialValue: null,
+          in: { $cond: [{ $or: [{ $eq: ['$$value', null] }, { $gt: ['$$this.eventAt', '$$value.eventAt'] }] }, '$$this', '$$value'] },
+        },
+      },
+    },
+  };
+}
+
 // Derives running app locations from the event log. Will replace appLocation() once callers are switched.
 //
 // Performance: shutdown/v1 filtering happens at IP level BEFORE unwinding to individual apps.
-// Lookups use $filter + $first against small arrays (shutdowns ~10, ipChanges ~5) which is
+// Lookups use $filter + $first against small arrays (shutdowns ~10) which is
 // O(IPs * arraySize) — fast because the arrays are small. The v2Timestamps lookup for v1
 // filtering is O(v1Count * v2IPs) which dominates at ~2.4M comparisons at steady state.
 //
 // MongoDB 7.2+ optimization: $getField supports dynamic field references, enabling
 // $arrayToObject maps with O(1) key lookup via $getField({ field: '$$var.ip', input: '$map' }).
 // This would reduce all lookups to O(n) total. Blocked by MongoDB 7.0 on CI (SERVER-74371).
+//
+// Every report, removal and shutdown speaks for the node that held its address when it was
+// made; when that node has since moved, it holds at the address the node moved to. The moves
+// are read first, and each facet is split by whether an event was made at an address a move
+// leaves: only that part is resolved, against the moves as a literal. With no moves the
+// pipeline is the one without them.
 async function appLocationFromEvents(options = {}) {
   const { appname, ip } = options;
   const dbopen = dbHelper.databaseConnection();
@@ -177,18 +492,28 @@ async function appLocationFromEvents(options = {}) {
 
   const initialMatch = {
     $or: [
-      { type: { $in: ['apprunning', 'appremoved', 'ipchanged'] }, expireAt: { $gt: now } },
+      { type: { $in: ['apprunning', 'appremoved'] }, expireAt: { $gt: now } },
       { type: { $in: ['sigterm', 'evicted'] } },
     ],
   };
-  if (ip) initialMatch.ip = ip;
+  const scope = ip ? await addressesLeadingTo(ip) : null;
+  if (scope) initialMatch.ip = { $in: scope };
+  const moves = await movesForView(scope);
+  const movedFrom = moves.map((move) => move._id);
+  // A facet's stages, and when there are moves a second facet `<name>Moved` for the
+  // events made at an address a move leaves, ending in `resolve`.
+  const splitByMove = (name, stages, resolve) => (moves.length ? {
+    [name]: [{ $match: { ip: { $nin: movedFrom } } }, ...stages],
+    [`${name}Moved`]: [{ $match: { ip: { $in: movedFrom } } }, ...stages, resolve],
+  } : { [name]: stages });
+  const resolveReport = { $addFields: { at: followMovesExpr('$ip', '$broadcastedAt', moves) } };
 
   const pipeline = [
     { $match: initialMatch },
     { $sort: { broadcastedAt: -1 } },
     {
       $facet: {
-        v2: [
+        ...splitByMove('v2', [
           { $match: { type: 'apprunning', 'data.apps': { $exists: true } } },
           { $group: { _id: '$ip', doc: { $first: '$$ROOT' } } },
           { $replaceRoot: { newRoot: '$doc' } },
@@ -203,8 +528,8 @@ async function appLocationFromEvents(options = {}) {
               runningSince: '$data.runningSince',
             },
           },
-        ],
-        v1: [
+        ], resolveReport),
+        ...splitByMove('v1', [
           ...v1NameFilter,
           { $match: { type: 'apprunning', 'data.name': { $exists: true } } },
           {
@@ -226,12 +551,12 @@ async function appLocationFromEvents(options = {}) {
               staticIp: '$data.staticIp',
             },
           },
-        ],
+        ], resolveReport),
         v2Timestamps: [
           { $match: { type: 'apprunning', 'data.apps': { $exists: true } } },
           { $group: { _id: '$ip', latestV2: { $first: '$broadcastedAt' } } },
         ],
-        removals: [
+        ...splitByMove('removals', [
           { $match: { type: 'appremoved' } },
           ...removalNameFilter,
           {
@@ -240,8 +565,8 @@ async function appLocationFromEvents(options = {}) {
               removedAt: { $first: '$broadcastedAt' },
             },
           },
-        ],
-        shutdowns: [
+        ], { $addFields: { '_id.ip': followMovesExpr('$_id.ip', '$removedAt', moves) } }),
+        ...splitByMove('shutdowns', [
           { $match: { type: { $in: ['sigterm', 'evicted'] } } },
           { $addFields: { _eventAt: { $ifNull: ['$broadcastedAt', '$createdAt'] } } },
           { $sort: { _eventAt: -1 } },
@@ -253,13 +578,15 @@ async function appLocationFromEvents(options = {}) {
               type: { $first: '$type' },
             },
           },
-        ],
-        ipChanges: [
-          { $match: { type: 'ipchanged' } },
-          { $group: { _id: '$ip', newIP: { $first: '$data.newIP' }, changedAt: { $first: '$broadcastedAt' } } },
-        ],
+        ], { $addFields: { _id: followMovesExpr('$_id', '$eventAt', moves) } }),
       },
     },
+    // A report keeps the address it was made at in `ip`; one made where a move leaves
+    // gains the address its node holds now in `at`.
+    ...(moves.length ? [{
+      $addFields: Object.fromEntries(['v2', 'v1', 'removals', 'shutdowns']
+        .map((name) => [name, { $concatArrays: [`$${name}`, `$${name}Moved`] }])),
+    }] : []),
     // Filter v2 at IP level before unwinding — shutdown check against small array
     {
       $addFields: {
@@ -269,7 +596,7 @@ async function appLocationFromEvents(options = {}) {
             as: 'entry',
             cond: {
               $let: {
-                vars: { sd: { $first: { $filter: { input: '$shutdowns', as: 's', cond: { $eq: ['$$s._id', '$$entry.ip'] } } } } },
+                vars: { sd: newestShutdownAt({ $ifNull: ['$$entry.at', '$$entry.ip'] }) },
                 in: {
                   $or: [
                     { $eq: ['$$sd', null] },
@@ -300,7 +627,7 @@ async function appLocationFromEvents(options = {}) {
                 },
                 {
                   $let: {
-                    vars: { sd: { $first: { $filter: { input: '$shutdowns', as: 's', cond: { $eq: ['$$s._id', '$$entry.ip'] } } } } },
+                    vars: { sd: newestShutdownAt({ $ifNull: ['$$entry.at', '$$entry.ip'] }) },
                     in: {
                       $or: [
                         { $eq: ['$$sd', null] },
@@ -328,46 +655,31 @@ async function appLocationFromEvents(options = {}) {
               _id: 0,
               name: '$_v2Filtered.apps.name',
               hash: '$_v2Filtered.apps.hash',
-              ip: '$_v2Filtered.ip',
+              ip: { $ifNull: ['$_v2Filtered.at', '$_v2Filtered.ip'] },
               broadcastedAt: '$_v2Filtered.broadcastedAt',
               runningSince: { $ifNull: ['$_v2Filtered.apps.runningSince', '$_v2Filtered.runningSince'] },
               osUptime: '$_v2Filtered.osUptime',
               staticIp: '$_v2Filtered.staticIp',
               removals: 1,
-              ipChanges: 1,
             },
           },
           {
             $addFields: {
+              // the newest: removals made at different addresses can resolve to one
               _removedAt: {
                 $ifNull: [
-                  { $let: {
-                    vars: { r: { $first: { $filter: { input: '$removals', as: 'r', cond: { $and: [{ $eq: ['$$r._id.ip', '$ip'] }, { $eq: ['$$r._id.name', '$name'] }] } } } } },
+                  { $max: { $map: {
+                    input: { $filter: { input: '$removals', as: 'r', cond: { $and: [{ $eq: ['$$r._id.ip', '$ip'] }, { $eq: ['$$r._id.name', '$name'] }] } } },
+                    as: 'r',
                     in: '$$r.removedAt',
-                  } },
+                  } } },
                   new Date(0),
                 ],
               },
             },
           },
           { $match: { $expr: { $gt: ['$broadcastedAt', '$_removedAt'] } } },
-          {
-            $addFields: {
-              _ipChange: { $first: { $filter: { input: '$ipChanges', as: 'c', cond: { $eq: ['$$c._id', '$ip'] } } } },
-            },
-          },
-          {
-            $addFields: {
-              ip: {
-                $cond: [
-                  { $and: [{ $ne: ['$_ipChange', null] }, { $gt: ['$_ipChange.changedAt', '$broadcastedAt'] }] },
-                  '$_ipChange.newIP',
-                  '$ip',
-                ],
-              },
-            },
-          },
-          { $project: { removals: 0, ipChanges: 0, _removedAt: 0, _ipChange: 0 } },
+          { $project: { removals: 0, _removedAt: 0 } },
         ],
         fromV1: [
           { $unwind: '$_v1Filtered' },
@@ -376,46 +688,31 @@ async function appLocationFromEvents(options = {}) {
               _id: 0,
               name: '$_v1Filtered.name',
               hash: '$_v1Filtered.hash',
-              ip: '$_v1Filtered.ip',
+              ip: { $ifNull: ['$_v1Filtered.at', '$_v1Filtered.ip'] },
               broadcastedAt: '$_v1Filtered.broadcastedAt',
               runningSince: '$_v1Filtered.runningSince',
               osUptime: '$_v1Filtered.osUptime',
               staticIp: '$_v1Filtered.staticIp',
               removals: 1,
-              ipChanges: 1,
             },
           },
           {
             $addFields: {
+              // the newest: removals made at different addresses can resolve to one
               _removedAt: {
                 $ifNull: [
-                  { $let: {
-                    vars: { r: { $first: { $filter: { input: '$removals', as: 'r', cond: { $and: [{ $eq: ['$$r._id.ip', '$ip'] }, { $eq: ['$$r._id.name', '$name'] }] } } } } },
+                  { $max: { $map: {
+                    input: { $filter: { input: '$removals', as: 'r', cond: { $and: [{ $eq: ['$$r._id.ip', '$ip'] }, { $eq: ['$$r._id.name', '$name'] }] } } },
+                    as: 'r',
                     in: '$$r.removedAt',
-                  } },
+                  } } },
                   new Date(0),
                 ],
               },
             },
           },
           { $match: { $expr: { $gt: ['$broadcastedAt', '$_removedAt'] } } },
-          {
-            $addFields: {
-              _ipChange: { $first: { $filter: { input: '$ipChanges', as: 'c', cond: { $eq: ['$$c._id', '$ip'] } } } },
-            },
-          },
-          {
-            $addFields: {
-              ip: {
-                $cond: [
-                  { $and: [{ $ne: ['$_ipChange', null] }, { $gt: ['$_ipChange.changedAt', '$broadcastedAt'] }] },
-                  '$_ipChange.newIP',
-                  '$ip',
-                ],
-              },
-            },
-          },
-          { $project: { removals: 0, ipChanges: 0, _removedAt: 0, _ipChange: 0 } },
+          { $project: { removals: 0, _removedAt: 0 } },
         ],
       },
     },
@@ -438,6 +735,8 @@ async function appLocationFromEvents(options = {}) {
     },
     { $project: { _id: 0 } },
   ];
+  // the addresses that moved to `ip` are read too; what they said holds here only once resolved
+  if (ip) pipeline.push({ $match: { ip } });
 
   const results = await collection.aggregate(pipeline).toArray();
   return results;
@@ -2034,6 +2333,8 @@ async function reindexGlobalAppsLocation() {
     await database.collection(globalAppStateEvents).createIndex({ ip: 1, type: 1, dedupKey: 1 }, { unique: true });
     await database.collection(globalAppStateEvents).createIndex({ broadcastedAt: 1 });
     await database.collection(globalAppStateEvents).createIndex({ createdAt: 1 });
+    await database.collection(globalAppStateEvents).createIndex({ type: 1, expireAt: 1 }, { name: 'events by type and expiry' });
+    await database.collection(globalAppStateEvents).createIndex({ 'data.newIP': 1 }, { name: 'moves by the address they lead to', partialFilterExpression: { type: 'ipchanged' } });
     await database.collection(globalAppsLocations).createIndex({ name: 1 }, { name: 'query for getting app location based on app specs name' });
     await database.collection(globalAppsLocations).createIndex({ hash: 1 }, { name: 'query for getting app location based on app hash' });
     await database.collection(globalAppsLocations).createIndex({ ip: 1 }, { name: 'query for getting app location based on ip' });
@@ -2277,11 +2578,20 @@ async function shuttingDownNodes() {
 }
 
 module.exports = {
+  appsListedAt,
   shuttingDownNodes,
   getAppHashes,
   getRegistryStatus,
   getPreviousAppSpecifications,
   appLocation,
+  addressMovesFrom,
+  addressMovesTo,
+  addressesMovedFromIp,
+  currentAddressesOf,
+  addressesLeadingTo,
+  listedNodeMovedTo,
+  followAddressMoves,
+  primaryAddressOf,
   appLocationFromEvents,
   appInstallingLocation,
   installingCountsByApp,

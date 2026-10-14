@@ -371,6 +371,210 @@ describe('registryManager tests', () => {
     });
   });
 
+  describe('appsListedAt', () => {
+    const locations = config.database.appsglobal.collections.appsLocations;
+    const runs = (name, ip) => database.collection(locations).insertOne({
+      name, hash: 'h', ip, broadcastedAt: new Date(), expireAt: new Date(Date.now() + 3600000),
+    });
+
+    beforeEach(async () => {
+      await database.collection(locations).deleteMany({});
+    });
+
+    it('names each app listed at the address, once', async () => {
+      await runs('alpha', '198.51.100.1:16127');
+      await runs('beta', '198.51.100.1:16127');
+      await runs('otherport', '198.51.100.1:16157');
+      await runs('othernode', '198.51.100.2:16127');
+
+      expect((await registryManager.appsListedAt('198.51.100.1:16127')).sort()).to.deep.equal(['alpha', 'beta']);
+    });
+
+    it('names the apps at a non-default port by that port only', async () => {
+      await runs('otherport', '198.51.100.1:16157');
+      await runs('withport', '198.51.100.1:16127');
+
+      expect(await registryManager.appsListedAt('198.51.100.1:16157')).to.deep.equal(['otherport']);
+    });
+  });
+
+  describe('address move tests', () => {
+    const events = config.database.appsglobal.collections.appStateEvents;
+    const locations = config.database.appsglobal.collections.appsLocations;
+    const HOUR = 60 * 60 * 1000;
+    const minutesAgo = (m) => new Date(Date.now() - m * 60 * 1000);
+
+    const moved = (from, to, at, expireAt = new Date(Date.now() + HOUR)) => database.collection(events).insertOne({
+      ip: from, type: 'ipchanged', dedupKey: 'ipchanged', broadcastedAt: at, expireAt, data: { type: 'fluxipchanged', version: 1, oldIP: from, newIP: to, broadcastedAt: at.getTime() },
+    });
+    const runs = (name, ip, broadcastedAt) => database.collection(locations).insertOne({
+      name, hash: 'h', ip, broadcastedAt, expireAt: new Date(Date.now() + HOUR),
+    });
+
+    beforeEach(async () => {
+      await database.collection(events).deleteMany({});
+      await database.collection(locations).deleteMany({});
+    });
+
+    describe('currentAddressesOf', () => {
+      const currentAddressOf = async (ip, at) => (await registryManager.currentAddressesOf([{ ip, at: at.getTime() }]))[0];
+
+      it('follows a move made after the saying to the new address', async () => {
+        await moved('72.89.45.236:16137', '108.6.236.4:16137', minutesAgo(5));
+
+        expect(await currentAddressOf('72.89.45.236:16137', minutesAgo(10))).to.equal('108.6.236.4:16137');
+      });
+
+      it('follows a chain of moves, each newer than the last', async () => {
+        await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(30));
+        await moved('10.0.0.2:16127', '10.0.0.3:16127', minutesAgo(10));
+
+        expect(await currentAddressOf('10.0.0.1:16127', minutesAgo(40))).to.equal('10.0.0.3:16127');
+      });
+
+      it('ends a node that moved away and back at the address it holds now', async () => {
+        await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(30));
+        await moved('10.0.0.2:16127', '10.0.0.1:16127', minutesAgo(10));
+
+        expect(await currentAddressOf('10.0.0.1:16127', minutesAgo(40))).to.equal('10.0.0.1:16127');
+      });
+
+      it('does not follow a move made before the saying: the address was another node\'s by then', async () => {
+        await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(30));
+
+        expect(await currentAddressOf('10.0.0.1:16127', minutesAgo(20))).to.equal('10.0.0.1:16127');
+      });
+
+      it('ignores a move that is not version 1, one to the same address, and one whose new address is not an address', async () => {
+        await database.collection(events).insertMany([
+          {
+            ip: '10.0.0.1:16127', type: 'ipchanged', broadcastedAt: minutesAgo(5), expireAt: new Date(Date.now() + HOUR), data: { version: 2, newIP: '10.0.0.2:16127' },
+          },
+          {
+            ip: '10.0.0.3:16127', type: 'ipchanged', broadcastedAt: minutesAgo(5), expireAt: new Date(Date.now() + HOUR), data: { version: 1, newIP: '10.0.0.3' },
+          },
+          {
+            ip: '10.0.0.4:16127', type: 'ipchanged', broadcastedAt: minutesAgo(5), expireAt: new Date(Date.now() + HOUR), data: { version: 1, newIP: { ip: '10.0.0.5' } },
+          },
+        ]);
+
+        expect([...(await registryManager.addressMovesFrom(['10.0.0.1:16127', '10.0.0.3:16127', '10.0.0.4:16127'])).keys()]).to.deep.equal([]);
+      });
+
+      it('ignores an expired move', async () => {
+        await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(200), minutesAgo(1));
+
+        expect(await currentAddressOf('10.0.0.1:16127', minutesAgo(210))).to.equal('10.0.0.1:16127');
+      });
+
+      it('follows a move of the port alone, on the same IP', async () => {
+        await moved('198.51.100.40:16127', '198.51.100.40:16157', minutesAgo(5));
+
+        expect(await currentAddressOf('198.51.100.40:16127', minutesAgo(10))).to.equal('198.51.100.40:16157');
+      });
+
+      it('reads a bare address as the default port', async () => {
+        await moved('10.0.0.1:16127', '10.0.0.2:16127', minutesAgo(5));
+
+        expect(await currentAddressOf('10.0.0.1', minutesAgo(10))).to.equal('10.0.0.2:16127');
+      });
+    });
+
+    describe('addressesMovedFromIp', () => {
+      it('gives the addresses at the IP a move leaves, and none at an IP it only begins', async () => {
+        await moved('72.89.45.23:16137', '108.6.236.4:16137', minutesAgo(5));
+        await moved('72.89.45.23:16127', '108.6.236.5:16127', minutesAgo(5));
+        await moved('72.89.45.236:16127', '108.6.236.6:16127', minutesAgo(5));
+
+        expect((await registryManager.addressesMovedFromIp('72.89.45.23')).sort()).to.deep.equal(['72.89.45.23:16127', '72.89.45.23:16137']);
+      });
+    });
+
+    describe('addressMovesTo', () => {
+      it('gives the moves to an address, with who signed each and when it was made', async () => {
+        const at = minutesAgo(5);
+        await database.collection(events).insertOne({
+          ip: '10.0.0.1:16127', type: 'ipchanged', dedupKey: 'ipchanged', broadcastedAt: at, expireAt: new Date(Date.now() + HOUR), data: { version: 1, newIP: '10.0.0.9:16127' }, envelope: { pubKey: '04signer' },
+        });
+        await moved('10.0.0.2:16127', '10.0.0.8:16127', at);
+
+        const moves = await registryManager.addressMovesTo('10.0.0.9');
+        expect([...moves.keys()]).to.deep.equal(['10.0.0.1:16127']);
+        expect(moves.get('10.0.0.1:16127')).to.deep.equal({ to: '10.0.0.9:16127', signer: '04signer', at: at.getTime() });
+      });
+    });
+
+    describe('primaryAddressOf', () => {
+      it('gives the port of the app\'s location at the IP FDM names', async () => {
+        await runs('primaryapp', '72.89.45.236:16137', minutesAgo(5));
+
+        expect(await registryManager.primaryAddressOf('primaryapp', '72.89.45.236')).to.equal('72.89.45.236:16137');
+      });
+
+      it('finds the node at the address its move carried its location to, from the IP it left', async () => {
+        await moved('72.89.45.236:16137', '108.6.236.4:16137', minutesAgo(5));
+        await runs('primaryapp', '108.6.236.4:16137', minutesAgo(10));
+
+        expect(await registryManager.primaryAddressOf('primaryapp', '72.89.45.236')).to.equal('108.6.236.4:16137');
+      });
+
+      it('gives the new port of a node whose port alone moved', async () => {
+        await moved('198.51.100.40:16127', '198.51.100.40:16157', minutesAgo(5));
+        await runs('primaryapp', '198.51.100.40:16157', minutesAgo(10));
+
+        expect(await registryManager.primaryAddressOf('primaryapp', '198.51.100.40')).to.equal('198.51.100.40:16157');
+      });
+
+      it('takes no move from an IP that only begins with the one FDM names', async () => {
+        await moved('72.89.45.236:16137', '108.6.236.4:16137', minutesAgo(5));
+        await runs('primaryapp', '108.6.236.4:16137', minutesAgo(10));
+
+        expect(await registryManager.primaryAddressOf('primaryapp', '72.89.45.23')).to.equal('72.89.45.23');
+      });
+
+      it('keeps a location announced after a move away from that address', async () => {
+        await moved('72.89.45.236:16137', '108.6.236.4:16137', minutesAgo(30));
+        await runs('primaryapp', '72.89.45.236:16137', minutesAgo(5));
+
+        expect(await registryManager.primaryAddressOf('primaryapp', '72.89.45.236')).to.equal('72.89.45.236:16137');
+      });
+
+      it('finds the node behind a shared IP that moved with its siblings, by the one that holds the app', async () => {
+        await runs('primaryapp', '108.6.236.4:16137', minutesAgo(1));
+        await runs('otherapp', '108.6.236.4:16127', minutesAgo(1));
+        await moved('72.89.45.236:16127', '108.6.236.4:16127', minutesAgo(3));
+        await moved('72.89.45.236:16137', '108.6.236.4:16137', minutesAgo(3));
+        await moved('72.89.45.236:16147', '108.6.236.4:16147', minutesAgo(3));
+
+        expect(await registryManager.primaryAddressOf('primaryapp', '72.89.45.236')).to.equal('108.6.236.4:16137');
+      });
+
+      it('leaves the IP unresolved when moves from it reach more than one holder', async () => {
+        await runs('primaryapp', '108.6.236.4:16137', minutesAgo(1));
+        await runs('primaryapp', '96.1.1.1:16127', minutesAgo(1));
+        await moved('72.89.45.236:16137', '108.6.236.4:16137', minutesAgo(3));
+        await moved('72.89.45.236:16127', '96.1.1.1:16127', minutesAgo(3));
+
+        expect(await registryManager.primaryAddressOf('primaryapp', '72.89.45.236')).to.equal('72.89.45.236');
+      });
+
+      it('leaves the IP unresolved when no location and no move accounts for it', async () => {
+        await runs('primaryapp', '96.1.1.1:16127', minutesAgo(1));
+
+        expect(await registryManager.primaryAddressOf('primaryapp', '72.89.45.236')).to.equal('72.89.45.236');
+      });
+
+      it('leaves the IP unresolved when two locations share it, whatever moved away from it', async () => {
+        await runs('primaryapp', '72.89.45.236:16127', minutesAgo(1));
+        await runs('primaryapp', '72.89.45.236:16137', minutesAgo(1));
+        await runs('primaryapp', '108.6.236.4:16147', minutesAgo(1));
+        await moved('72.89.45.236:16147', '108.6.236.4:16147', minutesAgo(3));
+
+        expect(await registryManager.primaryAddressOf('primaryapp', '72.89.45.236')).to.equal('72.89.45.236');
+      });
+    });
+  });
+
   describe('appInstallingLocation tests', () => {
     beforeEach(async () => {
       const collection = config.database.appsglobal.collections.appsInstallingLocations;
@@ -1564,14 +1768,16 @@ describe('registryManager tests', () => {
       };
     }
 
-    function makeIPChangedEvent(oldIP, newIP, broadcastedAt) {
+    function makeIPChangedEvent(oldIp, newIp, broadcastedAt) {
       return {
-        ip: oldIP,
+        ip: oldIp,
         type: 'ipchanged',
         dedupKey: 'ipchanged',
         broadcastedAt: new Date(broadcastedAt),
         expireAt: new Date(broadcastedAt + 125 * 60 * 1000),
-        data: { oldIP, newIP, broadcastedAt },
+        data: {
+          type: 'fluxipchanged', version: 1, oldIP: oldIp, newIP: newIp, broadcastedAt,
+        },
       };
     }
 

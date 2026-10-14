@@ -75,7 +75,9 @@ describe('Boot: prerequisites', function () {
   });
 
   it('should start Flux Discovery', async function () {
-    expect(env.nodeHasLog(0, 'Flux Discovery started')).to.equal(true);
+    this.timeout(90000);
+    // Discovery starts after a daemon call that follows the anchor above.
+    await env.clients[0].waitForEvent('discovery:started', () => true, 60000);
   });
 
   it('should not log any config-related errors', async function () {

@@ -235,9 +235,15 @@ async function releaseOperatorStart(rawIdentifier) {
  * No catch, for setOperatorStopped's reason: a request that did not persist must
  * not be reported to the operator as one that did.
  *
+ * With a `key` the request is the one restart that key asks for: a repeat of the
+ * key raises nothing, decided in the same write, so a caller that cannot tell
+ * whether its request landed asks again safely.
+ *
  * @param {string} identifier
+ * @param {object} [options]
+ * @param {string} [options.key] What the restart is for.
  */
-async function requestRestart(rawIdentifier) {
+async function requestRestart(rawIdentifier, { key } = {}) {
   // Incremented by the database, never read and rewritten here. Reading first
   // asked getState for a number and got null for two different answers - "no
   // record yet" and "the read failed" - and treating the second as zero wrote a
@@ -248,6 +254,23 @@ async function requestRestart(rawIdentifier) {
   // read-then-write had both read the same number and one silently overwrite the
   // other.
   const identifier = canonical(rawIdentifier);
+  if (key) {
+    await upsertState(identifier, [{
+      $set: {
+        identifier,
+        updatedAt: Date.now(),
+        restartRequestKey: key,
+        restartGeneration: {
+          $cond: [
+            { $eq: ['$restartRequestKey', key] },
+            '$restartGeneration',
+            { $add: [{ $ifNull: ['$restartGeneration', 0] }, 1] },
+          ],
+        },
+      },
+    }]);
+    return;
+  }
   await upsertState(identifier, {
     $inc: { restartGeneration: 1 },
     $set: { identifier, updatedAt: Date.now() },

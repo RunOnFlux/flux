@@ -141,6 +141,19 @@ async function decryptEnterpriseApps(apps, options = {}) {
 }
 
 /**
+ * The names of the apps installed on this node that the network lists at
+ * `socketAddress`: what a node that held that address left there.
+ * @param {string} socketAddress
+ * @returns {Promise<string[]>}
+ */
+async function installedAppsListedAt(socketAddress) {
+  const installed = await installedApps();
+  if (installed.status !== 'success') return [];
+  const names = new Set(installed.data.map((app) => app.name));
+  return (await registryManager.appsListedAt(socketAddress)).filter((name) => names.has(name));
+}
+
+/**
  * To list installed apps. Returns apps from local database.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -828,6 +841,7 @@ async function promotedFolderHoldings(req, res) {
 
 module.exports = {
   installedApps,
+  installedAppsListedAt,
   decryptEnterpriseApps,
   publicContainerView,
   listRunningApps,

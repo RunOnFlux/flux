@@ -4,6 +4,9 @@ import { join } from 'node:path';
 import { activeTestEnvs } from './test-env.js';
 import { execInContainer } from './container.js';
 import { SYNCTHING_HOME } from './syncthing-real.js';
+import failedHooksModule from './failed-hooks.cjs';
+
+const { failedHooks } = failedHooksModule;
 
 // Under the run's own log directory when it has one, so two runs in one clone
 // never overwrite each other's evidence.
@@ -130,7 +133,6 @@ async function readFromNodes(env, script) {
 }
 
 export function dumpLogsOnFailure(getEnv) {
-  let dumped = false;
 
   async function dump(label) {
     // The suite's own env when it was assigned; otherwise every env this process
@@ -140,7 +142,6 @@ export function dumpLogsOnFailure(getEnv) {
     const own = getEnv();
     const envs = own ? [own] : activeTestEnvs();
     if (!envs.length) return;
-    dumped = true;
     const dir = join(LOG_ROOT, sanitize(label));
     try {
       rmSync(dir, { recursive: true, force: true });
@@ -237,19 +238,13 @@ export function dumpLogsOnFailure(getEnv) {
     if (always || this.currentTest.state === 'failed') await dump(this.currentTest.fullTitle());
   });
 
-  // afterEach never fires for a before/after-all HOOK failure, which is exactly
-  // when setup blew up and the node logs matter most. As a backstop, dump in the
-  // after-all hook when nothing passed and we haven't already dumped — a strong
-  // signal that a setup hook failed. Tests are counted through nested describes
-  // so a top-level hook failure is caught even when every `it` lives in a child.
+  // afterEach never fires for a failed hook, which is when setup blew up and the
+  // node logs matter most. Any hook that failed anywhere under this suite is
+  // dumped here, under that hook's title, whatever passed before it.
   after(async function () {
-    if (dumped) return;
     const root = this.test?.parent;
     if (!root) return;
-    const anyTests = (s) => s.tests.length > 0 || s.suites.some(anyTests);
-    const anyPassed = (s) => s.tests.some((t) => t.state === 'passed') || s.suites.some(anyPassed);
-    if (anyTests(root) && !anyPassed(root)) {
-      await dump(root.fullTitle?.() || root.title || 'setup-hook');
-    }
+    const [first] = failedHooks(root);
+    if (first) await dump(first.fullTitle());
   });
 }

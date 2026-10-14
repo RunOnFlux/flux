@@ -172,7 +172,9 @@ export async function queueAppTx(appHash) {
  * A bare address keeps the node's own api port.
  *
  * `scope: 'all'` (default) moves every answer at once - an address change already
- * settled. `scope: 'publicip'` moves only benchmark's public-IP probe, leaving the
+ * settled. `scope: 'benchmark'` also moves what benchmark tells the node about itself,
+ * leaving its status and list entry: the node has noticed, the chain has not.
+ * `scope: 'publicip'` moves only benchmark's public-IP probe, leaving the
  * node listed and reporting itself where it was: the state a node is in the moment
  * its address moves, and the only one in which it can notice.
  *
@@ -202,6 +204,15 @@ export async function hideNodeFromPeers(node) {
 /** Put a node back into its peers' view. */
 export async function revealNodeToPeers(node) {
   return post(`/node-visibility/${String(node).split(':')[0]}`, { hidden: false });
+}
+
+/**
+ * Have benchmark know no address for a node, or know it again: getbenchmarks
+ * reports none and getpublicip fails, as fluxbench does when no public-IP service
+ * answers it.
+ */
+export async function setBenchmarkUnresolved(node, unresolved = true) {
+  return post(`/benchmark-unresolved/${String(node).split(':')[0]}`, { unresolved });
 }
 
 /** Put a node's address back to where it really is. */
@@ -303,6 +314,23 @@ export async function enableAllRpcFailure() {
 
 export async function disableAllRpcFailure() {
   return assertControlled(await del('/rpc-fail/all'), 'disableAllRpcFailure');
+}
+
+/**
+ * Make one RPC fail for one node `times` times, then answer as usual: a call the
+ * node makes that the daemon refuses, which nothing else about the node shares.
+ * @param {string} ip Node's fleet IP, without a port.
+ * @param {string} method RPC method name, e.g. 'createconfirmationtransaction'.
+ * @param {object} [options]
+ * @param {number} [options.times] How many calls fail.
+ */
+export async function failRpc(ip, method, { times = 1 } = {}) {
+  return assertControlled(await post(`/rpc-fail-method/${ip}`, { method, times }), 'failRpc');
+}
+
+/** Answer every method for one node as usual again. */
+export async function clearRpcFailures(ip) {
+  return del(`/rpc-fail-method/${ip}`);
 }
 
 // -- Request journal --

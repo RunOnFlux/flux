@@ -11,6 +11,7 @@ import { buildAppSpec, registerApp } from '../framework/app-helper.js';
 import { nodeKey } from '../framework/keys.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
+import { askToBeDialed } from '../framework/peer-topology.js';
 
 const subnet = getSubnetConfig();
 // nodeIp is 1-based and env.clients is 0-based, so the two are one apart. Suite
@@ -226,12 +227,12 @@ describe('a node that cannot answer a state sync declines it', function () {
     // THE JOIN IS CAUSED, NOT AWAITED. A node dials a deterministic subset of
     // the fleet rather than all of it, so releasing the answerer leaves whether
     // it reaches THIS node to that selection - which took three minutes to bring
-    // these two together, long past any budget. Node 0 is asked to dial it over
-    // the route a peer uses, so the node does its own outbound connect and the
-    // join lands in the attempt this test is measuring.
+    // these two together, long past any budget. The answerer asks node 0 to dial
+    // it over the route a peer uses, so node 0 does its own outbound connect and
+    // the join lands in the attempt this test is measuring.
     await env.releasePendingNode(ANSWERER, BOOTED);
     await env.startDiscovery([ANSWERER]);
-    await env.clients[0].get(`/flux/addoutgoingpeer/${ipOfIndex(ANSWERER)}:16127`);
+    await askToBeDialed(env.clients[ANSWERER], env.clients[0]);
 
     // No threshold edge is available here - it fired before the answerer
     // existed and the count never fell - so this can only come from the join

@@ -885,11 +885,6 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCent
   }
 }
 
-// A node is ready when it can SERVE AUTH, not merely HTTP: the first thing every
-// suite does against a fresh or restarted node is authenticate (startDiscovery),
-// and /id/loginphrase needs the mongo connection, which comes up after express
-// starts answering /flux/version. During that window the route returns 200 with
-// an error body, so readiness must validate the body, not just res.ok.
 // The node whose key node `num` signs with. `sharedKeys` maps a node number to
 // another's, both 1-based: distinct nodes, with their own collateral and
 // address, on one key - as one operator's nodes often are.
@@ -897,14 +892,25 @@ function keyNumber(sharedKeys, num) {
   return Number(sharedKeys[num] ?? num);
 }
 
+// A node is ready when it is up: FluxOS answers and its database does, which
+// express answering /flux/version alone does not prove. /flux/health reports its
+// database check whether or not the node is fit to serve, so a node meant to be
+// out of service is ready too; whether a node is fit is the suite's to assert,
+// and one that is not fails the first authentication with its reason. Each poll
+// asks afresh: the route is cached for 30s.
 function nodeReadyWaitStrategy(nodeIp) {
   const validate = async (res) => {
     if (!res.ok) return false;
-    const body = await res.json().catch(() => null);
-    return !!(body && body.status === 'success');
+    const health = await res.json().catch(() => null);
+    // a fit node answers its checks as `data`; an unfit one under `data.checks`
+    const checks = health?.status === 'success' ? health.data : health?.data?.checks;
+    return checks?.db === 'ok';
   };
-  return new HttpPollWaitStrategy(`http://${nodeIp}:16127/id/loginphrase`, { validate });
+  return new HttpPollWaitStrategy(() => `http://${nodeIp}:16127/flux/health?ready=${Date.now()}`, { validate });
 }
+
+// What can be wrong with a node's own syncthing, for createTestEnv's syncthingFaults.
+export const SYNCTHING_FAULT = Object.freeze({ PORT_TAKEN: 'portTaken', NOT_STARTED: 'notStarted' });
 
 // `syncthing` selects what each node talks to. 'stub' (the default) is the
 // shared control-plane stub: it serves every node, moves no files, and is what
@@ -919,7 +925,7 @@ export async function createTestEnv({
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
   geolocation = {}, locationTable = null, staticIp = true, policy = null, policySeeds = null,
-  awaitPolicy = true, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, rejoinOnRestart = true, networkShapes = {}, globalIpv6 = [], dnsRecords = [],
+  awaitPolicy = true, pm2Nodes = {}, pausedSyncthingNodes = [], syncthingFaults = {}, sharedKeys = {}, collateralOf = {}, configuredIp = {}, rejoinOnRestart = true, networkShapes = {}, globalIpv6 = [], dnsRecords = [],
   // systemd-mode nodes: the entrypoint execs a real systemd as PID 1, so dockerd
   // and fluxos run as units and FluxOS's output goes to the journal. Env-level
   // and uniform across nodes.
@@ -939,6 +945,14 @@ export async function createTestEnv({
     if (syncthing !== 'binary') throw new Error('createTestEnv: pausedSyncthingNodes needs syncthing: \'binary\'');
     if (legacyNodes.includes(index)) throw new Error(`createTestEnv: paused syncthing node ${index} is legacy, whose syncthing FluxOS starts`);
   }
+  // What is wrong with an Arcane node's own syncthing, by node index: 'portTaken',
+  // something else holds its port on loopback so it cannot bind it and nothing
+  // answers there from outside; 'notStarted', the OS never starts it.
+  for (const [key, fault] of Object.entries(syncthingFaults)) {
+    if (!Object.values(SYNCTHING_FAULT).includes(fault)) throw new Error(`createTestEnv: unknown syncthing fault '${fault}' for node ${key}`);
+    if (syncthing !== 'binary') throw new Error('createTestEnv: syncthingFaults needs syncthing: \'binary\'');
+    if (legacyNodes.includes(Number(key))) throw new Error(`createTestEnv: node ${key} is legacy, whose syncthing FluxOS starts`);
+  }
   // Nodes whose FluxOS pm2 runs, the way the multitool installs a legacy node:
   // index -> the kill timeout it is started with in ms, or null for pm2's own
   // default. Only a legacy node is started by pm2, and it runs FluxOS as root.
@@ -949,6 +963,22 @@ export async function createTestEnv({
   }
   for (const [nodeNumber, keyOf] of Object.entries(sharedKeys)) {
     if (sharedKeys[keyOf] !== undefined) throw new Error(`createTestEnv: node ${nodeNumber} shares the key of node ${keyOf}, which itself shares another's`);
+  }
+  // A node on another's collateral runs as that node: unlisted itself, answered by
+  // the daemon as the listed node, and signing with its key.
+  for (const [nodeNumber, of] of Object.entries(collateralOf)) {
+    if (Number(nodeNumber) === Number(of)) throw new Error(`createTestEnv: node ${nodeNumber} cannot run on its own collateral`);
+    if (collateralOf[of] !== undefined) throw new Error(`createTestEnv: node ${nodeNumber} runs on the collateral of node ${of}, which itself runs on another's`);
+    if (sharedKeys[nodeNumber] !== undefined) throw new Error(`createTestEnv: node ${nodeNumber} runs on node ${of}'s collateral and so signs with its key - give it no sharedKeys entry`);
+  }
+  // The IP a node's userconfig.js names, where it is not the node's own: a
+  // configuration copied from another machine, or one left from an earlier
+  // address. Keyed by 1-based node number.
+  for (const [nodeNumber, ip] of Object.entries(configuredIp)) {
+    if (!Number.isInteger(Number(nodeNumber)) || Number(nodeNumber) < 1 || Number(nodeNumber) > nodes) {
+      throw new Error(`createTestEnv: configuredIp names node ${nodeNumber}, which is not a node in a fleet of ${nodes}`);
+    }
+    if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(String(ip))) throw new Error(`createTestEnv: configuredIp for node ${nodeNumber} is ${ip}, not an IPv4 address`);
   }
   // A shape rebuilds a static node's routes (test-infra/network-shapes.sh), so
   // it needs the gateway a static node is given.
@@ -1126,8 +1156,8 @@ export async function createTestEnv({
   // CAN IT PEER is arithmetic, and derived here. A node reaches the published source only
   // once its peer set is up and every peer it asked has answered without a bundle, so a
   // fleet that cannot cross appSyncPeerThreshold never asks. That follows from the node
-  // count and the ring's derived arc - the same reachablePeers the peerless override above
-  // uses - and it cannot be wrong. Twenty-seven fleets in this suite set are one or two
+  // count and the ring's derived arc, as the peerless override's reachablePeers above
+  // does, and it cannot be wrong. Twenty-seven fleets in this suite set are one or two
   // nodes and have no opinion about policy at all; their authors should not have to know
   // this wait exists.
   //
@@ -1142,7 +1172,13 @@ export async function createTestEnv({
   // `available: false` missed `signer: 'rogue'` and cost a gate, and the next control added
   // to the stub would break it again. Those fixtures say so with `awaitPolicy: false`,
   // beside the option that creates the condition, where the two cannot drift apart.
-  const policyReachable = awaitPolicy && reachablePeers >= (
+  //
+  // The wait runs when the fleet starts, before any deferred node does, so it counts
+  // only the peers a node has among the nodes that start with it.
+  const peersAtStart = nodes - deferredNodes <= 1
+    ? 0
+    : Math.min(nodes - deferredNodes - 1, 2 * ringArc(dialerCount(nodes, stubPeers.length + deferredNodes)));
+  const policyReachable = awaitPolicy && peersAtStart >= (
     configOverrides?.fluxapps?.appSyncPeerThreshold ?? sharedFluxapps.appSyncPeerThreshold
   );
 
@@ -1201,7 +1237,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, sharedKeys, networkShapes, globalIpv6, dnsRecords, systemdMode, firewall);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, systemdMode, firewall, collateralOf, syncthingFaults, configuredIp);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -1230,7 +1266,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], systemdMode = false, firewall = false) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], systemdMode = false, firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -1304,12 +1340,19 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   // baseline. A no-op-equivalent when base === '31.200.0'.
   const runNodeList = deterministicList.slice(0, nodes).map((n, idx) => ({
     ...n, ip: subnet.nodeIp(idx + 1), pubkey: nodeKey(keyNumber(sharedKeys, idx + 1)).pubkey,
-  }));
+  })).filter((n, idx) => collateralOf[idx + 1] === undefined);
   env.nodeKeyOf = (num) => nodeKey(keyNumber(sharedKeys, num));
   await fetch(`http://${DAEMON_IP}:18232/set-node-list`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ nodes: runNodeList }),
+  });
+  await fetch(`http://${DAEMON_IP}:18232/collateral-aliases`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      aliases: Object.fromEntries(Object.entries(collateralOf).map(([num, of]) => [subnet.nodeIp(Number(num)), subnet.nodeIp(Number(of))])),
+    }),
   });
 
   for (const [ip, status] of Object.entries(nodeStatusOverrides)) {
@@ -1550,6 +1593,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       FLUX_WATCHDOG_PATH: '/dat/usr/lib/fluxwatchdog',
       FLUX_APPS_FOLDER: '/mnt/appdata/flux-apps',
       FLUX_NODE_IP: nodeIp,
+      FLUX_CONFIGURED_IP: configuredIp[i + 1] ?? nodeIp,
       FLUX_ADMIN_ZELID: nodeManifest.zelid,
       FLUX_API_PORT: '16127',
       FLUX_SYNCTHING_HOST: SYNCTHING_IP,
@@ -1583,6 +1627,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     }
     if (!isLegacy) nodeEnv.FLUXOS_PATH = '/flux';
     if (pausedSyncthingNodes.includes(i)) nodeEnv.FLUX_SYNCTHING_PAUSED = '1';
+    if (syncthingFaults[i]) nodeEnv.FLUX_SYNCTHING_FAULT = syncthingFaults[i];
     // WHETHER THIS NODE'S FLUXOS IS ROOT. Declared per node rather than derived from
     // legacy, because the field carries both: Arcane runs FluxOS as root, and an
     // operator's own install runs it as whatever account they installed it under,
@@ -2142,13 +2187,12 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
         ? indices.map((i) => clients[i]).filter(Boolean)
         : clients.filter(Boolean);
       await Promise.all(targets.map(async (client) => {
-        // Authenticating here races the node's own availability check. Boot
-        // readiness proved the node could serve a login phrase, but the periodic
-        // outside-communication check can flip it unavailable while the mesh is
-        // still forming - and forming the mesh is exactly what this call exists
-        // to do, so that refusal is transient by construction. Wait it out here,
-        // bounded; authenticate() itself stays one-shot so a suite asserting a
-        // node is genuinely unavailable still sees the refusal.
+        // Authenticating here races the node's own availability check. A fleet
+        // boots together, so a node can ask a peer that is not answering yet,
+        // and it refuses logins until its recheck (availabilityRecheckMs) finds
+        // it reachable - a refusal that is transient by construction. Wait it
+        // out here, bounded; authenticate() itself stays one-shot so a suite
+        // asserting a node is genuinely unavailable still sees the refusal.
         //
         // Keyed on the error NAME: the node words this refusal differently depending on
         // which reachability check set it, and the name is the part that identifies the

@@ -84,6 +84,25 @@ export async function appRemovedEvent({
   };
 }
 
+// A move from node nodeNum's address to `newIP`, at broadcastedAt, sent by
+// `sentBy`: the key the envelope names and signs with.
+export async function ipchangedEvent({
+  nodeNum, newIP, broadcastedAt, sentBy = nodeNum,
+}) {
+  const oldIP = socketAddr(nodeNum);
+  const data = {
+    type: 'fluxipchanged', version: 1, oldIP, newIP, broadcastedAt,
+  };
+  return {
+    type: 'ipchanged',
+    dedupKey: 'ipchanged',
+    ip: oldIP,
+    broadcastedAt: new Date(broadcastedAt),
+    envelope: await envelopeFor(sentBy, data, broadcastedAt, sentBy),
+    data,
+  };
+}
+
 // Some node judged this one gone, at createdAt. Carries no broadcastedAt, so a
 // serving node's timestamp sort puts it at the front of a sync response.
 export function evictedEvent({ nodeNum, createdAt }) {

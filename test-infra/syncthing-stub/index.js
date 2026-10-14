@@ -101,6 +101,8 @@ function nodeState(ip) {
       restartingUntil: new Map(),
       // settles when the config change this node applied last has taken effect
       configQueue: Promise.resolve(),
+      // where this node's syncthing listens for its peers, as FluxOS configures it
+      listenAddresses: ['default'],
     };
     // every node knows itself as a configured device
     state.devices.set(deviceID, {
@@ -354,10 +356,20 @@ app.get('/rest/system/version', (req, res) => {
   });
 });
 
+// What syncthing reports for each of its listeners. Each node's own port is
+// served by its entrypoint's forward to this stub, so every listener it is
+// configured with is bound, as syncthing reports it: no error.
+function connectionServiceStatus(state) {
+  const addresses = state.listenAddresses.flatMap((address) => (address === 'default'
+    ? ['tcp://0.0.0.0:22000', 'quic://0.0.0.0:22000', 'dynamic+https://relays.syncthing.net/endpoint']
+    : [address]));
+  return Object.fromEntries(addresses.map((address) => [address, { error: null, lanAddresses: [address], wanAddresses: [address] }]));
+}
+
 app.get('/rest/system/status', (req, res) => {
   res.json({
     alloc: 50000000,
-    connectionServiceStatus: {},
+    connectionServiceStatus: connectionServiceStatus(reqState(req)),
     cpuPercent: 0.5,
     discoveryEnabled: true,
     discoveryErrors: {},
@@ -468,7 +480,7 @@ app.get('/rest/config', (req, res) => {
     devices: Array.from(state.devices.values()),
     gui: { enabled: true, address: `0.0.0.0:${PORT}`, apikey: API_KEY, theme: 'default' },
     ldap: {},
-    options: { listenAddresses: ['default'], globalAnnEnabled: false, localAnnEnabled: false, relaysEnabled: false },
+    options: { listenAddresses: state.listenAddresses, globalAnnEnabled: false, localAnnEnabled: false, relaysEnabled: false },
     defaults: { folder: DEFAULT_FOLDER, device: {}, ignores: {} },
   });
 });
@@ -642,8 +654,15 @@ app.get('/rest/config/defaults/ignores', (req, res) => {
 });
 
 app.get('/rest/config/options', (req, res) => {
-  res.json({ listenAddresses: ['default'], globalAnnEnabled: false, localAnnEnabled: false, relaysEnabled: false });
+  res.json({ listenAddresses: reqState(req).listenAddresses, globalAnnEnabled: false, localAnnEnabled: false, relaysEnabled: false });
 });
+
+function setOptions(req, res) {
+  if (Array.isArray(req.body?.listenAddresses)) reqState(req).listenAddresses = req.body.listenAddresses;
+  res.json({});
+}
+app.put('/rest/config/options', setOptions);
+app.patch('/rest/config/options', setOptions);
 
 app.get('/rest/config/gui', (req, res) => {
   res.json({ enabled: true, address: `0.0.0.0:${PORT}`, apikey: API_KEY });
@@ -653,8 +672,8 @@ app.get('/rest/config/ldap', (req, res) => {
   res.json({});
 });
 
-// PUT/PATCH for defaults, options, gui, ldap
-['defaults/folder', 'defaults/device', 'defaults/ignores', 'options', 'gui', 'ldap'].forEach((p) => {
+// PUT/PATCH for defaults, gui, ldap
+['defaults/folder', 'defaults/device', 'defaults/ignores', 'gui', 'ldap'].forEach((p) => {
   app.put(`/rest/config/${p}`, (req, res) => res.json({}));
   app.patch(`/rest/config/${p}`, (req, res) => res.json({}));
 });

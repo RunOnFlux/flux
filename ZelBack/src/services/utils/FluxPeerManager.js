@@ -381,30 +381,57 @@ class FluxPeerManager extends EventEmitter {
 
   disconnectAll() {
     this.acceptingConnections = false;
+    const count = this.#evictAll(CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
+    log.info(`Disconnected all ${count} peers, no longer accepting connections`);
+  }
+
+  /**
+   * Drop every connection and go on accepting new ones: the teardown for a node
+   * whose public address moved. Every connection it holds was made to its old
+   * address and carries nothing now, but each would otherwise stay counted until
+   * its pings go unanswered. Emptying the set also re-arms peerThresholdReached,
+   * so the edge next fires on peers that reached this node where it is now.
+   * @returns {number} how many peers were dropped
+   */
+  dropAllConnections() {
+    const count = this.#evictAll(CLOSE_CODES.DEAD_CONNECTION, 'address moved');
+    log.info(`Dropped all ${count} peers, still accepting connections`);
+    return count;
+  }
+
+  /**
+   * Evict every peer, and abandon every dial awaiting a verdict, with one close
+   * code, as a teardown this node made itself.
+   * @param {number} closeCode
+   * @param {string} reason
+   * @returns {number} how many peers were evicted
+   */
+  #evictAll(closeCode, reason) {
     const count = this.#peers.size;
     // Held across the whole loop, because the fall edge fires from inside it -
     // on whichever eviction takes the count below the degraded threshold - and
     // a flag set only around that one eviction would have to know which it is.
     this.#deliberateTeardown = true;
     try {
-      // First, so a waiting dial is told the node is unconfirmed: an eviction
-      // would close it as contesting a connection that is gone.
+      // First, so a waiting dial is told why: an eviction would close it as
+      // contesting a connection that is gone.
       for (const abandon of [...this.#awaitingVerdict.values()]) {
-        abandon(CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
+        abandon(closeCode, reason);
       }
       // Snapshot the keys: evict() deletes from the map being walked.
       for (const key of [...this.#peers.keys()]) {
-        this.evict(key, CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed');
+        this.evict(key, closeCode, reason);
       }
     } finally {
       this.#deliberateTeardown = false;
     }
-    log.info(`Disconnected all ${count} peers, no longer accepting connections`);
+    return count;
   }
 
   allowConnections() {
     this.acceptingConnections = true;
     log.info('Now accepting peer connections');
+    fluxEventBus.publish('peers:accepting', {});
   }
 
   /**

@@ -391,6 +391,9 @@ function imageSyncthingVersion() {
 }
 
 const state = {
+  // Nodes behind a UPnP gateway, by fleet address: the external address it reports (the
+  // node's own when null), its port mappings, and every action the node sent it.
+  upnpGateways: {},
   // Bytes served INSTEAD of the signed artifact, under the signed artifact's own name. A
   // mirror or CDN answering correctly-named requests with the wrong content, which is the
   // one attack a content-addressed name cannot prevent on its own - only the digest check
@@ -706,18 +709,108 @@ app.get('/repos/:owner/:repo', (req, res) => {
   res.json({ full_name: `${req.params.owner}/${req.params.repo}` });
 });
 
-// UPnP: a device description with no WANIPConnection service. upnpService is pointed here
-// so its client stops searching for a gateway by SSDP multicast; support verification then
-// fails on the missing service, which is the same verdict a node reaches today, so no node
-// changes its mind about having UPnP.
+// UPnP. upnpService is pointed here so its client never searches for a gateway by SSDP
+// multicast. A node is behind a gateway only once a suite says so (control /upnp-gateway):
+// every other node is served a device with no WANIPConnection service, support verification
+// fails on it, and the node runs without UPnP as it does on a network with none.
+//
+// A node behind a gateway is served one: a WANIPConnection service whose control URL answers
+// the four actions upnpService sends - the external address, and adding, listing and
+// deleting port mappings - from that node's own mapping table.
+const UPNP_SERVICE = 'urn:schemas-upnp-org:service:WANIPConnection:1';
+
+function upnpGatewayOf(req) {
+  return state.upnpGateways[clientAddress(req)] ?? null;
+}
+
 app.get('/upnp/device.xml', (req, res) => {
+  const services = upnpGatewayOf(req)
+    ? `<serviceList><service><serviceType>${UPNP_SERVICE}</serviceType><serviceId>urn:upnp-org:serviceId:WANIPConn1</serviceId>`
+      + '<controlURL>/upnp/control</controlURL><eventSubURL>/upnp/events</eventSubURL><SCPDURL>/upnp/scpd.xml</SCPDURL></service></serviceList>'
+    : '<serviceList />';
   res.type('text/xml').send(
     '<?xml version="1.0"?>'
     + '<root xmlns="urn:schemas-upnp-org:device-1-0">'
     + '<device><deviceType>urn:schemas-upnp-org:device:InternetGatewayDevice:1</deviceType>'
-    + '<friendlyName>flux-e2e-stub-gateway</friendlyName><serviceList /></device>'
+    + `<friendlyName>flux-e2e-stub-gateway</friendlyName>${services}</device>`
     + '</root>',
   );
+});
+
+function soapReply(res, action, fields) {
+  const body = Object.entries(fields).map(([name, value]) => `<${name}>${value}</${name}>`).join('');
+  res.type('text/xml').send(
+    '<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" '
+    + 's:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body>'
+    + `<u:${action}Response xmlns:u="${UPNP_SERVICE}">${body}</u:${action}Response>`
+    + '</s:Body></s:Envelope>',
+  );
+}
+
+function soapFault(res, code, description) {
+  res.status(500).type('text/xml').send(
+    '<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><s:Fault>'
+    + '<faultcode>s:Client</faultcode><faultstring>UPnPError</faultstring><detail>'
+    + `<UPnPError xmlns="urn:schemas-upnp-org:control-1-0"><errorCode>${code}</errorCode><errorDescription>${description}</errorDescription></UPnPError>`
+    + '</detail></s:Fault></s:Body></s:Envelope>',
+  );
+}
+
+app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
+  const gateway = upnpGatewayOf(req);
+  if (!gateway) {
+    soapFault(res, 401, 'Invalid Action');
+    return;
+  }
+  const action = String(req.get('SOAPAction') || '').replace(/"/g, '').split('#')[1] || '';
+  const arg = (name) => (String(req.body).match(new RegExp(`<${name}>([^<]*)</${name}>`)) || [])[1] ?? '';
+  const sameEntry = (m) => m.externalPort === Number(arg('NewExternalPort')) && m.protocol === arg('NewProtocol').toUpperCase();
+  gateway.requests.push({ action, at: new Date().toISOString() });
+  switch (action) {
+    case 'GetExternalIPAddress':
+      soapReply(res, action, { NewExternalIPAddress: gateway.externalIp ?? clientAddress(req) });
+      return;
+    case 'AddPortMapping': {
+      gateway.mappings = gateway.mappings.filter((m) => !sameEntry(m));
+      gateway.mappings.push({
+        externalPort: Number(arg('NewExternalPort')),
+        protocol: arg('NewProtocol').toUpperCase(),
+        internalPort: Number(arg('NewInternalPort')),
+        internalClient: arg('NewInternalClient'),
+        description: arg('NewPortMappingDescription'),
+        leaseDuration: Number(arg('NewLeaseDuration')),
+      });
+      soapReply(res, action, {});
+      return;
+    }
+    case 'DeletePortMapping': {
+      const before = gateway.mappings.length;
+      gateway.mappings = gateway.mappings.filter((m) => !sameEntry(m));
+      if (gateway.mappings.length === before) soapFault(res, 714, 'NoSuchEntryInArray');
+      else soapReply(res, action, {});
+      return;
+    }
+    case 'GetGenericPortMappingEntry': {
+      const entry = gateway.mappings[Number(arg('NewPortMappingIndex'))];
+      if (!entry) {
+        soapFault(res, 713, 'SpecifiedArrayIndexInvalid');
+        return;
+      }
+      soapReply(res, action, {
+        NewRemoteHost: '',
+        NewExternalPort: entry.externalPort,
+        NewProtocol: entry.protocol,
+        NewInternalPort: entry.internalPort,
+        NewInternalClient: entry.internalClient,
+        NewEnabled: 1,
+        NewPortMappingDescription: entry.description,
+        NewLeaseDuration: entry.leaseDuration,
+      });
+      return;
+    }
+    default:
+      soapFault(res, 401, 'Invalid Action');
+  }
 });
 
 // The apt repository a legacy node installs syncthing from. FluxOS writes this source
@@ -887,6 +980,21 @@ control.get('/storage-requests', (req, res) => {
 control.post('/storage-requests/reset', (req, res) => {
   storageRequests.length = 0;
   res.json({ ok: true });
+});
+
+// Put a node behind a UPnP gateway, with no mappings yet.
+control.post('/upnp-gateway', (req, res) => {
+  const { ip, externalIp = null } = req.body || {};
+  if (!ip) {
+    res.status(400).json({ error: 'ip is required' });
+    return;
+  }
+  state.upnpGateways[ip] = { externalIp, mappings: [], requests: [] };
+  res.json({ ok: true });
+});
+
+control.get('/upnp-gateway/:ip', (req, res) => {
+  res.json(state.upnpGateways[req.params.ip] ?? null);
 });
 
 control.get('/state', (req, res) => {

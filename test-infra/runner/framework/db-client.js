@@ -52,6 +52,18 @@ export function dbClient(nodeNum) {
       return { total, resolved, missing, notFound };
     },
 
+    // The address the node last adopted as its own, and the one it moved from.
+    async ownAddressRecord() {
+      const localDb = await db('local');
+      return localDb.collection('ownaddress').findOne({ _id: 'own' });
+    },
+
+    // Forget that record, as a node that has never kept one.
+    async forgetOwnAddress() {
+      const localDb = await db('local');
+      await localDb.collection('ownaddress').deleteMany({});
+    },
+
     // The node's own geolocation record: what it decided about its address.
     async nodeGeolocation() {
       const localDb = await db('local');

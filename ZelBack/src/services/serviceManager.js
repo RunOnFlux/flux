@@ -92,7 +92,8 @@ const {
 
 // State objects for monitoring services
 const dosState = {
-  dosMessage: null,
+  get dosMessage() { return fluxNetworkHelper.getDosMessage(); },
+  set dosMessage(value) { fluxNetworkHelper.setDosMessage(value); },
   get dosStateValue() { return fluxNetworkHelper.getDosStateValue(); },
   set dosStateValue(value) { fluxNetworkHelper.setDosStateValue(value); },
   testingPort: null,
@@ -413,6 +414,10 @@ async function startFluxFunctions() {
       { key: { ip: 1, type: 1, dedupKey: 1 }, unique: true, recover: dedupeByKey },
       { key: { broadcastedAt: 1 } },
       { key: { createdAt: 1 } },
+      // the events of one type still standing, every move among them
+      { key: { type: 1, expireAt: 1 }, name: 'events by type and expiry' },
+      // the moves that lead to an address
+      { key: { 'data.newIP': 1 }, name: 'moves by the address they lead to', partialFilterExpression: { type: 'ipchanged' } },
     ]);
     log.info('App state events collection prepared');
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).dropIndex('broadcastedAt_1').catch(() => {});
@@ -640,7 +645,17 @@ async function startFluxFunctions() {
     // the node's address moved, so every app that survived it has to come up on
     // the new one - asked for durably here rather than driven from the network
     // layer, which sits underneath the reconciler and cannot require it
-    fluxNetworkHelper.setOnAddressChanged((apps, reason) => appReconciler.requestRestartOf(apps, reason));
+    fluxNetworkHelper.setOnAddressChanged((apps, reason, key) => appReconciler.requestRestartOf(apps, reason, key));
+    // this node's own address moved: it records the move as its peers will, so
+    // it knows FDM naming its old IP means itself, and tells them once it has
+    // peers at the new address
+    fluxNetworkHelper.setOnOwnAddressMoved((oldIp, newIp, movedAt) => fluxCommunication.handleOwnAddressMove(oldIp, newIp, movedAt));
+    // whether this node ran apps at an address it has no record of leaving
+    fluxNetworkHelper.setInstalledAppsListedAt((socketAddress) => appQueryService.installedAppsListedAt(socketAddress));
+    fluxCommunication.announceRecordedOwnMovesWhenConnected();
+    // every address benchmark reports as this node's own, from boot on: one that
+    // differs from the address it last adopted is its move
+    fluxNetworkHelper.startOwnAddressWatch();
     log.info('App Spawner initialized');
 
     fluxNetworkHelper.allowNodeToBindPrivilegedPorts();
@@ -662,7 +677,10 @@ async function startFluxFunctions() {
         log.info('Native image update service started');
       }).catch((error) => log.error(`Image update service start error: ${error.message}`));
     }, bootDelay(10 * 60 * 1000)); // 10 minutes after startup
-    fluxNetworkHelper.checkDeterministicNodesCollisions();
+    // this node's own standing on the network - collisions, reachability, its
+    // own address - judged as each thing it depends on changes
+    fluxNetworkHelper.startOwnStandingWatch();
+    syncthingService.onListenerStateKnown(fluxNetworkHelper.noteSyncthingListenerKnown);
     // STARTED ON THE POLICY, NOT ON BOOT. The blocklist this enforces is a document in the
     // signed bundle, and the bundle is not resolved by the time this line runs. Started
     // here, its first tick reads nothing - and reading nothing is correctly refused rather
@@ -943,4 +961,6 @@ module.exports = {
   ensureIndex,
   ensureIndexes,
   dedupeByKey,
+  // testing exports
+  dosState,
 };

@@ -83,6 +83,18 @@ export function stubPeerClient(ip) {
       return res.json();
     },
 
+    // Drops the next `count` asks whether it can reach the asker without an
+    // answer, then answers truthfully again. Resolves with how many it has been
+    // asked so far.
+    async dropAvailabilityAsks(count) {
+      const res = await fetch(`${controlUrl}/availability-drops`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count }),
+      });
+      return res.json();
+    },
+
     // A peer that reads the port and finds somebody ELSE on it - which is what
     // the asker receives when the router forwarded that port to a neighbour.
     async answerPortProbeForeign(foreign = true) {

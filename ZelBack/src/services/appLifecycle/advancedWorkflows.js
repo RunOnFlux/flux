@@ -14,10 +14,11 @@ const verificationHelper = require('../verificationHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const {
-  DEFAULT_API_PORT, extractIp, extractPort, socketAddressesMatch, ipsMatch,
+  extractIp, extractPort, socketAddressesMatch, ipsMatch,
 } = require('../utils/socketAddressUtils');
 const { collateralOutpoint, nodesNameThisNode } = require('../utils/nodePinning');
 const fluxEventBus = require('../utils/fluxEventBus');
+const { addressMoveEvents, EVENTS: ADDRESS_MOVE_EVENTS } = require('../utils/addressMoveEvents');
 const { InstallOutcome } = require('../utils/installOutcome');
 const generalService = require('../generalService');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
@@ -126,6 +127,53 @@ const STAND_DOWN_PASSES_BEFORE_GIVING_UP = 6;
 // becomes hundreds of cycles under compression.
 const PRIMARY_ELECTION_STALE_MS = (config.fluxapps.masterSlaveIntervalMs ?? 30 * 1000) * 10;
 const timeTostartNewMasterApp = new Map();
+
+/**
+ * The full socket address of the primary FDM names by IP: the app's holder at
+ * that IP, at the address it answers on now. The IP as FDM gave it when the
+ * registry cannot be read.
+ * @param {string} appName Global app name.
+ * @param {string} ip The primary FDM names.
+ * @returns {Promise<string>}
+ */
+async function fdmPrimaryAddress(appName, ip) {
+  try {
+    return await registryManagerModule.primaryAddressOf(appName, ip);
+  } catch (error) {
+    log.warn(`masterSlaveApps: the holder FDM names at ${ip} for app:${appName} cannot be looked up: ${error.message}`);
+    return ip;
+  }
+}
+
+/**
+ * Carry each remembered primary at the address a move left to where the node is
+ * now, so the election asks it - and looks up its syncthing device - where it
+ * answers. A row of the app still at the old address once the move is applied
+ * was reported after it, by whichever node holds that address now, and the
+ * primary remembered there stays.
+ * @param {{from: string, to: string}} move A move applied to the location table.
+ * @returns {Promise<void>}
+ */
+async function followMovedPrimaries({ from, to }) {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [identifier, remembered] of mastersRunningGSyncthingApps) {
+    if (!socketAddressesMatch(remembered, from) || socketAddressesMatch(remembered, to)) continue;
+    const appName = identifier.split('_')[1] || identifier;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const rows = await registryManagerModule.appLocation(appName);
+      if (rows.some((row) => socketAddressesMatch(row.ip, from))) continue;
+    } catch (error) {
+      log.warn(`masterSlaveApps: whether the previous primary of ${identifier} at ${from} moved cannot be read: ${error.message}`);
+      continue;
+    }
+    if (socketAddressesMatch(mastersRunningGSyncthingApps.get(identifier), from)) {
+      mastersRunningGSyncthingApps.set(identifier, to);
+      log.info(`masterSlaveApps: previous primary of ${identifier} moved from ${from} to ${to} - following it`);
+    }
+  }
+}
+addressMoveEvents.on(ADDRESS_MOVE_EVENTS.APPLIED, followMovedPrimaries);
 // Components already reported as operator-stopped, so the exclusion is announced
 // on entry (and again after a restart) instead of every 30s cycle. An operator
 // stop is durable in the DB, so without a line here a g: app sits unelected
@@ -5035,7 +5083,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
         // Get master IP from FDM using the new /appips endpoint
         // eslint-disable-next-line no-await-in-loop
         const fdmResult = await getMasterIpFromFdm(installedApp.name, axiosOptions);
-        const { ip } = fdmResult;
+        let { ip } = fdmResult;
         ({ fdmOk } = fdmResult);
 
         if (!fdmOk) {
@@ -5062,6 +5110,15 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
               log.error(`masterSlaveApps: Invalid IP type from FDM for app:${installedApp.name}, got: ${typeof ip}`);
               // eslint-disable-next-line no-continue
               continue;
+            }
+            // From here the primary is the full address it answers on: FDM's IP
+            // after a move is still that node, at its new address. This node's own
+            // address is the one it adopted when benchmark still reports one it has
+            // moved away from.
+            localSocketAddr = fluxNetworkHelper.ownAddressFor(localSocketAddr);
+            if (ip) {
+              // eslint-disable-next-line no-await-in-loop
+              ip = await fdmPrimaryAddress(installedApp.name, ip);
             }
             // FDM answered and `ip` is either a primary's address or null for
             // none. Both are verdicts, and it is the verdict rather than the
@@ -5215,9 +5272,11 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && !ipsMatch(mastersRunningGSyncthingApps.get(identifier), localSocketAddr)) {
                   // There was a previous master (not me), and it's no longer on FDM
                   const previousMasterIp = mastersRunningGSyncthingApps.get(identifier);
-                  // Look up the correct port from runningAppList since FDM API returns IP without port
+                  // Remembered with its port; a listed holder at the same IP gives it
+                  // for a primary remembered by IP alone.
                   const previousMasterNode = runningAppList.find((x) => ipsMatch(x.ip, previousMasterIp));
-                  const previousMasterAddr = `${extractIp(previousMasterIp)}:${previousMasterNode ? extractPort(previousMasterNode.ip) : DEFAULT_API_PORT}`;
+                  const askedAt = previousMasterNode ? previousMasterNode.ip : previousMasterIp;
+                  const previousMasterAddr = `${extractIp(askedAt)}:${extractPort(askedAt)}`;
                   // Asked the same way, and released on the same terms, as any other
                   // peer. FDM dropping a primary is not evidence that it stopped -
                   // its registration lags reality in both directions - so a previous
@@ -5243,12 +5302,28 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   }
                   // Previous master is not running, determine next primary
                   if (index === 0) {
+                    // The previous primary letting go says nothing about the other
+                    // holders. One of them may already have taken over - FDM has not
+                    // registered it yet, its registration lags a start by ~110s - or
+                    // be part-way through its own start, so index 0 asks all of them
+                    // like every other start path does.
                     // eslint-disable-next-line no-await-in-loop
-                    if (await start()) {
-                      log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
+                    const peerState = await checkPeersRunning();
+                    if (peerState !== PeerComponent.NOT_RUNNING) {
+                      log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a peer ${peerState === PeerComponent.RUNNING ? 'is already running it' : 'could not be ruled out'}`);
+                    } else {
+                      // eslint-disable-next-line no-await-in-loop
+                      if (await start()) {
+                        log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
+                      }
                     }
+                  } else if (index < 0) {
+                    // Not in the location list at all, so there is no place in the
+                    // order to wait for - staggerMs of a negative index is negative,
+                    // and this node would start at once ahead of every listed holder.
+                    log.info(`masterSlaveApps: not starting app:${installedApp.name} - this node holds no location for it yet`);
                   } else {
-                    const previousMasterIndex = runningAppList.findIndex((x) => ipsMatch(x.ip, mastersRunningGSyncthingApps.get(identifier)));
+                    const previousMasterIndex = runningAppList.findIndex((x) => ipsMatch(x.ip, previousMasterIp));
                     let timetoStartApp = Date.now();
                     if (previousMasterIndex >= 0) {
                       log.info(`masterSlaveApps: app:${installedApp.name} had primary running at index: ${previousMasterIndex}`);

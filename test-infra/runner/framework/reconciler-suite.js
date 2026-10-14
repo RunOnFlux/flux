@@ -87,7 +87,7 @@ function assertAliveOnThisChain(env, app) {
   }
 }
 
-async function seedGlobalSpec(env, app, indices) {
+export async function seedGlobalSpec(env, app, indices) {
   assertAliveOnThisChain(env, app);
   await Promise.all(indices.map(async (i) => {
     const dc = dbClient(i + 1);

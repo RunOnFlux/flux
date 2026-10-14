@@ -95,6 +95,7 @@ describe('appQueryService tests', () => {
     registryManagerStub = {
       appLocation: sinon.stub(),
       appInstallingLocation: sinon.stub(),
+      appsListedAt: sinon.stub().resolves([]),
     };
 
     enterpriseHelperStub = {
@@ -269,6 +270,30 @@ describe('appQueryService tests', () => {
         expect(again.unreadable, 'the spec is still reported unreadable').to.deep.equal([enterpriseApp]);
         expect(enterpriseHelperStub.checkAndDecryptAppSpecs.callCount, 'the cached failure answers without re-hitting benchd').to.equal(1);
       });
+    });
+  });
+
+  describe('installedAppsListedAt', () => {
+    const installed = (apps) => {
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('appsDatabase') });
+      dbHelperStub.findInDatabase.resolves(apps);
+      messageHelperStub.createDataMessage.returns({ status: 'success', data: apps });
+    };
+
+    it('names the installed apps the network lists at the address, and no others', async () => {
+      installed([{ name: 'kept' }, { name: 'elsewhere' }]);
+      registryManagerStub.appsListedAt.withArgs('198.51.100.1:16127').resolves(['kept', 'notinstalled']);
+
+      expect(await appQueryService.installedAppsListedAt('198.51.100.1:16127')).to.deep.equal(['kept']);
+    });
+
+    it('names none when the installed apps cannot be read', async () => {
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('appsDatabase') });
+      dbHelperStub.findInDatabase.rejects(new Error('db down'));
+      messageHelperStub.createErrorMessage.returns({ status: 'error' });
+      registryManagerStub.appsListedAt.resolves(['kept']);
+
+      expect(await appQueryService.installedAppsListedAt('198.51.100.1:16127')).to.deep.equal([]);
     });
   });
 

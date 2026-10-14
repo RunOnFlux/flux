@@ -84,6 +84,9 @@ const Checkpoint = Object.freeze({
   // A node deciding to seed a folder has read its peers and is about to record
   // that it seeds. Keyed by folder id.
   SYNCTHING_BEFORE_SEED_RECORD: 'syncthing:beforeSeedRecord',
+  // This node has recorded a move of its own address and has not yet acted on
+  // it. Keyed by the address it moved to.
+  OWN_ADDRESS_BEFORE_RECONCILE: 'ownAddress:beforeReconcile',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.

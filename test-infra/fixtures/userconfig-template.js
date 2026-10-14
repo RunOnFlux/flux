@@ -1,6 +1,6 @@
 module.exports = {
   initial: {
-    ipaddress: process.env.FLUX_NODE_IP || '127.0.0.1',
+    ipaddress: process.env.FLUX_CONFIGURED_IP || process.env.FLUX_NODE_IP || '127.0.0.1',
     zelid: process.env.FLUX_ADMIN_ZELID || '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
     kadena: '',
     testnet: false,

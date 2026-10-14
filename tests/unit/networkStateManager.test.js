@@ -1141,6 +1141,18 @@ describe('networkStateManager tests', () => {
         await nsm.stop();
       });
 
+      it('is absent when the only other node shares an excluded address\'s IP on another port', async () => {
+        // A node sharing the excluded address's public IP sits behind the same
+        // router, and without hairpin NAT cannot reach that address from inside.
+        const nsm = await fleetOf('10.0.0.1:16127', '203.0.113.9:16127', '203.0.113.9:16137');
+
+        expect(await nsm.getRandomExternalObserver('10.0.0.1:16127', {
+          exclude: ['203.0.113.9:16127'],
+        })).to.equal(null);
+
+        await nsm.stop();
+      });
+
       it('is absent when every observer has already been asked', async () => {
         const nsm = await fleetOf('10.0.0.1:16127', '203.0.113.9:16127');
 
