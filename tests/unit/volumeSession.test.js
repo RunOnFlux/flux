@@ -123,42 +123,45 @@ describe('volumeSession tests', () => {
       expect(vol.availableBytes).to.equal(1e9);
     });
 
-    // A write to a copy that follows another node's is lost: syncthing never sends
-    // a receiveonly folder's changes and a single-writer standby reverts them.
+    // Whether this copy follows another node's is read once, here. The refusal
+    // itself is per path - see 'writes to a copy that follows another node'.
     describe('a copy that follows another node', () => {
-      it('refuses a volume whose folder is receiveonly, with a reason the owner can act on', async () => {
+      it('opens a volume whose folder is receiveonly: what it may write is decided per path', async () => {
         syncthingServiceStub.getConfigFolders.resolves([{ id: 'fluxcomp_myapp', type: 'receiveonly' }]);
 
-        const error = await volumeSession.openVolume(reqFor()).catch((e) => e);
+        const vol = await volumeSession.openVolume(reqFor());
 
+        expect(vol.mount).to.equal(MOUNT);
+        const appdata = await vol.resolve('appdata/world.sav');
+        const error = await vol.refuseReadOnlyWrite(appdata).catch((e) => e);
         expect(error.code).to.equal(409);
         expect(error.name).to.equal('ReadOnlyCopy');
         expect(error.message).to.include('Make changes on that node');
       });
 
-      it('opens a volume whose folder is sendreceive', async () => {
+      it('refuses nothing on a volume whose folder is sendreceive', async () => {
         syncthingServiceStub.getConfigFolders.resolves([{ id: 'fluxcomp_myapp', type: 'sendreceive' }]);
 
         const vol = await volumeSession.openVolume(reqFor());
 
-        expect(vol.mount).to.equal(MOUNT);
+        await vol.refuseReadOnlyWrite(await vol.resolve('appdata/world.sav'));
       });
 
-      it('opens a volume with no folder, whatever another volume\'s folder is', async () => {
+      it('refuses nothing on a volume with no folder, whatever another volume\'s folder is', async () => {
         syncthingServiceStub.getConfigFolders.resolves([{ id: 'fluxother_myapp', type: 'receiveonly' }]);
 
         const vol = await volumeSession.openVolume(reqFor());
 
-        expect(vol.mount).to.equal(MOUNT);
+        await vol.refuseReadOnlyWrite(await vol.resolve('appdata/world.sav'));
         sinon.assert.calledOnce(syncthingServiceStub.getConfigFolders);
       });
 
-      it('opens the volume when syncthing cannot be asked', async () => {
+      it('refuses nothing when syncthing cannot be asked', async () => {
         syncthingServiceStub.getConfigFolders.rejects(new Error('ECONNREFUSED'));
 
         const vol = await volumeSession.openVolume(reqFor());
 
-        expect(vol.mount).to.equal(MOUNT);
+        await vol.refuseReadOnlyWrite(await vol.resolve('appdata/world.sav'));
       });
     });
 
@@ -558,6 +561,149 @@ describe('volumeSession tests', () => {
       expect(() => vol.requireSpace(1)).to.throw('Unable to determine free space');
     });
   });
+  // A standby's copy is receiveonly: a write into the replicated tree there is
+  // lost, and a write to what .stignore keeps on this node - /backup, where a
+  // backup taken from the standby writes its archive - is not. On a real disk,
+  // because which of the two a path is depends on where it LANDS.
+  describe('writes to a copy that follows another node', () => {
+    let tmpRoot;
+    let mount;
+    let vol;
+
+    beforeEach(async () => {
+      tmpRoot = await realFs.mkdtemp(nodePath.join(os.tmpdir(), 'fluxreadonly-'));
+      mount = nodePath.join(tmpRoot, 'fluxcomp_myapp');
+      await realFs.mkdir(nodePath.join(mount, 'appdata'), { recursive: true });
+      await realFs.mkdir(nodePath.join(mount, 'backup', 'local'), { recursive: true });
+
+      deviceHelperStub.listMountedFilesystems = sinon.stub().resolves([mountRow(mount)]);
+      const onDisk = proxyquire('../../ZelBack/src/services/appSystem/volumeSession', {
+        '../deviceHelper': deviceHelperStub,
+        '../verificationHelper': verificationHelperStub,
+        '../IOUtils': IOUtilsStub,
+        '../utils/pathSecurity': pathSecurity,
+        '../utils/appConstants': {
+          appsFolder: `${tmpRoot}/`,
+          APP_NAME_REGEX: /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/,
+          APP_NAME_REGEX_LEGACY: /^[a-zA-Z0-9]+$/,
+        },
+        '../syncthingService': { getConfigFolders: sinon.stub().resolves([{ id: 'fluxcomp_myapp', type: 'receiveonly' }]) },
+      });
+      vol = await onDisk.openVolume(reqFor());
+    });
+
+    afterEach(async () => {
+      if (tmpRoot) await realFs.rm(tmpRoot, { recursive: true, force: true });
+    });
+
+    const refusedBy = (check) => async (...relatives) => {
+      const targets = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const relative of relatives) {
+        // eslint-disable-next-line no-await-in-loop
+        targets.push(await vol.resolve(relative, { allowRoot: true }));
+      }
+      return vol[check](...targets).then(() => false, (error) => {
+        expect(error.code).to.equal(409);
+        return true;
+      });
+    };
+    const refused = refusedBy('refuseReadOnlyWrite');
+    const removalRefused = refusedBy('refuseReadOnlyRemoval');
+
+    it('refuses a write into the replicated tree', async () => {
+      expect(await refused('appdata/world.sav')).to.equal(true);
+      expect(await refused('appdata')).to.equal(true);
+      expect(await refused('config.ini')).to.equal(true);
+    });
+
+    it('refuses the volume root itself', async () => {
+      // An upload pointed at the root lands its files there.
+      expect(await refused('')).to.equal(true);
+    });
+
+    it('lets through a write that stays on this node', async () => {
+      // The backup a standby takes: archive appdata, write the result in backup/local,
+      // and clear the previous one first.
+      expect(await refused('backup/local/backup_comp.tar.gz')).to.equal(false);
+      expect(await refused('backup/local')).to.equal(false);
+      expect(await refused('backup/upload/new/deeper')).to.equal(false);
+    });
+
+    it('refuses when any one of the paths is replicated', async () => {
+      // A move out of backup into appdata removes one and creates the other.
+      expect(await refused('backup/a.tar.gz', 'appdata/a.tar.gz')).to.equal(true);
+    });
+
+    it('refuses a write spelled under backup that lands in the replicated tree', async () => {
+      // `ln -s ../appdata backup/in` is something the app can run in its own container.
+      await realFs.symlink('../appdata', nodePath.join(mount, 'backup', 'in'));
+
+      expect(await refused('backup/in/world.sav')).to.equal(true);
+    });
+
+    it('refuses a write INTO a folder that is a link into the replicated tree', async () => {
+      // An upload's files go inside its folder, so the folder is followed.
+      await realFs.symlink('../appdata', nodePath.join(mount, 'backup', 'in'));
+
+      expect(await refused('backup/in')).to.equal(true);
+    });
+
+    it('refuses a folder that does not exist yet below such a link', async () => {
+      // The upload's mkdir -p would create appdata/new/deeper.
+      await realFs.symlink('../appdata', nodePath.join(mount, 'backup', 'in'));
+
+      expect(await refused('backup/in/new/deeper')).to.equal(true);
+    });
+
+    it('refuses a write through a link that resolves nowhere', async () => {
+      // Where a write through it would land cannot be known, so it is not
+      // allowed. (resolve() already refuses one ABOVE the target.)
+      await realFs.symlink('../appdata/gone', nodePath.join(mount, 'backup', 'dangling'));
+
+      expect(await refused('backup/dangling')).to.equal(true);
+    });
+
+    it('judges a removal by where the entry is, not where it points', async () => {
+      // Removing the link unlinks it in backup/ and leaves appdata alone.
+      await realFs.symlink('../appdata', nodePath.join(mount, 'backup', 'in'));
+
+      expect(await removalRefused('backup/in')).to.equal(false);
+      expect(await removalRefused('appdata/world.sav')).to.equal(true);
+      expect(await removalRefused('backup/in/world.sav')).to.equal(true);
+    });
+
+    it('lets backup/ through when the volume root sits behind a link', async () => {
+      // macOS's tmpdir is one: the resolved root and an unresolved path must
+      // never be compared, or every backup/ write computes as `..` and is refused.
+      // The apps folder is reached through a link; the volume is the same one.
+      const linkedApps = nodePath.join(tmpRoot, 'linked-apps');
+      await realFs.symlink(tmpRoot, linkedApps);
+      const linkedMount = nodePath.join(linkedApps, 'fluxcomp_myapp');
+      const behindLink = proxyquire('../../ZelBack/src/services/appSystem/volumeSession', {
+        '../deviceHelper': { listMountedFilesystems: sinon.stub().resolves([mountRow(linkedMount)]) },
+        '../verificationHelper': verificationHelperStub,
+        '../IOUtils': IOUtilsStub,
+        '../utils/pathSecurity': pathSecurity,
+        '../utils/appConstants': {
+          appsFolder: `${linkedApps}/`,
+          APP_NAME_REGEX: /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/,
+          APP_NAME_REGEX_LEGACY: /^[a-zA-Z0-9]+$/,
+        },
+        '../syncthingService': { getConfigFolders: sinon.stub().resolves([{ id: 'fluxcomp_myapp', type: 'receiveonly' }]) },
+      });
+      vol = await behindLink.openVolume(reqFor());
+      expect(vol.mount).to.equal(linkedMount);
+
+      expect(await refused('backup/local/new/backup_comp.tar.gz')).to.equal(false);
+      expect(await refused('appdata/new')).to.equal(true);
+    });
+
+    it('does not take /backup from a name that only starts with it', async () => {
+      expect(await refused('backups/a.tar.gz')).to.equal(true);
+    });
+  });
+
   // On a real disk, deliberately. What this decides is where a path LEADS, and
   // a stubbed filesystem has no symlinks to lead anywhere - so the bypass
   // cannot be written against one at all.

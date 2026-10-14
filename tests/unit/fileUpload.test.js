@@ -97,6 +97,8 @@ describe('fileSystemManager upload tests', () => {
       // refused before a byte was read and the assertions would be made against
       // the error branch; the test below flips it to assert the refusal itself.
       requireCapacity: sinon.stub(),
+      // A copy this node may write to. The refusal is pinned below.
+      refuseReadOnlyWrite: sinon.stub().resolves(),
     };
 
     release = sinon.stub();
@@ -223,6 +225,106 @@ describe('fileSystemManager upload tests', () => {
     // Before the slot as well as before the body: an upload that cannot land
     // should not make the next one queue behind it.
     expect(executorStub.acquireSlot.called, 'a slot was taken by an upload that was refused').to.equal(false);
+  });
+
+  it('refuses an upload into a read-only copy before reading a byte', async () => {
+    const readOnly = Object.assign(new Error('This node holds a read-only copy of this app\'s data, which follows the node running the app. Make changes on that node.'), { name: 'ReadOnlyCopy', code: 409 });
+    sessionStub.refuseReadOnlyWrite.rejects(readOnly);
+
+    const done = concluded();
+    await fileSystemManager.uploadAppsFiles(multipartRequest({ 'a.txt': 'x' }), res);
+    await done;
+
+    expect(sessionStub.refuseReadOnlyWrite.firstCall.args.map((p) => p.relative)).to.deep.equal(['photos']);
+    expect(executorStub.run.called).to.equal(false);
+    expect(executorStub.acquireSlot.called).to.equal(false);
+    expect(res.json.firstCall.args[0].data.message).to.include('read-only copy');
+  });
+
+  // The real session on a real disk, on a standby: what decides is where the
+  // upload folder POINTS, and only a disk has links to point anywhere.
+  describe('on a copy that follows another node', () => {
+    const os = require('node:os');
+    const nodePath = require('node:path');
+    const realFs = require('node:fs/promises');
+    let tmpRoot;
+    let mount;
+
+    const onStandby = () => {
+      const volumeSession = proxyquire('../../ZelBack/src/services/appSystem/volumeSession', {
+        '../deviceHelper': {
+          listMountedFilesystems: sinon.stub().resolves([{
+            source: '/dev/loop3', target: mount, fstype: 'ext4', sizeBytes: 2e9, usedBytes: 1e9, availableBytes: 1e9, usePercent: 50,
+          }]),
+        },
+        '../verificationHelper': { verifyPrivilege: sinon.stub().resolves(true) },
+        '../utils/pathSecurity': pathSecurity,
+        '../utils/appConstants': {
+          appsFolder: `${tmpRoot}/`,
+          APP_NAME_REGEX: /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/,
+          APP_NAME_REGEX_LEGACY: /^[a-zA-Z0-9]+$/,
+        },
+        '../syncthingService': { getConfigFolders: sinon.stub().resolves([{ id: 'fluxcomp_myapp', type: 'receiveonly' }]) },
+      });
+      return proxyquire('../../ZelBack/src/services/appSystem/fileSystemManager', {
+        config: { fluxapps: { volumeOperations: { minUploadBitsPerSecond: 64 * 1000, stallTimeoutMs: 10 * 60 * 1000 } } },
+        '../messageHelper': {
+          createSuccessMessage: sinon.stub().callsFake((message) => ({ status: 'success', data: { message } })),
+          createErrorMessage: sinon.stub().callsFake((message, name, code) => ({ status: 'error', data: { message, name, code } })),
+          errUnauthorizedMessage: sinon.stub(),
+        },
+        '../verificationHelper': { verifyPrivilege: sinon.stub().resolves(true) },
+        '../serviceHelper': {
+          ensureString: sinon.stub().callsFake((v) => (typeof v === 'string' ? v : JSON.stringify(v))),
+          ensureObject: sinon.stub().callsFake((v) => (typeof v === 'object' && v !== null ? v : {})),
+        },
+        '../IOUtils': { getVolumeInfo: sinon.stub() },
+        '../../lib/log': { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() },
+        '../utils/pathSecurity': pathSecurity,
+        './volumeSession': volumeSession,
+        './volumeExecutor': executorStub,
+        '../utils/fileTransfer': { sendFile: sinon.stub().resolves() },
+        archiver: sinon.stub(),
+      });
+    };
+
+    beforeEach(async () => {
+      tmpRoot = await realFs.mkdtemp(nodePath.join(os.tmpdir(), 'fluxupload-'));
+      mount = nodePath.join(tmpRoot, 'fluxcomp_myapp');
+      await realFs.mkdir(nodePath.join(mount, 'appdata'), { recursive: true });
+      await realFs.mkdir(nodePath.join(mount, 'backup'), { recursive: true });
+      await realFs.symlink('../appdata', nodePath.join(mount, 'backup', 'in'));
+    });
+
+    afterEach(async () => {
+      if (tmpRoot) await realFs.rm(tmpRoot, { recursive: true, force: true });
+    });
+
+    const upload = async (folder) => {
+      const done = concluded();
+      await onStandby().uploadAppsFiles(multipartRequest({ 'world.sav': 'x' }, { folder }), res);
+      await done;
+    };
+
+    it('refuses an upload into a folder that is a link into appdata', async () => {
+      await upload('backup/in');
+
+      expect(executorStub.run.called).to.equal(false);
+      expect(res.json.firstCall.args[0].data.code).to.equal(409);
+    });
+
+    it('refuses an upload into a missing folder below such a link', async () => {
+      await upload('backup/in/new/deeper');
+
+      expect(executorStub.run.called, 'mkdir -p would have created appdata/new/deeper').to.equal(false);
+      expect(res.json.firstCall.args[0].data.code).to.equal(409);
+    });
+
+    it('takes an upload into backup/, which never leaves the node', async () => {
+      await upload('backup/upload');
+
+      expect(executorStub.run.called).to.equal(true);
+    });
   });
 
   it('releases the slot when the client goes away part way through', async () => {

@@ -296,6 +296,57 @@ async function verifyRealPath(targetPath, basePath) {
 }
 
 /**
+ * Where a path will land once written, including when it does not exist yet.
+ *
+ * verifyRealPath returns a path it cannot resolve unchanged, so a name below a
+ * link that has no target yet - `backup/in/new` with `backup/in -> ../appdata`
+ * - compares as itself, while `mkdir -p` then creates `appdata/new`. This
+ * resolves the deepest part that does exist and appends the rest, which is
+ * exactly where a create lands.
+ *
+ * A name that is there but does not resolve is a dangling link, and where a
+ * write through it would land cannot be known: null, which a caller deciding
+ * whether to allow the write must read as no.
+ *
+ * Bounded by the base like verifyRealPathOfExistingPath: a path spelled
+ * outside it is refused rather than walked.
+ *
+ * @param {string} targetPath - The path to place (should already be sanitized)
+ * @param {string} basePath - The allowed base directory, where the walk stops
+ * @returns {Promise<string|null>} the real path the target lands at, or null
+ */
+async function realLandingPath(targetPath, basePath) {
+  const normalizedBase = path.resolve(basePath);
+  let existing = path.resolve(targetPath);
+  const below = [];
+  // Every iteration either returns or moves one level towards the base.
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const relativePath = path.relative(normalizedBase, existing);
+    if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+      throw new Error('Invalid path: access outside allowed directory denied');
+    }
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const real = await fs.promises.realpath(existing);
+      return path.join(real, ...below);
+    } catch (error) {
+      if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
+    }
+    // eslint-disable-next-line no-await-in-loop
+    const present = await fs.promises.lstat(existing).then(() => true, (error) => {
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return false;
+      throw error;
+    });
+    if (present) return null;
+    // A base that is not there at all is taken as itself, as verifyRealPath does.
+    if (existing === normalizedBase) return path.join(existing, ...below);
+    below.unshift(path.basename(existing));
+    existing = path.dirname(existing);
+  }
+}
+
+/**
  * Verify that the deepest existing portion of a (sanitized) path resolves within the allowed base.
  *
  * This is intended for operations that may CREATE files/folders, where `targetPath`
@@ -487,5 +538,6 @@ module.exports = {
   isValidPathComponent,
   verifyRealPath,
   verifyRealPathOfExistingPath,
+  realLandingPath,
   rejectBackslashes,
 };

@@ -13,6 +13,7 @@ const {
   isValidPathComponent,
   verifyRealPath,
   verifyRealPathOfExistingPath,
+  realLandingPath,
   rejectBackslashes,
   openNoFollow,
 } = require('../../ZelBack/src/services/utils/pathSecurity');
@@ -332,6 +333,51 @@ describe('pathSecurity', () => {
         await fs.rm(realBase, { recursive: true, force: true });
         await fs.rm(linkParent, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe('realLandingPath', () => {
+    let tempDir;
+    let real;
+
+    beforeEach(async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-landing-test-'));
+      // Resolved, so the expectations hold where os.tmpdir() is itself a link.
+      real = await fs.realpath(tempDir);
+      await fs.mkdir(path.join(tempDir, 'appdata'));
+      await fs.mkdir(path.join(tempDir, 'backup'));
+      await fs.symlink('../appdata', path.join(tempDir, 'backup', 'in'));
+    });
+
+    afterEach(async () => {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    });
+
+    it('is the real path of a path that exists', async () => {
+      expect(await realLandingPath(path.join(tempDir, 'backup'), tempDir)).to.equal(path.join(real, 'backup'));
+    });
+
+    it('follows a link at the end', async () => {
+      expect(await realLandingPath(path.join(tempDir, 'backup', 'in'), tempDir)).to.equal(path.join(real, 'appdata'));
+    });
+
+    it('places what does not exist yet below the deepest part that does', async () => {
+      // Where `mkdir -p backup/in/new/deeper` creates it.
+      expect(await realLandingPath(path.join(tempDir, 'backup', 'in', 'new', 'deeper'), tempDir))
+        .to.equal(path.join(real, 'appdata', 'new', 'deeper'));
+    });
+
+    it('is null through a link that resolves nowhere', async () => {
+      await fs.symlink('../appdata/gone', path.join(tempDir, 'backup', 'dangling'));
+      expect(await realLandingPath(path.join(tempDir, 'backup', 'dangling', 'x'), tempDir)).to.equal(null);
+    });
+
+    it('refuses a path spelled outside the base', async () => {
+      await expect(realLandingPath(path.join(tempDir, '..', 'elsewhere'), tempDir)).to.be.rejectedWith('outside allowed directory');
+    });
+
+    it('takes a base that does not exist as itself', async () => {
+      expect(await realLandingPath('/test/apps/missing/a/b', '/test/apps/missing')).to.equal('/test/apps/missing/a/b');
     });
   });
 
