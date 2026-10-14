@@ -23,6 +23,9 @@ module.exports = {
     apiport: 16127, // homeport is -1, ssl port is +1
     fluxNodeServiceAddress: '169.254.43.43',
   },
+  fluxadm: {
+    sshAuthorizedKeys: [],
+  },
   database: {
     url: database,
     port: 27017,
@@ -32,9 +35,11 @@ module.exports = {
         loggedUsers: 'loggedusers',
         activeLoginPhrases: 'activeloginphrases',
         activeSignatures: 'activesignatures',
+        loginSignatures: 'loginsignatures',
         geolocation: 'geolocation',
         policyDocuments: 'policydocuments', // last-known-good network policy documents, so an unreachable source does not drop enforcement
         benchmark: 'benchmark',
+        ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
       },
     },
     daemon: {
@@ -102,7 +107,7 @@ module.exports = {
   minimumFluxOSAllowedVersion: '8.0.0',
   minimumNodeJsAllowedVersion: '20.8.0',
   minimumSyncthingAllowedVersion: '1.27.6',
-  minimumDockerAllowedVersion: '26.1.2',
+  minimumDockerAllowedVersion: '28.1.1',
   fluxTeamFluxID: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
   fluxSupportTeamFluxID: ['16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP'],
   deterministicNodesStart: 558000,
@@ -233,6 +238,17 @@ module.exports = {
     minIncoming: 4,
     minUniqueIpsIncoming: 3,
     minUpTime: 1800, // 30 mins
+    availabilityCheckIntervalMs: 300000,
+    availabilityRecheckMs: 60000,
+    peerShortfallDosPerMinute: 0.13,
+    publicIpAskIntervalMs: 90000,
+    publicIpAsksBeforeDos: 8,
+    appsPortCheck: {
+      timeoutsMs: {
+        default: 3600000, error: 60000, failure: 15000, dos: 300000, appError: 240000,
+      },
+      thresholds: { dos: 100, portsHighEdge: 100, portsLowEdge: 80 },
+    },
     appSyncPeerThreshold: 12,
     appSyncDegradedThreshold: 4,
     appSyncMinCompletions: 3,
@@ -299,8 +315,23 @@ module.exports = {
     // bounded by siblingPortsTimeoutMs; the rest is allowance for two nodes
     // that were never required to agree on the time.
     siblingAskValidityMs: 60000,
+    // Which Flux node answers when this node dials an address (peerIdentityService).
+    // A verified identity is reused for longest, since it changes only when an
+    // address changes hands; a misroute is rechecked soon, since the fault is on
+    // this node's side and its operator is expected to fix it.
+    peerIdentityTimeoutMs: 5 * 1000,
+    peerIdentityVerifiedTtlMs: 30 * 60 * 1000,
+    peerIdentityMisroutedTtlMs: 2 * 60 * 1000,
+    peerIdentityUnverifiableTtlMs: 10 * 60 * 1000,
+    peerIdentityUnreachableTtlMs: 60 * 1000,
+    // How long a partner's introduction - its identity, signed when it calls in -
+    // is relied on. Twice the verified TTL, since a partner introduces itself each
+    // time it verifies this node.
+    peerIdentityIntroductionTtlMs: 60 * 60 * 1000,
+    // How often this node checks that its calls to other nodes reach them
+    // (outboundPathService).
+    outboundPathCheckIntervalMs: 10 * 60 * 1000,
     spawnReconfirmDelayMs: 7500000,
-    nonEnterpriseSpawnDelayMs: 120000,
     globalCmdDelayMs: 500,
     discoveryAutostart: true,
     discoveryRetryMs: 60000,
@@ -315,6 +346,7 @@ module.exports = {
         mediumMs: { enterprise: 1260000, standard: 5220000 },
         smallMs: { enterprise: 720000, standard: 3420000 },
       },
+      domainShareMs: { enterprise: 1920000, standard: 1920000 },
     },
     spawnDelayMultiplier: 1,
     daemonInfoIntervalMs: 30000,

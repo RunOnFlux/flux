@@ -1,16 +1,24 @@
+const http = require('http');
+const https = require('https');
+const net = require('net');
+const axios = require('axios');
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
+const proxyquire = require('proxyquire');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
 const {
   validateUrl,
-  validateUrlWithDns,
   isUrlSafe,
   isBlockedIP,
   isBlockedHostname,
   normalizeIpString,
-  ipv6MappedToIpv4,
+  isBlockedAddressLiteral,
+  guardedLookup,
+  guardedRequestOptions,
+  GuardedHttpAgent,
+  GuardedHttpsAgent,
 } = require('../../ZelBack/src/services/utils/urlSecurity');
 
 describe('urlSecurity', () => {
@@ -153,8 +161,44 @@ describe('urlSecurity', () => {
       expect(isBlockedIP('93.184.216.34')).to.be.false;
     });
 
+    it('should return true for the whole benchmarking range (198.18.0.0/15)', () => {
+      expect(isBlockedIP('198.18.0.1')).to.be.true;
+      expect(isBlockedIP('198.19.255.255')).to.be.true;
+      expect(isBlockedIP('198.17.255.255')).to.be.false;
+      expect(isBlockedIP('198.20.0.0')).to.be.false;
+    });
+
+    it('should return true for the whole multicast (224.0.0.0/4) and reserved (240.0.0.0/4) ranges', () => {
+      expect(isBlockedIP('224.0.0.1')).to.be.true;
+      expect(isBlockedIP('239.255.255.250')).to.be.true;
+      expect(isBlockedIP('241.0.0.1')).to.be.true;
+      expect(isBlockedIP('254.1.2.3')).to.be.true;
+      expect(isBlockedIP('223.255.255.255')).to.be.false;
+    });
+
+    it('should return false for the harness fleet\'s addresses, which stand in for public ones', () => {
+      expect(isBlockedIP('31.200.0.10')).to.be.false;
+      expect(isBlockedIP('31.200.15.255')).to.be.false;
+    });
+
     it('should return true for IPv6 loopback', () => {
       expect(isBlockedIP('::1')).to.be.true;
+    });
+
+    it('should return true for the whole unique local range (fc00::/7)', () => {
+      expect(isBlockedIP('fc00::1')).to.be.true;
+      expect(isBlockedIP('fc01::1')).to.be.true;
+      expect(isBlockedIP('fcff::1')).to.be.true;
+      expect(isBlockedIP('fd12:3456::1')).to.be.true;
+    });
+
+    it('should judge a NAT64 or 6to4 address, bracketed or with a zone, by the IPv4 address it carries', () => {
+      expect(isBlockedIP('[64:ff9b::7f00:1]')).to.be.true;
+      expect(isBlockedIP('64:ff9b::169.254.169.254')).to.be.true;
+      expect(isBlockedIP('[2002:a00:1::1]')).to.be.true;
+      expect(isBlockedIP('64:ff9b::7f00:1%eth0')).to.be.true;
+      expect(isBlockedIP('[64:ff9b::808:808]')).to.be.false;
+      expect(isBlockedIP('[2002:808:808::1]')).to.be.false;
     });
 
     it('should return true for null/undefined', () => {
@@ -209,32 +253,6 @@ describe('urlSecurity', () => {
     });
   });
 
-  describe('validateUrlWithDns', () => {
-    it('should validate URLs that resolve to public IPs', async () => {
-      // This test relies on example.com resolving to a public IP
-      const result = await validateUrlWithDns('https://example.com/');
-      expect(result).to.equal('https://example.com/');
-    });
-
-    it('should throw for non-existent hostnames', async () => {
-      await expect(
-        validateUrlWithDns('https://this-domain-definitely-does-not-exist-12345.com/'),
-      ).to.be.rejectedWith('could not be resolved');
-    });
-
-    it('should still block localhost via basic validation', async () => {
-      await expect(
-        validateUrlWithDns('http://localhost/'),
-      ).to.be.rejectedWith('hostname is not allowed');
-    });
-
-    it('should still block private IPs via basic validation', async () => {
-      await expect(
-        validateUrlWithDns('http://127.0.0.1/'),
-      ).to.be.rejectedWith('private/internal IP');
-    });
-  });
-
   describe('normalizeIpString', () => {
     it('should strip brackets from IPv6 addresses', () => {
       expect(normalizeIpString('[::1]')).to.equal('::1');
@@ -260,42 +278,6 @@ describe('urlSecurity', () => {
       expect(normalizeIpString(null)).to.equal(null);
       expect(normalizeIpString(undefined)).to.equal(undefined);
       expect(normalizeIpString('')).to.equal('');
-    });
-  });
-
-  describe('ipv6MappedToIpv4', () => {
-    it('should extract IPv4 from dotted-decimal mapped addresses', () => {
-      expect(ipv6MappedToIpv4('::ffff:127.0.0.1')).to.equal('127.0.0.1');
-      expect(ipv6MappedToIpv4('::ffff:10.0.0.1')).to.equal('10.0.0.1');
-      expect(ipv6MappedToIpv4('::ffff:192.168.1.1')).to.equal('192.168.1.1');
-      expect(ipv6MappedToIpv4('::ffff:169.254.169.254')).to.equal('169.254.169.254');
-    });
-
-    it('should extract IPv4 from hex-encoded mapped addresses', () => {
-      // ::ffff:7f00:1 = 127.0.0.1
-      expect(ipv6MappedToIpv4('::ffff:7f00:1')).to.equal('127.0.0.1');
-      // ::ffff:0a00:1 = 10.0.0.1
-      expect(ipv6MappedToIpv4('::ffff:a00:1')).to.equal('10.0.0.1');
-      // ::ffff:c0a8:101 = 192.168.1.1
-      expect(ipv6MappedToIpv4('::ffff:c0a8:101')).to.equal('192.168.1.1');
-    });
-
-    it('should be case-insensitive', () => {
-      expect(ipv6MappedToIpv4('::FFFF:127.0.0.1')).to.equal('127.0.0.1');
-      expect(ipv6MappedToIpv4('::FFFF:7F00:1')).to.equal('127.0.0.1');
-    });
-
-    it('should return null for non-mapped addresses', () => {
-      expect(ipv6MappedToIpv4('::1')).to.be.null;
-      expect(ipv6MappedToIpv4('fe80::1')).to.be.null;
-      expect(ipv6MappedToIpv4('127.0.0.1')).to.be.null;
-      expect(ipv6MappedToIpv4('fc00::1')).to.be.null;
-    });
-
-    it('should return null for null/undefined', () => {
-      expect(ipv6MappedToIpv4(null)).to.be.null;
-      expect(ipv6MappedToIpv4(undefined)).to.be.null;
-      expect(ipv6MappedToIpv4('')).to.be.null;
     });
   });
 
@@ -340,6 +322,260 @@ describe('urlSecurity', () => {
 
       it('should block URLs with IPv6-mapped metadata addresses', () => {
         expect(() => validateUrl('http://[::ffff:169.254.169.254]/')).to.throw('private/internal IP');
+      });
+    });
+  });
+
+  describe('isBlockedAddressLiteral', () => {
+    // The guarded agents' check on the address a connection is about to dial.
+    it('blocks private and reserved literals', () => {
+      expect(isBlockedAddressLiteral('127.0.0.1')).to.equal(true);
+      expect(isBlockedAddressLiteral('10.0.0.5')).to.equal(true);
+      expect(isBlockedAddressLiteral('192.168.1.1')).to.equal(true);
+      expect(isBlockedAddressLiteral('169.254.169.254')).to.equal(true);
+      expect(isBlockedAddressLiteral('::1')).to.equal(true);
+    });
+
+    it('permits a public literal', () => {
+      expect(isBlockedAddressLiteral('8.8.8.8')).to.equal(false);
+      expect(isBlockedAddressLiteral('1.1.1.1')).to.equal(false);
+    });
+
+    it('says nothing about hostnames - those are the lookup guard\'s job', () => {
+      // Answering true here for a name would refuse it before it was resolved,
+      // and answering on a guess is exactly what the connect-time check avoids.
+      expect(isBlockedAddressLiteral('registry-1.docker.io')).to.equal(false);
+      expect(isBlockedAddressLiteral('localhost')).to.equal(false);
+      expect(isBlockedAddressLiteral('')).to.equal(false);
+      expect(isBlockedAddressLiteral(undefined)).to.equal(false);
+    });
+  });
+
+  describe('guardedLookup', () => {
+    // A fake resolver throughout: the point is what the guard does with an
+    // answer, and a real lookup would make these assertions depend on DNS.
+    function withResolver(impl) {
+      return proxyquire('../../ZelBack/src/services/utils/urlSecurity', {
+        './dnsLookup': { lookup: impl },
+      }).guardedLookup;
+    }
+
+    it('passes a public address through untouched', (done) => {
+      const lookup = withResolver((host, opts, cb) => cb(null, '93.184.216.34', 4));
+      lookup('example.com', {}, (err, address, family) => {
+        expect(err).to.equal(null);
+        expect(address).to.equal('93.184.216.34');
+        expect(family).to.equal(4);
+        done();
+      });
+    });
+
+    it('refuses a name that resolves into a private range', (done) => {
+      // This is the rebinding case: the name looks fine, the answer does not.
+      const lookup = withResolver((host, opts, cb) => cb(null, '10.1.2.3', 4));
+      lookup('sneaky.example.com', {}, (err) => {
+        expect(err.code).to.equal('EBLOCKEDADDRESS');
+        expect(err.message).to.include('10.1.2.3');
+        done();
+      });
+    });
+
+    it('keeps the safe answers when asked for all of them', (done) => {
+      // Node picks among these, so a host with one public and one loopback
+      // record would otherwise be a coin toss.
+      const lookup = withResolver((host, opts, cb) => cb(null, [
+        { address: '127.0.0.1', family: 4 },
+        { address: '93.184.216.34', family: 4 },
+      ]));
+      lookup('mixed.example.com', { all: true }, (err, addresses) => {
+        expect(err).to.equal(null);
+        expect(addresses).to.deep.equal([{ address: '93.184.216.34', family: 4 }]);
+        done();
+      });
+    });
+
+    it('refuses when every answer is blocked', (done) => {
+      const lookup = withResolver((host, opts, cb) => cb(null, [
+        { address: '127.0.0.1', family: 4 },
+        { address: '::1', family: 6 },
+      ]));
+      lookup('all-private.example.com', { all: true }, (err) => {
+        expect(err.code).to.equal('EBLOCKEDADDRESS');
+        done();
+      });
+    });
+
+    it('passes a resolver failure straight back', (done) => {
+      const notFound = Object.assign(new Error('nope'), { code: 'ENOTFOUND' });
+      const lookup = withResolver((host, opts, cb) => cb(notFound));
+      lookup('nowhere.example.com', {}, (err) => {
+        expect(err.code).to.equal('ENOTFOUND');
+        done();
+      });
+    });
+
+    it('accepts the options-omitted call signature', (done) => {
+      const lookup = withResolver((host, opts, cb) => cb(null, '8.8.8.8', 4));
+      lookup('dns.example.com', (err, address) => {
+        expect(err).to.equal(null);
+        expect(address).to.equal('8.8.8.8');
+        done();
+      });
+    });
+  });
+
+  describe('guardedRequestOptions', () => {
+    it('connects through the guarded agents, which resolve through guardedLookup, on both schemes', () => {
+      const options = guardedRequestOptions();
+
+      expect(options.httpAgent).to.be.instanceOf(GuardedHttpAgent);
+      expect(options.httpsAgent).to.be.instanceOf(GuardedHttpsAgent);
+      expect(options.httpAgent.options.lookup).to.equal(guardedLookup);
+      expect(options.httpsAgent.options.lookup).to.equal(guardedLookup);
+    });
+
+    it('hands every caller the same agents, so connections are pooled across requests', () => {
+      const first = guardedRequestOptions();
+      const second = guardedRequestOptions();
+
+      expect(second.httpAgent).to.equal(first.httpAgent);
+      expect(second.httpsAgent).to.equal(first.httpsAgent);
+    });
+
+    it('keeps connections alive and times them out as the global agents do', () => {
+      const { httpAgent, httpsAgent } = guardedRequestOptions();
+
+      expect(http.globalAgent.keepAlive).to.equal(true);
+      expect(httpAgent.keepAlive).to.equal(http.globalAgent.keepAlive);
+      expect(httpsAgent.keepAlive).to.equal(https.globalAgent.keepAlive);
+      expect(httpAgent.options.timeout).to.equal(http.globalAgent.options.timeout);
+      expect(httpsAgent.options.timeout).to.equal(https.globalAgent.options.timeout);
+    });
+
+    describe('an address in any form URL parsing accepts', () => {
+      // A local listener stands in for an internal service. It counts TCP connections, so a
+      // refusal that came after the connection was made would still be caught.
+      let internal;
+      let port;
+      let connections;
+
+      before((done) => {
+        internal = net.createServer((socket) => { connections += 1; socket.destroy(); });
+        internal.listen(0, '127.0.0.1', () => { ({ port } = internal.address()); done(); });
+      });
+
+      after(() => {
+        internal.close();
+      });
+
+      beforeEach(() => {
+        connections = 0;
+      });
+
+      it('reaches the internal service through an encoded address without the guard', async () => {
+        // Canary: the encoded form does reach the listener, so a zero below is the guard.
+        await axios.get(`http://2130706433:${port}/`).catch(() => {});
+
+        expect(connections).to.equal(1);
+      });
+
+      ['127.0.0.1', '2130706433', '127.1', '127.0.1', '0x7f.0.0.1', '0177.0.0.1', '0x7f000001', '0'].forEach((host) => {
+        ['http', 'https'].forEach((scheme) => {
+          it(`refuses ${scheme}://${host} before connecting`, async () => {
+            const error = await axios.get(`${scheme}://${host}:${port}/`, guardedRequestOptions()).then(() => null, (e) => e);
+
+            expect(error).to.have.property('code', 'EBLOCKEDADDRESS');
+            expect(connections).to.equal(0);
+          });
+        });
+      });
+    });
+
+    describe('a redirect into the internal network', () => {
+      // A local server stands in for an internal service, and another for a registry that
+      // answers with a redirect to it. The registry stands in for a public host, so its own
+      // connection is let through and only the redirect is under test.
+      let internal;
+      let internalHits;
+      let registryHits;
+      let registry;
+      let redirectTo;
+
+      function listen(server) {
+        return new Promise((resolve) => { server.listen(0, '127.0.0.1', () => resolve(server.address().port)); });
+      }
+
+      before(async () => {
+        internalHits = 0;
+        internal = http.createServer((req, res) => { internalHits += 1; res.end('internal'); });
+        const internalPort = await listen(internal);
+        registry = http.createServer((req, res) => {
+          registryHits += 1;
+          res.writeHead(302, { location: redirectTo(internalPort) });
+          res.end();
+        });
+        const registryPort = await listen(registry);
+        registry.port = registryPort;
+        registry.url = `http://127.0.0.1:${registryPort}/v2/`;
+      });
+
+      after(() => {
+        internal.close();
+        registry.close();
+      });
+
+      beforeEach(() => {
+        internalHits = 0;
+        registryHits = 0;
+      });
+
+      // Guarded agents of their own, with the connection to the registry let through.
+      function guardedPastTheRegistry() {
+        const agent = new GuardedHttpAgent();
+        const guarded = agent.createConnection.bind(agent);
+        agent.createConnection = (opts, callback) => (Number(opts.port) === registry.port
+          ? http.Agent.prototype.createConnection.call(agent, opts, callback)
+          : guarded(opts, callback));
+        return { httpAgent: agent, httpsAgent: new GuardedHttpsAgent() };
+      }
+
+      it('reaches the internal service without the guard', async () => {
+        // Canary: the fixture can detect a redirect that gets through.
+        redirectTo = (port) => `http://127.0.0.1:${port}/`;
+
+        await axios.get(registry.url);
+
+        expect(internalHits).to.equal(1);
+      });
+
+      it('refuses a redirect to an internal address literal', async () => {
+        redirectTo = (port) => `http://127.0.0.1:${port}/`;
+
+        const error = await axios.get(registry.url, guardedPastTheRegistry()).then(() => null, (e) => e);
+
+        expect(error).to.have.property('code', 'EBLOCKEDADDRESS');
+        expect(registryHits).to.equal(1);
+        expect(internalHits).to.equal(0);
+      });
+
+      it('refuses a redirect to an internal address in an encoded form', async () => {
+        redirectTo = (port) => `http://2130706433:${port}/`;
+
+        const error = await axios.get(registry.url, guardedPastTheRegistry()).then(() => null, (e) => e);
+
+        expect(error).to.have.property('code', 'EBLOCKEDADDRESS');
+        expect(registryHits).to.equal(1);
+        expect(internalHits).to.equal(0);
+      });
+
+      it('refuses a redirect to a name that resolves internal', async () => {
+        redirectTo = (port) => `http://localhost:${port}/`;
+
+        const error = await axios.get(registry.url, guardedPastTheRegistry()).then(() => null, (e) => e);
+
+        expect(error).to.have.property('code', 'EBLOCKEDADDRESS');
+        expect(registryHits).to.equal(1);
+        expect(internalHits).to.equal(0);
       });
     });
   });

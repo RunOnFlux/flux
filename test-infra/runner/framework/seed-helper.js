@@ -56,6 +56,10 @@ export async function buildSeedableApp({
   env = null,
   height = (env?.initialHeight ?? DEFAULT_INITIAL_HEIGHT) + 10,
   instances = 3,
+  // The key that registers the app: it signs the registration, and its zelid is
+  // the owner unless `owner` names another. An app whose owner must sign in -
+  // to stop, start or redeploy it - is registered by that owner's key.
+  ownerKey = appOwnerKey(),
   owner = null,
   staticip = false,
   enterprise = '',
@@ -65,7 +69,7 @@ export async function buildSeedableApp({
   // for which the collision IS the subject - 98 - says so.
   allowPortReuse = false,
   // Pin the app to named nodes. An entry names a node EITHER by socket address
-  // ('198.18.1.0:16127') or by collateral outpoint ('<txhash>:<outidx>') - both
+  // ('31.200.1.0:16127') or by collateral outpoint ('<txhash>:<outidx>') - both
   // are live on the network, and nodeOutpoint() below builds the second form.
   //
   // Set HERE and nowhere else: the signature and the hash are taken over
@@ -75,7 +79,6 @@ export async function buildSeedableApp({
   // obsolete and reinstalls it forever.
   nodes = [],
 }) {
-  const ownerKey = appOwnerKey();
   const appOwner = owner ?? ownerKey.zelid;
 
   const spec = {
@@ -180,11 +183,12 @@ export async function buildSeedableApp({
  *
  * @param {object} app - what buildSeedableApp returned
  * @param {(spec: object) => void} mutate - changes the copy in place
- * @param {{height?: number}} opts - the block the update lands on
+ * @param {{height?: number, signer?: object}} opts - the block the update lands on, and the key
+ *   that signs it (the app owner's by default)
  * @returns {Promise<object>} the same shape buildSeedableApp returns
  */
-export async function buildSeedableUpdate(app, mutate, { height = null } = {}) {
-  const ownerKey = appOwnerKey();
+export async function buildSeedableUpdate(app, mutate, { height = null, signer = appOwnerKey() } = {}) {
+  const ownerKey = signer;
 
   // hash and height are what the seeding added; the signature and the hash below
   // are taken over the specification alone, exactly as registration took them.

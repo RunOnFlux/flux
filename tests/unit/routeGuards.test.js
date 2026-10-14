@@ -12,7 +12,15 @@ const request = require('supertest');
 const apicache = require('apicache');
 
 const {
-  asyncRoute, rejectQueryParameters, requireBootSettled, requirePolicyReady,
+  answerDaemonUnavailable,
+  asyncRoute,
+  cache,
+  isDaemonUnavailable,
+  rejectQueryParameters,
+  requireAppStateReady,
+  requireBootSettled,
+  requirePolicyReady,
+  requireRegistryReady,
 } = require('../../ZelBack/src/services/utils/routeGuards');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 
@@ -239,6 +247,192 @@ describe('routeGuards', () => {
       const res = await get('/apps/redeploy/myapp');
       expect(res.status).to.equal(200);
       expect(handlerCalls).to.equal(1);
+    });
+  });
+
+  describe('isDaemonUnavailable', () => {
+    it('is true while the daemon loads its block index', () => {
+      expect(isDaemonUnavailable({ code: -28, message: 'Loading block index...' })).to.equal(true);
+    });
+
+    it('is true when nothing answers on the daemon port', () => {
+      ['ECONNREFUSED', 'ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT'].forEach((code) => {
+        expect(isDaemonUnavailable({ code }), code).to.equal(true);
+      });
+    });
+
+    it('is false for an answer the daemon gave', () => {
+      expect(isDaemonUnavailable({ code: -5, message: 'No information available about transaction' })).to.equal(false);
+      expect(isDaemonUnavailable(new Error('Unrecognised Flux Node tier'))).to.equal(false);
+      expect(isDaemonUnavailable(undefined)).to.equal(false);
+    });
+  });
+
+  describe('answerDaemonUnavailable', () => {
+    let app;
+    let server;
+    let daemonError;
+    let handlerCalls;
+
+    // A handler that asks the daemon and reports what it raised, the way
+    // getNodeTier does, through a real express stack so the status, the header
+    // and the body are what a caller receives.
+    beforeEach(() => {
+      handlerCalls = 0;
+      app = express();
+      app.get('/flux/nodetier', (req, res) => {
+        if (answerDaemonUnavailable(res, daemonError)) return;
+        handlerCalls += 1;
+        res.json({
+          status: 'error',
+          data: { code: daemonError.code, name: daemonError.name, message: daemonError.message },
+        });
+      });
+    });
+
+    afterEach(() => {
+      if (server) { server.close(); server = null; }
+    });
+
+    const get = (path) => {
+      if (!server) server = app.listen(0);
+      return request(server).get(path);
+    };
+
+    const raised = (message, code) => Object.assign(new Error(message), { code });
+
+    it('refuses while the daemon is still loading', async () => {
+      daemonError = raised('Loading block index...', -28);
+      const res = await get('/flux/nodetier');
+      expect(res.status).to.equal(503);
+      expect(res.body).to.deep.equal({
+        status: 'error',
+        data: { code: 503, name: 'ServiceUnavailable', message: 'Loading block index...' },
+      });
+      expect(handlerCalls).to.equal(0);
+    });
+
+    it('says when to come back', async () => {
+      daemonError = raised('Loading block index...', -28);
+      const res = await get('/flux/nodetier');
+      expect(res.headers['retry-after']).to.equal('5');
+    });
+
+    it('refuses while nothing is listening on the daemon port', async () => {
+      daemonError = raised('connect ECONNREFUSED 127.0.0.1:16124', 'ECONNREFUSED');
+      const res = await get('/flux/nodetier');
+      expect(res.status).to.equal(503);
+      expect(res.body.data.name).to.equal('ServiceUnavailable');
+      expect(res.headers['retry-after']).to.equal('5');
+      expect(handlerCalls).to.equal(0);
+    });
+
+    // A daemon that answered with an error of its own gave a verdict: the
+    // handler reports it, as it does any error that is not the daemon's absence.
+    it('leaves a daemon error that is an answer to the handler', async () => {
+      daemonError = raised('Invalid parameter', -8);
+      const res = await get('/flux/nodetier');
+      expect(res.status).to.equal(200);
+      expect(res.body).to.deep.equal({
+        status: 'error',
+        data: { code: -8, name: 'Error', message: 'Invalid parameter' },
+      });
+      expect(handlerCalls).to.equal(1);
+    });
+
+    it('leaves an error with no code to the handler', async () => {
+      daemonError = new Error('Unrecognised Flux node tier');
+      const res = await get('/flux/nodetier');
+      expect(res.status).to.equal(200);
+      expect(res.body.data.message).to.equal('Unrecognised Flux node tier');
+      expect(handlerCalls).to.equal(1);
+    });
+  });
+
+  // A store that is rebuilt or resynced is read through a gate that is open only
+  // while the store stands. Both edges matter: a gate that never closes again
+  // serves an empty store the next time it is rebuilt, and one that never opens
+  // turns a booted node away for good. Asserted through the real cache, because
+  // a closed gate must also win over an answer the cache remembered while it was
+  // open.
+  [
+    {
+      guard: requireRegistryReady,
+      flag: 'dbReady',
+      path: '/apps/globalappsspecifications',
+      names: /registry/i,
+      notNames: /location/i,
+    },
+    {
+      guard: requireAppStateReady,
+      flag: 'appStateAuthoritative',
+      path: '/apps/locations',
+      names: /location/i,
+      notNames: /registry/i,
+    },
+  ].forEach(({
+    guard, flag, path, names, notNames,
+  }) => {
+    describe(guard.name, () => {
+      let app;
+      let server;
+      let handlerCalls;
+      let flagBefore;
+
+      beforeEach(() => {
+        apicache.clear();
+        flagBefore = globalState[flag];
+        globalState[flag] = false;
+        handlerCalls = 0;
+        app = express();
+        app.get(path, guard, cache('30 seconds'), (req, res) => {
+          handlerCalls += 1;
+          res.json({ status: 'success', data: [] });
+        });
+      });
+
+      afterEach(() => {
+        globalState[flag] = flagBefore;
+        apicache.clear();
+        if (server) { server.close(); server = null; }
+      });
+
+      const get = () => {
+        if (!server) server = app.listen(0);
+        return request(server).get(path);
+      };
+
+      it('refuses while the store is not ready, and says when to come back', async () => {
+        const res = await get();
+        expect(res.status).to.equal(503);
+        expect(res.headers['retry-after']).to.equal('15');
+        expect(res.body.status).to.equal('error');
+        expect(handlerCalls).to.equal(0);
+      });
+
+      it('names the store it is waiting for', async () => {
+        const res = await get();
+        expect(res.body.data.message).to.match(names);
+        expect(res.body.data.message).to.not.match(notNames);
+      });
+
+      it('answers from the handler once the store is ready, not from a remembered refusal', async () => {
+        await get();
+        globalState[flag] = true;
+        const res = await get();
+        expect(res.status).to.equal(200);
+        expect(handlerCalls).to.equal(1);
+      });
+
+      it('refuses again when the store stops being ready, over an answer the cache remembered', async () => {
+        globalState[flag] = true;
+        const open = await get();
+        expect(open.status).to.equal(200);
+        globalState[flag] = false;
+        const res = await get();
+        expect(res.status).to.equal(503);
+        expect(handlerCalls).to.equal(1);
+      });
     });
   });
 

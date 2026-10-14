@@ -3,6 +3,7 @@ const sinon = require('sinon');
 const { resetGlobalState } = require('./fixtures/globalState');
 const { EventEmitter } = require('events');
 const proxyquire = require('proxyquire').noCallThru();
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 describe('AppSyncOrchestrator', () => {
   let AppSyncOrchestrator;
@@ -1005,6 +1006,88 @@ describe('AppSyncOrchestrator', () => {
 
       expect(globalStateStub.appStateAuthoritative, 'a stopped orchestrator still claimed authority').to.equal(false);
     });
+
+    // A harness suite holds a node here so that it goes on refusing peers'
+    // syncs after its own sync has every answer it needs.
+    describe('the authority checkpoint', () => {
+      let release;
+      let publish;
+
+      beforeEach(() => {
+        sinon.stub(fluxEventBus, 'isCheckpointHeld')
+          .callsFake((name) => name === fluxEventBus.Checkpoint.APPSYNC_BEFORE_AUTHORITATIVE);
+        sinon.stub(fluxEventBus, 'checkpoint').callsFake(() => new Promise((resolve) => { release = resolve; }));
+        publish = sinon.stub(fluxEventBus, 'publish');
+      });
+
+      const allComplete = () => publish.getCalls().filter((c) => c.args[0] === 'ephemeralSync:allComplete');
+
+      it('stays unauthoritative while held, and completes once on release', async () => {
+        const peers = makeEligiblePeers(4);
+        getEligibleSyncPeersStub = sinon.stub().returns(peers);
+        const orchestrator = makeOrchestrator();
+        orchestrator.start(defaultBootContext);
+        peerEmitter.emit('peerThresholdReached', 12);
+        await clock.tickAsync(0);
+
+        completeAllTypes(3);
+        await clock.tickAsync(0);
+        sinon.assert.calledOnceWithExactly(fluxEventBus.checkpoint, fluxEventBus.Checkpoint.APPSYNC_BEFORE_AUTHORITATIVE);
+        expect(globalStateStub.appStateAuthoritative, 'authoritative while held').to.equal(false);
+
+        // A fourth peer answering while held is recorded, and pauses nothing more.
+        completeAllTypes(4);
+        await clock.tickAsync(0);
+        sinon.assert.calledOnce(fluxEventBus.checkpoint);
+        expect(allComplete()).to.have.lengthOf(0);
+
+        release();
+        await clock.tickAsync(0);
+        expect(globalStateStub.appStateAuthoritative).to.equal(true);
+        expect(allComplete()).to.have.lengthOf(1);
+        await orchestrator.stop();
+      });
+
+      it('completes nothing on release after the attempt was reset', async () => {
+        const peers = makeEligiblePeers(3);
+        getEligibleSyncPeersStub = sinon.stub().returns(peers);
+        const orchestrator = makeOrchestrator();
+        orchestrator.start(defaultBootContext);
+        blockEmitter.emit('blocksProcessed', 2555000);
+        await clock.tickAsync(0);
+        peerEmitter.emit('peerThresholdReached', 12);
+        await clock.tickAsync(0);
+        completeAllTypes(3);
+        await clock.tickAsync(0);
+
+        peerEmitter.emit('peersBelowThreshold', 1);
+        await clock.tickAsync(0);
+        expect(orchestrator.state, 'fixture: losing the peer set did not reset the attempt').to.equal(STATES.DEGRADED);
+
+        release();
+        await clock.tickAsync(0);
+        expect(globalStateStub.appStateAuthoritative, 'a reset attempt completed on release').to.equal(false);
+        expect(allComplete()).to.have.lengthOf(0);
+        await orchestrator.stop();
+      });
+
+      it('completes nothing on release after it stopped', async () => {
+        const peers = makeEligiblePeers(3);
+        getEligibleSyncPeersStub = sinon.stub().returns(peers);
+        const orchestrator = makeOrchestrator();
+        orchestrator.start(defaultBootContext);
+        peerEmitter.emit('peerThresholdReached', 12);
+        await clock.tickAsync(0);
+        completeAllTypes(3);
+        await clock.tickAsync(0);
+
+        await orchestrator.stop();
+        release();
+        await clock.tickAsync(0);
+        expect(globalStateStub.appStateAuthoritative, 'a stopped orchestrator completed on release').to.equal(false);
+        expect(allComplete()).to.have.lengthOf(0);
+      });
+    });
   });
 
   // The block fallback was two literals, so no fleet could have a node that
@@ -1138,6 +1221,27 @@ describe('AppSyncOrchestrator', () => {
 
       await driveBlocks(2555006, 1);
       expect(orchestrator.state).to.equal(mod.STATES.READY);
+    });
+
+    it('mirrors every state change into globalState', async () => {
+      const { mod, orchestrator } = makeAtTwoMinutes();
+      await orchestrator.start(defaultBootContext);
+      peersUp();
+      await clock.tickAsync(0);
+
+      await driveBlocks(2555000, 1);
+      expect(globalStateStub.appSyncState).to.equal(mod.STATES.SYNCING);
+
+      peerEmitter.emit('peersBelowThreshold', 3);
+      await clock.tickAsync(0);
+      expect(globalStateStub.appSyncState).to.equal(mod.STATES.DEGRADED);
+
+      peersUp();
+      await clock.tickAsync(0);
+      expect(globalStateStub.appSyncState).to.equal(mod.STATES.RESYNCING);
+
+      await driveBlocks(2555001, FALLBACK_BLOCKS);
+      expect(globalStateStub.appSyncState).to.equal(mod.STATES.READY);
     });
 
     // THE CASE NO STATE CHANGE MARKS. #onPeersDegraded only acts from READY and
@@ -1498,6 +1602,80 @@ describe('AppSyncOrchestrator', () => {
       expect([...peers, untried].reduce((n, p) => n + p.send.callCount, 0),
         'the budget ran out and it went on asking').to.equal(spent);
       await orchestrator.stop();
+    });
+
+    // A harness suite holds the attempt open at this checkpoint for as long as it
+    // examines it, and learns from budgetSpent when an attempt has ended.
+    describe('the budget checkpoint', () => {
+      let release;
+      let publish;
+
+      beforeEach(() => {
+        sinon.stub(fluxEventBus, 'checkpoint').callsFake(() => new Promise((resolve) => { release = resolve; }));
+        publish = sinon.stub(fluxEventBus, 'publish');
+      });
+
+      const budgetSpent = () => publish.getCalls().filter((c) => c.args[0] === 'ephemeralSync:budgetSpent');
+
+      it('keeps the attempt open while held, and ends it with budgetSpent when released', async () => {
+        const peers = makeEligiblePeers(3);
+        getEligibleSyncPeersStub = sinon.stub().callsFake(() => peers);
+        const orchestrator = makeOrchestrator();
+        orchestrator.start(defaultBootContext);
+        peerEmitter.emit('peerThresholdReached', 12);
+        await clock.tickAsync(0);
+        await clock.tickAsync(SYNC_TIMEOUT_MS + 1000);
+        sinon.assert.calledWith(fluxEventBus.checkpoint, fluxEventBus.Checkpoint.APPSYNC_BEFORE_BUDGET_SPENT);
+
+        const joiner = makePeer('10.9.9.2:16127');
+        getEligibleSyncPeersStub.callsFake(() => [...peers, joiner]);
+        peerEmitter.emit('peerConnected', joiner.key, 99);
+        await clock.tickAsync(0);
+        expect(joiner.send.called, 'a peer that joined while the budget was held went unasked').to.equal(true);
+        expect(budgetSpent()).to.have.lengthOf(0);
+
+        release();
+        await clock.tickAsync(0);
+        expect(budgetSpent()).to.have.lengthOf(1);
+        const late = makePeer('10.9.9.3:16127');
+        getEligibleSyncPeersStub.callsFake(() => [...peers, joiner, late]);
+        peerEmitter.emit('peerConnected', late.key, 99);
+        await clock.tickAsync(0);
+        expect(late.send.called, 'a peer that joined after the released budget was asked').to.equal(false);
+        await orchestrator.stop();
+      });
+
+      it('does not end the attempt that follows a reset with a budget held across it', async () => {
+        const peers = makeEligiblePeers(3);
+        getEligibleSyncPeersStub = sinon.stub().callsFake(() => peers);
+        const orchestrator = makeOrchestrator();
+        orchestrator.start(defaultBootContext);
+        blockEmitter.emit('blocksProcessed', 2555000);
+        peerEmitter.emit('peerThresholdReached', 12);
+        await clock.tickAsync(0);
+        await clock.tickAsync(SYNC_TIMEOUT_MS + 1000);
+        const heldBudget = release;
+
+        peerEmitter.emit('peersBelowThreshold', 1);
+        await clock.tickAsync(0);
+        expect(orchestrator.state, 'fixture: losing the peer set did not reset the attempt').to.equal(STATES.DEGRADED);
+        // One, so the pool has room left for the joiner below.
+        const recovered = makeEligiblePeers(1);
+        getEligibleSyncPeersStub.callsFake(() => recovered);
+        peerEmitter.emit('peerThresholdReached', 12);
+        await clock.tickAsync(0);
+        expect(recovered.every((p) => p.send.called), 'fixture: no new attempt opened after the reset').to.equal(true);
+        heldBudget();
+        await clock.tickAsync(0);
+
+        expect(budgetSpent(), 'the held budget ended the attempt opened after the reset').to.have.lengthOf(0);
+        const joiner = makePeer('10.9.9.4:16127');
+        getEligibleSyncPeersStub.callsFake(() => [...recovered, joiner]);
+        peerEmitter.emit('peerConnected', joiner.key, 99);
+        await clock.tickAsync(0);
+        expect(joiner.send.called, 'the new attempt stopped asking').to.equal(true);
+        await orchestrator.stop();
+      });
     });
 
     // And a spent budget is not a permanent one. A guard that stops the asking
@@ -1975,6 +2153,29 @@ describe('AppSyncOrchestrator', () => {
       expect(syncMissingHashesStub.calledTwice).to.be.true;
     });
 
+    it('should rebuild globalAppsInformation when a retry resolves messages, and only then', async () => {
+      syncMissingHashesStub.onFirstCall().resolves({ resolved: 0, missing: 2, unreachable: 0, nextRetryHeight: 2555200 });
+      syncMissingHashesStub.onSecondCall().resolves({ resolved: 0, missing: 2, unreachable: 0, nextRetryHeight: 2555300 });
+      syncMissingHashesStub.onThirdCall().resolves({ resolved: 2, missing: 0, unreachable: 0, nextRetryHeight: null });
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+
+      blockEmitter.emit('blocksProcessed', 2555000);
+      await clock.tickAsync(0);
+      const afterInitialSync = reindexStub.callCount;
+
+      // a retry that resolves nothing has nothing to apply
+      blockEmitter.emit('blocksProcessed', 2555200);
+      await clock.tickAsync(0);
+      expect(reindexStub.callCount).to.equal(afterInitialSync);
+
+      // the messages a retry resolves are stored without promotion: they reach the specs by a rebuild
+      blockEmitter.emit('blocksProcessed', 2555300);
+      await clock.tickAsync(0);
+      expect(reindexStub.callCount).to.equal(afterInitialSync + 1);
+    });
+
     it('should use fallback interval when no hashes are backed off', async () => {
       syncMissingHashesStub.resolves({ resolved: 0, missing: 0, unreachable: 0, nextRetryHeight: null });
 
@@ -2027,46 +2228,6 @@ describe('AppSyncOrchestrator', () => {
 
       // Should not crash or change state
       expect(orchestrator.state).to.equal(STATES.INITIALIZING);
-    });
-  });
-
-  describe('hashesChanged event', () => {
-    it('should schedule immediate hash recheck when reconstruct changes hashes', async () => {
-      syncMissingHashesStub.onFirstCall().resolves({ resolved: 0, missing: 0, unreachable: 0, nextRetryHeight: 2560000 });
-      syncMissingHashesStub.onSecondCall().resolves({ resolved: 1, missing: 0, unreachable: 0, nextRetryHeight: null });
-
-      const orchestrator = makeOrchestrator();
-      orchestrator.start(defaultBootContext);
-
-      blockEmitter.emit('blocksProcessed', 2555000);
-      await clock.tickAsync(0);
-      expect(syncMissingHashesStub.calledOnce).to.be.true;
-
-      // Reconstruct found changes
-      blockEmitter.emit('hashesChanged');
-
-      // Next block should trigger sync immediately
-      blockEmitter.emit('blocksProcessed', 2555001);
-      await clock.tickAsync(0);
-      expect(syncMissingHashesStub.calledTwice).to.be.true;
-    });
-
-    it('should register hashesChanged listener on start', async () => {
-      const orchestrator = makeOrchestrator();
-      expect(blockEmitter.listenerCount('hashesChanged')).to.equal(0);
-      orchestrator.start(defaultBootContext);
-      expect(blockEmitter.listenerCount('hashesChanged')).to.equal(1);
-    });
-
-    it('should ignore hashesChanged before initial sync completes', async () => {
-      syncMissingHashesStub.rejects(new Error('not ready'));
-
-      const orchestrator = makeOrchestrator();
-      orchestrator.start(defaultBootContext);
-
-      blockEmitter.emit('hashesChanged');
-
-      expect(logStub.info.calledWith(sinon.match(/Reconstruct audit found changes/))).to.be.false;
     });
   });
 

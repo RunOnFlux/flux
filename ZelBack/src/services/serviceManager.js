@@ -13,6 +13,7 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 // App modular services - replacing appsService
 const appInstaller = require('./appLifecycle/appInstaller');
 const appUninstaller = require('./appLifecycle/appUninstaller');
+const localRemovalQueue = require('./appLifecycle/localRemovalQueue');
 const appController = require('./appManagement/appController');
 const monitoringOrchestrator = require('./appMonitoring/monitoringOrchestrator');
 const portManager = require('./appNetwork/portManager');
@@ -38,11 +39,13 @@ const hardwareValidationService = require('./appLifecycle/hardwareValidationServ
 const globalState = require('./utils/globalState');
 const { peerManager } = require('./utils/peerState');
 const enterpriseNetwork = require('./utils/enterpriseNetwork');
+const ufwHelper = require('./utils/ufwHelper');
 const policyStore = require('./policyStore');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const appQueryService = require('./appQuery/appQueryService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
+const paymentPositions = require('./migrations/paymentPositions');
 const fluxService = require('./fluxService');
 const geolocationService = require('./geolocationService');
 const ipLocationSync = require('./appPlacement/ipLocationSync');
@@ -52,6 +55,8 @@ const pgpService = require('./pgpService');
 const dockerService = require('./dockerService');
 const backupRestoreService = require('./backupRestoreService');
 const systemService = require('./systemService');
+const systemdNotify = require('./utils/systemdNotify');
+const fluxadmService = require('./fluxadmService');
 const fluxNodeService = require('./fluxNodeService');
 const volumeValidationService = require('./volumeValidationService');
 const watchdogService = require('./watchdogService');
@@ -59,6 +64,8 @@ const cloudUIUpdateService = require('./cloudUIUpdateService');
 const appTamperingBlocklistService = require('./appTamperingBlocklistService');
 const residentialNodeDosService = require('./residentialNodeDosService');
 const peerSetStabilityService = require('./peerSetStabilityService');
+const outboundPathService = require('./outboundPathService');
+const uplinkService = require('./uplinkService');
 const nodeConfirmationService = require('./nodeConfirmationService');
 const appTamperingDetectionService = require('./appTamperingDetectionService');
 const appsRuntimeState = require('./appManagement/appsRuntimeState');
@@ -85,7 +92,8 @@ const {
 
 // State objects for monitoring services
 const dosState = {
-  dosMessage: null,
+  get dosMessage() { return fluxNetworkHelper.getDosMessage(); },
+  set dosMessage(value) { fluxNetworkHelper.setDosMessage(value); },
   get dosStateValue() { return fluxNetworkHelper.getDosStateValue(); },
   set dosStateValue(value) { fluxNetworkHelper.setDosStateValue(value); },
   testingPort: null,
@@ -250,12 +258,16 @@ async function ensureIndexes(collection, specs) {
 
 /**
  * To start FluxOS. A series of checks are performed on port and UPnP (Universal Plug and Play) support and mapping. Database connections are established. The other relevant functions required to start FluxOS services are called.
+ *
+ * Not unit-testable: every step acts on the machine, and a throw re-runs the
+ * whole boot 15 s later with whatever is stubbed by then. Unit-test the steps
+ * it calls; the integration harness covers the sequence.
  */
 async function startFluxFunctions() {
   try {
     if (!config.server.allowedPorts.includes(+apiPort)) {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
-      process.exit();
+      process.exit(systemdNotify.EXIT_CONFIG);
     }
     // Ahead of anything that might call a runtime API this NodeJS lacks. A
     // below-floor node stays up holding a sticky DOS, so /flux/info names the
@@ -264,6 +276,23 @@ async function startFluxFunctions() {
     // Hard dependencies — nothing starts until these are confirmed.
     await dbHelper.waitForMongo();
     await dockerService.waitForDocker();
+    // As soon as Docker answers, before the container firewall is applied: a
+    // below-floor node stays up holding a sticky DOS, so /flux/info names the
+    // version found and the version required.
+    fluxNetworkHelper.checkDockerVersionAllowed(await dockerService.dockerVersion().then((version) => version.Version, () => null));
+    // Before any work that a restart would cut short: a registration that
+    // needs its kill timeout raised restarts FluxOS, and this waits for it.
+    await fluxService.ensurePm2KillTimeout();
+    // Before anything runs the ufw helper: the copy root runs is installed once
+    // per start.
+    await ufwHelper.path();
+    // Before anything reads or changes the firewall: a node whose ufw defaults
+    // file is broken has no firewall until this repairs it.
+    await fluxNetworkHelper.ensureUfwDefaults().catch((error) => log.error(error));
+    // The node's own firewall rules, before any other code writes to the
+    // firewall and before any app starts.
+    await fluxNetworkHelper.adjustFirewall();
+    log.info('Firewalls checked');
 
     // Check and update CloudUI if needed (for legacy nodes without watchdog)
     log.info('Checking CloudUI installation...');
@@ -291,23 +320,18 @@ async function startFluxFunctions() {
     await systemService.mongoDBConfig();
     systemService.monitorSystem();
     log.info('System service initiated');
+    fluxadmService.start();
+    log.info('Fluxadm access service initiated');
     log.info('Preparing local database...');
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.local.database);
-    await dbHelper.dropCollection(database, config.database.local.collections.loggedUsers).catch((error) => { // drop currently logged users
-      if (error.message !== 'ns not found') {
-        log.error(error);
-      }
-    });
-    await dbHelper.dropCollection(database, config.database.local.collections.activeLoginPhrases).catch((error) => {
-      if (error.message !== 'ns not found') {
-        log.error(error);
-      }
-    });
-    await dbHelper.dropCollection(database, config.database.local.collections.activeSignatures).catch((error) => {
-      if (error.message !== 'ns not found') {
-        log.error(error);
-      }
+    // Logins survive a restart: every request re-verifies its signature and
+    // re-checks its privilege against the node's current config, and each
+    // session collection's TTL index expires its rows. A login row never holds
+    // the session's signature (loginSignatures does, for a minute); one that
+    // does loses it here.
+    await dbHelper.updateInDatabase(database, config.database.local.collections.loggedUsers, { signature: { $exists: true } }, { $unset: { signature: '' } }).catch((error) => {
+      log.error(error);
     });
     // Named literally because they are no longer part of the schema: the payment
     // request and receipt collections outlived the endpoint that wrote them, and
@@ -327,6 +351,10 @@ async function startFluxFunctions() {
     ]);
     await ensureIndexes(database.collection(config.database.local.collections.activeSignatures), [
       { key: { createdAt: 1 }, expireAfterSeconds: 900 },
+    ]);
+    await ensureIndexes(database.collection(config.database.local.collections.loginSignatures), [
+      { key: { createdAt: 1 }, expireAfterSeconds: 60 },
+      { key: { loginPhrase: 1 } },
     ]);
     // legacy pre-incident-schema rows expire via detectedAt; current incident
     // documents expire via lastSeen. The tamper service purges pre-schema
@@ -372,6 +400,7 @@ async function startFluxFunctions() {
       { key: { 'appSpecifications.version': 1 }, name: 'query for getting app message based on version' },
       { key: { 'appSpecifications.nodes': 1 }, name: 'query for getting app message based on nodes' },
     ]);
+    await dbHelper.ensureNewestAppMessageIndex(databaseTemp.collection(config.database.appsglobal.collections.appsMessages));
     // TTL is driven by expireAt (set per-document by store functions). Migrate from old broadcastedAt-based TTL.
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).dropIndex('broadcastedAt_1').catch(() => {});
     await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsLocations), [
@@ -385,6 +414,10 @@ async function startFluxFunctions() {
       { key: { ip: 1, type: 1, dedupKey: 1 }, unique: true, recover: dedupeByKey },
       { key: { broadcastedAt: 1 } },
       { key: { createdAt: 1 } },
+      // the events of one type still standing, every move among them
+      { key: { type: 1, expireAt: 1 }, name: 'events by type and expiry' },
+      // the moves that lead to an address
+      { key: { 'data.newIP': 1 }, name: 'moves by the address they lead to', partialFilterExpression: { type: 'ipchanged' } },
     ]);
     log.info('App state events collection prepared');
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).dropIndex('broadcastedAt_1').catch(() => {});
@@ -469,6 +502,13 @@ async function startFluxFunctions() {
     // Read boot context early — determines startup behavior for container management.
     const bootContext = await AppSyncOrchestrator.readBootContext();
 
+    // The rules that keep app containers off private networks and off each
+    // other's networks, applied before any app container starts. A failure is
+    // logged and apps still start. Rechecked so a removed chain returns; each
+    // network FluxOS creates or removes re-applies them as it goes.
+    await dockerService.applyContainerFirewall();
+    setInterval(() => dockerService.applyContainerFirewall(), 10 * 60 * 1000);
+
     // App startup manager owns all boot-time container lifecycle decisions:
     // Locations expired → remove all. Otherwise wait for daemon/DB, then reconcile.
     appStartupManager.manageAppsOnBoot(bootContext).catch((error) => {
@@ -491,6 +531,15 @@ async function startFluxFunctions() {
     // awaited so isDaemonSynced cache is populated before hash sync reads it
     await daemonServiceMiscRpcs.daemonBlockchainInfoService();
     globalState.daemonReady = true;
+
+    // App payments are placed in chain order from the daemon's address index: it
+    // positions the payments recorded before the scan recorded positions, and a
+    // node with no app history yet fetches its payments through it.
+    if (!daemonServiceMiscRpcs.isAddressIndex()) {
+      log.error('fluxd is running without addressindex=1. FluxOS needs the address index to order app messages. Set addressindex=1 in flux.conf and reindex the daemon, or reinstall the node. FluxOS is stopping.');
+      process.exit(1);
+    }
+    await paymentPositions.backfillPaymentPositions();
 
     // Initialize app sync orchestrator and spawner
     const orchestrator = new AppSyncOrchestrator({
@@ -518,6 +567,11 @@ async function startFluxFunctions() {
       offPeerEvent: (event, cb) => peerManager.removeListener(event, cb),
       isAboveThreshold: () => peerManager.isAboveThreshold(),
     });
+
+    // Whether this node's calls to other nodes reach them. Started beside the
+    // peer-set watch because it draws its observer from the same network state,
+    // and like it the check says why a node is out rather than leaving it silent.
+    outboundPathService.start();
 
     // Network policy, started here rather than at the top of boot because it needs both of
     // the things that only exist by now: mongo, to restore and re-verify the bundle this
@@ -586,14 +640,24 @@ async function startFluxFunctions() {
     // a removed component's in-memory controller verdict dies with it - a
     // reinstalled g:/r: app must await a fresh election, not inherit a stale one
     appUninstaller.setOnComponentRemoved((id) => appReconciler.forgetDesiredState(id));
+    // an app the registry stops listing is removed here and its removal told to peers
+    localRemovalQueue.setRemover((appName) => appUninstaller.removeAppLocally(appName, null, true, false, true));
     // the node's address moved, so every app that survived it has to come up on
     // the new one - asked for durably here rather than driven from the network
     // layer, which sits underneath the reconciler and cannot require it
-    fluxNetworkHelper.setOnAddressChanged((apps, reason) => appReconciler.requestRestartOf(apps, reason));
+    fluxNetworkHelper.setOnAddressChanged((apps, reason, key) => appReconciler.requestRestartOf(apps, reason, key));
+    // this node's own address moved: it records the move as its peers will, so
+    // it knows FDM naming its old IP means itself, and tells them once it has
+    // peers at the new address
+    fluxNetworkHelper.setOnOwnAddressMoved((oldIp, newIp, movedAt) => fluxCommunication.handleOwnAddressMove(oldIp, newIp, movedAt));
+    // whether this node ran apps at an address it has no record of leaving
+    fluxNetworkHelper.setInstalledAppsListedAt((socketAddress) => appQueryService.installedAppsListedAt(socketAddress));
+    fluxCommunication.announceRecordedOwnMovesWhenConnected();
+    // every address benchmark reports as this node's own, from boot on: one that
+    // differs from the address it last adopted is its move
+    fluxNetworkHelper.startOwnAddressWatch();
     log.info('App Spawner initialized');
 
-    fluxNetworkHelper.adjustFirewall();
-    log.info('Firewalls checked');
     fluxNetworkHelper.allowNodeToBindPrivilegedPorts();
     log.info('Node allowed to bind privileged ports');
     fluxCommunication.keepConnectionsAlive();
@@ -613,7 +677,10 @@ async function startFluxFunctions() {
         log.info('Native image update service started');
       }).catch((error) => log.error(`Image update service start error: ${error.message}`));
     }, bootDelay(10 * 60 * 1000)); // 10 minutes after startup
-    fluxNetworkHelper.checkDeterministicNodesCollisions();
+    // this node's own standing on the network - collisions, reachability, its
+    // own address - judged as each thing it depends on changes
+    fluxNetworkHelper.startOwnStandingWatch();
+    syncthingService.onListenerStateKnown(fluxNetworkHelper.noteSyncthingListenerKnown);
     // STARTED ON THE POLICY, NOT ON BOOT. The blocklist this enforces is a document in the
     // signed bundle, and the bundle is not resolved by the time this line runs. Started
     // here, its first tick reads nothing - and reading nothing is correctly refused rather
@@ -638,6 +705,7 @@ async function startFluxFunctions() {
     }).catch((err) => {
       log.error(`residentialNodeDos start error: ${err.message}`);
     });
+    uplinkService.start();
     log.info('Flux checks operational');
     fluxCommunication.initializeDiscovery();
     await nodeConfirmationService.start();
@@ -723,8 +791,6 @@ async function startFluxFunctions() {
     // await throughput.start();
 
     setTimeout(async () => {
-      const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
-      await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
       log.info('Rechecking firewall app rules');
       await fluxNetworkHelper.purgeUFW();
     }, bootDelay(30 * 1000));
@@ -771,6 +837,9 @@ async function startFluxFunctions() {
       setInterval(() => {
         portManager.restorePortsSupport();
       }, portRestoreIntervalMs);
+      // Detached: one pass per start, once the boot gate has settled and in
+      // this node's own slot. Nothing waits on it.
+      portManager.removeStaleUpnpMappings();
     };
     startDbDependentServices();
     log.info('Starting setting Node Geolocation');
@@ -892,4 +961,6 @@ module.exports = {
   ensureIndex,
   ensureIndexes,
   dedupeByKey,
+  // testing exports
+  dosState,
 };

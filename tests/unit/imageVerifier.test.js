@@ -1,3 +1,5 @@
+const net = require('net');
+const axios = require('axios');
 const { expect } = require('chai');
 const sinon = require('sinon');
 
@@ -7,6 +9,7 @@ const registryResponses = require('./data/registryResponses');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 
 const { ImageVerifier } = require('../../ZelBack/src/services/utils/imageVerifier');
+const { GuardedHttpAgent, GuardedHttpsAgent } = require('../../ZelBack/src/services/utils/urlSecurity');
 
 describe('imageVerifier tests', () => {
   afterEach(() => {
@@ -23,6 +26,24 @@ describe('imageVerifier tests', () => {
       expect(verifier.namespace).to.eql('complex/namespace');
       expect(verifier.repository).to.eql('split/image');
       expect(verifier.tag).to.eql('latest');
+    });
+
+    ['example.repository.com:1/a/b:1', 'example.repository.com:65535/a/b:1', 'localhost:5000/a/b:1'].forEach((repotag) => {
+      it(`should accept a registry port in 1-65535 (${repotag})`, () => {
+        const verifier = new ImageVerifier(repotag);
+
+        expect(verifier.parseError).to.equal(false);
+      });
+    });
+
+    [['example.repository.com:0/a/b:1', '0'], ['example.repository.com:65536/a/b:1', '65536'],
+      ['ghcr.io:99999/a/b:1', '99999'], ['localhost:0/a/b:1', '0']].forEach(([repotag, port]) => {
+      it(`should reject a registry port outside 1-65535 as a parse error (${repotag})`, () => {
+        const verifier = new ImageVerifier(repotag);
+
+        expect(verifier.parseError).to.equal(true);
+        expect(verifier.errorDetail).to.equal(`Image tag: ${repotag} has registry port ${port}, which is not in 1-65535`);
+      });
     });
 
     it('should parse basic repository correctly', async () => {
@@ -670,6 +691,120 @@ describe('imageVerifier tests', () => {
       expect(verifier.errorMeta.httpStatus).to.be.null;
     });
 
+    it('should populate errorMeta with network error type for a connect timeout on every address', async () => {
+      const repotag = 'indifferentbroccoli/runescape-dragonwilds-server-docker:latest';
+
+      // What axios throws when no address completes its TCP handshake in time: an
+      // AggregateError with code ETIMEDOUT, and no response at all.
+      const timeoutError = new Error('');
+      timeoutError.name = 'AggregateError';
+      timeoutError.code = 'ETIMEDOUT';
+      timeoutError.errors = [new Error('connect ETIMEDOUT 54.83.85.171:443')];
+
+      axiosInstanceStub.returns({
+        get: sinon.stub().rejects(timeoutError),
+        interceptors: { request: { use: sinon.stub() } },
+      });
+
+      const verifier = new ImageVerifier(repotag);
+      await verifier.verifyImage();
+
+      expect(verifier.errorMeta.errorType).to.equal('network');
+      expect(verifier.errorMeta.errorCode).to.equal('ETIMEDOUT');
+      expect(verifier.errorMeta.httpStatus).to.be.null;
+      // Checked last: throwIfError resets the errors, errorMeta included.
+      expect(() => verifier.throwIfError()).to.throw(`Connection Error ETIMEDOUT: ${repotag} not available`);
+    });
+
+    function rejectWith(error) {
+      axiosInstanceStub.returns({
+        get: sinon.stub().rejects(error),
+        interceptors: { request: { use: sinon.stub() } },
+      });
+    }
+
+    // A coded connection error is a network error even when it fails before axios has a
+    // request object, as an abort before sending does.
+    ['ECONNREFUSED', 'ECONNABORTED', 'ERR_CANCELED', 'ENETUNREACH', 'ETIMEDOUT', 'ECONNRESET',
+      'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH'].forEach((code) => {
+      it(`should populate errorMeta with network error type for a coded connection error (${code})`, async () => {
+        const repotag = 'megachips/ipshow:web';
+        const error = new Error('no response');
+        error.code = code;
+        rejectWith(error);
+
+        const verifier = new ImageVerifier(repotag);
+        await verifier.verifyImage();
+
+        expect(verifier.errorMeta.errorType).to.equal('network');
+        expect(verifier.errorMeta.errorCode).to.equal(code);
+        expect(() => verifier.throwIfError()).to.throw(`Connection Error ${code}: ${repotag} not available`);
+      });
+    });
+
+    // A request that was sent and got no response is a network error whatever the code: the
+    // TLS handshake failures among them.
+    ['CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'ERR_TLS_CERT_ALTNAME_INVALID', 'EPROTO',
+      'ERR_SSL_WRONG_VERSION_NUMBER'].forEach((code) => {
+      it(`should populate errorMeta with network error type for a request sent without a response (${code})`, async () => {
+        const repotag = 'megachips/ipshow:web';
+        const error = new Error('no response');
+        error.code = code;
+        error.request = {};
+        rejectWith(error);
+
+        const verifier = new ImageVerifier(repotag);
+        await verifier.verifyImage();
+
+        expect(verifier.errorMeta.errorType).to.equal('network');
+        expect(verifier.errorMeta.errorCode).to.equal(code);
+      });
+    });
+
+    it('should not treat a request that could not be made as a network error', async () => {
+      // What axios throws for a registry port out of range: no request was ever sent.
+      const repotag = 'megachips/ipshow:web';
+      const error = new Error('Invalid URL');
+      error.code = 'ERR_INVALID_URL';
+      rejectWith(error);
+
+      const verifier = new ImageVerifier(repotag);
+      await verifier.verifyImage();
+
+      expect(verifier.errorMeta.errorType).to.equal('http_error');
+      expect(() => verifier.throwIfError()).to.throw(`Bad HTTP Status undefined: ${repotag} not available`);
+    });
+
+    it('should not treat a request the registry answered as a network error', async () => {
+      const repotag = 'megachips/ipshow:web';
+      const error = new Error('Request failed with status code 404');
+      error.code = 'ERR_BAD_REQUEST';
+      error.request = {};
+      error.response = { status: 404, headers: {} };
+      rejectWith(error);
+
+      const verifier = new ImageVerifier(repotag);
+      await verifier.verifyImage();
+
+      expect(verifier.errorMeta.errorType).to.equal('http_error');
+      expect(() => verifier.throwIfError()).to.throw(`Bad HTTP Status 404: ${repotag} not available`);
+    });
+
+    it('should not treat an error without a code or a response as a network error', async () => {
+      const repotag = 'megachips/ipshow:web';
+
+      axiosInstanceStub.returns({
+        get: sinon.stub().rejects(new Error('something else went wrong')),
+        interceptors: { request: { use: sinon.stub() } },
+      });
+
+      const verifier = new ImageVerifier(repotag);
+      await verifier.verifyImage();
+
+      expect(verifier.errorMeta.errorType).to.equal('http_error');
+      expect(() => verifier.throwIfError()).to.throw(`Bad HTTP Status undefined: ${repotag} not available`);
+    });
+
     it('should populate errorMeta with rate_limit error type for 429', async () => {
       const repotag = 'megachips/ipshow:web';
 
@@ -782,6 +917,184 @@ describe('imageVerifier tests', () => {
       verifier.resetErrors();
 
       expect(verifier.errorMeta).to.be.null;
+    });
+  });
+
+  describe('SSRF guard', () => {
+    // No axios stub here on purpose: the guard is in the transport itself, so
+    // stubbing it would test nothing. An address is refused as its connection
+    // is about to be made, before any packet is sent.
+    it('refuses a registry that resolves to a loopback address', async () => {
+      const verifier = new ImageVerifier('127.0.0.1:9999/ns/repo:tag');
+
+      const result = await verifier.verifyImage();
+
+      expect(result).to.equal(false);
+      expect(() => verifier.throwIfError()).to.throw(/private or reserved address/);
+    });
+
+    it('refuses a private-range registry', async () => {
+      const verifier = new ImageVerifier('10.0.0.5:5000/ns/repo:tag');
+
+      await verifier.verifyImage();
+
+      expect(verifier.error).to.equal(true);
+      expect(verifier.errorDetail).to.match(/private or reserved address/);
+    });
+
+    it('classes a refusal permanent, so it is never retried as a flaky registry', async () => {
+      // The name resolved and we declined to dial it. Reading that as a network
+      // blip would retry a spec pointing at an internal address forever.
+      const verifier = new ImageVerifier('169.254.169.254:80/ns/repo:tag');
+
+      await verifier.verifyImage();
+
+      expect(verifier.errorMeta.errorType).to.equal('invalid_format');
+      expect(verifier.errorMeta.errorCode).to.equal('EBLOCKEDADDRESS');
+    });
+
+    describe('a registry at an encoded internal address', () => {
+      // A local listener stands in for an internal service. It counts TCP connections, so a
+      // refusal that came after the connection was made would still be caught.
+      let internal;
+      let port;
+      let connections;
+
+      before((done) => {
+        internal = net.createServer((socket) => { connections += 1; socket.destroy(); });
+        internal.listen(0, '127.0.0.1', () => { ({ port } = internal.address()); done(); });
+      });
+
+      after(() => {
+        internal.close();
+      });
+
+      beforeEach(() => {
+        connections = 0;
+      });
+
+      it('reaches the internal service through an encoded address without the guard', async () => {
+        // Canary: the encoded form does reach the listener, so a zero below is the guard.
+        await axios.get(`https://2130706433:${port}/v2/`).catch(() => {});
+
+        expect(connections).to.equal(1);
+      });
+
+      ['2130706433', '127.1'].forEach((host) => {
+        it(`refuses ${host} as a registry without connecting`, async () => {
+          const verifier = new ImageVerifier(`${host}:${port}/ns/repo:tag`);
+
+          await verifier.verifyImage();
+
+          expect(connections).to.equal(0);
+          expect(verifier.errorMeta.errorType).to.equal('invalid_format');
+          expect(verifier.errorMeta.errorCode).to.equal('EBLOCKEDADDRESS');
+        });
+      });
+    });
+
+    describe('requests a registry chooses', () => {
+      let axiosInstanceStub;
+      let axiosGetStub;
+
+      beforeEach(() => {
+        axiosInstanceStub = sinon.stub(serviceHelper, 'axiosInstance');
+        axiosGetStub = sinon.stub(serviceHelper, 'axiosGet');
+      });
+
+      afterEach(() => {
+        sinon.restore();
+      });
+
+      function registryAnswers(error) {
+        axiosInstanceStub.returns({
+          get: sinon.stub().rejects(error),
+          interceptors: { request: { use: sinon.stub() } },
+        });
+      }
+
+      function bearerChallenge(realm) {
+        const error = new Error('Request failed with status code 401');
+        error.response = {
+          status: 401,
+          headers: { 'www-authenticate': `Bearer realm="${realm}",service="registry.example.com",scope="repository:ns/repo:pull"` },
+        };
+        return error;
+      }
+
+      // How a refusal reaches the verifier when the registry redirected: axios wraps the
+      // redirect library's error, which wraps the refusal.
+      function wrappedRefusal() {
+        const refusal = new Error('Refusing to connect');
+        refusal.code = 'EBLOCKEDADDRESS';
+        const redirectFailure = new Error('Redirected request failed');
+        redirectFailure.code = 'ERR_FR_REDIRECTION_FAILURE';
+        redirectFailure.cause = refusal;
+        const axiosError = new Error('Redirected request failed');
+        axiosError.code = 'ERR_FR_REDIRECTION_FAILURE';
+        axiosError.request = {};
+        axiosError.cause = redirectFailure;
+        return axiosError;
+      }
+
+      it('makes its registry requests through the guarded agents', () => {
+        registryAnswers(new Error('unused'));
+
+        // eslint-disable-next-line no-new
+        new ImageVerifier('registry.example.com/ns/repo:tag');
+
+        const options = axiosInstanceStub.firstCall.args[0];
+        expect(options.httpAgent).to.be.instanceOf(GuardedHttpAgent);
+        expect(options.httpsAgent).to.be.instanceOf(GuardedHttpsAgent);
+      });
+
+      it('classes a refused redirect from the registry permanent, not as a network error', async () => {
+        registryAnswers(wrappedRefusal());
+
+        const verifier = new ImageVerifier('registry.example.com/ns/repo:tag');
+        await verifier.verifyImage();
+
+        expect(verifier.errorMeta.errorType).to.equal('invalid_format');
+        expect(verifier.errorDetail).to.match(/private or reserved address/);
+      });
+
+      ['http://10.0.0.5:2375/token', 'http://167772165:2375/token'].forEach((realm) => {
+        it(`refuses a token realm at an internal address (${realm})`, async () => {
+          // The real transport: the refusal comes from the agent the realm is requested through.
+          axiosGetStub.restore();
+          registryAnswers(bearerChallenge(realm));
+
+          const verifier = new ImageVerifier('registry.example.com/ns/repo:tag');
+          await verifier.verifyImage();
+
+          expect(verifier.errorMeta.errorType).to.equal('invalid_format');
+          expect(verifier.errorDetail).to.equal('Refused: authentication for registry.example.com/ns/repo:tag points at a private or reserved address');
+        });
+      });
+
+      it('requests a token realm through the guarded agents', async () => {
+        registryAnswers(bearerChallenge('https://auth.example.com/token'));
+        axiosGetStub.rejects(new Error('unused'));
+
+        const verifier = new ImageVerifier('registry.example.com/ns/repo:tag');
+        await verifier.verifyImage();
+
+        sinon.assert.calledOnce(axiosGetStub);
+        const options = axiosGetStub.firstCall.args[1];
+        expect(options.httpAgent).to.be.instanceOf(GuardedHttpAgent);
+        expect(options.httpsAgent).to.be.instanceOf(GuardedHttpsAgent);
+      });
+
+      it('classes a refused token request permanent, not as an unavailable token service', async () => {
+        registryAnswers(bearerChallenge('https://auth.example.com/token'));
+        axiosGetStub.rejects(wrappedRefusal());
+
+        const verifier = new ImageVerifier('registry.example.com/ns/repo:tag');
+        await verifier.verifyImage();
+
+        expect(verifier.errorMeta.errorType).to.equal('invalid_format');
+        expect(verifier.errorDetail).to.equal('Refused: authentication for registry.example.com/ns/repo:tag points at a private or reserved address');
+      });
     });
   });
 });

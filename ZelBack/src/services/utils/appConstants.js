@@ -36,6 +36,13 @@ const globalAppsInstallingErrorsBroadcasts = config.database.appsglobal.collecti
 const APP_NAME_REGEX = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/;
 const APP_NAME_REGEX_LEGACY = /^[a-zA-Z0-9]+$/;
 
+// The largest an app specification may be, in any version: a name and a
+// component name of up to 63 characters (an FQDN label, RFC 1035), and up to
+// 10 components.
+const MAX_APP_NAME_LENGTH = 63;
+const MAX_COMPONENT_NAME_LENGTH = 63;
+const MAX_APP_COMPONENTS = 10;
+
 // Mount options for an app's FLUXFSVOL. An app volume holds data its owner
 // writes, so nothing stored there should be able to confer privilege on
 // whatever reads it back.
@@ -168,6 +175,11 @@ module.exports = {
   // Validation regexes
   APP_NAME_REGEX,
   APP_NAME_REGEX_LEGACY,
+
+  // Specification limits
+  MAX_APP_NAME_LENGTH,
+  MAX_COMPONENT_NAME_LENGTH,
+  MAX_APP_COMPONENTS,
 
   // Volumes
   APP_VOLUME_MOUNT_OPTIONS,

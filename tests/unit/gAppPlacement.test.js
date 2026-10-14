@@ -15,7 +15,7 @@ describe('g: app placement orders', () => {
   });
 
   // The harness lays nodes out one per address, ascending with the index.
-  const ipOf = (index) => `198.18.0.${index + 10}`;
+  const ipOf = (index) => `31.200.0.${index + 10}`;
 
   describe('which holder seeds the folder', () => {
     it('is the lowest address, not the first one the caller listed', () => {
@@ -30,7 +30,7 @@ describe('g: app placement orders', () => {
       // '.10' sorts before '.9' as text. Every harness fleet today lands in
       // .10-.25 where the two agree, so a lexical compare would be wrong only
       // for the first fixture that ever spans the boundary.
-      const spanning = (index) => `198.18.0.${index}`;
+      const spanning = (index) => `31.200.0.${index}`;
 
       expect(placement.syncthingSeedIndex([10, 9], spanning)).to.equal(9);
     });

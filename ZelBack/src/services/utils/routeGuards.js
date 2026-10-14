@@ -17,6 +17,32 @@ const BOOT_RETRY_AFTER_SECONDS = 15;
 // what this paces is a client's polling rather than any interval of ours.
 const POLICY_RETRY_AFTER_SECONDS = 30;
 
+// What a caller turned away because the daemon cannot answer is told to wait.
+// fluxd loads its block index in about a minute on a node and answers nothing
+// useful until it has, so this paces a poll through that minute.
+const DAEMON_RETRY_AFTER_SECONDS = 5;
+
+// The daemon's own RPC error while it is still loading (RPC_IN_WARMUP).
+const RPC_IN_WARMUP = -28;
+
+// What the RPC client reports when no daemon is listening on the loopback port,
+// the connection to it died, or it stopped answering: the daemon is down or
+// restarting, not answering wrongly.
+const DAEMON_UNREACHABLE_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT']);
+
+/**
+ * Answer 503 with a Retry-After: this node cannot answer yet, and the caller is
+ * better served by being told when to come back than by a request held open.
+ * @param {object} res Response
+ * @param {string} message Why the node cannot answer
+ * @param {number} retryAfterSeconds When to come back
+ * @returns {*} the sent response
+ */
+function serviceUnavailable(res, message, retryAfterSeconds) {
+  res.setHeader('Retry-After', String(retryAfterSeconds));
+  return res.status(503).json(messageHelper.createErrorMessage(message, 'ServiceUnavailable', 503));
+}
+
 /**
  * Refuse a call that would create or destroy a container before boot
  * reconciliation has decided which applications this node is keeping.
@@ -42,13 +68,7 @@ const POLICY_RETRY_AFTER_SECONDS = 30;
  */
 function requireBootSettled(req, res, next) {
   if (globalState.bootContainerStateSettled) return next();
-  res.setHeader('Retry-After', String(BOOT_RETRY_AFTER_SECONDS));
-  const errMessage = messageHelper.createErrorMessage(
-    'Node is still reconciling its applications after boot',
-    'ServiceUnavailable',
-    503,
-  );
-  return res.status(503).json(errMessage);
+  return serviceUnavailable(res, 'Node is still reconciling its applications after boot', BOOT_RETRY_AFTER_SECONDS);
 }
 
 /**
@@ -76,13 +96,80 @@ function requireBootSettled(req, res, next) {
  */
 function requirePolicyReady(req, res, next) {
   if (globalState.policyReady) return next();
-  res.setHeader('Retry-After', String(POLICY_RETRY_AFTER_SECONDS));
-  const errMessage = messageHelper.createErrorMessage(
-    'Node has not yet obtained the network policy',
-    'ServiceUnavailable',
-    503,
-  );
-  return res.status(503).json(errMessage);
+  return serviceUnavailable(res, 'Node has not yet obtained the network policy', POLICY_RETRY_AFTER_SECONDS);
+}
+
+/**
+ * Refuse a read of the global application registry while this node's registry
+ * is not current.
+ *
+ * The registry is rebuilt from the permanent messages once the boot hash sync
+ * completes, and stops being current when this node loses the peers new
+ * messages reach it through. Until then a read answers from a registry that is
+ * unbuilt or behind, and a caller cannot tell that answer from a network with
+ * fewer apps: FDM takes it as the app list and routes to it.
+ *
+ * Keyed on dbReady, which the sync orchestrator opens when a rebuild finishes
+ * and closes when it degrades. Runs ahead of the cache, so a refusal is never
+ * stored and a stored answer is never served while the registry is not current.
+ * @param {object} req Request
+ * @param {object} res Response
+ * @param {Function} next Next handler
+ * @returns {*} next(), or a 503 carrying a Retry-After
+ */
+function requireRegistryReady(req, res, next) {
+  if (globalState.dbReady) return next();
+  return serviceUnavailable(res, 'Node application registry is not current', BOOT_RETRY_AFTER_SECONDS);
+}
+
+/**
+ * Refuse a read of where applications run, install or fail before this node's
+ * view of that is complete.
+ *
+ * Locations are what other nodes have announced to this one. After a restart
+ * the store holds whatever outlived the outage until the orchestrator's state
+ * sync has heard the network, and an answer drawn from it reads the same as one
+ * from a node that knows.
+ *
+ * Keyed on appStateAuthoritative, the orchestrator's verdict on that store.
+ * Named separately from the registry guard: the two stores are filled by
+ * different syncs and come up at different times.
+ * @param {object} req Request
+ * @param {object} res Response
+ * @param {Function} next Next handler
+ * @returns {*} next(), or a 503 carrying a Retry-After
+ */
+function requireAppStateReady(req, res, next) {
+  if (globalState.appStateAuthoritative) return next();
+  return serviceUnavailable(res, 'Node has not yet synchronised application locations', BOOT_RETRY_AFTER_SECONDS);
+}
+
+/**
+ * Whether `error` says the daemon cannot answer yet: it is still loading
+ * (RPC_IN_WARMUP) or nothing is listening. That is a state the node passes
+ * through at every daemon start, not a fault.
+ * @param {Error|object} error What the daemon RPC client raised; `code` is the
+ *   daemon's RPC error code, or the connection error's
+ * @returns {boolean}
+ */
+function isDaemonUnavailable(error) {
+  const code = error && error.code;
+  return code === RPC_IN_WARMUP || DAEMON_UNREACHABLE_CODES.has(code);
+}
+
+/**
+ * Answer 503 when `error` says the daemon cannot answer yet. A handler that asks
+ * the daemon for a verdict - the node's tier - has none to give in that state,
+ * so the caller is told to come back rather than handed the daemon's error as
+ * the answer. Any other error is the handler's to report.
+ * @param {object} res Response
+ * @param {Error|object} error What the daemon RPC client raised
+ * @returns {boolean} whether the response was sent
+ */
+function answerDaemonUnavailable(res, error) {
+  if (!isDaemonUnavailable(error)) return false;
+  serviceUnavailable(res, error.message, DAEMON_RETRY_AFTER_SECONDS);
+  return true;
 }
 
 /**
@@ -198,5 +285,13 @@ function cache(duration) {
 }
 
 module.exports = {
-  asyncRoute, cache, rejectQueryParameters, requireBootSettled, requirePolicyReady,
+  answerDaemonUnavailable,
+  asyncRoute,
+  cache,
+  isDaemonUnavailable,
+  rejectQueryParameters,
+  requireAppStateReady,
+  requireBootSettled,
+  requirePolicyReady,
+  requireRegistryReady,
 };

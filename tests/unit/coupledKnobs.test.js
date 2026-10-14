@@ -250,6 +250,28 @@ describe('coupled harness knobs track production', () => {
     expect(() => knobs.assertSigtermOrdering(shared)).to.not.throw();
   });
 
+  it('holds production\'s election cycle and stagger', () => {
+    const { fluxapps } = productionConfig();
+
+    expect(knobs.PRODUCTION.masterSlaveIntervalMs).to.equal(fluxapps.masterSlaveIntervalMs);
+    expect(knobs.PRODUCTION.masterSlaveStaggerMs).to.equal(fluxapps.masterSlaveStaggerMs);
+  });
+
+  it('rejects a stagger that spans fewer election passes than production\'s', () => {
+    const pass = 3000;
+    const tooShort = (knobs.staggerPassesPerPlace() - 1) * pass;
+
+    expect(() => knobs.assertCoupledRatios({ masterSlaveIntervalMs: pass, masterSlaveStaggerMs: tooShort }))
+      .to.throw(/spans too few election passes/);
+    expect(() => knobs.assertCoupledRatios({
+      masterSlaveIntervalMs: pass, masterSlaveStaggerMs: knobs.staggerPassesPerPlace() * pass,
+    })).to.not.throw();
+  });
+
+  it('accepts the shared fleet\'s stagger', () => {
+    expect(() => knobs.assertStaggerSpansElectionPasses(knobs.loadSharedConfig().fluxapps)).to.not.throw();
+  });
+
   it('leaves a step longer than production needs alone', () => {
     // A suite that does not compress this at all is slow, not wrong, and the
     // check must not push anyone toward a tighter number than they wanted.

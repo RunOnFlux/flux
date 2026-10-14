@@ -529,6 +529,20 @@ function isGComponent(containerData) {
   return getComponentSyncMode(containerData) === 'g';
 }
 
+/**
+ * The component of an app whose start the primary election decides: its first
+ * g: component, as `<component>_<app>` (the app name for a v1-3 app), or null
+ * when it has none. The election decides one component per app, this one.
+ * @param {object} appSpec - Installed app specification, decrypted.
+ * @returns {string|null}
+ */
+function electedComponentIdentifier(appSpec) {
+  if (!appSpec) return null;
+  if (appSpec.version <= 3) return isGComponent(appSpec.containerData) ? appSpec.name : null;
+  const component = (appSpec.compose || []).find((comp) => isGComponent(comp.containerData));
+  return component ? `${component.name}_${appSpec.name}` : null;
+}
+
 /** True iff the component's primary mount is any sync mount (g:/r:/s:). */
 function isSyncedComponent(containerData) {
   return getComponentSyncMode(containerData) !== null;
@@ -560,6 +574,7 @@ module.exports = {
   hasFlag,
   getComponentSyncMode,
   isGComponent,
+  electedComponentIdentifier,
   isSyncedComponent,
   validateMountPath,
   validateSubdirOrFilename,

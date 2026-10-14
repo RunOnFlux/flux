@@ -337,9 +337,9 @@ describe('availabilityChecker tests', () => {
       sinon.stub(fluxNetworkHelper, 'isPortUPNPBanned').returns(false);
       sinon.stub(networkStateService, 'getRandomExternalObserver').resolves('192.168.1.200:16127');
       sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
-      sinon.stub(fluxNetworkHelper, 'allowPort').resolves();
+      sinon.stub(fluxNetworkHelper, 'allowTestPort').resolves();
       sinon.stub(upnpService, 'mapUpnpPort').resolves(false); // Failed
-      sinon.stub(fluxNetworkHelper, 'deleteAllowPortRule').resolves();
+      sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves();
       sinon.stub(upnpService, 'removeMapUpnpPort').resolves();
 
       await availabilityChecker.checkMyAppsAvailability(
@@ -351,6 +351,31 @@ describe('availabilityChecker tests', () => {
       );
 
       expect(mockDosState.lastUPNPMapFailed).to.be.true;
+    });
+
+    it('opens the port under test to IPv4 only, and deletes only that rule', async () => {
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
+      sinon.stub(generalService, 'isNodeStatusConfirmed').resolves(true);
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.100:16127');
+      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+      sinon.stub(upnpService, 'isUPNP').returns(true);
+      sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
+      sinon.stub(fluxNetworkHelper, 'isPortUPNPBanned').returns(false);
+      sinon.stub(networkStateService, 'getRandomExternalObserver').resolves('192.168.1.200:16127');
+      sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
+      const allowTest = sinon.stub(fluxNetworkHelper, 'allowTestPort').resolves();
+      const deleteTest = sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves();
+      const allowBoth = sinon.stub(fluxNetworkHelper, 'allowPort').resolves();
+      const deleteBoth = sinon.stub(fluxNetworkHelper, 'deleteAllowPortRule').resolves();
+      sinon.stub(upnpService, 'mapUpnpPort').resolves(false);
+      sinon.stub(upnpService, 'removeMapUpnpPort').resolves();
+
+      await availabilityChecker.checkMyAppsAvailability(mockInstalledAppsFn, mockDosState, mockPortsNotWorking, mockFailedNodesCache, isArcane);
+
+      sinon.assert.calledOnceWithExactly(allowTest, mockDosState.testingPort);
+      sinon.assert.calledWith(deleteTest, mockDosState.testingPort);
+      sinon.assert.notCalled(allowBoth);
+      sinon.assert.notCalled(deleteBoth);
     });
 
     it('should increase DOS state on repeated UPNP failures', async () => {
@@ -371,9 +396,9 @@ describe('availabilityChecker tests', () => {
       sinon.stub(fluxNetworkHelper, 'isPortUPNPBanned').returns(false);
       sinon.stub(networkStateService, 'getRandomExternalObserver').resolves('192.168.1.200:16127');
       sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
-      sinon.stub(fluxNetworkHelper, 'allowPort').resolves();
+      sinon.stub(fluxNetworkHelper, 'allowTestPort').resolves();
       sinon.stub(upnpService, 'mapUpnpPort').resolves(false);
-      sinon.stub(fluxNetworkHelper, 'deleteAllowPortRule').resolves();
+      sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves();
       sinon.stub(upnpService, 'removeMapUpnpPort').resolves();
 
       await availabilityChecker.checkMyAppsAvailability(
@@ -384,7 +409,59 @@ describe('availabilityChecker tests', () => {
         isArcane,
       );
 
-      expect(mockDosState.dosStateValue).to.equal(4);
+      expect(mockDosState.portFailureScore).to.equal(4);
+      expect(mockDosState.dosStateValue, 'the node\'s DOS, which a count below the threshold leaves alone').to.equal(0);
+    });
+
+    it('leaves another check\'s DOS message standing when its own UPnP failures reach the threshold', async () => {
+      mockDosState.lastUPNPMapFailed = true;
+      mockDosState.portFailureScore = 96;
+      mockDosState.dosStateValue = 12;
+      mockDosState.dosMessage = 'Flux is not available for outside communication';
+
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
+      sinon.stub(generalService, 'isNodeStatusConfirmed').resolves(true);
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.100:16127');
+      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+      sinon.stub(upnpService, 'isUPNP').returns(true);
+      sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
+      sinon.stub(fluxNetworkHelper, 'isPortUPNPBanned').returns(false);
+      sinon.stub(networkStateService, 'getRandomExternalObserver').resolves('192.168.1.200:16127');
+      sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
+      sinon.stub(fluxNetworkHelper, 'allowTestPort').resolves();
+      sinon.stub(upnpService, 'mapUpnpPort').resolves(false);
+      sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves();
+      sinon.stub(upnpService, 'removeMapUpnpPort').resolves();
+
+      await availabilityChecker.checkMyAppsAvailability(mockInstalledAppsFn, mockDosState, mockPortsNotWorking, mockFailedNodesCache, isArcane);
+
+      expect(mockDosState.portFailureScore).to.equal(100);
+      expect(mockDosState.dosStateValue).to.equal(12);
+      expect(mockDosState.dosMessage).to.equal('Flux is not available for outside communication');
+    });
+
+    it('holds the node out of service with its own message when its UPnP failures reach the threshold and no other stands', async () => {
+      mockDosState.lastUPNPMapFailed = true;
+      mockDosState.portFailureScore = 96;
+
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
+      sinon.stub(generalService, 'isNodeStatusConfirmed').resolves(true);
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.100:16127');
+      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+      sinon.stub(upnpService, 'isUPNP').returns(true);
+      sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
+      sinon.stub(fluxNetworkHelper, 'isPortUPNPBanned').returns(false);
+      sinon.stub(networkStateService, 'getRandomExternalObserver').resolves('192.168.1.200:16127');
+      sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
+      sinon.stub(fluxNetworkHelper, 'allowTestPort').resolves();
+      sinon.stub(upnpService, 'mapUpnpPort').resolves(false);
+      sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves();
+      sinon.stub(upnpService, 'removeMapUpnpPort').resolves();
+
+      await availabilityChecker.checkMyAppsAvailability(mockInstalledAppsFn, mockDosState, mockPortsNotWorking, mockFailedNodesCache, isArcane);
+
+      expect(mockDosState.dosMessage).to.match(/^Not possible to run applications on the node/);
+      expect(mockDosState.dosStateValue).to.equal(100);
     });
 
     it('should handle errors gracefully and retry', async () => {
@@ -449,6 +526,62 @@ describe('availabilityChecker tests', () => {
       );
 
       expect(mockDosState.testingPort).to.equal(30050);
+    });
+  });
+
+  describe('releaseOwnDos', () => {
+    const ports = 'Ports tested not reachable from outside, DMZ or UPNP required! All ports that have failed: [1]';
+
+    it('ends its count, and the node\'s DOS when the message is this check\'s', () => {
+      const state = { dosMessage: ports, dosStateValue: 100, portFailureScore: 100 };
+
+      availabilityChecker.releaseOwnDos(state);
+
+      expect(state).to.deep.equal({ dosMessage: null, dosStateValue: 0, portFailureScore: 0 });
+    });
+
+    it('ends its count and leaves the node\'s count when no check holds the node out of service', () => {
+      const state = { dosMessage: null, dosStateValue: 8, portFailureScore: 40 };
+
+      availabilityChecker.releaseOwnDos(state);
+
+      expect(state).to.deep.equal({ dosMessage: null, dosStateValue: 8, portFailureScore: 0 });
+    });
+
+    it('ends its count and leaves another check\'s DOS alone', () => {
+      const state = { dosMessage: 'Flux IP detection failed', dosStateValue: 11, portFailureScore: 100 };
+
+      availabilityChecker.releaseOwnDos(state);
+
+      expect(state).to.deep.equal({ dosMessage: 'Flux IP detection failed', dosStateValue: 11, portFailureScore: 0 });
+    });
+  });
+
+  describe('countPortFailure', () => {
+    const ports = 'Ports tested not reachable from outside, DMZ or UPNP required! All ports that have failed: [1]';
+
+    it('counts four a failure toward its own threshold, leaving the node\'s DOS alone below it', () => {
+      const state = { dosMessage: null, dosStateValue: 3, portFailureScore: 92 };
+
+      expect(availabilityChecker.countPortFailure(state, 100, ports)).to.equal(false);
+
+      expect(state).to.deep.equal({ dosMessage: null, dosStateValue: 3, portFailureScore: 96 });
+    });
+
+    it('holds the node out of service at the threshold when no other check does', () => {
+      const state = { dosMessage: null, dosStateValue: 3, portFailureScore: 96 };
+
+      expect(availabilityChecker.countPortFailure(state, 100, ports)).to.equal(true);
+
+      expect(state).to.deep.equal({ dosMessage: ports, dosStateValue: 100, portFailureScore: 100 });
+    });
+
+    it('does not take over another check\'s DOS at the threshold', () => {
+      const state = { dosMessage: 'Flux IP detection failed', dosStateValue: 11, portFailureScore: 96 };
+
+      expect(availabilityChecker.countPortFailure(state, 100, ports)).to.equal(false);
+
+      expect(state).to.deep.equal({ dosMessage: 'Flux IP detection failed', dosStateValue: 11, portFailureScore: 100 });
     });
   });
 });

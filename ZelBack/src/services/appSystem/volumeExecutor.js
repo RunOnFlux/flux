@@ -1524,6 +1524,11 @@ async function feedContainer(stdin, input, transferred, exited, stopContainer, r
  *   over a directory (or the reverse) is refused either way. Without it a
  *   directory is never replaced wholesale, since that deletes every entry the
  *   caller did not name but that sat beside one they did.
+ * @param {boolean} [options.inheritOwner] - give what the operation created the
+ *   owner of the folder it lands in. flux-op runs as root, so an upload, an
+ *   extraction, a new folder or an archive is otherwise root's, and an app
+ *   running as another user cannot change its own files. Only meaningful with
+ *   `publish.staging`; a copy or a move keeps the owners its files already have.
  * @param {VolumePath} [options.workingDir] - the directory the command runs in,
  *   defaulting to the volume root. An archiver decides its stored layout from
  *   where it is run and what it is handed, and zip has no equivalent of tar's
@@ -1546,7 +1551,7 @@ async function run(session, argv, options = {}) {
     onProgress = null, isCanceled = null, status = 'Working...',
     publish = null, mkdirStaging = false, maxBytes = 0, maxFileBytes = 0, dataOnly = false,
     noReplace = false, merge = false, onBytes = null, workingDir = null, input = null,
-    slotHeld = false,
+    slotHeld = false, inheritOwner = false,
   } = options;
 
   if (!(session instanceof VolumeSession)) {
@@ -1602,6 +1607,7 @@ async function run(session, argv, options = {}) {
       ...(dataOnly ? ['--data-only'] : []),
       ...(noReplace ? ['--no-replace'] : []),
       ...(merge ? ['--merge'] : []),
+      ...(inheritOwner ? ['--inherit-owner'] : []),
       ...(input ? ['--from-stdin'] : []),
       toParam(target),
       toParam(publish.destination),

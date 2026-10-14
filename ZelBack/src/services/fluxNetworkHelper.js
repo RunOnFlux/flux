@@ -1,16 +1,18 @@
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
-const { WIFToPrivKey, privKeyToPubKey } = require('./utils/fluxCryptoUtils');
+const { decodeWIF, privKeyToPubKey } = require('./utils/fluxCryptoUtils');
 const nodecmd = require('node-cmd');
 const fs = require('fs').promises;
 const path = require('path');
 const os = require('os');
 const dgram = require('dgram');
+const { EventEmitter, once } = require('events');
 const net = require('net');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
+const dbHelper = require('./dbHelper');
 const messageHelper = require('./messageHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
@@ -19,10 +21,13 @@ const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const { peerManager } = require('./utils/peerState');
+const { RemovalOutcome } = require('./utils/removalOutcome');
 const { CLOSE_CODES, DIRECTION } = require('./utils/FluxPeerSocket');
-const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const fluxEventBus = require('./utils/fluxEventBus');
+const { NON_PUBLIC_IPV4 } = require('./utils/nonPublicNetworks');
+const ufw = require('./utils/ufw');
+const ufwHelper = require('./utils/ufwHelper');
 const {
   normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch, parseSocketAddress, ipsMatch,
 } = require('./utils/socketAddressUtils');
@@ -43,6 +48,36 @@ function setOnAddressChanged(callback) {
   onAddressChanged = callback;
 }
 
+// Fired once with this node's old and new socket address when its public IP has
+// moved, before anything else reacts to the move. serviceManager wires it to
+// fluxCommunication, which owns telling the network; a seam for the same reason
+// as onAddressChanged.
+let onOwnAddressMoved = null;
+function setOnOwnAddressMoved(callback) {
+  onOwnAddressMoved = callback;
+}
+
+// The names of the apps installed on this node that the network lists at a
+// socket address. serviceManager wires it to appQueryService.installedAppsListedAt;
+// a seam for the same reason as onAddressChanged.
+let installedAppsListedAt = null;
+function setInstalledAppsListedAt(callback) {
+  installedAppsListedAt = callback;
+}
+
+/**
+ * Whether this node ran apps at `socketAddress`: an app installed here is one
+ * the network lists there. A configuration names an address, and a machine
+ * started on a copy of another's names that machine's; only apps left there
+ * show this node held it.
+ * @param {string} socketAddress
+ * @returns {Promise<boolean>}
+ */
+async function ranAppsAt(socketAddress) {
+  if (!installedAppsListedAt) return false;
+  return (await installedAppsListedAt(socketAddress)).length > 0;
+}
+
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
@@ -56,6 +91,7 @@ const StickyDosOwner = Object.freeze({
   APP_TAMPERING: 'appTampering',
   PEER_SET_STABILITY: 'peerSetStability',
   NODEJS_FLOOR: 'nodejsFloor',
+  DOCKER_FLOOR: 'dockerFloor',
 });
 
 // Declares the node unfit for the apps it already runs, and is not moved by the
@@ -97,11 +133,9 @@ const PlacementHoldOwner = Object.freeze({
 const placementHolds = new Map();
 
 let storedFluxBenchAllowed = null;
-let ipChangeData = null;
-let dosTooManyIpChanges = false;
+// When this node last changed its IP over the limit (monotonic ms), or null.
+let tooManyIpChangesAt = null;
 let maxNumberOfIpChanges = 0;
-
-const myCache = cacheManager.ipCache;
 const { lruRateLimit } = require('./utils/rateLimit');
 const { Privilege, authOf } = require('./utils/privileges');
 
@@ -115,51 +149,73 @@ let localSocketAddress = null;
 // clock step never serves the cache stale or expires it early.
 let localSocketAddressFreshUntil = 0n;
 const LOCAL_SOCKET_ADDRESS_TTL_NS = 60n * 1_000_000_000n;
+// An address reserved for documentation (TEST-NET-3, RFC 5737). No network
+// routes it on its own, so the route to it is the route this node's internet
+// traffic takes. A well-known address can have a route of its own: a VPN
+// client's DNS leak protection sends just its DNS resolver through the tunnel.
+const EGRESS_TARGET = '203.0.113.1';
+// The last address this node learned. A benchmark that does not answer clears
+// localSocketAddress but gives the node no new address, so this keeps it.
+let lastKnownSocketAddress = null;
+// Emits 'change' with the new address when the node learns one that differs
+// from lastKnownSocketAddress.
+const localSocketAddressEvents = new EventEmitter();
 
 /**
- * Converts a hexadecimal IP address (as found in /proc/net/route) to dotted decimal format.
- * The hex format is little-endian, so bytes are reversed.
- * @param {string} hex - Hexadecimal IP address (8 characters)
- * @returns {string} Dotted decimal IP address
+ * The device an os.networkInterfaces() entry is bound on. A labelled address
+ * is listed under its label (`eth0:1`), and a label always begins with its
+ * device's name followed by a colon.
+ * @param {string} name - An os.networkInterfaces() key
+ * @returns {string} The device name
  */
-function hexToIp(hex) {
-  const bytes = [];
-  for (let i = 0; i < 8; i += 2) {
-    bytes.push(parseInt(hex.substring(i, i + 2), 16));
-  }
-  // Reverse because the hex is little-endian
-  return bytes.reverse().join('.');
+function interfaceDevice(name) {
+  return name.split(':')[0];
 }
 
 /**
- * Checks if a network interface is operationally up by reading its sysfs operstate.
- * @param {string} interfaceName - The name of the network interface
- * @returns {Promise<boolean>} True if the interface is up
+ * The device this node's traffic to an address leaves by, as the kernel routes
+ * it, every policy rule and routing table included. A UDP connect resolves the
+ * route and fixes the source address without sending a packet; the source
+ * address names the device. That is the device holding the source address: a
+ * route that takes its source from an address on a dummy device or lo names
+ * that device, not the one the packets leave through.
+ * @param {string} [target] - An IPv4 address; by default one no network routes
+ *   on its own, so the answer is the device internet traffic leaves by
+ * @returns {Promise<string|null>} The device, or null when the route cannot be
+ *   resolved or its source address is on no running interface.
  */
-async function isInterfaceUp(interfaceName) {
+async function egressDevice(target = EGRESS_TARGET) {
+  const socket = dgram.createSocket('udp4');
   try {
-    const operstatePath = `/sys/class/net/${interfaceName}/operstate`;
-    const state = await fs.readFile(operstatePath, 'utf8');
-    return state.trim() === 'up';
+    // Any port: nothing is sent.
+    socket.connect(53, target);
+    await once(socket, 'connect');
+    const source = socket.address().address;
+    const name = Object.entries(os.networkInterfaces())
+      .find(([, addresses]) => addresses.some((a) => a.family === 'IPv4' && a.address === source))?.[0];
+    return name ? interfaceDevice(name) : null;
   } catch {
-    return false;
+    return null;
+  } finally {
+    socket.close();
   }
 }
 
 /**
- * Gets the first routable IPv4 address assigned to a network interface. An
- * interface can carry a private primary and a public secondary; stopping at
- * the first non-internal address would answer for whichever the kernel lists
- * first rather than for the interface.
+ * Gets the first routable IPv4 address assigned to a network interface,
+ * including addresses bound under a label on it. An interface can carry a
+ * private primary and a public secondary; stopping at the first non-internal
+ * address would answer for whichever the kernel lists first rather than for
+ * the interface.
  * @param {string} interfaceName - The name of the network interface
  * @returns {string|null} The routable IPv4 address or null if none is bound
  */
 function getInterfaceIp(interfaceName) {
-  const interfaces = os.networkInterfaces();
-  const iface = interfaces[interfaceName];
-  if (!iface) return null;
+  const addresses = Object.entries(os.networkInterfaces())
+    .filter(([name]) => interfaceDevice(name) === interfaceName)
+    .flatMap(([, entries]) => entries);
 
-  for (const addr of iface) {
+  for (const addr of addresses) {
     if (addr.family === 'IPv4' && !addr.internal && !serviceHelper.isNonRoutableAddress(addr.address)) {
       return addr.address;
     }
@@ -168,82 +224,21 @@ function getInterfaceIp(interfaceName) {
 }
 
 /**
- * Checks if the node has a public IP directly configured on the default route interface.
- * This is a strong indicator of a static IP (data center/VPS/dedicated server).
- * Uses the Linux routing table to find the default route interface, then checks
- * if that interface has a public IP assigned.
- * @returns {Promise<boolean|null>} True if a public IP is configured on the
- *   default route interface, false if none is, null if the routing table could
- *   not be read - which is not the same answer as "there is none".
+ * Whether this node holds a public address on the device its traffic leaves by:
+ * directly connected, with no NAT between it and the internet.
+ * @returns {Promise<boolean|null>} Null when the device cannot be named - no
+ *   route out, or its source address on no running interface - which is not
+ *   the same answer as "there is none".
  */
 async function hasPublicIpOnInterface() {
-  try {
-    // Read the routing table from /proc/net/route
-    const routeData = await fs.readFile('/proc/net/route', 'utf8');
-    const lines = routeData.trim().split('\n');
-
-    // Skip header line
-    if (lines.length < 2) {
-      return false;
-    }
-
-    // Find default routes (destination 0.0.0.0)
-    const defaultRoutes = [];
-    for (let i = 1; i < lines.length; i += 1) {
-      const fields = lines[i].split('\t');
-      if (fields.length < 11) {
-        // eslint-disable-next-line no-continue
-        continue;
-      }
-
-      const [iface, destination, gateway, flags, , , metric] = fields;
-
-      // Check if this is a default route (destination is 0.0.0.0)
-      if (destination === '00000000') {
-        // Check if the route is up (flag 0x1) and has a gateway (flag 0x2)
-        // eslint-disable-next-line no-bitwise
-        const flagsNum = parseInt(flags, 16);
-        // eslint-disable-next-line no-bitwise
-        if ((flagsNum & 0x1) && (flagsNum & 0x2)) {
-          defaultRoutes.push({
-            iface,
-            gateway: hexToIp(gateway),
-            metric: parseInt(metric, 10),
-          });
-        }
-      }
-    }
-
-    if (defaultRoutes.length === 0) {
-      return false;
-    }
-
-    // Sort by metric (lowest first) and pick the best default route
-    defaultRoutes.sort((a, b) => a.metric - b.metric);
-
-    // Find the first interface that is operationally up
-    for (const route of defaultRoutes) {
-      // eslint-disable-next-line no-await-in-loop
-      const isUp = await isInterfaceUp(route.iface);
-      if (isUp) {
-        const ip = getInterfaceIp(route.iface);
-        if (ip) {
-          log.info(`Public IP ${ip} found on default route interface ${route.iface}`);
-          return true;
-        }
-      }
-    }
-
-    return false;
-  } catch (error) {
-    // Null, not false. "There is no public address on any interface" is a fact
-    // about the node; "I could not read the routing table" is a fact about this
-    // process, and answering the second with the first asserts NAT on a node
-    // that may well hold a public address. The one caller that decides anything
-    // on this treats null as unknown.
-    log.error(`Failed to check network interfaces via routing table: ${error.message}`);
+  const device = await egressDevice();
+  if (device === null) {
+    log.error('hasPublicIpOnInterface - cannot name the device this node\'s traffic leaves by');
     return null;
   }
+  const ip = getInterfaceIp(device);
+  if (ip) log.info(`Public IP ${ip} found on ${device}, the device this node's traffic leaves by`);
+  return ip !== null;
 }
 
 /**
@@ -455,7 +450,7 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     if (fluxResponse.data.status !== 'success') return false;
 
     const fluxVersion = fluxResponse.data.data;
-    const versionMinOK = serviceHelper.minVersionSatisfy(fluxVersion, config.minimumFluxOSAllowedVersion);
+    const versionMinOK = serviceHelper.semverAtLeast(fluxVersion, config.minimumFluxOSAllowedVersion);
     if (!versionMinOK) return false;
 
     const homePort = +port - 1;
@@ -858,6 +853,35 @@ function setLocalSocketAddress(value) {
   // that syncs from itself learns nothing, and it spends one of very few
   // attempts doing so. Optional because the unit suite stubs peerState.
   peerManager.setOwnSocketAddress?.(localSocketAddress);
+  if (localSocketAddress && localSocketAddress !== lastKnownSocketAddress) {
+    lastKnownSocketAddress = localSocketAddress;
+    localSocketAddressEvents.emit('change', localSocketAddress);
+  }
+}
+
+/**
+ * @returns {string|null} The last address this node learned (ip:port), without
+ *   asking the benchmark; null before the first.
+ */
+function getKnownLocalSocketAddress() {
+  return lastKnownSocketAddress;
+}
+
+/**
+ * @param {function(string): void} listener Called with the new address (ip:port)
+ *   each time the node learns an address that differs from the last one.
+ * @returns {void}
+ */
+function onLocalSocketAddressChange(listener) {
+  localSocketAddressEvents.on('change', listener);
+}
+
+/**
+ * @param {function(string): void} listener
+ * @returns {void}
+ */
+function offLocalSocketAddressChange(listener) {
+  localSocketAddressEvents.off('change', listener);
 }
 
 /**
@@ -937,7 +961,9 @@ function getStickyDosMessage() {
  * @returns {number}
  */
 function effectiveDosState() {
-  return stickyDosHolds.size ? STICKY_DOS_STATE : dosState;
+  if (stickyDosHolds.size) return STICKY_DOS_STATE;
+  const availabilityPoints = unreachablePoints + shortfallPoints;
+  return availabilityPoints ? dosState + availabilityPoints : dosState;
 }
 
 /**
@@ -1068,6 +1094,7 @@ async function getLocalSocketAddress(options = {}) {
   // masterSlave election) never act on a bogus own-IP.
   if (status !== 'success' || !parseSocketAddress(ipaddress)) {
     setLocalSocketAddress(null);
+    localSocketAddressEvents.emit('unresolved');
     return null;
   }
   setLocalSocketAddress(ipaddress);
@@ -1097,9 +1124,8 @@ async function getFluxNodePrivateKey(privatekey) {
 async function getFluxNodePublicKey(privatekey) {
   try {
     const pkWIF = await getFluxNodePrivateKey(privatekey);
-    const isCompressed = !pkWIF.startsWith('5');
-    const privateKey = WIFToPrivKey(pkWIF);
-    const pubKey = privKeyToPubKey(privateKey, isCompressed);
+    const { privateKey, compressed } = decodeWIF(pkWIF);
+    const pubKey = privKeyToPubKey(privateKey, compressed);
     return pubKey;
   } catch (error) {
     // Null, not the Error. An Error here is the worst of both: truthy, so a
@@ -1223,7 +1249,7 @@ function checkNodeJsVersionAllowed() {
     return true;
   }
   const nodeJsVersion = process.versions.node;
-  if (serviceHelper.minVersionSatisfy(nodeJsVersion, minimumVersion)) {
+  if (serviceHelper.semverAtLeast(nodeJsVersion, minimumVersion)) {
     return true;
   }
   setStickyDos(
@@ -1234,12 +1260,53 @@ function checkNodeJsVersionAllowed() {
 }
 
 /**
+ * Whether the Docker this node runs meets the network minimum: the oldest
+ * release FluxOS supports, whose networking rules the container firewall and
+ * the app port rules are tested against.
+ *
+ * Asked once, when Docker first answers at startup. Upgrading Docker restarts
+ * Docker, not FluxOS, so the verdict stands until FluxOS next starts, and the
+ * message says so. A version that could not be read, or is not a SemVer
+ * version, gives no verdict: a Docker API failing for a moment, or a build
+ * naming itself oddly, is not a node below the floor. A pre-release is below
+ * its release (28.1.1-rc.1 < 28.1.1).
+ * @param {?string} dockerVersion The version Docker reports, or null when it
+ *   could not be read.
+ * @returns {boolean} True unless the version is known and below the floor.
+ */
+function checkDockerVersionAllowed(dockerVersion) {
+  const minimumVersion = config.minimumDockerAllowedVersion;
+  // As with the NodeJS floor: no floor configured allows, never refuses.
+  if (!minimumVersion) {
+    log.error('checkDockerVersionAllowed - no minimum Docker version configured, skipping the check');
+    return true;
+  }
+  if (!dockerVersion) {
+    log.error('checkDockerVersionAllowed - Docker did not report its version, no verdict');
+    return true;
+  }
+  if (!serviceHelper.parseSemver(dockerVersion)) {
+    log.error(`checkDockerVersionAllowed - Docker reported ${dockerVersion}, which is not a SemVer version, no verdict`);
+    return true;
+  }
+  if (serviceHelper.semverAtLeast(dockerVersion, minimumVersion)) {
+    return true;
+  }
+  setStickyDos(
+    StickyDosOwner.DOCKER_FLOOR,
+    `Docker Version Error. Current lower version allowed is v${minimumVersion} found v${dockerVersion}. Upgrade Docker and restart FluxOS`,
+  );
+  return false;
+}
+
+/**
  * To check if Flux benchmark version is allowed.
  * @returns {boolean} True if version is verified as allowed. Otherwise false.
  */
 async function checkFluxbenchVersionAllowed() {
   if (storedFluxBenchAllowed) {
-    const versionOK = serviceHelper.minVersionSatisfy(storedFluxBenchAllowed, config.minimumFluxBenchAllowedVersion);
+    const versionOK = serviceHelper.semverAtLeast(storedFluxBenchAllowed, config.minimumFluxBenchAllowedVersion);
+    if (versionOK) releaseDosOwnedBy((message) => message.startsWith(FLUXBENCH_VERSION_MESSAGE_PREFIX));
     return versionOK;
   }
   try {
@@ -1248,8 +1315,9 @@ async function checkFluxbenchVersionAllowed() {
       log.info(benchmarkInfoResponse);
       const benchmarkVersion = benchmarkInfoResponse.data.version;
       setStoredFluxBenchAllowed(benchmarkVersion);
-      const versionOK = serviceHelper.minVersionSatisfy(benchmarkVersion, config.minimumFluxBenchAllowedVersion);
+      const versionOK = serviceHelper.semverAtLeast(benchmarkVersion, config.minimumFluxBenchAllowedVersion);
       if (versionOK) {
+        releaseDosOwnedBy((message) => message.startsWith(FLUXBENCH_VERSION_MESSAGE_PREFIX));
         return true;
       }
       dosState += 11;
@@ -1488,52 +1556,40 @@ function isCommunicationEstablished(req, res) {
   return res ? res.json(message) : message;
 }
 
+// How far back the limit on IP changes counts, and how many changes it allows
+// in that time.
+const IP_CHANGE_WINDOW_MS = 20 * 60 * 60 * 1000;
+const IP_CHANGES_ALLOWED = 1;
+
 /**
- * To check ip changes limit. If over limit all apps are uninstalled from the node and it get dos state
- * @returns {boolean} True if a ip as changes more than one time in the last 20h
+ * Applies the limit on IP changes to the changes this node made within
+ * IP_CHANGE_WINDOW_MS, as its own address record holds them: over it, every
+ * installed app is removed and the node is out of service for
+ * IP_CHANGES_HOLD_MS.
+ * @param {number[]} recentIpChanges When each change was made (ms).
+ * @returns {Promise<boolean>} Whether the changes are over the limit.
  */
-async function ipChangesOverLimit() {
-  const currentTime = Date.now();
-  if (ipChangeData) {
-    const oldTime = ipChangeData.time;
-    const timeDifference = currentTime - oldTime;
-    if (timeDifference <= 20 * 60 * 60 * 1000) {
-      ipChangeData.count += 1;
-      if (ipChangeData.count > maxNumberOfIpChanges) {
-        maxNumberOfIpChanges = ipChangeData.count;
-      }
-      if (ipChangeData.count >= 2) {
-        // eslint-disable-next-line global-require
-        const appQueryService = require('./appQuery/appQueryService');
-        // eslint-disable-next-line global-require
-        const appUninstaller = require('./appLifecycle/appUninstaller');
-        let apps = await appQueryService.installedApps();
-        if (apps.status === 'success' && apps.data.length > 0) {
-          apps = apps.data;
-          // eslint-disable-next-line no-restricted-syntax
-          for (const app of apps) {
-            log.warn(`REMOVAL REASON: Too many IP changes - ${app.name} being removed due to ${ipChangeData.count} IP changes in ${timeDifference}ms (DoS protection)`);
-            // eslint-disable-next-line no-await-in-loop
-            await appUninstaller.removeAppLocally(app.name, null, true, null, false).catch((error) => log.error(error)); // we will not send appremove messages because they will not be accepted by the other nodes
-            // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(500);
-          }
-        }
-        dosTooManyIpChanges = true;
-        return true;
-      }
-    } else {
-      ipChangeData.time = currentTime;
-      ipChangeData.count = 1;
-      maxNumberOfIpChanges = 1;
+async function applyIpChangeLimit(recentIpChanges) {
+  maxNumberOfIpChanges = recentIpChanges.length;
+  if (recentIpChanges.length <= IP_CHANGES_ALLOWED) return false;
+  // eslint-disable-next-line global-require
+  const appQueryService = require('./appQuery/appQueryService');
+  // eslint-disable-next-line global-require
+  const appUninstaller = require('./appLifecycle/appUninstaller');
+  let apps = await appQueryService.installedApps();
+  if (apps.status === 'success' && apps.data.length > 0) {
+    apps = apps.data;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of apps) {
+      log.warn(`REMOVAL REASON: Too many IP changes - ${app.name} being removed due to ${recentIpChanges.length} IP changes in ${IP_CHANGE_WINDOW_MS}ms (DoS protection)`);
+      // eslint-disable-next-line no-await-in-loop
+      await appUninstaller.removeAppLocally(app.name, null, true, null, false).catch((error) => log.error(error)); // we will not send appremove messages because they will not be accepted by the other nodes
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(500);
     }
-    return false;
   }
-  ipChangeData = {
-    time: currentTime,
-    count: 1,
-  };
-  return false;
+  tooManyIpChangesAt = monotonicMs();
+  return true;
 }
 
 function getMaxNumberOfIpChanges() {
@@ -1541,43 +1597,46 @@ function getMaxNumberOfIpChanges() {
 }
 
 /**
- * To adjust an external IP.
- * @param {string} ip IP address.
- * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
+ * Adopts the address this node holds now in place of the one it held: the move
+ * is recorded as this node's own address record, and the node brought to it by
+ * reconcileOwnMove. With `announceMove` the move is also told to the network,
+ * which carries the node's rows at the old address to the new one.
+ * @param {string} previous The socket address the node held.
+ * @param {string} current The socket address it holds now.
+ * @param {object} [options]
+ * @param {boolean} [options.announceMove] Whether the change is told as a move.
+ * @returns {Promise<void>}
  */
-async function adjustExternalIP(ip) {
-  try {
-    const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-    // https://github.com/sindresorhus/ip-regex/blob/master/index.js#L8
-    const v4 = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]\\d|\\d)(?:\\.(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]\\d|\\d)){3}';
-    const v4exact = new RegExp(`^${v4}$`);
-    if (!v4exact.test(ip)) {
-      log.warn(`Gathered IP ${ip} is not a valid format`);
-      return;
-    }
-    if (ip === userconfig.initial.ipaddress) {
-      return;
-    }
-    // Everything below needs to know which node this is: whose registration among
-    // the ones found at the new address is our own, which apps are ours to hand
-    // over, and what address the fluxipchanged broadcast is moving FROM.
-    // localSocketAddress is cleared whenever benchmark hiccups, and a comparison
-    // against nothing matches nothing - so acting here would read our own rows as
-    // strangers' and uninstall the apps they belong to.
-    //
-    // Return BEFORE the userconfig write, which is what makes this a deferral
-    // rather than a silent drop: the write is what marks the change handled, so
-    // leaving it unwritten leaves the change pending. checkMyFluxAvailability
-    // already refuses to run while the address is unknown, so nothing reaches here
-    // again until benchmark answers - and then this runs with the node knowing
-    // itself, exactly once, as designed.
-    if (!localSocketAddress) {
-      log.warn(`adjustExternalIP - own address unknown, deferring the change to ${ip} until benchmark answers`);
-      return;
-    }
-    const oldUserConfigIp = userconfig.initial.ipaddress;
-    log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
-    const dataToWrite = `module.exports = {
+async function adjustExternalIp(previous, current, { announceMove = true } = {}) {
+  if (typeof previous !== 'string' || typeof current !== 'string') {
+    log.warn(`Gathered address ${current} is not a valid format`);
+    return;
+  }
+  const previousSocket = normalizeSocketAddress(previous);
+  const currentSocket = normalizeSocketAddress(current);
+  const ip = extractIp(currentSocket);
+  // https://github.com/sindresorhus/ip-regex/blob/master/index.js#L8
+  const v4 = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]\\d|\\d)(?:\\.(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]\\d|\\d)){3}';
+  const v4exact = new RegExp(`^${v4}$`);
+  if (!v4exact.test(ip)) {
+    log.warn(`Gathered IP ${ip} is not a valid format`);
+    return;
+  }
+  if (socketAddressesMatch(previousSocket, currentSocket)) return;
+  log.info(`New public Ip detected: ${currentSocket}, old Ip: ${previousSocket} , updating the FluxNode info on the network`);
+  await recordOwnMove(previousSocket, currentSocket, announceMove);
+  await reconcileOwnMove();
+}
+
+/**
+ * Writes `ip` as this node's configured IP, keeping every other setting.
+ * @param {string} ip
+ * @returns {Promise<void>}
+ */
+async function writeConfiguredIp(ip) {
+  const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+  log.info(`Adjusting External IP from ${userconfig.initial.ipaddress} to ${ip}`);
+  const dataToWrite = `module.exports = {
   initial: {
     ipaddress: '${ip}',
     zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
@@ -1590,128 +1649,586 @@ async function adjustExternalIP(ip) {
     pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
   }
 }`;
+  await fs.writeFile(fluxDirPath, dataToWrite);
+}
 
-    await fs.writeFile(fluxDirPath, dataToWrite);
-
-    if (oldUserConfigIp && v4exact.test(oldUserConfigIp) && !myCache.has(ip)) {
-      myCache.set(ip, '');
-      const newIP = normalizeSocketAddress(`${ip}:${userconfig.initial.apiport}`);
-      const oldIP = normalizeSocketAddress(`${oldUserConfigIp}:${userconfig.initial.apiport}`);
-      log.info(`New public Ip detected: ${newIP}, old Ip: ${oldIP} , updating the FluxNode info on the network`);
-      const measuredUptime = fluxUptime();
-      if (await ipChangesOverLimit() && measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) {
-        log.info('IP changes over the limit allowed, one in 20 hours');
-        dosState += 11;
-        setDosMessage('IP changes over the limit allowed, one in 20 hours');
-        log.error(dosMessage);
-      }
-      // eslint-disable-next-line global-require
-      const appQueryService = require('./appQuery/appQueryService');
-      // eslint-disable-next-line global-require
-      const registryManager = require('./appDatabase/registryManager');
-      // eslint-disable-next-line global-require
-      const appUninstaller = require('./appLifecycle/appUninstaller');
-      // eslint-disable-next-line global-require
-      const enterpriseHelper = require('./utils/enterpriseHelper');
-      let apps = await appQueryService.installedApps();
-      if (apps.status === 'success' && apps.data.length > 0) {
-        apps = apps.data;
-        let appsRemoved = 0;
-        // The apps still installed once the loop has removed the ones that cannot
-        // stay. Handed to whoever registered for an address change; nothing here
-        // knows what bringing them back involves.
-        const staying = [];
-        // eslint-disable-next-line no-restricted-syntax
-        for (const app of apps) {
-          // Check if app requires static IP - if so, uninstall it since IP changed
-          // Only decrypt enterprise app specs if the app has enterprise field (v8+)
-          if (app.version >= 7 && (app.staticip === true || app.enterprise)) {
-            let appSpecs = app;
-            // Decrypt enterprise app specs if needed (v8+ with enterprise field)
-            if (app.enterprise) {
-              try {
-                // eslint-disable-next-line no-await-in-loop
-                appSpecs = await enterpriseHelper.checkAndDecryptAppSpecs(app);
-              } catch (decryptError) {
-                log.error(`Failed to decrypt enterprise specs for ${app.name}: ${decryptError.message}`);
-                // eslint-disable-next-line no-continue
-                continue;
-              }
-            }
-            if (appSpecs.staticip === true) {
-              log.info(`Application ${app.name} requires static IP but node IP has changed, uninstalling app`);
-              log.warn(`REMOVAL REASON: Static IP required - ${app.name} requires static IP but node IP changed from ${oldIP} to ${newIP}`);
-              // eslint-disable-next-line no-await-in-loop
-              await appUninstaller.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
-              appsRemoved += 1;
-              // eslint-disable-next-line no-continue
-              continue;
-            }
-          }
-
+/**
+ * Removes the installed apps that cannot follow this node to a new IP and
+ * returns the rest: a static-IP app, and one that another instance already
+ * holds at the new IP. `complete` is false when an app could not be judged or
+ * removed - the installed apps could not be read, an enterprise spec could not
+ * be decrypted, or a removal did not happen - so the next pass judges again.
+ * An app already removed is no longer installed, so a pass repeated removes
+ * nothing twice.
+ * @param {string} previousSocket This node's former socket address.
+ * @param {string} currentSocket Its new socket address.
+ * @returns {Promise<{staying: object[], complete: boolean}>}
+ */
+async function appsStayingThroughIpMove(previousSocket, currentSocket) {
+  // eslint-disable-next-line global-require
+  const appQueryService = require('./appQuery/appQueryService');
+  // eslint-disable-next-line global-require
+  const registryManager = require('./appDatabase/registryManager');
+  // eslint-disable-next-line global-require
+  const appUninstaller = require('./appLifecycle/appUninstaller');
+  // eslint-disable-next-line global-require
+  const enterpriseHelper = require('./utils/enterpriseHelper');
+  const staying = [];
+  let complete = true;
+  // Gone, or never there: either way not installed here now.
+  const removed = async (appName) => {
+    const outcome = await appUninstaller.removeAppLocally(appName, null, true, null, true)
+      .catch((error) => { log.error(error); return RemovalOutcome.FAILED; });
+    return outcome === RemovalOutcome.REMOVED || outcome === RemovalOutcome.NOT_INSTALLED;
+  };
+  const apps = await appQueryService.installedApps();
+  if (apps.status !== 'success') return { staying, complete: false };
+  // eslint-disable-next-line no-restricted-syntax
+  for (const app of apps.data) {
+    // Check if app requires static IP - if so, uninstall it since IP changed
+    // Only decrypt enterprise app specs if the app has enterprise field (v8+)
+    if (app.version >= 7 && (app.staticip === true || app.enterprise)) {
+      let appSpecs = app;
+      // Decrypt enterprise app specs if needed (v8+ with enterprise field)
+      if (app.enterprise) {
+        try {
           // eslint-disable-next-line no-await-in-loop
-          const runningAppList = await registryManager.appLocation(app.name);
-          // An instance at this address means the ports are taken and this node
-          // cannot run the app: one instance per IP is enforced by the host port
-          // mapping, so a UPnP sibling on another port holds them just as surely
-          // as a node that owns the address alone. That is why the address is
-          // compared at IP granularity.
-          //
-          // The node's OWN registration is not that. It stores its own running-app
-          // row locally, at the address benchmark reports, so the row sitting at
-          // this address is most often itself - and removing on that is a node
-          // deleting an app that is exactly where it belongs, then telling the
-          // network it is gone. Own-ness is the full socket address, which is what
-          // separates it from the sibling that shares only the IP.
-          const duplicateInstance = runningAppList.find(
-            (instance) => ipsMatch(instance.ip, ip) && !socketAddressesMatch(instance.ip, localSocketAddress),
-          );
-          if (duplicateInstance) {
-            log.info(`Aplication: ${app.name}, was found on the network already running under the same ip, uninstalling app`);
-            log.warn(`REMOVAL REASON: Duplicate IP detected - ${app.name} already running on network with IP ${ip} (after IP change)`);
-            // eslint-disable-next-line no-await-in-loop
-            await appUninstaller.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
-            appsRemoved += 1;
-          } else {
-            staying.push(app);
-          }
-        }
-        // One handover for the whole set, not a call per app: what an app is made
-        // of - a composed one's containers are `<component>_<app>`, and an
-        // enterprise one's names are inside a blob this layer cannot read - is
-        // knowledge the reconciler already holds. Failures stay inside it too, so
-        // one app that cannot be asked costs the others nothing and leaves the
-        // broadcast, the confirmation transaction and the geolocation update below
-        // reachable.
-        if (staying.length && onAddressChanged) {
-          await onAddressChanged(staying, `node ip changed to ${ip}`)
-            .catch((error) => log.error(`adjustExternalIP - restart request failed: ${error.message}`));
-        }
-        if (apps.length > appsRemoved) {
-          const broadcastedAt = Date.now();
-          const newIpChangedMessage = {
-            type: 'fluxipchanged',
-            version: 1,
-            oldIP,
-            newIP,
-            broadcastedAt,
-          };
-          // broadcast messages about ip changed to all peers
-          // eslint-disable-next-line global-require
-          const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
-          await fluxCommunicationMessagesSender.broadcastMessageToAll(newIpChangedMessage);
+          appSpecs = await enterpriseHelper.checkAndDecryptAppSpecs(app);
+        } catch (decryptError) {
+          log.error(`Failed to decrypt enterprise specs for ${app.name}: ${decryptError.message}`);
+          complete = false;
+          // eslint-disable-next-line no-continue
+          continue;
         }
       }
-      const result = await daemonServiceFluxnodeRpcs.createConfirmationTransaction();
-      log.info(`createConfirmationTransaction: ${JSON.stringify(result)}`);
-      // Update geolocation service to track IP change and update static IP status
-      // eslint-disable-next-line global-require
-      const geolocationService = require('./geolocationService');
-      geolocationService.setNodeGeolocation();
+      if (appSpecs.staticip === true) {
+        log.info(`Application ${app.name} requires static IP but node IP has changed, uninstalling app`);
+        log.warn(`REMOVAL REASON: Static IP required - ${app.name} requires static IP but node IP changed from ${previousSocket} to ${currentSocket}`);
+        // eslint-disable-next-line no-await-in-loop
+        if (!await removed(app.name)) complete = false;
+        // eslint-disable-next-line no-continue
+        continue;
+      }
     }
-  } catch (error) {
-    log.error(error);
+
+    // eslint-disable-next-line no-await-in-loop
+    const runningAppList = await registryManager.appLocation(app.name);
+    // An instance at this IP means the ports are taken and this node cannot run
+    // the app: one instance per IP is enforced by the host port mapping, so a
+    // UPnP sibling on another port holds them just as surely as a node that owns
+    // the address alone. That is why the address is compared at IP granularity.
+    //
+    // This node's OWN row is not that: it stores its own running-app row at the
+    // address benchmark reports. Own-ness is the full socket address, which is
+    // what separates it from the sibling that shares only the IP.
+    const duplicateInstance = runningAppList.find((instance) => ipsMatch(instance.ip, currentSocket)
+      && !socketAddressesMatch(instance.ip, currentSocket));
+    if (duplicateInstance) {
+      log.info(`Aplication: ${app.name}, was found on the network already running under the same ip, uninstalling app`);
+      log.warn(`REMOVAL REASON: Duplicate IP detected - ${app.name} already running on network with IP ${extractIp(currentSocket)} (after IP change)`);
+      // eslint-disable-next-line no-await-in-loop
+      if (!await removed(app.name)) complete = false;
+    } else {
+      staying.push(app);
+    }
   }
+  return { staying, complete };
+}
+
+const OWN_ADDRESS_RECORD_ID = 'own';
+
+function ownAddressCollection() {
+  const db = dbHelper.databaseConnection();
+  return db ? db.db(config.database.local.database).collection(config.database.local.collections.ownAddress) : null;
+}
+
+/**
+ * This node's own address record, from its local database: null before it has
+ * adopted an address.
+ *
+ * `socketAddress` is the address it adopted. When a move took it there,
+ * `movedFrom` is where it moved from and `movedAt` when (ms), `ipChanged`
+ * whether the IP changed or only the port, and `announce` whether the move is
+ * told to the network. `recentIpChanges` holds when each IP change of the last
+ * IP_CHANGE_WINDOW_MS was made. The rest records which of the move's steps that
+ * cannot be read back from the node itself are done, each by the `movedAt` of
+ * the move it was done for: `appsHandledAt`, `announcedAt`, `geolocatedAt`,
+ * `confirmationAcceptedAt`, and `settledAt` once the move is wholly in place.
+ * @returns {Promise<object|null>}
+ */
+async function ownAddressRecord() {
+  const records = ownAddressCollection();
+  if (!records) return null;
+  const record = await records.findOne({ _id: OWN_ADDRESS_RECORD_ID }, { projection: { _id: 0 } });
+  return record ?? null;
+}
+
+async function updateOwnAddressRecord(fields) {
+  await ownAddressCollection().updateOne({ _id: OWN_ADDRESS_RECORD_ID }, { $set: fields });
+}
+
+// The address this node last adopted as its own, and the addresses it has moved
+// away from, held as each is recorded so reading them costs nothing.
+let adoptedOwnAddress = null;
+const ownAddressesLeft = new Set();
+
+function noteOwnAddress(current, previous) {
+  const to = normalizeSocketAddress(current);
+  if (!to) return;
+  const from = normalizeSocketAddress(previous);
+  if (from && from !== to) ownAddressesLeft.add(from);
+  ownAddressesLeft.delete(to);
+  adoptedOwnAddress = to;
+}
+
+/**
+ * Where this node is, for an address benchmark reports as its own: the address
+ * it adopted when the reported one is an address it has moved away from - a move
+ * is recorded, and its rows carried, before benchmark reports the new address -
+ * and the reported one otherwise.
+ * @param {string} reported
+ * @returns {string|null}
+ */
+function ownAddressFor(reported) {
+  const address = normalizeSocketAddress(reported);
+  return address && adoptedOwnAddress && ownAddressesLeft.has(address) ? adoptedOwnAddress : address;
+}
+
+/**
+ * Adopts `socketAddress` as this node's own without a move.
+ * @param {string} socketAddress
+ * @returns {Promise<void>}
+ */
+async function writeOwnAddressRecord(socketAddress) {
+  noteOwnAddress(socketAddress, null);
+  await ownAddressCollection().updateOne(
+    { _id: OWN_ADDRESS_RECORD_ID },
+    { $set: { socketAddress, movedFrom: null, movedAt: null, recordedAt: new Date() } },
+    { upsert: true },
+  );
+}
+
+/**
+ * Records this node's move from `previousSocket` to `currentSocket` as its own
+ * address record, before anything acts on it: the one decision a move makes.
+ * A move to an address the record already holds as a move is decided already,
+ * so a second caller decides nothing; an address the record holds without a
+ * move takes the move. The IP change is counted here, from the record, so it
+ * is counted once however often the move is acted on.
+ * @param {string} previousSocket
+ * @param {string} currentSocket
+ * @param {boolean} announce Whether the move is told to the network.
+ * @returns {Promise<void>}
+ */
+async function recordOwnMove(previousSocket, currentSocket, announce) {
+  const record = await ownAddressRecord();
+  if (record?.movedFrom && socketAddressesMatch(record.socketAddress, currentSocket)) return;
+  const movedAt = Date.now();
+  const ipChanged = !ipsMatch(previousSocket, currentSocket);
+  const recentIpChanges = (record?.recentIpChanges ?? []).filter((at) => movedAt - at < IP_CHANGE_WINDOW_MS);
+  if (ipChanged) recentIpChanges.push(movedAt);
+  noteOwnAddress(currentSocket, previousSocket);
+  await ownAddressCollection().updateOne(
+    { _id: OWN_ADDRESS_RECORD_ID },
+    {
+      $set: {
+        socketAddress: currentSocket,
+        movedFrom: previousSocket,
+        movedAt,
+        ipChanged,
+        announce,
+        recentIpChanges,
+        appsHandledAt: null,
+        announcedAt: null,
+        geolocatedAt: null,
+        confirmationAcceptedAt: null,
+        settledAt: null,
+        recordedAt: new Date(),
+      },
+    },
+    { upsert: true },
+  );
+  if (!ipChanged) return;
+  const overLimit = await applyIpChangeLimit(recentIpChanges);
+  const measuredUptime = fluxUptime();
+  if (overLimit && measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) {
+    log.info('IP changes over the limit allowed, one in 20 hours');
+    dosState += 11;
+    setDosMessage(IP_CHANGES_MESSAGE);
+    log.error(dosMessage);
+  }
+}
+
+/**
+ * Whether the chain lists this node at `socketAddress`, and if not, asks for a
+ * confirmation that lists it there, once per move: a refused one is asked for
+ * again on the next pass.
+ * @param {object} record This node's own address record.
+ * @returns {Promise<boolean>} Whether the chain lists it there.
+ */
+async function confirmOwnAddress(record) {
+  const status = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
+  const listed = status?.status === 'success' ? status.data?.ip : null;
+  if (listed && socketAddressesMatch(listed, record.socketAddress)) return true;
+  if (record.confirmationAcceptedAt === record.movedAt) return false;
+  const result = await daemonServiceFluxnodeRpcs.createConfirmationTransaction();
+  if (result?.status === 'success' && result.data?.status !== 'Fail to send') {
+    log.info(`createConfirmationTransaction: ${JSON.stringify(result)}`);
+    await updateOwnAddressRecord({ confirmationAcceptedAt: record.movedAt });
+  } else {
+    log.warn(`own address - the confirmation of ${record.socketAddress} was refused, asked again on the next pass: ${JSON.stringify(result)}`);
+  }
+  return false;
+}
+
+/**
+ * Brings this node to the move its own address record holds, doing only what
+ * is not yet so: its configured IP rewritten, the apps the move cannot keep
+ * removed and the rest restarted, the move recorded and told to the network,
+ * its address confirmed on chain, its geolocation refreshed. Each step either
+ * reads what is so before acting or is keyed to the move, so a pass repeated -
+ * on each change of this node's address, each node list refresh, and boot -
+ * finishes a move a failure or a restart left part done and does nothing twice.
+ * The move is settled once the chain lists the new address and every app has
+ * been handled. Runs only on the own-address queue.
+ * @returns {Promise<void>}
+ */
+async function reconcileOwnMove() {
+  const record = await ownAddressRecord();
+  if (!record?.movedFrom || !record.movedAt || record.settledAt === record.movedAt) return;
+  const {
+    socketAddress: to, movedFrom: from, movedAt, ipChanged, announce,
+  } = record;
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.OWN_ADDRESS_BEFORE_RECONCILE, to);
+  const ip = extractIp(to);
+  if (ipChanged && ip !== userconfig.initial.ipaddress) await writeConfiguredIp(ip);
+  const appsDue = ipChanged && record.appsHandledAt !== movedAt;
+  // Before the move is recorded: until then this node's own rows are at the old
+  // address, which is what keeps them from reading as another instance at the
+  // new one.
+  const apps = appsDue ? await appsStayingThroughIpMove(from, to) : null;
+  // The seam records and tells a move once whatever this node's record says,
+  // so a pass that told it and stopped before writing announcedAt repeats
+  // nothing.
+  if (announce && onOwnAddressMoved && record.announcedAt !== movedAt) {
+    await onOwnAddressMoved(from, to, movedAt);
+    await updateOwnAddressRecord({ announcedAt: movedAt });
+  }
+  let appsHandled = !ipChanged || !appsDue;
+  if (appsDue) {
+    let restarted = true;
+    if (apps.staying.length && onAddressChanged) {
+      const asked = await onAddressChanged(apps.staying, `node ip changed to ${ip}`, `ownMove:${movedAt}`);
+      restarted = Boolean(asked) && asked.asked === asked.components;
+    }
+    appsHandled = apps.complete && restarted;
+    if (appsHandled) await updateOwnAddressRecord({ appsHandledAt: movedAt });
+    else log.warn(`own address - not every app was handled for the move to ${to}; the next pass handles the rest`);
+  }
+  if (ipChanged && record.geolocatedAt !== movedAt) {
+    // Update geolocation service to track IP change and update static IP status
+    // eslint-disable-next-line global-require
+    const geolocationService = require('./geolocationService');
+    geolocationService.setNodeGeolocation();
+    await updateOwnAddressRecord({ geolocatedAt: movedAt });
+  }
+  // Settled only once its apps are handled too: a settled move is not
+  // reconciled again.
+  if (await confirmOwnAddress(record) && appsHandled) await updateOwnAddressRecord({ settledAt: movedAt });
+}
+
+// Work on this node's own address, one piece at a time in the order it came.
+let ownAddressWork = Promise.resolve();
+function serialiseOwnAddressWork(work) {
+  const run = ownAddressWork.then(work).catch((error) => log.error(`own address - ${error.message}`));
+  ownAddressWork = run;
+  return run;
+}
+
+/**
+ * The address this node held before `reported`, for a node that has adopted no
+ * address yet: the configured IP when `reported` is on another IP, at the port
+ * the network lists this node's collateral at on that IP or else the reported
+ * port; `reported` itself otherwise.
+ * @param {string} reported
+ * @returns {Promise<string>}
+ */
+async function configuredFormerAddress(reported) {
+  const configuredIp = userconfig.initial.ipaddress;
+  if (!configuredIp || ipsMatch(configuredIp, reported)) return reported;
+  const status = await daemonServiceFluxnodeRpcs.getFluxNodeStatus().catch(() => null);
+  const listed = status?.status === 'success' ? status.data?.ip : null;
+  if (listed && ipsMatch(listed, configuredIp)) return normalizeSocketAddress(listed);
+  return normalizeSocketAddress(`${configuredIp}:${extractPort(reported)}`);
+}
+
+/**
+ * Whether a Flux node answers at `socketAddress`.
+ * @param {string} socketAddress
+ * @returns {Promise<boolean>}
+ */
+async function fluxAnswersAt(socketAddress) {
+  let answered = true;
+  await serviceHelper.axiosGet(`http://${extractIp(socketAddress)}:${extractPort(socketAddress)}/flux/version`, { timeout: 5000 })
+    .catch(() => { answered = false; });
+  return answered;
+}
+
+// How long a node that does not answer is given to come back before it is
+// judged gone: a restart.
+const ANSWER_GRACE_MS = 60 * 1000;
+
+/**
+ * Whether a Flux node answers at `socketAddress`, now or once the grace a
+ * restarting node is given has passed.
+ * @param {string} socketAddress
+ * @returns {Promise<boolean>}
+ */
+async function fluxStillAnswersAt(socketAddress) {
+  if (await fluxAnswersAt(socketAddress)) return true;
+  await serviceHelper.delay(ANSWER_GRACE_MS);
+  return fluxAnswersAt(socketAddress);
+}
+
+// How many peers must find nothing at an address before this node judges the
+// node there gone, and how many it draws to find them.
+const PEERS_FINDING_NOTHING = 2;
+const PEER_DRAWS = 5;
+
+// What peers find at an address.
+const PeerFinding = Object.freeze({
+  NOTHING: 'nothing',
+  REACHED: 'reached',
+  UNKNOWN: 'unknown',
+});
+
+/**
+ * What peers find at `socketAddress`: this node's own view of one address can
+ * fail where the network's does not. Asks distinct random peers, as the
+ * availability check does. REACHED as soon as one reaches a Flux node there;
+ * NOTHING once PEERS_FINDING_NOTHING have answered that nothing is available
+ * there; UNKNOWN when too few answer to say.
+ * @param {string} socketAddress
+ * @returns {Promise<string>} One of PeerFinding.
+ */
+async function peersFindAt(socketAddress) {
+  const asked = [socketAddress];
+  let foundNothing = 0;
+  // eslint-disable-next-line no-restricted-syntax
+  for (let draw = 0; draw < PEER_DRAWS && foundNothing < PEERS_FINDING_NOTHING; draw += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const peer = await networkStateService.getRandomExternalObserver(localSocketAddress, { exclude: asked });
+    if (!peer) break;
+    asked.push(peer);
+    const url = `http://${extractIp(peer)}:${extractPort(peer)}/flux/checkfluxavailability?ip=${extractIp(socketAddress)}&port=${extractPort(socketAddress)}`;
+    // eslint-disable-next-line no-await-in-loop
+    const answer = await serviceHelper.axiosGet(url, { timeout: 15000 }).catch(() => null);
+    const status = answer?.data?.status;
+    if (status === 'success') {
+      log.info(`${peer} reaches a Flux node at ${socketAddress}`);
+      return PeerFinding.REACHED;
+    }
+    if (status === 'error') foundNothing += 1;
+  }
+  if (foundNothing >= PEERS_FINDING_NOTHING) return PeerFinding.NOTHING;
+  log.info(`too few peers answered whether a Flux node is at ${socketAddress} to say`);
+  return PeerFinding.UNKNOWN;
+}
+
+/**
+ * Whether the Flux node at `socketAddress` is gone: nothing answers this node
+ * there, now or once a restart's grace has passed, and peers find nothing
+ * there either.
+ * @param {string} socketAddress
+ * @returns {Promise<boolean>}
+ */
+async function fluxGoneFrom(socketAddress) {
+  if (await fluxStillAnswersAt(socketAddress)) return false;
+  return await peersFindAt(socketAddress) === PeerFinding.NOTHING;
+}
+
+/**
+ * Adopts `current` in place of `previous`, the configured address, which this
+ * node has no record of leaving. Told to the network as a move only when this
+ * node ran apps there.
+ * @param {string} previous
+ * @param {string} current
+ * @returns {Promise<void>}
+ */
+function leaveConfiguredAddress(previous, current) {
+  return serialiseOwnAddressWork(async () => {
+    const from = normalizeSocketAddress(previous);
+    await adjustExternalIp(from, current, { announceMove: await ranAppsAt(from) });
+  });
+}
+
+/**
+ * Acts on the address benchmark reports as this node's own. One that differs
+ * from the address the node last adopted is a move, whichever way it came and
+ * whether or not the chain has already listed the node there. A node that has
+ * adopted none compares it with its configured address, which a machine
+ * started on a copy of another's configuration shares with that machine: until
+ * the Flux node there is gone (fluxGoneFrom) it adopts the reported address and
+ * the collision check judges it; once it is, it adopts the reported address in
+ * place of the configured one, told as a move only when it ran apps there.
+ * @param {string} current The reported socket address.
+ * @returns {Promise<void>}
+ */
+function handleOwnAddress(current) {
+  return serialiseOwnAddressWork(async () => {
+    const reported = normalizeSocketAddress(current);
+    if (!reported) return;
+    const record = await ownAddressRecord();
+    if (record) noteOwnAddress(record.socketAddress, record.movedFrom);
+    const previous = record ? record.socketAddress : await configuredFormerAddress(reported);
+    if (!socketAddressesMatch(previous, reported)) {
+      if (!record && !await fluxGoneFrom(previous)) {
+        log.warn(`own address - a Flux node is at ${previous}, the configured address, so ${reported} is not a move from it`);
+        await writeOwnAddressRecord(reported);
+        return;
+      }
+      await adjustExternalIp(previous, reported, { announceMove: Boolean(record) || await ranAppsAt(previous) });
+    } else if (!record) {
+      await writeOwnAddressRecord(reported);
+    } else {
+      await reconcileOwnMove();
+    }
+  });
+}
+
+// The listener watching this node's own address, while one is.
+let ownAddressListener = null;
+
+/**
+ * Acts on every change of this node's own address from here on, and on the one
+ * it already knows. Watches once however often it is called: a boot that is run
+ * again does not add a second watcher.
+ * @returns {function(): void} Stops the watch.
+ */
+function startOwnAddressWatch() {
+  if (!ownAddressListener) {
+    ownAddressListener = (address) => { handleOwnAddress(address); };
+    onLocalSocketAddressChange(ownAddressListener);
+    const known = getKnownLocalSocketAddress();
+    if (known) handleOwnAddress(known);
+  }
+  return () => {
+    if (ownAddressListener) offLocalSocketAddressChange(ownAddressListener);
+    ownAddressListener = null;
+  };
+}
+
+// The DOS messages this node's own checks set. There is one message for every
+// reason a node can be out of service, so each check clears only one it set
+// itself, matched against these.
+const UNREACHABLE_MESSAGE = 'Flux communication is limited, other nodes on the network cannot reach yours through API calls';
+const UNAVAILABLE_MESSAGE = 'Flux is not available for outside communication';
+const BENCH_PUBLIC_IP_MESSAGE = 'Error getting publicIp from FluxBench';
+const REACHABILITY_MESSAGES = [UNREACHABLE_MESSAGE, UNAVAILABLE_MESSAGE, BENCH_PUBLIC_IP_MESSAGE];
+const IP_DETECTION_FAILED_MESSAGE = 'Flux IP detection failed';
+const IP_CHANGES_MESSAGE = 'IP changes over the limit allowed, one in 20 hours';
+const FLUXBENCH_VERSION_MESSAGE_PREFIX = 'Fluxbench Version Error.';
+const COLLISION_MESSAGE_PREFIXES = ['Flux collision detection.', 'Flux earlier collision detection'];
+// How long a node that changed its IP over the limit stays out of service.
+const IP_CHANGES_HOLD_MS = 20 * 60 * 60 * 1000;
+
+function monotonicMs() {
+  return Number(process.hrtime.bigint() / 1000000n);
+}
+
+/**
+ * Ends the node's DOS when the message standing is one `owns` recognises.
+ * @param {function(string): boolean} owns
+ * @returns {void}
+ */
+function releaseDosOwnedBy(owns) {
+  if (!dosMessage || !owns(dosMessage)) return;
+  dosState = 0;
+  setDosMessage(null);
+}
+
+const isCollisionMessage = (message) => COLLISION_MESSAGE_PREFIXES.some((prefix) => message.startsWith(prefix));
+
+// What the availability check has counted against this node, apart from the
+// score the other checks share: the asks no peer answered as reachable, and
+// the time it has been reachable with too few peer connections. The node's
+// DOS state is the two added to the shared score (effectiveDosState), so a
+// check that resets the shared score leaves these standing, and the
+// availability check takes off only its own. The message it set is kept to
+// end only that one.
+let unreachablePoints = 0;
+let shortfallPoints = 0;
+let availabilityMessage = null;
+
+// When this node last found itself reachable with too few peer connections, while
+// it keeps doing so: null otherwise.
+let peerShortfallSeenAt = null;
+
+/**
+ * Sets `message` as the availability check's, when no message stands or
+ * `replace` says this one outranks the one standing.
+ * @param {string} message
+ * @param {object} [options]
+ * @param {boolean} [options.replace]
+ * @returns {void}
+ */
+function holdAvailabilityDos(message, { replace = false } = {}) {
+  if (dosMessage && !replace) return;
+  availabilityMessage = message;
+  setDosMessage(message);
+}
+
+/**
+ * Ends what the availability check counted against reaching this node, and the
+ * message it sets for that if it is the one standing: the node was reached.
+ * @returns {void}
+ */
+function releaseUnreachable() {
+  unreachablePoints = 0;
+  if (REACHABILITY_MESSAGES.includes(dosMessage)) {
+    availabilityMessage = null;
+    setDosMessage(null);
+  }
+  publishEffectiveDosState();
+}
+
+/**
+ * Ends what the availability check counted for too few peer connections, and
+ * its message if that is the one standing: the node has enough.
+ * @returns {void}
+ */
+function releaseShortfall() {
+  shortfallPoints = 0;
+  peerShortfallSeenAt = null;
+  if (dosMessage && dosMessage === availabilityMessage && !REACHABILITY_MESSAGES.includes(dosMessage)) {
+    availabilityMessage = null;
+    setDosMessage(null);
+  }
+  publishEffectiveDosState();
+}
+
+/**
+ * Forgets what the availability check counted and the message it set, as a
+ * DOS state set from outside does.
+ * @returns {void}
+ */
+function resetAvailabilityDos() {
+  unreachablePoints = 0;
+  shortfallPoints = 0;
+  peerShortfallSeenAt = null;
+  availabilityMessage = null;
+}
+
+/**
+ * A peer connected: once this node has the connections it needs, what the
+ * availability check counted for too few of them ends now rather than at its
+ * next pass.
+ * @returns {void}
+ */
+function onPeerConnected() {
+  if (peerShortfallSeenAt === null && shortfallPoints === 0) return;
+  if (isCommunicationEstablished().status === 'error') return;
+  releaseShortfall();
 }
 
 /**
@@ -1720,11 +2237,12 @@ async function adjustExternalIP(ip) {
  * @returns {Promise<boolean>} Return value is only for testing
  */
 async function checkMyFluxAvailability(retryNumber = 0) {
-  if (dosTooManyIpChanges) {
+  if (tooManyIpChangesAt !== null && monotonicMs() - tooManyIpChangesAt < IP_CHANGES_HOLD_MS) {
     dosState += 11;
-    setDosMessage('IP changes over the limit allowed, one in 20 hours');
+    setDosMessage(IP_CHANGES_MESSAGE);
     return false;
   }
+  releaseDosOwnedBy((message) => message === IP_CHANGES_MESSAGE);
 
   if (localSocketAddress === null) return false;
 
@@ -1772,10 +2290,14 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     },
   );
 
+  // Known limitation, replaced in v9: a failed check retries at once against another
+  // random node, up to seven times, and each failure adds 2 to dosState, so one bad
+  // moment on the network can put the node in DOS within seconds. The re-check a
+  // failure schedules clears it.
   if (!resMyAvailability) {
-    dosState += 2;
-    if (dosState > 10) {
-      setDosMessage(dosMessage || 'Flux communication is limited, other nodes on the network cannot reach yours through API calls');
+    unreachablePoints += 2;
+    if (effectiveDosState() > 10) {
+      holdAvailabilityDos(UNREACHABLE_MESSAGE);
       log.error(dosMessage);
       return false;
     }
@@ -1788,38 +2310,39 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   if (resMyAvailability.data.status === 'error' || resMyAvailability.data.data.message.includes('not')) {
     log.error(`My Flux unavailability detected from: ${remoteIp}:${remotePort}`);
     // Asked Flux cannot reach me lets check if ip changed
-    if (retryNumber === 4 || dosState > 10) {
+    if (retryNumber === 4 || effectiveDosState() > 10) {
       log.info('Getting publicIp from FluxBench');
       const benchIpResponse = await benchmarkService.getPublicIp();
       if (benchIpResponse.status === 'success') {
         log.info(`FluxBench reported public IP: ${benchIpResponse.data}`);
-        const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
-        if (benchMyIP && extractIp(benchMyIP) !== localIp) {
+        const benchMyIp = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
+        if (benchMyIp && extractIp(benchMyIp) !== localIp) {
           daemonServiceUtils.setStandardCache('getbenchmarks[]', null);
           log.info('New IP found... updating network');
-          dosState = 0;
-          setDosMessage(null);
-          await adjustExternalIP(extractIp(benchMyIP));
+          releaseUnreachable();
+          // Read afresh: a new address is a change of this node's own address,
+          // which its one handler acts on.
+          await getLocalSocketAddress({ fresh: true });
           return true;
-        } if (benchMyIP && extractIp(benchMyIP) === localIp) {
+        } if (benchMyIp && extractIp(benchMyIp) === localIp) {
           log.info('FluxBench reported the same Ip that was already in use');
         } else {
           log.info('FluxBench reported a invalid IP');
-          setDosMessage('Error getting publicIp from FluxBench');
-          dosState += 15;
+          holdAvailabilityDos(BENCH_PUBLIC_IP_MESSAGE, { replace: true });
+          unreachablePoints += 15;
           log.error('FluxBench wasnt able to detect flux node public ip');
         }
       } else {
         log.info('FluxBench reported returned error on getpublicipcall');
-        setDosMessage('Error getting publicIp from FluxBench');
-        dosState += 15;
+        holdAvailabilityDos(BENCH_PUBLIC_IP_MESSAGE, { replace: true });
+        unreachablePoints += 15;
         log.error(dosMessage);
         return false;
       }
     }
-    dosState += 2;
-    if (dosState > 10) {
-      setDosMessage(dosMessage || 'Flux is not available for outside communication');
+    unreachablePoints += 2;
+    if (effectiveDosState() > 10) {
+      holdAvailabilityDos(UNAVAILABLE_MESSAGE);
       log.error(dosMessage);
       return false;
     }
@@ -1838,34 +2361,40 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       // check sufficient connections
       const connectionInfo = isCommunicationEstablished();
       if (connectionInfo.status === 'error') {
-        dosState += 0.13; // slow increment, DOS after ~75 minutes. 0.13 per minute. This check depends on other nodes being able to connect to my node
-        if (dosState > 10) {
-          setDosMessage(connectionInfo.data.message || 'Flux does not have sufficient peers');
+        // Reachable: what this check counted against reaching it no longer
+        // holds. The count for too few peers goes on.
+        releaseUnreachable();
+        // peerShortfallDosPerMinute for each minute it lasts. This depends on
+        // other nodes being able to connect to my node.
+        const now = monotonicMs();
+        const minutes = peerShortfallSeenAt === null ? 1 : (now - peerShortfallSeenAt) / 60000;
+        peerShortfallSeenAt = now;
+        shortfallPoints += config.fluxapps.peerShortfallDosPerMinute * minutes;
+        if (effectiveDosState() > 10) {
+          holdAvailabilityDos(connectionInfo.data.message || 'Flux does not have sufficient peers');
           log.error(dosMessage);
           return false;
         }
-        await adjustExternalIP(localIp);
         return true; // availability ok
       }
     }
   } else if (measuredUptime.status === 'error') {
     log.error('Flux uptime is not available'); // introduce dos increment
   }
-  dosState = 0;
-  setDosMessage(null);
-  await adjustExternalIP(localIp);
+  releaseUnreachable();
+  releaseShortfall();
   return true;
 }
 
 /**
- * To check deterministic node collisions (i.e. if multiple FluxNode instances detected).
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * Checks once whether this node's collateral is listed anywhere it should not be:
+ * twice at its own address, or at another address. Runs on each node list
+ * refresh and each change of this node's own address; one that cannot decide
+ * yet - no address, an unsynced daemon, no list - decides nothing and the next
+ * refresh asks again.
+ * @returns {Promise<void>}
  */
 async function checkDeterministicNodesCollisions() {
-  const axiosConfig = {
-    timeout: 5000,
-  };
-
   try {
     // get my external ip address
     // get node list with filter on this ip address
@@ -1874,26 +2403,10 @@ async function checkDeterministicNodesCollisions() {
     const localSocketAddr = await getLocalSocketAddress();
     if (localSocketAddr) {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        setTimeout(() => {
-          checkDeterministicNodesCollisions();
-        }, 120 * 1000);
-        return;
-      }
-      // Same shape as the daemon check above, for the same reason. The list
-      // accessors wait for the list to arrive, and this loop only re-arms once
-      // it has finished - so awaiting in here would retire it for the life of
-      // the process rather than delay it, and this is the only thing that ever
-      // clears this node's DOS state. Reading an unknown list instead is no
-      // better: it makes every branch below conclude this node is not in the
-      // confirmed list, log that as the reason, and skip the availability check
-      // that would have cleared the DOS.
-      if (!networkStateService.isReady()) {
-        setTimeout(() => {
-          checkDeterministicNodesCollisions();
-        }, 120 * 1000);
-        return;
-      }
+      if (!syncStatus.data.synced) return;
+      // An unknown list reads as an empty one to every accessor below, which
+      // would find no collision anywhere.
+      if (!networkStateService.isReady()) return;
       const nodeList = await fluxCommunicationUtils.deterministicFluxList();
       const result = nodeList.filter((node) => socketAddressesMatch(node.ip, localSocketAddr));
       const nodeStatus = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
@@ -1911,9 +2424,6 @@ async function checkDeterministicNodesCollisions() {
               log.error(`Flux earlier collision detection on ip:${localSocketAddr}`);
               dosState = 100;
               setDosMessage(`Flux earlier collision detection on ip:${localSocketAddr}`);
-              setTimeout(() => {
-                checkDeterministicNodesCollisions();
-              }, 60 * 1000);
               return;
             }
           }
@@ -1923,112 +2433,344 @@ async function checkDeterministicNodesCollisions() {
             log.error('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
             dosState = 100;
             setDosMessage('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
-            setTimeout(() => {
-              checkDeterministicNodesCollisions();
-            }, 60 * 1000);
             return;
           }
         }
-        if (nodeStatus.data.status === 'CONFIRMED' && nodeCollateralDifferentIp) {
-          let errorCall = false;
+        // A listing at the address this node recorded moving from is its own move,
+        // waiting for its confirmation: nothing to judge.
+        const ownRecord = nodeCollateralDifferentIp ? await ownAddressRecord() : null;
+        const movedFromHere = Boolean(ownRecord?.movedFrom) && socketAddressesMatch(ownRecord.movedFrom, nodeCollateralDifferentIp.ip);
+        // Listed nowhere it should not be: whatever this check said no longer holds.
+        if (!nodeCollateralDifferentIp || movedFromHere) releaseDosOwnedBy(isCollisionMessage);
+        if (nodeStatus.data.status === 'CONFIRMED' && nodeCollateralDifferentIp && !movedFromHere) {
           const askingIP = extractIp(nodeCollateralDifferentIp.ip);
           const askingIpPort = extractPort(nodeCollateralDifferentIp.ip);
           log.info(`Detected same collateral on different IP: ${askingIP}:${askingIpPort}. Checking if other node is reachable...`);
 
-          // First reachability check
-          await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/version`, axiosConfig).catch(() => { errorCall = true; });
-          if (!errorCall) {
+          if (await fluxAnswersAt(nodeCollateralDifferentIp.ip)) {
             // Other node is reachable and confirmed - this is a collision
             log.error(`Flux collision detection. Node at ${askingIP}:${askingIpPort} is confirmed and reachable on flux network with the same collateral transaction information.`);
             dosState = 100;
             setDosMessage(`Flux collision detection. Node at ${askingIP}:${askingIpPort} is confirmed and reachable on flux network with the same collateral transaction information.`);
-            setTimeout(() => {
-              checkDeterministicNodesCollisions();
-            }, 60 * 1000);
             return;
           }
 
           // First check failed - wait 60 seconds before confirming the other node is truly offline
           // This grace period prevents false positives from temporary network issues or node restarts
           log.info(`Other node at ${askingIP}:${askingIpPort} appears unreachable. Waiting 60 seconds to verify before taking over...`);
-          errorCall = false;
-          await serviceHelper.delay(60 * 1000);
-
-          // Second reachability check after grace period
-          await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/version`, axiosConfig).catch(() => { errorCall = true; });
-          if (errorCall) {
+          await serviceHelper.delay(ANSWER_GRACE_MS);
+          const answersHere = await fluxAnswersAt(nodeCollateralDifferentIp.ip);
+          const peersFind = answersHere ? null : await peersFindAt(nodeCollateralDifferentIp.ip);
+          const errorCall = peersFind === PeerFinding.NOTHING;
+          fluxEventBus.publish('collision:judged', {
+            address: normalizeSocketAddress(nodeCollateralDifferentIp.ip), answersHere, peersFind, gone: errorCall,
+          });
+          // The collateral listed at the IP this node was configured with, and
+          // nothing answering there: not another machine, but this node, which has
+          // moved - its IP, or its api port on the same IP - and has no record of
+          // where it was. Handled as the move it is, recorded and told to the
+          // network before the new address is confirmed: a bare takeover would put
+          // it on chain first.
+          const ownFormerAddress = askingIP === userconfig.initial.ipaddress;
+          if (errorCall && ownFormerAddress) {
+            const formerSocket = normalizeSocketAddress(`${askingIP}:${askingIpPort}`);
+            log.info(`Our collateral is listed at ${formerSocket}, this node's own former address - handling the move to ${localSocketAddr}`);
+            await leaveConfiguredAddress(formerSocket, localSocketAddr);
+          } else if (errorCall) {
             // Other node is confirmed offline after grace period - take over the collateral
             log.info(`Other node at ${askingIP}:${askingIpPort} confirmed offline. Creating confirmation transaction to take over collateral...`);
             const daemonResult = await daemonServiceFluxnodeRpcs.createConfirmationTransaction();
             log.info(`node was confirmed on a different machine ip - createConfirmationTransaction: ${JSON.stringify(daemonResult)}`);
-            // Clear any previous DOS state related to this collision
-            if (getDosMessage() && getDosMessage().includes('is confirmed and reachable on flux network')) {
-              log.info('Clearing previous collision DOS state - this node has successfully taken over the collateral');
-              dosState = 0;
-              setDosMessage(null);
-            }
+            releaseDosOwnedBy(isCollisionMessage);
+          } else if (peersFind === PeerFinding.UNKNOWN) {
+            log.info(`Whether the node at ${askingIP}:${askingIpPort} is gone cannot be said yet; the next pass asks again`);
           } else {
-            // Other node came back online during grace period
-            log.warn(`Node at ${askingIP}:${askingIpPort} came back online during grace period. Collision still exists.`);
-          }
-        }
-      }
-      // If this node is not CONFIRMED, or our current IP isn't in the confirmed
-      // list (e.g. IP recently changed), remote nodes will reject the availability
-      // check via the confirmed-list gate in isFluxAvailable. Skip to avoid
-      // spamming the network with requests that will always fail.
-      const isConfirmed = nodeStatus.data?.status === 'CONFIRMED';
-      const inConfirmedList = await fluxCommunicationUtils.socketAddressInFluxList(localSocketAddr);
-      if (!isConfirmed || !inConfirmedList) {
-        const reason = !isConfirmed
-          ? `Node status is ${nodeStatus.data?.status}`
-          : `Our IP ${localSocketAddr} is not in the confirmed flux list`;
-        log.warn(`${reason}. Skipping remote availability check.`);
-        setTimeout(() => {
-          checkDeterministicNodesCollisions();
-        }, 60 * 1000);
-        return;
-      }
-      // early stages of the network or testnet
-      if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
-        await checkMyFluxAvailability();
-      } else { // sufficient amount of nodes has to appear on the network within 6 hours
-        const measuredUptime = fluxUptime();
-        if (measuredUptime.status === 'success' && measuredUptime.data > (config.fluxapps.minUpTime * 12)) {
-          await checkMyFluxAvailability();
-        } else if (measuredUptime.status === 'error') {
-          log.error('Flux uptime unavailable');
-          await checkMyFluxAvailability();
-        }
-      }
-    } else {
-      dosState += 1;
-      if (dosState > 10) {
-        setDosMessage(dosMessage || 'Flux IP detection failed');
-        log.error(dosMessage);
-      } else {
-        const measuredUptime = fluxUptime();
-        if (measuredUptime.status === 'success' && measuredUptime.data > (config.fluxapps.minUpTime)) {
-          const benchIpResponse = await benchmarkService.getPublicIp();
-          if (benchIpResponse.status === 'success') {
-            log.info(`FluxBench was previoulsy without ip and now reported public IP: ${benchIpResponse.data}`);
-            const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
-            if (benchMyIP) {
-              daemonServiceUtils.setStandardCache('getbenchmarks[]', null);
-            }
+            // Answering again after the grace, or reached by peers: the other
+            // node is there, so this is a collision.
+            log.error(`Flux collision detection. Node at ${askingIP}:${askingIpPort} is confirmed and reachable on flux network with the same collateral transaction information.`);
+            dosState = 100;
+            setDosMessage(`Flux collision detection. Node at ${askingIP}:${askingIpPort} is confirmed and reachable on flux network with the same collateral transaction information.`);
           }
         }
       }
     }
-    setTimeout(() => {
-      checkDeterministicNodesCollisions();
-    }, 60 * 1000);
   } catch (error) {
     log.error(error);
-    setTimeout(() => {
-      checkDeterministicNodesCollisions();
-    }, 120 * 1000);
   }
+}
+
+// The collision check runs one pass at a time; a trigger arriving during a pass
+// asks for one more pass after it.
+let collisionCheckRunning = null;
+let collisionCheckAgain = false;
+
+/**
+ * Runs the collision check now, or once more after the pass already running.
+ * @returns {Promise<void>}
+ */
+async function requestCollisionCheck() {
+  if (collisionCheckRunning) {
+    collisionCheckAgain = true;
+    return collisionCheckRunning;
+  }
+  collisionCheckRunning = runCollisionChecks();
+  try {
+    await collisionCheckRunning;
+  } finally {
+    collisionCheckRunning = null;
+  }
+  return undefined;
+}
+
+async function runCollisionChecks() {
+  do {
+    collisionCheckAgain = false;
+    // After the work on this node's own address already asked for: a move it is
+    // recording is its own, not a collision.
+    // eslint-disable-next-line no-await-in-loop
+    await ownAddressWork;
+    // eslint-disable-next-line no-await-in-loop
+    await checkDeterministicNodesCollisions();
+  } while (collisionCheckAgain);
+}
+
+// Whether what syncthing's listener for its peers is has been known: a peer asked
+// whether it can reach this node tests that port along with its api and home ports.
+let syncthingListenerKnown = false;
+// Whether the availability check's next ask is scheduled at the address this
+// node holds now. While it is not, every change that can make the question
+// answerable asks it.
+let availabilityScheduled = false;
+let availabilityTimer = null;
+let availabilityRunning = null;
+
+/**
+ * Whether asking a peer if it can reach this node can be answered yet: the node
+ * is confirmed and listed at its current address - a peer refuses any other -
+ * and what the peer tests on it is known. On a network of few nodes the question
+ * waits for six hours of uptime.
+ * @returns {Promise<boolean>}
+ */
+async function availabilityCanBeAnswered() {
+  if (!syncthingListenerKnown || !networkStateService.isReady()) return false;
+  const localSocketAddr = await getLocalSocketAddress();
+  if (!localSocketAddr) return false;
+  const nodeStatus = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
+  if (nodeStatus.data?.status !== 'CONFIRMED') return false;
+  if (!await fluxCommunicationUtils.socketAddressInFluxList(localSocketAddr)) return false;
+  const nodeCount = await fluxCommunicationUtils.getNodeCount();
+  if (nodeCount > config.fluxapps.minIncoming + config.fluxapps.minOutgoing) return true;
+  const measuredUptime = fluxUptime();
+  return measuredUptime.status !== 'success' || measuredUptime.data > config.fluxapps.minUpTime * 12;
+}
+
+function scheduleAvailabilityCheck(delayMs) {
+  clearTimeout(availabilityTimer);
+  availabilityTimer = setTimeout(requestAvailabilityCheck, delayMs);
+}
+
+/**
+ * Asks whether this node can be reached, when that can be answered, and
+ * schedules the next ask: sooner after a failure, so a false verdict clears.
+ * One that cannot be answered schedules nothing, and the next node list
+ * refresh, change of address or known syncthing listener asks again.
+ * @returns {Promise<void>}
+ */
+async function runAvailabilityCheck() {
+  try {
+    if (!await availabilityCanBeAnswered()) {
+      availabilityScheduled = false;
+      return;
+    }
+    availabilityScheduled = true;
+    const available = await checkMyFluxAvailability();
+    fluxEventBus.publish('availability:checked', { available, dosState: effectiveDosState(), dosMessage: getDosMessage() });
+    scheduleAvailabilityCheck(available
+      ? config.fluxapps.availabilityCheckIntervalMs
+      : config.fluxapps.availabilityRecheckMs);
+  } catch (error) {
+    log.error(`availability check - ${error.message}`);
+    scheduleAvailabilityCheck(config.fluxapps.availabilityRecheckMs);
+  }
+}
+
+/**
+ * Runs the availability check now, unless a run is already under way.
+ * @returns {Promise<void>}
+ */
+async function requestAvailabilityCheck() {
+  if (!availabilityRunning) {
+    availabilityRunning = runAvailabilityCheck();
+    try {
+      await availabilityRunning;
+    } finally {
+      availabilityRunning = null;
+    }
+  }
+}
+
+/**
+ * The availability check, when none is scheduled. Once one is, the check runs
+ * on its own schedule.
+ * @returns {Promise<void>}
+ */
+async function requestUnscheduledAvailabilityCheck() {
+  if (!availabilityScheduled) await requestAvailabilityCheck();
+}
+
+/**
+ * Notes that what syncthing's listener for its peers is has been known.
+ * @returns {void}
+ */
+function noteSyncthingListenerKnown() {
+  syncthingListenerKnown = true;
+  requestUnscheduledAvailabilityCheck();
+}
+
+let publicIpAskTimer = null;
+let emptyPublicIpAsks = 0;
+
+/**
+ * While this node knows no address of its own, asks benchmark to detect its
+ * public IP every publicIpAskIntervalMs. After publicIpAsksBeforeDos asks in a
+ * row find none, the node is out of service until one arrives.
+ * @returns {void}
+ */
+function askForPublicIpWhileUnknown() {
+  if (!publicIpAskTimer) publicIpAskTimer = setTimeout(askForPublicIp, config.fluxapps.publicIpAskIntervalMs);
+}
+
+async function askForPublicIp() {
+  publicIpAskTimer = null;
+  try {
+    await askOnceForPublicIp();
+  } catch (error) {
+    log.error(`public ip - ${error.message}`);
+    askForPublicIpWhileUnknown();
+  }
+}
+
+async function askOnceForPublicIp() {
+  const benchIpResponse = await benchmarkService.getPublicIp();
+  if (benchIpResponse?.status === 'success') {
+    log.info(`FluxBench was previously without ip and now reported public IP: ${benchIpResponse.data}`);
+    if (benchIpResponse.data.length > 5) daemonServiceUtils.setStandardCache('getbenchmarks[]', null);
+  }
+  const address = await getLocalSocketAddress({ fresh: true });
+  if (address) {
+    ownAddressKnown();
+    return;
+  }
+  emptyPublicIpAsks += 1;
+  if (emptyPublicIpAsks >= config.fluxapps.publicIpAsksBeforeDos && effectiveDosState() <= 10) {
+    dosState = 11;
+    setDosMessage(dosMessage || IP_DETECTION_FAILED_MESSAGE);
+    log.error(dosMessage);
+  }
+  askForPublicIpWhileUnknown();
+}
+
+/**
+ * This node knows its address: stops asking for it, and ends the DOS that
+ * asking in vain set.
+ * @returns {void}
+ */
+function ownAddressKnown() {
+  clearTimeout(publicIpAskTimer);
+  publicIpAskTimer = null;
+  emptyPublicIpAsks = 0;
+  if (dosMessage === IP_DETECTION_FAILED_MESSAGE) {
+    dosState = 0;
+    setDosMessage(null);
+  }
+}
+
+/**
+ * A new address of this node's own: what was checked at the old one no longer
+ * holds.
+ * @returns {void}
+ */
+function onOwnAddressChanged() {
+  ownAddressKnown();
+  availabilityScheduled = false;
+  clearTimeout(availabilityTimer);
+  requestCollisionCheck();
+  requestUnscheduledAvailabilityCheck();
+}
+
+/**
+ * Brings this node to the move its own address record holds, on the
+ * own-address queue.
+ * @returns {Promise<void>}
+ */
+function requestOwnMoveReconcile() {
+  return serialiseOwnAddressWork(reconcileOwnMove);
+}
+
+/**
+ * What a node list refresh runs.
+ * @returns {Promise<Array>} Settles once each has.
+ */
+function onNetworkListUpdated() {
+  return Promise.all([requestOwnMoveReconcile(), requestCollisionCheck(), requestUnscheduledAvailabilityCheck()]);
+}
+
+// Stops the node list listener of the own-standing watch, while it runs.
+let stopListUpdates = null;
+
+/**
+ * Reads this node's address afresh, which tells the watch what it is.
+ * @returns {Promise<void>}
+ */
+async function readOwnAddress() {
+  try {
+    await getLocalSocketAddress({ fresh: true });
+  } catch (error) {
+    log.error(`own standing - ${error.message}`);
+  }
+}
+
+/**
+ * Stops the own-standing watch.
+ * @returns {void}
+ */
+function stopOwnStandingWatch() {
+  if (stopListUpdates) stopListUpdates();
+  stopListUpdates = null;
+  offLocalSocketAddressChange(onOwnAddressChanged);
+  localSocketAddressEvents.off('unresolved', askForPublicIpWhileUnknown);
+  peerManager.off('peerConnected', onPeerConnected);
+  clearTimeout(availabilityTimer);
+  clearTimeout(publicIpAskTimer);
+  publicIpAskTimer = null;
+  emptyPublicIpAsks = 0;
+  availabilityScheduled = false;
+  peerShortfallSeenAt = null;
+}
+
+function setSyncthingListenerKnown(value) {
+  syncthingListenerKnown = value;
+}
+
+function setDosTooManyIpChanges(value) {
+  tooManyIpChangesAt = value ? monotonicMs() : null;
+}
+
+/**
+ * Watches what decides whether this node stands on the network as itself: its
+ * own address, the node list, and whether it can be reached. Starts once however
+ * often it is called.
+ * @returns {function(): void} Stops the watch.
+ */
+function startOwnStandingWatch() {
+  if (!stopListUpdates) {
+    stopListUpdates = networkStateService.onUpdated(onNetworkListUpdated);
+    onLocalSocketAddressChange(onOwnAddressChanged);
+    localSocketAddressEvents.on('unresolved', askForPublicIpWhileUnknown);
+    peerManager.on('peerConnected', onPeerConnected);
+    readOwnAddress();
+  }
+  return stopOwnStandingWatch;
 }
 
 /**
@@ -2063,6 +2805,7 @@ async function setDOSStateApi(req, res) {
   if (Number.isNaN(newDosState)) {
     return res.json(messageHelper.createErrorMessage('dosState must be a number'));
   }
+  resetAvailabilityDos();
   setDosMessage(body.dosMessage ?? null);
   setDosStateValue(newDosState);
   return res.json(messageHelper.createSuccessMessage({ dosState, dosMessage }));
@@ -2075,7 +2818,6 @@ async function setDOSStateApi(req, res) {
  * @returns {object} Command status.
  */
 async function allowPort(port) {
-  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -2084,12 +2826,16 @@ async function allowPort(port) {
     cmdStat.message = 'Port needs to be a number';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw allow ${port} && sudo ufw allow out ${port}`;
-  const cmdres = await cmdAsync(exec);
+  const ran = await ufw.runUfw(['allow', String(port)]);
+  if (ran.locked) {
+    cmdStat.message = 'ufw is locked by another ufw command';
+    return cmdStat;
+  }
+  const cmdres = ran.stdout + ran.stderr;
   cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
+  if (cmdres.includes('updated') || cmdres.includes('added')) {
     cmdStat.status = true;
-  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
+  } else if (cmdres.includes('existing')) {
     cmdStat.status = true;
     cmdStat.message = 'existing';
   } else {
@@ -2098,33 +2844,39 @@ async function allowPort(port) {
   return cmdStat;
 }
 
+// The ufw rule that admits IPv4 TCP clients to a port FluxOS opens for a moment,
+// to test it from outside, and nothing else. ufw counts a rule that names no
+// protocol as the same rule as the matching half of an app port's
+// `allow <port>`, so a test that opened and deleted one would delete that half;
+// a TCP rule is a rule of its own.
+const testPortRule = (port) => ['proto', 'tcp', 'from', '0.0.0.0/0', 'to', 'any', 'port', String(port)];
+
 /**
- * To allow out a port.
- * @param {string} port Port.
- * @returns {object} Command status.
+ * Opens a port to IPv4 TCP clients while FluxOS tests it from outside: the only rule
+ * for the port that deleteTestPortRule deletes.
+ * @param {number|string} port Port.
+ * @returns {Promise<{status: boolean, message: (string|null)}>}
  */
-async function allowOutPort(port) {
-  const cmdAsync = util.promisify(nodecmd.run);
-  const cmdStat = {
-    status: false,
-    message: null,
-  };
-  if (Number.isNaN(+port)) {
-    cmdStat.message = 'Port needs to be a number';
-    return cmdStat;
-  }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw allow out ${port}`;
-  const cmdres = await cmdAsync(exec);
-  cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
-    cmdStat.status = true;
-  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
-    cmdStat.status = true;
-    cmdStat.message = 'existing';
-  } else {
-    cmdStat.status = false;
-  }
-  return cmdStat;
+async function allowTestPort(port) {
+  if (Number.isNaN(+port)) return { status: false, message: 'Port needs to be a number' };
+  const ran = await ufw.runUfw(['allow', ...testPortRule(port)]);
+  if (ran.locked) return { status: false, message: 'ufw is locked by another ufw command' };
+  const cmdres = ran.stdout + ran.stderr;
+  return { status: /added|updated|existing/.test(cmdres), message: cmdres };
+}
+
+/**
+ * Deletes the rule allowTestPort writes, and no other rule for the port. A rule
+ * already gone counts as deleted.
+ * @param {number|string} port Port.
+ * @returns {Promise<{status: boolean, message: (string|null)}>}
+ */
+async function deleteTestPortRule(port) {
+  if (Number.isNaN(+port)) return { status: false, message: 'Port needs to be a number' };
+  const ran = await ufw.runUfw(['delete', 'allow', ...testPortRule(port)]);
+  if (ran.locked) return { status: false, message: 'ufw is locked by another ufw command' };
+  const cmdres = ran.stdout + ran.stderr;
+  return { status: cmdres.includes('delete'), message: cmdres };
 }
 
 /**
@@ -2133,7 +2885,6 @@ async function allowOutPort(port) {
  * @returns {object} Command status.
  */
 async function denyPort(port) {
-  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -2147,12 +2898,16 @@ async function denyPort(port) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw deny ${port} && sudo ufw deny out ${port}`;
-  const cmdres = await cmdAsync(exec);
+  const ran = await ufw.runUfw(['deny', String(port)]);
+  if (ran.locked) {
+    cmdStat.message = 'ufw is locked by another ufw command';
+    return cmdStat;
+  }
+  const cmdres = ran.stdout + ran.stderr;
   cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('updated') || serviceHelper.ensureString(cmdres).includes('added')) {
+  if (cmdres.includes('updated') || cmdres.includes('added')) {
     cmdStat.status = true;
-  } else if (serviceHelper.ensureString(cmdres).includes('existing')) {
+  } else if (cmdres.includes('existing')) {
     cmdStat.status = true;
     cmdStat.message = 'existing';
   } else {
@@ -2167,7 +2922,6 @@ async function denyPort(port) {
  * @returns {object} Command status.
  */
 async function deleteAllowPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -2181,10 +2935,14 @@ async function deleteAllowPortRule(port) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw delete allow ${port} && sudo ufw delete allow out ${port}`;
-  const cmdres = await cmdAsync(exec);
+  const ran = await ufw.runUfw(['delete', 'allow', String(port)]);
+  if (ran.locked) {
+    cmdStat.message = 'ufw is locked by another ufw command';
+    return cmdStat;
+  }
+  const cmdres = ran.stdout + ran.stderr;
   cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
+  if (cmdres.includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
     cmdStat.status = true;
   } else {
     cmdStat.status = false;
@@ -2198,7 +2956,6 @@ async function deleteAllowPortRule(port) {
  * @returns {object} Command status.
  */
 async function deleteDenyPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -2212,10 +2969,14 @@ async function deleteDenyPortRule(port) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw delete deny ${port} && sudo ufw delete deny out ${port}`;
-  const cmdres = await cmdAsync(exec);
+  const ran = await ufw.runUfw(['delete', 'deny', String(port)]);
+  if (ran.locked) {
+    cmdStat.message = 'ufw is locked by another ufw command';
+    return cmdStat;
+  }
+  const cmdres = ran.stdout + ran.stderr;
   cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
+  if (cmdres.includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
     cmdStat.status = true;
   } else {
     cmdStat.status = false;
@@ -2224,34 +2985,40 @@ async function deleteDenyPortRule(port) {
 }
 
 /**
- * To delete a ufw allow rule on port.
- * @param {string} port Port.
- * @returns {object} Command status.
+ * Whether a port is in the range FluxOS gives apps, and so one FluxOS may open
+ * and delete a rule for.
+ * @param {number|string} port Port.
+ * @returns {boolean}
  */
-async function deleteAllowOutPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.run);
-  const cmdStat = {
-    status: false,
-    message: null,
-  };
-  if (Number.isNaN(+port)) {
-    cmdStat.message = 'Port needs to be a number';
-    return cmdStat;
-  }
-  const portBanned = isPortBanned(+port);
-  if (portBanned || +port < config.fluxapps.portMin || +port > config.fluxapps.portMax) {
-    cmdStat.message = 'Port out of deletable app ports range';
-    return cmdStat;
-  }
-  const exec = `LANG="en_US.UTF-8" && sudo ufw delete allow out ${port}`;
-  const cmdres = await cmdAsync(exec);
-  cmdStat.message = cmdres;
-  if (serviceHelper.ensureString(cmdres).includes('delete')) { // Rule deleted or Could not delete non-existent rule both ok
-    cmdStat.status = true;
-  } else {
-    cmdStat.status = false;
-  }
-  return cmdStat;
+function isAppPort(port) {
+  return !Number.isNaN(+port) && !isPortBanned(+port) && +port >= config.fluxapps.portMin && +port <= config.fluxapps.portMax;
+}
+
+/**
+ * Opens an app's published ports to every client, IPv4 and IPv6, in one ufw
+ * batch: `allow <port>`. Docker forwards a connection from outside the node to
+ * a published port ahead of ufw's inbound rules, but an IPv6 one, and on some
+ * Docker releases a container's connection to a published port at the node's
+ * own address, it answers through docker-proxy on the host, behind them. ufw
+ * keeps the rules across restarts, so they are written when the app is
+ * installed and deleted when it is removed. Nothing is written while ufw is
+ * disabled.
+ * @param {Array<number|string>} ports Ports.
+ * @returns {Promise<{failed: Array<{rule: string, error: string}>, locked: boolean}>}
+ */
+async function allowAppPorts(ports) {
+  if (!await ufw.ufwEnabled()) return { failed: [], locked: false };
+  return ufw.runUfwCommands(ports.filter(isAppPort).map((port) => ['allow', String(port)]));
+}
+
+/**
+ * Deletes the rules allowAppPorts writes for an app's ports, in one ufw batch.
+ * A rule already gone counts as deleted.
+ * @param {Array<number|string>} ports Ports.
+ * @returns {Promise<{failed: Array<{rule: string, error: string}>, locked: boolean}>}
+ */
+async function deleteAppPortRules(ports) {
+  return ufw.runUfwCommands(ports.filter(isAppPort).map((port) => ['delete', 'allow', String(port)]));
 }
 
 /**
@@ -2286,106 +3053,177 @@ async function allowPortApi(req, res) {
   return res.json(message);
 }
 
+const ufwDefaultsPath = '/etc/default/ufw';
+// /etc/default/ufw exactly as the ufw package ships it on Ubuntu 20.04 to 26.04.
+const ufwDefaultsSource = path.join(__dirname, '../../../helpers/ufw/default');
+// ufw refuses to run, and ufw-init refuses to start the firewall at boot, when
+// any of these is missing.
+const ufwPolicies = ['INPUT', 'OUTPUT', 'FORWARD', 'APPLICATION'];
+
 /**
- * To check if a firewall is active.
- * @returns {Promise<boolean>} True if a firewall is active. Otherwise false.
+ * Keeps /etc/default/ufw whole and its outbound policy ACCEPT. A file missing
+ * any policy is replaced by ufw's own defaults; one that denies outbound has
+ * that line set to ACCEPT. The new file is renamed over the old, so it is never
+ * seen part-written, and an enabled firewall is reloaded to take it up - which
+ * also starts one that could not start at boot. ufw's own `default` command
+ * rewrites the file in place and is never used.
+ * @returns {Promise<void>}
  */
-async function isFirewallActive() {
-  try {
-    const cmdAsync = util.promisify(nodecmd.run);
-    const execA = 'LANG="en_US.UTF-8" && sudo ufw status | grep Status';
-    const cmdresA = await cmdAsync(execA);
-    if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
-      return true;
-    }
-    return false;
-  } catch (error) {
-    // command ufw not found is the most likely reason
-    log.error(error);
-    return false;
+async function ensureUfwDefaults() {
+  const ufwConf = await fs.readFile('/etc/ufw/ufw.conf', 'utf8').catch(() => null);
+  if (ufwConf === null) return;
+  const current = await fs.readFile(ufwDefaultsPath, 'utf8').catch(() => '');
+
+  const whole = ufwPolicies.every((policy) => new RegExp(`^DEFAULT_${policy}_POLICY=`, 'm').test(current));
+  let desired;
+  if (!whole) {
+    desired = await fs.readFile(ufwDefaultsSource, 'utf8');
+  } else if (!/^DEFAULT_OUTPUT_POLICY="ACCEPT"$/m.test(current)) {
+    desired = current.replace(/^DEFAULT_OUTPUT_POLICY=.*$/m, 'DEFAULT_OUTPUT_POLICY="ACCEPT"');
+  } else {
+    return;
   }
+
+  const staged = `${ufwDefaultsPath}.flux-new`;
+  let tempDir = null;
+  try {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-ufw-'));
+    const source = path.join(tempDir, 'ufw');
+    await fs.writeFile(source, desired, { mode: 0o644 });
+    const { error: stageError } = await serviceHelper.runCommand('install', {
+      runAsRoot: true, logError: false, params: ['-m', '0644', '-o', 'root', '-g', 'root', source, staged],
+    });
+    const { error: renameError } = stageError ? { error: stageError } : await serviceHelper.runCommand('mv', {
+      runAsRoot: true, logError: false, params: ['-f', staged, ufwDefaultsPath],
+    });
+    if (renameError) {
+      log.error(`Firewall defaults not written: ${renameError.message}`);
+      return;
+    }
+  } finally {
+    if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+  log.info(whole ? 'Firewall outbound policy set to ACCEPT' : 'Firewall defaults restored');
+
+  if (/^ENABLED=yes$/m.test(ufwConf)) {
+    const { error, locked } = await ufw.runUfw(['reload']);
+    if (locked) log.error('Firewall not reloaded: ufw is locked by another ufw command');
+    else if (error) log.error(`Firewall not reloaded: ${error.message}`);
+  }
+  fluxEventBus.publish('firewall:defaultsWritten', { restored: !whole });
+}
+
+// The docker networks app containers are on.
+const fluxAppDockerNetworks = '172.23.0.0/16';
+/**
+ * Reports a firewall step that stopped because another ufw command held ufw's lock.
+ */
+function reportUfwLocked() {
+  log.error('Firewall not adjusted: ufw is locked by another ufw command');
+  fluxEventBus.publish('firewall:locked', {});
 }
 
 /**
- * To adjust a firewall to allow ports for Flux.
+ * The node's own firewall rules, each the arguments of one ufw command, in the
+ * order they are applied.
+ * @returns {Promise<string[][]>}
+ */
+async function nodeFirewallRules() {
+  const apiPort = userconfig.initial.apiport || config.server.apiport;
+  const ports = [apiPort, +apiPort - 1, +apiPort + 1, +apiPort + 2, 80, 443, 16125, ...config.server.allowedPorts];
+  const rules = [['delete', 'allow', 'in', 'proto', 'udp', 'to', 'any', 'port', '53']];
+  // this should also be limit, but existing nodes use allow (needs to be updated)
+  if (isArcane) rules.push(['prepend', 'allow', 'to', 'any', 'app', 'FluxadmSSH']);
+  // the OpenSSH profile exists only where openssh-server is installed
+  rules.push(['prepend', 'limit', 'to', 'any', 'app', 'OpenSSH']);
+
+  const { stdout: routes } = await serviceHelper.runCommand('ip', { logError: false, params: ['route'] });
+  const routerIP = serviceHelper.ensureString(routes).split('\n')[0].trim().split(/\s+/)[2] || '';
+  if (serviceHelper.validIpv4Address(routerIP)
+    && (routerIP.startsWith('192.168.') || routerIP.startsWith('10.') || routerIP.startsWith('172.16.')
+      || routerIP.startsWith('100.64.') || routerIP.startsWith('198.18.') || routerIP.startsWith('169.254.'))) {
+    rules.push(['prepend', 'allow', 'from', routerIP, 'to', 'any', 'proto', 'udp']);
+  }
+  ports.forEach((port) => rules.push(['allow', String(port)]));
+  // app containers reach the fluxnode service; the rest of loopback is refused
+  // by allowOnlyDockerNetworksToFluxNodeService, as ufw does not filter loopback
+  rules.push(['allow', 'from', fluxAppDockerNetworks, 'proto', 'tcp', 'to', `${config.server.fluxNodeServiceAddress}/32`, 'port', '16101']);
+  return rules;
+}
+
+/**
+ * Applies the node's own firewall rules. Outbound traffic is governed by the
+ * default policy alone, so every outbound rule is removed, whoever added it;
+ * then the node's own inbound rules are applied. Both happen in one pass under
+ * ufw's lock (helpers/ufw/apply-node-firewall.py), and ufw is reloaded only
+ * when outbound rules were removed. Where ufw's library cannot be used, the
+ * rules are applied one ufw command each.
+ *
+ * Every ufw command waits on ufw's lock for as long as another holds it, so a
+ * lock held past ufw.UFW_LOCK_WAIT_MS stops the step: no ufw command is run, the
+ * firewall is left as it is, and the next start applies it.
  */
 async function adjustFirewall() {
   try {
-    const cmdAsync = util.promisify(nodecmd.run);
-    const apiPort = userconfig.initial.apiport || config.server.apiport;
-    const homePort = +apiPort - 1;
-    const apiSSLPort = +apiPort + 1;
-    const syncthingPort = +apiPort + 2;
-    let ports = [apiPort, homePort, apiSSLPort, syncthingPort, 80, 443, 16125];
-    const fluxCommunicationPorts = config.server.allowedPorts;
-    ports = ports.concat(fluxCommunicationPorts);
-    const firewallActive = await isFirewallActive();
-    if (firewallActive) {
-      // set default allow outgoing
-      const execAllowA = 'LANG="en_US.UTF-8" && sudo ufw default allow outgoing';
-      await cmdAsync(execAllowA);
-      // allow speedtests
-      const execAllowB = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out 5060';
-      const execAllowC = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out 8080';
-      await cmdAsync(execAllowB);
-      await cmdAsync(execAllowC);
-      // remove inbound DNS traffic
-      const removeInboundDns = 'LANG="en_US.UTF-8" && sudo ufw delete allow in proto udp to any port 53 > /dev/null 2>&1';
-      await cmdAsync(removeInboundDns);
-      // allow outgoing DNS traffic
-      const execAllowE = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out proto udp to any port 53';
-      const execAllowF = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out proto tcp to any port 53';
-      await cmdAsync(execAllowE);
-      await cmdAsync(execAllowF);
-      log.info('Firewall adjusted for DNS traffic');
+    if (!await ufw.ufwEnabled()) {
+      log.info('Firewall is not active. Adjusting not applied');
+      return;
+    }
+    const rules = await nodeFirewallRules();
 
-      // fix up for ssh being misteriously removed (needs tracing)
-      if (isArcane) {
-        // this should also be limit, but existing nodes use allow (needs to be updated)
-        const execAllowFluxadmSsh = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow to any app FluxadmSSH > /dev/null 2>&1';
-        await cmdAsync(execAllowFluxadmSsh);
-      }
-
-      const execAllowOpenSsh = 'LANG="en_US.UTF-8" && sudo ufw insert 1 limit to any app OpenSSH > /dev/null 2>&1';
-      await cmdAsync(execAllowOpenSsh);
-
-      const commandGetRouterIP = 'ip rout | head -n1 | awk \'{print $3}\'';
-      let routerIP = await cmdAsync(commandGetRouterIP);
-      routerIP = routerIP.replace(/(\r\n|\n|\r)/gm, '');
-      log.info(`Router IP: ${routerIP}`);
-      if (serviceHelper.validIpv4Address(routerIP)
-        && (routerIP.startsWith('192.168.') || routerIP.startsWith('10.') || routerIP.startsWith('172.16.')
-          || routerIP.startsWith('100.64.') || routerIP.startsWith('198.18.') || routerIP.startsWith('169.254.'))) {
-        const execRouterAllowA = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow out from any to ${routerIP} proto tcp > /dev/null 2>&1`;
-        const execRouterAllowB = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow from ${routerIP} to any proto udp > /dev/null 2>&1`;
-        await cmdAsync(execRouterAllowA);
-        await cmdAsync(execRouterAllowB);
-        log.info(`Firewall adjusted for comms with router on local ip ${routerIP}`);
-      }
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of ports) {
-        const execB = `LANG="en_US.UTF-8" && sudo ufw allow ${port}`;
-        const execC = `LANG="en_US.UTF-8" && sudo ufw allow out ${port}`;
-
-        // eslint-disable-next-line no-await-in-loop
-        const cmdresB = await cmdAsync(execB);
-        if (serviceHelper.ensureString(cmdresB).includes('updated') || serviceHelper.ensureString(cmdresB).includes('existing') || serviceHelper.ensureString(cmdresB).includes('added')) {
-          log.info(`Firewall adjusted for port ${port}`);
-        } else {
-          log.info(`Failed to adjust Firewall for port ${port}`);
-        }
-
-        // eslint-disable-next-line no-await-in-loop
-        const cmdresC = await cmdAsync(execC);
-        if (serviceHelper.ensureString(cmdresC).includes('updated') || serviceHelper.ensureString(cmdresC).includes('existing') || serviceHelper.ensureString(cmdresC).includes('added')) {
-          log.info(`Firewall out adjusted for port ${port}`);
-        } else {
-          log.info(`Failed to adjust Firewall out for port ${port}`);
-        }
+    const { stdout, stderr, error } = await ufw.oneAtATime(async () => serviceHelper.runCommand('python3', {
+      runAsRoot: true,
+      logError: false,
+      params: [await ufwHelper.path(), '--wait', String(ufw.UFW_LOCK_WAIT_MS / 1000), '--rules', JSON.stringify(rules)],
+      timeout: 2 * ufw.UFW_LOCK_WAIT_MS,
+    }));
+    if (error?.code === ufw.UFW_LOCK_UNAVAILABLE) {
+      reportUfwLocked();
+      return;
+    }
+    let result = null;
+    if (!error) {
+      try {
+        result = JSON.parse(serviceHelper.ensureString(stdout));
+      } catch {
+        log.warn(`Firewall applier answered unreadably: ${serviceHelper.ensureString(stdout).trim()}`);
       }
     } else {
-      log.info('Firewall is not active. Adjusting not applied');
+      log.warn(`Firewall applier failed: ${serviceHelper.ensureString(stderr).trim() || error.message}`);
     }
+
+    const outboundRemoved = result?.removed ?? 0;
+    let failed = result?.failed ?? [];
+    if (!result?.applied) {
+      if (result?.reason) log.warn(`Firewall rules applied one ufw command each: ${result.reason}`);
+      failed = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const rule of rules) {
+        // eslint-disable-next-line no-await-in-loop
+        const ran = await ufw.runUfw(rule);
+        if (ran.locked) {
+          reportUfwLocked();
+          return;
+        }
+        if (ran.error) failed.push({ rule: rule.join(' '), error: ran.stderr.trim() || ran.error.message });
+      }
+    }
+    // a delete finds nothing to delete once the rule is gone
+    failed = failed.filter(({ rule, error: why }) => !(rule.startsWith('delete ') && /non-existent rule/.test(why)));
+    failed.forEach(({ rule, error: why }) => log.warn(`Firewall rule not applied: ufw ${rule}: ${why}`));
+
+    if (outboundRemoved) {
+      const reload = await ufw.runUfw(['reload']);
+      if (reload.locked) {
+        reportUfwLocked();
+        return;
+      }
+      if (reload.error) log.error(`Firewall not reloaded after removing outbound rules: ${reload.error.message}`);
+      log.info(`Firewall outbound rules removed: ${outboundRemoved}`);
+    }
+    fluxEventBus.publish('firewall:adjusted', {
+      outboundRemoved, rulesFailed: failed.map(({ rule }) => rule), appliedBy: result?.applied ? 'library' : 'commands',
+    });
   } catch (error) {
     log.error(error);
   }
@@ -2396,12 +3234,11 @@ async function adjustFirewall() {
  */
 async function purgeUFW() {
   try {
-    const cmdAsync = util.promisify(nodecmd.run);
-    const firewallActive = await isFirewallActive();
+    const firewallActive = await ufw.isFirewallActive();
     if (firewallActive) {
-      const execB = 'LANG="en_US.UTF-8" && sudo ufw status | grep \'DENY\'';
-      const cmdresB = await cmdAsync(execB).catch(() => { }) || ''; // fail silently,
-      if (serviceHelper.ensureString(cmdresB).includes('DENY')) {
+      const status = await ufw.runUfw(['status']);
+      const cmdresB = status.stdout.split('\n').filter((line) => line.includes('DENY')).join('\n');
+      if (cmdresB.includes('DENY')) {
         const deniedPorts = cmdresB.split('\n'); // split by new line
         const portsToDelete = [];
         deniedPorts.forEach((port) => {
@@ -2421,19 +3258,6 @@ async function purgeUFW() {
       } else {
         log.info('No UFW deny on ports rules found');
       }
-      const execDelDenyA = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 10.0.0.0/8';
-      const execDelDenyB = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 172.16.0.0/12';
-      const execDelDenyC = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 192.168.0.0/16';
-      const execDelDenyD = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 100.64.0.0/10';
-      const execDelDenyE = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 198.18.0.0/15';
-      const execDelDenyF = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 169.254.0.0/16';
-      await cmdAsync(execDelDenyA);
-      await cmdAsync(execDelDenyB);
-      await cmdAsync(execDelDenyC);
-      await cmdAsync(execDelDenyD);
-      await cmdAsync(execDelDenyE);
-      await cmdAsync(execDelDenyF);
-      log.info('UFW app deny netscans rules purged');
     } else {
       log.info('Firewall is not active. Purging UFW not necessary');
     }
@@ -2442,173 +3266,113 @@ async function purgeUFW() {
   }
 }
 
+// The bridges a container's traffic can come from: the default one and every
+// user-defined docker network.
+const containerBridges = ['docker0', 'br-+'];
+// Addresses an app container may not reach beyond its own node: every
+// non-public IPv4 range, the node owner's private networks and a cloud host's
+// metadata service among them. fluxnode.service lives on this node's loopback,
+// so a container reaches it through INPUT and these FORWARD rules never see it.
+const containerBlockedNetworks = NON_PUBLIC_IPV4;
+
 /**
- * This fix a docker security issue where docker containers can access private node operator networks, for example to create port forwarding on hosts.
+ * The DOCKER-USER chain, as `iptables -S DOCKER-USER` prints it.
  *
- * Docker should create a DOCKER-USER chain. If this doesn't exist - we create it, then jump to this chain immediately from the FORWARD CHAIN.
- * This allows rules to be added via -I (insert) and -A (append) to the DOCKER-USER chain individually, so we can ALWAYS append the
- * drop traffic rule, and insert the ACCEPT rules. If no matches are found in the DOCKER-USER chain, rule evaluation continues
- * from the next rule in the FORWARD chain.
+ * Traffic into a container is let through only on FluxOS's own networks (the
+ * default bridge docker0 and each network FluxOS creates): traffic that stays
+ * on the network it came from, and connections to a published port, whose
+ * destination Docker has rewritten to the container's (conntrack state DNAT).
+ * Everything else headed into any docker network is dropped: one app network
+ * reaches another only through a published port at the node's address, and a
+ * network FluxOS did not create receives nothing it did not ask for. These
+ * rules name each bridge, so a host interface named like a docker bridge gets
+ * no exception, and they hold whether or not Docker's own isolation rules are
+ * present and whether or not the br_netfilter kernel module sends bridged
+ * traffic through iptables.
  *
- * If needed in the future, we can actually create a JUMP from the DOCKER-USER chain to a custom chain. The reason why we MUST use the DOCKER-USER
- * chain is that whenever docker creates a new network, it re-jumps the DOCKER-USER chain at the head of the FORWARD chain.
+ * Traffic from a container to anywhere else is matched by the bridge it comes
+ * from, never by its source address, so a container cannot leave the drops by
+ * forging its source; every non-public range is dropped. DNS stays open to
+ * every private address, for a node owner who runs their own resolver.
  *
- * As can be seen in this example:
- *
- * Originally, was using the FLUX chain, but you can see docker inserted the br-72d1725e481c network ahead, as well as the JUMP to DOCKER-USER,
- * which invalidates any rules in the FLUX chain, as there is basically an accept any:
- *
- * FORWARD -i br-72d1725e481c ! -o br-72d1725e481c -j ACCEPT
- *
- * ```bash
- * -A INPUT -j ufw-track-input
- * -A FORWARD -j DOCKER-USER
- * -A FORWARD -j DOCKER-ISOLATION-STAGE-1
- * -A FORWARD -o br-72d1725e481c -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
- * -A FORWARD -o br-72d1725e481c -j DOCKER
- * -A FORWARD -i br-72d1725e481c ! -o br-72d1725e481c -j ACCEPT
- * -A FORWARD -i br-72d1725e481c -o br-72d1725e481c -j ACCEPT
- * -A FORWARD -j FLUX
- * -A FORWARD -o br-048fde111132 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
- * -A FORWARD -o br-048fde111132 -j DOCKER
- * -A FORWARD -i br-048fde111132 ! -o br-048fde111132 -j ACCEPT
- * -A FORWARD -i br-048fde111132 -o br-048fde111132 -j ACCEPT
- *```
- * This means if a user or someone was to delete a single rule, we are able to recover correctly from it.
- *
- * The other option - is just to Flush all rules on every run, and reset them all. This is what we are doing now.
- *
- * @param {string[]} fluxNetworkInterfaces The network interfaces, br-<12 character string>
- * @returns  {Promise<Boolean>}
+ * No rule uses the physdev match: the kernel loads br_netfilter the first time
+ * a physdev rule is added, which sends bridged traffic on every bridge on the
+ * host - an operator's VMs included - through iptables.
+ * @param {{fluxBridges: string[], dockerBridges: string[]}} bridges fluxBridges:
+ *   the bridge of each network FluxOS creates, docker0 aside. dockerBridges: the
+ *   bridge of every docker bridge network, docker0 included.
+ * @returns {string[]}
  */
-async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
-  const cmdAsync = util.promisify(nodecmd.run);
-
-  const checkIptables = 'sudo iptables --version';
-  const iptablesInstalled = await cmdAsync(checkIptables).catch(() => {
-    log.error('Unable to find iptables binary');
-    return false;
+function containerEgressRules({ fluxBridges, dockerBridges }) {
+  const rules = ['-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN'];
+  ['docker0', ...fluxBridges].forEach((bridge) => {
+    rules.push(`-A DOCKER-USER -i ${bridge} -o ${bridge} -j RETURN`);
+    rules.push(`-A DOCKER-USER -o ${bridge} -m conntrack --ctstate DNAT -j RETURN`);
   });
-
-  if (!iptablesInstalled) return false;
-
-  // check if rules have been created, as iptables is NOT idempotent.
-  const checkDockerUserChain = 'sudo iptables -L DOCKER-USER';
-  // iptables 1.8.4 doesn't return anything - so have updated command a little
-  const checkJumpChain = 'sudo iptables -C FORWARD -j DOCKER-USER && echo true';
-
-  const dockerUserChainExists = await cmdAsync(checkDockerUserChain).catch(async () => {
-    try {
-      await cmdAsync('sudo iptables -N DOCKER-USER');
-      log.info('IPTABLES: DOCKER-USER chain created');
-    } catch (err) {
-      log.error('IPTABLES: Error adding DOCKER-USER chain');
-      // if we can't add chain, we can't proceed
-      return new Error();
-    }
-    return null;
+  dockerBridges.forEach((bridge) => rules.push(`-A DOCKER-USER -o ${bridge} -j DROP`));
+  containerBridges.forEach((bridge) => {
+    ['udp', 'tcp'].forEach((proto) => rules.push(`-A DOCKER-USER -i ${bridge} -p ${proto} -m ${proto} --dport 53 -j RETURN`));
   });
-
-  if (dockerUserChainExists instanceof Error) return false;
-  if (dockerUserChainExists) log.info('IPTABLES: DOCKER-USER chain already created');
-
-  const checkJumpToDockerChain = await cmdAsync(checkJumpChain).catch(async () => {
-    // Ubuntu 20.04 @ iptables 1.8.4 Error: "iptables: No chain/target/match by that name."
-    // Ubuntu 22.04 @ iptables 1.8.7 Error: "iptables: Bad rule (does a matching rule exist in that chain?)."
-    const jumpToFluxChain = 'sudo iptables -I FORWARD -j DOCKER-USER';
-    try {
-      await cmdAsync(jumpToFluxChain);
-      log.info('IPTABLES: New rule in FORWARD inserted to jump to DOCKER-USER chain');
-    } catch (err) {
-      log.error('IPTABLES: Error inserting FORWARD jump to DOCKER-USER chain');
-      // if we can't jump, we need to bail out
-      return new Error();
-    }
-
-    return null;
+  containerBridges.forEach((bridge) => {
+    containerBlockedNetworks.forEach((network) => rules.push(`-A DOCKER-USER -d ${network} -i ${bridge} -j DROP`));
   });
+  rules.push('-A DOCKER-USER -j RETURN');
+  return rules;
+}
 
-  if (checkJumpToDockerChain instanceof Error) return false;
-  if (checkJumpToDockerChain) log.info('IPTABLES: Jump to DOCKER-USER chain already enabled');
+/**
+ * Keeps app containers off private and link-local networks and off each
+ * other's networks. The DOCKER-USER chain is replaced in one iptables-restore
+ * transaction, so no moment passes without its rules, and is left untouched
+ * when it already matches. Docker never writes DOCKER-USER, and its FORWARD
+ * jump is put back if missing.
+ * @param {{fluxBridges: string[], dockerBridges: string[]}} bridges As
+ *   containerEgressRules takes them.
+ * @returns {Promise<boolean>} True when the chain is in place. Never rejects.
+ */
+async function applyContainerEgressRules(bridges) {
+  const desired = containerEgressRules(bridges);
+  const { stdout: current, error: readError } = await serviceHelper.runCommand('iptables', {
+    runAsRoot: true, logError: false, params: ['-S', 'DOCKER-USER'],
+  });
+  const currentRules = serviceHelper.ensureString(current).split('\n').map((line) => line.trim()).filter((line) => line.startsWith('-A '));
+  const inPlace = !readError && currentRules.length === desired.length && currentRules.every((rule, i) => rule === desired[i]);
 
-  const rfc1918Networks = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'];
-  const fluxSrc = '172.23.0.0/16';
-
-  const baseDropCmd = `sudo iptables -A DOCKER-USER -s ${fluxSrc} -d #DST -j DROP`;
-  const baseAllowToFluxNetworksCmd = 'sudo iptables -I DOCKER-USER -i #INT -o #INT -j ACCEPT';
-  const baseAllowEstablishedCmd = `sudo iptables -I DOCKER-USER -s ${fluxSrc} -d #DST -m state --state RELATED,ESTABLISHED -j ACCEPT`;
-  const baseAllowDnsCmd = `sudo iptables -I DOCKER-USER -s ${fluxSrc} -d #DST -p udp --dport 53 -j ACCEPT`;
-
-  const addReturnCmd = 'sudo iptables -A DOCKER-USER -j RETURN';
-  const flushDockerUserCmd = 'sudo iptables -F DOCKER-USER';
-
-  try {
-    await cmdAsync(flushDockerUserCmd);
-    log.info('IPTABLES: DOCKER-USER table flushed');
-  } catch (err) {
-    log.error(`IPTABLES: Error flushing DOCKER-USER table. ${err}`);
-    return false;
-  }
-
-  // add for legacy apps
-  fluxNetworkInterfaces.push('docker0');
-
-  // eslint-disable-next-line no-restricted-syntax
-  for (const int of fluxNetworkInterfaces) {
-    // if this errors, we need to bail, as if the deny succeedes, we may cut off access
-    const giveFluxNetworkAccess = baseAllowToFluxNetworksCmd.replace(/#INT/g, int);
+  if (!inPlace) {
+    let tempDir = null;
     try {
-      // eslint-disable-next-line no-await-in-loop
-      await cmdAsync(giveFluxNetworkAccess);
-      log.info(`IPTABLES: Traffic on Flux interface ${int} accepted`);
-    } catch (err) {
-      log.error(`IPTABLES: Error allowing traffic on Flux interface ${int}. ${err}`);
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-docker-user-'));
+      const rulesFile = path.join(tempDir, 'rules');
+      await fs.writeFile(rulesFile, ['*filter', ':DOCKER-USER - [0:0]', ...desired, 'COMMIT', ''].join('\n'), { mode: 0o644 });
+      const { error } = await serviceHelper.runCommand('iptables-restore', {
+        runAsRoot: true, logError: false, params: ['--noflush', rulesFile],
+      });
+      if (error) {
+        log.error(`IPTABLES: DOCKER-USER rules not applied: ${error.message}`);
+        return false;
+      }
+      log.info('IPTABLES: DOCKER-USER rules applied');
+      fluxEventBus.publish('firewall:containerEgressApplied', {});
+    } catch (error) {
+      log.error(`IPTABLES: DOCKER-USER rules not applied: ${error.message}`);
       return false;
+    } finally {
+      if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }
   }
 
-  // eslint-disable-next-line no-restricted-syntax
-  for (const network of rfc1918Networks) {
-    // if any of these error, we need to bail, as if the deny succeedes, we may cut off access
-
-    const giveHostAccessToDockerNetwork = baseAllowEstablishedCmd.replace('#DST', network);
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      await cmdAsync(giveHostAccessToDockerNetwork);
-      log.info(`IPTABLES: Access to Flux containers from ${network} accepted`);
-    } catch (err) {
-      log.error(`IPTABLES: Error allowing access to Flux containers from ${network}. ${err}`);
+  const { error: jumpMissing } = await serviceHelper.runCommand('iptables', {
+    runAsRoot: true, logError: false, params: ['-C', 'FORWARD', '-j', 'DOCKER-USER'],
+  });
+  if (jumpMissing) {
+    const { error } = await serviceHelper.runCommand('iptables', {
+      runAsRoot: true, logError: false, params: ['-I', 'FORWARD', '-j', 'DOCKER-USER'],
+    });
+    if (error) {
+      log.error(`IPTABLES: FORWARD jump to DOCKER-USER not restored: ${error.message}`);
       return false;
     }
-
-    const giveContainerAccessToDNS = baseAllowDnsCmd.replace('#DST', network);
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      await cmdAsync(giveContainerAccessToDNS);
-      log.info(`IPTABLES: DNS access to ${network} from Flux containers accepted`);
-    } catch (err) {
-      log.error(`IPTABLES: Error allowing DNS access to ${network} from Flux containers. ${err}`);
-      return false;
-    }
-
-    // This always gets appended, so the drop is at the end
-    const dropAccessToHostNetwork = baseDropCmd.replace('#DST', network);
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      await cmdAsync(dropAccessToHostNetwork);
-      log.info(`IPTABLES: Access to ${network} from Flux containers removed`);
-    } catch (err) {
-      log.error(`IPTABLES: Error denying access to ${network} from Flux containers. ${err}`);
-      return false;
-    }
-  }
-
-  try {
-    await cmdAsync(addReturnCmd);
-    log.info('IPTABLES: DOCKER-USER explicit return to FORWARD chain added');
-  } catch (err) {
-    log.error(`IPTABLES: Error adding explicit return to Forward chain. ${err}`);
-    return false;
+    log.info('IPTABLES: FORWARD jump to DOCKER-USER restored');
   }
   return true;
 }
@@ -2630,34 +3394,20 @@ async function allowNodeToBindPrivilegedPorts() {
 }
 
 /**
- * docker network including mask to allow to verification. For example: 172.23.123.0/24
+ * Refuses the fluxnode service's address on loopback to everything but the app
+ * containers' networks. ufw does not filter loopback, so this is an iptables
+ * rule; the containers' own allow is one of the node's firewall rules.
  * @returns {Promise<void>}
  */
 async function allowOnlyDockerNetworksToFluxNodeService() {
-  const firewallActive = await isFirewallActive();
+  if (!await ufw.ufwEnabled()) return;
 
-  if (!firewallActive) return;
-
-  const fluxAppDockerNetworks = '172.23.0.0/16';
   const { fluxNodeServiceAddress } = config.server;
-  const allowDockerNetworks = `LANG="en_US.UTF-8" && sudo ufw allow from ${fluxAppDockerNetworks} proto tcp to ${fluxNodeServiceAddress}/32 port 16101`;
-  // have to use iptables here as ufw won't filter loopback
   const denyRule = `INPUT -i lo ! -s ${fluxAppDockerNetworks} -d ${fluxNodeServiceAddress}/32 -j DROP`;
   const checkDenyRule = `LANG="en_US.UTF-8" && sudo iptables -C ${denyRule}`;
   const denyAllElse = `LANG="en_US.UTF-8" && sudo iptables -I ${denyRule}`;
 
   const cmdAsync = util.promisify(nodecmd.run);
-
-  try {
-    const cmd = await cmdAsync(allowDockerNetworks);
-    if (serviceHelper.ensureString(cmd).includes('updated') || serviceHelper.ensureString(cmd).includes('existing') || serviceHelper.ensureString(cmd).includes('added')) {
-      log.info(`Firewall adjusted for network: ${fluxAppDockerNetworks} to address: ${fluxNodeServiceAddress}/32`);
-    } else {
-      log.warn(`Failed to adjust Firewall for network: ${fluxAppDockerNetworks} to address: ${fluxNodeServiceAddress}/32`);
-    }
-  } catch (err) {
-    log.error(err);
-  }
 
   const denied = await cmdAsync(checkDenyRule).catch(async (err) => {
     if (err.message.includes('Bad rule')) {
@@ -2714,32 +3464,56 @@ module.exports = {
   isFluxAvailable,
   checkFluxAvailability,
   getLocalSocketAddress,
+  getKnownLocalSocketAddress,
+  onLocalSocketAddressChange,
+  offLocalSocketAddressChange,
   getFluxNodePrivateKey,
   getFluxNodePublicKey,
   MAX_KEEPALIVE_PORTS,
   checkDeterministicNodesCollisions,
+  requestCollisionCheck,
+  resetAvailabilityDos,
+  requestAvailabilityCheck,
+  noteSyncthingListenerKnown,
+  startOwnStandingWatch,
+  stopOwnStandingWatch,
   getIncomingConnections,
   getIncomingConnectionsInfo,
   getDOSState,
   setDOSStateApi,
   getNumberOfPeers,
+  egressDevice,
+  interfaceDevice,
   hasPublicIpOnInterface,
   denyPort,
   deleteAllowPortRule,
-  deleteAllowOutPortRule,
+  allowAppPorts,
+  allowTestPort,
+  deleteAppPortRules,
+  deleteTestPortRule,
   allowPortApi,
   adjustFirewall,
+  ensureUfwDefaults,
   purgeUFW,
   closeConnection,
   closeIncomingConnection,
   checkFluxbenchVersionAllowed,
   checkNodeJsVersionAllowed,
+  checkDockerVersionAllowed,
   checkMyFluxAvailability,
-  adjustExternalIP,
+  adjustExternalIp,
+  handleOwnAddress,
+  leaveConfiguredAddress,
+  ownAddressRecord,
+  startOwnAddressWatch,
+  setSyncthingListenerKnown,
+  setDosTooManyIpChanges,
   setOnAddressChanged,
+  setOnOwnAddressMoved,
+  setInstalledAppsListedAt,
+  ownAddressFor,
   allowPort,
-  allowOutPort,
-  isFirewallActive,
+  isFirewallActive: ufw.isFirewallActive,
   // Exports for testing purposes
   resetNtpSource,
   parseChronyOffset,
@@ -2775,7 +3549,8 @@ module.exports = {
   isPortBanned,
   isPortUPNPBanned,
   allowNodeToBindPrivilegedPorts,
-  removeDockerContainerAccessToNonRoutable,
+  applyContainerEgressRules,
+  containerEgressRules,
   getMaxNumberOfIpChanges,
   allowOnlyDockerNetworksToFluxNodeService,
   addFluxNodeServiceIpToLoopback,

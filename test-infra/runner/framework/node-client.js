@@ -9,7 +9,8 @@ export function nodeClient(nodeNum) {
   // node USED to be is a client that cannot see it any more. Every request and the
   // event stream read these, so following a node is a matter of re-pointing them.
   let ip = getSubnetConfig().nodeIp(nodeNum);
-  let url = `http://${ip}:16127`;
+  let port = 16127;
+  let url = `http://${ip}:${port}`;
 
   async function get(path) {
     const res = await controlFetch(`${url}${path}`);
@@ -151,6 +152,10 @@ export function nodeClient(nodeNum) {
   const eventBuffer = [];
   const emitter = new EventEmitter();
   emitter.on('error', () => {});
+  // Listeners that outlive a disconnect: every event this client receives from any
+  // stream it opens, and 'stream:open' each time a stream (re)connects - the moment
+  // a subscriber learns that events may have been missed.
+  const subscribers = new EventEmitter();
 
   function connectEventStream(timeout = 60000) {
     return new Promise((resolve, reject) => {
@@ -163,6 +168,7 @@ export function nodeClient(nodeNum) {
       eventSource.onopen = () => {
         clearTimeout(timer);
         resolve();
+        subscribers.emit('stream:open');
       };
 
       eventSource.onerror = (err) => {
@@ -186,6 +192,7 @@ export function nodeClient(nodeNum) {
       for (const name of [
         'block:processed',
         'masterSlave:started',
+        'masterSlave:operatorStartSettled',
         'stream:gap',
         'boot:settled',
         'confirmation:changed',
@@ -194,6 +201,11 @@ export function nodeClient(nodeNum) {
         'daemon:unreachable',
         'dos:changed',
         'explorer:ready',
+        'firewall:adjusted',
+        'firewall:locked',
+        'fluxadm:pass',
+        'firewall:containerEgressApplied',
+        'firewall:defaultsWritten',
         'fileops:recovered',
         'messageCapability:changed',
         'networkstate:updated',
@@ -219,7 +231,9 @@ export function nodeClient(nodeNum) {
         // it. Nothing existing carries that.
         'ports:notOurs',
         'ports:unproven',
+        'discovery:started',
         'peers:added',
+        'peers:accepting',
         'peers:belowThreshold',
         'peers:removed',
         'peers:thresholdReached',
@@ -229,6 +243,11 @@ export function nodeClient(nodeNum) {
         // just as happily.
         'peerSetStability:dos',
         'peerSetStability:released',
+        // Whether this node's calls to other nodes reach them: proven redirected
+        // by two observers answering as other nodes, and clear again once one
+        // answers as itself. dos:changed cannot carry it, for the same reason.
+        'outboundPath:redirected',
+        'outboundPath:clear',
         // The bundle this node holds changed, from whichever rung produced it. What makes
         // it worth a stream rather than a counter is that things DOWNSTREAM of policy are
         // driven by it - the location table is fetched on this, not on a timer - so a suite
@@ -238,6 +257,7 @@ export function nodeClient(nodeNum) {
         // it holds. Nothing downstream carries that: a source serving nothing produces no
         // bundle change and leaves the held sequence where it was.
         'policy:backstopAsked',
+        'policy:backstopAnswered',
         // And the other half of that pair: a verified table actually installed.
         'ipLocation:tableInstalled',
         // The node looked and had nothing to look for - the bundle it holds names no
@@ -253,10 +273,31 @@ export function nodeClient(nodeNum) {
         'syncthing:holderRetained',
         'syncthing:holderExcluded',
         'syncthing:passComplete',
+        'syncthing:ownersByNumber',
+        'syncthing:listenerKnown',
+        'availability:checked',
+        'collision:judged',
+        'network:originatorNotListed',
+        'syncthing:namesVisible',
+        'syncthing:localChangesReverted',
+        'syncthing:devicesResumed',
+        'pm2:killTimeoutRaiseFailed',
+        'pm2:killTimeoutUnchanged',
+        'pm2:killTimeoutRaiseUnanswered',
+        'pm2:killTimeoutRaiseFailedLate',
+        'pm2:registrationUnread',
+        'checkpoint:held',
+        'syncthing:folderWritable',
+        'syncthing:folderReady',
+        'primaryRole:changed',
+        'primaryRole:standDownGiven',
+        'primaryRole:returned',
+        'shutdown:paused',
         'system:packages-checked',
         'system:apt-command',
         'spawner:blocked',
         'spawner:deferred',
+        'spawner:deferralMatured',
         'spawner:installFailed',
         'spawner:networkErrorSkip',
         'spawner:paused',
@@ -268,6 +309,8 @@ export function nodeClient(nodeNum) {
         'network:appmessage',
         'network:ipchanged',
         'network:sigterm',
+        'shutdown:started',
+        'shutdown:drained',
         'ephemeralSync:requested',
         'ephemeralSync:peerComplete',
         'ephemeralSync:allComplete',
@@ -275,8 +318,10 @@ export function nodeClient(nodeNum) {
         'ephemeralSync:peerTimedOut',
         'ephemeralSync:peerUnverified',
         'ephemeralSync:peerDisconnected',
+        'ephemeralSync:budgetSpent',
         'sync:chunkVerified',
         'hashSync:complete',
+        'hashSync:bulkFetched',
         'hashSync:failed',
         'hashRequest:received',
         'hashRequest:responded',
@@ -307,6 +352,7 @@ export function nodeClient(nodeNum) {
           };
           eventBuffer.push(entry);
           emitter.emit(e.type, entry);
+          subscribers.emit(e.type, entry);
         });
       }
     });
@@ -326,13 +372,15 @@ export function nodeClient(nodeNum) {
    * baseline from what this returns rather than from before it.
    *
    * @param {string} newIp The address the node now answers on.
+   * @param {number} [newPort] The api port it answers on, when that moved too.
    * @returns {Promise<number>} The last event id after reconnecting, as a baseline.
    */
-  async function followTo(newIp) {
+  async function followTo(newIp, newPort = port) {
     const wasStreaming = Boolean(eventSource);
     if (wasStreaming) disconnectEventStream();
     ip = newIp;
-    url = `http://${ip}:16127`;
+    port = newPort;
+    url = `http://${ip}:${port}`;
     if (wasStreaming) await connectEventStream();
     return getLastEventId();
   }
@@ -400,6 +448,29 @@ export function nodeClient(nodeNum) {
     return res.status === 'success' ? res.data : {};
   }
 
+  // Pauses a named code path on this node until released - see checkpoint() in
+  // fluxEventBus.js. A paused path announces itself as checkpoint:held. The node
+  // refuses a name no code path declares, and that refusal throws here.
+  async function checkpointControl(body) {
+    const res = await post('/flux/testcheckpoints', body);
+    if (res.status !== 'success') {
+      throw new Error(`checkpoint ${body.action} ${body.name ?? ''} refused: ${res.data?.message ?? JSON.stringify(res)}`);
+    }
+    return res.data;
+  }
+
+  // State as it is at the moment of asking - see the rule at the top of
+  // ZelBack/src/services/utils/fluxEventBus.js. Throws rather than answering
+  // empty when the node does not serve it: an empty state would satisfy every
+  // "holds nothing" assertion for the wrong reason.
+  async function getTestState(name) {
+    const res = await get(`/flux/teststate/${encodeURIComponent(name)}`);
+    if (res?.status !== 'success') {
+      throw new Error(`test state ${name} unavailable: ${JSON.stringify(res?.data ?? res)}`);
+    }
+    return res.data;
+  }
+
   // Times a loop has been observed taking a given decision about a component.
   // Absent counters read as 0, so a caller can difference two reads without
   // caring whether the loop has run yet.
@@ -428,8 +499,21 @@ export function nodeClient(nodeNum) {
     connectEventStream,
     disconnectEventStream,
     waitForEvent,
+    /**
+     * @param {string} name An event this client subscribes to, or 'stream:open'.
+     * @param {(entry?: {event: string, data: object, id: number}) => void} listener
+     * @returns {() => void} Removes the listener.
+     */
+    subscribe(name, listener) {
+      subscribers.on(name, listener);
+      return () => subscribers.removeListener(name, listener);
+    },
     getTestCounters,
+    getTestState,
     getDecisionCount,
+    holdCheckpoint: (name, key) => checkpointControl({ name, key, action: 'hold' }),
+    releaseCheckpoint: (name, key) => checkpointControl({ name, key, action: 'release' }),
+    releaseAllCheckpoints: () => checkpointControl({ action: 'releaseAll' }),
     getLastEventId,
     getEventBuffer: () => [...eventBuffer],
     getVersion: () => get('/flux/version'),
@@ -444,9 +528,14 @@ export function nodeClient(nodeNum) {
     setDOSState: (dosState, dosMessage, zelidauth) =>
       post('/flux/dosstate', { dosState, dosMessage }, { zelidauth }),
     getAppLocations: (name) => get(`/apps/location/${name}`),
+    // The folders this node tells peers it holds writable: { ready, folders }.
+    getPromotedFolders: () => get('/apps/promotedfolders'),
     getPermanentMessages: () => get('/apps/permanentmessages'),
     getTempMessages: (hash) => get(`/apps/temporarymessages/${hash}`),
     getAppSpecs: (name) => get(`/apps/appspecifications/${name}`),
+    // Rebuilds the global app list from this node's message log (node operator or Flux team).
+    reindexGlobalApps: (zelidauth) => getAuthed('/apps/reindexglobalappsinformation', zelidauth),
+    reconstructHashes: (zelidauth) => getAuthed('/apps/reconstructhashes', zelidauth),
     getInstalledApps: () => get('/apps/installedapps'),
     getRunningApps: () => get('/apps/runningapps'),
     getLoginPhrase: () => get('/id/loginphrase'),

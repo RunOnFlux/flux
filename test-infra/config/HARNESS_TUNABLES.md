@@ -27,6 +27,7 @@ wrong. Under throws.
 | two holders of one app cannot mature on the same give-up pass | `residentialQueueStepMs` : `removeFluxAppsPeriod` x 4 x `explorerPollIntervalMs` | 1.82 | `derivedQueueStepMs(fluxapps)` - never a literal |
 | a departure restarts the other holders' queue tickets | `residentialEvacuationIntervalMs` : `residentialQueueStepMs` x `TICKET_GAP_STEPS` | 4.5 | `derivedEvacuationIntervalMs(fluxapps)` - never a literal |
 | a suite's wait covers a whole departure | `driveUntil` timeout : interval + base + position x step | - | `departureCycleMs(fluxapps, instances)` - never a literal |
+| a standby looks at the candidate ahead as often as production before its turn | `masterSlaveStaggerMs` : `masterSlaveIntervalMs` | 6 | `assertStaggerSpansElectionPasses(fluxapps)` |
 
 The second pair is bounded by what it must OUTLIVE rather than by production's
 ratio, the same way the sigterm window is bounded by a node boot. A node inside
@@ -54,6 +55,13 @@ minutes, written when the interval was four seconds; a departure is now an
 interval PLUS a full ticket served again from scratch, and the typed number
 quietly stopped covering one. A wait is as coupled to the pacing as the step is
 to the pass.
+
+The fourth pair, the stagger, compresses with the election cycle. A candidate
+reads the one ahead as holding the component from the moment it commits - the
+claim is served before the ownership fix and the container start - so what a
+place has to span is the passes the one ahead takes to commit, a count of
+cycles. No suite sizes a window by the stagger: a wait on the election counts its
+decisions (`waitForElectionDecisions`).
 
 A block costs more than its poll; `BLOCK_COST_OVERHEAD` carries the difference
 and is calibrated against a measurement, not chosen (model 15994ms against 15900ms
@@ -104,6 +112,7 @@ loses the property, so the factor is pinned by a unit test.
 | `fluxapps.installCollisionWaitMs` | 90000 | 5000 | 18.0x |
 | `fluxapps.locationTtlS` | 7500 | 63 | 119.0x |
 | `fluxapps.masterSlaveIntervalMs` | 30000 | 3000 | 10.0x |
+| `fluxapps.masterSlaveStaggerMs` | 180000 | 18000 | 10.0x |
 | `fluxapps.minHashSyncPeers` | 12 | 1 | 12.0x |
 | `fluxapps.minIncoming` | 4 | 2 | 2.0x |
 | `fluxapps.minOutgoing` | 8 | 4 | 2.0x |
@@ -116,7 +125,6 @@ loses the property, so the factor is pinned by a unit test.
 | `fluxapps.nodeMonitorErrorRecoveryDelayMs` | 120000 | 5000 | 24.0x |
 | `fluxapps.nodeMonitorIntervalMs` | 1200000 | 10000 | 120.0x |
 | `fluxapps.nodeMonitorRemovalDelayMs` | 60000 | 1000 | 60.0x |
-| `fluxapps.nonEnterpriseSpawnDelayMs` | 120000 | 500 | 240.0x |
 | `fluxapps.portRestoreIntervalMs` | 600000 | 30000 | 20.0x |
 | `fluxapps.portTestBindDelayMs` | 5000 | 100 | 50.0x |
 | `fluxapps.portTestMaxAttempts` | 5 | 2 | 2.5x |
@@ -132,6 +140,8 @@ loses the property, so the factor is pinned by a unit test.
 | `fluxapps.spawnDeferrals.capacityGap.smallMs.standard` | 3420000 | 900 | 3800.0x |
 | `fluxapps.spawnDeferrals.datacenterMs.enterprise` | 1620000 | 250 | 6480.0x |
 | `fluxapps.spawnDeferrals.datacenterMs.standard` | 3420000 | 500 | 6840.0x |
+| `fluxapps.spawnDeferrals.domainShareMs.enterprise` | 1920000 | 600000 | 3.2x |
+| `fluxapps.spawnDeferrals.domainShareMs.standard` | 1920000 | 600000 | 3.2x |
 | `fluxapps.spawnDeferrals.staticIpMs.enterprise` | 1620000 | 200 | 8100.0x |
 | `fluxapps.spawnDeferrals.staticIpMs.standard` | 3420000 | 400 | 8550.0x |
 | `fluxapps.spawnDelayMultiplier` | 1 | 0.002 | 500.0x |

@@ -1,0 +1,153 @@
+{
+ "source": "permanent app messages and app payment records of a mainnet node, exported 2026-10-05 at scanned height 3010099",
+ "scannedHeight": 3010099,
+ "messages": 1050,
+ "paymentRecords": 1050,
+ "apps": 198,
+ "selection": "every message of each chosen app name, so every update has the message before it; the smallest apps covering each case below, then small apps to past 1,000 messages so a joiner takes the bulk path",
+ "covers": {
+  "type:zelappregister": [
+   "qualitylabstransferprobe",
+   "quillot",
+   "edgegateway"
+  ],
+  "type:zelappupdate": [
+   "qualitylabstransferprobe",
+   "quillot",
+   "edgegateway"
+  ],
+  "type:fluxappregister": [
+   "10",
+   "100VPNCCCCCCCCCCCCCC",
+   "100VPNFFFFFFFFF"
+  ],
+  "type:fluxappupdate": [
+   "10",
+   "100VPNCCCCCCCCCCCCCC",
+   "100VPNFFFFFFFFF"
+  ],
+  "version:1": [
+   "DiBiFetch"
+  ],
+  "version:2": [
+   "Dropalo",
+   "GoAway",
+   "SuperMario"
+  ],
+  "version:3": [
+   "zeroclassicorg",
+   "Presearch",
+   "helloworldtest"
+  ],
+  "version:4": [
+   "AlephiumNode1669136838719",
+   "AlephiumNode1669393518585",
+   "AlephiumNode1669751245365"
+  ],
+  "version:5": [
+   "AlephiumNode1669136838719",
+   "AlephiumNode1669393518585",
+   "AlephiumNode1669751245365"
+  ],
+  "version:6": [
+   "10",
+   "11111",
+   "123123"
+  ],
+  "version:7": [
+   "10",
+   "100VPNCCCCCCCCCCCCCC",
+   "100VPNFFFFFFFFF"
+  ],
+  "version:8": [
+   "131barb1",
+   "1x4frxxx",
+   "27122025year16065"
+  ],
+  "enterprise": [
+   "afdasfdafds",
+   "bb-yakamotho",
+   "beaver-node",
+   "buckyorbit",
+   "dontstarvetogether1776081882994",
+   "dragonwilds1789474581529"
+  ],
+  "enterprise-registration-only": [
+   "DaveNginx123",
+   "EnterSandman"
+  ],
+  "transfer": [
+   "BittensorFN1701870918223",
+   "BittensorFN1701876974215",
+   "BittensorFN1701877040841",
+   "BittensorFN1701877101692",
+   "BittensorFN1701877154945",
+   "Cyberfly1764783681773"
+  ],
+  "same-block": [
+   "GabyLocaldv0006",
+   "pruebagridmine",
+   "PresearchNode1660491567060",
+   "PresearchNode1666114894865"
+  ],
+  "late-renewal": [
+   "BrokerNode1677707397435",
+   "Cyberfly1765243205794",
+   "PresearchNode1639918748726",
+   "PresearchNode1639994761767",
+   "PresearchNode1643154839427",
+   "PresearchNode1645606952366"
+  ],
+  "re-registered-by-another-owner": [
+   "ArielDemoDeployLocalv003",
+   "GabyLocaldv0004",
+   "HandshakeNode0001",
+   "BitgertRPC4"
+  ],
+  "re-registered-by-its-owner": [
+   "27122025year869784389704169",
+   "ARIZO9",
+   "AlephiumNode1707619768032"
+  ],
+  "paid-twice-in-a-block": [
+   "PresearchNode1650135551132",
+   "PresearchNode1665785480768",
+   "PresearchNode1666699713876",
+   "PresearchNode1668481293011",
+   "PresearchNode1671890767318",
+   "PresearchNode1675544217221"
+  ],
+  "expiry-crosses-pon-fork": [
+   "FluxNodeCalc",
+   "KaspaNode16GB1760535952406",
+   "KaspaNode16GB1760538604830",
+   "KaspaNode16GB1760539883120"
+  ],
+  "in-force-at-scan": [
+   "7daystodie1791046930437",
+   "KaspaNodeGiveaway01",
+   "KaspaNodeGiveaway02",
+   "KaspaNodeGiveaway03",
+   "KaspaNodeGiveaway04",
+   "KaspaNodeGiveaway05"
+  ],
+  "known-late-renewal": [
+   "owncast",
+   "duckling",
+   "keepnetwork",
+   "paradigm",
+   "FuseRPC",
+   "xdao2",
+   "blockbookravencoin",
+   "dragonwilds1790467903997"
+  ],
+  "transfer-before-2000000": [
+   "BittensorFN1701870918223",
+   "BittensorFN1701876974215"
+  ],
+  "transfer-from-2000000": [
+   "Cyberfly1764783681773",
+   "KaspaNodeGiveaway01"
+  ]
+ }
+}

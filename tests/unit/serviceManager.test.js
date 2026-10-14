@@ -13,7 +13,10 @@ const sinon = require('sinon');
 chai.use(chaiAsPromised);
 const { expect } = chai;
 
-const { ensureIndex, ensureIndexes, dedupeByKey } = require('../../ZelBack/src/services/serviceManager');
+const {
+  ensureIndex, ensureIndexes, dedupeByKey, dosState,
+} = require('../../ZelBack/src/services/serviceManager');
+const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const log = require('../../ZelBack/src/lib/log');
 
 describe('serviceManager ensureIndex', () => {
@@ -270,5 +273,24 @@ describe('serviceManager ensureIndexes', () => {
     });
 
     await expect(ensureIndexes(collection, [{ key: { a: 1 } }])).to.be.rejectedWith('not authorized');
+  });
+});
+
+describe('serviceManager apps availability DOS state', () => {
+  afterEach(() => {
+    fluxNetworkHelper.setDosMessage(null);
+    fluxNetworkHelper.setDosStateValue(0);
+  });
+
+  it('writes its message as the node\'s own', () => {
+    dosState.dosMessage = 'Ports tested not reachable from outside';
+
+    chai.expect(fluxNetworkHelper.getDosMessage()).to.equal('Ports tested not reachable from outside');
+  });
+
+  it('reads the node\'s own message, whoever set it', () => {
+    fluxNetworkHelper.setDosMessage('Flux IP detection failed');
+
+    chai.expect(dosState.dosMessage).to.equal('Flux IP detection failed');
   });
 });

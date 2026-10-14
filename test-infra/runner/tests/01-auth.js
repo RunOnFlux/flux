@@ -3,7 +3,8 @@ import { expect } from 'chai';
 import { authenticate, signBtcMessage } from '../auth.js';
 import { nodeKey, appOwnerKey, fluxTeamKey, userKey } from '../framework/keys.js';
 import { createTestEnv } from '../framework/test-env.js';
-import { waitForDaemonReady } from '../framework/wait.js';
+import { waitFor, waitForDaemonReady } from '../framework/wait.js';
+import { restartFluxos } from '../framework/container.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 let env;
@@ -141,5 +142,72 @@ describe('Privilege enforcement', function () {
       const res = await node.getAuthed('/id/activeloginphrases', userAuth.zelidauth);
       expect(res.status).to.equal('error');
     });
+  });
+});
+
+// A login's signature is its session credential. The login websocket hands it to
+// whoever holds the login phrase, for the first minute after the login only, and
+// a FluxOS restart inside that minute neither ends the login nor extends the
+// minute.
+describe('A login across a FluxOS restart', function () {
+  let login;
+
+  // What the login websocket answers for a login phrase: its fields, keyed as
+  // the node encodes them (data[signature], ...). Node's own WebSocket client.
+  function loginSocketAnswer(loginPhrase) {
+    return new Promise((resolve, reject) => {
+      const ws = new globalThis.WebSocket(`${node.url.replace(/^http/, 'ws')}/ws/id/${encodeURIComponent(loginPhrase)}`);
+      const timer = setTimeout(() => {
+        ws.close();
+        reject(new Error('the login websocket did not answer within 10 s'));
+      }, 10000);
+      ws.onmessage = (event) => {
+        clearTimeout(timer);
+        ws.close();
+        resolve(new URLSearchParams(String(event.data)));
+      };
+      ws.onerror = () => {
+        clearTimeout(timer);
+        reject(new Error('the login websocket failed'));
+      };
+    });
+  }
+
+  before(async function () {
+    this.timeout(120000);
+    env = await createTestEnv({ hookCtx: this, nodes: 1 });
+    node = env.clients[0];
+    await waitForDaemonReady(node);
+    login = await authenticate(node.url, nodeKey(1));
+  });
+
+  after(async function () {
+    this.timeout(30000);
+    await env?.teardown();
+  });
+
+  it('hands the login its signature through the login websocket right after the login', async function () {
+    const answer = await loginSocketAnswer(login.loginPhrase);
+    expect(answer.get('status')).to.equal('success');
+    expect(answer.get('data[signature]')).to.equal(login.signature);
+  });
+
+  it('keeps the login through a FluxOS restart', async function () {
+    this.timeout(180000);
+    await restartFluxos(node.container);
+    await waitFor(async () => (await node.getAuthed('/id/activeloginphrases', login.zelidauth)).status === 'success', {
+      timeout: 60000, interval: 2000, label: 'the login accepted after the restart',
+    });
+  });
+
+  it('stops handing out the signature a minute after the login, across the restart', async function () {
+    this.timeout(240000);
+    let answer;
+    // the signature's TTL is a minute, and mongo removes expired rows once a minute
+    await waitFor(async () => {
+      answer = await loginSocketAnswer(login.loginPhrase);
+      return answer.get('status') === 'success' && !answer.has('data[signature]');
+    }, { timeout: 180000, interval: 5000, label: 'the login websocket answering without the signature' });
+    expect(answer.get('data[zelid]')).to.equal(login.zelid);
   });
 });

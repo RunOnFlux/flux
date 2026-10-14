@@ -1,6 +1,6 @@
 {
   "name": "flux",
-  "version": "8.20.0",
+  "version": "8.21.0",
   "description": "Flux, Your Gateway to a Decentralized World",
   "repository": {
     "type": "git",
@@ -64,13 +64,13 @@
     "test:container:down": "docker compose --profile auto -f tests/images/compose.yaml down",
     "prebuild": "bash checkNodeV.sh",
     "fluxdev": "nodemon app.js --dev",
-    "flux": "nodemon app.js",
+    "flux": "node app.js",
     "start": "npm install --omit=dev --legacy-peer-deps && node init.js && npm run flux",
     "dev": "node init.js && npm run fluxdev",
     "softupdate": "git checkout .; git pull",
     "softupdateinstall": "git checkout .; git pull; npm install --omit=dev --legacy-peer-deps",
     "updateflux": "git pull; git reset --hard; rm -rf .git/index.lock; git reset --hard; git pull",
-    "hardupdateflux": "git pull; git reset --hard; rm -rf .git/index.lock ZelFront node_modules package-lock.json; git reset --hard; git pull; npm run start",
+    "hardupdateflux": "git pull; git reset --hard; rm -rf .git/index.lock ZelFront node_modules package-lock.json; git reset --hard; git pull; npm install --omit=dev --legacy-peer-deps",
     "ciconfig": "cp sampleUserConfig.js config/userconfig.js && mkdir ~/.flux && cp sampleDaemonConfig.conf ~/.flux/flux.conf",
     "docs": "jsdoc -d docs --configure jsconf.json -r",
     "update:cloudui": "bash scripts/update-cloudui.sh"
@@ -85,7 +85,6 @@
     "axios": "~1.13.6",
     "bitcoinjs-message": "~2.2.0",
     "bs58check": "~3.0.1",
-    "cacheable-lookup": "~7.0.0",
     "compression": "~1.8.1",
     "config": "~3.3.12",
     "cors": "~2.8.5",

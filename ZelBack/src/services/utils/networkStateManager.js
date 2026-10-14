@@ -1,6 +1,6 @@
 const { EventEmitter } = require('node:events');
 const { FluxController } = require('./fluxController');
-const { normalizeSocketAddress, ipsMatch } = require('./socketAddressUtils');
+const { normalizeSocketAddress, ipsMatch, extractPort } = require('./socketAddressUtils');
 
 const log = require('../../lib/log');
 
@@ -409,14 +409,18 @@ class NetworkStateManager extends EventEmitter {
    * draw: a redraw that can return the peer just asked is not a second opinion,
    * and a caller counting distinct witnesses would never reach two.
    *
+   * `port` restricts the draw to nodes whose API listens on that port.
+   *
    * @param {string} localSocketAddress The ip:port of this node
-   * @param {{exclude?: Array<string>}} [options] Addresses already asked
+   * @param {{exclude?: Array<string>, port?: number}} [options] Addresses
+   *   already asked, and the API port the observer must have
    * @returns {Promise<string | null>} A random socketAddress from the map
    */
-  async getRandomExternalObserver(localSocketAddress, { exclude = [] } = {}) {
+  async getRandomExternalObserver(localSocketAddress, { exclude = [], port = null } = {}) {
     return this.#randomSocketAddressWhere(
       (socketAddress) => !ipsMatch(socketAddress, localSocketAddress)
-        && !exclude.some((asked) => ipsMatch(socketAddress, asked)),
+        && !exclude.some((asked) => ipsMatch(socketAddress, asked))
+        && (port === null || extractPort(socketAddress) === port),
     );
   }
 

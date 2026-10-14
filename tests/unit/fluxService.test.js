@@ -1,3 +1,4 @@
+const childProcess = require('node:child_process');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
@@ -13,6 +14,7 @@ const chaiAsPromised = require('chai-as-promised');
 chai.use(chaiAsPromised);
 const { expect } = chai;
 
+const geolocationService = require('../../ZelBack/src/services/geolocationService');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire');
 
@@ -36,6 +38,8 @@ const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/dae
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
 const packageJson = require('../../package.json');
+const log = require('../../ZelBack/src/lib/log');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 // Mock adminConfig for consistent testing
 const adminConfig = {
@@ -66,9 +70,24 @@ const fluxService = proxyquire(
   },
 );
 
+// The same module on an ArcaneOS node, which is one where FLUXOS_PATH is set
+// when the module loads.
+const fluxPathOutsideArcane = process.env.FLUXOS_PATH;
+process.env.FLUXOS_PATH = '/dat/usr/lib/fluxos';
+const fluxServiceOnArcane = proxyquire(
+  '../../ZelBack/src/services/fluxService',
+  {
+    '../../../config/userconfig': adminConfig,
+    'node:fs/promises': fsPromisesStubs,
+  },
+);
+if (fluxPathOutsideArcane === undefined) delete process.env.FLUXOS_PATH;
+else process.env.FLUXOS_PATH = fluxPathOutsideArcane;
+
 const generateResponse = () => {
   const res = { test: 'testing' };
   res.status = sinon.stub().returns(res);
+  res.setHeader = sinon.stub();
   res.json = sinon.fake((param) => `Response: ${param}`);
   res.download = sinon.fake(() => 'File downloaded');
   res.end = sinon.stub();
@@ -340,6 +359,53 @@ describe('fluxService tests', () => {
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledWithExactly(runCmdStub, 'npm', { cwd: nodedpath, params: ['run', 'softupdateinstall'] });
+    });
+  });
+
+  describe('the endpoints that update FluxOS\'s own code, on ArcaneOS', () => {
+    const refusal = {
+      status: 'error',
+      data: {
+        code: undefined,
+        name: undefined,
+        message: 'FluxOS on ArcaneOS is updated by its watchdog, not by this endpoint',
+      },
+    };
+    let verifyPrivilegeStub;
+    let runCmdStub;
+
+    beforeEach(() => {
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    ['updateFlux', 'softUpdateFluxApi', 'softUpdateFluxInstallApi', 'hardUpdateFlux'].forEach((handler) => {
+      it(`${handler} refuses, and changes nothing`, async () => {
+        const res = generateResponse();
+
+        await fluxServiceOnArcane[handler](undefined, res);
+
+        sinon.assert.calledOnceWithExactly(res.json, refusal);
+        sinon.assert.notCalled(runCmdStub);
+      });
+
+      it(`${handler} answers a caller without the privilege as unauthorized first`, async () => {
+        verifyPrivilegeStub.resolves(false);
+        const res = generateResponse();
+
+        await fluxServiceOnArcane[handler](undefined, res);
+
+        sinon.assert.calledOnceWithMatch(res.json, { status: 'error', data: { code: 401 } });
+      });
+    });
+
+    it('refuses on ArcaneOS and nowhere else', () => {
+      expect(fluxService.selfUpdateRefusal(true)).to.deep.equal(refusal);
+      expect(fluxService.selfUpdateRefusal(false)).to.equal(null);
     });
   });
 
@@ -1944,6 +2010,8 @@ describe('fluxService tests', () => {
     let syncthingServiceStub;
 
     beforeEach(() => {
+      // what this node knows of its geolocation is module state any earlier test can fill
+      sinon.stub(geolocationService, 'getNodeGeolocation').resolves(null);
       daemonServiceControlRpcsStub = sinon.stub(daemonServiceControlRpcs, 'getInfo');
       daemonServiceFluxnodeRpcsStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus');
       benchmarkServiceGetInfoStub = sinon.stub(benchmarkService, 'getInfo');
@@ -2043,6 +2111,7 @@ describe('fluxService tests', () => {
       // nodes cannot be counted across the fleet, and counting it is half the
       // reason it is here.
       expect(result.data.flux.dosStaging).to.equal(null);
+      expect(result.data.flux.uplink).to.eql({ tunnel: 'unknown', mtu: null, rttMs: null });
       expect(result.data.apps).to.be.an('object');
       expect(result.data.benchmark).to.eql({
         info: 'info2 data',
@@ -2787,25 +2856,22 @@ describe('fluxService tests', () => {
   });
 
   describe('getNodeTier tests', () => {
-    let generalServiceNodeTierStub;
-    let generalServiceNodeCollateralStub;
+    let collateralTierStub;
     beforeEach(() => {
-      generalServiceNodeTierStub = sinon.stub(generalService, 'nodeTier');
-      generalServiceNodeCollateralStub = sinon.stub(generalService, 'nodeCollateral');
+      collateralTierStub = sinon.stub(generalService, 'nodeCollateralTier');
     });
 
     afterEach(() => {
       sinon.restore();
     });
 
-    it('should return error if values are not correct', async () => {
-      generalServiceNodeTierStub.returns('test');
-      generalServiceNodeCollateralStub.returns('1');
+    it('should return error if the collateral is not a tier amount', async () => {
+      collateralTierStub.resolves({ collateral: 1, tier: null });
       const res = generateResponse();
       const expectedResponse = {
         data: {
           code: undefined,
-          message: 'Unrecognised Flux node tier',
+          message: 'Unrecognised Flux Node tier',
           name: 'Error',
         },
         status: 'error',
@@ -2816,9 +2882,53 @@ describe('fluxService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
 
-    it('should return cumulus if tier is basic and collateral is 10000', async () => {
-      generalServiceNodeTierStub.returns('basic');
-      generalServiceNodeCollateralStub.returns(10000);
+    // generalService.nodeCollateralTier raises the daemon's own error envelope,
+    // a plain object carrying the RPC error code.
+    it('answers 503 with a Retry-After while the daemon is still loading', async () => {
+      collateralTierStub.rejects({ code: -28, name: 'Error', message: 'Loading block index...' });
+      const res = generateResponse();
+      const expectedResponse = {
+        status: 'error',
+        data: { code: 503, name: 'ServiceUnavailable', message: 'Loading block index...' },
+      };
+
+      await fluxService.getNodeTier(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.setHeader, 'Retry-After', '5');
+      sinon.assert.calledOnceWithExactly(res.status, 503);
+      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('answers 503 while nothing is listening on the daemon port', async () => {
+      collateralTierStub.rejects({ code: 'ECONNREFUSED', name: 'Error', message: 'connect ECONNREFUSED 127.0.0.1:16124' });
+      const res = generateResponse();
+
+      await fluxService.getNodeTier(undefined, res);
+
+      sinon.assert.calledOnceWithExactly(res.status, 503);
+      sinon.assert.calledOnceWithExactly(res.setHeader, 'Retry-After', '5');
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: { code: 503, name: 'ServiceUnavailable', message: 'connect ECONNREFUSED 127.0.0.1:16124' },
+      });
+    });
+
+    it('reports a daemon error that is an answer as a 200 error envelope', async () => {
+      collateralTierStub.rejects({ code: -8, name: 'Error', message: 'Invalid parameter' });
+      const res = generateResponse();
+
+      await fluxService.getNodeTier(undefined, res);
+
+      sinon.assert.notCalled(res.status);
+      sinon.assert.notCalled(res.setHeader);
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'error',
+        data: { code: -8, name: 'Error', message: 'Invalid parameter' },
+      });
+    });
+
+    it('should return cumulus for a collateral of 10000', async () => {
+      collateralTierStub.resolves({ collateral: 10000, tier: generalService.COLLATERAL_TIERS[10000] });
       const res = generateResponse();
       const expectedResponse = { status: 'success', data: 'cumulus' };
 
@@ -2827,9 +2937,8 @@ describe('fluxService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
 
-    it('should return nimbus if tier is super and collateral is 25000', async () => {
-      generalServiceNodeTierStub.returns('super');
-      generalServiceNodeCollateralStub.returns(25000);
+    it('should return nimbus for a collateral of 25000', async () => {
+      collateralTierStub.resolves({ collateral: 25000, tier: generalService.COLLATERAL_TIERS[25000] });
       const res = generateResponse();
       const expectedResponse = { status: 'success', data: 'nimbus' };
 
@@ -2838,9 +2947,8 @@ describe('fluxService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
 
-    it('should return stratus if tier is bamf and collateral is 100000', async () => {
-      generalServiceNodeTierStub.returns('bamf');
-      generalServiceNodeCollateralStub.returns(100000);
+    it('should return stratus for a collateral of 100000', async () => {
+      collateralTierStub.resolves({ collateral: 100000, tier: generalService.COLLATERAL_TIERS[100000] });
       const res = generateResponse();
       const expectedResponse = { status: 'success', data: 'stratus' };
 
@@ -2849,9 +2957,8 @@ describe('fluxService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
 
-    it('should return cumulus_new if tier is basic and collateral is 1000', async () => {
-      generalServiceNodeTierStub.returns('basic');
-      generalServiceNodeCollateralStub.returns(1000);
+    it('should return cumulus_new for a collateral of 1000', async () => {
+      collateralTierStub.resolves({ collateral: 1000, tier: generalService.COLLATERAL_TIERS[1000] });
       const res = generateResponse();
       const expectedResponse = { status: 'success', data: 'cumulus_new' };
 
@@ -2860,9 +2967,8 @@ describe('fluxService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
 
-    it('should return nimbus_new if tier is super and collateral is 12500', async () => {
-      generalServiceNodeTierStub.returns('super');
-      generalServiceNodeCollateralStub.returns(12500);
+    it('should return nimbus_new for a collateral of 12500', async () => {
+      collateralTierStub.resolves({ collateral: 12500, tier: generalService.COLLATERAL_TIERS[12500] });
       const res = generateResponse();
       const expectedResponse = { status: 'success', data: 'nimbus_new' };
 
@@ -2871,9 +2977,8 @@ describe('fluxService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
 
-    it('should return stratus_new if tier is bamf and collateral is 40000', async () => {
-      generalServiceNodeTierStub.returns('bamf');
-      generalServiceNodeCollateralStub.returns(40000);
+    it('should return stratus_new for a collateral of 40000', async () => {
+      collateralTierStub.resolves({ collateral: 40000, tier: generalService.COLLATERAL_TIERS[40000] });
       const res = generateResponse();
       const expectedResponse = { status: 'success', data: 'stratus_new' };
 
@@ -3189,7 +3294,9 @@ describe('fluxService tests', () => {
 
         await fluxService[api]({}, generateResponse());
 
-        sinon.assert.calledOnceWithMatch(runCmdStub, 'npm', { params: ['run', script] });
+        const npmCalls = runCmdStub.getCalls().filter((call) => call.args[0] === 'npm');
+        expect(npmCalls, 'npm runs once').to.have.length(1);
+        sinon.assert.calledWithMatch(runCmdStub, 'npm', { params: ['run', script] });
       });
     });
 
@@ -3397,6 +3504,324 @@ describe('fluxService tests', () => {
       await fluxService.enterMasterApi({}, generateResponse());
 
       sinon.assert.neverCalledWithMatch(runCmdStub, 'git', { params: ['checkout', 'master'] });
+    });
+  });
+
+  describe('the kill timeout of FluxOS\'s pm2 registration', () => {
+    const savedPm2Id = process.env.pm_id;
+    const REQUEST = path.join(os.homedir(), '.flux-pm2-kill-timeout-request');
+    let runCmdStub;
+    let spawnStub;
+    let child;
+    let publishStub;
+    let files;
+    const registration = (killTimeout) => JSON.stringify([
+      { pm_id: 2, name: 'watchdog', pm2_env: {} },
+      { pm_id: 3, name: 'flux', pm2_env: killTimeout === undefined ? {} : { kill_timeout: killTimeout } },
+    ]);
+    // Resolves to whether ensurePm2KillTimeout has returned by the time the
+    // work it started has settled.
+    const returnedBy = async (pending) => {
+      let returned = false;
+      pending.then(() => { returned = true; });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      return returned;
+    };
+
+    beforeEach(() => {
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').resolves({ stdout: registration(undefined), error: null });
+      child = { unref: sinon.stub(), on: sinon.stub() };
+      spawnStub = sinon.stub(childProcess, 'spawn').returns(child);
+      publishStub = sinon.stub(fluxEventBus, 'publish');
+      files = { '/proc/sys/kernel/random/boot_id': 'boot-a\n' };
+      fsPromisesStubs.readFile = sinon.fake(async (file) => {
+        if (file in files) return files[file];
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      });
+      fsPromisesStubs.writeFile.resetHistory();
+      process.env.pm_id = '3';
+    });
+
+    afterEach(() => {
+      delete fsPromisesStubs.readFile;
+      process.removeAllListeners('SIGUSR2');
+      sinon.restore();
+      if (savedPm2Id === undefined) delete process.env.pm_id; else process.env.pm_id = savedPm2Id;
+    });
+
+    it('records the boot, asks pm2 detached from this process, and waits for the restart', async () => {
+      const pending = fluxService.ensurePm2KillTimeout();
+
+      expect(await returnedBy(pending), 'returned while the restart is under way').to.equal(false);
+      sinon.assert.calledWithExactly(fsPromisesStubs.writeFile, REQUEST, 'boot-a');
+      sinon.assert.calledOnce(spawnStub);
+      const [cmd, args, opts] = spawnStub.firstCall.args;
+      expect(cmd).to.equal('sh');
+      expect(args[1]).to.equal(`setsid sh -c 'if pm2 restart 3 --kill-timeout ${fluxService.PM2_KILL_TIMEOUT_MS}; then pm2 save; else kill -USR2 ${process.pid}; fi' >/dev/null 2>&1 </dev/null &`);
+      expect(opts).to.include({ detached: true, stdio: 'ignore' });
+      sinon.assert.calledOnce(child.unref);
+      sinon.assert.notCalled(publishStub);
+    });
+
+    it('boots on, and says so, when the restart signals that it failed', async () => {
+      runCmdStub.resolves({ stdout: registration(1600), error: null });
+      const error = sinon.stub(log, 'error');
+      const pending = fluxService.ensurePm2KillTimeout();
+      await returnedBy(pending);
+
+      process.emit('SIGUSR2');
+
+      expect(await returnedBy(pending)).to.equal(true);
+      sinon.assert.calledWithExactly(publishStub, 'pm2:killTimeoutRaiseFailed', { killTimeout: 1600 });
+      sinon.assert.calledWithMatch(error, /pm2 could not restart FluxOS to raise its kill timeout from 1600/);
+    });
+
+    it('boots on, and says so, when pm2 has not restarted it within its wait', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      runCmdStub.resolves({ stdout: registration(1600), error: null });
+      const error = sinon.stub(log, 'error');
+      const pending = fluxService.ensurePm2KillTimeout();
+      await returnedBy(pending);
+
+      await clock.tickAsync(fluxService.PM2_RESTART_WAIT_MS - 1);
+      expect(await returnedBy(pending), 'returned before its wait was over').to.equal(false);
+      await clock.tickAsync(1);
+
+      expect(await returnedBy(pending)).to.equal(true);
+      sinon.assert.calledWithExactly(publishStub, 'pm2:killTimeoutRaiseUnanswered', { killTimeout: 1600 });
+      sinon.assert.calledWithMatch(error, /pm2 did not restart FluxOS within 90000ms to raise its kill timeout from 1600/);
+      expect(process.listenerCount('SIGUSR2'), 'listeners for the request still out').to.equal(1);
+      process.removeAllListeners('SIGUSR2');
+    });
+
+    it('records a restart that fails after its wait, and keeps running', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      runCmdStub.resolves({ stdout: registration(1600), error: null });
+      const error = sinon.stub(log, 'error');
+      const pending = fluxService.ensurePm2KillTimeout();
+      await returnedBy(pending);
+      await clock.tickAsync(fluxService.PM2_RESTART_WAIT_MS);
+      expect(await returnedBy(pending), 'fixture: the wait is over').to.equal(true);
+
+      process.emit('SIGUSR2', 'SIGUSR2');
+
+      sinon.assert.calledWithExactly(publishStub, 'pm2:killTimeoutRaiseFailedLate', { killTimeout: 1600 });
+      sinon.assert.calledWithMatch(error, /pm2 could not restart FluxOS to raise its kill timeout from 1600, after FluxOS had booted on with it/);
+      expect(process.listenerCount('SIGUSR2'), 'a listener left after the one failure the request can send').to.equal(0);
+    });
+
+    it('leaves no SIGUSR2 listener once the restart has failed within its wait', async () => {
+      runCmdStub.resolves({ stdout: registration(1600), error: null });
+      sinon.stub(log, 'error');
+      const pending = fluxService.ensurePm2KillTimeout();
+      await returnedBy(pending);
+
+      process.emit('SIGUSR2', 'SIGUSR2');
+
+      expect(await returnedBy(pending)).to.equal(true);
+      expect(process.listenerCount('SIGUSR2')).to.equal(0);
+    });
+
+    it('lists pm2\'s processes within its own time limit', async () => {
+      runCmdStub.resolves({ stdout: registration(fluxService.PM2_KILL_TIMEOUT_MS), error: null });
+
+      await fluxService.ensurePm2KillTimeout();
+
+      sinon.assert.calledWithMatch(runCmdStub, 'pm2', { params: ['jlist'], timeout: fluxService.PM2_LIST_TIMEOUT_MS });
+    });
+
+    it('boots on when the command that asks pm2 cannot be started', async () => {
+      const pending = fluxService.ensurePm2KillTimeout();
+      await returnedBy(pending);
+
+      child.on.withArgs('error').firstCall.args[1](new Error('spawn sh ENOENT'));
+
+      expect(await returnedBy(pending)).to.equal(true);
+      sinon.assert.calledWithExactly(publishStub, 'pm2:killTimeoutRaiseFailed', { killTimeout: null });
+    });
+
+    it('asks pm2 once per machine boot, and boots on when the kill timeout is still short on that boot', async () => {
+      runCmdStub.resolves({ stdout: registration(1600), error: null });
+      files[REQUEST] = 'boot-a\n';
+      const error = sinon.stub(log, 'error');
+
+      await fluxService.ensurePm2KillTimeout();
+
+      sinon.assert.notCalled(spawnStub);
+      sinon.assert.notCalled(fsPromisesStubs.writeFile);
+      sinon.assert.calledWithExactly(publishStub, 'pm2:killTimeoutUnchanged', { killTimeout: 1600 });
+      sinon.assert.calledWithMatch(error, /pm2 kept FluxOS's kill timeout at 1600 after FluxOS asked it for 60000ms on this boot/);
+    });
+
+    it('asks again on a later machine boot', async () => {
+      files[REQUEST] = 'boot-before\n';
+
+      fluxService.ensurePm2KillTimeout();
+      await new Promise((resolve) => { setImmediate(resolve); });
+
+      sinon.assert.calledOnce(spawnStub);
+      sinon.assert.calledWithExactly(fsPromisesStubs.writeFile, REQUEST, 'boot-a');
+    });
+
+    it('leaves the registration alone when the machine boot cannot be identified', async () => {
+      delete files['/proc/sys/kernel/random/boot_id'];
+      const warn = sinon.stub(log, 'warn');
+
+      await fluxService.ensurePm2KillTimeout();
+
+      sinon.assert.notCalled(spawnStub);
+      sinon.assert.calledWithMatch(warn, /cannot be identified/);
+    });
+
+    it('leaves a registration that already has the kill timeout', async () => {
+      runCmdStub.resolves({ stdout: registration(fluxService.PM2_KILL_TIMEOUT_MS), error: null });
+
+      await fluxService.ensurePm2KillTimeout();
+      sinon.assert.notCalled(spawnStub);
+      sinon.assert.notCalled(fsPromisesStubs.writeFile);
+    });
+
+    it('asks nothing of pm2, and says nothing, when pm2 does not run FluxOS', async () => {
+      const warn = sinon.stub(log, 'warn');
+      delete process.env.pm_id;
+
+      await fluxService.ensurePm2KillTimeout();
+      sinon.assert.notCalled(runCmdStub);
+      sinon.assert.notCalled(spawnStub);
+      sinon.assert.notCalled(warn);
+    });
+
+    it('leaves the registration alone when the pm2 id is not a number', async () => {
+      process.env.pm_id = '3; reboot';
+
+      await fluxService.ensurePm2KillTimeout();
+      sinon.assert.notCalled(runCmdStub);
+      sinon.assert.notCalled(spawnStub);
+    });
+
+    it('leaves the registration alone, and says so, when pm2 cannot list it', async () => {
+      runCmdStub.resolves({ stdout: '', error: new Error('pm2 not found') });
+
+      await fluxService.ensurePm2KillTimeout();
+      sinon.assert.notCalled(spawnStub);
+      sinon.assert.calledWithExactly(publishStub, 'pm2:registrationUnread', { error: 'pm2 not found' });
+    });
+
+    it('leaves the registration alone when pm2 lists no process with this id', async () => {
+      process.env.pm_id = '9';
+
+      await fluxService.ensurePm2KillTimeout();
+      sinon.assert.notCalled(spawnStub);
+    });
+  });
+
+  // A node whose FluxOS runs under pm2 starts new code by a pm2 restart, which
+  // goes through start.sh and installs the modules first.
+  describe('running the code an update put on disk', () => {
+    let runCmdStub;
+    let clock;
+    let heads;
+    const savedPm2Id = process.env.pm_id;
+
+    const pm2Restarts = () => runCmdStub.getCalls().filter((call) => call.args[0] === 'pm2');
+
+    beforeEach(() => {
+      clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      heads = ['aaa1111'];
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand').callsFake(async (cmd, opts = {}) => {
+        if (cmd === 'git' && opts.params?.[0] === 'rev-parse' && opts.params?.includes('HEAD')) {
+          return { stdout: `${heads.length > 1 ? heads.shift() : heads[0]}\n`, error: null };
+        }
+        return { stdout: '', error: null };
+      });
+      process.env.pm_id = '3';
+    });
+
+    afterEach(() => {
+      clock.restore();
+      sinon.restore();
+      if (savedPm2Id === undefined) delete process.env.pm_id; else process.env.pm_id = savedPm2Id;
+    });
+
+    it('restarts through pm2 once the reply has had time to go, when the checkout moved', async () => {
+      heads = ['bbb2222'];
+
+      expect(await fluxService.runNewCode('aaa1111')).to.equal(true);
+      await clock.tickAsync(4999);
+      expect(pm2Restarts(), 'restarted before the reply').to.have.length(0);
+      await clock.tickAsync(1);
+      expect(pm2Restarts().map((call) => call.args[1])).to.deep.equal([{ params: ['restart', '3'] }]);
+    });
+
+    it('leaves FluxOS running when the checkout did not move', async () => {
+      expect(await fluxService.runNewCode('aaa1111')).to.equal(false);
+      await clock.tickAsync(10000);
+      expect(pm2Restarts()).to.have.length(0);
+    });
+
+    it('asks nothing of pm2 when pm2 does not run FluxOS', async () => {
+      delete process.env.pm_id;
+      heads = ['bbb2222'];
+
+      expect(await fluxService.runNewCode('aaa1111')).to.equal(false);
+      await clock.tickAsync(10000);
+      expect(pm2Restarts()).to.have.length(0);
+    });
+
+    it('restarts after an update that removed the installed modules, whatever the commit', async () => {
+      expect(await fluxService.runNewCode('aaa1111', { always: true })).to.equal(true);
+      await clock.tickAsync(5000);
+      expect(pm2Restarts()).to.have.length(1);
+    });
+
+    it('restarts after a soft update that moved the checkout', async () => {
+      heads = ['aaa1111', 'bbb2222'];
+
+      await fluxService.softUpdateFlux();
+      await clock.tickAsync(5000);
+      expect(pm2Restarts()).to.have.length(1);
+    });
+
+    it('restarts after a hard update', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      const res = generateResponse();
+
+      await fluxService.hardUpdateFlux(undefined, res);
+      await clock.tickAsync(5000);
+      expect(pm2Restarts()).to.have.length(1);
+    });
+
+    it('restarts after a branch switch that moved the checkout', async () => {
+      heads = ['aaa1111', 'bbb2222'];
+
+      await fluxService.enterDevelopment();
+      await clock.tickAsync(5000);
+      expect(pm2Restarts()).to.have.length(1);
+    });
+
+    it('restarts after a switch to master that moved the checkout', async () => {
+      heads = ['aaa1111', 'bbb2222'];
+
+      await fluxService.enterMaster();
+      await clock.tickAsync(5000);
+      expect(pm2Restarts()).to.have.length(1);
+    });
+
+    it('restarts after a soft update with install that moved the checkout', async () => {
+      heads = ['aaa1111', 'bbb2222'];
+
+      await fluxService.softUpdateFluxInstall();
+      await clock.tickAsync(5000);
+      expect(pm2Restarts()).to.have.length(1);
+    });
+
+    it('restarts after an update that moved the checkout', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      heads = ['aaa1111', 'bbb2222'];
+
+      await fluxService.updateFlux(undefined, generateResponse());
+      await clock.tickAsync(5000);
+      expect(pm2Restarts()).to.have.length(1);
     });
   });
 });

@@ -1,16 +1,15 @@
 // Single source of truth for the test network's IP layout.
 //
-// Each run gets its own /24 (TEST_SUBNET_BASE, a three-octet prefix like '198.18.0',
-// default '198.18.0'), carved from 198.18.0.0/15. Every address in the harness —
+// Each run gets its own /24 (TEST_SUBNET_BASE, a three-octet prefix like '31.200.0',
+// default '31.200.0'), carved from 31.200.0.0/20. Every address in the harness —
 // framework helpers, test-env, stub control clients, test assertions — derives from
 // here, so concurrent runs use distinct /24s instead of all colliding on one subnet.
 //
-// Why 198.18.0.0/15: FluxOS only treats RFC1918 (10/8, 172.16/12, 192.168/16) +
-// loopback/link-local/CGN as non-routable and drops peers on those (serviceHelper
-// isPrivateAddress/isNonRoutableAddress). 198.18.0.0/15 is the RFC 2544 network-
-// benchmarking reservation — not RFC1918, so FluxOS accepts it as a normal public
-// node IP, yet it never routes on the real internet, so it's safe in tests. It holds
-// 512 /24s (198.18.0 … 198.19.255) — i.e. up to 512 concurrent runs.
+// Why 31.200.0.0/20: a node treats the fleet's addresses as it treats a real fleet's,
+// so they are ordinary public addresses - none in a range FluxOS refuses as a peer, a
+// registry or a download. The fleet network is internal (no route off the host), so
+// these addresses stand in for their real owners only inside the fleet. It holds 16
+// /24s (31.200.0 … 31.200.15) - i.e. up to 16 concurrent runs on one host.
 //
 // FluxOS is IP-centric: a node's network identity IS its IP (peers dial IPs, the
 // deterministic node list is IP-keyed, a node confirms itself by matching its own IP
@@ -35,9 +34,9 @@ export const REGISTRY_PORT = 5000;
 export const STORAGE_HOST = 'storage.runonflux.io';
 
 export function resolveBase() {
-  const base = process.env.TEST_SUBNET_BASE || '198.18.0';
+  const base = process.env.TEST_SUBNET_BASE || '31.200.0';
   if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(base)) {
-    throw new Error(`TEST_SUBNET_BASE must be a three-octet /24 prefix like '198.18.0', got '${base}'`);
+    throw new Error(`TEST_SUBNET_BASE must be a three-octet /24 prefix like '31.200.0', got '${base}'`);
   }
   return base;
 }

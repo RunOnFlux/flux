@@ -202,6 +202,7 @@ async function createAppsFolder(req, res) {
       publish: { staging, destination: target },
       mkdirStaging: true,
       noReplace: true,
+      inheritOwner: true,
     });
     respondSuccess(res, 'Folder Created');
   } catch (error) {
@@ -858,6 +859,7 @@ async function compressAppsObject(req, res) {
       // refuses it once written.
       maxFileBytes: volume.availableBytes / SPACE_HEADROOM,
       maxBytes: volume.availableBytes / SPACE_HEADROOM,
+      inheritOwner: true,
     }));
   } catch (error) {
     respondError(res, error);
@@ -942,6 +944,7 @@ async function extractAppsObject(req, res) {
       // and what bounds a link left in the result is the reader: every walk of a
       // volume here lstats, and the downloads open with O_NOFOLLOW.
       dataOnly: true,
+      inheritOwner: true,
     }));
   } catch (error) {
     respondError(res, error);
@@ -998,16 +1001,18 @@ async function uploadAppsFiles(req, res) {
     // Before anything has been written the status line is still ours, so a
     // refusal can be answered as one. Once the body has started it cannot, and
     // the envelope goes into the stream where a client parses it out.
-    if (res.headersSent) {
-      try {
+    // Never throws: it is the last step of every way an upload settles, and a
+    // throw from inside a promise chain is a rejection nothing handles.
+    try {
+      if (res.headersSent) {
         res.write(serviceHelper.ensureString(envelope));
         res.end();
-      } catch (writeError) {
-        log.error(writeError);
+        return;
       }
-      return;
+      respondError(res, error);
+    } catch (answerError) {
+      log.error(answerError);
     }
-    respondError(res, error);
   };
 
   try {
@@ -1077,6 +1082,7 @@ async function uploadAppsFiles(req, res) {
         publish: { staging, destination },
         maxBytes: ceiling,
         slotHeld: true,
+        inheritOwner: true,
         status: 'Uploading...',
       });
 
@@ -1181,7 +1187,12 @@ async function uploadAppsFiles(req, res) {
     onStall: () => abandon(new Error(`The upload held a slot without sending the ${minUploadBitsPerSecond} bit/s a transfer has to keep`)),
   });
 
-  form.parse(req);
+  // Without a callback, parse returns a promise that rejects with the form's
+  // error - the same error its 'error' event carries to abandon above. Left
+  // unhandled, that rejection takes the process down; routed to abandon, which
+  // settles once whichever reports first, it also covers a failure that never
+  // reaches the event, such as headers the parser refuses.
+  form.parse(req).catch(abandon);
 }
 
 module.exports = {

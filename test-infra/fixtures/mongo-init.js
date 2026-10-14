@@ -26,7 +26,7 @@ for (let i = 1; i <= NODE_COUNT; i++) {
     localDb.geolocation.insertOne({
       _id: 'nodeGeolocation',
       geolocation: {
-        ip: `198.18.${i}.0`,
+        ip: `31.200.${i}.0`,
         continent: 'Europe',
         continentCode: 'EU',
         country: 'Germany',

@@ -1,18 +1,23 @@
 // Placement feasibility for synced apps.
 //
-// A placement constraint may only reject a node when a better-placed candidate
-// provably exists. This module supplies the proof: it computes, from the
+// A placement constraint rejects a node only in favour of a better-placed
+// candidate. This module counts those candidates: it computes, from the
 // deterministic node list and the IP location table, how many distinct fault
 // domains an app's eligible candidates span, and from that each domain's share
 // of the app's instances - the smallest uniform level the domains can absorb.
 // The spawner, the registration validator and the placement API all consume
 // this one computation.
 //
+// A candidate is every node the geolocation admits, whether or not it has room
+// for the app or takes apps at all, so a better-placed candidate counted here
+// may not exist in practice. The spawner therefore defers a node whose domain
+// holds its share rather than refusing it, and places the copy there once the
+// window has passed with the app still short.
+//
 // Every approximation in here errs toward counting MORE candidates and MORE
-// domains, which pushes the share toward 1 - i.e. toward the strict behaviour
-// the network has today - never toward stacking instances. A missing table, an
-// unresolvable location, a region-granularity pin the table cannot answer: all
-// degrade to the status quo.
+// domains, which pushes the share toward 1 and spreads instances, never toward
+// stacking them. A missing table, an unresolvable location, a region-granularity
+// pin the table cannot answer: all count toward more candidates, not fewer.
 //
 // The same principle at the entry level: an ALLOWED restriction the table
 // cannot fully resolve over-includes (a region-level pin admits the whole

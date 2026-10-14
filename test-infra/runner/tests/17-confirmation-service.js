@@ -6,7 +6,7 @@ import {
 } from '../framework/wait.js';
 import {
   advanceBlock, enableRpcFailure, disableAllRpcFailure,
-  removeFromNodeList, resetNodeList,
+  removeFromNodeList, resetNodeList, driveUntil,
 } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -51,11 +51,18 @@ describe('Confirmation service: node list removal → message capability lost', 
     await env?.teardown();
   });
 
+  // The node reads the list from its own cache, which a block refreshes at most
+  // once per throttle window, so the removal reaches it on a later block.
   it('should lose message capability when removed from deterministic list', async function () {
-    this.timeout(30000);
-    await removeFromNodeList(env.clients[0].ip);
+    this.timeout(150000);
+    const node = env.clients[0];
+    const afterId = node.getLastEventId();
+    await removeFromNodeList(node.ip);
+    const listRead = () => node.waitForEvent('networkstate:updated', (d) => d.nodes === env.clients.length - 1, 1, { afterId })
+      .then(() => true, () => false);
+    await driveUntil(node, listRead, { timeoutMs: 90000, label: 'the node read the list without itself' });
     await advanceBlock();
-    const event = await waitForMessageCapabilityChanged(env.clients[0], false, 20000);
+    const event = await waitForMessageCapabilityChanged(node, false, 20000);
     expect(event.data.capable).to.equal(false);
   });
 });

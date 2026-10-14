@@ -5,19 +5,18 @@
  * attacks (CWE-918).
  *
  * Blocks requests to:
- * - Private IP ranges (10.x.x.x, 172.16-31.x.x, 192.168.x.x)
- * - Loopback addresses (127.x.x.x, ::1, localhost)
- * - Link-local addresses (169.254.x.x, fe80::)
- * - Cloud metadata endpoints (169.254.169.254, metadata.google.internal)
+ * - Every non-public address range (nonPublicNetworks): private, loopback,
+ *   link-local and cloud metadata, carrier-grade NAT, and IANA's reserved ranges
+ * - Local and metadata hostnames (localhost, metadata.google.internal)
  * - Non-HTTP(S) protocols
  */
 
 const { URL } = require('url');
-const dns = require('dns');
 const net = require('net');
-const { promisify } = require('util');
-
-const dnsLookup = promisify(dns.lookup);
+const http = require('http');
+const https = require('https');
+const dnsLookup = require('./dnsLookup');
+const { isNonPublicAddress } = require('./nonPublicNetworks');
 
 /**
  * Normalize an IP string by removing brackets and zone identifiers.
@@ -42,83 +41,6 @@ function normalizeIpString(ip) {
 }
 
 /**
- * Convert IPv6-mapped IPv4 address to IPv4.
- * Handles both dotted-decimal (::ffff:127.0.0.1) and hex (::ffff:7f00:1) forms.
- * @param {string} ip - IPv6 address to check
- * @returns {string|null} IPv4 address if mapped, null otherwise
- */
-function ipv6MappedToIpv4(ip) {
-  if (!ip || typeof ip !== 'string') {
-    return null;
-  }
-  const normalized = ip.toLowerCase();
-
-  // Check for ::ffff: prefix (IPv6-mapped IPv4)
-  if (!normalized.startsWith('::ffff:')) {
-    return null;
-  }
-
-  const suffix = normalized.slice(7); // Remove '::ffff:'
-
-  // Dotted-decimal form: ::ffff:127.0.0.1
-  if (suffix.includes('.')) {
-    // Validate it looks like an IPv4
-    if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(suffix)) {
-      return suffix;
-    }
-    return null;
-  }
-
-  // Hex form: ::ffff:7f00:1 -> 127.0.0.1
-  // The last 32 bits are in the format XXXX:XXXX where each X is a hex digit
-  const hexMatch = suffix.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-  if (hexMatch) {
-    const high = parseInt(hexMatch[1], 16);
-    const low = parseInt(hexMatch[2], 16);
-    const a = (high >> 8) & 0xff;
-    const b = high & 0xff;
-    const c = (low >> 8) & 0xff;
-    const d = low & 0xff;
-    return `${a}.${b}.${c}.${d}`;
-  }
-
-  return null;
-}
-
-/**
- * IPv4 private/reserved ranges that should be blocked
- */
-const BLOCKED_IPV4_PATTERNS = [
-  /^127\./, // Loopback (127.0.0.0/8)
-  /^10\./, // Private Class A (10.0.0.0/8)
-  /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // Private Class B (172.16.0.0/12)
-  /^192\.168\./, // Private Class C (192.168.0.0/16)
-  /^169\.254\./, // Link-local (169.254.0.0/16) - includes cloud metadata
-  /^0\./, // Current network (0.0.0.0/8)
-  /^100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\./, // Carrier-grade NAT (100.64.0.0/10)
-  /^192\.0\.0\./, // IETF Protocol Assignments (192.0.0.0/24)
-  /^192\.0\.2\./, // Documentation (TEST-NET-1)
-  /^198\.51\.100\./, // Documentation (TEST-NET-2)
-  /^203\.0\.113\./, // Documentation (TEST-NET-3)
-  /^224\./, // Multicast (224.0.0.0/4)
-  /^240\./, // Reserved (240.0.0.0/4)
-  /^255\.255\.255\.255$/, // Broadcast
-];
-
-/**
- * IPv6 private/reserved patterns that should be blocked
- */
-const BLOCKED_IPV6_PATTERNS = [
-  /^::1$/, // Loopback
-  /^fe80:/i, // Link-local
-  /^fc00:/i, // Unique local (fc00::/7)
-  /^fd[0-9a-f]{2}:/i, // Unique local
-  /^::ffff:(127\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.|169\.254\.)/i, // IPv4-mapped
-  /^ff[0-9a-f]{2}:/i, // Multicast
-  /^::$/i, // Unspecified address
-];
-
-/**
  * Hostnames that should always be blocked
  */
 const BLOCKED_HOSTNAMES = [
@@ -138,49 +60,17 @@ const BLOCKED_HOSTNAMES = [
 const ALLOWED_PROTOCOLS = ['http:', 'https:'];
 
 /**
- * Check if an IP address is in a blocked range.
- * Handles IPv6-mapped IPv4 addresses by extracting and checking the IPv4 portion.
+ * Check if an IP address is in a blocked range. An IPv4-mapped IPv6 address is
+ * judged by the IPv4 address it carries.
  *
- * @param {string} ip - IP address to check
- * @returns {boolean} True if IP is blocked
+ * @param {string} ip - IP address to check, brackets and zone allowed
+ * @returns {boolean} True if IP is blocked; false for anything that is not an IP
  */
 function isBlockedIP(ip) {
   if (!ip || typeof ip !== 'string') {
     return true; // Block if no IP provided
   }
-
-  // Normalize the IP (strip brackets, zone identifiers)
-  const normalizedIp = normalizeIpString(ip);
-
-  // Check for IPv6-mapped IPv4 addresses (e.g., ::ffff:127.0.0.1)
-  // These need to be checked against IPv4 patterns
-  const mappedIpv4 = ipv6MappedToIpv4(normalizedIp);
-  if (mappedIpv4) {
-    // Check the extracted IPv4 against IPv4 patterns
-    for (const pattern of BLOCKED_IPV4_PATTERNS) {
-      if (pattern.test(mappedIpv4)) {
-        return true;
-      }
-    }
-    // If mapped IPv4 is not blocked, it's safe
-    return false;
-  }
-
-  // Check IPv4 patterns
-  for (const pattern of BLOCKED_IPV4_PATTERNS) {
-    if (pattern.test(normalizedIp)) {
-      return true;
-    }
-  }
-
-  // Check IPv6 patterns
-  for (const pattern of BLOCKED_IPV6_PATTERNS) {
-    if (pattern.test(normalizedIp)) {
-      return true;
-    }
-  }
-
-  return false;
+  return isNonPublicAddress(normalizeIpString(ip));
 }
 
 /**
@@ -284,70 +174,6 @@ function validateUrl(inputUrl, options = {}) {
 }
 
 /**
- * Validate a URL with DNS resolution to catch DNS rebinding attacks.
- * This resolves the hostname and verifies the resolved IP is not blocked.
- *
- * @param {string} inputUrl - URL to validate
- * @param {object} options - Validation options (same as validateUrl)
- * @returns {Promise<string>} The validated URL
- * @throws {Error} If URL is invalid, blocked, or resolves to a blocked IP
- *
- * @example
- * await validateUrlWithDns('https://example.com/file.tar.gz')  // Returns URL
- * await validateUrlWithDns('http://evil.com/')  // Throws if evil.com resolves to 127.0.0.1
- */
-async function validateUrlWithDns(inputUrl, options = {}) {
-  const { allowPrivate = false } = options;
-
-  // First, perform basic validation
-  const validatedUrl = validateUrl(inputUrl, options);
-
-  // Parse URL to get hostname
-  const parsed = new URL(validatedUrl);
-  const { hostname } = parsed;
-
-  // Normalize hostname for IP checks (strip brackets from IPv6)
-  const normalizedHostname = normalizeIpString(hostname);
-
-  // Skip DNS check if hostname is already an IP
-  // (already validated by validateUrl, but double-check for defense-in-depth)
-  if (!allowPrivate && isBlockedIP(normalizedHostname)) {
-    throw new Error('Access to private/internal IP addresses is not allowed');
-  }
-
-  // Use net.isIP() to reliably detect if hostname is an IP address
-  // Returns 0 for hostnames, 4 for IPv4, 6 for IPv6
-  const ipVersion = net.isIP(normalizedHostname);
-
-  // If not an IP address (ipVersion === 0), resolve DNS and check the result
-  if (!allowPrivate && ipVersion === 0) {
-    try {
-      const result = await dnsLookup(hostname, { all: true });
-      const addresses = Array.isArray(result) ? result : [result];
-
-      for (const addr of addresses) {
-        const ip = addr.address || addr;
-        if (isBlockedIP(ip)) {
-          throw new Error(`Hostname '${hostname}' resolves to blocked IP address`);
-        }
-      }
-    } catch (error) {
-      if (error.code === 'ENOTFOUND') {
-        throw new Error(`Hostname '${hostname}' could not be resolved`);
-      }
-      // Re-throw our own errors
-      if (error.message.includes('resolves to blocked')) {
-        throw error;
-      }
-      // For other DNS errors, allow the request to proceed
-      // (the actual HTTP request will fail if DNS is truly broken)
-    }
-  }
-
-  return validatedUrl;
-}
-
-/**
  * Check if a URL is safe without throwing an error.
  *
  * @param {string} inputUrl - URL to check
@@ -363,18 +189,169 @@ function isUrlSafe(inputUrl, options = {}) {
   }
 }
 
+/**
+ * The error a blocked address raises. Coded so a consumer can tell it apart from
+ * a genuine connectivity failure: the host resolved fine, we refused to talk to
+ * it, and retrying will never change that.
+ */
+const BLOCKED_ADDRESS_CODE = 'EBLOCKEDADDRESS';
+
+function blockedAddressError(hostname, address) {
+  const error = new Error(`Refusing to connect to ${hostname}: ${address} is a private or reserved address`);
+  error.code = BLOCKED_ADDRESS_CODE;
+  return error;
+}
+
+/**
+ * Whether a host is a literal IP address that must not be dialled.
+ *
+ * @param {string} host hostname or address, without a port or brackets
+ * @returns {boolean}
+ */
+function isBlockedAddressLiteral(host) {
+  return Boolean(host) && net.isIP(host) !== 0 && isBlockedIP(host);
+}
+
+/**
+ * A `lookup` for an http/https Agent that refuses private and reserved
+ * addresses at CONNECT time.
+ *
+ * Checking a URL before the request is not enough on its own: between the check
+ * and the connection the name can resolve to something else (DNS rebinding), and
+ * the connection is what actually matters. Node calls this immediately before
+ * connecting and uses the address it returns, so what is checked is what is
+ * dialled.
+ *
+ * The name is resolved by dnsLookup, as every other request FluxOS makes is.
+ *
+ * @param {string} hostname
+ * @param {object|Function} options dns.lookup options, or the callback
+ * @param {Function} [callback]
+ */
+function guardedLookup(hostname, options, callback) {
+  const done = typeof options === 'function' ? options : callback;
+  const opts = typeof options === 'function' ? {} : (options || {});
+
+  dnsLookup.lookup(hostname, opts, (error, address, family) => {
+    if (error) {
+      done(error);
+      return;
+    }
+
+    // With `all`, Node asks for every address and picks among them - so drop the
+    // blocked ones and fail only if nothing safe is left. Otherwise a host with
+    // one public and one loopback record would be a coin toss.
+    if (opts.all) {
+      const permitted = address.filter((entry) => !isBlockedIP(entry.address));
+      if (!permitted.length) {
+        done(blockedAddressError(hostname, address.map((entry) => entry.address).join(', ')));
+        return;
+      }
+      done(null, permitted);
+      return;
+    }
+
+    if (isBlockedIP(address)) {
+      done(blockedAddressError(hostname, address));
+      return;
+    }
+
+    done(null, address, family);
+  });
+}
+
+/**
+ * The refusal for a connection about to be made to `options.host`, or null if it may proceed.
+ * Node hands an Agent's createConnection the host the socket is about to dial, after URL parsing
+ * has normalised it (`2130706433`, `127.1` and `0x7f.0.0.1` all arrive as `127.0.0.1`), so the
+ * address checked is the address dialled. Node resolves nothing for an address, so guardedLookup
+ * never sees one; a hostname passes here and is resolved through guardedLookup.
+ *
+ * @param {{host?: string}} options the options createConnection was called with
+ * @returns {Error|null}
+ */
+function connectionRefusal(options) {
+  return isBlockedAddressLiteral(options.host) ? blockedAddressError(options.host, options.host) : null;
+}
+
+/**
+ * An http.Agent that refuses private and reserved addresses on every connection, before any
+ * packet is sent. Its options are the global agent's, so a guarded request is pooled and kept
+ * alive as any other request is; only the address check differs.
+ */
+class GuardedHttpAgent extends http.Agent {
+  constructor() {
+    super({ ...http.globalAgent.options, lookup: guardedLookup });
+  }
+
+  createConnection(options, callback) {
+    const refusal = connectionRefusal(options);
+    if (refusal) {
+      callback(refusal);
+      return undefined;
+    }
+    return super.createConnection(options, callback);
+  }
+}
+
+/**
+ * An https.Agent that refuses private and reserved addresses on every connection, before any
+ * packet is sent. Its options are the global agent's, so a guarded request is pooled and kept
+ * alive as any other request is; only the address check differs.
+ */
+class GuardedHttpsAgent extends https.Agent {
+  constructor() {
+    super({ ...https.globalAgent.options, lookup: guardedLookup });
+  }
+
+  createConnection(options, callback) {
+    const refusal = connectionRefusal(options);
+    if (refusal) {
+      callback(refusal);
+      return undefined;
+    }
+    return super.createConnection(options, callback);
+  }
+}
+
+/**
+ * The process's guarded agents. Node's global agents carry every request whose destination
+ * FluxOS chose, including its own services on loopback and peers on private networks; these
+ * carry every request whose destination someone else chose.
+ */
+const guardedAgents = {
+  httpAgent: new GuardedHttpAgent(),
+  httpsAgent: new GuardedHttpsAgent(),
+};
+
+/**
+ * axios options that keep a request off private and reserved addresses on every hop. The agents
+ * check each connection as it is made, so the first request, every redirect it follows, and a
+ * redirect from one scheme to the other are all guarded by the same check.
+ *
+ * Every request whose destination someone else chooses - a registry named in an app spec, a URL
+ * such a registry hands back, a URL a user asks the node to download - is made with these.
+ *
+ * @returns {{httpAgent: GuardedHttpAgent, httpsAgent: GuardedHttpsAgent}}
+ */
+function guardedRequestOptions() {
+  return { ...guardedAgents };
+}
+
 module.exports = {
   validateUrl,
-  validateUrlWithDns,
   isUrlSafe,
   isBlockedIP,
   isBlockedHostname,
+  guardedLookup,
+  guardedRequestOptions,
+  GuardedHttpAgent,
+  GuardedHttpsAgent,
+  isBlockedAddressLiteral,
+  blockedAddressError,
+  BLOCKED_ADDRESS_CODE,
   // Helper functions for testing
   normalizeIpString,
-  ipv6MappedToIpv4,
-  // Export constants for testing
-  BLOCKED_IPV4_PATTERNS,
-  BLOCKED_IPV6_PATTERNS,
   BLOCKED_HOSTNAMES,
   ALLOWED_PROTOCOLS,
 };

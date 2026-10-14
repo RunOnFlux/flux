@@ -11,7 +11,7 @@
  */
 
 const path = require('path');
-const { Worker } = require('worker_threads');
+const { createWorker } = require('./networkDefaults');
 
 const WORKER_DIR = path.join(__dirname, '..', 'workers');
 
@@ -33,7 +33,7 @@ function runInWorker(workerName, payload, options = {}) {
   const { timeoutMs = DEFAULT_TIMEOUT_MS, workerDir = WORKER_DIR } = options;
 
   return new Promise((resolve, reject) => {
-    const worker = new Worker(path.join(workerDir, `${workerName}.js`));
+    const worker = createWorker(path.join(workerDir, `${workerName}.js`));
 
     let settled = false;
     let timer = null;

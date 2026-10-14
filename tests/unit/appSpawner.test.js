@@ -37,6 +37,7 @@ describe('appSpawner tests', () => {
         daemonPONFork: 2020000,
         blocksLasting: 22000,
         newMinBlocksAllowance: 100,
+        spawnDeferrals: { domainShareMs: { enterprise: 1920000, standard: 1920000 } },
         ...overrides,
       },
     };
@@ -71,6 +72,8 @@ describe('appSpawner tests', () => {
     if (opts.globalStateOverrides) {
       Object.assign(globalStateStub, opts.globalStateOverrides);
     }
+    // Getter-only on the real module, so queued entries go in rather than over it.
+    if (opts.checkLater) globalStateStub.appsToBeCheckedLater.push(...opts.checkLater);
 
     logStub = { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() };
     placementFeasibilityStub = {
@@ -290,6 +293,9 @@ describe('appSpawner tests', () => {
         removeAppLocally: opts.removeAppLocallyStub ?? sinon.stub().resolves(),
       },
       '../appPlacement/placementFeasibility': placementFeasibilityStub,
+      '../outboundPathService': {
+        isRedirected: sinon.stub().returns(Boolean(opts.outboundRedirected)),
+      },
     });
   }
 
@@ -970,6 +976,56 @@ describe('appSpawner tests', () => {
       expect(logStub.error.args.some((a) => a[0]?.includes?.('is held by the Flux node at'))).to.be.false;
     });
 
+    // A node whose calls to other nodes are redirected cannot ask a synced app's
+    // partners anything, so it is not given one. Anything else it still takes.
+    describe('a node whose calls to other nodes are redirected', () => {
+      const syncedSpec = { ...fullSpec, compose: [{ repotag: 'testimage:latest', containerData: 'g:/appdata' }] };
+      const declined = () => logStub.warn.args.some((a) => a[0]?.includes?.('calls to other nodes are redirected'));
+      // The image compliance check is the next step after this decision, so it
+      // running is the proof a pass got past it.
+      let compliance;
+
+      beforeEach(() => {
+        compliance = sinon.stub().resolves();
+      });
+
+      it('does not take a synced app, and installs nothing', async () => {
+        const installStub = sinon.stub().resolves(InstallOutcome.INSTALLED);
+        buildModule({
+          aggregateResult: [spawnableApp], appSpec: syncedSpec, errorCount: 0, outboundRedirected: true, installStub, complianceStub: compliance,
+        });
+
+        const delay = await appSpawner.trySpawningGlobalApplication();
+
+        expect(delay).to.equal(60000);
+        expect(declined()).to.equal(true);
+        sinon.assert.notCalled(compliance);
+        sinon.assert.notCalled(installStub);
+      });
+
+      it('still takes an app that keeps no synced volume', async () => {
+        buildModule({
+          aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0, outboundRedirected: true, complianceStub: compliance,
+        });
+
+        await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+        expect(declined()).to.equal(false);
+        sinon.assert.calledOnce(compliance);
+      });
+
+      it('takes a synced app while its calls are not redirected', async () => {
+        buildModule({
+          aggregateResult: [spawnableApp], appSpec: syncedSpec, errorCount: 0, outboundRedirected: false, complianceStub: compliance,
+        });
+
+        await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+        expect(declined()).to.equal(false);
+        sinon.assert.calledOnce(compliance);
+      });
+    });
+
     // The port check answers with a verdict rather than a bare boolean, so the
     // caller reads `ok`. Compared whole against false an object never matches,
     // and every refusal would install anyway - which is what this holds.
@@ -1264,6 +1320,72 @@ describe('appSpawner tests', () => {
 
     it('stands aside when many domains are eligible and this one holds its share', async () => {
       const { installStub, logged } = await runAttempt({
+        appLocations: sameDomainLocation,
+        placementShare: { domainCount: 10, maxPerDomain: 1 },
+      });
+      expect(installStub.called).to.be.false;
+      expect(logged('already holds 1 of its 1-instance share')).to.be.true;
+    });
+
+    // The share counts every node the geolocation admits, whether or not it has room,
+    // so the better-placed domain it steps aside for can be full. Refusing outright left
+    // such an app one short for good; stepping aside for a while and then placing does not.
+    it('steps aside for a while instead of refusing, and says when it will look again', async () => {
+      const { installStub, logged } = await runAttempt({
+        appLocations: sameDomainLocation,
+        placementShare: { domainCount: 10, maxPerDomain: 1 },
+      });
+      expect(installStub.called).to.be.false;
+      expect(logged('will check in around 32m if instances are still missing')).to.be.true;
+      const deferred = globalStateStub.appsToBeCheckedLater.find((app) => app.appName === 'testApp');
+      expect(deferred, 'the app was not queued for a later look').to.exist;
+      expect(deferred.reason).to.equal('domain_share');
+      expect(deferred.required).to.equal(3);
+      expect(deferred.timeToCheck - Date.now()).to.be.within(1900000, 1920000);
+      // The twelve-hour selection cache would otherwise keep the app from this node
+      // long after the deferral is up.
+      expect(globalStateStub.trySpawningGlobalAppCache.has('abc123')).to.be.false;
+    });
+
+    it('steps aside for the enterprise deferral when the spec is enterprise', async () => {
+      await runAttempt({
+        appSpec: { ...syncedSpec, version: 8, enterprise: 'sealed' },
+        appLocations: sameDomainLocation,
+        placementShare: { domainCount: 10, maxPerDomain: 1 },
+      });
+      const deferred = globalStateStub.appsToBeCheckedLater.find((app) => app.appName === 'testApp');
+      expect(deferred.timeToCheck - Date.now()).to.be.within(1900000, 1920000);
+    });
+
+    it('places the app in its own domain when it is still short after the deferral', async () => {
+      const { installStub, logged } = await runAttempt({
+        checkLater: [{
+          timeToCheck: Date.now() - 1, appName: 'testApp', hash: 'abc123', required: 3, reason: 'domain_share',
+        }],
+        appLocations: sameDomainLocation,
+        placementShare: { domainCount: 10, maxPerDomain: 1 },
+      });
+      expect(installStub.called, 'still refused after the other domains had their turn').to.be.true;
+      expect(logged('back from its domain-share deferral')).to.be.true;
+      expect(placementFeasibilityStub.placementComputation.called).to.be.false;
+    });
+
+    it('does not place the app when it filled up during the deferral', async () => {
+      const { installStub } = await runAttempt({
+        checkLater: [{
+          timeToCheck: Date.now() - 1, appName: 'testApp', hash: 'abc123', required: 3, reason: 'domain_share',
+        }],
+        appLocations: [{ ip: '10.1.0.1:16127' }, { ip: '10.2.0.1:16127' }, { ip: '10.3.0.1:16127' }],
+        placementShare: { domainCount: 10, maxPerDomain: 1 },
+      });
+      expect(installStub.called).to.be.false;
+    });
+
+    it('still applies the share to an app back from a deferral of another kind', async () => {
+      const { installStub, logged } = await runAttempt({
+        checkLater: [{
+          timeToCheck: Date.now() - 1, appName: 'testApp', hash: 'abc123', required: 3,
+        }],
         appLocations: sameDomainLocation,
         placementShare: { domainCount: 10, maxPerDomain: 1 },
       });

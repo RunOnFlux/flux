@@ -65,6 +65,7 @@ FLEETS.forEach(({ name, options }) => {
         db: 'ok',
         syncthing: 'ok',
         docker: 'ok',
+        daemon: 'ok',
         hardware: 'ok',
         dos: 'ok',
         appsDos: 'ok',

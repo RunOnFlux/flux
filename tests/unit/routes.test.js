@@ -7,6 +7,7 @@ const requireHttps = require('../../ZelBack/src/middlewares/requireHttps');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
 const appController = require('../../ZelBack/src/services/appManagement/appController');
 const monitoringOrchestrator = require('../../ZelBack/src/services/appMonitoring/monitoringOrchestrator');
+const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 
 // Nothing else builds the routing table, so a route wired to the wrong handler, or a
 // middleware that was never mounted, reaches production unopposed. Build it against a
@@ -132,6 +133,22 @@ describe('routes tests', () => {
 
       sinon.assert.calledOnce(start);
       sinon.assert.calledOnce(stop);
+    });
+
+    [
+      ['/apps/heldcomponents', 'heldComponentsAnswer'],
+      ['/apps/promotedfolders', 'promotedFolderHoldings'],
+    ].forEach(([path, handler]) => {
+      it(`should route POST ${path} to the handler that signs its answer`, async () => {
+        const stub = sinon.stub(appQueryService, handler).resolves();
+        const route = registered.find((r) => r.method === 'post' && r.path === path);
+        const req = { body: {} };
+        const res = {};
+
+        await route.handlers[route.handlers.length - 1](req, res);
+
+        sinon.assert.calledOnceWithExactly(stub, req, res);
+      });
     });
 
     it('should route appstop to the controller', () => {

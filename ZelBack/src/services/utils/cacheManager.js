@@ -140,11 +140,7 @@ class FluxCacheManager {
       max: 250,
       ttl: 20 * FluxCacheManager.oneMinute,
     },
-    // fluxNetwork Helper
-    ipCache: {
-      max: 1,
-      ttl: FluxCacheManager.oneDay,
-    },
+    // rateLimit
     rateLimitCache: {
       max: 150,
       ttl: 15 * FluxCacheManager.oneSecond,

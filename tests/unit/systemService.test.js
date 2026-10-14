@@ -1,5 +1,6 @@
 const chai = require('chai');
 const sinon = require('sinon');
+const { spawnSync } = require('node:child_process');
 const proxyquire = require('proxyquire').noCallThru();
 
 const { expect } = chai;
@@ -13,6 +14,13 @@ const log = require('../../ZelBack/src/lib/log');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 
 const systemService = require('../../ZelBack/src/services/systemService');
+
+// dpkg --compare-versions for the plain x.y.z versions the syncthing tests use:
+// exit 0 when the comparison holds, 1 when it does not.
+function fakeDpkgCompare({ params: [, version, , minimum] }) {
+  if (serviceHelper.semverAtLeast(version, minimum)) return { error: null, stdout: '' };
+  return { error: Object.assign(new Error('dpkg exited 1'), { code: 1 }), stdout: '' };
+}
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 
 describe('system Services tests', () => {
@@ -60,6 +68,183 @@ describe('system Services tests', () => {
   // way, so an apt-get that could not find the package read back the same as one
   // that installed it. The queue is stubbed rather than driven: a real failure
   // walks five retries a minute apart, which is not what is under test here.
+  describe('dpkgFrontendLocked tests', () => {
+    // /var/lib/dpkg/lock-frontend: device 8:2, inode 114071576.
+    const lockFile = { dev: 0x802n, ino: 114071576n };
+    const held = '14: POSIX  ADVISORY  WRITE 2132266 08:02:114071576 0 EOF\n';
+    let statStub;
+    let readFileStub;
+
+    beforeEach(() => {
+      statStub = sinon.stub(fs, 'stat').withArgs('/var/lib/dpkg/lock-frontend', { bigint: true }).resolves(lockFile);
+      readFileStub = sinon.stub(fs, 'readFile');
+      sinon.stub(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    const lockTable = (table) => readFileStub.withArgs('/proc/locks', 'utf-8').resolves(table);
+
+    it('answers true when a process holds a lock on the lock file', async () => {
+      lockTable(`1: FLOCK  ADVISORY  WRITE 9 00:19:1234 0 EOF\n${held}`);
+
+      expect(await systemService.dpkgFrontendLocked()).to.equal(true);
+    });
+
+    it('answers false when no lock is held on the lock file', async () => {
+      lockTable('1: FLOCK  ADVISORY  WRITE 9 00:19:1234 0 EOF\n');
+
+      expect(await systemService.dpkgFrontendLocked()).to.equal(false);
+    });
+
+    it('answers false for an empty lock table', async () => {
+      lockTable('');
+
+      expect(await systemService.dpkgFrontendLocked()).to.equal(false);
+    });
+
+    it('answers true for a lock on the lock file\'s inode whatever device the table names, as btrfs and ZFS report another', async () => {
+      lockTable('14: POSIX  ADVISORY  WRITE 2132266 00:2f:114071576 0 EOF\n');
+
+      expect(await systemService.dpkgFrontendLocked()).to.equal(true);
+    });
+
+    it('answers false for a lock on an inode that only begins or ends with the lock file\'s', async () => {
+      lockTable('14: POSIX  ADVISORY  WRITE 2132266 08:02:1140715760 0 EOF\n15: POSIX  ADVISORY  WRITE 9 08:02:4114071576 0 EOF\n');
+
+      expect(await systemService.dpkgFrontendLocked()).to.equal(false);
+    });
+
+    it('matches only the file field, not a process id equal to the inode', async () => {
+      lockTable('14: POSIX  ADVISORY  WRITE 114071576 08:02:99 0 EOF\n');
+
+      expect(await systemService.dpkgFrontendLocked()).to.equal(false);
+    });
+
+    it('answers false when there is no lock file, as on a host without dpkg', async () => {
+      statStub.rejects(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+
+      expect(await systemService.dpkgFrontendLocked()).to.equal(false);
+      sinon.assert.notCalled(readFileStub);
+    });
+
+    it('answers true, and logs, when the lock table cannot be read', async () => {
+      readFileStub.withArgs('/proc/locks', 'utf-8').rejects(new Error('EACCES'));
+
+      expect(await systemService.dpkgFrontendLocked()).to.equal(true);
+      sinon.assert.calledOnce(log.error);
+    });
+  });
+
+  describe('packageVersionAtLeast tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('asks dpkg whether the version is at least the minimum, as the node\'s user', async () => {
+      const runCommand = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '' });
+
+      expect(await systemService.packageVersionAtLeast('1:2.4.1-1ubuntu2', '2.4.1')).to.equal(true);
+
+      sinon.assert.calledOnceWithExactly(runCommand, 'dpkg', { logError: false, params: ['--compare-versions', '1:2.4.1-1ubuntu2', 'ge', '2.4.1'] });
+    });
+
+    it('answers false when dpkg says the version is below the minimum, and logs nothing', async () => {
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: Object.assign(new Error('exit 1'), { code: 1 }), stdout: '' });
+      const logged = sinon.stub(log, 'error');
+
+      expect(await systemService.packageVersionAtLeast('1.27.6', '2.0.10')).to.equal(false);
+      sinon.assert.notCalled(logged);
+    });
+
+    it('answers false, and logs it, when dpkg cannot compare them', async () => {
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: Object.assign(new Error('bad syntax'), { code: 2 }), stdout: '' });
+      const logged = sinon.stub(log, 'error');
+
+      expect(await systemService.packageVersionAtLeast('2.0.10', 'not a version!')).to.equal(false);
+      sinon.assert.calledOnce(logged);
+    });
+
+    describe('against dpkg itself', () => {
+      before(function requireDpkg() {
+        // CI runs on Ubuntu, which has dpkg; a host without it has no dpkg ordering to check.
+        if (spawnSync('dpkg', ['--version']).error) this.skip();
+      });
+
+      // [version, minimum, at least], by Debian policy's ordering: epoch, then the
+      // upstream version, then the revision; digits compare as numbers, letters
+      // sort before non-letters, and ~ sorts before anything, even the end.
+      [
+        ['2.0.10', '2.0.10', true],
+        ['2.0.11', '2.0.10', true],
+        ['2.0.9', '2.0.10', false],
+        ['2.10.0', '2.9.0', true],
+        ['2.0.10~rc1', '2.0.10', false],
+        ['2.0.10', '2.0.10~rc1', true],
+        ['2.0.10~rc1', '2.0.10~rc2', false],
+        ['2.0.10~', '2.0.10~~', true],
+        ['2.0.10-1', '2.0.10', true],
+        ['2.0.10', '2.0.10-1', false],
+        ['2.0.10-2', '2.0.10-10', false],
+        ['1:1.0', '2.0', true],
+        ['2.0', '1:1.0', false],
+        ['0:2.0', '2.0', true],
+        ['1.218-4ubuntu1', '1.187', true],
+        ['1.187-1', '1.218', false],
+        ['20230311ubuntu0.22.04.1', '20230311', true],
+        ['20230310', '20230311', false],
+        ['2.0.10+dfsg1', '2.0.10', true],
+        ['1.27.6', '2.0.0', false],
+        ['1.27.6', '2.0.10', false],
+        ['2.0.0', '2.0.0', true],
+        ['5:28.1.1-1~ubuntu.22.04~jammy', '5:28.1.1-1', false],
+        ['5:28.1.1-1~ubuntu.22.04~jammy', '28.1.1', true],
+        ['1.0a', '1.0', true],
+        ['1.0', '1.0a', false],
+        ['1.0+', '1.0', true],
+        ['1.0.', '1.0', true],
+        ['2.0.10', 'not a version!', false],
+        ['2.0.10', '1:', false],
+        ['', '1.0', false],
+      ].forEach(([version, minimum, atLeast]) => {
+        it(`answers ${atLeast} for ${JSON.stringify(version)} at least ${JSON.stringify(minimum)}`, async () => {
+          sinon.stub(log, 'error');
+          expect(await systemService.packageVersionAtLeast(version, minimum)).to.equal(atLeast);
+        });
+      });
+    });
+  });
+
+  describe('getPackageVersion tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    [
+      ["'1:2.4.1-1ubuntu2|install ok installed'", '1:2.4.1-1ubuntu2'],
+      ["'1.218-4ubuntu1|install ok installed'", '1.218-4ubuntu1'],
+      ["'20230311ubuntu0.22.04.1|install ok installed'", '20230311ubuntu0.22.04.1'],
+      ["'2.0.10|install ok installed'", '2.0.10'],
+      ["'2.0.10|deinstall ok config-files'", ''],
+      ["'2.0.10'", ''],
+      ['', ''],
+    ].forEach(([stdout, version]) => {
+      it(`reads ${JSON.stringify(stdout)} as ${JSON.stringify(version)}`, async () => {
+        sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout });
+
+        expect(await systemService.getPackageVersion('syncthing')).to.equal(version);
+      });
+    });
+
+    it('answers empty when dpkg-query fails', async () => {
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: new Error('no packages found'), stdout: '' });
+
+      expect(await systemService.getPackageVersion('syncthing')).to.equal('');
+    });
+  });
+
   describe('ensurePackageVersion tests', () => {
     function loadWithInstallResult(installError) {
       const instance = {
@@ -345,8 +530,9 @@ describe('system Services tests', () => {
 
       sinon.stub(axios, 'get').resolves(axiosRes);
 
-      const cmdRunner = sinon.fake((cmd) => {
+      const cmdRunner = sinon.fake((cmd, options) => {
         if (cmd === 'dpkg-query') return { error: null, stdout: '1.27.3:install ok installed' };
+        if (cmd === 'dpkg') return fakeDpkgCompare(options);
         if (cmd === 'env') return { error: null };
         return null;
       });
@@ -383,8 +569,9 @@ describe('system Services tests', () => {
 
       sinon.stub(axios, 'get').resolves(axiosRes);
 
-      const cmdRunner = sinon.fake((cmd) => {
+      const cmdRunner = sinon.fake((cmd, options) => {
         if (cmd === 'dpkg-query') return { error: null, stdout: '2.2.2:deinstall ok config-files' };
+        if (cmd === 'dpkg') return fakeDpkgCompare(options);
         if (cmd === 'env') return { error: null };
         return null;
       });
@@ -429,8 +616,9 @@ describe('system Services tests', () => {
         return { data: Buffer.from('fake-keyring') };
       });
 
-      const cmdRunner = sinon.fake((cmd) => {
+      const cmdRunner = sinon.fake((cmd, options) => {
         if (cmd === 'dpkg-query') return { error: null, stdout: "'1.19.2|install ok installed'" };
+        if (cmd === 'dpkg') return fakeDpkgCompare(options);
         if (cmd === 'cat') return { error: null, stdout: '' };
         return { error: null, stdout: '' };
       });
@@ -458,8 +646,9 @@ describe('system Services tests', () => {
 
       sinon.stub(axios, 'get').resolves(axiosRes);
 
-      const cmdRunner = sinon.fake((cmd) => {
+      const cmdRunner = sinon.fake((cmd, options) => {
         if (cmd === 'dpkg-query') return { error: null, stdout: dpgkVersion };
+        if (cmd === 'dpkg') return fakeDpkgCompare(options);
         if (cmd === 'apt-get') return { error: null };
         return null;
       });
@@ -477,6 +666,8 @@ describe('system Services tests', () => {
       // monitorSyncthingPackage calls getPackageVersion once (optimized):
       // The current version is fetched once and passed to ensurePackageVersion
       sinon.assert.calledOnce(runCmdStub.withArgs('dpkg-query'));
+      sinon.assert.calledWith(runCmdStub, 'dpkg', sinon.match({ params: ['--compare-versions', '2.2.2', 'ge', '2.2.2'] }));
+      sinon.assert.neverCalledWith(runCmdStub, 'env');
     });
   });
 
@@ -1100,6 +1291,29 @@ describe('system Services tests', () => {
       const touchedSource = statStub.getCalls()
         .some((call) => String(call.args[0]).includes('sources.list.d/syncthing.list'));
       expect(touchedSource).to.equal(false);
+    });
+  });
+
+  describe('getPackageStatus tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('answers the package\'s dpkg status', async () => {
+      const runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: 'deinstall ok config-files\n' });
+
+      expect(await systemService.getPackageStatus('openssh-server')).to.equal('deinstall ok config-files');
+      sinon.assert.calledOnceWithExactly(runCommandStub, 'dpkg-query', {
+        logError: false,
+        // eslint-disable-next-line no-template-curly-in-string
+        params: ['--showformat=${Status}', '--show', 'openssh-server'],
+      });
+    });
+
+    it('answers an empty status for a package dpkg has no record of', async () => {
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: new Error('no packages found matching openssh-server'), stdout: '' });
+
+      expect(await systemService.getPackageStatus('openssh-server')).to.equal('');
     });
   });
 

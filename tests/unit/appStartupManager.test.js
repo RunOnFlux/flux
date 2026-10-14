@@ -16,6 +16,7 @@ describe('appStartupManager tests', () => {
   let appUninstallerStub;
   let globalStateStub;
   let appQueryServiceStub;
+  let portManagerStub;
 
   beforeEach(() => {
     logStub = {
@@ -36,6 +37,11 @@ describe('appStartupManager tests', () => {
     fluxNetworkHelperStub = {
       getLocalSocketAddress: sinon.stub(),
       isNodeDos: sinon.stub().returns(false),
+      allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
+    };
+
+    portManagerStub = {
+      appsWithPorts: sinon.stub().resolves({ apps: [], unreadable: [] }),
     };
 
     registryManagerStub = {
@@ -83,7 +89,8 @@ describe('appStartupManager tests', () => {
       '../../lib/log': logStub,
       '../dbHelper': dbHelperStub,
       '../dockerService': dockerServiceStub,
-      '../serviceHelper': { delay: sinon.stub().resolves() },
+      '../serviceHelper': { delay: sinon.stub().resolves(), ensureNumber: (value) => Number(value) },
+      '../appNetwork/portManager': portManagerStub,
       '../fluxNetworkHelper': fluxNetworkHelperStub,
       '../appDatabase/registryManager': registryManagerStub,
       './advancedWorkflows': advancedWorkflowsStub,
@@ -615,5 +622,71 @@ describe('appStartupManager tests', () => {
     });
   });
 
+  describe('opening installed apps\' ports at boot', () => {
+    const KEEP = { machineRebooted: false, downtimeMs: 1000, cleanShutdown: true };
+    const SPECS = [{ name: 'web' }, { name: 'db' }];
+
+    beforeEach(() => {
+      dockerServiceStub.dockerListContainers.resolves([]);
+      dbHelperStub.findInDatabase.resolves(SPECS);
+      portManagerStub.appsWithPorts.resolves({ apps: [{ name: 'web', ports: [31000, '31001'] }, { name: 'db', ports: [32000] }], unreadable: [] });
+    });
+
+    it('opens every installed app\'s ports in one batch, before the apps are reconciled', async () => {
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      sinon.assert.calledOnceWithExactly(portManagerStub.appsWithPorts, SPECS);
+      sinon.assert.calledOnceWithExactly(fluxNetworkHelperStub.allowAppPorts, [31000, 31001, 32000]);
+      const reconcileStart = logStub.info.getCalls().find((call) => /Starting boot reconciliation/.test(call.args[0]));
+      expect(fluxNetworkHelperStub.allowAppPorts.firstCall.calledBefore(reconcileStart), 'opened before the reconcile began').to.equal(true);
+    });
+
+    it('opens nothing when no installed app has a port', async () => {
+      portManagerStub.appsWithPorts.resolves({ apps: [{ name: 'worker', ports: [] }], unreadable: [] });
+
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      sinon.assert.notCalled(fluxNetworkHelperStub.allowAppPorts);
+    });
+
+    it('opens the ports it can read, and says how many apps it could not', async () => {
+      portManagerStub.appsWithPorts.resolves({ apps: [{ name: 'web', ports: [31000] }], unreadable: [{ name: 'sealed' }] });
+
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      sinon.assert.calledOnceWithExactly(fluxNetworkHelperStub.allowAppPorts, [31000]);
+      expect(logStub.warn.calledWithMatch(/1 installed app\(s\) not opened in the firewall: specification unreadable/)).to.equal(true);
+    });
+
+    it('logs each rule ufw refused, and a held lock, and still reconciles the apps', async () => {
+      fluxNetworkHelperStub.allowAppPorts.resolves({ failed: [{ rule: 'allow 31000', error: 'ERROR: Bad port' }], locked: false });
+      await appStartupManager.manageAppsOnBoot(KEEP);
+      expect(logStub.warn.calledWithMatch(/ufw allow 31000: ERROR: Bad port/)).to.equal(true);
+
+      fluxNetworkHelperStub.allowAppPorts.resolves({ failed: [], locked: true });
+      await appStartupManager.manageAppsOnBoot(KEEP);
+      expect(logStub.warn.calledWithMatch(/ufw is locked/)).to.equal(true);
+      expect(logStub.info.calledWithMatch(/node confirmed, reconciling/)).to.equal(true);
+    });
+
+    it('logs a failure and still reconciles the apps', async () => {
+      fluxNetworkHelperStub.allowAppPorts.rejects(new Error('helper crashed'));
+
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      expect(logStub.error.calledWithMatch(/not opened in the firewall: helper crashed/)).to.equal(true);
+      expect(dbHelperStub.findInDatabase.callCount, 'the reconcile read the installed apps').to.equal(2);
+    });
+
+    it('opens nothing when the apps are all being removed', async () => {
+      appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'web' }] });
+      await appStartupManager.manageAppsOnBoot({ machineRebooted: true, downtimeMs: 8000000, cleanShutdown: false });
+
+      fluxNetworkHelperStub.isNodeDos.returns(true);
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      sinon.assert.notCalled(fluxNetworkHelperStub.allowAppPorts);
+    });
+  });
 });
 

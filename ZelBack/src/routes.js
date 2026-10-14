@@ -9,13 +9,20 @@ const daemonServiceUtilityRpcs = require('./services/daemonService/daemonService
 const daemonServiceControlRpcs = require('./services/daemonService/daemonServiceControlRpcs');
 const benchmarkService = require('./services/benchmarkService');
 const idService = require('./services/idService');
+const nodeHealthService = require('./services/nodeHealthService');
 const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
 const fluxshareService = require('./services/fluxshareService');
 const paymentRelayService = require('./services/paymentRelayService');
 const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
 const {
-  asyncRoute, cache, rejectQueryParameters, requireBootSettled, requirePolicyReady,
+  asyncRoute,
+  cache,
+  rejectQueryParameters,
+  requireAppStateReady,
+  requireBootSettled,
+  requirePolicyReady,
+  requireRegistryReady,
 } = require('./services/utils/routeGuards');
 const { alwaysRespond, isLocal, requireHttps } = require('./middlewares');
 
@@ -49,10 +56,13 @@ const upnpService = require('./services/upnpService');
 const syncthingService = require('./services/syncthingService');
 const fluxNetworkHelper = require('./services/fluxNetworkHelper');
 const portManager = require('./services/appNetwork/portManager');
+const peerIdentityService = require('./services/peerIdentityService');
+const outboundPathService = require('./services/outboundPathService');
 const enterpriseNodesService = require('./services/enterpriseNodesService');
 const backupRestoreService = require('./services/backupRestoreService');
 const arcaneAuthService = require('./services/arcaneAuthService');
 const appTamperingDetectionService = require('./services/appTamperingDetectionService');
+const uplinkService = require('./services/uplinkService');
 const fluxEventBus = require('./services/utils/fluxEventBus');
 
 module.exports = (app) => {
@@ -275,6 +285,10 @@ module.exports = (app) => {
   app.get('/flux/geolocation', cache('30 seconds'), asyncRoute((req, res) => {
     return fluxService.getFluxGeolocation(req, res);
   }));
+  // Uncached: the answer depends on who is asking.
+  app.get('/flux/uplink', rejectQueryParameters, asyncRoute((req, res) => {
+    return uplinkService.uplinkAPI(req, res);
+  }));
   app.get('/flux/zelid', cache('30 seconds'), asyncRoute((req, res) => { // DEPERCATED
     return fluxService.getFluxZelID(req, res);
   }));
@@ -309,7 +323,7 @@ module.exports = (app) => {
     return fluxNetworkHelper.getDOSState(req, res);
   }));
   app.get('/flux/health', cache('30 seconds'), asyncRoute((req, res) => {
-    return idService.nodeHealth(req, res);
+    return nodeHealthService.nodeHealth(req, res);
   }));
   app.post('/flux/dosstate', asyncRoute((req, res) => {
     return fluxNetworkHelper.setDOSStateApi(req, res);
@@ -364,6 +378,18 @@ module.exports = (app) => {
   app.post('/flux/portsinuse', asyncRoute((req, res) => {
     return portManager.portsInUseApi(req, res);
   }));
+  // Which node this is, signed over the caller's challenge. POST because the
+  // challenge is a body, and uncached because every answer is to one challenge:
+  // a cached one would be a recording, which is what the challenge exists to
+  // refuse.
+  app.post('/flux/identity', asyncRoute((req, res) => {
+    return peerIdentityService.identityAnswerAPI(req, res);
+  }));
+  // Whether this node's calls to other nodes reach them. Served from the state
+  // the scheduled check holds, so a request does no work.
+  app.get('/flux/outboundpath', rejectQueryParameters, asyncRoute((req, res) => {
+    return outboundPathService.outboundPathAPI(req, res);
+  }));
 
   // ArcaneOS Authentication Endpoints (HTTPS only)
   app.get('/arcane/authchallenge', requireHttps, asyncRoute(arcaneAuthService.authChallengeHandler));
@@ -404,6 +430,13 @@ module.exports = (app) => {
   app.get('/apps/heldcomponents', rejectQueryParameters, cache('1 second'), asyncRoute((req, res) => {
     return appQueryService.heldComponents(req, res);
   }));
+  // The same list signed for the caller, over the challenge its body carries, so
+  // the caller can show that the node it dialled is the node that answered. Not
+  // cached here: each answer is for one call, and the handler bounds the docker
+  // read behind it instead.
+  app.post('/apps/heldcomponents', asyncRoute((req, res) => {
+    return appQueryService.heldComponentsAnswer(req, res);
+  }));
   // promotedfolders needs no cache: it is served from the set the syncthing monitor
   // already refreshes each pass, so the request touches nothing. Guarded on the
   // same terms as its neighbour - it takes no parameters either, and the two are
@@ -415,7 +448,8 @@ module.exports = (app) => {
   // last-write time per app and therefore the tenant's. A caller signs as a node on the
   // deterministic list, or holds Flux team privilege; one that does neither is answered
   // without it rather than refused, because a peer too old to sign is not doing anything
-  // wrong. POST because a signature needs a body to be over.
+  // wrong. POST because a signature needs a body to be over. Signed back over the
+  // challenge the body carries, as heldcomponents is.
   app.post('/apps/promotedfolders', asyncRoute((req, res) => {
     return appQueryService.promotedFolderHoldings(req, res);
   }));
@@ -449,7 +483,7 @@ module.exports = (app) => {
   app.get('/apps/permanentmessages/:hash?/:owner?/:appname?', cache('2 minutes'), asyncRoute((req, res) => {
     return messageVerifier.getAppsPermanentMessages(req, res);
   }));
-  app.get('/apps/globalappsspecifications/:hash?/:owner?/:appname?', cache('30 seconds'), asyncRoute((req, res) => {
+  app.get('/apps/globalappsspecifications/:hash?/:owner?/:appname?', requireRegistryReady, cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getGlobalAppsSpecifications(req, res);
   }));
   app.get('/apps/latestspecificationversion', cache('5 minutes'), asyncRoute((req, res) => {
@@ -464,16 +498,16 @@ module.exports = (app) => {
   app.get('/apps/updatetolatestspecs/:appname', asyncRoute((req, res) => {
     return registryManager.updateApplicationSpecificationAPI(req, res);
   }));
-  app.get('/apps/appspecifications/:appname/:decrypt?', asyncRoute((req, res) => {
+  app.get('/apps/appspecifications/:appname/:decrypt?', requireRegistryReady, asyncRoute((req, res) => {
     return registryManager.getApplicationSpecificationAPI(req, res);
   }));
   // Component names and their election mode, for the flux team. Not cached: the
   // answer depends on who is asking, and a shared cache in front of a
   // privilege-checked route serves one caller's answer to the next.
-  app.get('/apps/appcomponentnames/:appname?', asyncRoute((req, res) => {
+  app.get('/apps/appcomponentnames/:appname?', requireRegistryReady, asyncRoute((req, res) => {
     return registryManager.getApplicationComponentNamesAPI(req, res);
   }));
-  app.get('/apps/appowner/:appname?', cache('30 seconds'), asyncRoute((req, res) => {
+  app.get('/apps/appowner/:appname?', requireRegistryReady, cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getApplicationOwnerAPI(req, res);
   }));
   app.get('/apps/apporiginalowner/:appname?', cache('30 seconds'), asyncRoute((req, res) => {
@@ -485,22 +519,25 @@ module.exports = (app) => {
   app.get('/apps/hashes', cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getAppHashes(req, res);
   }));
-  app.get('/apps/location/:appname?', cache('30 seconds'), asyncRoute((req, res) => {
+  app.get('/apps/registrystatus', rejectQueryParameters, cache('10 seconds'), asyncRoute((req, res) => {
+    return registryManager.getRegistryStatus(req, res);
+  }));
+  app.get('/apps/location/:appname?', requireAppStateReady, cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getAppsLocation(req, res);
   }));
-  app.get('/apps/locations', cache('30 seconds'), asyncRoute((req, res) => {
+  app.get('/apps/locations', requireAppStateReady, cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getAppsLocations(req, res);
   }));
-  app.get('/apps/installinglocation/:appname?', cache('30 seconds'), asyncRoute((req, res) => {
+  app.get('/apps/installinglocation/:appname?', requireAppStateReady, cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getAppInstallingLocation(req, res);
   }));
-  app.get('/apps/installinglocations', cache('30 seconds'), asyncRoute((req, res) => {
+  app.get('/apps/installinglocations', requireAppStateReady, cache('30 seconds'), asyncRoute((req, res) => {
     return appQueryService.getAppsInstallingLocations(req, res);
   }));
-  app.get('/apps/installingerrorslocation/:appname?', cache('30 seconds'), asyncRoute((req, res) => {
+  app.get('/apps/installingerrorslocation/:appname?', requireAppStateReady, cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getAppInstallingErrorsLocation(req, res);
   }));
-  app.get('/apps/installingerrorslocations', cache('30 seconds'), asyncRoute((req, res) => {
+  app.get('/apps/installingerrorslocations', requireAppStateReady, cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getAppsInstallingErrorsLocations(req, res);
   }));
   app.post('/apps/calculateprice', asyncRoute((req, res) => { // returns price in flux for both new registration of app and update of app
@@ -1169,58 +1206,6 @@ module.exports = (app) => {
     return fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUserPost(req, res);
   }));
 
-  app.post('/syncthing/system/error', asyncRoute((req, res) => {
-    return syncthingService.postSystemError(req, res);
-  }));
-  app.post('/syncthing/system/upgrade', asyncRoute((req, res) => {
-    return syncthingService.postSystemUpgrade(req, res);
-  }));
-  app.post('/syncthing/config', asyncRoute((req, res) => {
-    return syncthingService.postConfig(req, res);
-  }));
-  app.post('/syncthing/config/folders', asyncRoute((req, res) => {
-    return syncthingService.postConfigFolders(req, res);
-  }));
-  app.post('/syncthing/config/devices', asyncRoute((req, res) => {
-    return syncthingService.postConfigDevices(req, res);
-  }));
-  app.post('/syncthing/config/defaults/folder', asyncRoute((req, res) => {
-    return syncthingService.postConfigDefaultsFolder(req, res);
-  }));
-  app.post('/syncthing/config/defaults/device', asyncRoute((req, res) => {
-    return syncthingService.postConfigDefaultsDevice(req, res);
-  }));
-  app.post('/syncthing/config/options', asyncRoute((req, res) => {
-    return syncthingService.postConfigOptions(req, res);
-  }));
-  app.post('/syncthing/config/gui', asyncRoute((req, res) => {
-    return syncthingService.postConfigGui(req, res);
-  }));
-  app.post('/syncthing/config/ldap', asyncRoute((req, res) => {
-    return syncthingService.postConfigLdap(req, res);
-  }));
-  app.post('/syncthing/cluster/pending/devices', asyncRoute((req, res) => {
-    return syncthingService.postClusterPendigDevices(req, res);
-  }));
-  app.post('/syncthing/cluster/pending/folders', asyncRoute((req, res) => {
-    return syncthingService.postClusterPendigFolders(req, res);
-  }));
-  app.post('/syncthing/folder/versions', asyncRoute((req, res) => {
-    return syncthingService.postFolderVersions(req, res);
-  }));
-  app.post('/syncthing/db/override', asyncRoute((req, res) => {
-    return syncthingService.postDbOverride(req, res);
-  }));
-  app.post('/syncthing/db/prio', asyncRoute((req, res) => {
-    return syncthingService.postDbPrio(req, res);
-  }));
-  app.post('/syncthing/db/revert', asyncRoute((req, res) => {
-    return syncthingService.postDbRevert(req, res);
-  }));
-  app.post('/syncthing/db/scan', asyncRoute((req, res) => {
-    return syncthingService.postDbScan(req, res);
-  }));
-
   // What is left of FluxShare: an operator collects the files a previous
   // release let them put on the node. Read only, and the node's operator only -
   // the token that served a file to whoever held the link is gone with the rest.
@@ -1314,5 +1299,17 @@ module.exports = (app) => {
   // fluxEventBus.js. 404s in production, like the stream above.
   app.get('/flux/testcounters', asyncRoute((req, res) => {
     return fluxEventBus.countersHandler(req, res);
+  }));
+
+  // Pauses a named code path while a test holds a window open - see
+  // checkpoint() in fluxEventBus.js. 404s in production, like the counters.
+  app.post('/flux/testcheckpoints', asyncRoute((req, res) => {
+    return fluxEventBus.checkpointsHandler(req, res);
+  }));
+
+  // State, read at the moment of asking - see the rule at the top of
+  // fluxEventBus.js. Uncached by design. 404s in production, like the routes above.
+  app.get('/flux/teststate/:name', asyncRoute((req, res) => {
+    return fluxEventBus.snapshotHandler(req, res);
   }));
 };

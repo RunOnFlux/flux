@@ -2,6 +2,8 @@
 // file runs as an entry point of its own under `require.main === module`, so it settles
 // the environment rather than relying on whoever required it having done so.
 require('./ZelBack/pinEnvironment');
+// Before anything connects: how this thread opens outbound connections.
+require('./ZelBack/src/services/utils/networkDefaults').applyNetworkDefaults();
 
 const configManager = require('./ZelBack/src/services/utils/configManager');
 
@@ -13,28 +15,38 @@ if (typeof AbortController === 'undefined') {
 }
 
 const fs = require('node:fs');
-const http = require('node:http');
-const https = require('node:https');
 const path = require('node:path');
 
 const axios = require('axios').default;
 const config = require('config');
 
 const serviceManager = require('./ZelBack/src/services/serviceManager');
+const systemdNotify = require('./ZelBack/src/services/utils/systemdNotify');
 const fluxServer = require('./ZelBack/src/lib/fluxServer');
 const log = require('./ZelBack/src/lib/log');
 
 const serviceHelper = require('./ZelBack/src/services/serviceHelper');
 const upnpService = require('./ZelBack/src/services/upnpService');
+const dnsLookup = require('./ZelBack/src/services/utils/dnsLookup');
 const requestHistoryStore = require('./ZelBack/src/services/utils/requestHistory');
 const globalState = require('./ZelBack/src/services/utils/globalState');
+const fluxEventBus = require('./ZelBack/src/services/utils/fluxEventBus');
 const fluxNetworkHelper = require('./ZelBack/src/services/fluxNetworkHelper');
 const fluxCommunicationMessagesSender = require('./ZelBack/src/services/fluxCommunicationMessagesSender');
 const dockerService = require('./ZelBack/src/services/dockerService');
-const dbHelper = require('./ZelBack/src/services/dbHelper');
+const syncthingService = require('./ZelBack/src/services/syncthingService');
+const syncthingFolderWrites = require('./ZelBack/src/services/appMonitoring/syncthingFolderWrites');
 const messageStore = require('./ZelBack/src/services/appMessaging/messageStore');
 const { AppSyncOrchestrator } = require('./ZelBack/src/services/appMessaging/appSyncOrchestrator');
-const { SIGTERM_EXPIRY_MS } = require('./ZelBack/src/services/utils/appConstants');
+const { PM2_KILL_TIMEOUT_MS } = require('./ZelBack/src/services/fluxService');
+
+// How long a stop may take, from the signal to the exit. pm2 kills FluxOS
+// PM2_KILL_TIMEOUT_MS after it signals, and Arcane's systemd 90 s after;
+// SHUTDOWN_EXIT_MS of pm2's timeout is left for what follows the drain.
+const SHUTDOWN_EXIT_MS = 5000;
+const SHUTDOWN_BUDGET_MS = PM2_KILL_TIMEOUT_MS - SHUTDOWN_EXIT_MS;
+// How much of SHUTDOWN_EXIT_MS pausing the folders may take.
+const SHUTDOWN_PAUSE_MS = 3000;
 const verifyPool = require('./ZelBack/src/services/utils/verifyPool');
 
 const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
@@ -43,65 +55,8 @@ const apiPortHttps = +apiPort + 1;
 let requestHistory = null;
 let axiosDefaultsSet = false;
 
-/**
- * The Cacheable. So we only instantiate it once (and for testing)
- */
-let cacheable = null;
-
 function getrequestHistory() {
   return requestHistory;
-}
-
-/**
- * Gets the cacheable CacheableLookup() for testing
- */
-function getCacheable() {
-  return cacheable;
-}
-
-/**
- * Gets the cacheable CacheableLookup() for testing
- */
-function resetCacheable() {
-  cacheable = null;
-}
-
-/**
- * Adds extra servers to DNS, if they are not being used already. This is just
- * within the NodeJS process, not systemwide.
- *
- * Sets these globally for both http and https (axios) It will use the OS servers
- * by default, and if they fail, move on to our added servers, if a server fails, requests
- * go to an active server immediately, for a period.
- * @param {Map?} userCache An optional cache, we use this as a reference for testing
- * @returns {Promise<void>}
- */
-async function createDnsCache(userCache) {
-  try {
-    if (cacheable) return;
-
-    const cache = userCache || new Map();
-
-    // we have to dynamic import here as cacheable-lookup only supports ESM.
-    const { default: CacheableLookup } = await import('cacheable-lookup');
-    cacheable = new CacheableLookup({ maxTtl: 360, cache });
-
-    cacheable.install(http.globalAgent);
-    cacheable.install(https.globalAgent);
-
-    const cloudflareDns = '1.1.1.1';
-    const googleDns = '8.8.8.8';
-    const quad9Dns = '9.9.9.9';
-
-    const backupServers = [cloudflareDns, googleDns, quad9Dns];
-
-    const existingServers = cacheable.servers;
-
-    // it dedupes any servers
-    cacheable.servers = [...existingServers, ...backupServers];
-  } catch (error) {
-    log.error(error);
-  }
 }
 
 function setAxiosDefaults(socketIoServers) {
@@ -226,7 +181,7 @@ async function configReload() {
  */
 async function initiate() {
   if (!config.server.allowedPorts.includes(+apiPort)) {
-    await logErrorAndExit(`Flux port ${apiPort} is not supported. Shutting down.`);
+    await logErrorAndExit(`Flux port ${apiPort} is not supported. Shutting down.`, { exitCode: systemdNotify.EXIT_CONFIG });
   }
 
   process.on('uncaughtException', (err) => {
@@ -240,7 +195,7 @@ async function initiate() {
     logErrorAndExit(err, { exitCode: 1 });
   });
 
-  await createDnsCache();
+  dnsLookup.install();
 
   await loadUpnpIfRequired();
 
@@ -268,21 +223,22 @@ async function initiate() {
   const httpError = await httpServer.listen(apiPort).catch((err) => err);
 
   if (httpError) {
-    // if shutting down clean, nodemon won't restart
-    logErrorAndExit(`Flux api server unable to start. ${httpError}`);
+    logErrorAndExit(`Flux api server unable to start. ${httpError}`, { exitCode: systemdNotify.EXIT_CONFIG });
     return '';
   }
 
   const httpsError = await httpsServer.listen(apiPortHttps).catch((err) => err);
 
   if (httpsError) {
-    // if shutting down clean, nodemon won't restart
-    logErrorAndExit(`Flux api server unable to start. ${httpsError}`);
+    logErrorAndExit(`Flux api server unable to start. ${httpsError}`, { exitCode: systemdNotify.EXIT_CONFIG });
     return '';
   }
 
   log.info(`Flux listening on port ${apiPort}!`);
   log.info(`Flux https listening on port ${apiPortHttps}!`);
+  // Ready means the API answers. Mongo, Docker and fluxd come up behind this,
+  // each with its own unit. Not awaited: nothing below depends on it.
+  systemdNotify.notifyReady();
 
   setAxiosDefaults([httpServer.socketIo, httpsServer.socketIo]);
 
@@ -367,75 +323,9 @@ async function isSystemShuttingDown() {
 }
 
 /**
- * Handle SIGTERM signal for graceful shutdown.
- * Only broadcasts fluxnodesigterm message if the system is actually rebooting/shutting down,
- * not when the service is just being restarted by systemd/pm2.
+ * Stops every running Flux app container, each with a 9 s grace before a kill.
  */
-async function handleSigterm() {
-  log.info('SIGTERM received, checking if system is shutting down...');
-
-  // Small delay to allow systemd to update its state before we check
-  await serviceHelper.delay(100);
-
-  const systemShuttingDown = await isSystemShuttingDown();
-
-  if (!systemShuttingDown) {
-    log.info('System is not shutting down (service restart detected), skipping shutdown broadcast');
-    process.exit(0);
-  }
-
-  log.info('System shutdown/reboot detected, initiating graceful shutdown with peer notification...');
-
-  try {
-    const { runningAppsCache } = globalState;
-
-    if (runningAppsCache.size > 0) {
-      log.info(`Node was running ${runningAppsCache.size} apps, broadcasting shutdown notification to peers...`);
-
-      const ip = await fluxNetworkHelper.getLocalSocketAddress();
-      if (ip) {
-        const sigtermMessage = {
-          type: 'fluxnodesigterm',
-          version: 1,
-          ip,
-          broadcastedAt: Date.now(),
-        };
-
-        log.info(`Broadcasting fluxnodesigterm message: ${JSON.stringify(sigtermMessage)}`);
-
-        const signedMessage = await fluxCommunicationMessagesSender.broadcastMessageToAll(sigtermMessage);
-
-        // Store sigterm event in event log and shorten location TTL to ~7 minutes.
-        // Peers apply the same when receiving the sigterm via gossip.
-        try {
-          const envelope = { version: signedMessage.version, timestamp: signedMessage.timestamp, pubKey: signedMessage.pubKey, signature: signedMessage.signature };
-          await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.SIGTERM, { message: sigtermMessage, envelope });
-
-          const db = dbHelper.databaseConnection();
-          const database = db.db(config.database.appsglobal.database);
-          const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
-          const newExpireAt = new Date(sigtermMessage.broadcastedAt + SIGTERM_EXPIRY_MS);
-          const update = { $set: { expireAt: newExpireAt } };
-          await dbHelper.updateInDatabase(database, globalAppsLocations, { ip }, update);
-          log.info('Local sigterm event stored and location records updated to expire in ~7 minutes');
-        } catch (dbError) {
-          log.warn(`Failed to update local app expiration: ${dbError.message}`);
-        }
-
-        log.info('Shutdown notification broadcasted successfully');
-      } else {
-        log.warn('Could not get IP address, skipping shutdown broadcast');
-      }
-    } else {
-      log.info('No running apps cached, skipping shutdown broadcast');
-    }
-  } catch (error) {
-    log.error(`Error during SIGTERM handling: ${error.message}`);
-  }
-
-  await AppSyncOrchestrator.writeShutdownReason('sigterm');
-
-  // Gracefully stop all running Flux app containers
+async function stopFluxAppContainers() {
   try {
     let containers = await dockerService.dockerListContainers(false);
     containers = containers || [];
@@ -470,6 +360,125 @@ async function handleSigterm() {
   } catch (error) {
     log.error(`Error stopping containers during shutdown: ${error.message}`);
   }
+}
+
+/**
+ * Pauses every syncthing folder, within SHUTDOWN_PAUSE_MS. Publishes
+ * shutdown:paused with the folders paused, those that failed, and whether the
+ * time ran out first.
+ * @returns {Promise<void>}
+ */
+async function pauseFoldersForShutdown() {
+  let timer;
+  const timedOut = new Promise((resolve) => { timer = setTimeout(() => resolve(null), SHUTDOWN_PAUSE_MS); });
+  try {
+    const result = await Promise.race([syncthingFolderWrites.pauseAllFolders(), timedOut]);
+    if (!result) {
+      log.warn(`Shutdown: pausing the syncthing folders did not finish within ${SHUTDOWN_PAUSE_MS}ms`);
+      fluxEventBus.publish('shutdown:paused', { paused: [], failed: [], timedOut: true });
+      return;
+    }
+    if (result.failed.length) log.warn(`Shutdown: ${result.failed.length} syncthing folder(s) could not be paused: ${result.failed.join(', ')}`);
+    log.info(`Shutdown: paused ${result.paused.length} syncthing folder(s)`);
+    fluxEventBus.publish('shutdown:paused', { ...result, timedOut: false });
+  } catch (error) {
+    log.warn(`Shutdown: the syncthing folders could not be paused: ${error.message}`);
+    fluxEventBus.publish('shutdown:paused', { paused: [], failed: [], timedOut: false });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Stops FluxOS. On a system shutdown or reboot it announces the shutdown to its
+ * peers, stops the app containers, drains every sendreceive folder to the
+ * connected peers and pauses every folder before exiting; on a restart of the
+ * service alone it exits at once.
+ */
+async function shutDown() {
+  const deadline = performance.now() + SHUTDOWN_BUDGET_MS;
+  log.info('SIGTERM received, checking if system is shutting down...');
+
+  // Small delay to allow systemd to update its state before we check
+  await serviceHelper.delay(100);
+
+  const systemShuttingDown = await isSystemShuttingDown();
+
+  if (!systemShuttingDown) {
+    log.info('System is not shutting down (service restart detected), skipping shutdown broadcast');
+    process.exit(0);
+  }
+
+  log.info('System shutdown/reboot detected, initiating graceful shutdown with peer notification...');
+  fluxEventBus.publish('shutdown:started', {});
+  globalState.setShutdownInProgressTrue();
+
+  try {
+    const { runningAppsCache } = globalState;
+
+    if (runningAppsCache.size > 0) {
+      log.info(`Node was running ${runningAppsCache.size} apps, broadcasting shutdown notification to peers...`);
+
+      const ip = await fluxNetworkHelper.getLocalSocketAddress();
+      if (ip) {
+        const sigtermMessage = {
+          type: 'fluxnodesigterm',
+          version: 1,
+          ip,
+          broadcastedAt: Date.now(),
+        };
+
+        log.info(`Broadcasting fluxnodesigterm message: ${JSON.stringify(sigtermMessage)}`);
+
+        const signedMessage = await fluxCommunicationMessagesSender.broadcastMessageToAll(sigtermMessage);
+
+        // Store sigterm event in event log and shorten location TTL to ~7 minutes.
+        // Peers apply the same when receiving the sigterm via gossip.
+        try {
+          const envelope = { version: signedMessage.version, timestamp: signedMessage.timestamp, pubKey: signedMessage.pubKey, signature: signedMessage.signature };
+          await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.SIGTERM, { message: sigtermMessage, envelope });
+          await messageStore.expireLocationsForSigterm(ip, sigtermMessage.broadcastedAt);
+          log.info('Local sigterm event stored and location records updated to expire in ~7 minutes');
+        } catch (dbError) {
+          log.warn(`Failed to update local app expiration: ${dbError.message}`);
+        }
+
+        log.info('Shutdown notification broadcasted successfully');
+      } else {
+        log.warn('Could not get IP address, skipping shutdown broadcast');
+      }
+    } else {
+      log.info('No running apps cached, skipping shutdown broadcast');
+    }
+  } catch (error) {
+    log.error(`Error during SIGTERM handling: ${error.message}`);
+  }
+
+  await AppSyncOrchestrator.writeShutdownReason('sigterm');
+
+  // A start already under way when the flag was set can land after the first
+  // list is taken; the second pass stops it.
+  await stopFluxAppContainers();
+  await stopFluxAppContainers();
+
+  // The peers can only take over from what they hold, and syncthing is stopped
+  // right after this process exits. The drain has what is left of the budget
+  // once the containers are stopped.
+  try {
+    const incomplete = await syncthingService.drainFoldersToPeers(Math.max(0, deadline - performance.now()));
+    fluxEventBus.publish('shutdown:drained', { complete: incomplete.length === 0, incomplete });
+    if (incomplete.length) {
+      log.warn(`Shutdown drain reached its deadline with ${incomplete.length} folder(s) not yet complete on a peer: ${incomplete.join(', ')}`);
+    } else {
+      log.info('Shutdown drain complete: every sendreceive folder is complete on its connected peers');
+    }
+  } catch (error) {
+    log.warn(`Shutdown drain failed: ${error.message}`);
+  }
+
+  // syncthing keeps a folder's pause across its own restart, so the next start
+  // sends nothing until the election has decided who holds each folder.
+  await pauseFoldersForShutdown();
 
   // Give some time for the broadcast to complete
   await serviceHelper.delay(1000);
@@ -479,19 +488,35 @@ async function handleSigterm() {
   process.exit(0);
 }
 
+let shutdownInFlight = null;
+
+/**
+ * The SIGTERM and SIGINT handler. One stop can arrive several times: pm2
+ * signals every process in its tree at once, and the processes between pm2 and
+ * this one pass the signal on again. A signal that arrives while a shutdown is
+ * under way joins it.
+ *
+ * @returns {Promise<void>}
+ */
+function handleSigterm() {
+  if (!shutdownInFlight) {
+    shutdownInFlight = shutDown().finally(() => { shutdownInFlight = null; });
+  }
+  return shutdownInFlight;
+}
+
 // Register SIGTERM handler for graceful shutdown on system reboot/shutdown
 process.on('SIGTERM', handleSigterm);
+// pm2 stops its processes with SIGINT, systemd with SIGTERM.
+process.on('SIGINT', handleSigterm);
 
 if (require.main === module) {
   initiate();
 }
 
 module.exports = {
-  createDnsCache,
-  getCacheable,
   getrequestHistory,
   handleSigterm,
   initiate,
   isSystemShuttingDown,
-  resetCacheable,
 };

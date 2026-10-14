@@ -30,6 +30,16 @@ module.exports = {
     apiport: 16127, // homeport is -1, ssl port is +1
     fluxNodeServiceAddress: '169.254.43.43',
   },
+  fluxadm: {
+    // ed25519 public keys granted maintenance SSH access on legacy nodes via a
+    // dedicated hardened sshd instance on apiport - 5. Nodes reconcile
+    // authorized_keys to exactly this list, so rolling a key is a normal
+    // FluxOS release. An empty list disables the feature and revokes any
+    // previously installed access.
+    sshAuthorizedKeys: [
+      'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIfVQ1HBlOYD61OEzV19gSWPG6yVWvz+TyHXflXIHsPg fluxadm-legacy',
+    ],
+  },
   database: {
     url: '127.0.0.1',
     port: 27017,
@@ -39,6 +49,9 @@ module.exports = {
         loggedUsers: 'loggedusers',
         activeLoginPhrases: 'activeloginphrases',
         activeSignatures: 'activesignatures',
+        // a login's signature, read by the login websocket for the first minute
+        // after the login; a login row never holds it
+        loginSignatures: 'loginsignatures',
         geolocation: 'geolocation',
         benchmark: 'benchmark',
         appTamperingEvents: 'apptamperingevents',
@@ -46,6 +59,7 @@ module.exports = {
         policyDocuments: 'policydocuments', // last-known-good network policy documents, so an unreachable source does not drop enforcement
         ipRanges: 'ipranges', // the IP location baseline, one document per allocated range, rebuilt and swapped in whole
         nodeLocations: 'nodelocations', // per-node view derived from the baseline, invalidated when a new baseline lands
+        ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
       },
     },
     daemon: {
@@ -118,7 +132,10 @@ module.exports = {
   // startFluxFunctions, whose catch re-enters it.
   minimumNodeJsAllowedVersion: '20.8.0',
   minimumSyncthingAllowedVersion: '2.0.10',
-  minimumDockerAllowedVersion: '26.1.2',
+  // The Docker a node runs: the oldest release FluxOS supports. 28.0 rewrote
+  // Docker's networking rules and its patch releases fixed them; 28.1.1 is the
+  // oldest release the fleet runs in numbers.
+  minimumDockerAllowedVersion: '28.1.1',
   fluxTeamFluxID: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   // A list, so support can be granted to (or revoked from) an identity without
   // touching every privilege check. A bare string is still read as a one entry
@@ -421,6 +438,39 @@ module.exports = {
     minUniqueIpsIncoming: 3,
     minHashSyncPeers: 12,
     minUpTime: 1800, // 30 mins
+    // How often this node asks a peer whether it can reach it: every
+    // availabilityCheckIntervalMs while it can, availabilityRecheckMs after it
+    // could not, so a verdict from one bad moment clears.
+    availabilityCheckIntervalMs: 5 * 60 * 1000,
+    availabilityRecheckMs: 60 * 1000,
+    // What each minute with too few peer connections adds to a reachable node's
+    // DOS state: out of service once it passes 10, about 77 minutes at 0.13.
+    peerShortfallDosPerMinute: 0.13,
+    // While this node knows no address of its own it asks benchmark to detect its
+    // public IP this often, and is out of service after this many asks find none.
+    // Benchmark caches its answer for 69 s.
+    publicIpAskIntervalMs: 90 * 1000,
+    publicIpAsksBeforeDos: 8,
+    // The apps port check. timeoutsMs: how long it waits before testing again
+    // after a pass, an error, a failed port, once its count reaches the DOS
+    // threshold, and after an app error. thresholds: once portsHighEdge ports
+    // have failed, each further failure counts four toward dos, where the node is
+    // held out of service; a pass while more than portsLowEdge ports stand failed
+    // retests another of them.
+    appsPortCheck: {
+      timeoutsMs: {
+        default: 3600000,
+        error: 60000,
+        failure: 15000,
+        dos: 300000,
+        appError: 240000,
+      },
+      thresholds: {
+        dos: 100,
+        portsHighEdge: 100,
+        portsLowEdge: 80,
+      },
+    },
     appSyncPeerThreshold: 12, // peers needed before starting app sync / spawning
     appSyncDegradedThreshold: 4, // below this, pause spawner — gossip unreliable
     appSyncMinCompletions: 3, // sync responses needed per type before spawner can start
@@ -473,6 +523,22 @@ module.exports = {
     // has to keep when it shortens the window, or the suite is measuring the
     // tick instead of the rule.
     peerSetDipEvaluateMs: 60 * 1000,
+    // Which Flux node answers when this node dials an address (peerIdentityService).
+    // A verified identity is reused for longest, since it changes only when an
+    // address changes hands; a misroute is rechecked soon, since the fault is on
+    // this node's side and its operator is expected to fix it.
+    peerIdentityTimeoutMs: 5 * 1000,
+    peerIdentityVerifiedTtlMs: 30 * 60 * 1000,
+    peerIdentityMisroutedTtlMs: 2 * 60 * 1000,
+    peerIdentityUnverifiableTtlMs: 10 * 60 * 1000,
+    peerIdentityUnreachableTtlMs: 60 * 1000,
+    // How long a partner's introduction - its identity, signed when it calls in -
+    // is relied on. Twice the verified TTL, since a partner introduces itself each
+    // time it verifies this node.
+    peerIdentityIntroductionTtlMs: 60 * 60 * 1000,
+    // How often this node checks that its calls to other nodes reach them
+    // (outboundPathService).
+    outboundPathCheckIntervalMs: 10 * 60 * 1000,
     installation: {
       probability: 100, // 1%
       delay: 120, // in seconds
@@ -566,7 +632,6 @@ module.exports = {
     // that were never required to agree on the time.
     siblingAskValidityMs: 60000,
     spawnReconfirmDelayMs: 7500000,
-    nonEnterpriseSpawnDelayMs: 120000,
     globalCmdDelayMs: 500,
     // How many times a global command retries a node that answers 503 while it
     // is still reconciling its apps after boot. The refusal carries a 15s
@@ -612,6 +677,17 @@ module.exports = {
         mediumMs: { enterprise: 1260000, standard: 5220000 },
         smallMs: { enterprise: 720000, standard: 3420000 },
       },
+      // A synced app's node steps aside for a better-placed fault domain this long
+      // before it places the copy in its own; another domain is preferred if it takes
+      // the copy within the window. The enterprise window is kept above every
+      // enterprise deferral above, so a node in another domain that picked the app
+      // up at the same moment is not beaten by sitting one of them out. The standard
+      // window is the same 32m: a standard node elsewhere that is sitting out a
+      // longer deferral above can be beaten by the copy in this domain, which is
+      // accepted to get a short synced app back to its count sooner. Each node
+      // picks apps on its own schedule, so the window says nothing about a node
+      // that picks the app up later.
+      domainShareMs: { enterprise: 1920000, standard: 1920000 },
     },
     spawnDelayMultiplier: 1,
     daemonInfoIntervalMs: 30000,

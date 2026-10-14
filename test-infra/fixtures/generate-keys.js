@@ -72,7 +72,7 @@ for (let i = 0; i < NODE_COUNT; i++) {
     staticIp: staticIps[i],
     txhash,
     outidx: '0',
-    ip: `198.18.${i + 1}.0`,
+    ip: `31.200.${i + 1}.0`,
   });
 
   writeFileSync(join(keysDir, `node-${num}.json`), JSON.stringify(kp, null, 2) + '\n');
@@ -134,7 +134,7 @@ const confDir = join(__dirname, 'conf');
 mkdirSync(confDir, { recursive: true });
 for (const n of nodes) {
   const num = String(n.index + 1).padStart(2, '0');
-  const conf = `rpcuser=fluxtest\nrpcpassword=fluxtest\nrpcport=16124\nrpcallowip=0.0.0.0/0\nzelnodeprivkey=${n.wif}\ninsightexplorer=1\n`;
+  const conf = `rpcuser=fluxtest\nrpcpassword=fluxtest\nrpcport=16124\nrpcallowip=0.0.0.0/0\nzelnodeprivkey=${n.wif}\ninsightexplorer=1\naddressindex=1\n`;
   writeFileSync(join(confDir, `flux-${num}.conf`), conf);
 }
 

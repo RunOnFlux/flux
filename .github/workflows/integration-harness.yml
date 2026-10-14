@@ -83,8 +83,9 @@ jobs:
           # has no BURN_CPU, so the container idles and 63's throttle wait dies
           # at 150s looking like a broken throttler rather than a missing file).
           bash test-infra/test-app/build.sh
-          docker compose -f test-infra/docker-compose.yml -p flux-e2e build \
-            fluxos-01 daemon-stub syncthing-stub fdm-stub peer-stub external-http-stub
+          # Every image the harness runs, stamped with the digest of its sources,
+          # which the runners check before they start.
+          bash test-infra/build-images.sh
           docker pull mongo:8
           docker pull registry:2
 

@@ -15,6 +15,7 @@ const fluxHttpTestServer = require('../../ZelBack/src/services/utils/fluxHttpTes
 const { requireMongo } = require('./dbTestHelper');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
+const globalState = require('../../ZelBack/src/services/utils/globalState');
 
 describe('portManager tests', () => {
   before(requireMongo);
@@ -490,6 +491,93 @@ describe('portManager tests', () => {
     });
   });
 
+  describe('removeStaleUpnpMappings tests', () => {
+    let database;
+    let originalUserConfig;
+    let held;
+    const collection = config.database.appslocal.collections.appsInformation;
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      database = dbHelper.databaseConnection().db(config.database.appslocal.database);
+      await database.collection(collection).drop().catch(() => {});
+      await dbHelper.insertManyToDatabase(database, collection, [
+        { name: 'App1', version: 3, ports: [30001, 30002] },
+        { name: 'App2', version: 3, ports: [30003] },
+      ]);
+      originalUserConfig = globalThis.userconfig;
+      globalThis.userconfig = { initial: { ...originalUserConfig.initial, apiport: 16137 } };
+      held = undefined;
+      sinon.stub(globalState, 'waitForBootContainerStateSettled').resolves();
+      sinon.stub(upnpService, 'msUntilCleanupSlot').returns(42000);
+      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(upnpService, 'isUPNP').returns(true);
+      sinon.stub(upnpService, 'corePorts').callsFake((apiport) => [+apiport - 1, +apiport]);
+      // what the pass was told is held, as it would ask once the router is listed
+      sinon.stub(upnpService, 'removeStaleMappings').callsFake(async (heldPorts) => {
+        held = [...await heldPorts()].sort();
+        return 0;
+      });
+    });
+
+    afterEach(() => {
+      globalThis.userconfig = originalUserConfig;
+    });
+
+    it('should wait for the boot gate, then for the slot of the api port it listens on, then run within that slot', async () => {
+      await portManager.removeStaleUpnpMappings();
+
+      sinon.assert.callOrder(globalState.waitForBootContainerStateSettled, upnpService.msUntilCleanupSlot, serviceHelper.delay, upnpService.removeStaleMappings);
+      // the suite's config listens on 16127
+      sinon.assert.calledOnceWithExactly(upnpService.msUntilCleanupSlot, 16127);
+      sinon.assert.calledOnceWithExactly(serviceHelper.delay, 42000);
+      expect(upnpService.removeStaleMappings.firstCall.args[1]).to.equal(upnpService.CLEANUP_SLOT_MS);
+    });
+
+    it('should hold the node\'s own ports for the api port it listens on and the one its config names, and every installed app\'s', async () => {
+      // a reload has named 16137 without a restart
+      await portManager.removeStaleUpnpMappings();
+
+      sinon.assert.calledOnce(upnpService.removeStaleMappings);
+      expect(held).to.deep.equal([16126, 16127, 16136, 16137, 30001, 30002, 30003].sort());
+    });
+
+    it('should not run on a node without UPnP', async () => {
+      upnpService.isUPNP.returns(false);
+
+      await portManager.removeStaleUpnpMappings();
+
+      sinon.assert.notCalled(upnpService.removeStaleMappings);
+    });
+
+    it('should not run once a shutdown has begun', async () => {
+      sinon.stub(globalState, 'shutdownInProgress').get(() => true);
+
+      await portManager.removeStaleUpnpMappings();
+
+      sinon.assert.notCalled(upnpService.removeStaleMappings);
+    });
+
+    it('should remove nothing when an installed app\'s ports cannot be read', async () => {
+      await dbHelper.insertOneToDatabase(database, collection, { name: 'Sealed', version: 8, enterprise: 'blob', hash: 'h1' });
+      sinon.stub(appQueryService, 'decryptEnterpriseApps').resolves({
+        inPlace: [{ name: 'Sealed', version: 8, enterprise: 'blob', compose: [] }],
+        readable: [],
+        unreadable: [{ name: 'Sealed' }],
+      });
+
+      await portManager.removeStaleUpnpMappings();
+
+      expect(held).to.equal(undefined);
+    });
+
+    it('should not throw when the router cannot be read', async () => {
+      upnpService.removeStaleMappings.rejects(new Error('Incorrect response'));
+
+      await portManager.removeStaleUpnpMappings();
+    });
+  });
+
   describe('restoreAppsPortsSupport tests', () => {
     let db;
     let database;
@@ -524,12 +612,14 @@ describe('portManager tests', () => {
       portManager.upnpMapFailures.clear();
     });
 
-    it('should setup firewall for app ports when active', async () => {
+    it('should write no host firewall rule for app ports, even with the firewall active', async () => {
       fluxNetworkHelper.isFirewallActive.resolves(true);
+      upnpService.isUPNP.returns(true);
 
       await portManager.restoreAppsPortsSupport();
 
-      sinon.assert.called(fluxNetworkHelper.allowPort);
+      sinon.assert.notCalled(fluxNetworkHelper.allowPort);
+      sinon.assert.called(upnpService.mapUpnpPort);
     });
 
     it('should setup UPNP for app ports when active', async () => {
@@ -541,7 +631,8 @@ describe('portManager tests', () => {
     });
 
     it('should handle errors gracefully', async () => {
-      fluxNetworkHelper.allowPort.rejects(new Error('Firewall error'));
+      upnpService.isUPNP.returns(true);
+      upnpService.mapUpnpPort.rejects(new Error('UPnP error'));
 
       // Should not throw
       await portManager.restoreAppsPortsSupport();
@@ -1177,6 +1268,24 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
     expect(result.ok, 'refused on a single witness after running out of peers').to.equal(true);
     expect(result.reason).to.equal('singleWitness');
     expect(result.port).to.equal(port);
+  });
+
+  // ufw counts the IPv6 half of a rule for both families as the same rule as an app
+  // port's IPv6 rule, so a test that opened and deleted one would delete the app's.
+  it('opens each port under test to IPv4 only while it tests it, and deletes only that rule', async () => {
+    fluxNetworkHelper.isFirewallActive.resolves(true);
+    const allowTest = sinon.stub(fluxNetworkHelper, 'allowTestPort').resolves({ status: true, message: 'Rule added' });
+    const deleteTest = sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves({ status: true, message: 'Rule deleted' });
+    const allowBoth = sinon.stub(fluxNetworkHelper, 'allowPort').resolves({ status: true });
+    const deleteBoth = sinon.stub(fluxNetworkHelper, 'deleteAllowPortRule').resolves({ status: true });
+
+    await withPeers([UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE]);
+
+    sinon.assert.calledOnceWithExactly(allowTest, port);
+    sinon.assert.calledWith(deleteTest, port);
+    expect(deleteTest.firstCall.calledAfter(allowTest.firstCall)).to.equal(true);
+    sinon.assert.notCalled(allowBoth);
+    sinon.assert.notCalled(deleteBoth);
   });
 
   it('proceeds when no peer answered at all, and says so', async () => {

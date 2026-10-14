@@ -12,17 +12,21 @@ function hash160(buffer) {
 }
 
 /**
- * Converts a WIF (Wallet Import Format) private key to raw hex.
+ * Decodes a WIF (Wallet Import Format) private key. After its version byte, which
+ * differs between networks, a WIF holds the 32-byte key, then a 0x01 byte if the key
+ * is for a compressed public key.
  * @param {string} wifPk - Private key in WIF format.
- * @returns {string} Raw private key as hex string.
+ * @returns {{privateKey: string, compressed: boolean}} The raw private key as hex, and
+ *   whether its public key is compressed.
+ * @throws {Error} When the checksum fails or the payload is neither shape.
  */
-function WIFToPrivKey(wifPk) {
-  let og = Buffer.from(bs58check.decode(wifPk)).toString('hex');
-  og = og.substr(2, og.length); // remove WIF format ('80')
-  if (og.length > 64) {
-    og = og.substr(0, 64);
+function decodeWIF(wifPk) {
+  const payload = Buffer.from(bs58check.decode(wifPk));
+  const compressed = payload.length === 34 && payload[33] === 0x01;
+  if (payload.length !== 33 && !compressed) {
+    throw new Error('Invalid WIF: the payload is neither an uncompressed nor a compressed key');
   }
-  return og;
+  return { privateKey: payload.subarray(1, 33).toString('hex'), compressed };
 }
 
 /**
@@ -50,4 +54,4 @@ function pubKeyToAddr(pubKey, pubKeyHash) {
   return bs58check.encode(Buffer.from(pubKeyHash + h160, 'hex')).toString('hex');
 }
 
-module.exports = { WIFToPrivKey, privKeyToPubKey, pubKeyToAddr };
+module.exports = { decodeWIF, privKeyToPubKey, pubKeyToAddr };

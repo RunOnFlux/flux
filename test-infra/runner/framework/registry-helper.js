@@ -1,5 +1,6 @@
 import { readFileSync, existsSync, mkdirSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, rename } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import https from 'node:https';
@@ -139,10 +140,13 @@ export async function pushImage(repo, tag, markerContent = 'v1') {
 
 // Path to the compiled configurable test-app binary (see test-infra/test-app).
 const TEST_APP_BIN = join(__dirname, '..', '..', 'test-app', 'test-app');
+// Path to the static busybox binary (see test-infra/busybox-fixture) used by app
+// containers a suite needs tools inside (docker exec /bin/busybox ...).
+export const BUSYBOX_BIN = join(__dirname, '..', '..', 'busybox-fixture', 'busybox');
 
 function buildBinaryLayerTar(binPath, binName, markerContent) {
   if (!existsSync(binPath)) {
-    throw new Error(`test-app binary not found at ${binPath}. Build it once: bash test-infra/test-app/build.sh`);
+    throw new Error(`fixture binary not found at ${binPath}. Build it once (see the matching test-infra/<fixture>/build.sh)`);
   }
   const binEntry = tarEntry(`bin/${binName}`, readFileSync(binPath));
   const markerEntry = tarEntry('marker', Buffer.from(markerContent), '0100644');
@@ -217,8 +221,10 @@ const MANIFEST_MEDIA_TYPES = [
 
 // Blobs and manifests are content-addressed and immutable, so a fetched one is
 // good forever. The registry container is rebuilt per suite, so the PUSH happens
-// every time (local, fast) but only the first suite of a gate pays for the pull.
-const IMAGE_CACHE_DIR = join(__dirname, '..', '.image-cache');
+// every time (local, fast) but only the first fetch on a box pays for the pull.
+// One cache per user rather than per clone: every clone and lineage reads the
+// same bytes, and each entry is checked against its digest on read.
+const IMAGE_CACHE_DIR = join(homedir(), '.cache', 'flux-e2e-images');
 
 const sourceClient = axios.create({
   maxBodyLength: Infinity,
@@ -252,7 +258,11 @@ async function readCached(digest) {
 async function writeCached(digest, bytes) {
   const path = cachePathFor(digest);
   mkdirSync(dirname(path), { recursive: true });
-  await writeFile(path, bytes);
+  // Written aside and renamed into place, so parallel suites filling the same
+  // entry never expose a partial file to each other.
+  const staging = `${path}.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
+  await writeFile(staging, bytes);
+  await rename(staging, path);
 }
 
 // A registry answers an unauthenticated request with the challenge describing
@@ -524,6 +534,56 @@ export async function mirrorExecutorImage() {
   // still resolves over the network.
   const pin = publishedExecutorPin();
   return mirrorImage(pin.image, null, { digest: pin.indexId ?? null });
+}
+
+// Push a static-busybox image (entrypoint sleeps so the container stays up), for
+// an app container a suite needs tools inside: file inspection, network probes.
+// The freestanding pause/test-app images have neither. `entrypoint` replaces the
+// sleep, for an app FluxOS installs that must do something of its own, since an
+// app spec cannot set one.
+export async function pushBusybox(repo, tag = 'v1', markerContent = 'busybox', {
+  entrypoint = ['/bin/busybox', 'sleep', '2147483647'],
+} = {}) {
+  const gzippedLayer = buildBinaryLayerTar(BUSYBOX_BIN, 'busybox', markerContent);
+  const layerDigest = await uploadBlob(repo, gzippedLayer);
+
+  const uncompressedLayer = zlib.gunzipSync(gzippedLayer);
+  const diffId = `sha256:${sha256(uncompressedLayer)}`;
+
+  const configObj = {
+    architecture: 'amd64',
+    os: 'linux',
+    config: { Entrypoint: entrypoint },
+    rootfs: { type: 'layers', diff_ids: [diffId] },
+  };
+  const configBuf = Buffer.from(JSON.stringify(configObj));
+  const configDigest = await uploadBlob(repo, configBuf);
+
+  const manifest = {
+    schemaVersion: 2,
+    mediaType: 'application/vnd.docker.distribution.manifest.v2+json',
+    config: {
+      mediaType: 'application/vnd.docker.container.image.v1+json',
+      size: configBuf.length,
+      digest: configDigest,
+    },
+    layers: [{
+      mediaType: 'application/vnd.docker.image.rootfs.diff.tar.gzip',
+      size: gzippedLayer.length,
+      digest: layerDigest,
+    }],
+  };
+
+  const manifestRes = await registryClient.put(
+    `/v2/${repo}/manifests/${tag}`,
+    JSON.stringify(manifest),
+    {
+      headers: { 'Content-Type': 'application/vnd.docker.distribution.manifest.v2+json' },
+      validateStatus: (s) => s === 201,
+    },
+  );
+
+  return manifestRes.headers['docker-content-digest'];
 }
 
 export async function pushUpdatedImage(repo, tag) {

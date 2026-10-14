@@ -1,7 +1,9 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { execInContainer, getAppContainerStatus, restartFluxos } from '../framework/container.js';
+import {
+  execInContainer, getAppContainerStatus, restartFluxos, blockPeerAccess, unblockPeerAccess,
+} from '../framework/container.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp, buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { electMaster, resetFdm } from '../framework/fdm-control.js';
@@ -60,6 +62,10 @@ describe('one unmountable app does not block g: election node-wide', function ()
     await resetFdm();
     await resetSyncState();
 
+    // Node 0 is the elected primary from the start: FDM names it before the app
+    // is installed, so the other holder never starts it first.
+    await electMaster(gName, env.clients[0].ip);
+
     // the g: app, on the same node as the jammer plus one peer to fail over to
     await pushImage(gName, 'v1');
     const gApp = await buildSeedableSyncthingApp({ name: gName, mode: 'g' });
@@ -96,8 +102,7 @@ describe('one unmountable app does not block g: election node-wide', function ()
     });
     await installOnNodes(env, jamApp, [0]);
 
-    // node 0 starts as the elected primary, running
-    await electMaster(gName, env.clients[0].ip);
+    // node 0 runs as the elected primary
     await waitForReconcilerDesiredChanged(env.clients[0], gIdentifier, 'running', 90000);
     await waitFor(() => isUp(env.clients[0], gName), { timeout: 90000, interval: 2000, label: 'g: app running on node 0' });
   });
@@ -138,10 +143,18 @@ describe('one unmountable app does not block g: election node-wide', function ()
     // (an unset opinion must not bounce apps on every FluxOS restart), so only
     // an election that actually RUNS can stop it - if the first-run gate is
     // still latched, node 0 keeps running as a stale primary forever.
-    await electMaster(gName, b.ip);
-
-    await waitForReconcilerDesiredChanged(a, gIdentifier, 'stopped', 120000);
-    await waitFor(async () => !(await isUp(a, gName)), { timeout: 90000, interval: 2000, label: 'stale primary stopped on the jammed node' });
+    //
+    // Split: node 1 cannot reach node 0, so it cannot rule node 0 out, and FDM
+    // names it. It starts, and node 0, which can reach it, finds it has decided it
+    // holds the component and stands down.
+    const cut = await blockPeerAccess(a.container, [b.ip], 16127);
+    try {
+      await electMaster(gName, b.ip);
+      await waitForReconcilerDesiredChanged(a, gIdentifier, 'stopped', 120000);
+      await waitFor(async () => !(await isUp(a, gName)), { timeout: 90000, interval: 2000, label: 'stale primary stopped on the jammed node' });
+    } finally {
+      await unblockPeerAccess(a.container, cut, 16127);
+    }
 
     await waitForReconcileActuated(b, gIdentifier, 'started', 120000);
     await waitFor(() => isUp(b, gName), { timeout: 90000, interval: 2000, label: 'new primary running after failover' });

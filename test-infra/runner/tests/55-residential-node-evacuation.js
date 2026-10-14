@@ -28,7 +28,7 @@ const subnet = getSubnetConfig();
 
 // A residential node is one whose network classification reaches RESIDENTIAL on
 // positive evidence with nothing contradicting it. In the harness the only
-// signal available is what the ip-api stub serves - 198.18.x.x has no reverse
+// signal available is what the ip-api stub serves - the fleet has no reverse
 // DNS and the stub tiers are not asymmetric enough to count - so `mobile` is the
 // positive signal and every contradiction is turned off.
 // The pacing this fleet runs on, derived once so the two knobs cannot drift
@@ -86,7 +86,7 @@ const RESIDENTIAL_GEO = {
 };
 
 // Nothing either way: no hosting flags, no operator that sells hosting, and
-// 198.18.x.x has no reverse DNS. The node's own rule reaches UNKNOWN on this,
+// the fleet has no reverse DNS. The node's own rule reaches UNKNOWN on this,
 // so whatever verdict it ends up with came from the published table.
 const NEUTRAL_GEO = {
   hosting: false, proxy: false, mobile: false, org: 'Neutral Holdings', isp: 'Metro Fibre', as: 'AS64501 Metro Fibre',
@@ -1027,15 +1027,21 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     // takes no new apps, so the app would reach four instances and never five.
     await returnToService(env, TARGET);
 
+    // FDM names node 1 the primary before the app is installed, so no other
+    // holder starts it first: a node FDM names does not start a component a
+    // peer is already running.
+    await electMaster('primaryapp', subnet.nodeIp(TARGET));
+
     await seedApp(env, 'primaryapp', { instances: 5, containerData: 'g:/appdata' });
     await setSynced({ folder: 'fluxprimaryapp_primaryapp' });
     await setPeerHasData({ folder: 'fluxprimaryapp_primaryapp' });
     await advanceBlocks(3);
     await waitFor(async () => (await dbClient(2).getAppLocations('primaryapp')).length >= 5,
       { timeout: 300000, label: 'primaryapp reaches its instance count across the fleet' });
-
-    // FDM names node 1 the primary, which is what masterSlaveApps reads.
-    await electMaster('primaryapp', subnet.nodeIp(TARGET));
+    // Only the node running the g: component is the writer, so only it can be
+    // asked to stand down.
+    await waitFor(async () => (await runningComponents(env, TARGET)).includes('fluxprimaryapp_primaryapp'),
+      { timeout: 300000, label: 'the elected primary is running the g: component' });
 
     await setSystemSecure(subnet.nodeIp(TARGET), false);
     await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
@@ -1136,6 +1142,11 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     // defect. A scenario a test depends on is a scenario it has to build.
     await returnToService(env, TARGET);
 
+    // Elected before the app is installed, so no other holder starts it first,
+    // and while FDM is still answering: the refusal under test is a verdict
+    // going STALE, not one that never existed.
+    await electMaster('lockedapp', subnet.nodeIp(TARGET));
+
     await seedApp(env, 'lockedapp', { instances: 5, containerData: 'g:/appdata' });
     await setSynced({ folder: 'fluxlockedapp_lockedapp' });
     await setPeerHasData({ folder: 'fluxlockedapp_lockedapp' });
@@ -1148,12 +1159,7 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     // this suite proves elsewhere; here it is the precondition, because a node
     // refused at the peer loop never gets far enough to refuse on the election.
 
-    // Elected while FDM is still answering. The refusal under test is a verdict
-    // going STALE, not one that never existed, so the node has to have reached
-    // one before the outage starts.
-    await electMaster('lockedapp', subnet.nodeIp(TARGET));
-
-    // And the component has to be RUNNING here before FDM goes down. The gate
+    // The component has to be RUNNING here before FDM goes down. The gate
     // asks the election question only of a node running the g: component - a
     // node not running it cannot be the writer - so without this the pass
     // answers SYNCED_ELSEWHERE and hands the app back, which is correct and

@@ -144,10 +144,7 @@ async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
         } else {
           log.info(`monitorNodeStatus - Removing IP ${location} from globalAppsLocations`);
           // eslint-disable-next-line no-await-in-loop
-          await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.EVICTED, { ip: location });
-          const query = { ip: location };
-          // eslint-disable-next-line no-await-in-loop
-          await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, query);
+          await messageStore.applyEviction(location, Date.now());
         }
       }
     }

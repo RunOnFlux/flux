@@ -10,6 +10,7 @@ const {
   verifyPrivilege, verifyZelID, verifyMessage, signMessage,
 } = require('../../ZelBack/src/services/verificationHelper');
 const { Privilege, APP_SCOPED, authOf } = require('../../ZelBack/src/services/utils/privileges');
+const { sameKey } = require('./data/wifFixtures');
 
 // The verifiers are stubbed here - they are covered in verificationHelperUtils.test.
 // zelidauth is a string because a header value always is: node folds duplicates
@@ -157,6 +158,16 @@ describe('verificationHelper tests', () => {
   });
 
   describe('signMessage tests', () => {
+    sameKey.forEach(({
+      network, wif, compressed, pubKey,
+    }) => {
+      it(`should sign so that the ${compressed ? 'compressed' : 'uncompressed'} key of a ${network} WIF verifies`, () => {
+        const signature = signMessage('abc', wif);
+
+        expect(verifyMessage('abc', pubKey, signature)).to.be.true;
+      });
+    });
+
     it('should sign a message', async () => {
       const message = 'abc';
       const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';

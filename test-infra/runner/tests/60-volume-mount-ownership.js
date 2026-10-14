@@ -98,6 +98,31 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
   const syncIdentifier = `${syncName}_${syncName}`;
   const inertIdentifier = `${inertName}_${inertName}`;
 
+  // Reboots a node straight after it announces the app, and returns once its
+  // boot reconciliation has settled with the app kept. The node's own location
+  // row lasts locationTtlS from its last announcement, and boot reconciliation
+  // removes an app whose row has expired as one that moved elsewhere - so a
+  // reboot begun late in the announce interval can outlast the row.
+  async function rebootAfterAnnouncing(i, name, bootId) {
+    const client = env.clients[i];
+    await client.waitForEvent('app:running', (d) => d.apps.some((a) => a.name === name), 90000, { afterId: client.getLastEventId() });
+    env.setBootId(i, bootId);
+    const restarted = await env.restartNode(i);
+    // The restart reconnects the stream, which empties the buffer: it holds this
+    // boot's events and no other.
+    const booted = () => restarted.getEventBuffer();
+    await waitFor(() => booted().some((e) => e.event === 'boot:settled'), {
+      timeout: 150000, interval: 2000, label: `node ${i} settled its boot`,
+    });
+    // The stream holds this boot from before reconciliation: a removal would
+    // be in it, not dropped off the front of the node's ring.
+    expect(booted().some((e) => e.event === 'orchestrator:started' && e.data?.bootContext?.currentBootId === bootId), `node ${i}'s stream carries the start of boot ${bootId}`)
+      .to.equal(true);
+    expect(booted().filter((e) => e.event === 'app:removed' && e.data?.name === name), `node ${i} kept ${name} through the reboot`)
+      .to.deep.equal([]);
+    return restarted;
+  }
+
   before(async function () {
     this.timeout(480000);
     env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
@@ -228,9 +253,7 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
     // the incident state: no remount entry exists anywhere
     await execInContainer(client.container, 'crontab -r 2>/dev/null || true');
 
-    env.setBootId(1, `volreboot-${Date.now()}`);
-    await env.restartNode(1);
-    client = env.clients[1];
+    client = await rebootAfterAnnouncing(1, rebootName, `volreboot-${Date.now()}`);
 
     await waitFor(() => isMountpoint(client.container, dir), { timeout: 150000, interval: 3000, label: 'volume remounted after reboot without crontab' });
     await waitFor(() => isUp(client, rebootName), { timeout: 120000, interval: 3000, label: 'app running after reboot' });
@@ -325,9 +348,7 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
     // the incident state: no remount entry exists anywhere
     await execInContainer(client.container, 'crontab -r 2>/dev/null || true');
 
-    env.setBootId(4, `entreboot-${Date.now()}`);
-    await env.restartNode(4);
-    client = env.clients[4];
+    client = await rebootAfterAnnouncing(4, entName, `entreboot-${Date.now()}`);
 
     await waitFor(() => isMountpoint(client.container, dir), { timeout: 150000, interval: 3000, label: 'enterprise volume remounted after reboot' });
     await waitFor(() => isUp(client, entName), { timeout: 120000, interval: 3000, label: 'enterprise app running after reboot' });

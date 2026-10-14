@@ -563,6 +563,72 @@ describe('fluxCommunicationUtils tests', () => {
     });
   });
 
+  describe('verifyFluxBroadcast fluxipchanged tests', () => {
+    const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
+    const pubKey = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
+    const OLD = '72.89.45.236:16137';
+    const NEW = '108.6.236.4:16137';
+    let listedAt;
+
+    const signed = async (data) => {
+      const timestamp = Date.now();
+      const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(1 + JSON.stringify(data) + timestamp, privKey);
+      return {
+        version: 1, pubKey, timestamp, data, signature,
+      };
+    };
+    const move = () => signed({
+      type: 'fluxipchanged', version: 1, oldIP: OLD, newIP: NEW, broadcastedAt: Date.now(),
+    });
+
+    beforeEach(() => {
+      listedAt = sinon.stub(networkStateService, 'getFluxnodeBySocketAddress').resolves(null);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('accepts a move signed by the node the list still shows at the address it left', async () => {
+      listedAt.withArgs(OLD).resolves({ ip: OLD, pubkey: pubKey });
+
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.OK);
+    });
+
+    it('refuses a move when the node listed at its new address holds another key', async () => {
+      listedAt.withArgs(NEW).resolves({ ip: NEW, pubkey: 'anotherkey' });
+
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.PUBKEY_MISMATCH);
+    });
+
+    it('refuses a move away from an address listed under another key, though the signer is listed at the new one', async () => {
+      listedAt.withArgs(OLD).resolves({ ip: OLD, pubkey: 'anotherkey' });
+      listedAt.withArgs(NEW).resolves({ ip: NEW, pubkey: pubKey });
+
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.PUBKEY_MISMATCH);
+    });
+
+    it('accepts a move listed under the signer at both addresses', async () => {
+      listedAt.withArgs(OLD).resolves({ ip: OLD, pubkey: pubKey });
+      listedAt.withArgs(NEW).resolves({ ip: NEW, pubkey: pubKey });
+
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.OK);
+    });
+
+    it('refuses a move when neither address is listed', async () => {
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.NODE_NOT_FOUND);
+    });
+
+    it('still checks every other broadcast against its one address only', async () => {
+      listedAt.withArgs(NEW).resolves({ ip: NEW, pubkey: pubKey });
+      const sigterm = await signed({
+        type: 'fluxnodesigterm', ip: OLD, broadcastedAt: Date.now(), version: 1, newIP: NEW,
+      });
+
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(sigterm)).to.equal(VerifyResult.NODE_NOT_FOUND);
+    });
+  });
+
   describe('verifyFluxBroadcast fluxnodesigterm tests', () => {
     const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
     const pubKey = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';

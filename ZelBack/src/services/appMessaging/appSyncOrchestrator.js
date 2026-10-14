@@ -117,7 +117,6 @@ class AppSyncOrchestrator {
   #ephemeralUnverifiedHandler = null;
   #ephemeralProgressHandler = null;
   #hashUnresolvedHandler = null;
-  #hashesChangedHandler = null;
   #broadcastStarted = null;
   #started = false;
   #syncInProgress = false;
@@ -131,6 +130,9 @@ class AppSyncOrchestrator {
   // that credit is what stopped this node listening to the rest of it.
   #syncCompletions = freshSyncCompletions();
   #stateSyncComplete = false;
+  // A completed sync paused at the authority checkpoint, so later answers do
+  // not pause a second completion behind it.
+  #completionHeld = false;
   #syncTimeout = null;
   /**
    * The requests this node has outstanding, and how each ended.
@@ -185,6 +187,7 @@ class AppSyncOrchestrator {
     const prevState = this.#state;
     if (prevState === newState) return;
     this.#state = newState;
+    globalState.appSyncState = newState;
     fluxEventBus.publish('orchestrator:stateChanged', { from: prevState, to: newState });
     if (prevState === STATES.READY && newState !== STATES.READY) {
       appSyncEvents.emit(EVENTS.READINESS_LOST);
@@ -262,9 +265,6 @@ class AppSyncOrchestrator {
     };
     this.#blockEmitter.on('blocksProcessed', this.#blockReceivedHandler);
 
-    this.#hashesChangedHandler = () => this.#onHashesChanged();
-    this.#blockEmitter.on('hashesChanged', this.#hashesChangedHandler);
-
     fluxEventBus.publish('orchestrator:started', { state: this.#state, bootContext });
 
     if (this.#waitForNetworkState) {
@@ -318,18 +318,42 @@ class AppSyncOrchestrator {
       completions: answered.size,
       required: MIN_SYNC_COMPLETIONS,
     });
-    if (Object.values(this.#syncCompletions).every((peers) => peers.size >= MIN_SYNC_COMPLETIONS)) {
-      this.#stateSyncComplete = true;
-      this.#publishStateSyncAuthority();
-      if (this.#syncTimeout) {
-        clearTimeout(this.#syncTimeout);
-        this.#syncTimeout = null;
-      }
-      this.#closeRound('the sync completed');
-      log.info('AppSyncOrchestrator - All state syncs complete');
-      fluxEventBus.publish('ephemeralSync:allComplete', this.#completionCounts());
-      this.#checkReadiness();
+    if (this.#completionHeld) return;
+    if (!Object.values(this.#syncCompletions).every((peers) => peers.size >= MIN_SYNC_COMPLETIONS)) return;
+    if (fluxEventBus.isCheckpointHeld(fluxEventBus.Checkpoint.APPSYNC_BEFORE_AUTHORITATIVE)) {
+      this.#completeStateSyncWhenReleased();
+      return;
     }
+    this.#completeStateSync();
+  }
+
+  /**
+   * Hold a completed sync at the authority checkpoint, and complete it on release.
+   *
+   * Released into a reset or a stop, it completes nothing: the answers it was
+   * holding belong to an attempt that has ended.
+   * @returns {Promise<void>}
+   */
+  async #completeStateSyncWhenReleased() {
+    const attempt = this.#syncCompletions;
+    this.#completionHeld = true;
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.APPSYNC_BEFORE_AUTHORITATIVE);
+    this.#completionHeld = false;
+    if (!this.#started || this.#stateSyncComplete || this.#syncCompletions !== attempt) return;
+    this.#completeStateSync();
+  }
+
+  #completeStateSync() {
+    this.#stateSyncComplete = true;
+    this.#publishStateSyncAuthority();
+    if (this.#syncTimeout) {
+      clearTimeout(this.#syncTimeout);
+      this.#syncTimeout = null;
+    }
+    this.#closeRound('the sync completed');
+    log.info('AppSyncOrchestrator - All state syncs complete');
+    fluxEventBus.publish('ephemeralSync:allComplete', this.#completionCounts());
+    this.#checkReadiness();
   }
 
   /**
@@ -727,16 +751,22 @@ class AppSyncOrchestrator {
     });
 
     if (!this.#syncTimeout && !this.#stateSyncComplete) {
-      this.#syncTimeout = setTimeout(() => {
+      const budget = setTimeout(async () => {
+        await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.APPSYNC_BEFORE_BUDGET_SPENT);
+        // Held at the checkpoint, the attempt may have been reset and a new one
+        // opened; this budget then belongs to neither.
+        if (this.#syncTimeout !== budget) return;
         this.#syncTimeout = null;
         if (this.#stateSyncComplete) return;
         this.#closeRound('the budget ran out');
         this.#syncBudgetSpent = true;
         this.#requests.discardAll();
-        const answered = Object.entries(this.#completionCounts())
-          .map(([type, count]) => `${type}=${count}`).join(' ');
+        const counts = this.#completionCounts();
+        const answered = Object.entries(counts).map(([type, count]) => `${type}=${count}`).join(' ');
         log.warn(`AppSyncOrchestrator - Sync timeout, peers answered: ${answered}`);
+        fluxEventBus.publish('ephemeralSync:budgetSpent', { answered: counts });
       }, SYNC_TIMEOUT_MS);
+      this.#syncTimeout = budget;
     }
   }
 
@@ -849,12 +879,6 @@ class AppSyncOrchestrator {
     this.#nextHashRetryHeight = 0;
   }
 
-  #onHashesChanged() {
-    if (!this.#hashSyncComplete) return;
-    log.info('AppSyncOrchestrator - Reconstruct audit found changes, scheduling immediate hash recheck');
-    this.#nextHashRetryHeight = 0;
-  }
-
   async #checkHashRetry(blockHeight) {
     if (!this.#hashSyncComplete) return;
     if (!this.#canSendMessages) return;
@@ -865,6 +889,13 @@ class AppSyncOrchestrator {
     try {
       const result = await appHashSyncService.syncMissingHashes({ currentHeight: this.#lastBlockHeight });
       this.#nextHashRetryHeight = result.nextRetryHeight ?? (this.#lastBlockHeight + FALLBACK_RECHECK_BLOCKS);
+      // A retry stores the messages it resolves without promoting them, so nothing else applies
+      // them: a renewal fetched here would never reach globalAppsInformation, and the app would
+      // expire on this node alone. Rebuild from the log, as the initial sync does.
+      if (result.resolved > 0) {
+        await registryManager.reindexGlobalAppsInformation()
+          .catch((error) => log.error(`AppSyncOrchestrator - Rebuild after hash retry failed: ${error.message}`));
+      }
       if (result.missing > 0) {
         log.info(`AppSyncOrchestrator - Hash retry: ${result.resolved} resolved, ${result.missing} remaining, next check at block ${this.#nextHashRetryHeight}`);
       }
@@ -1179,9 +1210,6 @@ class AppSyncOrchestrator {
     }
     if (this.#blockReceivedHandler) {
       this.#blockEmitter.removeListener('blocksProcessed', this.#blockReceivedHandler);
-    }
-    if (this.#hashesChangedHandler) {
-      this.#blockEmitter.removeListener('hashesChanged', this.#hashesChangedHandler);
     }
     if (this.#peerThresholdHandler) {
       this.#offPeerEvent('peerThresholdReached', this.#peerThresholdHandler);

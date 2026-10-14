@@ -12,6 +12,26 @@ const generateResponse = () => {
 };
 
 describe('daemonServiceMiscRpcs tests', () => {
+  describe('isAddressIndex', () => {
+    let getConfigValue;
+
+    beforeEach(() => {
+      getConfigValue = sinon.stub(daemonServiceUtils, 'getConfigValue');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    [[1, true], ['1', true], ['0', false], [undefined, false]].forEach(([value, expected]) => {
+      it(`answers ${expected} for addressindex=${value}`, () => {
+        getConfigValue.returns(value);
+        expect(daemonServiceMiscRpcs.isAddressIndex()).to.equal(expected);
+        sinon.assert.calledOnceWithExactly(getConfigValue, 'addressindex');
+      });
+    });
+  });
+
   describe('isInsightExplorer tests', () => {
     let serviceUtilsStub;
 

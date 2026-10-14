@@ -28,7 +28,8 @@ const lastCandidacy = new Map();
 
 /**
  * Which stage removed each app, from the survivor snapshots taken through the
- * filter chain, and publish only the ones whose answer changed since last pass.
+ * filter chain: tallied every pass (spawner:verdict, by app and stage), and
+ * published only when the answer changed since last pass.
  *
  * @param {Array<[string, Set<string>]>} stages Ordered [stageName, names still in].
  */
@@ -44,6 +45,7 @@ function publishCandidacyChanges(stages) {
     verdicts.set(name, stage);
   }
   for (const [name, stage] of verdicts) {
+    fluxEventBus.count('spawner:verdict', name, stage);
     if (lastCandidacy.get(name) === stage) continue;
     lastCandidacy.set(name, stage);
     fluxEventBus.publish('spawner:candidacy', { name, stage, candidate: stage === 'candidate' });
@@ -71,14 +73,29 @@ const { InstallOutcome } = require('../utils/installOutcome');
 const appUninstaller = require('./appUninstaller');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
 const fluxEventBus = require('../utils/fluxEventBus');
+const outboundPathService = require('../outboundPathService');
 
 let appsCountAvailableToInstallOnMyNode = 0;
 
 const collisionWaitMs = config.fluxapps.installCollisionWaitMs;
 const { spawnReconfirmDelayMs } = config.fluxapps;
-const nonEnterpriseSpawnDelayMs = config.fluxapps.nonEnterpriseSpawnDelayMs ?? 2 * 60 * 1000;
 
 let spawnLoopRunning = false;
+
+/**
+ * Whether an application keeps a synced volume.
+ *
+ * Canonical classification: sync flags are only valid on the primary mount, so a
+ * g:/r:/s: in an invalid position (or inside a word like 'logs:') is NOT a synced app.
+ * @param {object} appSpecifications
+ * @returns {boolean}
+ */
+function isSyncedApp(appSpecifications) {
+  if (appSpecifications.version <= 3) {
+    return mountParser.isSyncedComponent(appSpecifications.containerData);
+  }
+  return appSpecifications.compose.some((comp) => mountParser.isSyncedComponent(comp.containerData));
+}
 
 function initialize() {
   appSyncEvents.on(SYNC_EVENTS.SPAWNER_READY, () => {
@@ -333,6 +350,9 @@ async function trySpawningGlobalApplication() {
     let minInstances = null;
     let appFromAppsToBeCheckedLater = false;
     let appFromAppsSyncthingToBeCheckedLater = false;
+    // Set when the app comes back from a domain-share deferral: the better-placed
+    // domains have had their turn and did not take it.
+    let shareDeferralServed = false;
     const { appsToBeCheckedLater, appsSyncthingToBeCheckedLater } = globalState;
     const appIndex = appsToBeCheckedLater.findIndex((app) => app.timeToCheck <= Date.now());
     const appSyncthingIndex = appsSyncthingToBeCheckedLater.findIndex((app) => app.timeToCheck <= Date.now());
@@ -343,6 +363,8 @@ async function trySpawningGlobalApplication() {
       appToRun = appsToBeCheckedLater[appIndex].appName;
       appHash = appsToBeCheckedLater[appIndex].hash;
       minInstances = appsToBeCheckedLater[appIndex].required;
+      shareDeferralServed = appsToBeCheckedLater[appIndex].reason === 'domain_share';
+      fluxEventBus.publish('spawner:deferralMatured', { appName: appToRun, reason: appsToBeCheckedLater[appIndex].reason ?? null });
       appsToBeCheckedLater.splice(appIndex, 1);
       appFromAppsToBeCheckedLater = true;
       appsCountAvailableToInstallOnMyNode = Math.max(0, appsCountAvailableToInstallOnMyNode - 1);
@@ -580,6 +602,20 @@ async function trySpawningGlobalApplication() {
       return shortDelayTime;
     }
 
+    // A synced app runs on this node asking its partners who holds what. A node
+    // whose calls to other nodes are redirected cannot ask: it reads every
+    // partner as unknown and never promotes, so a new app it was chosen to seed
+    // would wait on it for good. It keeps hosting everything else.
+    if (outboundPathService.isRedirected() && isSyncedApp(appSpecifications)) {
+      log.warn(`trySpawningGlobalApplication - ${appSpecifications.name} keeps a synced volume, and this node's calls to other nodes are redirected. Not taking it.`);
+      fluxEventBus.publish('spawner:deferred', {
+        appName: appSpecifications.name,
+        reason: 'outbound_redirected',
+        delayMs: shortDelayTime,
+      });
+      return shortDelayTime;
+    }
+
     // Needed by the public availability check below.
     const appPorts = appUtilities.getAppPorts(appSpecifications);
 
@@ -705,15 +741,9 @@ async function trySpawningGlobalApplication() {
       return shortDelayTime;
     }
 
-    // canonical classification: sync flags are only valid on the primary mount, so a
-    // g:/r:/s: in an invalid position (or inside a word like 'logs:') is NOT a synced
-    // app and the same-IP-range placement caution below must not apply to it
-    let syncthingApp = false;
-    if (appSpecifications.version <= 3) {
-      syncthingApp = mountParser.isSyncedComponent(appSpecifications.containerData);
-    } else {
-      syncthingApp = appSpecifications.compose.some((comp) => mountParser.isSyncedComponent(comp.containerData));
-    }
+    // A mis-flagged mount is not a synced app, and the same-IP-range placement
+    // caution below must not apply to it.
+    const syncthingApp = isSyncedApp(appSpecifications);
 
     // An owner who names exactly as many nodes as instances has assigned the
     // placement, and the diversity share does not second-guess it. A longer
@@ -735,7 +765,10 @@ async function trySpawningGlobalApplication() {
     let placementShare = null;
     let placementDomainOf = null;
     let myDomain = null;
-    if (syncthingApp && !ownerNamedThisNode) {
+    if (syncthingApp && !ownerNamedThisNode && shareDeferralServed) {
+      log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and is back from its domain-share deferral, the share no longer applies`);
+    }
+    if (syncthingApp && !ownerNamedThisNode && !shareDeferralServed) {
       // placementComputation refuses a geo-restricted question while the location
       // table is still loading, because answering it over the whole network would
       // advise on numbers that mean nothing. That refusal is addressed to the HTTP
@@ -761,7 +794,31 @@ async function trySpawningGlobalApplication() {
       const heldInMine = await placementFeasibility.countHeldInDomain(runningAppList, myDomain, placementDomainOf)
         + await placementFeasibility.countHeldInDomain(installingAppList, myDomain, placementDomainOf);
       if (heldInMine >= placementShare.maxPerDomain) {
-        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and fault domain ${myDomain} already holds ${heldInMine} of its ${placementShare.maxPerDomain}-instance share (${placementShare.domainCount} eligible domains)`);
+        // A deferral, not a refusal. The share is computed over every node the
+        // geolocation admits, with no regard for whether those nodes have room
+        // or take apps at all, so the better-placed candidate it assumes may not
+        // exist in practice: the other domains can be full, and the refusal also
+        // left the hash in the twelve-hour spawn cache. Seen on mainnet: synced
+        // apps pinned to Minnesota and to Missouri sat at 1 of 2, with 41 of 50
+        // and 105 of 122 of those states' nodes in the running copy's own domain.
+        //
+        // So this node steps aside for longer than any spawn deferral a node in
+        // another domain may be sitting out, and if the app is still short when
+        // it comes back (the instance count is re-checked above, before this), a
+        // second copy in this domain beats no second copy.
+        const deferral = config.fluxapps.spawnDeferrals.domainShareMs;
+        const delayMs = appSpecifications.enterprise ? deferral.enterprise : deferral.standard;
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and fault domain ${myDomain} already holds ${heldInMine} of its ${placementShare.maxPerDomain}-instance share (${placementShare.domainCount} eligible domains), `
+          + `will check in around ${Math.round(delayMs / 60000)}m if instances are still missing`);
+        globalState.appsToBeCheckedLater.push({
+          timeToCheck: Date.now() + delayMs,
+          appName: appToRun,
+          hash: appHash,
+          required: minInstances,
+          reason: 'domain_share',
+        });
+        globalState.trySpawningGlobalAppCache.delete(appHash);
+        fluxEventBus.publish('spawner:deferred', { appName: appToRun, reason: 'domain_share', delayMs });
         return shortDelayTime;
       }
     }
@@ -817,20 +874,7 @@ async function trySpawningGlobalApplication() {
       const tier = await generalService.nodeTier();
       const appHWrequirements = hwRequirements.totalAppHWRequirements(appSpecifications, tier);
       let delay = false;
-      const isArcane = Boolean(process.env.FLUXOS_PATH);
-      if (!appToRunAux.enterprise && isArcane) {
-        const appToCheck = {
-          timeToCheck: Date.now() + nonEnterpriseSpawnDelayMs,
-          appName: appToRun,
-          hash: appHash,
-          required: minInstances,
-        };
-        log.info(`trySpawningGlobalApplication - App ${appToRun} specs not enterprise, will check in around ${Math.round(nonEnterpriseSpawnDelayMs / 1000)}s if instances are still missing`);
-        globalState.appsToBeCheckedLater.push(appToCheck);
-        globalState.trySpawningGlobalAppCache.delete(appHash);
-        fluxEventBus.publish('spawner:deferred', { appName: appToRun, reason: 'non_enterprise_on_arcane', delayMs: nonEnterpriseSpawnDelayMs });
-        delay = true;
-      } else if (!appSpecifications.staticip && geolocationService.isStaticIP()) {
+      if (!appSpecifications.staticip && geolocationService.isStaticIP()) {
         const deferral = config.fluxapps.spawnDeferrals.staticIpMs;
         const appToCheck = {
           timeToCheck: Date.now() + (appToRunAux.enterprise ? deferral.enterprise : deferral.standard),

@@ -6,7 +6,7 @@ import { authenticate } from './auth.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(__dirname, '..', 'fixtures');
 
-const NODE_BASE_URL = process.env.NODE_URL || 'http://198.18.1.0:16127';
+const NODE_BASE_URL = process.env.NODE_URL || 'http://31.200.1.0:16127';
 
 const keypair = JSON.parse(readFileSync(join(fixturesDir, 'keys', 'node-01.json'), 'utf-8'));
 

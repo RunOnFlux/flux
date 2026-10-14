@@ -44,6 +44,8 @@ const rpcFailures = new Map();
 // releases it. Failing an RPC ends the operation waiting on it; holding one keeps
 // that operation open, which is how a suite decides when it is in flight.
 const rpcHolds = new Map();
+// One method failing for one node: ip -> method -> how many more calls fail.
+const rpcMethodFailures = new Map();
 // ip -> false. Absent means ArcaneOS, which is what 85% of the real fleet runs
 // and what every suite that does not care about this should see: a node reading
 // systemsecure=true is never a residential-DOS target.
@@ -89,7 +91,28 @@ function nodeBySourceIp(sourceIp) {
       return deterministicNodeList.find((n) => n.ip.split(':')[0] === realIp) || null;
     }
   }
-  return null;
+  // A machine running on another node's collateral is answered as that node: its
+  // collateral, its status and its list entry are the ones the chain holds.
+  const alias = collateralAliases.get(clean);
+  if (alias) return deterministicNodeList.find((n) => n.ip.split(':')[0] === alias) || null;
+  // A node the list no longer holds is still the machine it was: its own daemon
+  // and benchmark answer with its collateral, key and address. Only the list,
+  // and what a mined confirmation changes, leave it out.
+  return originalNodeList.find((n) => n.ip.split(':')[0] === clean) || null;
+}
+
+// Machines that run on another node's collateral: real ip -> the real ip of the
+// listed node they run as. Each is a machine of its own all the same, so what its
+// benchmark measures, and what its confirmation carries, is its own address.
+const collateralAliases = new Map();
+
+// The address benchmark measures for the machine a request comes from, or null
+// when it is not one running on another node's collateral.
+function aliasedOwnAddress(sourceIp, node) {
+  const clean = sourceIp.replace('::ffff:', '');
+  if (!collateralAliases.has(clean) || !node) return null;
+  const [, port] = node.ip.split(':');
+  return port ? `${clean}:${port}` : clean;
 }
 
 // Where a node really is, versus where the network is told it is.
@@ -116,17 +139,27 @@ const reportedAddresses = new Map(); // real ip -> { reported, scope }
 // probe - benchmark still reports the old address as the node's own, the node is
 // still listed there, and only getpublicip has noticed. That is the state a node
 // is actually in when its address moves, and it is what lets it detect the move at
-// all: the two answers disagreeing IS the detection.
+// all: the two answers disagreeing IS the detection. `benchmark` is the state after
+// it: benchmark reports the new address as the node's own, and the network still
+// lists it at the old one.
 function overrideFor(node) {
   if (!node) return null;
   return reportedAddresses.get(node.ip.split(':')[0]) || null;
 }
 
-// The address the network believes this node has. Unmoved under `publicip`.
+// The address the network believes this node has. Unmoved under `publicip` and
+// `benchmark`.
 function reportedAddressOf(node) {
   if (!node) return null;
   const o = overrideFor(node);
   return o && o.scope === 'all' ? o.reported : node.ip;
+}
+
+// The address benchmark tells the node it has. Moves under `benchmark` and `all`.
+function benchmarkAddressOf(node) {
+  if (!node) return null;
+  const o = overrideFor(node);
+  return o && (o.scope === 'all' || o.scope === 'benchmark') ? o.reported : node.ip;
 }
 
 // What benchmark's public-IP probe answers, which moves under either scope.
@@ -149,6 +182,9 @@ function publicIpAnswerFor(node) {
 // before it will run the availability check at all. Hiding it from everyone,
 // itself included, stops the check ever running.
 const hiddenFromPeers = new Set(); // real ip -> hidden from other nodes' lists
+// Nodes benchmark has no address for, as fluxbench has none when no public-IP
+// service answers it: getbenchmarks reports none and getpublicip fails.
+const unresolvedNodes = new Set(); // real ip
 
 // The list as a given requester sees it: every entry at its reported address,
 // minus any node hidden from that requester. A run with nothing hidden and nothing
@@ -170,6 +206,33 @@ function publishReported(list) {
     const o = reportedAddresses.get(n.ip.split(':')[0]);
     return o && o.scope === 'all' ? { ...n, ip: o.reported } : n;
   });
+}
+
+/**
+ * The address-index deltas of the blocks this stub has built: one per output
+ * paying a requested address, with the transaction's position in its block as
+ * `blockindex`, as fluxd reports them.
+ * @param {{addresses?: string[], start?: number, end?: number}} query
+ * @returns {object[]}
+ */
+function blockAddressDeltas({ addresses = [], start = 0, end = Infinity }) {
+  const wanted = new Set(addresses);
+  const deltas = [];
+  pendingBlocks
+    .filter((block) => block.height >= start && block.height <= end)
+    .sort((a, b) => a.height - b.height)
+    .forEach((block) => {
+      (block.tx || []).forEach((tx, blockindex) => {
+        (tx.vout || []).forEach((vout, index) => {
+          const address = vout.scriptPubKey?.addresses?.[0];
+          if (!wanted.has(address)) return;
+          deltas.push({
+            satoshis: vout.valueSat, txid: tx.txid, index, blockindex, height: block.height, address,
+          });
+        });
+      });
+    });
+  return deltas;
 }
 
 const rpcHandlers = {
@@ -352,12 +415,21 @@ const rpcHandlers = {
     return '0100000000000000000000';
   },
 
-  createconfirmationtransaction: () => ({ hex: 'stub-confirmation-tx-hex' }),
+  // A confirmation carries the address fluxbench measured for the node, and the
+  // next block mines it: the node's list entry and status move there then.
+  createconfirmationtransaction: (params, sourceIp) => {
+    const node = nodeBySourceIp(sourceIp);
+    if (node) {
+      const o = overrideFor(node);
+      pendingConfirmations.set(node.ip.split(':')[0], aliasedOwnAddress(sourceIp, node) ?? (o ? o.reported : node.ip));
+    }
+    return { hex: 'stub-confirmation-tx-hex' };
+  },
 
   getaddressbalance: () => ({ balance: 0, received: 0 }),
   getaddressutxos: () => [],
   getaddresstxids: () => (seededAddressTxids.length > 0 ? seededAddressTxids : []),
-  getaddressdeltas: () => (seededAddressDeltas.length > 0 ? seededAddressDeltas : []),
+  getaddressdeltas: (params) => [...seededAddressDeltas, ...blockAddressDeltas(params[0] || {})],
 
   listunspent: () => [],
   validateaddress: (params) => ({
@@ -392,8 +464,9 @@ const benchHandlers = {
       stratus: { cores: 16, ram: 62, ssd: 960, hdd: 0, ddwrite: 400, eps: 2000, ping: 2, download_speed: 1000, upload_speed: 500 },
     };
     const s = specs[tier] || specs.cumulus;
+    const unresolved = node && unresolvedNodes.has(node.ip.split(':')[0]);
     return {
-      ipaddress: node ? reportedAddressOf(node) : '127.0.0.1',
+      ipaddress: unresolved ? '' : (node ? (aliasedOwnAddress(sourceIp, node) ?? benchmarkAddressOf(node)) : '127.0.0.1'),
       cores: s.cores,
       ram: s.ram,
       ssd: s.ssd,
@@ -425,6 +498,13 @@ const benchHandlers = {
 
   getpublicip: (params, sourceIp) => {
     const node = nodeBySourceIp(sourceIp);
+    if (node && unresolvedNodes.has(node.ip.split(':')[0])) throw new Error('Ipaddress gathered is not valid: ');
+    const own = aliasedOwnAddress(sourceIp, node);
+    if (own) return own.split(':')[0];
+    // fluxbench keeps the address getpublicip measures as its own: getbenchmarks
+    // reports it from then on.
+    const o = overrideFor(node);
+    if (o && o.scope === 'publicip') o.scope = 'benchmark';
     return node ? publicIpAnswerFor(node) : '127.0.0.1';
   },
 
@@ -465,6 +545,12 @@ async function handleRpc(handlers, req, res) {
 
   const lowerMethod = method.toLowerCase();
 
+  const failing = rpcMethodFailures.get(cleanIp);
+  if (failing && failing.get(lowerMethod) > 0) {
+    failing.set(lowerMethod, failing.get(lowerMethod) - 1);
+    return res.json({ result: null, error: { code: -1, message: `${lowerMethod} failed by the harness` }, id });
+  }
+
   const heldMethods = rpcHolds.get(cleanIp);
   const waiters = heldMethods && heldMethods.get(lowerMethod);
   if (waiters) {
@@ -499,6 +585,22 @@ benchd.use(express.json());
 benchd.post('/', (req, res) => { handleRpc(benchHandlers, req, res).catch((err) => { console.error('benchd rpc:', err); }); });
 benchd.listen(BENCHD_PORT, () => console.log(`Fluxbenchd stub listening on port ${BENCHD_PORT}`));
 
+// Confirmations sent since the last block: real ip -> the address each carries.
+const pendingConfirmations = new Map();
+
+// Mine the confirmations sent since the last block. One carrying an address
+// other than the node's own moves its list entry and status there, as a node's
+// IP-change confirmation does on chain; one carrying the address it already
+// has changes nothing.
+function mineConfirmations() {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [realIp, address] of pendingConfirmations) {
+    const node = deterministicNodeList.find((n) => n.ip.split(':')[0] === realIp);
+    if (node && address !== node.ip) reportedAddresses.set(realIp, { reported: address, scope: 'all' });
+  }
+  pendingConfirmations.clear();
+}
+
 // -- Block ticker --
 const BLOCK_INTERVAL_MS = Number(process.env.BLOCK_INTERVAL_MS) || 5000;
 const TICKER_AUTOSTART = process.env.TICKER_AUTOSTART !== 'false';
@@ -507,6 +609,7 @@ let tickerHandle = null;
 
 function tickBlock() {
   currentHeight += 1;
+  mineConfirmations();
   const txs = [];
   while (pendingAppTxQueue.length > 0) {
     const appHash = pendingAppTxQueue.shift();
@@ -607,6 +710,7 @@ function buildAppRegistrationTx(appHash, height) {
 control.post('/advance-block', (req, res) => {
   const { block, appHash } = req.body;
   currentHeight += 1;
+  mineConfirmations();
   const txs = [];
   if (appHash) {
     txs.push(buildAppRegistrationTx(appHash, currentHeight));
@@ -649,9 +753,17 @@ control.post('/set-height', (req, res) => {
   res.json({ currentHeight });
 });
 
+// Machines that run on another node's collateral, replacing any set before:
+// { aliases: { '<real ip>': '<real ip of the listed node it runs as>' } }.
+control.post('/collateral-aliases', (req, res) => {
+  collateralAliases.clear();
+  Object.entries((req.body || {}).aliases || {}).forEach(([ip, as]) => collateralAliases.set(String(ip).split(':')[0], String(as).split(':')[0]));
+  res.json({ aliases: Object.fromEntries(collateralAliases) });
+});
+
 control.post('/set-node-list', (req, res) => {
   // Update the restore/reset baseline too, so /node-list/restore and /reset stay
-  // consistent with the per-run addresses the harness assigns (not the 198.18 fixture).
+  // consistent with the per-run addresses the harness assigns (not the fixture's).
   deterministicNodeList = req.body.nodes;
   originalNodeList = [...req.body.nodes];
   res.json({ nodeCount: deterministicNodeList.length });
@@ -665,11 +777,15 @@ control.post('/set-node-list', (req, res) => {
 // reply about the node itself, getpublicip, its status, and its list entry. That is
 // an address change already settled everywhere.
 //
+// `scope: 'benchmark'` moves benchmark's public-IP probe and its reply about the
+// node itself, and leaves its status and list entry where they were: a node that
+// has noticed the move, before the chain has caught up.
+//
 // `scope: 'publicip'` moves only benchmark's public-IP probe. Everything else still
 // says the node is where it was. That is the state a node is in the moment its
-// address moves and before the chain has caught up - and it is the only state in
-// which a node can DETECT the move, because detection is precisely those two
-// answers disagreeing.
+// address moves and before the chain has caught up. As fluxbench does, the first
+// getpublicip answer moves benchmark's reply about the node itself too: the scope
+// becomes `benchmark`.
 // Hide a node from its PEERS' view of the network, or put it back. The node keeps
 // seeing itself, which is what lets it still run the availability check that then
 // comes back "unreachable" - deterministically, because a peer answers from its
@@ -684,6 +800,14 @@ control.post('/node-visibility/:ip', (req, res) => {
   return res.json({ node: key, hiddenFromPeers: hidden });
 });
 
+control.post('/benchmark-unresolved/:ip', (req, res) => {
+  const key = String(req.params.ip).split(':')[0];
+  const unresolved = (req.body || {}).unresolved !== false;
+  if (unresolved) unresolvedNodes.add(key);
+  else unresolvedNodes.delete(key);
+  return res.json({ node: key, unresolved });
+});
+
 control.post('/node-address/:ip', (req, res) => {
   const key = String(req.params.ip).split(':')[0];
   const node = deterministicNodeList.find((n) => n.ip.split(':')[0] === key);
@@ -694,8 +818,8 @@ control.post('/node-address/:ip', (req, res) => {
     reportedAddresses.delete(key);
     return res.json({ node: key, reported: node.ip, scope: null });
   }
-  if (scope !== 'all' && scope !== 'publicip') {
-    return res.status(400).json({ error: `scope must be 'all' or 'publicip', got '${scope}'` });
+  if (!['all', 'benchmark', 'publicip'].includes(scope)) {
+    return res.status(400).json({ error: `scope must be 'all', 'benchmark' or 'publicip', got '${scope}'` });
   }
 
   // A bare address keeps the node's own port. The api port is what its peers reach
@@ -871,6 +995,21 @@ control.delete('/rpc-hold/all', (req, res) => {
   res.json({ held: false, released });
 });
 
+// Fail `method` for one node `times` times, then answer it as usual.
+control.post('/rpc-fail-method/:ip', (req, res) => {
+  const { method, times = 1 } = req.body;
+  if (!method) return res.status(400).json({ error: 'method is required' });
+  if (!Number.isInteger(times) || times < 1) return res.status(400).json({ error: 'times must be a positive integer' });
+  const lower = String(method).toLowerCase();
+  if (!rpcMethodFailures.has(req.params.ip)) rpcMethodFailures.set(req.params.ip, new Map());
+  rpcMethodFailures.get(req.params.ip).set(lower, times);
+  return res.json({ ip: req.params.ip, method: lower, times });
+});
+control.delete('/rpc-fail-method/:ip', (req, res) => {
+  rpcMethodFailures.delete(req.params.ip);
+  res.json({ ip: req.params.ip, cleared: true });
+});
+
 control.post('/rpc-hold/:ip', (req, res) => {
   if (req.params.ip === 'all') return res.status(500).json({ error: 'route order regressed: /rpc-hold/all must be registered first' });
   const { method } = req.body;
@@ -923,8 +1062,11 @@ control.delete('/seed-data', (req, res) => {
 control.post('/reset', (req, res) => {
   nodeStatusOverrides.clear();
   reportedAddresses.clear();
+  pendingConfirmations.clear();
   hiddenFromPeers.clear();
+  unresolvedNodes.clear();
   rpcFailures.clear();
+  rpcMethodFailures.clear();
   // Answered, not dropped: a call left waiting on a hold outlives the reset and
   // hangs whatever made it.
   for (const ip of [...rpcHolds.keys()]) releaseHolds(ip);

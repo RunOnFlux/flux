@@ -8,7 +8,7 @@ import {
   bootAndPeer, seedSpawnerApp, waitForInstanceCount,
   installingClaimIpsByNode, installingErrorsByNode,
 } from '../framework/reconciler-suite.js';
-import { waitFor, waitForCandidacy } from '../framework/wait.js';
+import { waitFor } from '../framework/wait.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -247,7 +247,7 @@ describe('spawner withdraws an installing claim without reporting a failure', fu
     });
   });
 
-  it('takes the app after standing down, once it is short again', async function () {
+  it('stays in the draw after standing down, once it is short again', async function () {
     this.timeout(300000);
     // Standing aside must not cost eligibility. The rival gives up the slot it
     // was holding, so the app is one short again - and the node that stood down
@@ -255,48 +255,32 @@ describe('spawner withdraws an installing claim without reporting a failure', fu
     const stoodDown = [...withdrawnIps()];
     expect(stoodDown, 'fixture: a node must have stood down first').to.not.be.empty;
 
-    // ANCHORED, and the mutation is why. Every one of these nodes was a candidate
-    // for this app before it claimed - that is how it came to stand down - so an
-    // unanchored wait is answered from the buffer by that earlier verdict and
-    // passes before the rival has withdrawn anything. Proven: with a mutant that
-    // writes a stood-down node off entirely, the unanchored form still passed
-    // 6/6. The baseline is taken per node, before the withdrawal, so only a
-    // verdict reached AFTER it counts.
-    const baselines = new Map(stoodDown.map((ip) => {
-      const index = env.clients.findIndex((_, i) => getSubnetConfig().nodeIp(i + 1) === ip);
-      return [ip, { index, afterId: env.clients[index].getLastEventId() }];
-    }));
+    // Every pass tallies, per app, the stage that removed it (spawner:verdict).
+    // afterAlreadyHeldOrTried is the filter that would hold a stood-down node
+    // out, so a verdict from any later stage, or 'candidate', is a pass on which
+    // the node was still in the draw - whoever wins the slot, and whether or not
+    // the app reads as covered again by then. Counted from just before the
+    // withdrawal, so only passes after it count.
+    const HELD_OUT = ['afterBlocklist', 'afterAlreadyHeldOrTried'];
+    const clientOf = (ip) => env.clients[env.clients.findIndex((_, i) => getSubnetConfig().nodeIp(i + 1) === ip)];
+    const passesInTheDraw = async (ip) => {
+      const verdicts = (await clientOf(ip).getTestCounters())['spawner:verdict']?.[appName] || {};
+      return Object.entries(verdicts)
+        .filter(([stage]) => !HELD_OUT.includes(stage))
+        .reduce((sum, [, n]) => sum + n, 0);
+    };
+    const baselines = new Map();
+    for (const ip of stoodDown) {
+      // eslint-disable-next-line no-await-in-loop
+      baselines.set(ip, await passesInTheDraw(ip));
+    }
 
     const rival = env.stubPeerClients.get(STUB_INDEX);
     await rival.withdrawApp(appName);
 
-    // ELIGIBILITY IS A FACT ABOUT ONE NODE. Which node then takes the freed slot
-    // is a draw among every eligible node, and the design promises nothing about
-    // who wins - so asserting the winner asserted a lottery.
-    //
-    // Measured on an idle box with the claim rows dumped: six real nodes, one
-    // holding, and only THREE of the five non-holders stood down. The other two
-    // never claimed at all, because by the time they looked the app already read
-    // as covered - one running plus the rival's claim against a required two - so
-    // it was filtered out before they could race. After the withdrawal all five
-    // are candidates again and a stood-down node wins three times in five. This
-    // test has been passing on that.
-    //
-    // What it must actually prove is that standing aside did not cost the node
-    // its place in the draw. The spawner publishes that directly: a verdict
-    // FLIPPING from excluded to candidate. afterAlreadyHeldOrTried is the filter
-    // that would hold a stood-down node out, so surviving it is the property, and
-    // the event fires whether or not this node goes on to win.
-    const backIn = await Promise.any(stoodDown.map((ip) => {
-      const { index, afterId } = baselines.get(ip);
-      return waitForCandidacy(
-        env.clients[index],
-        (d) => d.name === appName && d.candidate === true,
-        240000,
-        { afterId },
-      ).then(() => ip);
-    }));
-
-    expect(backIn, 'no node that stood down became a candidate again').to.be.a('string');
+    await waitFor(async () => {
+      const now = await Promise.all(stoodDown.map((ip) => passesInTheDraw(ip)));
+      return now.every((n, i) => n > baselines.get(stoodDown[i]));
+    }, { timeout: 120000, interval: 2000, label: 'every node that stood down is in the draw again after the withdrawal' });
   });
 });

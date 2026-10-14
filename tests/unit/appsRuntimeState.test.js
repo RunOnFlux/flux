@@ -20,14 +20,20 @@ describe('appsRuntimeState tests', () => {
         return store.get(query.identifier) || null;
       },
       // The fake honors projections the way mongo does: a query that stops
-      // selecting a field loses that field here too. operatorStoppedIdentifiers
+      // selecting a field loses that field here too. operatorHeldIdentifiers
       // reads doc.identifier off an unauthenticated peer route, and a stub that
       // ignores the projection serves the field regardless - the seam where a
       // wrong projection answers [] to an election in production while every
       // test stays green.
       findInDatabase: async (_db, _coll, query = {}, options = {}) => {
-        const docs = [...store.values()]
-          .filter((doc) => Object.entries(query).every(([field, value]) => doc[field] === value));
+        // $or, $ne and $exists as mongo reads them: $ne matches a field that is absent.
+        const matches = (doc, clause) => Object.entries(clause).every(([field, value]) => {
+          if (field === '$or') return value.some((alternative) => matches(doc, alternative));
+          if (value && typeof value === 'object' && '$ne' in value) return doc[field] !== value.$ne;
+          if (value && typeof value === 'object' && '$exists' in value) return (field in doc) === value.$exists;
+          return doc[field] === value;
+        });
+        const docs = [...store.values()].filter((doc) => matches(doc, query));
         const projection = options.projection || {};
         const included = Object.entries(projection)
           .filter(([field, mode]) => mode === 1 && field !== '_id')
@@ -123,28 +129,78 @@ describe('appsRuntimeState tests', () => {
       expect(store.get('www_App').restartHistory).to.deep.equal([]);
     });
  
+    describe('whether the node was the primary when it was stopped', () => {
+      it('records it, and reports it while the lock stands', async () => {
+        await appsRuntimeState.setOperatorStopped('www_App', true, { asPrimary: true });
+        await appsRuntimeState.setOperatorStopped('db_App', true);
+
+        expect((await appsRuntimeState.operatorStopState('www_App')).asPrimary).to.equal(true);
+        expect((await appsRuntimeState.operatorStopState('db_App')).asPrimary).to.equal(false);
+      });
+
+      it('keeps it through a second stop of a component already locked', async () => {
+        await appsRuntimeState.setOperatorStopped('www_App', true, { asPrimary: true });
+        await appsRuntimeState.setOperatorStopped('www_App', true, { force: true });
+
+        expect((await appsRuntimeState.operatorStopState('www_App')).asPrimary).to.equal(true);
+      });
+
+      it('forgets it when the lock is lifted, so a later stop records afresh', async () => {
+        await appsRuntimeState.setOperatorStopped('www_App', true, { asPrimary: true });
+        await appsRuntimeState.setOperatorStopped('www_App', false);
+        await appsRuntimeState.setOperatorStopped('www_App', true);
+
+        expect((await appsRuntimeState.operatorStopState('www_App')).asPrimary).to.equal(false);
+      });
+    });
+
     // The set, not one component at a time. This is what a peer is told this node
     // owns, so it is read on an unauthenticated route at election cadence.
-    describe('operatorStoppedIdentifiers', () => {
+    describe('operatorHeldIdentifiers', () => {
       it('lists only the components carrying the lock', async () => {
-        await appsRuntimeState.setOperatorStopped('www_App', true);
-        await appsRuntimeState.setOperatorStopped('db_App', true);
+        await appsRuntimeState.setOperatorStopped('www_App', true, { asPrimary: true });
+        await appsRuntimeState.setOperatorStopped('db_App', true, { asPrimary: true });
         await appsRuntimeState.recordRestart('api_App'); // a row, but no lock
 
-        const stopped = await appsRuntimeState.operatorStoppedIdentifiers();
+        const held = await appsRuntimeState.operatorHeldIdentifiers();
 
-        expect(stopped.sort()).to.deep.equal(['db_App', 'www_App']);
+        expect(held.sort()).to.deep.equal(['db_App', 'www_App']);
+      });
+
+      // Stopped on every node and started on every node, the starts arriving one
+      // node at a time: only the node that was the primary holds it, before its
+      // start arrives and after, so it starts and the rest stand aside for it.
+      it('holds a component only on the node that was its primary, whether or not its start has arrived', async () => {
+        await appsRuntimeState.setOperatorStopped('www_App', true, { asPrimary: true });
+        await appsRuntimeState.requestOperatorStart('www_App');
+        await appsRuntimeState.setOperatorStopped('web_App', true, { asPrimary: true });
+        await appsRuntimeState.setOperatorStopped('db_App', true);
+        await appsRuntimeState.requestOperatorStart('db_App');
+        await appsRuntimeState.setOperatorStopped('api_App', true);
+
+        const held = await appsRuntimeState.operatorHeldIdentifiers();
+
+        expect(held.sort()).to.deep.equal(['web_App', 'www_App']);
+      });
+
+      it('holds a lock taken before the lock recorded whether this node was the primary, until its start is asked for', async () => {
+        store.set('www_App', { identifier: 'www_App', operatorStopped: true });
+        store.set('db_App', { identifier: 'db_App', operatorStopped: true, operatorStartRequested: true });
+
+        const held = await appsRuntimeState.operatorHeldIdentifiers();
+
+        expect(held).to.deep.equal(['www_App']);
       });
 
       it('is empty when nothing is stopped, and distinguishes that from unreadable', async () => {
-        expect(await appsRuntimeState.operatorStoppedIdentifiers()).to.deep.equal([]);
+        expect(await appsRuntimeState.operatorHeldIdentifiers()).to.deep.equal([]);
       });
 
       it('drops a component whose lock was lifted', async () => {
-        await appsRuntimeState.setOperatorStopped('www_App', true);
+        await appsRuntimeState.setOperatorStopped('www_App', true, { asPrimary: true });
         await appsRuntimeState.setOperatorStopped('www_App', false);
 
-        expect(await appsRuntimeState.operatorStoppedIdentifiers()).to.deep.equal([]);
+        expect(await appsRuntimeState.operatorHeldIdentifiers()).to.deep.equal([]);
       });
 
       it('THROWS when the store cannot be read, rather than reporting nothing stopped', async () => {
@@ -163,11 +219,116 @@ describe('appsRuntimeState tests', () => {
         });
 
         let threw = null;
-        await failing.operatorStoppedIdentifiers().catch((err) => { threw = err; });
+        await failing.operatorHeldIdentifiers().catch((err) => { threw = err; });
 
         expect(threw, 'an unreadable lock store answered as an empty one').to.be.an('error');
         expect(threw.message).to.include('no primary available');
       });
+    });
+  });
+
+  // An operator start of a component the election decides keeps the lock until
+  // the election has decided: the lock is what holds the component on this node
+  // while it is stopped, and lifted at the start it would be held by nothing
+  // until the election next ran.
+  describe('an operator start the election decides', () => {
+    it('records the start on a locked component and keeps the lock, still held on the node that was its primary', async () => {
+      await appsRuntimeState.setOperatorStopped('www_App', true, { asPrimary: true });
+
+      expect(await appsRuntimeState.requestOperatorStart('www_App')).to.be.true;
+
+      expect(await appsRuntimeState.isOperatorStopped('www_App')).to.be.true;
+      expect(await appsRuntimeState.operatorStopState('www_App')).to.deep.equal({
+        stopped: true, startRequested: true, force: false, asPrimary: true,
+      });
+      expect(await appsRuntimeState.operatorHeldIdentifiers()).to.deep.equal(['www_App']);
+    });
+
+    it('records nothing on a component with no lock', async () => {
+      await appsRuntimeState.recordRestart('www_App');
+
+      expect(await appsRuntimeState.requestOperatorStart('www_App')).to.be.false;
+
+      expect(store.get('www_App').operatorStartRequested).to.equal(undefined);
+      expect((await appsRuntimeState.operatorStopState('www_App')).startRequested).to.be.false;
+    });
+
+    it('lifts a lock whose start was asked for, and clears the backoff as a start does', async () => {
+      await appsRuntimeState.setOperatorStopped('www_App', true);
+      await appsRuntimeState.recordRestart('www_App');
+      await appsRuntimeState.requestOperatorStart('www_App');
+
+      expect(await appsRuntimeState.releaseOperatorStart('www_App')).to.be.true;
+
+      expect(await appsRuntimeState.operatorStopState('www_App')).to.deep.equal({
+        stopped: false, startRequested: false, force: false, asPrimary: false,
+      });
+      expect(store.get('www_App').restartHistory).to.deep.equal([]);
+      expect(await appsRuntimeState.operatorHeldIdentifiers()).to.deep.equal([]);
+    });
+
+    it('leaves a lock whose start was never asked for', async () => {
+      await appsRuntimeState.setOperatorStopped('www_App', true);
+
+      expect(await appsRuntimeState.releaseOperatorStart('www_App')).to.be.false;
+
+      expect(await appsRuntimeState.isOperatorStopped('www_App')).to.be.true;
+    });
+
+    it('leaves a lock the operator set again after asking for the start', async () => {
+      await appsRuntimeState.setOperatorStopped('www_App', true);
+      await appsRuntimeState.requestOperatorStart('www_App');
+      await appsRuntimeState.setOperatorStopped('www_App', true);
+
+      expect((await appsRuntimeState.operatorStopState('www_App')).startRequested).to.be.false;
+      expect(await appsRuntimeState.releaseOperatorStart('www_App')).to.be.false;
+      expect(await appsRuntimeState.isOperatorStopped('www_App')).to.be.true;
+    });
+
+    it('does not report a start request once the lock is gone', async () => {
+      await appsRuntimeState.setOperatorStopped('www_App', true);
+      await appsRuntimeState.requestOperatorStart('www_App');
+      await appsRuntimeState.setOperatorStopped('www_App', false);
+
+      expect(await appsRuntimeState.operatorStopState('www_App')).to.deep.equal({
+        stopped: false, startRequested: false, force: false, asPrimary: false,
+      });
+    });
+
+    // A FluxOS that predates the request lifts the lock without clearing it, so a
+    // node downgraded while a start waited, then upgraded, holds a request with
+    // no lock. There is nothing for the election to lift.
+    it('reports no start request on an unlocked component that still carries one', async () => {
+      store.set('www_App', { identifier: 'www_App', operatorStopped: false, operatorStartRequested: true });
+
+      expect(await appsRuntimeState.operatorStopState('www_App')).to.deep.equal({
+        stopped: false, startRequested: false, force: false, asPrimary: false,
+      });
+      expect(await appsRuntimeState.releaseOperatorStart('www_App')).to.be.false;
+    });
+
+    it('reads the lock for a caller about to commit a component to running, and throws when it cannot', async () => {
+      expect(await appsRuntimeState.operatorStoppedOrThrow('www_App')).to.equal(false);
+      await appsRuntimeState.setOperatorStopped('www_App', true);
+      expect(await appsRuntimeState.operatorStoppedOrThrow('www_App')).to.equal(true);
+
+      readFails = true;
+      const result = await appsRuntimeState.operatorStoppedOrThrow('www_App').catch((err) => err);
+      expect(result, 'an unread lock was answered').to.be.an('error');
+    });
+
+    it('THROWS from both when the lock cannot be read, rather than reading it as none', async () => {
+      await appsRuntimeState.setOperatorStopped('www_App', true);
+      await appsRuntimeState.requestOperatorStart('www_App');
+      readFails = true;
+
+      const requested = await appsRuntimeState.requestOperatorStart('www_App').catch((err) => err);
+      const released = await appsRuntimeState.releaseOperatorStart('www_App').catch((err) => err);
+
+      expect(requested, 'an unread lock was answered').to.be.an('error');
+      expect(released, 'an unread lock was answered').to.be.an('error');
+      readFails = false;
+      expect(await appsRuntimeState.isOperatorStopped('www_App'), 'the lock was lifted').to.be.true;
     });
   });
 
@@ -820,6 +981,34 @@ describe('appsRuntimeState tests', () => {
     // The image record is the one pair that must not be merged field-wise: a
     // path from one twin and a stamp from another describe an image that never
     // existed, and ensureAppVolumeMounted refuses such a volume permanently.
+    // A start waits on the election only if every locked twin asked for it: a
+    // twin locked without the request carries a stop the merge must not lift.
+    it('keeps a start request only when no locked twin withholds it', async () => {
+      docs = [
+        { identifier: 'www_App', operatorStopped: true, operatorStartRequested: true, updatedAt: 1000 },
+        { identifier: 'www_App', operatorStopped: true, updatedAt: 9000 },
+      ];
+      await prepState.prepareCollection();
+      expect(upserts[0].set.operatorStopped).to.be.true;
+      expect(upserts[0].set.operatorStartRequested, 'a stop without the request was lifted').to.be.false;
+
+      upserts = [];
+      docs = [
+        { identifier: 'www_App', operatorStopped: true, operatorStartRequested: true, updatedAt: 1000 },
+        { identifier: 'www_App', restartHistory: [1], updatedAt: 9000 },
+      ];
+      await prepState.prepareCollection();
+      expect(upserts[0].set.operatorStartRequested, 'the only locked twin asked for the start').to.be.true;
+
+      upserts = [];
+      docs = [
+        { identifier: 'www_App', operatorStartRequested: true, updatedAt: 1000 },
+        { identifier: 'www_App', updatedAt: 9000 },
+      ];
+      await prepState.prepareCollection();
+      expect(upserts[0].set.operatorStartRequested, 'a request with no lock').to.be.false;
+    });
+
     it('takes the image path and its stamp from the same twin', async () => {
       docs = [
         {

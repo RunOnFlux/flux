@@ -38,7 +38,7 @@ import { buildSeedableApp, buildSeedableUpdate } from '../framework/seed-helper.
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { bootAndPeer, installOnNodes, seedSpecUpdate } from '../framework/reconciler-suite.js';
 import { getAppContainerId } from '../framework/container.js';
-import { waitFor } from '../framework/wait.js';
+import { waitFor, waitForComponentRedeployed } from '../framework/wait.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -118,6 +118,7 @@ describe('an app whose specification changed is reinstalled at the new specifica
     });
     expect(updated.hash, 'an update that hashes the same is not an update').to.not.equal(app.hash);
 
+    const beforeUpdate = holder.getLastEventId();
     await seedSpecUpdate(env, updated, [0]);
 
     // driveUntil is the only thing that may advance the chain here. Only a
@@ -136,14 +137,19 @@ describe('an app whose specification changed is reinstalled at the new specifica
     // roll, and three on a loaded box as much as an idle one. A wall-clock
     // budget buys blocks at whatever rate the node processes them, which is how
     // the same 420s came to buy 84 blocks rather than the ~504 it was sized for.
-    await driveUntil(
-      holder,
-      async () => (await localSpec(holder))?.hash === updated.hash,
-      { blocks: 108, label: 'the node installs the app at the new specification' },
-    );
+    //
+    // The node records the new specification before it builds the replacement,
+    // so the row is not the finish line. The announcement is: it is published
+    // once every replaced component is back and the app restarted.
+    const replaced = () => waitForComponentRedeployed(holder, appName, appName, false, 0, { afterId: beforeUpdate })
+      .then(() => true, () => false);
+    await driveUntil(holder, replaced, {
+      blocks: 108, label: 'the node replaces the component at the new specification',
+    });
 
     const installed = await localSpec(holder);
     expect(installed, 'the app is still installed').to.not.be.null;
+    expect(installed.hash, 'the row is at the new specification').to.equal(updated.hash);
     expect(installed.compose[0].description, 'the row carries the new specification, not just its hash')
       .to.equal('spec update test container, second specification');
 

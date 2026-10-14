@@ -5,7 +5,9 @@ import { pushImage } from '../framework/registry-helper.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
-import { getAppContainerStatus, execInContainer } from '../framework/container.js';
+import {
+  getAppContainerStatus, execInContainer, blockPeerAccess, unblockPeerAccess,
+} from '../framework/container.js';
 import { electMaster, resetFdm } from '../framework/fdm-control.js';
 import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -52,6 +54,9 @@ describe('reconciler enforces masterSlave g: election', function () {
     await pushImage(appName, 'v1');
     const app = await buildSeedableSyncthingApp({ name: appName, mode: 'g' });
     // targeted install on two specific nodes — deterministic g: holders
+    // Node 0 is the elected primary from the start: FDM names it before the app
+    // is installed, so the other holder never starts it first.
+    await electMaster(appName, env.clients[0].ip);
     const installAfters = [0, 1].map((i) => env.clients[i].getLastEventId());
     holders = await installOnNodes(env, app, [0, 1]);
     // This suite exercises the FDM election/failover of a READY g: app, so pin both
@@ -96,13 +101,21 @@ describe('reconciler enforces masterSlave g: election', function () {
     const a = env.clients[holders[0]];
     const b = env.clients[holders[1]];
 
-    await electMaster(appName, b.ip);
+    // Split: the standby cannot reach the primary, so it cannot rule the primary
+    // out, and FDM names it. It starts, and the primary, which can reach it, finds
+    // it has decided it holds the component and stands down.
+    const cut = await blockPeerAccess(a.container, [b.ip], 16127);
+    try {
+      await electMaster(appName, b.ip);
 
-    await waitForReconcileActuated(b, identifier, 'started', 60000);
-    await waitForUp(b, appName, 'new primary running after failover');
+      await waitForReconcileActuated(b, identifier, 'started', 60000);
+      await waitForUp(b, appName, 'new primary running after failover');
 
-    await waitForReconcileActuated(a, identifier, 'stopped', 60000);
-    await waitForDown(a, appName, 'old primary stopped after failover');
+      await waitForReconcileActuated(a, identifier, 'stopped', 60000);
+      await waitForDown(a, appName, 'old primary stopped after failover');
+    } finally {
+      await unblockPeerAccess(a.container, cut, 16127);
+    }
   });
 
   it('does not resurrect an operator-stopped g: component', async function () {
@@ -129,9 +142,18 @@ describe('reconciler enforces masterSlave g: election', function () {
     // demote the folder / chmod against the tar. The guard reads the busy list
     // off globalState at the decision; a boot-time capture stayed empty forever
     // and this test is the wiring's end-to-end proof.
-    await electMaster(appName, a.ip);
-    await waitForReconcileActuated(a, identifier, 'started', 60000);
-    await waitForUp(a, appName, 'primary running before backup');
+    //
+    // b holds the component by its owner's stop, so a starts as a node that
+    // cannot reach b does: it cannot rule b out, and FDM names it.
+    const b = env.clients[holders[1]];
+    const cut = await blockPeerAccess(b.container, [a.ip], 16127);
+    try {
+      await electMaster(appName, a.ip);
+      await waitForReconcileActuated(a, identifier, 'started', 60000);
+      await waitForUp(a, appName, 'primary running before backup');
+    } finally {
+      await unblockPeerAccess(b.container, cut, 16127);
+    }
 
     // bulk appdata so the tar phase is a real window (same shape as suite 44)
     const bulk = await execInContainer(

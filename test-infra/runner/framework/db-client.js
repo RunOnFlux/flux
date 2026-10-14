@@ -52,6 +52,24 @@ export function dbClient(nodeNum) {
       return { total, resolved, missing, notFound };
     },
 
+    // The address the node last adopted as its own, and the one it moved from.
+    async ownAddressRecord() {
+      const localDb = await db('local');
+      return localDb.collection('ownaddress').findOne({ _id: 'own' });
+    },
+
+    // Forget that record, as a node that has never kept one.
+    async forgetOwnAddress() {
+      const localDb = await db('local');
+      await localDb.collection('ownaddress').deleteMany({});
+    },
+
+    // The node's own geolocation record: what it decided about its address.
+    async nodeGeolocation() {
+      const localDb = await db('local');
+      return localDb.collection('geolocation').findOne({ _id: 'nodeGeolocation' });
+    },
+
     async explorerHeight() {
       const explorerDb = await db('explorer');
       const doc = await explorerDb.collection('scannedheight').findOne({});
@@ -103,6 +121,29 @@ export function dbClient(nodeNum) {
     async getAppLocationsByIp(ip) {
       const globalDb = await db('appsGlobal');
       return globalDb.collection('zelappslocation').find({ ip }).toArray();
+    },
+
+    // The restart attempts this node's reconciler has recorded for a component:
+    // the burst window and the backoff ladder, as many entries as each holds.
+    async restartAttempts(identifier) {
+      const localDb = await db('appsLocal');
+      const state = await localDb.collection('zelappsruntimestate').findOne({ identifier });
+      return {
+        burst: (state?.autoRestartWindow ?? []).length,
+        rungs: (state?.restartHistory ?? []).length,
+      };
+    },
+
+    // This node's app state event log, filtered.
+    async appStateEvents(query = {}) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('appstateevents').find(query).toArray();
+    },
+
+    // This node's stored state events for one node, optionally of one type.
+    async getAppStateEvents({ ip, type } = {}) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('appstateevents').find({ ip, ...(type ? { type } : {}) }).toArray();
     },
 
     async eventCounts() {
@@ -201,6 +242,7 @@ export function dbClient(nodeNum) {
         hash,
         height,
         txid: hash,
+        txIndex: 0,
         value: 200000000,
         message: resolved,
         messageNotFound: false,
@@ -208,27 +250,57 @@ export function dbClient(nodeNum) {
       });
     },
 
-    async markHashUnresolved(hash) {
+    // The node's record of an app payment, including its position in the block.
+    async appHashRecord(hash) {
       const explorerDb = await db('explorer');
-      await explorerDb.collection('zelappshashes').updateOne(
-        { hash },
-        { $set: { message: false, messageNotFound: false } },
-      );
+      return explorerDb.collection('zelappshashes').findOne({ hash }, { projection: { _id: 0 } });
+    },
+
+    // Remove a payment record's position, leaving it as a record made before
+    // positions were recorded.
+    async unsetTxIndex(hash) {
+      const explorerDb = await db('explorer');
+      const result = await explorerDb.collection('zelappshashes').updateOne({ hash }, { $unset: { txIndex: '' } });
+      if (result.matchedCount !== 1) throw new Error(`no payment record for ${hash}`);
+    },
+
+    // Record a payment at another height, as a record written from a block that later left the
+    // chain carries it.
+    async setAppHashHeight(hash, height) {
+      const explorerDb = await db('explorer');
+      const result = await explorerDb.collection('zelappshashes').updateOne({ hash }, { $set: { height } });
+      if (result.matchedCount !== 1) throw new Error(`no payment record for ${hash}`);
+    },
+
+    // Mark a payment record as one whose transaction the chain does not hold.
+    async markNotOnChain(hash) {
+      const explorerDb = await db('explorer');
+      const result = await explorerDb.collection('zelappshashes').updateOne({ hash }, { $set: { notOnChain: true } });
+      if (result.matchedCount !== 1) throw new Error(`no payment record for ${hash}`);
+    },
+
+    // Store a permanent message at another height, as one placed by such a record was.
+    async setPermanentMessageHeight(hash, height) {
+      const globalDb = await db('appsGlobal');
+      const result = await globalDb.collection('zelappsmessages').updateOne({ hash }, { $set: { height } });
+      if (result.matchedCount !== 1) throw new Error(`no permanent message for ${hash}`);
+    },
+
+    // Every registry row this node holds for an app, straight from its store.
+    async appSpecRows(name) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappsinformation').find({ name }, { projection: { _id: 0 } }).toArray();
     },
 
     async deletePermanentMessage(hash) {
-      const explorerDb = await db('explorer');
-      await explorerDb.collection('zelappsmessages').deleteOne({ hash });
+      const globalDb = await db('appsGlobal');
+      const result = await globalDb.collection('zelappsmessages').deleteOne({ hash });
+      if (result.deletedCount !== 1) throw new Error(`no permanent message for ${hash}`);
     },
 
     async deleteAppHash(hash) {
       const explorerDb = await db('explorer');
       await explorerDb.collection('zelappshashes').deleteOne({ hash });
-    },
-
-    async deleteAppSpec(name) {
-      const explorerDb = await db('explorer');
-      await explorerDb.collection('zelappsinformation').deleteOne({ name });
     },
 
     async writeHeartbeat({ lastAlive, shutdownReason, machineBootId }) {
@@ -259,6 +331,15 @@ export function dbClient(nodeNum) {
       return globalDb.collection('zelappsinformation').findOne({ name });
     },
 
+    async globalAppSpecs() {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappsinformation').find({}, {
+        projection: {
+          _id: 0, name: 1, hash: 1, height: 1,
+        },
+      }).toArray();
+    },
+
     // zelappsinformation holds one row per app - the CURRENT specification. An
     // update replaces it, the way hash sync does when the chain carries a newer
     // message; inserting a second row leaves the node reading whichever it finds
@@ -272,6 +353,35 @@ export function dbClient(nodeNum) {
     async seedPermanentMessage(msg) {
       const globalDb = await db('appsGlobal');
       await globalDb.collection('zelappsmessages').insertOne({ ...msg });
+    },
+
+    async seedPermanentMessages(msgs) {
+      const globalDb = await db('appsGlobal');
+      await globalDb.collection('zelappsmessages').insertMany(msgs.map((msg) => ({ ...msg })));
+    },
+
+    // The node's record of app payments its scan found: { hash, txid, height, txIndex, value,
+    // message }. An entry without a position takes the next one at its height, in entry order.
+    async seedAppHashes(entries) {
+      const explorerDb = await db('explorer');
+      const nextAtHeight = new Map();
+      const records = entries.map((entry) => {
+        if (Number.isInteger(entry.txIndex)) return { ...entry };
+        const txIndex = nextAtHeight.get(entry.height) ?? 0;
+        nextAtHeight.set(entry.height, txIndex + 1);
+        return { ...entry, txIndex };
+      });
+      await explorerDb.collection('zelappshashes').insertMany(records);
+    },
+
+    async permanentMessages(query = {}) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappsmessages').find(query, { projection: { _id: 0 } }).toArray();
+    },
+
+    async appHashRecords(query = {}) {
+      const explorerDb = await db('explorer');
+      return explorerDb.collection('zelappshashes').find(query, { projection: { _id: 0 } }).toArray();
     },
 
     async seedAppLocation({ name, ip, hash, broadcastedAt, runningSince }) {

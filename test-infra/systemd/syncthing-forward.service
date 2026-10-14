@@ -1,0 +1,14 @@
+[Unit]
+Description=Syncthing stub port forward (apiport+2, harness node, systemd mode)
+
+[Service]
+EnvironmentFile=/etc/fluxos-harness.env
+# $$ keeps the shell's own expansion out of systemd's specifier/variable
+# expansion; the arithmetic and defaults run in bash, exactly like the
+# legacy entrypoint's forward.
+ExecStart=/bin/bash -c 'exec socat TCP-LISTEN:$$(( $${FLUX_API_PORT:-16127} + 2 )),fork,reuseaddr TCP:$${FLUX_SYNCTHING_HOST}:$${FLUX_SYNCTHING_PORT:-8384}'
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

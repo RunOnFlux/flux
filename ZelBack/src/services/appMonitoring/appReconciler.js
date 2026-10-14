@@ -33,7 +33,27 @@ const { AsyncGate } = require('../utils/asyncGate');
 // id -> 'running' | 'stopped'. In-memory: re-derived from live truth (FDM
 // election + real syncthing sync state) by the deciders each cycle, so it is
 // intentionally NOT persisted (a stale election after a reboot must not act).
-const controllerDesired = new Map();
+//
+// Every set and delete counts in `writes`, which is never reset. Some writers
+// write at once and some await first (a lock read, docker); one that awaits
+// compares the count it read before its awaits with the count after, and writes
+// nothing when another writer spoke meanwhile (writeIfUnchanged).
+const opinions = new Map();
+const opinionWrites = new Map();
+const controllerDesired = {
+  get: (identifier) => opinions.get(identifier),
+  has: (identifier) => opinions.has(identifier),
+  forEach: (fn) => opinions.forEach(fn),
+  writes: (identifier) => opinionWrites.get(identifier) ?? 0,
+  set(identifier, state) {
+    opinions.set(identifier, state);
+    opinionWrites.set(identifier, this.writes(identifier) + 1);
+  },
+  delete(identifier) {
+    opinions.delete(identifier);
+    opinionWrites.set(identifier, this.writes(identifier) + 1);
+  },
+};
 
 // id -> 'clear'. In-memory peer of controllerDesired: a pending request from the
 // sync layer to wipe the component's local appdata before it next runs (the
@@ -43,12 +63,6 @@ const controllerDesired = new Map();
 // a start can never race it.
 const dataDesired = new Map();
 
-// Components a decider has committed to running but has not started yet, because
-// its pre-start data-safety work is still in flight. Read by the peer probe: a
-// node that answers only with running containers withholds an intent it already
-// holds, and the asking node starts a second writer. In-memory for the same
-// reason as controllerDesired - a claim must not survive the process that made it.
-const startingClaims = new Set();
 
 // brief settle between the stop and the rm -rf so the container has fully released
 // its appdata mount before the wipe (mirrors the sync layer's prior 500ms delay).
@@ -378,7 +392,12 @@ function isManagedElsewhere(identifier) {
  */
 async function effectiveDesiredRunning(identifier, spec, exitCode) {
   const operatorStop = await appsRuntimeState.operatorStopState(identifier);
-  if (operatorStop.stopped) return { desired: false, reason: 'operatorStopped', force: operatorStop.force };
+  if (operatorStop.stopped) {
+    // A start the election has yet to decide keeps the lock, and is reported as
+    // what it is waiting for.
+    const reason = operatorStop.startRequested ? 'startAwaitsElection' : 'operatorStopped';
+    return { desired: false, reason, force: operatorStop.force };
+  }
   if (spec.isG || spec.isR) {
     const cd = controllerDesired.get(identifier) ?? null;
     // No controller opinion yet. controllerDesired is in-memory, so a FluxOS
@@ -444,10 +463,13 @@ async function recreateMissing(identifier) {
     await appTamperingDetectionService.recordEvent(mainAppName, 'container_vanished', `Container ${identifier} missing, not found in Docker`);
   }
   try {
-    await containerHealthMonitor.recreateMissingContainers(identifier);
+    // Created, not started: the pass this enqueues starts it against the desired
+    // state as it is then, which a recreate of minutes may have changed.
+    await containerHealthMonitor.recreateMissingContainers(identifier, { start: false });
     appInspector.startAppMonitoring(identifier);
     log.info(`appReconciler - recreated missing container ${identifier}`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreated' });
+    enqueue(identifier);
     scheduleRetry(identifier, POST_START_VERIFY_MS); // verify it came up attached
   } catch (err) {
     // Removal must be justified by the state of the world NOW, not at
@@ -479,9 +501,8 @@ async function recreateMissing(identifier) {
  * Deliberately NOT recreateMissing: a failure here must not escalate to
  * uninstalling the whole app (the trigger is a transient host-networking
  * conflict, not tampering). On failure we just re-arm a retry; the next pass
- * paces it on the heal ladder. For a g: component recreateMissingContainers
- * creates but does not start - the normal reconcile flow starts it on a later
- * pass. The durable heal-removal flag is NOT cleared here: only seeing the
+ * paces it on the heal ladder. The container is created, not started: the pass
+ * this enqueues starts it against the desired state. The durable heal-removal flag is NOT cleared here: only seeing the
  * container back proves the heal worked.
  */
 async function recreateForNetworkHeal(identifier) {
@@ -490,10 +511,11 @@ async function recreateForNetworkHeal(identifier) {
     // softOnly: a hard install would REFORMAT the app's data volume (createAppVolume
     // fallocates + mke2fs). We removed a live container whose data was intact, so a
     // recreate that cannot verify the volume must fail and be retried - never wipe it.
-    await containerHealthMonitor.recreateMissingContainers(identifier, { softOnly: true });
+    await containerHealthMonitor.recreateMissingContainers(identifier, { softOnly: true, start: false });
     appInspector.startAppMonitoring(identifier);
     log.info(`appReconciler - recreated ${identifier} to clear a detached network endpoint`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreated', reason: 'networkDetached' });
+    enqueue(identifier);
     scheduleRetry(identifier, POST_START_VERIFY_MS); // verify it came up attached
   } catch (err) {
     // Same diagnostics the vanished path emits - minus the uninstall escalation.
@@ -934,6 +956,9 @@ async function reconcile(rawIdentifier) {
     return;
   }
 
+  // what this pass decides from: a start is carried out only while no opinion has
+  // been written since (writeIfUnchanged's rule)
+  const opinionWrites = controllerDesired.writes(identifier);
   const { desired, reason, force } = await effectiveDesiredRunning(identifier, spec, actual.exitCode);
 
   // null = no controller opinion yet for a g:/r: component: neither start nor stop,
@@ -1097,20 +1122,26 @@ async function reconcile(rawIdentifier) {
   const isComponent = spec.appSpec.version >= 4 && Array.isArray(spec.appSpec.compose);
   await volumeService.ensureMountPathsExist(spec.comp, mainAppName, isComponent, isComponent ? spec.appSpec : null);
 
-  // The controller verdict was sampled at reconcile entry, but the syncthing
-  // decider's stop wrapper runs OUTSIDE this single-flight and may have flipped
-  // it (stop + data wipe) during the awaits above. Re-read at actuation time:
-  // starting onto a folder mid-wipe corrupts the fresh sync. The decider's own
-  // enqueue drives the follow-up reconcile, so aborting here needs no retry.
-  if ((spec.isG || spec.isR) && controllerDesired.get(identifier) !== 'running') {
-    log.info(`appReconciler - ${identifier} controller verdict changed during reconcile, aborting start`);
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.RECONCILER_BEFORE_START, identifier);
+  // A decider writes its opinion outside this single-flight, so one may have been
+  // written during the awaits above; starting on what this pass read would undo it
+  // (a folder a decider has just stopped, or wiped). The writer's own enqueue
+  // drives the next pass, so not starting here needs no retry. Nothing awaits
+  // between this check and the start.
+  if ((spec.isG || spec.isR) && controllerDesired.writes(identifier) !== opinionWrites) {
+    log.info(`appReconciler - ${identifier}: a controller opinion was written during this pass, not starting it`);
     return;
   }
-
-  await appsRuntimeState.recordRestart(identifier, crashed);
+  // The attempt is recorded once it is made, whatever it came to: a pass that
+  // does not start the component walks no ladder.
+  let startError = null;
   try {
     await dockerService.appDockerStart(identifier);
   } catch (err) {
+    startError = err;
+  }
+  await appsRuntimeState.recordRestart(identifier, crashed);
+  if (startError) {
     // No die event fires for a failed start (the container never ran), so a
     // dropped throw here leaves the component down until the hourly sweep.
     // Schedule our own retry. A start that never ran carries no exit code, so it
@@ -1119,8 +1150,8 @@ async function reconcile(rawIdentifier) {
     // (restartBurstCount x MANAGED_RETRY_MS against restartBurstWindowMs). That
     // relationship is what bounds a permanently failing start, and the config
     // comment on the window is where it is stated.
-    log.error(`appReconciler - failed to start ${identifier}: ${err.message}; retrying`);
-    fluxEventBus.publish('reconciler:actuated', { identifier, action: 'startFailed', reason: err.message });
+    log.error(`appReconciler - failed to start ${identifier}: ${startError.message}; retrying`);
+    fluxEventBus.publish('reconciler:actuated', { identifier, action: 'startFailed', reason: startError.message });
     scheduleRetry(identifier, MANAGED_RETRY_MS);
     return;
   }
@@ -1379,21 +1410,24 @@ async function enqueueAll(reason = 'resync') {
  *
  * @param {Array<object>} installed Records from appQueryService.installedApps().
  * @param {string} reason Why, for the log.
- * @returns {Promise<number>} How many components were asked.
+ * @param {string} [key] What the restart is for: a repeat of the key restarts
+ *   nothing again (appsRuntimeState.requestRestart).
+ * @returns {Promise<{asked: number, components: number}>} How many components
+ *   were asked, of how many.
  */
-async function requestRestartOf(installed, reason) {
+async function requestRestartOf(installed, reason, key) {
   const ids = await componentIdsOf(installed);
   let asked = 0;
   // eslint-disable-next-line no-restricted-syntax
   for (const id of ids) {
     // eslint-disable-next-line no-await-in-loop
     await applyIntent(id, async () => {
-      await appsRuntimeState.requestRestart(id);
+      await appsRuntimeState.requestRestart(id, { key });
     }).then(() => { asked += 1; })
       .catch((err) => log.error(`appReconciler - could not request restart of ${id} (${reason}): ${err.message}`));
   }
   log.info(`appReconciler - restart requested for ${asked}/${ids.length} components (${reason})`);
-  return asked;
+  return { asked, components: ids.length };
 }
 
 // --- controllerDesired seam (written by masterSlave/syncthing deciders) ---
@@ -1410,6 +1444,94 @@ function setControllerDesired(rawIdentifier, state, reason) {
   log.info(`appReconciler - controllerDesired[${identifier}] = ${state} (${reason})`);
   fluxEventBus.publish('reconciler:desiredChanged', { identifier, state, reason });
   enqueue(identifier);
+}
+
+/**
+ * setControllerDesired, returning once the reconcile it causes has run, so the
+ * caller can act on what was done rather than on what was asked for.
+ * @param {string} rawIdentifier Component identifier.
+ * @param {string} state 'running' | 'stopped'
+ * @param {string} reason Why, for the log and the event.
+ * @returns {Promise<boolean>} False when nothing has acted on it yet - see applyIntent.
+ */
+async function setControllerDesiredAndWait(rawIdentifier, state, reason) {
+  const identifier = canonical(rawIdentifier);
+  return applyIntent(identifier, () => {
+    controllerDesired.set(identifier, state);
+    log.info(`appReconciler - controllerDesired[${identifier}] = ${state} (${reason})`);
+    fluxEventBus.publish('reconciler:desiredChanged', { identifier, state, reason });
+  }, { awaitPass: true });
+}
+
+/** What a request to run a component came to (setRunningUnlessOperatorStopped). */
+const RunRequest = Object.freeze({
+  WRITTEN: 'written',
+  // the operator has it stopped, and the lock holds it
+  OPERATOR_STOPPED: 'operatorStopped',
+  // the caller's `unless` answered true
+  STOOD_DOWN: 'stoodDown',
+  // another writer decided while this awaited, or a data clear is pending
+  SUPERSEDED: 'superseded',
+});
+
+/**
+ * Writes a controller opinion decided across awaits, if nothing else decided in
+ * the meantime: `writes` is the opinion's write count read before the awaits.
+ * @param {string} identifier canonical
+ * @param {number} writes
+ * @param {'running'|'stopped'} state
+ * @returns {boolean} whether it was written
+ */
+function writeIfUnchanged(identifier, writes, state) {
+  if (controllerDesired.writes(identifier) !== writes) return false;
+  controllerDesired.set(identifier, state);
+  return true;
+}
+
+/**
+ * Asks for a component to run unless its operator has it stopped, decided in
+ * the per-key slot the operator's own writes go through. A desire to run is
+ * never written behind the stop lock: an operator stop clears the desire, and a
+ * desire written after it would start the component the moment the lock lifted
+ * by any route, with no election pass. In the slot, either this lands first and
+ * the stop clears it, or the stop lands first and this writes nothing.
+ *
+ * A pending data clear, or another writer's opinion written while the lock was
+ * read, supersedes it: the clear has to run on a stopped component, and the
+ * other writer decided last.
+ * @param {string} rawIdentifier Component identifier.
+ * @param {string} reason Why, for the log and the event.
+ * @param {object} [options]
+ * @param {() => boolean} [options.unless] Asked once the slot is held and again
+ *   after the lock is read; true at either writes nothing.
+ * @returns {Promise<string>} A RunRequest.
+ * @throws When the lock cannot be read: an unread lock is not an absent one.
+ */
+async function setRunningUnlessOperatorStopped(rawIdentifier, reason, { unless = () => false } = {}) {
+  const identifier = canonical(rawIdentifier);
+  let outcome = RunRequest.SUPERSEDED;
+  await applyIntent(identifier, async () => {
+    const writes = controllerDesired.writes(identifier);
+    if (unless()) {
+      outcome = RunRequest.STOOD_DOWN;
+      return;
+    }
+    if (dataDesired.has(identifier)) return;
+    if (await appsRuntimeState.operatorStoppedOrThrow(identifier)) {
+      outcome = RunRequest.OPERATOR_STOPPED;
+      return;
+    }
+    // `unless` is set from outside the slot, so it is asked again after the read
+    if (unless()) {
+      outcome = RunRequest.STOOD_DOWN;
+      return;
+    }
+    if (!writeIfUnchanged(identifier, writes, 'running')) return;
+    log.info(`appReconciler - controllerDesired[${identifier}] = running (${reason})`);
+    fluxEventBus.publish('reconciler:desiredChanged', { identifier, state: 'running', reason });
+    outcome = RunRequest.WRITTEN;
+  });
+  return outcome;
 }
 
 /**
@@ -1448,6 +1570,74 @@ function clearControllerDesired(rawIdentifier) {
 }
 
 /**
+ * Whether this process holds a controller opinion for the component. False is
+ * "unknown": no decider has spoken since this process started, or an operator
+ * stop retracted what one said.
+ */
+function hasControllerOpinion(rawIdentifier) {
+  return controllerDesired.has(canonical(rawIdentifier));
+}
+
+/**
+ * Record a decider's verdict for a component this process holds no opinion on,
+ * where the container already matches it.
+ *
+ * The opinion is in-memory and the container is not: a FluxOS restart leaves a
+ * component running (or stopped) where the previous process's decision put it,
+ * with no opinion recorded. A decider whose verdict agrees with the container
+ * has nothing to actuate, so it never reaches setControllerDesired, which is
+ * how a decider changes what the container does. This is how it records the
+ * verdict instead. Until one is recorded, every pass takes no action on the
+ * component, including a restart the operator asked for.
+ *
+ * Resolves an unknown opinion only: an existing one is a decision, and only a
+ * decision changes it. Checked inside the component's intent slot, against the
+ * operator lock and the container as they are now rather than as the decider
+ * sampled them - an operator stop that lands mid-pass must not be followed by
+ * an adoption that outlives its lock, and a verdict is adopted only while the
+ * container still shows it. An opinion written by any writer while those are
+ * read decided last, so nothing is adopted (writeIfUnchanged), and nothing is
+ * adopted while a data clear is pending. The slot enqueues a pass on release,
+ * which carries out anything that was held for want of an opinion: a pending
+ * operator restart.
+ *
+ * @param {string} rawIdentifier
+ * @param {'running'|'stopped'} state
+ * @param {string} reason
+ * @returns {Promise<boolean>} true if the verdict was recorded.
+ */
+async function adoptControllerDesired(rawIdentifier, state, reason) {
+  const identifier = canonical(rawIdentifier);
+  let adopted = false;
+  await applyIntent(identifier, async () => {
+    const writes = controllerDesired.writes(identifier);
+    if (controllerDesired.has(identifier)) return;
+    // a pending data clear runs on a stopped component, whatever it shows now
+    if (dataDesired.has(identifier)) return;
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.RECONCILER_BEFORE_ADOPT, identifier);
+    try {
+      if (await appsRuntimeState.operatorStoppedOrThrow(identifier)) return;
+    } catch (error) {
+      // an unread lock is not an absent one
+      log.warn(`appReconciler - ${identifier}: not adopting ${state}, the operator lock could not be read: ${error.message}`);
+      return;
+    }
+    const actual = await dockerActual(identifier);
+    // An unreachable daemon reports the container absent.
+    if (!actual.exists || actual.indeterminate) return;
+    if (actual.running !== (state === 'running')) return;
+    // a writer that decided while this read the lock and docker decided last
+    if (!writeIfUnchanged(identifier, writes, state)) return;
+    adopted = true;
+    log.info(`appReconciler - controllerDesired[${identifier}] = ${state} (adopted: ${reason})`);
+    fluxEventBus.publish('reconciler:desiredChanged', {
+      identifier, state, reason, adopted: true,
+    });
+  });
+  return adopted;
+}
+
+/**
  * Forget every desired input for a component - it is gone, and nothing about it
  * is worth acting on. Removal only: for anything short of that, retract the
  * specific opinion.
@@ -1468,33 +1658,13 @@ function forgetDesiredState(rawIdentifier) {
 }
 
 /**
- * A decider has committed to running this component but cannot start it yet -
- * the masterSlave primary path fixes ownership on the persistent data first,
- * which takes long enough that a peer asking "is anyone running this?" gets a
- * truthful no and starts a second writer. Held from the decision, released when
- * the attempt ends: a start that succeeds is covered by controllerDesired from
- * then on, and one that fails is correctly no longer a claim.
- *
- * Deliberately not time-bounded. The claimant knows when it has finished, so
- * there is nothing to guess at, and the state is process-local - a crash or a
- * FluxOS restart drops it with no way for a stale claim to outlive its owner.
- */
-function claimStarting(rawIdentifier) {
-  startingClaims.add(canonical(rawIdentifier));
-}
-
-function releaseStarting(rawIdentifier) {
-  startingClaims.delete(canonical(rawIdentifier));
-}
-
-/**
- * Component identifiers this node runs or is committed to running, from its own
- * state alone. The running containers are the caller's to add - this is the part
- * Docker cannot answer.
+ * Component identifiers this node is committed to running, from its own state
+ * alone. The running containers are the caller's to add - this is the part Docker
+ * cannot answer.
  * @returns {string[]}
  */
 function committedIdentifiers() {
-  const ids = new Set(startingClaims);
+  const ids = new Set();
   controllerDesired.forEach((state, identifier) => {
     if (state === 'running') ids.add(identifier);
   });
@@ -1541,15 +1711,18 @@ function stop() {
 }
 
 module.exports = {
+  RunRequest,
   enqueue,
   applyIntent,
   enqueueAll,
   requestRestartOf,
   setControllerDesired,
   clearControllerDesired,
+  hasControllerOpinion,
+  adoptControllerDesired,
   forgetDesiredState,
-  claimStarting,
-  releaseStarting,
+  setControllerDesiredAndWait,
+  setRunningUnlessOperatorStopped,
   committedIdentifiers,
   requestStopAndClearData,
   waitForBootDrainSettled: () => bootDrainGate.wait(),

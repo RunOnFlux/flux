@@ -89,6 +89,21 @@ describe('Node health: a daemon still warming is not a syncthing fault', functio
     expect(phrase.status, 'fluxbench would read this as a node failure').to.equal('success');
   });
 
+  // The tier comes from the daemon, so there is nothing yet to hold the
+  // hardware against. The node stays fit and says it has not measured.
+  it('reports hardware as unmeasured rather than passed', async function () {
+    const health = await node.get('/flux/health');
+
+    expect(health.data.hardware, 'the node claimed a hardware check it could not run').to.equal('unmeasured');
+  });
+
+  // fluxd has never answered, so the node reports it, and stays fit.
+  it('reports the daemon as degraded', async function () {
+    const health = await node.get('/flux/health');
+
+    expect(health.data.daemon, 'the node reported a daemon that has never answered as fine').to.equal('degraded');
+  });
+
   it('never blames syncthing for it', async function () {
     const phrase = await node.get('/id/loginphrase');
 

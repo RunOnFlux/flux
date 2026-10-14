@@ -1,0 +1,10 @@
+# Harness nodes on a host that confines its own sshd with AppArmor. Everything is
+# allowed, and whatever a node runs stays under this profile, so the host's
+# profile for a path such as /usr/sbin/sshd never attaches inside a node.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile flux-e2e-node flags=(attach_disconnected,mediate_deleted) {
+  all,
+  file /** ix,
+}
