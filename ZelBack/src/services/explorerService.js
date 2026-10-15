@@ -49,6 +49,19 @@ let updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
 // When the work below that is paced by the chain is due.
 const cadence = new BlockCadence();
 
+/**
+ * Whether work paced by the chain runs at this tip block, published when it does.
+ * @param {string} job
+ * @param {number} height
+ * @param {number} period blocks between runs
+ * @returns {boolean}
+ */
+function blockWorkDue(job, height, period) {
+  if (!cadence.due(job, height, period)) return false;
+  fluxEventBus.publish('blockWork:ran', { job, height });
+  return true;
+}
+
 const blockEmitter = new EventEmitter();
 
 function getBlockEmitter() {
@@ -577,6 +590,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
       return;
     }
     someBlockIsProcessing = true;
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.EXPLORER_BEFORE_BLOCK);
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.daemon.database);
     // get Block information
@@ -630,17 +644,17 @@ async function processBlock(blockHeight, isInsightExplorer) {
       blockEmitter.emit('blocksProcessed', scannedHeight);
 
       if (globalState.dbReady && blockDataVerbose.height >= config.fluxapps.epochstart) {
-        if (cadence.due('expireGlobalApplications', blockHeight, 2 * speedMultiplier)) {
+        if (blockWorkDue('expireGlobalApplications', blockHeight, 2 * speedMultiplier)) {
           await registryManager.expireGlobalApplications();
         }
-        if (cadence.due('checkAndRemoveApplicationInstance', blockHeight, config.fluxapps.removeFluxAppsPeriod * speedMultiplier)) {
+        if (blockWorkDue('checkAndRemoveApplicationInstance', blockHeight, config.fluxapps.removeFluxAppsPeriod * speedMultiplier)) {
           advancedWorkflows.checkAndRemoveApplicationInstance();
         }
-        if (cadence.due('reinstallOldApplications', blockHeight, updateFluxAppsPeriod * speedMultiplier)) {
+        if (blockWorkDue('reinstallOldApplications', blockHeight, updateFluxAppsPeriod * speedMultiplier)) {
           advancedWorkflows.reinstallOldApplications();
           updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
         }
-        if (cadence.due('reconstructAppMessagesHashCollection', blockDataVerbose.height, config.fluxapps.reconstructAppMessagesHashPeriod * speedMultiplier)) {
+        if (blockWorkDue('reconstructAppMessagesHashCollection', blockDataVerbose.height, config.fluxapps.reconstructAppMessagesHashPeriod * speedMultiplier)) {
           try {
             const reconstructResult = await registryManager.reconstructAppMessagesHashCollection();
             log.info(`Validation of App Messages Hash Collection — ${reconstructResult.changed} corrected`);
@@ -649,7 +663,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
           }
         }
       }
-      if (cadence.due('benchUpnp', blockDataVerbose.height, config.fluxapps.benchUpnpPeriod * speedMultiplier)) {
+      if (blockWorkDue('benchUpnp', blockDataVerbose.height, config.fluxapps.benchUpnpPeriod * speedMultiplier)) {
         try {
           // every node behind the same ip will benchmark at the same time. I.e.
           // we spread the network out (grouped by ip) over 4 hours so we don't
