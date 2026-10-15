@@ -52,9 +52,18 @@ const CLEANUP_REMOVAL_RESERVE_MS = 15 * 1000;
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
-// The router's answers this code acts on: a full table, and no such entry.
-const NO_PORT_MAPS_AVAILABLE = 728;
 const NO_SUCH_ENTRY = 714;
+
+// The refusals of a mapping that name the port or the request as the problem:
+// invalid arguments (402), a wildcard or a pair of ports the router will not
+// take (716, 724, 726, 727), a lease it will not grant (725), a port another
+// machine or another mechanism holds (718, 729). Every other refusal is the
+// router's own. Routers do not agree on how they refuse a mapping when their
+// table is full: some answer 728 NoPortMapsAvailable, as the standard has it,
+// others a generic 501 Action Failed, which some also give for every refresh
+// of an entry they hold. A full table cannot be told by its code, so a refusal
+// that is not the port's is taken as the router's.
+const PORT_REFUSALS = new Set([402, 716, 718, 724, 725, 726, 727, 729]);
 
 // What a test leaves on the router while it runs and removes before it ends.
 const TEST_MAPPING_DESCRIPTIONS = new Set(['Flux_UPNP_Mapping_Test', 'Flux_Test_App']);
@@ -68,9 +77,8 @@ let routerRefusalCount = 0;
 
 /**
  * How many mappings the router has refused since FluxOS started for a reason
- * that is the router's own and not the port's: a full table, or no answer. A
- * port another machine holds (718) and every other refusal are the port's.
- * Only ever goes up.
+ * that is the router's own and not the port's: no answer, or any refusal but
+ * those PORT_REFUSALS names. Only ever goes up.
  * @returns {number}
  */
 function routerRefusals() {
@@ -126,7 +134,8 @@ async function mapProtocol(port, protocol, description) {
       }
     }
     const code = answered ? error.code : null;
-    const routerWide = !answered || code === NO_PORT_MAPS_AVAILABLE;
+    // no answer, with no code, is the router's too
+    const routerWide = !PORT_REFUSALS.has(code);
     if (routerWide) routerRefusalCount += 1;
     return {
       mapped: false, code, reason: `${protocol} ${port} not mapped: ${error.message}`, routerWide,
@@ -214,9 +223,11 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
   // router IP exits on that. A test that fails leaves it held.
   mappedHere.add(+apiport + 3);
   let testMapping = await mapProtocol(+apiport + 3, 'TCP', 'Flux_UPNP_Mapping_Test');
-  // a full table: until UPnP is verified the stale mapping cleanup never runs,
-  // so the test mappings earlier runs left are removed here to make room
-  if (testMapping.code === NO_PORT_MAPS_AVAILABLE) {
+  // refused for a reason of the router's own, as a full table is: until UPnP is
+  // verified the stale mapping cleanup never runs, so the test mappings earlier
+  // runs left are removed here to make room. A router that did not answer is
+  // not listed.
+  if (testMapping.routerWide && testMapping.code !== null) {
     let removed = 0;
     try {
       removed = await removeLeftoverTestMappings();

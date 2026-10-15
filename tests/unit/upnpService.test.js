@@ -298,7 +298,27 @@ describe('upnpService tests', () => {
         sinon.assert.calledOnce(createMappingStub);
       });
 
-      it('should list nothing when the router refuses for any other reason', async () => {
+      it('should remove the left-overs, and map once more, when the router refuses with a generic 501 Action Failed', async () => {
+        createMappingStub.onFirstCall().rejects(new natUpnp.UpnpError(501, 'ActionFailed', 'AddPortMapping'));
+
+        const result = await upnpService.verifyUPNPsupport();
+
+        expect(result).to.equal(true);
+        sinon.assert.calledOnce(getMappingsStub);
+        sinon.assert.calledTwice(createMappingStub);
+      });
+
+      it('should list nothing when the router does not answer', async () => {
+        createMappingStub.onFirstCall().rejects(new Error('timeout of 10000ms exceeded'));
+
+        const result = await upnpService.verifyUPNPsupport();
+
+        expect(result).to.equal(false);
+        sinon.assert.notCalled(getMappingsStub);
+        sinon.assert.calledOnce(createMappingStub);
+      });
+
+      it('should list nothing when the router refuses for the port\'s own reason', async () => {
         createMappingStub.onFirstCall().rejects(new natUpnp.UpnpError(718, 'ConflictInMappingEntry', 'AddPortMapping'));
 
         const result = await upnpService.verifyUPNPsupport();
@@ -700,14 +720,40 @@ describe('upnpService tests', () => {
       sinon.assert.notCalled(getMappingStub);
     });
 
-    it('should count no other refusal as the router\'s', async () => {
-      createMappingStub.rejects(refusal(501, 'ActionFailed'));
-      const before = upnpService.routerRefusals();
+    [
+      [501, 'ActionFailed'],
+      [606, 'ActionNotAuthorized'],
+    ].forEach(([code, description]) => {
+      it(`should count a ${code} ${description} as the router's refusal`, async () => {
+        createMappingStub.rejects(refusal(code, description));
+        const before = upnpService.routerRefusals();
 
-      const result = await upnpService.mapUpnpPort(123, 'Flux_App_web');
+        const result = await upnpService.mapUpnpPort(123, 'Flux_App_web');
 
-      expect(result).to.include({ mapped: false, code: 501, routerWide: false });
-      expect(upnpService.routerRefusals()).to.equal(before);
+        expect(result).to.include({ mapped: false, code, routerWide: true });
+        expect(upnpService.routerRefusals()).to.equal(before + 1);
+      });
+    });
+
+    [
+      [402, 'InvalidArgs'],
+      [716, 'WildCardNotPermittedInExtPort'],
+      [718, 'ConflictInMappingEntry'],
+      [724, 'SamePortValuesRequired'],
+      [725, 'OnlyPermanentLeasesSupported'],
+      [726, 'RemoteHostOnlySupportsWildcard'],
+      [727, 'ExternalPortOnlySupportsWildcard'],
+      [729, 'ConflictWithOtherMechanisms'],
+    ].forEach(([code, description]) => {
+      it(`should give a ${code} ${description} as the port's refusal, not the router's`, async () => {
+        createMappingStub.rejects(refusal(code, description));
+        const before = upnpService.routerRefusals();
+
+        const result = await upnpService.mapUpnpPort(123, 'Flux_App_web');
+
+        expect(result).to.include({ mapped: false, code, routerWide: false });
+        expect(upnpService.routerRefusals()).to.equal(before);
+      });
     });
 
     it('should take a refusal as mapped when the router already maps the port to this node', async () => {
