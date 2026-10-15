@@ -17,6 +17,14 @@ const appQueryService = require('../../ZelBack/src/services/appQuery/appQuerySer
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 
+// what upnpService.mapUpnpPort answers for a port mapped, and for one the router refused
+const MAPPED = {
+  mapped: true, code: null, reason: null, routerWide: false,
+};
+const REFUSED = {
+  mapped: false, code: 728, reason: 'TCP 31000 not mapped: UPnP error 728: NoPortMapsAvailable (action: AddPortMapping)', routerWide: true,
+};
+
 describe('portManager tests', () => {
   before(requireMongo);
 
@@ -606,7 +614,7 @@ describe('portManager tests', () => {
       sinon.stub(upnpService, 'isUPNP').returns(false);
       sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(false);
       sinon.stub(fluxNetworkHelper, 'allowPort').resolves(true);
-      sinon.stub(upnpService, 'mapUpnpPort').resolves(true);
+      sinon.stub(upnpService, 'mapUpnpPort').resolves(MAPPED);
       sinon.stub(serviceHelper, 'delay').resolves();
       sinon.stub(appUninstaller, 'removeAppLocally').resolves();
       portManager.upnpMapFailures.clear();
@@ -643,7 +651,7 @@ describe('portManager tests', () => {
       // removeAppLocally(force, sendMessage) - a transient router blip nuked
       // a running app and broadcast its removal to the network
       upnpService.isUPNP.returns(true);
-      upnpService.mapUpnpPort.resolves(false);
+      upnpService.mapUpnpPort.resolves(REFUSED);
 
       await portManager.restoreAppsPortsSupport();
 
@@ -653,8 +661,8 @@ describe('portManager tests', () => {
 
     it('should retry a failed port within the cycle and record no failure on recovery', async () => {
       upnpService.isUPNP.returns(true);
-      upnpService.mapUpnpPort.onFirstCall().resolves(false);
-      upnpService.mapUpnpPort.resolves(true);
+      upnpService.mapUpnpPort.onFirstCall().resolves(REFUSED);
+      upnpService.mapUpnpPort.resolves(MAPPED);
 
       await portManager.restoreAppsPortsSupport();
 
@@ -664,7 +672,7 @@ describe('portManager tests', () => {
 
     it('should not remove before the sustained window even after enough failing cycles', async () => {
       upnpService.isUPNP.returns(true);
-      upnpService.mapUpnpPort.resolves(false);
+      upnpService.mapUpnpPort.resolves(REFUSED);
 
       await portManager.restoreAppsPortsSupport();
       await portManager.restoreAppsPortsSupport();
@@ -677,7 +685,7 @@ describe('portManager tests', () => {
 
     it('should remove and broadcast only after sustained failure (cycles AND window)', async () => {
       upnpService.isUPNP.returns(true);
-      upnpService.mapUpnpPort.resolves(false);
+      upnpService.mapUpnpPort.resolves(REFUSED);
       const nowMonotonicMs = Number(process.hrtime.bigint() / 1000000n);
       portManager.upnpMapFailures.set('App1', {
         cycles: 2,
@@ -696,7 +704,7 @@ describe('portManager tests', () => {
         { name: 'App2', version: 3, ports: [30002] },
       ]);
       upnpService.isUPNP.returns(true);
-      upnpService.mapUpnpPort.resolves(false);
+      upnpService.mapUpnpPort.resolves(REFUSED);
 
       await portManager.restoreAppsPortsSupport();
 
@@ -710,11 +718,11 @@ describe('portManager tests', () => {
 
     it('should clear the failure tracker once mapping succeeds again', async () => {
       upnpService.isUPNP.returns(true);
-      upnpService.mapUpnpPort.resolves(false);
+      upnpService.mapUpnpPort.resolves(REFUSED);
       await portManager.restoreAppsPortsSupport();
       expect(portManager.upnpMapFailures.get('App1').cycles).to.equal(1);
 
-      upnpService.mapUpnpPort.resolves(true);
+      upnpService.mapUpnpPort.resolves(MAPPED);
       await portManager.restoreAppsPortsSupport();
 
       expect(portManager.upnpMapFailures.has('App1')).to.be.false;
@@ -1357,5 +1365,17 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
     expect(result.ok).to.equal(true);
     expect(result.reason).to.equal('noOtherObserver');
     expect(result.peers).to.have.length(1);
+  });
+
+  it('asks no peer, and removes what the router kept, when the router refuses the port under test', async () => {
+    upnpService.isUPNP.returns(true);
+    sinon.stub(upnpService, 'mapUpnpPort').resolves(REFUSED);
+    const removeMapping = sinon.stub(upnpService, 'removeMapUpnpPort').resolves(true);
+
+    const result = await withPeers([UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE]);
+
+    expect(result).to.deep.equal({ ok: false, reason: 'error' });
+    sinon.assert.notCalled(axios.post);
+    sinon.assert.calledWith(removeMapping, port, `Flux_Prelaunch_App_${port}`);
   });
 });

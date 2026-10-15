@@ -298,7 +298,7 @@ async function restoreAppsPortsSupport() {
         // eslint-disable-next-line no-restricted-syntax
         for (const port of application.ports) {
           // eslint-disable-next-line no-await-in-loop
-          let upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
+          let upnpOk = (await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`)).mapped;
           if (!upnpOk) {
             if (!retryDelayElapsed) {
               // eslint-disable-next-line no-await-in-loop
@@ -306,7 +306,7 @@ async function restoreAppsPortsSupport() {
               retryDelayElapsed = true;
             }
             // eslint-disable-next-line no-await-in-loop
-            upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
+            upnpOk = (await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`)).mapped;
           }
           if (!upnpOk) {
             failedPort = port;
@@ -874,8 +874,8 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
         const upnpMapResult = await upnpService.mapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
-        if (!upnpMapResult) {
-          throw new Error('Failed to create map UPNP port');
+        if (!upnpMapResult.mapped) {
+          throw new Error(`Failed to create map UPNP port: ${upnpMapResult.reason}`);
         }
       }
       const testHttpServer = new fluxHttpTestServer.FluxHttpTestServer(portTestToken);

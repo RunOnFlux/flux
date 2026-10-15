@@ -392,7 +392,8 @@ function imageSyncthingVersion() {
 
 const state = {
   // Nodes behind a UPnP gateway, by fleet address: the external address it reports (the
-  // node's own when null), its port mappings, and every action the node sent it.
+  // node's own when null), how many mappings its table holds (no limit when null), its port
+  // mappings, and every action the node sent it.
   upnpGateways: {},
   // Bytes served INSTEAD of the signed artifact, under the signed artifact's own name. A
   // mirror or CDN answering correctly-named requests with the wrong content, which is the
@@ -716,7 +717,9 @@ app.get('/repos/:owner/:repo', (req, res) => {
 //
 // A node behind a gateway is served one: a WANIPConnection service whose control URL answers
 // the actions upnpService sends - the external address, and adding, looking up, listing and
-// deleting port mappings - from that node's own mapping table.
+// deleting port mappings - from that node's own mapping table. Its table refuses what a
+// router's does: a port another machine holds (718), and a new entry once it holds as many as
+// its capacity (728).
 const UPNP_SERVICE = 'urn:schemas-upnp-org:service:WANIPConnection:1';
 
 function upnpGatewayOf(req) {
@@ -765,12 +768,21 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
   const action = String(req.get('SOAPAction') || '').replace(/"/g, '').split('#')[1] || '';
   const arg = (name) => (String(req.body).match(new RegExp(`<${name}>([^<]*)</${name}>`)) || [])[1] ?? '';
   const sameEntry = (m) => m.externalPort === Number(arg('NewExternalPort')) && m.protocol === arg('NewProtocol').toUpperCase();
-  gateway.requests.push({ action, at: new Date().toISOString() });
+  gateway.requests.push({ action, port: Number(arg('NewExternalPort')) || null, at: new Date().toISOString() });
   switch (action) {
     case 'GetExternalIPAddress':
       soapReply(res, action, { NewExternalIPAddress: gateway.externalIp ?? clientAddress(req) });
       return;
     case 'AddPortMapping': {
+      const held = gateway.mappings.find(sameEntry);
+      if (held && held.internalClient !== arg('NewInternalClient')) {
+        soapFault(res, 718, 'ConflictInMappingEntry');
+        return;
+      }
+      if (!held && gateway.capacity !== null && gateway.mappings.length >= gateway.capacity) {
+        soapFault(res, 728, 'NoPortMapsAvailable');
+        return;
+      }
       gateway.mappings = gateway.mappings.filter((m) => !sameEntry(m));
       gateway.mappings.push({
         externalPort: Number(arg('NewExternalPort')),
@@ -999,12 +1011,16 @@ control.post('/storage-requests/reset', (req, res) => {
 
 // Put a node behind a UPnP gateway, with no mappings yet.
 control.post('/upnp-gateway', (req, res) => {
-  const { ip, externalIp = null } = req.body || {};
+  const {
+    ip, externalIp = null, capacity = null, mappings = [],
+  } = req.body || {};
   if (!ip) {
     res.status(400).json({ error: 'ip is required' });
     return;
   }
-  state.upnpGateways[ip] = { externalIp, mappings: [], requests: [] };
+  state.upnpGateways[ip] = {
+    externalIp, capacity, mappings, requests: [],
+  };
   res.json({ ok: true });
 });
 
