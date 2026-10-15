@@ -1050,7 +1050,7 @@ describe('explorerService tests', () => {
       });
     });
 
-    it('should update db if all parameters are passed correctly, height == 900009', async () => {
+    it('should update db, and run only the work whose period this block passes, height == 900009', async () => {
       const blockHeight = 900009;
       const isInsightExplorer = true;
       dbStubUpdate.returns(true);
@@ -1097,6 +1097,14 @@ describe('explorerService tests', () => {
           confirmations: 1,
         },
       });
+      // The block before it is processed at the tip first, so this one is judged on whether it
+      // passes a multiple of each period since then.
+      const block = daemonServiceBlockchainRpcsStub();
+      daemonServiceBlockchainRpcsStub.returns({ ...block, data: { ...block.data, height: blockHeight - 1 } });
+      await explorerService.processBlock(blockHeight - 1, isInsightExplorer);
+      daemonServiceBlockchainRpcsStub.returns(block);
+      [expireGlobalApplicationsStub, checkAndRemoveApplicationInstanceStub, restorePortsSupportStub, dbStubUpdate]
+        .forEach((stub) => stub.resetHistory());
 
       await explorerService.processBlock(blockHeight, isInsightExplorer);
 
@@ -1113,7 +1121,7 @@ describe('explorerService tests', () => {
       );
     });
 
-    it('should update db if all parameters are passed correctly, height == 900025', async () => {
+    it('should update db, and run only the work whose period this block passes, height == 900025', async () => {
       const blockHeight = 900025;
       const isInsightExplorer = true;
       dbStubUpdate.returns(true);
@@ -1160,6 +1168,14 @@ describe('explorerService tests', () => {
           confirmations: 1,
         },
       });
+      // The block before it is processed at the tip first, so this one is judged on whether it
+      // passes a multiple of each period since then.
+      const block = daemonServiceBlockchainRpcsStub();
+      daemonServiceBlockchainRpcsStub.returns({ ...block, data: { ...block.data, height: blockHeight - 1 } });
+      await explorerService.processBlock(blockHeight - 1, isInsightExplorer);
+      daemonServiceBlockchainRpcsStub.returns(block);
+      [expireGlobalApplicationsStub, checkAndRemoveApplicationInstanceStub, restorePortsSupportStub, dbStubUpdate]
+        .forEach((stub) => stub.resetHistory());
 
       await explorerService.processBlock(blockHeight, isInsightExplorer);
 
@@ -1173,6 +1189,33 @@ describe('explorerService tests', () => {
         { $set: { generalScannedHeight: 900025 } },
         { upsert: true },
       );
+    });
+    it('runs the work whose period a burst of blocks passed once, on the block that reaches the tip', async () => {
+      const isInsightExplorer = true;
+      dbStubUpdate.returns(true);
+      checkAndRemoveApplicationInstanceStub.returns(true);
+      explorerService.setBlockProccessingCanContinue(false);
+      daemonServiceMiscRpcsStub.returns({ data: { synced: true } });
+      async function processAt(height, confirmations) {
+        daemonServiceBlockchainRpcsStub.returns({ status: 'success', data: { tx: [], height, confirmations } });
+        await explorerService.processBlock(height, isInsightExplorer);
+      }
+
+      // A multiple of the give-up pass's period, passed during a burst and landed on by no tip block.
+      const period = config.fluxapps.removeFluxAppsPeriod;
+      const multiple = Math.ceil(900000 / period) * period;
+      await processAt(multiple - 3, 1);
+      checkAndRemoveApplicationInstanceStub.resetHistory();
+      for (let height = multiple - 2; height <= multiple + 2; height += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await processAt(height, 2);
+      }
+      sinon.assert.notCalled(checkAndRemoveApplicationInstanceStub);
+
+      await processAt(multiple + 3, 1);
+      sinon.assert.calledOnce(checkAndRemoveApplicationInstanceStub);
+      await processAt(multiple + 4, 1);
+      sinon.assert.calledOnce(checkAndRemoveApplicationInstanceStub);
     });
   });
 

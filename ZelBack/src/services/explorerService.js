@@ -24,6 +24,7 @@ const fluxEventBus = require('./utils/fluxEventBus');
 const globalState = require('./utils/globalState');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
 const { Privilege, authOf } = require('./utils/privileges');
+const { BlockCadence } = require('./utils/blockCadence');
 
 const coinbaseFusionIndexCollection = config.database.daemon.collections.coinbaseFusionIndex; // fusion
 const utxoIndexCollection = config.database.daemon.collections.utxoIndex;
@@ -45,6 +46,8 @@ let cachedDaemonVersion = null;
 
 // updateFluxAppsPeriod can be between every 4 to 9 blocks
 let updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
+// When the work below that is paced by the chain is due.
+const cadence = new BlockCadence();
 
 const blockEmitter = new EventEmitter();
 
@@ -609,6 +612,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
     // get Block information
     const verbosity = 2;
     const blockDataVerbose = await getVerboseBlock(blockHeight, verbosity);
+    cadence.processed(blockDataVerbose.height);
     if (blockDataVerbose.height % 50 === 0) {
       log.info(`Processing Explorer Block Height: ${blockDataVerbose.height}`);
     }
@@ -648,31 +652,25 @@ async function processBlock(blockHeight, isInsightExplorer) {
     // cache refreshed every daemonInfoIntervalMs, and the branch at the end of
     // this function chains straight into the next block whenever it is behind -
     // so a burst of blocks arriving between two refreshes is processed back to
-    // back and only the LAST of them qualifies. Everything gated below is
-    // skipped for the others, and skipped silently: expiring global app
-    // records, trimming surplus instances, reinstalling outdated apps.
-    //
-    // Post-PON that is a 30s block against a 30s refresh, and the refresh
-    // reschedules only after awaiting its RPC, so it drifts behind the chain and
-    // the bursts recur. v9 removes the race rather than tuning it - fluxd pushes
-    // hashblockheight to chainTipSource, which drives both the cached tip and
-    // this scan, so a block is processed while it is still the tip.
+    // back and only the LAST of them is processed at the tip. The work paced by
+    // the chain below asks the cadence whether it is due, so a period the burst
+    // passed is run once, on that last block.
     isSynced = !(blockDataVerbose.confirmations >= 2);
     if (isSynced) {
       blockEmitter.emit('blocksProcessed', scannedHeight);
 
       if (globalState.dbReady && blockDataVerbose.height >= config.fluxapps.epochstart) {
-        if (blockHeight % (2 * speedMultiplier) === 0) {
+        if (cadence.due('expireGlobalApplications', blockHeight, 2 * speedMultiplier)) {
           await registryManager.expireGlobalApplications();
         }
-        if (blockHeight % (config.fluxapps.removeFluxAppsPeriod * speedMultiplier) === 0) {
+        if (cadence.due('checkAndRemoveApplicationInstance', blockHeight, config.fluxapps.removeFluxAppsPeriod * speedMultiplier)) {
           advancedWorkflows.checkAndRemoveApplicationInstance();
         }
-        if (blockHeight % (updateFluxAppsPeriod * speedMultiplier) === 0) {
+        if (cadence.due('reinstallOldApplications', blockHeight, updateFluxAppsPeriod * speedMultiplier)) {
           advancedWorkflows.reinstallOldApplications();
           updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
         }
-        if (blockDataVerbose.height % (config.fluxapps.reconstructAppMessagesHashPeriod * speedMultiplier) === 0) {
+        if (cadence.due('reconstructAppMessagesHashCollection', blockDataVerbose.height, config.fluxapps.reconstructAppMessagesHashPeriod * speedMultiplier)) {
           try {
             const reconstructResult = await registryManager.reconstructAppMessagesHashCollection();
             log.info(`Validation of App Messages Hash Collection — ${reconstructResult.changed} corrected`);
@@ -681,7 +679,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
           }
         }
       }
-      if (blockDataVerbose.height % (config.fluxapps.benchUpnpPeriod * speedMultiplier) === 0) {
+      if (cadence.due('benchUpnp', blockDataVerbose.height, config.fluxapps.benchUpnpPeriod * speedMultiplier)) {
         try {
           // every node behind the same ip will benchmark at the same time. I.e.
           // we spread the network out (grouped by ip) over 4 hours so we don't
