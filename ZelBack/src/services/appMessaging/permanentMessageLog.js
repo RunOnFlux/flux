@@ -2,6 +2,7 @@ const config = require('config');
 const { StringDecoder } = require('string_decoder');
 const dbHelper = require('../dbHelper');
 const messageHelper = require('../messageHelper');
+const fluxEventBus = require('../utils/fluxEventBus');
 const log = require('../../lib/log');
 
 /**
@@ -88,6 +89,7 @@ function untilWritable(res) {
 async function writeMessageLog(res, messages, isClosed) {
   let piece = '';
   let count = 0;
+  let piecesWritten = 0;
   try {
     // eslint-disable-next-line no-restricted-syntax
     for await (const message of messages) {
@@ -95,8 +97,12 @@ async function writeMessageLog(res, messages, isClosed) {
       piece += `${JSON.stringify(message)}\n`;
       count += 1;
       if (piece.length >= WRITE_PIECE_BYTES) {
+        // eslint-disable-next-line no-await-in-loop
+        await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.MESSAGE_LOG_BEFORE_PIECE, piecesWritten);
+        if (isClosed()) return;
         const flowing = res.write(piece);
         piece = '';
+        piecesWritten += 1;
         // eslint-disable-next-line no-await-in-loop
         if (!flowing) await untilWritable(res);
         if (isClosed()) return;
