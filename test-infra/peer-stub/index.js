@@ -62,6 +62,13 @@ const requestLog = [];
 let promotedFolders = { ready: true, folders: [] };
 const promotedFolderRequests = [];
 
+// THE PERMANENT MESSAGE LOG THIS PEER SERVES, AS A NODE FROM BEFORE THE LOG BY HEIGHT: the whole
+// log from /apps/permanentmessages, and a 404 from /apps/permanentmessagesbyheight - the shape a
+// node asking for messages in bulk meets on every peer that has not upgraded. Each ask is
+// recorded, with what it was answered.
+let messageLog = [];
+const messageLogRequests = [];
+
 // The status this peer answers that question with. 200 is a peer that can answer
 // it; anything else is a peer that cannot, and the one that matters is 404 -
 // /apps/promotedfolders is new, so every node in the fleet answers 404 until it
@@ -461,6 +468,23 @@ const wsServer = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ status: 'success', data: 'PEERSTU-BAAAAAT-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' }));
       return;
     }
+    if (req.url === '/explorer/issynced') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'success', data: true }));
+      return;
+    }
+    if (req.url.startsWith('/apps/permanentmessagesbyheight')) {
+      messageLogRequests.push({ at: Date.now(), url: req.url, status: 404 });
+      res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end('Cannot GET /apps/permanentmessagesbyheight');
+      return;
+    }
+    if (req.url === '/apps/permanentmessages') {
+      messageLogRequests.push({ at: Date.now(), url: req.url, status: 200, messages: messageLog.length });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'success', data: messageLog }));
+      return;
+    }
     if (req.url === '/apps/promotedfolders') {
       // Recorded before the status is applied: a peer that answers 404 was still
       // asked, and a suite proving the asker kept asking needs to see that.
@@ -565,6 +589,20 @@ const controlServer = http.createServer(async (req, res) => {
         connectedNodes: connectedNodes.size,
         availabilityAsks,
       }));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/message-log') {
+      const body = await readBody(req);
+      messageLog = JSON.parse(body).messages ?? [];
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', messages: messageLog.length }));
+      return;
+    }
+
+    if (req.method === 'GET' && req.url === '/message-log') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ messages: messageLog.length, requests: messageLogRequests }));
       return;
     }
 
