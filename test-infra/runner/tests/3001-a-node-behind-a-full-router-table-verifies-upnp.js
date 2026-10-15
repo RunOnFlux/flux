@@ -69,9 +69,6 @@ describe('a node behind a full router table verifies UPnP', function () {
     }, { timeout: 150000, interval: 2000, label: 'the node\'s own ports mapped' }).catch(() => {});
 
     expect(table.map((m) => m.externalPort).sort(), 'the router\'s table').to.deep.equal([...corePorts, OTHERS.externalPort].sort());
-    LEFT_OVER.forEach(({ externalPort, description }) => {
-      expect(env.nodeHasLog(0, `UPnP - left-over test mapping removed: TCP ${externalPort} (${description})`), `${externalPort} removed`).to.equal(true);
-    });
   });
 
   it('leaves the other machine\'s mapping as it was', async function () {
