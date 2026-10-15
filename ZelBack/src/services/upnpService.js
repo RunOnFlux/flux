@@ -52,6 +52,88 @@ const CLEANUP_REMOVAL_RESERVE_MS = 15 * 1000;
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
+// The router's answers this code acts on: a full table, and no such entry.
+const NO_PORT_MAPS_AVAILABLE = 728;
+const NO_SUCH_ENTRY = 714;
+
+// What a test leaves on the router while it runs and removes before it ends.
+const TEST_MAPPING_DESCRIPTIONS = new Set(['Flux_UPNP_Mapping_Test', 'Flux_Test_App']);
+const TEST_MAPPING_PREFIX = 'Flux_Prelaunch_App_';
+
+const MAPPED = Object.freeze({
+  mapped: true, code: null, reason: null, routerWide: false,
+});
+
+let routerRefusalCount = 0;
+
+/**
+ * How many mappings the router has refused since FluxOS started for a reason
+ * that is the router's own and not the port's: a full table, or no answer. A
+ * port another machine holds (718) and every other refusal are the port's.
+ * Only ever goes up.
+ * @returns {number}
+ */
+function routerRefusals() {
+  return routerRefusalCount;
+}
+
+/**
+ * Whether the router maps `port` to this node, port for port, enabled.
+ * @param {object|null} mapping the router's entry for the port, as client.getMapping reads it
+ * @param {number} port
+ * @returns {boolean}
+ */
+function mapsHere(mapping, port) {
+  return mapping !== null && mapping.local === true && mapping.enabled && mapping.private.port === port;
+}
+
+/**
+ * Maps one protocol of a port to this node, port for port, with no lease
+ * (some routers force a short one instead; the mappings are refreshed every
+ * restore). A refusal is no failure when the router already maps the port
+ * here: some routers refuse to add an entry they hold, and a full table
+ * refuses everything, the refresh of a working mapping included. A router
+ * that does not answer is not asked again.
+ * @param {number} port
+ * @param {string} protocol 'TCP' or 'UDP'
+ * @param {string} description
+ * @returns {Promise<{mapped: boolean, code: number|null, reason: string|null, routerWide: boolean}>}
+ *   `code` is the router's UPnP error code, null when it gave none; `routerWide`
+ *   whether the refusal counts in routerRefusals.
+ */
+async function mapProtocol(port, protocol, description) {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return {
+      mapped: false, code: null, reason: `${protocol} ${port} not mapped: not a port`, routerWide: false,
+    };
+  }
+  try {
+    await client.createMapping({
+      public: port,
+      private: port,
+      ttl: 0,
+      protocol,
+      description,
+    });
+    return MAPPED;
+  } catch (error) {
+    const answered = error instanceof natUpnp.UpnpError;
+    if (answered) {
+      const held = await client.getMapping({ public: port, protocol }).catch(() => null);
+      if (mapsHere(held, port)) {
+        log.info(`UPnP - ${protocol} ${port} refused (${error.message}), but the router already maps it to this node`);
+        return MAPPED;
+      }
+    }
+    const code = answered ? error.code : null;
+    const routerWide = !answered || code === NO_PORT_MAPS_AVAILABLE;
+    if (routerWide) routerRefusalCount += 1;
+    return {
+      mapped: false, code, reason: `${protocol} ${port} not mapped: ${error.message}`, routerWide,
+    };
+  }
+}
+
 let upnpMachine = false;
 
 /**
@@ -131,21 +213,24 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
   // the remove would fail the verify, and a node with a custom api port or a
   // router IP exits on that. A test that fails leaves it held.
   mappedHere.add(+apiport + 3);
-  try {
-    await client.createMapping({
-      public: +apiport + 3,
-      private: +apiport + 3,
-      ttl: 0,
-      description: 'Flux_UPNP_Mapping_Test',
-    });
-
-    await serviceHelper.delay(500);
-  } catch (error) {
-    log.error(error);
-    log.error('VerifyUPNPsupport - Failed Create Mapping');
+  let testMapping = await mapProtocol(+apiport + 3, 'TCP', 'Flux_UPNP_Mapping_Test');
+  // a full table: until UPnP is verified the stale mapping cleanup never runs,
+  // so the test mappings earlier runs left are removed here to make room
+  if (testMapping.code === NO_PORT_MAPS_AVAILABLE) {
+    let removed = 0;
+    try {
+      removed = await removeLeftoverTestMappings();
+    } catch (error) {
+      log.warn(`VerifyUPNPsupport - left-over test mappings not removed: ${error.message}`);
+    }
+    if (removed > 0) testMapping = await mapProtocol(+apiport + 3, 'TCP', 'Flux_UPNP_Mapping_Test');
+  }
+  if (!testMapping.mapped) {
+    log.error(`VerifyUPNPsupport - Failed Create Mapping: ${testMapping.reason}`);
     upnpMachine = false;
     return false;
   }
+  await serviceHelper.delay(500);
   try {
     const mapping = await client.getMapping({ public: +apiport + 3, protocol: 'TCP' });
     if (!mapping) throw new Error(`the router holds no mapping for port ${+apiport + 3}`);
@@ -222,41 +307,23 @@ async function reconcileFluxadmMapping(apiport) {
  */
 async function setupUPNP(apiport = config.server.apiport) {
   try {
-    await client.createMapping({
-      public: +apiport,
-      private: +apiport,
-      ttl: 0, // Some routers force low ttl if 0, indefinite/default is used. Flux refreshes this every 6 blocks ~ 12 minutes
-      description: 'Flux_Backend_API',
-    });
-
-    await serviceHelper.delay(500);
-
-    await client.createMapping({
-      public: +apiport + 1,
-      private: +apiport + 1,
-      ttl: 0, // Some routers force low ttl if 0, indefinite/default is used. Flux refreshes this every 6 blocks ~ 12 minutes
-      description: 'Flux_Backend_API_SSL',
-    });
-
-    await serviceHelper.delay(500);
-
-    await client.createMapping({
-      public: +apiport - 1,
-      private: +apiport - 1,
-      ttl: 0,
-      description: 'Flux_Home_UI',
-    });
-
-    await serviceHelper.delay(500);
-
-    await client.createMapping({
-      public: +apiport + 2,
-      private: +apiport + 2,
-      ttl: 0,
-      description: 'Flux_Syncthing',
-    });
-
-    await serviceHelper.delay(500);
+    const corePortMappings = [
+      [+apiport, 'Flux_Backend_API'],
+      [+apiport + 1, 'Flux_Backend_API_SSL'],
+      [+apiport - 1, 'Flux_Home_UI'],
+      [+apiport + 2, 'Flux_Syncthing'],
+    ];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const [port, description] of corePortMappings) {
+      // eslint-disable-next-line no-await-in-loop
+      const result = await mapProtocol(port, 'TCP', description);
+      if (!result.mapped) {
+        log.error(`setupUPNP - ${result.reason}`);
+        return false;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(500);
+    }
 
     await reconcileFluxadmMapping(apiport);
 
@@ -268,71 +335,81 @@ async function setupUPNP(apiport = config.server.apiport) {
 }
 
 /**
- * To create mappings for UPnP (Universal Plug and Play) port.
+ * Maps a port to this node over TCP and then UDP.
+ *
+ * On a failure the port is no longer held here: a TCP half the router kept is
+ * the caller's to remove with removeMapUpnpPort, or the stale mapping
+ * cleanup's.
  * @param {number} port Port number.
  * @param {string} description Port description.
- * @returns {Promise<boolean>} True if port mappings can be created for both TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) protocols. Otherwise false.
+ * @returns {Promise<{mapped: boolean, code: number|null, reason: string|null, routerWide: boolean}>}
+ *   the first refusal, as mapProtocol gives it; mapped when both protocols are
  */
 async function mapUpnpPort(port, description) {
   // held from before the router has it: the cleanup pass may list it the
   // moment it is there
   mappedHere.add(+port);
+  let result = await mapProtocol(+port, 'TCP', description);
+  if (result.mapped) {
+    await serviceHelper.delay(500);
+    result = await mapProtocol(+port, 'UDP', description);
+  }
+  if (!result.mapped) {
+    log.error(`UPnP - ${result.reason}`);
+    mappedHere.delete(+port);
+    return result;
+  }
+  await serviceHelper.delay(500);
+  return result;
+}
+
+/**
+ * Removes the router's mapping of one protocol of a port when it points at
+ * this node. A router removes a mapping by its external port alone, whoever it
+ * points at, so the entry is looked up first: one pointing at another machine
+ * - another node behind the same router holding that port - is left, and one
+ * the router does not hold is gone already. An entry that cannot be looked up
+ * is removed.
+ * @param {number} port
+ * @param {string} protocol 'TCP' or 'UDP'
+ * @returns {Promise<boolean>} whether no mapping of it to this node is left
+ */
+async function removeProtocol(port, protocol) {
+  let held;
   try {
-    await client.createMapping({
-      public: port,
-      private: port,
-      ttl: 0,
-      protocol: 'TCP',
-      description,
-    });
-
-    await serviceHelper.delay(500);
-
-    await client.createMapping({
-      public: port,
-      private: port,
-      ttl: 0,
-      protocol: 'UDP',
-      description,
-    });
-
-    await serviceHelper.delay(500);
-
+    held = await client.getMapping({ public: port, protocol });
+  } catch (error) {
+    log.warn(`UPnP - ${protocol} ${port} not looked up, removing it: ${error.message}`);
+  }
+  if (held === null) return true;
+  if (held && held.local === false) {
+    log.info(`UPnP - ${protocol} ${port} left mapped: the router maps it to ${held.private.host}`);
+    return true;
+  }
+  try {
+    await client.removeMapping({ public: port, protocol });
     return true;
   } catch (error) {
-    log.error(error);
+    if (error instanceof natUpnp.UpnpError && error.code === NO_SUCH_ENTRY) return true;
+    log.error(`UPnP - ${protocol} ${port} not unmapped: ${error.message}`);
     return false;
   }
 }
 
 /**
- * To remove TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) port mappings from UPnP (Universal Plug and Play) port.
+ * Removes the TCP and the UDP mapping of a port to this node, each on its own:
+ * a refusal of one leaves the other to go.
  * @param {number} port Port number.
- * @returns {Promise<boolean>} True if port mappings have been removed for both TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) protocols. Otherwise false.
+ * @returns {Promise<boolean>} whether no mapping of the port to this node is left
  */
 async function removeMapUpnpPort(port) {
   // given up even if the router refuses: what is left is the cleanup pass's
   mappedHere.delete(+port);
-  try {
-    await client.removeMapping({
-      public: port,
-      protocol: 'TCP',
-    });
-
-    await serviceHelper.delay(500);
-
-    await client.removeMapping({
-      public: port,
-      protocol: 'UDP',
-    });
-
-    await serviceHelper.delay(500);
-
-    return true;
-  } catch (error) {
-    log.error(error);
-    return false;
-  }
+  const tcpRemoved = await removeProtocol(+port, 'TCP');
+  await serviceHelper.delay(500);
+  const udpRemoved = await removeProtocol(+port, 'UDP');
+  await serviceHelper.delay(500);
+  return tcpRemoved && udpRemoved;
 }
 
 /**
@@ -345,6 +422,16 @@ function isOwnedMappingDescription(description) {
   if (description === FLUXADM_MAPPING_DESCRIPTION && fluxadmPort.isArcane) return false;
   return OWNED_MAPPING_DESCRIPTIONS.has(description)
     || OWNED_MAPPING_PREFIXES.some((prefix) => description.startsWith(prefix));
+}
+
+/**
+ * Whether a mapping's description is a test's.
+ * @param {string} description
+ * @returns {boolean}
+ */
+function isTestMappingDescription(description) {
+  return typeof description === 'string'
+    && (TEST_MAPPING_DESCRIPTIONS.has(description) || description.startsWith(TEST_MAPPING_PREFIX));
 }
 
 /**
@@ -369,21 +456,11 @@ function msUntilCleanupSlot(apiport, now = Date.now()) {
 }
 
 /**
- * Removes the router's mappings to this node that this code made and nothing
- * here holds any more: an app removed while the router was unreachable, a
- * FluxOS that died between mapping and unmapping, a node reinstalled on the
- * same address without the apps it ran, an api port that moved. They are made
- * with an indefinite lease (or the router's longest, a week under IGDv2), so
- * nothing else ever takes them, and home routers hold only so many.
+ * Removes the router's mappings to this node that `select` picks from them.
  *
- * One listing. Only mappings to this node's own address are looked at -
- * several nodes behind one router is an ordinary setup - and only those with a
- * description this code gives, on a port nothing here holds and mapUpnpPort has
- * not mapped since FluxOS started.
- *
- * What is held is asked for only after the router has been listed: an app's
- * record is written before its ports are mapped, so every mapping the listing
- * holds already has its app in the answer.
+ * One listing, of the mappings to this node's own address only - several
+ * nodes behind one router is an ordinary setup. A port mapUpnpPort has mapped
+ * since FluxOS started, or maps while this runs, is never removed.
  *
  * Everything - the listing and each removal - happens within `budgetMs`. The
  * listing has to finish early enough to leave time for removals, or nothing is
@@ -391,24 +468,22 @@ function msUntilCleanupSlot(apiport, now = Date.now()) {
  * removal the router refuses with a UPnP error is stepped past; any other
  * failure - no answer in time, a connection refused or reset - ends the pass,
  * so as not to send more to a router that is not keeping up.
- * @param {function(): Promise<Iterable<number>>} heldPorts every port something on this node holds
+ * @param {function(object[]): (object[]|Promise<object[]>)} select the mappings to remove, from the listing
  * @param {number} budgetMs
+ * @param {string} what the mappings' name in the log
  * @returns {Promise<number>} how many mappings were removed
  */
-async function removeStaleMappings(heldPorts, budgetMs) {
+async function removeOwnMappings(select, budgetMs, what) {
   const deadline = monotonicMs() + budgetMs;
   const left = () => deadline - monotonicMs();
   const listingMs = budgetMs - Math.min(CLEANUP_REMOVAL_RESERVE_MS, budgetMs / 2);
   const mappings = await client.getMappings({ local: true, signal: AbortSignal.timeout(listingMs) });
-  const keep = new Set([...await heldPorts()].map(Number));
-  const stale = mappings.filter((mapping) => Number.isInteger(mapping.public.port)
-    && !keep.has(mapping.public.port)
-    && isOwnedMappingDescription(mapping.description));
+  const chosen = (await select(mappings)).filter((mapping) => Number.isInteger(mapping.public.port));
   let removed = 0;
   // eslint-disable-next-line no-restricted-syntax
-  for (const [index, mapping] of stale.entries()) {
+  for (const [index, mapping] of chosen.entries()) {
     if (left() <= 0) {
-      log.warn(`UPnP - stale mapping cleanup out of time, ${stale.length - index} left for the next start`);
+      log.warn(`UPnP - ${what} cleanup out of time, ${chosen.length - index} left for the next start`);
       break;
     }
     const { host, port } = mapping.public;
@@ -421,11 +496,11 @@ async function removeStaleMappings(heldPorts, budgetMs) {
       // eslint-disable-next-line no-await-in-loop
       await client.removeMapping({ public: { host, port }, protocol, signal: AbortSignal.timeout(left()) });
       removed += 1;
-      log.info(`UPnP - stale mapping removed: ${protocol} ${port} (${mapping.description})`);
+      log.info(`UPnP - ${what} removed: ${protocol} ${port} (${mapping.description})`);
     } catch (error) {
-      log.warn(`UPnP - stale mapping ${protocol} ${port} (${mapping.description}) not removed: ${error.message}`);
+      log.warn(`UPnP - ${what} ${protocol} ${port} (${mapping.description}) not removed: ${error.message}`);
       if (!(error instanceof natUpnp.UpnpError)) {
-        log.warn(`UPnP - stale mapping cleanup stopped, ${stale.length - index - 1} left for the next start`);
+        log.warn(`UPnP - ${what} cleanup stopped, ${chosen.length - index - 1} left for the next start`);
         break;
       }
     }
@@ -433,6 +508,45 @@ async function removeStaleMappings(heldPorts, budgetMs) {
     await serviceHelper.delay(500);
   }
   return removed;
+}
+
+/**
+ * Removes the router's mappings to this node that this code made and nothing
+ * here holds any more: an app removed while the router was unreachable, a
+ * FluxOS that died between mapping and unmapping, a node reinstalled on the
+ * same address without the apps it ran, an api port that moved. They are made
+ * with an indefinite lease (or the router's longest, a week under IGDv2), so
+ * nothing else ever takes them, and home routers hold only so many.
+ *
+ * Only those with a description this code gives, on a port nothing here
+ * holds. What is held is asked for only after the router has been listed: an
+ * app's record is written before its ports are mapped, so every mapping the
+ * listing holds already has its app in the answer.
+ * @param {function(): Promise<Iterable<number>>} heldPorts every port something on this node holds
+ * @param {number} budgetMs
+ * @returns {Promise<number>} how many mappings were removed
+ */
+async function removeStaleMappings(heldPorts, budgetMs) {
+  return removeOwnMappings(async (mappings) => {
+    const keep = new Set([...await heldPorts()].map(Number));
+    return mappings.filter((mapping) => !keep.has(mapping.public.port)
+      && isOwnedMappingDescription(mapping.description));
+  }, budgetMs, 'stale mapping');
+}
+
+/**
+ * Removes the router's test mappings to this node: a port test's, an app's
+ * prelaunch test's and verifyUPNPsupport's. A test removes its mapping before
+ * it ends, so while UPnP is being verified at the start of FluxOS every one the
+ * router holds was left by an earlier run.
+ * @returns {Promise<number>} how many mappings were removed
+ */
+async function removeLeftoverTestMappings() {
+  return removeOwnMappings(
+    (mappings) => mappings.filter((mapping) => isTestMappingDescription(mapping.description)),
+    CLEANUP_SLOT_MS,
+    'left-over test mapping',
+  );
 }
 
 /**
@@ -613,6 +727,7 @@ module.exports = {
   setupUPNP,
   mapUpnpPort,
   removeMapUpnpPort,
+  routerRefusals,
   corePorts,
   msUntilCleanupSlot,
   removeStaleMappings,

@@ -98,6 +98,22 @@ function releaseOwnDos(dosState) {
 }
 
 /**
+ * Whether the router has refused a mapping for a reason of its own - a full
+ * table, no answer - since this check last asked: any mapping, an install's, a
+ * restore's or this check's own. Read once per pass, so a pass counts once
+ * however many it refused.
+ * @param {object} dosState
+ * @returns {boolean}
+ */
+function routerRefusedSinceLastPass(dosState) {
+  const refusals = upnpService.routerRefusals();
+  const refused = refusals > dosState.routerRefusalsSeen;
+  // eslint-disable-next-line no-param-reassign
+  dosState.routerRefusalsSeen = refusals;
+  return refused;
+}
+
+/**
  * Check my apps availability by testing ports from external nodes
  * @param {Function} installedAppsFn - Function to get installed apps
  * @param {object} dosState - DOS state object with getters and setters
@@ -110,6 +126,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
   const { timeoutsMs: timeouts, thresholds } = config.fluxapps.appsPortCheck;
 
   const isUpnp = upnpService.isUPNP();
+  let routerRefused = false;
   const testHttpServer = new fluxHttpTestServer.FluxHttpTestServer();
 
   const setNextPort = () => {
@@ -251,15 +268,14 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
 
     if (isUpnp) {
       const upnpMapResult = await upnpService.mapUpnpPort(dosState.testingPort, 'Flux_Test_App');
-      if (!upnpMapResult) {
-        if (dosState.lastUPNPMapFailed) countPortFailure(dosState, thresholds.dos, UPNP_DOS_MESSAGE);
-        // eslint-disable-next-line no-param-reassign
-        dosState.lastUPNPMapFailed = true;
-        log.info(`checkMyAppsAvailability - Testing port ${dosState.testingPort} failed to create UPnP mapping`);
+      routerRefused = routerRefusedSinceLastPass(dosState);
+      if (routerRefused) countPortFailure(dosState, thresholds.dos, UPNP_DOS_MESSAGE);
+      if (!upnpMapResult.mapped) {
+        log.info(`checkMyAppsAvailability - Testing port ${dosState.testingPort} failed to create UPnP mapping: ${upnpMapResult.reason}`);
         setNextPort();
+        // the router may have kept the TCP half
         await handleTestShutdown(dosState.testingPort, testHttpServer, isArcane, {
           skipFirewall: !firewallActive,
-          skipUpnp: true,
           skipHttpServer: true,
         });
         const upnpDelay = dosState.portFailureScore >= thresholds.dos ? timeouts.dos : timeouts.error;
@@ -267,8 +283,6 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
         setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));
         return;
       }
-      // eslint-disable-next-line no-param-reassign
-      dosState.lastUPNPMapFailed = false;
     }
 
     const listening = new Promise((resolve, reject) => {
@@ -396,7 +410,8 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       dosState.nextTestingPort = null;
       // eslint-disable-next-line no-param-reassign
       dosState.originalPortFailed = null;
-      releaseOwnDos(dosState);
+      // a router refusing others' mappings is not cleared by one that took this test's
+      if (!routerRefused) releaseOwnDos(dosState);
       waitMs = timeouts.default;
     }
 
