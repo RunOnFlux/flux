@@ -7,7 +7,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { restartFluxos, setNodeApiPort } from '../framework/container.js';
 import { enableUpnpGateway, upnpGatewayState } from '../framework/external-http-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
-import { waitFor } from '../framework/wait.js';
+import { waitFor, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const subnet = getSubnetConfig();
@@ -48,6 +48,8 @@ describe('a node behind a full router table verifies UPnP', function () {
     this.timeout(240000);
     env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false });
     nodeIp = subnet.nodeIp(1);
+    // the first boot writes userconfig.js (its identity) and would put back the old port
+    await waitForBootSettled(env.clients[0]);
     await enableUpnpGateway(nodeIp, { capacity: CAPACITY, mappings: [...LEFT_OVER, OTHERS] });
     await setNodeApiPort(env.clients[0].container, API_PORT);
     await restartFluxos(env.clients[0].container, { apiPort: API_PORT });
@@ -96,6 +98,8 @@ describe('a node whose own ports fill its router\'s table verifies UPnP', functi
     this.timeout(240000);
     env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false });
     nodeIp = subnet.nodeIp(1);
+    // the first boot writes userconfig.js (its identity) and would put back the old port
+    await waitForBootSettled(env.clients[0]);
     await enableUpnpGateway(nodeIp, { capacity: FULL.length, mappings: FULL });
     await setNodeApiPort(env.clients[0].container, API_PORT);
     await restartFluxos(env.clients[0].container, { apiPort: API_PORT });
