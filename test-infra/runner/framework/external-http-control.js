@@ -191,10 +191,15 @@ export async function resetStorageRequests() {
  * Put a node behind a UPnP gateway the stub serves it. Every other node is served
  * a gateway with no WAN service, and runs without UPnP.
  * @param {string} ip - the node's fleet address, as subnet-config names it
- * @param {{externalIp?: string}} [opts] - the address the gateway reports; the node's own when absent
+ * @param {object} [opts]
+ * @param {string} [opts.externalIp] - the address the gateway reports; the node's own when absent
+ * @param {number} [opts.capacity] - how many mappings its table holds; no limit when absent
+ * @param {object[]} [opts.mappings] - what its table holds already, as upnpGatewayState lists it
  */
-export async function enableUpnpGateway(ip, { externalIp = null } = {}) {
-  const res = await post('/upnp-gateway', { ip, externalIp });
+export async function enableUpnpGateway(ip, { externalIp = null, capacity = null, mappings = [] } = {}) {
+  const res = await post('/upnp-gateway', {
+    ip, externalIp, capacity, mappings,
+  });
   if (!res.ok) throw new Error(`enableUpnpGateway: ${JSON.stringify(res)}`);
 }
 
