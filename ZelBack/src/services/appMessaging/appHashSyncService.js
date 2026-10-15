@@ -1,3 +1,4 @@
+const stream = require('stream');
 const zlib = require('zlib');
 const { StringDecoder } = require('string_decoder');
 const config = require('config');
@@ -140,6 +141,7 @@ function createJsonArrayExtractor(onObject) {
 }
 
 const BULK_FETCH_BATCH_SIZE = 500;
+const BULK_FETCH_IDLE_MS = config.fluxapps.hashSyncBulkIdleMs ?? 60000;
 
 /**
  * Streams a peer's permanent messages and stores the ones this node is missing.
@@ -168,11 +170,15 @@ async function bulkFetchStreamAndProcess(peerIp, peerPort, missing, onProgress) 
     return { processed: 0, skipped: 0, streamed: 0 };
   }
 
+  // pipeline, not pipe: pipe() forwards neither the response's abort nor its error to the
+  // gunzip, so a connection torn down mid-body left the gunzip silent and this function
+  // waiting forever - and with it syncMissingHashes and every hash retry after it. Observed
+  // on 8.21.1 nodes: the peer connection dropped while the stream sat paused for a batch,
+  // and the node never asked for a missing message again until FluxOS restarted.
   const isGzip = response.headers?.['content-encoding'] === 'gzip';
-  let dataStream = response.data;
-  if (isGzip) {
-    dataStream = response.data.pipe(zlib.createGunzip());
-  }
+  const dataStream = isGzip
+    ? stream.pipeline(response.data, zlib.createGunzip(), () => {})
+    : response.data;
 
   let totalSeen = 0;
   let totalProcessed = 0;
@@ -180,8 +186,26 @@ async function bulkFetchStreamAndProcess(peerIp, peerPort, missing, onProgress) 
   const batch = [];
   let streamDone = false;
   let stopped = false;
-  let signalBatch;
-  let waitForBatch = new Promise((r) => { signalBatch = r; });
+  let lastDataAt = Date.now();
+
+  // The loop sleeps until there is a full batch or the stream is over. Both are checked
+  // before sleeping, so an end or error that lands while a batch is being processed is not
+  // lost to a wake-up nobody is waiting for yet.
+  let wake = null;
+  const signal = () => {
+    if (wake) {
+      const resolve = wake;
+      wake = null;
+      resolve();
+    }
+  };
+  const nextBatchReady = () => new Promise((resolve) => {
+    if (streamDone || batch.length >= BULK_FETCH_BATCH_SIZE) {
+      resolve();
+      return;
+    }
+    wake = resolve;
+  });
 
   const extractor = createJsonArrayExtractor((obj) => {
     totalSeen += 1;
@@ -189,25 +213,44 @@ async function bulkFetchStreamAndProcess(peerIp, peerPort, missing, onProgress) 
       batch.push(obj);
       if (batch.length >= BULK_FETCH_BATCH_SIZE) {
         dataStream.pause();
-        signalBatch();
+        signal();
       }
     }
   });
 
+  const finish = () => {
+    streamDone = true;
+    signal();
+  };
   const decoder = new StringDecoder('utf8');
-  dataStream.on('data', (chunk) => extractor.write(decoder.write(chunk)));
-  dataStream.on('end', () => { streamDone = true; signalBatch(); });
-  dataStream.on('close', () => { streamDone = true; signalBatch(); });
+  dataStream.on('data', (chunk) => {
+    lastDataAt = Date.now();
+    extractor.write(decoder.write(chunk));
+  });
+  dataStream.on('end', finish);
+  dataStream.on('close', finish);
   dataStream.on('error', (err) => {
     if (!stopped) log.error(`syncMissingHashes - stream error from ${peerIp}:${peerPort}: ${err.message}`);
-    streamDone = true;
-    signalBatch();
+    finish();
   });
 
+  // A connection that dies without a FIN or RST (a NAT dropping its mapping) raises no event
+  // at all. While the stream is flowing it must keep delivering; one that stalls is ended
+  // here. The time spent paused on a batch does not count.
+  const idleWatch = setInterval(() => {
+    if (streamDone || dataStream.isPaused()) return;
+    if (Date.now() - lastDataAt > BULK_FETCH_IDLE_MS) {
+      log.warn(`syncMissingHashes - no data from ${peerIp}:${peerPort} for ${BULK_FETCH_IDLE_MS / 1000}s, abandoning stream`);
+      dataStream.destroy(new Error('stream idle'));
+      finish();
+    }
+  }, Math.min(5000, BULK_FETCH_IDLE_MS));
+
   try {
-    while (!streamDone || batch.length >= BULK_FETCH_BATCH_SIZE) {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
       // eslint-disable-next-line no-await-in-loop
-      await waitForBatch;
+      await nextBatchReady();
       if (batch.length === 0) break;
 
       const currentBatch = batch.splice(0, BULK_FETCH_BATCH_SIZE);
@@ -223,17 +266,14 @@ async function bulkFetchStreamAndProcess(peerIp, peerPort, missing, onProgress) 
         break;
       }
 
-      waitForBatch = new Promise((r) => { signalBatch = r; });
-      dataStream.resume();
-    }
-
-    if (batch.length > 0) {
-      const stats = await processMessages(batch, missing, onProgress);
-      totalProcessed += stats.processed;
-      totalSkipped += stats.skipped;
-      for (const msg of batch) missing.delete(msg.hash);
+      if (!streamDone && batch.length < BULK_FETCH_BATCH_SIZE) {
+        lastDataAt = Date.now();
+        dataStream.resume();
+      }
     }
   } finally {
+    clearInterval(idleWatch);
+    stopped = true;
     dataStream.destroy();
     response.data.destroy();
   }

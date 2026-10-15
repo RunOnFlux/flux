@@ -772,6 +772,8 @@ module.exports = {
     hashSyncPeersPerRound: 3,
     hashSyncEphemeralPeers: 5,
     hashSyncFallbackRecheckBlocks: 100,
+    // a flowing bulk stream that delivers nothing for this long is abandoned (time paused on a batch does not count)
+    hashSyncBulkIdleMs: 60000,
     syncResponseThrottleMs: 300000,
     wsHandshakeTimeoutMs: 10000,
     imageUpdateCheckIntervalMs: 21600000,
