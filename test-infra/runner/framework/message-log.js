@@ -88,16 +88,20 @@ export async function messagesNotKept(joiner, log) {
 }
 
 /**
- * A fleet of four serving nodes holding a log of `apps` x (1 + `updates`) messages, and a joiner,
+ * A fleet of six serving nodes holding a log of `apps` x (1 + `updates`) messages, and a joiner,
  * not yet started, holding the payment records of all of them and none of the messages.
+ *
+ * A bulk fetch asks only the peers that dialled the joiner, never the ones it dialled itself, and
+ * in a ring of seven nodes three peers dial each node: so the joiner has three peers to ask, and
+ * a suite can fail one and still have others to take the rest from.
  * @param {object} hookCtx the before hook's `this`
  * @param {{name: string, apps?: number, updates?: number}} options
  * @returns {Promise<{env: object, log: object[], peers: number[], joiner: number}>}
  */
 export async function fleetMissingALog(hookCtx, { name, apps = 10, updates = 59 }) {
-  const peers = [0, 1, 2, 3];
-  const joiner = 4;
-  const env = await createTestEnv({ hookCtx, nodes: 5, deferredNodes: 1 });
+  const peers = [0, 1, 2, 3, 4, 5];
+  const joiner = 6;
+  const env = await createTestEnv({ hookCtx, nodes: 7, deferredNodes: 1 });
   await bootAndPeer(env);
   const log = await buildMessageLog({
     env, name: `${name}${Date.now()}x`, apps, updates, height: env.initialHeight - 2000,
