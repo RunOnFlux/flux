@@ -44,6 +44,19 @@ const upnpService = proxyquire(
   { config, './fluxadmPort': fluxadmPortStub },
 );
 
+// the options each nat-upnp client was constructed with
+const clientOptions = [];
+class RecordingClient extends natUpnp.Client {
+  constructor(options) {
+    super(options);
+    clientOptions.push(options);
+  }
+}
+proxyquire(
+  '../../ZelBack/src/services/upnpService',
+  { config, './fluxadmPort': fluxadmPortStub, '@runonflux/nat-upnp': { ...natUpnp, Client: RecordingClient } },
+);
+
 const GATEWAY_URL = 'http://192.168.1.1:5000/rootDesc.xml';
 const upnpServiceAtGatewayUrl = proxyquire(
   '../../ZelBack/src/services/upnpService',
@@ -51,6 +64,12 @@ const upnpServiceAtGatewayUrl = proxyquire(
 );
 
 describe('upnpService tests', () => {
+  describe('client tests', () => {
+    it('should keep the router it discovers between calls', () => {
+      expect(clientOptions).to.deep.equal([{ cacheGateway: true }]);
+    });
+  });
+
   describe('adjustFirewallForUPNP tests', () => {
     let originalUserConfig;
 
@@ -106,6 +125,16 @@ describe('upnpService tests', () => {
 
   describe('verifyUPNPsupport tests', () => {
     let logSpy;
+    // what the router answers for the test mapping verifyUPNPsupport makes
+    const testMapping = {
+      public: { host: '', port: 16130 },
+      private: { host: '192.168.1.10', port: 16130 },
+      protocol: 'tcp',
+      enabled: true,
+      description: 'Flux_UPNP_Mapping_Test',
+      ttl: 0,
+      local: true,
+    };
 
     beforeEach(() => {
       logSpy = sinon.spy(log, 'error');
@@ -119,7 +148,7 @@ describe('upnpService tests', () => {
       sinon.stub(natUpnp.Client.prototype, 'getPublicIp').returns(Promise.resolve(true));
       sinon.stub(natUpnp.Client.prototype, 'getGateway').returns(Promise.resolve(true));
       sinon.stub(natUpnp.Client.prototype, 'createMapping').returns(Promise.resolve(true));
-      sinon.stub(natUpnp.Client.prototype, 'getMappings').returns(Promise.resolve(true));
+      sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(testMapping);
       sinon.stub(natUpnp.Client.prototype, 'removeMapping').returns(Promise.resolve(true));
 
       const clock = sinon.useFakeTimers();
@@ -139,7 +168,7 @@ describe('upnpService tests', () => {
       sinon.stub(natUpnp.Client.prototype, 'getPublicIp').resolves(true);
       sinon.stub(natUpnp.Client.prototype, 'getGateway').resolves(true);
       sinon.stub(natUpnp.Client.prototype, 'createMapping').callsFake(async () => { heldAt.create = upnpService.mappedHere.has(16130); });
-      sinon.stub(natUpnp.Client.prototype, 'getMappings').resolves(true);
+      sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(testMapping);
       sinon.stub(natUpnp.Client.prototype, 'removeMapping').callsFake(async () => { heldAt.remove = upnpService.mappedHere.has(16130); });
 
       const clock = sinon.useFakeTimers();
@@ -157,7 +186,7 @@ describe('upnpService tests', () => {
       sinon.stub(natUpnp.Client.prototype, 'getPublicIp').throws();
       sinon.stub(natUpnp.Client.prototype, 'getGateway').returns(Promise.resolve(true));
       sinon.stub(natUpnp.Client.prototype, 'createMapping').returns(Promise.resolve(true));
-      sinon.stub(natUpnp.Client.prototype, 'getMappings').returns(Promise.resolve(true));
+      sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(testMapping);
       sinon.stub(natUpnp.Client.prototype, 'removeMapping').returns(Promise.resolve(true));
 
       const clock = sinon.useFakeTimers();
@@ -176,7 +205,7 @@ describe('upnpService tests', () => {
       sinon.stub(natUpnp.Client.prototype, 'getPublicIp').returns(Promise.resolve(true));
       sinon.stub(natUpnp.Client.prototype, 'getGateway').throws();
       sinon.stub(natUpnp.Client.prototype, 'createMapping').returns(Promise.resolve(true));
-      sinon.stub(natUpnp.Client.prototype, 'getMappings').returns(Promise.resolve(true));
+      sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(testMapping);
       sinon.stub(natUpnp.Client.prototype, 'removeMapping').returns(Promise.resolve(true));
 
       const clock = sinon.useFakeTimers();
@@ -195,7 +224,7 @@ describe('upnpService tests', () => {
       sinon.stub(natUpnp.Client.prototype, 'getPublicIp').returns(Promise.resolve(true));
       sinon.stub(natUpnp.Client.prototype, 'getGateway').returns(Promise.resolve(true));
       sinon.stub(natUpnp.Client.prototype, 'createMapping').throws();
-      sinon.stub(natUpnp.Client.prototype, 'getMappings').returns(Promise.resolve(true));
+      sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(testMapping);
       sinon.stub(natUpnp.Client.prototype, 'removeMapping').returns(Promise.resolve(true));
 
       const clock = sinon.useFakeTimers();
@@ -210,11 +239,44 @@ describe('upnpService tests', () => {
       sinon.assert.calledWithExactly(logSpy, 'VerifyUPNPsupport - Failed Create Mapping');
     });
 
-    it('should log a proper error if getMappings throws', async () => {
+    it('should look up the test mapping it made, by its port, and nothing else', async () => {
+      sinon.stub(natUpnp.Client.prototype, 'getPublicIp').resolves(true);
+      sinon.stub(natUpnp.Client.prototype, 'getGateway').resolves(true);
+      sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves(true);
+      const getMappingStub = sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(testMapping);
+      const getMappingsStub = sinon.stub(natUpnp.Client.prototype, 'getMappings').resolves([]);
+      sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves(true);
+
+      const clock = sinon.useFakeTimers();
+      const promise = upnpService.verifyUPNPsupport(16127);
+      await clock.tickAsync(2_500);
+
+      expect(await promise).to.equal(true);
+      sinon.assert.calledOnceWithExactly(getMappingStub, { public: 16130, protocol: 'TCP' });
+      sinon.assert.notCalled(getMappingsStub);
+    });
+
+    it('should fail when the router holds no mapping for the test port it just made', async () => {
+      sinon.stub(natUpnp.Client.prototype, 'getPublicIp').resolves(true);
+      sinon.stub(natUpnp.Client.prototype, 'getGateway').resolves(true);
+      sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves(true);
+      sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(null);
+      sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves(true);
+
+      const clock = sinon.useFakeTimers();
+      const promise = upnpService.verifyUPNPsupport(16127);
+      await clock.tickAsync(2_500);
+
+      expect(await promise).to.equal(false);
+      sinon.assert.calledTwice(logSpy);
+      sinon.assert.calledWithExactly(logSpy, 'VerifyUPNPsupport - Failed get Mapping');
+    });
+
+    it('should log a proper error if getMapping throws', async () => {
       sinon.stub(natUpnp.Client.prototype, 'getPublicIp').returns(Promise.resolve(true));
       sinon.stub(natUpnp.Client.prototype, 'getGateway').returns(Promise.resolve(true));
       sinon.stub(natUpnp.Client.prototype, 'createMapping').returns(Promise.resolve(true));
-      sinon.stub(natUpnp.Client.prototype, 'getMappings').throws();
+      sinon.stub(natUpnp.Client.prototype, 'getMapping').throws();
       sinon.stub(natUpnp.Client.prototype, 'removeMapping').returns(Promise.resolve(true));
 
       const clock = sinon.useFakeTimers();
@@ -226,14 +288,14 @@ describe('upnpService tests', () => {
 
       expect(result).to.equal(false);
       sinon.assert.calledTwice(logSpy);
-      sinon.assert.calledWithExactly(logSpy, 'VerifyUPNPsupport - Failed get Mappings');
+      sinon.assert.calledWithExactly(logSpy, 'VerifyUPNPsupport - Failed get Mapping');
     });
 
     it('should log a proper error if removeMapping throws', async () => {
       sinon.stub(natUpnp.Client.prototype, 'getPublicIp').returns(Promise.resolve(true));
       sinon.stub(natUpnp.Client.prototype, 'getGateway').returns(Promise.resolve(true));
       sinon.stub(natUpnp.Client.prototype, 'createMapping').returns(Promise.resolve(true));
-      sinon.stub(natUpnp.Client.prototype, 'getMappings').returns(Promise.resolve(true));
+      sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(testMapping);
       sinon.stub(natUpnp.Client.prototype, 'removeMapping').throws();
 
       const clock = sinon.useFakeTimers();
@@ -252,7 +314,7 @@ describe('upnpService tests', () => {
   describe('setupUPNP tests', () => {
     let logSpy;
     let createMappingSpy;
-    let getMappingsStub;
+    let getMappingStub;
     let removeMappingStub;
     let unitStateStub;
 
@@ -265,7 +327,7 @@ describe('upnpService tests', () => {
         .withArgs('systemctl', sinon.match({ params: ['is-enabled', 'fluxadm-sshd.socket'] }));
       sshdSocket('disabled\n');
       createMappingSpy = sinon.stub(natUpnp.Client.prototype, 'createMapping');
-      getMappingsStub = sinon.stub(natUpnp.Client.prototype, 'getMappings').resolves([]);
+      getMappingStub = sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(null);
       removeMappingStub = sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
     });
 
@@ -307,18 +369,29 @@ describe('upnpService tests', () => {
 
     it('should remove its own maintenance ssh mapping while its socket is not enabled', async () => {
       createMappingSpy.returns(true);
-      getMappingsStub.resolves([fluxadmMapping()]);
+      getMappingStub.resolves(fluxadmMapping());
 
       const result = await runSetup(123);
 
       expect(result).to.equal(true);
       sinon.assert.callCount(createMappingSpy, 4);
+      sinon.assert.calledOnceWithExactly(getMappingStub, { public: 118, protocol: 'TCP' });
       sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 118, protocol: 'TCP' });
+    });
+
+    it('should remove nothing when the router holds no mapping of the maintenance ssh port', async () => {
+      createMappingSpy.returns(true);
+
+      const result = await runSetup(123);
+
+      expect(result).to.equal(true);
+      sinon.assert.calledOnce(getMappingStub);
+      sinon.assert.notCalled(removeMappingStub);
     });
 
     it('should remove its own maintenance ssh mapping once its socket is gone, or systemctl cannot answer', async () => {
       createMappingSpy.returns(true);
-      getMappingsStub.resolves([fluxadmMapping()]);
+      getMappingStub.resolves(fluxadmMapping());
       sshdSocket('', new Error('Failed to get unit file state for fluxadm-sshd.socket: No such file or directory'));
 
       const result = await runSetup(123);
@@ -328,42 +401,34 @@ describe('upnpService tests', () => {
       sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 118, protocol: 'TCP' });
     });
 
-    it('should keep a mapping of the same port that it did not make', async () => {
-      createMappingSpy.returns(true);
-      getMappingsStub.resolves([
-        fluxadmMapping({ description: 'node owner ssh' }),
-        fluxadmMapping({ local: false }),
-      ]);
+    [
+      ['made under another description', { description: 'node owner ssh' }],
+      ['to another machine', { local: false }],
+      ['the router cannot say is to this node', { local: null }],
+    ].forEach(([what, overrides]) => {
+      it(`should keep a mapping of the same port ${what}`, async () => {
+        createMappingSpy.returns(true);
+        getMappingStub.resolves(fluxadmMapping(overrides));
 
-      const result = await runSetup(123);
+        const result = await runSetup(123);
 
-      expect(result).to.equal(true);
-      sinon.assert.calledOnce(getMappingsStub);
-      sinon.assert.notCalled(removeMappingStub);
-    });
-
-    it('should keep a mapping the router cannot say is to this node', async () => {
-      createMappingSpy.returns(true);
-      getMappingsStub.resolves([fluxadmMapping({ local: null })]);
-
-      const result = await runSetup(123);
-
-      expect(result).to.equal(true);
-      sinon.assert.calledOnce(getMappingsStub);
-      sinon.assert.notCalled(removeMappingStub);
+        expect(result).to.equal(true);
+        sinon.assert.calledOnce(getMappingStub);
+        sinon.assert.notCalled(removeMappingStub);
+      });
     });
 
     it('should neither map nor unmap the maintenance ssh port on ArcaneOS', async () => {
       createMappingSpy.returns(true);
       fluxadmPortStub.isArcane = true;
       sshdSocket('enabled\n');
-      getMappingsStub.resolves([fluxadmMapping()]);
+      getMappingStub.resolves(fluxadmMapping());
 
       const result = await runSetup(123);
 
       expect(result).to.equal(true);
       sinon.assert.callCount(createMappingSpy, 4);
-      sinon.assert.notCalled(getMappingsStub);
+      sinon.assert.notCalled(getMappingStub);
       sinon.assert.notCalled(removeMappingStub);
     });
 

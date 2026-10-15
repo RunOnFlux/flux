@@ -12,9 +12,11 @@ const { Privilege, authOf } = require('./utils/privileges');
 
 // config.upnp.gatewayUrl names the router's device description, used in place
 // of discovering the router; the node's address is then config.upnp.nodeIp.
+// A discovered router is kept between calls, and found again when it stops
+// answering where it was.
 const client = config.upnp.gatewayUrl
   ? new natUpnp.Client({ url: config.upnp.gatewayUrl, localAddress: config.upnp.nodeIp || '127.0.0.1' })
-  : new natUpnp.Client();
+  : new natUpnp.Client({ cacheGateway: true });
 
 const FLUXADM_MAPPING_DESCRIPTION = 'Flux_Fluxadm_SSH';
 
@@ -145,12 +147,13 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
     return false;
   }
   try {
-    await client.getMappings();
+    const mapping = await client.getMapping({ public: +apiport + 3, protocol: 'TCP' });
+    if (!mapping) throw new Error(`the router holds no mapping for port ${+apiport + 3}`);
 
     await serviceHelper.delay(500);
   } catch (error) {
     log.error(error);
-    log.error('VerifyUPNPsupport - Failed get Mappings');
+    log.error('VerifyUPNPsupport - Failed get Mapping');
     upnpMachine = false;
     return false;
   }
@@ -199,10 +202,10 @@ async function reconcileFluxadmMapping(apiport) {
       });
       return;
     }
-    const mappings = await client.getMappings();
-    const ours = mappings.some((mapping) => mapping.local
-      && mapping.public.port === port
-      && mapping.description === FLUXADM_MAPPING_DESCRIPTION);
+    const mapping = await client.getMapping({ public: port, protocol: 'TCP' });
+    const ours = mapping !== null
+      && mapping.local === true
+      && mapping.description === FLUXADM_MAPPING_DESCRIPTION;
     if (ours) {
       await client.removeMapping({ public: port, protocol: 'TCP' });
       log.info(`fluxadm access - UPnP mapping for port ${port} removed`);
