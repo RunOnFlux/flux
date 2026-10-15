@@ -1282,6 +1282,14 @@ async function nudgeFolderDevices(folderId) {
   }
 }
 
+// Consecutive passes a promotion candidate asks to revert local changes that are
+// directories only before it stops asking. A directory entry carries no content,
+// and syncthing can hold one it cannot revert: when the folder's global version of
+// a directory is this node's own local change (the device that wrote the version
+// before it has left the cluster - the previous primary died mid-save), db/revert
+// has nothing to revert to and the same item is reported again on every pass.
+const DIRECTORY_ONLY_REVERT_PASSES = 3;
+
 /**
  * Reverts a synced receiveonly folder's local changes to the cluster's version.
  *
@@ -1639,7 +1647,21 @@ async function handleReceiveOnlyTransition(params) {
     // is clean first; if not, revert the local changes (db/revert undoes local edits in
     // a receiveonly folder) and promote on a later cycle once verifiably clean. The
     // leader path above is exempt by design - the leader's local data IS the seed.
-    if (await revertLocalChangesIfSynced(appId, syncStatus)) {
+    //
+    // A revert that does not take would hold the folder here forever: every pass
+    // reverts, returns, and never reaches the promotion below, so the node never
+    // reads as ready and a g: app whose primary died stays down on every survivor.
+    // Only directory-only changes are let through, after DIRECTORY_ONLY_REVERT_PASSES
+    // passes - promoting publishes a directory's metadata, never a file's content -
+    // and the safety check below still runs before the flip.
+    const directoryOnly = !!syncStatus?.isSynced
+      && !syncStatus.receiveOnlyChangedFiles
+      && (syncStatus.receiveOnlyChangedDirectories || 0) > 0;
+    cache.directoryOnlyReverts = directoryOnly ? (cache.directoryOnlyReverts || 0) + 1 : 0;
+    if (directoryOnly && cache.directoryOnlyReverts > DIRECTORY_ONLY_REVERT_PASSES) {
+      log.warn(`handleReceiveOnlyTransition - ${appId}: ${syncStatus.receiveOnlyChangedDirectories} locally changed director(ies) survived ${DIRECTORY_ONLY_REVERT_PASSES} reverts; no file differs, promoting without reverting again`);
+      fluxEventBus.count('syncthing:revertSkipped', appId, 'directoriesOnly');
+    } else if (await revertLocalChangesIfSynced(appId, syncStatus)) {
       return { syncthingFolder, cache };
     }
     if (syncStatus.isSynced) {
