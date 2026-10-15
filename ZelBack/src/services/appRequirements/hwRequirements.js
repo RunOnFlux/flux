@@ -163,130 +163,192 @@ function checkAppDataCenterRequirements(appSpecs) {
 }
 
 /**
- * To check app requirements of geolocation restrictions for a node
- * @param {object} appSpecs App specifications.
- * @returns {Promise<boolean>} True if all checks passed.
+ * What an app's geolocation says about this node.
+ *
+ * PASS: the node may run it. FAIL: something places the node outside it.
+ * UNKNOWN: nothing can say either way - the node has no location at all, or the
+ * spec pins a region in this node's country and the table does not know this
+ * node's region.
  */
-async function checkAppGeolocationRequirements(appSpecs) {
-  if (appSpecs.version >= 5 && appSpecs.geolocation && appSpecs.geolocation.length > 0) {
-    const nodeGeo = await geolocationService.getNodeGeolocation();
-    if (!nodeGeo) {
-      throw new Error('Node Geolocation not set. Aborting.');
-    }
-    // previous geolocation specification version (a, b) [aEU, bFR]
-    // current geolocation style [acEU], [acEU_CZ], [acEU_CZ_PRG], [a!cEU], [a!cEU_CZ], [a!cEU_CZ_PRG]
-    const appContinent = appSpecs.geolocation.find((x) => x.startsWith('a'));
-    const appCountry = appSpecs.geolocation.find((x) => x.startsWith('b'));
-    const geoC = appSpecs.geolocation.filter((x) => x.startsWith('ac')); // this ensures that new specs can only run on updated nodes.
-    const geoCForbidden = appSpecs.geolocation.filter((x) => x.startsWith('a!c'));
+const GeoVerdict = Object.freeze({
+  PASS: 'pass',
+  FAIL: 'fail',
+  UNKNOWN: 'unknown',
+});
 
-    // This node's own continent, country and region, resolved through the SAME
-    // published table the candidate count reads for every other node - so the
-    // two cannot disagree about where this node is.
-    //
-    // That matters in one direction. The count has no alternative source: it is
-    // answering for thousands of nodes it cannot ask. So if this check read the
-    // node's ip-api self-report instead, the two would differ wherever the table
-    // and the self-report differ, and the count would exclude nodes this check
-    // would have accepted - a candidate count below the instance count, and a
-    // registration refused for a spec that would have deployed.
-    //
-    // The self-report is the fallback, for a node the table cannot place at all.
-    // The count treats such a node as unprovable and includes it, so falling
-    // back here can only make this check stricter than the count, which is the
-    // safe direction.
-    let myContinent = nodeGeo.continentCode;
-    let myCountry = nodeGeo.countryCode;
-    let myTableRegion = null;
-    try {
-      const hit = nodeGeo.ip ? await ipLocationStore.lookup(nodeGeo.ip) : null;
-      if (hit?.countryCode && hit.continentCode) {
-        myContinent = hit.continentCode;
-        myCountry = hit.countryCode;
-        myTableRegion = hit.region ?? null;
-      }
-    } catch (error) {
-      log.warn(`checkAppGeolocationRequirements - node location unavailable from the table: ${error.message}`);
-    }
+/**
+ * What a FAIL rests on. TABLE: the published location table alone. SELF: this
+ * node's own ip-api report - the location of a node the table cannot place, or
+ * the region name of an entry the table's vocabulary does not resolve.
+ */
+const GeoSource = Object.freeze({
+  TABLE: 'table',
+  SELF: 'self',
+});
 
-    const myNodeLocationContinent = myContinent;
-    const myNodeLocationContCountry = `${myContinent}_${myCountry}`;
-    // the region part of a legacy entry is an ip-api region NAME, which only
-    // this node knows about itself - the count cannot read it for other nodes
-    // and deliberately answers such entries at country granularity, so matching
-    // it here can only narrow what this node accepts
-    const myNodeLocationFull = `${myContinent}_${myCountry}_${nodeGeo.regionName}`;
-    const myNodeLocationContinentALL = 'ALL';
-    const myNodeLocationContCountryALL = `${myContinent}_ALL`;
-    const myNodeLocationFullALL = `${myContinent}_${myCountry}_ALL`;
-    // A region entry matches on proof only, in both directions: an allow is
-    // satisfied - and a deny applies - exactly when this node's table region is
-    // known and equal. An unknown region satisfies no region pin and is caught
-    // by no region deny.
-    //
-    // The entry may name its region in either vocabulary, an ISO 3166-2 code or
-    // the name ip-api uses, and the published vocabulary resolves the second to
-    // the first. Whichever it is, the count resolves it the same way and both
-    // sides compare against the same table region.
-    const entryRegionCode = (parts) => (parts.length < 3
-      ? null
-      : geolocationRule.regionCodeOf(parts, ipLocationStore.regionCodeForName));
-    const matchesTableRegionEntry = (value) => {
-      const parts = value.split('_');
-      const code = entryRegionCode(parts);
-      if (!code || !myTableRegion) return false;
-      return `${parts[0]}_${parts[1]}` === myNodeLocationContCountry && code === myTableRegion;
-    };
-    // This node's own ip-api region name. The count cannot read it for any other
-    // node, so an entry answered this way is answered by this node alone.
-    const matchesSelfReportedRegionName = (value) => value === myNodeLocationFull;
-    // For an ALLOW. A region part neither vocabulary resolves is left to the
-    // self-reported name, and matching it can only narrow what this node
-    // accepts. An entry the vocabulary DOES resolve must not also match by
-    // name: that would accept nodes the count excluded, and where the two
-    // sources disagree the table is the one to believe.
-    const matchesSelfReportedRegion = (value) => {
-      const parts = value.split('_');
-      if (parts.length >= 3 && entryRegionCode(parts)) return false;
-      return value === myNodeLocationFull;
-    };
-    if (appContinent && !geoC.length && !geoCForbidden.length) { // backwards old style compatible. Can be removed after a month
-      if (appContinent.slice(1) !== myContinent) {
-        throw new Error('App specs with continents geolocation set not matching node geolocation. Aborting.');
-      }
+const GEO_REASON_NOT_SET = 'Node Geolocation not set. Aborting.';
+const GEO_REASON_CONTINENT = 'App specs with continents geolocation set not matching node geolocation. Aborting.';
+const GEO_REASON_COUNTRY = 'App specs with countries geolocation set not matching node geolocation. Aborting.';
+const GEO_REASON_FORBIDDEN = 'App specs of geolocation set is forbidden to run on node geolocation. Aborting.';
+const GEO_REASON_NOT_MATCHING = 'App specs of geolocation set is not matching to run on node geolocation. Aborting.';
+
+/**
+ * Whether an app's geolocation admits this node, and what that answer rests on.
+ *
+ * Callers decide what a verdict costs. An install refuses anything but PASS. A
+ * removal acts only on a FAIL that rests on the table, because the node's own
+ * report can be wrong about where it is, and an unproven region is not a wrong
+ * one.
+ * @param {object} appSpecs App specifications.
+ * @returns {Promise<{verdict: string, source: (string|null), reason: (string|null)}>}
+ *   `verdict` is a GeoVerdict. `source` is a GeoSource for a FAIL and null
+ *   otherwise. `reason` is the message an install refuses with, null on PASS.
+ */
+async function appGeolocationVerdict(appSpecs) {
+  const pass = { verdict: GeoVerdict.PASS, source: null, reason: null };
+  if (!(appSpecs.version >= 5 && appSpecs.geolocation && appSpecs.geolocation.length > 0)) {
+    return pass;
+  }
+  const nodeGeo = await geolocationService.getNodeGeolocation();
+  if (!nodeGeo) {
+    return { verdict: GeoVerdict.UNKNOWN, source: null, reason: GEO_REASON_NOT_SET };
+  }
+  // previous geolocation specification version (a, b) [aEU, bFR]
+  // current geolocation style [acEU], [acEU_CZ], [acEU_CZ_PRG], [a!cEU], [a!cEU_CZ], [a!cEU_CZ_PRG]
+  const appContinent = appSpecs.geolocation.find((x) => x.startsWith('a'));
+  const appCountry = appSpecs.geolocation.find((x) => x.startsWith('b'));
+  const geoC = appSpecs.geolocation.filter((x) => x.startsWith('ac')); // this ensures that new specs can only run on updated nodes.
+  const geoCForbidden = appSpecs.geolocation.filter((x) => x.startsWith('a!c'));
+
+  // This node's own continent, country and region, resolved through the SAME
+  // published table the candidate count reads for every other node - so the
+  // two cannot disagree about where this node is.
+  //
+  // That matters in one direction. The count has no alternative source: it is
+  // answering for thousands of nodes it cannot ask. So if this check read the
+  // node's ip-api self-report instead, the two would differ wherever the table
+  // and the self-report differ, and the count would exclude nodes this check
+  // would have accepted - a candidate count below the instance count, and a
+  // registration refused for a spec that would have deployed.
+  //
+  // The self-report is the fallback, for a node the table cannot place at all.
+  // The count treats such a node as unprovable and includes it, so falling
+  // back here can only make this check stricter than the count, which is the
+  // safe direction.
+  let myContinent = nodeGeo.continentCode;
+  let myCountry = nodeGeo.countryCode;
+  let myTableRegion = null;
+  let placedBy = GeoSource.SELF;
+  try {
+    const hit = nodeGeo.ip ? await ipLocationStore.lookup(nodeGeo.ip) : null;
+    if (hit?.countryCode && hit.continentCode) {
+      myContinent = hit.continentCode;
+      myCountry = hit.countryCode;
+      myTableRegion = hit.region ?? null;
+      placedBy = GeoSource.TABLE;
     }
-    if (appCountry) {
-      if (appCountry.slice(1) !== myCountry) {
-        throw new Error('App specs with countries geolocation set not matching node geolocation. Aborting.');
-      }
+  } catch (error) {
+    log.warn(`appGeolocationVerdict - node location unavailable from the table: ${error.message}`);
+  }
+  const fail = (source, reason) => ({ verdict: GeoVerdict.FAIL, source, reason });
+
+  const myNodeLocationContinent = myContinent;
+  const myNodeLocationContCountry = `${myContinent}_${myCountry}`;
+  // the region part of a legacy entry is an ip-api region NAME, which only
+  // this node knows about itself - the count cannot read it for other nodes
+  // and deliberately answers such entries at country granularity, so matching
+  // it here can only narrow what this node accepts
+  const myNodeLocationFull = `${myContinent}_${myCountry}_${nodeGeo.regionName}`;
+  const myNodeLocationContinentALL = 'ALL';
+  const myNodeLocationContCountryALL = `${myContinent}_ALL`;
+  const myNodeLocationFullALL = `${myContinent}_${myCountry}_ALL`;
+  // A region entry matches on proof only, in both directions: an allow is
+  // satisfied - and a deny applies - exactly when this node's table region is
+  // known and equal. An unknown region satisfies no region pin and is caught
+  // by no region deny.
+  //
+  // The entry may name its region in either vocabulary, an ISO 3166-2 code or
+  // the name ip-api uses, and the published vocabulary resolves the second to
+  // the first. Whichever it is, the count resolves it the same way and both
+  // sides compare against the same table region.
+  const entryRegionCode = (parts) => (parts.length < 3
+    ? null
+    : geolocationRule.regionCodeOf(parts, ipLocationStore.regionCodeForName));
+  const inMyCountry = (parts) => `${parts[0]}_${parts[1]}` === myNodeLocationContCountry;
+  const matchesTableRegionEntry = (value) => {
+    const parts = value.split('_');
+    const code = entryRegionCode(parts);
+    if (!code || !myTableRegion) return false;
+    return inMyCountry(parts) && code === myTableRegion;
+  };
+  // This node's own ip-api region name. The count cannot read it for any other
+  // node, so an entry answered this way is answered by this node alone.
+  const matchesSelfReportedRegionName = (value) => value === myNodeLocationFull;
+  // For an ALLOW. A region part neither vocabulary resolves is left to the
+  // self-reported name, and matching it can only narrow what this node
+  // accepts. An entry the vocabulary DOES resolve must not also match by
+  // name: that would accept nodes the count excluded, and where the two
+  // sources disagree the table is the one to believe.
+  const matchesSelfReportedRegion = (value) => {
+    const parts = value.split('_');
+    if (parts.length >= 3 && entryRegionCode(parts)) return false;
+    return value === myNodeLocationFull;
+  };
+  if (appContinent && !geoC.length && !geoCForbidden.length) { // backwards old style compatible. Can be removed after a month
+    if (appContinent.slice(1) !== myContinent) {
+      return fail(placedBy, GEO_REASON_CONTINENT);
     }
-    // A DENY takes either source, and this is the one place the self-reported
-    // name still counts for an entry the vocabulary resolves. The rule an allow
-    // uses would be the permissive choice here: declining to match by name lets
-    // a node the table places one region over run an app that named its own
-    // region, so a ban would catch fewer nodes than the owner wrote. Taking both
-    // keeps the self-report able only to STRENGTHEN a ban, never to grant
-    // eligibility - the table remains the only thing that can say yes. A ban is
-    // usually written for a reason the network cannot see, so the error worth
-    // making is excluding a node that would have been fine.
-    geoCForbidden.forEach((locationNotAllowed) => {
-      const v = locationNotAllowed.slice(3);
-      if (v === myNodeLocationContinent || v === myNodeLocationContCountry
-        || matchesSelfReportedRegionName(v) || matchesTableRegionEntry(v)) {
-        throw new Error('App specs of geolocation set is forbidden to run on node geolocation. Aborting.');
+  }
+  if (appCountry) {
+    if (appCountry.slice(1) !== myCountry) {
+      return fail(placedBy, GEO_REASON_COUNTRY);
+    }
+  }
+  // A DENY takes either source, and this is the one place the self-reported
+  // name still counts for an entry the vocabulary resolves. The rule an allow
+  // uses would be the permissive choice here: declining to match by name lets
+  // a node the table places one region over run an app that named its own
+  // region, so a ban would catch fewer nodes than the owner wrote. Taking both
+  // keeps the self-report able only to STRENGTHEN a ban, never to grant
+  // eligibility - the table remains the only thing that can say yes. A ban is
+  // usually written for a reason the network cannot see, so the error worth
+  // making is excluding a node that would have been fine.
+  //
+  // A deny the location itself catches rests on whatever placed the node; one
+  // caught only by the self-reported name rests on the node's own report.
+  const denied = geoCForbidden.map((locationNotAllowed) => locationNotAllowed.slice(3));
+  if (denied.some((v) => v === myNodeLocationContinent || v === myNodeLocationContCountry || matchesTableRegionEntry(v))) {
+    return fail(placedBy, GEO_REASON_FORBIDDEN);
+  }
+  if (denied.some(matchesSelfReportedRegionName)) {
+    return fail(GeoSource.SELF, GEO_REASON_FORBIDDEN);
+  }
+  if (geoC.length) {
+    const allowed = geoC.map((locationAllowed) => locationAllowed.slice(2));
+    const nodeLocationOK = allowed.some((v) => v === myNodeLocationContinent || v === myNodeLocationContCountry
+      || v === myNodeLocationContinentALL || v === myNodeLocationContCountryALL || v === myNodeLocationFullALL
+      || matchesSelfReportedRegion(v) || matchesTableRegionEntry(v));
+    if (!nodeLocationOK) {
+      // Every allow entry missed. What the miss rests on is the weakest entry
+      // that could still have admitted this node: a region pin in this node's
+      // country that the table has a code for but no region for this node is
+      // unproven, and one the vocabulary does not resolve was ruled out by the
+      // self-reported name. Entries outside this node's country were ruled out
+      // by its location.
+      const regionPinsHere = allowed
+        .map((v) => v.split('_'))
+        .filter((parts) => parts.length >= 3 && parts[2] !== 'ALL' && inMyCountry(parts));
+      if (regionPinsHere.some((parts) => entryRegionCode(parts) && !myTableRegion)) {
+        return { verdict: GeoVerdict.UNKNOWN, source: null, reason: GEO_REASON_NOT_MATCHING };
       }
-    });
-    if (geoC.length) {
-      const nodeLocationOK = geoC.find((locationAllowed) => locationAllowed.slice(2) === myNodeLocationContinent || locationAllowed.slice(2) === myNodeLocationContCountry
-        || locationAllowed.slice(2) === myNodeLocationContinentALL || locationAllowed.slice(2) === myNodeLocationContCountryALL || locationAllowed.slice(2) === myNodeLocationFullALL
-        || matchesSelfReportedRegion(locationAllowed.slice(2)) || matchesTableRegionEntry(locationAllowed.slice(2)));
-      if (!nodeLocationOK) {
-        throw new Error('App specs of geolocation set is not matching to run on node geolocation. Aborting.');
+      if (regionPinsHere.some((parts) => !entryRegionCode(parts))) {
+        return fail(GeoSource.SELF, GEO_REASON_NOT_MATCHING);
       }
+      return fail(placedBy, GEO_REASON_NOT_MATCHING);
     }
   }
 
-  return true;
+  return pass;
 }
 
 /**
@@ -547,7 +609,10 @@ async function checkAppRequirements(appSpecs) {
   checkAppStaticIpRequirements(appSpecs);
   checkAppDataCenterRequirements(appSpecs);
   await checkAppNodesRequirements(appSpecs);
-  await checkAppGeolocationRequirements(appSpecs);
+  const geo = await appGeolocationVerdict(appSpecs);
+  if (geo.verdict !== GeoVerdict.PASS) {
+    throw new Error(geo.reason);
+  }
   return true;
 }
 
@@ -562,7 +627,9 @@ module.exports = {
   nodeFullGeolocation,
   checkAppStaticIpRequirements,
   checkAppDataCenterRequirements,
-  checkAppGeolocationRequirements,
+  appGeolocationVerdict,
+  GeoVerdict,
+  GeoSource,
   checkAppNodesRequirements,
   checkHWParameters,
   checkComposeHWParameters,

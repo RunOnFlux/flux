@@ -5,6 +5,7 @@ chai.use(chaiAsPromised);
 const { expect } = chai;
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const { GeoVerdict, GeoSource } = require('../../ZelBack/src/services/appRequirements/hwRequirements');
 
 describe('hwRequirements tests', () => {
   let hwRequirements;
@@ -200,290 +201,96 @@ describe('hwRequirements tests', () => {
     });
   });
 
-  describe('checkAppGeolocationRequirements', () => {
-    it('should pass when app has no geolocation restrictions', async () => {
-      const appSpecs = {
-        name: 'testapp',
-        geolocation: [],
-      };
+  describe('appGeolocationVerdict, for a node the table cannot place', () => {
+    // The node's own report places it: the table has no row for it.
+    const placedBySelfReport = (nodeGeo) => proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
+      '../serviceHelper': serviceHelperStub,
+      '../geolocationService': {
+        isStaticIP: sinon.stub().returns(true),
+        getNodeGeolocation: sinon.stub().resolves(nodeGeo),
+      },
+      '../appPlacement/ipLocationStore': {
+        lookup: sinon.stub().resolves(null),
+        regionCodeForName: sinon.stub().returns(null),
+      },
+      '../../lib/log': logStub,
+    });
+    const czPrague = {
+      ip: '203.0.113.10', continentCode: 'EU', countryCode: 'CZ', regionName: 'PRG',
+    };
 
-      // Should not throw
-      await hwRequirements.checkAppGeolocationRequirements(appSpecs);
+    it('passes an app with no geolocation', async () => {
+      const result = await hwRequirements.appGeolocationVerdict({ name: 'testapp', version: 5, geolocation: [] });
+
+      expect(result).to.deep.equal({ verdict: hwRequirements.GeoVerdict.PASS, source: null, reason: null });
     });
 
-    it('should throw if geolocation returns undefined', async () => {
-      const hwRequirementsWithUndefinedGeo = proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
-        '../serviceHelper': serviceHelperStub,
-        '../benchmarkService': {
-          getBenchmarks: sinon.stub().resolves({
-            status: 'success',
-            data: {
-              cpucores: 4,
-              ram: 8000,
-              ssd: 100,
-            },
-          }),
-        },
-        '../generalService': {
-          nodeTier: sinon.stub().resolves('cumulus'),
-        },
-        '../geolocationService': {
-          isStaticIP: sinon.stub().returns(true),
-          getNodeGeolocation: sinon.stub().resolves(undefined),
-        },
-        '../fluxNetworkHelper': {
-          getFluxNodeCount: sinon.stub().resolves(1000),
-        },
-        '../appDatabase/registryManager': {
-          availableApps: sinon.stub().resolves([]),
-        },
-        '../appQuery/appQueryService': {
-          installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
-        },
-        '../../lib/log': logStub,
-        config: {
-          fluxSpecifics: {
-            cpu: {
-              cumulus: 2,
-              nimbus: 4,
-              stratus: 8,
-            },
-            ram: {
-              cumulus: 4000,
-              nimbus: 8000,
-              stratus: 16000,
-            },
-            hdd: {
-              cumulus: 220,
-              nimbus: 440,
-              stratus: 880,
-            },
-          },
-        },
+    it('passes an app below version 5, whose geolocation is not read', async () => {
+      const result = await hwRequirements.appGeolocationVerdict({ version: 4, geolocation: ['acNA'] });
+
+      expect(result.verdict).to.equal(hwRequirements.GeoVerdict.PASS);
+    });
+
+    it('is UNKNOWN when the node has no geolocation at all', async () => {
+      const gate = placedBySelfReport(undefined);
+
+      const result = await gate.appGeolocationVerdict({ version: 5, geolocation: ['acEU'] });
+
+      expect(result).to.deep.equal({
+        verdict: gate.GeoVerdict.UNKNOWN,
+        source: null,
+        reason: 'Node Geolocation not set. Aborting.',
       });
-
-      const appSpec = {
-        version: 5,
-        geolocation: ['acEU'],
-      };
-
-      try {
-        await hwRequirementsWithUndefinedGeo.checkAppGeolocationRequirements(appSpec);
-        expect.fail('Should have thrown error');
-      } catch (error) {
-        expect(error).to.exist;
-      }
     });
 
-    it('should return true if app ver < 5', async () => {
-      const appSpec = {
-        version: 4,
-      };
+    it('passes a node whose self-reported region matches', async () => {
+      const gate = placedBySelfReport(czPrague);
 
-      const result = await hwRequirements.checkAppGeolocationRequirements(appSpec);
+      const result = await gate.appGeolocationVerdict({ version: 5, geolocation: ['acEU_CZ_PRG'] });
 
-      expect(result).to.equal(true);
+      expect(result.verdict).to.equal(gate.GeoVerdict.PASS);
     });
 
-    it('should return true if geolocation matches', async () => {
-      const hwRequirementsWithMatchingGeo = proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
-        '../serviceHelper': serviceHelperStub,
-        '../benchmarkService': {
-          getBenchmarks: sinon.stub().resolves({
-            status: 'success',
-            data: {
-              cpucores: 4,
-              ram: 8000,
-              ssd: 100,
-            },
-          }),
-        },
-        '../generalService': {
-          nodeTier: sinon.stub().resolves('cumulus'),
-        },
-        '../geolocationService': {
-          isStaticIP: sinon.stub().returns(true),
-          getNodeGeolocation: sinon.stub().resolves({
-            continentCode: 'EU',
-            countryCode: 'CZ',
-            regionName: 'PRG',
-          }),
-        },
-        '../fluxNetworkHelper': {
-          getFluxNodeCount: sinon.stub().resolves(1000),
-        },
-        '../appDatabase/registryManager': {
-          availableApps: sinon.stub().resolves([]),
-        },
-        '../appQuery/appQueryService': {
-          installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
-        },
-        '../../lib/log': logStub,
-        config: {
-          fluxSpecifics: {
-            cpu: {
-              cumulus: 2,
-              nimbus: 4,
-              stratus: 8,
-            },
-            ram: {
-              cumulus: 4000,
-              nimbus: 8000,
-              stratus: 16000,
-            },
-            hdd: {
-              cumulus: 220,
-              nimbus: 440,
-              stratus: 880,
-            },
-          },
-        },
+    it('fails a forbidden location on the self-report', async () => {
+      const gate = placedBySelfReport(czPrague);
+
+      const result = await gate.appGeolocationVerdict({ version: 5, geolocation: ['a!cEU_CZ_PRG'] });
+
+      expect(result).to.deep.equal({
+        verdict: gate.GeoVerdict.FAIL,
+        source: gate.GeoSource.SELF,
+        reason: 'App specs of geolocation set is forbidden to run on node geolocation. Aborting.',
       });
-
-      const appSpec = {
-        version: 5,
-        geolocation: ['acEU_CZ_PRG'],
-      };
-
-      const result = await hwRequirementsWithMatchingGeo.checkAppGeolocationRequirements(appSpec);
-
-      expect(result).to.equal(true);
     });
 
-    it('should throw if geolocation is forbidden', async () => {
-      const hwRequirementsWithForbiddenGeo = proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
-        '../serviceHelper': serviceHelperStub,
-        '../benchmarkService': {
-          getBenchmarks: sinon.stub().resolves({
-            status: 'success',
-            data: {
-              cpucores: 4,
-              ram: 8000,
-              ssd: 100,
-            },
-          }),
-        },
-        '../generalService': {
-          nodeTier: sinon.stub().resolves('cumulus'),
-        },
-        '../geolocationService': {
-          isStaticIP: sinon.stub().returns(true),
-          getNodeGeolocation: sinon.stub().resolves({
-            continentCode: 'EU',
-            countryCode: 'CZ',
-            regionName: 'PRG',
-          }),
-        },
-        '../fluxNetworkHelper': {
-          getFluxNodeCount: sinon.stub().resolves(1000),
-        },
-        '../appDatabase/registryManager': {
-          availableApps: sinon.stub().resolves([]),
-        },
-        '../appQuery/appQueryService': {
-          installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
-        },
-        '../../lib/log': logStub,
-        config: {
-          fluxSpecifics: {
-            cpu: {
-              cumulus: 2,
-              nimbus: 4,
-              stratus: 8,
-            },
-            ram: {
-              cumulus: 4000,
-              nimbus: 8000,
-              stratus: 16000,
-            },
-            hdd: {
-              cumulus: 220,
-              nimbus: 440,
-              stratus: 880,
-            },
-          },
-        },
+    it('fails a location the spec does not name, on the self-report', async () => {
+      const gate = placedBySelfReport(czPrague);
+
+      const result = await gate.appGeolocationVerdict({ version: 5, geolocation: ['acEU_PL_GDA'] });
+
+      expect(result).to.deep.equal({
+        verdict: gate.GeoVerdict.FAIL,
+        source: gate.GeoSource.SELF,
+        reason: 'App specs of geolocation set is not matching to run on node geolocation. Aborting.',
       });
-
-      const appSpec = {
-        version: 5,
-        geolocation: ['a!cEU_CZ_PRG'],
-      };
-
-      try {
-        await hwRequirementsWithForbiddenGeo.checkAppGeolocationRequirements(appSpec);
-        expect.fail('Should have thrown error');
-      } catch (error) {
-        expect(error).to.exist;
-      }
     });
 
-    it('should throw if geolocation is not matching', async () => {
-      const hwRequirementsWithNonMatchingGeo = proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
-        '../serviceHelper': serviceHelperStub,
-        '../benchmarkService': {
-          getBenchmarks: sinon.stub().resolves({
-            status: 'success',
-            data: {
-              cpucores: 4,
-              ram: 8000,
-              ssd: 100,
-            },
-          }),
-        },
-        '../generalService': {
-          nodeTier: sinon.stub().resolves('cumulus'),
-        },
-        '../geolocationService': {
-          isStaticIP: sinon.stub().returns(true),
-          getNodeGeolocation: sinon.stub().resolves({
-            continentCode: 'EU',
-            countryCode: 'CZ',
-            regionName: 'PRG',
-          }),
-        },
-        '../fluxNetworkHelper': {
-          getFluxNodeCount: sinon.stub().resolves(1000),
-        },
-        '../appDatabase/registryManager': {
-          availableApps: sinon.stub().resolves([]),
-        },
-        '../appQuery/appQueryService': {
-          installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
-        },
-        '../../lib/log': logStub,
-        config: {
-          fluxSpecifics: {
-            cpu: {
-              cumulus: 2,
-              nimbus: 4,
-              stratus: 8,
-            },
-            ram: {
-              cumulus: 4000,
-              nimbus: 8000,
-              stratus: 16000,
-            },
-            hdd: {
-              cumulus: 220,
-              nimbus: 440,
-              stratus: 880,
-            },
-          },
-        },
+    it('fails a legacy continent and a legacy country entry, on the self-report', async () => {
+      const gate = placedBySelfReport(czPrague);
+
+      const continent = await gate.appGeolocationVerdict({ version: 5, geolocation: ['aNA'] });
+      const country = await gate.appGeolocationVerdict({ version: 5, geolocation: ['aEU', 'bPL'] });
+
+      expect(continent).to.deep.equal({
+        verdict: gate.GeoVerdict.FAIL,
+        source: gate.GeoSource.SELF,
+        reason: 'App specs with continents geolocation set not matching node geolocation. Aborting.',
       });
-
-      const appSpec = {
-        version: 5,
-        geolocation: ['acEU_PL_GDA'],
-      };
-
-      try {
-        await hwRequirementsWithNonMatchingGeo.checkAppGeolocationRequirements(appSpec);
-        expect.fail('Should have thrown error');
-      } catch (error) {
-        expect(error).to.exist;
-      }
+      expect(country).to.deep.equal({
+        verdict: gate.GeoVerdict.FAIL,
+        source: gate.GeoSource.SELF,
+        reason: 'App specs with countries geolocation set not matching node geolocation. Aborting.',
+      });
     });
   });
 
@@ -1076,7 +883,7 @@ describe('hwRequirements tests', () => {
     });
   });
 
-  describe('checkAppGeolocationRequirements with table-vocabulary regions', () => {
+  describe('appGeolocationVerdict, for a node the table places', () => {
     const geoNode = {
       ip: '203.0.113.10', continentCode: 'EU', countryCode: 'FI', regionName: 'Uusimaa',
     };
@@ -1093,141 +900,161 @@ describe('hwRequirements tests', () => {
           regionCodeForName: (cc, name) => regionNames[`${cc}|${name}`] ?? null,
           isStoreUnavailable: () => false,
         },
+        '../../lib/log': logStub,
       });
     }
+    const verdictOf = (lookupResult, geolocation, regionNames) => gateWith(lookupResult, regionNames)
+      .appGeolocationVerdict({ version: 7, geolocation });
+    const NOT_MATCHING = 'App specs of geolocation set is not matching to run on node geolocation. Aborting.';
+    const FORBIDDEN = 'App specs of geolocation set is forbidden to run on node geolocation. Aborting.';
+    const failOn = (source, reason) => ({ verdict: GeoVerdict.FAIL, source, reason });
+    const UNPROVEN = { verdict: GeoVerdict.UNKNOWN, source: null, reason: NOT_MATCHING };
 
     const inRegion = {
       org: 'aabbccddeeff', countryCode: 'FI', continentCode: 'EU', region: 'FI-18',
     };
     const otherRegion = { ...inRegion, region: 'FI-11' };
     const regionUnknown = { ...inRegion, region: null };
+    const otherCountry = {
+      org: 'aabbccddeeff', countryCode: 'FR', continentCode: 'EU', region: 'FR-GES',
+    };
 
     // Bavaria is DE-BY, and until the artifact carries that a node cannot know
     // it. The vocabulary is what lets an entry written the way ip-api names
     // regions be answered at region granularity instead of country.
     const finnishNames = { 'FI|Uusimaa': 'FI-18', 'FI|Pirkanmaa': 'FI-11' };
 
+    it('fails a country pin on the table when the table places the node in another country', async () => {
+      // the node reports FI; the table places its address in FR
+      expect(await verdictOf(otherCountry, ['acEU_FI'])).to.deep.equal(failOn(GeoSource.TABLE, NOT_MATCHING));
+    });
+
+    it('passes a country pin the table places the node in, whatever the node reports', async () => {
+      expect(await verdictOf(otherCountry, ['acEU_FR'])).to.deep.equal({ verdict: GeoVerdict.PASS, source: null, reason: null });
+    });
+
     it('resolves a named region allow through the vocabulary', async () => {
-      const ok = await gateWith(inRegion, finnishNames)
-        .checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_Uusimaa'] });
-      expect(ok).to.equal(true);
+      expect((await verdictOf(inRegion, ['acEU_FI_Uusimaa'], finnishNames)).verdict).to.equal(GeoVerdict.PASS);
     });
 
-    it('refuses a named region allow the table places elsewhere', async () => {
-      // the node calls itself Uusimaa; the table puts its address in FI-11
-      await gateWith(otherRegion, finnishNames)
-        .checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_Uusimaa'] })
-        .then(() => { throw new Error('expected rejection'); }, (err) => {
-          expect(err.message).to.include('not matching');
-        });
+    it('fails a named region allow on the table when the table places the node elsewhere', async () => {
+      // the node calls itself Uusimaa; the table puts its address in FI-11, and
+      // a resolved entry is decided on the table region alone, so the
+      // self-reported name buys no eligibility the table refused
+      expect(await verdictOf(otherRegion, ['acEU_FI_Uusimaa'], finnishNames)).to.deep.equal(failOn(GeoSource.TABLE, NOT_MATCHING));
     });
 
-    it('applies a named region deny through the vocabulary', async () => {
-      await gateWith(inRegion, finnishNames)
-        .checkAppGeolocationRequirements({ version: 7, geolocation: ['a!cEU_FI_Uusimaa'] })
-        .then(() => { throw new Error('expected rejection'); }, (err) => {
-          expect(err.message).to.include('forbidden');
-        });
+    it('applies a named region deny through the vocabulary, on the table', async () => {
+      expect(await verdictOf(inRegion, ['a!cEU_FI_Uusimaa'], finnishNames)).to.deep.equal(failOn(GeoSource.TABLE, FORBIDDEN));
     });
 
-    it('applies a named region deny by the self-reported name too, when the table disagrees', async () => {
-      // The node calls itself Uusimaa; the table puts its address in FI-11. An
-      // allow refuses here - the table is the only thing that may say yes. A DENY
-      // must still catch it: the rule that makes an allow conservative makes a
-      // ban permissive, and a ban is written for a reason the network cannot
-      // see, so the error worth making is excluding a node that was fine.
-      await gateWith(otherRegion, finnishNames)
-        .checkAppGeolocationRequirements({ version: 7, geolocation: ['a!cEU_FI_Uusimaa'] })
-        .then(() => { throw new Error('expected rejection'); }, (err) => {
-          expect(err.message).to.include('forbidden');
-        });
+    it('applies a named region deny by the self-reported name too, resting on the self-report', async () => {
+      // The node calls itself Uusimaa; the table puts its address in FI-11. A ban
+      // is written for a reason the network cannot see, so the self-reported
+      // name still catches it - and what caught it is the node's own report.
+      expect(await verdictOf(otherRegion, ['a!cEU_FI_Uusimaa'], finnishNames)).to.deep.equal(failOn(GeoSource.SELF, FORBIDDEN));
     });
 
-    it('still lets the self-reported name grant nothing - it may only ever ban', async () => {
-      // The same node and the same disagreement, asked the other way round: the
-      // allow is refused, so the self-report cannot buy eligibility it lost.
-      await gateWith(otherRegion, finnishNames)
-        .checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_Uusimaa'] })
-        .then(() => { throw new Error('expected rejection'); }, (err) => {
-          expect(err.message).to.include('not matching');
-        });
-    });
-
-    it('demands proof for a named region: an unknown table region satisfies no pin', async () => {
-      await gateWith(regionUnknown, finnishNames)
-        .checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_Uusimaa'] })
-        .then(() => { throw new Error('expected rejection'); }, (err) => {
-          expect(err.message).to.include('not matching');
-        });
-    });
-
-    // the count reads the same vocabulary, so a resolved entry must be decided
-    // on the table region alone - accepting it by self-reported name as well
-    // would take nodes the count excluded
-    it('does not fall back to the self-reported name once the vocabulary resolves', async () => {
-      await gateWith(otherRegion, finnishNames)
-        .checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_Uusimaa'] })
-        .then(() => { throw new Error('expected rejection'); }, (err) => {
-          expect(err.message).to.include('not matching');
-        });
+    it('is UNKNOWN for a named region pin when the table knows the country but not the region', async () => {
+      expect(await verdictOf(regionUnknown, ['acEU_FI_Uusimaa'], finnishNames)).to.deep.equal(UNPROVEN);
     });
 
     it('falls back to the self-reported name when the vocabulary cannot resolve', async () => {
-      const ok = await gateWith(regionUnknown)
-        .checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_Uusimaa'] });
-      expect(ok).to.equal(true);
+      expect((await verdictOf(regionUnknown, ['acEU_FI_Uusimaa'])).verdict).to.equal(GeoVerdict.PASS);
     });
 
-    it('accepts an ISO region allow when the table places this node in it', async () => {
-      const ok = await gateWith(inRegion).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_FI-18'] });
-      expect(ok).to.equal(true);
+    it('fails an unresolvable region pin the self-reported name misses, on the self-report', async () => {
+      expect(await verdictOf(regionUnknown, ['acEU_FI_Pirkanmaa'])).to.deep.equal(failOn(GeoSource.SELF, NOT_MATCHING));
     });
 
-    it('rejects an ISO region allow when the table places this node elsewhere', async () => {
-      try {
-        await gateWith(otherRegion).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_FI-18'] });
-        expect.fail('should have thrown');
-      } catch (err) {
-        expect(err.message).to.include('not matching');
-      }
+    it('passes an ISO region allow when the table places this node in it', async () => {
+      expect((await verdictOf(inRegion, ['acEU_FI_FI-18'])).verdict).to.equal(GeoVerdict.PASS);
     });
 
-    it('rejects an ISO region allow when its own region is unknown - a pin needs proof', async () => {
-      try {
-        await gateWith(regionUnknown).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_FI-18'] });
-        expect.fail('should have thrown');
-      } catch (err) {
-        expect(err.message).to.include('not matching');
-      }
+    it('fails an ISO region allow on the table when the table places this node elsewhere', async () => {
+      expect(await verdictOf(otherRegion, ['acEU_FI_FI-18'])).to.deep.equal(failOn(GeoSource.TABLE, NOT_MATCHING));
+    });
+
+    it('is UNKNOWN for an ISO region allow when its own region is unknown - a pin needs proof', async () => {
+      expect(await verdictOf(regionUnknown, ['acEU_FI_FI-18'])).to.deep.equal(UNPROVEN);
     });
 
     it('treats an unreadable store exactly like an unknown region', async () => {
       const err = new Error('iplocation store unavailable: no database connection');
       err.code = 'IPLOCATION_STORE_UNAVAILABLE';
-      try {
-        await gateWith(err).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_FI-18'] });
-        expect.fail('should have thrown');
-      } catch (error) {
-        expect(error.message).to.include('not matching');
-      }
+      expect(await verdictOf(err, ['acEU_FI_FI-18'])).to.deep.equal(UNPROVEN);
+    });
+
+    it('fails a country pin on the self-report when the store is unreadable', async () => {
+      const err = new Error('iplocation store unavailable: no database connection');
+      err.code = 'IPLOCATION_STORE_UNAVAILABLE';
+      expect(await verdictOf(err, ['acEU_FR'])).to.deep.equal(failOn(GeoSource.SELF, NOT_MATCHING));
+    });
+
+    it('is UNKNOWN, not a table FAIL, when an unproven region pin sits beside pins the table rules out', async () => {
+      expect(await verdictOf(regionUnknown, ['acEU_DE', 'acEU_FI_FI-18'])).to.deep.equal(UNPROVEN);
     });
 
     it('applies an ISO region deny only on proof', async () => {
-      try {
-        await gateWith(inRegion).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU', 'a!cEU_FI_FI-18'] });
-        expect.fail('should have thrown');
-      } catch (err) {
-        expect(err.message).to.include('forbidden');
-      }
-      const okElsewhere = await gateWith(otherRegion).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU', 'a!cEU_FI_FI-18'] });
-      expect(okElsewhere).to.equal(true);
-      const okUnknown = await gateWith(regionUnknown).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU', 'a!cEU_FI_FI-18'] });
-      expect(okUnknown).to.equal(true);
+      expect(await verdictOf(inRegion, ['acEU', 'a!cEU_FI_FI-18'])).to.deep.equal(failOn(GeoSource.TABLE, FORBIDDEN));
+      expect((await verdictOf(otherRegion, ['acEU', 'a!cEU_FI_FI-18'])).verdict).to.equal(GeoVerdict.PASS);
+      expect((await verdictOf(regionUnknown, ['acEU', 'a!cEU_FI_FI-18'])).verdict).to.equal(GeoVerdict.PASS);
     });
 
     it('keeps legacy name matching untouched alongside the table form', async () => {
-      const ok = await gateWith(otherRegion).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_Uusimaa'] });
-      expect(ok).to.equal(true);
+      expect((await verdictOf(otherRegion, ['acEU_FI_Uusimaa'])).verdict).to.equal(GeoVerdict.PASS);
+    });
+  });
+
+  describe('checkAppRequirements refuses on the geolocation verdict', () => {
+    // Every other requirement passes: a four-core node with room to spare, no
+    // static-IP, data-centre or node pin. Only the geolocation decides.
+    const load = (lookupResult) => proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
+      '../benchmarkService': {
+        getBenchmarks: sinon.stub().resolves({ status: 'success', data: { ssd: 1000 } }),
+      },
+      '../generalService': { nodeTier: sinon.stub().resolves('cumulus') },
+      '../appQuery/resourceQueryService': {
+        appsResources: sinon.stub().resolves({
+          status: 'success',
+          data: { appsCpusLocked: 0, appsRamLocked: 0, appsHddLocked: 0 },
+        }),
+      },
+      os: {
+        cpus: sinon.stub().returns(new Array(4)),
+        totalmem: sinon.stub().returns(8000 * 1024 * 1024),
+      },
+      '../geolocationService': {
+        isStaticIP: sinon.stub().returns(true),
+        getNodeGeolocation: sinon.stub().resolves({
+          ip: '203.0.113.10', continentCode: 'EU', countryCode: 'FI', regionName: 'Uusimaa',
+        }),
+      },
+      '../appPlacement/ipLocationStore': {
+        lookup: sinon.stub().resolves(lookupResult),
+        regionCodeForName: () => null,
+      },
+      '../../lib/log': logStub,
+    });
+    const app = (geolocation) => ({
+      name: 'geoapp', version: 7, compose: [{ cpu: 0.5, ram: 500, hdd: 5 }], geolocation,
+    });
+
+    it('throws the verdict reason on a FAIL', async () => {
+      const gate = load({ countryCode: 'FR', continentCode: 'EU', region: 'FR-GES' });
+      await expect(gate.checkAppRequirements(app(['acEU_FI'])))
+        .to.be.rejectedWith('App specs of geolocation set is not matching to run on node geolocation. Aborting.');
+    });
+
+    it('throws on an UNKNOWN as well: an install needs proof', async () => {
+      const gate = load({ countryCode: 'FI', continentCode: 'EU', region: null });
+      await expect(gate.checkAppRequirements(app(['acEU_FI_FI-18'])))
+        .to.be.rejectedWith('App specs of geolocation set is not matching to run on node geolocation. Aborting.');
+    });
+
+    it('resolves on a PASS', async () => {
+      const gate = load({ countryCode: 'FI', continentCode: 'EU', region: 'FI-18' });
+      expect(await gate.checkAppRequirements(app(['acEU_FI_FI-18']))).to.equal(true);
     });
   });
 
@@ -1238,7 +1065,14 @@ describe('hwRequirements tests', () => {
       expect(hwRequirements.checkAppCpuBurstHeadroom).to.be.a('function');
       expect(hwRequirements.checkAppStaticIpRequirements).to.be.a('function');
       expect(hwRequirements.checkAppNodesRequirements).to.be.a('function');
-      expect(hwRequirements.checkAppGeolocationRequirements).to.be.a('function');
+      expect(hwRequirements.appGeolocationVerdict).to.be.a('function');
+    });
+
+    it('exports the verdict and its source as frozen enums', () => {
+      expect(hwRequirements.GeoVerdict).to.deep.equal({ PASS: 'pass', FAIL: 'fail', UNKNOWN: 'unknown' });
+      expect(hwRequirements.GeoSource).to.deep.equal({ TABLE: 'table', SELF: 'self' });
+      expect(Object.isFrozen(hwRequirements.GeoVerdict)).to.equal(true);
+      expect(Object.isFrozen(hwRequirements.GeoSource)).to.equal(true);
     });
   });
 
