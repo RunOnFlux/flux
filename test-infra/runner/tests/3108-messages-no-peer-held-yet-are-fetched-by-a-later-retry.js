@@ -76,6 +76,7 @@ describe('messages no peer held yet are fetched in bulk by a later retry', funct
   });
 
   it('keeps every message, each at its own record\'s txid, height and payment', async function () {
-    expect(await messagesNotKept(JOINER, log)).to.deep.equal([]);
+    const notKept = await messagesNotKept(JOINER, log);
+    expect(notKept, JSON.stringify(notKept)).to.deep.equal([]);
   });
 });

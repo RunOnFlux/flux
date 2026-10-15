@@ -65,6 +65,7 @@ describe('a node whose peer drops off the network part way through its log takes
   });
 
   it('keeps every message, each at its own record\'s txid, height and payment', async function () {
-    expect(await messagesNotKept(joiner, log)).to.deep.equal([]);
+    const notKept = await messagesNotKept(joiner, log);
+    expect(notKept, JSON.stringify(notKept)).to.deep.equal([]);
   });
 });

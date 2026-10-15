@@ -56,7 +56,8 @@ describe('a node restarted while verifying fetched messages fetches them again',
   });
 
   it('keeps every message after the restart, each at its own record\'s txid, height and payment', async function () {
-    expect(await messagesNotKept(joiner, log)).to.deep.equal([]);
+    const notKept = await messagesNotKept(joiner, log);
+    expect(notKept, JSON.stringify(notKept)).to.deep.equal([]);
   });
 
   it('leaves no staged messages behind', async function () {
