@@ -222,6 +222,43 @@ describe('permanentMessageLog tests', () => {
       expect(cursor.closed).to.equal(true);
     });
 
+    it('sends each piece as it is written, while the log is still being read', async () => {
+      const messages = Array(400).fill(null).map((_, i) => ({ ...message(i), padding: 'x'.repeat(300) }));
+      let finish;
+      const finished = new Promise((resolve) => { finish = resolve; });
+      const cursor = {
+        async* [Symbol.asyncIterator]() {
+          // eslint-disable-next-line no-restricted-syntax
+          for (const item of messages) yield item;
+          await finished;
+        },
+        async close() {},
+      };
+      const find = sinon.stub().returns({ sort: sinon.stub().returns(cursor) });
+      const log = proxyquire('../../ZelBack/src/services/appMessaging/permanentMessageLog', {
+        '../dbHelper': { databaseConnection: () => ({ db: () => ({ collection: () => ({ find }) }) }) },
+      });
+      const served = await serve(log.getPermanentMessagesByHeightAPI);
+      ({ server } = served);
+
+      const { body } = await get(`${served.url}?fromHeight=1000&toHeight=1399`);
+      const arrived = [];
+      const reading = (async function readAll() {
+        // eslint-disable-next-line no-restricted-syntax
+        for await (const entry of readMessageLog(body)) arrived.push(entry);
+      }());
+      const deadline = Date.now() + 5000;
+      while (arrived.length === 0 && Date.now() < deadline) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setTimeout(resolve, 20); });
+      }
+
+      expect(arrived.length, 'messages received while the log is open').to.be.above(0);
+      finish();
+      await reading;
+      expect(arrived).to.have.lengthOf(400);
+    });
+
     it('ends a log it could not read to the end with an error line, after the messages it sent', async () => {
       const messages = Array(2000).fill(null).map((_, i) => message(i));
       const { url, cursor } = await serveFrom(messages, new Error('cursor killed'));

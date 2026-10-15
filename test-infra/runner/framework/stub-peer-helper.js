@@ -17,22 +17,6 @@ export function stubPeerClient(ip) {
       return res.json();
     },
 
-    // The permanent message log this peer serves, as a node from before the log by height does,
-    // and what it has been asked for.
-    async setMessageLog(messages) {
-      const res = await controlFetch(`${controlUrl}/message-log`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages }),
-      });
-      return res.json();
-    },
-
-    async messageLogRequests() {
-      const res = await controlFetch(`${controlUrl}/message-log`);
-      return (await res.json()).requests;
-    },
-
     async getStats() {
       const res = await controlFetch(`${controlUrl}/stats`);
       return res.json();
