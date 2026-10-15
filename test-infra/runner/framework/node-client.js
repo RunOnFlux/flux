@@ -287,6 +287,7 @@ export function nodeClient(nodeNum) {
         'pm2:killTimeoutRaiseFailedLate',
         'pm2:registrationUnread',
         'checkpoint:held',
+        'blockWork:ran',
         'syncthing:folderWritable',
         'syncthing:folderReady',
         'primaryRole:changed',
