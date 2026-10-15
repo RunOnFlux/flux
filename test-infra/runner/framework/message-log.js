@@ -73,18 +73,33 @@ export async function seedMessageLog({
 }
 
 /**
- * The hashes of the log the joiner does not hold at its own record's txid, height and payment.
+ * The messages of the log the joiner does not hold at its own record's txid, height and payment:
+ * each with what the joiner stores for the hash, if anything, and its payment record.
  * @param {number} joiner node index
  * @param {object[]} log
- * @returns {Promise<string[]>}
+ * @returns {Promise<{hash: string, stored: object|null, record: object|null}[]>}
  */
 export async function messagesNotKept(joiner, log) {
-  const kept = new Map((await dbClient(joiner + 1).permanentMessages()).map((m) => [m.hash, m]));
-  return log.filter((m) => {
+  const db = dbClient(joiner + 1);
+  const kept = new Map((await db.permanentMessages()).map((m) => [m.hash, m]));
+  const wrong = log.filter((m) => {
     const stored = kept.get(m.hash);
     return !stored || stored.txid !== m.hashEntry.txid || stored.height !== m.hashEntry.height
       || stored.valueSat !== m.hashEntry.value || stored.signature !== m.permanentMessage.signature;
-  }).map((m) => m.hash);
+  });
+  if (wrong.length === 0) return [];
+  const records = new Map((await db.appHashRecords({ hash: { $in: wrong.map((m) => m.hash) } })).map((r) => [r.hash, r]));
+  return wrong.map((m) => {
+    const stored = kept.get(m.hash);
+    return {
+      hash: m.hash,
+      type: m.permanentMessage.type,
+      name: m.permanentMessage.appSpecifications.name,
+      expected: { txid: m.hashEntry.txid, height: m.hashEntry.height, value: m.hashEntry.value },
+      stored: stored ? { txid: stored.txid, height: stored.height, valueSat: stored.valueSat } : null,
+      record: records.get(m.hash) ?? null,
+    };
+  });
 }
 
 /**

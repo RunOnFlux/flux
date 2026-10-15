@@ -95,7 +95,8 @@ describe('a node that verifies for longer than a peer connection may sit idle lo
   });
 
   it('keeps every message, each at its own record\'s txid, height and payment', async function () {
-    expect(await messagesNotKept(JOINER, missing)).to.deep.equal([]);
+    const notKept = await messagesNotKept(JOINER, missing);
+    expect(notKept, JSON.stringify(notKept)).to.deep.equal([]);
   });
 
   it('leaves no staged messages behind', async function () {
