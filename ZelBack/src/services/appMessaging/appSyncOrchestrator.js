@@ -106,10 +106,8 @@ class AppSyncOrchestrator {
   #explorerSynced = false;
   #hashSyncComplete = false;
   /**
-   * The initial hash sync failed every attempt it gets. The retry below is
-   * otherwise held back until that sync completes, and a sync that has
-   * stopped trying never completes - so without this the node never asked
-   * for a missing message again until FluxOS restarted.
+   * The initial hash sync failed every attempt it gets. Block-driven hash
+   * retries run once the initial sync has completed or given up.
    * @type {boolean}
    */
   #hashSyncGaveUp = false;
