@@ -715,7 +715,7 @@ app.get('/repos/:owner/:repo', (req, res) => {
 // fails on it, and the node runs without UPnP as it does on a network with none.
 //
 // A node behind a gateway is served one: a WANIPConnection service whose control URL answers
-// the four actions upnpService sends - the external address, and adding, listing and
+// the actions upnpService sends - the external address, and adding, looking up, listing and
 // deleting port mappings - from that node's own mapping table.
 const UPNP_SERVICE = 'urn:schemas-upnp-org:service:WANIPConnection:1';
 
@@ -788,6 +788,21 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
       gateway.mappings = gateway.mappings.filter((m) => !sameEntry(m));
       if (gateway.mappings.length === before) soapFault(res, 714, 'NoSuchEntryInArray');
       else soapReply(res, action, {});
+      return;
+    }
+    case 'GetSpecificPortMappingEntry': {
+      const entry = gateway.mappings.find(sameEntry);
+      if (!entry) {
+        soapFault(res, 714, 'NoSuchEntryInArray');
+        return;
+      }
+      soapReply(res, action, {
+        NewInternalPort: entry.internalPort,
+        NewInternalClient: entry.internalClient,
+        NewEnabled: 1,
+        NewPortMappingDescription: entry.description,
+        NewLeaseDuration: entry.leaseDuration,
+      });
       return;
     }
     case 'GetGenericPortMappingEntry': {
