@@ -1,5 +1,3 @@
-const stream = require('stream');
-const zlib = require('zlib');
 const { StringDecoder } = require('string_decoder');
 const config = require('config');
 const dbHelper = require('../dbHelper');
@@ -26,6 +24,8 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const globalState = require('../utils/globalState');
 const { isBefore, messagesThatCount } = require('../utils/appMessageChain');
 const { invalidMessages } = require('../invalidMessages');
+const { readMessageLog } = require('./permanentMessageLog');
+const { MessageStage } = require('./messageStage');
 const { Privilege, authOf } = require('../utils/privileges');
 
 const appsHashesCollection = config.database.daemon.collections.appsHashes;
@@ -141,148 +141,206 @@ function createJsonArrayExtractor(onObject) {
 }
 
 const BULK_FETCH_BATCH_SIZE = 500;
-const BULK_FETCH_IDLE_MS = config.fluxapps.hashSyncBulkIdleMs ?? 60000;
+const BULK_FETCH_IDLE_MS = config.fluxapps.hashSyncBulkIdleMs ?? 120000;
+// Two runs of missing messages are asked for in one request when fewer than this many app
+// payments this node already holds lie between them.
+const RANGE_GAP_PAYMENTS = 2000;
 
 /**
- * Streams a peer's permanent messages and stores the ones this node is missing.
- * @param {string} peerIp
- * @param {string|number} peerPort
- * @param {Map<string, {txid: string, height: number, value: number}>} missing this node's own
- *   payment record of each hash it is missing, keyed by hash
- * @param {Function} [onProgress]
+ * The first index of a sorted array whose value is not below `value`.
+ * @param {number[]} sorted ascending
+ * @param {number} value
+ * @returns {number}
  */
-async function bulkFetchStreamAndProcess(peerIp, peerPort, missing, onProgress) {
-  log.info(`syncMissingHashes - Checking explorer sync on ${peerIp}:${peerPort}`);
-  const syncResponse = await serviceHelper.axiosGet(
-    `http://${peerIp}:${peerPort}/explorer/issynced`,
-    { timeout: 5000 },
-  ).catch((error) => { log.error(error); return null; });
-  if (!syncResponse || !syncResponse.data || syncResponse.data.status !== 'success' || !syncResponse.data.data) {
-    return { processed: 0, skipped: 0, streamed: 0 };
+function lowerBound(sorted, value) {
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (sorted[mid] < value) lo = mid + 1;
+    else hi = mid;
   }
+  return lo;
+}
 
-  log.info(`syncMissingHashes - Streaming permanent messages from ${peerIp}:${peerPort} (${missing.size} missing)`);
+/**
+ * The block height ranges to ask peers for: every height holding a missing message, with two
+ * neighbouring runs joined when fewer than RANGE_GAP_PAYMENTS app payments lie strictly between
+ * them.
+ * @param {number[]} missingHeights ascending
+ * @param {number[]} paymentHeights ascending, the height of every app payment this node recorded
+ * @returns {{fromHeight: number, toHeight: number}[]}
+ */
+function planRanges(missingHeights, paymentHeights) {
+  const ranges = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const height of missingHeights) {
+    const last = ranges[ranges.length - 1];
+    const between = last ? lowerBound(paymentHeights, height) - lowerBound(paymentHeights, last.toHeight + 1) : 0;
+    if (last && between < RANGE_GAP_PAYMENTS) last.toHeight = height;
+    else ranges.push({ fromHeight: height, toHeight: height });
+  }
+  return ranges;
+}
+
+/**
+ * Whether a peer's explorer has synced, so that its message log is whole.
+ * @param {{ip: string, port: string|number}} peer
+ * @returns {Promise<boolean>}
+ */
+async function peerExplorerSynced(peer) {
+  const response = await serviceHelper.axiosGet(`http://${peer.ip}:${peer.port}/explorer/issynced`, { timeout: 5000 })
+    .catch((error) => {
+      log.warn(`syncMissingHashes - explorer sync check on ${peer.key}: ${error.message}`);
+      return null;
+    });
+  return response?.data?.status === 'success' && response.data.data === true;
+}
+
+/**
+ * Stages what a peer's log of one height range holds of the missing messages.
+ * @param {{ip: string, port: string|number}} peer
+ * @param {{fromHeight: number, toHeight: number}} range
+ * @param {MessageStage} stage
+ */
+async function stageRangeFromPeer(peer, range, stage) {
   const response = await serviceHelper.axiosGet(
-    `http://${peerIp}:${peerPort}/apps/permanentmessages`,
-    { responseType: 'stream', timeout: 120000, headers: { 'Accept-Encoding': 'gzip' }, decompress: false },
-  ).catch((error) => { log.error(error); return null; });
-  if (!response || !response.data) {
-    return { processed: 0, skipped: 0, streamed: 0 };
-  }
-
-  // pipeline, not pipe: pipe() forwards neither the response's abort nor its error to the
-  // gunzip, so a connection torn down mid-body left the gunzip silent and this function
-  // waiting forever - and with it syncMissingHashes and every hash retry after it. Observed
-  // on 8.21.1 nodes: the peer connection dropped while the stream sat paused for a batch,
-  // and the node never asked for a missing message again until FluxOS restarted.
-  const isGzip = response.headers?.['content-encoding'] === 'gzip';
-  const dataStream = isGzip
-    ? stream.pipeline(response.data, zlib.createGunzip(), () => {})
-    : response.data;
-
-  let totalSeen = 0;
-  let totalProcessed = 0;
-  let totalSkipped = 0;
-  const batch = [];
-  let streamDone = false;
-  let stopped = false;
-  let lastDataAt = Date.now();
-
-  // The loop sleeps until there is a full batch or the stream is over. Both are checked
-  // before sleeping, so an end or error that lands while a batch is being processed is not
-  // lost to a wake-up nobody is waiting for yet.
-  let wake = null;
-  const signal = () => {
-    if (wake) {
-      const resolve = wake;
-      wake = null;
-      resolve();
-    }
-  };
-  const nextBatchReady = () => new Promise((resolve) => {
-    if (streamDone || batch.length >= BULK_FETCH_BATCH_SIZE) {
-      resolve();
-      return;
-    }
-    wake = resolve;
-  });
-
-  const extractor = createJsonArrayExtractor((obj) => {
-    totalSeen += 1;
-    if (obj.hash && missing.has(obj.hash)) {
-      batch.push(obj);
-      if (batch.length >= BULK_FETCH_BATCH_SIZE) {
-        dataStream.pause();
-        signal();
-      }
-    }
-  });
-
-  const finish = () => {
-    streamDone = true;
-    signal();
-  };
-  const decoder = new StringDecoder('utf8');
-  dataStream.on('data', (chunk) => {
-    lastDataAt = Date.now();
-    extractor.write(decoder.write(chunk));
-  });
-  dataStream.on('end', finish);
-  dataStream.on('close', finish);
-  dataStream.on('error', (err) => {
-    if (!stopped) log.error(`syncMissingHashes - stream error from ${peerIp}:${peerPort}: ${err.message}`);
-    finish();
-  });
-
-  // A connection that dies without a FIN or RST (a NAT dropping its mapping) raises no event
-  // at all. While the stream is flowing it must keep delivering; one that stalls is ended
-  // here. The time spent paused on a batch does not count.
-  const idleWatch = setInterval(() => {
-    if (streamDone || dataStream.isPaused()) return;
-    if (Date.now() - lastDataAt > BULK_FETCH_IDLE_MS) {
-      log.warn(`syncMissingHashes - no data from ${peerIp}:${peerPort} for ${BULK_FETCH_IDLE_MS / 1000}s, abandoning stream`);
-      dataStream.destroy(new Error('stream idle'));
-      finish();
-    }
-  }, Math.min(5000, BULK_FETCH_IDLE_MS));
-
+    `http://${peer.ip}:${peer.port}/apps/permanentmessagesbyheight`,
+    { params: range, responseType: 'stream', timeout: BULK_FETCH_IDLE_MS },
+  );
   try {
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
+    // eslint-disable-next-line no-restricted-syntax
+    for await (const message of readMessageLog(response.data)) {
       // eslint-disable-next-line no-await-in-loop
-      await nextBatchReady();
-      if (batch.length === 0) break;
+      await stage.add(message);
+    }
+  } finally {
+    response.data.destroy();
+  }
+}
 
-      const currentBatch = batch.splice(0, BULK_FETCH_BATCH_SIZE);
-      // eslint-disable-next-line no-await-in-loop
-      const stats = await processMessages(currentBatch, missing, onProgress);
-      totalProcessed += stats.processed;
-      totalSkipped += stats.skipped;
-      for (const msg of currentBatch) missing.delete(msg.hash);
-
-      if (missing.size === 0) {
-        log.info(`syncMissingHashes - All missing hashes resolved after streaming ${totalSeen} messages`);
-        stopped = true;
-        break;
-      }
-
-      if (!streamDone && batch.length < BULK_FETCH_BATCH_SIZE) {
-        lastDataAt = Date.now();
-        dataStream.resume();
+/**
+ * Stages what a peer's whole message log holds of the missing messages, from the route every
+ * version serves.
+ * @param {{ip: string, port: string|number}} peer
+ * @param {MessageStage} stage
+ */
+async function stageWholeLogFromPeer(peer, stage) {
+  const response = await serviceHelper.axiosGet(
+    `http://${peer.ip}:${peer.port}/apps/permanentmessages`,
+    { responseType: 'stream', timeout: BULK_FETCH_IDLE_MS },
+  );
+  const received = [];
+  const extractor = createJsonArrayExtractor((message) => received.push(message));
+  const decoder = new StringDecoder('utf8');
+  try {
+    // eslint-disable-next-line no-restricted-syntax
+    for await (const chunk of response.data) {
+      extractor.write(decoder.write(chunk));
+      // eslint-disable-next-line no-restricted-syntax
+      for (const message of received.splice(0)) {
+        // eslint-disable-next-line no-await-in-loop
+        await stage.add(message);
       }
     }
   } finally {
-    clearInterval(idleWatch);
-    stopped = true;
-    dataStream.destroy();
     response.data.destroy();
   }
+}
 
-  log.info(`syncMissingHashes - Streamed ${totalSeen} messages from ${peerIp}:${peerPort}: ${totalProcessed} processed, ${totalSkipped} skipped`);
-  fluxEventBus.publish('hashSync:bulkFetched', {
-    peer: `${peerIp}:${peerPort}`, streamed: totalSeen, processed: totalProcessed, skipped: totalSkipped,
-  });
-  return { processed: totalProcessed, skipped: totalSkipped, streamed: totalSeen };
+/**
+ * Stages the missing messages from peers in turn. Each peer is asked for the height ranges of
+ * what is still unstaged, worked out from this node's own payment records; a peer that does not
+ * serve the log by height is asked for its whole log instead. A peer that fails part way keeps
+ * what it delivered, and the next peer is asked only for the rest.
+ * @param {{ip: string, port: string|number, key: string}[]} peers
+ * @param {MessageStage} stage
+ * @param {number[]} paymentHeights ascending
+ * @returns {Promise<{peer: string, route: string, staged: number, error?: string}[]>}
+ */
+async function stageFromPeers(peers, stage, paymentHeights) {
+  const fetched = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const peer of peers) {
+    const ranges = planRanges(stage.unstagedHeights(), paymentHeights);
+    if (ranges.length === 0) break;
+    // eslint-disable-next-line no-await-in-loop
+    if (!await peerExplorerSynced(peer)) continue;
+
+    const before = stage.size;
+    const startedAt = process.hrtime.bigint();
+    const outcome = { peer: peer.key, route: 'byHeight', staged: 0 };
+    try {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const range of ranges) {
+        // eslint-disable-next-line no-await-in-loop
+        await stageRangeFromPeer(peer, range, stage);
+      }
+    } catch (error) {
+      if (error.response?.status === 404) {
+        outcome.route = 'wholeLog';
+        // eslint-disable-next-line no-await-in-loop
+        await stageWholeLogFromPeer(peer, stage).catch((wholeLogError) => { outcome.error = wholeLogError.message; });
+      } else {
+        outcome.error = error.message;
+      }
+    }
+    // eslint-disable-next-line no-await-in-loop
+    await stage.flush();
+    outcome.staged = stage.size - before;
+    const seconds = Number(process.hrtime.bigint() - startedAt) / 1e9;
+    log.info(`syncMissingHashes - Staged ${outcome.staged} messages from ${peer.key} (${outcome.route}, ${ranges.length} ranges) in ${seconds.toFixed(1)}s`
+      + `${outcome.error ? `, then: ${outcome.error}` : ''}`);
+    fetched.push(outcome);
+  }
+  return fetched;
+}
+
+/**
+ * The height of every app payment this node recorded on chain, ascending.
+ * @returns {Promise<number[]>}
+ */
+async function appPaymentHeights() {
+  const db = dbHelper.databaseConnection();
+  const daemonDb = db.db(config.database.daemon.database);
+  const payments = await dbHelper.findInDatabase(daemonDb, appsHashesCollection, { notOnChain: { $ne: true } }, { projection: { _id: 0, height: 1 } });
+  return payments.map((payment) => payment.height).sort((a, b) => a - b);
+}
+
+/**
+ * Fetches the missing messages from peers, then verifies and stores them.
+ * @param {{ip: string, port: string|number, key: string}[]} peers
+ * @param {Map<string, {txid: string, height: number, value: number}>} missing this node's own
+ *   payment record of each hash it is missing, keyed by hash. Hashes verified here are removed.
+ * @param {Function} [onProgress]
+ * @returns {Promise<{processed: number, skipped: number}>}
+ */
+async function bulkFetch(peers, missing, onProgress) {
+  const stage = await MessageStage.open(missing);
+  try {
+    const fetched = await stageFromPeers(peers, stage, await appPaymentHeights());
+    log.info(`syncMissingHashes - Staged ${stage.size} of ${missing.size} missing messages, verifying`);
+
+    let processed = 0;
+    let skipped = 0;
+    // eslint-disable-next-line no-restricted-syntax
+    for await (const batch of stage.batches(BULK_FETCH_BATCH_SIZE)) {
+      // eslint-disable-next-line no-await-in-loop
+      const stats = await processMessages(batch, missing, onProgress);
+      processed += stats.processed;
+      skipped += stats.skipped;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const message of batch) missing.delete(message.hash);
+    }
+
+    log.info(`syncMissingHashes - Bulk fetch: ${processed} processed, ${skipped} skipped`);
+    fluxEventBus.publish('hashSync:bulkFetched', {
+      staged: fetched.reduce((sum, outcome) => sum + outcome.staged, 0), processed, skipped, peers: fetched,
+    });
+    return { processed, skipped };
+  } finally {
+    await stage.discard();
+  }
 }
 
 /**
@@ -761,19 +819,15 @@ async function syncMissingHashes(options = {}) {
     if (missingHashes.length > 500) {
       const peers = pickRandomPeers(peerManager, maxConcurrentPeers, { excludeSources: ['deterministic'] });
       const peerKeys = peers.map((p) => p.key).join(', ');
-      log.info(`syncMissingHashes - ${missingHashes.length} missing, using streaming bulk fetch from ${peers.length} peers: ${peerKeys}`);
+      log.info(`syncMissingHashes - ${missingHashes.length} missing, using bulk fetch from ${peers.length} peers: ${peerKeys}`);
 
       // A hash paid more than once is placed by its first payment, as the scan records it first.
       const missing = new Map();
       for (const record of missingHashes) {
         if (!missing.has(record.hash)) missing.set(record.hash, record);
       }
-      for (const peer of peers) {
-        if (missing.size === 0) break;
-        // eslint-disable-next-line no-await-in-loop
-        const stats = await bulkFetchStreamAndProcess(peer.ip, peer.port, missing, onProgress);
-        resolved += stats.processed;
-      }
+      const stats = await bulkFetch(peers, missing, onProgress);
+      resolved += stats.processed;
 
       missingHashes = await getMissingHashes({ force, currentHeight });
     }

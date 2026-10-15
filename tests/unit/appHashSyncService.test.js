@@ -3,17 +3,73 @@ const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const { Readable } = require('stream');
-const zlib = require('zlib');
 const config = require('config');
 const { appSyncEvents: syncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 
 const MESSAGES = config.database.appsglobal.collections.appsMessages;
 
+// A peer's answer from GET /apps/permanentmessagesbyheight: one message per line, then the
+// closing count.
 function makeStreamResponse(data) {
-  const json = JSON.stringify({ status: 'success', data });
-  const stream = new Readable({ read() { this.push(json); this.push(null); } });
-  return { data: stream, headers: {} };
+  const body = `${[...data.map((message) => JSON.stringify(message)), JSON.stringify({ status: 'success', data: { count: data.length } })].join('\n')}\n`;
+  return { data: Readable.from([Buffer.from(body)]), headers: {} };
+}
+
+// A peer's answer from GET /apps/permanentmessages, the whole log as one JSON envelope.
+function makeWholeLogResponse(data) {
+  return { data: Readable.from([Buffer.from(JSON.stringify({ status: 'success', data }))]), headers: {} };
+}
+
+// The stage, in memory: what a peer sent, placed at this node's record height for its hash.
+class MemoryStage {
+  static opened = [];
+
+  constructor(missing) {
+    this.missing = missing;
+    this.staged = new Map();
+    this.discarded = false;
+  }
+
+  static async open(missing) {
+    const stage = new MemoryStage(missing);
+    MemoryStage.opened.push(stage);
+    return stage;
+  }
+
+  get size() {
+    return this.staged.size;
+  }
+
+  async add(message) {
+    const record = this.missing.get(message?.hash);
+    if (!record || this.staged.has(message.hash)) return;
+    this.staged.set(message.hash, { height: record.height, message });
+  }
+
+  async flush() {}
+
+  unstagedHeights() {
+    return [...this.missing.values()].filter((record) => !this.staged.has(record.hash)).map((record) => record.height).sort((a, b) => a - b);
+  }
+
+  async* batches(size) {
+    const ordered = [...this.staged.values()].sort((a, b) => a.height - b.height);
+    let batch = [];
+    for (let i = 0; i < ordered.length; i += 1) {
+      batch.push(ordered[i].message);
+      if (batch.length >= size && ordered[i + 1]?.height !== ordered[i].height) {
+        yield batch;
+        batch = [];
+      }
+    }
+    if (batch.length > 0) yield batch;
+  }
+
+  async discard() {
+    this.discarded = true;
+  }
 }
 
 describe('appHashSyncService tests', () => {
@@ -154,7 +210,9 @@ describe('appHashSyncService tests', () => {
       '../fluxCommunicationUtils': { deterministicFluxList: sinon.stub().resolves([]) },
       '../fluxCommunication': { openEphemeralConnection: sinon.stub().resolves(null) },
       '../fluxNetworkHelper': { getLocalSocketAddress: sinon.stub().resolves('10.0.0.99:16127') },
+      './messageStage': { MessageStage: MemoryStage },
     });
+    MemoryStage.opened = [];
   });
 
   afterEach(() => {
@@ -356,10 +414,10 @@ describe('appHashSyncService tests', () => {
 
       // Should have attempted bulk fetch (axiosGet called for explorer sync check + permanent messages)
       expect(serviceHelperStub.axiosGet.called).to.be.true;
-      expect(logStub.info.calledWith(sinon.match('streaming bulk fetch'))).to.be.true;
+      expect(logStub.info.calledWith(sinon.match('using bulk fetch'))).to.be.true;
     });
 
-    describe('a bulk stream whose connection dies', () => {
+    describe('a bulk fetch', () => {
       const missingRecords = Array(600).fill(null).map((_, i) => ({
         hash: `hash${i}`, txid: `tx${i}`, height: 1000 + i, value: 100, message: false,
       }));
@@ -367,95 +425,156 @@ describe('appHashSyncService tests', () => {
         type: 'fluxappregister', version: 1, hash: `hash${i}`, timestamp: 1000 + i, signature: `sig${i}`,
         appSpecifications: { name: `app${i}`, version: 4, owner: 'alice' }, valueSat: 100, txid: `tx${i}`, height: 1000 + i,
       });
+      const lines = (messages) => messages.map((message) => `${JSON.stringify(message)}\n`).join('');
+      const closing = (count) => `${JSON.stringify({ status: 'success', data: { count } })}\n`;
+      const synced = { data: { status: 'success', data: true } };
 
-      // Gzip, flushed after `head`, so the first chunk decodes to whole objects on its own.
-      async function gzipInTwo(head, tail) {
-        const gz = zlib.createGzip();
-        const out = [];
-        gz.on('data', (c) => out.push(c));
-        gz.write(head);
-        await new Promise((r) => { gz.flush(zlib.constants.Z_SYNC_FLUSH, r); });
-        const first = Buffer.concat(out.splice(0));
-        gz.end(tail);
-        await new Promise((r) => { gz.on('end', r); });
-        return [first, Buffer.concat(out)];
+      // A body that delivers `text` and then fails as a connection torn down mid-body does.
+      function cutOff(text) {
+        return {
+          data: new Readable({
+            read() {
+              if (this.sent) return;
+              this.sent = true;
+              this.push(Buffer.from(text));
+              setImmediate(() => this.destroy(new Error('aborted')));
+            },
+          }),
+        };
       }
 
-      function gzipResponse(source) {
-        return { data: source, headers: { 'content-encoding': 'gzip' } };
+      function notFound() {
+        return Promise.reject(Object.assign(new Error('Request failed with status code 404'), { response: { status: 404 } }));
+      }
+
+      function byHeightCalls() {
+        return serviceHelperStub.axiosGet.getCalls().filter((call) => call.args[0].includes('/apps/permanentmessagesbyheight'));
+      }
+
+      let published;
+      function bulkFetchedEvent() {
+        return published.find((event) => event.name === 'hashSync:bulkFetched')?.data;
       }
 
       beforeEach(() => {
         dbHelperStub.findInDatabase.onFirstCall().resolves(missingRecords);
         dbHelperStub.findInDatabase.resolves([]);
         dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
-        peerManagerStub.allValues.returns([makePeer('10.0.0.1', '16127')]);
+        peerManagerStub.allValues.returns([makePeer('10.0.0.1', '16127'), makePeer('10.0.0.2', '16127')]);
+        published = [];
+        sinon.stub(fluxEventBus, 'publish').callsFake((name, data) => { published.push({ name, data }); });
       });
 
-      it('returns when the connection is torn down mid-body, instead of waiting forever', async () => {
-        const json = JSON.stringify({ status: 'success', data: [registration(0), registration(1)] });
-        const [first] = await gzipInTwo(json.slice(0, json.length / 2), json.slice(json.length / 2));
-        const source = new Readable({ read() {} });
-        source.push(first);
-        setTimeout(() => source.destroy(new Error('aborted')), 20);
+      it('keeps what a peer delivered before its connection was cut, and asks the next peer only for the rest', async () => {
+        const firstHalf = Array(300).fill(null).map((_, i) => registration(i));
+        const secondHalf = Array(300).fill(null).map((_, i) => registration(300 + i));
+        let byHeight = 0;
         serviceHelperStub.axiosGet.callsFake((url) => {
-          if (url.includes('permanentmessages')) return Promise.resolve(gzipResponse(source));
-          return Promise.resolve({ data: { status: 'success', data: true } });
+          if (!url.includes('/apps/permanentmessagesbyheight')) return Promise.resolve(synced);
+          byHeight += 1;
+          if (byHeight === 1) return Promise.resolve(cutOff(lines(firstHalf)));
+          return Promise.resolve(makeStreamResponse(secondHalf));
         });
 
         await appHashSyncService.syncMissingHashes();
 
-        expect(logStub.error.calledWith(sinon.match('stream error from 10.0.0.1:16127: aborted'))).to.equal(true);
-        expect(logStub.info.calledWith(sinon.match('syncMissingHashes - Streamed'))).to.equal(true);
-        expect(logStub.info.calledWith(sinon.match('syncMissingHashes - Complete:'))).to.equal(true);
+        const calls = byHeightCalls();
+        expect(new Set(calls.map((call) => call.args[0])).size, 'peers asked').to.equal(2);
+        expect(calls.map((call) => call.args[1].params)).to.deep.equal([
+          { fromHeight: 1000, toHeight: 1599 },
+          { fromHeight: 1300, toHeight: 1599 },
+        ]);
+        const inserted = collectionStub.insertMany.getCalls().flatMap((call) => call.args[0].map((message) => message.hash));
+        expect(inserted).to.have.lengthOf(600);
+        expect(bulkFetchedEvent().peers.map((outcome) => [outcome.staged, Boolean(outcome.error)])).to.deep.equal([[300, true], [300, false]]);
       });
 
-      it('stores what it streamed when the connection drops while a batch is being processed', async () => {
-        const head = `{"status":"success","data":[${Array(520).fill(null).map((_, i) => JSON.stringify(registration(i))).join(',')},`;
-        const tail = `${Array(80).fill(null).map((_, i) => JSON.stringify(registration(520 + i))).join(',')}]}`;
-        const [first] = await gzipInTwo(head, tail);
-        const source = new Readable({ read() {} });
-        source.push(first);
+      it('treats a log that ends without its closing line as incomplete', async () => {
+        let byHeight = 0;
         serviceHelperStub.axiosGet.callsFake((url) => {
-          if (url.includes('permanentmessages')) return Promise.resolve(gzipResponse(source));
-          return Promise.resolve({ data: { status: 'success', data: true } });
-        });
-        collectionStub.insertMany.onFirstCall().callsFake(async () => {
-          source.destroy(new Error('aborted'));
-          await new Promise((r) => { setTimeout(r, 10); });
-          return { insertedCount: 500 };
+          if (!url.includes('/apps/permanentmessagesbyheight')) return Promise.resolve(synced);
+          byHeight += 1;
+          const all = missingRecords.map((_, i) => registration(i));
+          if (byHeight === 1) return Promise.resolve({ data: Readable.from([Buffer.from(lines(all.slice(0, 100)))]) });
+          return Promise.resolve({ data: Readable.from([Buffer.from(lines(all.slice(100)) + closing(500))]) });
         });
 
         await appHashSyncService.syncMissingHashes();
 
-        const inserted = collectionStub.insertMany.getCalls().map((call) => call.args[0].length);
-        expect(inserted).to.deep.equal([500, 20]);
-        expect(logStub.info.calledWith(sinon.match('syncMissingHashes - Complete:'))).to.equal(true);
+        const [first] = bulkFetchedEvent().peers;
+        expect(first.staged).to.equal(100);
+        expect(first.error).to.match(/without its closing line/);
+        expect(byHeightCalls()[1].args[1].params).to.deep.equal({ fromHeight: 1100, toHeight: 1599 });
+        expect(bulkFetchedEvent().processed).to.equal(600);
       });
 
-      it('abandons a stream that stops delivering without closing', async () => {
-        const clock = sinon.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
-        try {
-          const json = JSON.stringify({ status: 'success', data: [registration(0)] });
-          const [first] = await gzipInTwo(json.slice(0, json.length / 2), json.slice(json.length / 2));
-          const source = new Readable({ read() {} });
-          source.push(first);
-          serviceHelperStub.axiosGet.callsFake((url) => {
-            if (url.includes('permanentmessages')) return Promise.resolve(gzipResponse(source));
-            return Promise.resolve({ data: { status: 'success', data: true } });
-          });
+      it('takes the whole log from a peer that does not serve it by height', async () => {
+        serviceHelperStub.axiosGet.callsFake((url) => {
+          if (url.includes('/apps/permanentmessagesbyheight')) return notFound();
+          if (url.endsWith('/apps/permanentmessages')) return Promise.resolve(makeWholeLogResponse(missingRecords.map((_, i) => registration(i))));
+          return Promise.resolve(synced);
+        });
 
-          const run = appHashSyncService.syncMissingHashes();
-          await new Promise((r) => { setImmediate(r); });
-          await new Promise((r) => { setImmediate(r); });
-          clock.tick(65000);
-          await run;
+        await appHashSyncService.syncMissingHashes();
 
-          expect(logStub.warn.calledWith(sinon.match('no data from 10.0.0.1:16127 for 60s, abandoning stream'))).to.equal(true);
-          expect(source.destroyed).to.equal(true);
-        } finally {
-          clock.restore();
-        }
+        expect(bulkFetchedEvent().peers.map(({ route, staged }) => ({ route, staged }))).to.deep.equal([{ route: 'wholeLog', staged: 600 }]);
+        expect(bulkFetchedEvent().processed).to.equal(600);
+      });
+
+      it('reads every peer\'s log to its end before it verifies anything', async () => {
+        const order = [];
+        serviceHelperStub.axiosGet.callsFake((url) => {
+          if (!url.includes('/apps/permanentmessagesbyheight')) return Promise.resolve(synced);
+          const body = makeStreamResponse(missingRecords.map((_, i) => registration(i)));
+          body.data.on('end', () => order.push('log read'));
+          return Promise.resolve(body);
+        });
+        messageVerifierStub.verifyAppHash.callsFake(async () => { order.push('verify'); return true; });
+
+        await appHashSyncService.syncMissingHashes();
+
+        expect(order[0]).to.equal('log read');
+        expect(order.filter((step) => step === 'log read')).to.have.lengthOf(1);
+        expect(order.lastIndexOf('log read')).to.be.below(order.indexOf('verify'));
+      });
+
+      it('asks for two runs of missing messages in one request only when few payments lie between them', async () => {
+        const near = [{ hash: 'n1', txid: 'tn1', height: 5000, value: 100, message: false }];
+        const far = [{ hash: 'f1', txid: 'tf1', height: 90000, value: 100, message: false }];
+        const records = [...missingRecords, ...near, ...far];
+        dbHelperStub.findInDatabase.reset();
+        dbHelperStub.findInDatabase.onFirstCall().resolves(records);
+        // every payment this node recorded: 1999 between the first run and 5000, 2000 between 5000 and 90000
+        const payments = [
+          ...records.map((record) => ({ height: record.height })),
+          ...Array(1999).fill(null).map((_, i) => ({ height: 2000 + i })),
+          ...Array(2000).fill(null).map((_, i) => ({ height: 10000 + i })),
+        ];
+        dbHelperStub.findInDatabase.callsFake(async (db, collection, query) => (query.notOnChain && !('message' in query) ? payments : []));
+        serviceHelperStub.axiosGet.callsFake((url) => {
+          if (!url.includes('/apps/permanentmessagesbyheight')) return Promise.resolve(synced);
+          return Promise.resolve(makeStreamResponse([]));
+        });
+
+        await appHashSyncService.syncMissingHashes();
+
+        expect(byHeightCalls().filter((call) => call.args[0].startsWith('http://10.0.0.1:')).map((call) => call.args[1].params)).to.deep.equal([
+          { fromHeight: 1000, toHeight: 5000 },
+          { fromHeight: 90000, toHeight: 90000 },
+        ]);
+      });
+
+      it('discards the stage when verifying fails', async () => {
+        serviceHelperStub.axiosGet.callsFake((url) => {
+          if (!url.includes('/apps/permanentmessagesbyheight')) return Promise.resolve(synced);
+          return Promise.resolve(makeStreamResponse(missingRecords.map((_, i) => registration(i))));
+        });
+        dbHelperStub.appPaymentFacts.rejects(new Error('database gone'));
+
+        await appHashSyncService.syncMissingHashes().catch(() => {});
+
+        expect(MemoryStage.opened).to.have.lengthOf(1);
+        expect(MemoryStage.opened[0].discarded).to.equal(true);
       });
     });
 
@@ -1138,6 +1257,7 @@ describe('appHashSyncService tests', () => {
         '../fluxCommunication': { openEphemeralConnection: sinon.stub().resolves(null) },
         '../fluxNetworkHelper': { getLocalSocketAddress: sinon.stub().resolves('10.0.0.99:16127') },
         '../utils/globalState': localGlobalState,
+        './messageStage': { MessageStage: MemoryStage },
       });
     });
 
