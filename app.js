@@ -6,11 +6,14 @@ const path = require('path');
 const compression = require('compression');
 const express = require('express');
 const apiServer = require('./apiServer');
+const portFile = require('./ZelBack/src/services/utils/portFile');
 
 async function initiate() {
   const apiPort = await apiServer.initiate();
   if (process.argv[2] === '--dev') {
     log.info('Running FluxOS development server.');
+    // The development server serves no UI of its own.
+    portFile.writePortFile(apiServer.getListeningPorts());
     return;
   }
   const homePort = +apiPort - 1;
@@ -42,8 +45,9 @@ async function initiate() {
     res.sendFile(path.join(cloudUI, 'index.html'));
   });
 
-  homeApp.listen(homePort, () => {
+  const homeServer = homeApp.listen(homePort, () => {
     log.info(`Flux Home running on port ${homePort}!`);
+    portFile.writePortFile({ ...apiServer.getListeningPorts(), uiPort: homeServer.address().port });
   });
 }
 

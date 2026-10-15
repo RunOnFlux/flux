@@ -32,6 +32,7 @@ const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
+const daemonServiceNetworkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceNetworkRpcs');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const { sameKey } = require('./data/wifFixtures');
@@ -76,9 +77,20 @@ const { PEER_SOURCE } = require('../../ZelBack/src/services/utils/FluxPeerSocket
 chai.use(chaiAsPromised);
 const { expect } = chai;
 
+// getnetworkinfo from a fluxd that reports no decided address.
+const NETWORK_INFO_WITHOUT_DECIDED = { status: 'success', data: { version: 9010000, connections: 8 } };
+const decidedNetworkInfo = (address) => ({
+  status: 'success', data: { ...NETWORK_INFO_WITHOUT_DECIDED.data, decided_address: { address, peers: 5, changed: 1760000000 } },
+});
+
 describe('fluxNetworkHelper tests', () => {
+  let getNetworkInfoStub;
+
   // Global beforeEach to mock UPnP service for all tests
   beforeEach(() => {
+    // fluxd has no decided address unless a case gives it one, so the node's
+    // address comes from the benchmark stubs each case sets up.
+    getNetworkInfoStub = sinon.stub(daemonServiceNetworkRpcs, 'getNetworkInfo').resolves(NETWORK_INFO_WITHOUT_DECIDED);
     sinon.stub(upnpService, 'isUPNP').returns(false);
     sinon.stub(upnpService, 'removeMapUpnpPort').resolves(true);
     sinon.stub(upnpService, 'mapUpnpPort').resolves(true);
@@ -252,6 +264,104 @@ describe('fluxNetworkHelper tests', () => {
 
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedMessage);
       expect(checkFluxAvailabilityResult).to.eql(expectedMessage);
+    });
+  });
+
+
+  describe('the node\'s public address', () => {
+    const apiPort = () => String(userconfig.initial.apiport || config.server.apiport);
+    let benchPublicIpStub;
+    let benchmarksStub;
+    let debugStub;
+
+    beforeEach(() => {
+      benchPublicIpStub = sinon.stub(benchmarkService, 'getPublicIp').resolves({ status: 'success', data: '198.51.100.9' });
+      benchmarksStub = sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'success', data: { ipaddress: '198.51.100.9:16137' } });
+      debugStub = sinon.stub(log, 'debug');
+      fluxNetworkHelper.setLocalSocketAddress(null);
+      fluxNetworkHelper.resetPublicAddressNote();
+    });
+
+    afterEach(() => {
+      fluxNetworkHelper.setLocalSocketAddress(null);
+    });
+
+    it('is fluxd\'s decided address when fluxd has one, without asking FluxBench', async () => {
+      getNetworkInfoStub.resolves(decidedNetworkInfo('203.0.113.7'));
+
+      expect(await fluxNetworkHelper.getPublicIp()).to.deep.equal({ status: 'success', data: '203.0.113.7' });
+      expect(await fluxNetworkHelper.getLocalSocketAddress({ fresh: true })).to.equal(`203.0.113.7:${apiPort()}`);
+      sinon.assert.notCalled(benchPublicIpStub);
+      sinon.assert.notCalled(benchmarksStub);
+    });
+
+    it('takes only the host from fluxd: the port is FluxOS\'s own', async () => {
+      getNetworkInfoStub.resolves(decidedNetworkInfo('203.0.113.7:16125'));
+
+      expect(await fluxNetworkHelper.getPublicIp()).to.deep.equal({ status: 'success', data: '203.0.113.7' });
+      expect(await fluxNetworkHelper.getLocalSocketAddress({ fresh: true })).to.equal(`203.0.113.7:${apiPort()}`);
+    });
+
+    [
+      ['absent', NETWORK_INFO_WITHOUT_DECIDED],
+      ['empty', decidedNetworkInfo('')],
+      ['not an IPv4 address', decidedNetworkInfo('2001:db8::7')],
+    ].forEach(([name, networkInfo]) => {
+      it(`is FluxBench's answer when fluxd's decided address is ${name}, with one debug line and no error`, async () => {
+        getNetworkInfoStub.resolves(networkInfo);
+        const errorStub = sinon.stub(log, 'error');
+
+        expect(await fluxNetworkHelper.getPublicIp()).to.deep.equal({ status: 'success', data: '198.51.100.9' });
+        sinon.assert.calledOnce(benchPublicIpStub);
+        sinon.assert.calledOnce(debugStub);
+        expect(await fluxNetworkHelper.getLocalSocketAddress({ fresh: true })).to.equal('198.51.100.9:16137');
+        sinon.assert.calledOnce(benchmarksStub);
+        sinon.assert.notCalled(errorStub);
+      });
+    });
+
+    it('logs where the address comes from once per change, not once per lookup', async () => {
+      const lookups = async () => {
+        for (let i = 0; i < 10; i += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await fluxNetworkHelper.getPublicIp();
+        }
+      };
+      const lines = () => debugStub.args.map(([line]) => line);
+
+      await lookups();
+      expect(lines(), 'ten lookups, fluxd with no decided address').to.deep.equal([
+        'Public address: fluxd has no decided address, asking FluxBench',
+      ]);
+
+      getNetworkInfoStub.resolves({ status: 'error', data: { message: 'connect ECONNREFUSED' } });
+      await lookups();
+      expect(lines(), 'the reason changes').to.have.length(2);
+      expect(lines()[1]).to.equal('Public address: fluxd did not answer getnetworkinfo, asking FluxBench');
+
+      getNetworkInfoStub.resolves(decidedNetworkInfo('203.0.113.7'));
+      await lookups();
+      expect(lines(), 'fluxd starts answering').to.have.length(3);
+      expect(lines()[2]).to.equal('Public address: fluxd now reports 203.0.113.7');
+    });
+
+    it('is FluxBench\'s answer when fluxd does not answer', async () => {
+      getNetworkInfoStub.resolves({ status: 'error', data: { code: -28, name: 'Error', message: 'Loading block index...' } });
+
+      expect(await fluxNetworkHelper.getPublicIp()).to.deep.equal({ status: 'success', data: '198.51.100.9' });
+      expect(await fluxNetworkHelper.getLocalSocketAddress({ fresh: true })).to.equal('198.51.100.9:16137');
+      sinon.assert.calledOnce(benchPublicIpStub);
+      sinon.assert.calledOnce(benchmarksStub);
+    });
+
+    it('is FluxBench\'s own failure, unchanged, when neither answers', async () => {
+      getNetworkInfoStub.resolves({ status: 'error', data: { code: 'ECONNREFUSED', name: 'Error', message: 'connect ECONNREFUSED' } });
+      const benchFailure = { status: 'error', data: { code: 'ECONNREFUSED', name: 'Error', message: 'fluxbench down' } };
+      benchPublicIpStub.resolves(benchFailure);
+      benchmarksStub.resolves(benchFailure);
+
+      expect(await fluxNetworkHelper.getPublicIp()).to.equal(benchFailure);
+      expect(await fluxNetworkHelper.getLocalSocketAddress({ fresh: true })).to.equal(null);
     });
   });
 
@@ -1486,6 +1596,39 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
       expect(result).to.be.true;
+    });
+
+    it('takes a new address from fluxd without asking FluxBench', async () => {
+      getNetworkInfoStub.resolves(decidedNetworkInfo('129.0.0.1'));
+      const benchPublicIp = sinon.stub(benchmarkService, 'getPublicIp').resolves({ status: 'error' });
+      sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'error' });
+      sinon.stub(serviceHelper, 'axiosGet').resolves({ data: { status: 'error', data: { message: 'all is good!' } } });
+      getRandomExternalObserver.resolves('1.2.3.4:16127');
+
+      const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+      expect(result).to.be.true;
+      sinon.assert.notCalled(benchPublicIp);
+    });
+
+    it('should return false when neither fluxd nor FluxBench has an address', async () => {
+      getNetworkInfoStub.resolves({ status: 'error', data: { message: 'connect ECONNREFUSED' } });
+      const benchPublicIp = sinon.stub(benchmarkService, 'getPublicIp').returns({ status: 'error' });
+      sinon.stub(serviceHelper, 'axiosGet').resolves({ data: { status: 'error', data: { message: 'all is good!' } } });
+      getRandomExternalObserver.resolves('1.2.3.4:16127');
+
+      const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+      try {
+        expect(result).to.be.false;
+        sinon.assert.calledOnce(benchPublicIp);
+        expect(fluxNetworkHelper.getDosMessage()).to.be.a('string');
+      } finally {
+        // The points this check counted stay with the module.
+        fluxNetworkHelper.resetAvailabilityDos();
+        fluxNetworkHelper.setDosMessage(null);
+        fluxNetworkHelper.setDosStateValue(0);
+      }
     });
 
     it('should return false if getPublicIp status is a success but does not have a proper ip', async () => {
