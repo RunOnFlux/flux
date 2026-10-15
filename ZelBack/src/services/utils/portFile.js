@@ -3,10 +3,12 @@
  *
  * Once its listeners are bound FluxOS writes /run/fluxos/fluxos.json,
  *
- *   {"apiPort": 16127, "apiPortHttps": 16128, "uiPort": 16126}
+ *   {"apiPort": 16127, "apiPortHttps": 16128, "uiPort": 16126, "pid": 12345}
  *
- * holding the ports the servers report after listening, and removes it on a
- * clean stop, so the file means "FluxOS is serving here". fluxd and fluxbench
+ * holding the ports the servers report after listening and FluxOS's process
+ * id, and removes it on a clean stop, so the file means "FluxOS is serving
+ * here". A crash leaves the file until the next start rewrites it; a reader
+ * that needs to know the file is current checks that the process exists. fluxd and fluxbench
  * read it, as other users, so it is world-readable. It is written to a
  * temporary file in the same directory and renamed over the final name, so a
  * reader sees the old file or the new one, never a partial one.
@@ -26,7 +28,7 @@ const DIR_MODE = 0o755;
 const FILE_MODE = 0o644;
 
 /**
- * Write the port file. Never rejects.
+ * Write the port file, with this process's id. Never rejects.
  * @param {{apiPort: number, apiPortHttps: number, uiPort?: number}} ports - the bound ports
  * @param {{dir?: string}} [options] - the directory the file is written in
  * @returns {Promise<boolean>} True when the file was written.
@@ -38,6 +40,7 @@ async function writePortFile(ports, { dir = PORT_FILE_DIR } = {}) {
     apiPort: ports.apiPort,
     apiPortHttps: ports.apiPortHttps,
     uiPort: ports.uiPort,
+    pid: process.pid,
   });
   try {
     await fs.mkdir(dir, { recursive: true });
