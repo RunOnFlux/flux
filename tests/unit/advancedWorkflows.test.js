@@ -7987,6 +7987,19 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
     });
 
+    it('stays while the gap a departure left is unfilled, however long that takes', async () => {
+      // One misplaced holder has left and nothing correctly placed has taken
+      // the gap: this one keeps the app, and its data, where it is.
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', LOCAL));
+      for (let i = 0; i < 10; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await pass();
+        clock.tick(QUEUE_BASE_MS);
+      }
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
     it('loses its turn when it stops being misplaced', async () => {
       await pass();
       clock.tick(QUEUE_BASE_MS - MINUTE);

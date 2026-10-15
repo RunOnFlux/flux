@@ -3909,6 +3909,13 @@ async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, 
   // Only the table's word moves an installed app. The node's own ip-api report
   // can be wrong about where it is, and an unproven region is not a wrong one;
   // both still refuse an install, which is where being unsure belongs.
+  //
+  // Misplaced holders leave one per refill, never all at once. A departure takes
+  // the app below its instance count, and every other misplaced holder waits
+  // until a correctly placed node has taken the gap. With nowhere correctly
+  // placed to go, the gap stays open and the rest stay where they are: an app
+  // running outside its geolocation keeps its data and keeps serving, which is
+  // better than an app that has neither.
   if (deps.geolocationVerdict) {
     const geo = await deps.geolocationVerdict(installedApp.name);
     if (geo.verdict === hwRequirements.GeoVerdict.FAIL && geo.source === hwRequirements.GeoSource.TABLE) {
