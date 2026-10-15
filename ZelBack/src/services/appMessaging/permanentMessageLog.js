@@ -101,6 +101,9 @@ async function writeMessageLog(res, messages, isClosed) {
         await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.MESSAGE_LOG_BEFORE_PIECE, piecesWritten);
         if (isClosed()) return;
         const flowing = res.write(piece);
+        // Sent now, rather than when the compressor's buffer next fills, so the client sees the
+        // log advance with every piece.
+        if (res.flush) res.flush();
         piece = '';
         piecesWritten += 1;
         // eslint-disable-next-line no-await-in-loop
