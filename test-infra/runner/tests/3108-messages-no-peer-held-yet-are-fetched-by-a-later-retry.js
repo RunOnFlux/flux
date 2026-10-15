@@ -11,7 +11,7 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
-import { waitForOrchestratorState } from '../framework/wait.js';
+import { waitFor, waitForOrchestratorState } from '../framework/wait.js';
 import { advanceBlocks, stopTicker } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -46,6 +46,16 @@ describe('messages no peer held yet are fetched in bulk by a later retry', funct
     await waitForOrchestratorState(client, 'READY', 600000);
     missingAfterFirstSync = log.length - (await dbClient(JOINER + 1).appHashRecords({ hash: { $in: log.map((m) => m.hash) }, message: true })).length;
 
+    // The first sync asked its peers for each hash, and a peer answers those one at a time. Every
+    // ask is answered before the peers are given the log, so the retry is the only way the
+    // messages reach the joiner.
+    const asks = (i, event) => env.clients[i].getEventBuffer().filter((e) => e.event === event).length;
+    await waitFor(
+      () => PEERS.some((i) => asks(i, 'hashRequest:received') > 0)
+        && PEERS.every((i) => asks(i, 'hashRequest:responded') === asks(i, 'hashRequest:received')),
+      { timeout: 600000, interval: 2000, label: 'every peer done answering the first sync\'s asks' },
+    );
+
     await Promise.all(PEERS.map(async (i) => {
       await dbClient(i + 1).seedPermanentMessages(log.map((m) => m.permanentMessage));
       await dbClient(i + 1).seedAppHashes(log.map((m) => m.hashEntry));
@@ -55,6 +65,9 @@ describe('messages no peer held yet are fetched in bulk by a later retry', funct
     const lastEventId = client.getLastEventId();
     await advanceBlocks(FIRST_RETRY_BLOCKS + 5);
     bulkFetched = await client.waitForEvent('hashSync:bulkFetched', (d) => d.processed > 0, 600000, { afterId: lastEventId });
+    await waitFor(async () => (await messagesNotKept(JOINER, log)).length === 0, {
+      timeout: 300000, interval: 3000, label: 'every message kept after the retry',
+    }).catch(() => {});
   });
 
   after(async function () {
@@ -67,12 +80,10 @@ describe('messages no peer held yet are fetched in bulk by a later retry', funct
     expect(missingAfterFirstSync).to.equal(log.length);
   });
 
-  // The per-hash requests of the first sync are still being answered when the peers are given the
-  // log, so a message they answer can be stored between the bulk fetch staging it and verifying it.
   it('took every message in bulk on the retry', function () {
-    const { staged, processed, skipped } = bulkFetched.data;
+    const { staged, processed } = bulkFetched.data;
     expect(staged, JSON.stringify(bulkFetched.data)).to.equal(log.length);
-    expect(processed + skipped).to.equal(log.length);
+    expect(processed).to.equal(log.length);
   });
 
   it('keeps every message, each at its own record\'s txid, height and payment', async function () {
