@@ -204,7 +204,8 @@ export async function enableUpnpGateway(ip, { externalIp = null, capacity = null
 }
 
 /**
- * The gateway a node is behind: its port mappings and the actions the node sent it.
+ * The gateway a node is behind: its port mappings and the actions the node sent it, each with
+ * the external port it named (null for an action that names none).
  * @param {string} ip
  * @returns {Promise<{externalIp: string|null, mappings: object[], requests: object[]}|null>}
  */

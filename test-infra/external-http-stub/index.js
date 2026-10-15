@@ -768,7 +768,7 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
   const action = String(req.get('SOAPAction') || '').replace(/"/g, '').split('#')[1] || '';
   const arg = (name) => (String(req.body).match(new RegExp(`<${name}>([^<]*)</${name}>`)) || [])[1] ?? '';
   const sameEntry = (m) => m.externalPort === Number(arg('NewExternalPort')) && m.protocol === arg('NewProtocol').toUpperCase();
-  gateway.requests.push({ action, at: new Date().toISOString() });
+  gateway.requests.push({ action, port: Number(arg('NewExternalPort')) || null, at: new Date().toISOString() });
   switch (action) {
     case 'GetExternalIPAddress':
       soapReply(res, action, { NewExternalIPAddress: gateway.externalIp ?? clientAddress(req) });

@@ -78,3 +78,45 @@ describe('a node behind a full router table verifies UPnP', function () {
     expect(mappings.find((m) => m.externalPort === OTHERS.externalPort)).to.deep.equal(OTHERS);
   });
 });
+
+// The same router with nothing of this node's to remove: it holds the node's own four ports,
+// mapped by an earlier run, and other machines' mappings up to its capacity. The test mapping
+// finds no room, and the router already maps this node's api port to it, so the node runs on
+// what it holds.
+describe('a node whose own ports fill its router\'s table verifies UPnP', function () {
+  let env;
+  dumpLogsOnFailure(() => env);
+  let nodeIp;
+  const OWN = [API_PORT - 1, API_PORT, API_PORT + 1, API_PORT + 2]
+    .map((port, i) => mapping(port, ['Flux_Home_UI', 'Flux_Backend_API', 'Flux_Backend_API_SSL', 'Flux_Syncthing'][i]));
+  const OTHER_MACHINES = [32000, 32001].map((port) => mapping(port, 'Flux_App_sibling', OTHER_MACHINE));
+  const FULL = [...OWN, ...OTHER_MACHINES];
+
+  before(async function () {
+    this.timeout(240000);
+    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false });
+    nodeIp = subnet.nodeIp(1);
+    await enableUpnpGateway(nodeIp, { capacity: FULL.length, mappings: FULL });
+    await setNodeApiPort(env.clients[0].container, API_PORT);
+    await restartFluxos(env.clients[0].container, { apiPort: API_PORT });
+    await env.clients[0].followTo(nodeIp, API_PORT);
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await env?.teardown();
+  });
+
+  it('starts on its api port, its mappings and the other machines\' as they were', async function () {
+    this.timeout(180000);
+    // past the 120s a node that failed verification waits before it exits
+    await new Promise((resolve) => { setTimeout(resolve, 150000); });
+    const { mappings, requests } = await upnpGatewayState(nodeIp);
+
+    expect(requests.some((r) => r.action === 'AddPortMapping' && r.port === API_PORT + 3), 'canary: the node asked for its test mapping').to.equal(true);
+    // a node that failed verification never maps its own ports
+    expect(requests.some((r) => r.action === 'AddPortMapping' && r.port === API_PORT), 'the node mapped its api port').to.equal(true);
+    expect(mappings.map((m) => m.externalPort).sort()).to.deep.equal(FULL.map((m) => m.externalPort).sort());
+    expect(requests.filter((r) => r.action === 'DeletePortMapping'), 'nothing removed').to.deep.equal([]);
+  });
+});
