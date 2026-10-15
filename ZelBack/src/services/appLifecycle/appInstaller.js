@@ -134,7 +134,7 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
             if (res.flush) res.flush();
           }
         } else {
-          throw new Error(`Error: Port ${port} FAILed to map.`);
+          throw new Error(`Error: Port ${port} FAILed to map. ${upnpService.getMapFailureReason(port)}`.trim());
         }
       }
     }
@@ -154,7 +154,7 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
           if (res.flush) res.flush();
         }
       } else {
-        throw new Error(`Error: Port ${appSpecifications.port} FAILed to map.`);
+        throw new Error(`Error: Port ${appSpecifications.port} FAILed to map. ${upnpService.getMapFailureReason(appSpecifications.port)}`.trim());
       }
     }
   }

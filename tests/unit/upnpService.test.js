@@ -18,6 +18,23 @@ const batches = (stub) => stub.getCalls()
 
 const { expect } = chai;
 
+// A router's refusal as nat-upnp 1.x rejects it: an HTTP 500 with the SOAP fault in the body.
+const soapFault = (code, description) => {
+  const error = new Error('Request failed with status code 500');
+  error.response = {
+    status: 500,
+    data: `<?xml version="1.0"?><s:Envelope><s:Body><s:Fault><detail><UPnPError><errorCode>${code}</errorCode>`
+      + `<errorDescription>${description}</errorDescription></UPnPError></detail></s:Fault></s:Body></s:Envelope>`,
+  };
+  return error;
+};
+// The router's answer to GetSpecificPortMappingEntry.
+const entryFor = (internalClient, port, enabled = '1') => ({
+  GetSpecificPortMappingEntryResponse: { NewInternalClient: internalClient, NewInternalPort: String(port), NewEnabled: enabled },
+});
+// The gateway as nat-upnp 1.x hands it over, this node at 192.168.1.10.
+const stubGateway = (run) => sinon.stub(natUpnp.Client.prototype, 'getGateway').resolves({ gateway: { run }, address: '192.168.1.10' });
+
 const config = {
   apiport: '5550',
 };
@@ -162,8 +179,8 @@ describe('upnpService tests', () => {
       const result = await promise;
 
       expect(result).to.equal(false);
-      sinon.assert.calledTwice(logSpy);
-      sinon.assert.calledWithExactly(logSpy, 'VerifyUPNPsupport - Failed get public ip');
+      sinon.assert.calledOnce(logSpy);
+      sinon.assert.calledWithExactly(logSpy, 'VerifyUPNPsupport - Failed get public ip: Error');
     });
 
     it('should log a proper error if getGateway throws', async () => {
@@ -181,8 +198,8 @@ describe('upnpService tests', () => {
       const result = await promise;
 
       expect(result).to.equal(false);
-      sinon.assert.calledTwice(logSpy);
-      sinon.assert.calledWithExactly(logSpy, 'VerifyUPNPsupport - Failed get Gateway');
+      sinon.assert.calledOnce(logSpy);
+      sinon.assert.calledWithExactly(logSpy, 'VerifyUPNPsupport - Failed get Gateway: Error');
     });
 
     it('should log a proper error if createMapping throws', async () => {
@@ -200,8 +217,8 @@ describe('upnpService tests', () => {
       const result = await promise;
 
       expect(result).to.equal(false);
-      sinon.assert.calledTwice(logSpy);
-      sinon.assert.calledWithExactly(logSpy, 'VerifyUPNPsupport - Failed Create Mapping');
+      sinon.assert.calledOnce(logSpy);
+      sinon.assert.calledWithExactly(logSpy, 'VerifyUPNPsupport - Failed Create Mapping: Error');
     });
 
     it('should log a proper error if getMappings throws', async () => {
@@ -219,8 +236,8 @@ describe('upnpService tests', () => {
       const result = await promise;
 
       expect(result).to.equal(false);
-      sinon.assert.calledTwice(logSpy);
-      sinon.assert.calledWithExactly(logSpy, 'VerifyUPNPsupport - Failed get Mappings');
+      sinon.assert.calledOnce(logSpy);
+      sinon.assert.calledWithExactly(logSpy, 'VerifyUPNPsupport - Failed get Mappings: Error');
     });
 
     it('should log a proper error if removeMapping throws', async () => {
@@ -238,8 +255,78 @@ describe('upnpService tests', () => {
       const result = await promise;
 
       expect(result).to.equal(false);
-      sinon.assert.calledTwice(logSpy);
-      sinon.assert.calledWithExactly(logSpy, 'VerifyUPNPsupport - Failed Remove Mapping');
+      sinon.assert.calledOnce(logSpy);
+      sinon.assert.calledWithExactly(logSpy, 'VerifyUPNPsupport - Failed Remove Mapping: Error');
+    });
+
+    it('should make room when the router refuses its test mapping: remove the test mappings earlier starts left, then ask again', async () => {
+      sinon.stub(natUpnp.Client.prototype, 'getPublicIp').resolves('1.2.3.4');
+      sinon.stub(natUpnp.Client.prototype, 'getMappings').resolves([]);
+      const createStub = sinon.stub(natUpnp.Client.prototype, 'createMapping');
+      createStub.onFirstCall().rejects(soapFault(728, 'NoPortMapsAvailable'));
+      createStub.resolves();
+      const removeStub = sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
+      const table = [
+        ['192.168.1.10', 41713, 'TCP', 'Flux_Test_App'],
+        ['192.168.1.10', 30001, 'TCP', 'Flux_App_kept'],
+        ['192.168.1.11', 39988, 'TCP', 'Flux_Test_App'],
+        ['192.168.1.10', 52217, 'UDP', 'Flux_Prelaunch_App_52217'],
+      ];
+      const run = sinon.stub().callsFake(async (action, args) => {
+        if (action === 'GetSpecificPortMappingEntry') throw soapFault(714, 'NoSuchEntryInArray');
+        const index = args[0][1];
+        if (index >= table.length) throw soapFault(713, 'SpecifiedArrayIndexInvalid');
+        const [internalClient, port, protocol, description] = table[index];
+        return {
+          GetGenericPortMappingEntryResponse: {
+            NewRemoteHost: '', NewExternalPort: String(port), NewProtocol: protocol, NewInternalClient: internalClient, NewInternalPort: String(port), NewPortMappingDescription: description,
+          },
+        };
+      });
+      stubGateway(run);
+
+      const clock = sinon.useFakeTimers();
+      const promise = upnpService.verifyUPNPsupport(16127);
+      await clock.tickAsync(10_000);
+      const result = await promise;
+
+      expect(result).to.equal(true);
+      sinon.assert.calledTwice(createStub);
+      // this node's test mappings go; its app's and another machine's stay
+      sinon.assert.calledWithExactly(removeStub, { public: { host: '', port: 41713 }, protocol: 'TCP' });
+      sinon.assert.calledWithExactly(removeStub, { public: { host: '', port: 52217 }, protocol: 'UDP' });
+      sinon.assert.neverCalledWithMatch(removeStub, { public: { port: 30001 } });
+      sinon.assert.neverCalledWithMatch(removeStub, { public: { port: 39988 } });
+    });
+
+    it('should go on when the refused test mapping is one an earlier start left for this node', async () => {
+      sinon.stub(natUpnp.Client.prototype, 'getPublicIp').resolves('1.2.3.4');
+      sinon.stub(natUpnp.Client.prototype, 'getMappings').resolves([]);
+      const createStub = sinon.stub(natUpnp.Client.prototype, 'createMapping').rejects(soapFault(718, 'ConflictInMappingEntry'));
+      sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
+      stubGateway(sinon.stub().resolves(entryFor('192.168.1.10', 16130)));
+
+      const clock = sinon.useFakeTimers();
+      const promise = upnpService.verifyUPNPsupport(16127);
+      await clock.tickAsync(10_000);
+
+      expect(await promise).to.equal(true);
+      sinon.assert.calledOnce(createStub);
+    });
+
+    it('should still fail when the router refuses and nothing can be removed', async () => {
+      sinon.stub(natUpnp.Client.prototype, 'getPublicIp').resolves('1.2.3.4');
+      sinon.stub(natUpnp.Client.prototype, 'getMappings').resolves([]);
+      sinon.stub(natUpnp.Client.prototype, 'createMapping').rejects(soapFault(728, 'NoPortMapsAvailable'));
+      sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
+      stubGateway(sinon.stub().rejects(soapFault(713, 'SpecifiedArrayIndexInvalid')));
+
+      const clock = sinon.useFakeTimers();
+      const promise = upnpService.verifyUPNPsupport(16127);
+      await clock.tickAsync(10_000);
+
+      expect(await promise).to.equal(false);
+      sinon.assert.calledOnceWithExactly(logSpy, 'VerifyUPNPsupport - Failed Create Mapping: UPnP error 728 NoPortMapsAvailable (HTTP 500)');
     });
   });
 
@@ -261,6 +348,7 @@ describe('upnpService tests', () => {
       createMappingSpy = sinon.stub(natUpnp.Client.prototype, 'createMapping');
       getMappingsStub = sinon.stub(natUpnp.Client.prototype, 'getMappings').resolves([]);
       removeMappingStub = sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
+      stubGateway(sinon.stub().rejects(soapFault(714, 'NoSuchEntryInArray')));
     });
 
     afterEach(() => {
@@ -429,16 +517,44 @@ describe('upnpService tests', () => {
       expect(result).to.equal(false);
       sinon.assert.calledOnce(logSpy);
     });
+
+    it('should take a core port the router refuses but already maps to this node as mapped', async () => {
+      natUpnp.Client.prototype.getGateway.restore();
+      stubGateway(sinon.stub().callsFake(async (action, args) => entryFor('192.168.1.10', args[1][1])));
+      createMappingSpy.returns(true);
+      createMappingSpy.withArgs(sinon.match({ description: 'Flux_Backend_API' })).rejects(soapFault(728, 'NoPortMapsAvailable'));
+
+      const clock = sinon.useFakeTimers();
+      const promise = upnpService.setupUPNP(16127);
+      await clock.tickAsync(5_000);
+      const result = await promise;
+
+      expect(result).to.equal(true);
+      sinon.assert.notCalled(logSpy);
+    });
   });
 
   describe('mapUpnpPort tests', () => {
     let logSpy;
     let createMappingSpy;
 
+    let runStub;
+
     beforeEach(() => {
       logSpy = sinon.spy(log, 'error');
       createMappingSpy = sinon.stub(natUpnp.Client.prototype, 'createMapping');
+      runStub = sinon.stub().rejects(soapFault(714, 'NoSuchEntryInArray'));
+      stubGateway(runStub);
     });
+
+    async function runMap(port) {
+      const clock = sinon.useFakeTimers();
+      const promise = upnpService.mapUpnpPort(port, 'Flux_App_test');
+      await clock.tickAsync(3_000);
+      const result = await promise;
+      clock.restore();
+      return result;
+    }
 
     afterEach(() => {
       sinon.restore();
@@ -486,16 +602,188 @@ describe('upnpService tests', () => {
       expect(result).to.equal(false);
       sinon.assert.calledOnce(logSpy);
     });
+
+    it('should log the router\'s UPnP code, and keep it as the port\'s reason for an install to report', async () => {
+      createMappingSpy.rejects(soapFault(728, 'NoPortMapsAvailable'));
+
+      expect(await runMap(123)).to.equal(false);
+      sinon.assert.calledOnceWithExactly(logSpy, 'UPnP - TCP 123 not mapped: UPnP error 728 NoPortMapsAvailable (HTTP 500)');
+      expect(upnpService.getMapFailureReason(123)).to.equal('UPnP - TCP 123 not mapped: UPnP error 728 NoPortMapsAvailable (HTTP 500)');
+      expect(upnpService.getMapFailureReason(124)).to.equal('');
+    });
+
+    it('should take a refused mapping the router already holds for this node as mapped', async () => {
+      createMappingSpy.rejects(soapFault(718, 'ConflictInMappingEntry'));
+      runStub.resolves(entryFor('192.168.1.10', 123));
+
+      expect(await runMap(123)).to.equal(true);
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledWith(runStub, 'GetSpecificPortMappingEntry', [['NewRemoteHost', ''], ['NewExternalPort', '123'], ['NewProtocol', 'TCP']]);
+    });
+
+    it('should not take a refused mapping held for another machine, or switched off, as mapped', async () => {
+      createMappingSpy.rejects(soapFault(718, 'ConflictInMappingEntry'));
+      runStub.resolves(entryFor('192.168.1.11', 123));
+      expect(await runMap(123)).to.equal(false);
+
+      runStub.resolves(entryFor('192.168.1.10', 123, '0'));
+      expect(await runMap(123)).to.equal(false);
+    });
+
+    it('should stop holding a port it failed to map, so the cleanup can take what the router kept', async () => {
+      createMappingSpy.withArgs(sinon.match({ protocol: 'TCP' })).resolves();
+      createMappingSpy.withArgs(sinon.match({ protocol: 'UDP' })).rejects(soapFault(728, 'NoPortMapsAvailable'));
+
+      expect(await runMap(41713)).to.equal(false);
+      expect(upnpService.mappedHere.has(41713)).to.equal(false);
+    });
+
+    it('should give up on a router that never answers', async () => {
+      createMappingSpy.returns(new Promise(() => {}));
+      runStub.returns(new Promise(() => {}));
+
+      const clock = sinon.useFakeTimers();
+      const promise = upnpService.mapUpnpPort(123, 'Flux_App_test');
+      await clock.tickAsync(40_000);
+
+      expect(await promise).to.equal(false);
+      sinon.assert.calledOnceWithMatch(logSpy, /^UPnP - TCP 123 not mapped: mapping TCP 123: the router did not answer within 15s$/);
+    });
+  });
+
+  describe('describeUpnpError tests', () => {
+    it('should name the UPnP code and the router\'s wording from a 1.x SOAP fault', () => {
+      const error = soapFault(718, 'ConflictInMappingEntry');
+
+      expect(upnpService.describeUpnpError(error)).to.equal('UPnP error 718 ConflictInMappingEntry (HTTP 500)');
+      expect(upnpService.upnpErrorCode(error)).to.equal(718);
+    });
+
+    it('should read the code 2.x throws, and its message', () => {
+      const error = new Error('UPnP error 728: NoPortMapsAvailable (action: AddPortMapping)');
+      error.code = 728;
+
+      expect(upnpService.upnpErrorCode(error)).to.equal(728);
+      expect(upnpService.describeUpnpError(error)).to.equal('UPnP error 728: NoPortMapsAvailable (action: AddPortMapping)');
+    });
+
+    it('should fall back to the message when the failure carried no code', () => {
+      const error = new Error('socket hang up');
+      error.code = 'ECONNRESET';
+
+      expect(upnpService.describeUpnpError(error)).to.equal('socket hang up');
+      expect(upnpService.upnpErrorCode(error)).to.equal(null);
+    });
+  });
+
+  describe('mappingOwner tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should ask 2.x for the local address it no longer hands over', async () => {
+      sinon.stub(natUpnp.Client.prototype, 'getGateway').resolves({
+        gateway: { run: sinon.stub().resolves(entryFor('192.168.1.10', 123)) },
+        getLocalAddress: sinon.stub().resolves('192.168.1.10'),
+      });
+
+      expect(await upnpService.mappingOwner(123, 'TCP')).to.equal('here');
+    });
+
+    it('should read fields 2.x\'s parser wraps', async () => {
+      stubGateway(sinon.stub().resolves({
+        GetSpecificPortMappingEntryResponse: { NewInternalClient: { '#text': '192.168.1.10' }, NewInternalPort: 123, NewEnabled: 1 },
+      }));
+
+      expect(await upnpService.mappingOwner(123, 'TCP')).to.equal('here');
+    });
+
+    it('should tell no mapping from a router that could not be asked', async () => {
+      stubGateway(sinon.stub().rejects(soapFault(714, 'NoSuchEntryInArray')));
+      expect(await upnpService.mappingOwner(123, 'TCP')).to.equal('none');
+
+      natUpnp.Client.prototype.getGateway.restore();
+      stubGateway(sinon.stub().rejects(new Error('socket hang up')));
+      expect(await upnpService.mappingOwner(123, 'TCP')).to.equal('unknown');
+    });
+  });
+
+  describe('device description fetch tests', () => {
+    // eslint-disable-next-line global-require
+    const axios = require('axios');
+    const url = 'http://192.168.1.1:1900/gatedesc.xml';
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should fetch on a socket of its own, never a kept-alive one', async () => {
+      const getStub = sinon.stub(axios, 'get').resolves({ data: '<?xml version="1.0"?><root><device><deviceType>x</deviceType></device></root>' });
+
+      const parsed = await new natUpnp.Device(url).getXML(url);
+
+      expect(parsed.root.device.deviceType).to.equal('x');
+      expect(getStub.firstCall.args[1].httpAgent.keepAlive).to.equal(false);
+    });
+
+    it('should reject with the reason when the description cannot be read', async () => {
+      sinon.stub(axios, 'get').rejects(new Error('socket hang up'));
+
+      const result = await new natUpnp.Device(url).getXML(url).catch((error) => error);
+
+      expect(result.message).to.equal(`UPnP - the router's device description at ${url} could not be read: socket hang up`);
+    });
+
+    it('should reject a reply that is not a device description', async () => {
+      sinon.stub(axios, 'get').resolves({ data: '<html><body>login</body></html>' });
+
+      const result = await new natUpnp.Device(url).getXML(url).catch((error) => error);
+
+      expect(result.message).to.equal(`UPnP - ${url} is not a UPnP device description`);
+    });
+
+    it('should resolve a real router description through to the action it sends', async () => {
+      sinon.stub(axios, 'get').resolves({
+        data: '<?xml version="1.0"?><root xmlns="urn:schemas-upnp-org:device-1-0"><URLBase>http://192.168.1.1:1900</URLBase><device>'
+          + '<deviceType>urn:schemas-upnp-org:device:InternetGatewayDevice:1</deviceType><deviceList><device>'
+          + '<deviceType>urn:schemas-upnp-org:device:WANDevice:1</deviceType><deviceList><device>'
+          + '<deviceType>urn:schemas-upnp-org:device:WANConnectionDevice:1</deviceType><serviceList><service>'
+          + '<serviceType>urn:schemas-upnp-org:service:WANIPConnection:1</serviceType><serviceId>urn:upnp-org:serviceId:WANIPConn1</serviceId>'
+          + '<controlURL>/upnp/control/WANIPConn1</controlURL><eventSubURL>/upnp/event/WANIPConn1</eventSubURL><SCPDURL>/gateconnSCPD.xml</SCPDURL>'
+          + '</service></serviceList></device></deviceList></device></deviceList></device></root>',
+      });
+
+      const service = await new natUpnp.Device(url).getService(['urn:schemas-upnp-org:service:WANIPConnection:1']);
+
+      expect(service).to.deep.equal({
+        service: 'urn:schemas-upnp-org:service:WANIPConnection:1',
+        SCPDURL: 'http://192.168.1.1:1900/gateconnSCPD.xml',
+        controlURL: 'http://192.168.1.1:1900/upnp/control/WANIPConn1',
+      });
+    });
   });
 
   describe('removeMapUpnpPort tests', () => {
     let logSpy;
     let removeMappingSpy;
 
+    let runStub;
+
     beforeEach(() => {
       logSpy = sinon.spy(log, 'error');
       removeMappingSpy = sinon.stub(natUpnp.Client.prototype, 'removeMapping');
+      runStub = sinon.stub().callsFake(async (action, args) => entryFor('192.168.1.10', args[1][1]));
+      stubGateway(runStub);
     });
+
+    async function runRemove(port) {
+      const clock = sinon.useFakeTimers();
+      const promise = upnpService.removeMapUpnpPort(port);
+      await clock.tickAsync(3_000);
+      const result = await promise;
+      clock.restore();
+      return result;
+    }
 
     afterEach(() => {
       sinon.restore();
@@ -508,7 +796,7 @@ describe('upnpService tests', () => {
 
       const promise = upnpService.removeMapUpnpPort(123, 'some description');
 
-      await clock.tickAsync(1_000);
+      await clock.tickAsync(3_000);
       const result = await promise;
 
       expect(result).to.equal(true);
@@ -525,11 +813,41 @@ describe('upnpService tests', () => {
 
       const promise = upnpService.removeMapUpnpPort(123);
 
-      await clock.tickAsync(1_000);
+      await clock.tickAsync(3_000);
       const result = await promise;
 
       expect(result).to.equal(false);
-      sinon.assert.calledOnce(logSpy);
+      // the UDP half is still tried when TCP is refused
+      sinon.assert.calledTwice(removeMappingSpy);
+      sinon.assert.calledTwice(logSpy);
+    });
+
+    it('should leave alone a mapping the router points at another machine', async () => {
+      removeMappingSpy.resolves();
+      runStub.callsFake(async (action, args) => (args[2][1] === 'UDP' ? entryFor('192.168.1.11', 123) : entryFor('192.168.1.10', 123)));
+
+      expect(await runRemove(123)).to.equal(true);
+      sinon.assert.calledOnceWithExactly(removeMappingSpy, { public: 123, protocol: 'TCP' });
+    });
+
+    it('should skip a mapping the router does not have, and count one gone by the time it is removed', async () => {
+      removeMappingSpy.rejects(soapFault(714, 'NoSuchEntryInArray'));
+      runStub.callsFake(async (action, args) => {
+        if (args[2][1] === 'TCP') throw soapFault(714, 'NoSuchEntryInArray');
+        return entryFor('192.168.1.10', 123);
+      });
+
+      expect(await runRemove(123)).to.equal(true);
+      sinon.assert.calledOnceWithExactly(removeMappingSpy, { public: 123, protocol: 'UDP' });
+      sinon.assert.notCalled(logSpy);
+    });
+
+    it('should still remove when the router cannot say who holds the port', async () => {
+      removeMappingSpy.resolves();
+      runStub.rejects(new Error('socket hang up'));
+
+      expect(await runRemove(123)).to.equal(true);
+      sinon.assert.calledTwice(removeMappingSpy);
     });
   });
 
@@ -617,6 +935,18 @@ describe('upnpService tests', () => {
       ]);
       expect(removed).to.equal(1);
       sinon.assert.calledOnceWithExactly(removeMappingStub, { public: { host: '', port: 31000 }, protocol: 'TCP' });
+    });
+
+    it('should end the walk on the end-of-table code 2.x throws, which carries no HTTP reply', async () => {
+      routerHas([mapping(31000, 'Flux_App_gone')]);
+      runStub.callsFake(async (action, [[, index]]) => {
+        if (index >= table.length) throw Object.assign(new Error('UPnP error 713: SpecifiedArrayIndexInvalid'), { code: 713 });
+        return asEntry(table[index]);
+      });
+
+      const removed = await upnpService.removeStaleMappings(async () => [16127], BUDGET_MS);
+
+      expect(removed).to.equal(1);
     });
 
     it('should take an error reply at the first index for an empty table', async () => {

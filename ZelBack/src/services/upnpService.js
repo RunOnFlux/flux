@@ -1,4 +1,7 @@
+const http = require('http');
 const config = require('config');
+const axios = require('axios');
+const { XMLParser } = require('fast-xml-parser');
 const natUpnp = require('@runonflux/nat-upnp');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
@@ -10,7 +13,89 @@ const ufw = require('./utils/ufw');
 const fluxadmPort = require('./fluxadmPort');
 const { Privilege, authOf } = require('./utils/privileges');
 
-const client = new natUpnp.Client();
+// @runonflux/nat-upnp 2.x answers single-mapping lookups itself, takes a
+// gateway url of its own and finds the local address itself; 1.x has none of
+// that. What differs between the two is kept to this file.
+const LIBRARY_V2 = typeof natUpnp.Client.prototype.getMapping === 'function';
+const { gatewayUrl } = config.upnp;
+const gatewayNodeIp = config.upnp.nodeIp || '127.0.0.1';
+const client = gatewayUrl && LIBRARY_V2
+  ? new natUpnp.Client({ url: gatewayUrl, localAddress: gatewayNodeIp })
+  : new natUpnp.Client();
+
+// nat-upnp 1.x fetches the router's device description before every action,
+// through the global http agent, which keeps sockets alive since Node 19.
+// Routers close those sockets without saying so, so an action sent moments
+// after another reuses a dead socket and fails at once. The library then hands
+// the Error on as if it were the description, and the action throws "Cannot
+// read properties of undefined (reading 'device')", with the cause gone: the
+// stale mapping cleanup, which lists the table one entry after another, died
+// at its second entry. This is that one fetch, on a socket of its own, failing
+// with its own reason. 2.x does both itself, and has no getXML to replace.
+if (!LIBRARY_V2 && typeof natUpnp.Device.prototype.getXML === 'function') {
+  const descriptionAgent = new http.Agent({ keepAlive: false });
+  natUpnp.Device.prototype.getXML = async function getXML(url) {
+    let data;
+    try {
+      ({ data } = await axios.get(url, { httpAgent: descriptionAgent, timeout: 10 * 1000, responseType: 'text' }));
+    } catch (error) {
+      throw new Error(`UPnP - the router's device description at ${url} could not be read: ${error.message}`);
+    }
+    const parsed = new XMLParser().parse(data);
+    if (!parsed || !parsed.root) throw new Error(`UPnP - ${url} is not a UPnP device description`);
+    return parsed;
+  };
+}
+
+// A router's own answer to a request: 713/714 past the end of the table or for
+// a mapping it does not have (402 on some), 718 a port another machine holds,
+// 728 a full table.
+const UPNP_NO_SUCH_ENTRY = [713, 714];
+const UPNP_END_OF_TABLE = [402, 713, 714];
+
+/**
+ * The UPnP error code of a router's refusal. 2.x throws it as `code`; 1.x
+ * leaves it in the SOAP fault of the reply. Null when the failure carried
+ * none: no reply at all, or a reply without a fault.
+ * @param {Error} error
+ * @returns {number|null}
+ */
+function upnpErrorCode(error) {
+  if (!error) return null;
+  if (Number.isInteger(error.code) && error.code > 0) return error.code;
+  const body = error.response && typeof error.response.data === 'string' ? error.response.data : '';
+  const match = body.match(/<(?:\w+:)?errorCode>\s*(\d+)\s*</i);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * A router's refusal as a log line can carry it. 1.x's own message is only the
+ * HTTP status, the same 500 for a full table as for a taken port.
+ * @param {Error} error
+ * @returns {string}
+ */
+function describeUpnpError(error) {
+  if (!error) return String(error);
+  const body = error.response && typeof error.response.data === 'string' ? error.response.data : '';
+  const code = body ? upnpErrorCode(error) : null;
+  if (code === null) return error.message || String(error);
+  const text = body.match(/<(?:\w+:)?errorDescription>([^<]*)</i);
+  return `UPnP error ${code}${text && text[1].trim() ? ` ${text[1].trim()}` : ''} (HTTP ${error.response.status})`;
+}
+
+/** A field of a router's reply as text; 2.x's parser can wrap one in an object. */
+const fieldText = (value) => String(value !== null && typeof value === 'object' && '#text' in value ? value['#text'] : value ?? '');
+
+/**
+ * The gateway and the address this node has on its network, from either
+ * major version: 1.x hands the address over, 2.x is asked for it.
+ * @returns {Promise<{gateway: object, address: string}>}
+ */
+async function gatewayAndAddress() {
+  const info = await client.getGateway();
+  const address = info.address !== undefined ? info.address : await info.getLocalAddress();
+  return { gateway: info.gateway, address };
+}
 
 const FLUXADM_MAPPING_DESCRIPTION = 'Flux_Fluxadm_SSH';
 
@@ -75,15 +160,44 @@ async function withinTime(work, timeoutMs, what) {
   }
 }
 
-if (config.upnp.gatewayUrl) {
-  // eslint-disable-next-line global-require
-  const { Device } = require('@runonflux/nat-upnp/build/src/nat-upnp/device');
-  const { gatewayUrl } = config.upnp;
-  const nodeIp = config.upnp.nodeIp || '127.0.0.1';
+if (gatewayUrl && !LIBRARY_V2) {
   client.getGateway = async () => ({
-    gateway: new Device(gatewayUrl),
-    address: nodeIp,
+    gateway: new natUpnp.Device(gatewayUrl),
+    address: gatewayNodeIp,
   });
+}
+
+// Every request this file sends the router itself. The library sets no timeout
+// on its own requests: a router that takes a connection and never answers
+// would hold an install, the port restore or the availability test forever.
+const ROUTER_REQUEST_TIMEOUT_MS = 15 * 1000;
+const toRouter = (work, what) => withinTime(work, ROUTER_REQUEST_TIMEOUT_MS, what);
+
+/**
+ * Who the router maps `port` over `protocol` to: 'here' (this node, port for
+ * port, enabled), 'disabled' (this node, but switched off), 'other' (another
+ * machine on the network - another Flux node behind the same router, the
+ * owner's own forward), 'none', or 'unknown' when the router could not be asked.
+ * @param {number} port
+ * @param {string} protocol 'TCP' or 'UDP'
+ * @returns {Promise<string>}
+ */
+async function mappingOwner(port, protocol) {
+  try {
+    const { gateway, address } = await toRouter(gatewayAndAddress(), 'finding the gateway');
+    const data = await toRouter(gateway.run('GetSpecificPortMappingEntry', [
+      ['NewRemoteHost', ''],
+      ['NewExternalPort', String(port)],
+      ['NewProtocol', protocol],
+    ]), `reading the ${protocol} ${port} mapping`);
+    const key = Object.keys(data || {}).find((k) => /^GetSpecificPortMappingEntryResponse/.test(k));
+    if (!key) return 'unknown';
+    const entry = data[key];
+    if (fieldText(entry.NewInternalClient) !== address || parseInt(fieldText(entry.NewInternalPort), 10) !== +port) return 'other';
+    return fieldText(entry.NewEnabled) === '0' ? 'disabled' : 'here';
+  } catch (error) {
+    return UPNP_NO_SUCH_ENTRY.includes(upnpErrorCode(error)) ? 'none' : 'unknown';
+  }
 }
 
 let upnpMachine = false;
@@ -131,6 +245,75 @@ async function adjustFirewallForUPNP() {
   }
 }
 
+// What a FluxOS start leaves on the router and nothing at a start holds: the
+// mappings of a port test, of an app's prelaunch test and of this check itself.
+const TEST_MAPPING_DESCRIPTIONS = ['Flux_UPNP_Mapping_Test', 'Flux_Test_App'];
+const TEST_MAPPING_PREFIX = 'Flux_Prelaunch_App_';
+
+/**
+ * Removes the test mappings to this node that nothing here holds. Run when the
+ * router refuses this check's own mapping: on a router whose table is full the
+ * check fails on every start, a node on a custom api port shuts down on it, and
+ * the stale mapping cleanup, which runs later, is never reached. Test mappings
+ * are only ever made and removed by a test in progress, so at a start every
+ * one there is left over.
+ * @returns {Promise<number>} how many were removed
+ */
+async function removeLeftoverTestMappings() {
+  const deadline = monotonicMs() + CLEANUP_SLOT_MS;
+  let mappings;
+  try {
+    mappings = await listOwnMappings(deadline - CLEANUP_REMOVAL_RESERVE_MS, deadline);
+  } catch (error) {
+    log.warn(`VerifyUPNPsupport - mappings not listed: ${describeUpnpError(error)}`);
+    return 0;
+  }
+  const leftovers = mappings.filter(({ description, public: { port } }) => typeof description === 'string'
+    && (TEST_MAPPING_DESCRIPTIONS.includes(description) || description.startsWith(TEST_MAPPING_PREFIX))
+    && !mappedHere.has(port));
+  let removed = 0;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const { public: { host, port }, protocol, description } of leftovers) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await toRouter(client.removeMapping({ public: { host, port }, protocol: protocol.toUpperCase() }), 'removing a test mapping');
+      removed += 1;
+      log.info(`VerifyUPNPsupport - left-over test mapping removed: ${protocol.toUpperCase()} ${port} (${description})`);
+    } catch (error) {
+      log.warn(`VerifyUPNPsupport - left-over test mapping ${protocol.toUpperCase()} ${port} not removed: ${describeUpnpError(error)}`);
+    }
+    // eslint-disable-next-line no-await-in-loop
+    await serviceHelper.delay(500);
+  }
+  return removed;
+}
+
+/**
+ * This check's own mapping. When the router refuses it: one an earlier start
+ * left is this node's already, and the removal that follows ends it; else the
+ * test mappings earlier starts left are removed to make room, and it is asked
+ * once more.
+ * @param {number} port
+ * @returns {Promise<void>}
+ */
+async function createVerifyMapping(port) {
+  const mapping = {
+    public: port,
+    private: port,
+    ttl: 0,
+    description: 'Flux_UPNP_Mapping_Test',
+  };
+  try {
+    await toRouter(client.createMapping(mapping), 'creating the test mapping');
+  } catch (error) {
+    log.warn(`VerifyUPNPsupport - test mapping refused: ${describeUpnpError(error)}`);
+    await serviceHelper.delay(500);
+    if (await mappingOwner(port, 'TCP') === 'here') return;
+    if (!await removeLeftoverTestMappings()) throw error;
+    await toRouter(client.createMapping(mapping), 'creating the test mapping');
+  }
+}
+
 /**
  * To verify that a port has UPnP (Universal Plug and Play) support.
  * @param {number} apiport Port number.
@@ -146,8 +329,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
 
     await serviceHelper.delay(500);
   } catch (error) {
-    log.error(error);
-    log.error('VerifyUPNPsupport - Failed get public ip');
+    log.error(`VerifyUPNPsupport - Failed get public ip: ${describeUpnpError(error)}`);
     upnpMachine = false;
     return false;
   }
@@ -156,8 +338,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
 
     await serviceHelper.delay(500);
   } catch (error) {
-    log.error(error);
-    log.error('VerifyUPNPsupport - Failed get Gateway');
+    log.error(`VerifyUPNPsupport - Failed get Gateway: ${describeUpnpError(error)}`);
     upnpMachine = false;
     return false;
   }
@@ -166,17 +347,11 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
   // router IP exits on that. A test that fails leaves it held.
   mappedHere.add(+apiport + 3);
   try {
-    await client.createMapping({
-      public: +apiport + 3,
-      private: +apiport + 3,
-      ttl: 0,
-      description: 'Flux_UPNP_Mapping_Test',
-    });
+    await createVerifyMapping(+apiport + 3);
 
     await serviceHelper.delay(500);
   } catch (error) {
-    log.error(error);
-    log.error('VerifyUPNPsupport - Failed Create Mapping');
+    log.error(`VerifyUPNPsupport - Failed Create Mapping: ${describeUpnpError(error)}`);
     upnpMachine = false;
     return false;
   }
@@ -185,8 +360,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
 
     await serviceHelper.delay(500);
   } catch (error) {
-    log.error(error);
-    log.error('VerifyUPNPsupport - Failed get Mappings');
+    log.error(`VerifyUPNPsupport - Failed get Mappings: ${describeUpnpError(error)}`);
     upnpMachine = false;
     return false;
   }
@@ -197,8 +371,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
 
     await serviceHelper.delay(500);
   } catch (error) {
-    log.error(error);
-    log.error('VerifyUPNPsupport - Failed Remove Mapping');
+    log.error(`VerifyUPNPsupport - Failed Remove Mapping: ${describeUpnpError(error)}`);
     upnpMachine = false;
     return false;
   }
@@ -255,39 +428,19 @@ async function reconcileFluxadmMapping(apiport) {
  */
 async function setupUPNP(apiport = config.server.apiport) {
   try {
-    await client.createMapping({
-      public: +apiport,
-      private: +apiport,
-      ttl: 0, // Some routers force low ttl if 0, indefinite/default is used. Flux refreshes this every 6 blocks ~ 12 minutes
-      description: 'Flux_Backend_API',
-    });
+    await mapCorePort(+apiport, 'Flux_Backend_API');
 
     await serviceHelper.delay(500);
 
-    await client.createMapping({
-      public: +apiport + 1,
-      private: +apiport + 1,
-      ttl: 0, // Some routers force low ttl if 0, indefinite/default is used. Flux refreshes this every 6 blocks ~ 12 minutes
-      description: 'Flux_Backend_API_SSL',
-    });
+    await mapCorePort(+apiport + 1, 'Flux_Backend_API_SSL');
 
     await serviceHelper.delay(500);
 
-    await client.createMapping({
-      public: +apiport - 1,
-      private: +apiport - 1,
-      ttl: 0,
-      description: 'Flux_Home_UI',
-    });
+    await mapCorePort(+apiport - 1, 'Flux_Home_UI');
 
     await serviceHelper.delay(500);
 
-    await client.createMapping({
-      public: +apiport + 2,
-      private: +apiport + 2,
-      ttl: 0,
-      description: 'Flux_Syncthing',
-    });
+    await mapCorePort(+apiport + 2, 'Flux_Syncthing');
 
     await serviceHelper.delay(500);
 
@@ -295,13 +448,79 @@ async function setupUPNP(apiport = config.server.apiport) {
 
     return true;
   } catch (error) {
-    log.error(error);
+    log.error(`setupUPNP - ${describeUpnpError(error)}`);
     return false;
+  }
+}
+
+// Why the router refused each port's last refused mapping, for an install to report.
+const mapFailureReasons = new Map();
+
+/**
+ * Why the router refused the last mapping of `port`, as mapUpnpPort logged it.
+ * @param {number} port
+ * @returns {string}
+ */
+function getMapFailureReason(port) {
+  return mapFailureReasons.get(+port) || '';
+}
+
+/**
+ * Maps one protocol of a port. A refusal is no failure when the router already
+ * maps the port here: some routers refuse to add an entry that exists, and a
+ * full table refuses everything, the refresh of a mapping that works included.
+ * @param {number} port
+ * @param {string} protocol
+ * @param {string} description
+ * @returns {Promise<void>}
+ */
+async function mapProtocol(port, protocol, description) {
+  try {
+    await toRouter(client.createMapping({
+      public: port,
+      private: port,
+      ttl: 0,
+      protocol,
+      description,
+    }), `mapping ${protocol} ${port}`);
+  } catch (error) {
+    const reason = describeUpnpError(error);
+    await serviceHelper.delay(500);
+    if (await mappingOwner(port, protocol) === 'here') {
+      log.info(`UPnP - ${protocol} ${port} refused (${reason}), but the router already maps it to this node`);
+      return;
+    }
+    throw new Error(`UPnP - ${protocol} ${port} not mapped: ${reason}`);
+  }
+}
+
+/**
+ * Maps one of FluxOS's own ports, TCP: the api, its SSL port, the home UI,
+ * syncthing. One the router already maps here is mapped.
+ * @param {number} port
+ * @param {string} description
+ * @returns {Promise<void>}
+ */
+async function mapCorePort(port, description) {
+  try {
+    await toRouter(client.createMapping({
+      public: port,
+      private: port,
+      ttl: 0, // Some routers force low ttl if 0, indefinite/default is used. Flux refreshes this every 6 blocks ~ 12 minutes
+      description,
+    }), `mapping ${port}`);
+  } catch (error) {
+    await serviceHelper.delay(500);
+    if (await mappingOwner(port, 'TCP') !== 'here') throw error;
+    log.info(`setupUPNP - ${port} refused (${describeUpnpError(error)}), but the router already maps it to this node`);
   }
 }
 
 /**
  * To create mappings for UPnP (Universal Plug and Play) port.
+ *
+ * On a failure the port is no longer held here: whatever half of it the router
+ * kept is the caller's to remove, or the stale mapping cleanup's.
  * @param {number} port Port number.
  * @param {string} description Port description.
  * @returns {Promise<boolean>} True if port mappings can be created for both TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) protocols. Otherwise false.
@@ -310,62 +529,64 @@ async function mapUpnpPort(port, description) {
   // held from before the router has it: the cleanup pass may list it the
   // moment it is there
   mappedHere.add(+port);
+  mapFailureReasons.delete(+port);
   try {
-    await client.createMapping({
-      public: port,
-      private: port,
-      ttl: 0,
-      protocol: 'TCP',
-      description,
-    });
+    await mapProtocol(port, 'TCP', description);
 
     await serviceHelper.delay(500);
 
-    await client.createMapping({
-      public: port,
-      private: port,
-      ttl: 0,
-      protocol: 'UDP',
-      description,
-    });
+    await mapProtocol(port, 'UDP', description);
 
     await serviceHelper.delay(500);
 
     return true;
   } catch (error) {
-    log.error(error);
+    log.error(error.message);
+    mapFailureReasons.set(+port, error.message);
+    mappedHere.delete(+port);
     return false;
   }
 }
 
 /**
  * To remove TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) port mappings from UPnP (Universal Plug and Play) port.
+ *
+ * A router removes a mapping by port alone, whoever it points at, so each
+ * protocol is looked up first: one that points at another machine - another
+ * Flux node behind the same router, whose port this node failed to map - is
+ * left alone, one the router does not have is skipped. Each protocol is
+ * removed on its own, a refusal of one leaving the other to go.
  * @param {number} port Port number.
  * @returns {Promise<boolean>} True if port mappings have been removed for both TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) protocols. Otherwise false.
  */
 async function removeMapUpnpPort(port) {
   // given up even if the router refuses: what is left is the cleanup pass's
   mappedHere.delete(+port);
-  try {
-    await client.removeMapping({
-      public: port,
-      protocol: 'TCP',
-    });
-
+  let removedBoth = true;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const protocol of ['TCP', 'UDP']) {
+    // eslint-disable-next-line no-await-in-loop
+    const owner = await mappingOwner(port, protocol);
+    if (owner === 'other') {
+      log.info(`UPnP - ${protocol} ${port} not unmapped: the router maps it to another machine`);
+    } else if (owner !== 'none') {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await toRouter(client.removeMapping({
+          public: port,
+          protocol,
+        }), `unmapping ${protocol} ${port}`);
+      } catch (error) {
+        if (!UPNP_NO_SUCH_ENTRY.includes(upnpErrorCode(error))) {
+          removedBoth = false;
+          log.error(`UPnP - ${protocol} ${port} not unmapped: ${describeUpnpError(error)}`);
+        }
+      }
+    }
+    // eslint-disable-next-line no-await-in-loop
     await serviceHelper.delay(500);
-
-    await client.removeMapping({
-      public: port,
-      protocol: 'UDP',
-    });
-
-    await serviceHelper.delay(500);
-
-    return true;
-  } catch (error) {
-    log.error(error);
-    return false;
   }
+  return removedBoth;
 }
 
 /**
@@ -419,7 +640,7 @@ function msUntilCleanupSlot(apiport, now = Date.now()) {
  */
 async function listOwnMappings(until, deadline) {
   const timeout = () => Math.min(CLEANUP_REQUEST_TIMEOUT_MS, deadline - monotonicMs());
-  const { gateway, address } = await withinTime(client.getGateway(), timeout(), 'finding the gateway');
+  const { gateway, address } = await withinTime(gatewayAndAddress(), timeout(), 'finding the gateway');
   const mappings = [];
   for (let index = 0; ; index += 1) {
     if (monotonicMs() >= until) {
@@ -431,18 +652,19 @@ async function listOwnMappings(until, deadline) {
       // eslint-disable-next-line no-await-in-loop
       data = await withinTime(gateway.run('GetGenericPortMappingEntry', [['NewPortMappingIndex', index]]), timeout(), 'listing the mappings');
     } catch (error) {
-      if (error.response) return mappings;
+      // 1.x rejects a fault as an HTTP error, 2.x with its UPnP code
+      if (error.response || UPNP_END_OF_TABLE.includes(upnpErrorCode(error))) return mappings;
       throw error;
     }
     const key = Object.keys(data || {}).find((k) => /^GetGenericPortMappingEntryResponse/.test(k));
     if (!key) throw new Error('listing the mappings: incorrect response');
     const entry = data[key];
-    if (entry.NewInternalClient === address) {
+    if (fieldText(entry.NewInternalClient) === address) {
       mappings.push({
-        public: { host: (typeof entry.NewRemoteHost === 'string' && entry.NewRemoteHost) || '', port: parseInt(entry.NewExternalPort, 10) },
-        private: { host: entry.NewInternalClient, port: parseInt(entry.NewInternalPort, 10) },
-        protocol: String(entry.NewProtocol).toLowerCase(),
-        description: entry.NewPortMappingDescription,
+        public: { host: fieldText(entry.NewRemoteHost), port: parseInt(fieldText(entry.NewExternalPort), 10) },
+        private: { host: fieldText(entry.NewInternalClient), port: parseInt(fieldText(entry.NewInternalPort), 10) },
+        protocol: fieldText(entry.NewProtocol).toLowerCase(),
+        description: fieldText(entry.NewPortMappingDescription),
       });
     }
   }
@@ -501,7 +723,7 @@ async function removeStaleMappings(heldPorts, budgetMs) {
       removed += 1;
       log.info(`UPnP - stale mapping removed: ${protocol} ${port} (${mapping.description})`);
     } catch (error) {
-      log.warn(`UPnP - stale mapping ${protocol} ${port} (${mapping.description}) not removed: ${error.message}`);
+      log.warn(`UPnP - stale mapping ${protocol} ${port} (${mapping.description}) not removed: ${describeUpnpError(error)}`);
       if (error.timedOut) {
         log.warn(`UPnP - stale mapping cleanup stopped, ${stale.length - index - 1} left for the next start`);
         break;
@@ -687,6 +909,10 @@ module.exports = {
   setupUPNP,
   mapUpnpPort,
   removeMapUpnpPort,
+  getMapFailureReason,
+  describeUpnpError,
+  upnpErrorCode,
+  mappingOwner,
   corePorts,
   msUntilCleanupSlot,
   removeStaleMappings,

@@ -257,9 +257,10 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
         dosState.lastUPNPMapFailed = true;
         log.info(`checkMyAppsAvailability - Testing port ${dosState.testingPort} failed to create UPnP mapping`);
         setNextPort();
+        // the router may have kept the TCP half: removing it leaves alone a
+        // half that points at another machine
         await handleTestShutdown(dosState.testingPort, testHttpServer, isArcane, {
           skipFirewall: !firewallActive,
-          skipUpnp: true,
           skipHttpServer: true,
         });
         const upnpDelay = dosState.portFailureScore >= thresholds.dos ? timeouts.dos : timeouts.error;

@@ -351,6 +351,8 @@ describe('availabilityChecker tests', () => {
       );
 
       expect(mockDosState.lastUPNPMapFailed).to.be.true;
+      // the router may have kept the TCP half of the refused mapping
+      sinon.assert.calledOnceWithExactly(upnpService.removeMapUpnpPort, mockDosState.testingPort, 'Flux_Test_App');
     });
 
     it('opens the port under test to IPv4 only, and deletes only that rule', async () => {
