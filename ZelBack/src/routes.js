@@ -47,6 +47,7 @@ const advancedWorkflows = require('./services/appLifecycle/advancedWorkflows');
 const imageManager = require('./services/appSecurity/imageManager');
 const messageVerifier = require('./services/appMessaging/messageVerifier');
 const appHashSyncService = require('./services/appMessaging/appHashSyncService');
+const permanentMessageLog = require('./services/appMessaging/permanentMessageLog');
 const monitoringOrchestrator = require('./services/appMonitoring/monitoringOrchestrator');
 const systemIntegration = require('./services/appSystem/systemIntegration');
 
@@ -482,6 +483,11 @@ module.exports = (app) => {
   }));
   app.get('/apps/permanentmessages/:hash?/:owner?/:appname?', cache('2 minutes'), asyncRoute((req, res) => {
     return messageVerifier.getAppsPermanentMessages(req, res);
+  }));
+  // Streamed from the database as it is read, so it takes no cache: an entry would hold the whole
+  // body in memory.
+  app.get('/apps/permanentmessagesbyheight', asyncRoute((req, res) => {
+    return permanentMessageLog.getPermanentMessagesByHeightAPI(req, res);
   }));
   app.get('/apps/globalappsspecifications/:hash?/:owner?/:appname?', requireRegistryReady, cache('30 seconds'), asyncRoute((req, res) => {
     return registryManager.getGlobalAppsSpecifications(req, res);
