@@ -33,8 +33,8 @@ import { buildSeedableApp } from '../framework/seed-helper.js';
 import {
   bootAndPeer, seedSpawnerApp, waitForInstanceCount, installedInstanceIndices,
 } from '../framework/reconciler-suite.js';
-import { waitFor, waitForGiveUpConsidered } from '../framework/wait.js';
-import { sleepUnlessInfraDead } from '../framework/infra-death.js';
+import { waitFor } from '../framework/wait.js';
+import { driveUntil, stopTicker } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import {
   derivedQueueStepMs, derivedEvacuationIntervalMs, departureCycleMs, loadSharedConfig,
@@ -93,6 +93,18 @@ describe('1505: a node the table places outside an app\'s geolocation gives the 
   let afterMove;
 
   const isMisplaced = (d) => d.reason === 'MISPLACED';
+  const gaveUp = (d) => isMisplaced(d) && d.giveUp === true;
+
+  // What one node decided about one app, read from its event stream: every
+  // give-up pass publishes a decision for every app the node holds.
+  const decided = (index, appName, predicate, afterId = 0) => env.clients[index].getEventBuffer()
+    .some((e) => e.event === 'giveUp:considered' && e.id > afterId
+      && e.data.appName === appName && predicate(e.data));
+
+  // Blocks are driven at the explorer poll the queue step is derived from. The
+  // free-running ticker is slower, and a pass that lands further apart than a
+  // ticket tolerates restarts every turn it is serving.
+  const drive = (index, condition, timeoutMs, label) => driveUntil(env.clients[index], condition, { timeoutMs, label });
 
   const publishTable = async (body) => {
     const response = await fetch(`${env.stubControl}/iplocation`, {
@@ -177,6 +189,7 @@ describe('1505: a node the table places outside an app\'s geolocation gives the 
       { afterId: beforeMove[i] },
     )));
     afterMove = env.clients.map((client) => client.getLastEventId());
+    await stopTicker();
   });
 
   after(async function () {
@@ -191,44 +204,44 @@ describe('1505: a node the table places outside an app\'s geolocation gives the 
   });
 
   it('the moved node gives MOVES up and the free DE node takes it', async function () {
-    this.timeout(DEPARTURE_WAIT_MS + 300000);
-    await waitForGiveUpConsidered(env.clients[moved], MOVES, (d) => isMisplaced(d) && d.giveUp === true, DEPARTURE_WAIT_MS);
+    this.timeout(DEPARTURE_WAIT_MS + 360000);
+    await drive(moved, async () => decided(moved, MOVES, gaveUp), DEPARTURE_WAIT_MS, `node ${moved} gives ${MOVES} up as misplaced`);
 
-    await waitFor(async () => {
+    await drive(free, async () => {
       const holders = await installedInstanceIndices(env, MOVES);
       return holders.length === NODES - 1 && !holders.includes(moved) && holders.includes(free);
-    }, { timeout: 300000, interval: 3000, label: `${MOVES} on every DE node but the moved one` });
+    }, 300000, `${MOVES} on every DE node but the moved one`);
   });
 
   it('the moved node gives STALLS up and the rest keep it, with nowhere correctly placed to go', async function () {
-    this.timeout(DEPARTURE_WAIT_MS * 3 + 120000);
-    await waitForGiveUpConsidered(env.clients[moved], STALLS, (d) => isMisplaced(d) && d.giveUp === true, DEPARTURE_WAIT_MS * 2);
-    await waitFor(async () => !(await installedInstanceIndices(env, STALLS)).includes(moved), {
-      timeout: 120000, interval: 3000, label: `the moved node no longer holds ${STALLS}`,
-    });
+    this.timeout(DEPARTURE_WAIT_MS * 4 + 180000);
+    await drive(moved, async () => decided(moved, STALLS, gaveUp), DEPARTURE_WAIT_MS * 2, `node ${moved} gives ${STALLS} up as misplaced`);
+    await drive(free, async () => !(await installedInstanceIndices(env, STALLS)).includes(moved), 120000, `the moved node no longer holds ${STALLS}`);
 
     // The gap stays open: four DE holders, and every one of them still has it
-    // after a whole departure cycle - long enough for any of them to have left
-    // if anything were telling it to.
-    await sleepUnlessInfraDead(DEPARTURE_WAIT_MS);
+    // after a whole departure cycle of passes - long enough for any of them to
+    // have left if anything were telling it to.
+    const holdUntil = Date.now() + DEPARTURE_WAIT_MS;
+    await drive(free, async () => Date.now() >= holdUntil, DEPARTURE_WAIT_MS + 60000, 'a departure cycle of passes');
     const holders = await installedInstanceIndices(env, STALLS);
     expect(holders, `${STALLS} stays on the four DE nodes`)
       .to.deep.equal([...Array(NODES).keys()].filter((i) => i !== moved));
+    [...Array(NODES).keys()].filter((i) => i !== moved).forEach((i) => {
+      expect(decided(i, STALLS, isMisplaced), `node ${i} never judged ${STALLS} misplaced`).to.equal(false);
+    });
   });
 
   it('a node whose own report says FR keeps both apps while the table places it in DE', async function () {
     this.timeout(DEPARTURE_WAIT_MS + 60000);
-    const selfReported = env.clients[SELF_REPORTED_FR - 1];
-    // It is judging STALLS on every pass - a non-MISPLACED verdict proves the
-    // pass ran on this node after the table moved, so the negative below is
-    // measured against a node that was looking.
-    await waitForGiveUpConsidered(selfReported, STALLS, (d) => !isMisplaced(d), DEPARTURE_WAIT_MS, {
-      afterId: afterMove[SELF_REPORTED_FR - 1],
-    });
+    const selfReported = SELF_REPORTED_FR - 1;
+    // A decision about STALLS since the table moved proves the pass ran on this
+    // node after it, so the negatives below are about a node that was looking,
+    // over the same passes in which the moved node judged both apps misplaced.
+    await drive(selfReported, async () => decided(selfReported, STALLS, () => true, afterMove[selfReported]), DEPARTURE_WAIT_MS, `node ${selfReported} judges ${STALLS} after the move`);
 
-    const misplaced = await waitForGiveUpConsidered(selfReported, STALLS, isMisplaced, DEPARTURE_WAIT_MS)
-      .then(() => true, () => false);
-    expect(misplaced, 'the self-reported-FR node never judged STALLS misplaced').to.equal(false);
-    expect(await installedInstanceIndices(env, STALLS)).to.include(SELF_REPORTED_FR - 1);
+    expect(decided(moved, STALLS, isMisplaced), 'the moved node judged STALLS misplaced over the same passes').to.equal(true);
+    expect(decided(selfReported, STALLS, isMisplaced), 'the self-reported-FR node never judged STALLS misplaced').to.equal(false);
+    expect(decided(selfReported, MOVES, isMisplaced), 'the self-reported-FR node never judged MOVES misplaced').to.equal(false);
+    expect(await installedInstanceIndices(env, STALLS)).to.include(selfReported);
   });
 });
