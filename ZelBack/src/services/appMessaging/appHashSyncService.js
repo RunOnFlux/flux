@@ -198,19 +198,48 @@ async function peerExplorerSynced(peer) {
 }
 
 /**
+ * The body of a peer's streamed response, failing once the peer has sent nothing for
+ * BULK_FETCH_IDLE_MS. Only time spent waiting on the peer counts. The request's own timeout bounds
+ * the wait for the response's headers and ends with them.
+ * @param {{data: import('stream').Readable, request: import('http').ClientRequest}} response
+ * @param {{key: string}} peer
+ * @returns {AsyncGenerator<Buffer>}
+ */
+async function* bodyWithIdleLimit(response, peer) {
+  response.request.setTimeout(0);
+  const body = response.data;
+  function abandon() {
+    body.destroy(new Error(`no data from ${peer.key} for ${BULK_FETCH_IDLE_MS / 1000}s`));
+  }
+  let idle = setTimeout(abandon, BULK_FETCH_IDLE_MS);
+  try {
+    // eslint-disable-next-line no-restricted-syntax
+    for await (const chunk of body) {
+      clearTimeout(idle);
+      yield chunk;
+      idle = setTimeout(abandon, BULK_FETCH_IDLE_MS);
+    }
+  } finally {
+    clearTimeout(idle);
+  }
+}
+
+/**
  * Stages what a peer's log of one height range holds of the missing messages.
  * @param {{ip: string, port: string|number}} peer
  * @param {{fromHeight: number, toHeight: number}} range
  * @param {MessageStage} stage
+ * @param {{received: number}} outcome counts each message the peer sent
  */
-async function stageRangeFromPeer(peer, range, stage) {
+async function stageRangeFromPeer(peer, range, stage, outcome) {
   const response = await serviceHelper.axiosGet(
     `http://${peer.ip}:${peer.port}/apps/permanentmessagesbyheight`,
     { params: range, responseType: 'stream', timeout: BULK_FETCH_IDLE_MS },
   );
   try {
     // eslint-disable-next-line no-restricted-syntax
-    for await (const message of readMessageLog(response.data)) {
+    for await (const message of readMessageLog(bodyWithIdleLimit(response, peer))) {
+      outcome.received += 1;
       // eslint-disable-next-line no-await-in-loop
       await stage.add(message);
     }
@@ -224,8 +253,9 @@ async function stageRangeFromPeer(peer, range, stage) {
  * version serves.
  * @param {{ip: string, port: string|number}} peer
  * @param {MessageStage} stage
+ * @param {{received: number}} outcome counts each message the peer sent
  */
-async function stageWholeLogFromPeer(peer, stage) {
+async function stageWholeLogFromPeer(peer, stage, outcome) {
   const response = await serviceHelper.axiosGet(
     `http://${peer.ip}:${peer.port}/apps/permanentmessages`,
     { responseType: 'stream', timeout: BULK_FETCH_IDLE_MS },
@@ -235,10 +265,11 @@ async function stageWholeLogFromPeer(peer, stage) {
   const decoder = new StringDecoder('utf8');
   try {
     // eslint-disable-next-line no-restricted-syntax
-    for await (const chunk of response.data) {
+    for await (const chunk of bodyWithIdleLimit(response, peer)) {
       extractor.write(decoder.write(chunk));
       // eslint-disable-next-line no-restricted-syntax
       for (const message of received.splice(0)) {
+        outcome.received += 1;
         // eslint-disable-next-line no-await-in-loop
         await stage.add(message);
       }
@@ -256,7 +287,7 @@ async function stageWholeLogFromPeer(peer, stage) {
  * @param {{ip: string, port: string|number, key: string}[]} peers
  * @param {MessageStage} stage
  * @param {number[]} paymentHeights ascending
- * @returns {Promise<{peer: string, route: string, staged: number, error?: string}[]>}
+ * @returns {Promise<{peer: string, route: string, ranges: number, received: number, staged: number, error?: string}[]>}
  */
 async function stageFromPeers(peers, stage, paymentHeights) {
   const fetched = [];
@@ -269,18 +300,20 @@ async function stageFromPeers(peers, stage, paymentHeights) {
 
     const before = stage.size;
     const startedAt = process.hrtime.bigint();
-    const outcome = { peer: peer.key, route: 'byHeight', staged: 0 };
+    const outcome = {
+      peer: peer.key, route: 'byHeight', ranges: ranges.length, received: 0, staged: 0,
+    };
     try {
       // eslint-disable-next-line no-restricted-syntax
       for (const range of ranges) {
         // eslint-disable-next-line no-await-in-loop
-        await stageRangeFromPeer(peer, range, stage);
+        await stageRangeFromPeer(peer, range, stage, outcome);
       }
     } catch (error) {
       if (error.response?.status === 404) {
         outcome.route = 'wholeLog';
         // eslint-disable-next-line no-await-in-loop
-        await stageWholeLogFromPeer(peer, stage).catch((wholeLogError) => { outcome.error = wholeLogError.message; });
+        await stageWholeLogFromPeer(peer, stage, outcome).catch((wholeLogError) => { outcome.error = wholeLogError.message; });
       } else {
         outcome.error = error.message;
       }
@@ -289,7 +322,7 @@ async function stageFromPeers(peers, stage, paymentHeights) {
     await stage.flush();
     outcome.staged = stage.size - before;
     const seconds = Number(process.hrtime.bigint() - startedAt) / 1e9;
-    log.info(`syncMissingHashes - Staged ${outcome.staged} messages from ${peer.key} (${outcome.route}, ${ranges.length} ranges) in ${seconds.toFixed(1)}s`
+    log.info(`syncMissingHashes - Staged ${outcome.staged} of ${outcome.received} messages from ${peer.key} (${outcome.route}, ${ranges.length} ranges) in ${seconds.toFixed(1)}s`
       + `${outcome.error ? `, then: ${outcome.error}` : ''}`);
     fetched.push(outcome);
   }
@@ -320,6 +353,7 @@ async function bulkFetch(peers, missing, onProgress) {
   try {
     const fetched = await stageFromPeers(peers, stage, await appPaymentHeights());
     log.info(`syncMissingHashes - Staged ${stage.size} of ${missing.size} missing messages, verifying`);
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.HASHSYNC_BEFORE_VERIFY);
 
     let processed = 0;
     let skipped = 0;
