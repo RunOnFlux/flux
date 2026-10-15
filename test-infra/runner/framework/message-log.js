@@ -9,6 +9,7 @@
  * serving node holds the messages and the chain's payment records for them; the joiner holds the
  * payment records, resolved for the messages it already has and unresolved for the rest.
  */
+import { randomBytes } from 'node:crypto';
 import { buildSeedableApp, buildSeedableUpdate } from './seed-helper.js';
 import { dbClient } from './db-client.js';
 import { createTestEnv } from './test-env.js';
@@ -20,10 +21,25 @@ import { getSubnetConfig } from './subnet-config.js';
 export const BEFORE_LOG_PIECE = 'messageLog:beforePiece';
 
 /**
- * @param {{env: object, name: string, apps: number, updates: number, height: number}} options
+ * `incompressible` gives every update random descriptions the length a spec allows, so the log
+ * compresses about as well as mainnet's (some 450 bytes a message) rather than to a fraction of it.
+ * @param {{env: object, name: string, apps: number, updates: number, height: number,
+ *   incompressible?: boolean}} options
  * @returns {Promise<object[]>}
  */
-export async function buildMessageLog({ env, name, apps, updates, height }) {
+export async function buildMessageLog({
+  env, name, apps, updates, height, incompressible = false,
+}) {
+  function revise(a, u) {
+    return function reviseSpec(spec) {
+      if (incompressible) {
+        spec.description = randomBytes(128).toString('hex');
+        spec.compose[0].description = randomBytes(128).toString('hex');
+      } else {
+        spec.description = `${name}${a} revision ${u}`;
+      }
+    };
+  }
   const log = [];
   for (let a = 0; a < apps; a += 1) {
     const first = height + (a * (updates + 1));
@@ -32,7 +48,7 @@ export async function buildMessageLog({ env, name, apps, updates, height }) {
     log.push(current);
     for (let u = 1; u <= updates; u += 1) {
       // eslint-disable-next-line no-await-in-loop
-      current = await buildSeedableUpdate(current, (spec) => { spec.description = `${name}${a} revision ${u}`; }, { height: first + u });
+      current = await buildSeedableUpdate(current, revise(a, u), { height: first + u });
       log.push(current);
     }
   }

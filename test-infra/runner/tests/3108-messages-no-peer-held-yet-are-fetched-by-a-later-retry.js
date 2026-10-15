@@ -3,9 +3,9 @@
  * once they do.
  *
  * The joiner holds the payment records of 600 messages and no peer holds any of them, so its first
- * hash sync ends with all 600 still missing, each held back for the first retry interval. The
- * peers are then given the log, and the chain moves past that interval: the block-driven retry
- * asks for the 600 again, in bulk, and keeps every one.
+ * hash sync ends with all 600 still missing, each held back for the first retry interval of blocks.
+ * The peers are then given the log, and once the chain is past that interval the block-driven
+ * retry asks for the 600 again, in bulk, and keeps every one.
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
@@ -67,9 +67,12 @@ describe('messages no peer held yet are fetched in bulk by a later retry', funct
     expect(missingAfterFirstSync).to.equal(log.length);
   });
 
+  // The per-hash requests of the first sync are still being answered when the peers are given the
+  // log, so a message they answer can be stored between the bulk fetch staging it and verifying it.
   it('took every message in bulk on the retry', function () {
-    expect(bulkFetched.data.staged, JSON.stringify(bulkFetched.data)).to.equal(log.length);
-    expect(bulkFetched.data.processed).to.equal(log.length);
+    const { staged, processed, skipped } = bulkFetched.data;
+    expect(staged, JSON.stringify(bulkFetched.data)).to.equal(log.length);
+    expect(processed + skipped).to.equal(log.length);
   });
 
   it('keeps every message, each at its own record\'s txid, height and payment', async function () {
