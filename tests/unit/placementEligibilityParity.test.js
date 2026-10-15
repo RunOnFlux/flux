@@ -2,7 +2,7 @@
 // installer would accept.
 //
 // placementFeasibility.nodeLocationMatchesGeolocation decides who COUNTS as a
-// candidate, and hwRequirements.checkAppGeolocationRequirements decides who may
+// candidate, and hwRequirements.appGeolocationVerdict decides who may
 // actually INSTALL. They are separate implementations of the same rule, over
 // different data sources, and neither module's own suite owns the relationship
 // between them. A candidate filter stricter than the installer under-counts,
@@ -147,12 +147,9 @@ async function installerAccepts(geolocation, nodeGeo) {
       },
     }));
   }
-  try {
-    await installerGates.get(key).checkAppGeolocationRequirements({ version: 7, geolocation });
-    return true;
-  } catch (error) {
-    return false;
-  }
+  const gate = installerGates.get(key);
+  const { verdict } = await gate.appGeolocationVerdict({ version: 7, geolocation });
+  return verdict === gate.GeoVerdict.PASS;
 }
 
 describe('placement eligibility parity with install-time geolocation', () => {
