@@ -917,7 +917,7 @@ describe('syncthingFolderStateMachine tests', () => {
 
         sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
         expect(result.syncthingFolder, 'a g: folder\'s type is its primary role\'s').to.not.have.property('type');
-        expect(result.cache).to.deep.equal({ restarted: true });
+        expect(result.cache).to.deep.equal({ restarted: true, directoryOnlyReverts: 1 });
         sinon.assert.calledWithExactly(publish, 'syncthing:localChangesReverted', { folder: 'test-app', files: 0, directories: 1 });
       } finally {
         publish.restore();
@@ -2286,6 +2286,124 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       expect(result.cache.restarted).to.be.false;
       sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, sinon.match.any, 'running');
+    });
+
+    // Found live (dragonwilds, 8.21.1): the primary died 4 s after a save, and on both
+    // survivors the save directory stayed a local change whose global version was the
+    // node's own - db/revert had nothing to revert to, so each pass reverted and
+    // returned, and the app stayed down on every node for hours.
+    describe('a revert that does not take', () => {
+      const pass = () => stateMachine.manageFolderSyncState(mockParams);
+
+      beforeEach(() => {
+        mockParams.appLocation.resolves([
+          { ip: '10.0.0.0:16127', runningSince: null, broadcastedAt: 1000 },
+          { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+        ]);
+      });
+
+      it('promotes once only directories have survived the revert passes', async () => {
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: false, numberOfExecutions: 1 });
+        syncthingServiceMock.getDbStatus.resolves({
+          globalBytes: 1000,
+          inSyncBytes: 1000,
+          state: 'idle',
+          receiveOnlyChangedFiles: 0,
+          receiveOnlyChangedDirectories: 1,
+        });
+
+        for (let i = 0; i < 3; i += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          const result = await pass();
+          expect(result.cache.restarted, `revert pass ${i + 1}`).to.be.false;
+        }
+        sinon.assert.callCount(syncthingServiceMock.dbRevert, 3);
+
+        const result = await pass();
+
+        sinon.assert.callCount(syncthingServiceMock.dbRevert, 3);
+        expect(result.syncthingFolder.type).to.equal('sendreceive');
+        expect(result.cache.restarted).to.be.true;
+      });
+
+      it('marks a single-writer candidate ready without deciding its folder type', async () => {
+        mockParams.containerDataFlags = 'g';
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+          restarted: false, numberOfExecutions: 1, directoryOnlyReverts: 3,
+        });
+        syncthingServiceMock.getDbStatus.resolves({
+          globalBytes: 1000, inSyncBytes: 1000, state: 'idle', receiveOnlyChangedDirectories: 1,
+        });
+
+        const result = await pass();
+
+        sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+        expect(result.syncthingFolder, 'a g: folder\'s type is its primary role\'s').to.not.have.property('type');
+        expect(result.cache.restarted, 'the election reads this as ready to start').to.be.true;
+      });
+
+      it('stops reverting a ready standby once only directories survive, and says so once', async () => {
+        mockParams.containerDataFlags = 'g';
+        mockParams.syncFolder = { id: 'test-app', type: 'receiveonly' };
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+        dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: false } });
+        syncthingServiceMock.getDbStatus.resolves({
+          globalBytes: 1000, inSyncBytes: 1000, state: 'idle', receiveOnlyChangedDirectories: 1,
+        });
+
+        const count = sinon.stub(fluxEventBus, 'count');
+        try {
+          for (let i = 0; i < 6; i += 1) {
+            // eslint-disable-next-line no-await-in-loop
+            await pass();
+          }
+
+          sinon.assert.callCount(syncthingServiceMock.dbRevert, 3);
+          sinon.assert.calledOnceWithExactly(count.withArgs('syncthing:revertSkipped'), 'syncthing:revertSkipped', 'test-app', 'directoriesOnly');
+        } finally {
+          count.restore();
+        }
+      });
+
+      it('keeps reverting while any file differs', async () => {
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: false, numberOfExecutions: 1 });
+        syncthingServiceMock.getDbStatus.resolves({
+          globalBytes: 1000,
+          inSyncBytes: 1000,
+          state: 'idle',
+          receiveOnlyChangedFiles: 1,
+          receiveOnlyChangedDirectories: 1,
+        });
+
+        let result;
+        for (let i = 0; i < 6; i += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          result = await pass();
+        }
+
+        sinon.assert.callCount(syncthingServiceMock.dbRevert, 6);
+        expect(result.syncthingFolder.type).to.equal('receiveonly');
+        expect(result.cache.restarted).to.be.false;
+      });
+
+      it('starts counting again after a pass with nothing to revert', async () => {
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+          restarted: false, numberOfExecutions: 1, directoryOnlyReverts: 3,
+        });
+        syncthingServiceMock.getDbStatus.resolves({
+          globalBytes: 1000, inSyncBytes: 1000, state: 'idle', receiveOnlyChangedFiles: 1,
+        });
+        await pass();
+        syncthingServiceMock.getDbStatus.resolves({
+          globalBytes: 1000, inSyncBytes: 1000, state: 'idle', receiveOnlyChangedDirectories: 1,
+        });
+
+        const result = await pass();
+
+        sinon.assert.callCount(syncthingServiceMock.dbRevert, 2);
+        expect(result.cache.directoryOnlyReverts).to.equal(1);
+        expect(result.cache.restarted).to.be.false;
+      });
     });
 
     // Three properties of what counts as "holding", each able to hand the seed to the

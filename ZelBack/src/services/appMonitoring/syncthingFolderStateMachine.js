@@ -1282,6 +1282,41 @@ async function nudgeFolderDevices(folderId) {
   }
 }
 
+// Consecutive passes a promotion candidate asks to revert local changes that are
+// directories only before it stops asking. A directory entry carries no content,
+// and syncthing can hold one it cannot revert: when the folder's global version of
+// a directory is this node's own local change (the device that wrote the version
+// before it has left the cluster - the previous primary died mid-save), db/revert
+// has nothing to revert to and the same item is reported again on every pass.
+const DIRECTORY_ONLY_REVERT_PASSES = 3;
+
+/**
+ * Counts this pass against a folder's run of directory-only local changes, and
+ * says whether the run has outlasted the reverts it is given. Any pass that is
+ * not directory-only - clean, a file changed, or not synced - ends the run.
+ * Logged once per run: past the limit the same item is reported every pass.
+ * @param {string} appId - The Syncthing folder ID
+ * @param {Object} cache - The folder's monitor cache, which carries the run
+ * @param {Object|null} syncStatus - A probeFolderSyncCompletion status
+ * @returns {boolean} True when the revert should not be asked for again
+ */
+function directoryRevertExhausted(appId, cache, syncStatus) {
+  const directoryOnly = !!syncStatus?.isSynced
+    && !syncStatus.receiveOnlyChangedFiles
+    && (syncStatus.receiveOnlyChangedDirectories || 0) > 0;
+  if (!directoryOnly) {
+    delete cache.directoryOnlyReverts;
+    return false;
+  }
+  cache.directoryOnlyReverts = (cache.directoryOnlyReverts || 0) + 1;
+  if (cache.directoryOnlyReverts <= DIRECTORY_ONLY_REVERT_PASSES) return false;
+  if (cache.directoryOnlyReverts === DIRECTORY_ONLY_REVERT_PASSES + 1) {
+    log.warn(`directoryRevertExhausted - ${appId}: ${syncStatus.receiveOnlyChangedDirectories} locally changed director(ies) survived ${DIRECTORY_ONLY_REVERT_PASSES} reverts and no file differs; not reverting them again`);
+    fluxEventBus.count('syncthing:revertSkipped', appId, 'directoriesOnly');
+  }
+  return true;
+}
+
 /**
  * Reverts a synced receiveonly folder's local changes to the cluster's version.
  *
@@ -1639,7 +1674,15 @@ async function handleReceiveOnlyTransition(params) {
     // is clean first; if not, revert the local changes (db/revert undoes local edits in
     // a receiveonly folder) and promote on a later cycle once verifiably clean. The
     // leader path above is exempt by design - the leader's local data IS the seed.
-    if (await revertLocalChangesIfSynced(appId, syncStatus)) {
+    //
+    // A revert that does not take would hold the folder here forever: every pass
+    // reverts, returns, and never reaches the promotion below, so the node never
+    // reads as ready and a g: app whose primary died stays down on every survivor.
+    // Only directory-only changes are let through, after DIRECTORY_ONLY_REVERT_PASSES
+    // passes - promoting publishes a directory's metadata, never a file's content -
+    // and the safety check below still runs before the flip.
+    if (!directoryRevertExhausted(appId, cache, syncStatus)
+      && await revertLocalChangesIfSynced(appId, syncStatus)) {
       return { syncthingFolder, cache };
     }
     if (syncStatus.isSynced) {
@@ -1949,8 +1992,13 @@ async function manageFolderSyncState(params) {
     // A ready standby still has to converge on the primary's copy: a local
     // deviation (an owner or mode included) is never overwritten by syncthing
     // in a receiveonly folder, and the primary counts it as outstanding.
+    // A directory the revert cannot take stops being asked for here too, or the
+    // standby reverts and logs it on every pass for as long as it stands by.
     if (syncFolder?.type === 'receiveonly') {
-      await revertLocalChangesIfSynced(appId, await getFolderSyncCompletion(appId));
+      const syncStatus = await getFolderSyncCompletion(appId);
+      if (!directoryRevertExhausted(appId, cache, syncStatus)) {
+        await revertLocalChangesIfSynced(appId, syncStatus);
+      }
     }
     return { syncthingFolder, cache };
   }
