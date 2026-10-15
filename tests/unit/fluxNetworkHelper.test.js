@@ -278,6 +278,7 @@ describe('fluxNetworkHelper tests', () => {
       benchmarksStub = sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'success', data: { ipaddress: '198.51.100.9:16137' } });
       debugStub = sinon.stub(log, 'debug');
       fluxNetworkHelper.setLocalSocketAddress(null);
+      fluxNetworkHelper.resetPublicAddressNote();
     });
 
     afterEach(() => {
@@ -316,6 +317,31 @@ describe('fluxNetworkHelper tests', () => {
         sinon.assert.calledOnce(benchmarksStub);
         sinon.assert.notCalled(errorStub);
       });
+    });
+
+    it('logs where the address comes from once per change, not once per lookup', async () => {
+      const lookups = async () => {
+        for (let i = 0; i < 10; i += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await fluxNetworkHelper.getPublicIp();
+        }
+      };
+      const lines = () => debugStub.args.map(([line]) => line);
+
+      await lookups();
+      expect(lines(), 'ten lookups, fluxd with no decided address').to.deep.equal([
+        'Public address: fluxd has no decided address, asking FluxBench',
+      ]);
+
+      getNetworkInfoStub.resolves({ status: 'error', data: { message: 'connect ECONNREFUSED' } });
+      await lookups();
+      expect(lines(), 'the reason changes').to.have.length(2);
+      expect(lines()[1]).to.equal('Public address: fluxd did not answer getnetworkinfo, asking FluxBench');
+
+      getNetworkInfoStub.resolves(decidedNetworkInfo('203.0.113.7'));
+      await lookups();
+      expect(lines(), 'fluxd starts answering').to.have.length(3);
+      expect(lines()[2]).to.equal('Public address: fluxd now reports 203.0.113.7');
     });
 
     it('is FluxBench\'s answer when fluxd does not answer', async () => {

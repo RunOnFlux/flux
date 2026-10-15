@@ -1063,24 +1063,51 @@ function isPlacementHeld() {
   return placementHolds.size > 0;
 }
 
+// The last thing said about where the node's address comes from. The source is
+// read on every lookup, every 30 s and more; it is logged only when it changes.
+let publicAddressNote = null;
+
+function notePublicAddress(note) {
+  if (note === publicAddressNote) return;
+  publicAddressNote = note;
+  log.debug(note);
+}
+
+/**
+ * Forgets what was last logged about the address source, so the next lookup
+ * logs its own.
+ * @returns {void}
+ */
+function resetPublicAddressNote() {
+  publicAddressNote = null;
+}
+
 /**
  * The public IPv4 address fluxd has decided this node has: the one its peers
  * report seeing it at (`decided_address.address` in getnetworkinfo). A port, if
- * fluxd gives one, is not FluxOS's and is dropped.
+ * fluxd gives one, is not FluxOS's and is dropped. Logs one line when the answer
+ * changes: fluxd not answering, fluxd with no decided address, an address that is
+ * not IPv4, or the address fluxd now reports.
  * @returns {Promise<string|null>} The address, or null when fluxd does not
  *   answer or has decided none, including a fluxd that does not report one.
  */
 async function getDecidedAddress() {
   const response = await daemonServiceNetworkRpcs.getNetworkInfo();
   if (response?.status !== 'success') {
-    log.debug('Public address: fluxd did not answer getnetworkinfo, asking FluxBench');
+    notePublicAddress('Public address: fluxd did not answer getnetworkinfo, asking FluxBench');
     return null;
   }
-  const address = extractIp(response.data?.decided_address?.address || '');
+  const reported = response.data?.decided_address?.address || '';
+  if (!reported) {
+    notePublicAddress('Public address: fluxd has no decided address, asking FluxBench');
+    return null;
+  }
+  const address = extractIp(reported);
   if (!net.isIPv4(address || '')) {
-    log.debug('Public address: fluxd has no decided address, asking FluxBench');
+    notePublicAddress(`Public address: fluxd's decided address ${reported} is not an IPv4 address, asking FluxBench`);
     return null;
   }
+  notePublicAddress(`Public address: fluxd now reports ${address}`);
   return address;
 }
 
@@ -3505,6 +3532,7 @@ module.exports = {
   checkFluxAvailability,
   getDecidedAddress,
   getPublicIp,
+  resetPublicAddressNote,
   getLocalSocketAddress,
   getKnownLocalSocketAddress,
   onLocalSocketAddressChange,
