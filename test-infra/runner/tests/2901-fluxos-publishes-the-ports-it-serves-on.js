@@ -5,9 +5,9 @@ import { execInContainer, releaseFluxos, shutdownFluxosGracefully } from '../fra
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
-// FluxOS publishes the ports it is serving on in /run/fluxos/fluxos.json, and
-// takes the file away when it stops cleanly, so the file means "FluxOS is
-// serving here". fluxd and fluxbench read it.
+// FluxOS publishes the ports it is serving on, and its process id, in
+// /run/fluxos/fluxos.json, and takes the file away when it stops cleanly, so
+// the file means "FluxOS is serving here". fluxd and fluxbench read it.
 //
 // The ports are checked against the sockets the FluxOS process holds and
 // against each listener answering, not against configuration. Each clean stop
@@ -57,11 +57,14 @@ describe('FluxOS publishes the ports it serves on', function () {
     await env?.teardown();
   });
 
-  it('names the three ports FluxOS is listening on, world-readable', async function () {
+  it('names the three ports FluxOS is listening on and its process id, world-readable', async function () {
     this.timeout(60000);
+    const pid = await fluxosPid();
     const ports = await readPortFile();
-    console.log(`# ${PORT_FILE}: ${JSON.stringify(ports)}`);
-    expect(ports).to.deep.equal({ apiPort: API_PORT, apiPortHttps: API_PORT + 1, uiPort: API_PORT - 1 });
+    console.log(`# ${PORT_FILE}: ${JSON.stringify(ports)}; FluxOS pid ${pid}`);
+    expect(ports).to.deep.equal({
+      apiPort: API_PORT, apiPortHttps: API_PORT + 1, uiPort: API_PORT - 1, pid,
+    });
 
     const modes = (await sh(`stat -c '%a %U' ${PORT_FILE} /run/fluxos`)).stdout.trim().split('\n');
     expect(modes, 'file and directory modes').to.deep.equal(['644 root', '755 root']);
@@ -69,7 +72,6 @@ describe('FluxOS publishes the ports it serves on', function () {
     expect(leftovers, 'nothing but the file in its directory').to.deep.equal(['fluxos.json']);
 
     // The sockets the FluxOS process itself holds.
-    const pid = await fluxosPid();
     const listening = (await sh(`ss -Hltnp | grep 'pid=${pid},' | awk '{print $4}' | sed 's/.*://' | sort -un`))
       .stdout.trim().split('\n').map(Number);
     console.log(`# FluxOS pid ${pid} listens on ${listening.join(', ')}`);
@@ -90,7 +92,9 @@ describe('FluxOS publishes the ports it serves on', function () {
     expect(await portFilePresent(), 'the file once FluxOS has stopped').to.equal(false);
     await releaseFluxos(node());
     await waitForPortFile('the port file after the restart');
-    expect(await readPortFile()).to.deep.equal({ apiPort: API_PORT, apiPortHttps: API_PORT + 1, uiPort: API_PORT - 1 });
+    expect(await readPortFile()).to.deep.equal({
+      apiPort: API_PORT, apiPortHttps: API_PORT + 1, uiPort: API_PORT - 1, pid: await fluxosPid(),
+    });
   });
 
   it('removes the file on a system shutdown', async function () {

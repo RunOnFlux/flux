@@ -38,10 +38,10 @@ describe('portFile tests', () => {
     expect(portFile.PORT_FILE_NAME).to.equal('fluxos.json');
   });
 
-  it('writes the three ports, world-readable, in a directory it creates', async () => {
+  it('writes the three ports and the process id, world-readable, in a directory it creates', async () => {
     expect(await portFile.writePortFile(PORTS, { dir })).to.equal(true);
 
-    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).to.deep.equal(PORTS);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).to.deep.equal({ ...PORTS, pid: process.pid });
     expect(fs.statSync(file).mode & 0o777).to.equal(0o644);
     expect(fs.statSync(dir).mode & 0o777).to.equal(0o755);
     sinon.assert.calledOnce(infoStub);
@@ -78,7 +78,7 @@ describe('portFile tests', () => {
 
     expect(await portFile.writePortFile(PORTS, { dir })).to.equal(true);
 
-    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).to.deep.equal(PORTS);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).to.deep.equal({ ...PORTS, pid: process.pid });
     expect(fs.statSync(file).mode & 0o777).to.equal(0o644);
   });
 
