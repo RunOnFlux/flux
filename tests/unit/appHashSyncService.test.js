@@ -4,6 +4,7 @@ const proxyquire = require('proxyquire').noCallThru();
 
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const { Readable } = require('stream');
+const zlib = require('zlib');
 const config = require('config');
 const { appSyncEvents: syncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 
@@ -356,6 +357,106 @@ describe('appHashSyncService tests', () => {
       // Should have attempted bulk fetch (axiosGet called for explorer sync check + permanent messages)
       expect(serviceHelperStub.axiosGet.called).to.be.true;
       expect(logStub.info.calledWith(sinon.match('streaming bulk fetch'))).to.be.true;
+    });
+
+    describe('a bulk stream whose connection dies', () => {
+      const missingRecords = Array(600).fill(null).map((_, i) => ({
+        hash: `hash${i}`, txid: `tx${i}`, height: 1000 + i, value: 100, message: false,
+      }));
+      const registration = (i) => ({
+        type: 'fluxappregister', version: 1, hash: `hash${i}`, timestamp: 1000 + i, signature: `sig${i}`,
+        appSpecifications: { name: `app${i}`, version: 4, owner: 'alice' }, valueSat: 100, txid: `tx${i}`, height: 1000 + i,
+      });
+
+      // Gzip, flushed after `head`, so the first chunk decodes to whole objects on its own.
+      async function gzipInTwo(head, tail) {
+        const gz = zlib.createGzip();
+        const out = [];
+        gz.on('data', (c) => out.push(c));
+        gz.write(head);
+        await new Promise((r) => { gz.flush(zlib.constants.Z_SYNC_FLUSH, r); });
+        const first = Buffer.concat(out.splice(0));
+        gz.end(tail);
+        await new Promise((r) => { gz.on('end', r); });
+        return [first, Buffer.concat(out)];
+      }
+
+      function gzipResponse(source) {
+        return { data: source, headers: { 'content-encoding': 'gzip' } };
+      }
+
+      beforeEach(() => {
+        dbHelperStub.findInDatabase.onFirstCall().resolves(missingRecords);
+        dbHelperStub.findInDatabase.resolves([]);
+        dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+        peerManagerStub.allValues.returns([makePeer('10.0.0.1', '16127')]);
+      });
+
+      it('returns when the connection is torn down mid-body, instead of waiting forever', async () => {
+        const json = JSON.stringify({ status: 'success', data: [registration(0), registration(1)] });
+        const [first] = await gzipInTwo(json.slice(0, json.length / 2), json.slice(json.length / 2));
+        const source = new Readable({ read() {} });
+        source.push(first);
+        setTimeout(() => source.destroy(new Error('aborted')), 20);
+        serviceHelperStub.axiosGet.callsFake((url) => {
+          if (url.includes('permanentmessages')) return Promise.resolve(gzipResponse(source));
+          return Promise.resolve({ data: { status: 'success', data: true } });
+        });
+
+        await appHashSyncService.syncMissingHashes();
+
+        expect(logStub.error.calledWith(sinon.match('stream error from 10.0.0.1:16127: aborted'))).to.equal(true);
+        expect(logStub.info.calledWith(sinon.match('syncMissingHashes - Streamed'))).to.equal(true);
+        expect(logStub.info.calledWith(sinon.match('syncMissingHashes - Complete:'))).to.equal(true);
+      });
+
+      it('stores what it streamed when the connection drops while a batch is being processed', async () => {
+        const head = `{"status":"success","data":[${Array(520).fill(null).map((_, i) => JSON.stringify(registration(i))).join(',')},`;
+        const tail = `${Array(80).fill(null).map((_, i) => JSON.stringify(registration(520 + i))).join(',')}]}`;
+        const [first] = await gzipInTwo(head, tail);
+        const source = new Readable({ read() {} });
+        source.push(first);
+        serviceHelperStub.axiosGet.callsFake((url) => {
+          if (url.includes('permanentmessages')) return Promise.resolve(gzipResponse(source));
+          return Promise.resolve({ data: { status: 'success', data: true } });
+        });
+        collectionStub.insertMany.onFirstCall().callsFake(async () => {
+          source.destroy(new Error('aborted'));
+          await new Promise((r) => { setTimeout(r, 10); });
+          return { insertedCount: 500 };
+        });
+
+        await appHashSyncService.syncMissingHashes();
+
+        const inserted = collectionStub.insertMany.getCalls().map((call) => call.args[0].length);
+        expect(inserted).to.deep.equal([500, 20]);
+        expect(logStub.info.calledWith(sinon.match('syncMissingHashes - Complete:'))).to.equal(true);
+      });
+
+      it('abandons a stream that stops delivering without closing', async () => {
+        const clock = sinon.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+        try {
+          const json = JSON.stringify({ status: 'success', data: [registration(0)] });
+          const [first] = await gzipInTwo(json.slice(0, json.length / 2), json.slice(json.length / 2));
+          const source = new Readable({ read() {} });
+          source.push(first);
+          serviceHelperStub.axiosGet.callsFake((url) => {
+            if (url.includes('permanentmessages')) return Promise.resolve(gzipResponse(source));
+            return Promise.resolve({ data: { status: 'success', data: true } });
+          });
+
+          const run = appHashSyncService.syncMissingHashes();
+          await new Promise((r) => { setImmediate(r); });
+          await new Promise((r) => { setImmediate(r); });
+          clock.tick(65000);
+          await run;
+
+          expect(logStub.warn.calledWith(sinon.match('no data from 10.0.0.1:16127 for 60s, abandoning stream'))).to.equal(true);
+          expect(source.destroyed).to.equal(true);
+        } finally {
+          clock.restore();
+        }
+      });
     });
 
     describe('a missing hash whose message this node holds unpromoted', () => {
