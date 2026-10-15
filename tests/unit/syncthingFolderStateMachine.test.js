@@ -917,7 +917,7 @@ describe('syncthingFolderStateMachine tests', () => {
 
         sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
         expect(result.syncthingFolder, 'a g: folder\'s type is its primary role\'s').to.not.have.property('type');
-        expect(result.cache).to.deep.equal({ restarted: true });
+        expect(result.cache).to.deep.equal({ restarted: true, directoryOnlyReverts: 1 });
         sinon.assert.calledWithExactly(publish, 'syncthing:localChangesReverted', { folder: 'test-app', files: 0, directories: 1 });
       } finally {
         publish.restore();
@@ -2326,6 +2326,45 @@ describe('syncthingFolderStateMachine tests', () => {
         expect(result.cache.restarted).to.be.true;
       });
 
+      it('marks a single-writer candidate ready without deciding its folder type', async () => {
+        mockParams.containerDataFlags = 'g';
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+          restarted: false, numberOfExecutions: 1, directoryOnlyReverts: 3,
+        });
+        syncthingServiceMock.getDbStatus.resolves({
+          globalBytes: 1000, inSyncBytes: 1000, state: 'idle', receiveOnlyChangedDirectories: 1,
+        });
+
+        const result = await pass();
+
+        sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+        expect(result.syncthingFolder, 'a g: folder\'s type is its primary role\'s').to.not.have.property('type');
+        expect(result.cache.restarted, 'the election reads this as ready to start').to.be.true;
+      });
+
+      it('stops reverting a ready standby once only directories survive, and says so once', async () => {
+        mockParams.containerDataFlags = 'g';
+        mockParams.syncFolder = { id: 'test-app', type: 'receiveonly' };
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+        dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: false } });
+        syncthingServiceMock.getDbStatus.resolves({
+          globalBytes: 1000, inSyncBytes: 1000, state: 'idle', receiveOnlyChangedDirectories: 1,
+        });
+
+        const count = sinon.stub(fluxEventBus, 'count');
+        try {
+          for (let i = 0; i < 6; i += 1) {
+            // eslint-disable-next-line no-await-in-loop
+            await pass();
+          }
+
+          sinon.assert.callCount(syncthingServiceMock.dbRevert, 3);
+          sinon.assert.calledOnceWithExactly(count.withArgs('syncthing:revertSkipped'), 'syncthing:revertSkipped', 'test-app', 'directoriesOnly');
+        } finally {
+          count.restore();
+        }
+      });
+
       it('keeps reverting while any file differs', async () => {
         mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: false, numberOfExecutions: 1 });
         syncthingServiceMock.getDbStatus.resolves({
@@ -2351,10 +2390,6 @@ describe('syncthingFolderStateMachine tests', () => {
         mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
           restarted: false, numberOfExecutions: 1, directoryOnlyReverts: 3,
         });
-        mockParams.appLocation.resolves([
-          { ip: '10.0.0.0:16127', runningSince: null, broadcastedAt: 1000 },
-          { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
-        ]);
         syncthingServiceMock.getDbStatus.resolves({
           globalBytes: 1000, inSyncBytes: 1000, state: 'idle', receiveOnlyChangedFiles: 1,
         });

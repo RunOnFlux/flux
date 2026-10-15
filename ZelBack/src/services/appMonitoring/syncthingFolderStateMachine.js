@@ -1291,6 +1291,33 @@ async function nudgeFolderDevices(folderId) {
 const DIRECTORY_ONLY_REVERT_PASSES = 3;
 
 /**
+ * Counts this pass against a folder's run of directory-only local changes, and
+ * says whether the run has outlasted the reverts it is given. Any pass that is
+ * not directory-only - clean, a file changed, or not synced - ends the run.
+ * Logged once per run: past the limit the same item is reported every pass.
+ * @param {string} appId - The Syncthing folder ID
+ * @param {Object} cache - The folder's monitor cache, which carries the run
+ * @param {Object|null} syncStatus - A probeFolderSyncCompletion status
+ * @returns {boolean} True when the revert should not be asked for again
+ */
+function directoryRevertExhausted(appId, cache, syncStatus) {
+  const directoryOnly = !!syncStatus?.isSynced
+    && !syncStatus.receiveOnlyChangedFiles
+    && (syncStatus.receiveOnlyChangedDirectories || 0) > 0;
+  if (!directoryOnly) {
+    delete cache.directoryOnlyReverts;
+    return false;
+  }
+  cache.directoryOnlyReverts = (cache.directoryOnlyReverts || 0) + 1;
+  if (cache.directoryOnlyReverts <= DIRECTORY_ONLY_REVERT_PASSES) return false;
+  if (cache.directoryOnlyReverts === DIRECTORY_ONLY_REVERT_PASSES + 1) {
+    log.warn(`directoryRevertExhausted - ${appId}: ${syncStatus.receiveOnlyChangedDirectories} locally changed director(ies) survived ${DIRECTORY_ONLY_REVERT_PASSES} reverts and no file differs; not reverting them again`);
+    fluxEventBus.count('syncthing:revertSkipped', appId, 'directoriesOnly');
+  }
+  return true;
+}
+
+/**
  * Reverts a synced receiveonly folder's local changes to the cluster's version.
  *
  * A receiveonly folder never overwrites its own deviations: a file or directory
@@ -1654,14 +1681,8 @@ async function handleReceiveOnlyTransition(params) {
     // Only directory-only changes are let through, after DIRECTORY_ONLY_REVERT_PASSES
     // passes - promoting publishes a directory's metadata, never a file's content -
     // and the safety check below still runs before the flip.
-    const directoryOnly = !!syncStatus?.isSynced
-      && !syncStatus.receiveOnlyChangedFiles
-      && (syncStatus.receiveOnlyChangedDirectories || 0) > 0;
-    cache.directoryOnlyReverts = directoryOnly ? (cache.directoryOnlyReverts || 0) + 1 : 0;
-    if (directoryOnly && cache.directoryOnlyReverts > DIRECTORY_ONLY_REVERT_PASSES) {
-      log.warn(`handleReceiveOnlyTransition - ${appId}: ${syncStatus.receiveOnlyChangedDirectories} locally changed director(ies) survived ${DIRECTORY_ONLY_REVERT_PASSES} reverts; no file differs, promoting without reverting again`);
-      fluxEventBus.count('syncthing:revertSkipped', appId, 'directoriesOnly');
-    } else if (await revertLocalChangesIfSynced(appId, syncStatus)) {
+    if (!directoryRevertExhausted(appId, cache, syncStatus)
+      && await revertLocalChangesIfSynced(appId, syncStatus)) {
       return { syncthingFolder, cache };
     }
     if (syncStatus.isSynced) {
@@ -1971,8 +1992,13 @@ async function manageFolderSyncState(params) {
     // A ready standby still has to converge on the primary's copy: a local
     // deviation (an owner or mode included) is never overwritten by syncthing
     // in a receiveonly folder, and the primary counts it as outstanding.
+    // A directory the revert cannot take stops being asked for here too, or the
+    // standby reverts and logs it on every pass for as long as it stands by.
     if (syncFolder?.type === 'receiveonly') {
-      await revertLocalChangesIfSynced(appId, await getFolderSyncCompletion(appId));
+      const syncStatus = await getFolderSyncCompletion(appId);
+      if (!directoryRevertExhausted(appId, cache, syncStatus)) {
+        await revertLocalChangesIfSynced(appId, syncStatus);
+      }
     }
     return { syncthingFolder, cache };
   }
