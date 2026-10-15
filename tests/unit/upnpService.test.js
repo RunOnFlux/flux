@@ -270,6 +270,11 @@ describe('upnpService tests', () => {
       });
 
       it('should remove the test mappings earlier runs left, and nothing else, then map once more', async () => {
+        // the api port mapped here too: a test mapped on the retry is still checked and removed
+        natUpnp.Client.prototype.getMapping.withArgs({ public: 16127, protocol: 'TCP' }).resolves({
+          ...testMapping, public: { host: '', port: 16127 }, private: { host: '192.168.1.10', port: 16127 },
+        });
+
         const result = await upnpService.verifyUPNPsupport();
 
         expect(result).to.equal(true);
@@ -306,6 +311,71 @@ describe('upnpService tests', () => {
         expect(result).to.equal(true);
         sinon.assert.calledOnce(getMappingsStub);
         sinon.assert.calledTwice(createMappingStub);
+      });
+
+      describe('and holds nothing of this node\'s to remove', () => {
+        // the router's entry for each port: this node's api port, or nothing
+        const routerMaps = (apiEntry) => {
+          natUpnp.Client.prototype.getMapping.reset();
+          natUpnp.Client.prototype.getMapping.callsFake(async ({ public: port }) => (port === 16127 ? apiEntry : null));
+        };
+        const apiEntry = (overrides = {}) => ({
+          ...testMapping, public: { host: '', port: 16127 }, private: { host: '192.168.1.10', port: 16127 }, description: 'Flux_Backend_API', ...overrides,
+        });
+
+        beforeEach(() => {
+          createMappingStub.reset();
+          createMappingStub.rejects(new natUpnp.UpnpError(501, 'ActionFailed', 'AddPortMapping'));
+          getMappingsStub.resolves([listed(31002, 'Flux_App_web')]);
+        });
+
+        it('should verify when the router already maps this node\'s api port to it', async () => {
+          routerMaps(apiEntry());
+
+          const result = await upnpService.verifyUPNPsupport();
+
+          expect(result).to.equal(true);
+          expect(upnpService.isUPNP()).to.equal(true);
+          sinon.assert.calledWithExactly(natUpnp.Client.prototype.getMapping, { public: 16127, protocol: 'TCP' });
+          sinon.assert.calledOnce(createMappingStub);
+          sinon.assert.notCalled(removeMappingStub);
+          expect(upnpService.mappedHere.has(16130)).to.equal(false);
+        });
+
+        [
+          ['holds no mapping of the api port', null],
+          ['maps the api port to another machine', apiEntry({ local: false, private: { host: '192.168.1.11', port: 16127 } })],
+          ['maps the api port disabled', apiEntry({ enabled: false })],
+        ].forEach(([what, entry]) => {
+          it(`should fail when the router ${what}`, async () => {
+            routerMaps(entry);
+
+            const result = await upnpService.verifyUPNPsupport();
+
+            expect(result).to.equal(false);
+            expect(upnpService.isUPNP()).to.equal(false);
+          });
+        });
+
+        it('should fail on a refusal of the port\'s own, whatever the router maps', async () => {
+          routerMaps(apiEntry());
+          createMappingStub.reset();
+          createMappingStub.rejects(new natUpnp.UpnpError(718, 'ConflictInMappingEntry', 'AddPortMapping'));
+
+          const result = await upnpService.verifyUPNPsupport();
+
+          expect(result).to.equal(false);
+        });
+
+        it('should fail when the router does not answer, whatever it maps', async () => {
+          routerMaps(apiEntry());
+          createMappingStub.reset();
+          createMappingStub.rejects(new Error('timeout of 10000ms exceeded'));
+
+          const result = await upnpService.verifyUPNPsupport();
+
+          expect(result).to.equal(false);
+        });
       });
 
       it('should list nothing when the router does not answer', async () => {

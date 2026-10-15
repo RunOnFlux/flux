@@ -235,6 +235,19 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
       log.warn(`VerifyUPNPsupport - left-over test mappings not removed: ${error.message}`);
     }
     if (removed > 0) testMapping = await mapProtocol(+apiport + 3, 'TCP', 'Flux_UPNP_Mapping_Test');
+    // A full table refuses every new mapping, so a node whose router already
+    // maps its api port to it runs on what it holds: every mapping refused from
+    // here on counts toward the router DOS, which takes the node out of service
+    // until a slot frees.
+    if (!testMapping.mapped) {
+      const apiMapping = await client.getMapping({ public: +apiport, protocol: 'TCP' }).catch(() => null);
+      if (mapsHere(apiMapping, +apiport)) {
+        log.warn(`VerifyUPNPsupport - ${testMapping.reason}, but the router maps this node's api port to it`);
+        mappedHere.delete(+apiport + 3);
+        upnpMachine = true;
+        return true;
+      }
+    }
   }
   if (!testMapping.mapped) {
     log.error(`VerifyUPNPsupport - Failed Create Mapping: ${testMapping.reason}`);
