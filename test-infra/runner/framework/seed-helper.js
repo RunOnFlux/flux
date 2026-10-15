@@ -78,6 +78,9 @@ export async function buildSeedableApp({
   // different one. Nothing rejects that - the node simply decides the app is
   // obsolete and reinstalls it forever.
   nodes = [],
+  // The owner's geolocation, in the spec's own vocabulary ('acEU_DE',
+  // 'a!cEU_FR'). Set here for the same reason as `nodes`: it is signed.
+  geolocation = [],
 }) {
   const appOwner = owner ?? ownerKey.zelid;
 
@@ -106,7 +109,7 @@ export async function buildSeedableApp({
     }],
     instances,
     contacts: [],
-    geolocation: [],
+    geolocation,
     expire,
     nodes,
     staticip,
