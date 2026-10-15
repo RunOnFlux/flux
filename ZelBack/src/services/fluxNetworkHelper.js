@@ -17,6 +17,7 @@ const messageHelper = require('./messageHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
+const daemonServiceNetworkRpcs = require('./daemonService/daemonServiceNetworkRpcs');
 const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
@@ -1063,7 +1064,41 @@ function isPlacementHeld() {
 }
 
 /**
- * Get this node's socket address (ip:port).
+ * The public IPv4 address fluxd has decided this node has: the one its peers
+ * report seeing it at (`decided_address.address` in getnetworkinfo). A port, if
+ * fluxd gives one, is not FluxOS's and is dropped.
+ * @returns {Promise<string|null>} The address, or null when fluxd does not
+ *   answer or has decided none, including a fluxd that does not report one.
+ */
+async function getDecidedAddress() {
+  const response = await daemonServiceNetworkRpcs.getNetworkInfo();
+  if (response?.status !== 'success') {
+    log.debug('Public address: fluxd did not answer getnetworkinfo, asking FluxBench');
+    return null;
+  }
+  const address = extractIp(response.data?.decided_address?.address || '');
+  if (!net.isIPv4(address || '')) {
+    log.debug('Public address: fluxd has no decided address, asking FluxBench');
+    return null;
+  }
+  return address;
+}
+
+/**
+ * This node's public IP address: fluxd's decided address when it has one,
+ * otherwise FluxBench's public-IP probe.
+ * @returns {Promise<object>} The address in FluxBench's getpublicip response
+ *   shape: `{status: 'success', data: ip}`, or FluxBench's own response.
+ */
+async function getPublicIp() {
+  const decided = await getDecidedAddress();
+  if (decided) return messageHelper.createDataMessage(decided);
+  return benchmarkService.getPublicIp();
+}
+
+/**
+ * Get this node's socket address (ip:port): fluxd's decided address at FluxOS's
+ * API port when fluxd has one, otherwise the address in FluxBench's benchmarks.
  * @returns {Promise<string|null>} Normalized socket address (always ip:port) or null.
  */
 async function getLocalSocketAddress(options = {}) {
@@ -1083,6 +1118,11 @@ async function getLocalSocketAddress(options = {}) {
   // DIRECTLY, not through this function, so a <=TTL reflect-lag here after a (rate-limited)
   // IP change is harmless — the next benchmark resolve updates the value and the deadline.
   if (!fresh && localSocketAddress && process.hrtime.bigint() < localSocketAddressFreshUntil) {
+    return localSocketAddress;
+  }
+  const decided = await getDecidedAddress();
+  if (decided) {
+    setLocalSocketAddress(`${decided}:${userconfig.initial.apiport || config.server.apiport}`);
     return localSocketAddress;
   }
   const benchmarkResponse = await benchmarkService.getBenchmarks();
@@ -2311,10 +2351,10 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     log.error(`My Flux unavailability detected from: ${remoteIp}:${remotePort}`);
     // Asked Flux cannot reach me lets check if ip changed
     if (retryNumber === 4 || effectiveDosState() > 10) {
-      log.info('Getting publicIp from FluxBench');
-      const benchIpResponse = await benchmarkService.getPublicIp();
+      log.info('Getting publicIp from fluxd or FluxBench');
+      const benchIpResponse = await getPublicIp();
       if (benchIpResponse.status === 'success') {
-        log.info(`FluxBench reported public IP: ${benchIpResponse.data}`);
+        log.info(`Public IP reported: ${benchIpResponse.data}`);
         const benchMyIp = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
         if (benchMyIp && extractIp(benchMyIp) !== localIp) {
           daemonServiceUtils.setStandardCache('getbenchmarks[]', null);
@@ -2325,7 +2365,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
           await getLocalSocketAddress({ fresh: true });
           return true;
         } if (benchMyIp && extractIp(benchMyIp) === localIp) {
-          log.info('FluxBench reported the same Ip that was already in use');
+          log.info('Public IP reported is the one already in use');
         } else {
           log.info('FluxBench reported a invalid IP');
           holdAvailabilityDos(BENCH_PUBLIC_IP_MESSAGE, { replace: true });
@@ -2651,9 +2691,9 @@ async function askForPublicIp() {
 }
 
 async function askOnceForPublicIp() {
-  const benchIpResponse = await benchmarkService.getPublicIp();
+  const benchIpResponse = await getPublicIp();
   if (benchIpResponse?.status === 'success') {
-    log.info(`FluxBench was previously without ip and now reported public IP: ${benchIpResponse.data}`);
+    log.info(`Public IP reported while this node had none: ${benchIpResponse.data}`);
     if (benchIpResponse.data.length > 5) daemonServiceUtils.setStandardCache('getbenchmarks[]', null);
   }
   const address = await getLocalSocketAddress({ fresh: true });
@@ -3463,6 +3503,8 @@ function getNumberOfPeers() {
 module.exports = {
   isFluxAvailable,
   checkFluxAvailability,
+  getDecidedAddress,
+  getPublicIp,
   getLocalSocketAddress,
   getKnownLocalSocketAddress,
   onLocalSocketAddressChange,
