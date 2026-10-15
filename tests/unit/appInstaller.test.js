@@ -7,6 +7,7 @@ const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileg
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
 const { folderStates: folderStateMap } = require('../../ZelBack/src/services/utils/globalState');
 const portClaims = require('../../ZelBack/src/services/appNetwork/portClaims');
+const { GeoVerdict, GeoSource } = require('../../ZelBack/src/services/appRequirements/hwRequirements');
 
 // what portReconciler.want answers for a port mapped, and for one the router refused
 const MAPPED = {
@@ -125,7 +126,8 @@ describe('appInstaller tests', () => {
       checkAppHWRequirements: sinon.stub().resolves(),
       checkAppStaticIpRequirements: sinon.stub(),
       checkAppNodesRequirements: sinon.stub().resolves(),
-      checkAppGeolocationRequirements: sinon.stub(),
+      appGeolocationVerdict: sinon.stub().resolves({ verdict: GeoVerdict.PASS, source: null, reason: null }),
+      GeoVerdict,
     };
 
     enterpriseHelperStub = {
@@ -354,7 +356,30 @@ describe('appInstaller tests', () => {
       expect(hwRequirementsStub.checkAppHWRequirements.calledWith(appSpecs)).to.be.true;
       expect(hwRequirementsStub.checkAppStaticIpRequirements.calledWith(appSpecs)).to.be.true;
       expect(hwRequirementsStub.checkAppNodesRequirements.calledWith(appSpecs)).to.be.true;
-      expect(hwRequirementsStub.checkAppGeolocationRequirements.calledWith(appSpecs)).to.be.true;
+      expect(hwRequirementsStub.appGeolocationVerdict.calledWith(appSpecs)).to.be.true;
+    });
+
+    it('refuses with the verdict reason when the geolocation verdict is FAIL', async () => {
+      hwRequirementsStub.appGeolocationVerdict.resolves({ verdict: GeoVerdict.FAIL, source: GeoSource.TABLE, reason: 'not here' });
+
+      const refused = await appInstaller.checkAppRequirements({ name: 'testapp' }).then(() => null, (error) => error);
+
+      expect(refused?.message).to.equal('not here');
+    });
+
+    it('refuses when the geolocation verdict is UNKNOWN', async () => {
+      hwRequirementsStub.appGeolocationVerdict.resolves({ verdict: GeoVerdict.UNKNOWN, source: null, reason: 'unproven' });
+
+      const refused = await appInstaller.checkAppRequirements({ name: 'testapp' }).then(() => null, (error) => error);
+
+      expect(refused?.message).to.equal('unproven');
+    });
+
+    it('does not read the geolocation verdict when geolocation is skipped', async () => {
+      hwRequirementsStub.appGeolocationVerdict.resolves({ verdict: GeoVerdict.FAIL, source: GeoSource.TABLE, reason: 'not here' });
+
+      expect(await appInstaller.checkAppRequirements({ name: 'testapp' }, true)).to.be.true;
+      expect(hwRequirementsStub.appGeolocationVerdict.called).to.be.false;
     });
 
     it('should propagate hardware requirement errors', async () => {
