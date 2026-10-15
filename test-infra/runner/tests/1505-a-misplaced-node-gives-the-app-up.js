@@ -55,6 +55,12 @@ const FR_GEO = {
   country: 'France', countryCode: 'FR', region: 'IDF', regionName: 'Ile-de-France',
 };
 
+// The node that reaches the published source. A node checks it once a day, so
+// across a real network some node is always about to; across five, none is for
+// hours. Compressed on this one node only - the others learn of a new table
+// from it, the way the network spreads one.
+const TICKING_NODE = 0;
+
 // The give-up pass runs every removeFluxAppsPeriod x 4 blocks and a block costs
 // one explorer poll. Two is the floor suite 55 measured: a departure has to be
 // visible to the other holders before their next pass.
@@ -98,11 +104,6 @@ describe('1505: a node the table places outside an app\'s geolocation gives the 
     return response.json();
   };
 
-  const tableGenerated = async (client) => {
-    const tree = await client.get('/apps/placementlocations').catch(() => null);
-    return tree?.status === 'success' && tree.data.tableAvailable === true ? tree.data.tableGenerated : null;
-  };
-
   dumpLogsOnFailure(() => env);
 
   before(async function () {
@@ -114,6 +115,7 @@ describe('1505: a node the table places outside an app\'s geolocation gives the 
       geolocation: { [SELF_REPORTED_FR]: FR_GEO },
       // One organisation, every address DE.
       locationTable: { domains: 1 },
+      nodeConfigOverrides: { [TICKING_NODE]: { policy: { refreshIntervalMs: 15000 } } },
       configOverrides: {
         fluxapps: {
           minOutgoing: 2,
@@ -164,12 +166,16 @@ describe('1505: a node the table places outside an app\'s geolocation gives the 
     expect(moved, 'a holder of MOVES other than the self-reported-FR node').to.be.a('number');
     expect(free, 'one node does not hold MOVES').to.be.a('number');
 
-    const before = await tableGenerated(env.clients[moved]);
+    const beforeMove = env.clients.map((client) => client.getLastEventId());
     await publishTable({ domains: 1, countryByIp: { [subnet.nodeIp(moved + 1)]: 'FR' } });
-    await waitFor(async () => {
-      const generated = await Promise.all(env.clients.map(tableGenerated));
-      return generated.every((g) => g !== null && g !== before);
-    }, { timeout: 180000, interval: 3000, label: 'every node holds the table that moves one node to FR' });
+    // The ticking node fetches the new bundle within its refresh interval, every
+    // other node adopts it from a peer, and each installs the table it names.
+    await Promise.all(env.clients.map((client, i) => client.waitForEvent(
+      'ipLocation:tableInstalled',
+      () => true,
+      240000,
+      { afterId: beforeMove[i] },
+    )));
     afterMove = env.clients.map((client) => client.getLastEventId());
   });
 
