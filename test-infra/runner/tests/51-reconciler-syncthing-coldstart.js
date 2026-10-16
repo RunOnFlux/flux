@@ -5,7 +5,7 @@ import {
   getAppContainerStatus, blockPeerAccess, unblockPeerAccess, execInContainer,
 } from '../framework/container.js';
 import {
-  setSyncState, setNoPeerData, resetSyncState,
+  resetSyncState, pinColdStart, pinHolding,
 } from '../framework/syncthing-control.js';
 import { electMaster, resetFdm } from '../framework/fdm-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -44,45 +44,6 @@ async function countUp(env, indices, appName) {
   return ups.filter(Boolean).length;
 }
 
-// pin a folder to a true cold-start shape on every holder: empty global of its own
-// and no connected peer holding the data (set BEFORE install so the first election
-// evaluation sees it, not the stub's default phantom-synced peer)
-async function pinColdStart(holders, folder) {
-  await Promise.all(holders.map((i) => Promise.all([
-    setSyncState({
-      ip: subnet.nodeIp(i + 1), folder, state: 'idle', globalBytes: 0, inSyncBytes: 0,
-      // Honest only for a bare g:/r: app. A component declaring an f:/m:/ml: mount has
-      // FluxOS scaffolding on its volume that a real daemon counts here, and the stub
-      // cannot see a disk - so those shapes belong on syncthing: 'binary', not here.
-      receiveOnlyChangedFiles: 0,
-    }),
-    setNoPeerData({ ip: subnet.nodeIp(i + 1), folder }),
-  ])));
-}
-
-// One holder carries the owner's data, declared the way seedSyncScopedData declares it:
-// the ENTRIES, not a count, because localHoldings totals the entry list and excludes the
-// scaffolding in it by type and by name. Written after pinColdStart, which it overwrites
-// for this one node.
-async function pinHolding(index, folder, bytes) {
-  const modified = new Date().toISOString();
-  await setSyncState({
-    ip: subnet.nodeIp(index + 1),
-    folder,
-    state: 'idle',
-    globalBytes: 0,
-    inSyncBytes: 0,
-    localChanged: [
-      {
-        name: 'appdata', type: 'FILE_INFO_TYPE_DIRECTORY', size: 128, deleted: false, modified,
-      },
-      {
-        name: 'appdata/seed-data', type: 'FILE_INFO_TYPE_FILE', size: bytes, deleted: false, modified,
-      },
-    ],
-  });
-  await setNoPeerData({ ip: subnet.nodeIp(index + 1), folder });
-}
 
 describe('reconciler cold start - fresh multi-node placement, no seeded source', function () {
   let env;
