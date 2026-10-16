@@ -11,6 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 const { expect } = require('chai');
+const { MongoNetworkTimeoutError } = require('mongodb');
 const espree = require('espree');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
@@ -274,6 +275,24 @@ describe('registry rebuild: who holds a name', () => {
     await globalDb.collection(INFO).insertOne({ name: 'other', height: 1000, expire: 1_000_000 });
     await globalDb.collection(INFO).insertOne({ name: 'another', height: 1000, expire: 1_000_000 });
     expect(await dbHelper.isReindexAppsInformationRequired(globalDb, MESSAGES, INFO, HEIGHT, daemonDb)).to.equal(true);
+  });
+
+  it('rejects when the registry cannot be read, rather than reading it as consistent', async () => {
+    await seed([msg({ hash: 'holder', owner: 'alice', height: 1000 })], [pay('holder', 1000, 0)]);
+    await rebuild();
+    const unreadable = {
+      collection: (name) => (name === INFO
+        ? { aggregate: () => ({ next: async () => { throw new MongoNetworkTimeoutError('timed out'); } }) }
+        : globalDb.collection(name)),
+    };
+
+    const error = await dbHelper.isReindexAppsInformationRequired(unreadable, MESSAGES, INFO, HEIGHT, daemonDb).catch((caught) => caught);
+
+    expect(error).to.be.instanceOf(MongoNetworkTimeoutError);
+  });
+
+  it('answers null, not consistent, when the messages give no live app to validate against', async () => {
+    expect(await dbHelper.isReindexAppsInformationRequired(globalDb, MESSAGES, INFO, HEIGHT, daemonDb)).to.equal(null);
   });
 
   it('removes this node\'s install when the newest message is another owner\'s live registration and the holder\'s app has expired', async () => {
