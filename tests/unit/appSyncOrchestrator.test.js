@@ -2274,6 +2274,27 @@ describe('AppSyncOrchestrator', () => {
       expect(versionCall.args[3]).to.deep.equal({ $set: { version: '8.12.0' } });
     });
 
+    it('writes no version marker while the reset fails, and runs the reset again on the next hash retry', async () => {
+      dbHelperStub.findOneInDatabase.resolves(null);
+      resetHashSyncForUpgradeStub.onFirstCall().rejects(new Error('db down'));
+      const versionWrites = () => findOneAndUpdateStub.getCalls().filter((c) => c.args[2]?._id === 'hashSyncVersion');
+
+      const orchestrator = makeOrchestrator({ fluxVersion: '8.12.0' });
+      orchestrator.start(defaultBootContext);
+
+      blockEmitter.emit('blocksProcessed', 2555000);
+      await clock.tickAsync(0);
+
+      expect(syncMissingHashesStub.calledOnce).to.be.true;
+      expect(versionWrites()).to.have.length(0);
+
+      blockEmitter.emit('blocksProcessed', 2555100);
+      await clock.tickAsync(0);
+
+      expect(resetHashSyncForUpgradeStub.calledTwice).to.be.true;
+      expect(versionWrites()).to.have.length(1);
+    });
+
     it('should skip version check when fluxVersion not provided', async () => {
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
