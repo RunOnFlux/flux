@@ -360,6 +360,17 @@ describe('advancedWorkflows tests', () => {
       sinon.assert.notCalled(remove);
       sinon.assert.calledWithMatch(warned, /Unable to read the apps docker runs and the installed apps/);
     });
+
+    it('removes nothing when the apps docker runs cannot be read', async () => {
+      appQueryService.listAllApps.resolves({ status: 'error', data: { message: 'docker did not answer' } });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+      const warned = sinon.stub(log, 'warn');
+
+      await advancedWorkflows.forceAppRemovals();
+
+      sinon.assert.notCalled(remove);
+      sinon.assert.calledWithMatch(warned, /Unable to read the apps docker runs and the installed apps/);
+    });
   });
 
   describe('checkAndRemoveEnterpriseAppsOnNonArcane', () => {
