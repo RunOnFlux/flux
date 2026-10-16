@@ -2371,6 +2371,61 @@ describe('fluxCommunication tests', () => {
     // "nothing after this". A chunk taking its place in the queue only once its
     // envelope check came back put the order in the hands of whichever check
     // finished first.
+    // A response whose writes failed is not all recorded here: the peer has not
+    // answered, so another is asked. Credited, the node goes authoritative on a
+    // partial view and serves it to its own peers as complete.
+    describe('a response whose writes failed', () => {
+      const broadcast = () => ({
+        version: 1, timestamp: Date.now(), pubKey: '04key', signature: 'sig',
+        data: { ip: '1.2.3.4:16127', name: 'a', broadcastedAt: Date.now() },
+      });
+
+      beforeEach(() => {
+        sinon.stub(fluxCommunicationUtils, 'verifyBroadcasts')
+          .callsFake(async (items) => items.map(() => ({ result: fluxCommunicationUtils.VerifyResult.OK })));
+      });
+
+      it('is not counted as a completed appinstalling survey', async () => {
+        sinon.stub(messageStore, 'storeBatchAppInstallingMessages').resolves({ stored: 1, writeFailed: true });
+
+        await fluxCommunication.handleAppInstallingSyncResponse({ data: { type: 'fluxappinstallingsync', messages: [broadcast()], done: true } }, PEER_SOCKET);
+
+        expect(messageStore.storeBatchAppInstallingMessages.called, 'the fixture never reached the store').to.be.true;
+        expect(completions).to.deep.equal([]);
+      });
+
+      it('is not counted as a completed apperrors survey', async () => {
+        sinon.stub(messageStore, 'storeBatchAppInstallingErrorMessages').resolves({ stored: 1, writeFailed: true });
+
+        await fluxCommunication.handleAppInstallingErrorsSyncResponse({ data: { type: 'fluxappinstallingerrorssync', messages: [broadcast()], done: true } }, PEER_SOCKET);
+
+        expect(messageStore.storeBatchAppInstallingErrorMessages.called, 'the fixture never reached the store').to.be.true;
+        expect(completions).to.deep.equal([]);
+      });
+
+      it('is not counted as a completed apprunning survey', async () => {
+        sinon.stub(messageStore, 'storeBatchAppRunningMessages').resolves({ stored: 1, writeFailed: true });
+        const event = {
+          type: 'apprunning',
+          envelope: { version: 1, timestamp: Date.now(), pubKey: '04key', signature: 'sig' },
+          data: { version: 2, ip: '1.2.3.4:16127', broadcastedAt: Date.now(), apps: [{ name: 'a' }] },
+        };
+
+        await fluxCommunication.handleAppRunningSyncResponse({ data: { type: 'fluxapprunningsync', messages: [event], done: true } }, PEER_SOCKET);
+
+        expect(messageStore.storeBatchAppRunningMessages.called, 'the fixture never reached the store').to.be.true;
+        expect(completions).to.deep.equal([]);
+      });
+
+      it('a canary: the same response written in full is counted', async () => {
+        sinon.stub(messageStore, 'storeBatchAppInstallingMessages').resolves({ stored: 1, writeFailed: false });
+
+        await fluxCommunication.handleAppInstallingSyncResponse({ data: { type: 'fluxappinstallingsync', messages: [broadcast()], done: true } }, PEER_SOCKET);
+
+        expect(completions).to.deep.equal([{ syncType: 'appinstalling', peerKey: PEER }]);
+      });
+    });
+
     describe('a chunk takes its place in the queue when it arrives', () => {
       const chunkFor = (marker) => ({
         data: { type: 'fluxapprunningsync', messages: [{ marker }], done: false },
