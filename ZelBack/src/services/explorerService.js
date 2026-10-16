@@ -394,17 +394,29 @@ async function processInsight(blockDataVerbose, database) {
           // eslint-disable-next-line no-await-in-loop
           await processSoftFork(tx.txid, blockDataVerbose.height, message);
         } catch (error) {
+          // A message that cannot be read is skipped. One that could not be written is not:
+          // the block is reprocessed, or this node prices apps without that fork for good.
+          if (dbHelper.isDatabaseError(error)) throw error;
           log.error('Error processing soft fork message:', error);
-          // Continue processing other transactions even if soft fork processing fails
         }
       }
     }
   }
 }
 
+/**
+ * Records the app payments of the blocks processed since the last write. A payment that could
+ * not be recorded rejects, so the block processor reprocesses its block instead of moving its
+ * scanned height past it: a payment with no record is never resolved, and the app message it
+ * paid for never reaches this node.
+ * @param {object[]} transactions
+ * @param {object} database
+ * @returns {Promise<void>}
+ */
 async function insertTransactions(transactions, database) {
   if (transactions.length > 0) {
     log.info(`Explorer - insertTransactions - Inserting ${transactions.length} transactions to apps hashes collection`);
+    let unrecorded = null;
     try {
       const options = {
         ordered: false,
@@ -424,10 +436,13 @@ async function insertTransactions(transactions, database) {
           await dbHelper.updateOneInDatabase(database, appsHashesCollection, query, update, options);
         } catch (errorTx) {
           log.error(`Explorer - insertTransactions - Inserting ${transaction.hash} - transaction error - ${errorTx}`);
+          unrecorded = unrecorded ?? errorTx;
         }
       }
     }
+    // Reprocessing the block collects its payments again.
     appsTransactions = [];
+    if (unrecorded) throw unrecorded;
   }
 }
 
@@ -563,8 +578,10 @@ async function processStandard(blockDataVerbose, database) {
         try {
           await processSoftFork(tx.txid, blockDataVerbose.height, message);
         } catch (error) {
+          // A message that cannot be read is skipped. One that could not be written is not:
+          // the block is reprocessed, or this node prices apps without that fork for good.
+          if (dbHelper.isDatabaseError(error)) throw error;
           log.error('Error processing soft fork message:', error);
-          // Continue processing other transactions even if soft fork processing fails
         }
       }
     }
@@ -2006,6 +2023,7 @@ module.exports = {
   processStandard,
   setBlockProccessingCanContinue,
   getBlockProccessingCanContinue,
+  insertTransactions,
   setIsInInitiationOfBP,
   setZelAppSpecsMigrationDone,
   restoreDatabaseToBlockheightState,

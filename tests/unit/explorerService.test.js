@@ -12,6 +12,7 @@ const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const { MongoNetworkTimeoutError } = require('mongodb');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 const log = require('../../ZelBack/src/lib/log');
 const { requireMongo } = require('./dbTestHelper');
@@ -2675,6 +2676,62 @@ describe('explorerService tests', () => {
       await explorerService.bootstrapSoftForks(2579000);
 
       sinon.assert.notCalled(updateOneStub);
+    });
+  });
+
+  describe('a chain write that fails', () => {
+    // A soft fork the foundation sent to itself: a price fork every node applies.
+    const softForkBlock = () => ({
+      height: 1000,
+      tx: [{
+        version: 4,
+        txid: 'softforktx',
+        vin: [{ address: config.fluxapps.addressMultisig }],
+        vout: [{
+          valueSat: 0,
+          scriptPubKey: {
+            addresses: [config.fluxapps.addressMultisig],
+            asm: `OP_RETURN ${Buffer.from('p_1_2_3_4').toString('hex')}`,
+          },
+        }],
+      }],
+    });
+
+    beforeEach(() => {
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('fails the block when its soft fork cannot be written', async () => {
+      sinon.stub(dbHelper, 'updateOneInDatabase').rejects(new MongoNetworkTimeoutError('connection timed out'));
+
+      const outcome = await explorerService.processInsight(softForkBlock(), {}).catch((err) => err);
+
+      expect(outcome, 'the block moved on without its price fork').to.be.instanceOf(MongoNetworkTimeoutError);
+    });
+
+    it('a canary: a soft fork that fails for another reason is skipped, as before', async () => {
+      const updateOne = sinon.stub(dbHelper, 'updateOneInDatabase').rejects(new Error('unreadable message'));
+
+      await explorerService.processInsight(softForkBlock(), {});
+
+      sinon.assert.called(updateOne);
+    });
+
+    it('fails the block when one of its app payments cannot be recorded', async () => {
+      sinon.stub(dbHelper, 'insertManyToDatabase').rejects(new Error('batch failed'));
+      const upsert = sinon.stub(dbHelper, 'updateOneInDatabase');
+      upsert.onFirstCall().resolves();
+      upsert.onSecondCall().rejects(new MongoNetworkTimeoutError('connection timed out'));
+
+      const outcome = await explorerService.insertTransactions([{ hash: 'a', height: 1 }, { hash: 'b', height: 1 }], {}).catch((err) => err);
+
+      expect(outcome, 'the block moved on with a payment unrecorded').to.be.instanceOf(MongoNetworkTimeoutError);
+      sinon.assert.calledTwice(upsert);
     });
   });
 
