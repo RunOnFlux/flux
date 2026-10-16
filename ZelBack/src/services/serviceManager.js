@@ -6,6 +6,7 @@ const https = require('https');
 const cacheManager = require('./utils/cacheManager').default;
 const log = require('../lib/log');
 const dbHelper = require('./dbHelper');
+const serviceHelper = require('./serviceHelper');
 const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const networkStateService = require('./networkStateService');
@@ -165,10 +166,10 @@ async function dedupeByKey(collection, spec, options = {}) {
  *     index rather than running degraded without it;
  *   - anything else rethrows.
  *
- * The rethrow is deliberate and is NOT the blanket swallow it replaced. Index
- * setup runs before any service or interval starts, so the 15s startFluxFunctions
- * retry re-runs it safely: a TRANSIENT failure (mongo mid-election, a slow-disk
- * blip) heals on the next pass instead of being skipped until the next reboot,
+ * The rethrow is deliberate. Index setup runs in prepareDatabaseSchema, which
+ * boot runs again every 15 s until it succeeds (untilSucceeds): a TRANSIENT
+ * failure (mongo mid-election, a slow-disk blip) heals on the next pass instead
+ * of being skipped until the next reboot,
  * and a genuinely UNRECOVERABLE database wedges loudly - which is correct, since
  * a node whose DB cannot hold its schema cannot serve apps and appremove would
  * not rescue it. The realistic wedge that finding motivated - a unique index
@@ -273,6 +274,166 @@ async function ensureIndexes(collection, specs) {
   }
 }
 
+// How long boot waits before it runs a database step that failed again.
+const BOOT_STEP_RETRY_MS = 15 * 1000;
+
+/**
+ * Runs `step` until it succeeds, waiting BOOT_STEP_RETRY_MS after each
+ * failure. Boot holds at a database step that fails rather than starting again
+ * from the top, so nothing boot already started runs twice.
+ * @param {string} what Names the step in the log.
+ * @param {function(): Promise<*>} step
+ * @returns {Promise<*>} What the step resolved.
+ */
+async function untilSucceeds(what, step) {
+  try {
+    return await step();
+  } catch (error) {
+    log.error(`${what} failed, running it again in ${BOOT_STEP_RETRY_MS / 1000}s: ${error.message}`);
+    await serviceHelper.delay(BOOT_STEP_RETRY_MS);
+    return untilSucceeds(what, step);
+  }
+}
+
+/**
+ * Brings every collection boot depends on to its schema: indexes, the merges
+ * their unique indexes need, and the one-off repairs. Every step is safe to
+ * repeat, and any failure rejects.
+ * @returns {Promise<void>}
+ */
+async function prepareDatabaseSchema() {
+  log.info('Preparing local database...');
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.local.database);
+  // Logins survive a restart: every request re-verifies its signature and
+  // re-checks its privilege against the node's current config, and each
+  // session collection's TTL index expires its rows. A login row never holds
+  // the session's signature (loginSignatures does, for a minute); one that
+  // does loses it here.
+  await dbHelper.updateInDatabase(database, config.database.local.collections.loggedUsers, { signature: { $exists: true } }, { $unset: { signature: '' } });
+  // Named literally because they are no longer part of the schema: the payment
+  // request and receipt collections outlived the endpoint that wrote them, and
+  // a node's word was never the payment record - the chain is. Dropping is
+  // idempotent, so this costs one 'ns not found' per boot once they are gone.
+  await Promise.all(['activepaymentrequests', 'completedpayments'].map((orphan) => dbHelper
+    .dropCollection(database, orphan).catch((error) => {
+      if (error.message !== 'ns not found') {
+        log.error(error);
+      }
+    })));
+  await ensureIndexes(database.collection(config.database.local.collections.loggedUsers), [
+    { key: { createdAt: 1 }, expireAfterSeconds: 14 * 24 * 60 * 60 },
+  ]);
+  await ensureIndexes(database.collection(config.database.local.collections.activeLoginPhrases), [
+    { key: { createdAt: 1 }, expireAfterSeconds: 900 },
+  ]);
+  await ensureIndexes(database.collection(config.database.local.collections.activeSignatures), [
+    { key: { createdAt: 1 }, expireAfterSeconds: 900 },
+  ]);
+  await ensureIndexes(database.collection(config.database.local.collections.loginSignatures), [
+    { key: { createdAt: 1 }, expireAfterSeconds: 60 },
+    { key: { loginPhrase: 1 } },
+  ]);
+  // legacy pre-incident-schema rows expire via detectedAt; current incident
+  // documents expire via lastSeen. The tamper service purges pre-schema
+  // rows at startup, so the detectedAt pair only matters where old code
+  // still writes; drop it once the fleet is past the incident schema.
+  await ensureIndexes(database.collection(config.database.local.collections.appTamperingEvents), [
+    { key: { detectedAt: 1 }, expireAfterSeconds: 30 * 24 * 60 * 60, name: 'detectedAt_ttl' }, // 30 days
+    { key: { appName: 1, detectedAt: -1 }, name: 'appName_detectedAt' },
+    { key: { lastSeen: 1 }, expireAfterSeconds: 30 * 24 * 60 * 60, name: 'lastSeen_ttl' }, // 30 days
+    { key: { appName: 1, eventType: 1, lastSeen: -1 }, name: 'appName_eventType_lastSeen' },
+  ]);
+  // The unique incident-rollup index lives with its owner: duplicate rollups
+  // must have their counts SUMMED, not one dropped, so the merge needs the
+  // collection's own knowledge rather than a generic dedupe. See
+  // prepareIncidentRollup.
+  await appTamperingDetectionService.prepareIncidentRollup();
+  await appTamperingDetectionService.checkNodeReboot();
+  // appsRuntimeState (localzelapps): merge any pre-unique-index duplicate docs,
+  // then enforce one doc per component identifier
+  await appsRuntimeState.prepareCollection();
+  log.info('Local database prepared');
+  log.info('Preparing temporary database...');
+  // no need to drop temporary messages
+  const databaseTemp = db.db(config.database.appsglobal.database);
+  await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages), [
+    { key: { receivedAt: 1 }, expireAfterSeconds: tempMsgTtlS },
+  ]);
+  log.info('Temporary database prepared');
+  log.info('Preparing Flux Apps locations');
+
+  // ToDo: Fix all these broken database drops / index creations / removals all over the place. The prior dropIndex was removing the
+  // index entirely so there was no index at all!
+
+  // The below index is created in the Explorer Service. We need to remove all the database indexing from the Explorer Service.
+  // It's not the explorer service's responsibility, and other services need these indexes before Explorer Service creates them.
+
+  // It should be the dbService's responsibility that the db is in a state fit for use.
+
+  // we have to create this index again here, as we need it to repair the db. As we were deleting this on every reboot (and it was only created when scannedHeight was 0)
+  // Creating an index that already exists is a no-op
+  await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsMessages), [
+    { key: { hash: 1 }, name: 'query for getting zelapp message based on hash', unique: true, recover: dedupeByKey },
+    { key: { 'appSpecifications.version': 1 }, name: 'query for getting app message based on version' },
+    { key: { 'appSpecifications.nodes': 1 }, name: 'query for getting app message based on nodes' },
+  ]);
+  await dbHelper.ensureNewestAppMessageIndex(databaseTemp.collection(config.database.appsglobal.collections.appsMessages));
+  // TTL is driven by expireAt (set per-document by store functions). Migrate from old broadcastedAt-based TTL.
+  await dropIndexIfPresent(databaseTemp.collection(config.database.appsglobal.collections.appsLocations), 'broadcastedAt_1');
+  await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsLocations), [
+    { key: { expireAt: 1 }, expireAfterSeconds: 0 },
+    { key: { name: 1 }, name: 'query for getting zelapp location based on zelapp specs name' },
+    { key: { ip: 1, name: 1 } },
+  ]);
+  log.info('Flux Apps locations prepared');
+  await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents), [
+    { key: { expireAt: 1 }, expireAfterSeconds: 0 },
+    { key: { ip: 1, type: 1, dedupKey: 1 }, unique: true, recover: dedupeByKey },
+    { key: { broadcastedAt: 1 } },
+    { key: { createdAt: 1 } },
+    // the events of one type still standing, every move among them
+    { key: { type: 1, expireAt: 1 }, name: 'events by type and expiry' },
+    // the moves that lead to an address
+    { key: { 'data.newIP': 1 }, name: 'moves by the address they lead to', partialFilterExpression: { type: 'ipchanged' } },
+  ]);
+  log.info('App state events collection prepared');
+  await dropIndexIfPresent(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), 'broadcastedAt_1');
+  await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), [
+    { key: { expireAt: 1 }, expireAfterSeconds: 0 },
+    { key: { broadcastedAt: 1 } },
+    { key: { 'data.name': 1, 'data.ip': 1 }, unique: true, recover: dedupeByKey },
+  ]);
+  log.info('Signed appinstalling broadcasts collection prepared');
+  await dropIndexIfPresent(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations), 'broadcastedAt_1');
+  await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations), [
+    { key: { expireAt: 1 }, expireAfterSeconds: 0 },
+    { key: { name: 1 }, name: 'query for getting flux app install location based on specs name' },
+    { key: { name: 1, ip: 1 }, name: 'query for getting flux app install location based on specs name and node ip' },
+  ]);
+  log.info('Flux Apps installing locations prepared');
+  await dropIndexIfPresent(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations), 'cachedAt_1');
+  await dropIndexIfPresent(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations), 'broadcastedAt_1');
+  await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations), [
+    { key: { expireAt: 1 }, expireAfterSeconds: 0 },
+    { key: { name: 1 }, name: 'query for getting flux app install errors location based on specs name' },
+    { key: { name: 1, hash: 1 }, name: 'query for getting flux app install errors location based on specs name and hash' },
+    { key: { name: 1, hash: 1, ip: 1 }, name: 'query for getting flux app install errors location based on specs name and hash and node ip' },
+  ]);
+  log.info('App installing errors locations prepared');
+  await dropIndexIfPresent(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts), 'broadcastedAt_1');
+  await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts), [
+    { key: { expireAt: 1 }, expireAfterSeconds: 0 },
+    { key: { broadcastedAt: 1 } },
+    { key: { 'data.name': 1, 'data.hash': 1, 'data.ip': 1 }, unique: true, recover: dedupeByKey },
+  ]);
+  log.info('Signed app installing errors broadcasts collection prepared');
+
+  // This fixes an issue where the appsMessage db has NaN for valueSat. Once db is repaired on all nodes,
+  // we can remove this.
+  await dbHelper.repairNanInAppsMessagesDb();
+}
+
 /**
  * To start FluxOS. A series of checks are performed on port and UPnP (Universal Plug and Play) support and mapping. Database connections are established. The other relevant functions required to start FluxOS services are called.
  *
@@ -339,138 +500,8 @@ async function startFluxFunctions() {
     log.info('System service initiated');
     fluxadmService.start();
     log.info('Fluxadm access service initiated');
-    log.info('Preparing local database...');
+    await untilSucceeds('Database schema preparation', prepareDatabaseSchema);
     const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.local.database);
-    // Logins survive a restart: every request re-verifies its signature and
-    // re-checks its privilege against the node's current config, and each
-    // session collection's TTL index expires its rows. A login row never holds
-    // the session's signature (loginSignatures does, for a minute); one that
-    // does loses it here.
-    await dbHelper.updateInDatabase(database, config.database.local.collections.loggedUsers, { signature: { $exists: true } }, { $unset: { signature: '' } }).catch((error) => {
-      log.error(error);
-    });
-    // Named literally because they are no longer part of the schema: the payment
-    // request and receipt collections outlived the endpoint that wrote them, and
-    // a node's word was never the payment record - the chain is. Dropping is
-    // idempotent, so this costs one 'ns not found' per boot once they are gone.
-    await Promise.all(['activepaymentrequests', 'completedpayments'].map((orphan) => dbHelper
-      .dropCollection(database, orphan).catch((error) => {
-        if (error.message !== 'ns not found') {
-          log.error(error);
-        }
-      })));
-    await ensureIndexes(database.collection(config.database.local.collections.loggedUsers), [
-      { key: { createdAt: 1 }, expireAfterSeconds: 14 * 24 * 60 * 60 },
-    ]);
-    await ensureIndexes(database.collection(config.database.local.collections.activeLoginPhrases), [
-      { key: { createdAt: 1 }, expireAfterSeconds: 900 },
-    ]);
-    await ensureIndexes(database.collection(config.database.local.collections.activeSignatures), [
-      { key: { createdAt: 1 }, expireAfterSeconds: 900 },
-    ]);
-    await ensureIndexes(database.collection(config.database.local.collections.loginSignatures), [
-      { key: { createdAt: 1 }, expireAfterSeconds: 60 },
-      { key: { loginPhrase: 1 } },
-    ]);
-    // legacy pre-incident-schema rows expire via detectedAt; current incident
-    // documents expire via lastSeen. The tamper service purges pre-schema
-    // rows at startup, so the detectedAt pair only matters where old code
-    // still writes; drop it once the fleet is past the incident schema.
-    await ensureIndexes(database.collection(config.database.local.collections.appTamperingEvents), [
-      { key: { detectedAt: 1 }, expireAfterSeconds: 30 * 24 * 60 * 60, name: 'detectedAt_ttl' }, // 30 days
-      { key: { appName: 1, detectedAt: -1 }, name: 'appName_detectedAt' },
-      { key: { lastSeen: 1 }, expireAfterSeconds: 30 * 24 * 60 * 60, name: 'lastSeen_ttl' }, // 30 days
-      { key: { appName: 1, eventType: 1, lastSeen: -1 }, name: 'appName_eventType_lastSeen' },
-    ]);
-    // The unique incident-rollup index lives with its owner: duplicate rollups
-    // must have their counts SUMMED, not one dropped, so the merge needs the
-    // collection's own knowledge rather than a generic dedupe. See
-    // prepareIncidentRollup.
-    await appTamperingDetectionService.prepareIncidentRollup();
-    await appTamperingDetectionService.checkNodeReboot();
-    // appsRuntimeState (localzelapps): merge any pre-unique-index duplicate docs,
-    // then enforce one doc per component identifier
-    await appsRuntimeState.prepareCollection();
-    log.info('Local database prepared');
-    log.info('Preparing temporary database...');
-    // no need to drop temporary messages
-    const databaseTemp = db.db(config.database.appsglobal.database);
-    await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages), [
-      { key: { receivedAt: 1 }, expireAfterSeconds: tempMsgTtlS },
-    ]);
-    log.info('Temporary database prepared');
-    log.info('Preparing Flux Apps locations');
-
-    // ToDo: Fix all these broken database drops / index creations / removals all over the place. The prior dropIndex was removing the
-    // index entirely so there was no index at all!
-
-    // The below index is created in the Explorer Service. We need to remove all the database indexing from the Explorer Service.
-    // It's not the explorer service's responsibility, and other services need these indexes before Explorer Service creates them.
-
-    // It should be the dbService's responsibility that the db is in a state fit for use.
-
-    // we have to create this index again here, as we need it to repair the db. As we were deleting this on every reboot (and it was only created when scannedHeight was 0)
-    // Creating an index that already exists is a no-op
-    await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsMessages), [
-      { key: { hash: 1 }, name: 'query for getting zelapp message based on hash', unique: true, recover: dedupeByKey },
-      { key: { 'appSpecifications.version': 1 }, name: 'query for getting app message based on version' },
-      { key: { 'appSpecifications.nodes': 1 }, name: 'query for getting app message based on nodes' },
-    ]);
-    await dbHelper.ensureNewestAppMessageIndex(databaseTemp.collection(config.database.appsglobal.collections.appsMessages));
-    // TTL is driven by expireAt (set per-document by store functions). Migrate from old broadcastedAt-based TTL.
-    await dropIndexIfPresent(databaseTemp.collection(config.database.appsglobal.collections.appsLocations), 'broadcastedAt_1');
-    await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsLocations), [
-      { key: { expireAt: 1 }, expireAfterSeconds: 0 },
-      { key: { name: 1 }, name: 'query for getting zelapp location based on zelapp specs name' },
-      { key: { ip: 1, name: 1 } },
-    ]);
-    log.info('Flux Apps locations prepared');
-    await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents), [
-      { key: { expireAt: 1 }, expireAfterSeconds: 0 },
-      { key: { ip: 1, type: 1, dedupKey: 1 }, unique: true, recover: dedupeByKey },
-      { key: { broadcastedAt: 1 } },
-      { key: { createdAt: 1 } },
-      // the events of one type still standing, every move among them
-      { key: { type: 1, expireAt: 1 }, name: 'events by type and expiry' },
-      // the moves that lead to an address
-      { key: { 'data.newIP': 1 }, name: 'moves by the address they lead to', partialFilterExpression: { type: 'ipchanged' } },
-    ]);
-    log.info('App state events collection prepared');
-    await dropIndexIfPresent(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), 'broadcastedAt_1');
-    await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), [
-      { key: { expireAt: 1 }, expireAfterSeconds: 0 },
-      { key: { broadcastedAt: 1 } },
-      { key: { 'data.name': 1, 'data.ip': 1 }, unique: true, recover: dedupeByKey },
-    ]);
-    log.info('Signed appinstalling broadcasts collection prepared');
-    await dropIndexIfPresent(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations), 'broadcastedAt_1');
-    await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations), [
-      { key: { expireAt: 1 }, expireAfterSeconds: 0 },
-      { key: { name: 1 }, name: 'query for getting flux app install location based on specs name' },
-      { key: { name: 1, ip: 1 }, name: 'query for getting flux app install location based on specs name and node ip' },
-    ]);
-    log.info('Flux Apps installing locations prepared');
-    await dropIndexIfPresent(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations), 'cachedAt_1');
-    await dropIndexIfPresent(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations), 'broadcastedAt_1');
-    await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations), [
-      { key: { expireAt: 1 }, expireAfterSeconds: 0 },
-      { key: { name: 1 }, name: 'query for getting flux app install errors location based on specs name' },
-      { key: { name: 1, hash: 1 }, name: 'query for getting flux app install errors location based on specs name and hash' },
-      { key: { name: 1, hash: 1, ip: 1 }, name: 'query for getting flux app install errors location based on specs name and hash and node ip' },
-    ]);
-    log.info('App installing errors locations prepared');
-    await dropIndexIfPresent(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts), 'broadcastedAt_1');
-    await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts), [
-      { key: { expireAt: 1 }, expireAfterSeconds: 0 },
-      { key: { broadcastedAt: 1 } },
-      { key: { 'data.name': 1, 'data.hash': 1, 'data.ip': 1 }, unique: true, recover: dedupeByKey },
-    ]);
-    log.info('Signed app installing errors broadcasts collection prepared');
-
-    // This fixes an issue where the appsMessage db has NaN for valueSat. Once db is repaired on all nodes,
-    // we can remove this.
-    await dbHelper.repairNanInAppsMessagesDb();
 
     // The location table this node already holds, brought back as soon as the
     // database is up. Detached and best-effort - every consumer degrades safely
@@ -556,7 +587,7 @@ async function startFluxFunctions() {
       log.error('fluxd is running without addressindex=1. FluxOS needs the address index to order app messages. Set addressindex=1 in flux.conf and reindex the daemon, or reinstall the node. FluxOS is stopping.');
       process.exit(1);
     }
-    await paymentPositions.backfillPaymentPositions();
+    await untilSucceeds('Payment position backfill', () => paymentPositions.backfillPaymentPositions());
 
     // Initialize app sync orchestrator and spawner
     const orchestrator = new AppSyncOrchestrator({
@@ -978,6 +1009,8 @@ module.exports = {
   ensureIndex,
   ensureIndexes,
   dropIndexIfPresent,
+  untilSucceeds,
+  prepareDatabaseSchema,
   dedupeByKey,
   // testing exports
   dosState,
