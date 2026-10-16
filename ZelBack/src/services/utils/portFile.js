@@ -13,19 +13,50 @@
  * temporary file in the same directory and renamed over the final name, so a
  * reader sees the old file or the new one, never a partial one.
  *
+ * On ArcaneOS the unit's RuntimeDirectory makes /run/fluxos. A legacy node runs
+ * FluxOS unprivileged with passwordless sudo, and /run is root's: there FluxOS
+ * makes the directory, owned by its own account, through sudo when it cannot
+ * write it.
+ *
  * Neither writing nor removing ever throws: FluxOS serves without the file.
  */
 
 const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const log = require('../../lib/log');
+const serviceHelper = require('../serviceHelper');
+
+const isArcane = Boolean(process.env.FLUXOS_PATH);
 
 const PORT_FILE_DIR = '/run/fluxos';
 const PORT_FILE_NAME = 'fluxos.json';
 const DIR_MODE = 0o755;
 const FILE_MODE = 0o644;
+
+/**
+ * Make dir, mode DIR_MODE. On a legacy node a directory this process may not
+ * make, or may not set the mode of because another account owns it, is made
+ * through sudo, owned by this process's account.
+ * @param {string} dir - the directory
+ * @returns {Promise<void>} Rejects when the directory cannot be made.
+ */
+async function makeDirectory(dir) {
+  try {
+    await fs.mkdir(dir, { recursive: true });
+    await fs.chmod(dir, DIR_MODE);
+  } catch (error) {
+    if (isArcane || (error.code !== 'EACCES' && error.code !== 'EPERM')) throw error;
+    const { uid, gid } = os.userInfo();
+    const { error: sudoError } = await serviceHelper.runCommand('install', {
+      runAsRoot: true,
+      params: ['-d', '-m', DIR_MODE.toString(8), '-o', String(uid), '-g', String(gid), dir],
+    });
+    if (sudoError) throw new Error(`${error.message}; sudo install -d failed: ${sudoError.message || sudoError}`);
+  }
+}
 
 /**
  * Write the port file, with this process's id. Never rejects.
@@ -43,9 +74,8 @@ async function writePortFile(ports, { dir = PORT_FILE_DIR } = {}) {
     pid: process.pid,
   });
   try {
-    await fs.mkdir(dir, { recursive: true });
     // Explicit modes: the process umask applies to mkdir and to a file's creation.
-    await fs.chmod(dir, DIR_MODE);
+    await makeDirectory(dir);
     await fs.writeFile(tmp, `${content}\n`, { mode: FILE_MODE });
     await fs.chmod(tmp, FILE_MODE);
     await fs.rename(tmp, file);
