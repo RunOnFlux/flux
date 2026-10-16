@@ -788,11 +788,74 @@ async function monitorAptCache(event) {
 }
 
 /**
+ * Where systemd is told to make /run/fluxd at every boot on a legacy node.
+ */
+const FLUXD_TMPFILES_RULE = '/etc/tmpfiles.d/fluxd.conf';
+
+/**
+ * Makes /run/fluxd, where fluxd publishes the node's address, exist on a legacy
+ * node from boot on, and now. fluxd runs unprivileged and cannot make a directory
+ * in /run, which a reboot empties; on ArcaneOS its unit's RuntimeDirectory does.
+ * Here a tmpfiles rule does, owned by the owner of fluxd's data directory: fluxd
+ * writes its data directory, so that is the account fluxd runs as, whatever
+ * starts it and whether or not it is running. The rule is rewritten when the
+ * owner differs and applied every time. Never rejects.
+ * @returns {Promise<boolean>} True when the rule is in place and applied.
+ */
+async function ensureFluxdRunDirectory() {
+  if (isArcane) return true;
+
+  let stageDir = null;
+  try {
+    await daemonServiceUtils.ensureConfigLoaded();
+    const fluxdDir = daemonServiceUtils.getFluxdDir();
+    if (!fluxdDir) {
+      log.error('ensureFluxdRunDirectory - fluxd\'s data directory is unknown');
+      return false;
+    }
+    const { uid, gid } = await fs.stat(fluxdDir);
+    const rule = `d /run/fluxd 0755 ${uid} ${gid} -\n`;
+
+    const current = await fs.readFile(FLUXD_TMPFILES_RULE, 'utf8').catch(() => null);
+    if (current !== rule) {
+      stageDir = await fs.mkdtemp(path.join(os.tmpdir(), 'fluxd-tmpfiles-'));
+      const staged = path.join(stageDir, 'fluxd.conf');
+      await fs.writeFile(staged, rule);
+      const { error } = await serviceHelper.runCommand('install', {
+        runAsRoot: true,
+        params: ['-m', '0644', '-o', 'root', '-g', 'root', staged, FLUXD_TMPFILES_RULE],
+      });
+      if (error) {
+        log.error(`ensureFluxdRunDirectory - ${FLUXD_TMPFILES_RULE} could not be installed: ${error.message || error}`);
+        return false;
+      }
+      log.info(`ensureFluxdRunDirectory - ${FLUXD_TMPFILES_RULE}: ${rule.trim()}`);
+    }
+
+    const { error: createError } = await serviceHelper.runCommand('systemd-tmpfiles', {
+      runAsRoot: true,
+      params: ['--create', FLUXD_TMPFILES_RULE],
+    });
+    if (createError) {
+      log.error(`ensureFluxdRunDirectory - systemd-tmpfiles could not apply ${FLUXD_TMPFILES_RULE}: ${createError.message || createError}`);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    log.error(`ensureFluxdRunDirectory - ${error.message}`);
+    return false;
+  } finally {
+    if (stageDir) await fs.rm(stageDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
  * @returns {Promise<void>}
  */
 async function monitorSystem() {
   if (isArcane) return;
 
+  const runDirectory = ensureFluxdRunDirectory();
   let installed = [];
   try {
     // ensureChronyd answers whether chrony ended up configured, which is true
@@ -829,6 +892,7 @@ async function monitorSystem() {
   } catch (error) {
     log.error(error);
   } finally {
+    await runDirectory;
     // Published on every path out of here, including the ones that failed.
     // "Checked and had nothing to do" is a different fact from "has not run
     // yet", and a check that threw is a third - tried and could not. All three
@@ -1235,6 +1299,7 @@ module.exports = {
   cacheUpdateTime,
   enableFluxdZmq,
   ensureChronyd,
+  ensureFluxdRunDirectory,
   dpkgFrontendLocked,
   ensurePackageVersion,
   getPackageStatus,
