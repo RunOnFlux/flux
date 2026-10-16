@@ -313,6 +313,28 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
+  describe('checkAndRemoveEnterpriseAppsOnNonArcane', () => {
+    afterEach(() => sinon.restore());
+
+    it('runs again once the registry it could not read answers, and not after', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findInDatabase').resolves([{ name: 'enterpriseCandidate' }]);
+      const registryRead = sinon.stub(dbHelper, 'findOneInDatabase');
+      registryRead.onFirstCall().rejects(new MongoNetworkTimeoutError('timed out'));
+      registryRead.resolves({ name: 'enterpriseCandidate', version: 7 });
+
+      await advancedWorkflows.checkAndRemoveEnterpriseAppsOnNonArcane();
+      sinon.assert.calledOnce(registryRead);
+
+      await clock.tickAsync(5 * 60 * 1000);
+      sinon.assert.calledTwice(registryRead);
+
+      await clock.tickAsync(60 * 60 * 1000);
+      sinon.assert.calledTwice(registryRead);
+    });
+  });
+
   describe('softRedeployComponent tests', () => {
     let globalState;
     let res;
@@ -337,6 +359,17 @@ describe('advancedWorkflows tests', () => {
     // whatever its last test set standing for the rest of the file.
     afterEach(() => {
       resetGlobalState();
+    });
+
+    it('answers the database error, not "not found", when the registry cannot be read, and clears its flag', async () => {
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').rejects(new MongoNetworkTimeoutError('timed out'));
+
+      const error = await advancedWorkflows.softRedeployComponent('myapp', 'frontend', res).catch((caught) => caught);
+
+      expect(error).to.be.instanceOf(MongoNetworkTimeoutError);
+      expect(globalState.softRedeployInProgress).to.equal(false);
+      sinon.restore();
     });
 
     it('should return early if removal is in progress', async () => {

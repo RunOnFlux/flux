@@ -295,24 +295,23 @@ function hasV8ComponentStructureChange(appSpecifications, installedApp) {
   return componentCountChanged || componentNamesChanged;
 }
 
-// Get strict application specifications
+/**
+ * The registry row of `appName`, or null when it has none. Rejects when the
+ * registry cannot be read.
+ * @param {string} appName
+ * @returns {Promise<object|null>}
+ */
 async function getStrictApplicationSpecifications(appName) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
 
-    const query = { name: appName };
-    const projection = {
-      projection: {
-        _id: 0,
-      },
-    };
-    const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-    return appInfo;
-  } catch (error) {
-    log.error(`Error getting strict app specifications for ${appName}:`, error);
-    return null;
-  }
+  const query = { name: appName };
+  const projection = {
+    projection: {
+      _id: 0,
+    },
+  };
+  return dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
 }
 
 /**
@@ -468,12 +467,17 @@ async function findAndRestoreNonEnterpriseSpecs(installedApp) {
   return specsForRemoval;
 }
 
+// How long after an enterprise check a database read stopped it runs again.
+const ENTERPRISE_CHECK_RETRY_MS = 5 * 60 * 1000;
+
 /**
  * Check and remove enterprise apps (v8+) running on non-arcaneOS nodes.
- * This function runs once at startup to clean up incompatible apps.
+ * This function runs once at startup to clean up incompatible apps, and again
+ * after ENTERPRISE_CHECK_RETRY_MS while a database read stops it.
  * @returns {Promise<void>} Completion status
  */
 async function checkAndRemoveEnterpriseAppsOnNonArcane() {
+  let unread = false;
   try {
     // Skip if running on arcaneOS
     if (isArcane) {
@@ -487,6 +491,7 @@ async function checkAndRemoveEnterpriseAppsOnNonArcane() {
     const installedAppsRes = await getInstalledAppsFromDb();
     if (installedAppsRes.status !== 'success') {
       log.error('Failed to get installed apps for enterprise check');
+      unread = true;
       return;
     }
 
@@ -538,6 +543,7 @@ async function checkAndRemoveEnterpriseAppsOnNonArcane() {
         }
       } catch (error) {
         log.error(`Error processing app ${installedApp.name} for enterprise check:`, error);
+        if (dbHelper.isDatabaseError(error)) unread = true;
         // Continue with next app even if this one fails
       }
     }
@@ -545,6 +551,13 @@ async function checkAndRemoveEnterpriseAppsOnNonArcane() {
     log.info('Enterprise app compatibility check completed');
   } catch (error) {
     log.error('Error in checkAndRemoveEnterpriseAppsOnNonArcane:', error);
+    if (dbHelper.isDatabaseError(error)) unread = true;
+  } finally {
+    if (unread) {
+      log.warn(`Enterprise app compatibility check could not read every app, running again in ${ENTERPRISE_CHECK_RETRY_MS / 60000} min`);
+      const timer = setTimeout(checkAndRemoveEnterpriseAppsOnNonArcane, ENTERPRISE_CHECK_RETRY_MS);
+      if (timer.unref) timer.unref();
+    }
   }
 }
 
