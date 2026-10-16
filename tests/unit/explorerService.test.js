@@ -2149,6 +2149,30 @@ describe('explorerService tests', () => {
       expect((await hashes.find({}, { projection: { _id: 0, txid: 1 } }).sort({ txid: 1 }).toArray()).map((r) => r.txid)).to.deep.equal(['first', 'only']);
     });
 
+    it('moves the stored message of a hash it kept the earliest payment of onto that payment', async () => {
+      const messages = dbHelper.databaseConnection().db(config.database.appsglobal.database).collection(config.database.appsglobal.collections.appsMessages);
+      await messages.deleteMany({ hash: { $in: ['paid', 'single'] } });
+      await hashes.insertMany([
+        { hash: 'paid', txid: 'first', height: 300, value: 5 },
+        { hash: 'paid', txid: 'later', height: 400, value: 7 },
+        { hash: 'single', txid: 'only', height: 500, value: 9 },
+      ]);
+      await messages.insertMany([
+        { hash: 'paid', txid: 'later', height: 400, valueSat: 7, appSpecifications: { name: 'PaidTwice' } },
+        { hash: 'single', txid: 'only', height: 500, valueSat: 9, appSpecifications: { name: 'PaidOnce' } },
+      ]);
+      try {
+        await explorerService.keepEarliestPayment(hashes);
+
+        const paid = await messages.findOne({ hash: 'paid' }, { projection: { _id: 0, txid: 1, height: 1, valueSat: 1 } });
+        expect(paid).to.deep.equal({ txid: 'first', height: 300, valueSat: 5 });
+        const single = await messages.findOne({ hash: 'single' }, { projection: { _id: 0, txid: 1, height: 1 } });
+        expect(single, 'a hash with one payment is left as it is').to.deep.equal({ txid: 'only', height: 500 });
+      } finally {
+        await messages.deleteMany({ hash: { $in: ['paid', 'single'] } });
+      }
+    });
+
     it('builds the unique hash index over records that hold duplicates, keeping the earliest payment', async () => {
       // inserted earliest first, so the newest row is the later payment
       await hashes.insertMany([

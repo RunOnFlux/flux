@@ -753,7 +753,9 @@ async function processBlock(blockHeight, isInsightExplorer) {
  * hash, and answers how many it removed: a payment this node already holds
  * stands (standingAppPayment), so a scan keeps the earliest, and a record
  * whose transaction the chain does not hold is no payment and gives way to one
- * that is. The recovery the unique hash index is built with.
+ * that is. The stored message of each such hash then moves to the record kept,
+ * and the registry rebuild at boot writes its app's row from it. The recovery
+ * the unique hash index is built with.
  * @param {object} collection the appsHashes collection
  * @returns {Promise<number>}
  */
@@ -761,11 +763,24 @@ async function keepEarliestPayment(collection) {
   const groups = await collection.aggregate([
     { $addFields: { offChain: { $cond: [{ $eq: ['$notOnChain', true] }, 1, 0] } } },
     { $sort: { offChain: 1, height: 1, txIndex: 1, _id: 1 } },
-    { $group: { _id: '$hash', ids: { $push: '$_id' } } },
-    { $match: { 'ids.1': { $exists: true } } },
+    {
+      $group: {
+        _id: '$hash',
+        rows: {
+          $push: {
+            id: '$_id', txid: '$txid', height: '$height', value: '$value',
+          },
+        },
+      },
+    },
+    { $match: { 'rows.1': { $exists: true } } },
   ]).toArray();
-  const toRemove = groups.flatMap((group) => group.ids.slice(1));
-  if (toRemove.length) await collection.deleteMany({ _id: { $in: toRemove } });
+  const toRemove = groups.flatMap((group) => group.rows.slice(1).map((row) => row.id));
+  if (!toRemove.length) return 0;
+  await collection.deleteMany({ _id: { $in: toRemove } });
+  await messageVerifier.moveStoredMessagesToPayments(groups.map(({ _id: hash, rows: [kept] }) => ({
+    hash, txid: kept.txid, height: kept.height, value: kept.value,
+  })));
   return toRemove.length;
 }
 
