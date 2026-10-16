@@ -10,6 +10,8 @@ const messageStore = require('../../ZelBack/src/services/appMessaging/messageSto
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const verifyPool = require('../../ZelBack/src/services/utils/verifyPool');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
+const { MongoNetworkTimeoutError } = require('mongodb');
+const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 const { requireMongo } = require('./dbTestHelper');
 
 const { VerifyResult } = fluxCommunicationUtils;
@@ -102,6 +104,15 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
 
     it('is dropped, as nothing shows who left, when no apprunning is stored for the address it left', async () => {
       expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.NODE_NOT_FOUND);
+    });
+
+    it('is unreadable, not dropped, when the rows at the address it left cannot be read', async () => {
+      await ranAt(OLD, pubKey);
+      sinon.stub(dbHelper, 'databaseConnection').returns({
+        db: () => ({ collection: () => ({ findOne: sinon.stub().rejects(new MongoNetworkTimeoutError('timed out')) }) }),
+      });
+
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.UNREADABLE);
     });
 
     it('is dropped when the only apprunning stored for the address it left has expired', async () => {
@@ -261,6 +272,24 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
 
       expect(await rowsAt()).to.deep.equal([OLD]);
       expect(await events.countDocuments({ ip: OLD, type: 'ipchanged' })).to.equal(0);
+    });
+
+    it('does not credit a response carrying a move whose proof cannot be read', async () => {
+      const completed = sinon.spy();
+      appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, completed);
+      try {
+        await sync([]);
+        sinon.assert.calledOnce(completed);
+
+        sinon.stub(dbHelper, 'databaseConnection').returns({
+          db: () => ({ collection: () => ({ findOne: sinon.stub().rejects(new MongoNetworkTimeoutError('timed out')) }) }),
+        });
+        await sync([movedAt(Date.now() - 2 * MINUTE)]);
+
+        sinon.assert.calledOnce(completed);
+      } finally {
+        appSyncEvents.off(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, completed);
+      }
     });
 
     it('holds no rows to carry from a response sent once nothing is listed at the address the node left', async () => {

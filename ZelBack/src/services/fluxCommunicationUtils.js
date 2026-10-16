@@ -106,6 +106,7 @@ const VerifyResult = Object.freeze({
   NODE_NOT_FOUND: 'nodeNotFound',
   BAD_SIGNATURE: 'badSignature',
   PUBKEY_MISMATCH: 'pubkeyMismatch',
+  UNREADABLE: 'unreadable',
 });
 
 /**
@@ -136,28 +137,23 @@ function signerAddresses(payload, target) {
  * only when an apprunning came after its eviction and after any move away from
  * it, so the newest apprunning is the one that wrote them.
  * @param {string} address
- * @returns {Promise<string|null>} Null when no rows stand there, no apprunning
- *   is stored for it, or either cannot be read.
+ * @returns {Promise<string|null>} Null when no rows stand there or no apprunning
+ *   is stored for it. Rejects when either cannot be read.
  */
 async function lastSignerAt(address) {
-  try {
-    const database = dbHelper.databaseConnection().db(config.database.appsglobal.database);
-    const row = await database.collection(config.database.appsglobal.collections.appsLocations)
-      .findOne({ ip: address }, { projection: { _id: 0, ip: 1 } });
-    if (!row) return null;
-    const [event] = await database.collection(config.database.appsglobal.collections.appStateEvents)
-      .find(
-        { ip: address, type: 'apprunning', expireAt: { $gt: new Date() } },
-        { projection: { _id: 0, 'envelope.pubKey': 1 } },
-      )
-      .sort({ broadcastedAt: -1 })
-      .limit(1)
-      .toArray();
-    return event?.envelope?.pubKey ?? null;
-  } catch (error) {
-    log.error(`lastSignerAt ${address}: ${error.message}`);
-    return null;
-  }
+  const database = dbHelper.databaseConnection().db(config.database.appsglobal.database);
+  const row = await database.collection(config.database.appsglobal.collections.appsLocations)
+    .findOne({ ip: address }, { projection: { _id: 0, ip: 1 } });
+  if (!row) return null;
+  const [event] = await database.collection(config.database.appsglobal.collections.appStateEvents)
+    .find(
+      { ip: address, type: 'apprunning', expireAt: { $gt: new Date() } },
+      { projection: { _id: 0, 'envelope.pubKey': 1 } },
+    )
+    .sort({ broadcastedAt: -1 })
+    .limit(1)
+    .toArray();
+  return event?.envelope?.pubKey ?? null;
 }
 
 /**
@@ -206,6 +202,7 @@ async function listedSignerVerdict(addresses, pubKey) {
  *   standing              pubKey          OK
  *   standing              another key     PUBKEY_MISMATCH
  *   none                  -               NODE_NOT_FOUND
+ *   unreadable            -               UNREADABLE
  *
  * With no rows at the address a move left, the move has nothing to carry, and
  * the chain already lists its node where it is.
@@ -214,7 +211,12 @@ async function listedSignerVerdict(addresses, pubKey) {
  * @returns {Promise<{result: string, reason?: string}>}
  */
 async function lastSignerVerdict(address, pubKey) {
-  const lastSigner = await lastSignerAt(address);
+  let lastSigner;
+  try {
+    lastSigner = await lastSignerAt(address);
+  } catch (error) {
+    return { result: VerifyResult.UNREADABLE, reason: `The location rows at ${address}, which a move signed by ${pubKey} left, cannot be read: ${error.message}` };
+  }
   if (lastSigner === null) {
     return { result: VerifyResult.NODE_NOT_FOUND, reason: `No location rows stand at ${address}, which a move signed by ${pubKey} left` };
   }
@@ -312,8 +314,10 @@ function verifySignaturesInline(items) {
  * signature, then anything that reads the database. A broadcast whose signature
  * fails never costs a database read.
  *
- * NODE_NOT_FOUND is the one refusal that does not count against the peer that
- * relayed the broadcast: the list is cached, and can lag the chain.
+ * NODE_NOT_FOUND and UNREADABLE are the refusals that do not count against the
+ * peer that relayed the broadcast: the list is cached, and can lag the chain,
+ * and UNREADABLE is this node's database not answering, which says nothing of
+ * the broadcast.
  * @param {FluxNetworkMessage[]} broadcasts
  * @param {object} [options]
  * @param {function(object[]): (boolean[]|Promise<boolean[]>)} [options.verifySignatures]

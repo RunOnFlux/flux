@@ -80,6 +80,14 @@ async function handleAppMessages(message, fromIP, port) {
   }
 }
 
+/**
+ * The broadcasts of a sync response that verify. Rejects when any of them
+ * could not be verified because the database did not answer: the response is
+ * then not all recorded, and its peer has not answered.
+ * @param {object[]} broadcasts
+ * @param {string} label
+ * @returns {Promise<object[]>}
+ */
 async function batchVerifyBroadcasts(broadcasts, label) {
   if (broadcasts.length === 0) return [];
 
@@ -87,6 +95,8 @@ async function batchVerifyBroadcasts(broadcasts, label) {
   const verdicts = await fluxCommunicationUtils.verifyBroadcasts(broadcasts, {
     verifySignatures: (items) => verifyPool.verify(items),
   });
+  const unreadable = verdicts.filter(({ result }) => result === VerifyResult.UNREADABLE).length;
+  if (unreadable > 0) throw new Error(`${label} - ${unreadable} broadcasts could not be verified, the database did not answer`);
   const verified = broadcasts.filter((broadcast, i) => verdicts[i].result === VerifyResult.OK);
   const signatureFailures = verdicts.filter(({ result }) => result === VerifyResult.BAD_SIGNATURE).length;
   const nodeCheckFailures = broadcasts.length - verified.length - signatureFailures;
@@ -801,6 +811,10 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
 // byte budget is ever wanted it belongs in lruRateLimit, covering every type, not in a
 // second counter here.
 
+// How long a broadcast this node could not verify, because its database did
+// not answer, waits before it is dispatched again.
+const BROADCAST_VERIFY_RETRY_MS = 30 * 1000;
+
 async function dispatchFluxMessage(msgObj, peerSocket) {
   const codes = peerSocket.closeCodes;
   const {
@@ -890,7 +904,20 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   const { VerifyResult } = fluxCommunicationUtils;
   const verifyResult = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj, undefined, currentTimeStamp);
 
-  if (verifyResult === VerifyResult.OK) {
+  if (verifyResult === VerifyResult.UNREADABLE) {
+    // The slot stays claimed while the broadcast waits, so its copies are not
+    // verified meanwhile; it is dispatched afresh while it is within its window.
+    if (fluxCommunicationUtils.verifyTimestampInFluxBroadcast(msgObj, currentTimeStamp + BROADCAST_VERIFY_RETRY_MS)) {
+      log.warn(`Deferring a ${msgObj.data?.type} from ${peerSocket.direction} peer ${peerSocket.key}: the database did not answer`);
+      setTimeout(() => {
+        releaseSlot();
+        dispatchFluxMessage(msgObj, peerSocket).catch((error) => log.error(error));
+      }, BROADCAST_VERIFY_RETRY_MS);
+    } else {
+      releaseSlot();
+      log.warn(`Dropping a ${msgObj.data?.type} from ${peerSocket.direction} peer ${peerSocket.key}: the database did not answer within its window`);
+    }
+  } else if (verifyResult === VerifyResult.OK) {
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(msgObj, currentTimeStamp);
     if (timestampOK === true) {
       const handler = handlerFor(msgObj.data.type);
