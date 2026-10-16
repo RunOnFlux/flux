@@ -653,6 +653,9 @@ async function startFluxFunctions() {
     // whether this node ran apps at an address it has no record of leaving
     fluxNetworkHelper.setInstalledAppsListedAt((socketAddress) => appQueryService.installedAppsListedAt(socketAddress));
     fluxCommunication.announceRecordedOwnMovesWhenConnected();
+    // a node over the limit on IP changes stays out of service from boot on,
+    // until the chain has passed its hold
+    fluxNetworkHelper.startIpChangeHoldWatch();
     // every address benchmark reports as this node's own, from boot on: one that
     // differs from the address it last adopted is its move
     fluxNetworkHelper.startOwnAddressWatch();
