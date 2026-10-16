@@ -13,8 +13,8 @@
  *
  * Every outcome except BUSY is returned after the install hold is acquired, so each
  * is a true statement about the app whoever asked for it: concurrent attempts are
- * serialised, and the ones that lose get BUSY. BUSY is therefore the only outcome a
- * caller must keep waiting through rather than act on.
+ * serialised, and the ones that lose get BUSY. BUSY and DEFERRED are therefore the
+ * outcomes a caller must keep waiting through rather than act on.
  *
  * Internal only - nothing answers these to a client, so unlike Privilege the values
  * are ours as well as the names. They are strings rather than booleans so a call
