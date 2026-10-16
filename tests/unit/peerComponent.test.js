@@ -5,12 +5,17 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const axios = require('axios');
 const peerIdentityService = require('../../ZelBack/src/services/peerIdentityService');
-const { PeerComponent, componentStateOnPeers, componentStateOnOtherHolders } = require('../../ZelBack/src/services/appMonitoring/peerComponent');
+const syncthingService = require('../../ZelBack/src/services/syncthingService');
+const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+const globalState = require('../../ZelBack/src/services/utils/globalState');
+const {
+  PeerComponent, componentStateOnPeers, componentStateOnOtherHolders, peerComponentState, peerUndecided,
+} = require('../../ZelBack/src/services/appMonitoring/peerComponent');
 
 describe('peerComponent tests', () => {
   const appId = 'fluxw_a';
   const ctx = {
-    appId, identifier: 'w_a', appName: 'a', liveness: {}, logPrefix: 'test',
+    appIds: [appId], identifier: 'w_a', appName: 'a', liveness: {}, logPrefix: 'test',
   };
 
   // Each peer answers /apps/heldcomponents with what it holds; a peer given a
@@ -103,6 +108,96 @@ describe('peerComponent tests', () => {
       ], ctx);
 
       expect(state).to.equal(PeerComponent.UNKNOWN);
+    });
+  });
+
+  // An app with more than one g: component is held by the node that holds any of
+  // them: its primary runs them together.
+  describe('an app with more than one g: component', () => {
+    const appIds = ['fluxdb_a', 'fluxweb_a'];
+    const appCtx = {
+      appIds, identifier: 'db_a', appName: 'a', logPrefix: 'test', label: 'peer',
+      liveness: { localConnectivity: () => ({ connected: true }) },
+    };
+    const PEER = '2.2.2.2:16127';
+
+    it('reads a peer holding only a later g: component as holding the app', async () => {
+      peersAnswer({ [PEER]: { held: ['fluxweb_a'] } });
+
+      expect(await peerComponentState(PEER, appCtx)).to.equal(PeerComponent.RUNNING);
+    });
+
+    it('reads a peer holding none of them as not holding the app', async () => {
+      peersAnswer({ [PEER]: { held: ['fluxweb_b', 'fluxother_a'] } });
+
+      expect(await peerComponentState(PEER, appCtx)).to.equal(PeerComponent.NOT_RUNNING);
+    });
+
+    // A whole-name match, as for one component: another app whose component
+    // names merely contain these must not read as this app.
+    it('does not read a longer container name as one of the app\'s', async () => {
+      peersAnswer({ [PEER]: { held: ['fluxweb_a2', 'fluxdb_ab'] } });
+
+      expect(await peerComponentState(PEER, appCtx)).to.equal(PeerComponent.NOT_RUNNING);
+    });
+
+    describe('a peer that does not answer', () => {
+      // This node's syncthing saw the peer after it started, and holds no live
+      // connection to it for whichever folders the test names.
+      const evidence = (connectedFolders) => {
+        sinon.stub(axios, 'get').rejects(new Error('connect ECONNREFUSED'));
+        sinon.stub(syncthingService, 'getConfigDevices').resolves([{ name: PEER, deviceID: 'PEERDEVICE' }]);
+        sinon.stub(syncthingService, 'getDbCompletion').callsFake(async ({ folder }) => ({
+          remoteState: connectedFolders.includes(folder) ? 'valid' : 'notSharing',
+        }));
+        sinon.stub(syncthingService, 'getDeviceStats').resolves({ PEERDEVICE: { lastSeen: '2026-10-16T10:00:00Z' } });
+        sinon.stub(syncthingService, 'getSystemStatus').resolves({ startTime: '2026-10-16T09:00:00Z' });
+        sinon.stub(registryManager, 'shuttingDownNodes').resolves([]);
+      };
+
+      beforeEach(() => {
+        globalState.syncthingDevicesIDCache.clear();
+      });
+
+      it('frees the app when its connection is gone for every g: folder', async () => {
+        evidence([]);
+
+        expect(await peerComponentState(PEER, appCtx)).to.equal(PeerComponent.NOT_RUNNING);
+      });
+
+      // Canary for the test above: the same peer with one folder still connected
+      // is one that may still be writing it.
+      it('does not free the app while one g: folder is still connected to it', async () => {
+        evidence(['fluxweb_a']);
+
+        expect(await peerComponentState(PEER, appCtx)).to.equal(PeerComponent.UNKNOWN);
+      });
+
+      it('does not free the app while the anchor\'s folder is still connected to it', async () => {
+        evidence(['fluxdb_a']);
+
+        expect(await peerComponentState(PEER, appCtx)).to.equal(PeerComponent.UNKNOWN);
+      });
+    });
+
+    describe('peerUndecided', () => {
+      const answers = (decided) => {
+        peerIdentityService.askSigned.resolves({
+          verdict: peerIdentityService.IdentityVerdict.VERIFIED, answer: { held: decided, decided },
+        });
+      };
+
+      it('reads a peer that has decided any of them as decided', async () => {
+        answers(['fluxweb_a']);
+
+        expect(await peerUndecided(PEER, appCtx)).to.equal(false);
+      });
+
+      it('reads a peer that has decided none of them as undecided', async () => {
+        answers(['fluxweb_b']);
+
+        expect(await peerUndecided(PEER, appCtx)).to.equal(true);
+      });
     });
   });
 });

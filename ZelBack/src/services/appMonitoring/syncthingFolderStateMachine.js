@@ -1316,8 +1316,59 @@ async function revertLocalChangesIfSynced(appId, syncStatus) {
 }
 
 /**
+ * What a candidate holds of an app's g: components, for ranking the seed of one
+ * of their folders: the bytes of all of them, and the newest write to any.
+ *
+ * An app whose g: components are seeded on different nodes cannot start: its
+ * primary runs them all, and no node holds every copy. Ranked on the whole app,
+ * every folder of it names the same node. A candidate missing a figure for any
+ * of the folders has not answered.
+ * @param {object|null|undefined} folderClaim What it holds of this folder.
+ * @param {Array<object|null|undefined>} siblingClaims What it holds of each other g: folder.
+ * @returns {object|null|undefined} The claim to rank; this folder's alone when the app has one g: component.
+ */
+function electedAppClaim(folderClaim, siblingClaims) {
+  if (!siblingClaims.length) return folderClaim;
+  const parts = [folderClaim, ...siblingClaims];
+  if (!parts.every(isRankableClaim)) return null;
+  return {
+    bytes: parts.reduce((total, part) => total + part.bytes, 0),
+    newestModified: Math.max(...parts.map((part) => part.newestModified)),
+  };
+}
+
+/**
+ * Which node writes an app's other g: components: this one, a peer whose folder
+ * for one of them sends, or none.
+ *
+ * The app's primary runs all of its g: components, so a folder of one of them
+ * that nothing has seeded - a component the spec has just added - is the
+ * writer's to seed, wherever the address order falls. Seeded anywhere else, the
+ * writer never holds a copy it may run it on, and the node that does is not the
+ * primary.
+ * @param {string[]} siblings Folder ids of the app's other g: components.
+ * @param {object[]} electionList The holders in the election.
+ * @param {string} localSocketAddr
+ * @param {object} liveness Peer folder liveness.
+ * @returns {Promise<{here: boolean, ip?: string}|null>}
+ */
+async function electedAppWriter(siblings, electionList, localSocketAddr, liveness) {
+  const heldHere = await Promise.all(siblings.map((sibling) => appQueryService.holdsComponent(sibling)));
+  if (heldHere.includes(true)) return { here: true };
+  const others = electionList.filter((peer) => peer?.ip && !socketAddressesMatch(peer.ip, localSocketAddr));
+  const answers = await Promise.all(others.map(
+    async (peer) => ({ ip: peer.ip, ...await liveness.read(peer.ip) }),
+  ));
+  const writer = answers.find((answer) => answer.reachable && answer.ready
+    && siblings.some((sibling) => (answer.folders || []).includes(sibling)));
+  return writer ? { here: false, ip: writer.ip } : null;
+}
+
+/**
  * Handle receive-only to send-receive transition
  * @param {Object} params - Parameters
+ * @param {string[]} [params.electedSiblings] Folder ids of the app's other g:
+ *   components, for a g: folder; empty for any other.
  * @returns {Promise<Object>} Updated folder config and cache
  */
 async function handleReceiveOnlyTransition(params) {
@@ -1330,6 +1381,7 @@ async function handleReceiveOnlyTransition(params) {
     unsyncedSubdirs,
     syncthingFolder,
     liveness,
+    electedSiblings = [],
   } = params;
 
   const folderPath = syncthingFolder.path || `${appsFolder}${appId}/appdata`;
@@ -1394,8 +1446,10 @@ async function handleReceiveOnlyTransition(params) {
   // expires - 125 minutes with the app down. Dropped from the list here, before the
   // pick, when this node can show the holder is gone rather than merely silent to it.
   const electionList = await holderListExcludingDead(appId, runningAppList, localSocketAddr, liveness);
-  // What each candidate says it holds for THIS folder, from the probe the pass has
-  // already paid for. This node answers for itself rather than asking itself.
+  // What each candidate says it holds for THIS folder - and for an app with more
+  // than one g: component, for all of their folders (electedAppClaim) - from the
+  // probe the pass has already paid for. This node answers for itself rather than
+  // asking itself.
   //
   // Every claim is filed under the candidate's own address as the election list
   // carries it, because that is the string bestHolder looks it up by, and an object
@@ -1403,10 +1457,13 @@ async function handleReceiveOnlyTransition(params) {
   // decides where the answer comes from and nothing else - keyed from anywhere but
   // the list, a node stops finding its own claim the moment the two spellings of
   // its address differ, and the ranking degrades to the address order silently.
+  const ownClaim = electedAppClaim(holdings, electedSiblings.map((sibling) => globalState.folderHoldings?.get(sibling)));
   const claims = {};
+  // Whether a peer says it holds bytes of this folder itself.
+  let aPeerHoldsThisFolder = false;
   await Promise.all(electionList.map(async (peer) => {
     if (socketAddressesMatch(peer.ip, localSocketAddr)) {
-      if (holdings) claims[peer.ip] = holdings;
+      if (ownClaim) claims[peer.ip] = ownClaim;
       return;
     }
     const answer = await liveness.read(peer.ip);
@@ -1417,7 +1474,9 @@ async function handleReceiveOnlyTransition(params) {
     // an outcome. Deliberately untested for that reason - a test would pass whether
     // this condition were here or not.
     if (answer?.ready && answer.holding && answer.holding[appId]) {
-      claims[peer.ip] = answer.holding[appId];
+      if ((answer.holding[appId].bytes || 0) > 0) aPeerHoldsThisFolder = true;
+      const claim = electedAppClaim(answer.holding[appId], electedSiblings.map((sibling) => answer.holding[sibling]));
+      if (claim) claims[peer.ip] = claim;
     }
   }));
   // A node that cannot read its OWN holdings must not outrank a peer that can show it
@@ -1428,8 +1487,14 @@ async function handleReceiveOnlyTransition(params) {
   const someoneElseHolds = Object.entries(claims)
     .some(([ip, claim]) => !socketAddressesMatch(ip, localSocketAddr) && (claim?.bytes || 0) > 0);
   const standDownOnUnknown = ownHoldingsUnknown && someoneElseHolds;
-  const electedLeader = !standDownOnUnknown
-    && isDesignatedLeader(electionList, localSocketAddr, aPeerHasData, claims);
+  // The writer of the app's other g: components seeds this folder when there is
+  // nothing to seed it from, and no other node does.
+  const appWriter = electedSiblings.length
+    ? await electedAppWriter(electedSiblings, electionList, localSocketAddr, liveness)
+    : null;
+  const electedLeader = appWriter
+    ? appWriter.here && !aPeerHasData && !aPeerHoldsThisFolder
+    : !standDownOnUnknown && isDesignatedLeader(electionList, localSocketAddr, aPeerHasData, claims);
   // The floor holderIsGone asks of a silent holder, asked of this node before
   // its own win can count: a node whose peers have gone quiet is the one that
   // fell over, and a win it confirms in that state seeds the app on a
@@ -1441,12 +1506,13 @@ async function handleReceiveOnlyTransition(params) {
   const isLeader = electedLeader && cache.leaderStreak >= LEADER_CONFIRM_COUNT;
   // Announced on the pass this node is elected, so a rival that confirms on the same
   // pass as it can see it - see findSeedRival.
+  const seedHoldings = electedSiblings.length ? ownClaim : holdings;
   const ownSeedClaim = {
     address: (runningAppList || []).find((peer) => socketAddressesMatch(peer?.ip, localSocketAddr))?.ip ?? localSocketAddr,
-    bytes: holdings?.bytes ?? null,
-    newestModified: holdings?.newestModified ?? null,
+    bytes: seedHoldings?.bytes ?? null,
+    newestModified: seedHoldings?.newestModified ?? null,
   };
-  if (electedLeader && connected) markSeed(appId, 'intent', holdings);
+  if (electedLeader && connected) markSeed(appId, 'intent', seedHoldings);
   else globalState.seedMarks.delete(appId);
   // Withdrawn on every unpromoted pass, so a lost election drops the claim
   // and the intent behind it. It is raised again only where the promotion is
@@ -1492,9 +1558,9 @@ async function handleReceiveOnlyTransition(params) {
   if (isLeader && !blocker?.holdsWritableCopy) {
     // Marked before the peers are read, so a rival deciding at the same moment
     // sees this node. Every way out below that does not seed goes back to intent.
-    markSeed(appId, 'deciding', holdings);
+    markSeed(appId, 'deciding', seedHoldings);
     const notSeeding = () => {
-      markSeed(appId, 'intent', holdings);
+      markSeed(appId, 'intent', seedHoldings);
       decideType(syncthingFolder, containerDataFlags, 'receiveonly');
       return { syncthingFolder, cache };
     };
@@ -1560,7 +1626,7 @@ async function handleReceiveOnlyTransition(params) {
       log.info(`handleReceiveOnlyTransition - ${appId}: deciding to seed took ${decisionMs}ms, longer than a pass (${SEED_DECISION_BUDGET_MS}ms); deciding again on the next pass`);
       return notSeeding();
     }
-    markSeed(appId, 'decided', holdings);
+    markSeed(appId, 'decided', seedHoldings);
     fluxEventBus.count('syncthing:seedDecision', appId, 'seeded');
 
     // Every gate passed - but deciding the promotion is not applying it. The
@@ -1605,7 +1671,8 @@ async function handleReceiveOnlyTransition(params) {
   const reason = `candidates=${electionList.length} self=${selfInElection} `
     + `elected=${electedLeader} connected=${connected} `
     + `streak=${cache.leaderStreak}/${LEADER_CONFIRM_COUNT} `
-    + `peerHasData=${aPeerHasData}`;
+    + `peerHasData=${aPeerHasData}`
+    + (electedSiblings.length ? ` appWriter=${appWriter ? (appWriter.here ? 'here' : appWriter.ip) : 'none'}` : '');
   if (reason !== cache.lastNotPromotedReason) {
     log.info(`handleReceiveOnlyTransition - ${appId} not promoted: ${reason}`);
     cache.lastNotPromotedReason = reason;
@@ -1824,6 +1891,7 @@ async function manageFolderSyncState(params) {
     syncthingFolder,
     installedAppName,
     liveness,
+    electedSiblings = [],
   } = params;
 
   // One per pass per folder, whatever the pass decides: a harness suite counts
@@ -1846,8 +1914,10 @@ async function manageFolderSyncState(params) {
     // its process, and what it holds must not go out until the election says
     // it is primary again.
     log.info(`manageFolderSyncState - ${appId} is sendreceive and not held here, demoting until the election decides`);
+    // Every g: component of the app is asked about: a holder running any of
+    // them is its primary, and this folder's changes are not to go out beside it.
     const othersHold = () => componentStateOnOtherHolders(readAppLocation, localSocketAddr, {
-      appId, identifier, appName: installedAppName, liveness, logPrefix: 'manageFolderSyncState',
+      appIds: [appId, ...electedSiblings], identifier, appName: installedAppName, liveness, logPrefix: 'manageFolderSyncState',
     });
     await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_STANDBY_HOLD, appId);
     await primaryRole.holdAsStandby(identifier, appId, { othersHold });
@@ -1905,6 +1975,7 @@ async function manageFolderSyncState(params) {
       unsyncedSubdirs,
       syncthingFolder,
       liveness,
+      electedSiblings,
     });
     return result;
   }

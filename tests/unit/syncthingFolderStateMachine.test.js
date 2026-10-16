@@ -1047,8 +1047,22 @@ describe('syncthingFolderStateMachine tests', () => {
         const [readLocations, localSocketAddr, ctx, options] = peerComponentMock.componentStateOnOtherHolders.firstCall.args;
         expect(readLocations).to.equal(mockParams.readAppLocation);
         expect(localSocketAddr).to.equal(mockParams.localSocketAddr);
-        expect(ctx).to.include({ appId: 'test-app', identifier: 'app_test', appName: 'test-app' });
+        expect(ctx).to.include({ identifier: 'app_test', appName: 'test-app' });
+        expect(ctx.appIds).to.deep.equal(['test-app']);
         expect(options, 'a node FDM names').to.equal(undefined);
+      });
+
+      // A holder running any g: component of the app is its primary, and this
+      // folder's unsent changes are not to go out beside it.
+      it('asks about every g: component of the app', async () => {
+        mockParams.readAppLocation = sinon.stub().resolves([]);
+        mockParams.electedSiblings = ['fluxweb_test-app'];
+
+        const { othersHold } = await demote();
+        await othersHold();
+
+        const [, , ctx] = peerComponentMock.componentStateOnOtherHolders.firstCall.args;
+        expect(ctx.appIds).to.deep.equal(['test-app', 'fluxweb_test-app']);
       });
     });
 
@@ -2399,6 +2413,116 @@ describe('syncthingFolderStateMachine tests', () => {
     // node's address sorts LAST ('9.0.0.1' after '10.0.0.2' as a string), so under the
     // address order it loses and the empty peer publishes an empty folder over the
     // customer's world. It holds the data, so it must win.
+    // An app with more than one g: component is seeded on one node: its primary
+    // runs them all, so a folder seeded anywhere else leaves no node holding every
+    // copy it may run on.
+    describe('a g: folder of an app with more than one g: component', () => {
+      const SIBLING = 'fluxdb_test-app';
+      // A brand-new folder: nothing indexed, nothing synced, nothing held here.
+      const freshFolder = ({ self = '10.0.0.1:16127', peer = '10.0.0.2:16127', peerAnswer } = {}) => {
+        mockParams.containerDataFlags = 'g';
+        mockParams.electedSiblings = [SIBLING];
+        mockParams.localSocketAddr = self;
+        mockParams.appLocation.resolves([
+          { ip: self, runningSince: 2000, broadcastedAt: 1000 },
+          { ip: peer, runningSince: 2000, broadcastedAt: 1000 },
+        ]);
+        axiosMock.get.resolves({ data: { data: { ready: true, folders: [], holding: {}, ...peerAnswer } } });
+        syncthingServiceMock.getDbStatus.resolves({
+          globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+        });
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+          restarted: false, numberOfExecutions: 1, leaderStreak: 5,
+        });
+      };
+      const seeds = (result) => result.cache.designationPending === true;
+
+      afterEach(() => {
+        globalStateMock.folderHoldings?.delete(SIBLING);
+      });
+
+      describe('a component the spec has just added', () => {
+        // This node's address sorts last, so the address order seeds the peer.
+        const lastInOrder = { self: '9.0.0.1:16127', peer: '10.0.0.2:16127' };
+
+        it('is seeded by the node that holds the app\'s other g: component, wherever its address falls', async () => {
+          freshFolder({ ...lastInOrder, peerAnswer: { holding: { 'test-app': { bytes: 0, newestModified: 0 } } } });
+          appQueryServiceMock.holdsComponent.withArgs(SIBLING).resolves(true);
+
+          expect(seeds(await stateMachine.manageFolderSyncState(mockParams))).to.equal(true);
+        });
+
+        // Canary for the test above: the same node holding none of the app leaves
+        // the seed to the address order.
+        it('is not seeded by a node holding none of the app when its address sorts last', async () => {
+          freshFolder({ ...lastInOrder, peerAnswer: { holding: { 'test-app': { bytes: 0, newestModified: 0 } } } });
+          appQueryServiceMock.holdsComponent.withArgs(SIBLING).resolves(false);
+
+          expect(seeds(await stateMachine.manageFolderSyncState(mockParams))).to.equal(false);
+        });
+
+        it('is not seeded by the writer over a peer holding bytes of this folder', async () => {
+          freshFolder({ ...lastInOrder, peerAnswer: { holding: { 'test-app': { bytes: 900, newestModified: 5 } } } });
+          appQueryServiceMock.holdsComponent.withArgs(SIBLING).resolves(true);
+
+          expect(seeds(await stateMachine.manageFolderSyncState(mockParams))).to.equal(false);
+        });
+
+        it('is left to a peer whose folder for the app\'s other g: component sends, though this node sorts first', async () => {
+          freshFolder({ peerAnswer: { folders: [SIBLING] } });
+          appQueryServiceMock.holdsComponent.withArgs(SIBLING).resolves(false);
+
+          expect(seeds(await stateMachine.manageFolderSyncState(mockParams))).to.equal(false);
+        });
+
+        // Canary for the test above: with no writer anywhere, the node sorting
+        // first seeds.
+        it('is seeded by the node sorting first when no node writes the app', async () => {
+          freshFolder({ peerAnswer: { folders: [] } });
+          appQueryServiceMock.holdsComponent.withArgs(SIBLING).resolves(false);
+
+          expect(seeds(await stateMachine.manageFolderSyncState(mockParams))).to.equal(true);
+        });
+      });
+
+      describe('a cold start where the holders hold different folders', () => {
+        // This node holds a little of this folder; the peer holds nothing of it
+        // and the whole of the other one.
+        const split = () => {
+          freshFolder({
+            peerAnswer: {
+              holding: { 'test-app': { bytes: 0, newestModified: 0 }, [SIBLING]: { bytes: 5000, newestModified: 9 } },
+            },
+          });
+          appQueryServiceMock.holdsComponent.withArgs(SIBLING).resolves(false);
+          syncthingServiceMock.eachDbLocalChanged.callsFake(feed({ files: [localEntry('a.dat', 100)] }));
+          globalStateMock.folderHoldings = globalStateMock.folderHoldings || new Map();
+          globalStateMock.folderHoldings.set(SIBLING, { bytes: 0, newestModified: 0 });
+        };
+
+        it('ranks the whole app, so the node holding the most of it seeds every folder', async () => {
+          split();
+
+          expect(seeds(await stateMachine.manageFolderSyncState(mockParams))).to.equal(false);
+        });
+
+        // Canary for the test above: ranked on this folder alone, this node wins.
+        it('would seed this folder here ranked on this folder alone', async () => {
+          split();
+          mockParams.electedSiblings = [];
+
+          expect(seeds(await stateMachine.manageFolderSyncState(mockParams))).to.equal(true);
+        });
+
+        it('falls back to the address order while this node cannot say what it holds of the other folder', async () => {
+          split();
+          globalStateMock.folderHoldings.delete(SIBLING);
+
+          expect(seeds(await stateMachine.manageFolderSyncState(mockParams))).to.equal(true);
+        });
+      });
+    });
+
     it('the node holding the data wins the election though its address sorts last', async () => {
       mockParams.localSocketAddr = '9.0.0.1:16127';
       syncthingServiceMock.eachDbLocalChanged.callsFake(feed({ files: [localEntry('world.sav', 5821604997, '2026-09-16T09:00:00Z')] }));

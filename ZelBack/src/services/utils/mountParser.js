@@ -530,17 +530,33 @@ function isGComponent(containerData) {
 }
 
 /**
- * The component of an app whose start the primary election decides: its first
- * g: component, as `<component>_<app>` (the app name for a v1-3 app), or null
- * when it has none. The election decides one component per app, this one.
+ * The components of an app whose start the primary election decides: every g:
+ * component, in compose order, as `<component>_<app>` (the app name for a v1-3
+ * app). Empty when it has none. The election decides the app, and its primary
+ * runs all of them.
+ * @param {object} appSpec - Installed app specification, decrypted.
+ * @returns {string[]}
+ */
+function gComponentIdentifiers(appSpec) {
+  if (!appSpec) return [];
+  if (appSpec.version <= 3) return isGComponent(appSpec.containerData) ? [appSpec.name] : [];
+  return (appSpec.compose || [])
+    .filter((comp) => isGComponent(comp.containerData))
+    .map((comp) => `${comp.name}_${appSpec.name}`);
+}
+
+/**
+ * An app's anchor: its first g: component, or null when it has none.
+ *
+ * A FluxOS release that predates electing every g: component knows only this
+ * one, and asks a peer whether it holds the app by asking about it - so a node
+ * holding any g: component of the app reports holding the anchor
+ * (appQueryService.heldComponents).
  * @param {object} appSpec - Installed app specification, decrypted.
  * @returns {string|null}
  */
-function electedComponentIdentifier(appSpec) {
-  if (!appSpec) return null;
-  if (appSpec.version <= 3) return isGComponent(appSpec.containerData) ? appSpec.name : null;
-  const component = (appSpec.compose || []).find((comp) => isGComponent(comp.containerData));
-  return component ? `${component.name}_${appSpec.name}` : null;
+function anchorComponentIdentifier(appSpec) {
+  return gComponentIdentifiers(appSpec)[0] ?? null;
 }
 
 /** True iff the component's primary mount is any sync mount (g:/r:/s:). */
@@ -574,7 +590,8 @@ module.exports = {
   hasFlag,
   getComponentSyncMode,
   isGComponent,
-  electedComponentIdentifier,
+  gComponentIdentifiers,
+  anchorComponentIdentifier,
   isSyncedComponent,
   validateMountPath,
   validateSubdirOrFilename,
