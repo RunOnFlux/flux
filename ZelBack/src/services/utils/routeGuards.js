@@ -4,6 +4,7 @@ const apicache = require('apicache');
 
 const messageHelper = require('../messageHelper');
 const globalState = require('./globalState');
+const { AsyncLock } = require('./asyncLock');
 
 // What a caller turned away during boot is told to wait. The boot chain is
 // bounded by its own daemon and sync timeouts rather than by this number, so it
@@ -21,6 +22,11 @@ const POLICY_RETRY_AFTER_SECONDS = 30;
 // fluxd loads its block index in about a minute on a node and answers nothing
 // useful until it has, so this paces a poll through that minute.
 const DAEMON_RETRY_AFTER_SECONDS = 5;
+
+// What a caller turned away because the node is already serving as many of a
+// costly read as it allows is told to wait: about one full transfer of the
+// permanent message log.
+const BUSY_RETRY_AFTER_SECONDS = 10;
 
 // The daemon's own RPC error while it is still loading (RPC_IN_WARMUP).
 const RPC_IN_WARMUP = -28;
@@ -213,6 +219,47 @@ function rejectQueryParameters(req, res, next) {
 }
 
 /**
+ * Every request.
+ * @returns {boolean} true
+ */
+function everyRequest() {
+  return true;
+}
+
+/**
+ * Admit at most `maxConcurrent` of the requests `limited` selects at once, and
+ * answer any more 503 with a Retry-After rather than holding them open: a
+ * request kept waiting would hold its connection behind someone else's long
+ * read. A request holds its place until its response closes, whether it
+ * finished or the client went.
+ *
+ * Behind a cache, an answer the cache gives never reaches this, so only the
+ * requests that do the work count against the limit.
+ * @param {number} maxConcurrent
+ * @param {string} busyMessage what a caller turned away is told
+ * @param {(req: object) => boolean} [limited] which requests count against the
+ *   limit; the rest pass straight through
+ * @returns {Function} express middleware
+ */
+function limitConcurrent(maxConcurrent, busyMessage, limited = everyRequest) {
+  const places = new AsyncLock(maxConcurrent);
+
+  // Named for what the route table shows: routeWiring.test.js finds the limit in
+  // a chain by this name.
+  return function limitConcurrent(req, res, next) {
+    if (!limited(req)) return next();
+    if (places.activeCount >= maxConcurrent) {
+      return serviceUnavailable(res, busyMessage, BUSY_RETRY_AFTER_SECONDS);
+    }
+    places.register();
+    res.once('close', function releasePlace() {
+      places.disable();
+    });
+    return next();
+  };
+}
+
+/**
  * Hand a route handler's promise to express.
  *
  * Registering `(req, res) => handler(req, res)` drops it, so a rejection is
@@ -289,6 +336,7 @@ module.exports = {
   asyncRoute,
   cache,
   isDaemonUnavailable,
+  limitConcurrent,
   rejectQueryParameters,
   requireAppStateReady,
   requireBootSettled,
