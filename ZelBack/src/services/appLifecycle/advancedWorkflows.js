@@ -4847,8 +4847,13 @@ async function forceAppRemovals() {
     }
 
     const dockerAppsReported = await appQueryService.listAllApps();
-    const dockerApps = dockerAppsReported.data;
     const installedAppsRes = await appQueryService.installedApps();
+    // An app is an orphan only against a list of installed apps that was read.
+    if (dockerAppsReported.status !== 'success' || installedAppsRes.status !== 'success') {
+      log.warn('Unable to read the apps docker runs and the installed apps, skipping forceAppRemovals');
+      return;
+    }
+    const dockerApps = dockerAppsReported.data;
     const appsInstalled = installedAppsRes.data;
     const dockerAppsNames = dockerApps.map((app) => {
       if (app.Names[0].startsWith('/zel')) {
@@ -4889,8 +4894,9 @@ async function forceAppRemovals() {
             log.info(`${dApp} not found in locations for this IP (${localSocketAddr}), skipping broadcast`);
           }
         } catch (locationError) {
-          log.error(`Error checking app location for ${dApp}: ${locationError.message}`);
-          // Default to not broadcasting on error to avoid false positives
+          // A removal of a row that does not exist changes nothing on a peer.
+          shouldBroadcast = true;
+          log.error(`Error checking app location for ${dApp}, will broadcast removal: ${locationError.message}`);
         }
 
         // eslint-disable-next-line no-await-in-loop

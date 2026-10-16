@@ -31,6 +31,10 @@ const registryManager = require('../../ZelBack/src/services/appDatabase/registry
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
 const volumeService = require('../../ZelBack/src/services/utils/volumeService');
 const dockerServiceModule = require('../../ZelBack/src/services/dockerService');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
 
 // The operator stop lock as appsRuntimeState.operatorStopState answers it.
 const UNLOCKED = { stopped: false, startRequested: false, force: false };
@@ -310,6 +314,50 @@ describe('advancedWorkflows tests', () => {
 
       expect(res.json.calledOnce).to.be.true;
       sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
+    });
+  });
+
+  describe('forceAppRemovals', () => {
+    let remove;
+
+    beforeEach(() => {
+      resetGlobalState();
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('203.0.113.60:16127');
+      sinon.stub(appQueryService, 'listAllApps').resolves({ status: 'success', data: [{ Names: ['/fluxweb_orphanapp'] }] });
+      sinon.stub(appQueryService, 'installedApps').resolves({ status: 'success', data: [] });
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(registryManager, 'getApplicationGlobalSpecifications').resolves({ name: 'orphanapp' });
+      sinon.stub(serviceHelper, 'delay').resolves();
+      remove = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+    });
+
+    afterEach(() => sinon.restore());
+
+    it('broadcasts the removal of an orphan whose location cannot be read', async () => {
+      sinon.stub(dbHelper, 'findOneInDatabase').rejects(new MongoNetworkTimeoutError('timed out'));
+
+      await advancedWorkflows.forceAppRemovals();
+
+      sinon.assert.calledOnceWithExactly(remove, 'orphanapp', null, true, true, true);
+    });
+
+    it('does not broadcast the removal of an orphan this node is not listed for', async () => {
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+
+      await advancedWorkflows.forceAppRemovals();
+
+      sinon.assert.calledOnceWithExactly(remove, 'orphanapp', null, true, true, false);
+    });
+
+    it('removes nothing when the installed apps cannot be read', async () => {
+      appQueryService.installedApps.resolves({ status: 'error', data: { message: 'timed out' } });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+      const warned = sinon.stub(log, 'warn');
+
+      await advancedWorkflows.forceAppRemovals();
+
+      sinon.assert.notCalled(remove);
+      sinon.assert.calledWithMatch(warned, /Unable to read the apps docker runs and the installed apps/);
     });
   });
 
