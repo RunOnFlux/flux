@@ -1,9 +1,7 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import {
-  execInContainer, listAppContainers, crashFluxos, releaseFluxos,
-} from '../framework/container.js';
+import { execInContainer, crashFluxos, releaseFluxos } from '../framework/container.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
@@ -11,18 +9,12 @@ import { waitFor, waitHolding } from '../framework/wait.js';
 import {
   isDaemonUp, isFolderSynced, getFolderConfig, stopDaemon, startDaemon,
 } from '../framework/syncthing-real.js';
-import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
-import { sleepUnlessInfraDead } from '../framework/infra-death.js';
+import { gComponent, watchGComponents } from '../framework/g-components.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
-// An app with two single-writer (g:) components, on real syncthing daemons.
-//
-// The election decides the app, not each component: its primary runs every g:
-// component on one node, and every other holder runs none. A node running one of
-// them and not the other is the app split across two nodes - the load balancer
-// sends all of its ports to one of them, and the components cannot reach each
-// other over the app's network - so every wait below holds that no two nodes run
-// any of its g: components at once.
+// An app with two single-writer (g:) components, on real syncthing daemons: its
+// primary runs both, and every other holder runs neither. Every wait holds that no
+// two nodes run any of its g: components at once (g-components.js).
 
 const APP_UID = 1000;
 
@@ -32,7 +24,6 @@ describe('an app\'s g: components run together on its primary', function () {
 
   const appName = `e2etwin${Date.now()}`;
   const COMPONENTS = ['db', 'web'];
-  const folderOf = (component) => `flux${component}_${appName}`;
   // Placed in this order, so the election ranks them in it; a third node holds
   // nothing and keeps the ring whole.
   const FIRST = 0;
@@ -40,20 +31,9 @@ describe('an app\'s g: components run together on its primary', function () {
   const HOLDERS = [FIRST, SECOND];
 
   const client = (i) => env.clients[i];
-  // The app's g: components running on a node, in compose order.
-  const runningOn = async (i) => {
-    const containers = await listAppContainers(client(i).container);
-    return COMPONENTS.filter((component) => containers.some(
-      (c) => c.name === `flux${component}_${appName}` && c.status?.startsWith('Up'),
-    ));
-  };
-  // Which holders run any of the app's g: components; asserted on every poll.
-  const oneHolderAtMost = async () => {
-    const running = await Promise.all(HOLDERS.map(runningOn));
-    const holders = HOLDERS.filter((_, k) => running[k].length);
-    expect(holders.length, `the app runs on more than one node: ${HOLDERS.map((i, k) => `node ${i} runs [${running[k]}]`).join(', ')}`).to.be.at.most(1);
-    return Object.fromEntries(HOLDERS.map((i, k) => [i, running[k]]));
-  };
+  const { folderOf, oneHolderAtMost, holdsFor } = watchGComponents(() => env, {
+    appName, components: COMPONENTS, holders: HOLDERS,
+  });
   const folderTypes = async (i) => Promise.all(COMPONENTS.map(async (component) => (await getFolderConfig(client(i), folderOf(component)))?.type));
 
   before(async function () {
@@ -77,21 +57,7 @@ describe('an app\'s g: components run together on its primary', function () {
       env,
       name: appName,
       instances: HOLDERS.length,
-      compose: COMPONENTS.map((component) => ({
-        name: component,
-        description: `${component} of a two-writer app`,
-        repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-        ports: [],
-        domains: [''],
-        environmentParameters: [`WRITE_FILE=/appdata/${component}.txt`, `WRITE_CONTENT=${component}`],
-        commands: [],
-        containerPorts: [80],
-        containerData: 'g:/appdata',
-        cpu: 0.1,
-        ram: 100,
-        hdd: 1,
-        repoauth: '',
-      })),
+      compose: COMPONENTS.map((name) => gComponent(appName, name)),
     });
 
     await installOnNodes(env, app, [FIRST]);
@@ -111,16 +77,7 @@ describe('an app\'s g: components run together on its primary', function () {
 
   it('runs every g: component on the primary, and none on the standby', async function () {
     this.timeout(180000);
-    // Held over several election passes, not read once.
-    const deadline = Date.now() + 60000;
-    while (Date.now() < deadline) {
-      // eslint-disable-next-line no-await-in-loop
-      const running = await oneHolderAtMost();
-      expect(running[FIRST], 'the primary').to.deep.equal(COMPONENTS);
-      expect(running[SECOND], 'the standby').to.deep.equal([]);
-      // eslint-disable-next-line no-await-in-loop
-      await sleepUnlessInfraDead(5000);
-    }
+    await holdsFor(60000, { [FIRST]: COMPONENTS, [SECOND]: [] });
     expect(await folderTypes(FIRST), 'the primary\'s folders').to.deep.equal(['sendreceive', 'sendreceive']);
     expect(await folderTypes(SECOND), 'the standby\'s folders').to.deep.equal(['receiveonly', 'receiveonly']);
   });
@@ -148,14 +105,6 @@ describe('an app\'s g: components run together on its primary', function () {
     await waitFor(async () => (await folderTypes(FIRST)).every((type) => type === 'receiveonly'), {
       timeout: 300000, interval: 3000, label: 'every folder of the old primary receives',
     });
-    const deadline = Date.now() + 60000;
-    while (Date.now() < deadline) {
-      // eslint-disable-next-line no-await-in-loop
-      const running = await oneHolderAtMost();
-      expect(running[FIRST], 'the old primary').to.deep.equal([]);
-      expect(running[SECOND], 'the primary').to.deep.equal(COMPONENTS);
-      // eslint-disable-next-line no-await-in-loop
-      await sleepUnlessInfraDead(5000);
-    }
+    await holdsFor(60000, { [FIRST]: [], [SECOND]: COMPONENTS });
   });
 });

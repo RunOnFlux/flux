@@ -2,14 +2,12 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { listAppContainers } from '../framework/container.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, waitHolding } from '../framework/wait.js';
 import { isDaemonUp, isFolderSynced, getFolderConfig } from '../framework/syncthing-real.js';
-import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
-import { sleepUnlessInfraDead } from '../framework/infra-death.js';
+import { gComponent, watchGComponents } from '../framework/g-components.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // An app with two single-writer (g:) components, held by two nodes on a release
@@ -36,35 +34,15 @@ describe('a rolling upgrade, standby first, brings up every g: component', funct
 
   const appName = `e2eroll${Date.now()}`;
   const COMPONENTS = ['db', 'web'];
-  const folderOf = (name) => `flux${name}_${appName}`;
   const STANDBY = 0;
   const PRIMARY = 1;
   const RING = 2;
   const HOLDERS = [STANDBY, PRIMARY];
 
   const client = (i) => env.clients[i];
-  const runningOn = async (i) => {
-    const containers = await listAppContainers(client(i).container);
-    return COMPONENTS.filter((name) => containers.some((c) => c.name === folderOf(name) && c.status?.startsWith('Up')));
-  };
-  // Which holders run any of the app's g: components; asserted on every poll.
-  const oneHolderAtMost = async () => {
-    const running = await Promise.all(HOLDERS.map(runningOn));
-    const holders = HOLDERS.filter((_, k) => running[k].length);
-    expect(holders.length, `the app runs on more than one node: ${HOLDERS.map((i, k) => `node ${i} runs [${running[k]}]`).join(', ')}`).to.be.at.most(1);
-    return Object.fromEntries(HOLDERS.map((i, k) => [i, running[k]]));
-  };
-  // Held over a minute of election passes, not read once.
-  const holdsFor = async (ms, expected) => {
-    const deadline = Date.now() + ms;
-    while (Date.now() < deadline) {
-      // eslint-disable-next-line no-await-in-loop
-      const running = await oneHolderAtMost();
-      expect(running, 'what each holder runs').to.deep.equal(expected);
-      // eslint-disable-next-line no-await-in-loop
-      await sleepUnlessInfraDead(5000);
-    }
-  };
+  const { folderOf, oneHolderAtMost, holdsFor } = watchGComponents(() => env, {
+    appName, components: COMPONENTS, holders: HOLDERS,
+  });
 
   before(async function () {
     this.timeout(900000);
@@ -93,21 +71,7 @@ describe('a rolling upgrade, standby first, brings up every g: component', funct
       env,
       name: appName,
       instances: HOLDERS.length,
-      compose: COMPONENTS.map((name) => ({
-        name,
-        description: `${name} of a two-writer app`,
-        repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-        ports: [],
-        domains: [''],
-        environmentParameters: [`WRITE_FILE=/appdata/${name}.txt`, `WRITE_CONTENT=${name}`],
-        commands: [],
-        containerPorts: [80],
-        containerData: 'g:/appdata',
-        cpu: 0.1,
-        ram: 100,
-        hdd: 1,
-        repoauth: '',
-      })),
+      compose: COMPONENTS.map((name) => gComponent(appName, name)),
     });
     await installOnNodes(env, app, [PRIMARY]);
     await waitHolding(async () => (await oneHolderAtMost())[PRIMARY].includes('db'), {
