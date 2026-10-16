@@ -15,7 +15,7 @@ const BACKFILL_BATCH = 5000;
  * and the height the daemon's address index holds for its transaction: one call
  * over the payment addresses from the first height a payment is recorded at to
  * the chain tip, so a transaction the index does not hold is not on the chain.
- * Such a record is marked `notOnChain`, and is no payment. A record above the
+ * Such a record is marked `notOnChain`, is no payment, and is not read again. A record above the
  * daemon's tip is left for a later run: the daemon has not reached its block.
  *
  * The height is the chain's, not the one recorded: a record written from a block
@@ -32,8 +32,10 @@ const BACKFILL_BATCH = 5000;
 async function backfillPaymentPositions() {
   const database = dbHelper.databaseConnection().db(config.database.daemon.database);
   const collection = config.database.daemon.collections.appsHashes;
+  // A record already marked notOnChain is decided: if its transaction is mined
+  // later, the explorer records the payment from that block.
   const missing = await dbHelper.findInDatabase(
-    database, collection, { txIndex: { $exists: false } }, {
+    database, collection, { txIndex: { $exists: false }, notOnChain: { $ne: true } }, {
       projection: {
         _id: 0, hash: 1, txid: 1, height: 1, value: 1,
       },
