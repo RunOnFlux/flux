@@ -12,7 +12,7 @@ const { InstallOutcome } = installOutcomeModule;
 // timeout that names the wrong cause.
 const HOLDS_THE_APP = new Set([InstallOutcome.INSTALLED, InstallOutcome.ALREADY_INSTALLED]);
 const LACKS_THE_APP = new Set([InstallOutcome.DECLINED, InstallOutcome.FAILED]);
-const DECIDES_NOTHING = new Set([InstallOutcome.BUSY]);
+const DECIDES_NOTHING = new Set([InstallOutcome.BUSY, InstallOutcome.DEFERRED]);
 
 const unclassified = Object.values(InstallOutcome).filter(
   (outcome) => !HOLDS_THE_APP.has(outcome) && !LACKS_THE_APP.has(outcome) && !DECIDES_NOTHING.has(outcome),
