@@ -17,8 +17,9 @@ const log = require('../../lib/log');
  */
 const MESSAGE_LOG_CONTENT_TYPE = 'application/x-ndjson';
 
-// The server writes in pieces of about this size, so a log costs a cursor batch and one piece of
-// memory however long it is.
+// The server reads the log this many messages at a time and writes it in pieces of about this
+// size, so a log costs one batch and one piece of memory however long it is.
+const CURSOR_BATCH_MESSAGES = 100;
 const WRITE_PIECE_BYTES = 64 * 1024;
 
 const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
@@ -55,27 +56,33 @@ function heightRange(query) {
 function messagesByHeight({ fromHeight, toHeight }) {
   const db = dbHelper.databaseConnection();
   return db.db(config.database.appsglobal.database).collection(globalAppsMessages)
-    .find({ height: { $gte: fromHeight, $lte: toHeight } }, { projection: { _id: 0 } })
+    .find({ height: { $gte: fromHeight, $lte: toHeight } }, { projection: { _id: 0 }, batchSize: CURSOR_BATCH_MESSAGES })
     .sort({ height: 1 });
 }
 
 /**
- * Resolves when the response can take more, or when its connection has closed.
+ * A wait for a response to take more, listening once for the whole response: the compression
+ * middleware hands a response's drain listeners to its compressor but not their removal, so a
+ * listener added for each wait stays until the response ends.
  * @param {import('http').ServerResponse} res
- * @returns {Promise<void>}
+ * @returns {() => Promise<void>} resolves when the response can take more, or when its
+ *   connection has closed
  */
-function untilWritable(res) {
-  return new Promise((resolve) => {
-    function onClose() {
-      resolve();
-    }
-    function onDrain() {
-      res.off('close', onClose);
-      resolve();
-    }
-    res.once('close', onClose);
-    res.once('drain', onDrain);
-  });
+function writableWaiter(res) {
+  let wake = null;
+  function onWritable() {
+    if (!wake) return;
+    const resolve = wake;
+    wake = null;
+    resolve();
+  }
+  res.on('drain', onWritable);
+  res.once('close', onWritable);
+  return function untilWritable() {
+    return new Promise((resolve) => {
+      wake = resolve;
+    });
+  };
 }
 
 /**
@@ -90,6 +97,7 @@ async function writeMessageLog(res, messages, isClosed) {
   let piece = '';
   let count = 0;
   let piecesWritten = 0;
+  const untilWritable = writableWaiter(res);
   try {
     // eslint-disable-next-line no-restricted-syntax
     for await (const message of messages) {
@@ -107,7 +115,7 @@ async function writeMessageLog(res, messages, isClosed) {
         piece = '';
         piecesWritten += 1;
         // eslint-disable-next-line no-await-in-loop
-        if (!flowing) await untilWritable(res);
+        if (!flowing) await untilWritable();
         if (isClosed()) return;
       }
     }
