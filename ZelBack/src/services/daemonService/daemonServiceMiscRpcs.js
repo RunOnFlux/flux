@@ -10,6 +10,8 @@ let currentDaemonHeight = 0;
 let currentDaemonHeader = config.daemon.initialHeaderFloor;
 let isDaemonInsightExplorer = null;
 let lastSuccessfulRpcCall = null; // Track last successful getBlockchainInfo call
+// Called with the daemon's height after each poll that reads it.
+const heightListeners = new Set();
 
 /**
  * To check if Insight Explorer is activated in the daemon configuration file.
@@ -84,6 +86,9 @@ async function fluxDaemonBlockchainInfo() {
     }
     lastSuccessfulRpcCall = Date.now();
     fluxEventBus.publish('daemon:polled', { height: currentDaemonHeight, headers: currentDaemonHeader });
+    heightListeners.forEach((listener) => {
+      Promise.resolve().then(() => listener(currentDaemonHeight)).catch((error) => log.error(error));
+    });
     log.info(`Daemon Sync status: ${currentDaemonHeight}/${currentDaemonHeader}`);
     return true;
   } catch (error) {
@@ -146,6 +151,16 @@ async function waitForDaemonRpc() {
   }
 }
 
+/**
+ * Calls `listener` with the daemon's height after each poll that reads it.
+ * @param {function(number): (void|Promise<void>)} listener
+ * @returns {function(): void} Stops the calls.
+ */
+function onDaemonHeight(listener) {
+  heightListeners.add(listener);
+  return () => { heightListeners.delete(listener); };
+}
+
 function getIsDaemonInsightExplorer() {
   return isDaemonInsightExplorer;
 }
@@ -185,6 +200,7 @@ module.exports = {
   isDaemonSynced,
   daemonBlockchainInfoService,
   waitForDaemonRpc,
+  onDaemonHeight,
 
   // exports for testing purposes
   fluxDaemonBlockchainInfo,
