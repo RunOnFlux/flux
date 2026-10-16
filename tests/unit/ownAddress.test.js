@@ -153,6 +153,29 @@ describe('fluxNetworkHelper own address tests', () => {
       expect(restarted.firstCall.args[0].map((app) => app.name)).to.deep.equal(['expiredrows']);
     });
 
+    it('adopts nothing while whether it ran apps there cannot be read, and acts on the address again later', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
+      configure('198.51.100.90');
+      listedHere.rejects(new Error('db down'));
+
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.91:16127');
+
+      sinon.assert.notCalled(moved);
+      sinon.assert.notCalled(fs.writeFile);
+      expect(await record()).to.equal(null);
+
+      listedHere.resolves(['ranthere']);
+      fluxNetworkHelper.setLocalSocketAddress('198.51.100.91:16127');
+      const told = new Promise((resolve) => { moved.callsFake(async () => resolve()); });
+      await clock.tickAsync(60 * 1000);
+      await told;
+      // queued behind the retry, so it returns once the retry has finished
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.91:16127');
+
+      sinon.assert.calledOnceWithExactly(moved, '198.51.100.90:16127', '198.51.100.91:16127', sinon.match.number);
+      expect(await record()).to.deep.equal({ socketAddress: '198.51.100.91:16127', movedFrom: '198.51.100.90:16127' });
+    });
+
     it('adopts the new address without a move when nothing reports what it ran', async () => {
       configure('198.51.100.21');
       fluxNetworkHelper.setInstalledAppsListedAt(null);
@@ -576,6 +599,19 @@ describe('fluxNetworkHelper own address tests', () => {
 
       sinon.assert.calledOnceWithExactly(moved, '198.51.100.9:16127', '198.51.100.9:16157', sinon.match.number);
       expect(await record()).to.deep.equal({ socketAddress: '198.51.100.9:16157', movedFrom: '198.51.100.9:16127' });
+    });
+
+    it('adopts nothing from a listing at its own configured IP that nothing answers, while whether it ran apps there cannot be read', async () => {
+      configure('198.51.100.92');
+      collateralListedAt('198.51.100.92:16127', '198.51.100.93:16127');
+      listedHere.rejects(new Error('db down'));
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      sinon.assert.notCalled(moved);
+      sinon.assert.notCalled(fs.writeFile);
+      sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      expect(await record()).to.equal(null);
     });
 
     it('adopts the new address without a move from a listing at its own configured IP that nothing answers, where it ran no apps', async () => {
