@@ -258,7 +258,8 @@ async function isResidential() {
 }
 
 /**
- * The settling marker as stored, or null when it cannot be read.
+ * The settling marker as stored, or null when there is none. Rejects when it
+ * cannot be read.
  *
  * Persisted rather than held in memory: a counter of consecutive evaluations in
  * memory is reset by restarting FluxOS, which would make restarting on a timer a
@@ -266,16 +267,11 @@ async function isResidential() {
  * @returns {Promise<object|null>} The marker document, or null.
  */
 async function getSettleMarker() {
-  try {
-    const db = dbHelper.databaseConnection();
-    if (!db) return null;
-    const database = db.db(config.database.local.database);
-    const marker = await dbHelper.findOneInDatabase(database, startupCollection, { _id: SETTLE_MARKER_KEY });
-    return marker || null;
-  } catch (error) {
-    log.warn(`residentialNodeDos - could not read settle marker: ${error.message}`);
-    return null;
-  }
+  const db = dbHelper.databaseConnection();
+  if (!db) throw new Error('no database connection');
+  const database = db.db(config.database.local.database);
+  const marker = await dbHelper.findOneInDatabase(database, startupCollection, { _id: SETTLE_MARKER_KEY });
+  return marker || null;
 }
 
 /**
@@ -318,10 +314,16 @@ function creditForGap(gapMs) {
  * the router the way to postpone enforcement.
  * @param {number} now Epoch ms.
  * @returns {Promise<number|null>} Observed milliseconds, or null when the marker
- *   cannot be written.
+ *   cannot be read or written. A marker that cannot be read is not written.
  */
 async function noteVerdictConfirmed(now) {
-  const marker = await getSettleMarker();
+  let marker;
+  try {
+    marker = await getSettleMarker();
+  } catch (error) {
+    log.warn(`residentialNodeDos - could not read settle marker: ${error.message}`);
+    return null;
+  }
   // A marker written before this node kept an observed total has no record of
   // what was watched, only of when the clock started - and that is exactly the
   // measure being replaced. It starts accumulating from here rather than being
