@@ -2461,11 +2461,29 @@ describe('syncthingFolderStateMachine tests', () => {
           expect(seeds(await stateMachine.manageFolderSyncState(mockParams))).to.equal(false);
         });
 
-        it('is not seeded by the writer over a peer holding bytes of this folder', async () => {
+        // What a standby holds in the folder and never sent is a local change
+        // against the app's primary: the writer seeds over it, and the standby's
+        // copy is reverted as any standby's local change is.
+        it('is seeded by the writer over a standby holding bytes of this folder it never sent', async () => {
           freshFolder({ ...lastInOrder, peerAnswer: { holding: { 'test-app': { bytes: 900, newestModified: 5 } } } });
           appQueryServiceMock.holdsComponent.withArgs(SIBLING).resolves(true);
 
+          expect(seeds(await stateMachine.manageFolderSyncState(mockParams))).to.equal(true);
+        });
+
+        // Canary for the test above: a peer that serves the folder is a source.
+        // The writer's synced copy carrying local changes of its own is reverted
+        // to it, never published as the seed.
+        it('reverts the writer\'s own local changes to a peer that serves the folder, rather than seeding them', async () => {
+          freshFolder({ ...lastInOrder, peerAnswer: { holding: { 'test-app': { bytes: 0, newestModified: 0 } } } });
+          appQueryServiceMock.holdsComponent.withArgs(SIBLING).resolves(true);
+          peerHoldsTheData();
+          syncthingServiceMock.getDbStatus.resolves({
+            globalBytes: 4096, globalFiles: 1, inSyncBytes: 4096, state: 'idle', receiveOnlyChangedFiles: 1,
+          });
+
           expect(seeds(await stateMachine.manageFolderSyncState(mockParams))).to.equal(false);
+          sinon.assert.calledWith(syncthingServiceMock.dbRevert, 'test-app');
         });
 
         it('is left to a peer whose folder for the app\'s other g: component sends, though this node sorts first', async () => {

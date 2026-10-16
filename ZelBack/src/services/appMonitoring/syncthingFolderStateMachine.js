@@ -1459,8 +1459,6 @@ async function handleReceiveOnlyTransition(params) {
   // its address differ, and the ranking degrades to the address order silently.
   const ownClaim = electedAppClaim(holdings, electedSiblings.map((sibling) => globalState.folderHoldings?.get(sibling)));
   const claims = {};
-  // Whether a peer says it holds bytes of this folder itself.
-  let aPeerHoldsThisFolder = false;
   await Promise.all(electionList.map(async (peer) => {
     if (socketAddressesMatch(peer.ip, localSocketAddr)) {
       if (ownClaim) claims[peer.ip] = ownClaim;
@@ -1474,7 +1472,6 @@ async function handleReceiveOnlyTransition(params) {
     // an outcome. Deliberately untested for that reason - a test would pass whether
     // this condition were here or not.
     if (answer?.ready && answer.holding && answer.holding[appId]) {
-      if ((answer.holding[appId].bytes || 0) > 0) aPeerHoldsThisFolder = true;
       const claim = electedAppClaim(answer.holding[appId], electedSiblings.map((sibling) => answer.holding[sibling]));
       if (claim) claims[peer.ip] = claim;
     }
@@ -1487,13 +1484,14 @@ async function handleReceiveOnlyTransition(params) {
   const someoneElseHolds = Object.entries(claims)
     .some(([ip, claim]) => !socketAddressesMatch(ip, localSocketAddr) && (claim?.bytes || 0) > 0);
   const standDownOnUnknown = ownHoldingsUnknown && someoneElseHolds;
-  // The writer of the app's other g: components seeds this folder when there is
-  // nothing to seed it from, and no other node does.
+  // The writer of the app's other g: components seeds this folder when no peer
+  // serves it, and no other node does. What a standby holds in it and never sent
+  // is a local change against the app's primary, reverted as any standby's is.
   const appWriter = electedSiblings.length
     ? await electedAppWriter(electedSiblings, electionList, localSocketAddr, liveness)
     : null;
   const electedLeader = appWriter
-    ? appWriter.here && !aPeerHasData && !aPeerHoldsThisFolder
+    ? appWriter.here && !aPeerHasData
     : !standDownOnUnknown && isDesignatedLeader(electionList, localSocketAddr, aPeerHasData, claims);
   // The floor holderIsGone asks of a silent holder, asked of this node before
   // its own win can count: a node whose peers have gone quiet is the one that
