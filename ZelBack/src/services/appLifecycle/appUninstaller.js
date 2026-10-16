@@ -953,21 +953,15 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         // get it from locally available Specifications
         const allApps = await availableApps();
         appSpecifications = allApps.find((a) => a.name === appName);
-        // get it from permanent messages
+        // get it from permanent messages: the app's newest, read through the
+        // index on name, height and timestamp
         if (!appSpecifications) {
-          const query = {};
-          const projection = { projection: { _id: 0 } };
-          const messages = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
-          const appMessages = messages.filter((message) => {
-            const specifications = message.appSpecifications;
-            return specifications.name === appName;
-          });
-          let currentSpecifications;
-          appMessages.forEach((message) => {
-            if (!currentSpecifications || message.height > currentSpecifications.height) {
-              currentSpecifications = message;
-            }
-          });
+          const [currentSpecifications] = await dbHelper.findInDatabase(
+            database,
+            globalAppsMessages,
+            { 'appSpecifications.name': appName },
+            { projection: { _id: 0 }, sort: { height: -1, timestamp: -1 }, limit: 1 },
+          );
           if (currentSpecifications && currentSpecifications.height) {
             ({ appSpecifications } = currentSpecifications);
           }

@@ -759,6 +759,24 @@ describe('appUninstaller tests', () => {
       });
     });
 
+    it('takes a forced removal\'s spec from the app\'s newest stored message, read by its name', async () => {
+      const messages = sinon.stub().resolves([{ height: 900, appSpecifications: v2Spec }]);
+      const uninstaller = buildUninstaller(null, {}, { findInDatabase: messages });
+      const onRemoved = sinon.stub();
+      uninstaller.setOnComponentRemoved(onRemoved);
+
+      await uninstaller.removeAppLocally('testapp', res, true);
+
+      sinon.assert.calledWithExactly(
+        messages,
+        sinon.match.any,
+        'appsMessages',
+        { 'appSpecifications.name': 'testapp' },
+        { projection: { _id: 0 }, sort: { height: -1, timestamp: -1 }, limit: 1 },
+      );
+      sinon.assert.calledOnceWithExactly(onRemoved, 'testapp');
+    });
+
     it('notifies the seam with the bare name for a v1-3 app', async () => {
       const uninstaller = buildUninstaller(v2Spec);
       const onRemoved = sinon.stub();
