@@ -85,7 +85,7 @@ describe('a move a failure or a crash interrupted is finished once', function ()
     });
     const record = await dbClient(i + 1).ownAddressRecord();
     expect(record.socketAddress, `node ${i}'s recorded address`).to.equal(to);
-    expect(record.recentIpChanges, `node ${i}'s IP changes counted`).to.have.lengthOf(1);
+    expect(record.ipChangeHeights, `node ${i}'s IP changes counted`).to.have.lengthOf(1);
     const held = await bystanderHolds(i, { from, to });
     expect(held.data.broadcastedAt, `the time node ${i}'s move is told with`).to.equal(record.movedAt);
     expect(await configuredIpOf(client(i).container), `node ${i}'s configured IP`).to.equal(to.split(':')[0]);

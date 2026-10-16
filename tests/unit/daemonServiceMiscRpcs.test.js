@@ -270,5 +270,46 @@ describe('daemonServiceMiscRpcs tests', () => {
       // Verify lastSuccessfulRpcCall was NOT updated
       expect(daemonServiceMiscRpcs.getLastSuccessfulRpcCall()).to.eql(initialTimestamp);
     });
+
+    it('calls each height listener with the height a poll reads, and none for a poll that fails', async () => {
+      const listener = sinon.stub();
+      const stop = daemonServiceMiscRpcs.onDaemonHeight(listener);
+      try {
+        daemonServiceBlockchainRpcsStub.resolves({ status: 'success', data: { blocks: 123456, headers: 123456 } });
+        await daemonServiceMiscRpcs.fluxDaemonBlockchainInfo();
+        await new Promise((resolve) => { setImmediate(resolve); });
+        sinon.assert.calledOnceWithExactly(listener, 123456);
+
+        daemonServiceBlockchainRpcsStub.resolves({ status: 'error', data: { message: 'Connection failed' } });
+        await daemonServiceMiscRpcs.fluxDaemonBlockchainInfo();
+        await new Promise((resolve) => { setImmediate(resolve); });
+        sinon.assert.calledOnce(listener);
+
+        stop();
+        daemonServiceBlockchainRpcsStub.resolves({ status: 'success', data: { blocks: 123457, headers: 123457 } });
+        await daemonServiceMiscRpcs.fluxDaemonBlockchainInfo();
+        await new Promise((resolve) => { setImmediate(resolve); });
+        sinon.assert.calledOnce(listener);
+      } finally {
+        stop();
+        daemonServiceMiscRpcs.setCurrentDaemonHeight(0);
+      }
+    });
+
+    it('logs a height listener that fails and keeps polling', async () => {
+      const logError = sinon.stub(log, 'error');
+      const stop = daemonServiceMiscRpcs.onDaemonHeight(() => Promise.reject(new Error('listener failed')));
+      try {
+        daemonServiceBlockchainRpcsStub.resolves({ status: 'success', data: { blocks: 123456, headers: 123456 } });
+
+        expect(await daemonServiceMiscRpcs.fluxDaemonBlockchainInfo()).to.equal(true);
+        await new Promise((resolve) => { setImmediate(resolve); });
+
+        sinon.assert.calledWithMatch(logError, sinon.match({ message: 'listener failed' }));
+      } finally {
+        stop();
+        daemonServiceMiscRpcs.setCurrentDaemonHeight(0);
+      }
+    });
   });
 });
