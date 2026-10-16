@@ -436,35 +436,48 @@ async function insertTransactions(transactions, database) {
  * @param {array} apps array with appstransactions to be processed.
  * @param {string} database Database.
  */
+/**
+ * Stores or requests the messages of a block's app payments. Runs from a timer
+ * nothing awaits, so it logs its own failure: the hashes it leaves unresolved
+ * are found again by hash sync.
+ * @param {array} apps the block's app payments.
+ * @returns {Promise<void>}
+ */
+async function requestAppHashes(apps) {
+  try {
+    const appsToRemove = [];
+    let hasUnresolved = false;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of apps) {
+      // eslint-disable-next-line no-await-in-loop
+      const messageReceived = await messageVerifier.checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
+      if (messageReceived) {
+        appsToRemove.push(app);
+      } else {
+        hasUnresolved = true;
+      }
+    }
+    if (hasUnresolved) {
+      appSyncEvents.emit(SYNC_EVENTS.HASH_UNRESOLVED);
+    }
+    const remaining = apps.filter((item) => !appsToRemove.includes(item));
+    while (remaining.length > 500) {
+      messageVerifier.checkAndRequestMultipleApps(remaining.splice(0, 500));
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(30 * 1000); // delay 30 seconds
+    }
+    if (remaining.length > 0) {
+      messageVerifier.checkAndRequestMultipleApps(remaining);
+    }
+  } catch (error) {
+    log.error(`Explorer - requestAppHashes - ${apps.length} app payments: ${error.message}`);
+  }
+}
+
 async function insertAndRequestAppHashes(apps, database) {
   if (apps.length > 0) {
     await insertTransactions(apps, database);
-    setTimeout(async () => {
-      const appsToRemove = [];
-      let hasUnresolved = false;
-      // eslint-disable-next-line no-restricted-syntax
-      for (const app of apps) {
-        // eslint-disable-next-line no-await-in-loop
-        const messageReceived = await messageVerifier.checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
-        if (messageReceived) {
-          appsToRemove.push(app);
-        } else {
-          hasUnresolved = true;
-        }
-      }
-      if (hasUnresolved) {
-        appSyncEvents.emit(SYNC_EVENTS.HASH_UNRESOLVED);
-      }
-      const remaining = apps.filter((item) => !appsToRemove.includes(item));
-      while (remaining.length > 500) {
-        messageVerifier.checkAndRequestMultipleApps(remaining.splice(0, 500));
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(30 * 1000); // delay 30 seconds
-      }
-      if (remaining.length > 0) {
-        messageVerifier.checkAndRequestMultipleApps(remaining);
-      }
-    }, 1);
+    setTimeout(requestAppHashes, 1, apps);
   }
 }
 /**
@@ -1676,6 +1689,8 @@ async function checkBlockProcessingStopped(i, callback) {
       if (j < 12) {
         checkBlockProcessingStopped(j, callback);
       } else {
+        // Not stopped: the block in flight keeps chaining to the next one.
+        blockProccessingCanContinue = true;
         const errMessage = messageHelper.createErrorMessage('Unknown error occured. Try again later.');
         callback(errMessage);
       }
@@ -1764,25 +1779,23 @@ async function reindexExplorer(req, res) {
         res.json(errMessage);
       } else {
         operationBlocked = true;
-        const dbopen = dbHelper.databaseConnection();
-        const database = dbopen.db(config.database.daemon.database);
-        const resultOfDropping = await dbHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
-          if (error.message !== 'ns not found') {
-            operationBlocked = false;
-            log.error(error);
-            const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-            res.json(errMessage);
-          }
-        });
-        operationBlocked = false;
-        if (resultOfDropping === true || resultOfDropping === undefined) {
-          initiateBlockProcessor(true, false);
-          const message = messageHelper.createSuccessMessage('Explorer database reindex initiated');
-          res.json(message);
-        } else {
-          const errMessage = messageHelper.createErrorMessage(resultOfDropping, 'Collection dropping error');
-          res.json(errMessage);
+        try {
+          const dbopen = dbHelper.databaseConnection();
+          const database = dbopen.db(config.database.daemon.database);
+          await dbHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
+            // A collection that is already gone is the reindex's starting point.
+            if (error.message !== 'ns not found') throw error;
+          });
+        } catch (error) {
+          operationBlocked = false;
+          log.error(error);
+          res.json(messageHelper.createErrorMessage(error.message, error.name, error.code));
+          return;
         }
+        operationBlocked = false;
+        initiateBlockProcessor(true, false);
+        const message = messageHelper.createSuccessMessage('Explorer database reindex initiated');
+        res.json(message);
       }
     });
   } else {
@@ -1813,6 +1826,7 @@ async function rescanExplorer(req, res) {
       if (!blockheight) {
         const errMessage = messageHelper.createErrorMessage('No blockheight provided');
         res.json(errMessage);
+        return;
       }
       blockheight = serviceHelper.ensureNumber(blockheight);
       const dbopen = dbHelper.databaseConnection();
@@ -1839,17 +1853,23 @@ async function rescanExplorer(req, res) {
       checkBlockProcessingStopped(i, async (response) => {
         if (response.status === 'error') {
           res.json(response);
+        } else if (operationBlocked) {
+          res.json(messageHelper.createErrorMessage('Operation blocked'));
         } else {
-          if (operationBlocked) {
-            throw new Error('Operation blocked');
-          }
           operationBlocked = true;
           const update = { $set: { generalScannedHeight: blockheight } };
           const options = {
             upsert: true,
           };
-          // update scanned Height in scannedBlockHeightCollection
-          await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+          try {
+            // update scanned Height in scannedBlockHeightCollection
+            await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+          } catch (error) {
+            operationBlocked = false;
+            log.error(error);
+            res.json(messageHelper.createErrorMessage(error.message, error.name, error.code));
+            return;
+          }
           operationBlocked = false;
           initiateBlockProcessor(true, false);
           const message = messageHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
@@ -1939,6 +1959,11 @@ function setBlockProccessingCanContinue(value) {
 }
 
 // testing purposes
+function getBlockProccessingCanContinue() {
+  return blockProccessingCanContinue;
+}
+
+// testing purposes
 function setIsInInitiationOfBP(value) {
   isInInitiationOfBP = value;
 }
@@ -1980,6 +2005,7 @@ module.exports = {
   processTransaction,
   processStandard,
   setBlockProccessingCanContinue,
+  getBlockProccessingCanContinue,
   setIsInInitiationOfBP,
   setZelAppSpecsMigrationDone,
   restoreDatabaseToBlockheightState,

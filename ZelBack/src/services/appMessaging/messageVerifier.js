@@ -753,10 +753,17 @@ async function paymentRecordOf(hash) {
  * @param {number} height
  * @param {number} valueSat
  * @param {number} [i] attempt
- * @returns {Promise<boolean>} whether the message is stored
+ * @returns {Promise<boolean>} whether the message is stored. False when the payment record
+ *   could not be read: the hash stays unresolved and is asked about again.
  */
 async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
-  const record = await paymentRecordOf(hash);
+  let record;
+  try {
+    record = await paymentRecordOf(hash);
+  } catch (error) {
+    log.error(`checkAndRequestApp - payment record for ${hash} could not be read, left unresolved: ${error.message}`);
+    return false;
+  }
   if (!record) {
     log.warn(`checkAndRequestApp - no payment recorded for ${hash} (requested from txid ${txid}), not stored`);
     return false;

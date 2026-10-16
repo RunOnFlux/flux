@@ -1648,22 +1648,14 @@ async function getAllAppsInformation() {
 
 /**
  * Get installed apps information
- * @returns {Promise<Array>} Array of installed apps
+ * @returns {Promise<Array>} Array of installed apps. Rejects when the read fails:
+ *   an unread list is not an empty one.
  */
 async function getInstalledApps() {
-  try {
-    const localDb = dbHelper.databaseConnection();
-    const localDatabase = localDb.db(config.database.appslocal.database);
-
-    const query = {};
-    const projection = { projection: { _id: 0 } };
-
-    const installedApps = await dbHelper.findInDatabase(localDatabase, localAppsInformation, query, projection);
-    return installedApps;
-  } catch (error) {
-    log.error(`Error getting installed apps: ${error.message}`);
-    return [];
-  }
+  const localDb = dbHelper.databaseConnection();
+  const localDatabase = localDb.db(config.database.appslocal.database);
+  const projection = { projection: { _id: 0 } };
+  return dbHelper.findInDatabase(localDatabase, localAppsInformation, {}, projection);
 }
 
 /**

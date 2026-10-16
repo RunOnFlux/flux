@@ -330,6 +330,16 @@ describe('messageVerifier tests', () => {
         expect(result).to.equal(false);
         expect(storeAppPermanentMessageStub.called).to.equal(false);
       });
+
+      it('should leave the hash unresolved when its payment record cannot be read', async () => {
+        const findOneInDatabase = sinon.stub().rejects(new Error('connection timed out'));
+        const verifier = buildVerifier({ dbHelperOverrides: { findOneInDatabase } });
+
+        const result = await verifier.checkAndRequestApp('hash123', 'txid123', 2000000, 200000000);
+
+        expect(result).to.equal(false);
+        expect(storeAppPermanentMessageStub.called).to.equal(false);
+      });
     });
 
     describe('an update that has expired by itself', () => {

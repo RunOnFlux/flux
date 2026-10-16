@@ -1629,13 +1629,13 @@ describe('registryManager tests', () => {
       expect(result).to.be.an('array');
     });
 
-    it('should handle errors and return empty array', async () => {
+    it('should reject when the read fails, never answer an empty list', async () => {
       sinon.stub(dbHelper, 'findInDatabase').rejects(new Error('Database error'));
 
-      const result = await registryManager.getInstalledApps();
+      const error = await registryManager.getInstalledApps().catch((err) => err);
 
-      expect(result).to.be.an('array');
-      expect(result).to.be.empty;
+      expect(error).to.be.instanceOf(Error);
+      expect(error.message).to.equal('Database error');
     });
   });
 

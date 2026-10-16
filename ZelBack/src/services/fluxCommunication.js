@@ -555,7 +555,6 @@ function dropExpiredOwnMoves() {
  * key signed is the previous holder's.
  */
 async function loadRecordedOwnMoves() {
-  recordedLoaded = true;
   try {
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
     const ownKey = await fluxNetworkHelper.getFluxNodePublicKey();
@@ -565,6 +564,8 @@ async function loadRecordedOwnMoves() {
     for (const [oldIp, { to, at, signer }] of recorded) {
       if (signer === ownKey) addPendingOwnMove(oldIp, to, at);
     }
+    // Only a completed read counts: until then each connecting peer asks again.
+    recordedLoaded = true;
   } catch (error) {
     log.warn(`loadRecordedOwnMoves - this node's recorded moves cannot be read: ${error.message}`);
   }
@@ -591,7 +592,7 @@ async function sendOwnMovesTo(peerKey) {
       log.error(`sendOwnMovesTo - the move from ${move.oldIp} to ${move.newIp} could not be sent to ${peerKey}: ${error.message}`);
     }
   }
-  if (!pendingOwnMoves.length) stopSendingOwnMoves();
+  stopSendingOwnMovesWhenDone();
 }
 
 function startSendingOwnMoves() {
@@ -607,6 +608,14 @@ function stopSendingOwnMoves() {
 }
 
 /**
+ * Stop listening for peers once nothing is left to send: every pending move is
+ * gone and the recorded ones have been read.
+ */
+function stopSendingOwnMovesWhenDone() {
+  if (recordedLoaded && !pendingOwnMoves.length) stopSendingOwnMoves();
+}
+
+/**
  * A peer announced, or relayed, a message this node holds the hash of. When it
  * is one of this node's own moves, the move has gone further than the peers
  * this node sent it to - a peer never announces a message back to the one it
@@ -619,7 +628,7 @@ function noteOwnMoveHeardBack(messageHash) {
   if (index === -1) return false;
   const [move] = pendingOwnMoves.splice(index, 1);
   log.info(`Address move from ${move.oldIp} to ${move.newIp} heard back from the network - no longer sent`);
-  if (!pendingOwnMoves.length) stopSendingOwnMoves();
+  stopSendingOwnMovesWhenDone();
   return true;
 }
 
