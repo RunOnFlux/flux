@@ -681,8 +681,63 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
-  // Note: masterSlaveApps is a recursive function that continuously runs in production.
-  // These tests use a counter to prevent infinite recursion after the first iteration.
+  describe('startMasterSlaveApps tests', () => {
+    const intervalMs = config.fluxapps.masterSlaveIntervalMs;
+    // A pass on a node that is installing returns at the top, so each one is a
+    // single count of masterSlave:cycles and nothing else.
+    const installingNode = () => ({ installationInProgress: true });
+    const noApps = () => sinon.stub().resolves({ status: 'success', data: [] });
+    let clock;
+    let cycles;
+    let loop;
+
+    beforeEach(() => {
+      clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      cycles = sinon.spy(fluxEventBus, 'count').withArgs('masterSlave:cycles');
+    });
+
+    afterEach(() => {
+      loop?.stop();
+      loop = null;
+    });
+
+    it('runs a pass at once, and the next one the interval after it ends', async () => {
+      loop = advancedWorkflows.startMasterSlaveApps(installingNode(), noApps(), noApps(), https);
+      await clock.tickAsync(0);
+      expect(cycles.callCount).to.equal(1);
+
+      await clock.tickAsync(intervalMs - 1);
+      expect(cycles.callCount).to.equal(1);
+      await clock.tickAsync(1);
+      expect(cycles.callCount).to.equal(2);
+      await clock.tickAsync(intervalMs);
+      expect(cycles.callCount).to.equal(3);
+    });
+
+    it('runs no further pass once stopped', async () => {
+      loop = advancedWorkflows.startMasterSlaveApps(installingNode(), noApps(), noApps(), https);
+      await clock.tickAsync(0);
+      loop.stop();
+
+      await clock.tickAsync(intervalMs * 3);
+      expect(cycles.callCount).to.equal(1);
+    });
+
+    it('keeps running passes after one throws', async () => {
+      fluxEventBus.count.restore();
+      const count = sinon.stub(fluxEventBus, 'count');
+      count.withArgs('masterSlave:cycles').onFirstCall().throws(new Error('count failed'));
+      const logError = sinon.stub(log, 'error');
+
+      loop = advancedWorkflows.startMasterSlaveApps(installingNode(), noApps(), noApps(), https);
+      await clock.tickAsync(0);
+      expect(logError.calledWithMatch('count failed'), 'the first pass never threw, so this proves nothing').to.equal(true);
+
+      await clock.tickAsync(intervalMs);
+      expect(count.withArgs('masterSlave:cycles').callCount).to.equal(2);
+    });
+  });
+
   describe('masterSlaveApps tests', () => {
     let globalState;
     let serviceHelperStub;
@@ -699,7 +754,6 @@ describe('advancedWorkflows tests', () => {
     let syncthingStatusStub;
     let syncthingDevicesStub;
     let axiosGetStub;
-    let recursionCounter;
 
     // What FDM sends when it IS answering and this app simply has no primary
     // yet: a success body carrying an empty ips array. test-infra/fdm-stub
@@ -709,7 +763,6 @@ describe('advancedWorkflows tests', () => {
     const fdmNoPrimary = () => ({ data: { status: 'success', data: { ips: [] } } });
 
     beforeEach(() => {
-      recursionCounter = 0;
       // every app directory has its volume mounted unless a test says otherwise
       sinon.stub(volumeService, 'isPathMounted').resolves(true);
       globalState = require('../../ZelBack/src/services/utils/globalState');
@@ -739,15 +792,8 @@ describe('advancedWorkflows tests', () => {
         verdict: peerIdentityService.IdentityVerdict.UNVERIFIABLE, status: 404, data: null, mayReadUnsigned: true,
       });
 
-      // Stub delay to prevent recursive calls - after first call, block recursion
-      serviceHelperDelayStub = sinon.stub(serviceHelper, 'delay').callsFake(async () => {
-        recursionCounter += 1;
-        if (recursionCounter > 1) {
-          // Prevent recursion by returning a promise that never resolves
-          return new Promise(() => {});
-        }
-        return Promise.resolve();
-      });
+      // a wait inside a pass ends at once unless a test says otherwise
+      serviceHelperDelayStub = sinon.stub(serviceHelper, 'delay').resolves();
 
       const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
       fluxNetworkHelperStub = sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress');
@@ -987,25 +1033,7 @@ describe('advancedWorkflows tests', () => {
         data: [{ path: `/root/.flux/ZelApps/${appId}`, type: 'sendreceive' }],
       });
 
-      // masterSlaveApps re-invokes itself from its own finally, so a single call
-      // otherwise executes the election twice and every count assertion doubles.
-      // Let exactly one full pass run: the first delay resolves but arms the
-      // installation gate so the recursive pass returns at the top, and the second
-      // delay never resolves so the chain stops there.
-      let delayCalls = 0;
-      serviceHelperDelayStub.resetBehavior();
-      serviceHelperDelayStub.callsFake(async () => {
-        delayCalls += 1;
-        if (delayCalls === 1) {
-          globalState.installationInProgress = true;
-          return undefined;
-        }
-        return new Promise(() => {});
-      });
-
       return async () => {
-        delayCalls = 0;
-        globalState.installationInProgress = false;
         await advancedWorkflows.masterSlaveApps(
           globalState, installedApps, listRunningApps, https,
         );
@@ -3990,19 +4018,7 @@ describe('advancedWorkflows tests', () => {
         ],
       });
 
-      let delayCalls = 0;
-      serviceHelperDelayStub.resetBehavior();
-      serviceHelperDelayStub.callsFake(async () => {
-        delayCalls += 1;
-        if (delayCalls === 1) {
-          globalState.installationInProgress = true;
-          return undefined;
-        }
-        return new Promise(() => {});
-      });
       const runPass = async () => {
-        delayCalls = 0;
-        globalState.installationInProgress = false;
         await advancedWorkflows.masterSlaveApps(
           globalState, installedApps, listRunningApps, https,
         );
