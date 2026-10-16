@@ -11,7 +11,7 @@ const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
 const { appPaymentAddresses, appPaymentPositions } = require('../../ZelBack/src/services/appPaymentPositions');
-const { backfillPaymentPositions } = require('../../ZelBack/src/services/migrations/paymentPositions');
+const { backfillPaymentPositions, BACKFILL_BATCH } = require('../../ZelBack/src/services/migrations/paymentPositions');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -211,6 +211,18 @@ describe('app payment positions', () => {
       expect(outcome).to.deep.equal({
         positioned: 0, heightsCorrected: 0, notOnChain: 0, aboveTip: 1,
       });
+    });
+
+    it('writes the records in batches, each of at most BACKFILL_BATCH', async () => {
+      const count = (2 * BACKFILL_BATCH) + 1;
+      const records = Array.from({ length: count }, (_, i) => ({ txid: `t${i}`, height: 500 }));
+      findInDatabase.resolves(records);
+      executeCall.withArgs('getaddressdeltas').resolves({ status: 'success', data: records.map(({ txid }, i) => delta(txid, 500, i)) });
+
+      const outcome = await backfillPaymentPositions();
+
+      expect(bulkWriteInDatabase.getCalls().map((call) => call.args[2].length)).to.deep.equal([BACKFILL_BATCH, BACKFILL_BATCH, 1]);
+      expect(outcome.positioned).to.equal(count);
     });
 
     it('writes only to a record that still has no position', async () => {

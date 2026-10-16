@@ -6,6 +6,10 @@ const daemonServiceUtils = require('../daemonService/daemonServiceUtils');
 const messageVerifier = require('../appMessaging/messageVerifier');
 const { appPaymentPositions } = require('../appPaymentPositions');
 
+// Records written per round trip: each batch is one bulkWrite, so a fleet's
+// worth of records never rides on a single call.
+const BACKFILL_BATCH = 5000;
+
 /**
  * Gives every app payment record without a position in its block the position
  * and the height the daemon's address index holds for its transaction: one call
@@ -21,6 +25,8 @@ const { appPaymentPositions } = require('../appPaymentPositions');
  * them again at the next start; the registry row of its app is written after
  * them, since which message governs reads their positions
  * (messageVerifier.moveStoredMessagesToPayments, storeGoverningAppSpecifications).
+ * The records are written BACKFILL_BATCH at a time; a run that stops part way
+ * leaves the rest without a position, and the next run takes them.
  * @returns {Promise<{positioned: number, heightsCorrected: number, notOnChain: number, aboveTip: number}>}
  */
 async function backfillPaymentPositions() {
@@ -72,7 +78,10 @@ async function backfillPaymentPositions() {
     }
   }
   const moved = await messageVerifier.moveStoredMessagesToPayments(corrected);
-  if (operations.length) await dbHelper.bulkWriteInDatabase(database, collection, operations);
+  for (let i = 0; i < operations.length; i += BACKFILL_BATCH) {
+    // eslint-disable-next-line no-await-in-loop
+    await dbHelper.bulkWriteInDatabase(database, collection, operations.slice(i, i + BACKFILL_BATCH));
+  }
   await messageVerifier.storeGoverningAppSpecifications(moved);
   log.info(`migrations - payment positions: ${operations.length - notOnChain} positioned, ${heightsCorrected} of them at the chain's height rather than the recorded one, ${notOnChain} not on the chain, ${aboveTip} above the daemon's tip`);
   return {
@@ -80,4 +89,4 @@ async function backfillPaymentPositions() {
   };
 }
 
-module.exports = { backfillPaymentPositions };
+module.exports = { backfillPaymentPositions, BACKFILL_BATCH };
