@@ -1914,28 +1914,26 @@ async function isGoverningAppMessage(appName, hash) {
  * force (appMessageChain): the one that governs the name in the message log, and alive at the
  * current block. Any other message changes nothing: a newer one governs the app, or its term has ended.
  * A registration and an update are stored alike, so an update renews an app this node's expiry
- * pass has already removed, and this node holds what a rebuild from the log would.
+ * pass has already removed, and this node holds what a rebuild from the log would. A row that
+ * already holds this message at this height is left as it is.
  * @param {object} appSpecs the message's specifications, with its hash and height
- * @returns {Promise<boolean>} false when the write failed
+ * @returns {Promise<void>} Rejects when a read or the write fails: the caller decides what an
+ *   unwritten registry row costs it.
  */
 async function storeAppSpecificationInForce(appSpecs) {
   return withRegistryWrite(async () => {
-    try {
-      if (!await isGoverningAppMessage(appSpecs.name, appSpecs.hash)) return true;
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      const currentHeight = syncStatus && syncStatus.data ? syncStatus.data.height : 0;
-      if (!appMessageChain.isInForce(appSpecs.height, appSpecs.expire, currentHeight)) return true;
-      const db = dbHelper.databaseConnection();
-      const database = db.db(config.database.appsglobal.database);
-      await dbHelper.replaceOneInDatabase(database, globalAppsInformation, { name: appSpecs.name }, appSpecs, { upsert: true });
-      fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
-      await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, { name: appSpecs.name });
-      await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsBroadcasts, { 'data.name': appSpecs.name });
-      return true;
-    } catch (error) {
-      log.error(`storeAppSpecificationInForce failed for ${appSpecs.name}: ${error.message}`);
-      return false;
-    }
+    if (!await isGoverningAppMessage(appSpecs.name, appSpecs.hash)) return;
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const currentHeight = syncStatus && syncStatus.data ? syncStatus.data.height : 0;
+    if (!appMessageChain.isInForce(appSpecs.height, appSpecs.expire, currentHeight)) return;
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    const held = await dbHelper.findOneInDatabase(database, globalAppsInformation, { name: appSpecs.name }, { projection: { _id: 0, hash: 1, height: 1 } });
+    if (held && held.hash === appSpecs.hash && held.height === appSpecs.height) return;
+    await dbHelper.replaceOneInDatabase(database, globalAppsInformation, { name: appSpecs.name }, appSpecs, { upsert: true });
+    fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
+    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, { name: appSpecs.name });
+    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsBroadcasts, { 'data.name': appSpecs.name });
   });
 }
 

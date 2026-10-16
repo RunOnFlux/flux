@@ -1393,6 +1393,32 @@ describe('registryManager tests', () => {
       expect(await registryManager.isGoverningAppMessage('NoSuchApp', 'second')).to.equal(false);
     });
 
+    it('rejects when the row cannot be written, never reporting the app stored', async () => {
+      atHeight(150);
+      const reg = { type: 'fluxappregister', hash: 'unwritten', height: 100 };
+      await logMessages('UnwrittenApp', [reg]);
+      sinon.stub(dbHelper, 'replaceOneInDatabase').rejects(new Error('connection timed out'));
+
+      const failure = await promote('UnwrittenApp', reg).catch((err) => err);
+
+      expect(failure, 'an unwritten row was reported stored').to.be.an('error');
+      expect(await stored('UnwrittenApp')).to.equal(null);
+    });
+
+    it('leaves a row that already holds the message as it is', async () => {
+      atHeight(150);
+      const reg = { type: 'fluxappregister', hash: 'heldhash', height: 100 };
+      await logMessages('HeldApp', [reg]);
+      await promote('HeldApp', reg);
+      const replace = sinon.spy(dbHelper, 'replaceOneInDatabase');
+      const clearErrors = sinon.spy(dbHelper, 'removeDocumentsFromCollection');
+
+      await promote('HeldApp', reg);
+
+      sinon.assert.notCalled(replace);
+      expect(clearErrors.called, 'the app\'s install errors were cleared for a write that changed nothing').to.be.false;
+    });
+
     it('should store a registration, then the update that follows it', async () => {
       atHeight(150);
       const reg = { type: 'fluxappregister', hash: 'oldhash', height: 100 };
