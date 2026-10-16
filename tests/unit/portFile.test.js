@@ -5,7 +5,10 @@ const fsPromises = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 
+const proxyquire = require('proxyquire');
+
 const log = require('../../ZelBack/src/lib/log');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const portFile = require('../../ZelBack/src/services/utils/portFile');
 
 const PORTS = { apiPort: 16137, apiPortHttps: 16138, uiPort: 16136 };
@@ -125,5 +128,70 @@ describe('portFile tests', () => {
     expect(portFile.removePortFile({ dir })).to.equal(false);
 
     sinon.assert.calledOnce(warnStub);
+  });
+
+  describe('a directory this process may not make', () => {
+    const denied = () => Object.assign(new Error('EACCES: permission denied, mkdir'), { code: 'EACCES' });
+
+    it('is made through sudo on a legacy node, owned by this process\'s account', async () => {
+      const mkdir = fsPromises.mkdir.bind(fsPromises);
+      sinon.stub(fsPromises, 'mkdir').callsFake((target, options) => (target === dir ? Promise.reject(denied()) : mkdir(target, options)));
+      const runCommand = sinon.stub(serviceHelper, 'runCommand').callsFake(async () => {
+        fs.mkdirSync(dir, { mode: 0o755 });
+        return { error: null };
+      });
+
+      expect(await portFile.writePortFile(PORTS, { dir })).to.equal(true);
+
+      const { uid, gid } = os.userInfo();
+      sinon.assert.calledOnceWithExactly(runCommand, 'install', {
+        runAsRoot: true,
+        params: ['-d', '-m', '755', '-o', String(uid), '-g', String(gid), dir],
+      });
+      expect(JSON.parse(fs.readFileSync(file, 'utf8'))).to.deep.equal({ ...PORTS, pid: process.pid });
+      sinon.assert.notCalled(errorStub);
+    });
+
+    it('is made through sudo when another account owns it and its mode cannot be set', async () => {
+      fs.mkdirSync(dir);
+      sinon.stub(fsPromises, 'chmod').callsFake(async (target) => {
+        if (target === dir) throw Object.assign(new Error('EPERM: operation not permitted, chmod'), { code: 'EPERM' });
+      });
+      const runCommand = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+
+      expect(await portFile.writePortFile(PORTS, { dir })).to.equal(true);
+
+      sinon.assert.calledOnce(runCommand);
+    });
+
+    it('logs both failures and writes nothing when sudo fails too', async () => {
+      sinon.stub(fsPromises, 'mkdir').rejects(denied());
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: new Error('sudo: a password is required') });
+
+      expect(await portFile.writePortFile(PORTS, { dir })).to.equal(false);
+
+      sinon.assert.calledOnce(errorStub);
+      expect(errorStub.firstCall.args[0]).to.include('EACCES').and.to.include('sudo: a password is required');
+      expect(fs.existsSync(dir)).to.equal(false);
+    });
+
+    it('is not retried through sudo on ArcaneOS, where the unit makes it', async () => {
+      const runCommand = sinon.stub().resolves({ error: null });
+      const saved = process.env.FLUXOS_PATH;
+      process.env.FLUXOS_PATH = '/usr/lib/fluxos';
+      let arcanePortFile;
+      try {
+        arcanePortFile = proxyquire('../../ZelBack/src/services/utils/portFile', { '../serviceHelper': { runCommand } });
+      } finally {
+        if (saved === undefined) delete process.env.FLUXOS_PATH;
+        else process.env.FLUXOS_PATH = saved;
+      }
+      sinon.stub(fsPromises, 'mkdir').rejects(denied());
+
+      expect(await arcanePortFile.writePortFile(PORTS, { dir })).to.equal(false);
+
+      sinon.assert.notCalled(runCommand);
+      sinon.assert.calledOnce(errorStub);
+    });
   });
 });
