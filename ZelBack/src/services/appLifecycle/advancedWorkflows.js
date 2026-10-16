@@ -5053,8 +5053,16 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
         }
         // operator explicitly stopped this g: component; don't elect or act on it
         // until they start it
-        // eslint-disable-next-line no-await-in-loop
-        const operatorStop = await appsRuntimeState.operatorStopState(identifier);
+        let operatorStop;
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          operatorStop = await appsRuntimeState.operatorStopState(identifier);
+        } catch (error) {
+          // An unread stop lock is not a lifted one: not a candidate this pass.
+          log.warn(`masterSlaveApps: ${identifier} stop lock could not be read - excluded from primary election this pass: ${error.message}`);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
         if (operatorStop.stopped && !operatorStop.startRequested) {
           // Outside the once-guard below on purpose: the log line reports the
           // state change, the counter reports every pass that honoured it, which
