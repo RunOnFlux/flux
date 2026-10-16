@@ -349,7 +349,9 @@ function fdmExtraHosts(ip) {
 // attach, by path, to any /usr/sbin/sshd a node starts: the nodes run privileged,
 // so unconfined, and an unconfined exec takes the profile its path matches. A
 // legacy node never runs under it. On such a host every node runs under
-// flux-e2e-node (test-infra/apparmor), loaded into the kernel here once per process.
+// flux-e2e-node (test-infra/apparmor), loaded into the kernel here once per process
+// and left loaded: the kernel holds one copy for every run on the host, and a run
+// that removed it would leave another run's next container unable to start.
 const HOST_SSHD_PROFILE = '/etc/apparmor.d/usr.sbin.sshd';
 let nodeAppArmorProfile;
 function nodeAppArmor() {
@@ -362,20 +364,6 @@ function nodeAppArmor() {
     }
   }
   return nodeAppArmorProfile;
-}
-
-// Unloads the node profile this process loaded, so it does not outlive the run
-// in the host kernel, and resets the cache so a later env in the same process
-// reloads it. A no-op where none was loaded.
-function unloadNodeAppArmor() {
-  if (!nodeAppArmorProfile) return;
-  const profile = fileURLToPath(new URL('../../apparmor/flux-e2e-node', import.meta.url));
-  try {
-    execFileSync('sudo', ['-n', 'apparmor_parser', '-R', profile], { stdio: 'pipe' });
-  } catch {
-    // leaving a profile loaded does not fail the run; it is unloaded next time
-  }
-  nodeAppArmorProfile = undefined;
 }
 
 class StaticIpContainer extends GenericContainer {
@@ -839,10 +827,6 @@ function makeEnvShell(networkName) {
       for (const cfg of nodeConfigs) {
         if (cfg.bootIdDir) rmSync(cfg.bootIdDir, { recursive: true, force: true });
       }
-      // The nodes are down, so the profile they ran under is no longer needed;
-      // unload it rather than leave it in the host kernel after the run.
-      unloadNodeAppArmor();
-      step('apparmor-unload');
       http.globalAgent.destroy();
       console.log(`# teardown [${networkName}] complete ${Date.now() - tStart}ms`);
     },
