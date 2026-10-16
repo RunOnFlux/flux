@@ -490,20 +490,43 @@ async function checkNodeReboot() {
     currentBootId = bootId;
 
     const now = new Date();
-    const previous = await dbHelper.findOneInDatabase(
-      database, nodeStartupTrackerCollection, { _id: STARTUP_MARKER_KEY },
-    );
-    const previousBootId = previous && previous.bootId ? previous.bootId : null;
+    // The machine's boot moment (uptime-derived): cadence consumers want the
+    // boot period itself, free of FluxOS's variable start lag.
+    const bootedAt = new Date(now.getTime() - Math.round(os.uptime() * 1000));
+    await recordBootUntilWritten(now, bootedAt);
+  } catch (error) {
+    log.error(`appTamperingDetection - checkNodeReboot failed: ${error.message}`);
+  }
+}
 
-    if (previousBootId !== currentBootId) {
-      // First sighting of this boot_id: genuine reboot, first run, or upgrade
-      // from the pre-boot_id marker. All three land in the boot history; a
-      // same-boot_id process restart does not, keeping the history a record
-      // of machine boots rather than FluxOS restarts. `bootedAt` is the
-      // machine's boot moment (uptime-derived) — cadence consumers want the
-      // boot period itself, free of FluxOS's variable start lag; `at` is when
-      // FluxOS first saw the boot.
-      const bootedAt = new Date(now.getTime() - Math.round(os.uptime() * 1000));
+// The delays before a boot that could not be recorded is recorded again, by
+// attempt; the last repeats until it is.
+const BOOT_RECORD_RETRY_MS = [30 * 1000, 60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000];
+
+/**
+ * Records the boot this process runs in: in the boot history the first time
+ * its boot_id is seen there, and as the startup marker. Repeating it records
+ * nothing twice.
+ * @param {Date} now When FluxOS first saw this boot.
+ * @param {Date} bootedAt When the machine booted.
+ * @returns {Promise<void>}
+ */
+async function recordBoot(now, bootedAt) {
+  const database = dbHelper.databaseConnection().db(config.database.local.database);
+  const previous = await dbHelper.findOneInDatabase(
+    database, nodeStartupTrackerCollection, { _id: STARTUP_MARKER_KEY },
+  );
+  const previousBootId = previous && previous.bootId ? previous.bootId : null;
+
+  if (previousBootId !== currentBootId) {
+    // First sighting of this boot_id: genuine reboot, first run, or upgrade
+    // from the pre-boot_id marker. All three land in the boot history; a
+    // same-boot_id process restart does not, keeping the history a record
+    // of machine boots rather than FluxOS restarts.
+    const history = await dbHelper.findOneInDatabase(
+      database, nodeStartupTrackerCollection, { _id: BOOT_HISTORY_KEY },
+    );
+    if (!(history?.boots ?? []).some((boot) => boot.bootId === currentBootId)) {
       await dbHelper.findOneAndUpdateInDatabase(
         database,
         nodeStartupTrackerCollection,
@@ -511,20 +534,36 @@ async function checkNodeReboot() {
         { $push: { boots: { $each: [{ bootId: currentBootId, bootedAt, at: now }], $slice: -BOOT_HISTORY_MAX } } },
         { upsert: true },
       );
-      if (previousBootId) {
-        log.info(`appTamperingDetection - machine reboot: boot_id ${previousBootId.slice(0, 8)} -> ${currentBootId.slice(0, 8)}`);
-      }
     }
+    if (previousBootId) {
+      log.info(`appTamperingDetection - machine reboot: boot_id ${previousBootId.slice(0, 8)} -> ${currentBootId.slice(0, 8)}`);
+    }
+  }
 
-    await dbHelper.findOneAndUpdateInDatabase(
-      database,
-      nodeStartupTrackerCollection,
-      { _id: STARTUP_MARKER_KEY },
-      { $set: { at: now, bootId: currentBootId } },
-      { upsert: true },
-    );
+  await dbHelper.findOneAndUpdateInDatabase(
+    database,
+    nodeStartupTrackerCollection,
+    { _id: STARTUP_MARKER_KEY },
+    { $set: { at: now, bootId: currentBootId } },
+    { upsert: true },
+  );
+}
+
+/**
+ * recordBoot, run again after BOOT_RECORD_RETRY_MS until it succeeds.
+ * @param {Date} now
+ * @param {Date} bootedAt
+ * @param {number} [attempt]
+ * @returns {Promise<void>}
+ */
+async function recordBootUntilWritten(now, bootedAt, attempt = 0) {
+  try {
+    await recordBoot(now, bootedAt);
   } catch (error) {
-    log.error(`appTamperingDetection - checkNodeReboot failed: ${error.message}`);
+    const delay = BOOT_RECORD_RETRY_MS[Math.min(attempt, BOOT_RECORD_RETRY_MS.length - 1)];
+    log.error(`appTamperingDetection - this boot could not be recorded, retrying in ${Math.round(delay / 1000)}s: ${error.message}`);
+    const timer = setTimeout(recordBootUntilWritten, delay, now, bootedAt, attempt + 1);
+    if (timer.unref) timer.unref();
   }
 }
 
