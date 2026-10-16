@@ -989,17 +989,23 @@ function seedClaimRanksFirst(a, b) {
  * @param {string} localSocketAddr This node's socket address
  * @param {Object} liveness This pass's peer view
  * @param {{address: string, bytes: *, newestModified: *}} own This node's claim
+ * @param {object} [options]
+ * @param {boolean} [options.writer] This node writes the app's other g:
+ *   components. Only a peer whose folder already sends stops it then: a seed mark
+ *   is an intent to seed, and a node that does not write the app cannot act on
+ *   one - it never starts the component, so its folder never sends.
  * @returns {Promise<{ip: string, reason: string, outcome: string}|null>}
  */
-async function findSeedRival(appId, peers, localSocketAddr, liveness, own) {
+async function findSeedRival(appId, peers, localSocketAddr, liveness, own, { writer = false } = {}) {
   const others = (peers || []).filter((peer) => peer?.ip && !socketAddressesMatch(peer.ip, localSocketAddr));
   const answers = await Promise.all(others.map(
     async (peer) => ({ ip: peer.ip, ...await liveness.reread(peer.ip) }),
   ));
   const answered = answers.filter((answer) => answer.reachable && answer.answerable);
-  const decided = answered.find((answer) => answer.seeding?.[appId]?.stage === 'decided'
+  const decided = answered.find((answer) => (!writer && answer.seeding?.[appId]?.stage === 'decided')
     || (answer.ready && answer.folders.includes(appId)));
   if (decided) return { ip: decided.ip, reason: 'has already decided to seed it', outcome: 'yieldedToDecided' };
+  if (writer) return null;
   const rival = answered.find((answer) => {
     const mark = answer.seeding?.[appId];
     return (mark?.stage === 'intent' || mark?.stage === 'deciding')
@@ -1564,7 +1570,7 @@ async function handleReceiveOnlyTransition(params) {
     };
     await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_SEED_DECISION, appId);
     const decisionStartedAt = monotonicMs();
-    const rival = await findSeedRival(appId, runningAppList, localSocketAddr, liveness, ownSeedClaim);
+    const rival = await findSeedRival(appId, runningAppList, localSocketAddr, liveness, ownSeedClaim, { writer: appWriter?.here === true });
     if (rival) {
       fluxEventBus.count('syncthing:seedDecision', appId, rival.outcome);
       log.info(`handleReceiveOnlyTransition - ${appId} is elected to seed but ${rival.ip} ${rival.reason}; going on as a standby`);

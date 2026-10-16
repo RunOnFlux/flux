@@ -2486,6 +2486,25 @@ describe('syncthingFolderStateMachine tests', () => {
           sinon.assert.calledWith(syncthingServiceMock.dbRevert, 'test-app');
         });
 
+        // A standby on a release that elects one g: component takes the empty
+        // folder as its seed by the address order, and never withdraws the mark.
+        // It never starts the component, so its folder never sends.
+        it('is seeded by the writer over a peer\'s seed mark for it', async () => {
+          freshFolder({ ...lastInOrder, peerAnswer: { seeding: { 'test-app': { stage: 'decided', bytes: 0, newestModified: 0 } } } });
+          appQueryServiceMock.holdsComponent.withArgs(SIBLING).resolves(true);
+
+          expect(seeds(await stateMachine.manageFolderSyncState(mockParams))).to.equal(true);
+        });
+
+        // Canary for the test above: a peer whose folder already sends has seeded
+        // it, and the writer stands aside.
+        it('is not seeded by the writer over a peer whose folder for it already sends', async () => {
+          freshFolder({ ...lastInOrder, peerAnswer: { folders: ['test-app'] } });
+          appQueryServiceMock.holdsComponent.withArgs(SIBLING).resolves(true);
+
+          expect(seeds(await stateMachine.manageFolderSyncState(mockParams))).to.equal(false);
+        });
+
         it('is left to a peer whose folder for the app\'s other g: component sends, though this node sorts first', async () => {
           freshFolder({ peerAnswer: { folders: [SIBLING] } });
           appQueryServiceMock.holdsComponent.withArgs(SIBLING).resolves(false);
