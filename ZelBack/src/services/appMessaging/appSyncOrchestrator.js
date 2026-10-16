@@ -1124,22 +1124,19 @@ class AppSyncOrchestrator {
       log.info(`Boot context: machineRebooted=${machineRebooted} downtime=${Math.round(downtimeMs / 1000)}s cleanShutdown=${cleanShutdown} firstBoot=${!heartbeat}`);
       return ctx;
     } catch (error) {
+      // Unread is neither a first boot nor a long absence: how long the node was down is
+      // unknown, so whether its locations expired is decided app by app.
       log.error(`Failed to read boot context: ${error.message}`);
-      return { machineRebooted: true, downtimeMs: Infinity, cleanShutdown: false, currentBootId: null, firstBoot: true };
-    }
-  }
-
-  async #clearShutdownReason() {
-    try {
-      const db = dbHelper.databaseConnection();
-      const database = db.db(config.database.local.database);
-      await dbHelper.findOneAndUpdateInDatabase(database, startupCollection, { _id: 'heartbeat' }, { $unset: { shutdownReason: '' } });
-    } catch (error) {
-      log.error(`Failed to clear shutdown reason: ${error.message}`);
+      return {
+        unreadable: true, machineRebooted: true, downtimeMs: null, cleanShutdown: false, currentBootId: null, firstBoot: false,
+      };
     }
   }
 
   #startHeartbeat() {
+    // The reason the previous process stopped is its own: cleared by the first heartbeat
+    // that lands, so a crash of this one never reads as that stop.
+    let shutdownReasonCleared = false;
     const writeHeartbeat = async () => {
       try {
         const db = dbHelper.databaseConnection();
@@ -1148,12 +1145,13 @@ class AppSyncOrchestrator {
         if (this.#bootContext?.currentBootId) {
           update.$set.machineBootId = this.#bootContext.currentBootId;
         }
+        if (!shutdownReasonCleared) update.$unset = { shutdownReason: '' };
         await dbHelper.findOneAndUpdateInDatabase(database, startupCollection, { _id: 'heartbeat' }, update, { upsert: true });
+        shutdownReasonCleared = true;
       } catch (error) {
         log.error(`Heartbeat write failed: ${error.message}`);
       }
     };
-    this.#clearShutdownReason();
     writeHeartbeat();
     this.#heartbeatInterval = setInterval(writeHeartbeat, config.system.heartbeatIntervalMs ?? 30000);
   }

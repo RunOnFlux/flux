@@ -2372,15 +2372,15 @@ describe('AppSyncOrchestrator', () => {
       expect(ctx.downtimeMs).to.be.within(299000, 301000);
     });
 
-    it('should return safe defaults on error', async () => {
+    it('reports an unread context as unreadable, neither a first boot nor a long absence', async () => {
       dbHelperStub.findOneInDatabase.rejects(new Error('DB down'));
 
       const ctx = await AppSyncOrchestrator.readBootContext();
 
-      expect(ctx.machineRebooted).to.be.true;
-      expect(ctx.downtimeMs).to.equal(Infinity);
+      expect(ctx.unreadable).to.be.true;
+      expect(ctx.firstBoot).to.be.false;
+      expect(ctx.downtimeMs, 'an unknown downtime read as expired removes every app').to.equal(null);
       expect(ctx.cleanShutdown).to.be.false;
-      expect(ctx.firstBoot).to.be.true;
     });
   });
 
@@ -2412,6 +2412,23 @@ describe('AppSyncOrchestrator', () => {
       );
       expect(heartbeatCall).to.not.be.undefined;
       expect(heartbeatCall.args[3].$set.machineBootId).to.equal('test-boot-id-12345');
+      await orchestrator.stop();
+    });
+
+    it('clears the previous shutdown reason with each heartbeat until one lands', async () => {
+      const heartbeats = () => findOneAndUpdateStub.getCalls()
+        .filter((c) => c.args[2]?._id === 'heartbeat' && c.args[3]?.$set && 'lastAlive' in c.args[3].$set);
+      findOneAndUpdateStub.onFirstCall().rejects(new Error('connection timed out'));
+      const orchestrator = makeOrchestrator();
+      await orchestrator.start(defaultBootContext);
+      // tests/unit/globalconfig: system.heartbeatIntervalMs
+      await clock.tickAsync(30000);
+      await clock.tickAsync(30000);
+
+      const [failed, landed, after] = heartbeats();
+      expect(failed.args[3].$unset, 'the first heartbeat carries the clear').to.deep.equal({ shutdownReason: '' });
+      expect(landed.args[3].$unset, 'a failed clear is carried by the next heartbeat').to.deep.equal({ shutdownReason: '' });
+      expect(after.args[3].$unset, 'cleared once it landed, never again').to.equal(undefined);
       await orchestrator.stop();
     });
 
