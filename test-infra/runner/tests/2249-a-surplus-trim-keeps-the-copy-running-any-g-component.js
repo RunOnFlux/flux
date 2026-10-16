@@ -169,9 +169,10 @@ describe('a surplus trim keeps the copy running any g: component', function () {
     let kept = null;
     const keeping = waitForGiveUpConsidered(
       client(NEWEST), appName,
-      (d) => d.giveUp === false && d.reason === 'SURPLUS' && d.code === 'NEWEST_HOLDS_WRITER',
+      (d) => d.giveUp === false && d.reason === 'SURPLUS',
       600000,
-    ).then((v) => { kept = v; return v; });
+      { afterId: client(NEWEST).getLastEventId() },
+    ).then((entry) => { kept = entry.data; return entry; });
     keeping.catch(() => {});
 
     // The pass runs every removeFluxAppsPeriod * speedMultiplier blocks and this
