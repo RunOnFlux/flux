@@ -375,6 +375,8 @@ function isManagedElsewhere(identifier) {
   const restore = globalState.restoreInProgress || [];
   if (backup.includes(mainAppName) || restore.includes(mainAppName)) return true;
   if (globalState.stoppingContainers.has(dockerService.getAppIdentifier(identifier))) return true;
+  // an app being removed, including one whose removal is still cleaning up
+  if (globalState.departingApps.has(mainAppName)) return true;
   return false;
 }
 
@@ -382,11 +384,8 @@ function isManagedElsewhere(identifier) {
  * What this component should be doing, why, and - when the answer is an operator
  * stop - whether that operator asked for a hard kill.
  *
- * The lock and the force flag are fields of one document, so they come from one
- * read. The stop branch used to re-read the same document for the flag alone,
- * and getState returns null for a read failure exactly as it does for "no
- * record" - so a second read that failed turned "kill now" into a drain. One
- * read is a window that cannot open, and one round-trip fewer on every stop.
+ * The lock and the force flag come from one read. A read that fails rejects,
+ * and the pass is retried without acting: an unread lock is not a lifted one.
  *
  * @returns {Promise<{desired: boolean|null, reason: string, force: boolean}>}
  */
@@ -1106,8 +1105,9 @@ async function reconcile(rawIdentifier) {
     // without it - which is how far a component has escalated, and whether it
     // ever went backwards. Read on the backoff path only, which is a paced
     // restart and therefore cold.
-    const backoffState = await appsRuntimeState.getState(identifier);
-    const rung = ((backoffState && backoffState.restartHistory) || []).length;
+    // For the report only: a failed read leaves the rung unknown, never the wait.
+    const backoffState = await appsRuntimeState.getState(identifier).catch(() => undefined);
+    const rung = backoffState === undefined ? null : ((backoffState && backoffState.restartHistory) || []).length;
     log.warn(`appReconciler - ${identifier} stopped, ${cause}; backing off ${Math.round(wait / 1000)}s before restart (rung ${rung})`);
     fluxEventBus.publish('reconciler:actuated', {
       identifier, action: 'backoff', waitMs: wait, rung, crashed,
@@ -1121,6 +1121,13 @@ async function reconcile(rawIdentifier) {
   // start fails on a missing mount source and the app backoff-loops forever.
   const isComponent = spec.appSpec.version >= 4 && Array.isArray(spec.appSpec.compose);
   await volumeService.ensureMountPathsExist(spec.comp, mainAppName, isComponent, isComponent ? spec.appSpec : null);
+
+  // The restart this start satisfies is the one requested before it: read now, so
+  // a failed read defers before anything is started, and a restart requested
+  // while the start runs is still owed afterwards.
+  const startingState = await appsRuntimeState.getState(identifier);
+  const pendingGeneration = (startingState && startingState.restartGeneration) || 0;
+  const satisfiesRestart = pendingGeneration > ((startingState && startingState.actuatedRestartGeneration) || 0);
 
   await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.RECONCILER_BEFORE_START, identifier);
   // A decider writes its opinion outside this single-flight, so one may have been
@@ -1159,9 +1166,6 @@ async function reconcile(rawIdentifier) {
   // A restart of a container that was already stopped IS this start, so the
   // request is satisfied here. Left pending, the pass that next finds it running
   // would bounce a container the operator has just watched come up.
-  const startedState = await appsRuntimeState.getState(identifier);
-  const pendingGeneration = (startedState && startedState.restartGeneration) || 0;
-  const satisfiesRestart = pendingGeneration > ((startedState && startedState.actuatedRestartGeneration) || 0);
   log.info(`appReconciler - ${identifier} restarted`);
   fluxEventBus.publish('reconciler:actuated', { identifier, action: 'started', exitCode: actual.exitCode });
   // A start is exactly when a container can come up attached to no network (a stale

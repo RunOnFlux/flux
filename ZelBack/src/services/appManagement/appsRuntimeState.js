@@ -50,20 +50,17 @@ function canonical(identifier) {
 
 /**
  * Returns the persisted runtime-state document for a component identifier
- * (e.g. `component_app`, or the app name for v1-3 apps), or null.
+ * (e.g. `component_app`, or the app name for v1-3 apps), or null when it has
+ * none. Rejects when the read fails: an unread record is not an absent one, and
+ * every lock and ladder this document holds would read as clear.
  *
  * @param {string} identifier
  * @returns {Promise<object|null>}
  */
 async function getState(rawIdentifier) {
   const identifier = canonical(rawIdentifier);
-  try {
-    const database = collection();
-    return await dbHelper.findOneInDatabase(database, appsRuntimeState, { identifier }, { projection: { _id: 0 } });
-  } catch (err) {
-    log.error(`appsRuntimeState - failed to read state for ${identifier}: ${err.message}`);
-    return null;
-  }
+  const database = collection();
+  return dbHelper.findOneInDatabase(database, appsRuntimeState, { identifier }, { projection: { _id: 0 } });
 }
 
 function isDuplicateKeyError(err) {
@@ -149,9 +146,9 @@ async function setOperatorStopped(identifier, stopped, opts = {}) {
   await setFields(identifier, fields);
 }
 
-// The stop lock and its start request, read without getState's swallow: these
-// readers decide whether to lift the lock, and a read failure answered as "no
-// record" is a lock lifted on no evidence.
+// The stop lock and its start request, the only fields these readers need.
+// Rejects when the read fails: a lock lifted on an unread record is lifted on no
+// evidence.
 function readLock(identifier) {
   return dbHelper.findOneInDatabase(
     collection(),
@@ -162,9 +159,8 @@ function readLock(identifier) {
 }
 
 /**
- * Whether the operator stop lock is on, read without getState's swallow: for a
- * caller about to commit a component to running, an unread lock is not an
- * absent one.
+ * Whether the operator stop lock is on: for a caller about to commit a component
+ * to running, an unread lock is not an absent one.
  *
  * @param {string} rawIdentifier
  * @returns {Promise<boolean>}
@@ -298,26 +294,9 @@ async function recordRestartGeneration(identifier, generation) {
 }
 
 /**
- * Whether the operator has deliberately stopped this component, so the
- * reconciler (and the masterSlave/syncthing deciders) must leave it stopped.
- *
- * @param {string} identifier
- * @returns {Promise<boolean>}
- */
-async function isOperatorStopped(identifier) {
-  const state = await getState(identifier);
-  return state?.operatorStopped === true;
-}
-
-/**
- * The operator's stop lock and the mode they asked for, from ONE read.
- *
- * They are two fields of one document, and a caller needing both must not ask
- * twice: getState returns null for a read failure exactly as it does for "no
- * record", so a second read that failed reported no force flag and turned the
- * operator's "kill now" into a drain they did not ask for. Answering both from a
- * single read is a window that cannot open - and one round-trip fewer on every
- * stop the reconciler performs.
+ * The operator's stop lock and the mode they asked for, from ONE read: two
+ * fields of one document, answered together so they always describe the same
+ * moment. Rejects when the read fails.
  *
  * `startRequested` is a start the operator has asked for and the election has
  * not yet decided; the lock stands until it has. `asPrimary` is whether this
@@ -638,18 +617,15 @@ async function removeControllerState(rawIdentifier) {
 }
 
 /**
- * Drops all runtime state for a component (on uninstall).
+ * Drops all runtime state for a component (on uninstall). Rejects when the
+ * delete fails: a stop lock left behind holds a later reinstall stopped.
  *
  * @param {string} identifier
  */
 async function remove(rawIdentifier) {
   const identifier = canonical(rawIdentifier);
-  try {
-    const database = collection();
-    await dbHelper.removeDocumentsFromCollection(database, appsRuntimeState, { identifier });
-  } catch (err) {
-    log.error(`appsRuntimeState - failed to remove state for ${identifier}: ${err.message}`);
-  }
+  const database = collection();
+  await dbHelper.removeDocumentsFromCollection(database, appsRuntimeState, { identifier });
 }
 
 /**
@@ -710,7 +686,7 @@ async function getVolumeImage(rawIdentifier) {
 async function prepareCollection() {
   try {
     const database = collection();
-    const all = await dbHelper.findInDatabase(database, appsRuntimeState, {}, { projection: { _id: 0 } });
+    const all = await dbHelper.findInDatabase(database, appsRuntimeState, {}, {});
     const byIdentifier = new Map();
     // eslint-disable-next-line no-restricted-syntax
     for (const doc of all) {
@@ -770,10 +746,13 @@ async function prepareCollection() {
           merged.lastDiedAt = newestExit.lastDiedAt;
         }
         log.warn(`appsRuntimeState - merged ${twins.length} duplicate docs for ${identifier} (operatorStopped=${merged.operatorStopped}, ${merged.restartHistory.length} restart entries)`);
+        // The merge lands on one twin before the others go, so a failure part way
+        // leaves duplicates for the next start to merge, never no record at all.
+        const kept = oldestFirst[oldestFirst.length - 1]._id;
         // eslint-disable-next-line no-await-in-loop
-        await dbHelper.removeDocumentsFromCollection(database, appsRuntimeState, { identifier });
+        await dbHelper.updateOneInDatabase(database, appsRuntimeState, { _id: kept }, { $set: merged });
         // eslint-disable-next-line no-await-in-loop
-        await dbHelper.updateOneInDatabase(database, appsRuntimeState, { identifier }, { $set: merged }, { upsert: true });
+        await dbHelper.removeDocumentsFromCollection(database, appsRuntimeState, { identifier, _id: { $ne: kept } });
       }
     }
     await database.collection(appsRuntimeState).createIndex({ identifier: 1 }, { unique: true, name: 'identifier_unique' });
@@ -789,7 +768,6 @@ module.exports = {
   requestOperatorStart,
   releaseOperatorStart,
   operatorStoppedOrThrow,
-  isOperatorStopped,
   operatorStopState,
   operatorHeldIdentifiers,
   recordRestart,

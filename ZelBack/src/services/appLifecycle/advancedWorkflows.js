@@ -5133,8 +5133,16 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
       // runs all of them on one node, and every other holder runs none. Checked
       // for all g: mode apps, not just those in cache with restarted flag - the
       // cache tracks sync state, but shouldn't gate primary selection.
-      // eslint-disable-next-line no-await-in-loop
-      const members = await electedMembers(installedApp);
+      let members;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        members = await electedMembers(installedApp);
+      } catch (error) {
+        // An unread stop lock is not a lifted one: not a candidate this pass.
+        log.warn(`masterSlaveApps: ${installedApp.name} stop locks could not be read - excluded from primary election this pass: ${error.message}`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       if (members.length) {
         // The anchor keys this app's election records and names it in the counters.
         const { identifier } = members[0];

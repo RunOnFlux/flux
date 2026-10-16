@@ -1063,6 +1063,18 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'operator-stopped')).to.have.lengthOf(1);
     });
 
+    it('excludes a component whose stop lock cannot be read, and elects nothing for it', async () => {
+      const appName = 'unreadlockapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').rejects(new Error('connection timed out'));
+      const logWarn = sinon.stub(log, 'warn');
+      const runPass = electionFixture(appName);
+
+      await runPass();
+
+      expect(serviceHelperStub.called, 'the election went on to FDM with an unread lock').to.be.false;
+      expect(linesMatching(logWarn, 'stop lock could not be read')).to.have.lengthOf(1);
+    });
+
     it('announces again after the operator lock is lifted and re-applied', async () => {
       const appName = 'relockapp';
       const operatorStopped = sinon.stub(appsRuntimeState, 'operatorStopState');
@@ -2783,7 +2795,6 @@ describe('advancedWorkflows tests', () => {
     // back within it keeps what it holds.
     it('will not start beside a silent peer that announced a shutdown and has not passed its expiry', async () => {
       const appName = 'rebootingpeerapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -2813,7 +2824,6 @@ describe('advancedWorkflows tests', () => {
 
     it('will not start beside a silent peer when this node cannot read which nodes announced a shutdown', async () => {
       const appName = 'shutdownsunreadableapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -2871,7 +2881,6 @@ describe('advancedWorkflows tests', () => {
     // resumes them. The closed connection is this node's doing, not the peer's.
     it('will not start beside a silent peer whose device this node\'s syncthing has paused', async () => {
       const appName = 'pausedpeerapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -2888,7 +2897,6 @@ describe('advancedWorkflows tests', () => {
     // that closed before it started says nothing about the peer now.
     it('will not start beside a silent peer whose connection closed before this node\'s syncthing started', async () => {
       const appName = 'restartedsyncthingapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -2905,7 +2913,6 @@ describe('advancedWorkflows tests', () => {
     // as the previous syncthing stopped reads the same second as this one's start.
     it('will not start beside a silent peer whose connection closed in the second this node\'s syncthing started', async () => {
       const appName = 'samesecondapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -3016,7 +3023,6 @@ describe('advancedWorkflows tests', () => {
 
     it('will not start beside a silent peer when this node cannot read when its syncthing started', async () => {
       const appName = 'statusunreadableapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -3031,7 +3037,6 @@ describe('advancedWorkflows tests', () => {
 
     it('will not start beside a silent peer when this node cannot read whether its syncthing paused it', async () => {
       const appName = 'devicesunreadableapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -3367,7 +3372,6 @@ describe('advancedWorkflows tests', () => {
     // the node it names may not be the one running it.
     it('lets a standby\'s paused folder ask every other holder, not only the node FDM names', async () => {
       const appName = 'fdmholderapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       sinon.stub(log, 'info');
       const hold = sinon.stub(primaryRole, 'holdAsStandby').resolves();
       const runPass = electionFixture(appName, ['192.168.1.90:16137', '192.168.1.91:16127']);

@@ -7,10 +7,12 @@ describe('appsRuntimeState tests', () => {
   let store; // fake collection: identifier -> doc
   let logStub;
   let readFails;
+  let removeFails;
 
   beforeEach(() => {
     store = new Map();
     readFails = false;
+    removeFails = false;
     logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
 
     const dbHelperStub = {
@@ -63,7 +65,10 @@ describe('appsRuntimeState tests', () => {
         });
         store.set(query.identifier, next);
       },
-      removeDocumentsFromCollection: async (_db, _coll, query) => { store.delete(query.identifier); },
+      removeDocumentsFromCollection: async (_db, _coll, query) => {
+        if (removeFails) throw new Error('connection timed out');
+        store.delete(query.identifier);
+      },
     };
 
     appsRuntimeState = proxyquire('../../ZelBack/src/services/appManagement/appsRuntimeState', {
@@ -112,11 +117,11 @@ describe('appsRuntimeState tests', () => {
   describe('operatorStopped', () => {
     it('persists the stop lock and reads it back', async () => {
       await appsRuntimeState.setOperatorStopped('www_App', true);
-      expect(await appsRuntimeState.isOperatorStopped('www_App')).to.be.true;
+      expect(await appsRuntimeState.operatorStoppedOrThrow('www_App')).to.be.true;
     });
 
     it('defaults to not-stopped for an unknown component', async () => {
-      expect(await appsRuntimeState.isOperatorStopped('nope_App')).to.be.false;
+      expect(await appsRuntimeState.operatorStoppedOrThrow('nope_App')).to.be.false;
     });
 
     it('clearing the lock (start) also clears the restart backoff history', async () => {
@@ -125,7 +130,7 @@ describe('appsRuntimeState tests', () => {
       expect(store.get('www_App').restartHistory).to.have.lengthOf(2);
 
       await appsRuntimeState.setOperatorStopped('www_App', false);
-      expect(await appsRuntimeState.isOperatorStopped('www_App')).to.be.false;
+      expect(await appsRuntimeState.operatorStoppedOrThrow('www_App')).to.be.false;
       expect(store.get('www_App').restartHistory).to.deep.equal([]);
     });
  
@@ -237,7 +242,7 @@ describe('appsRuntimeState tests', () => {
 
       expect(await appsRuntimeState.requestOperatorStart('www_App')).to.be.true;
 
-      expect(await appsRuntimeState.isOperatorStopped('www_App')).to.be.true;
+      expect(await appsRuntimeState.operatorStoppedOrThrow('www_App')).to.be.true;
       expect(await appsRuntimeState.operatorStopState('www_App')).to.deep.equal({
         stopped: true, startRequested: true, force: false, asPrimary: true,
       });
@@ -272,7 +277,7 @@ describe('appsRuntimeState tests', () => {
 
       expect(await appsRuntimeState.releaseOperatorStart('www_App')).to.be.false;
 
-      expect(await appsRuntimeState.isOperatorStopped('www_App')).to.be.true;
+      expect(await appsRuntimeState.operatorStoppedOrThrow('www_App')).to.be.true;
     });
 
     it('leaves a lock the operator set again after asking for the start', async () => {
@@ -282,7 +287,7 @@ describe('appsRuntimeState tests', () => {
 
       expect((await appsRuntimeState.operatorStopState('www_App')).startRequested).to.be.false;
       expect(await appsRuntimeState.releaseOperatorStart('www_App')).to.be.false;
-      expect(await appsRuntimeState.isOperatorStopped('www_App')).to.be.true;
+      expect(await appsRuntimeState.operatorStoppedOrThrow('www_App')).to.be.true;
     });
 
     it('does not report a start request once the lock is gone', async () => {
@@ -328,7 +333,32 @@ describe('appsRuntimeState tests', () => {
       expect(requested, 'an unread lock was answered').to.be.an('error');
       expect(released, 'an unread lock was answered').to.be.an('error');
       readFails = false;
-      expect(await appsRuntimeState.isOperatorStopped('www_App'), 'the lock was lifted').to.be.true;
+      expect(await appsRuntimeState.operatorStoppedOrThrow('www_App'), 'the lock was lifted').to.be.true;
+    });
+  });
+
+  describe('a record that cannot be read', () => {
+    it('rejects rather than answering no record', async () => {
+      await appsRuntimeState.setOperatorStopped('www_App', true);
+      readFails = true;
+
+      const state = await appsRuntimeState.getState('www_App').catch((err) => err);
+      const stop = await appsRuntimeState.operatorStopState('www_App').catch((err) => err);
+
+      expect(state, 'an unread record was answered').to.be.an('error');
+      expect(stop, 'an unread lock was answered').to.be.an('error');
+    });
+
+    it('records no restart over a ladder it could not read', async () => {
+      await appsRuntimeState.recordRestart('www_App');
+      await appsRuntimeState.recordRestart('www_App');
+      const ladder = store.get('www_App').restartHistory;
+      readFails = true;
+
+      await appsRuntimeState.recordRestart('www_App');
+
+      readFails = false;
+      expect(store.get('www_App').restartHistory).to.deep.equal(ladder);
     });
   });
 
@@ -387,6 +417,16 @@ describe('appsRuntimeState tests', () => {
       await appsRuntimeState.setOperatorStopped('www_App', true);
       await appsRuntimeState.remove('www_App');
       expect(store.has('www_App')).to.be.false;
+    });
+
+    it('remove rejects when the delete fails, rather than leaving the stop lock in silence', async () => {
+      await appsRuntimeState.setOperatorStopped('www_App', true);
+      removeFails = true;
+
+      const failure = await appsRuntimeState.remove('www_App').catch((err) => err);
+
+      expect(failure).to.be.an('error');
+      expect(store.get('www_App').operatorStopped).to.be.true;
     });
   });
 
@@ -663,14 +703,14 @@ describe('appsRuntimeState tests', () => {
     // The module therefore normalizes at its own boundary.
     it('keys a docker-prefixed identifier and its bare form to the same document', async () => {
       await appsRuntimeState.setOperatorStopped('fluxwww_App', true);
-      expect(await appsRuntimeState.isOperatorStopped('www_App')).to.be.true;
+      expect(await appsRuntimeState.operatorStoppedOrThrow('www_App')).to.be.true;
       expect(store.has('fluxwww_App')).to.be.false;
     });
 
     it('removes under either form', async () => {
       await appsRuntimeState.setOperatorStopped('www_App', true);
       await appsRuntimeState.remove('fluxwww_App');
-      expect(await appsRuntimeState.isOperatorStopped('www_App')).to.be.false;
+      expect(await appsRuntimeState.operatorStoppedOrThrow('www_App')).to.be.false;
     });
   });
 
@@ -961,6 +1001,39 @@ describe('appsRuntimeState tests', () => {
     // here survives only by being carried, from whichever twin holds it. The
     // field names below are deliberately not real ones - a real one would be
     // testing its own named rule instead.
+    it('writes the merge onto the newest twin before removing the others, and removes nothing when that write fails', async () => {
+      const ops = [];
+      let writeFails = false;
+      const orderState = proxyquire('../../ZelBack/src/services/appManagement/appsRuntimeState', {
+        '../../lib/log': logStub,
+        '../dbHelper': {
+          databaseConnection: () => ({ db: () => ({ collection: () => ({ createIndex: sinon.stub().resolves() }) }) }),
+          findInDatabase: async () => [
+            { _id: 'older', identifier: 'www_App', operatorStopped: true, updatedAt: 1000 },
+            { _id: 'newer', identifier: 'www_App', restartHistory: [5], updatedAt: 9000 },
+          ],
+          removeDocumentsFromCollection: async (_db, _coll, query) => { ops.push(['remove', query]); },
+          updateOneInDatabase: async (_db, _coll, query, update) => {
+            if (writeFails) throw new Error('connection timed out');
+            ops.push(['write', query, update.$set]);
+          },
+        },
+        '../dockerService': { getBaseAppName: (id) => id },
+      });
+
+      await orderState.prepareCollection();
+
+      expect(ops.map(([op]) => op)).to.deep.equal(['write', 'remove']);
+      expect(ops[0][1]).to.deep.equal({ _id: 'newer' });
+      expect(ops[0][2].operatorStopped, 'the lock on the older twin').to.be.true;
+      expect(ops[1][1]).to.deep.equal({ identifier: 'www_App', _id: { $ne: 'newer' } });
+
+      ops.length = 0;
+      writeFails = true;
+      await orderState.prepareCollection();
+      expect(ops, 'a twin was removed although the merge was never written').to.deep.equal([]);
+    });
+
     it('carries fields the merge does not name, from whichever twin has them', async () => {
       docs = [
         {

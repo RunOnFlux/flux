@@ -44,7 +44,8 @@ function resetGlobalState() {
     // so they are emptied that way below rather than written to here.
     else if (Array.isArray(value)) { if (!Object.isFrozen(value)) value.length = 0; }
     else if (value && typeof value === 'object' && value.constructor === Object) {
-      for (const own of Object.keys(value)) delete value[own];
+      // An object's functions are its interface, not its state.
+      for (const own of Object.keys(value)) if (typeof value[own] !== 'function') delete value[own];
     }
   }
   for (const appname of globalState.backupInProgress) globalState.finishBackup(appname);

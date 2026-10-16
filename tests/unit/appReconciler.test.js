@@ -62,7 +62,6 @@ describe('appReconciler tests', () => {
         clearAppVolumeData: sinon.stub().resolves(),
       },
       appsRuntimeState: {
-        isOperatorStopped: sinon.stub().resolves(false),
         operatorStopState: sinon.stub().resolves({ stopped: false, force: false }),
         operatorStoppedOrThrow: sinon.stub().resolves(false),
         restartWaitMs: sinon.stub().resolves(0),
@@ -243,12 +242,8 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerKill.called).to.be.false;
     });
 
-    // The defect this closes: the lock and the mode were two reads of one
-    // document, and getState returns null for a read failure exactly as it does
-    // for "no record" - so a second read that failed reported no force flag and
-    // downgraded the operator's kill into a drain they never asked for. The mode
-    // now arrives with the decision that read it, so nothing later can contradict
-    // it. An empty getState here IS what that failed read looked like.
+    // The lock and the mode arrive together from the read that decided the stop,
+    // so no later read of the same document can contradict them.
     it('kills even when a later state read comes back empty', async () => {
       stubs.appsRuntimeState.operatorStopState.resolves({ stopped: true, force: true });
       stubs.appsRuntimeState.getState.resolves(null);
@@ -447,6 +442,35 @@ describe('appReconciler tests', () => {
         stubs.dockerService.appDockerStart.called,
         'the reconciler tried to START a paused container - docker refuses that',
       ).to.equal(false);
+    });
+
+    it('leaves a component alone while its app is departing, removal cleanup included', async () => {
+      stubs.globalState.departingApps.enter('App');
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.dockerContainerInspect.called, 'a departing app was reconciled').to.be.false;
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      stubs.globalState.departingApps.leave('App');
+    });
+
+    it('starts nothing when the stop lock cannot be read, and fails the pass for a retry', async () => {
+      stubs.appsRuntimeState.operatorStopState.rejects(new Error('connection timed out'));
+
+      const failure = await appReconciler.reconcile('www_App').catch((err) => err);
+
+      expect(failure, 'the pass reported success on an unread lock').to.be.an('error');
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
+    it('starts nothing when the restart generation cannot be read, and fails the pass for a retry', async () => {
+      stubs.appsRuntimeState.getState.rejects(new Error('connection timed out'));
+
+      const failure = await appReconciler.reconcile('www_App').catch((err) => err); // inspect default: stopped
+
+      expect(failure, 'the pass reported success on an unread generation').to.be.an('error');
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      expect(stubs.appsRuntimeState.recordRestart.called, 'no attempt was made, so none is recorded').to.be.false;
     });
 
     it('starts a stopped plain component that should run (default always policy)', async () => {
@@ -2213,7 +2237,7 @@ describe('appReconciler tests', () => {
   });
 
   describe('applyIntent serialises an intent write against a reconcile pass', () => {
-    // The defect this closes: a pass reads isOperatorStopped, then acts on that
+    // The defect this closes: a pass reads the stop lock, then acts on that
     // answer once docker has replied. An operator stop landing in that gap is
     // not seen, so the pass starts a container the operator has just stopped and
     // the next pass stops it again - the flap suite 45 catches.

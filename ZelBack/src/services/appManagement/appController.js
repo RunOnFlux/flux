@@ -392,7 +392,7 @@ async function containersRestarted(ids) {
   // eslint-disable-next-line no-restricted-syntax
   for (const id of ids) {
     // eslint-disable-next-line no-await-in-loop
-    const state = await appsRuntimeState.getState(id);
+    const state = await appsRuntimeState.getState(id).catch(() => null);
     if (!state) return { settled: false, reason: 'its state could not be read' };
     if ((state.actuatedRestartGeneration ?? 0) < (state.restartGeneration ?? 0)) {
       // eslint-disable-next-line no-await-in-loop
