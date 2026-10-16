@@ -217,23 +217,6 @@ async function ensureIndex(collection, spec, options = {}, recover = null) {
 }
 
 /**
- * Drops the index `name` from `collection` when it is there. Rejects on any
- * failure other than the index or its collection not existing, so boot
- * prepares the schema again.
- * @param {object} collection - a mongo collection handle
- * @param {string} name - the index name
- * @returns {Promise<void>}
- */
-async function dropIndexIfPresent(collection, name) {
-  try {
-    await collection.dropIndex(name);
-  } catch (error) {
-    if (error?.codeName === 'IndexNotFound' || error?.codeName === 'NamespaceNotFound') return;
-    throw error;
-  }
-}
-
-/**
  * Assert every index one collection needs, in a single command.
  *
  * mongo's index build protocol has a fixed cost per BUILD - register, start,
@@ -380,8 +363,7 @@ async function prepareDatabaseSchema() {
     { key: { 'appSpecifications.nodes': 1 }, name: 'query for getting app message based on nodes' },
   ]);
   await dbHelper.ensureNewestAppMessageIndex(databaseTemp.collection(config.database.appsglobal.collections.appsMessages));
-  // TTL is driven by expireAt (set per-document by store functions). Migrate from old broadcastedAt-based TTL.
-  await dropIndexIfPresent(databaseTemp.collection(config.database.appsglobal.collections.appsLocations), 'broadcastedAt_1');
+  // TTL is driven by expireAt (set per-document by store functions).
   await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsLocations), [
     { key: { expireAt: 1 }, expireAfterSeconds: 0 },
     { key: { name: 1 }, name: 'query for getting zelapp location based on zelapp specs name' },
@@ -399,22 +381,18 @@ async function prepareDatabaseSchema() {
     { key: { 'data.newIP': 1 }, name: 'moves by the address they lead to', partialFilterExpression: { type: 'ipchanged' } },
   ]);
   log.info('App state events collection prepared');
-  await dropIndexIfPresent(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), 'broadcastedAt_1');
   await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), [
     { key: { expireAt: 1 }, expireAfterSeconds: 0 },
     { key: { broadcastedAt: 1 } },
     { key: { 'data.name': 1, 'data.ip': 1 }, unique: true, recover: dedupeByKey },
   ]);
   log.info('Signed appinstalling broadcasts collection prepared');
-  await dropIndexIfPresent(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations), 'broadcastedAt_1');
   await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations), [
     { key: { expireAt: 1 }, expireAfterSeconds: 0 },
     { key: { name: 1 }, name: 'query for getting flux app install location based on specs name' },
     { key: { name: 1, ip: 1 }, name: 'query for getting flux app install location based on specs name and node ip' },
   ]);
   log.info('Flux Apps installing locations prepared');
-  await dropIndexIfPresent(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations), 'cachedAt_1');
-  await dropIndexIfPresent(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations), 'broadcastedAt_1');
   await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations), [
     { key: { expireAt: 1 }, expireAfterSeconds: 0 },
     { key: { name: 1 }, name: 'query for getting flux app install errors location based on specs name' },
@@ -422,7 +400,6 @@ async function prepareDatabaseSchema() {
     { key: { name: 1, hash: 1, ip: 1 }, name: 'query for getting flux app install errors location based on specs name and hash and node ip' },
   ]);
   log.info('App installing errors locations prepared');
-  await dropIndexIfPresent(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts), 'broadcastedAt_1');
   await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts), [
     { key: { expireAt: 1 }, expireAfterSeconds: 0 },
     { key: { broadcastedAt: 1 } },
@@ -1012,7 +989,6 @@ module.exports = {
   startFluxFunctions,
   ensureIndex,
   ensureIndexes,
-  dropIndexIfPresent,
   untilSucceeds,
   prepareDatabaseSchema,
   dedupeByKey,
