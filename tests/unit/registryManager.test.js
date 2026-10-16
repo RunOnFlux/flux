@@ -1,7 +1,7 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const config = require('config');
-const { ObjectId } = require('mongodb');
+const { ObjectId, Collection } = require('mongodb');
 const proxyquire = require('proxyquire');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
@@ -1347,6 +1347,20 @@ describe('registryManager tests', () => {
       expect(changed).to.equal(2);
       expect((await daemonDb.collection(appsHashes).findOne({ hash: 'held' })).message).to.equal(true);
       expect(unresolvedSignals()).to.equal(0);
+    });
+
+    it('reads only the message hashes and writes its corrections in batches', async () => {
+      const count = 5001;
+      await daemonDb.collection(appsHashes).insertMany(Array.from({ length: count }, (_, i) => record(`h${i}`, { message: false })));
+      await database.collection(appsMessages).insertMany(Array.from({ length: count }, (_, i) => message(`h${i}`)));
+      const reads = sinon.spy(dbHelper, 'findInDatabase');
+      const writes = sinon.spy(Collection.prototype, 'bulkWrite');
+
+      const { changed } = await registryManager.reconstructAppMessagesHashCollection();
+
+      expect(changed).to.equal(count);
+      expect(reads.firstCall.args[3]).to.deep.equal({ projection: { _id: 0, hash: 1 } });
+      expect(writes.getCalls().map((call) => call.args[0].length)).to.deep.equal([5000, 1]);
     });
 
     it('should signal from the operator route', async () => {

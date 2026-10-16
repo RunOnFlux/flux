@@ -1940,8 +1940,12 @@ async function reindexGlobalAppsInformation() {
   return rebuildFollowing;
 }
 
+// Hash records corrected per round trip.
+const HASH_RECONSTRUCTION_BATCH = 5000;
+
 /**
- * Reconstruct app messages hash collection by validating hash records against actual messages
+ * Reconstruct app messages hash collection by validating hash records against actual messages.
+ * Reads only the fields it compares, and writes its corrections HASH_RECONSTRUCTION_BATCH at a time.
  * @returns {Promise<string>} Success message
  */
 async function reconstructAppMessagesHashCollection() {
@@ -1951,11 +1955,13 @@ async function reconstructAppMessagesHashCollection() {
     const databaseDaemon = db.db(config.database.daemon.database);
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     const currentHeight = syncStatus.data.height || 0;
-    const query = {};
-    const projection = { projection: { _id: 0 } };
 
-    const permanentMessages = await dbHelper.findInDatabase(databaseApps, globalAppsMessages, query, projection);
-    const appHashes = await dbHelper.findInDatabase(databaseDaemon, appsHashesCollection, query, projection);
+    const permanentMessages = await dbHelper.findInDatabase(databaseApps, globalAppsMessages, {}, { projection: { _id: 0, hash: 1 } });
+    const appHashes = await dbHelper.findInDatabase(databaseDaemon, appsHashesCollection, {}, {
+      projection: {
+        _id: 0, hash: 1, txid: 1, height: 1, message: 1, messageNotFound: 1, retryFromHeight: 1,
+      },
+    });
     const permHashSet = new Set(permanentMessages.map((m) => m.hash));
 
     const ops = [];
@@ -1993,8 +1999,9 @@ async function reconstructAppMessagesHashCollection() {
     }
 
     let changed = 0;
-    if (ops.length > 0) {
-      const result = await databaseDaemon.collection(appsHashesCollection).bulkWrite(ops, { ordered: false });
+    for (let i = 0; i < ops.length; i += HASH_RECONSTRUCTION_BATCH) {
+      // eslint-disable-next-line no-await-in-loop
+      const result = await databaseDaemon.collection(appsHashesCollection).bulkWrite(ops.slice(i, i + HASH_RECONSTRUCTION_BATCH), { ordered: false });
       changed += result.modifiedCount;
     }
 
