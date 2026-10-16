@@ -778,6 +778,54 @@ describe('dbHelper tests', () => {
     });
   });
 
+  describe('repairNanInAppsMessagesDb', () => {
+    const { appsglobal, daemon, local } = config.database;
+    let messages;
+    let hashes;
+    let tracker;
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      const client = dbHelper.databaseConnection();
+      messages = client.db(appsglobal.database).collection(appsglobal.collections.appsMessages);
+      hashes = client.db(daemon.database).collection(daemon.collections.appsHashes);
+      tracker = client.db(local.database).collection(local.collections.nodeStartupTracker);
+      await messages.deleteMany({});
+      await hashes.deleteMany({});
+      await tracker.deleteMany({});
+      await hashes.insertMany([{ hash: 'first', value: 5 }, { hash: 'later', value: 7 }]);
+    });
+
+    it('repairs once, and later calls do not scan again unless forced', async () => {
+      await messages.insertOne({ hash: 'first', valueSat: NaN });
+
+      await dbHelper.repairNanInAppsMessagesDb();
+      expect((await messages.findOne({ hash: 'first' })).valueSat).to.equal(5);
+      expect(await tracker.findOne({ _id: 'appsMessagesValueSatRepaired' })).to.not.equal(null);
+
+      await messages.insertOne({ hash: 'later', valueSat: NaN });
+      await dbHelper.repairNanInAppsMessagesDb();
+      expect((await messages.findOne({ hash: 'later' })).valueSat).to.be.NaN;
+
+      await dbHelper.repairNanInAppsMessagesDb({ force: true });
+      expect((await messages.findOne({ hash: 'later' })).valueSat).to.equal(7);
+    });
+
+    it('leaves no marker when the repair fails', async () => {
+      await messages.insertOne({ hash: 'first', valueSat: NaN });
+      const globalDb = dbHelper.databaseConnection().db(appsglobal.database);
+      // the repaired value is refused, so the repair's write fails
+      await globalDb.command({ collMod: appsglobal.collections.appsMessages, validator: { valueSat: { $ne: 5 } } });
+      try {
+        const error = await dbHelper.repairNanInAppsMessagesDb().catch((caught) => caught);
+        expect(error).to.be.an('error');
+      } finally {
+        await globalDb.command({ collMod: appsglobal.collections.appsMessages, validator: {} });
+      }
+      expect(await tracker.findOne({ _id: 'appsMessagesValueSatRepaired' })).to.equal(null);
+    });
+  });
+
   describe('rebuilding globalAppsInformation from the message log', () => {
     const { appsglobal, appslocal, daemon } = config.database;
     const scannedHeight = 3008000;

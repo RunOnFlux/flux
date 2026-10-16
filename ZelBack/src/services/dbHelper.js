@@ -526,14 +526,28 @@ async function updateValueSatInAppsMessages(brokenHashes, hashMap) {
   }
 }
 
-async function repairNanInAppsMessagesDb() {
+// The marker a completed valueSat repair leaves in the node startup tracker.
+const VALUESAT_REPAIR_MARKER = 'appsMessagesValueSatRepaired';
+
+/**
+ * Gives every app message stored with a NaN valueSat the value its payment
+ * record holds. Runs once: a completed repair leaves a marker, and later calls
+ * return without scanning, unless `force` is set.
+ * @param {object} [options]
+ * @param {boolean} [options.force] Repair whether or not the marker is there.
+ * @returns {Promise<void>}
+ */
+async function repairNanInAppsMessagesDb({ force = false } = {}) {
+  const local = databaseConnection().db(config.database.local.database);
+  const tracker = config.database.local.collections.nodeStartupTracker;
+  if (!force && await findOneInDatabase(local, tracker, { _id: VALUESAT_REPAIR_MARKER })) return;
+
   const brokenHashes = await findValueSatNanInAppsMessages();
-
-  if (!brokenHashes.length) return;
-
-  const hashMap = await findValueSatInAppsHashes();
-
-  await updateValueSatInAppsMessages(brokenHashes, hashMap);
+  if (brokenHashes.length) {
+    const hashMap = await findValueSatInAppsHashes();
+    await updateValueSatInAppsMessages(brokenHashes, hashMap);
+  }
+  await updateOneInDatabase(local, tracker, { _id: VALUESAT_REPAIR_MARKER }, { $set: { repairedAt: new Date() } }, { upsert: true });
 }
 
 /**
@@ -1109,7 +1123,7 @@ async function main(command) {
   if (command === 'validateInfoCol') {
     await validateAppsInformation();
   } else if (command === 'repairMessagesCol') {
-    await repairNanInAppsMessagesDb();
+    await repairNanInAppsMessagesDb({ force: true });
   }
 
   const client = databaseConnection();
