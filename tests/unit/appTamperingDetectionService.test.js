@@ -787,16 +787,20 @@ describe('appTamperingDetectionService tests', () => {
     it('sums counts and keeps the widest window when merging duplicate rollups', async () => {
       findResults = [
         {
-          appName: 'www', eventType: 'mountReadonly', incidentKey: 'boot:1', count: 2, firstSeen: new Date(2000), lastSeen: new Date(5000), severity: 3,
+          _id: 'older', appName: 'www', eventType: 'mountReadonly', incidentKey: 'boot:1', count: 2, firstSeen: new Date(2000), lastSeen: new Date(5000), severity: 3,
         },
         {
-          appName: 'www', eventType: 'mountReadonly', incidentKey: 'boot:1', count: 5, firstSeen: new Date(1000), lastSeen: new Date(9000), severity: 3,
+          _id: 'newer', appName: 'www', eventType: 'mountReadonly', incidentKey: 'boot:1', count: 5, firstSeen: new Date(1000), lastSeen: new Date(9000), severity: 3,
         },
       ];
 
       await service.prepareIncidentRollup();
 
-      expect(removed).to.deep.equal([{ appName: 'www', eventType: 'mountReadonly', incidentKey: 'boot:1' }]);
+      expect(upserts.map(({ query }) => query)).to.deep.equal([{ _id: 'newer' }]);
+      expect(removed).to.deep.equal([{
+        appName: 'www', eventType: 'mountReadonly', incidentKey: 'boot:1', _id: { $ne: 'newer' },
+      }]);
+      sinon.assert.callOrder(dbHelperStub.updateOneInDatabase, dbHelperStub.removeDocumentsFromCollection);
       expect(upserts).to.have.lengthOf(1);
       const merged = upserts[0].set;
       expect(merged.count, 'counts were not summed').to.equal(7);
@@ -828,6 +832,18 @@ describe('appTamperingDetectionService tests', () => {
       expect(removed).to.deep.equal([]);
       expect(upserts).to.deep.equal([]);
       sinon.assert.calledOnce(createIndexStub);
+    });
+
+    it('removes no duplicate when the merged rollup cannot be written', async () => {
+      findResults = [
+        { _id: 'a', appName: 'www', eventType: 'mountReadonly', incidentKey: 'boot:1', count: 2 },
+        { _id: 'b', appName: 'www', eventType: 'mountReadonly', incidentKey: 'boot:1', count: 5 },
+      ];
+      dbHelperStub.updateOneInDatabase = sinon.stub().rejects(new Error('connection timed out'));
+
+      await service.prepareIncidentRollup();
+
+      expect(removed).to.deep.equal([]);
     });
 
     it('logs and does not throw when the merge fails, leaving it for the next boot', async () => {

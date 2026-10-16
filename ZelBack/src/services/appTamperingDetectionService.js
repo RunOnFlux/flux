@@ -542,8 +542,7 @@ async function checkNodeReboot() {
  * unique index the upsert relies on is already in place.
  *
  * Low-stakes local telemetry on a 30-day TTL, so a failure logs and is left for
- * the next boot rather than wedging startup - the disposition its owner chooses,
- * the same one appsRuntimeState.prepareCollection takes.
+ * the next boot rather than wedging startup.
  */
 async function prepareIncidentRollup() {
   try {
@@ -582,10 +581,12 @@ async function prepareIncidentRollup() {
       };
       delete merged._id;
       log.warn(`appTamperingDetection - merged ${group.length} duplicate incident rollups for ${query.appName}/${query.eventType} (count=${merged.count})`);
+      // The merge lands on one rollup before the others go, so a failure part way
+      // leaves duplicates for the next boot to merge, never the incident lost.
       // eslint-disable-next-line no-await-in-loop
-      await dbHelper.removeDocumentsFromCollection(database, tamperingEventsCollection, query);
+      await dbHelper.updateOneInDatabase(database, tamperingEventsCollection, { _id: newest._id }, { $set: merged });
       // eslint-disable-next-line no-await-in-loop
-      await dbHelper.updateOneInDatabase(database, tamperingEventsCollection, query, { $set: merged }, { upsert: true });
+      await dbHelper.removeDocumentsFromCollection(database, tamperingEventsCollection, { ...query, _id: { $ne: newest._id } });
     }
 
     await database.collection(tamperingEventsCollection).createIndex(
