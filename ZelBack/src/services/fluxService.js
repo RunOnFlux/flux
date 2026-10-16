@@ -1658,9 +1658,6 @@ async function getFluxInfo(req, res) {
     // at one exit and not the other is the shape it exists to avoid.
     info.apps.runningapps = appQueryService.publicContainerView(appsRunning.data);
     const appsResources = await resourceQueryService.appsResources();
-    if (appsResources.status === 'error') {
-      throw appsResources.data;
-    }
     // The same three numbers /apps/appsresources publishes. This endpoint embeds
     // them, and a field kept from one exit and not the other is the shape that
     // catches this file out.

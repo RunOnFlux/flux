@@ -13,6 +13,7 @@ const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileg
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
+const { MongoNetworkTimeoutError } = require('mongodb');
 const log = require('../../ZelBack/src/lib/log');
 const https = require('https');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
@@ -96,6 +97,21 @@ describe('advancedWorkflows tests', () => {
 
       expect(result).to.equal(InstallOutcome.DECLINED);
       expect(globalState.installationInProgress, 'the node is left holding an install that never began').to.be.false;
+    });
+
+    it('stops without tearing anything down when the database does not answer', async () => {
+      // eslint-disable-next-line global-require
+      const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').rejects(new MongoNetworkTimeoutError('connection timed out'));
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      const result = await advancedWorkflows.softRegisterAppLocally({ name: 'testapp', version: 3 }, false, makeRes());
+
+      expect(result).to.equal(InstallOutcome.DEFERRED);
+      expect(removeAppLocally.called, 'a soft registration destroyed the data it exists to keep').to.be.false;
+      expect(globalState.installationInProgress).to.be.false;
     });
 
     it('does not release a hold it never took', async () => {
@@ -6301,6 +6317,19 @@ describe('advancedWorkflows tests', () => {
       expect(globalState.softRedeployInProgress).to.be.false;
     });
 
+    it('leaves the app down with its data when the step after the removal cannot read the database', async () => {
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(v3Spec);
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves();
+      sinon.stub(appUninstaller, 'softUninstallApplication').resolves();
+      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new MongoNetworkTimeoutError('connection timed out'));
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      await advancedWorkflows.softRedeploy(v3Spec, null);
+
+      expect(removeAppLocally.called, 'the app was uninstalled because the database did not answer').to.be.false;
+      expect(globalState.softRedeployInProgress).to.be.false;
+    });
+
     it('records that a failure after the app is down still force-uninstalls it', async () => {
       // Pins CURRENT behaviour, not desired behaviour. The gate covers a removal
       // that never finished; past that point a failure still force-uninstalls
@@ -6729,6 +6758,28 @@ describe('advancedWorkflows tests', () => {
       expect(res.writesAfterEnd).to.be.empty;
     });
 
+    it('does not uninstall the app when the step after a soft component removal cannot read the database', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new MongoNetworkTimeoutError('connection timed out'));
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      expect(res.writesAfterEnd).to.be.empty;
+    });
+
+    it('does not uninstall the app when the step after a hard component removal cannot read the database', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new MongoNetworkTimeoutError('connection timed out'));
+      sinon.stub(appUninstaller, 'hardUninstallComponent').resolves();
+      req.params.force = 'true';
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      expect(res.writesAfterEnd).to.be.empty;
+    });
+
     // The gate must not be shut. A teardown that COMPLETED and a failure after it
     // is the case the forced uninstall exists for, and a suite that proved only
     // the refusals would pass with the fallback deleted altogether.
@@ -6902,6 +6953,26 @@ describe('advancedWorkflows tests', () => {
         requestComplianceSweep.called,
         'a redeployed application was swept for as though nothing had judged it',
       ).to.be.false;
+    });
+
+    it('does not uninstall an app whose redeploy stops on a database that does not answer', async () => {
+      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').rejects(new MongoNetworkTimeoutError('connection timed out'));
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(removeAppLocally.called, 'an app was uninstalled with its data because the database did not answer').to.be.false;
+    });
+
+    it('a canary: a redeploy that fails for another reason still uninstalls the app', async () => {
+      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').rejects(new Error('Insufficient RAM'));
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      sinon.assert.calledOnce(removeAppLocally);
     });
 
     it('declines a second pass that starts before the first has announced itself', async () => {
@@ -8092,6 +8163,16 @@ describe('a redeploy asks what it may rebuild before it takes anything down', ()
       await advancedWorkflows.hardRedeploy({ version: 4, name: 'plainapp', nodes: [] }, res);
 
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      expect(globalState.hardRedeployInProgress).to.be.false;
+    });
+
+    it('hardRedeploy leaves a running app alone when it fails before the teardown', async () => {
+      sinon.stub(globalState, 'operationHolding').throws(new Error('connection timed out'));
+
+      await advancedWorkflows.hardRedeploy({ version: 4, name: 'plainapp', nodes: [] }, res);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      expect(res.write.lastCall.args[0]).to.match(/before the app was taken down/);
       expect(globalState.hardRedeployInProgress).to.be.false;
     });
 
