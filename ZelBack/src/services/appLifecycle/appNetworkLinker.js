@@ -26,6 +26,30 @@ const dockerService = require('../dockerService');
 const log = require('../../lib/log');
 const { localAppsInformation, APP_NAME_REGEX } = require('../utils/appConstants');
 
+// The delays before a sweep whose installed-apps read failed runs again, by
+// attempt; the last repeats until the read succeeds. One retry is pending per
+// sweep at a time.
+const READ_RETRY_MS = [30 * 1000, 60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000];
+const pendingRetries = new Map();
+
+/**
+ * Runs `sweep(attempt + 1)` once the delay for `attempt` has passed, unless a
+ * retry of the same sweep is pending already.
+ * @param {string} key Names the sweep.
+ * @param {function(number): Promise<void>} sweep
+ * @param {number} attempt
+ */
+function retrySweep(key, sweep, attempt) {
+  if (pendingRetries.has(key)) return;
+  const delay = READ_RETRY_MS[Math.min(attempt, READ_RETRY_MS.length - 1)];
+  const timer = setTimeout(() => {
+    pendingRetries.delete(key);
+    sweep(attempt + 1).catch((error) => log.error(`${key}: ${error.message}`));
+  }, delay);
+  if (timer.unref) timer.unref();
+  pendingRetries.set(key, timer);
+}
+
 /**
  * Parses the `networkWith:[...]` token out of an app description.
  *
@@ -127,19 +151,22 @@ async function connectComponentToLinkedApps(componentContainerName, fullAppSpecs
 /**
  * After an app's private network is (re)created, reconnects every locally
  * installed app that is networked with it back onto that network. Best-effort —
- * never throws, so a redeploy is not aborted by a reconnect hiccup.
+ * never throws, so a redeploy is not aborted by a reconnect hiccup. When the
+ * installed apps cannot be read it runs again later (READ_RETRY_MS).
  *
  * @param {string} appName - the app whose network was (re)created
+ * @param {number} [attempt] - how many reads failed before this one
  * @returns {Promise<void>}
  */
-async function reconnectLinkedApps(appName) {
+async function reconnectLinkedApps(appName, attempt = 0) {
   let installedApps;
   try {
     const dbopen = dbHelper.databaseConnection();
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     installedApps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, {}, { projection: { _id: 0 } });
   } catch (error) {
-    log.error(`reconnectLinkedApps: failed to read installed apps for ${appName}: ${error.message}`);
+    log.error(`reconnectLinkedApps: failed to read installed apps for ${appName}, retrying later: ${error.message}`);
+    retrySweep(`reconnectLinkedApps ${appName}`, (next) => reconnectLinkedApps(appName, next), attempt);
     return;
   }
 
@@ -174,18 +201,21 @@ async function reconnectLinkedApps(appName) {
 
 /**
  * Boot-time sweep: ensures every installed app that declares network links is
- * attached to each linked app's network. Idempotent and best-effort.
+ * attached to each linked app's network. Idempotent and best-effort. When the
+ * installed apps cannot be read it runs again later (READ_RETRY_MS).
  *
+ * @param {number} [attempt] - how many reads failed before this one
  * @returns {Promise<void>}
  */
-async function reconcileAllAppNetworkLinks() {
+async function reconcileAllAppNetworkLinks(attempt = 0) {
   let installedApps;
   try {
     const dbopen = dbHelper.databaseConnection();
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     installedApps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, {}, { projection: { _id: 0 } });
   } catch (error) {
-    log.error(`reconcileAllAppNetworkLinks: failed to read installed apps: ${error.message}`);
+    log.error(`reconcileAllAppNetworkLinks: failed to read installed apps, retrying later: ${error.message}`);
+    retrySweep('reconcileAllAppNetworkLinks', reconcileAllAppNetworkLinks, attempt);
     return;
   }
 
