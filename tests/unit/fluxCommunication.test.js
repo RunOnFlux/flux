@@ -3,6 +3,7 @@ const sinon = require('sinon');
 const objectHash = require('object-hash');
 const WebSocket = require('ws');
 const { expect } = require('chai');
+const { MongoNetworkTimeoutError } = require('mongodb');
 const log = require('../../ZelBack/src/lib/log');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const { FluxTTLCache } = require('../../ZelBack/src/services/utils/cacheManager');
@@ -628,6 +629,71 @@ describe('fluxCommunication tests', () => {
 
       sinon.assert.notCalled(broadcastHashSpy);
     }).timeout(5000);
+  });
+
+  describe('the installing claim handlers', () => {
+    // Each handler records the claim, stores the signed broadcast this node serves
+    // to peers syncing from it, and relays the claim only once both are recorded.
+    const handlers = [
+      {
+        name: 'handleAppInstallingMessage',
+        type: 'fluxappinstalling',
+        storeClaim: 'storeAppInstallingMessage',
+        storeSigned: 'storeSignedAppInstallingBroadcast',
+      },
+      {
+        name: 'handleAppInstallingErrorMessage',
+        type: 'fluxappinstallingerror',
+        storeClaim: 'storeAppInstallingErrorMessage',
+        storeSigned: 'storeSignedAppInstallingErrorBroadcast',
+      },
+    ];
+    const fromIp = '127.0.0.5';
+    const port = '16127';
+    const claim = (type) => ({
+      timestamp: Date.now(),
+      data: {
+        type, version: 1, name: 'claimedapp', ip: '127.0.0.9:16127', broadcastedAt: Date.now(),
+      },
+    });
+    let broadcastHash;
+
+    beforeEach(() => {
+      broadcastHash = sinon.stub(peerManager, 'broadcastHash');
+      sinon.stub(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    handlers.forEach(({
+      name, type, storeClaim, storeSigned,
+    }) => {
+      describe(name, () => {
+        beforeEach(() => {
+          sinon.stub(messageStore, storeClaim).resolves(true);
+        });
+
+        it('a canary: relays a claim whose signed broadcast is stored', async () => {
+          sinon.stub(messageStore, storeSigned).resolves();
+          const message = claim(type);
+
+          await fluxCommunication[name](message, fromIp, port);
+
+          sinon.assert.calledOnceWithExactly(broadcastHash, objectHash(message.data), `${fromIp}:${port}`);
+        });
+
+        it('does not relay a claim whose signed broadcast could not be stored', async () => {
+          const storeSignedStub = sinon.stub(messageStore, storeSigned).rejects(new MongoNetworkTimeoutError('connection timed out'));
+
+          await fluxCommunication[name](claim(type), fromIp, port);
+
+          sinon.assert.calledOnce(storeSignedStub);
+          sinon.assert.notCalled(broadcastHash);
+        });
+      });
+    });
   });
 
 

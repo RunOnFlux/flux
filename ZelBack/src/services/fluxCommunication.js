@@ -2150,6 +2150,7 @@ module.exports = {
   logSocketsEvery,
   handleAppRunningMessage,
   handleAppInstallingMessage,
+  handleAppInstallingErrorMessage,
   handleTempSyncResponse,
   handleAppRunningSyncResponse,
   handleAppInstallingSyncResponse,
