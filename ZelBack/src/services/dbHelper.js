@@ -19,20 +19,17 @@ const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
  */
 let openDBConnection = null;
 
-// The main client's bound on one round trip and on the wait for a pooled
-// connection: over four times the slowest healthy round trip measured on the
-// fleet.
-const MAIN_SOCKET_TIMEOUT_MS = 60 * 1000;
-
 // The client for the named long operations: index builds, the explorer
 // restore's deletes and the registry rebuild. One of its round trips may take
-// up to MAINTENANCE_SOCKET_TIMEOUT_MS; every other call uses the main client.
-const MAINTENANCE_SOCKET_TIMEOUT_MS = 15 * 60 * 1000;
-const MAINTENANCE_SETTINGS = {
-  maxPoolSize: 4,
-  socketTimeoutMS: MAINTENANCE_SOCKET_TIMEOUT_MS,
-  waitQueueTimeoutMS: MAINTENANCE_SOCKET_TIMEOUT_MS,
-};
+// up to config.database.maintenanceCallTimeoutMs; every other call uses the
+// main client, bounded by config.database.callTimeoutMs.
+function maintenanceSettings() {
+  return {
+    maxPoolSize: 4,
+    socketTimeoutMS: config.database.maintenanceCallTimeoutMs,
+    waitQueueTimeoutMS: config.database.maintenanceCallTimeoutMs,
+  };
+}
 
 /**
  * @type {mongodb.MongoClient}
@@ -64,7 +61,7 @@ function maintenanceConnection() {
 
 /**
  * `database` on the maintenance client: the same database, whose round trips
- * may take up to MAINTENANCE_SOCKET_TIMEOUT_MS. `database` itself while the
+ * may take up to config.database.maintenanceCallTimeoutMs. `database` itself while the
  * maintenance client is not connected.
  * @param {mongodb.Db} database
  * @returns {mongodb.Db}
@@ -98,10 +95,10 @@ async function connectMongoDb(url, settings = {}) {
   const mongoSettings = {
     maxPoolSize: 100,
     // One round trip, and the wait for a pooled connection, end in an error
-    // after a minute instead of waiting for ever. A read is retried once, so it
-    // fails after two; a write is not, and its outcome is then unknown.
-    socketTimeoutMS: MAIN_SOCKET_TIMEOUT_MS,
-    waitQueueTimeoutMS: MAIN_SOCKET_TIMEOUT_MS,
+    // after callTimeoutMs instead of waiting for ever. A read is retried once, so
+    // it fails after two; a write is not, and its outcome is then unknown.
+    socketTimeoutMS: config.database.callTimeoutMs,
+    waitQueueTimeoutMS: config.database.callTimeoutMs,
     ...settings,
   };
   const client = await MongoClient.connect(connectUrl, mongoSettings);
@@ -116,7 +113,7 @@ async function connectMongoDb(url, settings = {}) {
 async function initiateDB() {
   if (!openDBConnection) {
     const main = await connectMongoDb();
-    maintenanceDBConnection = await connectMongoDb(undefined, MAINTENANCE_SETTINGS).catch(async (error) => {
+    maintenanceDBConnection = await connectMongoDb(undefined, maintenanceSettings()).catch(async (error) => {
       await main.close();
       throw error;
     });
@@ -1357,7 +1354,6 @@ module.exports = {
   dedupeByKey,
   maintenanceConnection,
   onMaintenanceClient,
-  MAINTENANCE_SOCKET_TIMEOUT_MS,
   aggregateInDatabase,
   isDatabaseError,
   appMessagesThatCount,

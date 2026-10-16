@@ -29,6 +29,13 @@ module.exports = {
   database: {
     url: database,
     port: 27017,
+    // How long one round trip, or the wait for a pooled connection, may take
+    // before the call fails. callTimeoutMs bounds every call on the main client:
+    // over four times the slowest healthy round trip seen on the fleet.
+    // maintenanceCallTimeoutMs bounds the client for the named long operations:
+    // index builds, the explorer restore's deletes and the registry rebuild.
+    callTimeoutMs: 60 * 1000,
+    maintenanceCallTimeoutMs: 15 * 60 * 1000,
     local: {
       database: 'zelfluxlocaltest',
       collections: {
