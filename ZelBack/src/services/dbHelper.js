@@ -35,6 +35,18 @@ function databaseConnection() {
 }
 
 /**
+ * Whether an error came from the database rather than from the work around it:
+ * a timeout, a pool wait, an unreachable server, or a refused command. A caller
+ * deciding whether a failure says anything about an app reads this - a database
+ * that did not answer says nothing about the app.
+ * @param {*} error
+ * @returns {boolean}
+ */
+function isDatabaseError(error) {
+  return error instanceof mongodb.MongoError;
+}
+
+/**
  * Initiates connection with the database.
  *
  * @param {string} [url]
@@ -1127,6 +1139,7 @@ if (require.main === module) {
 
 module.exports = {
   aggregateInDatabase,
+  isDatabaseError,
   appMessagesThatCount,
   appPaymentFacts,
   bulkWriteInDatabase,

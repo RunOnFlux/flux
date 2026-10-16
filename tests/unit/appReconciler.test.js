@@ -5,6 +5,9 @@ const proxyquire = require('proxyquire').noCallThru();
 // The real classifier: both the reconciler and the boot sweep classify a mount
 // fault through this one function, so the mock borrows it rather than restating it.
 const { classifyVolumeFault } = require('../../ZelBack/src/services/appTamperingDetectionService');
+// The real test of what counts as a database failure, borrowed for the same reason.
+const { isDatabaseError } = require('../../ZelBack/src/services/dbHelper');
+const { MongoNetworkTimeoutError } = require('mongodb');
 
 describe('appReconciler tests', () => {
   let appReconciler;
@@ -21,6 +24,7 @@ describe('appReconciler tests', () => {
       dbHelper: {
         databaseConnection: () => ({ db: () => ({}) }),
         findOneInDatabase: sinon.stub().callsFake(async () => localSpec),
+        isDatabaseError,
       },
       dockerService: {
         dockerContainerInspect: sinon.stub().resolves({ State: { Running: false, Status: 'exited', ExitCode: 1 } }),
@@ -776,6 +780,17 @@ describe('appReconciler tests', () => {
       await appReconciler.reconcile('www_App');
       expect(stubs.appTamperingDetectionService.recordEvent.calledWithMatch('App', 'container_vanished')).to.be.false;
       expect(stubs.containerHealthMonitor.recreateMissingContainers.calledOnceWith('www_App')).to.be.true;
+    });
+
+    it('does not remove the app when the recreate fails on a database read, and retries', async () => {
+      stubs.dockerService.dockerContainerInspect.rejects(new Error('Container www_App not found'));
+      stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
+      stubs.containerHealthMonitor.recreateMissingContainers.rejects(new MongoNetworkTimeoutError('connection timed out'));
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.appUninstaller.removeAppLocally.called, 'an app was uninstalled because the database did not answer').to.be.false;
+      expect(stubs.appTamperingDetectionService.recordEvent.calledWithMatch('App', 'recreation_failed')).to.be.false;
     });
 
     it('removes the app locally when recreation fails (docker reachable)', async () => {

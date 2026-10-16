@@ -484,6 +484,13 @@ async function recreateMissing(identifier) {
       scheduleRetry(identifier, MANAGED_RETRY_MS);
       return;
     }
+    // A database that did not answer says nothing about the container: the
+    // recreate never got as far as building it.
+    if (dbHelper.isDatabaseError(err)) {
+      log.warn(`appReconciler - recreate of ${identifier} could not read what it needs (${err.message}); retrying, not removing`);
+      scheduleRetry(identifier, MANAGED_RETRY_MS);
+      return;
+    }
     log.error(`appReconciler - failed to recreate ${identifier}: ${err.message}`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreateFailed', reason: err.message });
     await appTamperingDetectionService.recordEvent(mainAppName, 'recreation_failed', `Container recreation failure: ${err.message}`);

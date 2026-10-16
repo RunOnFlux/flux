@@ -1224,6 +1224,12 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       res.write(serviceHelper.ensureString(errorResponse));
       if (res.flush) res.flush();
     }
+    if (dbHelper.isDatabaseError(error)) {
+      // A soft registration keeps the app's data, and the teardown below would not:
+      // a database that did not answer is no reason to destroy it.
+      log.warn(`Soft registration of ${appSpecs.name} stopped: the database did not answer (${error.message}). Nothing is torn down.`);
+      return InstallOutcome.DEFERRED;
+    }
     const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
     log.info(removeStatus);
     log.warn(`REMOVAL REASON: Soft registration failure - ${appSpecs.name} failed during soft registration: ${error.message} (softRegisterAppLocally)`);
@@ -1634,6 +1640,20 @@ async function softRedeploy(appSpecs, res) {
       }
       return;
     }
+    if (dbHelper.isDatabaseError(error)) {
+      // The app is down and its volume is intact. A database that did not answer
+      // says nothing about the app, so it is left as a declined reinstall leaves
+      // it, never uninstalled at the cost of its data.
+      const notReinstalled = messageHelper.createErrorMessage(
+        `Application ${appSpecs.name} was not reinstalled: the database did not answer (${error.message})`,
+      );
+      log.warn(notReinstalled);
+      if (res) {
+        res.write(serviceHelper.ensureString(notReinstalled));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
     log.warn(`REMOVAL REASON: Soft redeploy failure - ${appSpecs.name} failed during soft redeploy: ${error.message} (softRedeploy)`);
     // eslint-disable-next-line global-require
     const appUninstaller = require('./appUninstaller');
@@ -1651,6 +1671,9 @@ async function softRedeploy(appSpecs, res) {
 async function hardRedeploy(appSpecs, res) {
   // eslint-disable-next-line global-require
   const appUninstaller = require('./appUninstaller');
+  // Whether the teardown was reached. A failure before it leaves a running app
+  // running: the forced uninstall below answers only a failed rebuild.
+  let teardownStarted = false;
   try {
     // Every operation, including the periodic reinstall pass - which sets its
     // flag before it tears anything down and holds it across the wait, so the
@@ -1670,6 +1693,7 @@ async function hardRedeploy(appSpecs, res) {
 
     globalState.hardRedeployInProgress = true;
     log.warn(`REMOVAL REASON: Hard redeploy initiated - ${appSpecs.name} being removed as part of hard redeploy process (hardRedeploy)`);
+    teardownStarted = true;
     await appUninstaller.removeAppLocally(appSpecs.name, res, false, false);
     const appRedeployResponse = messageHelper.createSuccessMessage('Application removed. Awaiting installation...');
     log.info(appRedeployResponse);
@@ -1699,8 +1723,19 @@ async function hardRedeploy(appSpecs, res) {
     globalState.hardRedeployInProgress = false;
   } catch (error) {
     log.error(error);
-    log.warn(`REMOVAL REASON: Hard redeploy failure - ${appSpecs.name} failed during hard redeploy: ${error.message} (hardRedeploy)`);
     globalState.hardRedeployInProgress = false;
+    if (!teardownStarted) {
+      const notStarted = messageHelper.createErrorMessage(
+        `Hard redeploy of ${appSpecs.name} failed before the app was taken down: ${error.message}`,
+      );
+      log.warn(notStarted);
+      if (res) {
+        res.write(serviceHelper.ensureString(notStarted));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    log.warn(`REMOVAL REASON: Hard redeploy failure - ${appSpecs.name} failed during hard redeploy: ${error.message} (hardRedeploy)`);
     // endResponse false: redeployAPI opened this response and closes it.
     await appUninstaller.removeAppLocally(appSpecs.name, res, true, false, true);
     log.info(`Cleanup completed for ${appSpecs.name} after hard redeploy failure`);
@@ -1862,6 +1897,12 @@ async function softRedeployComponent(appName, componentName, res) {
           + 'No forced uninstall - the app is not known to be down, and convergence is left to the reconciler.');
         throw error;
       }
+      if (dbHelper.isDatabaseError(error)) {
+        // Uninstalling the whole app takes every other component's data with it,
+        // and a database that did not answer says nothing about any of them.
+        log.warn(`Component ${fullComponentName} was not reinstalled: the database did not answer (${error.message}). The app is not uninstalled.`);
+        throw error;
+      }
       log.warn(`REMOVAL REASON: Soft redeploy failure - ${appName} being removed after component ${fullComponentName} failed during soft redeploy: ${error.message} (softRedeployComponent)`);
       // endResponse false: the endpoint opened this response and closes it.
       await appUninstaller.removeAppLocally(appName, res, true, false, true);
@@ -2004,6 +2045,12 @@ async function hardRedeployComponent(appName, componentName, res) {
         // destroying the components beside it and telling the network.
         log.warn(`Hard redeploy of ${fullComponentName} failed during removal: ${error.message}. `
           + 'No forced uninstall - the app is not known to be down, and convergence is left to the reconciler.');
+        throw error;
+      }
+      if (dbHelper.isDatabaseError(error)) {
+        // Uninstalling the whole app takes every other component's data with it,
+        // and a database that did not answer says nothing about any of them.
+        log.warn(`Component ${fullComponentName} was not reinstalled: the database did not answer (${error.message}). The app is not uninstalled.`);
         throw error;
       }
       log.warn(`REMOVAL REASON: Hard redeploy failure - ${appName} being removed after component ${fullComponentName} failed during hard redeploy: ${error.message} (hardRedeployComponent)`);
@@ -4646,6 +4693,14 @@ async function reinstallOldApplications() {
               }
             } catch (error) {
               log.error(error);
+              if (dbHelper.isDatabaseError(error)) {
+                // The components' data is still on disk, and a database that did not
+                // answer says nothing about the app: it is left for a later pass, never
+                // uninstalled with its data.
+                log.warn(`Redeployment of ${appSpecifications.name} stopped: the database did not answer (${error.message}). The app is not uninstalled.`);
+                // eslint-disable-next-line no-continue
+                continue;
+              }
               log.warn(`REMOVAL REASON: Redeployment error - ${appSpecifications.name} failed during redeployment: ${error.message}`);
               // eslint-disable-next-line no-await-in-loop
               await appUninstaller.removeAppLocally(appSpecifications.name, null, true, true, true); // remove entire app
