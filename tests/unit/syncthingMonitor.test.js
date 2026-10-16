@@ -228,6 +228,9 @@ describe('syncthingMonitor tests', () => {
     peerFolderLivenessMock.createPeerFolderLiveness.resetHistory();
     dbHelperMock.databaseConnection.reset();
     dbHelperMock.findInDatabase.reset();
+    // An app's location records, read for every folder the pass configures: none.
+    dbHelperMock.databaseConnection.returns({ db: () => ({}) });
+    dbHelperMock.findInDatabase.resolves([]);
 
     // Default stub behaviors
     // The node's own identity, which a real pass always has: mount safety is
@@ -1578,7 +1581,9 @@ describe('syncthingMonitor tests', () => {
     // could not be read"; the read it is handed must not collapse the two.
     it('hands the state machine a location read that fails when the records cannot be read', async () => {
       writesAFolder();
-      dbHelperMock.databaseConnection.throws(new Error('database unavailable'));
+      // read once for the folder's devices, then unreadable for the state machine
+      dbHelperMock.findInDatabase.onFirstCall().resolves([]);
+      dbHelperMock.findInDatabase.rejects(new Error('database unavailable'));
 
       monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
       await clock.tickAsync(100);
@@ -1872,6 +1877,24 @@ describe('syncthingMonitor tests', () => {
       await runOnePass();
 
       sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigFolders, 'delete', undefined, 'testapp');
+    });
+
+    it('leaves the folder and its peers alone when the app\'s locations cannot be read', async () => {
+      // Read as "no locations", the folder would be pushed shared with this node
+      // alone and every peer device it had removed - a primary would stop
+      // replicating to its standbys for as long as the read failed.
+      primaryMountSyncs();
+      mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
+      dbHelperMock.findInDatabase.rejects(new Error('connection timed out'));
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'testapp', type: 'sendreceive', devices: [{ deviceID: 'DEVICE-ID' }, { deviceID: 'PEER-ID' }] }]);
+      syncthingServiceMock.getConfigDevices.resolves([{ deviceID: 'PEER-ID', name: '10.0.0.2:16127' }]);
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      await runOnePass();
+
+      sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-ID');
+      sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigFolders, 'delete', undefined, 'testapp');
+      expect(syncthingFolderStateMachineMock.manageFolderSyncState.called, 'the folder was configured without its locations').to.be.false;
     });
 
     it('keeps the folder of a component the state machine defers on first encounter', async () => {
