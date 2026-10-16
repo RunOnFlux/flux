@@ -44,9 +44,10 @@ const READ_ANSWERED_WITHIN_MS = 3 * CALL_TIMEOUT_MS + 10 * 1000;
 // Over a read's whole budget with room to tell it from the hold, and over three
 // of the schema step's bounds.
 const HOLD_MS = 75 * 1000;
-// What a call that got no answer leaves in a node's log, and nothing else does. One
-// of them shows the calls failed, so the assertions below are about failed calls.
-const DATABASE_GAVE_NO_ANSWER = /MongoNetworkTimeoutError|MongoWaitQueueTimeoutError/;
+// The driver's own words for a round trip and for a pooled-connection wait that ran
+// out, in a whole error and in its message alike, and nothing else logs them. One of
+// them shows the calls failed, so the assertions below are about failed calls.
+const DATABASE_GAVE_NO_ANSWER = /connection \d+ to \S+ timed out|Timed out while checking out a connection from connection pool/;
 
 // A TAP comment, so a hold that overruns says which step it was in.
 function step(what) {
