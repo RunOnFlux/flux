@@ -14,7 +14,7 @@ chai.use(chaiAsPromised);
 const { expect } = chai;
 
 const {
-  ensureIndex, ensureIndexes, dedupeByKey, dosState,
+  ensureIndex, ensureIndexes, dropIndexIfPresent, dedupeByKey, dosState,
 } = require('../../ZelBack/src/services/serviceManager');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const log = require('../../ZelBack/src/lib/log');
@@ -126,6 +126,29 @@ describe('serviceManager ensureIndex', () => {
     await expect(ensureIndex(collection, { hash: 1 }, { unique: true }, recover)).to.be.rejectedWith('E11000');
     sinon.assert.calledOnce(recover);
     sinon.assert.calledTwice(createIndex);
+  });
+});
+
+describe('serviceManager dropIndexIfPresent', () => {
+  const serverError = (code, codeName) => Object.assign(new Error(codeName), { code, codeName });
+
+  it('drops the index', async () => {
+    const dropIndex = sinon.stub().resolves();
+
+    await dropIndexIfPresent({ dropIndex }, 'broadcastedAt_1');
+
+    sinon.assert.calledOnceWithExactly(dropIndex, 'broadcastedAt_1');
+  });
+
+  it('settles when the index or its collection is not there', async () => {
+    await dropIndexIfPresent({ dropIndex: sinon.stub().rejects(serverError(27, 'IndexNotFound')) }, 'broadcastedAt_1');
+    await dropIndexIfPresent({ dropIndex: sinon.stub().rejects(serverError(26, 'NamespaceNotFound')) }, 'broadcastedAt_1');
+  });
+
+  it('rejects when the database does not answer, so boot prepares the schema again', async () => {
+    const timedOut = Object.assign(new Error('connection timed out'), { name: 'MongoNetworkTimeoutError' });
+
+    await expect(dropIndexIfPresent({ dropIndex: sinon.stub().rejects(timedOut) }, 'broadcastedAt_1')).to.be.rejectedWith('timed out');
   });
 });
 
