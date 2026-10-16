@@ -2001,7 +2001,6 @@ describe('explorerService tests', () => {
       sinon.assert.notCalled(logErrorSpy);
       sinon.assert.calledWithMatch(logInfoSpy, 'Bootstrap: Using address-index fast path');
       sinon.assert.calledWithMatch(logInfoSpy, 'Bootstrap complete');
-      sinon.assert.calledWithMatch(logInfoSpy, 'Preparing apps collections');
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparation done');
     });
 
@@ -2109,7 +2108,6 @@ describe('explorerService tests', () => {
 
       sinon.assert.notCalled(logErrorSpy);
       sinon.assert.calledWithMatch(logInfoSpy, 'Bootstrap: Using address-index fast path');
-      sinon.assert.calledWithMatch(logInfoSpy, 'Preparing apps collections');
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparation done');
       const dropped = dropCollectionStub.getCalls().map((call) => call.args[1]);
       expect(dropped).to.not.include('zelappslocation');
@@ -2118,6 +2116,78 @@ describe('explorerService tests', () => {
       sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'coinbasefusionindex');
       sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'zelappshashes');
       sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'addresstransactionindex');
+    });
+  });
+
+  describe('the explorer\'s collections', () => {
+    const { appsHashes } = config.database.daemon.collections;
+    let hashes;
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      hashes = dbHelper.databaseConnection().db(config.database.daemon.database).collection(appsHashes);
+      await hashes.drop().catch(() => {});
+    });
+
+    afterEach(async () => {
+      sinon.restore();
+      await hashes.drop().catch(() => {});
+    });
+
+    it('keeps, of each hash\'s payment records, the earliest whose transaction is on the chain', async () => {
+      await hashes.insertMany([
+        { hash: 'paid', txid: 'stale', height: 200, notOnChain: true },
+        { hash: 'paid', txid: 'later', height: 400, txIndex: 1 },
+        { hash: 'paid', txid: 'first', height: 300, txIndex: 5 },
+        { hash: 'paid', txid: 'sameblock', height: 300, txIndex: 7 },
+        { hash: 'single', txid: 'only', height: 500 },
+      ]);
+
+      const removed = await explorerService.keepEarliestPayment(hashes);
+
+      expect(removed).to.equal(3);
+      expect((await hashes.find({}, { projection: { _id: 0, txid: 1 } }).sort({ txid: 1 }).toArray()).map((r) => r.txid)).to.deep.equal(['first', 'only']);
+    });
+
+    it('builds the unique hash index over records that hold duplicates, keeping the earliest payment', async () => {
+      // inserted earliest first, so the newest row is the later payment
+      await hashes.insertMany([
+        { hash: 'paid', txid: 'first', height: 300 },
+        { hash: 'paid', txid: 'later', height: 400 },
+      ]);
+
+      await explorerService.prepareCollections();
+
+      const unique = (await hashes.indexes()).find((index) => index.name === 'query for getting app hash');
+      expect(unique?.unique, 'the unique hash index').to.equal(true);
+      expect((await hashes.find({ hash: 'paid' }).toArray()).map((r) => r.txid)).to.deep.equal(['first']);
+    });
+
+    it('starts no scan from zero until its collections hold their indexes', async () => {
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves({ generalScannedHeight: 0 });
+      sinon.stub(dbHelper, 'countInDatabase').resolves(1);
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
+      sinon.stub(daemonServiceBlockchainRpcs, 'getBlockCount').returns({ status: 'success', data: 200000 });
+      // a scan that starts stops the processor, so the assertion below reads it
+      const scan = sinon.stub(daemonServiceBlockchainRpcs, 'getBlock').callsFake(async () => {
+        explorerService.setBlockProccessingCanContinue(false);
+        return { status: 'error', data: {} };
+      });
+      sinon.stub(dbHelper, 'ensureIndexes').rejects(new MongoNetworkTimeoutError('timed out'));
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
+      explorerService.setZelAppSpecsMigrationDone(true);
+      explorerService.setBlockProccessingCanContinue(true);
+      try {
+        await explorerService.initiateBlockProcessor(false, false);
+        await clock.tickAsync(1000);
+
+        sinon.assert.notCalled(scan);
+      } finally {
+        explorerService.setBlockProccessingCanContinue(false);
+        explorerService.setIsInInitiationOfBP(false);
+        explorerService.setZelAppSpecsMigrationDone(false);
+        clock.restore();
+      }
     });
   });
 

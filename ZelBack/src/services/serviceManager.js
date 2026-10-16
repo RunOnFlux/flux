@@ -185,6 +185,8 @@ async function prepareDatabaseSchema() {
   // appsRuntimeState (localzelapps): merge any pre-unique-index duplicate docs,
   // then enforce one doc per component identifier
   await appsRuntimeState.prepareCollection();
+  // The explorer's collections: their indexes are the explorer's to declare.
+  await explorerService.prepareCollections();
   log.info('Local database prepared');
   log.info('Preparing temporary database...');
   // no need to drop temporary messages
@@ -207,6 +209,11 @@ async function prepareDatabaseSchema() {
   // Creating an index that already exists is a no-op
   await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsMessages), [
     { key: { hash: 1 }, name: 'query for getting zelapp message based on hash', unique: true, recover: dbHelper.dedupeByKey },
+    { key: { txid: 1 }, name: 'query for getting zelapp message based on txid' },
+    { key: { height: 1 }, name: 'query for getting zelapp message based on height' },
+    { key: { 'appSpecifications.name': 1 }, name: 'query for getting app message based on zelapp specs name' },
+    { key: { 'appSpecifications.owner': 1 }, name: 'query for getting app message based on zelapp specs owner' },
+    { key: { 'appSpecifications.repotag': 1 }, name: 'query for getting app message based on image' },
     { key: { 'appSpecifications.version': 1 }, name: 'query for getting app message based on version' },
     { key: { 'appSpecifications.nodes': 1 }, name: 'query for getting app message based on nodes' },
   ]);

@@ -749,6 +749,105 @@ async function processBlock(blockHeight, isInsightExplorer) {
 }
 
 /**
+ * Removes every payment record but the one a scan keeps for each app message
+ * hash, and answers how many it removed: a payment this node already holds
+ * stands (standingAppPayment), so a scan keeps the earliest, and a record
+ * whose transaction the chain does not hold is no payment and gives way to one
+ * that is. The recovery the unique hash index is built with.
+ * @param {object} collection the appsHashes collection
+ * @returns {Promise<number>}
+ */
+async function keepEarliestPayment(collection) {
+  const groups = await collection.aggregate([
+    { $addFields: { offChain: { $cond: [{ $eq: ['$notOnChain', true] }, 1, 0] } } },
+    { $sort: { offChain: 1, height: 1, txIndex: 1, _id: 1 } },
+    { $group: { _id: '$hash', ids: { $push: '$_id' } } },
+    { $match: { 'ids.1': { $exists: true } } },
+  ]).toArray();
+  const toRemove = groups.flatMap((group) => group.ids.slice(1));
+  if (toRemove.length) await collection.deleteMany({ _id: { $in: toRemove } });
+  return toRemove.length;
+}
+
+/**
+ * Asserts every index the explorer's collections need. Boot runs it on every
+ * start, and a scan from zero runs it after emptying them; an index that
+ * already exists costs a catalog check. Runs on the maintenance client.
+ * @returns {Promise<void>}
+ */
+async function prepareCollections() {
+  const client = dbHelper.maintenanceConnection() || dbHelper.databaseConnection();
+  const database = client.db(config.database.daemon.database);
+  const databaseUpdates = client.db(config.database.chainparams.database);
+  await dbHelper.ensureIndexes(database.collection(utxoIndexCollection), [
+    {
+      key: { txid: 1, vout: 1 }, name: 'query for getting utxo', unique: true, recover: dbHelper.dedupeByKey,
+    },
+    {
+      key: { txid: 1, vout: 1, satoshis: 1 }, name: 'query for getting utxo for zelnode tx', unique: true, recover: dbHelper.dedupeByKey,
+    },
+    { key: { address: 1 }, name: 'query for addresses utxo' },
+    { key: { scriptPubKey: 1 }, name: 'query for scriptPubKey utxo' },
+  ]);
+  await dbHelper.ensureIndexes(database.collection(coinbaseFusionIndexCollection), [
+    {
+      key: { txid: 1, vout: 1 }, name: 'query for getting coinbase fusion utxo', unique: true, recover: dbHelper.dedupeByKey,
+    },
+    {
+      key: { txid: 1, vout: 1, satoshis: 1 }, name: 'query for getting coinbase fusion utxo for zelnode tx', unique: true, recover: dbHelper.dedupeByKey,
+    },
+    { key: { address: 1 }, name: 'query for addresses coinbase fusion utxo' },
+    { key: { scriptPubKey: 1 }, name: 'query for scriptPubKey coinbase fusion utxo' },
+  ]);
+  await dbHelper.ensureIndexes(database.collection(addressTransactionIndexCollection), [
+    { key: { address: 1 }, name: 'query for addresses transactions' },
+    { key: { address: 1, count: 1 }, name: 'query for addresses transactions with count' },
+  ]);
+  await dbHelper.ensureIndexes(database.collection(appsHashesCollection), [
+    { key: { txid: 1 }, name: 'query for getting txid' },
+    { key: { height: 1 }, name: 'query for getting height' },
+    {
+      key: { hash: 1 }, name: 'query for getting app hash', unique: true, recover: keepEarliestPayment,
+    },
+    { key: { message: 1 }, name: 'query for getting app hashes depending if we have message' },
+  ]);
+  await dbHelper.ensureIndexes(databaseUpdates.collection(chainParamsMessagesCollection), [
+    { key: { txid: 1 }, name: 'query for getting txid of some chain parameters update message' },
+    { key: { height: 1 }, name: 'query for getting height of some chain parameters update message' },
+    { key: { message: 1 }, name: 'query for getting message of some chain parameters update message' },
+    { key: { version: 1 }, name: 'query for getting version of some chain parameters update message' },
+  ]);
+}
+
+/**
+ * Empties the explorer's collections and asserts their indexes, for a scan
+ * from zero. Rejects when either fails, and the scan does not start.
+ * @returns {Promise<void>}
+ */
+async function resetExplorerCollections() {
+  log.info('Preparing daemon collections');
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.daemon.database);
+  const databaseUpdates = db.db(config.database.chainparams.database);
+  const empty = [
+    [database, utxoIndexCollection],
+    [database, addressTransactionIndexCollection],
+    [database, appsHashesCollection],
+    [database, coinbaseFusionIndexCollection],
+    [databaseUpdates, chainParamsMessagesCollection],
+  ];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [owner, collection] of empty) {
+    // eslint-disable-next-line no-await-in-loop
+    await dbHelper.dropCollection(owner, collection).catch((error) => {
+      if (error.message !== 'ns not found') throw error;
+    });
+  }
+  await prepareCollections();
+  log.info('Preparation done');
+}
+
+/**
  * To restore database to specified block height.
  * @param {number} height Block height.
  * @returns {boolean} Value set to true after database is restored.
@@ -1173,6 +1272,9 @@ async function recoverAndRestart(restoreDatabase, deepRestore) {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.daemon.database);
     let scannedBlockHeight = await getScannedBlockHeightFromDb(database);
+    // A scan from zero starts on empty collections holding every index, however
+    // the attempt before this one ended.
+    if (scannedBlockHeight === 0) await resetExplorerCollections();
 
     if (scannedBlockHeight !== 0 && restoreDatabase) {
       const deepRestoreBlocks = config.fluxapps.explorerDeepRestoreBlocks ?? 100;
@@ -1235,77 +1337,8 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
     }
     const daemonHeight = daemonBlockCount.data;
 
-    if (scannedBlockHeight === 0) {
-      log.info('Preparing daemon collections');
-      // The index builds run on the maintenance client.
-      const longDatabase = dbHelper.onMaintenanceClient(database);
-      const result = await dbHelper.dropCollection(database, utxoIndexCollection).catch((error) => {
-        if (error.message !== 'ns not found') throw error;
-      });
-      const resultB = await dbHelper.dropCollection(database, addressTransactionIndexCollection).catch((error) => {
-        if (error.message !== 'ns not found') throw error;
-      });
-      const resultD = await dbHelper.dropCollection(database, appsHashesCollection).catch((error) => {
-        if (error.message !== 'ns not found') throw error;
-      });
-      const resultFusion = await dbHelper.dropCollection(database, coinbaseFusionIndexCollection).catch((error) => {
-        if (error.message !== 'ns not found') throw error;
-      });
-      const databaseUpdates = dbHelper.onMaintenanceClient(db.db(config.database.chainparams.database));
-      const resultChainParams = await dbHelper.dropCollection(databaseUpdates, chainParamsMessagesCollection).catch((error) => {
-        if (error.message !== 'ns not found') throw error;
-      });
-      log.info(result, resultB, resultD, resultFusion, resultChainParams);
-
-      await longDatabase.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1 }, { name: 'query for getting utxo', unique: true });
-      await longDatabase.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1, satoshis: 1 }, { name: 'query for getting utxo for zelnode tx', unique: true });
-      await longDatabase.collection(utxoIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses utxo' });
-      await longDatabase.collection(utxoIndexCollection).createIndex({ scriptPubKey: 1 }, { name: 'query for scriptPubKey utxo' });
-      await longDatabase.collection(coinbaseFusionIndexCollection).createIndex({ txid: 1, vout: 1 }, { name: 'query for getting coinbase fusion utxo', unique: true });
-      await longDatabase.collection(coinbaseFusionIndexCollection).createIndex({ txid: 1, vout: 1, satoshis: 1 }, { name: 'query for getting coinbase fusion utxo for zelnode tx', unique: true });
-      await longDatabase.collection(coinbaseFusionIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses coinbase fusion utxo' });
-      await longDatabase.collection(coinbaseFusionIndexCollection).createIndex({ scriptPubKey: 1 }, { name: 'query for scriptPubKey coinbase fusion utxo' });
-      await longDatabase.collection(addressTransactionIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses transactions' });
-      await longDatabase.collection(addressTransactionIndexCollection).createIndex({ address: 1, count: 1 }, { name: 'query for addresses transactions with count' });
-      await longDatabase.collection(appsHashesCollection).createIndex({ txid: 1 }, { name: 'query for getting txid' });
-      await longDatabase.collection(appsHashesCollection).createIndex({ height: 1 }, { name: 'query for getting height' });
-      await longDatabase.collection(appsHashesCollection).createIndex({ hash: 1 }, { name: 'query for getting app hash', unique: true }).catch((error) => {
-        log.error('Expected throw on index creation as of new uniquness. Do not remove this check until all nodes have rebuild apps data');
-        log.error(error);
-      });
-      await longDatabase.collection(appsHashesCollection).createIndex({ message: 1 }, { name: 'query for getting app hashes depending if we have message' });
-      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ txid: 1 }, { name: 'query for getting txid of some chain parameters update message' });
-      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ height: 1 }, { name: 'query for getting height of some chain parameters update message' });
-      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ message: 1 }, { name: 'query for getting message of some chain parameters update message' });
-      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ version: 1 }, { name: 'query for getting version of some chain parameters update message' });
-
-      const databaseGlobal = dbHelper.onMaintenanceClient(db.db(config.database.appsglobal.database));
-      log.info('Preparing apps collections');
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash', unique: true });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ txid: 1 }, { name: 'query for getting zelapp message based on txid' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ height: 1 }, { name: 'query for getting zelapp message based on height' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.name': 1 }, { name: 'query for getting app message based on zelapp specs name' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.owner': 1 }, { name: 'query for getting app message based on zelapp specs owner' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.repotag': 1 }, { name: 'query for getting app message based on image' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.version': 1 }, { name: 'query for getting app message based on version' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.nodes': 1 }, { name: 'query for getting app message based on nodes' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ name: 1 }, { name: 'query for getting zelapp based on zelapp specs name' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ owner: 1 }, { name: 'query for getting zelapp based on zelapp specs owner' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ repotag: 1 }, { name: 'query for getting zelapp based on image' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ height: 1 }, { name: 'query for getting zelapp based on last height update' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ hash: 1 }, { name: 'query for getting zelapp based on last hash' });
-      await longDatabase.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp location based on zelapp specs name' });
-      await longDatabase.collection(config.database.appsglobal.collections.appsLocations).createIndex({ hash: 1 }, { name: 'query for getting zelapp location based on zelapp hash' });
-      await longDatabase.collection(config.database.appsglobal.collections.appsLocations).createIndex({ ip: 1 }, { name: 'query for getting zelapp location based on ip' });
-      await longDatabase.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting app based on ip and name' });
-      await longDatabase.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1, ip: 1, broadcastedAt: 1 }, { name: 'query for getting app to ensure we possess a message' });
-      await longDatabase.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp install location based on zelapp specs name' });
-      await longDatabase.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting flux app install location based on specs name and node ip' });
-      await longDatabase.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1 }, { name: 'query for getting flux app install errors location based on specs name' });
-      await longDatabase.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash' });
-      await longDatabase.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1, ip: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash and node ip' });
-      log.info('Preparation done');
-    }
+    // A scan from zero starts on empty collections holding every index.
+    if (scannedBlockHeight === 0) await resetExplorerCollections();
 
     if (daemonHeight > scannedBlockHeight) {
       if (scannedBlockHeight !== 0 && restoreDatabase) {
@@ -1994,6 +2027,9 @@ function setZelAppSpecsMigrationDone(value) {
 }
 
 module.exports = {
+  prepareCollections,
+  resetExplorerCollections,
+  keepEarliestPayment,
   initiateBlockProcessor,
   processBlock,
   reindexExplorer,
