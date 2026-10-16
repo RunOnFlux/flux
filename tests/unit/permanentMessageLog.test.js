@@ -222,6 +222,40 @@ describe('permanentMessageLog tests', () => {
       expect(cursor.closed).to.equal(true);
     });
 
+    it('reads the database a hundred messages at a time', async () => {
+      const { url, find } = await serveFrom([message(0)]);
+
+      const { body } = await get(`${url}?fromHeight=1000&toHeight=1000`);
+      await collect(readMessageLog(body));
+
+      expect(find.firstCall.args[1]).to.deep.equal({ projection: { _id: 0 }, batchSize: 100 });
+    });
+
+    it('listens once for the response to take more, however many pieces wait for it', async () => {
+      const compressors = [];
+      const { createGzip } = zlib;
+      sinon.stub(zlib, 'createGzip').callsFake(function recordCompressor(...args) {
+        const compressor = createGzip.apply(zlib, args);
+        sinon.spy(compressor, 'emit');
+        compressors.push(compressor);
+        return compressor;
+      });
+      try {
+        const messages = Array(40).fill(null).map((_, i) => ({ ...message(i), padding: 'x'.repeat(70 * 1024) }));
+        const { url } = await serveFrom(messages);
+
+        const { body } = await get(`${url}?fromHeight=1000&toHeight=1039`);
+        expect(await collect(readMessageLog(body))).to.have.lengthOf(40);
+
+        const [compressor] = compressors;
+        const drains = compressor.emit.getCalls().filter((call) => call.args[0] === 'drain').length;
+        expect(drains, 'times the response waited to take more').to.be.above(10);
+        expect(compressor.listenerCount('drain')).to.equal(1);
+      } finally {
+        zlib.createGzip.restore();
+      }
+    });
+
     it('sends each piece as it is written, while the log is still being read', async () => {
       const messages = Array(400).fill(null).map((_, i) => ({ ...message(i), padding: 'x'.repeat(300) }));
       let finish;
