@@ -18,9 +18,10 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // driver's heartbeats, and then answers again: what a mongod with one thread stuck
 // in the kernel looks like from FluxOS (mongo-control). The fleet shares one mongod.
 // Every call waits and none fails, and only a bound on the call ends the wait.
-// FluxOS bounds a call at 60 s (a read is retried once, so 120 s), and every caller
-// of a call that fails leaves what it cannot read as it is. Held for longer than a
-// read's whole budget, the fleet:
+// FluxOS bounds a call at config.database.callTimeoutMs, and a call on the client
+// for long operations at maintenanceCallTimeoutMs; a read is retried once. Every
+// caller of a call that fails leaves what it cannot read as it is. This fleet runs
+// with both bounds short, and held for longer than a read's whole budget, it:
 //
 //   - answers a call that reads the database, with an error, rather than waiting
 //     for the database: what turns a stall into a failure each caller handles;
@@ -29,15 +30,20 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //   - keeps an operator-stopped component stopped;
 //   - announces its apps again once mongod answers.
 //
-// The second case holds the commands while a node boots: the boot holds until mongod
-// answers and runs once, rather than starting again from the top.
+// The second case holds the commands while a node boots. The boot's schema step
+// runs on the client for long operations and fails each time its bound runs out;
+// boot runs that step again until it succeeds, so the boot runs once rather than
+// starting again from the top.
 
 const subnet = getSubnetConfig();
-// Over a read's whole budget with room to tell it from the hold: a read that has
-// to wait for a pooled connection first is answered within 60 s for the pool and
-// 2 x 60 s for the read and its retry.
-const HOLD_MS = 300 * 1000;
-const READ_ANSWERED_WITHIN_MS = 200 * 1000;
+const CALL_TIMEOUT_MS = 10 * 1000;
+const MAINTENANCE_CALL_TIMEOUT_MS = 20 * 1000;
+// A read that has to wait for a pooled connection first is answered within one
+// bound for the pool and two for the read and its retry.
+const READ_ANSWERED_WITHIN_MS = 3 * CALL_TIMEOUT_MS + 10 * 1000;
+// Over a read's whole budget with room to tell it from the hold, and over three
+// of the schema step's bounds.
+const HOLD_MS = 75 * 1000;
 // What a call that got no answer leaves in a node's log, and nothing else does. One
 // of them shows the calls failed, so the assertions below are about failed calls.
 const DATABASE_GAVE_NO_ANSWER = /MongoNetworkTimeoutError|MongoWaitQueueTimeoutError/;
@@ -62,7 +68,12 @@ describe('a database that stops answering takes nothing down', function () {
 
   before(async function () {
     this.timeout(420000);
-    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 10,
+      tickerAutostart: false,
+      configOverrides: { database: { callTimeoutMs: CALL_TIMEOUT_MS, maintenanceCallTimeoutMs: MAINTENANCE_CALL_TIMEOUT_MS } },
+    });
     await bootAndPeer(env);
     ({ index: runningIdx } = await seedSimpleApp(env, runningName));
     ({ index: stoppedIdx } = await seedSimpleApp(env, stoppedName));
@@ -189,6 +200,7 @@ describe('a database that stops answering takes nothing down', function () {
         after: env.nodeLogCount(idx, AFTER_SCHEMA),
         begun: env.nodeLogCount(idx, SCHEMA_BEGUN),
         finished: env.nodeLogCount(idx, SCHEMA_FINISHED),
+        noAnswer: env.nodeLogCount(idx, DATABASE_GAVE_NO_ANSWER),
       };
       await holdCommands(HOLD_MS);
       held = true;
@@ -198,6 +210,7 @@ describe('a database that stops answering takes nothing down', function () {
         atRelease = {
           begun: env.nodeLogCount(idx, SCHEMA_BEGUN) - counts.begun,
           finished: env.nodeLogCount(idx, SCHEMA_FINISHED) - counts.finished,
+          noAnswer: env.nodeLogCount(idx, DATABASE_GAVE_NO_ANSWER) - counts.noAnswer,
         };
       } finally {
         await releaseCommands();
@@ -207,6 +220,7 @@ describe('a database that stops answering takes nothing down', function () {
 
     it('held the boot inside its schema step while the database gave no answer', function () {
       expect(atRelease.begun, 'the boot never reached its schema step, so nothing below was tested').to.be.above(0);
+      expect(atRelease.noAnswer, 'no call of the boot failed while it was held, so nothing below was tested').to.be.above(0);
       expect(atRelease.finished, 'the schema step finished while the database held every command').to.equal(0);
     });
 
