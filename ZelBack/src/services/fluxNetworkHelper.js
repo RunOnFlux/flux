@@ -1284,16 +1284,17 @@ function resetPublicAddressNote() {
  * not decide addresses, an address that is not IPv4, or the address fluxd now
  * reports.
  * @returns {Promise<{address: (string|null), fluxdDecides: boolean}>} The address,
- *   or null when there is none. fluxdDecides is true when fluxd reports a
- *   `decided_address`: the address is then fluxd's alone to give, and a null is
- *   "not decided yet". It is false when fluxd does not answer, or answers without
- *   one beside a FluxBench that still detects the address itself.
+ *   or null when there is none. fluxdDecides is false only for a fluxd that
+ *   answers without a `decided_address`, which runs beside a FluxBench that still
+ *   detects the address itself. Otherwise the address is fluxd's alone to give and
+ *   a null is "not yet": fluxd has not decided one, or is not answering, as while
+ *   it restarts.
  */
 async function getDecidedAddress() {
   const response = await daemonServiceNetworkRpcs.getNetworkInfo();
   if (response?.status !== 'success') {
-    notePublicAddress('Public address: fluxd did not answer getnetworkinfo, asking FluxBench');
-    return { address: null, fluxdDecides: false };
+    notePublicAddress('Public address: fluxd did not answer getnetworkinfo');
+    return { address: null, fluxdDecides: true };
   }
   const decided = response.data?.decided_address;
   if (!decided) {
@@ -1316,15 +1317,15 @@ async function getDecidedAddress() {
 
 /**
  * This node's public IP address: fluxd's decided address. FluxBench's public-IP
- * probe is asked only when fluxd does not answer or does not decide addresses.
+ * probe is asked only beside a fluxd that does not decide addresses.
  * @returns {Promise<object>} `{status: 'success', data: ip}`; a warning message
- *   while a fluxd that decides addresses has none yet, which is "not yet", never
- *   a failure; otherwise FluxBench's own response.
+ *   while fluxd has no address to give, which is "not yet", never a failure; or,
+ *   beside a fluxd that does not decide addresses, FluxBench's own response.
  */
 async function getPublicIp() {
   const { address, fluxdDecides } = await getDecidedAddress();
   if (address) return messageHelper.createDataMessage(address);
-  if (fluxdDecides) return messageHelper.createWarningMessage('fluxd has not decided this node\'s address yet');
+  if (fluxdDecides) return messageHelper.createWarningMessage('fluxd has no address for this node yet');
   return benchmarkService.getPublicIp();
 }
 
