@@ -836,6 +836,15 @@ describe('dbHelper tests', () => {
       expect(apps.map((a) => `${a.name}:${a.hash}`).sort()).to.deep.equal(['IncidentApp:i4', 'LegacyApp:l3', 'RenewedApp:r2', 'TiedApp:ta']);
     });
 
+    it('does not report a registry valid when there is nothing to validate it against', async () => {
+      await appsGlobalDb.collection(appsglobal.collections.appsMessages).deleteMany({});
+
+      const result = await dbHelper.validateAppsInformation();
+
+      expect(result.validated).to.equal(false);
+      expect(result.reindexed).to.equal(false);
+    });
+
     it('should judge the rebuilt collection as valid, not reindex it on every check', async () => {
       const first = await dbHelper.validateAppsInformation();
       expect(first.reindexed).to.equal(true);

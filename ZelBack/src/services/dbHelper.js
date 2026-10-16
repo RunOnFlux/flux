@@ -707,13 +707,14 @@ async function liveAppRow(appsGlobalDb, appsMessagesCol, daemonDb, name, scanned
 /**
  * Whether the registry holds a different number of live apps than the messages give: each name's
  * newest message, and for a name the name rule decides (appNamesTheNameRuleDecides), its message
- * in force (liveAppRow), as the rebuild takes them.
+ * in force (liveAppRow), as the rebuild takes them. Null when the messages give no live app, so
+ * there is nothing to validate against. Rejects when the database does not answer.
  * @param {mongodb.Db} appsGlobalDb
  * @param {string} appsMessagesCol mongo collection name
  * @param {string} appsInformationCol mongo collection name
  * @param {number} scannedHeight
  * @param {mongodb.Db} daemonDb the payment records' database
- * @returns {Promise<boolean>}
+ * @returns {Promise<boolean|null>}
  */
 async function isReindexAppsInformationRequired(
   appsGlobalDb,
@@ -773,61 +774,56 @@ async function isReindexAppsInformationRequired(
     },
   ];
 
-  try {
-    await ensureNewestAppMessageIndex(appsGlobalDb.collection(appsMessagesCol));
+  await ensureNewestAppMessageIndex(appsGlobalDb.collection(appsMessagesCol));
 
-    const messagesCursor = await aggregateInDatabase(
-      appsGlobalDb,
-      appsMessagesCol,
-      appsMessagesPipeline,
-      { returnArray: false },
-    );
-    const informationCursor = await aggregateInDatabase(
-      appsGlobalDb,
-      appsInformationCol,
-      appsInformationPipeline,
-      { returnArray: false },
-    );
+  const messagesCursor = await aggregateInDatabase(
+    appsGlobalDb,
+    appsMessagesCol,
+    appsMessagesPipeline,
+    { returnArray: false },
+  );
+  const informationCursor = await aggregateInDatabase(
+    appsGlobalDb,
+    appsInformationCol,
+    appsInformationPipeline,
+    { returnArray: false },
+  );
 
-    const newestLive = await messagesCursor.next();
-    const appsFromInformation = await informationCursor.next();
-    const appsFromMessagesCount = (newestLive?.count ?? 0) + decidedLive;
+  const newestLive = await messagesCursor.next();
+  const appsFromInformation = await informationCursor.next();
+  const appsFromMessagesCount = (newestLive?.count ?? 0) + decidedLive;
 
-    if (!appsFromMessagesCount) {
-      log.warn('No apps from apps messages found, unable to validate apps information');
-      return false;
-    }
-
-    if (!appsFromInformation) {
-      log.info('No apps information apps found, reindexing colleciton');
-      return true;
-    }
-
-    log.info(
-      `Apps reindex validation. Found ${appsFromMessagesCount} apps from appsMessages.`
-      + ` Found ${appsFromInformation.count} apps from appsInformation`,
-    );
-
-    if (appsFromMessagesCount !== appsFromInformation.count) {
-      return true;
-    }
-
-    // Detect ghost flat fields on v4+ specs caused by $set accumulating
-    // fields from prior spec versions. Fixed by replaceOne in registryManager.
-    const ghostCount = await countInDatabase(appsGlobalDb, appsInformationCol, {
-      version: { $gte: 4 },
-      repotag: { $exists: true },
-    });
-    if (ghostCount > 0) {
-      log.info(`Found ${ghostCount} v4+ specs with ghost fields from prior versions, reindex required`);
-      return true;
-    }
-
-    return false;
-  } catch (err) {
-    log.error(`isReindexAppsInformationRequired - Mongodb Error: ${err}`);
-    return false;
+  if (!appsFromMessagesCount) {
+    log.warn('No apps from apps messages found, unable to validate apps information');
+    return null;
   }
+
+  if (!appsFromInformation) {
+    log.info('No apps information apps found, reindexing colleciton');
+    return true;
+  }
+
+  log.info(
+    `Apps reindex validation. Found ${appsFromMessagesCount} apps from appsMessages.`
+    + ` Found ${appsFromInformation.count} apps from appsInformation`,
+  );
+
+  if (appsFromMessagesCount !== appsFromInformation.count) {
+    return true;
+  }
+
+  // Detect ghost flat fields on v4+ specs caused by $set accumulating
+  // fields from prior spec versions. Fixed by replaceOne in registryManager.
+  const ghostCount = await countInDatabase(appsGlobalDb, appsInformationCol, {
+    version: { $gte: 4 },
+    repotag: { $exists: true },
+  });
+  if (ghostCount > 0) {
+    log.info(`Found ${ghostCount} v4+ specs with ghost fields from prior versions, reindex required`);
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -1016,8 +1012,9 @@ async function reindexGlobalAppsInformation(
 /**
  * Verifies the app count based on an aggregation from appsmessages and compares it to the
  * app count in appsinformation. If they differ - the appsinformation collection is dropped and
- * rebuilt from the appsmessages. The entire process takes about 500-700ms.
- * @returns {Promise<{validated: boolean, reindexed: boolean}>}
+ * rebuilt from the appsmessages. The entire process takes about 500-700ms. Not validated, with
+ * the error, when the check could not be made.
+ * @returns {Promise<{validated: boolean, reindexed: boolean, error?: string}>}
  */
 async function validateAppsInformation() {
   const response = { validated: false, reindexed: false };
@@ -1074,6 +1071,8 @@ async function validateAppsInformation() {
 
     log.info(`validateAppsInformation reindexRequired: ${reindexRequired}`);
 
+    if (reindexRequired === null) return response;
+
     if (!reindexRequired) {
       response.validated = true;
       return response;
@@ -1092,6 +1091,7 @@ async function validateAppsInformation() {
     response.reindexed = true;
   } catch (err) {
     log.error(`Unable to validate apps information. Error: ${err}`);
+    response.error = err.message;
   }
   return response;
 }
