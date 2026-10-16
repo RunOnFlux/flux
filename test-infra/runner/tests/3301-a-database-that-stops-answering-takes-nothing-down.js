@@ -10,15 +10,17 @@ import {
   waitFor, waitForUp, waitForDown, waitForOperatorIntent, waitForBootSettled, assertNoEvent,
 } from '../framework/wait.js';
 import { bootAndPeer, seedSimpleApp } from '../framework/reconciler-suite.js';
-import { pauseMongo, resumeMongo } from '../framework/mongo-control.js';
+import { holdCommands, releaseCommands } from '../framework/mongo-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
-// A mongod that stops answering, and comes back. The fleet shares one mongod, and a
-// paused container is what a mongod whose thread is stuck in the kernel looks like
-// from FluxOS: every call waits and none fails. FluxOS bounds a call at 60 s (a read
-// is retried once, so 120 s), and every caller of a call that fails leaves what it
-// cannot read as it is. Paused for longer than a read's whole budget, the fleet:
+// A mongod that stops answering FluxOS's commands while it goes on answering the
+// driver's heartbeats, and then answers again: what a mongod with one thread stuck
+// in the kernel looks like from FluxOS (mongo-control). The fleet shares one mongod.
+// Every call waits and none fails, and only a bound on the call ends the wait.
+// FluxOS bounds a call at 60 s (a read is retried once, so 120 s), and every caller
+// of a call that fails leaves what it cannot read as it is. Held for longer than a
+// read's whole budget, the fleet:
 //
 //   - answers a call that reads the database, with an error, rather than waiting
 //     for the database: what turns a stall into a failure each caller handles;
@@ -27,14 +29,14 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //   - keeps an operator-stopped component stopped;
 //   - announces its apps again once mongod answers.
 //
-// The second case pauses mongod while a node boots: the boot holds until mongod
+// The second case holds the commands while a node boots: the boot holds until mongod
 // answers and runs once, rather than starting again from the top.
 
 const subnet = getSubnetConfig();
-// Over a read's whole budget with room to tell it from the pause: a read that has
+// Over a read's whole budget with room to tell it from the hold: a read that has
 // to wait for a pooled connection first is answered within 60 s for the pool and
 // 2 x 60 s for the read and its retry.
-const PAUSE_MS = 300 * 1000;
+const HOLD_MS = 300 * 1000;
 const READ_ANSWERED_WITHIN_MS = 200 * 1000;
 // What a call that got no answer leaves in a node's log, and nothing else does. One
 // of them shows the calls failed, so the assertions below are about failed calls.
@@ -51,7 +53,7 @@ describe('a database that stops answering takes nothing down', function () {
   const stoppedName = `e2edbstop${Date.now()}`;
   let runningIdx;
   let stoppedIdx;
-  let paused = false;
+  let held = false;
 
   before(async function () {
     this.timeout(420000);
@@ -72,7 +74,7 @@ describe('a database that stops answering takes nothing down', function () {
 
   after(async function () {
     this.timeout(60000);
-    if (paused) await resumeMongo(env).catch(() => {});
+    if (held) await releaseCommands().catch(() => {});
     await env?.teardown();
   });
 
@@ -82,22 +84,22 @@ describe('a database that stops answering takes nothing down', function () {
     let read;
 
     before(async function () {
-      this.timeout(PAUSE_MS + 120000);
+      this.timeout(HOLD_MS + 120000);
       pidsBefore = await Promise.all(env.clients.map(fluxosPid));
       anchors = env.clients.map((client) => client.getLastEventId());
-      await pauseMongo(env);
-      paused = true;
+      await holdCommands(HOLD_MS);
+      held = true;
       try {
         await new Promise((resolve) => { setTimeout(resolve, 5000); });
         const startedAt = Date.now();
         const reading = env.clients[runningIdx].get(`/apps/appspecifications/${runningName}`)
           .then((body) => ({ body, ms: Date.now() - startedAt }), (error) => ({ error, ms: Date.now() - startedAt }));
-        await new Promise((resolve) => { setTimeout(resolve, PAUSE_MS - 5000); });
+        await new Promise((resolve) => { setTimeout(resolve, HOLD_MS - 5000); });
         read = await Promise.race([reading, { ms: null }]);
         if (read.ms === null) read = { ms: Date.now() - startedAt, unanswered: true };
       } finally {
-        await resumeMongo(env);
-        paused = false;
+        await releaseCommands();
+        held = false;
       }
     });
 
@@ -113,7 +115,7 @@ describe('a database that stops answering takes nothing down', function () {
 
     it('keeps every FluxOS process it had', async function () {
       const pidsAfter = await Promise.all(env.clients.map(fluxosPid));
-      expect(pidsAfter, 'a node\'s FluxOS exited during the pause').to.deep.equal(pidsBefore);
+      expect(pidsAfter, 'a node\'s FluxOS exited during the hold').to.deep.equal(pidsBefore);
     });
 
     it('removes no app and announces no removal', async function () {
@@ -157,29 +159,44 @@ describe('a database that stops answering takes nothing down', function () {
     // boot that started again from the top would log either of them twice.
     const BEFORE_SCHEMA = /System service initiated/;
     const AFTER_SCHEMA = /Flux checks operational/;
+    // The schema phase begun and not finished when the hold ends: the boot was held
+    // on the database, inside the step boot runs again until it succeeds.
+    const SCHEMA_BEGUN = /Preparing local database/;
+    const SCHEMA_FINISHED = /Local database prepared/;
     let counts;
+    let atRelease;
     let bootAnchor;
 
     before(async function () {
-      this.timeout(PAUSE_MS + 300000);
+      this.timeout(HOLD_MS + 300000);
       const { container } = env.clients[idx];
       // Event ids are seeded from the clock and keep rising across a restart.
       bootAnchor = env.clients[idx].getLastEventId();
       await crashFluxos(container, { hold: true });
-      counts = { before: env.nodeLogCount(idx, BEFORE_SCHEMA), after: env.nodeLogCount(idx, AFTER_SCHEMA) };
-      await pauseMongo(env);
-      paused = true;
+      counts = {
+        before: env.nodeLogCount(idx, BEFORE_SCHEMA),
+        after: env.nodeLogCount(idx, AFTER_SCHEMA),
+        begun: env.nodeLogCount(idx, SCHEMA_BEGUN),
+        finished: env.nodeLogCount(idx, SCHEMA_FINISHED),
+      };
+      await holdCommands(HOLD_MS);
+      held = true;
       try {
         await releaseFluxos(container);
-        await new Promise((resolve) => { setTimeout(resolve, PAUSE_MS); });
+        await new Promise((resolve) => { setTimeout(resolve, HOLD_MS); });
+        atRelease = {
+          begun: env.nodeLogCount(idx, SCHEMA_BEGUN) - counts.begun,
+          finished: env.nodeLogCount(idx, SCHEMA_FINISHED) - counts.finished,
+        };
       } finally {
-        await resumeMongo(env);
-        paused = false;
+        await releaseCommands();
+        held = false;
       }
     });
 
-    it('held the boot while the database gave no answer', function () {
-      expect(env.nodeHasLog(idx, /Waiting for MongoDB/), 'the boot never waited on the database, so nothing below was tested').to.equal(true);
+    it('held the boot inside its schema step while the database gave no answer', function () {
+      expect(atRelease.begun, 'the boot never reached its schema step, so nothing below was tested').to.be.above(0);
+      expect(atRelease.finished, 'the schema step finished while the database held every command').to.equal(0);
     });
 
     it('finishes the boot once, after the database answers', async function () {
