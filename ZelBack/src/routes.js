@@ -18,6 +18,7 @@ const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMes
 const {
   asyncRoute,
   cache,
+  limitConcurrent,
   rejectQueryParameters,
   requireAppStateReady,
   requireBootSettled,
@@ -65,6 +66,23 @@ const arcaneAuthService = require('./services/arcaneAuthService');
 const appTamperingDetectionService = require('./services/appTamperingDetectionService');
 const uplinkService = require('./services/uplinkService');
 const fluxEventBus = require('./services/utils/fluxEventBus');
+
+/**
+ * Whether a permanent message lookup names no message hash. One that does reads a single message;
+ * one that does not reads the whole log, or every message of an owner or an app name.
+ * @param {object} req Request
+ * @returns {boolean}
+ */
+function withoutMessageHash(req) {
+  return !(req.params.hash || req.query.hash);
+}
+
+// A permanent message lookup without a hash builds its whole answer in memory, so a node builds
+// one at a time.
+const permanentMessageQueryLimit = limitConcurrent(1, 'This node is already answering a permanent message query', withoutMessageHash);
+
+// Each message log being served keeps a processor core compressing it for its whole transfer.
+const permanentMessageLogLimit = limitConcurrent(4, 'This node is already serving as many message logs as it allows');
 
 module.exports = (app) => {
   // GET PUBLIC methods
@@ -481,12 +499,12 @@ module.exports = (app) => {
   app.get('/apps/temporarymessages/:hash?', cache('5 seconds'), asyncRoute((req, res) => {
     return messageVerifier.getAppsTemporaryMessages(req, res);
   }));
-  app.get('/apps/permanentmessages/:hash?/:owner?/:appname?', cache('2 minutes'), asyncRoute((req, res) => {
+  app.get('/apps/permanentmessages/:hash?/:owner?/:appname?', cache('2 minutes'), permanentMessageQueryLimit, asyncRoute((req, res) => {
     return messageVerifier.getAppsPermanentMessages(req, res);
   }));
   // Streamed from the database as it is read, so it takes no cache: an entry would hold the whole
   // body in memory.
-  app.get('/apps/permanentmessagesbyheight', asyncRoute((req, res) => {
+  app.get('/apps/permanentmessagesbyheight', permanentMessageLogLimit, asyncRoute((req, res) => {
     return permanentMessageLog.getPermanentMessagesByHeightAPI(req, res);
   }));
   app.get('/apps/globalappsspecifications/:hash?/:owner?/:appname?', requireRegistryReady, cache('30 seconds'), asyncRoute((req, res) => {
