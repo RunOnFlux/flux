@@ -1,6 +1,7 @@
 const { expect } = require('chai');
 const config = require('config');
-const { ObjectId } = require('mongodb');
+const { ObjectId, MongoClient } = require('mongodb');
+const sinon = require('sinon');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const { requireMongo } = require('./dbTestHelper');
@@ -775,6 +776,48 @@ describe('dbHelper tests', () => {
       expect(collectionStatsResponse.count).to.eql(0);
       expect(collectionStatsResponse.ns).to.eql('globalzelappstest.test1234');
       expect(collectionStatsResponse.avgObjSize).to.be.undefined;
+    });
+  });
+
+  describe('the maintenance client', () => {
+    afterEach(async () => {
+      sinon.restore();
+      await dbHelper.closeDbConnection();
+    });
+
+    const client = () => ({ close: sinon.stub().resolves(), db: sinon.stub().callsFake((name) => ({ databaseName: name, client: 'maintenance' })) });
+
+    it('is connected beside the main client, with a fifteen-minute budget for one round trip', async () => {
+      await dbHelper.closeDbConnection();
+      const main = client();
+      const maintenance = client();
+      const connect = sinon.stub(MongoClient, 'connect');
+      connect.onFirstCall().resolves(main);
+      connect.onSecondCall().resolves(maintenance);
+
+      await dbHelper.initiateDB();
+
+      expect(connect.firstCall.args[1].maxPoolSize).to.equal(100);
+      expect(connect.secondCall.args[1]).to.include({ socketTimeoutMS: 15 * 60 * 1000, waitQueueTimeoutMS: 15 * 60 * 1000 });
+      expect(dbHelper.databaseConnection()).to.equal(main);
+      expect(dbHelper.maintenanceConnection()).to.equal(maintenance);
+      expect(dbHelper.onMaintenanceClient({ databaseName: 'globalzelappstest' })).to.deep.equal({ databaseName: 'globalzelappstest', client: 'maintenance' });
+    });
+
+    it('is connected with the main client or not at all', async () => {
+      await dbHelper.closeDbConnection();
+      const main = client();
+      const connect = sinon.stub(MongoClient, 'connect');
+      connect.onFirstCall().resolves(main);
+      connect.onSecondCall().rejects(new Error('connection refused'));
+
+      const error = await dbHelper.initiateDB().catch((caught) => caught);
+
+      expect(error.message).to.equal('connection refused');
+
+      sinon.assert.calledOnce(main.close);
+      expect(dbHelper.databaseConnection()).to.equal(null);
+      expect(dbHelper.maintenanceConnection()).to.equal(null);
     });
   });
 

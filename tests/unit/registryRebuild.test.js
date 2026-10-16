@@ -11,6 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 const { expect } = require('chai');
+const sinon = require('sinon');
 const { MongoNetworkTimeoutError } = require('mongodb');
 const espree = require('espree');
 
@@ -275,6 +276,28 @@ describe('registry rebuild: who holds a name', () => {
     await globalDb.collection(INFO).insertOne({ name: 'other', height: 1000, expire: 1_000_000 });
     await globalDb.collection(INFO).insertOne({ name: 'another', height: 1000, expire: 1_000_000 });
     expect(await dbHelper.isReindexAppsInformationRequired(globalDb, MESSAGES, INFO, HEIGHT, daemonDb)).to.equal(true);
+  });
+
+  it('runs its index builds and its $group on the maintenance client', async () => {
+    await seed([msg({ hash: 'holder', owner: 'alice', height: 1000 })], [pay('holder', 1000, 0)]);
+    const onMaintenance = sinon.spy(dbHelper.maintenanceConnection(), 'db');
+    try {
+      await rebuild();
+    } finally {
+      onMaintenance.restore();
+    }
+    sinon.assert.calledWith(onMaintenance, globalDb.databaseName);
+  });
+
+  it('runs the reindex check\'s index build and $group on the maintenance client', async () => {
+    await seed([msg({ hash: 'holder', owner: 'alice', height: 1000 })], [pay('holder', 1000, 0)]);
+    const onMaintenance = sinon.spy(dbHelper.maintenanceConnection(), 'db');
+    try {
+      await dbHelper.isReindexAppsInformationRequired(globalDb, MESSAGES, INFO, HEIGHT, daemonDb);
+    } finally {
+      onMaintenance.restore();
+    }
+    sinon.assert.calledWith(onMaintenance, globalDb.databaseName);
   });
 
   it('rejects when the registry cannot be read, rather than reading it as consistent', async () => {

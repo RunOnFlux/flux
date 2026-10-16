@@ -303,7 +303,8 @@ async function untilSucceeds(what, step) {
  */
 async function prepareDatabaseSchema() {
   log.info('Preparing local database...');
-  const db = dbHelper.databaseConnection();
+  // Index builds: they run on the maintenance client.
+  const db = dbHelper.maintenanceConnection() || dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
   // Logins survive a restart: every request re-verifies its signature and
   // re-checks its privilege against the node's current config, and each
