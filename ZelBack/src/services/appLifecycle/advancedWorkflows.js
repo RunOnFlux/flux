@@ -4956,12 +4956,13 @@ function staggerMs(places) {
 }
 
 /**
- * Manages syncthing master/slave application coordination using FDM services.
+ * One pass of the syncthing master/slave election, using FDM services. It
+ * returns when the pass is done and schedules nothing; startMasterSlaveApps
+ * runs it for the life of the process.
  * State (the busy lists, the receive-only cache) is read off globalStateParam at
  * the point of each decision, never taken as separate parameters: the getters
- * hand out snapshots, so any list captured at call time is a photograph of that
- * moment - and this function is invoked once at boot and re-invokes itself for
- * the life of the process.
+ * hand out snapshots, so any list captured when the loop starts would be a
+ * photograph of that moment.
  * @param {object} globalStateParam - Global state module (busy lists, receive-only cache, run flags)
  * @param {Function} installedApps - Function to get installed apps
  * @param {Function} listRunningApps - Function to get running apps
@@ -5642,9 +5643,38 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
     // eslint-disable-next-line no-param-reassign
     globalStateParam.masterSlaveAppsRunning = false;
     fluxEventBus.count('masterSlave:cycles');
-    await serviceHelper.delay(config.fluxapps.masterSlaveIntervalMs ?? 30 * 1000);
-    masterSlaveApps(globalStateParam, installedApps, listRunningApps, https);
   }
+}
+
+/**
+ * Runs the master/slave election now, and again masterSlaveIntervalMs after
+ * each pass ends, so one pass runs at a time.
+ * @param {object} globalStateParam - Global state module (busy lists, receive-only cache, run flags)
+ * @param {Function} installedApps - Function to get installed apps
+ * @param {Function} listRunningApps - Function to get running apps
+ * @param {object} https - HTTPS module
+ * @returns {{ stop: Function }} stop() schedules no further pass
+ */
+function startMasterSlaveApps(globalStateParam, installedApps, listRunningApps, https) {
+  let timer = null;
+  let stopped = false;
+
+  async function runPassThenSchedule() {
+    try {
+      await masterSlaveApps(globalStateParam, installedApps, listRunningApps, https);
+    } catch (error) {
+      log.error(`masterSlaveApps: ${error}`);
+    }
+    if (!stopped) timer = setTimeout(runPassThenSchedule, config.fluxapps.masterSlaveIntervalMs ?? 30 * 1000);
+  }
+
+  function stop() {
+    stopped = true;
+    clearTimeout(timer);
+  }
+
+  runPassThenSchedule();
+  return { stop };
 }
 
 module.exports = {
@@ -5679,5 +5709,6 @@ module.exports = {
   checkAndRemoveEnterpriseAppsOnNonArcane,
   forceAppRemovals,
   masterSlaveApps,
+  startMasterSlaveApps,
   appDockerStart,
 };
