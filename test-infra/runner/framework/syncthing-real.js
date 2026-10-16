@@ -62,6 +62,13 @@ export async function getFolderStatus(client, folderId) {
   return api(client, `/rest/db/status?folder=${encodeURIComponent(folderId)}`);
 }
 
+// How this node's syncthing sees another device's side of a folder: 'valid' while
+// that device shares it over a live connection, 'paused', 'notSharing' or
+// 'unknown' otherwise. What FluxOS reads a peer's connection to the folder from.
+export async function getRemoteState(client, folderId, deviceId) {
+  return (await api(client, `/rest/db/completion?folder=${encodeURIComponent(folderId)}&device=${encodeURIComponent(deviceId)}`)).remoteState;
+}
+
 // A folder is complete when the index describes something and the disk holds all
 // of it. globalBytes === 0 means the index is empty, which is not the same as
 // synced and must never read as done.
