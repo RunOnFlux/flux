@@ -1598,56 +1598,6 @@ describe('registryManager tests', () => {
     });
   });
 
-  describe('getAllGlobalApplications tests', () => {
-    beforeEach(async () => {
-      const collection = config.database.appsglobal.collections.appsInformation;
-      const apps = [
-        {
-          name: 'App1',
-          owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-          height: 100,
-        },
-        {
-          name: 'App2',
-          owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-          height: 200,
-        },
-      ];
-
-      try {
-        await database.collection(collection).drop();
-      } catch (err) {
-        // Collection doesn't exist
-      }
-      await dbHelper.insertManyToDatabase(database, collection, apps);
-    });
-
-    it('should return all global applications', async () => {
-      const result = await registryManager.getAllGlobalApplications();
-
-      expect(result).to.be.an('array');
-      expect(result.length).to.be.at.least(2);
-    });
-
-    it('should return applications with specific projections', async () => {
-      const result = await registryManager.getAllGlobalApplications(['name', 'owner']);
-
-      expect(result).to.be.an('array');
-      if (result.length > 0) {
-        expect(result[0]).to.have.property('name');
-        expect(result[0]).to.have.property('owner');
-      }
-    });
-
-    it('should sort applications by height', async () => {
-      const result = await registryManager.getAllGlobalApplications(['name', 'height']);
-
-      if (result.length > 1) {
-        expect(result[0].height).to.be.at.most(result[1].height);
-      }
-    });
-  });
-
   describe('getInstalledApps tests', () => {
     it('should return installed apps from local database', async () => {
       const result = await registryManager.getInstalledApps();
@@ -1662,14 +1612,6 @@ describe('registryManager tests', () => {
 
       expect(error).to.be.instanceOf(Error);
       expect(error.message).to.equal('Database error');
-    });
-  });
-
-  describe('getRunningApps tests', () => {
-    it('should return running apps from global locations', async () => {
-      const result = await registryManager.getRunningApps();
-
-      expect(result).to.be.an('array');
     });
   });
 

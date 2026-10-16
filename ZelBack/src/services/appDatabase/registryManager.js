@@ -1612,41 +1612,6 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
 }
 
 /**
- * Get app specification from database
- * @param {string} appName - Application name
- * @returns {Promise<object|null>} App specification
- */
-async function getAppSpecificationFromDb(appName) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const query = { name: new RegExp(`^${appName}$`, 'i') };
-    const projection = { projection: { _id: 0 } };
-
-    const appSpec = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-    return appSpec;
-  } catch (error) {
-    log.error(`Error getting app specification from database: ${error.message}`);
-    return null;
-  }
-}
-
-/**
- * Get all apps information (both global and local)
- * @returns {Promise<Array>} Array of all app information
- */
-async function getAllAppsInformation() {
-  try {
-    const allApps = await availableApps();
-    return allApps;
-  } catch (error) {
-    log.error(`Error getting all apps information: ${error.message}`);
-    return [];
-  }
-}
-
-/**
  * Get installed apps information
  * @returns {Promise<Array>} Array of installed apps. Rejects when the read fails:
  *   an unread list is not an empty one.
@@ -1656,26 +1621,6 @@ async function getInstalledApps() {
   const localDatabase = localDb.db(config.database.appslocal.database);
   const projection = { projection: { _id: 0 } };
   return dbHelper.findInDatabase(localDatabase, localAppsInformation, {}, projection);
-}
-
-/**
- * Get running apps information
- * @returns {Promise<Array>} Array of running apps
- */
-async function getRunningApps() {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const query = {};
-    const projection = { projection: { _id: 0 } };
-
-    const runningApps = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
-    return runningApps;
-  } catch (error) {
-    log.error(`Error getting running apps: ${error.message}`);
-    return [];
-  }
 }
 
 /**
@@ -1723,31 +1668,6 @@ function registrationInformation(_req, res) {
       error.code,
     );
     res.json(errorResponse);
-  }
-}
-
-/**
- * Get all global applications from database
- * @param {string[]} proj - Optional projection fields
- * @returns {Promise<object[]>} Array of global applications
- */
-async function getAllGlobalApplications(proj = []) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    const query = {};
-    const wantedProjection = {
-      _id: 0,
-    };
-    proj.forEach((field) => {
-      wantedProjection[field] = 1;
-    });
-    const projection = { projection: wantedProjection, sort: { height: 1 } }; // ensure sort from oldest to newest
-    const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
-    return results;
-  } catch (error) {
-    log.error(error);
-    return [];
   }
 }
 
@@ -2607,13 +2527,9 @@ module.exports = {
   storeAppSpecificationInForce,
   governingAppMessage,
   isGoverningAppMessage,
-  getAppSpecificationFromDb,
-  getAllAppsInformation,
   getInstalledApps,
-  getRunningApps,
   getRunningAppIpList,
   registrationInformation,
-  getAllGlobalApplications,
   expireGlobalApplications,
   reindexGlobalAppsInformation,
   reindexGlobalAppsLocation,
