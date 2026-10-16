@@ -791,9 +791,9 @@ async function keepEarliestPayment(collection) {
  * @returns {Promise<void>}
  */
 async function prepareCollections() {
-  const client = dbHelper.maintenanceConnection() || dbHelper.databaseConnection();
-  const database = client.db(config.database.daemon.database);
-  const databaseUpdates = client.db(config.database.chainparams.database);
+  const db = dbHelper.databaseConnection();
+  const database = dbHelper.onMaintenanceClient(db.db(config.database.daemon.database));
+  const databaseUpdates = dbHelper.onMaintenanceClient(db.db(config.database.chainparams.database));
   await dbHelper.ensureIndexes(database.collection(utxoIndexCollection), [
     {
       key: { txid: 1, vout: 1 }, name: 'query for getting utxo', unique: true, recover: dbHelper.dedupeByKey,
