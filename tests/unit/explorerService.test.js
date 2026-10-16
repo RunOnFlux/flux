@@ -2173,6 +2173,16 @@ describe('explorerService tests', () => {
       }
     });
 
+    it('asserts every index on the maintenance client', async () => {
+      const ensureIndexes = sinon.stub(dbHelper, 'ensureIndexes').resolves();
+
+      await explorerService.prepareCollections();
+
+      expect(dbHelper.maintenanceConnection(), 'no maintenance client, so this proves nothing').to.not.equal(null);
+      expect(ensureIndexes.callCount).to.equal(5);
+      ensureIndexes.getCalls().forEach((call) => expect(call.args[0].client).to.equal(dbHelper.maintenanceConnection()));
+    });
+
     it('builds the unique hash index over records that hold duplicates, keeping the earliest payment', async () => {
       // inserted earliest first, so the newest row is the later payment
       await hashes.insertMany([
