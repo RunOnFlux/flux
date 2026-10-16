@@ -1030,8 +1030,18 @@ describe('appsRuntimeState tests', () => {
 
       ops.length = 0;
       writeFails = true;
-      await orderState.prepareCollection();
+      const error = await orderState.prepareCollection().catch((caught) => caught);
+      expect(error, 'boot is told the collection is not prepared').to.be.an('error');
       expect(ops, 'a twin was removed although the merge was never written').to.deep.equal([]);
+    });
+
+    it('rejects when the unique index cannot be built, so boot prepares the collection again', async () => {
+      docs = [];
+      createIndexStub.rejects(new Error('connection timed out'));
+
+      const error = await prepState.prepareCollection().catch((caught) => caught);
+
+      expect(error.message).to.equal('connection timed out');
     });
 
     it('carries fields the merge does not name, from whichever twin has them', async () => {
