@@ -26,17 +26,17 @@ const PRIVILEGE_RESPONSE = Object.freeze({
   NONE: 'none',
 });
 
-async function deleteLoginPhrase(phrase) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.local.database);
-    const collection = config.database.local.collections.activeLoginPhrases;
-    const query = { loginPhrase: phrase };
-    const projection = {};
-    await dbHelper.findOneAndDeleteInDatabase(database, collection, query, projection);
-  } catch (error) {
-    log.error(error);
-  }
+/**
+ * Removes a login phrase, so that it signs in once.
+ * @param {string} phrase
+ * @returns {Promise<boolean>} Whether this call removed it. Rejects when the
+ *   database does not answer.
+ */
+async function consumeLoginPhrase(phrase) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.local.database);
+  const collection = config.database.local.collections.activeLoginPhrases;
+  return Boolean(await dbHelper.findOneAndDeleteInDatabase(database, collection, { loginPhrase: phrase }, {}));
 }
 
 
@@ -196,6 +196,11 @@ async function verifyLogin(req, res) {
             } else if (address === adminZelid) {
               privilage = PRIVILEGE_RESPONSE.NODE_OPERATOR;
             }
+            // A phrase signs in once: the login is written only by the request that
+            // removed it.
+            if (!await consumeLoginPhrase(message)) {
+              throw new Error('Signed message is no longer valid. Please request a new one.');
+            }
             // The signature is the session's credential. The login websocket hands it
             // to whoever holds the login phrase, so it is kept apart from the login,
             // in a collection whose TTL index expires it a minute after the login. It
@@ -219,7 +224,6 @@ async function verifyLogin(req, res) {
             };
             const resMessage = messageHelper.createDataMessage(resData);
             res.json(resMessage);
-            deleteLoginPhrase(message);
           } else {
             throw new Error('Invalid signature');
           }
