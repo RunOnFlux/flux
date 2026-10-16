@@ -42,6 +42,11 @@ const READ_ANSWERED_WITHIN_MS = 200 * 1000;
 // of them shows the calls failed, so the assertions below are about failed calls.
 const DATABASE_GAVE_NO_ANSWER = /MongoNetworkTimeoutError|MongoWaitQueueTimeoutError/;
 
+// A TAP comment, so a hold that overruns says which step it was in.
+function step(what) {
+  console.log(`# 3301 ${new Date().toISOString()} ${what}`);
+}
+
 async function fluxosPid(client) {
   return Number((await execInContainer(client.container, 'cat /tmp/fluxos.pid')).stdout.trim());
 }
@@ -85,10 +90,13 @@ describe('a database that stops answering takes nothing down', function () {
 
     before(async function () {
       this.timeout(HOLD_MS + 120000);
+      step('reading the FluxOS pids');
       pidsBefore = await Promise.all(env.clients.map(fluxosPid));
       anchors = env.clients.map((client) => client.getLastEventId());
+      step('holding the commands');
       await holdCommands(HOLD_MS);
       held = true;
+      step('held');
       try {
         await new Promise((resolve) => { setTimeout(resolve, 5000); });
         const startedAt = Date.now();
@@ -97,9 +105,12 @@ describe('a database that stops answering takes nothing down', function () {
         await new Promise((resolve) => { setTimeout(resolve, HOLD_MS - 5000); });
         read = await Promise.race([reading, { ms: null }]);
         if (read.ms === null) read = { ms: Date.now() - startedAt, unanswered: true };
+        step(`read ${read.unanswered ? 'unanswered' : 'answered'} after ${read.ms} ms`);
       } finally {
+        step('releasing the commands');
         await releaseCommands();
         held = false;
+        step('released');
       }
     });
 
