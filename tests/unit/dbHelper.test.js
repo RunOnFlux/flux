@@ -787,7 +787,7 @@ describe('dbHelper tests', () => {
 
     const client = () => ({ close: sinon.stub().resolves(), db: sinon.stub().callsFake((name) => ({ databaseName: name, client: 'maintenance' })) });
 
-    it('is connected beside the main client, with a fifteen-minute budget for one round trip', async () => {
+    it('is connected beside the main client, with fifteen minutes for one round trip where the main client has one', async () => {
       await dbHelper.closeDbConnection();
       const main = client();
       const maintenance = client();
@@ -797,7 +797,7 @@ describe('dbHelper tests', () => {
 
       await dbHelper.initiateDB();
 
-      expect(connect.firstCall.args[1].maxPoolSize).to.equal(100);
+      expect(connect.firstCall.args[1]).to.include({ maxPoolSize: 100, socketTimeoutMS: 60 * 1000, waitQueueTimeoutMS: 60 * 1000 });
       expect(connect.secondCall.args[1]).to.include({ socketTimeoutMS: 15 * 60 * 1000, waitQueueTimeoutMS: 15 * 60 * 1000 });
       expect(dbHelper.databaseConnection()).to.equal(main);
       expect(dbHelper.maintenanceConnection()).to.equal(maintenance);
