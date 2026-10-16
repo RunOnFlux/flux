@@ -484,6 +484,40 @@ describe('fluxCommunication tests', () => {
       ).to.equal(false);
     });
 
+    it('holds a message its database could not verify and dispatches it again, once, later', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
+      const data = {
+        type: 'fluxipchanged', version: 1, oldIP: '1.1.1.3', newIP: '2.2.2.3', broadcastedAt: Date.now(),
+      };
+      verify.onFirstCall().resolves(fluxCommunicationUtils.VerifyResult.UNREADABLE);
+
+      await peerManager.messageDispatcher(envelope(data), peerSocket);
+      await peerManager.messageDispatcher(envelope(data), peerSocket);
+
+      expect(cacheManager.announcementSeen.has(objectHash(data))).to.equal(true);
+      expect(verify.callCount, 'a copy waits with it').to.equal(1);
+      sinon.assert.notCalled(messageStore.storeIPChangedMessage);
+
+      await clock.tickAsync(30 * 1000);
+      await clock.tickAsync(100);
+
+      expect(verify.callCount).to.equal(2);
+      sinon.assert.calledOnce(messageStore.storeIPChangedMessage);
+    });
+
+    it('gives the slot back for a message its database could not verify within its window', async () => {
+      const data = {
+        type: 'fluxipchanged', version: 1, oldIP: '1.1.1.4', newIP: '2.2.2.4', broadcastedAt: Date.now(),
+      };
+      verify.resolves(fluxCommunicationUtils.VerifyResult.UNREADABLE);
+      fluxCommunicationUtils.verifyTimestampInFluxBroadcast.returns(false);
+
+      await peerManager.messageDispatcher(envelope(data), peerSocket);
+
+      expect(cacheManager.announcementSeen.has(objectHash(data))).to.equal(false);
+      expect(peerSocket.badMessageTimestamps).to.deep.equal([]);
+    });
+
     // The canary: the same type, verifying, DOES hold it - so the release above is the
     // verification failing and not the filter having been switched off.
     it('keeps the slot for a message that verifies', async () => {
