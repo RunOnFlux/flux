@@ -54,6 +54,11 @@ describe('an update that adds a g: component runs the app on one node', function
     hdd: 1,
     repoauth: '',
   });
+  // The specification a holder has installed, by its hash.
+  const installedHash = async (i) => {
+    const res = await client(i).getInstalledApps();
+    return (res.data ?? []).find((a) => a.name === appName)?.hash ?? null;
+  };
   const runningOn = async (i) => {
     const containers = await listAppContainers(client(i).container);
     return COMPONENTS.filter((name) => containers.some((c) => c.name === folderOf(name) && c.status?.startsWith('Up')));
@@ -113,17 +118,19 @@ describe('an update that adds a g: component runs the app on one node', function
 
     let breach = null;
     let settled = null;
+    // Until both holders have reinstalled: each does on its own pass.
     await driveUntil(client(HOLDERS[0]), async () => {
       try {
         const running = await oneHolderAtMost();
         settled = HOLDERS.find((i) => running[i].length === COMPONENTS.length) ?? null;
-        return settled !== null;
+        const hashes = await Promise.all(HOLDERS.map(installedHash));
+        return settled !== null && hashes.every((hash) => hash === updated.hash);
       } catch (error) {
         if (error?.name !== 'AssertionError') throw error;
         breach = error;
         return true;
       }
-    }, { blocks: 216, label: 'one node runs db and web' });
+    }, { blocks: 216, label: 'both holders are at the new specification and one runs db and web' });
     if (breach) throw breach;
 
     const other = HOLDERS.find((i) => i !== settled);
