@@ -280,6 +280,10 @@ async function startFluxFunctions() {
     // As soon as MongoDB answers: a below-floor node stays up holding a sticky
     // DOS, so /flux/info names the version found and the version required.
     fluxNetworkHelper.checkMongoDbVersionAllowed(await dbHelper.getMongoDbVersion());
+    // A node over the limit on IP changes is out of service from its first
+    // moment with a database, before anything can ask whether it is fit, until
+    // the chain has passed its hold.
+    fluxNetworkHelper.startIpChangeHoldWatch();
     await dockerService.waitForDocker();
     const dockerInfo = await dockerService.dockerInfo().catch(() => null);
     // Where docker keeps its records, read while it answers, for a kill made
@@ -536,9 +540,6 @@ async function startFluxFunctions() {
     // whether this node ran apps at an address it has no record of leaving
     fluxNetworkHelper.setInstalledAppsListedAt((socketAddress) => appQueryService.installedAppsListedAt(socketAddress));
     fluxCommunication.announceRecordedOwnMovesWhenConnected();
-    // a node over the limit on IP changes stays out of service from boot on,
-    // until the chain has passed its hold
-    fluxNetworkHelper.startIpChangeHoldWatch();
     // every address benchmark reports as this node's own, from boot on: one that
     // differs from the address it last adopted is its move
     fluxNetworkHelper.startOwnAddressWatch();
