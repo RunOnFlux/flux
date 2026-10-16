@@ -755,13 +755,45 @@ describe('appTamperingDetectionService tests', () => {
       expect(dbHelperStub.removeDocumentsFromCollection.called).to.be.false;
     });
 
-    it('swallows errors without throwing and logs them', async () => {
+    it('records the boot once the database answers, without throwing meanwhile', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
       dbHelperStub.findOneInDatabase = sinon.stub().rejects(new Error('mongo down'));
 
       await service.checkNodeReboot();
 
       sinon.assert.calledOnce(logStub.error);
       expect(logStub.error.firstCall.args[0]).to.include('mongo down');
+      expect(historyUpdates()).to.have.lengthOf(0);
+
+      setMarker({ _id: 'lastStartup', at: new Date(), bootId: PREVIOUS_BOOT_ID });
+      await clock.tickAsync(30 * 1000);
+
+      expect(historyUpdates()).to.have.lengthOf(1);
+      expect(markerUpdates()).to.have.lengthOf(1);
+      clock.restore();
+    });
+
+    it('does not record a boot twice when the marker write after it failed', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      const history = { _id: 'bootHistory', boots: [] };
+      dbHelperStub.findOneInDatabase = sinon.stub().callsFake(async (db, coll, query) => {
+        if (query._id === 'lastStartup') return { _id: 'lastStartup', bootId: PREVIOUS_BOOT_ID };
+        if (query._id === 'bootHistory') return history;
+        return null;
+      });
+      const write = dbHelperStub.findOneAndUpdateInDatabase;
+      dbHelperStub.findOneAndUpdateInDatabase = sinon.stub().callsFake(async (db, coll, query, update, options) => {
+        if (query._id === 'bootHistory') history.boots.push(...update.$push.boots.$each);
+        if (query._id === 'lastStartup' && dbHelperStub.findOneAndUpdateInDatabase.callCount === 2) throw new Error('mongo down');
+        return write(db, coll, query, update, options);
+      });
+
+      await service.checkNodeReboot();
+      await clock.tickAsync(30 * 1000);
+
+      expect(history.boots.map((boot) => boot.bootId)).to.deep.equal([CURRENT_BOOT_ID]);
+      expect(markerUpdates()).to.have.lengthOf(1);
+      clock.restore();
     });
   });
 
