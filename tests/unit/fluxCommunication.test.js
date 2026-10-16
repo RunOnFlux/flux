@@ -2835,6 +2835,18 @@ describe('fluxCommunication tests', () => {
       heardBack('10.0.0.1:16127');
     });
 
+    it('at startup, reads the recorded moves again on the next connection when the read fails', async () => {
+      registryManager.addressMovesTo.withArgs(NEW).onFirstCall().rejects(new Error('connection timed out'));
+      registryManager.addressMovesTo.withArgs(NEW).onSecondCall().resolves(new Map([[OLD, { to: NEW, at: Date.now() - 60000, signer: '04own' }]]));
+
+      fluxCommunication.announceRecordedOwnMovesWhenConnected();
+
+      expect(await connect('10.0.0.1:16127')).to.deep.equal([]);
+      expect(peerManager.listeners('peerConnected').some((listener) => listener.name === 'sendOwnMovesTo')).to.equal(true);
+      expect(await connect('10.0.0.2:16127')).to.deep.equal([`${OLD}>${NEW}`]);
+      heardBack('10.0.0.2:16127');
+    });
+
     it('at startup with nothing recorded, stops listening after the first connection', async () => {
       fluxCommunication.announceRecordedOwnMovesWhenConnected();
 

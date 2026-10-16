@@ -11,6 +11,7 @@ const daemonServiceAddressRpcs = require('../../ZelBack/src/services/daemonServi
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 const log = require('../../ZelBack/src/lib/log');
 const { requireMongo } = require('./dbTestHelper');
@@ -2674,6 +2675,89 @@ describe('explorerService tests', () => {
       await explorerService.bootstrapSoftForks(2579000);
 
       sinon.assert.notCalled(updateOneStub);
+    });
+  });
+
+  describe('explorer reset requests', () => {
+    let res;
+    let clock;
+
+    beforeEach(() => {
+      res = { json: sinon.spy(), status: sinon.stub().returnsThis() };
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: sinon.fake.returns({}) });
+      sinon.stub(log, 'error');
+      explorerService.setIsInInitiationOfBP(false);
+      explorerService.setBlockProccessingCanContinue(true);
+    });
+
+    afterEach(() => {
+      clock?.restore();
+      clock = undefined;
+      explorerService.setIsInInitiationOfBP(false);
+      explorerService.setBlockProccessingCanContinue(true);
+      sinon.restore();
+    });
+
+    async function settle() {
+      for (let k = 0; k < 5; k += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setImmediate(resolve); });
+      }
+    }
+
+    it('reindex answers once with the error and releases the operation when the drop fails', async () => {
+      const dropCollection = sinon.stub(dbHelper, 'dropCollection').rejects(new Error('connection timed out'));
+
+      await explorerService.reindexExplorer({ params: {} }, res);
+      await settle();
+
+      sinon.assert.calledOnce(res.json);
+      sinon.assert.calledWithMatch(res.json, { status: 'error', data: { message: 'connection timed out' } });
+
+      dropCollection.rejects(new Error('connection timed out again'));
+      res.json.resetHistory();
+      await explorerService.reindexExplorer({ params: {} }, res);
+      await settle();
+      sinon.assert.calledWithMatch(res.json, { data: { message: 'connection timed out again' } });
+    });
+
+    it('rescan answers once with the error and releases the operation when the height write fails', async () => {
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves({ generalScannedHeight: 2000 });
+      const updateOne = sinon.stub(dbHelper, 'updateOneInDatabase').rejects(new Error('connection timed out'));
+
+      await explorerService.rescanExplorer({ params: { blockheight: 1000 } }, res);
+      await settle();
+
+      sinon.assert.calledOnce(res.json);
+      sinon.assert.calledWithMatch(res.json, { status: 'error', data: { message: 'connection timed out' } });
+
+      updateOne.rejects(new Error('connection timed out again'));
+      res.json.resetHistory();
+      await explorerService.rescanExplorer({ params: { blockheight: 1000 } }, res);
+      await settle();
+      sinon.assert.calledWithMatch(res.json, { data: { message: 'connection timed out again' } });
+    });
+
+    it('rescan without a block height answers once', async () => {
+      const findOne = sinon.stub(dbHelper, 'findOneInDatabase');
+
+      await explorerService.rescanExplorer({ params: {} }, res);
+
+      sinon.assert.calledOnce(res.json);
+      sinon.assert.calledWithMatch(res.json, { status: 'error', data: { message: 'No blockheight provided' } });
+      sinon.assert.notCalled(findOne);
+    });
+
+    it('a stop that does not take leaves block processing allowed to continue', async () => {
+      clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      explorerService.setIsInInitiationOfBP(true);
+
+      await explorerService.stopBlockProcessing({}, res);
+      await clock.tickAsync(13000);
+
+      sinon.assert.calledWithMatch(res.json, { status: 'error' });
+      expect(explorerService.getBlockProccessingCanContinue()).to.equal(true);
     });
   });
 });
