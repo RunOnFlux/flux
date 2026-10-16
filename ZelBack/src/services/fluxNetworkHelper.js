@@ -97,6 +97,7 @@ const StickyDosOwner = Object.freeze({
   PEER_SET_STABILITY: 'peerSetStability',
   NODEJS_FLOOR: 'nodejsFloor',
   DOCKER_FLOOR: 'dockerFloor',
+  MONGODB_FLOOR: 'mongodbFloor',
 });
 
 // Declares the node unfit for the apps it already runs, and is not moved by the
@@ -1300,6 +1301,42 @@ function checkDockerVersionAllowed(dockerVersion) {
   setStickyDos(
     StickyDosOwner.DOCKER_FLOOR,
     `Docker Version Error. Current lower version allowed is v${minimumVersion} found v${dockerVersion}. Upgrade Docker and restart FluxOS`,
+  );
+  return false;
+}
+
+/**
+ * Whether the MongoDB this node runs meets the network minimum: the oldest
+ * release FluxOS supports.
+ *
+ * Asked once, when MongoDB first answers at startup. Upgrading MongoDB
+ * restarts mongod, not FluxOS, so the verdict stands until FluxOS next starts,
+ * and the message says so. A version that could not be read, or is not a
+ * SemVer version, gives no verdict. A pre-release is below its release.
+ * @param {?string} mongoDbVersion The version MongoDB reports, or null when it
+ *   could not be read.
+ * @returns {boolean} True unless the version is known and below the floor.
+ */
+function checkMongoDbVersionAllowed(mongoDbVersion) {
+  const minimumVersion = config.minimumMongoDbAllowedVersion;
+  if (!minimumVersion) {
+    log.error('checkMongoDbVersionAllowed - no minimum MongoDB version configured, skipping the check');
+    return true;
+  }
+  if (!mongoDbVersion) {
+    log.error('checkMongoDbVersionAllowed - MongoDB did not report its version, no verdict');
+    return true;
+  }
+  if (!serviceHelper.parseSemver(mongoDbVersion)) {
+    log.error(`checkMongoDbVersionAllowed - MongoDB reported ${mongoDbVersion}, which is not a SemVer version, no verdict`);
+    return true;
+  }
+  if (serviceHelper.semverAtLeast(mongoDbVersion, minimumVersion)) {
+    return true;
+  }
+  setStickyDos(
+    StickyDosOwner.MONGODB_FLOOR,
+    `MongoDB Version Error. Current lower version allowed is v${minimumVersion} found v${mongoDbVersion}. Upgrade MongoDB and restart FluxOS`,
   );
   return false;
 }
@@ -3526,6 +3563,7 @@ module.exports = {
   checkFluxbenchVersionAllowed,
   checkNodeJsVersionAllowed,
   checkDockerVersionAllowed,
+  checkMongoDbVersionAllowed,
   checkMyFluxAvailability,
   adjustExternalIp,
   handleOwnAddress,

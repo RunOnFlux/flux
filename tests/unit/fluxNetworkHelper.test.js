@@ -1081,6 +1081,48 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
+  describe('checkMongoDbVersionAllowed tests', () => {
+    // minimumMongoDbAllowedVersion = '6.0.27'
+    const { MONGODB_FLOOR } = fluxNetworkHelper.StickyDosOwner;
+
+    afterEach(() => {
+      fluxNetworkHelper.clearStickyDos(MONGODB_FLOOR);
+      fluxNetworkHelper.setDosStateValue(0);
+      fluxNetworkHelper.setDosMessage(null);
+    });
+
+    it('allows the MongoDB the fleet runs, and the floor itself', () => {
+      ['8.0.20', '7.0.31', '6.0.27'].forEach((version) => {
+        expect(fluxNetworkHelper.checkMongoDbVersionAllowed(version), version).to.equal(true);
+      });
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+    });
+
+    it('takes a node below the floor out of service, and says which version it found and what to do', () => {
+      expect(fluxNetworkHelper.checkMongoDbVersionAllowed('6.0.26')).to.equal(false);
+      const reported = fluxNetworkHelper.getDOSState().data;
+      expect(reported.dosMessage).to.include('6.0.27');
+      expect(reported.dosMessage).to.include('6.0.26');
+      expect(reported.dosMessage).to.include('restart FluxOS');
+      expect(reported.dosState).to.equal(100);
+    });
+
+    it('refuses every release below the floor the fleet still runs, and a pre-release of the floor', () => {
+      ['4.4.29', '4.4.18', '6.0.26', '6.0.27-rc0'].forEach((version) => {
+        fluxNetworkHelper.clearStickyDos(MONGODB_FLOOR);
+        expect(fluxNetworkHelper.checkMongoDbVersionAllowed(version), version).to.equal(false);
+      });
+    });
+
+    it('gives no verdict when MongoDB did not report its version, or reports one that is not SemVer', () => {
+      [null, undefined, '', '6.0', 'dev'].forEach((version) => {
+        expect(fluxNetworkHelper.checkMongoDbVersionAllowed(version), String(version)).to.equal(true);
+      });
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+      expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(0);
+    });
+  });
+
   describe('checkDockerVersionAllowed tests', () => {
     // minimumDockerAllowedVersion = '28.1.1'
     const { DOCKER_FLOOR, RESIDENTIAL_DOS } = fluxNetworkHelper.StickyDosOwner;

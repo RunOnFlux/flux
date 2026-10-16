@@ -109,6 +109,7 @@ module.exports = {
   minimumNodeJsAllowedVersion: '20.8.0',
   minimumSyncthingAllowedVersion: '1.27.6',
   minimumDockerAllowedVersion: '28.1.1',
+  minimumMongoDbAllowedVersion: '6.0.27',
   fluxTeamFluxID: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
   fluxSupportTeamFluxID: ['16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP'],
   deterministicNodesStart: 558000,

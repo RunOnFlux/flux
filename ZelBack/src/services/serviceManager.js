@@ -454,6 +454,9 @@ async function startFluxFunctions() {
     fluxNetworkHelper.checkNodeJsVersionAllowed();
     // Hard dependencies — nothing starts until these are confirmed.
     await dbHelper.waitForMongo();
+    // As soon as MongoDB answers: a below-floor node stays up holding a sticky
+    // DOS, so /flux/info names the version found and the version required.
+    fluxNetworkHelper.checkMongoDbVersionAllowed(await dbHelper.getMongoDbVersion());
     await dockerService.waitForDocker();
     // As soon as Docker answers, before the container firewall is applied: a
     // below-floor node stays up holding a sticky DOS, so /flux/info names the
