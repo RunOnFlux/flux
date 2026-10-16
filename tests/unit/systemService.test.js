@@ -1202,6 +1202,56 @@ describe('system Services tests', () => {
     });
   });
 
+  describe('monitorSystem tests', () => {
+    let runCommandStub;
+
+    beforeEach(() => {
+      sinon.stub(daemonServiceUtils, 'ensureConfigLoaded').resolves();
+      sinon.stub(daemonServiceUtils, 'getFluxdDir').returns('/home/operator/.flux');
+      sinon.stub(fs, 'stat').resolves({ uid: 1001, gid: 1002 });
+      sinon.stub(fs, 'readFile').rejects(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+      sinon.stub(fs, 'mkdtemp').resolves('/tmp/fluxd-tmpfiles-x');
+      sinon.stub(fs, 'writeFile').resolves();
+      sinon.stub(fs, 'rm').resolves();
+      sinon.stub(axios, 'get').resolves({ data: { data: {} } });
+      sinon.stub(log, 'info');
+      sinon.stub(log, 'error');
+      // Every package installed and current, systemd-timesyncd already replaced by chrony.
+      runCommandStub = sinon.stub(serviceHelper, 'runCommand').callsFake(async (command, { params = [] } = {}) => {
+        if (command === 'dpkg-query') return { error: null, stdout: "'99.0.0|install ok installed'" };
+        if (command === 'systemctl' && params[0] === 'is-active') return { error: new Error('inactive'), stdout: '' };
+        return { error: null, stdout: '' };
+      });
+    });
+
+    afterEach(() => {
+      systemService.resetTimers();
+      sinon.restore();
+    });
+
+    it('applies the /run/fluxd tmpfiles rule on a legacy node', async () => {
+      await systemService.monitorSystem();
+
+      sinon.assert.calledWith(runCommandStub, 'systemd-tmpfiles', { runAsRoot: true, params: ['--create', '/etc/tmpfiles.d/fluxd.conf'] });
+    });
+
+    it('does nothing on ArcaneOS, whose fluxd unit makes /run/fluxd', async () => {
+      const saved = process.env.FLUXOS_PATH;
+      process.env.FLUXOS_PATH = '/usr/lib/fluxos';
+      let arcaneSystemService;
+      try {
+        arcaneSystemService = proxyquire('../../ZelBack/src/services/systemService', {});
+      } finally {
+        if (saved === undefined) delete process.env.FLUXOS_PATH;
+        else process.env.FLUXOS_PATH = saved;
+      }
+
+      await arcaneSystemService.monitorSystem();
+
+      sinon.assert.notCalled(runCommandStub);
+    });
+  });
+
   describe('enableFluxdZmq tests', () => {
     let statStub;
     let errorSpy;
