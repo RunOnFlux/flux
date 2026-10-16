@@ -2819,12 +2819,48 @@ describe('explorerService tests', () => {
       expect(outcome, 'the block moved on without its price fork').to.be.instanceOf(MongoNetworkTimeoutError);
     });
 
-    it('a canary: a soft fork that fails for another reason is skipped, as before', async () => {
+    it('a canary: a soft fork that fails for another reason is skipped', async () => {
       const updateOne = sinon.stub(dbHelper, 'updateOneInDatabase').rejects(new Error('unreadable message'));
 
       await explorerService.processInsight(softForkBlock(), {});
 
       sinon.assert.called(updateOne);
+    });
+
+    describe('on a node without the insight index', () => {
+      // The same soft fork, its sender found through the spent output it names.
+      const standardSoftForkBlock = () => ({
+        ...softForkBlock(),
+        tx: softForkBlock().tx.map((tx) => ({ ...tx, vin: [{ txid: 'fundingtx', vout: 0 }] })),
+      });
+      const { chainMessages } = config.database.chainparams.collections;
+      let updateOne;
+
+      beforeEach(() => {
+        sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves({ value: { address: config.fluxapps.addressMultisig } });
+        sinon.stub(dbHelper, 'insertOneToDatabase').resolves();
+        sinon.stub(serviceHelper, 'delay').resolves();
+        // The block's address index is written the same way first; only the soft
+        // fork's own write fails.
+        updateOne = sinon.stub(dbHelper, 'updateOneInDatabase').resolves();
+      });
+
+      it('fails the block when its soft fork cannot be written', async () => {
+        updateOne.withArgs(sinon.match.any, chainMessages).rejects(new MongoNetworkTimeoutError('connection timed out'));
+
+        const outcome = await explorerService.processStandard(standardSoftForkBlock(), {}).catch((err) => err);
+
+        sinon.assert.calledWith(updateOne, sinon.match.any, chainMessages);
+        expect(outcome, 'the block moved on without its price fork').to.be.instanceOf(MongoNetworkTimeoutError);
+      });
+
+      it('a canary: a soft fork that fails for another reason is skipped', async () => {
+        updateOne.withArgs(sinon.match.any, chainMessages).rejects(new Error('unreadable message'));
+
+        await explorerService.processStandard(standardSoftForkBlock(), {});
+
+        sinon.assert.calledWith(updateOne, sinon.match.any, chainMessages);
+      });
     });
 
     it('fails the block when one of its app payments cannot be recorded', async () => {
