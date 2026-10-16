@@ -446,21 +446,61 @@ describe('appTamperingDetectionService tests', () => {
       expect(logStub.debug.calledWithMatch(/repeated, incident count incremented/)).to.be.true;
     });
 
-    it('no-ops when DB is not available', async () => {
+    it('writes an event once the database is available, under the time it was seen', async () => {
+      const clock = sinon.useFakeTimers({ now: new Date('2026-07-16T10:59:50Z'), toFake: ['setTimeout', 'Date'] });
+      const connection = dbHelperStub.databaseConnection;
       dbHelperStub.databaseConnection = sinon.stub().returns(null);
 
       await service.recordEvent('myapp', 'container_vanished', 'x');
-
       expect(dbHelperStub.findOneAndUpdateInDatabase.called).to.be.false;
+
+      dbHelperStub.databaseConnection = connection;
+      await clock.tickAsync(30 * 1000);
+
+      expect(eventUpserts()).to.have.lengthOf(1);
+      const { query, update } = eventUpserts()[0];
+      expect(query.incidentKey).to.equal(`unknown:${Math.floor(Date.parse('2026-07-16T10:59:50Z') / service.INCIDENT_BUCKET_MS)}`);
+      expect(update.$setOnInsert.firstSeen).to.deep.equal(new Date('2026-07-16T10:59:50Z'));
+      clock.restore();
     });
 
-    it('swallows write errors without throwing and logs them', async () => {
+    it('writes events that failed again, with a growing delay, until they are written', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      const write = dbHelperStub.findOneAndUpdateInDatabase;
       dbHelperStub.findOneAndUpdateInDatabase = sinon.stub().rejects(new Error('boom'));
 
       await service.recordEvent('myapp', 'container_vanished', 'x');
+      await service.recordEvent('otherapp', 'mount_vanished', 'y');
 
-      sinon.assert.calledOnce(logStub.error);
+      sinon.assert.calledTwice(logStub.error);
       expect(logStub.error.firstCall.args[0]).to.include('boom');
+
+      await clock.tickAsync(30 * 1000);
+      sinon.assert.calledThrice(dbHelperStub.findOneAndUpdateInDatabase);
+      await clock.tickAsync(30 * 1000);
+      sinon.assert.calledThrice(dbHelperStub.findOneAndUpdateInDatabase);
+
+      dbHelperStub.findOneAndUpdateInDatabase = write;
+      await clock.tickAsync(30 * 1000);
+
+      expect(eventUpserts().map((c) => c.query.appName)).to.deep.equal(['myapp', 'otherapp']);
+      clock.restore();
+    });
+
+    it('does not write an incident without its owner when the installed apps cannot be read', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      installedApps.myapp = { owner: 'ownerZ', hash: 'hashH' };
+      const read = dbHelperStub.findOneInDatabase;
+      dbHelperStub.findOneInDatabase = sinon.stub().rejects(new Error('timed out'));
+
+      await service.recordEvent('myapp', 'container_vanished', 'x');
+      expect(eventUpserts()).to.have.lengthOf(0);
+
+      dbHelperStub.findOneInDatabase = read;
+      await clock.tickAsync(30 * 1000);
+
+      expect(eventUpserts()[0].update.$setOnInsert.ownerZelid).to.equal('ownerZ');
+      clock.restore();
     });
   });
 
