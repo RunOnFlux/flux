@@ -1212,6 +1212,17 @@ describe('explorerService tests', () => {
       sinon.assert.calledWithMatch(updateInDatabaseStub, sinon.match.object, 'addresstransactionindex', {}, { $pull: { transactions: { height: sinon.match.object } } });
     });
 
+    it('runs its deletes and updates on the maintenance client', async () => {
+      removeDocumentsFromCollectionStub.returns(true);
+      updateInDatabaseStub.returns(true);
+
+      await explorerService.restoreDatabaseToBlockheightState(100000);
+
+      const clients = [...removeDocumentsFromCollectionStub.getCalls(), ...updateInDatabaseStub.getCalls()].map((call) => call.args[0].client);
+      expect(clients).to.have.length.above(0);
+      clients.forEach((client) => expect(client).to.equal(dbHelper.maintenanceConnection()));
+    });
+
     it('should leave the app messages and the registry alone', async () => {
       removeDocumentsFromCollectionStub.returns(true);
       updateInDatabaseStub.returns(true);

@@ -19,6 +19,21 @@ const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
  */
 let openDBConnection = null;
 
+// The client for the named long operations: index builds, the explorer
+// restore's deletes and the registry rebuild. One of its round trips may take
+// up to MAINTENANCE_SOCKET_TIMEOUT_MS; every other call uses the main client.
+const MAINTENANCE_SOCKET_TIMEOUT_MS = 15 * 60 * 1000;
+const MAINTENANCE_SETTINGS = {
+  maxPoolSize: 4,
+  socketTimeoutMS: MAINTENANCE_SOCKET_TIMEOUT_MS,
+  waitQueueTimeoutMS: MAINTENANCE_SOCKET_TIMEOUT_MS,
+};
+
+/**
+ * @type {mongodb.MongoClient}
+ */
+let maintenanceDBConnection = null;
+
 /**
  * Cached MongoDB server version, populated once per connection.
  * @type {string | null}
@@ -32,6 +47,25 @@ let mongoDbVersion = null;
  */
 function databaseConnection() {
   return openDBConnection;
+}
+
+/**
+ * The maintenance client, if it was initiated before, otherwise null.
+ * @returns {mongodb.MongoClient | null}
+ */
+function maintenanceConnection() {
+  return maintenanceDBConnection;
+}
+
+/**
+ * `database` on the maintenance client: the same database, whose round trips
+ * may take up to MAINTENANCE_SOCKET_TIMEOUT_MS. `database` itself while the
+ * maintenance client is not connected.
+ * @param {mongodb.Db} database
+ * @returns {mongodb.Db}
+ */
+function onMaintenanceClient(database) {
+  return maintenanceDBConnection ? maintenanceDBConnection.db(database.databaseName) : database;
 }
 
 /**
@@ -50,25 +84,33 @@ function isDatabaseError(error) {
  * Initiates connection with the database.
  *
  * @param {string} [url]
+ * @param {object} [settings] Client options over the main client's.
  *
  * @returns {Promise<mongodb.MongoClient>}
  */
-async function connectMongoDb(url) {
+async function connectMongoDb(url, settings = {}) {
   const connectUrl = url || mongoUrl;
   const mongoSettings = {
     maxPoolSize: 100,
+    ...settings,
   };
   const client = await MongoClient.connect(connectUrl, mongoSettings);
   return client;
 }
 
 /**
- * Initiates default db connection.
+ * Initiates the default db connection and the maintenance one, both or
+ * neither.
  * @returns true
  */
 async function initiateDB() {
   if (!openDBConnection) {
-    openDBConnection = await connectMongoDb();
+    const main = await connectMongoDb();
+    maintenanceDBConnection = await connectMongoDb(undefined, MAINTENANCE_SETTINGS).catch(async (error) => {
+      await main.close();
+      throw error;
+    });
+    openDBConnection = main;
     // Read the server version once, on the initial connect. It is informational
     // and the getter swallows its own errors, so this cannot fail the connect.
     await getMongoDbVersion();
@@ -134,6 +176,10 @@ async function closeDbConnection() {
     await openDBConnection.close();
     openDBConnection = null;
     mongoDbVersion = null;
+  }
+  if (maintenanceDBConnection) {
+    await maintenanceDBConnection.close();
+    maintenanceDBConnection = null;
   }
 }
 
@@ -788,10 +834,11 @@ async function isReindexAppsInformationRequired(
     },
   ];
 
-  await ensureNewestAppMessageIndex(appsGlobalDb.collection(appsMessagesCol));
+  // The index build and the $group run on the maintenance client.
+  await ensureNewestAppMessageIndex(onMaintenanceClient(appsGlobalDb).collection(appsMessagesCol));
 
   const messagesCursor = await aggregateInDatabase(
-    appsGlobalDb,
+    onMaintenanceClient(appsGlobalDb),
     appsMessagesCol,
     appsMessagesPipeline,
     { returnArray: false },
@@ -935,7 +982,9 @@ async function reindexGlobalAppsInformation(
       if (error.message !== 'ns not found') throw error;
     });
 
-    const infoCol = appsGlobalDb.collection(stagingCol);
+    // The index builds and the $group below run on the maintenance client.
+    const longGlobalDb = onMaintenanceClient(appsGlobalDb);
+    const infoCol = longGlobalDb.collection(stagingCol);
     await infoCol.createIndexes([
       { key: { name: 1 }, name: 'query for getting zelapp based on zelapp specs name' },
       { key: { owner: 1 }, name: 'query for getting zelapp based on zelapp specs owner' },
@@ -943,7 +992,7 @@ async function reindexGlobalAppsInformation(
       { key: { height: 1 }, name: 'query for getting zelapp based on last height update' },
       { key: { hash: 1 }, name: 'query for getting zelapp based on last hash' },
     ]);
-    await ensureNewestAppMessageIndex(appsGlobalDb.collection(globalAppsMessagesCol));
+    await ensureNewestAppMessageIndex(longGlobalDb.collection(globalAppsMessagesCol));
 
     const pipeline = [
       { $sort: NEWEST_APP_MESSAGE_SORT },
@@ -980,7 +1029,7 @@ async function reindexGlobalAppsInformation(
     ];
 
     const resultCursor = await aggregateInDatabase(
-      appsGlobalDb,
+      longGlobalDb,
       globalAppsMessagesCol,
       pipeline,
       { returnArray: false },
@@ -1126,9 +1175,7 @@ async function main(command) {
     await repairNanInAppsMessagesDb({ force: true });
   }
 
-  const client = databaseConnection();
-
-  await client.close();
+  await closeDbConnection();
 }
 
 if (require.main === module) {
@@ -1152,6 +1199,9 @@ if (require.main === module) {
 }
 
 module.exports = {
+  maintenanceConnection,
+  onMaintenanceClient,
+  MAINTENANCE_SOCKET_TIMEOUT_MS,
   aggregateInDatabase,
   isDatabaseError,
   appMessagesThatCount,

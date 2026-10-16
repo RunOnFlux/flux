@@ -757,8 +757,9 @@ async function restoreDatabaseToBlockheightState(height) {
   if (!height) {
     throw new Error('No blockheight for restoring provided');
   }
+  // Whole-collection deletes and updates: they run on the maintenance client.
   const dbopen = dbHelper.databaseConnection();
-  const database = dbopen.db(config.database.daemon.database);
+  const database = dbHelper.onMaintenanceClient(dbopen.db(config.database.daemon.database));
 
   const query = { height: { $gt: height } };
   const queryForAddresses = {}; // we need to remove those transactions in transactions field that have height greater than height
@@ -777,7 +778,7 @@ async function restoreDatabaseToBlockheightState(height) {
   // restore appsHashes collection
   await dbHelper.removeDocumentsFromCollection(database, appsHashesCollection, query);
   log.info('Rescanning Blockchain Parameters!');
-  const databaseUpdates = dbopen.db(config.database.chainparams.database);
+  const databaseUpdates = dbHelper.onMaintenanceClient(dbopen.db(config.database.chainparams.database));
   await dbHelper.removeDocumentsFromCollection(databaseUpdates, chainParamsMessagesCollection, query);
   log.info('Rescan completed');
   return true;
@@ -1236,6 +1237,8 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
 
     if (scannedBlockHeight === 0) {
       log.info('Preparing daemon collections');
+      // The index builds run on the maintenance client.
+      const longDatabase = dbHelper.onMaintenanceClient(database);
       const result = await dbHelper.dropCollection(database, utxoIndexCollection).catch((error) => {
         if (error.message !== 'ns not found') throw error;
       });
@@ -1248,35 +1251,35 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
       const resultFusion = await dbHelper.dropCollection(database, coinbaseFusionIndexCollection).catch((error) => {
         if (error.message !== 'ns not found') throw error;
       });
-      const databaseUpdates = db.db(config.database.chainparams.database);
+      const databaseUpdates = dbHelper.onMaintenanceClient(db.db(config.database.chainparams.database));
       const resultChainParams = await dbHelper.dropCollection(databaseUpdates, chainParamsMessagesCollection).catch((error) => {
         if (error.message !== 'ns not found') throw error;
       });
       log.info(result, resultB, resultD, resultFusion, resultChainParams);
 
-      await database.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1 }, { name: 'query for getting utxo', unique: true });
-      await database.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1, satoshis: 1 }, { name: 'query for getting utxo for zelnode tx', unique: true });
-      await database.collection(utxoIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses utxo' });
-      await database.collection(utxoIndexCollection).createIndex({ scriptPubKey: 1 }, { name: 'query for scriptPubKey utxo' });
-      await database.collection(coinbaseFusionIndexCollection).createIndex({ txid: 1, vout: 1 }, { name: 'query for getting coinbase fusion utxo', unique: true });
-      await database.collection(coinbaseFusionIndexCollection).createIndex({ txid: 1, vout: 1, satoshis: 1 }, { name: 'query for getting coinbase fusion utxo for zelnode tx', unique: true });
-      await database.collection(coinbaseFusionIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses coinbase fusion utxo' });
-      await database.collection(coinbaseFusionIndexCollection).createIndex({ scriptPubKey: 1 }, { name: 'query for scriptPubKey coinbase fusion utxo' });
-      await database.collection(addressTransactionIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses transactions' });
-      await database.collection(addressTransactionIndexCollection).createIndex({ address: 1, count: 1 }, { name: 'query for addresses transactions with count' });
-      await database.collection(appsHashesCollection).createIndex({ txid: 1 }, { name: 'query for getting txid' });
-      await database.collection(appsHashesCollection).createIndex({ height: 1 }, { name: 'query for getting height' });
-      await database.collection(appsHashesCollection).createIndex({ hash: 1 }, { name: 'query for getting app hash', unique: true }).catch((error) => {
+      await longDatabase.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1 }, { name: 'query for getting utxo', unique: true });
+      await longDatabase.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1, satoshis: 1 }, { name: 'query for getting utxo for zelnode tx', unique: true });
+      await longDatabase.collection(utxoIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses utxo' });
+      await longDatabase.collection(utxoIndexCollection).createIndex({ scriptPubKey: 1 }, { name: 'query for scriptPubKey utxo' });
+      await longDatabase.collection(coinbaseFusionIndexCollection).createIndex({ txid: 1, vout: 1 }, { name: 'query for getting coinbase fusion utxo', unique: true });
+      await longDatabase.collection(coinbaseFusionIndexCollection).createIndex({ txid: 1, vout: 1, satoshis: 1 }, { name: 'query for getting coinbase fusion utxo for zelnode tx', unique: true });
+      await longDatabase.collection(coinbaseFusionIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses coinbase fusion utxo' });
+      await longDatabase.collection(coinbaseFusionIndexCollection).createIndex({ scriptPubKey: 1 }, { name: 'query for scriptPubKey coinbase fusion utxo' });
+      await longDatabase.collection(addressTransactionIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses transactions' });
+      await longDatabase.collection(addressTransactionIndexCollection).createIndex({ address: 1, count: 1 }, { name: 'query for addresses transactions with count' });
+      await longDatabase.collection(appsHashesCollection).createIndex({ txid: 1 }, { name: 'query for getting txid' });
+      await longDatabase.collection(appsHashesCollection).createIndex({ height: 1 }, { name: 'query for getting height' });
+      await longDatabase.collection(appsHashesCollection).createIndex({ hash: 1 }, { name: 'query for getting app hash', unique: true }).catch((error) => {
         log.error('Expected throw on index creation as of new uniquness. Do not remove this check until all nodes have rebuild apps data');
         log.error(error);
       });
-      await database.collection(appsHashesCollection).createIndex({ message: 1 }, { name: 'query for getting app hashes depending if we have message' });
+      await longDatabase.collection(appsHashesCollection).createIndex({ message: 1 }, { name: 'query for getting app hashes depending if we have message' });
       await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ txid: 1 }, { name: 'query for getting txid of some chain parameters update message' });
       await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ height: 1 }, { name: 'query for getting height of some chain parameters update message' });
       await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ message: 1 }, { name: 'query for getting message of some chain parameters update message' });
       await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ version: 1 }, { name: 'query for getting version of some chain parameters update message' });
 
-      const databaseGlobal = db.db(config.database.appsglobal.database);
+      const databaseGlobal = dbHelper.onMaintenanceClient(db.db(config.database.appsglobal.database));
       log.info('Preparing apps collections');
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash', unique: true });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ txid: 1 }, { name: 'query for getting zelapp message based on txid' });
@@ -1291,16 +1294,16 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
       await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ repotag: 1 }, { name: 'query for getting zelapp based on image' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ height: 1 }, { name: 'query for getting zelapp based on last height update' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ hash: 1 }, { name: 'query for getting zelapp based on last hash' });
-      await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp location based on zelapp specs name' });
-      await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ hash: 1 }, { name: 'query for getting zelapp location based on zelapp hash' });
-      await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ ip: 1 }, { name: 'query for getting zelapp location based on ip' });
-      await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting app based on ip and name' });
-      await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1, ip: 1, broadcastedAt: 1 }, { name: 'query for getting app to ensure we possess a message' });
-      await database.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp install location based on zelapp specs name' });
-      await database.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting flux app install location based on specs name and node ip' });
-      await database.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1 }, { name: 'query for getting flux app install errors location based on specs name' });
-      await database.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash' });
-      await database.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1, ip: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash and node ip' });
+      await longDatabase.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp location based on zelapp specs name' });
+      await longDatabase.collection(config.database.appsglobal.collections.appsLocations).createIndex({ hash: 1 }, { name: 'query for getting zelapp location based on zelapp hash' });
+      await longDatabase.collection(config.database.appsglobal.collections.appsLocations).createIndex({ ip: 1 }, { name: 'query for getting zelapp location based on ip' });
+      await longDatabase.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting app based on ip and name' });
+      await longDatabase.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1, ip: 1, broadcastedAt: 1 }, { name: 'query for getting app to ensure we possess a message' });
+      await longDatabase.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp install location based on zelapp specs name' });
+      await longDatabase.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting flux app install location based on specs name and node ip' });
+      await longDatabase.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1 }, { name: 'query for getting flux app install errors location based on specs name' });
+      await longDatabase.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash' });
+      await longDatabase.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1, ip: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash and node ip' });
       log.info('Preparation done');
     }
 

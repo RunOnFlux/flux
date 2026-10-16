@@ -175,10 +175,11 @@ describe('serviceManager prepareDatabaseSchema', () => {
   afterEach(() => sinon.restore());
 
   it('rejects when the login rows cannot be cleared of signatures, so boot prepares the schema again', async () => {
-    sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({ collection: () => ({}) }) });
-    sinon.stub(dbHelper, 'updateInDatabase').rejects(new Error('connection timed out'));
+    sinon.stub(dbHelper, 'maintenanceConnection').returns({ db: (name) => ({ name, client: 'maintenance' }) });
+    const unset = sinon.stub(dbHelper, 'updateInDatabase').rejects(new Error('connection timed out'));
 
     await expect(prepareDatabaseSchema()).to.be.rejectedWith('connection timed out');
+    expect(unset.firstCall.args[0].client, 'the schema runs on the maintenance client').to.equal('maintenance');
   });
 });
 
