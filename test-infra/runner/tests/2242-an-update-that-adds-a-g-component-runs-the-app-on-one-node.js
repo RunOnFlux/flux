@@ -5,7 +5,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { listAppContainers } from '../framework/container.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp, buildSeedableUpdate } from '../framework/seed-helper.js';
-import { assignPorts } from '../framework/port-allocator.js';
+import { allocatePortFor } from '../framework/port-allocator.js';
 import { bootAndPeer, installOnNodes, seedSpecUpdate } from '../framework/reconciler-suite.js';
 import { waitFor, waitHolding } from '../framework/wait.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
@@ -105,9 +105,8 @@ describe('an update that adds a g: component runs the app on one node', function
     // A backstop: the block drive bounds this test (suite 85).
     this.timeout(1800000);
     const updated = await buildSeedableUpdate(app, (spec) => {
-      spec.compose.push(component('web'));
-      // The new component's port, as registration allocates one; db keeps its own.
-      assignPorts(spec.compose, appName);
+      // The new component's port, allocated as registration allocates db's.
+      spec.compose.push({ ...component('web'), ports: [allocatePortFor(appName, 1)] });
     });
     await seedSpecUpdate(env, updated, HOLDERS);
     await stopTicker();
