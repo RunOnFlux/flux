@@ -5,6 +5,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { listAppContainers } from '../framework/container.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp, buildSeedableUpdate } from '../framework/seed-helper.js';
+import { assignPorts } from '../framework/port-allocator.js';
 import { bootAndPeer, installOnNodes, seedSpecUpdate } from '../framework/reconciler-suite.js';
 import { waitFor, waitHolding } from '../framework/wait.js';
 import { driveUntil, stopTicker } from '../framework/daemon-control.js';
@@ -12,32 +13,29 @@ import { isDaemonUp, isFolderSynced, getFolderConfig } from '../framework/syncth
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
-// A specification update adds a second single-writer (g:) component to a running
-// app, on real syncthing daemons.
+// A specification update gives a running app a second single-writer (g:)
+// component, on real syncthing daemons.
 //
-// Its folder is new on every holder and holds nothing anywhere, and the app's
-// primary is the holder whose address sorts LAST. Seeded by the address order the
-// new folder would be the standby's, and the primary - which runs every g:
-// component of the app - would never hold a copy it may start the new one on. The
-// primary seeds it and starts it, the standby never runs it, and at no point does
-// any g: component of the app run on two nodes.
+// A change to the components is a structure change: each holder removes the app
+// and installs it at the new specification, on its own reinstall pass. Between the
+// two passes one holder is at the new specification and the other still runs the
+// old one, and after both the app starts afresh. Through all of it no two nodes run
+// any g: component of the app at once, and once settled one node runs both and the
+// other runs neither.
 //
 // DRIVEN BY BLOCKS: the reinstall pass fires on
 // `blockHeight % (updateFluxAppsPeriod * speedMultiplier) === 0` (suite 85).
 
 const APP_UID = 1000;
 
-describe('a g: component a spec update adds is started by the primary', function () {
+describe('an update that adds a g: component runs the app on one node', function () {
   let env;
   dumpLogsOnFailure(() => env);
 
   const appName = `e2eaddg${Date.now()}`;
-  const folderOf = (component) => `flux${component}_${appName}`;
-  // The standby sorts first by address; the primary is placed first, so it runs
-  // the app, and sorts last.
-  const STANDBY = 0;
-  const PRIMARY = 1;
-  const HOLDERS = [STANDBY, PRIMARY];
+  const COMPONENTS = ['db', 'web'];
+  const folderOf = (name) => `flux${name}_${appName}`;
+  const HOLDERS = [0, 1];
   let app;
 
   const client = (i) => env.clients[i];
@@ -58,7 +56,7 @@ describe('a g: component a spec update adds is started by the primary', function
   });
   const runningOn = async (i) => {
     const containers = await listAppContainers(client(i).container);
-    return ['db', 'web'].filter((name) => containers.some((c) => c.name === folderOf(name) && c.status?.startsWith('Up')));
+    return COMPONENTS.filter((name) => containers.some((c) => c.name === folderOf(name) && c.status?.startsWith('Up')));
   };
   // Which holders run any of the app's g: components; asserted on every poll.
   const oneHolderAtMost = async () => {
@@ -83,19 +81,18 @@ describe('a g: component a spec update adds is started by the primary', function
     await Promise.all(env.clients.map((c, i) => waitFor(() => isDaemonUp(c), {
       timeout: 180000, interval: 3000, label: `syncthing daemon up on node ${i}`,
     })));
-    expect(`${client(STANDBY).ip}:16127` < `${client(PRIMARY).ip}:16127`, `fixture: the standby (${client(STANDBY).ip}) sorts before the primary (${client(PRIMARY).ip}) by address`).to.equal(true);
 
     await pushTestApp(appName, 'v1', 'addg', { user: APP_UID });
     app = await buildSeedableApp({
       env, name: appName, instances: HOLDERS.length, compose: [component('db')],
     });
-    await installOnNodes(env, app, [PRIMARY]);
-    await waitHolding(async () => (await oneHolderAtMost())[PRIMARY].includes('db'), {
-      timeout: 300000, interval: 3000, label: 'the primary runs db',
+    await installOnNodes(env, app, [HOLDERS[0]]);
+    await waitHolding(async () => (await oneHolderAtMost())[HOLDERS[0]].includes('db'), {
+      timeout: 300000, interval: 3000, label: 'the first holder runs db',
     });
-    await installOnNodes(env, app, [STANDBY]);
-    await waitFor(() => isFolderSynced(client(STANDBY), folderOf('db')), {
-      timeout: 300000, interval: 3000, label: 'the standby has the primary\'s db data',
+    await installOnNodes(env, app, [HOLDERS[1]]);
+    await waitFor(() => isFolderSynced(client(HOLDERS[1]), folderOf('db')), {
+      timeout: 300000, interval: 3000, label: 'the second holder has the primary\'s db data',
     });
   });
 
@@ -104,33 +101,40 @@ describe('a g: component a spec update adds is started by the primary', function
     await env?.teardown();
   });
 
-  it('seeds the new component\'s folder on the primary and starts it there, never on the standby', async function () {
+  it('never runs the app on two nodes, and settles with both g: components on one', async function () {
     // A backstop: the block drive bounds this test (suite 85).
     this.timeout(1800000);
     const updated = await buildSeedableUpdate(app, (spec) => {
       spec.compose.push(component('web'));
+      // The new component's port, as registration allocates one; db keeps its own.
+      assignPorts(spec.compose, appName);
     });
     await seedSpecUpdate(env, updated, HOLDERS);
     await stopTicker();
 
     let breach = null;
-    await driveUntil(client(PRIMARY), async () => {
+    let settled = null;
+    await driveUntil(client(HOLDERS[0]), async () => {
       try {
         const running = await oneHolderAtMost();
-        return running[PRIMARY].length === 2;
+        settled = HOLDERS.find((i) => running[i].length === COMPONENTS.length) ?? null;
+        return settled !== null;
       } catch (error) {
         if (error?.name !== 'AssertionError') throw error;
         breach = error;
         return true;
       }
-    }, { blocks: 216, label: 'the primary runs db and web' });
+    }, { blocks: 216, label: 'one node runs db and web' });
     if (breach) throw breach;
 
-    expect((await getFolderConfig(client(PRIMARY), folderOf('web')))?.type, 'the primary\'s web folder').to.equal('sendreceive');
-    await waitFor(() => isFolderSynced(client(STANDBY), folderOf('web')), {
-      timeout: 300000, interval: 3000, label: 'the standby has the primary\'s web data',
-    });
-    expect((await getFolderConfig(client(STANDBY), folderOf('web')))?.type, 'the standby\'s web folder').to.equal('receiveonly');
-    expect((await oneHolderAtMost())[STANDBY], 'the standby').to.deep.equal([]);
+    const other = HOLDERS.find((i) => i !== settled);
+    expect((await getFolderConfig(client(settled), folderOf('web')))?.type, 'the primary\'s web folder').to.equal('sendreceive');
+    await waitHolding(async () => {
+      const running = await oneHolderAtMost();
+      expect(running[settled], 'the primary').to.deep.equal(COMPONENTS);
+      return isFolderSynced(client(other), folderOf('web'));
+    }, { timeout: 300000, interval: 3000, label: 'the standby has the primary\'s web data' });
+    expect((await getFolderConfig(client(other), folderOf('web')))?.type, 'the standby\'s web folder').to.equal('receiveonly');
+    expect((await oneHolderAtMost())[other], 'the standby').to.deep.equal([]);
   });
 });
