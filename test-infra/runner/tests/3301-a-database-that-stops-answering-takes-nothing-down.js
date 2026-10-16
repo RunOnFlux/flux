@@ -20,6 +20,8 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // is retried once, so 120 s), and every caller of a call that fails leaves what it
 // cannot read as it is. Paused for longer than a read's whole budget, the fleet:
 //
+//   - answers a call that reads the database, with an error, rather than waiting
+//     for the database: what turns a stall into a failure each caller handles;
 //   - keeps every FluxOS process it had, so nothing exits on a failed call;
 //   - removes no app and announces no removal;
 //   - keeps an operator-stopped component stopped;
@@ -29,11 +31,14 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // answers and runs once, rather than starting again from the top.
 
 const subnet = getSubnetConfig();
-// Over a read's whole budget: 60 s, and the driver's one retry.
-const PAUSE_MS = 150 * 1000;
-// What a call that got no answer leaves in a node's log. One of them shows the
-// pause reached FluxOS, so the assertions below are about a stall, not a quiet minute.
-const DATABASE_GAVE_NO_ANSWER = /MongoNetworkTimeoutError|MongoWaitQueueTimeoutError|MongoServerSelectionError|timed out/;
+// Over a read's whole budget with room to tell it from the pause: a read that has
+// to wait for a pooled connection first is answered within 60 s for the pool and
+// 2 x 60 s for the read and its retry.
+const PAUSE_MS = 300 * 1000;
+const READ_ANSWERED_WITHIN_MS = 200 * 1000;
+// What a call that got no answer leaves in a node's log, and nothing else does. One
+// of them shows the calls failed, so the assertions below are about failed calls.
+const DATABASE_GAVE_NO_ANSWER = /MongoNetworkTimeoutError|MongoWaitQueueTimeoutError/;
 
 async function fluxosPid(client) {
   return Number((await execInContainer(client.container, 'cat /tmp/fluxos.pid')).stdout.trim());
@@ -74,6 +79,7 @@ describe('a database that stops answering takes nothing down', function () {
   describe('while the fleet runs', function () {
     let pidsBefore;
     let anchors;
+    let read;
 
     before(async function () {
       this.timeout(PAUSE_MS + 120000);
@@ -82,11 +88,22 @@ describe('a database that stops answering takes nothing down', function () {
       await pauseMongo(env);
       paused = true;
       try {
-        await new Promise((resolve) => { setTimeout(resolve, PAUSE_MS); });
+        await new Promise((resolve) => { setTimeout(resolve, 5000); });
+        const startedAt = Date.now();
+        const reading = env.clients[runningIdx].get(`/apps/appspecifications/${runningName}`)
+          .then((body) => ({ body, ms: Date.now() - startedAt }), (error) => ({ error, ms: Date.now() - startedAt }));
+        await new Promise((resolve) => { setTimeout(resolve, PAUSE_MS - 5000); });
+        read = await Promise.race([reading, { ms: null }]);
+        if (read.ms === null) read = { ms: Date.now() - startedAt, unanswered: true };
       } finally {
         await resumeMongo(env);
         paused = false;
       }
+    });
+
+    it('answers a call that reads the database, rather than waiting for it', function () {
+      expect(read.unanswered, `the node gave no answer in ${Math.round(read.ms / 1000)} s while the database gave none`).to.not.equal(true);
+      expect(read.ms, 'answered within a read\'s budget').to.be.below(READ_ANSWERED_WITHIN_MS);
     });
 
     it('reached FluxOS: a node logged a call the database did not answer', function () {
