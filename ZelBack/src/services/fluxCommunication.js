@@ -238,6 +238,7 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
     });
 
     if (locationWriteFailed) {
+      // Not credited either: what this peer sent is not all recorded, so it has not answered.
       log.warn('handleAppRunningSyncResponse - skipping location pruning, a location write failed');
     } else {
       await messageStore.pruneAppRunningLocations(newestByIp);
@@ -261,7 +262,7 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
       }
     }
 
-    if (done) {
+    if (done && !locationWriteFailed) {
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning', peerKey);
       log.info('handleAppRunningSyncResponse - Sync complete');
     }
@@ -284,14 +285,17 @@ async function handleAppInstallingSyncResponse(message, peerSocket) {
     }
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleAppInstallingSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
+    let writeFailed = false;
     await serviceHelper.processInSlices(messages, SYNC_EVENTS_PER_SLICE, async (slice) => {
       const verified = await batchVerifyBroadcasts(slice, 'handleAppInstallingSyncResponse');
       if (verified.length === 0) return;
-      const { stored } = await messageStore.storeBatchAppInstallingMessages(verified);
-      log.info(`handleAppInstallingSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
-      fluxEventBus.publish('sync:chunkVerified', { syncType: 'appinstalling', peer: peerKey, verified: verified.length, stored });
+      const stored = await messageStore.storeBatchAppInstallingMessages(verified);
+      if (stored.writeFailed) writeFailed = true;
+      log.info(`handleAppInstallingSyncResponse - Stored ${stored.stored} of ${verified.length} verified broadcasts`);
+      fluxEventBus.publish('sync:chunkVerified', { syncType: 'appinstalling', peer: peerKey, verified: verified.length, stored: stored.stored });
     });
-    if (done) {
+    // A response whose writes failed is not all recorded: this peer has not answered.
+    if (done && !writeFailed) {
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling', peerKey);
       log.info('handleAppInstallingSyncResponse - Sync complete');
     }
@@ -314,14 +318,17 @@ async function handleAppInstallingErrorsSyncResponse(message, peerSocket) {
     }
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleAppInstallingErrorsSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
+    let writeFailed = false;
     await serviceHelper.processInSlices(messages, SYNC_EVENTS_PER_SLICE, async (slice) => {
       const verified = await batchVerifyBroadcasts(slice, 'handleAppInstallingErrorsSyncResponse');
       if (verified.length === 0) return;
-      const { stored } = await messageStore.storeBatchAppInstallingErrorMessages(verified);
-      log.info(`handleAppInstallingErrorsSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
-      fluxEventBus.publish('sync:chunkVerified', { syncType: 'apperrors', peer: peerKey, verified: verified.length, stored });
+      const stored = await messageStore.storeBatchAppInstallingErrorMessages(verified);
+      if (stored.writeFailed) writeFailed = true;
+      log.info(`handleAppInstallingErrorsSyncResponse - Stored ${stored.stored} of ${verified.length} verified broadcasts`);
+      fluxEventBus.publish('sync:chunkVerified', { syncType: 'apperrors', peer: peerKey, verified: verified.length, stored: stored.stored });
     });
-    if (done) {
+    // A response whose writes failed is not all recorded: this peer has not answered.
+    if (done && !writeFailed) {
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors', peerKey);
       log.info('handleAppInstallingErrorsSyncResponse - Sync complete');
     }
@@ -428,7 +435,9 @@ async function handleAppInstallingMessage(message, fromIP, port) {
         withdrawn: message.data.withdrawn === true,
       });
     }
-    messageStore.storeSignedAppInstallingBroadcast(message);
+    // The signed claim is what this node serves to peers syncing from it: one that is
+    // not recorded is not relayed as though it were.
+    await messageStore.storeSignedAppInstallingBroadcast(message);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp);
     if (rebroadcastToPeers === true && timestampOK) {
@@ -451,7 +460,7 @@ async function handleAppInstallingErrorMessage(message, fromIP, port) {
     if (rebroadcastToPeers === true) {
       fluxEventBus.publish('network:appinstallingerror', { ip: message.data.ip, name: message.data.name });
     }
-    messageStore.storeSignedAppInstallingErrorBroadcast(message);
+    await messageStore.storeSignedAppInstallingErrorBroadcast(message);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp);
     if (rebroadcastToPeers === true && timestampOK) {
