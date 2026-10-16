@@ -1,9 +1,8 @@
-// ensureIndex is the boot sequence's self-healing index builder. It runs in the
-// awaited stretch of startFluxFunctions, before any service or interval starts,
-// so a throw re-runs boot safely: the recoverable failures (an options conflict,
-// or a unique build blocked by duplicate rows) are healed here, and anything
-// else rethrows - a transient blip heals on the next boot pass, a genuinely
-// broken DB wedges loudly. dedupeByKey is the recovery strategy a unique build
+// ensureIndex is the boot sequence's self-healing index builder. It runs in
+// prepareDatabaseSchema, which boot runs again until it succeeds: the
+// recoverable failures (an options conflict, or a unique build blocked by
+// duplicate rows) are healed here, and anything else rethrows - a transient
+// blip heals on the next pass, a genuinely broken DB wedges loudly. dedupeByKey is the recovery strategy a unique build
 // passes when its key is the row's identity.
 
 const chai = require('chai');
@@ -14,8 +13,10 @@ chai.use(chaiAsPromised);
 const { expect } = chai;
 
 const {
-  ensureIndex, ensureIndexes, dropIndexIfPresent, dedupeByKey, dosState,
+  ensureIndex, ensureIndexes, dropIndexIfPresent, untilSucceeds, prepareDatabaseSchema, dedupeByKey, dosState,
 } = require('../../ZelBack/src/services/serviceManager');
+const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const log = require('../../ZelBack/src/lib/log');
 
@@ -149,6 +150,35 @@ describe('serviceManager dropIndexIfPresent', () => {
     const timedOut = Object.assign(new Error('connection timed out'), { name: 'MongoNetworkTimeoutError' });
 
     await expect(dropIndexIfPresent({ dropIndex: sinon.stub().rejects(timedOut) }, 'broadcastedAt_1')).to.be.rejectedWith('timed out');
+  });
+});
+
+describe('serviceManager untilSucceeds', () => {
+  afterEach(() => sinon.restore());
+
+  it('runs a failing step again after a wait, until it succeeds, and answers what it resolved', async () => {
+    const wait = sinon.stub(serviceHelper, 'delay').resolves();
+    const step = sinon.stub();
+    step.onFirstCall().rejects(new Error('connection timed out'));
+    step.onSecondCall().rejects(new Error('connection timed out'));
+    step.resolves('prepared');
+
+    expect(await untilSucceeds('a step', step)).to.equal('prepared');
+
+    sinon.assert.calledThrice(step);
+    sinon.assert.calledTwice(wait);
+    sinon.assert.alwaysCalledWithExactly(wait, 15 * 1000);
+  });
+});
+
+describe('serviceManager prepareDatabaseSchema', () => {
+  afterEach(() => sinon.restore());
+
+  it('rejects when the login rows cannot be cleared of signatures, so boot prepares the schema again', async () => {
+    sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({ collection: () => ({}) }) });
+    sinon.stub(dbHelper, 'updateInDatabase').rejects(new Error('connection timed out'));
+
+    await expect(prepareDatabaseSchema()).to.be.rejectedWith('connection timed out');
   });
 });
 
