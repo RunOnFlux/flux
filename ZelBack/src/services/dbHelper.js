@@ -19,6 +19,11 @@ const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
  */
 let openDBConnection = null;
 
+// The main client's bound on one round trip and on the wait for a pooled
+// connection: over four times the slowest healthy round trip measured on the
+// fleet.
+const MAIN_SOCKET_TIMEOUT_MS = 60 * 1000;
+
 // The client for the named long operations: index builds, the explorer
 // restore's deletes and the registry rebuild. One of its round trips may take
 // up to MAINTENANCE_SOCKET_TIMEOUT_MS; every other call uses the main client.
@@ -92,6 +97,11 @@ async function connectMongoDb(url, settings = {}) {
   const connectUrl = url || mongoUrl;
   const mongoSettings = {
     maxPoolSize: 100,
+    // One round trip, and the wait for a pooled connection, end in an error
+    // after a minute instead of waiting for ever. A read is retried once, so it
+    // fails after two; a write is not, and its outcome is then unknown.
+    socketTimeoutMS: MAIN_SOCKET_TIMEOUT_MS,
+    waitQueueTimeoutMS: MAIN_SOCKET_TIMEOUT_MS,
     ...settings,
   };
   const client = await MongoClient.connect(connectUrl, mongoSettings);
