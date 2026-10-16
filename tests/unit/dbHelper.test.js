@@ -787,7 +787,7 @@ describe('dbHelper tests', () => {
 
     const client = () => ({ close: sinon.stub().resolves(), db: sinon.stub().callsFake((name) => ({ databaseName: name, client: 'maintenance' })) });
 
-    it('is connected beside the main client, with fifteen minutes for one round trip where the main client has one', async () => {
+    it('is connected beside the main client, each bounded by its own configured call timeout', async () => {
       await dbHelper.closeDbConnection();
       const main = client();
       const maintenance = client();
@@ -797,8 +797,10 @@ describe('dbHelper tests', () => {
 
       await dbHelper.initiateDB();
 
-      expect(connect.firstCall.args[1]).to.include({ maxPoolSize: 100, socketTimeoutMS: 60 * 1000, waitQueueTimeoutMS: 60 * 1000 });
-      expect(connect.secondCall.args[1]).to.include({ socketTimeoutMS: 15 * 60 * 1000, waitQueueTimeoutMS: 15 * 60 * 1000 });
+      const { callTimeoutMs, maintenanceCallTimeoutMs } = config.database;
+      expect(callTimeoutMs, 'the two clients share one bound, so this proves nothing').to.not.equal(maintenanceCallTimeoutMs);
+      expect(connect.firstCall.args[1]).to.include({ maxPoolSize: 100, socketTimeoutMS: callTimeoutMs, waitQueueTimeoutMS: callTimeoutMs });
+      expect(connect.secondCall.args[1]).to.include({ socketTimeoutMS: maintenanceCallTimeoutMs, waitQueueTimeoutMS: maintenanceCallTimeoutMs });
       expect(dbHelper.databaseConnection()).to.equal(main);
       expect(dbHelper.maintenanceConnection()).to.equal(maintenance);
       expect(dbHelper.onMaintenanceClient({ databaseName: 'globalzelappstest' })).to.deep.equal({ databaseName: 'globalzelappstest', client: 'maintenance' });
