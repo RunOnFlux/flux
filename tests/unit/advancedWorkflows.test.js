@@ -7408,10 +7408,12 @@ describe('advancedWorkflows tests', () => {
 
     // The node records the new specification before it builds the replacement,
     // so the row cannot say the reinstall is done. The announcement does, once
-    // every replaced component is back and the app restarted.
+    // every replaced component is back and the app's restart requested.
     describe('announcing the replaced components', () => {
       let publish;
-      let appDockerRestart;
+      let dockerRestart;
+      let requestRestart;
+      let applyIntent;
       let installApplicationSoft;
 
       beforeEach(() => {
@@ -7426,13 +7428,18 @@ describe('advancedWorkflows tests', () => {
         sinon.stub(registryManager, 'getApplicationSpecifications').resolves(newSpec);
         sinon.stub(volumeService, 'ensureMountPathsExist').resolves();
         sinon.stub(appInspector, 'startAppMonitoring');
-        appDockerRestart = sinon.stub(dockerServiceModule, 'appDockerRestart').resolves();
+        dockerRestart = sinon.stub(dockerServiceModule, 'appDockerRestart').resolves();
+        requestRestart = sinon.stub(appsRuntimeState, 'requestRestart').resolves();
+        applyIntent = sinon.stub(appReconciler, 'applyIntent').callsFake(async (identifier, mutate) => {
+          await mutate();
+          return true;
+        });
         publish = sinon.spy(fluxEventBus, 'publish');
       });
 
       const redeployedEvents = () => publish.getCalls().filter((c) => c.args[0] === 'app:componentRedeployed');
 
-      it('announces each replaced component after the app is back and restarted', async () => {
+      it('announces each replaced component after the app is back and its restart requested', async () => {
         await advancedWorkflows.reinstallOldApplications();
 
         const events = redeployedEvents();
@@ -7440,8 +7447,32 @@ describe('advancedWorkflows tests', () => {
         expect(events[0].args[1]).to.deep.equal({
           name: 'myapp', component: 'web', identifier: 'web_myapp', hard: false,
         });
-        sinon.assert.calledWith(appDockerRestart, 'web_myapp');
-        expect(appDockerRestart.lastCall.calledBefore(events[0]), 'announced after the restart').to.equal(true);
+        sinon.assert.calledWith(requestRestart, 'web_myapp');
+        expect(requestRestart.lastCall.calledBefore(events[0]), 'announced after the restart is requested').to.equal(true);
+      });
+
+      // The reconciler decides what runs on this node: it bounces a component it
+      // keeps running and starts none it keeps stopped, so a standby's g:
+      // component is not started beside its primary's.
+      it('restarts the app through the reconciler, never by docker', async () => {
+        await advancedWorkflows.reinstallOldApplications();
+
+        expect(requestRestart.called, 'the fixture reached the restart').to.equal(true);
+        sinon.assert.calledWith(applyIntent, 'web_myapp', sinon.match.func);
+        expect(applyIntent.firstCall.calledBefore(requestRestart.firstCall), 'the request is written inside the reconciler\'s slot').to.equal(true);
+        expect(dockerRestart.called, 'docker restarted a container').to.equal(false);
+      });
+
+      it('requests a restart of every component of the app, its g: components included', async () => {
+        registryManager.getApplicationSpecifications.resolves({
+          ...newSpec,
+          compose: [...newSpec.compose, { ...newSpec.compose[0], name: 'db', containerData: 'g:/data' }],
+        });
+
+        await advancedWorkflows.reinstallOldApplications();
+
+        expect(requestRestart.args.map(([identifier]) => identifier)).to.deep.equal(['web_myapp', 'db_myapp']);
+        expect(applyIntent.args.map(([identifier]) => identifier)).to.deep.equal(['web_myapp', 'db_myapp']);
       });
 
       it('announces nothing when a component does not come back', async () => {
