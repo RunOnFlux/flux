@@ -105,158 +105,6 @@ const dosState = {
 const portsNotWorking = new Set();
 const appsStorageViolations = [];
 
-/**
- * Remove rows that duplicate a would-be-unique key, keeping the newest of each.
- *
- * A recovery strategy for ensureIndex: when a unique build fails because the
- * collection already holds rows that violate it, this makes the data conform to
- * the invariant the index DECLARES - it deletes duplicates on the key the index
- * says must be unique, which is enforcing a contract rather than losing data.
- * Only safe where the key IS the row's identity, so it is passed in per build by
- * the caller that knows the collection, never applied by default. A rollup whose
- * duplicates must be summed rather than dropped (the tampering incident count)
- * belongs to its owning service instead - see the note on ensureIndex.
- *
- * Keeps the newest per group (rows sort by _id, which is time-ordered), honours
- * the index's partialFilterExpression so it only touches rows the index covers,
- * and returns how many it removed.
- *
- * @param {object} collection - a mongo collection handle
- * @param {object} spec - the index key, e.g. { hash: 1 }
- * @param {object} options - the index options (read for partialFilterExpression)
- * @returns {Promise<number>} rows removed
- */
-async function dedupeByKey(collection, spec, options = {}) {
-  const groupId = {};
-  Object.keys(spec).forEach((key, i) => { groupId[`k${i}`] = `$${key}`; });
-  // Held in memory deliberately, and measured rather than assumed: run against a
-  // live node's collection unioned with itself until every key appeared 16 times
-  // - 1,030,208 rows, the duplicate state this exists to repair - it finished in
-  // under 2s without spilling. The $sort adds nothing on top while it stays an
-  // index walk on _id, which it is for a spec with no partialFilterExpression;
-  // the first partial index to use this wants re-measuring, because the $match
-  // ahead of the sort is what would make the sort blocking. allowDiskUse is not
-  // set: it would take a mongo below 6.0, where the cap errors instead of
-  // spilling, and the network floor is moving past that.
-  //
-  // ids[0] rather than $max: $group does not document that it carries a
-  // preceding sort into an accumulator, and that non-guarantee is about results
-  // merged from several sources - this is one standalone mongod. Checked against
-  // 64,388 real duplicate groups, ids[0] was the newest in all 64,388.
-  const pipeline = [
-    ...(options.partialFilterExpression ? [{ $match: options.partialFilterExpression }] : []),
-    { $sort: { _id: -1 } },
-    { $group: { _id: groupId, ids: { $push: '$_id' } } },
-    { $match: { 'ids.1': { $exists: true } } },
-  ];
-  const groups = await collection.aggregate(pipeline).toArray();
-  const toRemove = groups.flatMap((group) => group.ids.slice(1));
-  if (!toRemove.length) return 0;
-  await collection.deleteMany({ _id: { $in: toRemove } });
-  return toRemove.length;
-}
-
-/**
- * Assert one index, healing the failures that are recoverable.
- *
- *   - a pre-existing index with conflicting OPTIONS (IndexOptionsConflict /
- *     IndexKeySpecsConflict) is dropped by its real name and recreated;
- *   - a unique build blocked by DUPLICATE ROWS runs the caller's `recover`
- *     strategy (see dedupeByKey) and rebuilds, so the node ends up WITH the
- *     index rather than running degraded without it;
- *   - anything else rethrows.
- *
- * The rethrow is deliberate. Index setup runs in prepareDatabaseSchema, which
- * boot runs again every 15 s until it succeeds (untilSucceeds): a TRANSIENT
- * failure (mongo mid-election, a slow-disk blip) heals on the next pass instead
- * of being skipped until the next reboot,
- * and a genuinely UNRECOVERABLE database wedges loudly - which is correct, since
- * a node whose DB cannot hold its schema cannot serve apps and appremove would
- * not rescue it. The realistic wedge that finding motivated - a unique index
- * over rows that already violate it - is repaired above, not hidden.
- *
- * TRUE NORTH: eventually every collection owns its own schema-prepare - its
- * index spec plus whatever dedupe or merge its data needs - the way
- * appsRuntimeState.prepareCollection and appTamperingDetectionService already
- * do, and boot just invokes those prepare functions. That turns this ~40-call
- * imperative block into a set of owned, individually testable units. This
- * function is the increment toward it, not the destination; a full move of the
- * remaining builds is a separate refactor, out of scope for the PR that added it.
- *
- * @param {object} collection - a mongo collection handle
- * @param {object} spec - the index key
- * @param {object} [options] - the index options
- * @param {(collection: object, spec: object, options: object) => Promise<number>} [recover]
- *   run when a unique build is blocked by existing duplicate rows
- */
-async function ensureIndex(collection, spec, options = {}, recover = null) {
-  try {
-    await collection.createIndex(spec, options);
-  } catch (err) {
-    const conflict = err && (err.codeName === 'IndexOptionsConflict' || err.codeName === 'IndexKeySpecsConflict');
-    if (conflict) {
-      const specKeys = JSON.stringify(spec);
-      const indexes = await collection.listIndexes().toArray();
-      const match = indexes.find((idx) => JSON.stringify(idx.key) === specKeys);
-      if (match?.name) {
-        log.warn(`ensureIndex - conflicting index '${match.name}' on ${collection.collectionName} (key: ${specKeys}), dropping and recreating`);
-        await collection.dropIndex(match.name);
-      }
-      await collection.createIndex(spec, options);
-      return;
-    }
-    const duplicate = err && (err.code === 11000 || err.codeName === 'DuplicateKey');
-    if (duplicate && recover) {
-      const removed = await recover(collection, spec, options);
-      log.warn(`ensureIndex - ${collection.collectionName} (key: ${JSON.stringify(spec)}) held ${removed} row(s) violating a unique index; removed and rebuilding`);
-      await collection.createIndex(spec, options);
-      return;
-    }
-    throw err;
-  }
-}
-
-/**
- * Assert every index one collection needs, in a single command.
- *
- * mongo's index build protocol has a fixed cost per BUILD - register, start,
- * scan, wait for commit quorum, commit, log - and it does not care that the
- * collection is empty. A node asserting its schema one index at a time pays
- * that cost 34 times over 14 collections; createIndexes pays it once per
- * collection. A node boots faster for it, and the integration harness, where
- * ten nodes share one mongod and every database is new, feels it ten times over
- * (measured: 938 concurrent builds per ten-node fleet).
- *
- * The batch is the fast path, not the only one. ensureIndex heals two failures
- * that need to be attributed to a single index - an options conflict it drops
- * and rebuilds, and a unique build blocked by duplicate rows it repairs through
- * the caller's strategy - and a batch rejection does not say which member
- * failed. So any error falls back to asserting them one at a time, which is
- * exactly the behaviour that existed before this function.
- *
- * @param {object} collection - a mongo collection handle
- * @param {Array<object>} specs - `{ key, ...indexOptions, recover }` per index,
- *   where `recover` is ours and never reaches mongo
- */
-async function ensureIndexes(collection, specs) {
-  try {
-    await collection.createIndexes(specs.map((spec) => {
-      // `recover` is a FluxOS concern; mongo is handed the index model alone
-      const model = { ...spec };
-      delete model.recover;
-      return model;
-    }));
-    return;
-  } catch (error) {
-    log.warn(`ensureIndexes - batch of ${specs.length} on ${collection.collectionName} failed (${error.codeName || error.message}); asserting one at a time`);
-  }
-  // eslint-disable-next-line no-restricted-syntax
-  for (const { key, recover = null, ...options } of specs) {
-    // eslint-disable-next-line no-await-in-loop
-    await ensureIndex(collection, key, options, recover);
-  }
-}
-
 // How long boot waits before it runs a database step that failed again.
 const BOOT_STEP_RETRY_MS = 15 * 1000;
 
@@ -305,16 +153,16 @@ async function prepareDatabaseSchema() {
         log.error(error);
       }
     })));
-  await ensureIndexes(database.collection(config.database.local.collections.loggedUsers), [
+  await dbHelper.ensureIndexes(database.collection(config.database.local.collections.loggedUsers), [
     { key: { createdAt: 1 }, expireAfterSeconds: 14 * 24 * 60 * 60 },
   ]);
-  await ensureIndexes(database.collection(config.database.local.collections.activeLoginPhrases), [
+  await dbHelper.ensureIndexes(database.collection(config.database.local.collections.activeLoginPhrases), [
     { key: { createdAt: 1 }, expireAfterSeconds: 900 },
   ]);
-  await ensureIndexes(database.collection(config.database.local.collections.activeSignatures), [
+  await dbHelper.ensureIndexes(database.collection(config.database.local.collections.activeSignatures), [
     { key: { createdAt: 1 }, expireAfterSeconds: 900 },
   ]);
-  await ensureIndexes(database.collection(config.database.local.collections.loginSignatures), [
+  await dbHelper.ensureIndexes(database.collection(config.database.local.collections.loginSignatures), [
     { key: { createdAt: 1 }, expireAfterSeconds: 60 },
     { key: { loginPhrase: 1 } },
   ]);
@@ -322,7 +170,7 @@ async function prepareDatabaseSchema() {
   // documents expire via lastSeen. The tamper service purges pre-schema
   // rows at startup, so the detectedAt pair only matters where old code
   // still writes; drop it once the fleet is past the incident schema.
-  await ensureIndexes(database.collection(config.database.local.collections.appTamperingEvents), [
+  await dbHelper.ensureIndexes(database.collection(config.database.local.collections.appTamperingEvents), [
     { key: { detectedAt: 1 }, expireAfterSeconds: 30 * 24 * 60 * 60, name: 'detectedAt_ttl' }, // 30 days
     { key: { appName: 1, detectedAt: -1 }, name: 'appName_detectedAt' },
     { key: { lastSeen: 1 }, expireAfterSeconds: 30 * 24 * 60 * 60, name: 'lastSeen_ttl' }, // 30 days
@@ -341,7 +189,7 @@ async function prepareDatabaseSchema() {
   log.info('Preparing temporary database...');
   // no need to drop temporary messages
   const databaseTemp = db.db(config.database.appsglobal.database);
-  await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages), [
+  await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages), [
     { key: { receivedAt: 1 }, expireAfterSeconds: tempMsgTtlS },
   ]);
   log.info('Temporary database prepared');
@@ -357,22 +205,22 @@ async function prepareDatabaseSchema() {
 
   // we have to create this index again here, as we need it to repair the db. As we were deleting this on every reboot (and it was only created when scannedHeight was 0)
   // Creating an index that already exists is a no-op
-  await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsMessages), [
-    { key: { hash: 1 }, name: 'query for getting zelapp message based on hash', unique: true, recover: dedupeByKey },
+  await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsMessages), [
+    { key: { hash: 1 }, name: 'query for getting zelapp message based on hash', unique: true, recover: dbHelper.dedupeByKey },
     { key: { 'appSpecifications.version': 1 }, name: 'query for getting app message based on version' },
     { key: { 'appSpecifications.nodes': 1 }, name: 'query for getting app message based on nodes' },
   ]);
   await dbHelper.ensureNewestAppMessageIndex(databaseTemp.collection(config.database.appsglobal.collections.appsMessages));
   // TTL is driven by expireAt (set per-document by store functions).
-  await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsLocations), [
+  await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsLocations), [
     { key: { expireAt: 1 }, expireAfterSeconds: 0 },
     { key: { name: 1 }, name: 'query for getting zelapp location based on zelapp specs name' },
     { key: { ip: 1, name: 1 } },
   ]);
   log.info('Flux Apps locations prepared');
-  await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents), [
+  await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents), [
     { key: { expireAt: 1 }, expireAfterSeconds: 0 },
-    { key: { ip: 1, type: 1, dedupKey: 1 }, unique: true, recover: dedupeByKey },
+    { key: { ip: 1, type: 1, dedupKey: 1 }, unique: true, recover: dbHelper.dedupeByKey },
     { key: { broadcastedAt: 1 } },
     { key: { createdAt: 1 } },
     // the events of one type still standing, every move among them
@@ -381,29 +229,29 @@ async function prepareDatabaseSchema() {
     { key: { 'data.newIP': 1 }, name: 'moves by the address they lead to', partialFilterExpression: { type: 'ipchanged' } },
   ]);
   log.info('App state events collection prepared');
-  await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), [
+  await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), [
     { key: { expireAt: 1 }, expireAfterSeconds: 0 },
     { key: { broadcastedAt: 1 } },
-    { key: { 'data.name': 1, 'data.ip': 1 }, unique: true, recover: dedupeByKey },
+    { key: { 'data.name': 1, 'data.ip': 1 }, unique: true, recover: dbHelper.dedupeByKey },
   ]);
   log.info('Signed appinstalling broadcasts collection prepared');
-  await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations), [
+  await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations), [
     { key: { expireAt: 1 }, expireAfterSeconds: 0 },
     { key: { name: 1 }, name: 'query for getting flux app install location based on specs name' },
     { key: { name: 1, ip: 1 }, name: 'query for getting flux app install location based on specs name and node ip' },
   ]);
   log.info('Flux Apps installing locations prepared');
-  await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations), [
+  await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations), [
     { key: { expireAt: 1 }, expireAfterSeconds: 0 },
     { key: { name: 1 }, name: 'query for getting flux app install errors location based on specs name' },
     { key: { name: 1, hash: 1 }, name: 'query for getting flux app install errors location based on specs name and hash' },
     { key: { name: 1, hash: 1, ip: 1 }, name: 'query for getting flux app install errors location based on specs name and hash and node ip' },
   ]);
   log.info('App installing errors locations prepared');
-  await ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts), [
+  await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts), [
     { key: { expireAt: 1 }, expireAfterSeconds: 0 },
     { key: { broadcastedAt: 1 } },
-    { key: { 'data.name': 1, 'data.hash': 1, 'data.ip': 1 }, unique: true, recover: dedupeByKey },
+    { key: { 'data.name': 1, 'data.hash': 1, 'data.ip': 1 }, unique: true, recover: dbHelper.dedupeByKey },
   ]);
   log.info('Signed app installing errors broadcasts collection prepared');
 
@@ -987,11 +835,8 @@ async function startFluxFunctions() {
 
 module.exports = {
   startFluxFunctions,
-  ensureIndex,
-  ensureIndexes,
   untilSucceeds,
   prepareDatabaseSchema,
-  dedupeByKey,
   // testing exports
   dosState,
 };
