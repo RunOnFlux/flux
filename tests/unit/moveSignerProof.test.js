@@ -41,8 +41,8 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
       version: 1, pubKey, timestamp, data, signature,
     };
   };
-  const move = (oldIP = OLD, newIP = NEW) => signed({
-    type: 'fluxipchanged', version: 1, oldIP, newIP, broadcastedAt: Date.now(),
+  const move = (oldIP = OLD, newIP = NEW, { broadcastedAt = Date.now() } = {}) => signed({
+    type: 'fluxipchanged', version: 1, oldIP, newIP, broadcastedAt,
   });
   // apprunning stored for `ip`, signed by `key`, sent `ago` ms before now, with
   // the location row it wrote for each of its apps
@@ -138,11 +138,38 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
 
     it('is dropped, not refused, from an address whose previous holder moved away from it', async () => {
       await ranAt(OLD, 'theformerholderskey');
-      await messageStore.storeIPChangedMessage({
+      // recorded and applied, as every path that hears a move does
+      const movedAway = {
         type: 'fluxipchanged', version: 1, oldIP: OLD, newIP: ELSEWHERE, broadcastedAt: Date.now() - MINUTE,
-      });
+      };
+      await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.IPCHANGED, { message: movedAway, envelope: null });
+      await messageStore.storeIPChangedMessage(movedAway);
 
       expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.NODE_NOT_FOUND);
+    });
+
+    // The address is judged as it stood when the move was made: an eviction made
+    // after the move, which the move was heard after, takes nothing from it.
+    it('is accepted when the address it left was evicted after the move was made', async () => {
+      await ranAt(OLD, pubKey);
+      const made = Date.now() - MINUTE;
+      await messageStore.applyEviction(OLD, Date.now());
+
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move(OLD, NEW, { broadcastedAt: made }))).to.equal(VerifyResult.OK);
+    });
+
+    it('is dropped when the address it left was evicted after its signer\'s apprunning and before the move', async () => {
+      await ranAt(OLD, pubKey);
+      await messageStore.applyEviction(OLD, Date.now() - 5 * MINUTE);
+
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.NODE_NOT_FOUND);
+    });
+
+    it('is judged by the newest apprunning sent before the move, not one sent after it', async () => {
+      await ranAt(OLD, pubKey, { ago: 10 * MINUTE, dedupKey: 'v1:proofapp' });
+      await ranAt(OLD, 'thelaterholderskey', { ago: MINUTE });
+
+      expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move(OLD, NEW, { broadcastedAt: Date.now() - 5 * MINUTE }))).to.equal(VerifyResult.OK);
     });
 
     it('is judged by the newest apprunning from an address another node held before', async () => {
@@ -262,6 +289,17 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
       await sync([movedAt(Date.now() - 2 * MINUTE)]);
 
       expect(await rowsAt()).to.deep.equal([NEW]);
+      expect(await events.countDocuments({ ip: OLD, type: 'ipchanged' })).to.equal(1);
+    });
+
+    it('holds the move of a node whose address it left was evicted after the move was made', async () => {
+      await heardWhileListed(pubKey);
+      const made = Date.now() - 2 * MINUTE;
+      await messageStore.applyEviction(OLD, Date.now());
+      expect(await rowsAt(), 'fixture: the eviction took the rows').to.deep.equal([]);
+
+      await sync([movedAt(made)]);
+
       expect(await events.countDocuments({ ip: OLD, type: 'ipchanged' })).to.equal(1);
     });
 
