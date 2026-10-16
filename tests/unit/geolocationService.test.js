@@ -229,21 +229,20 @@ describe('geolocationService tests', () => {
       expect(geolocationService.getLastIpChangeDate()).to.equal(mockDbResult.lastIpChangeDate);
     });
 
-    it('should return defaults when db connection is not available', async () => {
+    it('rejects when db connection is not available', async () => {
       dbHelperStub.databaseConnection.returns(null);
 
-      const result = await geolocationService.getNodeGeolocation();
+      const error = await geolocationService.getNodeGeolocation().catch((caught) => caught);
 
-      expect(result).to.equal(null);
+      expect(error).to.be.an('error');
     });
 
-    it('should handle db error gracefully', async () => {
+    it('rejects when the stored record cannot be read', async () => {
       dbHelperStub.findOneInDatabase.rejects(new Error('DB error'));
 
-      const result = await geolocationService.getNodeGeolocation();
+      const error = await geolocationService.getNodeGeolocation().catch((caught) => caught);
 
-      expect(result).to.equal(null);
-      sinon.assert.calledOnce(logStub.error);
+      expect(error.message).to.equal('DB error');
     });
   });
 
@@ -508,6 +507,18 @@ describe('geolocationService tests', () => {
 
       expect(geolocationService.getStaticIpState()).to.equal('UNKNOWN');
       expect(geolocationService.isStaticIP()).to.equal(false);
+    });
+
+    it('writes nothing over a stored record it cannot read, and runs the pass again later', async () => {
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(true);
+      serviceHelperStub.axiosGet.resolves(ipApiResponse());
+      dbHelperStub.findOneInDatabase.rejects(new Error('DB error'));
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      sinon.assert.notCalled(dbHelperStub.updateOneInDatabase);
+      expect(await geolocationService.getNodeGeolocation().catch(() => 'unreadable')).to.equal('unreadable');
     });
 
     it('seeds the window from the last recorded change, so an upgrade costs nothing', async () => {
@@ -1296,7 +1307,7 @@ describe('geolocationService tests', () => {
 
       await geolocationService.setNodeGeolocation();
 
-      sinon.assert.calledWith(logStub.warn, 'Database connection not available for storing geolocation');
+      sinon.assert.notCalled(dbHelperStub.updateOneInDatabase);
     });
 
     it('should handle db storage error gracefully', async () => {

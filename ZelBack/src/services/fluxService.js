@@ -1532,7 +1532,11 @@ async function getFluxInfo(req, res) {
       benchmark: {},
       flux: {},
       apps: {},
-      geolocation: await geolocationService.getNodeGeolocation(),
+      // null while this process knows no geolocation.
+      geolocation: await geolocationService.getNodeGeolocation().catch((error) => {
+        log.warn(`flux info - geolocation unreadable: ${error.message}`);
+        return null;
+      }),
     };
     const versionRes = await getFluxVersion();
     if (versionRes.status === 'error') {
