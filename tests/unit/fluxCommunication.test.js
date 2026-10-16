@@ -498,8 +498,12 @@ describe('fluxCommunication tests', () => {
       expect(verify.callCount, 'a copy waits with it').to.equal(1);
       sinon.assert.notCalled(messageStore.storeIPChangedMessage);
 
+      // the handler runs after verification, in its own turn: the store is what
+      // shows the re-dispatched broadcast was handled
+      const stored = new Promise((resolve) => { messageStore.storeIPChangedMessage.callsFake(async () => { resolve(); return false; }); });
       await clock.tickAsync(30 * 1000);
       await clock.tickAsync(100);
+      await stored;
 
       expect(verify.callCount).to.equal(2);
       sinon.assert.calledOnce(messageStore.storeIPChangedMessage);
