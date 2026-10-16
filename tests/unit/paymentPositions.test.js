@@ -12,6 +12,7 @@ const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/dae
 const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
 const { appPaymentAddresses, appPaymentPositions } = require('../../ZelBack/src/services/appPaymentPositions');
 const { backfillPaymentPositions, BACKFILL_BATCH } = require('../../ZelBack/src/services/migrations/paymentPositions');
+const { requireMongo } = require('./dbTestHelper');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -85,6 +86,41 @@ describe('app payment positions', () => {
     });
   });
 
+  describe('backfillPaymentPositions against the database', () => {
+    before(requireMongo);
+
+    let hashes;
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      hashes = dbHelper.databaseConnection().db(config.database.daemon.database).collection(config.database.daemon.collections.appsHashes);
+      await hashes.deleteMany({});
+      sinon.stub(messageVerifier, 'moveStoredMessagesToPayments').resolves([]);
+      sinon.stub(messageVerifier, 'storeGoverningAppSpecifications').resolves();
+      executeCall.withArgs('getBlockCount').resolves({ status: 'success', data: 1000 });
+      executeCall.withArgs('getaddressdeltas').resolves({ status: 'success', data: [] });
+    });
+
+    afterEach(async () => {
+      await hashes.deleteMany({});
+    });
+
+    it('asks the daemon nothing for a record it already found not on the chain', async () => {
+      await hashes.insertOne({
+        hash: 'orphaned', txid: 'orphaned', height: 500, value: 1,
+      });
+
+      expect((await backfillPaymentPositions()).notOnChain).to.equal(1);
+      expect((await hashes.findOne({ hash: 'orphaned' })).notOnChain).to.equal(true);
+      executeCall.resetHistory();
+
+      expect(await backfillPaymentPositions()).to.deep.equal({
+        positioned: 0, heightsCorrected: 0, notOnChain: 0, aboveTip: 0,
+      });
+      sinon.assert.notCalled(executeCall);
+    });
+  });
+
   describe('backfillPaymentPositions', () => {
     let findInDatabase;
     let bulkWriteInDatabase;
@@ -117,7 +153,7 @@ describe('app payment positions', () => {
       findInDatabase.resolves([]);
       await backfillPaymentPositions();
       expect(findInDatabase.firstCall.args[1]).to.equal(config.database.daemon.collections.appsHashes);
-      expect(findInDatabase.firstCall.args[2]).to.deep.equal({ txIndex: { $exists: false } });
+      expect(findInDatabase.firstCall.args[2]).to.deep.equal({ txIndex: { $exists: false }, notOnChain: { $ne: true } });
     });
 
     it('positions a record, at the height the chain holds its transaction', async () => {
