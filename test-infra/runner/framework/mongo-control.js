@@ -9,9 +9,8 @@ import { getSubnetConfig } from './subnet-config.js';
 // then fails every call in flight by itself.)
 //
 // The harness mongod runs with enableTestCommands, which the failCommand
-// failpoint needs. A command already held when the failpoint is released waits
-// out the rest of its hold. The harness's own database client (dbClient) is held
-// with FluxOS, so a suite reads nothing through it meanwhile.
+// failpoint needs. The harness's own database client (dbClient) is held with
+// FluxOS, so a suite reads nothing through it meanwhile.
 
 const HELD_COMMANDS = [
   'find', 'aggregate', 'getMore', 'count', 'distinct',
@@ -19,22 +18,39 @@ const HELD_COMMANDS = [
   'createIndexes', 'listIndexes', 'dropIndexes', 'drop', 'listCollections',
 ];
 
-async function failpoint(command) {
+async function withAdmin(work) {
   const client = await MongoClient.connect(`mongodb://${getSubnetConfig().mongo}:27017`, { directConnection: true });
   try {
-    await client.db('admin').command({ configureFailPoint: 'failCommand', ...command });
+    return await work(client.db('admin'));
   } finally {
     await client.close();
   }
 }
 
 export async function holdCommands(holdMs) {
-  await failpoint({
+  await withAdmin((admin) => admin.command({
+    configureFailPoint: 'failCommand',
     mode: 'alwaysOn',
     data: { failCommands: HELD_COMMANDS, blockConnection: true, blockTimeMS: holdMs },
-  });
+  }));
 }
 
+// Turning the failpoint off waits for every command inside it to leave, and a held
+// command stays for the whole hold. So the held commands are killed until the
+// release completes: their wait is interruptible, and they leave at once.
 export async function releaseCommands() {
-  await failpoint({ mode: 'off' });
+  await withAdmin(async (admin) => {
+    let released = false;
+    const off = admin.command({ configureFailPoint: 'failCommand', mode: 'off' }).finally(() => { released = true; });
+    while (!released) {
+      // eslint-disable-next-line no-await-in-loop
+      const { inprog } = await admin.command({ currentOp: 1, active: true });
+      const held = inprog.filter((op) => op.command && HELD_COMMANDS.some((name) => name in op.command));
+      // eslint-disable-next-line no-await-in-loop
+      await Promise.all(held.map((op) => admin.command({ killOp: 1, op: op.opid }).catch(() => {})));
+      // eslint-disable-next-line no-await-in-loop
+      await Promise.race([off.catch(() => {}), new Promise((resolve) => { setTimeout(resolve, 1000); })]);
+    }
+    await off;
+  });
 }
