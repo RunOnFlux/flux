@@ -286,6 +286,7 @@ async function processContainerData(params) {
     foldersConfiguration,
     newFoldersConfiguration,
     liveness,
+    unsafeFolderIds,
   } = params;
 
   const containersData = containerData.split('|');
@@ -329,7 +330,17 @@ async function processContainerData(params) {
   }
 
   // Get and process app locations
-  let locations = await appLocation(installedAppName);
+  let locations;
+  try {
+    locations = await readAppLocation(installedAppName);
+  } catch (error) {
+    // Without its locations the folder would be shared with no peer, and the device
+    // sweep would remove every peer it has: it is held out of this pass instead.
+    log.warn(`processContainerData - ${appId} locations could not be read (${error.message}); leaving the folder as it is this cycle`);
+    fluxEventBus.count('syncthing:folderPass', appId, 'locationsUnread');
+    unsafeFolderIds.add(appId);
+    return;
+  }
   locations = sortAndFilterLocations(locations, localSocketAddr);
 
   // Build device configuration (parallelized internally)
@@ -802,6 +813,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       folderIds,
       foldersConfiguration,
       newFoldersConfiguration,
+      unsafeFolderIds,
     };
 
     // Process all installed apps
