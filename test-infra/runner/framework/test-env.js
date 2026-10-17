@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import { nodeClient } from './node-client.js';
 import { execInContainer, restartFluxos } from './container.js';
+import { thawEveryNode } from './host-stall.js';
 import { waitFor } from './wait.js';
 import { HttpPollWaitStrategy } from './http-wait-strategy.js';
 import { TcpPollWaitStrategy } from './tcp-wait-strategy.js';
@@ -709,13 +710,13 @@ function makeEnvShell(networkName) {
       // the volume (EPERM) and every run leaks its node volumes. Unmount to
       // expose the bare dirs and strip the flag while the node is still
       // running; containers going down makes this the last chance to exec.
-      // A docker data root a suite froze is thawed first: a node whose docker is
-      // held in the kernel cannot be stopped.
+      await thawEveryNode(clients);
+      step('thaw');
       await Promise.all(clients.map(async (client) => {
         if (!client?.container) return;
         await execInContainer(
           client.container,
-          'fsfreeze -u /mnt/appdata/docker 2>/dev/null; for d in /mnt/appdata/flux-apps/*/; do umount -l "$d" 2>/dev/null; done; chattr -R -i /mnt/appdata/flux-apps 2>/dev/null; true',
+          'for d in /mnt/appdata/flux-apps/*/; do umount -l "$d" 2>/dev/null; done; chattr -R -i /mnt/appdata/flux-apps 2>/dev/null; true',
         ).catch((e) => warn('immutable-flag sweep', e));
       }));
       step(`immutable-sweep(${clients.filter(Boolean).length} nodes)`);

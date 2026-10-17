@@ -28,6 +28,19 @@ export async function thawDocker(container) {
 }
 
 /**
+ * Thaw every node's docker that is frozen, and pass over the rest: the last step
+ * before anything reads a node through its docker or stops it, since a node whose
+ * docker is held in the kernel can be neither read nor stopped. Never rejects.
+ * @param {Array<{container?: object}>} clients
+ */
+export async function thawEveryNode(clients) {
+  await Promise.all(clients.map(async (client) => {
+    if (!client?.container) return;
+    await execInContainer(client.container, `fsfreeze -u ${DOCKER_ROOT} 2>/dev/null; true`).catch(() => {});
+  }));
+}
+
+/**
  * One reading of every thread of the processes named `comm` in the node: its
  * state, its voluntary plus nonvoluntary context switches, and where it waits.
  * @returns {Promise<Map<string, {state: string, switches: number, wchan: string}>>} By thread id.
