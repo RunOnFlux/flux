@@ -171,6 +171,45 @@ describe('hostStallService tests', () => {
     expect(outOfService()).to.equal(true);
   });
 
+  describe('onTrip', () => {
+    it('tells a listener the moment the node goes out of service, and not before', async () => {
+      const listener = sinon.stub();
+      hostStallService.onTrip(listener);
+      stuckMongod();
+      await readTimes(stuckIntervals);
+      sinon.assert.notCalled(listener);
+
+      await read();
+
+      sinon.assert.calledOnce(listener);
+      await readTimes(2);
+      sinon.assert.calledOnce(listener);
+    });
+
+    it('tells a listener at once when the node is already out of service', async () => {
+      stuckMongod();
+      await readTimes(stuckIntervals + 1);
+      const listener = sinon.stub();
+
+      hostStallService.onTrip(listener);
+
+      sinon.assert.calledOnce(listener);
+    });
+
+    it('tells a listener when a trip recorded in this boot is restored at start', async () => {
+      stuckMongod();
+      await readTimes(stuckIntervals + 1);
+      hostStallService.stop();
+      fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
+      const listener = sinon.stub();
+      hostStallService.onTrip(listener);
+
+      await hostStallService.start(paths);
+
+      sinon.assert.calledOnce(listener);
+    });
+  });
+
   describe('the trip record', () => {
     async function trip() {
       stuckMongod();

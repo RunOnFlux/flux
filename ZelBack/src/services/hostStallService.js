@@ -39,6 +39,8 @@ const STUCK_INTERVALS = config.hostStall.stuckIntervals;
  */
 let tracked = new Map();
 let readTimer = null;
+/** Called once the node is out of service for a host stall. */
+const tripListeners = [];
 const DEFAULT_PATHS = {
   procRoot: '/proc',
   recordFile: path.join(fluxDirPath, 'config', 'hostStall.json'),
@@ -166,6 +168,22 @@ async function recordTrip(reason) {
   }
 }
 
+/** Tell every listener the node is out of service for a host stall. */
+function announceTrip() {
+  tripListeners.forEach((listener) => listener());
+}
+
+/**
+ * Call `listener` once the node is out of service for a host stall: at once
+ * when it already is, whether it tripped in this process or the trip was
+ * restored at start.
+ * @param {function(): void} listener
+ */
+function onTrip(listener) {
+  tripListeners.push(listener);
+  if (fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL)) listener();
+}
+
 /** Restore a trip recorded in this boot, and discard one from an earlier boot. */
 async function restoreTrip() {
   try {
@@ -180,6 +198,7 @@ async function restoreTrip() {
       return;
     }
     fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL, reason);
+    announceTrip();
   } catch (error) {
     log.error(`hostStall - the recorded trip could not be read: ${error.message}`);
   }
@@ -197,6 +216,7 @@ async function act() {
     const reason = `Host stall: ${describe(longest)}`;
     fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL, reason);
     await recordTrip(reason);
+    announceTrip();
   }
 }
 
@@ -238,10 +258,12 @@ function stop() {
   readTimer = null;
   tracked = new Map();
   paths = { ...DEFAULT_PATHS };
+  tripListeners.length = 0;
 }
 
 module.exports = {
   start,
   stop,
+  onTrip,
   readOnce,
 };

@@ -46,6 +46,9 @@ module.exports = {
   hostStall: {
     readIntervalMs: 5 * 60 * 1000,
     stuckIntervals: 6,
+    // How long one app's removal may take while the node is out of service
+    // before the next app's starts.
+    removalDeadlineMs: 5 * 60 * 1000,
   },
   database: {
     url: '127.0.0.1',

@@ -39,6 +39,8 @@ describe('appStartupManager tests', () => {
     fluxNetworkHelperStub = {
       getLocalSocketAddress: sinon.stub(),
       isNodeDos: sinon.stub().returns(false),
+      isStickyDosHeldBy: sinon.stub().returns(false),
+      StickyDosOwner: { HOST_STALL: 'hostStall' },
       allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
     };
 
@@ -673,6 +675,18 @@ describe('appStartupManager tests', () => {
   });
 
   describe('manageAppsOnBoot', () => {
+    it('leaves a node out of service for a host stall to its own removal, and starts no app', async () => {
+      fluxNetworkHelperStub.isStickyDosHeldBy.returns(true);
+      fluxNetworkHelperStub.isNodeDos.returns(true);
+      appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'app1' }] });
+
+      await appStartupManager.manageAppsOnBoot({ machineRebooted: false, downtimeMs: 1000, cleanShutdown: true });
+
+      sinon.assert.calledWithExactly(fluxNetworkHelperStub.isStickyDosHeldBy, 'hostStall');
+      sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
+      sinon.assert.notCalled(globalStateStub.waitForDbReady);
+    });
+
     it('stops every empty app slice before it removes any app', async () => {
       appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'app1' }] });
 

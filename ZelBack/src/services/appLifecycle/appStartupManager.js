@@ -429,6 +429,11 @@ async function manageAppsOnBoot(bootContext) {
       return;
     }
 
+    if (fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL)) {
+      log.error('appStartupManager - Node is out of service for a host stall; its own removal unloads the apps');
+      return;
+    }
+
     if (fluxNetworkHelper.isNodeDos()) {
       log.error('appStartupManager - Node is in DOS state, removing all apps');
       await removeAllApps('Node DOS');

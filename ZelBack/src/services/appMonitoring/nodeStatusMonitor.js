@@ -8,10 +8,35 @@ const fluxCommunicationUtils = require('../fluxCommunicationUtils');
 const messageStore = require('../appMessaging/messageStore');
 const nodeConfirmationService = require('../nodeConfirmationService');
 const networkStateService = require('../networkStateService');
+const hostStallService = require('../hostStallService');
+const appKill = require('../appLifecycle/appKill');
+const { RemovalOutcome } = require('../utils/removalOutcome');
 const log = require('../../lib/log');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 
 let removalInProgress = false;
+let unloadingForHostStall = false;
+/** What initialize was given, for the removal a host stall starts. */
+let deps = null;
+
+const REMOVAL_DEADLINE_MS = config.hostStall.removalDeadlineMs;
+const TIMED_OUT = 'timedOut';
+
+/**
+ * What `work` resolved, or TIMED_OUT once `ms` pass. The work itself keeps
+ * running: nothing here can stop a removal part way.
+ * @param {Promise<*>} work
+ * @param {number} ms
+ */
+async function withinDeadline(work, ms) {
+  let timer;
+  const deadline = new Promise((resolve) => { timer = setTimeout(resolve, ms, TIMED_OUT); });
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // Database collections
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
@@ -34,11 +59,18 @@ async function removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, reason)
     const appsInstalled = installedAppsRes.data;
     const canBroadcast = nodeConfirmationService.canSendMessages();
     for (const installedApp of appsInstalled) {
+      // a host stall's own removal has the node, and this one gives way to it
+      if (unloadingForHostStall) break;
       log.info(`monitorNodeStatus - Application ${installedApp.name} going to be removed: ${reason}`);
       log.warn(`monitorNodeStatus - Removing application ${installedApp.name} locally`);
+      // One removal that never returns must not hold every other app here.
       // eslint-disable-next-line no-await-in-loop
-      await removeAppLocallyFn(installedApp.name, null, true, false, canBroadcast);
-      log.warn(`monitorNodeStatus - Application ${installedApp.name} locally removed`);
+      const outcome = await withinDeadline(removeAppLocallyFn(installedApp.name, null, true, false, canBroadcast), REMOVAL_DEADLINE_MS);
+      if (outcome === TIMED_OUT) {
+        log.error(`monitorNodeStatus - Application ${installedApp.name} was not removed within ${REMOVAL_DEADLINE_MS / 1000}s, moving on`);
+      } else {
+        log.warn(`monitorNodeStatus - Application ${installedApp.name} locally removed`);
+      }
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(config.fluxapps.nodeMonitorRemovalDelayMs ?? 60000);
     }
@@ -63,7 +95,64 @@ async function removeAllAppsOnSignal(installedAppsFn, removeAppLocallyFn, reason
   }
 }
 
+/**
+ * Remove every app from a node whose host is stalled, and make sure none can
+ * run again. Each app gets its normal removal, which stops its containers before
+ * it tells the network, within REMOVAL_DEADLINE_MS. Whatever of it can still run
+ * afterwards is killed through its cgroups, and checked: an app whose every
+ * process is gone or has the kill pending can never run its code again.
+ *
+ * The apps are read from the database and from what is on disk, so an app the
+ * database cannot list is still found. Apps are not spaced out: every minute a
+ * stalled node keeps one is a minute its standby waits.
+ * @param {Function} installedAppsFn
+ * @param {Function} removeAppLocallyFn
+ */
+async function unloadForHostStall(installedAppsFn, removeAppLocallyFn) {
+  if (unloadingForHostStall) return;
+  unloadingForHostStall = true;
+  try {
+    const listed = await withinDeadline(installedAppsFn(), REMOVAL_DEADLINE_MS).catch(() => null);
+    const installed = listed?.status === 'success' ? listed.data.map((app) => app.name) : [];
+    const names = [...new Set([...installed, ...await appKill.appsOnDisk()])];
+    const canBroadcast = nodeConfirmationService.canSendMessages();
+    // eslint-disable-next-line no-restricted-syntax
+    for (const name of names) {
+      log.warn(`monitorNodeStatus - Application ${name} going to be removed: host stall`);
+      // eslint-disable-next-line no-await-in-loop
+      const outcome = await withinDeadline(removeAppLocallyFn(name, null, true, false, canBroadcast), REMOVAL_DEADLINE_MS)
+        .catch(() => RemovalOutcome.FAILED);
+      // eslint-disable-next-line no-await-in-loop
+      if ((await appKill.stillRunnable(name)).length) {
+        log.error(`monitorNodeStatus - Application ${name} still runs after its removal (${outcome}), killing it`);
+        // eslint-disable-next-line no-await-in-loop
+        await appKill.kill(name);
+        // eslint-disable-next-line no-await-in-loop
+        const left = await appKill.stillRunnable(name);
+        if (left.length) {
+          log.error(`monitorNodeStatus - Application ${name} could not be stopped: processes ${left.join(', ')} can still run`);
+        } else {
+          log.warn(`monitorNodeStatus - Application ${name} can no longer run`);
+        }
+      }
+    }
+  } finally {
+    unloadingForHostStall = false;
+  }
+}
+
+/** The removal a host stall starts. Nothing awaits it, so its failure is logged here. */
+async function unloadOnHostStall() {
+  try {
+    await unloadForHostStall(deps.installedAppsFn, deps.removeAppLocallyFn);
+  } catch (error) {
+    log.error(`monitorNodeStatus - app removal (host stall) failed: ${error.message}`);
+  }
+}
+
 function initialize(installedAppsFn, removeAppLocallyFn) {
+  deps = { installedAppsFn, removeAppLocallyFn };
+  hostStallService.onTrip(unloadOnHostStall);
   nodeConfirmationService.onConfirmationChange((confirmed) => {
     if (!confirmed) {
       log.info('monitorNodeStatus - Confirmation lost, triggering immediate app removal');
@@ -176,4 +265,5 @@ async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
 module.exports = {
   initialize,
   monitorNodeStatus,
+  unloadForHostStall,
 };
