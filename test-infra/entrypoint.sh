@@ -52,6 +52,17 @@ mkdir -p /dat/var/lib/fluxd \
          /dat/usr/lib/fluxwatchdog \
          /mnt/appdata/flux-apps
 
+# A node whose docker data a suite freezes (framework/host-stall.js) keeps it on a
+# filesystem of its own, mounted before docker starts. Freezing it holds every write
+# docker makes there in the kernel, which is what a stalled host does to docker. The
+# image lives on the node's volume, so a restarted node mounts the same data again.
+if [ "$FLUX_FREEZABLE_DOCKER_ROOT" = "true" ]; then
+  img=/mnt/appdata/docker-root.img
+  [ -f "$img" ] || { truncate -s 8G "$img" && mkfs.ext4 -q -F "$img"; }
+  mkdir -p /mnt/appdata/docker
+  mountpoint -q /mnt/appdata/docker || mount -o loop "$img" /mnt/appdata/docker
+fi
+
 # In stub mode FluxOS only needs somewhere to read an API key from; the calls
 # themselves go to the shared stub. In binary mode the config is syncthing's own
 # and this fixture must not be in the way of it.
