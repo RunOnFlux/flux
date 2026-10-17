@@ -928,6 +928,8 @@ async function holdExemptAtSpecifiedCpu(containerName, specifiedCpu, inspect, mo
   if (nanoCpus && nanoCpus < specifiedNanoCpus) {
     await dockerService.appDockerUpdateCpu(containerName, specifiedNanoCpus);
     log.info(`checkApplicationsCpuUSage ${containerName} throttle-exempt, restoring cpu 100.`);
+  } else {
+    log.info(`checkApplicationsCpuUSage ${containerName} throttle-exempt, skipping CPU throttling`);
   }
   // Guarded for the same reason as the watermark writes in the caller.
   if (monitored) {

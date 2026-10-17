@@ -2,10 +2,11 @@ const log = require('../../lib/log');
 const policyStore = require('../policyStore');
 
 // Which apps the CPU throttle leaves at their full specified allocation, read from the signed
-// policy bundle. The document lists app name prefixes: the lowercased marketplace names of the
-// game servers the games hub deploys. The hub names every server it registers
-// `<marketplace name><Date.now()>`, so a prefix alone is not enough to qualify -- the rest of
-// the name must be exactly that millisecond timestamp, and a plausible one.
+// policy bundle. The document lists app name prefixes: the ones the games hub, and the
+// dedicated sites before it, write for the game servers they deploy (mostly the lowercased
+// marketplace name). Every one of them names a server `<prefix><Date.now()>`, so a prefix alone
+// is not enough to qualify -- the rest of the name must be exactly that millisecond timestamp,
+// and a plausible one.
 //
 // Game servers are exempt because a game's tick is a latency budget, not a throughput job.
 // Taking 20% of a saturated server's cpu does not slow it down evenly, it makes every tick that
@@ -55,12 +56,15 @@ function getExemptPrefixes() {
   const document = policyStore.getDocument(DOCUMENT);
   if (document === null) return null;
   if (prefixCacheKey === document) return prefixCache;
+  // The verdict is cached either way. A malformed document is asked about once per app per
+  // throttle pass, and logging each time would bury the one line that matters.
+  prefixCacheKey = document;
   if (!isValidPrefixList(document)) {
     log.error(`cpuThrottleExemption - ${DOCUMENT} in the signed bundle is not an array of lowercase alphanumeric prefixes`);
+    prefixCache = null;
     return null;
   }
   prefixCache = new Set(document);
-  prefixCacheKey = document;
   return prefixCache;
 }
 

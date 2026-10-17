@@ -35,6 +35,21 @@ describe('cpuThrottleExemption', () => {
       expect(log.error.called).to.equal(true);
     });
 
+    it('logs a malformed document once per bundle, not once per app', () => {
+      const { module: m, log } = load(['enshrouded', 'Palworld']);
+      m.isCpuThrottleExempt(`enshrouded${TS}`, NOW);
+      m.isCpuThrottleExempt(`palworld${TS}`, NOW);
+      m.isCpuThrottleExempt(`valheim${TS}`, NOW);
+      expect(log.error.callCount).to.equal(1);
+    });
+
+    it('recovers when the store adopts a valid bundle after a malformed one', () => {
+      const { module: m, policyStore } = load(['Palworld']);
+      expect(m.isCpuThrottleExempt(`palworld${TS}`, NOW)).to.equal(false);
+      policyStore.getDocument.returns(['palworld']);
+      expect(m.isCpuThrottleExempt(`palworld${TS}`, NOW)).to.equal(true);
+    });
+
     it('rejects a document that is not an array', () => {
       const { module: m } = load({ enshrouded: true });
       expect(m.getExemptPrefixes()).to.equal(null);
