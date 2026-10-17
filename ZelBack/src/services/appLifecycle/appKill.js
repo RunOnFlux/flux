@@ -5,7 +5,8 @@
  * An app's containers live in its slice (appSlice). A container created before
  * the slice existed lives in its runtime's scope, `system.slice/docker-<id>.scope`,
  * and the container's name is read from the runtime's own record on disk, which
- * stays readable while docker does not answer.
+ * stays readable while docker does not answer. Where those records are is read
+ * from docker at boot; until then it is docker's default for the node's kind.
  *
  * A process held in the kernel is not removed by a kill: it keeps the kill
  * pending and dies the moment the kernel lets it go, without running the app's

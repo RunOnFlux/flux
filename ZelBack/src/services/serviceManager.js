@@ -13,6 +13,7 @@ const networkStateService = require('./networkStateService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const databaseHealthService = require('./databaseHealthService');
 const hostStallService = require('./hostStallService');
+const appKill = require('./appLifecycle/appKill');
 // App modular services - replacing appsService
 const appInstaller = require('./appLifecycle/appInstaller');
 const appUninstaller = require('./appLifecycle/appUninstaller');
@@ -276,6 +277,10 @@ async function startFluxFunctions() {
     // DOS, so /flux/info names the version found and the version required.
     fluxNetworkHelper.checkMongoDbVersionAllowed(await dbHelper.getMongoDbVersion());
     await dockerService.waitForDocker();
+    // Where docker keeps its records, read while it answers, for a kill made
+    // while it does not.
+    const dockerRoot = await dockerService.dockerInfo().then((info) => info?.DockerRootDir, () => null);
+    if (dockerRoot) appKill.usePaths({ dockerRoot });
     // As soon as Docker answers, before the container firewall is applied: a
     // below-floor node stays up holding a sticky DOS, so /flux/info names the
     // version found and the version required.
