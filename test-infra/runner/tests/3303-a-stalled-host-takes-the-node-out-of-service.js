@@ -143,7 +143,10 @@ describe('a stalled host takes the node out of service', function () {
 
     it('leaves nothing of the app that can run, though its removal could not finish', async function () {
       this.timeout(REMOVAL_DEADLINE_MS * 4);
+      // the node's two words for an app with nothing left that can run - killed, or
+      // stopped before its removal ran out - and its one for an app it could not stop
       await waitFor(async () => (await fluxosLog(container, `${appName} can no longer run`)) > 0
+        || (await fluxosLog(container, `${appName} was not removed`)) > 0
         || (await fluxosLog(container, `${appName} could not be stopped`)) > 0, {
         timeout: REMOVAL_DEADLINE_MS * 3, interval: 2000, label: 'the node says what is left of the app',
       });
