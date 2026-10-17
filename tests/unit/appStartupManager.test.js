@@ -17,8 +17,10 @@ describe('appStartupManager tests', () => {
   let globalStateStub;
   let appQueryServiceStub;
   let portManagerStub;
+  let appSliceStub;
 
   beforeEach(() => {
+    appSliceStub = { stopEmptySlices: sinon.stub().resolves(0) };
     logStub = {
       info: sinon.stub(),
       warn: sinon.stub(),
@@ -97,6 +99,7 @@ describe('appStartupManager tests', () => {
       './advancedWorkflows': advancedWorkflowsStub,
       '../appMonitoring/appReconciler': appReconcilerStub,
       './appUninstaller': appUninstallerStub,
+      './appSlice': appSliceStub,
       '../utils/globalState': globalStateStub,
       // runs the step again at once until it succeeds, as the real one does after a wait
       '../utils/untilSucceeds': {
@@ -670,6 +673,25 @@ describe('appStartupManager tests', () => {
   });
 
   describe('manageAppsOnBoot', () => {
+    it('stops every empty app slice before it removes any app', async () => {
+      appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'app1' }] });
+
+      await appStartupManager.manageAppsOnBoot({ machineRebooted: true, downtimeMs: 8000000, cleanShutdown: false });
+
+      sinon.assert.calledOnce(appSliceStub.stopEmptySlices);
+      sinon.assert.callOrder(appSliceStub.stopEmptySlices, appUninstallerStub.removeAppLocally);
+    });
+
+    it('stops every empty app slice before it reconciles the apps', async () => {
+      dockerServiceStub.dockerListContainers.resolves([]);
+      dbHelperStub.findInDatabase.resolves([]);
+
+      await appStartupManager.manageAppsOnBoot({ machineRebooted: false, downtimeMs: 1000, cleanShutdown: true });
+
+      sinon.assert.calledOnce(appSliceStub.stopEmptySlices);
+      sinon.assert.callOrder(appSliceStub.stopEmptySlices, globalStateStub.waitForDbReady);
+    });
+
     it('should reconcile on FluxOS-only restart (no stopped containers)', async () => {
       const bootContext = {
         machineRebooted: false, downtimeMs: 1000, cleanShutdown: true,

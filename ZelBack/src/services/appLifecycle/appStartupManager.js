@@ -16,6 +16,7 @@ const registryManager = require('../appDatabase/registryManager');
 const appReconciler = require('../appMonitoring/appReconciler');
 const appUninstaller = require('./appUninstaller');
 const appNetworkLinker = require('./appNetworkLinker');
+const appSlice = require('./appSlice');
 const portManager = require('../appNetwork/portManager');
 const globalState = require('../utils/globalState');
 const fluxEventBus = require('../utils/fluxEventBus');
@@ -391,6 +392,8 @@ async function removeAllApps(reason) {
 
 async function manageAppsOnBoot(bootContext) {
   try {
+    // ahead of every container start, so no slice in use can be empty here
+    await appSlice.stopEmptySlices();
     if (bootContext.firstBoot) {
       log.info('appStartupManager - First boot (no heartbeat history), waiting for sync');
     } else if (bootContext.unreadable) {

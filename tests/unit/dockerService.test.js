@@ -2330,6 +2330,30 @@ describe('dockerService tests', () => {
 
       await expect(dockerService.appDockerCreate(nodeApp, appName, true)).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'forEach\')');
     });
+
+    describe('the app\'s slice', () => {
+      const nodeApp = {
+        ...baseNodeApp, containerPorts: [], ports: [], version: 3,
+      };
+      const created = () => dockerStub.firstCall.args[0];
+      const driverIs = (CgroupDriver) => sinon.stub(Dockerode.prototype, 'info').resolves({ CgroupDriver, DriverStatus: [] });
+
+      it('puts the container in its app\'s slice under the systemd cgroup driver', async () => {
+        driverIs('systemd');
+
+        await dockerService.appDockerCreate(nodeApp, 'my-app', true);
+
+        expect(created().HostConfig.CgroupParent).to.equal('flux-my\\x2dapp.slice');
+      });
+
+      it('leaves the parent to docker under any other cgroup driver', async () => {
+        driverIs('cgroupfs');
+
+        await dockerService.appDockerCreate(nodeApp, 'my-app', true);
+
+        expect(created().HostConfig).to.not.have.property('CgroupParent');
+      });
+    });
   });
   describe('loadImage tests', () => {
     const ID = 'sha256:1111111111111111111111111111111111111111111111111111111111111111';
