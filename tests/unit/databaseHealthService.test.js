@@ -131,7 +131,7 @@ describe('databaseHealthService tests', () => {
     beforeEach(async () => {
       clock.restore();
       databaseHealthService.stop();
-      real = new MongoClient(`mongodb://${config.database.url}:${config.database.port}`, { socketTimeoutMS: 300 });
+      real = new MongoClient(`mongodb://${config.database.url}:${config.database.port}`, { socketTimeoutMS: 100 });
       await real.connect();
       databaseHealthService.watch(real, 'probe');
     });
@@ -140,11 +140,12 @@ describe('databaseHealthService tests', () => {
       await real.close();
     });
 
-    it('counts one stuck read as two round trips, so two stuck reads hold the node', async () => {
+    it('counts one stuck read as two round trips, so two stuck reads hold the node', async function stuckReads() {
+      this.timeout(10000);
       const ranOut = sinon.spy(log, 'warn');
       const collection = real.db(config.database.local.database).collection('databasehealthprobe');
       await collection.insertOne({ probe: 1 });
-      const stuckRead = () => collection.findOne({ $where: 'sleep(1000) || true' }).catch((error) => error);
+      const stuckRead = () => collection.findOne({ $where: 'sleep(400) || true' }).catch((error) => error);
 
       const first = await stuckRead();
       // the canary: the read did run out, and the driver retried it once
@@ -155,7 +156,8 @@ describe('databaseHealthService tests', () => {
       await stuckRead();
 
       expect(fluxNetworkHelper.isPlacementHeld()).to.equal(true);
-      await new Promise((resolve) => { setTimeout(resolve, 1200); });
+      // the server's own sleeps end before the collection is dropped
+      await new Promise((resolve) => { setTimeout(resolve, 450); });
       await collection.drop();
     });
   });
