@@ -36,6 +36,11 @@ module.exports = {
     // index builds, the explorer restore's deletes and the registry rebuild.
     callTimeoutMs: 60 * 1000,
     maintenanceCallTimeoutMs: 15 * 60 * 1000,
+    // The database is suspect, and the node takes on no new apps, once
+    // suspectRoundTrips round trips have run out within suspectWindowMs. It stops
+    // being suspect suspectWindowMs after the last one.
+    suspectRoundTrips: 4,
+    suspectWindowMs: 30 * 60 * 1000,
     local: {
       database: 'zelfluxlocaltest',
       collections: {

@@ -123,6 +123,7 @@ const STICKY_DOS_STATE = 100;
 // a new one.
 const PlacementHoldOwner = Object.freeze({
   RESIDENTIAL_DOS: 'residentialDos',
+  DATABASE_SUSPECT: 'databaseSuspect',
 });
 
 // Stops the node taking on NEW apps without declaring it unfit for the ones it

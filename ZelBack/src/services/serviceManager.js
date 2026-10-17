@@ -11,6 +11,7 @@ const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const networkStateService = require('./networkStateService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
+const databaseHealthService = require('./databaseHealthService');
 // App modular services - replacing appsService
 const appInstaller = require('./appLifecycle/appInstaller');
 const appUninstaller = require('./appLifecycle/appUninstaller');
@@ -265,6 +266,8 @@ async function startFluxFunctions() {
     fluxNetworkHelper.checkNodeJsVersionAllowed();
     // Hard dependencies — nothing starts until these are confirmed.
     await dbHelper.waitForMongo();
+    databaseHealthService.watch(dbHelper.databaseConnection(), 'main');
+    databaseHealthService.watch(dbHelper.maintenanceConnection(), 'maintenance');
     // As soon as MongoDB answers: a below-floor node stays up holding a sticky
     // DOS, so /flux/info names the version found and the version required.
     fluxNetworkHelper.checkMongoDbVersionAllowed(await dbHelper.getMongoDbVersion());
