@@ -52,19 +52,14 @@ async function awaitWithin(work, timeoutMs, reason) {
  * @returns {Promise<Array>} Array of installed app specifications
  */
 async function getInstalledAppsFromDb() {
-  try {
-    const dbopen = dbHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
-    const appsQuery = {};
-    const appsProjection = {
-      projection: { _id: 0 },
-    };
-    const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-    return apps || [];
-  } catch (error) {
-    log.error(`appStartupManager - Error getting installed apps: ${error.message}`);
-    return [];
-  }
+  const dbopen = dbHelper.databaseConnection();
+  const appsDatabase = dbopen.db(config.database.appslocal.database);
+  const appsQuery = {};
+  const appsProjection = {
+    projection: { _id: 0 },
+  };
+  const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+  return apps || [];
 }
 
 /**
@@ -227,6 +222,13 @@ async function reconcileAppsOnBoot() {
       if (localSocketAddr) {
         // eslint-disable-next-line no-await-in-loop
         const hasValidLocation = await appHasValidLocationOnNode(appName, localSocketAddr);
+        if (hasValidLocation === null) {
+          // Neither started nor removed on an unread location: the reconciler decides later.
+          log.warn(`appStartupManager - App ${appName}: its location record could not be read, leaving it as it is`);
+          results.appsFailed.push({ app: appName, error: 'location record unreadable' });
+          // eslint-disable-next-line no-continue
+          continue;
+        }
         if (!hasValidLocation) {
           log.warn(`appStartupManager - App ${appName} no longer has a valid location record for this node (${localSocketAddr}), removing locally`);
           try {
@@ -306,6 +308,8 @@ async function manageAppsOnBoot(bootContext) {
   try {
     if (bootContext.firstBoot) {
       log.info('appStartupManager - First boot (no heartbeat history), waiting for sync');
+    } else if (bootContext.unreadable) {
+      log.warn('appStartupManager - Boot context unreadable: whether locations expired is decided app by app');
     } else {
       const locationsExpired = (bootContext.cleanShutdown && bootContext.downtimeMs > SIGTERM_EXPIRY_MS)
         || bootContext.downtimeMs > RUNNING_EXPIRY_MS;

@@ -80,52 +80,37 @@ async function storeGeolocationToDb(geolocation, isStaticIp, isDataCenter, ipCha
 }
 
 /**
- * Retrieves geolocation data from the database
+ * Retrieves geolocation data from the database. Rejects when it cannot be read.
  * @returns {Promise<{geolocation: object|null, staticIp: boolean, dataCenter: boolean, lastIpChangeDate: number|null}>}
  */
 async function getGeolocationFromDb() {
-  try {
-    const dbClient = dbHelper.databaseConnection();
-    if (!dbClient) {
-      return { geolocation: null, staticIp: false, dataCenter: false, lastIpChangeDate: null };
-    }
-    const database = dbClient.db(config.database.local.database);
-    const query = { _id: 'nodeGeolocation' };
-    const result = await dbHelper.findOneInDatabase(database, geolocationCollection, query);
-    if (result && result.geolocation) {
-      return {
-        geolocation: result.geolocation,
-        staticIp: result.staticIp || false,
-        dataCenter: result.dataCenter || false,
-        lastIpChangeDate: result.lastIpChangeDate || null,
-        ipFirstSeenAt: result.ipFirstSeenAt || null,
-        // `?? null`: a document written before these fields existed carries no
-        // observation, and saying so lets the next pass start the window.
-        staticIpState: result.staticIpState ?? null,
-        networkEvidence: result.networkEvidence ?? null,
-      };
-    }
+  const dbClient = dbHelper.databaseConnection();
+  if (!dbClient) throw new Error('no database connection');
+  const database = dbClient.db(config.database.local.database);
+  const query = { _id: 'nodeGeolocation' };
+  const result = await dbHelper.findOneInDatabase(database, geolocationCollection, query);
+  if (result && result.geolocation) {
     return {
-      geolocation: null,
-      staticIp: false,
-      dataCenter: false,
-      lastIpChangeDate: null,
-      ipFirstSeenAt: null,
-      staticIpState: null,
-      networkEvidence: null,
-    };
-  } catch (error) {
-    log.error(`Failed to retrieve geolocation from database: ${error.message}`);
-    return {
-      geolocation: null,
-      staticIp: false,
-      dataCenter: false,
-      lastIpChangeDate: null,
-      ipFirstSeenAt: null,
-      staticIpState: null,
-      networkEvidence: null,
+      geolocation: result.geolocation,
+      staticIp: result.staticIp || false,
+      dataCenter: result.dataCenter || false,
+      lastIpChangeDate: result.lastIpChangeDate || null,
+      ipFirstSeenAt: result.ipFirstSeenAt || null,
+      // `?? null`: a document written before these fields existed carries no
+      // observation, and saying so lets the next pass start the window.
+      staticIpState: result.staticIpState ?? null,
+      networkEvidence: result.networkEvidence ?? null,
     };
   }
+  return {
+    geolocation: null,
+    staticIp: false,
+    dataCenter: false,
+    lastIpChangeDate: null,
+    ipFirstSeenAt: null,
+    staticIpState: null,
+    networkEvidence: null,
+  };
 }
 
 /**
@@ -559,7 +544,8 @@ async function setNodeGeolocation() {
  * the node's own record of where it is, and the next refresh persists whatever
  * it holds. The record is flat scalars, so one level copies all of it - a
  * nested field added later needs this to deepen with it.
- * @returns {Promise<object|null>} The geolocation object or null
+ * @returns {Promise<object|null>} The geolocation object, or null when none is
+ *   known. Rejects when the stored record is needed and cannot be read.
  */
 async function getNodeGeolocation() {
   if (storedGeolocation) {

@@ -766,7 +766,7 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
-  const { stored } = await storeBatchAppRunningEvents(verifiedBroadcasts);
+  const { stored, writeFailed: eventsFailed } = await storeBatchAppRunningEvents(verifiedBroadcasts);
 
   // One operation is built per app per broadcast and each carries a merge
   // pipeline, so a sync response of a few thousand broadcasts expands into tens
@@ -774,7 +774,7 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
   // the driver's encoding of it small; the operations are independent of one
   // another, which is what makes the unordered write safe to split.
   const locationOps = [];
-  let writeFailed = false;
+  let writeFailed = eventsFailed;
   const flushLocationOps = async () => {
     if (!locationOps.length) return;
     const batch = locationOps.splice(0, locationOps.length);
@@ -858,8 +858,7 @@ async function pruneAppRunningLocations(newestByIp) {
   const flush = async () => {
     if (!ops.length) return;
     const batch = ops.splice(0, ops.length);
-    await database.collection(globalAppsLocations).bulkWrite(batch, { ordered: false })
-      .catch((err) => log.error(`pruneAppRunningLocations: ${err.message}`));
+    await database.collection(globalAppsLocations).bulkWrite(batch, { ordered: false });
   };
 
   const newest = [...newestByIp];
@@ -883,76 +882,64 @@ async function pruneAppRunningLocations(newestByIp) {
 // --- Event Log Functions ---
 
 async function handleAppRunningEvent({ signedBroadcast }) {
-  try {
-    const { data } = signedBroadcast;
-    if (!data || !data.ip || !data.broadcastedAt) return;
-    if (data.broadcastedAt + GOSSIP_VALIDITY_MS < Date.now()) return;
+  const { data } = signedBroadcast;
+  if (!data || !data.ip || !data.broadcastedAt) return;
+  if (data.broadcastedAt + GOSSIP_VALIDITY_MS < Date.now()) return;
 
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
 
-    if (data.version === 2 && (!data.apps || data.apps.length === 0)) {
-      const existing = await database.collection(globalAppStateEvents).findOne({ ip: data.ip, type: APP_STATE_EVENT_TYPES.APPRUNNING });
-      if (!existing) return;
-    }
-
-    const dedupKey = data.apps ? 'v2' : `v1:${data.name}`;
-    const envelope = { version: signedBroadcast.version, timestamp: signedBroadcast.timestamp, pubKey: signedBroadcast.pubKey, signature: signedBroadcast.signature };
-
-    await database.collection(globalAppStateEvents).updateOne(
-      { ip: data.ip, type: APP_STATE_EVENT_TYPES.APPRUNNING, dedupKey },
-      buildConditionalUpsert(data.broadcastedAt, {
-        ip: data.ip, type: APP_STATE_EVENT_TYPES.APPRUNNING, dedupKey,
-        broadcastedAt: new Date(data.broadcastedAt),
-        expireAt: new Date(data.broadcastedAt + RUNNING_EXPIRY_MS),
-        data, envelope,
-      }, { alwaysSetFields: { receivedAt: new Date() } }),
-      { upsert: true },
-    );
-  } catch (err) {
-    log.error(`storeAppStateEvent(apprunning): ${err.message}`);
+  if (data.version === 2 && (!data.apps || data.apps.length === 0)) {
+    const existing = await database.collection(globalAppStateEvents).findOne({ ip: data.ip, type: APP_STATE_EVENT_TYPES.APPRUNNING });
+    if (!existing) return;
   }
+
+  const dedupKey = data.apps ? 'v2' : `v1:${data.name}`;
+  const envelope = { version: signedBroadcast.version, timestamp: signedBroadcast.timestamp, pubKey: signedBroadcast.pubKey, signature: signedBroadcast.signature };
+
+  await database.collection(globalAppStateEvents).updateOne(
+    { ip: data.ip, type: APP_STATE_EVENT_TYPES.APPRUNNING, dedupKey },
+    buildConditionalUpsert(data.broadcastedAt, {
+      ip: data.ip, type: APP_STATE_EVENT_TYPES.APPRUNNING, dedupKey,
+      broadcastedAt: new Date(data.broadcastedAt),
+      expireAt: new Date(data.broadcastedAt + RUNNING_EXPIRY_MS),
+      data, envelope,
+    }, { alwaysSetFields: { receivedAt: new Date() } }),
+    { upsert: true },
+  );
 }
 
 async function handleSigtermEvent({ message, envelope }) {
   if (!message || !message.ip || !message.broadcastedAt) return;
-  try {
-    const { ip } = message;
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    await database.collection(globalAppStateEvents).updateOne(
-      { ip, type: APP_STATE_EVENT_TYPES.SIGTERM, dedupKey: 'sigterm' },
-      buildConditionalUpsert(message.broadcastedAt, {
-        ip, type: APP_STATE_EVENT_TYPES.SIGTERM, dedupKey: 'sigterm',
-        broadcastedAt: new Date(message.broadcastedAt),
-        expireAt: new Date(message.broadcastedAt + RUNNING_EXPIRY_MS),
-        envelope, data: message,
-      }, { alwaysSetFields: { receivedAt: new Date() } }),
-      { upsert: true },
-    );
-  } catch (err) {
-    log.error(`storeAppStateEvent(sigterm): ${err.message}`);
-  }
+  const { ip } = message;
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  await database.collection(globalAppStateEvents).updateOne(
+    { ip, type: APP_STATE_EVENT_TYPES.SIGTERM, dedupKey: 'sigterm' },
+    buildConditionalUpsert(message.broadcastedAt, {
+      ip, type: APP_STATE_EVENT_TYPES.SIGTERM, dedupKey: 'sigterm',
+      broadcastedAt: new Date(message.broadcastedAt),
+      expireAt: new Date(message.broadcastedAt + RUNNING_EXPIRY_MS),
+      envelope, data: message,
+    }, { alwaysSetFields: { receivedAt: new Date() } }),
+    { upsert: true },
+  );
 }
 
 async function handleAppRemovedStateEvent({ message, envelope }) {
   if (!message || !message.ip || !message.appName || !message.broadcastedAt) return;
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    await database.collection(globalAppStateEvents).updateOne(
-      { ip: message.ip, type: APP_STATE_EVENT_TYPES.APPREMOVED, dedupKey: `appremoved:${message.appName}` },
-      buildConditionalUpsert(message.broadcastedAt, {
-        ip: message.ip, type: APP_STATE_EVENT_TYPES.APPREMOVED, dedupKey: `appremoved:${message.appName}`,
-        broadcastedAt: new Date(message.broadcastedAt),
-        expireAt: new Date(message.broadcastedAt + RUNNING_EXPIRY_MS),
-        envelope, data: message,
-      }, { alwaysSetFields: { receivedAt: new Date() } }),
-      { upsert: true },
-    );
-  } catch (err) {
-    log.error(`storeAppStateEvent(appremoved): ${err.message}`);
-  }
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  await database.collection(globalAppStateEvents).updateOne(
+    { ip: message.ip, type: APP_STATE_EVENT_TYPES.APPREMOVED, dedupKey: `appremoved:${message.appName}` },
+    buildConditionalUpsert(message.broadcastedAt, {
+      ip: message.ip, type: APP_STATE_EVENT_TYPES.APPREMOVED, dedupKey: `appremoved:${message.appName}`,
+      broadcastedAt: new Date(message.broadcastedAt),
+      expireAt: new Date(message.broadcastedAt + RUNNING_EXPIRY_MS),
+      envelope, data: message,
+    }, { alwaysSetFields: { receivedAt: new Date() } }),
+    { upsert: true },
+  );
 }
 
 /**
@@ -984,20 +971,16 @@ function evictionTime(evictedAt) {
 async function handleEvictedEvent({ ip, evictedAt }) {
   if (!ip) return;
   const at = evictionTime(evictedAt);
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    await database.collection(globalAppStateEvents).updateOne(
-      { ip, type: APP_STATE_EVENT_TYPES.EVICTED, dedupKey: 'evicted' },
-      {
-        $set: { receivedAt: new Date() },
-        $max: { createdAt: new Date(at), expireAt: new Date(at + EVICTED_EXPIRY_MS) },
-      },
-      { upsert: true },
-    );
-  } catch (err) {
-    log.error(`storeAppStateEvent(evicted): ${err.message}`);
-  }
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  await database.collection(globalAppStateEvents).updateOne(
+    { ip, type: APP_STATE_EVENT_TYPES.EVICTED, dedupKey: 'evicted' },
+    {
+      $set: { receivedAt: new Date() },
+      $max: { createdAt: new Date(at), expireAt: new Date(at + EVICTED_EXPIRY_MS) },
+    },
+    { upsert: true },
+  );
 }
 
 /**
@@ -1027,22 +1010,18 @@ async function applyEviction(ip, evictedAt) {
 
 async function handleIPChangedEvent({ message, envelope }) {
   if (!message || !message.oldIP || !message.newIP || !message.broadcastedAt) return;
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    await database.collection(globalAppStateEvents).updateOne(
-      { ip: message.oldIP, type: APP_STATE_EVENT_TYPES.IPCHANGED, dedupKey: 'ipchanged' },
-      buildConditionalUpsert(message.broadcastedAt, {
-        ip: message.oldIP, type: APP_STATE_EVENT_TYPES.IPCHANGED, dedupKey: 'ipchanged',
-        broadcastedAt: new Date(message.broadcastedAt),
-        expireAt: new Date(message.broadcastedAt + RUNNING_EXPIRY_MS),
-        data: message, envelope: envelope ?? null,
-      }, { alwaysSetFields: { receivedAt: new Date() } }),
-      { upsert: true },
-    );
-  } catch (err) {
-    log.error(`storeAppStateEvent(ipchanged): ${err.message}`);
-  }
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  await database.collection(globalAppStateEvents).updateOne(
+    { ip: message.oldIP, type: APP_STATE_EVENT_TYPES.IPCHANGED, dedupKey: 'ipchanged' },
+    buildConditionalUpsert(message.broadcastedAt, {
+      ip: message.oldIP, type: APP_STATE_EVENT_TYPES.IPCHANGED, dedupKey: 'ipchanged',
+      broadcastedAt: new Date(message.broadcastedAt),
+      expireAt: new Date(message.broadcastedAt + RUNNING_EXPIRY_MS),
+      data: message, envelope: envelope ?? null,
+    }, { alwaysSetFields: { receivedAt: new Date() } }),
+    { upsert: true },
+  );
 }
 
 function storeAppStateEvent(type, payload) {
@@ -1087,12 +1066,16 @@ async function storeBatchAppRunningEvents(verifiedBroadcasts) {
 
   }
 
+  let writeFailed = false;
   if (ops.length > 0) {
     await database.collection(globalAppStateEvents).bulkWrite(ops, { ordered: false })
-      .catch((err) => log.error(`storeBatchAppRunningEvents: ${err.message}`));
+      .catch((err) => {
+        writeFailed = true;
+        log.error(`storeBatchAppRunningEvents: ${err.message}`);
+      });
   }
 
-  return { stored: ops.length };
+  return { stored: ops.length, writeFailed };
 }
 
 function storeSignedAppInstallingBroadcast(signedBroadcast) {
@@ -1116,11 +1099,16 @@ function storeSignedAppInstallingBroadcast(signedBroadcast) {
     { 'data.name': data.name, 'data.ip': data.ip },
     { $set: doc },
     { upsert: true },
-  ).catch((err) => log.error(`storeSignedAppInstallingBroadcast: ${err.message}`));
+  );
 }
 
 async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
-  if (verifiedBroadcasts.length === 0) return { stored: 0 };
+  if (verifiedBroadcasts.length === 0) return { stored: 0, writeFailed: false };
+  let writeFailed = false;
+  const failed = (what, err) => {
+    writeFailed = true;
+    log.error(`storeBatchAppInstallingMessages ${what}: ${err.message}`);
+  };
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
@@ -1189,17 +1177,17 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
 
   if (signedOps.length > 0) {
     await database.collection(appsInstallingBroadcasts).bulkWrite(signedOps, { ordered: false })
-      .catch((err) => log.error(`storeBatchAppInstallingMessages signed: ${err.message}`));
+      .catch((err) => failed('signed', err));
   }
   if (locationOps.length > 0) {
     await database.collection(globalAppsInstallingLocations).bulkWrite(locationOps, { ordered: false })
-      .catch((err) => log.error(`storeBatchAppInstallingMessages locations: ${err.message}`));
+      .catch((err) => failed('locations', err));
   }
   // after the claims, so a claim and its withdrawal arriving in one batch settle
   // in the order they were sent rather than the order they were read
   if (withdrawalOps.length > 0) {
     await database.collection(globalAppsInstallingLocations).bulkWrite(withdrawalOps, { ordered: false })
-      .catch((err) => log.error(`storeBatchAppInstallingMessages withdrawals: ${err.message}`));
+      .catch((err) => failed('withdrawals', err));
     await database.collection(appsInstallingBroadcasts).bulkWrite(
       // The location's own guard, carried over rather than restated: the
       // broadcast is what proves the location, so deleting one without the
@@ -1215,9 +1203,9 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
         },
       })),
       { ordered: false },
-    ).catch((err) => log.error(`storeBatchAppInstallingMessages withdrawal broadcasts: ${err.message}`));
+    ).catch((err) => failed('withdrawal broadcasts', err));
   }
-  return { stored: signedOps.length + withdrawalOps.length };
+  return { stored: signedOps.length + withdrawalOps.length, writeFailed };
 }
 
 function storeSignedAppInstallingErrorBroadcast(signedBroadcast) {
@@ -1241,11 +1229,16 @@ function storeSignedAppInstallingErrorBroadcast(signedBroadcast) {
     { 'data.name': data.name, 'data.hash': data.hash, 'data.ip': data.ip },
     { $set: doc },
     { upsert: true },
-  ).catch((err) => log.error(`storeSignedAppInstallingErrorBroadcast: ${err.message}`));
+  );
 }
 
 async function storeBatchAppInstallingErrorMessages(verifiedBroadcasts) {
-  if (verifiedBroadcasts.length === 0) return { stored: 0 };
+  if (verifiedBroadcasts.length === 0) return { stored: 0, writeFailed: false };
+  let writeFailed = false;
+  const failed = (what, err) => {
+    writeFailed = true;
+    log.error(`storeBatchAppInstallingErrorMessages ${what}: ${err.message}`);
+  };
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
@@ -1298,13 +1291,13 @@ async function storeBatchAppInstallingErrorMessages(verifiedBroadcasts) {
 
   if (signedOps.length > 0) {
     await database.collection(globalAppsInstallingErrorsBroadcasts).bulkWrite(signedOps, { ordered: false })
-      .catch((err) => log.error(`storeBatchAppInstallingErrorMessages signed: ${err.message}`));
+      .catch((err) => failed('signed', err));
   }
   if (locationOps.length > 0) {
     await database.collection(globalAppsInstallingErrorsLocations).bulkWrite(locationOps, { ordered: false })
-      .catch((err) => log.error(`storeBatchAppInstallingErrorMessages locations: ${err.message}`));
+      .catch((err) => failed('locations', err));
   }
-  return { stored: signedOps.length };
+  return { stored: signedOps.length, writeFailed };
 }
 
 module.exports = {

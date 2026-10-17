@@ -595,7 +595,7 @@ describe('appUninstaller tests', () => {
     // and unforced paths alike.
     let runtimeStateStub;
 
-    function buildUninstaller(spec, constantOverrides = {}) {
+    function buildUninstaller(spec, constantOverrides = {}, dbOverrides = {}) {
       runtimeStateStub = { remove: sinon.stub().resolves(), removeControllerState: sinon.stub().resolves() };
       // The REAL departing tracker, taken fresh per test rather than
       // reimplemented here: a fake that counts differently from the module
@@ -635,6 +635,7 @@ describe('appUninstaller tests', () => {
           findOneInDatabase: sinon.stub().resolves(spec),
           findInDatabase: sinon.stub().resolves([]),
           findOneAndDeleteInDatabase: sinon.stub().resolves(),
+          ...dbOverrides,
         },
         '../dockerService': {
           appDockerKill: sinon.stub().resolves(),
@@ -720,6 +721,61 @@ describe('appUninstaller tests', () => {
     };
 
     const res = null; // exercised without a response stream
+
+    describe('a cleanup step that fails after the containers are gone', () => {
+      let clock;
+
+      afterEach(() => {
+        clock?.restore();
+        clock = undefined;
+      });
+
+      it('holds the app as departing until its row is deleted, retrying the delete', async () => {
+        const deleteRow = sinon.stub();
+        deleteRow.onFirstCall().rejects(new Error('connection timed out'));
+        deleteRow.resolves();
+        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
+        clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+
+        await uninstaller.removeAppLocally('testapp', res, true);
+
+        expect(globalStateStub.departingApps.has('testapp'), 'a row that outlived its containers is left for the reconciler').to.be.true;
+        await clock.tickAsync(30 * 1000);
+        sinon.assert.calledTwice(deleteRow);
+        expect(globalStateStub.departingApps.has('testapp')).to.be.false;
+      });
+
+      it('holds the app as departing until its runtime state is removed, retrying the removal', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        runtimeStateStub.remove.onFirstCall().rejects(new Error('connection timed out'));
+        clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+
+        await uninstaller.removeAppLocally('testapp', res, true);
+
+        expect(globalStateStub.departingApps.has('testapp')).to.be.true;
+        await clock.tickAsync(30 * 1000);
+        sinon.assert.calledTwice(runtimeStateStub.remove);
+        expect(globalStateStub.departingApps.has('testapp')).to.be.false;
+      });
+    });
+
+    it('takes a forced removal\'s spec from the app\'s newest stored message, read by its name', async () => {
+      const messages = sinon.stub().resolves([{ height: 900, appSpecifications: v2Spec }]);
+      const uninstaller = buildUninstaller(null, {}, { findInDatabase: messages });
+      const onRemoved = sinon.stub();
+      uninstaller.setOnComponentRemoved(onRemoved);
+
+      await uninstaller.removeAppLocally('testapp', res, true);
+
+      sinon.assert.calledWithExactly(
+        messages,
+        sinon.match.any,
+        'appsMessages',
+        { 'appSpecifications.name': 'testapp' },
+        { projection: { _id: 0 }, sort: { height: -1, timestamp: -1 }, limit: 1 },
+      );
+      sinon.assert.calledOnceWithExactly(onRemoved, 'testapp');
+    });
 
     it('notifies the seam with the bare name for a v1-3 app', async () => {
       const uninstaller = buildUninstaller(v2Spec);

@@ -160,12 +160,12 @@ describe('appStartupManager tests', () => {
       expect(result).to.equal(true);
     });
 
-    it('should return true on database error (fail-safe)', async () => {
+    it('answers unknown when the records cannot be read, neither valid nor expired', async () => {
       dbHelperStub.findInDatabase.rejects(new Error('DB connection lost'));
 
       const result = await appUtilities.appHasValidLocationOnNode('myApp', '10.0.0.1:16127');
 
-      expect(result).to.equal(true);
+      expect(result).to.equal(null);
     });
 
     it('should query with correct app name and IP', async () => {
@@ -332,19 +332,20 @@ describe('appStartupManager tests', () => {
       expect(results.appsFailed[0].error).to.equal('Remove failed');
     });
 
-    it('should still start app when location DB check errors (fail-safe)', async () => {
+    it('neither starts nor removes an app whose location record cannot be read', async () => {
+      // Started, an app whose location expired runs beside the instance placed in
+      // its stead; removed, a valid one is lost. The reconciler decides it later.
       dockerServiceStub.dockerListContainers.resolves([
         { Names: ['/fluxAppA'], State: 'exited' },
       ]);
       dbHelperStub.findInDatabase.onFirstCall().resolves([{ name: 'AppA' }]);
-
-      // Location check throws error - appHasValidLocationOnNode returns true (fail-safe)
       dbHelperStub.findInDatabase.onSecondCall().rejects(new Error('DB error'));
 
       const results = await appStartupManager.reconcileAppsOnBoot();
 
-      expect(results.appsStarted).to.deep.equal(['AppA']);
+      expect(results.appsStarted).to.deep.equal([]);
       expect(results.appsRemoved).to.deep.equal([]);
+      expect(results.appsFailed.map((failure) => failure.app)).to.deep.equal(['AppA']);
     });
 
     it('should check location after g: syncthing check', async () => {
@@ -513,6 +514,20 @@ describe('appStartupManager tests', () => {
 
       expect(globalStateStub.waitForDbReady.calledOnce).to.be.true;
       expect(appUninstallerStub.removeAppLocally.called).to.be.false;
+    });
+
+    it('removes nothing wholesale when the boot context could not be read', async () => {
+      const bootContext = {
+        unreadable: true, machineRebooted: true, downtimeMs: null, cleanShutdown: false, firstBoot: false,
+      };
+      appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'app1' }] });
+      dockerServiceStub.dockerListContainers.resolves([]);
+      dbHelperStub.findInDatabase.resolves([]);
+
+      await appStartupManager.manageAppsOnBoot(bootContext);
+
+      expect(appUninstallerStub.removeAppLocally.called, 'every app was removed on an unread downtime').to.be.false;
+      expect(globalStateStub.waitForDbReady.calledOnce, 'the apps are reconciled one by one instead').to.be.true;
     });
 
     it('should remove all apps when clean shutdown and downtime > SIGTERM_EXPIRY', async () => {

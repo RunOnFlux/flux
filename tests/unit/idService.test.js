@@ -668,6 +668,7 @@ describe('idService tests', () => {
         loginPhrase: `${timestamp - 10000}11111111111111111111111111111`,
       });
       sinon.stub(dbHelper, 'insertOneToDatabase').resolves(true);
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves({ loginPhrase: 'removed' });
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       const req = {
@@ -696,12 +697,44 @@ describe('idService tests', () => {
       sinon.assert.calledOnceWithMatch(res.json, expectedError);
     });
 
+    const loginWithPhrase = async (removed) => {
+      bitcoinMessageStub.returns(true);
+      const timestamp = Date.now();
+      const message = `${timestamp - 300000}11111111111111111111111111111`;
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves({ loginPhrase: message });
+      const insertStub = sinon.stub(dbHelper, 'insertOneToDatabase').resolves(true);
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').callsFake(removed);
+      await dbHelper.initiateDB();
+      const mockStream = new PassThrough();
+      mockStream.push(JSON.stringify({ zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg', signature: '1234356asdf', message }));
+      mockStream.end();
+      const res = generateResponse();
+      await idService.verifyLogin(mockStream, res);
+      await serviceHelper.delay(100);
+      return { res, insertStub };
+    };
+
+    it('writes no login when its phrase cannot be removed', async () => {
+      const { res, insertStub } = await loginWithPhrase(async () => { throw new Error('connection timed out'); });
+
+      sinon.assert.notCalled(insertStub);
+      sinon.assert.calledOnceWithMatch(res.json, { status: 'error' });
+    });
+
+    it('writes no login when another request removed its phrase first', async () => {
+      const { res, insertStub } = await loginWithPhrase(async () => null);
+
+      sinon.assert.notCalled(insertStub);
+      sinon.assert.calledOnceWithMatch(res.json, { status: 'error', data: { message: 'Signed message is no longer valid. Please request a new one.' } });
+    });
+
     it('should keep the signature off the login, in its own collection, written first and with no timer', async () => {
       const clock = sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
       bitcoinMessageStub.returns(true);
       const timestamp = Date.now();
       const message = `${timestamp - 300000}11111111111111111111111111111`;
       sinon.stub(dbHelper, 'findOneInDatabase').resolves({ loginPhrase: message });
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves({ loginPhrase: message });
       const insertStub = sinon.stub(dbHelper, 'insertOneToDatabase').resolves(true);
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();

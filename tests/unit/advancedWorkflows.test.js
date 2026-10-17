@@ -13,6 +13,7 @@ const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileg
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
+const { MongoNetworkTimeoutError } = require('mongodb');
 const log = require('../../ZelBack/src/lib/log');
 const https = require('https');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
@@ -30,6 +31,10 @@ const registryManager = require('../../ZelBack/src/services/appDatabase/registry
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
 const volumeService = require('../../ZelBack/src/services/utils/volumeService');
 const dockerServiceModule = require('../../ZelBack/src/services/dockerService');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
 
 // The operator stop lock as appsRuntimeState.operatorStopState answers it.
 const UNLOCKED = { stopped: false, startRequested: false, force: false };
@@ -96,6 +101,21 @@ describe('advancedWorkflows tests', () => {
 
       expect(result).to.equal(InstallOutcome.DECLINED);
       expect(globalState.installationInProgress, 'the node is left holding an install that never began').to.be.false;
+    });
+
+    it('stops without tearing anything down when the database does not answer', async () => {
+      // eslint-disable-next-line global-require
+      const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').rejects(new MongoNetworkTimeoutError('connection timed out'));
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      const result = await advancedWorkflows.softRegisterAppLocally({ name: 'testapp', version: 3 }, false, makeRes());
+
+      expect(result).to.equal(InstallOutcome.DEFERRED);
+      expect(removeAppLocally.called, 'a soft registration destroyed the data it exists to keep').to.be.false;
+      expect(globalState.installationInProgress).to.be.false;
     });
 
     it('does not release a hold it never took', async () => {
@@ -297,6 +317,83 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
+  describe('forceAppRemovals', () => {
+    let remove;
+
+    beforeEach(() => {
+      resetGlobalState();
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('203.0.113.60:16127');
+      sinon.stub(appQueryService, 'listAllApps').resolves({ status: 'success', data: [{ Names: ['/fluxweb_orphanapp'] }] });
+      sinon.stub(appQueryService, 'installedApps').resolves({ status: 'success', data: [] });
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(registryManager, 'getApplicationGlobalSpecifications').resolves({ name: 'orphanapp' });
+      sinon.stub(serviceHelper, 'delay').resolves();
+      remove = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+    });
+
+    afterEach(() => sinon.restore());
+
+    it('broadcasts the removal of an orphan whose location cannot be read', async () => {
+      sinon.stub(dbHelper, 'findOneInDatabase').rejects(new MongoNetworkTimeoutError('timed out'));
+
+      await advancedWorkflows.forceAppRemovals();
+
+      sinon.assert.calledOnceWithExactly(remove, 'orphanapp', null, true, true, true);
+    });
+
+    it('does not broadcast the removal of an orphan this node is not listed for', async () => {
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+
+      await advancedWorkflows.forceAppRemovals();
+
+      sinon.assert.calledOnceWithExactly(remove, 'orphanapp', null, true, true, false);
+    });
+
+    it('removes nothing when the installed apps cannot be read', async () => {
+      appQueryService.installedApps.resolves({ status: 'error', data: { message: 'timed out' } });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+      const warned = sinon.stub(log, 'warn');
+
+      await advancedWorkflows.forceAppRemovals();
+
+      sinon.assert.notCalled(remove);
+      sinon.assert.calledWithMatch(warned, /Unable to read the apps docker runs and the installed apps/);
+    });
+
+    it('removes nothing when the apps docker runs cannot be read', async () => {
+      appQueryService.listAllApps.resolves({ status: 'error', data: { message: 'docker did not answer' } });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+      const warned = sinon.stub(log, 'warn');
+
+      await advancedWorkflows.forceAppRemovals();
+
+      sinon.assert.notCalled(remove);
+      sinon.assert.calledWithMatch(warned, /Unable to read the apps docker runs and the installed apps/);
+    });
+  });
+
+  describe('checkAndRemoveEnterpriseAppsOnNonArcane', () => {
+    afterEach(() => sinon.restore());
+
+    it('runs again once the registry it could not read answers, and not after', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findInDatabase').resolves([{ name: 'enterpriseCandidate' }]);
+      const registryRead = sinon.stub(dbHelper, 'findOneInDatabase');
+      registryRead.onFirstCall().rejects(new MongoNetworkTimeoutError('timed out'));
+      registryRead.resolves({ name: 'enterpriseCandidate', version: 7 });
+
+      await advancedWorkflows.checkAndRemoveEnterpriseAppsOnNonArcane();
+      sinon.assert.calledOnce(registryRead);
+
+      await clock.tickAsync(5 * 60 * 1000);
+      sinon.assert.calledTwice(registryRead);
+
+      await clock.tickAsync(60 * 60 * 1000);
+      sinon.assert.calledTwice(registryRead);
+    });
+  });
+
   describe('softRedeployComponent tests', () => {
     let globalState;
     let res;
@@ -321,6 +418,17 @@ describe('advancedWorkflows tests', () => {
     // whatever its last test set standing for the rest of the file.
     afterEach(() => {
       resetGlobalState();
+    });
+
+    it('answers the database error, not "not found", when the registry cannot be read, and clears its flag', async () => {
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').rejects(new MongoNetworkTimeoutError('timed out'));
+
+      const error = await advancedWorkflows.softRedeployComponent('myapp', 'frontend', res).catch((caught) => caught);
+
+      expect(error).to.be.instanceOf(MongoNetworkTimeoutError);
+      expect(globalState.softRedeployInProgress).to.equal(false);
+      sinon.restore();
     });
 
     it('should return early if removal is in progress', async () => {
@@ -583,8 +691,63 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
-  // Note: masterSlaveApps is a recursive function that continuously runs in production.
-  // These tests use a counter to prevent infinite recursion after the first iteration.
+  describe('startMasterSlaveApps tests', () => {
+    const intervalMs = config.fluxapps.masterSlaveIntervalMs;
+    // A pass on a node that is installing returns at the top, so each one is a
+    // single count of masterSlave:cycles and nothing else.
+    const installingNode = () => ({ installationInProgress: true });
+    const noApps = () => sinon.stub().resolves({ status: 'success', data: [] });
+    let clock;
+    let cycles;
+    let loop;
+
+    beforeEach(() => {
+      clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      cycles = sinon.spy(fluxEventBus, 'count').withArgs('masterSlave:cycles');
+    });
+
+    afterEach(() => {
+      loop?.stop();
+      loop = null;
+    });
+
+    it('runs a pass at once, and the next one the interval after it ends', async () => {
+      loop = advancedWorkflows.startMasterSlaveApps(installingNode(), noApps(), noApps(), https);
+      await clock.tickAsync(0);
+      expect(cycles.callCount).to.equal(1);
+
+      await clock.tickAsync(intervalMs - 1);
+      expect(cycles.callCount).to.equal(1);
+      await clock.tickAsync(1);
+      expect(cycles.callCount).to.equal(2);
+      await clock.tickAsync(intervalMs);
+      expect(cycles.callCount).to.equal(3);
+    });
+
+    it('runs no further pass once stopped', async () => {
+      loop = advancedWorkflows.startMasterSlaveApps(installingNode(), noApps(), noApps(), https);
+      await clock.tickAsync(0);
+      loop.stop();
+
+      await clock.tickAsync(intervalMs * 3);
+      expect(cycles.callCount).to.equal(1);
+    });
+
+    it('keeps running passes after one throws', async () => {
+      fluxEventBus.count.restore();
+      const count = sinon.stub(fluxEventBus, 'count');
+      count.withArgs('masterSlave:cycles').onFirstCall().throws(new Error('count failed'));
+      const logError = sinon.stub(log, 'error');
+
+      loop = advancedWorkflows.startMasterSlaveApps(installingNode(), noApps(), noApps(), https);
+      await clock.tickAsync(0);
+      expect(logError.calledWithMatch('count failed'), 'the first pass never threw, so this proves nothing').to.equal(true);
+
+      await clock.tickAsync(intervalMs);
+      expect(count.withArgs('masterSlave:cycles').callCount).to.equal(2);
+    });
+  });
+
   describe('masterSlaveApps tests', () => {
     let globalState;
     let serviceHelperStub;
@@ -601,7 +764,6 @@ describe('advancedWorkflows tests', () => {
     let syncthingStatusStub;
     let syncthingDevicesStub;
     let axiosGetStub;
-    let recursionCounter;
 
     // What FDM sends when it IS answering and this app simply has no primary
     // yet: a success body carrying an empty ips array. test-infra/fdm-stub
@@ -611,7 +773,6 @@ describe('advancedWorkflows tests', () => {
     const fdmNoPrimary = () => ({ data: { status: 'success', data: { ips: [] } } });
 
     beforeEach(() => {
-      recursionCounter = 0;
       // every app directory has its volume mounted unless a test says otherwise
       sinon.stub(volumeService, 'isPathMounted').resolves(true);
       globalState = require('../../ZelBack/src/services/utils/globalState');
@@ -641,15 +802,8 @@ describe('advancedWorkflows tests', () => {
         verdict: peerIdentityService.IdentityVerdict.UNVERIFIABLE, status: 404, data: null, mayReadUnsigned: true,
       });
 
-      // Stub delay to prevent recursive calls - after first call, block recursion
-      serviceHelperDelayStub = sinon.stub(serviceHelper, 'delay').callsFake(async () => {
-        recursionCounter += 1;
-        if (recursionCounter > 1) {
-          // Prevent recursion by returning a promise that never resolves
-          return new Promise(() => {});
-        }
-        return Promise.resolve();
-      });
+      // a wait inside a pass ends at once unless a test says otherwise
+      serviceHelperDelayStub = sinon.stub(serviceHelper, 'delay').resolves();
 
       const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
       fluxNetworkHelperStub = sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress');
@@ -889,25 +1043,7 @@ describe('advancedWorkflows tests', () => {
         data: [{ path: `/root/.flux/ZelApps/${appId}`, type: 'sendreceive' }],
       });
 
-      // masterSlaveApps re-invokes itself from its own finally, so a single call
-      // otherwise executes the election twice and every count assertion doubles.
-      // Let exactly one full pass run: the first delay resolves but arms the
-      // installation gate so the recursive pass returns at the top, and the second
-      // delay never resolves so the chain stops there.
-      let delayCalls = 0;
-      serviceHelperDelayStub.resetBehavior();
-      serviceHelperDelayStub.callsFake(async () => {
-        delayCalls += 1;
-        if (delayCalls === 1) {
-          globalState.installationInProgress = true;
-          return undefined;
-        }
-        return new Promise(() => {});
-      });
-
       return async () => {
-        delayCalls = 0;
-        globalState.installationInProgress = false;
         await advancedWorkflows.masterSlaveApps(
           globalState, installedApps, listRunningApps, https,
         );
@@ -1060,6 +1196,18 @@ describe('advancedWorkflows tests', () => {
       // affordable at election cadence
       await runPass();
       expect(linesMatching(logInfo, 'operator-stopped')).to.have.lengthOf(1);
+    });
+
+    it('excludes a component whose stop lock cannot be read, and elects nothing for it', async () => {
+      const appName = 'unreadlockapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').rejects(new Error('connection timed out'));
+      const logWarn = sinon.stub(log, 'warn');
+      const runPass = electionFixture(appName);
+
+      await runPass();
+
+      expect(serviceHelperStub.called, 'the election went on to FDM with an unread lock').to.be.false;
+      expect(linesMatching(logWarn, 'stop lock could not be read')).to.have.lengthOf(1);
     });
 
     it('announces again after the operator lock is lifted and re-applied', async () => {
@@ -2467,7 +2615,6 @@ describe('advancedWorkflows tests', () => {
     // back within it keeps what it holds.
     it('will not start beside a silent peer that announced a shutdown and has not passed its expiry', async () => {
       const appName = 'rebootingpeerapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -2497,7 +2644,6 @@ describe('advancedWorkflows tests', () => {
 
     it('will not start beside a silent peer when this node cannot read which nodes announced a shutdown', async () => {
       const appName = 'shutdownsunreadableapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -2555,7 +2701,6 @@ describe('advancedWorkflows tests', () => {
     // resumes them. The closed connection is this node's doing, not the peer's.
     it('will not start beside a silent peer whose device this node\'s syncthing has paused', async () => {
       const appName = 'pausedpeerapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -2572,7 +2717,6 @@ describe('advancedWorkflows tests', () => {
     // that closed before it started says nothing about the peer now.
     it('will not start beside a silent peer whose connection closed before this node\'s syncthing started', async () => {
       const appName = 'restartedsyncthingapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -2589,7 +2733,6 @@ describe('advancedWorkflows tests', () => {
     // as the previous syncthing stopped reads the same second as this one's start.
     it('will not start beside a silent peer whose connection closed in the second this node\'s syncthing started', async () => {
       const appName = 'samesecondapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -2700,7 +2843,6 @@ describe('advancedWorkflows tests', () => {
 
     it('will not start beside a silent peer when this node cannot read when its syncthing started', async () => {
       const appName = 'statusunreadableapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -2715,7 +2857,6 @@ describe('advancedWorkflows tests', () => {
 
     it('will not start beside a silent peer when this node cannot read whether its syncthing paused it', async () => {
       const appName = 'devicesunreadableapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -3051,7 +3192,6 @@ describe('advancedWorkflows tests', () => {
     // the node it names may not be the one running it.
     it('lets a standby\'s paused folder ask every other holder, not only the node FDM names', async () => {
       const appName = 'fdmholderapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       sinon.stub(log, 'info');
       const hold = sinon.stub(primaryRole, 'holdAsStandby').resolves();
       const runPass = electionFixture(appName, ['192.168.1.90:16137', '192.168.1.91:16127']);
@@ -3573,19 +3713,7 @@ describe('advancedWorkflows tests', () => {
         ],
       });
 
-      let delayCalls = 0;
-      serviceHelperDelayStub.resetBehavior();
-      serviceHelperDelayStub.callsFake(async () => {
-        delayCalls += 1;
-        if (delayCalls === 1) {
-          globalState.installationInProgress = true;
-          return undefined;
-        }
-        return new Promise(() => {});
-      });
       const runPass = async () => {
-        delayCalls = 0;
-        globalState.installationInProgress = false;
         await advancedWorkflows.masterSlaveApps(
           globalState, installedApps, listRunningApps, https,
         );
@@ -6297,6 +6425,19 @@ describe('advancedWorkflows tests', () => {
       expect(globalState.softRedeployInProgress).to.be.false;
     });
 
+    it('leaves the app down with its data when the step after the removal cannot read the database', async () => {
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(v3Spec);
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves();
+      sinon.stub(appUninstaller, 'softUninstallApplication').resolves();
+      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new MongoNetworkTimeoutError('connection timed out'));
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      await advancedWorkflows.softRedeploy(v3Spec, null);
+
+      expect(removeAppLocally.called, 'the app was uninstalled because the database did not answer').to.be.false;
+      expect(globalState.softRedeployInProgress).to.be.false;
+    });
+
     it('records that a failure after the app is down still force-uninstalls it', async () => {
       // Pins CURRENT behaviour, not desired behaviour. The gate covers a removal
       // that never finished; past that point a failure still force-uninstalls
@@ -6725,6 +6866,28 @@ describe('advancedWorkflows tests', () => {
       expect(res.writesAfterEnd).to.be.empty;
     });
 
+    it('does not uninstall the app when the step after a soft component removal cannot read the database', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new MongoNetworkTimeoutError('connection timed out'));
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      expect(res.writesAfterEnd).to.be.empty;
+    });
+
+    it('does not uninstall the app when the step after a hard component removal cannot read the database', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new MongoNetworkTimeoutError('connection timed out'));
+      sinon.stub(appUninstaller, 'hardUninstallComponent').resolves();
+      req.params.force = 'true';
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      expect(res.writesAfterEnd).to.be.empty;
+    });
+
     // The gate must not be shut. A teardown that COMPLETED and a failure after it
     // is the case the forced uninstall exists for, and a suite that proved only
     // the refusals would pass with the fallback deleted altogether.
@@ -6898,6 +7061,26 @@ describe('advancedWorkflows tests', () => {
         requestComplianceSweep.called,
         'a redeployed application was swept for as though nothing had judged it',
       ).to.be.false;
+    });
+
+    it('does not uninstall an app whose redeploy stops on a database that does not answer', async () => {
+      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').rejects(new MongoNetworkTimeoutError('connection timed out'));
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(removeAppLocally.called, 'an app was uninstalled with its data because the database did not answer').to.be.false;
+    });
+
+    it('a canary: a redeploy that fails for another reason still uninstalls the app', async () => {
+      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').rejects(new Error('Insufficient RAM'));
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      sinon.assert.calledOnce(removeAppLocally);
     });
 
     it('declines a second pass that starts before the first has announced itself', async () => {
@@ -8088,6 +8271,16 @@ describe('a redeploy asks what it may rebuild before it takes anything down', ()
       await advancedWorkflows.hardRedeploy({ version: 4, name: 'plainapp', nodes: [] }, res);
 
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      expect(globalState.hardRedeployInProgress).to.be.false;
+    });
+
+    it('hardRedeploy leaves a running app alone when it fails before the teardown', async () => {
+      sinon.stub(globalState, 'operationHolding').throws(new Error('connection timed out'));
+
+      await advancedWorkflows.hardRedeploy({ version: 4, name: 'plainapp', nodes: [] }, res);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      expect(res.write.lastCall.args[0]).to.match(/before the app was taken down/);
       expect(globalState.hardRedeployInProgress).to.be.false;
     });
 

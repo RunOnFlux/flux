@@ -47,16 +47,32 @@ async function removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, reason)
   }
 }
 
+/**
+ * Removal started from a listener: nothing awaits it, so its failure is logged
+ * here. The periodic monitor tries again on its next pass.
+ * @param {Function} installedAppsFn
+ * @param {Function} removeAppLocallyFn
+ * @param {string} reason
+ * @returns {Promise<void>}
+ */
+async function removeAllAppsOnSignal(installedAppsFn, removeAppLocallyFn, reason) {
+  try {
+    await removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, reason);
+  } catch (error) {
+    log.error(`monitorNodeStatus - app removal (${reason}) failed: ${error.message}`);
+  }
+}
+
 function initialize(installedAppsFn, removeAppLocallyFn) {
   nodeConfirmationService.onConfirmationChange((confirmed) => {
     if (!confirmed) {
       log.info('monitorNodeStatus - Confirmation lost, triggering immediate app removal');
-      removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, 'node lost confirmation');
+      removeAllAppsOnSignal(installedAppsFn, removeAppLocallyFn, 'node lost confirmation');
     }
   });
   nodeConfirmationService.onDaemonStale(() => {
     log.info('monitorNodeStatus - Daemon stale, triggering app removal');
-    removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, 'daemon unreachable');
+    removeAllAppsOnSignal(installedAppsFn, removeAppLocallyFn, 'daemon unreachable');
   });
 }
 

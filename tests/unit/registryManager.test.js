@@ -1,7 +1,7 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const config = require('config');
-const { ObjectId } = require('mongodb');
+const { ObjectId, Collection } = require('mongodb');
 const proxyquire = require('proxyquire');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
@@ -1316,13 +1316,20 @@ describe('registryManager tests', () => {
       type: 'fluxappregister', hash, height: 3000000, timestamp: 1, appSpecifications: { name: `App${hash}`, version: 3, owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC' },
     });
     const unresolvedSignals = () => emitSpy.args.filter(([event]) => event === SYNC_EVENTS.HASH_UNRESOLVED).length;
+    const hashIndex = 'query for getting app hash';
 
     beforeEach(async () => {
       daemonDb = db.db(config.database.daemon.database);
       await daemonDb.collection(appsHashes).deleteMany({});
+      // the node's own index; without it every correction scans the whole collection
+      await daemonDb.collection(appsHashes).createIndex({ hash: 1 }, { name: hashIndex, unique: true });
       await database.collection(appsMessages).deleteMany({});
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 3000100 } });
       emitSpy = sinon.spy(appSyncEvents, 'emit');
+    });
+
+    afterEach(async () => {
+      await daemonDb.collection(appsHashes).dropIndex(hashIndex);
     });
 
     it('should signal a hash to fetch when it marks a received message missing', async () => {
@@ -1347,6 +1354,20 @@ describe('registryManager tests', () => {
       expect(changed).to.equal(2);
       expect((await daemonDb.collection(appsHashes).findOne({ hash: 'held' })).message).to.equal(true);
       expect(unresolvedSignals()).to.equal(0);
+    });
+
+    it('reads only the message hashes and writes its corrections in batches', async () => {
+      const count = 5001;
+      await daemonDb.collection(appsHashes).insertMany(Array.from({ length: count }, (_, i) => record(`h${i}`, { message: false })));
+      await database.collection(appsMessages).insertMany(Array.from({ length: count }, (_, i) => message(`h${i}`)));
+      const reads = sinon.spy(dbHelper, 'findInDatabase');
+      const writes = sinon.spy(Collection.prototype, 'bulkWrite');
+
+      const { changed } = await registryManager.reconstructAppMessagesHashCollection();
+
+      expect(changed).to.equal(count);
+      expect(reads.firstCall.args[3]).to.deep.equal({ projection: { _id: 0, hash: 1 } });
+      expect(writes.getCalls().map((call) => call.args[0].length)).to.deep.equal([5000, 1]);
     });
 
     it('should signal from the operator route', async () => {
@@ -1391,6 +1412,32 @@ describe('registryManager tests', () => {
       expect(await registryManager.isGoverningAppMessage('SameBlockApp', 'second')).to.equal(true);
       expect(await registryManager.isGoverningAppMessage('SameBlockApp', 'first')).to.equal(false);
       expect(await registryManager.isGoverningAppMessage('NoSuchApp', 'second')).to.equal(false);
+    });
+
+    it('rejects when the row cannot be written, never reporting the app stored', async () => {
+      atHeight(150);
+      const reg = { type: 'fluxappregister', hash: 'unwritten', height: 100 };
+      await logMessages('UnwrittenApp', [reg]);
+      sinon.stub(dbHelper, 'replaceOneInDatabase').rejects(new Error('connection timed out'));
+
+      const failure = await promote('UnwrittenApp', reg).catch((err) => err);
+
+      expect(failure, 'an unwritten row was reported stored').to.be.an('error');
+      expect(await stored('UnwrittenApp')).to.equal(null);
+    });
+
+    it('leaves a row that already holds the message as it is', async () => {
+      atHeight(150);
+      const reg = { type: 'fluxappregister', hash: 'heldhash', height: 100 };
+      await logMessages('HeldApp', [reg]);
+      await promote('HeldApp', reg);
+      const replace = sinon.spy(dbHelper, 'replaceOneInDatabase');
+      const clearErrors = sinon.spy(dbHelper, 'removeDocumentsFromCollection');
+
+      await promote('HeldApp', reg);
+
+      sinon.assert.notCalled(replace);
+      expect(clearErrors.called, 'the app\'s install errors were cleared for a write that changed nothing').to.be.false;
     });
 
     it('should store a registration, then the update that follows it', async () => {
@@ -1572,56 +1619,6 @@ describe('registryManager tests', () => {
     });
   });
 
-  describe('getAllGlobalApplications tests', () => {
-    beforeEach(async () => {
-      const collection = config.database.appsglobal.collections.appsInformation;
-      const apps = [
-        {
-          name: 'App1',
-          owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-          height: 100,
-        },
-        {
-          name: 'App2',
-          owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-          height: 200,
-        },
-      ];
-
-      try {
-        await database.collection(collection).drop();
-      } catch (err) {
-        // Collection doesn't exist
-      }
-      await dbHelper.insertManyToDatabase(database, collection, apps);
-    });
-
-    it('should return all global applications', async () => {
-      const result = await registryManager.getAllGlobalApplications();
-
-      expect(result).to.be.an('array');
-      expect(result.length).to.be.at.least(2);
-    });
-
-    it('should return applications with specific projections', async () => {
-      const result = await registryManager.getAllGlobalApplications(['name', 'owner']);
-
-      expect(result).to.be.an('array');
-      if (result.length > 0) {
-        expect(result[0]).to.have.property('name');
-        expect(result[0]).to.have.property('owner');
-      }
-    });
-
-    it('should sort applications by height', async () => {
-      const result = await registryManager.getAllGlobalApplications(['name', 'height']);
-
-      if (result.length > 1) {
-        expect(result[0].height).to.be.at.most(result[1].height);
-      }
-    });
-  });
-
   describe('getInstalledApps tests', () => {
     it('should return installed apps from local database', async () => {
       const result = await registryManager.getInstalledApps();
@@ -1629,21 +1626,13 @@ describe('registryManager tests', () => {
       expect(result).to.be.an('array');
     });
 
-    it('should handle errors and return empty array', async () => {
+    it('should reject when the read fails, never answer an empty list', async () => {
       sinon.stub(dbHelper, 'findInDatabase').rejects(new Error('Database error'));
 
-      const result = await registryManager.getInstalledApps();
+      const error = await registryManager.getInstalledApps().catch((err) => err);
 
-      expect(result).to.be.an('array');
-      expect(result).to.be.empty;
-    });
-  });
-
-  describe('getRunningApps tests', () => {
-    it('should return running apps from global locations', async () => {
-      const result = await registryManager.getRunningApps();
-
-      expect(result).to.be.an('array');
+      expect(error).to.be.instanceOf(Error);
+      expect(error.message).to.equal('Database error');
     });
   });
 

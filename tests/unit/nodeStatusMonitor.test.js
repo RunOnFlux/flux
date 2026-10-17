@@ -66,4 +66,52 @@ describe('nodeStatusMonitor tests', () => {
     // Note: This is a recursive monitoring function with complex business logic
     // Full testing would require integration tests or extensive mocking
   });
+
+  describe('initialize', () => {
+    let listeners;
+    let monitor;
+
+    beforeEach(() => {
+      listeners = {};
+      monitor = proxyquire('../../ZelBack/src/services/appMonitoring/nodeStatusMonitor', {
+        '../dbHelper': {},
+        '../serviceHelper': { delay: sinon.stub().resolves() },
+        '../fluxNetworkHelper': {},
+        '../fluxCommunicationUtils': {},
+        '../appMessaging/messageStore': {},
+        '../networkStateService': {},
+        '../nodeConfirmationService': {
+          onConfirmationChange: (cb) => { listeners.confirmation = cb; },
+          onDaemonStale: (cb) => { listeners.daemonStale = cb; },
+          canSendMessages: () => true,
+        },
+        '../../lib/log': logStub,
+      });
+    });
+
+    // Nothing awaits a listener's removal: a read that fails there is logged,
+    // never left to escape as an unhandled rejection that exits FluxOS.
+    it('logs a removal whose installed-apps read fails when confirmation is lost', async () => {
+      const installedAppsFn = sinon.stub().rejects(new Error('connection timed out'));
+      const removeAppLocallyFn = sinon.stub();
+      monitor.initialize(installedAppsFn, removeAppLocallyFn);
+
+      listeners.confirmation(false);
+      await new Promise((resolve) => { setImmediate(resolve); });
+
+      sinon.assert.calledOnce(installedAppsFn);
+      sinon.assert.notCalled(removeAppLocallyFn);
+      sinon.assert.calledWithMatch(logStub.error, /node lost confirmation\) failed: connection timed out/);
+    });
+
+    it('logs a removal whose installed-apps read fails when the daemon goes stale', async () => {
+      const installedAppsFn = sinon.stub().resolves({ status: 'error' });
+      monitor.initialize(installedAppsFn, sinon.stub());
+
+      listeners.daemonStale();
+      await new Promise((resolve) => { setImmediate(resolve); });
+
+      sinon.assert.calledWithMatch(logStub.error, /daemon unreachable\) failed/);
+    });
+  });
 });

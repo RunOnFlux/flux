@@ -1532,7 +1532,11 @@ async function getFluxInfo(req, res) {
       benchmark: {},
       flux: {},
       apps: {},
-      geolocation: await geolocationService.getNodeGeolocation(),
+      // null while this process knows no geolocation.
+      geolocation: await geolocationService.getNodeGeolocation().catch((error) => {
+        log.warn(`flux info - geolocation unreadable: ${error.message}`);
+        return null;
+      }),
     };
     const versionRes = await getFluxVersion();
     if (versionRes.status === 'error') {
@@ -1658,9 +1662,6 @@ async function getFluxInfo(req, res) {
     // at one exit and not the other is the shape it exists to avoid.
     info.apps.runningapps = appQueryService.publicContainerView(appsRunning.data);
     const appsResources = await resourceQueryService.appsResources();
-    if (appsResources.status === 'error') {
-      throw appsResources.data;
-    }
     // The same three numbers /apps/appsresources publishes. This endpoint embeds
     // them, and a field kept from one exit and not the other is the shape that
     // catches this file out.

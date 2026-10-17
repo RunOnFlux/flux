@@ -29,6 +29,13 @@ module.exports = {
   database: {
     url: database,
     port: 27017,
+    // How long one round trip, or the wait for a pooled connection, may take
+    // before the call fails. callTimeoutMs bounds every call on the main client:
+    // over four times the slowest healthy round trip seen on the fleet.
+    // maintenanceCallTimeoutMs bounds the client for the named long operations:
+    // index builds, the explorer restore's deletes and the registry rebuild.
+    callTimeoutMs: 60 * 1000,
+    maintenanceCallTimeoutMs: 15 * 60 * 1000,
     local: {
       database: 'zelfluxlocaltest',
       collections: {
@@ -39,6 +46,7 @@ module.exports = {
         geolocation: 'geolocation',
         policyDocuments: 'policydocuments', // last-known-good network policy documents, so an unreachable source does not drop enforcement
         benchmark: 'benchmark',
+        nodeStartupTracker: 'nodestartuptracker',
         ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
       },
     },
@@ -108,6 +116,7 @@ module.exports = {
   minimumNodeJsAllowedVersion: '20.8.0',
   minimumSyncthingAllowedVersion: '1.27.6',
   minimumDockerAllowedVersion: '28.1.1',
+  minimumMongoDbAllowedVersion: '6.0.27',
   fluxTeamFluxID: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
   fluxSupportTeamFluxID: ['16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP'],
   deterministicNodesStart: 558000,

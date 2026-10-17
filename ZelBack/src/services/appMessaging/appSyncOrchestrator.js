@@ -164,6 +164,10 @@ class AppSyncOrchestrator {
   #nextHashRetryHeight = 0;
   #lastBlockHeight = 0;
   #fluxVersion = null;
+
+  // Whether this version's once-per-upgrade hash retry reset has run, or was
+  // already recorded as run. The version marker is written only once it has.
+  #upgradeResetDone = false;
   #heartbeatInterval = null;
   #bootContext = null;
   #canSendMessages = false;
@@ -887,6 +891,10 @@ class AppSyncOrchestrator {
 
     this.#syncInProgress = true;
     try {
+      if (!this.#upgradeResetDone) {
+        await this.#checkVersionUpgrade();
+        await this.#writeVersionMarker();
+      }
       const result = await appHashSyncService.syncMissingHashes({ currentHeight: this.#lastBlockHeight });
       this.#nextHashRetryHeight = result.nextRetryHeight ?? (this.#lastBlockHeight + FALLBACK_RECHECK_BLOCKS);
       // A retry stores the messages it resolves without promoting them, so nothing else applies
@@ -914,7 +922,6 @@ class AppSyncOrchestrator {
       return;
     }
     log.info('AppSyncOrchestrator - Sync started');
-    await this.#checkVersionUpgrade();
     log.info('AppSyncOrchestrator - Starting initial hash sync');
     await this.#runHashSync();
     this.#checkReadiness();
@@ -930,13 +937,14 @@ class AppSyncOrchestrator {
         const resetCount = await appHashSyncService.resetHashSyncForUpgrade(this.#lastBlockHeight);
         log.info(`AppSyncOrchestrator - Version upgrade to ${this.#fluxVersion}, reset ${resetCount} hash sync entries`);
       }
+      this.#upgradeResetDone = true;
     } catch (error) {
       log.error(`AppSyncOrchestrator - Version upgrade check failed: ${error.message}`);
     }
   }
 
   async #writeVersionMarker() {
-    if (!this.#fluxVersion) return;
+    if (!this.#fluxVersion || !this.#upgradeResetDone) return;
     try {
       const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
@@ -956,6 +964,7 @@ class AppSyncOrchestrator {
     this.#syncInProgress = true;
     try {
       this.#hashSyncAttempts += 1;
+      if (!this.#upgradeResetDone) await this.#checkVersionUpgrade();
       const result = await appHashSyncService.syncMissingHashes({ currentHeight: this.#lastBlockHeight });
       if (result.missing > 0) {
         log.warn(`AppSyncOrchestrator - Hash sync has ${result.missing} unresolvable hashes, proceeding`);
@@ -1124,22 +1133,19 @@ class AppSyncOrchestrator {
       log.info(`Boot context: machineRebooted=${machineRebooted} downtime=${Math.round(downtimeMs / 1000)}s cleanShutdown=${cleanShutdown} firstBoot=${!heartbeat}`);
       return ctx;
     } catch (error) {
+      // Unread is neither a first boot nor a long absence: how long the node was down is
+      // unknown, so whether its locations expired is decided app by app.
       log.error(`Failed to read boot context: ${error.message}`);
-      return { machineRebooted: true, downtimeMs: Infinity, cleanShutdown: false, currentBootId: null, firstBoot: true };
-    }
-  }
-
-  async #clearShutdownReason() {
-    try {
-      const db = dbHelper.databaseConnection();
-      const database = db.db(config.database.local.database);
-      await dbHelper.findOneAndUpdateInDatabase(database, startupCollection, { _id: 'heartbeat' }, { $unset: { shutdownReason: '' } });
-    } catch (error) {
-      log.error(`Failed to clear shutdown reason: ${error.message}`);
+      return {
+        unreadable: true, machineRebooted: true, downtimeMs: null, cleanShutdown: false, currentBootId: null, firstBoot: false,
+      };
     }
   }
 
   #startHeartbeat() {
+    // The reason the previous process stopped is its own: cleared by the first heartbeat
+    // that lands, so a crash of this one never reads as that stop.
+    let shutdownReasonCleared = false;
     const writeHeartbeat = async () => {
       try {
         const db = dbHelper.databaseConnection();
@@ -1148,12 +1154,13 @@ class AppSyncOrchestrator {
         if (this.#bootContext?.currentBootId) {
           update.$set.machineBootId = this.#bootContext.currentBootId;
         }
+        if (!shutdownReasonCleared) update.$unset = { shutdownReason: '' };
         await dbHelper.findOneAndUpdateInDatabase(database, startupCollection, { _id: 'heartbeat' }, update, { upsert: true });
+        shutdownReasonCleared = true;
       } catch (error) {
         log.error(`Heartbeat write failed: ${error.message}`);
       }
     };
-    this.#clearShutdownReason();
     writeHeartbeat();
     this.#heartbeatInterval = setInterval(writeHeartbeat, config.system.heartbeatIntervalMs ?? 30000);
   }

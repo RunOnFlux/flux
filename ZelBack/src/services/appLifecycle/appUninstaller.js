@@ -57,6 +57,39 @@ function setOnComponentRemoved(callback) {
   onComponentRemoved = callback;
 }
 
+// Waits between attempts at a cleanup step of an uninstall that failed, the
+// last repeated until the step succeeds.
+const CLEANUP_RETRY_MS = [30 * 1000, 60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000];
+
+/**
+ * Runs a cleanup step of an uninstall whose containers are already gone, and
+ * retries it until it succeeds. While a step is outstanding the app is held as
+ * departing: the reconciler leaves it alone, so a row that outlived its
+ * containers is never rebuilt on an empty volume, and announcements leave it out.
+ * @param {string} appName The app the step cleans up after.
+ * @param {string} what What the step removes, for the log.
+ * @param {function(): Promise<void>} step
+ * @param {number} [attempt] Attempts already made.
+ * @returns {Promise<boolean>} Whether the step succeeded on this attempt.
+ */
+async function runCleanupStep(appName, what, step, attempt = 0) {
+  try {
+    await step();
+    if (attempt > 0) {
+      globalState.departingApps.leave(appName);
+      log.info(`${appName}: ${what} removed after ${attempt} failed attempt(s)`);
+    }
+    return true;
+  } catch (error) {
+    if (attempt === 0) globalState.departingApps.enter(appName);
+    const delay = CLEANUP_RETRY_MS[Math.min(attempt, CLEANUP_RETRY_MS.length - 1)];
+    log.error(`${appName}: ${what} could not be removed (${error.message}); held as departing, retrying in ${Math.round(delay / 1000)}s`);
+    const timer = setTimeout(runCleanupStep, delay, appName, what, step, attempt + 1);
+    if (timer.unref) timer.unref();
+    return false;
+  }
+}
+
 /**
  * Stop Syncthing app and clean up cache
  * @param {string} monitoredName - Monitored app name
@@ -920,21 +953,15 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         // get it from locally available Specifications
         const allApps = await availableApps();
         appSpecifications = allApps.find((a) => a.name === appName);
-        // get it from permanent messages
+        // get it from permanent messages: the app's newest, read through the
+        // index on name, height and timestamp
         if (!appSpecifications) {
-          const query = {};
-          const projection = { projection: { _id: 0 } };
-          const messages = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
-          const appMessages = messages.filter((message) => {
-            const specifications = message.appSpecifications;
-            return specifications.name === appName;
-          });
-          let currentSpecifications;
-          appMessages.forEach((message) => {
-            if (!currentSpecifications || message.height > currentSpecifications.height) {
-              currentSpecifications = message;
-            }
-          });
+          const [currentSpecifications] = await dbHelper.findInDatabase(
+            database,
+            globalAppsMessages,
+            { 'appSpecifications.name': appName },
+            { projection: { _id: 0 }, sort: { height: -1, timestamp: -1 }, limit: 1 },
+          );
           if (currentSpecifications && currentSpecifications.height) {
             ({ appSpecifications } = currentSpecifications);
           }
@@ -982,7 +1009,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     // eslint-disable-next-line no-restricted-syntax
     for (const identifier of removedIdentifiers) {
       // eslint-disable-next-line no-await-in-loop
-      await appsRuntimeState.remove(identifier);
+      await runCleanupStep(appName, `runtime state of ${identifier}`, () => appsRuntimeState.remove(identifier));
       if (onComponentRemoved) onComponentRemoved(identifier);
     }
 
@@ -1097,7 +1124,11 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         res.write(serviceHelper.ensureString(databaseStatus));
         if (res.flush) res.flush();
       }
-      await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+      const rowDeleted = await runCleanupStep(
+        appName,
+        'installed-app row',
+        () => dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection),
+      );
       // The app is gone for good: nothing reconciles an app with no row, so its
       // removal records have no reader left. Only this full-uninstall path clears
       // them - softRemoveAppLocally deletes the row too, but as one step of a
@@ -1106,7 +1137,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       // tampering.
       dockerService.clearFluxRemovedContainers(appName);
       const databaseStatus2 = {
-        status: 'Database cleaned',
+        status: rowDeleted ? 'Database cleaned' : 'Database cleanup pending, retrying',
       };
       log.info(databaseStatus2);
       if (res) {

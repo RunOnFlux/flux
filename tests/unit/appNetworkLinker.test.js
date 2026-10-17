@@ -175,9 +175,17 @@ describe('appNetworkLinker tests', () => {
       expect(dockerServiceStub.appDockerNetworkConnect.calledWith('fluxweb_appC')).to.equal(false);
     });
 
-    it('does not throw when the database read fails', async () => {
+    it('does not throw when the database read fails, and reconnects once a later read succeeds', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
       dbHelperStub.findInDatabase.rejects(new Error('db down'));
       await expect(appNetworkLinker.reconnectLinkedApps('appA')).to.not.be.rejected;
+      await expect(appNetworkLinker.reconnectLinkedApps('appA')).to.not.be.rejected;
+
+      dbHelperStub.findInDatabase.resolves([{ name: 'appB', description: 'networkWith:[appA]' }]);
+      dockerServiceStub.getAppContainerNames.withArgs('appB').resolves(['fluxweb_appB']);
+      await clock.tickAsync(30 * 1000);
+
+      sinon.assert.calledOnceWithExactly(dockerServiceStub.appDockerNetworkConnect, 'fluxweb_appB', 'fluxDockerNetwork_appA');
     });
   });
 
@@ -277,9 +285,23 @@ describe('appNetworkLinker tests', () => {
       sinon.assert.calledWith(dockerServiceStub.appDockerNetworkConnect, 'fluxweb_appB', 'fluxDockerNetwork_appA');
     });
 
-    it('does not throw when the database read fails', async () => {
+    it('does not throw when the database read fails, and retries with a growing delay until a read succeeds', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
       dbHelperStub.findInDatabase.rejects(new Error('db down'));
       await expect(appNetworkLinker.reconcileAllAppNetworkLinks()).to.not.be.rejected;
+
+      await clock.tickAsync(30 * 1000);
+      expect(dbHelperStub.findInDatabase.callCount).to.equal(2);
+      await clock.tickAsync(30 * 1000);
+      expect(dbHelperStub.findInDatabase.callCount, 'the second retry waits 60 s').to.equal(2);
+
+      dbHelperStub.findInDatabase.resolves([{ name: 'appB', description: 'networkWith:[appA]' }]);
+      dockerServiceStub.getAppContainerNames.withArgs('appB').resolves(['fluxweb_appB']);
+      await clock.tickAsync(30 * 1000);
+
+      sinon.assert.calledOnceWithExactly(dockerServiceStub.appDockerNetworkConnect, 'fluxweb_appB', 'fluxDockerNetwork_appA');
+      await clock.tickAsync(60 * 60 * 1000);
+      expect(dbHelperStub.findInDatabase.callCount, 'nothing runs after a read succeeds').to.equal(3);
     });
   });
 });

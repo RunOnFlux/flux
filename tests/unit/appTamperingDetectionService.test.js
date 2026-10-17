@@ -446,21 +446,61 @@ describe('appTamperingDetectionService tests', () => {
       expect(logStub.debug.calledWithMatch(/repeated, incident count incremented/)).to.be.true;
     });
 
-    it('no-ops when DB is not available', async () => {
+    it('writes an event once the database is available, under the time it was seen', async () => {
+      const clock = sinon.useFakeTimers({ now: new Date('2026-07-16T10:59:50Z'), toFake: ['setTimeout', 'Date'] });
+      const connection = dbHelperStub.databaseConnection;
       dbHelperStub.databaseConnection = sinon.stub().returns(null);
 
       await service.recordEvent('myapp', 'container_vanished', 'x');
-
       expect(dbHelperStub.findOneAndUpdateInDatabase.called).to.be.false;
+
+      dbHelperStub.databaseConnection = connection;
+      await clock.tickAsync(30 * 1000);
+
+      expect(eventUpserts()).to.have.lengthOf(1);
+      const { query, update } = eventUpserts()[0];
+      expect(query.incidentKey).to.equal(`unknown:${Math.floor(Date.parse('2026-07-16T10:59:50Z') / service.INCIDENT_BUCKET_MS)}`);
+      expect(update.$setOnInsert.firstSeen).to.deep.equal(new Date('2026-07-16T10:59:50Z'));
+      clock.restore();
     });
 
-    it('swallows write errors without throwing and logs them', async () => {
+    it('writes events that failed again, with a growing delay, until they are written', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      const write = dbHelperStub.findOneAndUpdateInDatabase;
       dbHelperStub.findOneAndUpdateInDatabase = sinon.stub().rejects(new Error('boom'));
 
       await service.recordEvent('myapp', 'container_vanished', 'x');
+      await service.recordEvent('otherapp', 'mount_vanished', 'y');
 
-      sinon.assert.calledOnce(logStub.error);
+      sinon.assert.calledTwice(logStub.error);
       expect(logStub.error.firstCall.args[0]).to.include('boom');
+
+      await clock.tickAsync(30 * 1000);
+      sinon.assert.calledThrice(dbHelperStub.findOneAndUpdateInDatabase);
+      await clock.tickAsync(30 * 1000);
+      sinon.assert.calledThrice(dbHelperStub.findOneAndUpdateInDatabase);
+
+      dbHelperStub.findOneAndUpdateInDatabase = write;
+      await clock.tickAsync(30 * 1000);
+
+      expect(eventUpserts().map((c) => c.query.appName)).to.deep.equal(['myapp', 'otherapp']);
+      clock.restore();
+    });
+
+    it('does not write an incident without its owner when the installed apps cannot be read', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      installedApps.myapp = { owner: 'ownerZ', hash: 'hashH' };
+      const read = dbHelperStub.findOneInDatabase;
+      dbHelperStub.findOneInDatabase = sinon.stub().rejects(new Error('timed out'));
+
+      await service.recordEvent('myapp', 'container_vanished', 'x');
+      expect(eventUpserts()).to.have.lengthOf(0);
+
+      dbHelperStub.findOneInDatabase = read;
+      await clock.tickAsync(30 * 1000);
+
+      expect(eventUpserts()[0].update.$setOnInsert.ownerZelid).to.equal('ownerZ');
+      clock.restore();
     });
   });
 
@@ -755,13 +795,45 @@ describe('appTamperingDetectionService tests', () => {
       expect(dbHelperStub.removeDocumentsFromCollection.called).to.be.false;
     });
 
-    it('swallows errors without throwing and logs them', async () => {
+    it('records the boot once the database answers, without throwing meanwhile', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
       dbHelperStub.findOneInDatabase = sinon.stub().rejects(new Error('mongo down'));
 
       await service.checkNodeReboot();
 
       sinon.assert.calledOnce(logStub.error);
       expect(logStub.error.firstCall.args[0]).to.include('mongo down');
+      expect(historyUpdates()).to.have.lengthOf(0);
+
+      setMarker({ _id: 'lastStartup', at: new Date(), bootId: PREVIOUS_BOOT_ID });
+      await clock.tickAsync(30 * 1000);
+
+      expect(historyUpdates()).to.have.lengthOf(1);
+      expect(markerUpdates()).to.have.lengthOf(1);
+      clock.restore();
+    });
+
+    it('does not record a boot twice when the marker write after it failed', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      const history = { _id: 'bootHistory', boots: [] };
+      dbHelperStub.findOneInDatabase = sinon.stub().callsFake(async (db, coll, query) => {
+        if (query._id === 'lastStartup') return { _id: 'lastStartup', bootId: PREVIOUS_BOOT_ID };
+        if (query._id === 'bootHistory') return history;
+        return null;
+      });
+      const write = dbHelperStub.findOneAndUpdateInDatabase;
+      dbHelperStub.findOneAndUpdateInDatabase = sinon.stub().callsFake(async (db, coll, query, update, options) => {
+        if (query._id === 'bootHistory') history.boots.push(...update.$push.boots.$each);
+        if (query._id === 'lastStartup' && dbHelperStub.findOneAndUpdateInDatabase.callCount === 2) throw new Error('mongo down');
+        return write(db, coll, query, update, options);
+      });
+
+      await service.checkNodeReboot();
+      await clock.tickAsync(30 * 1000);
+
+      expect(history.boots.map((boot) => boot.bootId)).to.deep.equal([CURRENT_BOOT_ID]);
+      expect(markerUpdates()).to.have.lengthOf(1);
+      clock.restore();
     });
   });
 
@@ -787,16 +859,20 @@ describe('appTamperingDetectionService tests', () => {
     it('sums counts and keeps the widest window when merging duplicate rollups', async () => {
       findResults = [
         {
-          appName: 'www', eventType: 'mountReadonly', incidentKey: 'boot:1', count: 2, firstSeen: new Date(2000), lastSeen: new Date(5000), severity: 3,
+          _id: 'older', appName: 'www', eventType: 'mountReadonly', incidentKey: 'boot:1', count: 2, firstSeen: new Date(2000), lastSeen: new Date(5000), severity: 3,
         },
         {
-          appName: 'www', eventType: 'mountReadonly', incidentKey: 'boot:1', count: 5, firstSeen: new Date(1000), lastSeen: new Date(9000), severity: 3,
+          _id: 'newer', appName: 'www', eventType: 'mountReadonly', incidentKey: 'boot:1', count: 5, firstSeen: new Date(1000), lastSeen: new Date(9000), severity: 3,
         },
       ];
 
       await service.prepareIncidentRollup();
 
-      expect(removed).to.deep.equal([{ appName: 'www', eventType: 'mountReadonly', incidentKey: 'boot:1' }]);
+      expect(upserts.map(({ query }) => query)).to.deep.equal([{ _id: 'newer' }]);
+      expect(removed).to.deep.equal([{
+        appName: 'www', eventType: 'mountReadonly', incidentKey: 'boot:1', _id: { $ne: 'newer' },
+      }]);
+      sinon.assert.callOrder(dbHelperStub.updateOneInDatabase, dbHelperStub.removeDocumentsFromCollection);
       expect(upserts).to.have.lengthOf(1);
       const merged = upserts[0].set;
       expect(merged.count, 'counts were not summed').to.equal(7);
@@ -828,6 +904,18 @@ describe('appTamperingDetectionService tests', () => {
       expect(removed).to.deep.equal([]);
       expect(upserts).to.deep.equal([]);
       sinon.assert.calledOnce(createIndexStub);
+    });
+
+    it('removes no duplicate when the merged rollup cannot be written', async () => {
+      findResults = [
+        { _id: 'a', appName: 'www', eventType: 'mountReadonly', incidentKey: 'boot:1', count: 2 },
+        { _id: 'b', appName: 'www', eventType: 'mountReadonly', incidentKey: 'boot:1', count: 5 },
+      ];
+      dbHelperStub.updateOneInDatabase = sinon.stub().rejects(new Error('connection timed out'));
+
+      await service.prepareIncidentRollup();
+
+      expect(removed).to.deep.equal([]);
     });
 
     it('logs and does not throw when the merge fails, leaving it for the next boot', async () => {

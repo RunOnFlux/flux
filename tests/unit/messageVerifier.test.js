@@ -302,6 +302,66 @@ describe('messageVerifier tests', () => {
       sinon.assert.calledWith(getPreviousAppSpecsStub, sinon.match({ name: 'testapp' }), 2000000, sinon.match.number);
     });
 
+    describe('a registry row that could not be written', () => {
+      const registration = {
+        type: 'fluxappregister',
+        version: 1,
+        appSpecifications: { name: 'testapp', version: 8, owner: 'owner1' },
+        hash: 'hash123',
+        timestamp: Date.now(),
+        signature: 'sig123',
+      };
+      // appPricePerMonth is stubbed at 1000 FLUX, so a registration is paid in full at that
+      const paidInFull = { txid: 'txid123', height: 2000000, value: 1000 * 1e8 };
+      const markedResolved = () => updateOneInDatabaseStub.getCalls()
+        .some((call) => call.args[1] === 'appsHashes' && call.args[3]?.$set?.message === true);
+
+      it('leaves the hash unresolved, so the promotion is completed later', async () => {
+        storeAppSpecificationInForceStub.rejects(new Error('connection timed out'));
+        const verifier = buildVerifier({ tempMessage: registration, paymentRecord: paidInFull });
+
+        const result = await verifier.checkAndRequestApp('hash123', 'txid123', 2000000, 200000000);
+
+        expect(storeAppPermanentMessageStub.called, 'the fixture never reached the promotion').to.be.true;
+        expect(result).to.equal(false);
+        expect(markedResolved(), 'the hash was resolved over a registry row that was never written').to.be.false;
+      });
+
+      it('marks the hash once the row is written', async () => {
+        const verifier = buildVerifier({ tempMessage: registration, paymentRecord: paidInFull });
+
+        const result = await verifier.checkAndRequestApp('hash123', 'txid123', 2000000, 200000000);
+
+        expect(result).to.equal(true);
+        expect(markedResolved()).to.be.true;
+        expect(storeAppSpecificationInForceStub.calledBefore(updateOneInDatabaseStub)).to.be.true;
+      });
+
+      it('writes the row of a stored message when its hash is resolved again', async () => {
+        const stored = {
+          hash: 'hash123', txid: 'txid123', height: 2000000, valueSat: 200000000, appSpecifications: { name: 'testapp' },
+        };
+        const verifier = buildVerifier({
+          dbHelperOverrides: {
+            findOneInDatabase: sinon.stub()
+              .onFirstCall().resolves({ txid: 'txid123', height: 2000000, value: 200000000 })
+              .onSecondCall().resolves(stored), // checkAppMessageExistence - held permanently
+            findInDatabase: sinon.stub().resolves([stored]),
+          },
+          registryManagerOverrides: {
+            governingAppMessage: sinon.stub().resolves({ appSpecifications: { name: 'testapp' }, hash: 'hash123', height: 2000000 }),
+          },
+        });
+
+        const result = await verifier.checkAndRequestApp('hash123', 'txid123', 2000000, 200000000);
+
+        expect(result).to.equal(true);
+        sinon.assert.calledWithMatch(storeAppSpecificationInForceStub, { name: 'testapp', hash: 'hash123', height: 2000000 });
+        expect(markedResolved()).to.be.true;
+        expect(storeAppSpecificationInForceStub.calledBefore(updateOneInDatabaseStub), 'the hash was resolved before its row was written').to.be.true;
+      });
+    });
+
     describe('the payment a message is placed by', () => {
       it('should store the message at this node\'s record of its payment, not the caller\'s', async () => {
         getPreviousAppSpecsStub.resolves({ owner: 'correctOwner', version: 8 });
@@ -324,6 +384,16 @@ describe('messageVerifier tests', () => {
 
       it('should store nothing for a hash this node has no payment recorded for', async () => {
         const verifier = buildVerifier({ paymentRecord: null });
+
+        const result = await verifier.checkAndRequestApp('hash123', 'txid123', 2000000, 200000000);
+
+        expect(result).to.equal(false);
+        expect(storeAppPermanentMessageStub.called).to.equal(false);
+      });
+
+      it('should leave the hash unresolved when its payment record cannot be read', async () => {
+        const findOneInDatabase = sinon.stub().rejects(new Error('connection timed out'));
+        const verifier = buildVerifier({ dbHelperOverrides: { findOneInDatabase } });
 
         const result = await verifier.checkAndRequestApp('hash123', 'txid123', 2000000, 200000000);
 
