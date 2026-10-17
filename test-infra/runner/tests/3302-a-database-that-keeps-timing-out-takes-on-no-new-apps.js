@@ -17,7 +17,9 @@ const CALL_TIMEOUT_MS = 5 * 1000;
 const SUSPECT_WINDOW_MS = 60 * 1000;
 // Long enough for many round trips to run out on every node.
 const HOLD_MS = 45 * 1000;
-const DATABASE_GAVE_NO_ANSWER = /a database round trip ran out/;
+// The driver's own words for a round trip and for a pooled-connection wait that ran
+// out, as suite 3301 reads them: the canary that the calls failed, on any tree.
+const DATABASE_GAVE_NO_ANSWER = /connection \d+ to \S+ timed out|Timed out while checking out a connection from connection pool/;
 const HELD = /Placement hold set by databaseSuspect/;
 const RELEASED = /Placement hold cleared by databaseSuspect/;
 
@@ -67,9 +69,9 @@ describe('a database that keeps timing out takes on no new apps', function () {
     await env?.teardown();
   });
 
-  it('counted round trips that ran out: the database did not answer FluxOS', function () {
-    const counted = env.clients.map((_, i) => i).filter((i) => env.nodeHasLog(i, DATABASE_GAVE_NO_ANSWER));
-    expect(counted, 'no node counted a round trip that ran out, so nothing below was tested').to.not.be.empty;
+  it('reached FluxOS: a node logged a call the database did not answer', function () {
+    const stalled = env.clients.map((_, i) => i).filter((i) => env.nodeHasLog(i, DATABASE_GAVE_NO_ANSWER));
+    expect(stalled, 'no node logged a database call that timed out, so nothing below was tested').to.not.be.empty;
   });
 
   it('holds a node whose database kept timing out back from new placements', function () {
@@ -89,6 +91,7 @@ describe('a database that keeps timing out takes on no new apps', function () {
   it('lifts the hold a window after the last round trip that ran out', async function () {
     this.timeout(SUSPECT_WINDOW_MS + 120000);
     const holding = env.clients.map((_, i) => i).filter((i) => env.nodeHasLog(i, HELD));
+    expect(holding, 'no node held itself back, so there is no hold to lift').to.not.be.empty;
     await waitFor(() => holding.every((i) => env.nodeLogCount(i, RELEASED) >= env.nodeLogCount(i, HELD)), {
       timeout: SUSPECT_WINDOW_MS + 90000, interval: 2000, label: 'every held node lifts its hold',
     });

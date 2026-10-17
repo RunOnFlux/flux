@@ -4,7 +4,9 @@ import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, getAppContainerStatus } from '../framework/container.js';
 import { waitFor, waitForUp } from '../framework/wait.js';
 import { bootAndPeer, seedTestApp } from '../framework/reconciler-suite.js';
-import { freezeDocker, thawDocker, stuckThreads } from '../framework/host-stall.js';
+import {
+  freezeDocker, thawDocker, stuckThreads, processesThatCanRun,
+} from '../framework/host-stall.js';
 import { journalCount, restartFluxos } from '../framework/systemd-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -139,14 +141,16 @@ describe('a stalled host takes the node out of service', function () {
       expect(data.dosMessage).to.include('Host stall').and.include('dockerd');
     });
 
-    it('kills the app its normal removal could not remove, and it can never run again', async function () {
+    it('leaves nothing of the app that can run, though its removal could not finish', async function () {
       this.timeout(REMOVAL_DEADLINE_MS * 4);
-      await waitFor(async () => (await fluxosLog(container, `${appName} can no longer run`)) > 0, {
-        timeout: REMOVAL_DEADLINE_MS * 3, interval: 2000, label: 'the app can no longer run',
+      await waitFor(async () => (await fluxosLog(container, `${appName} can no longer run`)) > 0
+        || (await fluxosLog(container, `${appName} could not be stopped`)) > 0, {
+        timeout: REMOVAL_DEADLINE_MS * 3, interval: 2000, label: 'the node says what is left of the app',
       });
-      expect(await fluxosLog(container, `${appName} still runs after its removal`), 'the app was killed without its normal removal running out first').to.be.above(0);
-      const procs = (await execInContainer(container, `cat /sys/fs/cgroup/flux.slice/flux-${appName}.slice/*/cgroup.procs 2>/dev/null; true`)).stdout.trim();
-      expect(procs, 'processes of the app are left in its slice').to.equal('');
+      const ranOut = (await fluxosLog(container, `${appName} was not removed`)) + (await fluxosLog(container, `${appName} still runs after its removal`));
+      expect(ranOut, 'the app\'s removal finished, so its stall was never what removed it').to.be.above(0);
+      expect(await fluxosLog(container, `${appName} could not be stopped`), 'the node could not stop the app').to.equal(0);
+      expect(await processesThatCanRun(container, `/sys/fs/cgroup/flux.slice/flux-${appName}.slice`), 'a process of the app can still run').to.deep.equal([]);
     });
 
     it('stays out of service through a FluxOS restart in the same boot', async function () {

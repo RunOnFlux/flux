@@ -41,6 +41,23 @@ export async function thawEveryNode(clients) {
 }
 
 /**
+ * The processes in a cgroup and every cgroup below it that could still run:
+ * neither gone nor with SIGKILL pending. Read inside the node, independently of
+ * FluxOS.
+ * @param {object} container
+ * @param {string} cgroupDir Under /sys/fs/cgroup.
+ * @returns {Promise<string[]>} Their pids; empty when nothing in it can run again.
+ */
+export async function processesThatCanRun(container, cgroupDir) {
+  const script = `[ -d '${cgroupDir}' ] || exit 0; for p in $(find '${cgroupDir}' -name cgroup.procs -exec cat {} +); do `
+    + 's=/proc/$p/status; [ -r $s ] || continue; '
+    + 'k=$(awk \'/^(SigPnd|ShdPnd):/{print $2}\' $s | while read m; do [ $(( 0x$m & 0x100 )) -ne 0 ] && echo y; done); '
+    + '[ -z "$k" ] && echo $p; done; true';
+  const out = await run(container, script, `reading the processes under ${cgroupDir}`);
+  return out.split('\n').map((line) => line.trim()).filter(Boolean);
+}
+
+/**
  * One reading of every thread of the processes named `comm` in the node: its
  * state, its voluntary plus nonvoluntary context switches, and where it waits.
  * @returns {Promise<Map<string, {state: string, switches: number, wchan: string}>>} By thread id.
