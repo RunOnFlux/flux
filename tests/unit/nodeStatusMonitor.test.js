@@ -219,6 +219,27 @@ describe('nodeStatusMonitor tests', () => {
       sinon.assert.calledOnce(remove);
     });
 
+    it('starts no second removal of an app whose removal is still running, and still checks it', async () => {
+      let finish;
+      const remove = sinon.stub().callsFake(() => new Promise((resolve) => { finish = resolve; }));
+      const first = monitor.unloadForHostStall(installed('stuck'), remove);
+      await clock.tickAsync(DEADLINE);
+      await first;
+      appKill.stillRunnable.resetHistory();
+
+      await monitor.unloadForHostStall(installed('stuck'), remove);
+
+      sinon.assert.calledOnce(remove);
+      sinon.assert.calledWith(appKill.stillRunnable, 'stuck');
+      finish('removed');
+      await clock.tickAsync(0);
+      const third = monitor.unloadForHostStall(installed('stuck'), remove);
+      await clock.tickAsync(0);
+      sinon.assert.calledTwice(remove);
+      finish('removed');
+      await third;
+    });
+
     it('moves past a DOS removal that does not return within the deadline', async () => {
       dos = true;
       const remove = sinon.stub();

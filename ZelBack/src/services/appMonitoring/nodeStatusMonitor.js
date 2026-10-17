@@ -21,6 +21,28 @@ let unloadingForHostStall = false;
 let deps = null;
 
 const REMOVAL_DEADLINE_MS = config.fluxapps.appRemovalDeadlineMs;
+const STILL_REMOVING = 'stillRemoving';
+/** Apps whose removal started here and has not returned, deadline or not. */
+const removalsRunning = new Set();
+
+/**
+ * Remove one app, waiting for it at most REMOVAL_DEADLINE_MS. A removal past
+ * its deadline keeps running, so an app whose removal is still running is not
+ * removed again: a second removal beside it would only wait behind the same
+ * stall, and the next pass would add a third.
+ * @param {Function} removeAppLocallyFn
+ * @param {string} name
+ * @param {boolean} canBroadcast
+ * @returns {Promise<string>} The removal's outcome, TIMED_OUT, or STILL_REMOVING.
+ */
+async function removeWithinDeadline(removeAppLocallyFn, name, canBroadcast) {
+  if (removalsRunning.has(name)) return STILL_REMOVING;
+  removalsRunning.add(name);
+  const removal = Promise.resolve()
+    .then(() => removeAppLocallyFn(name, null, true, false, canBroadcast))
+    .finally(() => removalsRunning.delete(name));
+  return withinDeadline(removal, REMOVAL_DEADLINE_MS);
+}
 
 // Database collections
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
@@ -49,9 +71,11 @@ async function removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, reason)
       log.warn(`monitorNodeStatus - Removing application ${installedApp.name} locally`);
       // One removal that never returns must not hold every other app here.
       // eslint-disable-next-line no-await-in-loop
-      const outcome = await withinDeadline(removeAppLocallyFn(installedApp.name, null, true, false, canBroadcast), REMOVAL_DEADLINE_MS);
+      const outcome = await removeWithinDeadline(removeAppLocallyFn, installedApp.name, canBroadcast);
       if (outcome === TIMED_OUT) {
         log.error(`monitorNodeStatus - Application ${installedApp.name} was not removed within ${REMOVAL_DEADLINE_MS / 1000}s, moving on`);
+      } else if (outcome === STILL_REMOVING) {
+        log.warn(`monitorNodeStatus - Application ${installedApp.name} is still being removed, moving on`);
       } else {
         log.warn(`monitorNodeStatus - Application ${installedApp.name} locally removed`);
       }
@@ -104,7 +128,7 @@ async function unloadForHostStall(installedAppsFn, removeAppLocallyFn) {
     for (const name of names) {
       log.warn(`monitorNodeStatus - Application ${name} going to be removed: host stall`);
       // eslint-disable-next-line no-await-in-loop
-      const outcome = await withinDeadline(removeAppLocallyFn(name, null, true, false, canBroadcast), REMOVAL_DEADLINE_MS)
+      const outcome = await removeWithinDeadline(removeAppLocallyFn, name, canBroadcast)
         .catch(() => RemovalOutcome.FAILED);
       // eslint-disable-next-line no-await-in-loop
       if ((await appKill.stillRunnable(name)).length) {
