@@ -145,6 +145,20 @@ async function killPendingOrGone(pid) {
 }
 
 /**
+ * Every process in a cgroup and the cgroups below it. A process lives only in a
+ * leaf, so an app's processes are in the scopes under its slice, not the slice.
+ * @param {string} dir
+ * @returns {Promise<string[]>} Their pids.
+ */
+async function processesUnder(dir) {
+  const own = (await fs.readFile(path.join(dir, 'cgroup.procs'), 'utf8').catch(() => ''))
+    .split('\n').map((line) => line.trim()).filter(Boolean);
+  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+  const below = await Promise.all(entries.filter((entry) => entry.isDirectory()).map((entry) => processesUnder(path.join(dir, entry.name))));
+  return [...own, ...below.flat()];
+}
+
+/**
  * Which of the app's processes could still run its code: every one that is
  * neither gone nor has SIGKILL pending.
  * @param {string} appName
@@ -152,8 +166,7 @@ async function killPendingOrGone(pid) {
  */
 async function stillRunnable(appName) {
   const cgroups = await cgroupsOf(appName);
-  const pids = (await Promise.all(cgroups.map((dir) => fs.readFile(path.join(dir, 'cgroup.procs'), 'utf8').catch(() => ''))))
-    .flatMap((text) => text.split('\n').map((line) => line.trim()).filter(Boolean));
+  const pids = (await Promise.all(cgroups.map(processesUnder))).flat();
   const settled = await Promise.all(pids.map(killPendingOrGone));
   return pids.filter((pid, i) => !settled[i]);
 }
