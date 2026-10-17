@@ -1316,13 +1316,20 @@ describe('registryManager tests', () => {
       type: 'fluxappregister', hash, height: 3000000, timestamp: 1, appSpecifications: { name: `App${hash}`, version: 3, owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC' },
     });
     const unresolvedSignals = () => emitSpy.args.filter(([event]) => event === SYNC_EVENTS.HASH_UNRESOLVED).length;
+    const hashIndex = 'query for getting app hash';
 
     beforeEach(async () => {
       daemonDb = db.db(config.database.daemon.database);
       await daemonDb.collection(appsHashes).deleteMany({});
+      // the node's own index; without it every correction scans the whole collection
+      await daemonDb.collection(appsHashes).createIndex({ hash: 1 }, { name: hashIndex, unique: true });
       await database.collection(appsMessages).deleteMany({});
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 3000100 } });
       emitSpy = sinon.spy(appSyncEvents, 'emit');
+    });
+
+    afterEach(async () => {
+      await daemonDb.collection(appsHashes).dropIndex(hashIndex);
     });
 
     it('should signal a hash to fetch when it marks a received message missing', async () => {
