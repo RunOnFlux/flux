@@ -26,6 +26,13 @@ module.exports = {
   fluxadm: {
     sshAuthorizedKeys: [],
   },
+  // A thread of a process FluxOS depends on that stays in the kernel without
+  // running for one interval holds the node back from new placements, and for
+  // stuckIntervals intervals takes it out of service until it reboots.
+  hostStall: {
+    readIntervalMs: 5 * 60 * 1000,
+    stuckIntervals: 6,
+  },
   database: {
     url: database,
     port: 27017,

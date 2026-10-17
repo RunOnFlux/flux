@@ -40,6 +40,13 @@ module.exports = {
       'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIfVQ1HBlOYD61OEzV19gSWPG6yVWvz+TyHXflXIHsPg fluxadm-legacy',
     ],
   },
+  // A thread of a process FluxOS depends on that stays in the kernel without
+  // running for one interval holds the node back from new placements, and for
+  // stuckIntervals intervals takes it out of service until it reboots.
+  hostStall: {
+    readIntervalMs: 5 * 60 * 1000,
+    stuckIntervals: 6,
+  },
   database: {
     url: '127.0.0.1',
     port: 27017,

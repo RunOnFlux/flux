@@ -12,6 +12,7 @@ const fluxCommunication = require('./fluxCommunication');
 const networkStateService = require('./networkStateService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const databaseHealthService = require('./databaseHealthService');
+const hostStallService = require('./hostStallService');
 // App modular services - replacing appsService
 const appInstaller = require('./appLifecycle/appInstaller');
 const appUninstaller = require('./appLifecycle/appUninstaller');
@@ -264,6 +265,8 @@ async function startFluxFunctions() {
     // below-floor node stays up holding a sticky DOS, so /flux/info names the
     // version found and the version required.
     fluxNetworkHelper.checkNodeJsVersionAllowed();
+    // Before the dependencies are waited for: a stalled one is what this sees.
+    hostStallService.start();
     // Hard dependencies — nothing starts until these are confirmed.
     await dbHelper.waitForMongo();
     databaseHealthService.watch(dbHelper.databaseConnection(), 'main');

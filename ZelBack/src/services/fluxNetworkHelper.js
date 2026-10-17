@@ -99,6 +99,7 @@ const StickyDosOwner = Object.freeze({
   NODEJS_FLOOR: 'nodejsFloor',
   DOCKER_FLOOR: 'dockerFloor',
   MONGODB_FLOOR: 'mongodbFloor',
+  HOST_STALL: 'hostStall',
 });
 
 // Declares the node unfit for the apps it already runs, and is not moved by the
@@ -124,6 +125,7 @@ const STICKY_DOS_STATE = 100;
 const PlacementHoldOwner = Object.freeze({
   RESIDENTIAL_DOS: 'residentialDos',
   DATABASE_SUSPECT: 'databaseSuspect',
+  HOST_STALL: 'hostStall',
 });
 
 // Stops the node taking on NEW apps without declaring it unfit for the ones it
