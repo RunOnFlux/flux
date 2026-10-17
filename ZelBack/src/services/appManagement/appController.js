@@ -195,11 +195,11 @@ async function operatorTargetIds(appname) {
   if (!ids.length) {
     throw new Error(`Application ${appName} was not changed: this node cannot determine its components`);
   }
-  // The component whose start the election decides, read from the spec as the
-  // election reads it, so the two agree on which one that is.
+  // The components whose start the election decides, read from the spec as the
+  // election reads it, so the two agree on which they are.
   const { inPlace: [spec] } = await appQueryService.decryptEnterpriseApps([installedRes.data[0]]);
-  const electedId = mountParser.electedComponentIdentifier(spec);
-  if (!appname.includes('_')) return { ids, appName, electedId };
+  const electedIds = mountParser.gComponentIdentifiers(spec);
+  if (!appname.includes('_')) return { ids, appName, electedIds };
   // A component is addressed by name, and a name that is not one of this app's
   // components addresses nothing. Taking it verbatim wrote a durable operator
   // lock under a component that does not exist - nothing clears one, and it holds
@@ -207,11 +207,27 @@ async function operatorTargetIds(appname) {
   if (!ids.includes(appname)) {
     throw new Error(`Component ${appname} is not installed on this node`);
   }
-  return { ids: [appname], appName: appname, electedId };
+  return { ids: [appname], appName: appname, electedIds };
+}
+
+/**
+ * Whether this node holds the app whose g: components these are: it runs one,
+ * is becoming the primary of one, or has asked the reconciler to run one. Read
+ * for the app and not the component, because the election decides the app - a
+ * component stopped on the node that runs the others was stopped on its primary.
+ * @param {string[]} electedIds The app's g: component identifiers.
+ * @returns {Promise<boolean>}
+ */
+async function holdsElectedApp(electedIds) {
+  const committed = appReconciler.committedIdentifiers();
+  const promoting = primaryRoleChanges.promotingIdentifiers();
+  if (electedIds.some((id) => committed.includes(id) || promoting.includes(id))) return true;
+  const actual = await Promise.all(electedIds.map((id) => appReconciler.dockerActual(id)));
+  return actual.some((each) => each.running === true);
 }
 
 async function setAppOperatorStopped(appname, stopped, { awaitPass = false, force = false, alsoRestart = false } = {}) {
-  const { ids, appName, electedId } = await operatorTargetIds(appname);
+  const { ids, appName, electedIds } = await operatorTargetIds(appname);
   // Components come up in compose order and go down in the reverse of it, so a
   // dependency outlives what writes to it: the database stops after the server it
   // serves, not before it. awaitPass holds each component's pass open before the
@@ -232,20 +248,16 @@ async function setAppOperatorStopped(appname, stopped, { awaitPass = false, forc
     let awaitsElection = false;
     // eslint-disable-next-line no-await-in-loop
     const actuated = await appReconciler.applyIntent(id, async () => {
-      // A start of the component the election decides, while it is locked,
+      // A start of a component the election decides, while it is locked,
       // leaves the lock for the election to lift: lifted here, the component
       // would be held by nothing until the election next ran, and a standby
       // could take it in between. See appsRuntimeState.requestOperatorStart.
-      awaitsElection = !stopped && id === electedId && await appsRuntimeState.requestOperatorStart(id);
+      const elected = electedIds.includes(id);
+      awaitsElection = !stopped && elected && await appsRuntimeState.requestOperatorStart(id);
       // Read inside the slot, so no pass moves the container between this read
       // and the lock. A container docker cannot read is not one known to run.
-      const lockOptions = stopped && id === electedId
-        ? {
-          force,
-          asPrimary: appReconciler.committedIdentifiers().includes(id)
-            || primaryRoleChanges.promotingIdentifiers().includes(id)
-            || (await appReconciler.dockerActual(id)).running === true,
-        }
+      const lockOptions = stopped && elected
+        ? { force, asPrimary: await holdsElectedApp(electedIds) }
         : { force };
       if (!awaitsElection) await appsRuntimeState.setOperatorStopped(id, stopped, lockOptions);
       // Raised inside the same slot as the lock, so a pass cannot read one

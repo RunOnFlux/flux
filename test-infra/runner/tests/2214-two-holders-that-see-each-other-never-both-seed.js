@@ -5,7 +5,7 @@ import {
   getAppContainerStatus, blockPeerAccess, unblockPeerAccess, execInContainer,
 } from '../framework/container.js';
 import {
-  setSyncState, setNoPeerData, resetSyncState, getFolderConfig,
+  resetSyncState, getFolderConfig, pinColdStart, pinHolding,
 } from '../framework/syncthing-control.js';
 import { resetFdm, electMaster } from '../framework/fdm-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -43,37 +43,6 @@ async function isUp(client, appName) {
   return !!(status && status.status.startsWith('Up'));
 }
 
-// A cold start on every holder: no index of its own and no connected peer holding
-// the data, set before install so the first election sees it.
-async function pinColdStart(holders, folder) {
-  await Promise.all(holders.map((i) => Promise.all([
-    setSyncState({
-      ip: subnet.nodeIp(i + 1), folder, state: 'idle', globalBytes: 0, inSyncBytes: 0, receiveOnlyChangedFiles: 0,
-    }),
-    setNoPeerData({ ip: subnet.nodeIp(i + 1), folder }),
-  ])));
-}
-
-// The owner's data on one holder, declared as entries, the way localHoldings reads it.
-async function pinHolding(index, folder, bytes) {
-  const modified = new Date().toISOString();
-  await setSyncState({
-    ip: subnet.nodeIp(index + 1),
-    folder,
-    state: 'idle',
-    globalBytes: 0,
-    inSyncBytes: 0,
-    localChanged: [
-      {
-        name: 'appdata', type: 'FILE_INFO_TYPE_DIRECTORY', size: 128, deleted: false, modified,
-      },
-      {
-        name: 'appdata/seed-data', type: 'FILE_INFO_TYPE_FILE', size: bytes, deleted: false, modified,
-      },
-    ],
-  });
-  await setNoPeerData({ ip: subnet.nodeIp(index + 1), folder });
-}
 
 describe('two holders that can reach each other never both seed', function () {
   let env;
