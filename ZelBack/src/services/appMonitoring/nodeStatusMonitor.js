@@ -11,6 +11,7 @@ const networkStateService = require('../networkStateService');
 const hostStallService = require('../hostStallService');
 const appKill = require('../appLifecycle/appKill');
 const { RemovalOutcome } = require('../utils/removalOutcome');
+const { withinDeadline, TIMED_OUT } = require('../utils/withinDeadline');
 const log = require('../../lib/log');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 
@@ -19,24 +20,7 @@ let unloadingForHostStall = false;
 /** What initialize was given, for the removal a host stall starts. */
 let deps = null;
 
-const REMOVAL_DEADLINE_MS = config.hostStall.removalDeadlineMs;
-const TIMED_OUT = 'timedOut';
-
-/**
- * What `work` resolved, or TIMED_OUT once `ms` pass. The work itself keeps
- * running: nothing here can stop a removal part way.
- * @param {Promise<*>} work
- * @param {number} ms
- */
-async function withinDeadline(work, ms) {
-  let timer;
-  const deadline = new Promise((resolve) => { timer = setTimeout(resolve, ms, TIMED_OUT); });
-  try {
-    return await Promise.race([work, deadline]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
+const REMOVAL_DEADLINE_MS = config.fluxapps.appRemovalDeadlineMs;
 
 // Database collections
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;

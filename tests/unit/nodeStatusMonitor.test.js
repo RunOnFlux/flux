@@ -24,7 +24,7 @@ describe('nodeStatusMonitor tests', () => {
         },
       },
       config: {
-        hostStall: { removalDeadlineMs: 300000 },
+        fluxapps: { appRemovalDeadlineMs: 300000 },
         database: {
           appsglobal: {
             database: 'globalapps',
@@ -135,7 +135,7 @@ describe('nodeStatusMonitor tests', () => {
         kill: sinon.stub().resolves([]),
       };
       monitor = proxyquire('../../ZelBack/src/services/appMonitoring/nodeStatusMonitor', {
-        config: { hostStall: { removalDeadlineMs: DEADLINE }, fluxapps: { nodeMonitorRemovalDelayMs: 0 }, database: { appsglobal: { collections: {} } } },
+        config: { fluxapps: { appRemovalDeadlineMs: DEADLINE, nodeMonitorRemovalDelayMs: 0 }, database: { appsglobal: { collections: {} } } },
         '../dbHelper': {},
         // the spacing between apps passes, and the wait before the next pass never ends
         '../serviceHelper': { delay: sinon.stub().callsFake((ms) => (ms === 0 ? Promise.resolve() : never())) },

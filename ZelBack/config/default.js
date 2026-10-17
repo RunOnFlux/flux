@@ -46,9 +46,6 @@ module.exports = {
   hostStall: {
     readIntervalMs: 5 * 60 * 1000,
     stuckIntervals: 6,
-    // How long one app's removal may take while the node is out of service
-    // before the next app's starts.
-    removalDeadlineMs: 5 * 60 * 1000,
   },
   database: {
     url: '127.0.0.1',
@@ -608,6 +605,9 @@ module.exports = {
     bootDelayMultiplier: 1,
     spawnDelayMs: 0,
     removalSpacingMs: 60000,
+    // How long one app's removal may take, when every app is removed, before the
+    // next app's starts. A removal past it keeps running.
+    appRemovalDeadlineMs: 5 * 60 * 1000,
     // Per-document expiry for the ephemeral app collections, in seconds, read by
     // appConstants.js. Each record carries its own deadline and the collection
     // index is expireAt/expireAfterSeconds:0, so changing one of these takes

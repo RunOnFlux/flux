@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
+const config = require('config');
 const { resetGlobalState } = require('./fixtures/globalState');
 const proxyquire = require('proxyquire').noCallThru();
 
@@ -685,6 +686,25 @@ describe('appStartupManager tests', () => {
       sinon.assert.calledWithExactly(fluxNetworkHelperStub.isStickyDosHeldBy, 'hostStall');
       sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
       sinon.assert.notCalled(globalStateStub.waitForDbReady);
+    });
+
+    it('moves past an app whose removal does not return within the deadline, and boot still settles', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'stuck' }, { name: 'next' }] });
+        appUninstallerStub.removeAppLocally.withArgs('stuck').returns(new Promise(() => {}));
+
+        const boot = appStartupManager.manageAppsOnBoot({ machineRebooted: true, downtimeMs: 8000000, cleanShutdown: false });
+        await clock.tickAsync(config.fluxapps.appRemovalDeadlineMs - 1);
+        sinon.assert.neverCalledWith(appUninstallerStub.removeAppLocally, 'next');
+        await clock.tickAsync(1);
+        await boot;
+
+        sinon.assert.calledWith(appUninstallerStub.removeAppLocally, 'next');
+        expect(globalStateStub.bootContainerStateSettled).to.equal(true);
+      } finally {
+        clock.restore();
+      }
     });
 
     it('stops every empty app slice before it removes any app', async () => {
