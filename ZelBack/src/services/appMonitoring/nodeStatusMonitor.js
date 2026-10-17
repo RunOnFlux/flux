@@ -142,6 +142,8 @@ async function unloadForHostStall(installedAppsFn, removeAppLocallyFn) {
         } else {
           log.warn(`monitorNodeStatus - Application ${name} can no longer run`);
         }
+      } else if (outcome !== RemovalOutcome.REMOVED && outcome !== RemovalOutcome.NOT_INSTALLED) {
+        log.warn(`monitorNodeStatus - Application ${name} was not removed (${outcome}), and can no longer run`);
       }
     }
   } finally {

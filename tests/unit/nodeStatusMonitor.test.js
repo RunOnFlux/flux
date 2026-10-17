@@ -184,6 +184,23 @@ describe('nodeStatusMonitor tests', () => {
       sinon.assert.calledWithMatch(logStub.warn, /stuck can no longer run/);
     });
 
+    it('says an app its removal could not finish can no longer run, when nothing of it is left to kill', async () => {
+      const remove = sinon.stub().callsFake(never);
+
+      const unload = monitor.unloadForHostStall(installed('stopped'), remove);
+      await clock.tickAsync(DEADLINE);
+      await unload;
+
+      sinon.assert.notCalled(appKill.kill);
+      sinon.assert.calledWithMatch(logStub.warn, /stopped was not removed \(timedOut\), and can no longer run/);
+    });
+
+    it('says nothing more of an app its removal removed', async () => {
+      await monitor.unloadForHostStall(installed('gone'), sinon.stub().resolves('removed'));
+
+      sinon.assert.neverCalledWithMatch(logStub.warn, /can no longer run/);
+    });
+
     it('kills an app whose removal failed while its processes can still run', async () => {
       const remove = sinon.stub().resolves('failed');
       appKill.stillRunnable.onFirstCall().resolves(['41']).onSecondCall().resolves([]);
