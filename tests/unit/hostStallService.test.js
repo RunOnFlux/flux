@@ -12,6 +12,7 @@ const OWN_NAMESPACE = 'pid:[4026531836]';
 
 describe('hostStallService tests', () => {
   let procRoot;
+  let paths;
 
   /**
    * One process in the fake /proc.
@@ -39,7 +40,9 @@ describe('hostStallService tests', () => {
   }
 
   const stuckMongod = (switches = 40) => processWith('100', 'mongod', [{ tid: '101', state: 'D', switches }, { tid: '102', state: 'S', switches: 5 }]);
-  const read = () => hostStallService.readOnce({ procRoot });
+  const read = () => hostStallService.readOnce(paths);
+  const bootIs = (id) => fs.writeFileSync(paths.bootIdPath, `${id}\n`);
+  const record = () => JSON.parse(fs.readFileSync(paths.recordFile, 'utf8'));
   async function readTimes(n) {
     for (let i = 0; i < n; i += 1) await read(); // eslint-disable-line no-await-in-loop
   }
@@ -50,6 +53,8 @@ describe('hostStallService tests', () => {
     procRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hoststall-'));
     fs.mkdirSync(path.join(procRoot, 'self', 'ns'), { recursive: true });
     fs.symlinkSync(OWN_NAMESPACE, path.join(procRoot, 'self', 'ns', 'pid'));
+    paths = { procRoot, recordFile: path.join(procRoot, 'hostStall.json'), bootIdPath: path.join(procRoot, 'boot_id') };
+    bootIs('boot-one');
   });
 
   afterEach(() => {
@@ -164,6 +169,71 @@ describe('hostStallService tests', () => {
     await read();
 
     expect(outOfService()).to.equal(true);
+  });
+
+  describe('the trip record', () => {
+    async function trip() {
+      stuckMongod();
+      await readTimes(stuckIntervals + 1);
+    }
+    async function restart() {
+      hostStallService.stop();
+      fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
+      await hostStallService.start(paths);
+    }
+
+    it('records the trip with this boot\'s id', async () => {
+      await trip();
+
+      expect(record()).to.deep.equal({ bootId: 'boot-one', reason: fluxNetworkHelper.getDosMessage() });
+    });
+
+    it('restores the trip at a start in the same boot', async () => {
+      await trip();
+      const reason = fluxNetworkHelper.getDosMessage();
+
+      await restart();
+
+      expect(outOfService()).to.equal(true);
+      expect(fluxNetworkHelper.getDosMessage()).to.equal(reason);
+    });
+
+    it('discards a trip from an earlier boot, and stays in service', async () => {
+      await trip();
+      bootIs('boot-two');
+
+      await restart();
+
+      expect(outOfService()).to.equal(false);
+      expect(fs.existsSync(paths.recordFile)).to.equal(false);
+    });
+
+    it('records nothing without a boot id, and is still out of service', async () => {
+      fs.rmSync(paths.bootIdPath);
+
+      await trip();
+
+      expect(outOfService()).to.equal(true);
+      expect(fs.existsSync(paths.recordFile)).to.equal(false);
+    });
+
+    it('restores nothing and discards nothing at a start without a boot id', async () => {
+      await trip();
+      fs.rmSync(paths.bootIdPath);
+
+      await restart();
+
+      expect(outOfService()).to.equal(false);
+      expect(fs.existsSync(paths.recordFile)).to.equal(true);
+    });
+
+    it('starts in service when the record cannot be read', async () => {
+      fs.writeFileSync(paths.recordFile, '{ not json');
+
+      await restart();
+
+      expect(outOfService()).to.equal(false);
+    });
   });
 
   it('reads a thread whose command name holds spaces and parentheses', async () => {

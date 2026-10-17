@@ -266,7 +266,8 @@ async function startFluxFunctions() {
     // version found and the version required.
     fluxNetworkHelper.checkNodeJsVersionAllowed();
     // Before the dependencies are waited for: a stalled one is what this sees.
-    hostStallService.start();
+    // Awaited so a trip recorded in this boot holds the node before boot acts.
+    await hostStallService.start();
     // Hard dependencies — nothing starts until these are confirmed.
     await dbHelper.waitForMongo();
     databaseHealthService.watch(dbHelper.databaseConnection(), 'main');

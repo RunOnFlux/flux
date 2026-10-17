@@ -11,6 +11,11 @@
  * Readings are counted rather than time measured: a VM its hypervisor paused
  * takes no readings while it is paused, so a pause cannot read as a stall.
  *
+ * Out of service lasts until the machine reboots, through any number of FluxOS
+ * restarts: the trip is recorded with the kernel's boot id, and a start in the
+ * same boot restores it. The record is a file, not a database row, because the
+ * database may be what is stuck.
+ *
  * WHAT IS READ. The threads of the processes FluxOS depends on, in FluxOS's own
  * PID namespace. An app container that runs one of the same programs has its
  * own namespace and is not read.
@@ -21,6 +26,7 @@ const path = require('path');
 const config = require('config');
 const log = require('../lib/log');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
+const { fluxDirPath } = require('./utils/appConstants');
 
 const DEPENDENCIES = new Set(['mongod', 'dockerd', 'containerd', 'syncthing', 'fluxd', 'fluxbenchd']);
 const READ_INTERVAL_MS = config.hostStall.readIntervalMs;
@@ -33,7 +39,20 @@ const STUCK_INTERVALS = config.hostStall.stuckIntervals;
  */
 let tracked = new Map();
 let readTimer = null;
-let procRoot = '/proc';
+const DEFAULT_PATHS = {
+  procRoot: '/proc',
+  recordFile: path.join(fluxDirPath, 'config', 'hostStall.json'),
+  bootIdPath: config.system.bootIdPath,
+};
+let paths = { ...DEFAULT_PATHS };
+
+/**
+ * @param {{procRoot?: string, recordFile?: string, bootIdPath?: string}} options
+ *   Where /proc, the trip record and the boot id are; each one given replaces it.
+ */
+function usePaths(options) {
+  paths = { ...paths, ...options };
+}
 
 /**
  * @param {string} file
@@ -66,12 +85,12 @@ async function readThread(taskDir) {
  * @returns {Promise<Array<{process: string, pid: string, tid: string, state: string, startTime: string, switches: number, wchan: string}>>}
  */
 async function readDependencyThreads() {
-  const ownNamespace = await fs.readlink(path.join(procRoot, 'self', 'ns', 'pid')).catch(() => null);
-  const pids = (await fs.readdir(procRoot)).filter((entry) => /^\d+$/.test(entry));
+  const ownNamespace = await fs.readlink(path.join(paths.procRoot, 'self', 'ns', 'pid')).catch(() => null);
+  const pids = (await fs.readdir(paths.procRoot)).filter((entry) => /^\d+$/.test(entry));
   const threads = [];
   // eslint-disable-next-line no-restricted-syntax
   for (const pid of pids) {
-    const pidDir = path.join(procRoot, pid);
+    const pidDir = path.join(paths.procRoot, pid);
     // eslint-disable-next-line no-await-in-loop
     const comm = (await readOrNull(path.join(pidDir, 'comm')))?.trim();
     // eslint-disable-next-line no-continue
@@ -120,8 +139,54 @@ function describe(thread) {
   return `${thread.process} thread ${thread.tid} has been held in the kernel at ${thread.wchan} for ${minutes} minutes`;
 }
 
+/**
+ * @returns {Promise<string|null>} This boot's id, or null when it cannot be read.
+ */
+async function currentBootId() {
+  const id = (await readOrNull(paths.bootIdPath))?.trim();
+  return id || null;
+}
+
+/**
+ * Record the trip, so a FluxOS restart in this boot restores it.
+ * @param {string} reason
+ */
+async function recordTrip(reason) {
+  try {
+    const bootId = await currentBootId();
+    if (!bootId) {
+      log.warn('hostStall - the boot id cannot be read; the trip lasts only as long as this process');
+      return;
+    }
+    const staged = `${paths.recordFile}.tmp`;
+    await fs.writeFile(staged, JSON.stringify({ bootId, reason }));
+    await fs.rename(staged, paths.recordFile);
+  } catch (error) {
+    log.error(`hostStall - the trip could not be recorded: ${error.message}`);
+  }
+}
+
+/** Restore a trip recorded in this boot, and discard one from an earlier boot. */
+async function restoreTrip() {
+  try {
+    const text = await readOrNull(paths.recordFile);
+    if (text === null) return;
+    const bootId = await currentBootId();
+    if (!bootId) return;
+    const { bootId: recorded, reason } = JSON.parse(text);
+    if (recorded !== bootId) {
+      await fs.rm(paths.recordFile, { force: true });
+      log.info('hostStall - the recorded trip is from an earlier boot and is discarded');
+      return;
+    }
+    fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL, reason);
+  } catch (error) {
+    log.error(`hostStall - the recorded trip could not be read: ${error.message}`);
+  }
+}
+
 /** Hold or release the node by the longest-stuck thread. */
-function act() {
+async function act() {
   const longest = [...tracked.values()].reduce((worst, thread) => (!worst || thread.intervals > worst.intervals ? thread : worst), null);
   if (!longest || longest.intervals === 0) {
     fluxNetworkHelper.clearPlacementHold(fluxNetworkHelper.PlacementHoldOwner.HOST_STALL);
@@ -129,18 +194,20 @@ function act() {
   }
   fluxNetworkHelper.setPlacementHold(fluxNetworkHelper.PlacementHoldOwner.HOST_STALL, describe(longest));
   if (longest.intervals >= STUCK_INTERVALS && !fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL)) {
-    fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL, `Host stall: ${describe(longest)}`);
+    const reason = `Host stall: ${describe(longest)}`;
+    fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL, reason);
+    await recordTrip(reason);
   }
 }
 
 /**
  * Take one reading and act on it.
- * @param {{procRoot?: string}} [options] Where /proc is.
+ * @param {object} [options] Paths, as usePaths takes them.
  */
 async function readOnce(options = {}) {
-  procRoot = options.procRoot ?? procRoot;
+  usePaths(options);
   tracked = carryForward(await readDependencyThreads());
-  act();
+  await act();
 }
 
 async function readAndReschedule() {
@@ -153,13 +220,16 @@ async function readAndReschedule() {
 }
 
 /**
- * Read now, and every READ_INTERVAL_MS after each reading ends.
- * @param {{procRoot?: string}} [options] Where /proc is.
+ * Restore a trip recorded in this boot, then read now, and every
+ * READ_INTERVAL_MS after each reading ends.
+ * @param {object} [options] Paths, as usePaths takes them.
+ * @returns {Promise<void>} Resolves once a recorded trip is restored.
  */
-function start(options = {}) {
+async function start(options = {}) {
   if (readTimer !== null) return;
-  procRoot = options.procRoot ?? procRoot;
+  usePaths(options);
   readTimer = setTimeout(readAndReschedule, 0);
+  await restoreTrip();
 }
 
 /** Take no more readings and forget every thread. */
@@ -167,7 +237,7 @@ function stop() {
   clearTimeout(readTimer);
   readTimer = null;
   tracked = new Map();
-  procRoot = '/proc';
+  paths = { ...DEFAULT_PATHS };
 }
 
 module.exports = {
