@@ -3381,9 +3381,12 @@ async function applyContainerEgressRules(bridges) {
 // Re-exported here for backward compatibility.
 
 /**
- * Allow Node to bind to privileged without sudo
+ * Allow Node to bind to privileged without sudo. Legacy only: on ArcaneOS the
+ * fluxos unit grants the capability to FluxOS alone, and a file capability on
+ * the image's node would be written to the overlay and hide later images' node.
  */
 async function allowNodeToBindPrivilegedPorts() {
+  if (process.env.FLUXOS_PATH) return;
   try {
     const cmdAsync = util.promisify(nodecmd.run);
     const exec = "sudo setcap 'cap_net_bind_service=+ep' `which node`";
