@@ -58,6 +58,41 @@ function setOnComponentRemoved(callback) {
 }
 
 /**
+ * Tells the network this node no longer holds the app (fluxappremoved), and drops it
+ * from the running apps cache. For an app whose removal from this node is complete.
+ * @param {string} appName
+ * @returns {Promise<void>}
+ */
+async function announceRemoval(appName) {
+  // An announcement cycle that took its list before this removal marked the
+  // app still names it, and a claim arriving after this message re-creates the
+  // row it cleared. Waiting for the cycle in flight puts the two on the wire in
+  // the order they happened, so the claim is applied first and this clears it.
+  // A cycle starting from here on reads the mark and leaves the app out.
+  // Bounded: a wedged cycle must not hold up the node's removals.
+  await globalState.announceCycle.readyTimeout(ANNOUNCE_CYCLE_WAIT_MS);
+  const ip = await fluxNetworkHelper.getLocalSocketAddress();
+  if (!ip) {
+    log.warn(`${appName} removed without announcing it - this node's own address is unknown, so peers hold its location row until it expires`);
+    return;
+  }
+  const appRemovedMessage = {
+    type: 'fluxappremoved',
+    version: 1,
+    appName,
+    ip,
+    broadcastedAt: Date.now(),
+  };
+  log.info('Broadcasting appremoved message to the network');
+  await fluxCommunicationMessagesSender.broadcastMessageToAll(appRemovedMessage);
+  const { runningAppsCache } = globalState;
+  if (runningAppsCache.has(appName)) {
+    runningAppsCache.delete(appName);
+    log.info(`Removed ${appName} from running apps cache`);
+  }
+}
+
+/**
  * Stop Syncthing app and clean up cache
  * @param {string} monitoredName - Monitored app name
  * @param {string} appId - Application ID
@@ -982,37 +1017,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
 
     fluxEventBus.publish('app:removed', { name: appName });
 
-    if (sendMessage) {
-      // An announcement cycle that took its list before this removal marked the
-      // app still names it, and a claim arriving after this message re-creates the
-      // row it cleared. Waiting for the cycle in flight puts the two on the wire in
-      // the order they happened, so the claim is applied first and this clears it.
-      // A cycle starting from here on reads the mark and leaves the app out.
-      // Bounded: a wedged cycle must not hold up the node's removals.
-      await globalState.announceCycle.readyTimeout(ANNOUNCE_CYCLE_WAIT_MS);
-      const ip = await fluxNetworkHelper.getLocalSocketAddress();
-      if (ip) {
-        const broadcastedAt = Date.now();
-        const appRemovedMessage = {
-          type: 'fluxappremoved',
-          version: 1,
-          appName,
-          ip,
-          broadcastedAt,
-        };
-        log.info('Broadcasting appremoved message to the network');
-        // broadcast messages about app removed to all peers
-        await fluxCommunicationMessagesSender.broadcastMessageToAll(appRemovedMessage);
-        // Remove app from running apps cache
-        const { runningAppsCache } = globalState;
-        if (runningAppsCache.has(appName)) {
-          runningAppsCache.delete(appName);
-          log.info(`Removed ${appName} from running apps cache`);
-        }
-      } else {
-        log.warn(`${appName} removed without announcing it - this node's own address is unknown, so peers hold its location row until it expires`);
-      }
-    }
+    if (sendMessage) await announceRemoval(appName);
 
     if (!isComponent) {
       const dockerNetworkStatus = {
@@ -1333,6 +1338,7 @@ async function removeAppLocallyApi(req, res) {
 }
 
 module.exports = {
+  announceRemoval,
   hardUninstallComponent,
   hardUninstallApplication,
   softUninstallComponent,
