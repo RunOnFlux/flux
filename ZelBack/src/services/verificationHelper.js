@@ -1,5 +1,5 @@
 const { pubKeyToAddr, decodeWIF } = require('./utils/fluxCryptoUtils');
-const bitcoinMessage = require('bitcoinjs-message');
+const bitcoinMessage = require('./utils/bitcoinMessage');
 const { randomBytes } = require('crypto');
 
 const log = require('../lib/log');
@@ -97,12 +97,10 @@ function verifyZelID(address) {
  * @param {object} message
  * @param {string} address
  * @param {string} signature
- * @param {string} strMessageMagic
- * @param {string} checkSegwitAlways
  *
  * @returns {bool} isValid
  */
-function verifyMessage(message, address, signature, strMessageMagic, checkSegwitAlways) {
+function verifyMessage(message, address, signature) {
   let isValid = false;
   let signingAddress = address;
   try {
@@ -115,7 +113,7 @@ function verifyMessage(message, address, signature, strMessageMagic, checkSegwit
       const sigAddress = pubKeyToAddr(address, btcPubKeyHash);
       signingAddress = sigAddress;
     }
-    isValid = bitcoinMessage.verify(message, signingAddress, signature, strMessageMagic, checkSegwitAlways);
+    isValid = bitcoinMessage.verify(message, signingAddress, signature);
   } catch { /* not a valid signature */ }
   return isValid;
 }
@@ -136,7 +134,7 @@ function signMessage(message, pk) {
     }
     const { privateKey, compressed } = decodeWIF(pk);
 
-    signature = bitcoinMessage.sign(message, Buffer.from(privateKey, 'hex'), compressed, { extraEntropy: randomBytes(32) });
+    signature = bitcoinMessage.sign(message, Buffer.from(privateKey, 'hex'), compressed, randomBytes(32));
     signature = signature.toString('base64');
     // => different (but valid) signature each time
   } catch (e) {

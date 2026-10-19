@@ -4,7 +4,7 @@ const sinon = require('sinon');
 const { Privilege } = require('../../ZelBack/src/services/utils/privileges');
 const chaiAsPromised = require('chai-as-promised');
 const os = require('os');
-const bitcoinMessage = require('bitcoinjs-message');
+const bitcoinMessage = require('../../ZelBack/src/services/utils/bitcoinMessage');
 const proxyquire = require('proxyquire');
 const { PassThrough } = require('stream');
 

@@ -83,7 +83,6 @@
     "apicache": "~1.6.3",
     "archiver": "~7.0.1",
     "axios": "~1.13.6",
-    "bitcoinjs-message": "~2.2.0",
     "bs58check": "~3.0.1",
     "compression": "~1.8.1",
     "config": "~3.3.12",
