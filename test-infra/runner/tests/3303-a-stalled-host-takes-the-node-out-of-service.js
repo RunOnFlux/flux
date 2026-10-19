@@ -7,7 +7,7 @@ import { bootAndPeer, seedTestApp, seedSpawnerApp } from '../framework/reconcile
 import { buildSeedableTestApp } from '../framework/seed-helper.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import {
-  freezeDocker, thawDocker, thawEveryNode, stuckThreads, processesThatCanRun,
+  freezeDocker, thawDocker, thawEveryNode, stuckThreads, processesThatCanRun, containerCgroup,
 } from '../framework/host-stall.js';
 import {
   DOCKERD_UNIT, freezeUnit, restartFluxos, unitCgroup,
@@ -44,6 +44,11 @@ const outOfServiceForTheStall = (data) => data.dosState >= 100
   && String(data.dosMessage).includes('Host stall') && String(data.dosMessage).includes('dockerd');
 // the app names here have no '-', which a slice name escapes
 const sliceOf = (appName) => `flux-${appName}.slice`;
+const containerOf = (appName) => `flux${appName}_${appName}`;
+// what of the app can still run, read from its slice, which outlives its containers
+async function sliceProcessesThatCanRun(container, appName) {
+  return processesThatCanRun(container, await unitCgroup(container, sliceOf(appName)));
+}
 
 function step(what) {
   console.log(`# 3303 ${new Date().toISOString()} ${what}`);
@@ -83,8 +88,7 @@ describe('a stalled host takes the node out of service', function () {
   });
 
   it('runs the app in its own slice', async function () {
-    const pid = (await execInContainer(container, `docker inspect -f '{{.State.Pid}}' flux${appName}_${appName}`)).stdout.trim();
-    const cgroup = (await execInContainer(container, `cat /proc/${pid}/cgroup`)).stdout.trim().replace(/^0::/, '/sys/fs/cgroup');
+    const cgroup = await containerCgroup(container, containerOf(appName));
     const slice = await unitCgroup(container, sliceOf(appName)).catch(() => null);
     expect(slice !== null && cgroup.startsWith(`${slice}/`), `the app container is in ${cgroup}, not in its slice ${slice}, so the kill below has nothing to find`).to.equal(true);
   });
@@ -152,7 +156,7 @@ describe('a stalled host takes the node out of service', function () {
       const { data } = await client.waitForEvent('hostStall:appUnloaded', (d) => d.app === appName, REMOVAL_DEADLINE_MS * 3, { afterId: anchor });
       expect(data.removal, 'the app\'s removal finished, so its stall was never what removed it').to.not.equal('removed');
       expect(data.runnable, 'the node reports a process of the app that can still run').to.deep.equal([]);
-      expect(await processesThatCanRun(container, sliceOf(appName)), 'a process of the app can still run').to.deep.equal([]);
+      expect(await sliceProcessesThatCanRun(container, appName), 'a process of the app can still run').to.deep.equal([]);
     });
 
     it('stays out of service through a FluxOS restart in the same boot', async function () {
@@ -180,6 +184,8 @@ describe('a stalled host takes the node out of service', function () {
     let killContainer;
     let anchor;
     let runnableAtTrip;
+    // the app's container's own cgroup, wherever this tree puts it
+    let appCgroup;
 
     before(async function () {
       this.timeout(240000);
@@ -195,6 +201,7 @@ describe('a stalled host takes the node out of service', function () {
       killClient = env.clients[index];
       ({ container: killContainer } = killClient);
       await waitForUp(killClient, killedName, 'the app is up');
+      appCgroup = await containerCgroup(killContainer, containerOf(killedName));
       anchor = killClient.getLastEventId();
       step(`freezing node ${index}`);
       await freezeDocker(killContainer);
@@ -216,14 +223,14 @@ describe('a stalled host takes the node out of service', function () {
       expect(answer.exitCode, 'docker still answers, so it could still stop the app itself').to.not.equal(0);
       const stuck = await stuckThreads(killContainer, 'dockerd');
       expect(stuck, 'docker\'s held thread was released by its freeze, so the detector has nothing to read').to.not.be.empty;
-      expect(await processesThatCanRun(killContainer, sliceOf(killedName)), 'the app is not running, so there is nothing to kill').to.not.be.empty;
+      expect(await processesThatCanRun(killContainer, appCgroup), 'the app is not running, so there is nothing to kill').to.not.be.empty;
     });
 
     it('takes the node out of service', async function () {
       this.timeout(STALL_MS + READ_INTERVAL_MS * 6);
       await killClient.waitForEvent('dos:changed', outOfServiceForTheStall, STALL_MS + READ_INTERVAL_MS * 4, { afterId: anchor });
       // read before the removal's deadline, while only a kill can end the app
-      runnableAtTrip = await processesThatCanRun(killContainer, sliceOf(killedName));
+      runnableAtTrip = await processesThatCanRun(killContainer, appCgroup);
     });
 
     it('kills the app its removal could not stop, and nothing of it can run', async function () {
@@ -234,7 +241,7 @@ describe('a stalled host takes the node out of service', function () {
       expect(data.removal, 'the app\'s removal finished, so docker could act').to.not.equal('removed');
       expect(data.killed, 'the node never killed the app').to.equal(true);
       expect(data.runnable, 'the node reports a process of the app that can still run').to.deep.equal([]);
-      expect(await processesThatCanRun(killContainer, sliceOf(killedName)), 'a process of the app can still run').to.deep.equal([]);
+      expect(await sliceProcessesThatCanRun(killContainer, killedName), 'a process of the app can still run').to.deep.equal([]);
     });
   });
 });

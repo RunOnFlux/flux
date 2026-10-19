@@ -7,7 +7,6 @@
 // mounts its docker data root on a filesystem of its own. The env's teardown thaws
 // it, so a node a failing test left frozen can still be stopped.
 import { execInContainer } from './container.js';
-import { unitCgroup } from './systemd-control.js';
 
 export const DOCKER_ROOT = '/mnt/appdata/docker';
 
@@ -23,9 +22,10 @@ export async function freezeDocker(container) {
   await run(container, `fsfreeze -f ${DOCKER_ROOT}`, 'freezeDocker');
 }
 
-/** Let the node's docker write again. */
+/** Let the node's docker write again. A data root that is not frozen is left as it is. */
 export async function thawDocker(container) {
-  await run(container, `fsfreeze -u ${DOCKER_ROOT}`, 'thawDocker');
+  // fsfreeze refuses to thaw a filesystem that is not frozen, with EINVAL
+  await run(container, `out=$(fsfreeze -u ${DOCKER_ROOT} 2>&1) || echo "$out" | grep -q 'Invalid argument' || { echo "$out"; exit 1; }`, 'thawDocker');
 }
 
 /**
@@ -45,16 +45,29 @@ export async function thawEveryNode(clients) {
 }
 
 /**
- * The processes in a unit's cgroup and every cgroup below it that could still
- * run: neither gone nor with SIGKILL pending. Read inside the node, independently
- * of FluxOS, from where the node's systemd says the unit is. Throws when systemd
- * has no cgroup for the unit, which is never an answer of "nothing can run".
+ * The cgroup directory a container's main process lives in, read while docker
+ * still answers.
+ * @param {object} container The node.
+ * @param {string} name The container's name inside the node.
+ * @returns {Promise<string>} Under /sys/fs/cgroup.
+ */
+export async function containerCgroup(container, name) {
+  const pid = (await run(container, `docker inspect -f '{{.State.Pid}}' ${name}`, `finding ${name}'s process`)).trim();
+  const line = (await run(container, `cat /proc/${pid}/cgroup`, `reading ${name}'s cgroup`)).trim();
+  return line.replace(/^0::/, '/sys/fs/cgroup');
+}
+
+/**
+ * The processes in a cgroup and every cgroup below it that could still run:
+ * neither gone nor with SIGKILL pending. Read inside the node, independently of
+ * FluxOS. Throws when the cgroup does not exist, which is never an answer of
+ * "nothing can run".
  * @param {object} container
- * @param {string} unit A systemd unit, e.g. an app's slice.
+ * @param {string} cgroupDir Under /sys/fs/cgroup: systemd-control.unitCgroup, or containerCgroup.
  * @returns {Promise<string[]>} Their pids; empty when nothing in it can run again.
  */
-export async function processesThatCanRun(container, unit) {
-  const cgroupDir = await unitCgroup(container, unit);
+export async function processesThatCanRun(container, cgroupDir) {
+  await run(container, `test -d '${cgroupDir}'`, `${cgroupDir} does not exist`);
   const script = `for p in $(find '${cgroupDir}' -name cgroup.procs -exec cat {} +); do `
     + 's=/proc/$p/status; [ -r $s ] || continue; '
     + 'k=$(awk \'/^(SigPnd|ShdPnd):/{print $2}\' $s | while read m; do [ $(( 0x$m & 0x100 )) -ne 0 ] && echo y; done); '
