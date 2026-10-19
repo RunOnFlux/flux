@@ -4,6 +4,7 @@
  * nothing; the callers decide when, and hold the node while it runs.
  */
 const log = require('../../lib/log');
+const fluxEventBus = require('../utils/fluxEventBus');
 const appUninstaller = require('./appUninstaller');
 const appInstaller = require('./appInstaller');
 const { RemovalOutcome } = require('../utils/removalOutcome');
@@ -23,6 +24,7 @@ async function rebuildApp(appSpecs, res) {
   const removal = await appUninstaller.removeAppLocally(appSpecs.name, res, false, false);
   if (removal !== RemovalOutcome.REMOVED && removal !== RemovalOutcome.NOT_INSTALLED) {
     log.warn(`appRebuild - ${appSpecs.name} was not removed (${removal}), so it is not reinstalled`);
+    fluxEventBus.publish('app:rebuilt', { name: appSpecs.name, outcome: InstallOutcome.FAILED });
     return InstallOutcome.FAILED;
   }
 
@@ -41,6 +43,7 @@ async function rebuildApp(appSpecs, res) {
     await appUninstaller.announceRemoval(appSpecs.name)
       .catch((error) => log.error(`appRebuild - the removal of ${appSpecs.name} was not announced: ${error.message}`));
   }
+  fluxEventBus.publish('app:rebuilt', { name: appSpecs.name, outcome });
   return outcome;
 }
 

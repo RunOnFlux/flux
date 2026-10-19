@@ -4630,6 +4630,7 @@ async function reinstallOldApplications() {
     // loop, on a path that can return or throw from several places, and a leaked
     // true would make every neighbour stand aside indefinitely.
     globalState.reinstallationOfOldAppsInProgress = false;
+    fluxEventBus.publish('reinstall:passEnded', {});
     // ASKED ONCE THIS PASS IS OVER, because both of them uninstall and what holds them
     // apart is the node's install and removal flags: a removal the sweep attempts while
     // this pass holds those is refused, and goes onto the sweep's backoff rather than

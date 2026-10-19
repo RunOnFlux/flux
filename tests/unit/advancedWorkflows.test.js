@@ -7419,6 +7419,16 @@ describe('advancedWorkflows tests', () => {
         expect(rebuildApp.firstCall.args[0]).to.include({ name: 'myapp', hash: 'newhash', version: 4 });
       });
 
+      it('says when the pass has ended', async () => {
+        sinon.stub(appRebuild, 'rebuildApp').resolves('installed');
+        const publish = sinon.stub(fluxEventBus, 'publish');
+        dbHelper.findInDatabase.resolves([oldFormat]);
+
+        await advancedWorkflows.reinstallOldApplications();
+
+        sinon.assert.calledWith(publish, 'reinstall:passEnded', {});
+      });
+
       it('lets the pass go on to the next app when its rebuild does not complete', async () => {
         const rebuildApp = sinon.stub(appRebuild, 'rebuildApp').resolves('failed');
         const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();

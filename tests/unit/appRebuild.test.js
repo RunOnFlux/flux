@@ -8,6 +8,7 @@ describe('appRebuild tests', () => {
   let uninstaller;
   let installer;
   let appRebuild;
+  let bus;
   const spec = { name: 'myapp', version: 8 };
 
   beforeEach(() => {
@@ -19,7 +20,9 @@ describe('appRebuild tests', () => {
       checkAppRequirements: sinon.stub().resolves(true),
       registerAppLocally: sinon.stub().resolves(InstallOutcome.INSTALLED),
     };
+    bus = { publish: sinon.stub() };
     appRebuild = proxyquire('../../ZelBack/src/services/appLifecycle/appRebuild', {
+      '../utils/fluxEventBus': bus,
       './appUninstaller': uninstaller,
       './appInstaller': installer,
       '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
@@ -77,6 +80,17 @@ describe('appRebuild tests', () => {
 
     sinon.assert.calledOnce(installer.registerAppLocally);
     sinon.assert.notCalled(uninstaller.announceRemoval);
+  });
+
+  it('publishes how each rebuild ended', async () => {
+    await appRebuild.rebuildApp(spec);
+    uninstaller.removeAppLocally.resolves(RemovalOutcome.FAILED);
+    await appRebuild.rebuildApp(spec);
+
+    expect(bus.publish.args).to.deep.equal([
+      ['app:rebuilt', { name: 'myapp', outcome: InstallOutcome.INSTALLED }],
+      ['app:rebuilt', { name: 'myapp', outcome: InstallOutcome.FAILED }],
+    ]);
   });
 
   it('settles a removal it could not announce, and still answers', async () => {
