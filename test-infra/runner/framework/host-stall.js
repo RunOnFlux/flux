@@ -28,15 +28,18 @@ export async function thawDocker(container) {
 }
 
 /**
- * Thaw every node's docker that is frozen, and pass over the rest: the last step
- * before anything reads a node through its docker or stops it, since a node whose
- * docker is held in the kernel can be neither read nor stopped. Never rejects.
+ * Thaw every node's docker data root that is frozen, and every cgroup frozen in it
+ * (systemd-control.freezeUnit), and pass over the rest: the last step before
+ * anything reads a node through its docker or stops it, since a node whose docker
+ * is held can be neither read nor stopped. Never rejects.
  * @param {Array<{container?: object}>} clients
  */
 export async function thawEveryNode(clients) {
+  const thaw = `fsfreeze -u ${DOCKER_ROOT} 2>/dev/null; `
+    + 'for f in $(find /sys/fs/cgroup -name cgroup.freeze 2>/dev/null); do [ "$(cat $f)" = 1 ] && echo 0 > $f; done; true';
   await Promise.all(clients.map(async (client) => {
     if (!client?.container) return;
-    await execInContainer(client.container, `fsfreeze -u ${DOCKER_ROOT} 2>/dev/null; true`).catch(() => {});
+    await execInContainer(client.container, thaw).catch(() => {});
   }));
 }
 
