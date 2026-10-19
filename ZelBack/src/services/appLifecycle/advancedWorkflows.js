@@ -5132,7 +5132,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
         members = await electedMembers(installedApp);
       } catch (error) {
         // An unread stop lock is not a lifted one: not a candidate this pass.
-        log.warn(`masterSlaveApps: ${installedApp.name} stop locks could not be read - excluded from primary election this pass: ${error.message}`);
+        log.warn(`masterSlaveApps: ${installedApp.name}: a stop lock could not be read - excluded from primary election this pass: ${error.message}`);
         // eslint-disable-next-line no-continue
         continue;
       }
