@@ -90,6 +90,8 @@ describe('fluxNetworkHelper tests', () => {
     // fluxd has no decided address unless a case gives it one, so the node's
     // address comes from the benchmark stubs each case sets up.
     getNetworkInfoStub = sinon.stub(daemonServiceNetworkRpcs, 'getNetworkInfo').resolves(NETWORK_INFO_WITHOUT_DECIDED);
+    // Each case starts with fluxd not yet heard from.
+    fluxNetworkHelper.resetPublicAddressNote();
     sinon.stub(upnpService, 'isUPNP').returns(false);
     sinon.stub(upnpService, 'removeMapUpnpPort').resolves(true);
     sinon.stub(upnpService, 'mapUpnpPort').resolves(true);
