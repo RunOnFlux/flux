@@ -27,7 +27,7 @@ const JOINING = NODES - 1;
 // what the peers hold when the node joins: more events than one message carries
 const ANSWERED_EVENTS = ANSWER_BATCH + 1;
 // a peer's request ended for any of these reasons is replaced too, and is not this
-const OTHER_ENDINGS = ['ephemeralSync:peerTimedOut', 'ephemeralSync:peerDisconnected', 'ephemeralSync:peerUnverified', 'sync:refused'];
+const OTHER_ENDINGS = ['ephemeralSync:peerTimedOut', 'ephemeralSync:peerDisconnected', 'ephemeralSync:peerUnverified'];
 
 function step(what) {
   console.log(`# 3304 ${new Date().toISOString()} ${what}`);
@@ -48,7 +48,16 @@ describe('a sync answer the node cannot record is not counted', function () {
       nodes: NODES,
       deferredNodes: 1,
       tickerAutostart: false,
-      configOverrides: { fluxapps: { syncAnswerBatchSize: ANSWER_BATCH, locationTtlS: 1800 } },
+      configOverrides: {
+        fluxapps: {
+          syncAnswerBatchSize: ANSWER_BATCH,
+          locationTtlS: 1800,
+          // the production budget: the per-peer deadlines derive from it, and at
+          // the harness's 30s the wait between two messages of an answer cut this
+          // small is shorter than the peer takes to send them
+          syncTimeoutMs: 120000,
+        },
+      },
     });
     await bootAndPeer(env);
     await seedSimpleApp(env, appName);
@@ -91,11 +100,13 @@ describe('a sync answer the node cannot record is not counted', function () {
     expect(asked.size, 'the peer whose answer was not recorded was counted, and nobody else was asked').to.equal(2);
   });
 
-  it('names that peer, and never counts it', function () {
+  it('names that peer, and never counts its running-app answer', function () {
     const events = joining.getEventBuffer();
     const failedAt = events.find((e) => e.event === 'ephemeralSync:peerWriteFailed');
     expect(failedAt, 'the node said nothing about the answer it could not record').to.not.equal(undefined);
-    const counted = events.filter((e) => e.event === 'ephemeralSync:peerComplete' && e.data.peer === failedAt.data.peer);
+    // the streams it finished before the failed write stand; the one it could not record does not
+    const counted = events.filter((e) => e.event === 'ephemeralSync:peerComplete'
+      && e.data.syncType === 'apprunning' && e.data.peer === failedAt.data.peer);
     expect(counted, 'the peer whose answer was not recorded was counted').to.deep.equal([]);
   });
 });
