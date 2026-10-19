@@ -3,6 +3,7 @@ const chaiAsPromised = require('chai-as-promised');
 const sinon = require('sinon');
 
 const { FluxTTLCache } = require('../../ZelBack/src/services/utils/cacheManager');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 
 const proxyquire = require('proxyquire').noCallThru();
 
@@ -74,7 +75,7 @@ describe('daemonServiceUtils tests', () => {
     // be read, the login is fluxd's cookie, and fluxd is asked about itself.
     const node = ({ credential = null, cookies = [] } = {}) => {
       const state = {
-        cookieReads: 0, clients: [], batches: [], parsed: 0, resolved: 0,
+        cookieReads: 0, clients: [], batches: [], parsed: 0, resolved: 0, delays: 0,
       };
       class DaemonConfig {
         constructor() { this.configElements = {}; }
@@ -117,16 +118,26 @@ describe('daemonServiceUtils tests', () => {
 
         async runBatch(calls) {
           state.batches.push(calls.map((c) => c.method));
-          if (state.batchFails) throw new Error('batch refused');
-          return [
-            { id: 0, result: state.indexes ?? { txindex: {}, addressindex: {} }, error: null },
-            { id: 1, result: [{ type: 'pubhashblock', address: 'tcp://127.0.0.1:16123' }], error: null },
-          ];
+          if (state.batchFails) {
+            state.batchFails -= 1;
+            throw new Error('batch refused');
+          }
+          return calls.map(({ method }, id) => {
+            if (state.methodFails?.[method]) {
+              return { id, result: null, error: { code: -32601, message: 'Method not found' } };
+            }
+            const result = method === 'getindexinfo'
+              ? (state.indexes ?? { txindex: {}, addressindex: {} })
+              : [{ type: 'pubhashblock', address: 'tcp://127.0.0.1:16123' }];
+            return { id, result, error: null };
+          });
         }
       }
       const module = proxyquire('../../ZelBack/src/services/daemonService/daemonServiceUtils', {
         '../utils/daemonConfig': { DaemonConfig },
         '../utils/fluxRpc': { FluxRpc },
+        // The retry delay is instant; the refetch spacing reads state.now.
+        '../serviceHelper': { ...serviceHelper, delay: async () => { state.delays += 1; } },
         './fluxdCredentials': {
           readNodeKeyCredential: async () => credential,
           readRpcCookie: async () => {
@@ -237,16 +248,65 @@ describe('daemonServiceUtils tests', () => {
       expect(state.cookieReads).to.equal(0);
     });
 
-    it('leaves the facts unknown when fluxd does not report them, and asks again', async () => {
-      const { module, state } = node({ credential: 'credkey', cookies: [cookieA] });
-      state.batchFails = true;
-      await module.executeCall('getblockcount', [], { useCache: false });
-      expect(module.addressIndex()).to.equal(null);
+    describe('when fluxd does not report its facts', () => {
+      let now;
+      beforeEach(() => {
+        now = 1_000_000;
+        sinon.stub(Date, 'now').callsFake(() => now);
+      });
+      afterEach(() => sinon.restore());
 
-      state.batchFails = false;
-      await module.executeCall('getblockcount', [], { useCache: false });
-      expect(module.addressIndex()).to.equal(true);
-      expect(state.batches).to.have.length(2);
+      it('retries before fluxd\'s first answer returns, so one failure does not decide the address-index check', async () => {
+        const { module, state } = node({ credential: 'credkey', cookies: [cookieA] });
+        state.batchFails = 2;
+        await module.executeCall('getblockcount', [], { useCache: false });
+        expect(state.batches).to.have.length(3);
+        expect(state.delays).to.equal(2);
+        expect(module.addressIndex()).to.equal(true);
+      });
+
+      it('keeps the indexes when only the ZMQ notifications fail, and asks only for those again', async () => {
+        const { module, state } = node({ credential: 'credkey', cookies: [cookieA] });
+        state.methodFails = { getzmqnotifications: true };
+        await module.executeCall('getblockcount', [], { useCache: false });
+        expect(module.addressIndex(), 'the index answer is kept').to.equal(true);
+        expect(module.getConfigValue('zmqpubhashblock')).to.equal(undefined);
+        expect(state.batches.slice(1)).to.eql([['getzmqnotifications'], ['getzmqnotifications']]);
+
+        state.methodFails = {};
+        now += 30_000;
+        await module.executeCall('getblockcount', [], { useCache: false });
+        expect(state.batches.at(-1)).to.eql(['getzmqnotifications']);
+        expect(module.getConfigValue('zmqpubhashblock')).to.equal('tcp://127.0.0.1:16123');
+      });
+
+      it('does not ask again within 30 s of a fetch that left a fact unknown', async () => {
+        const { module, state } = node({ credential: 'credkey', cookies: [cookieA] });
+        state.batchFails = 10;
+        await module.executeCall('getblockcount', [], { useCache: false });
+        expect(module.addressIndex()).to.equal(null);
+        const asked = state.batches.length;
+
+        now += 29_999;
+        await module.executeCall('getblockcount', [], { useCache: false });
+        await module.executeCall('getblockcount', [], { useCache: false });
+        expect(state.batches, 'no fetch inside 30 s').to.have.length(asked);
+
+        state.batchFails = 0;
+        now += 1;
+        await module.executeCall('getblockcount', [], { useCache: false });
+        expect(module.addressIndex()).to.equal(true);
+      });
+
+      it('asks again at once after fluxd restarts, whatever failed before', async () => {
+        const { module, state } = node({ credential: 'credkey', cookies: [cookieA, cookieB] });
+        state.batchFails = 10;
+        await module.executeCall('getblockcount', [], { useCache: false });
+        state.batchFails = 0;
+        state.refuse = (client) => client.auth?.password === 'a';
+        await module.executeCall('getblockcount', [], { useCache: false });
+        expect(module.addressIndex()).to.equal(true);
+      });
     });
 
     it('shares one request among callers arriving together', async () => {
