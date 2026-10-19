@@ -62,8 +62,12 @@ const NO_SUCH_ENTRY = 714;
 // table is full: some answer 728 NoPortMapsAvailable, as the standard has it,
 // others a generic 501 Action Failed, which some also give for every refresh
 // of an entry they hold. A full table cannot be told by its code, so a refusal
-// that is not the port's is taken as the router's.
+// that is not the port's is taken as the router's - unless the router, asked
+// after refusing, holds the port for something else: that names the port
+// whatever the code, 501 and 606 included. Only 728 says the table is full in
+// so many words, and counts as the router's even then.
 const PORT_REFUSALS = new Set([402, 716, 718, 724, 725, 726, 727, 729]);
+const NO_PORT_MAPS_AVAILABLE = 728;
 
 // What a test leaves on the router while it runs and removes before it ends.
 const TEST_MAPPING_DESCRIPTIONS = new Set(['Flux_UPNP_Mapping_Test', 'Flux_Test_App']);
@@ -126,16 +130,18 @@ async function mapProtocol(port, protocol, description) {
     return MAPPED;
   } catch (error) {
     const answered = error instanceof natUpnp.UpnpError;
+    let heldElsewhere = false;
     if (answered) {
       const held = await client.getMapping({ public: port, protocol }).catch(() => null);
       if (mapsHere(held, port)) {
         log.info(`UPnP - ${protocol} ${port} refused (${error.message}), but the router already maps it to this node`);
         return MAPPED;
       }
+      heldElsewhere = held !== null;
     }
     const code = answered ? error.code : null;
     // no answer, with no code, is the router's too
-    const routerWide = !PORT_REFUSALS.has(code);
+    const routerWide = !PORT_REFUSALS.has(code) && !(heldElsewhere && code !== NO_PORT_MAPS_AVAILABLE);
     if (routerWide) routerRefusalCount += 1;
     return {
       mapped: false, code, reason: `${protocol} ${port} not mapped: ${error.message}`, routerWide,

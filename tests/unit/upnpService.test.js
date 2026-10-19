@@ -826,6 +826,44 @@ describe('upnpService tests', () => {
       });
     });
 
+    [
+      [501, 'ActionFailed'],
+      [606, 'ActionNotAuthorized'],
+    ].forEach(([code, description]) => {
+      it(`should give a ${code} for a port another machine holds as the port's refusal, not the router's`, async () => {
+        createMappingStub.rejects(refusal(code, description));
+        getMappingStub.resolves(entry({ local: false, private: { host: '192.168.1.11', port: 123 } }));
+        const before = upnpService.routerRefusals();
+
+        const result = await upnpService.mapUpnpPort(123, 'Flux_App_web');
+
+        expect(result).to.include({ mapped: false, code, routerWide: false });
+        expect(upnpService.routerRefusals()).to.equal(before);
+      });
+    });
+
+    it('should give a 501 for a port this node holds otherwise as the port\'s refusal, not the router\'s', async () => {
+      createMappingStub.rejects(refusal(501, 'ActionFailed'));
+      getMappingStub.resolves(entry({ private: { host: '192.168.1.10', port: 124 } }));
+      const before = upnpService.routerRefusals();
+
+      const result = await upnpService.mapUpnpPort(123, 'Flux_App_web');
+
+      expect(result).to.include({ mapped: false, code: 501, routerWide: false });
+      expect(upnpService.routerRefusals()).to.equal(before);
+    });
+
+    it('should count a 728 as the router\'s refusal even for a port another machine holds', async () => {
+      createMappingStub.rejects(refusal(728, 'NoPortMapsAvailable'));
+      getMappingStub.resolves(entry({ local: false, private: { host: '192.168.1.11', port: 123 } }));
+      const before = upnpService.routerRefusals();
+
+      const result = await upnpService.mapUpnpPort(123, 'Flux_App_web');
+
+      expect(result).to.include({ mapped: false, code: 728, routerWide: true });
+      expect(upnpService.routerRefusals()).to.equal(before + 1);
+    });
+
     it('should take a refusal as mapped when the router already maps the port to this node', async () => {
       createMappingStub.rejects(refusal(728, 'NoPortMapsAvailable'));
       getMappingStub.callsFake(async ({ protocol }) => entry({ protocol: protocol.toLowerCase() }));
