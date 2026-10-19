@@ -796,6 +796,12 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
       return;
     }
     case 'DeletePortMapping': {
+      if (gateway.refuseDeletes > 0) {
+        gateway.refuseDeletes -= 1;
+        gateway.requests[gateway.requests.length - 1].refused = 501;
+        soapFault(res, 501, 'ActionFailed');
+        return;
+      }
       const before = gateway.mappings.length;
       gateway.mappings = gateway.mappings.filter((m) => !sameEntry(m));
       if (gateway.mappings.length === before) soapFault(res, 714, 'NoSuchEntryInArray');
@@ -1012,14 +1018,14 @@ control.post('/storage-requests/reset', (req, res) => {
 // Put a node behind a UPnP gateway, with no mappings yet.
 control.post('/upnp-gateway', (req, res) => {
   const {
-    ip, externalIp = null, capacity = null, mappings = [],
+    ip, externalIp = null, capacity = null, mappings = [], refuseDeletes = 0,
   } = req.body || {};
   if (!ip) {
     res.status(400).json({ error: 'ip is required' });
     return;
   }
   state.upnpGateways[ip] = {
-    externalIp, capacity, mappings, requests: [],
+    externalIp, capacity, mappings, refuseDeletes, requests: [],
   };
   res.json({ ok: true });
 });

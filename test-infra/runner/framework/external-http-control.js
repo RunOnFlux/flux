@@ -195,10 +195,14 @@ export async function resetStorageRequests() {
  * @param {string} [opts.externalIp] - the address the gateway reports; the node's own when absent
  * @param {number} [opts.capacity] - how many mappings its table holds; no limit when absent
  * @param {object[]} [opts.mappings] - what its table holds already, as upnpGatewayState lists it
+ * @param {number} [opts.refuseDeletes] - how many DeletePortMapping requests it refuses with
+ *   501 before it removes anything; a refused request carries `refused: 501` in its state
  */
-export async function enableUpnpGateway(ip, { externalIp = null, capacity = null, mappings = [] } = {}) {
+export async function enableUpnpGateway(ip, {
+  externalIp = null, capacity = null, mappings = [], refuseDeletes = 0,
+} = {}) {
   const res = await post('/upnp-gateway', {
-    ip, externalIp, capacity, mappings,
+    ip, externalIp, capacity, mappings, refuseDeletes,
   });
   if (!res.ok) throw new Error(`enableUpnpGateway: ${JSON.stringify(res)}`);
 }

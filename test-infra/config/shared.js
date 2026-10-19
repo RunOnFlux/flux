@@ -12,7 +12,11 @@ module.exports = {
   // the behaviour is unchanged, only the searching stops.
   // nodeIp stays empty as in production: it is the node's own address for a port mapping,
   // it cannot be a shared constant, and no mapping is ever made because verification fails.
-  upnp: { gatewayUrl: 'http://31.200.0.6:3000/upnp/device.xml', nodeIp: '' },
+  // A removal the router refuses is asked again after 2s, the wait doubling to 8s, so a
+  // suite sees several asks in seconds rather than the half hour production allows.
+  upnp: {
+    gatewayUrl: 'http://31.200.0.6:3000/upnp/device.xml', nodeIp: '', removalRetryFirstMs: 2000, removalRetryMaxMs: 8000,
+  },
   // Empty disables analytics. The app default is the live cloudaudit endpoint, which
   // the fleet must never report suite activity to.
   analytics: { url: '' },
