@@ -315,6 +315,12 @@ class AppSyncOrchestrator {
       log.error(`AppSyncOrchestrator - ${syncType} sync complete with no peer, not counted`);
       return;
     }
+    // A message admitted while the request was open can finish after it ended:
+    // timed out, or ended for an answer that could not be verified or recorded.
+    if (!this.#requests.isOpen(peerKey)) {
+      log.info(`AppSyncOrchestrator - ${syncType} sync complete from ${peerKey} after its request ended, not counted`);
+      return;
+    }
     answered.add(peerKey);
     // Its answer is in, so it is no longer something being waited on. The
     // record stands as answered rather than being dropped: a peer that has

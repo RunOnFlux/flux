@@ -816,6 +816,26 @@ describe('AppSyncOrchestrator', () => {
       return orchestrator;
     };
 
+    it('does not credit a peer whose request ended while its last message was being stored', async () => {
+      const orchestrator = await driveToRequests(makeEligiblePeers(3));
+      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, makeEligiblePeers(3)[0].key);
+      await clock.tickAsync(0);
+
+      completeAllTypes(3, ['apprunning', 'appinstalling', 'apperrors', 'apptemp']);
+      await clock.tickAsync(0);
+
+      expect(orchestrator.state, 'a peer was credited after its request had ended').to.equal(STATES.SYNCING);
+    });
+
+    it('a canary: the same completions with every request open complete the sync', async () => {
+      const orchestrator = await driveToRequests(makeEligiblePeers(3));
+
+      completeAllTypes(3, ['apprunning', 'appinstalling', 'apperrors', 'apptemp']);
+      await clock.tickAsync(0);
+
+      expect(orchestrator.state).to.equal(STATES.READY);
+    });
+
     it('does not complete the sync on the three surveys alone', async () => {
       const orchestrator = await driveToRequests(makeEligiblePeers(3));
 
