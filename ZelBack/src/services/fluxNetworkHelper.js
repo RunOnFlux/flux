@@ -1071,13 +1071,18 @@ function notePublicAddress(note) {
   log.debug(note);
 }
 
+// Whether fluxd decided addresses the last time it answered getnetworkinfo:
+// true with `decided_address`, false without, null before its first answer.
+let fluxdLastDecided = null;
+
 /**
  * Forgets what was last logged about the address source, so the next lookup
- * logs its own.
+ * logs its own, and what fluxd last answered.
  * @returns {void}
  */
 function resetPublicAddressNote() {
   publicAddressNote = null;
+  fluxdLastDecided = null;
 }
 
 /**
@@ -1088,19 +1093,24 @@ function resetPublicAddressNote() {
  * not decide addresses, an address that is not IPv4, or the address fluxd now
  * reports.
  * @returns {Promise<{address: (string|null), fluxdDecides: boolean}>} The address,
- *   or null when there is none. fluxdDecides is false only for a fluxd that
- *   answers without a `decided_address`, which runs beside a FluxBench that still
- *   detects the address itself. Otherwise the address is fluxd's alone to give and
- *   a null is "not yet": fluxd has not decided one, or is not answering, as while
- *   it restarts.
+ *   or null when there is none. fluxdDecides is false for a fluxd that answers
+ *   without a `decided_address`, which runs beside a FluxBench that still detects
+ *   the address itself, and while fluxd does not answer if that is how it last
+ *   answered. Otherwise the address is fluxd's alone to give and a null is "not
+ *   yet": fluxd has not decided one, or is not answering, as while it restarts.
  */
 async function getDecidedAddress() {
   const response = await daemonServiceNetworkRpcs.getNetworkInfo();
   if (response?.status !== 'success') {
+    if (fluxdLastDecided === false) {
+      notePublicAddress('Public address: fluxd did not answer getnetworkinfo, asking FluxBench as fluxd does not decide addresses');
+      return { address: null, fluxdDecides: false };
+    }
     notePublicAddress('Public address: fluxd did not answer getnetworkinfo');
     return { address: null, fluxdDecides: true };
   }
   const decided = response.data?.decided_address;
+  fluxdLastDecided = Boolean(decided);
   if (!decided) {
     notePublicAddress('Public address: fluxd does not decide addresses, asking FluxBench');
     return { address: null, fluxdDecides: false };
@@ -1142,9 +1152,9 @@ async function getLocalSocketAddress(options = {}) {
   // A CALLER THAT IS PROBING, NOT IDENTIFYING, ASKS FOR `fresh`. The cache answers
   // "what is this node's address", and for the callers below that is all the
   // question is. It is not all of it for a caller reading the ANSWER'S ABSENCE as a
-  // fact about the benchmark daemon: served from memory, a null that meant "the
-  // daemon did not answer" becomes the last address it ever gave, and the caller
-  // reads a dead daemon as a live one for as long as the window lasts.
+  // fact about the node now: served from memory, a null that meant "no address
+  // right now" (fluxd has decided none and FluxBench's benchmarks carry none)
+  // becomes the last address the node had, for as long as the window lasts.
   const { fresh = false } = options;
 
   // Serve the cached own-IP without a benchmark RPC while it is still fresh. A batch

@@ -106,10 +106,13 @@ class FluxRpc {
       ['createmultisig', null],
       ['estimatefee', null],
       ['estimatepriority', null],
+      ['getindexinfo', null],
       ['printsnapshot', null],
       ['validateaddress', null],
       ['verifymessage', null],
       ['z_validateaddress', null],
+      // == Zmq ==
+      ['getzmqnotifications', null],
     ]),
     fluxbenchd: new Map([
       ['getstatus', null],
@@ -211,6 +214,8 @@ class FluxRpc {
 
       const fetchError = new Error(errorMessage);
       fetchError.code = errorCode;
+      // The HTTP status, when there was a response: 401 is a refused login.
+      fetchError.status = err.response?.status;
 
       throw fetchError;
     });
@@ -265,6 +270,8 @@ class FluxRpc {
 
       const fetchError = new Error(errorMessage);
       fetchError.code = errorCode;
+      // The HTTP status, when there was a response: 401 is a refused login.
+      fetchError.status = err.response?.status;
 
       throw fetchError;
     });
