@@ -1144,9 +1144,9 @@ async function getLocalSocketAddress(options = {}) {
   // A CALLER THAT IS PROBING, NOT IDENTIFYING, ASKS FOR `fresh`. The cache answers
   // "what is this node's address", and for the callers below that is all the
   // question is. It is not all of it for a caller reading the ANSWER'S ABSENCE as a
-  // fact about the benchmark daemon: served from memory, a null that meant "the
-  // daemon did not answer" becomes the last address it ever gave, and the caller
-  // reads a dead daemon as a live one for as long as the window lasts.
+  // fact about the node now: served from memory, a null that meant "no address
+  // right now" (fluxd has decided none, or the benchmark daemon did not answer)
+  // becomes the last address the node had, for as long as the window lasts.
   const { fresh = false } = options;
 
   // Serve the cached own-IP without a benchmark RPC while it is still fresh. A batch

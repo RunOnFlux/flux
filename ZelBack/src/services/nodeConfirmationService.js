@@ -132,12 +132,12 @@ async function poll() {
       }
     }
 
-    // ASKED OF THE DAEMON, NOT OF THE CACHE. This is the only reader here that
-    // establishes whether this node can still be heard, and it does so through the
-    // benchmark answering at all - an address it cannot produce is what makes a node
-    // stop claiming it can broadcast. A value served from memory answers the address
-    // and not the question, so a daemon that died inside the cache window leaves this
-    // node believing it can still send, and readiness follows it back up.
+    // ASKED FRESH, NOT OF THE CACHE. This is the only reader here that establishes
+    // whether this node can still be heard: it can when the network lists it at its
+    // own address. An address the node cannot produce now is what makes it stop
+    // claiming it can broadcast - fluxd with no decided address, or, beside a fluxd
+    // that does not decide addresses, a benchmark daemon that does not answer. A
+    // value served from memory answers the address and not the question.
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
     if (localSocketAddr && ourPubkey) {
       const node = await networkStateService.getFluxnodeBySocketAddress(localSocketAddr);
