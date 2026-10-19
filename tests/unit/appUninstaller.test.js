@@ -723,34 +723,78 @@ describe('appUninstaller tests', () => {
     const res = null; // exercised without a response stream
 
     describe('a cleanup step that fails after the containers are gone', () => {
-      // The row stays and still describes the app, so the reconciler rebuilds it: a
-      // removal is never finished later, against a row a reinstall may have written.
-      it('fails the removal and keeps the row when the row cannot be deleted', async () => {
-        const deleteRow = sinon.stub().rejects(new Error('connection timed out'));
-        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
-        const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
-
-        try {
-          const outcome = await uninstaller.removeAppLocally('testapp', res, true);
-          await clock.tickAsync(60 * 60 * 1000);
-
-          expect(outcome).to.equal('failed');
-          sinon.assert.calledOnce(deleteRow);
-        } finally {
-          clock.restore();
+      // The app is part removed: it is held as departing - never started, never
+      // announced - and its removal runs again until it finishes, which tells the network.
+      const settle = async (done) => {
+        for (let i = 0; i < 200 && !done(); i += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((resolve) => { setTimeout(resolve, 10); });
         }
-        expect(globalStateStub.departingApps.has('testapp'), 'left the app held as departing').to.be.false;
-      });
+      };
 
-      it('fails the removal, before the row, when the runtime state cannot be removed', async () => {
+      it('fails the removal, holds the app, and finishes the removal once the row can be deleted', async () => {
         const deleteRow = sinon.stub().resolves();
+        deleteRow.onFirstCall().rejects(new Error('connection timed out'));
+        let heldWhileFinishing = null;
+        deleteRow.onSecondCall().callsFake(async () => {
+          heldWhileFinishing = globalStateStub.departingApps.has('testapp');
+        });
         const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
-        runtimeStateStub.remove.rejects(new Error('connection timed out'));
 
         const outcome = await uninstaller.removeAppLocally('testapp', res, true);
+        await settle(() => !globalStateStub.departingApps.has('testapp') && deleteRow.calledTwice);
 
         expect(outcome).to.equal('failed');
-        sinon.assert.notCalled(deleteRow);
+        expect(heldWhileFinishing, 'the part-removed app was not held while its removal was run again').to.be.true;
+        sinon.assert.calledTwice(deleteRow);
+        expect(globalStateStub.departingApps.has('testapp'), 'the hold outlived the removal').to.be.false;
+        sinon.assert.calledOnce(getLocalSocketAddressStub);
+      });
+
+      it('holds an app the network was already told of, and does not tell it twice', async () => {
+        const deleteRow = sinon.stub().resolves();
+        deleteRow.onFirstCall().rejects(new Error('connection timed out'));
+        let heldWhileFinishing = null;
+        deleteRow.onSecondCall().callsFake(async () => {
+          heldWhileFinishing = globalStateStub.departingApps.has('testapp');
+        });
+        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
+
+        await uninstaller.removeAppLocally('testapp', res, true, true, true);
+        await settle(() => !globalStateStub.departingApps.has('testapp') && deleteRow.calledTwice);
+
+        expect(heldWhileFinishing, 'the part-removed app was not held while its removal was run again').to.be.true;
+        sinon.assert.calledOnce(getLocalSocketAddressStub);
+      });
+
+      it('fails the removal, before the row, when the runtime state cannot be removed, and finishes it', async () => {
+        const deleteRow = sinon.stub().resolves();
+        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
+        runtimeStateStub.remove.onFirstCall().rejects(new Error('connection timed out'));
+
+        const outcome = await uninstaller.removeAppLocally('testapp', res, true);
+        expect(outcome).to.equal('failed');
+        await settle(() => deleteRow.called);
+
+        sinon.assert.calledOnce(deleteRow);
+      });
+
+      it('runs one removal again for an app however often it is handed over', async () => {
+        let finishRow;
+        const deleteRow = sinon.stub().resolves();
+        deleteRow.onFirstCall().rejects(new Error('connection timed out'));
+        deleteRow.onSecondCall().returns(new Promise((resolve) => { finishRow = resolve; }));
+        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
+
+        await uninstaller.removeAppLocally('testapp', res, true);
+        await settle(() => deleteRow.calledTwice);
+        uninstaller.finishRemoval('testapp', true, true);
+        finishRow();
+        await settle(() => !globalStateStub.departingApps.has('testapp'));
+        // time for a second run, had one been started, to reach the row
+        await new Promise((resolve) => { setTimeout(resolve, 100); });
+
+        sinon.assert.calledTwice(deleteRow);
       });
     });
 

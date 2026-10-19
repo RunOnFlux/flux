@@ -23,7 +23,6 @@ const nodeConfirmationService = require('../nodeConfirmationService');
 const { localAppsInformation, SIGTERM_EXPIRY_MS, RUNNING_EXPIRY_MS } = require('../utils/appConstants');
 const { getNonGComponentIdentifiers, parseContainerName, appHasValidLocationOnNode } = require('../utils/appUtilities');
 const { RemovalOutcome } = require('../utils/removalOutcome');
-const { untilSucceeds } = require('../utils/untilSucceeds');
 
 const SYNC_TIMEOUT_MS = config.system.bootSyncTimeoutMs ?? 300000;
 
@@ -125,21 +124,10 @@ async function openInstalledAppPorts() {
  * @returns {Promise<boolean>} Whether the app is gone now.
  */
 async function removeAppBootMayNotStart(appName, announce) {
-  const remove = async () => {
-    const outcome = await appUninstaller.removeAppLocally(appName, null, true, true, announce);
-    if (outcome !== RemovalOutcome.REMOVED && outcome !== RemovalOutcome.NOT_INSTALLED) {
-      throw new Error(`${appName} was not removed (${outcome})`);
-    }
-  };
-  try {
-    await remove();
-    return true;
-  } catch (error) {
-    log.warn(`appStartupManager - ${error.message}; held stopped and unannounced until it is removed`);
-    globalState.departingApps.enter(appName);
-    untilSucceeds(`Removal of ${appName}`, remove).then(() => globalState.departingApps.leave(appName));
-    return false;
-  }
+  const outcome = await appUninstaller.removeAppLocally(appName, null, true, true, announce);
+  if (outcome === RemovalOutcome.REMOVED || outcome === RemovalOutcome.NOT_INSTALLED) return true;
+  appUninstaller.finishRemoval(appName, true, announce);
+  return false;
 }
 /**
  * Reconcile local app state against the network on boot. For each stopped

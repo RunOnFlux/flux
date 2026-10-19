@@ -25,6 +25,7 @@ const volumeService = require('../utils/volumeService');
 const fluxEventBus = require('../utils/fluxEventBus');
 const { Privilege, authOf } = require('../utils/privileges');
 const { RemovalOutcome } = require('../utils/removalOutcome');
+const { untilSucceeds, BOOT_STEP_RETRY_MS } = require('../utils/untilSucceeds');
 
 /**
  * The node does not hold this application.
@@ -55,6 +56,36 @@ const crontabLoad = util.promisify(systemcrontab.load);
 let onComponentRemoved = null;
 function setOnComponentRemoved(callback) {
   onComponentRemoved = callback;
+}
+
+// Apps whose removal stopped part way, each being run again until it finishes.
+const unfinishedRemovals = new Set();
+
+/**
+ * Runs the removal of an app that stopped part way again until it finishes. Until
+ * then the app is held as departing: the reconciler never starts it and the node's
+ * announcements leave it out. A call for an app already held does nothing.
+ * @param {string} appName
+ * @param {boolean} force Passed to each removal.
+ * @param {boolean} announce Whether the removal that finishes tells the network.
+ * @returns {void}
+ */
+function finishRemoval(appName, force, announce) {
+  if (unfinishedRemovals.has(appName)) return;
+  unfinishedRemovals.add(appName);
+  globalState.departingApps.enter(appName);
+  log.warn(`${appName} was not fully removed; held stopped and unannounced until it is`);
+  // first run once the removal that stopped has released the node's removal lock
+  serviceHelper.delay(BOOT_STEP_RETRY_MS).then(() => untilSucceeds(`Removal of ${appName}`, async () => {
+    // eslint-disable-next-line no-use-before-define
+    const outcome = await removeAppLocally(appName, null, force, true, announce);
+    if (outcome !== RemovalOutcome.REMOVED && outcome !== RemovalOutcome.NOT_INSTALLED) {
+      throw new Error(`${appName} was not removed (${outcome})`);
+    }
+  })).then(() => {
+    unfinishedRemovals.delete(appName);
+    globalState.departingApps.leave(appName);
+  });
 }
 
 /**
@@ -879,6 +910,10 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
   // the same finally, and a refused duplicate must not release the lock the removal
   // actually running is holding.
   let acquired = false;
+  // Set once the teardown of a whole app has begun: a failure from there on leaves
+  // the app part removed.
+  let tornDownApp = null;
+  let announced = false;
   try {
     // Normalise to the bare identifier this function reasons about: a caller may
     // pass the flux-prefixed docker name (e.g. the syncthing flow), which would
@@ -981,6 +1016,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
     appSpecifications = specificationFormatter(appSpecifications);
 
+    if (!isComponent) tornDownApp = appName;
     if (appSpecifications.version >= 4 && !isComponent) {
       // it is a composed application
       // eslint-disable-next-line no-restricted-syntax
@@ -1017,7 +1053,10 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
 
     fluxEventBus.publish('app:removed', { name: appName });
 
-    if (sendMessage) await announceRemoval(appName);
+    if (sendMessage) {
+      await announceRemoval(appName);
+      announced = true;
+    }
 
     if (!isComponent) {
       const dockerNetworkStatus = {
@@ -1140,12 +1179,12 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       }
     }
     // A specification that cannot be found anywhere means the node is not holding
-    // this app, which answers a caller asking for it to be gone. Every other error
-    // leaves it possibly here, whole or in part, and only the caller can decide what
-    // that costs it.
-    return error instanceof AppNotFoundError
-      ? RemovalOutcome.NOT_INSTALLED
-      : RemovalOutcome.FAILED;
+    // this app, which answers a caller asking for it to be gone. A whole app whose
+    // teardown had begun is finished in the background, and the network is told
+    // once it is gone. Any other error leaves the app as it was.
+    if (error instanceof AppNotFoundError) return RemovalOutcome.NOT_INSTALLED;
+    if (tornDownApp) finishRemoval(tornDownApp, force, !announced);
+    return RemovalOutcome.FAILED;
   } finally {
     if (acquired) globalState.removalInProgress = false;
     if (departingName) {
@@ -1339,6 +1378,7 @@ async function removeAppLocallyApi(req, res) {
 
 module.exports = {
   announceRemoval,
+  finishRemoval,
   hardUninstallComponent,
   hardUninstallApplication,
   softUninstallComponent,

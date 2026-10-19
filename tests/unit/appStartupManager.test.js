@@ -60,6 +60,7 @@ describe('appStartupManager tests', () => {
 
     appUninstallerStub = {
       removeAppLocally: sinon.stub().resolves('removed'),
+      finishRemoval: sinon.stub(),
     };
 
     const mockDb = { db: sinon.stub().returns('mockDatabase') };
@@ -325,28 +326,20 @@ describe('appStartupManager tests', () => {
       expect(results.appsRemoved).to.deep.equal(['AppB']);
     });
 
-    it('holds an app it could not remove, never starting it, and removes it once it can', async () => {
+    it('hands an app it could not remove to be finished, never starting it', async () => {
       dockerServiceStub.dockerListContainers.resolves([
         { Names: ['/fluxAppA'], State: 'exited' },
       ]);
       dbHelperStub.findInDatabase.onFirstCall().resolves([{ name: 'AppA' }]);
       // Expired location
       dbHelperStub.findInDatabase.onSecondCall().resolves([]);
-      let heldWhileRetrying;
-      appUninstallerStub.removeAppLocally.onFirstCall().resolves('failed');
-      appUninstallerStub.removeAppLocally.onSecondCall().callsFake(async () => {
-        heldWhileRetrying = globalStateStub.departingApps.has('AppA');
-        return 'removed';
-      });
+      appUninstallerStub.removeAppLocally.resolves('failed');
 
       const results = await appStartupManager.reconcileAppsOnBoot();
-      await new Promise((resolve) => { setImmediate(resolve); });
 
       expect(results.appsFailed.map((failure) => failure.app)).to.deep.equal(['AppA']);
       expect(appReconcilerStub.enqueue.calledWith('AppA'), 'an app boot could not remove was started').to.equal(false);
-      expect(heldWhileRetrying, 'the app was not held while its removal was retried').to.equal(true);
-      sinon.assert.calledTwice(appUninstallerStub.removeAppLocally);
-      expect(globalStateStub.departingApps.has('AppA'), 'the hold outlived the removal').to.equal(false);
+      sinon.assert.calledOnceWithExactly(appUninstallerStub.finishRemoval, 'AppA', true, false);
     });
 
     it('removes an app whose location record cannot be read, and tells the network', async () => {
