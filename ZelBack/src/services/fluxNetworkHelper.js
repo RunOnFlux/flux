@@ -1189,6 +1189,7 @@ function setPlacementHold(owner, reason) {
   if (placementHolds.get(owner) === reason) return;
   placementHolds.set(owner, reason);
   log.info(`Placement hold set by ${owner}: ${reason}`);
+  fluxEventBus.publish('placementHold:set', { owner, reason });
 }
 
 /**
@@ -1202,6 +1203,7 @@ function clearPlacementHold(owner) {
   if (reason === undefined) return;
   placementHolds.delete(owner);
   log.info(`Placement hold cleared by ${owner} (was: ${reason})`);
+  fluxEventBus.publish('placementHold:cleared', { owner, reason });
 }
 
 /**

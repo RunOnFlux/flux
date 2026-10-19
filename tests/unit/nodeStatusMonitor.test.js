@@ -123,12 +123,14 @@ describe('nodeStatusMonitor tests', () => {
     let appKill;
     let onTrip;
     let dos;
+    let bus;
     const never = () => new Promise(() => {});
     const installed = (...names) => sinon.stub().resolves({ status: 'success', data: names.map((name) => ({ name })) });
 
     beforeEach(() => {
       clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       dos = false;
+      bus = { publish: sinon.stub() };
       appKill = {
         appsOnDisk: sinon.stub().resolves([]),
         stillRunnable: sinon.stub().resolves([]),
@@ -148,12 +150,33 @@ describe('nodeStatusMonitor tests', () => {
         },
         '../hostStallService': { onTrip: (listener) => { onTrip = listener; } },
         '../appLifecycle/appKill': appKill,
+        '../utils/fluxEventBus': bus,
         '../../lib/log': logStub,
       });
     });
 
     afterEach(() => {
       clock.restore();
+    });
+
+    it('publishes an app its removal removed, with nothing left to run', async () => {
+      await monitor.unloadForHostStall(installed('gone'), sinon.stub().resolves('removed'));
+
+      sinon.assert.calledOnceWithExactly(bus.publish, 'hostStall:appUnloaded', {
+        app: 'gone', removal: 'removed', killed: false, runnable: [],
+      });
+    });
+
+    it('publishes an app it killed after its removal ran out, and what of it can still run', async () => {
+      appKill.stillRunnable.onFirstCall().resolves(['41', '42']).onSecondCall().resolves(['42']);
+
+      const unload = monitor.unloadForHostStall(installed('stuck'), sinon.stub().callsFake(never));
+      await clock.tickAsync(DEADLINE);
+      await unload;
+
+      sinon.assert.calledOnceWithExactly(bus.publish, 'hostStall:appUnloaded', {
+        app: 'stuck', removal: 'timedOut', killed: true, runnable: ['42'],
+      });
     });
 
     it('removes every app once the host stalls, starting from the trip', async () => {

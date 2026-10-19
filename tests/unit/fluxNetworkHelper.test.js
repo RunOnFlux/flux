@@ -4004,6 +4004,29 @@ describe('fluxNetworkHelper tests', () => {
       expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
     });
 
+    it('publishes a hold when it is set, and again when its reason changes', () => {
+      const publish = sinon.stub(fluxEventBus, 'publish');
+
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'first');
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'first');
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'second');
+
+      expect(publish.args.filter(([name]) => name === 'placementHold:set')).to.deep.equal([
+        ['placementHold:set', { owner: RESIDENTIAL_DOS, reason: 'first' }],
+        ['placementHold:set', { owner: RESIDENTIAL_DOS, reason: 'second' }],
+      ]);
+    });
+
+    it('publishes a release only of a hold that stood', () => {
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'held');
+      const publish = sinon.stub(fluxEventBus, 'publish');
+
+      fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
+      fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
+
+      sinon.assert.calledOnceWithExactly(publish, 'placementHold:cleared', { owner: RESIDENTIAL_DOS, reason: 'held' });
+    });
+
     it('refuses an owner it does not know, rather than minting one', () => {
       // An unknown owner is a caller that was never given an identity. Accepted,
       // it would hold the node under a name no release path knows about.

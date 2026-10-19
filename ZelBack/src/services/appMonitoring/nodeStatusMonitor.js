@@ -12,6 +12,7 @@ const hostStallService = require('../hostStallService');
 const appKill = require('../appLifecycle/appKill');
 const { RemovalOutcome } = require('../utils/removalOutcome');
 const { withinDeadline, TIMED_OUT } = require('../utils/withinDeadline');
+const fluxEventBus = require('../utils/fluxEventBus');
 const log = require('../../lib/log');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 
@@ -131,20 +132,26 @@ async function unloadForHostStall(installedAppsFn, removeAppLocallyFn) {
       const outcome = await removeWithinDeadline(removeAppLocallyFn, name, canBroadcast)
         .catch(() => RemovalOutcome.FAILED);
       // eslint-disable-next-line no-await-in-loop
-      if ((await appKill.stillRunnable(name)).length) {
+      let runnable = await appKill.stillRunnable(name);
+      const killed = runnable.length > 0;
+      if (killed) {
         log.error(`monitorNodeStatus - Application ${name} still runs after its removal (${outcome}), killing it`);
         // eslint-disable-next-line no-await-in-loop
         await appKill.kill(name);
         // eslint-disable-next-line no-await-in-loop
-        const left = await appKill.stillRunnable(name);
-        if (left.length) {
-          log.error(`monitorNodeStatus - Application ${name} could not be stopped: processes ${left.join(', ')} can still run`);
+        runnable = await appKill.stillRunnable(name);
+        if (runnable.length) {
+          log.error(`monitorNodeStatus - Application ${name} could not be stopped: processes ${runnable.join(', ')} can still run`);
         } else {
           log.warn(`monitorNodeStatus - Application ${name} can no longer run`);
         }
       } else if (outcome !== RemovalOutcome.REMOVED && outcome !== RemovalOutcome.NOT_INSTALLED) {
         log.warn(`monitorNodeStatus - Application ${name} was not removed (${outcome}), and can no longer run`);
       }
+      // runnable: the processes of the app that can still run its code, empty when none can
+      fluxEventBus.publish('hostStall:appUnloaded', {
+        app: name, removal: outcome, killed, runnable,
+      });
     }
   } finally {
     unloadingForHostStall = false;
