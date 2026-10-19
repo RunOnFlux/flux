@@ -376,6 +376,8 @@ module.exports = {
     wsHandshakeTimeoutMs: 10000,
     discoveryConnectionDelayMs: 500,
     nodeMonitorRemovalDelayMs: 60000,
+    // events per message of an answer to a peer's state sync
+    syncAnswerBatchSize: 2000,
     residentialCheckIntervalMs: 21600000,
     residentialSettleMs: 86400000,
     residentialEvacuationIntervalMs: 21600000,
