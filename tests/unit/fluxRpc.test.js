@@ -67,6 +67,28 @@ describe('fluxRpc tests', () => {
     );
   });
 
+  it('keeps the HTTP status of a refused login', async () => {
+    // fluxd answers a refused login with 401 and an empty body.
+    const err = new Error('Request failed with status code 401');
+    err.response = { status: 401, data: '' };
+    postStub.rejects(err);
+
+    const rpc = new FluxRpc(goodUrl);
+    const error = await rpc.run('getblockcount').catch((e) => e);
+    expect(error.status).to.equal(401);
+
+    const batchError = await rpc.runBatch([{ method: 'getblockcount' }]).catch((e) => e);
+    expect(batchError.status).to.equal(401);
+  });
+
+  it('allows getindexinfo and getzmqnotifications', async () => {
+    postStub.resolves({ status: 200, data: { result: {}, error: null } });
+    const rpc = new FluxRpc(goodUrl);
+    await rpc.run('getindexinfo');
+    await rpc.run('getzmqnotifications');
+    sinon.assert.calledTwice(postStub);
+  });
+
   it('should create a json rpc payload with params', async () => {
     const rpc = new FluxRpc(goodUrl);
 
