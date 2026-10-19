@@ -994,6 +994,35 @@ describe('appHashSyncService tests', () => {
         expect(hashMarks()).to.have.length(1);
       });
 
+      it('writes the rows of only the apps whose messages the insert stored', async () => {
+        const bulkMessages = ['firstapp', 'secondapp'].map((name, i) => ({
+          type: 'fluxappregister', version: 1, hash: `hash${5 + i}`, timestamp: Date.now(),
+          signature: `sig${5 + i}`, appSpecifications: { name, version: 4, owner: 'owner' },
+          valueSat: 105 + i, txid: `tx${5 + i}`, height: 1005 + i,
+        }));
+        const manyMissing = Array(600).fill(null).map((_, i) => ({
+          hash: `hash${i}`, txid: `tx${i}`, height: 1000 + i, value: 100 + i, message: false,
+        }));
+        let getMissingCalls = 0;
+        localDbHelperStub.findInDatabase.callsFake(() => {
+          getMissingCalls += 1;
+          return Promise.resolve(getMissingCalls === 1 ? manyMissing : []);
+        });
+        localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+        serviceHelperStub.axiosGet.callsFake((url) => {
+          if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
+          return Promise.resolve({ data: { status: 'success', data: true } });
+        });
+        const partial = new Error('duplicate key');
+        partial.result = { insertedCount: 1 };
+        localCollectionStub.insertMany.rejects(partial);
+
+        await localModule.syncMissingHashes();
+
+        expect(localCollectionStub.insertMany.firstCall.args[0], 'the fixture inserted fewer than two').to.have.length(2);
+        sinon.assert.calledOnceWithExactly(localMessageVerifierStub.storeGoverningAppSpecifications, ['firstapp']);
+      });
+
       it('marks no hash whose app\'s row could not be written, so the next retry writes it', async () => {
         localMessageVerifierStub.storeGoverningAppSpecifications.rejects(new Error('connection timed out'));
         streamOne();
