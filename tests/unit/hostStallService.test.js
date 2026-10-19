@@ -8,7 +8,6 @@ const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper'
 const hostStallService = require('../../ZelBack/src/services/hostStallService');
 
 const { stuckIntervals } = config.hostStall;
-const OWN_NAMESPACE = 'pid:[4026531836]';
 
 describe('hostStallService tests', () => {
   let procRoot;
@@ -19,14 +18,16 @@ describe('hostStallService tests', () => {
    * @param {string} pid
    * @param {string} comm
    * @param {Array<{tid: string, state: string, switches: number, wchan?: string, startTime?: string}>} threads
-   * @param {string} [namespace]
+   * @param {{inContainer?: boolean}} [options] In a PID namespace below FluxOS's.
    */
-  function processWith(pid, comm, threads, namespace = OWN_NAMESPACE) {
+  function processWith(pid, comm, threads, { inContainer = false } = {}) {
     const dir = path.join(procRoot, pid);
     fs.rmSync(dir, { recursive: true, force: true });
-    fs.mkdirSync(path.join(dir, 'ns'), { recursive: true });
+    fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'comm'), `${comm}\n`);
-    fs.symlinkSync(namespace, path.join(dir, 'ns', 'pid'));
+    // its id in FluxOS's namespace, then in each namespace below; no ns/ link,
+    // which the kernel refuses to an account that is not the process's
+    fs.writeFileSync(path.join(dir, 'status'), `Name:\t${comm}\nNSpid:\t${pid}${inContainer ? '\t1' : ''}\n`);
     threads.forEach(({
       tid, state, switches, wchan = 'kvm_async_pf_task_wait_schedule', startTime = '1000',
     }) => {
@@ -51,8 +52,10 @@ describe('hostStallService tests', () => {
 
   beforeEach(() => {
     procRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hoststall-'));
+    // FluxOS may follow its own ns/ link; another account's, it may not
     fs.mkdirSync(path.join(procRoot, 'self', 'ns'), { recursive: true });
-    fs.symlinkSync(OWN_NAMESPACE, path.join(procRoot, 'self', 'ns', 'pid'));
+    fs.symlinkSync('pid:[4026531836]', path.join(procRoot, 'self', 'ns', 'pid'));
+    fs.writeFileSync(path.join(procRoot, 'self', 'status'), 'Name:\tnode\nNSpid:\t4242\n');
     paths = { procRoot, recordFile: path.join(procRoot, 'hostStall.json'), bootIdPath: path.join(procRoot, 'boot_id') };
     bootIs('boot-one');
   });
@@ -153,7 +156,7 @@ describe('hostStallService tests', () => {
   });
 
   it('does not read a dependency running in an app container', async () => {
-    processWith('400', 'mongod', [{ tid: '401', state: 'D', switches: 3 }], 'pid:[4026532999]');
+    processWith('400', 'mongod', [{ tid: '401', state: 'D', switches: 3 }], { inContainer: true });
 
     await readTimes(stuckIntervals + 1);
 

@@ -18,7 +18,8 @@
  *
  * WHAT IS READ. The threads of the processes FluxOS depends on, in FluxOS's own
  * PID namespace. An app container that runs one of the same programs has its
- * own namespace and is not read.
+ * own namespace and is not read. Every file read is one any account may read of
+ * another's process, so a FluxOS that is not root reads the same.
  */
 
 const fs = require('fs').promises;
@@ -83,11 +84,26 @@ async function readThread(taskDir) {
 }
 
 /**
+ * How many PID namespaces deep a process is, counted from the one this /proc
+ * shows: its status names its id in each, outermost first. A process in a
+ * namespace below FluxOS's has more than FluxOS; one beside it is not in this
+ * /proc at all. A kernel older than 4.1 writes no NSpid, and every process on it
+ * reads as one deep.
+ * @param {string|null} status The process's status file.
+ * @returns {number|null} Null when the status is gone.
+ */
+function namespaceDepth(status) {
+  if (status === null) return null;
+  const line = status.split('\n').find((entry) => entry.startsWith('NSpid:'));
+  return line ? line.trim().split(/\s+/).length - 1 : 1;
+}
+
+/**
  * Every thread of every dependency process in this PID namespace.
  * @returns {Promise<Array<{process: string, pid: string, tid: string, state: string, startTime: string, switches: number, wchan: string}>>}
  */
 async function readDependencyThreads() {
-  const ownNamespace = await fs.readlink(path.join(paths.procRoot, 'self', 'ns', 'pid')).catch(() => null);
+  const ownDepth = namespaceDepth(await readOrNull(path.join(paths.procRoot, 'self', 'status')));
   const pids = (await fs.readdir(paths.procRoot)).filter((entry) => /^\d+$/.test(entry));
   const threads = [];
   // eslint-disable-next-line no-restricted-syntax
@@ -98,9 +114,9 @@ async function readDependencyThreads() {
     // eslint-disable-next-line no-continue
     if (!DEPENDENCIES.has(comm)) continue;
     // eslint-disable-next-line no-await-in-loop
-    const namespace = await fs.readlink(path.join(pidDir, 'ns', 'pid')).catch(() => null);
+    const depth = namespaceDepth(await readOrNull(path.join(pidDir, 'status')));
     // eslint-disable-next-line no-continue
-    if (namespace !== ownNamespace) continue;
+    if (depth === null || depth !== ownDepth) continue;
     // eslint-disable-next-line no-await-in-loop
     const tids = await fs.readdir(path.join(pidDir, 'task')).catch(() => []);
     // eslint-disable-next-line no-restricted-syntax
