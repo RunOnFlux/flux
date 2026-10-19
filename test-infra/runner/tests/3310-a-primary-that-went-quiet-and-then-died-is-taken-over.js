@@ -6,9 +6,12 @@
  * and shares the folder; nothing starts beside it.
  *
  * Then the machine dies. The standby drops it from the folder, and changes on the
- * standby's disk to the data the primary wrote are now held by no other device:
- * syncthing reverts such a change by deleting it. The standby keeps them, takes the
- * app over with the primary's data intact, and a new standby syncs that copy.
+ * standby's disk to a file and a directory the primary wrote are now held by no other
+ * device: syncthing reverts such a change by deleting it, which a directory that is
+ * not empty refuses for ever. The rest of the folder is unchanged, so the standby's
+ * copy still reads as synced and the revert is due. The standby keeps the changes,
+ * takes the app over with the primary's data intact, and a new standby syncs that
+ * copy.
  *
  * A = the standby, B = the primary, C = the new standby.
  */
@@ -38,6 +41,8 @@ const MONITOR_PASSES_MS = 30000;
 const TAKEOVER_MS = 10 * 60 * 1000;
 // syncthing's FlagLocalReceiveOnly
 const RECEIVE_ONLY_CHANGE_FLAG = 8;
+const SAVE = 'appdata/save-b';
+const SAVE_CONTENT = 'written by the primary';
 
 function step(what) {
   console.log(`# 3310 ${new Date().toISOString()} ${what}`);
@@ -57,6 +62,12 @@ describe('a primary that went quiet and then died is taken over', function () {
     this.timeout(900000);
     fleet = await placeSilentPrimaryApp({ hookCtx: this, appName, sigtermExpiryS: SIGTERM_EXPIRY_S });
     primaryDevice = await getDeviceId(client(B));
+    const wrote = await execInContainer(client(B).container, `printf '${SAVE_CONTENT}' > ${root}/${SAVE}`);
+    if (wrote.exitCode !== 0) throw new Error(`could not write on the primary: ${wrote.output}`);
+    await scanFolder(client(B), folder);
+    await waitFor(async () => (await readPath(client(A), `${root}/${SAVE}`)) === SAVE_CONTENT, {
+      timeout: 240000, interval: 3000, label: 'the primary\'s second file reached the standby',
+    });
   });
 
   after(async function () {
@@ -95,22 +106,26 @@ describe('a primary that went quiet and then died is taken over', function () {
 
     step('the standby\'s copy of the primary\'s data changes on its disk');
     afterDeath = client(A).getLastEventId();
-    const changed = await execInContainer(client(A).container, `chmod 600 ${root}/appdata/seed-data && chmod 700 ${root}/appdata`);
+    const changed = await execInContainer(client(A).container, `chmod 600 ${root}/${SAVE} && chmod 700 ${root}/appdata`);
     expect(changed.exitCode, `could not change the standby's copy: ${changed.output}`).to.equal(0);
     await scanFolder(client(A), folder);
+    // eslint-disable-next-line no-bitwise
+    const heldOnlyHere = (record) => ((record?.global?.localFlags ?? 0) & RECEIVE_ONLY_CHANGE_FLAG) !== 0;
     let record;
     await waitFor(async () => {
-      record = await getFileInfo(client(A), folder, 'appdata/seed-data');
-      // eslint-disable-next-line no-bitwise
-      return ((record?.global?.localFlags ?? 0) & RECEIVE_ONLY_CHANGE_FLAG) !== 0;
-    }, { timeout: 60000, interval: 2000, label: 'the change is one no other device holds' });
+      record = await getFileInfo(client(A), folder, SAVE);
+      return heldOnlyHere(record) && heldOnlyHere(await getFileInfo(client(A), folder, 'appdata'));
+    }, { timeout: 60000, interval: 2000, label: 'the file and the directory are changes no other device holds' });
     expect(record.local.version.some((counter) => counter.startsWith(`${primaryDevice.substring(0, 7)}:`)),
       'the changed file carries no history from the primary, so it is not the primary\'s data').to.equal(true);
+    expect(heldOnlyHere(await getFileInfo(client(A), folder, 'appdata/seed-data')),
+      'the unchanged file is held only here too, so the standby\'s copy no longer reads as synced').to.equal(false);
 
     step('waiting for the takeover');
     await waitFor(() => fleet.isUp(A), {
       timeout: TAKEOVER_MS, interval: 5000, label: 'the standby takes the app over',
     });
+    expect(await readPath(client(A), `${root}/${SAVE}`), 'the primary\'s file is gone from the standby').to.equal(SAVE_CONTENT);
     expect((await readPath(client(A), `${root}/appdata/seed-data`))?.trim(), 'the primary\'s data is gone from the standby').to.equal('seeded');
     const kept = client(A).getEventBuffer().some((e) => e.id > afterDeath && e.event === 'syncthing:localChangesKept'
       && e.data?.folder === folder);
@@ -122,7 +137,7 @@ describe('a primary that went quiet and then died is taken over', function () {
     this.timeout(600000);
     const afterInstall = client(C).getLastEventId();
     await installOnNodes(fleet.env, fleet.app, [C]);
-    await waitFor(async () => (await readPath(client(C), `${root}/appdata/seed-data`))?.trim() === 'seeded', {
+    await waitFor(async () => (await readPath(client(C), `${root}/${SAVE}`)) === SAVE_CONTENT, {
       timeout: 300000, interval: 5000, label: 'the new standby holds the primary\'s data',
     });
     await client(C).waitForEvent('syncthing:folderReady', (d) => d.folder === folder, 240000, { afterId: afterInstall });
