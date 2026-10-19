@@ -54,3 +54,22 @@ export async function releaseCommands() {
     await off;
   });
 }
+
+// The next `times` writes to one collection of one node fail, as a write the
+// database could not complete does, and every other node's go through: each node
+// keeps its data in databases of its own (dbClient's prefix). Resolves to a
+// release that turns the failure off and resolves to how many writes it failed.
+export async function failWrites(nodeNum, database, collection, { times = 1 } = {}) {
+  const namespace = `node${String(nodeNum).padStart(2, '0')}_${database}.${collection}`;
+  await withAdmin((admin) => admin.command({
+    configureFailPoint: 'failCommand',
+    mode: { times },
+    data: { failCommands: ['insert', 'update'], namespace, errorCode: 91 },
+  }));
+  return async function release() {
+    // turning a failpoint off answers how many times it fired
+    const { count } = await withAdmin((admin) => admin.command({ configureFailPoint: 'failCommand', mode: 'off' }));
+    return count;
+  };
+}
+
