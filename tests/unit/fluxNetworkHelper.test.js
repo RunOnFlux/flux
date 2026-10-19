@@ -350,7 +350,7 @@ describe('fluxNetworkHelper tests', () => {
       getNetworkInfoStub.resolves({ status: 'error', data: { message: 'connect ECONNREFUSED' } });
       await lookups();
       expect(lines(), 'the reason changes').to.have.length(2);
-      expect(lines()[1]).to.equal('Public address: fluxd did not answer getnetworkinfo');
+      expect(lines()[1]).to.equal('Public address: fluxd did not answer getnetworkinfo, asking FluxBench as fluxd does not decide addresses');
 
       getNetworkInfoStub.resolves(decidedNetworkInfo('203.0.113.7'));
       await lookups();
@@ -368,6 +368,39 @@ describe('fluxNetworkHelper tests', () => {
       // The socket address still comes from FluxBench's benchmarks meanwhile.
       expect(await fluxNetworkHelper.getLocalSocketAddress({ fresh: true })).to.equal('198.51.100.9:16137');
       sinon.assert.calledOnce(benchmarksStub);
+    });
+
+    it('asks FluxBench while fluxd does not answer, when fluxd last answered without deciding addresses', async () => {
+      getNetworkInfoStub.resolves(NETWORK_INFO_WITHOUT_DECIDED);
+      await fluxNetworkHelper.getPublicIp();
+      benchPublicIpStub.resetHistory();
+
+      getNetworkInfoStub.resolves({ status: 'error', data: { code: 'ECONNREFUSED', name: 'Error', message: 'connect ECONNREFUSED' } });
+      expect(await fluxNetworkHelper.getPublicIp()).to.deep.equal({ status: 'success', data: '198.51.100.9' });
+      sinon.assert.calledOnce(benchPublicIpStub);
+      expect(debugStub.lastCall.args[0]).to.equal('Public address: fluxd did not answer getnetworkinfo, asking FluxBench as fluxd does not decide addresses');
+    });
+
+    it('is "not yet" while fluxd does not answer, when fluxd last answered deciding addresses', async () => {
+      getNetworkInfoStub.resolves(decidedNetworkInfo('203.0.113.7'));
+      await fluxNetworkHelper.getPublicIp();
+
+      getNetworkInfoStub.resolves({ status: 'error', data: { code: 'ECONNREFUSED', name: 'Error', message: 'connect ECONNREFUSED' } });
+      const answer = await fluxNetworkHelper.getPublicIp();
+      expect(answer.status).to.equal('warning');
+      sinon.assert.notCalled(benchPublicIpStub);
+    });
+
+    it('follows fluxd\'s latest answer: a fluxd that starts deciding addresses stops the FluxBench fallback', async () => {
+      getNetworkInfoStub.resolves(NETWORK_INFO_WITHOUT_DECIDED);
+      await fluxNetworkHelper.getPublicIp();
+      getNetworkInfoStub.resolves(decidedNetworkInfo(''));
+      await fluxNetworkHelper.getPublicIp();
+      benchPublicIpStub.resetHistory();
+
+      getNetworkInfoStub.resolves({ status: 'error', data: { message: 'connect ECONNREFUSED' } });
+      expect((await fluxNetworkHelper.getPublicIp()).status).to.equal('warning');
+      sinon.assert.notCalled(benchPublicIpStub);
     });
 
     it('has no socket address when neither fluxd nor FluxBench\'s benchmarks give one', async () => {
@@ -1810,6 +1843,29 @@ describe('fluxNetworkHelper tests', () => {
         fluxNetworkHelper.resetAvailabilityDos();
         fluxNetworkHelper.setDosMessage(null);
         fluxNetworkHelper.setDosStateValue(0);
+      }
+    });
+
+    it('beside a fluxd that does not decide addresses, asks FluxBench while fluxd does not answer, and counts its failure', async () => {
+      fluxNetworkHelper.resetPublicAddressNote();
+      getNetworkInfoStub.resolves(NETWORK_INFO_WITHOUT_DECIDED);
+      await fluxNetworkHelper.getPublicIp();
+      getNetworkInfoStub.resolves({ status: 'error', data: { message: 'connect ECONNREFUSED' } });
+      const benchPublicIp = sinon.stub(benchmarkService, 'getPublicIp').returns({ status: 'error' });
+      sinon.stub(serviceHelper, 'axiosGet').resolves({ data: { status: 'error', data: { message: 'all is good!' } } });
+      getRandomExternalObserver.resolves('1.2.3.4:16127');
+
+      const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+      try {
+        expect(result).to.be.false;
+        sinon.assert.called(benchPublicIp);
+        expect(fluxNetworkHelper.getDosMessage()).to.equal('Error getting publicIp from FluxBench');
+      } finally {
+        fluxNetworkHelper.resetAvailabilityDos();
+        fluxNetworkHelper.setDosMessage(null);
+        fluxNetworkHelper.setDosStateValue(0);
+        fluxNetworkHelper.resetPublicAddressNote();
       }
     });
 
