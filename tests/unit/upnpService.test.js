@@ -300,6 +300,24 @@ describe('upnpService tests', () => {
         sinon.assert.calledTwice(createMappingStub);
       });
 
+      it('should count no refusal of its own test mapping toward the router\'s refusals', async () => {
+        const before = upnpService.routerRefusals();
+
+        expect(await upnpService.verifyUPNPsupport()).to.equal(true);
+
+        sinon.assert.calledTwice(createMappingStub);
+        expect(upnpService.routerRefusals()).to.equal(before);
+      });
+
+      it('should count no refusal of its own test mapping when it fails, either', async () => {
+        getMappingsStub.resolves([]);
+        const before = upnpService.routerRefusals();
+
+        expect(await upnpService.verifyUPNPsupport()).to.equal(false);
+
+        expect(upnpService.routerRefusals()).to.equal(before);
+      });
+
       [
         [16127, 2],
         [16137, 3],

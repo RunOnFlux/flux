@@ -115,9 +115,10 @@ const MAPPED = Object.freeze({
 let routerRefusalCount = 0;
 
 /**
- * How many mappings the router has refused since FluxOS started for a reason
- * that is the router's own and not the port's: no answer, or any refusal but
- * those PORT_REFUSALS names. Only ever goes up.
+ * How many of this node's mappings the router has refused since FluxOS started
+ * for a reason that is its own and not the port's: no answer, or any refusal
+ * but those PORT_REFUSALS names for a port it does not hold for something
+ * else. verifyUPNPsupport's test mapping is not counted. Only ever goes up.
  * @returns {number}
  */
 function routerRefusals() {
@@ -144,11 +145,15 @@ function mapsHere(mapping, port) {
  * @param {number} port
  * @param {string} protocol 'TCP' or 'UDP'
  * @param {string} description
+ * @param {object} [options]
+ * @param {boolean} [options.counted] whether a refusal of the router's own counts in
+ *   routerRefusals; false for verifyUPNPsupport's test mapping, a probe it
+ *   resolves itself
  * @returns {Promise<{mapped: boolean, code: number|null, reason: string|null, routerWide: boolean}>}
  *   `code` is the router's UPnP error code, null when it gave none; `routerWide`
- *   whether the refusal counts in routerRefusals.
+ *   whether the refusal is the router's own rather than the port's.
  */
-async function mapProtocol(port, protocol, description) {
+async function mapProtocol(port, protocol, description, { counted = true } = {}) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     return {
       mapped: false, code: null, reason: `${protocol} ${port} not mapped: not a port`, routerWide: false,
@@ -177,7 +182,7 @@ async function mapProtocol(port, protocol, description) {
     const code = answered ? error.code : null;
     // no answer, with no code, is the router's too
     const routerWide = !PORT_REFUSALS.has(code) && !(heldElsewhere && code !== NO_PORT_MAPS_AVAILABLE);
-    if (routerWide) routerRefusalCount += 1;
+    if (routerWide && counted) routerRefusalCount += 1;
     return {
       mapped: false, code, reason: `${protocol} ${port} not mapped: ${error.message}`, routerWide,
     };
@@ -263,7 +268,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
   // the remove would fail the verify, and a node with a custom api port or a
   // router IP exits on that. A test that fails leaves it held.
   mappedHere.add(+apiport + 3);
-  let testMapping = await mapProtocol(+apiport + 3, 'TCP', 'Flux_UPNP_Mapping_Test');
+  let testMapping = await mapProtocol(+apiport + 3, 'TCP', 'Flux_UPNP_Mapping_Test', { counted: false });
   // refused for a reason of the router's own, as a full table is: until UPnP is
   // verified the stale mapping cleanup never runs, so the test mappings earlier
   // runs left are removed here to make room. A router that did not answer is
@@ -276,7 +281,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
     } catch (error) {
       log.warn(`VerifyUPNPsupport - left-over test mappings not removed: ${error.message}`);
     }
-    if (removed > 0) testMapping = await mapProtocol(+apiport + 3, 'TCP', 'Flux_UPNP_Mapping_Test');
+    if (removed > 0) testMapping = await mapProtocol(+apiport + 3, 'TCP', 'Flux_UPNP_Mapping_Test', { counted: false });
     // A full table refuses every new mapping, so a node whose router already
     // maps its api port to it runs on what it holds: every mapping refused from
     // here on counts toward the router DOS, which takes the node out of service
