@@ -757,6 +757,26 @@ describe('AppSyncOrchestrator', () => {
       await orchestrator.stop();
     });
 
+    it('ends the request and asks another peer when its response cannot be recorded', async () => {
+      const peers = makeEligiblePeers(3);
+      const spare = makePeer('10.0.0.9:16127');
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+
+      getEligibleSyncPeersStub.returns([peers[1], peers[2], spare]);
+      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, peers[0].key);
+      await clock.tickAsync(0);
+
+      expect(spare.send.called, 'a peer whose response was not recorded kept its slot').to.equal(true);
+      expect(orchestrator.isSyncResponseWanted(peers[0]), 'the rest of an unrecorded response was still being taken')
+        .to.equal(false);
+      await orchestrator.stop();
+    });
+
     // The response path has the key and always had it. One arriving without a
     // peer means that path stopped saying, which is a fault to report.
     it('refuses to act on an unverifiable response that names no peer', async () => {

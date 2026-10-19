@@ -115,6 +115,8 @@ class AppSyncOrchestrator {
   #ephemeralSyncHandler = null;
   #ephemeralRefusedHandler = null;
   #ephemeralUnverifiedHandler = null;
+
+  #ephemeralWriteFailedHandler = null;
   #ephemeralProgressHandler = null;
   #hashUnresolvedHandler = null;
   #broadcastStarted = null;
@@ -255,8 +257,11 @@ class AppSyncOrchestrator {
     this.#ephemeralRefusedHandler = (syncType, peerKey) => this.#onEphemeralSyncRefused(syncType, peerKey);
     appSyncEvents.on(EVENTS.EPHEMERAL_SYNC_REFUSED, this.#ephemeralRefusedHandler);
 
-    this.#ephemeralUnverifiedHandler = (peerKey) => this.#onEphemeralSyncUnverified(peerKey);
+    this.#ephemeralUnverifiedHandler = (peerKey) => this.#endFailedRequest(peerKey, 'unverified', 'sent a response this node could not verify', 'ephemeralSync:peerUnverified');
     appSyncEvents.on(EVENTS.EPHEMERAL_SYNC_UNVERIFIED, this.#ephemeralUnverifiedHandler);
+
+    this.#ephemeralWriteFailedHandler = (peerKey) => this.#endFailedRequest(peerKey, 'writeFailed', 'sent a response this node could not record', 'ephemeralSync:peerWriteFailed');
+    appSyncEvents.on(EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, this.#ephemeralWriteFailedHandler);
 
     this.#ephemeralProgressHandler = (peerKey) => this.#onEphemeralSyncProgress(peerKey);
     appSyncEvents.on(EVENTS.EPHEMERAL_SYNC_PROGRESS, this.#ephemeralProgressHandler);
@@ -569,15 +574,22 @@ class AppSyncOrchestrator {
    * @param {string} peerKey ip:port of the peer whose response failed.
    * @returns {void}
    */
-  #onEphemeralSyncUnverified(peerKey) {
+  /**
+   * End a peer's request whose answer cannot be taken, and ask another peer.
+   * @param {string} peerKey
+   * @param {string} outcome What the request is settled as.
+   * @param {string} why For the log.
+   * @param {string} busEvent Published when this ended the request.
+   */
+  #endFailedRequest(peerKey, outcome, why, busEvent) {
     if (this.#stateSyncComplete) return;
     if (!peerKey) {
-      log.error('AppSyncOrchestrator - An unverifiable sync response named no peer, cannot replace it');
+      log.error(`AppSyncOrchestrator - A sync response named no peer (${outcome}), cannot replace it`);
       return;
     }
-    if (this.#closeRequest(peerKey, 'unverified')) {
-      log.warn(`AppSyncOrchestrator - ${peerKey} sent a response this node could not verify, asking another peer`);
-      fluxEventBus.publish('ephemeralSync:peerUnverified', { peer: peerKey });
+    if (this.#closeRequest(peerKey, outcome)) {
+      log.warn(`AppSyncOrchestrator - ${peerKey} ${why}, asking another peer`);
+      fluxEventBus.publish(busEvent, { peer: peerKey });
     }
     // Unconditional for the same reason a refusal is: the deficit decides, and
     // a pool that is already whole asks nobody.
@@ -1211,6 +1223,7 @@ class AppSyncOrchestrator {
     }
     if (this.#ephemeralUnverifiedHandler) {
       appSyncEvents.removeListener(EVENTS.EPHEMERAL_SYNC_UNVERIFIED, this.#ephemeralUnverifiedHandler);
+      appSyncEvents.removeListener(EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, this.#ephemeralWriteFailedHandler);
     }
     if (this.#hashUnresolvedHandler) {
       appSyncEvents.removeListener(EVENTS.HASH_UNRESOLVED, this.#hashUnresolvedHandler);

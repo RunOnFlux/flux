@@ -2528,6 +2528,51 @@ describe('fluxCommunication tests', () => {
 
         expect(completions).to.deep.equal([{ syncType: 'appinstalling', peerKey: PEER }]);
       });
+
+      // An answer comes as several messages and only the last says done, so the
+      // request ends at the message whose writes failed, wherever it falls.
+      describe('ends the peer\'s request at a message before its last', () => {
+        let writeFailures;
+        const onWriteFailed = (peerKey) => writeFailures.push(peerKey);
+        const running = () => ({
+          type: 'apprunning',
+          envelope: { version: 1, timestamp: Date.now(), pubKey: '04key', signature: 'sig' },
+          data: { version: 2, ip: '1.2.3.4:16127', broadcastedAt: Date.now(), apps: [{ name: 'a' }] },
+        });
+
+        beforeEach(() => {
+          writeFailures = [];
+          appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, onWriteFailed);
+        });
+
+        afterEach(() => {
+          appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, onWriteFailed);
+        });
+
+        [
+          ['appinstalling', 'storeBatchAppInstallingMessages', 'handleAppInstallingSyncResponse', 'fluxappinstallingsync', broadcast],
+          ['apperrors', 'storeBatchAppInstallingErrorMessages', 'handleAppInstallingErrorsSyncResponse', 'fluxappinstallingerrorssync', broadcast],
+          ['apprunning', 'storeBatchAppRunningMessages', 'handleAppRunningSyncResponse', 'fluxapprunningsync', running],
+        ].forEach(([syncType, store, handler, type, event]) => {
+          it(`for ${syncType}`, async () => {
+            sinon.stub(messageStore, store).resolves({ stored: 1, writeFailed: true });
+
+            await fluxCommunication[handler]({ data: { type, messages: [event()], done: false } }, PEER_SOCKET);
+
+            expect(messageStore[store].called, 'the fixture never reached the store').to.be.true;
+            expect(writeFailures).to.deep.equal([PEER]);
+          });
+
+          it(`a canary: a ${syncType} message written in full ends nothing`, async () => {
+            sinon.stub(messageStore, store).resolves({ stored: 1, writeFailed: false });
+
+            await fluxCommunication[handler]({ data: { type, messages: [event()], done: false } }, PEER_SOCKET);
+
+            expect(messageStore[store].called, 'the fixture never reached the store').to.be.true;
+            expect(writeFailures).to.deep.equal([]);
+          });
+        });
+      });
     });
 
     describe('a chunk takes its place in the queue when it arrives', () => {

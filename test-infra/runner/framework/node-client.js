@@ -317,6 +317,7 @@ export function nodeClient(nodeNum) {
         'sync:refused',
         'ephemeralSync:peerTimedOut',
         'ephemeralSync:peerUnverified',
+        'ephemeralSync:peerWriteFailed',
         'ephemeralSync:peerDisconnected',
         'ephemeralSync:budgetSpent',
         'sync:chunkVerified',

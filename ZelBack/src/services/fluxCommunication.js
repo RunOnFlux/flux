@@ -248,11 +248,13 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
     });
 
     if (locationWriteFailed) {
-      // Not credited either: what this peer sent is not all recorded, so it has not answered.
-      log.warn('handleAppRunningSyncResponse - skipping location pruning, a location write failed');
-    } else {
-      await messageStore.pruneAppRunningLocations(newestByIp);
+      // What this peer sent is not all recorded, so its request ends here and
+      // another peer is asked; the rest of its answer is not read.
+      log.warn(`handleAppRunningSyncResponse - a location write failed, ending ${peerKey}'s request`);
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, peerKey);
+      return;
     }
+    await messageStore.pruneAppRunningLocations(newestByIp);
 
     // Applied after every slice, once every apprunning row in the response is
     // stored. Each event removes, shortens or carries only the rows broadcast
@@ -272,7 +274,7 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
       }
     }
 
-    if (done && !locationWriteFailed) {
+    if (done) {
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning', peerKey);
       log.info('handleAppRunningSyncResponse - Sync complete');
     }
@@ -304,8 +306,14 @@ async function handleAppInstallingSyncResponse(message, peerSocket) {
       log.info(`handleAppInstallingSyncResponse - Stored ${stored.stored} of ${verified.length} verified broadcasts`);
       fluxEventBus.publish('sync:chunkVerified', { syncType: 'appinstalling', peer: peerKey, verified: verified.length, stored: stored.stored });
     });
-    // A response whose writes failed is not all recorded: this peer has not answered.
-    if (done && !writeFailed) {
+    if (writeFailed) {
+      // What this peer sent is not all recorded, so its request ends here and
+      // another peer is asked; the rest of its answer is not read.
+      log.warn(`handleAppInstallingSyncResponse - a write failed, ending ${peerKey}'s request`);
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, peerKey);
+      return;
+    }
+    if (done) {
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling', peerKey);
       log.info('handleAppInstallingSyncResponse - Sync complete');
     }
@@ -337,8 +345,14 @@ async function handleAppInstallingErrorsSyncResponse(message, peerSocket) {
       log.info(`handleAppInstallingErrorsSyncResponse - Stored ${stored.stored} of ${verified.length} verified broadcasts`);
       fluxEventBus.publish('sync:chunkVerified', { syncType: 'apperrors', peer: peerKey, verified: verified.length, stored: stored.stored });
     });
-    // A response whose writes failed is not all recorded: this peer has not answered.
-    if (done && !writeFailed) {
+    if (writeFailed) {
+      // What this peer sent is not all recorded, so its request ends here and
+      // another peer is asked; the rest of its answer is not read.
+      log.warn(`handleAppInstallingErrorsSyncResponse - a write failed, ending ${peerKey}'s request`);
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, peerKey);
+      return;
+    }
+    if (done) {
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors', peerKey);
       log.info('handleAppInstallingErrorsSyncResponse - Sync complete');
     }
