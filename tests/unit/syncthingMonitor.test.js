@@ -36,6 +36,7 @@ const syncthingServiceMock = {
   systemRestart: sinon.stub().resolves(),
   systemResume: sinon.stub().resolves(),
   getDbStatus: sinon.stub(),
+  getDbCompletion: sinon.stub().resolves({ remoteState: 'notSharing' }),
 };
 
 const syncthingFolderStateMachineMock = {
@@ -1844,6 +1845,51 @@ describe('syncthingMonitor tests', () => {
   // because a pass failed to reach the component that owns it. Deleting a live
   // folder drops syncthing's whole record of the app: the index, the peer
   // devices and, on the next pass, any mount-safety demotion standing on it.
+  // A location expires when its node stops announcing, which a node whose FluxOS has
+  // stopped answering does while its syncthing, and the app, carry on.
+  describe('a peer no location names any more', () => {
+    function folderSharedWithPeer() {
+      mockState.backupInProgress = [];
+      mockState.restoreInProgress = [];
+      syncthingMonitorHelpersMock.buildDeviceConfiguration.callsFake(async () => [{ deviceID: 'DEVICE-ID' }]);
+      syncthingMonitorHelpersMock.getContainerDataFlags.returns('g');
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      mockInstalledAppsFn.resolves({ status: 'success', data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }] });
+      syncthingServiceMock.getConfigFolders.resolves([
+        { id: 'testapp', type: 'receiveonly', devices: [{ deviceID: 'DEVICE-ID' }, { deviceID: 'PEER-DEVICE' }] },
+      ]);
+      syncthingServiceMock.getConfigDevices.resolves([{ deviceID: 'PEER-DEVICE' }]);
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+      syncthingServiceMock.adjustConfigDevices.resolves({ status: 'success', data: {} });
+    }
+
+    afterEach(() => {
+      syncthingServiceMock.getDbCompletion.reset();
+      syncthingServiceMock.getDbCompletion.resolves({ remoteState: 'notSharing' });
+    });
+
+    it('keeps its device while it is connected and shares the folder', async () => {
+      folderSharedWithPeer();
+      syncthingServiceMock.getDbCompletion.withArgs({ folder: 'testapp', device: 'PEER-DEVICE' }).resolves({ remoteState: 'valid' });
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
+    });
+
+    it('removes its device once it no longer shares the folder', async () => {
+      folderSharedWithPeer();
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      sinon.assert.calledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
+    });
+  });
+
   describe('unused-folder cleanup', () => {
     const syncingApp = { name: 'testapp', version: 3, containerData: 'g:/appdata' };
 

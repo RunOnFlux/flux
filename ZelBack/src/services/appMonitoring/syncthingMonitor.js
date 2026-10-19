@@ -250,6 +250,31 @@ async function readAppLocation(appName) {
 }
 
 /**
+ * The devices of a folder that its app's locations no longer name but that are
+ * still connected and sharing it.
+ *
+ * A location expires when its node stops announcing, and a node can stop
+ * announcing while its syncthing carries on - a FluxOS that has stopped answering
+ * leaves the app and syncthing running. Such a holder may still be the app's
+ * primary, writing, so it keeps its place until its connection closes or it stops
+ * sharing the folder. A device whose state cannot be read keeps its place too.
+ * @param {string} folderId
+ * @param {Array<{deviceID: string}>} configured The folder's devices in syncthing now.
+ * @param {Array<{deviceID: string}>} named The devices the app's locations name.
+ * @returns {Promise<string[]>} Device IDs to keep in the folder.
+ */
+async function connectedUnnamedDevices(folderId, configured, named) {
+  const unnamed = (configured || [])
+    .map((device) => device.deviceID)
+    .filter((deviceID) => !named.some((device) => device.deviceID === deviceID));
+  const kept = await Promise.all(unnamed.map(async (deviceID) => {
+    const completion = await syncthingService.getDbCompletion({ folder: folderId, device: deviceID }).catch(() => null);
+    return !completion || completion.remoteState === 'valid' ? deviceID : null;
+  }));
+  return kept.filter(Boolean);
+}
+
+/**
  * An app's location records, or none when they cannot be read.
  * @param {string} appName
  * @returns {Promise<Array<object>>}
@@ -356,6 +381,15 @@ async function processContainerData(params) {
     devicesIds,
     allDevices,
   );
+
+  if (syncFolder) {
+    const kept = await connectedUnnamedDevices(id, syncFolder.devices, devices);
+    kept.forEach((deviceID) => {
+      log.info(`processContainerData - ${appId}: keeping device ${deviceID.substring(0, 7)}, connected and sharing the folder though no location names it`);
+      devices.push({ deviceID });
+      if (!devicesIds.includes(deviceID)) devicesIds.push(deviceID);
+    });
+  }
 
   // Create base folder configuration
   const syncthingFolder = createSyncthingFolderConfig(id, label, folder, devices);
