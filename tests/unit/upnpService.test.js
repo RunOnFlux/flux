@@ -162,6 +162,21 @@ describe('upnpService tests', () => {
       sinon.assert.notCalled(logSpy);
     });
 
+    it('should not wait for a turn when the router has room for the test mapping', async () => {
+      const delayStub = sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(natUpnp.Client.prototype, 'getPublicIp').resolves(true);
+      sinon.stub(natUpnp.Client.prototype, 'getGateway').resolves(true);
+      sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
+      sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(testMapping);
+      sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
+      const getMappingsStub = sinon.stub(natUpnp.Client.prototype, 'getMappings').resolves([]);
+
+      expect(await upnpService.verifyUPNPsupport(16177)).to.equal(true);
+
+      expect(delayStub.getCalls().every((call) => call.args[0] < upnpService.BOOT_LISTING_STAGGER_MS)).to.equal(true);
+      sinon.assert.notCalled(getMappingsStub);
+    });
+
     it('should hold the test port from the time it is mapped until it is read back, so a cleanup pass cannot take it mid-test', async () => {
       upnpService.mappedHere.clear();
       const heldAt = {};
@@ -283,6 +298,24 @@ describe('upnpService tests', () => {
         const removedPorts = removeMappingStub.getCalls().map((call) => call.args[0].public.port ?? call.args[0].public);
         expect(removedPorts).to.deep.equal([31000, 31001, 16130]);
         sinon.assert.calledTwice(createMappingStub);
+      });
+
+      [
+        [16127, 2],
+        [16137, 3],
+        [16177, 7],
+        [16187, 0],
+        [16197, 1],
+      ].forEach(([apiport, slot]) => {
+        it(`should wait slot ${slot}'s turn before listing the table on api port ${apiport}`, async () => {
+          getMappingsStub.resolves([]);
+
+          await upnpService.verifyUPNPsupport(apiport);
+
+          const wait = serviceHelper.delay.withArgs(slot * upnpService.BOOT_LISTING_STAGGER_MS);
+          sinon.assert.called(wait);
+          expect(wait.calledBefore(getMappingsStub), 'the wait comes before the listing').to.equal(true);
+        });
       });
 
       it('should fail without mapping again when there is no test mapping to remove', async () => {

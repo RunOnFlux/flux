@@ -77,6 +77,13 @@ const CLEANUP_SLOT_MS = CLEANUP_CYCLE_MS / CLEANUP_SLOT_COUNT;
 // The listing has to finish this long before the slot ends, so that what it
 // lists still has time to be removed.
 const CLEANUP_REMOVAL_RESERVE_MS = 15 * 1000;
+// A node verifying UPnP on a full table lists it at once, without waiting for
+// its slot: it cannot run until it has verified. It waits its slot's number
+// times this first, so siblings starting together - a power cut, a router
+// restart, one update reaching them all - take turns: a router serves one
+// request at a time, and six listings at once took 23 to 38 s each where one
+// alone took 0.2 s.
+const BOOT_LISTING_STAGGER_MS = 5 * 1000;
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
@@ -263,6 +270,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
   // not listed.
   if (testMapping.routerWide && testMapping.code !== null) {
     let removed = 0;
+    await serviceHelper.delay(cleanupSlotOf(apiport) * BOOT_LISTING_STAGGER_MS);
     try {
       removed = await removeLeftoverTestMappings();
     } catch (error) {
@@ -549,13 +557,22 @@ function corePorts(apiport) {
 }
 
 /**
+ * The number of this node's cleanup slot, from its api port's tens digit.
+ * @param {number|string} apiport the api port this FluxOS listens on
+ * @returns {number} 0 to CLEANUP_SLOT_COUNT - 1
+ */
+function cleanupSlotOf(apiport) {
+  return Math.floor((+apiport % 100) / 10) % CLEANUP_SLOT_COUNT;
+}
+
+/**
  * Milliseconds until the next start of this node's cleanup slot.
  * @param {number|string} apiport the api port this FluxOS listens on
  * @param {number} [now] wall-clock ms
  * @returns {number}
  */
 function msUntilCleanupSlot(apiport, now = Date.now()) {
-  const slotStart = (Math.floor((+apiport % 100) / 10) % CLEANUP_SLOT_COUNT) * CLEANUP_SLOT_MS;
+  const slotStart = cleanupSlotOf(apiport) * CLEANUP_SLOT_MS;
   return (slotStart - (now % CLEANUP_CYCLE_MS) + CLEANUP_CYCLE_MS) % CLEANUP_CYCLE_MS;
 }
 
@@ -840,6 +857,7 @@ module.exports = {
   pendingRemovals,
   testRemovalPending,
   CLEANUP_SLOT_MS,
+  BOOT_LISTING_STAGGER_MS,
   mapPortApi,
   removeMapPortApi,
   getMapApi,
