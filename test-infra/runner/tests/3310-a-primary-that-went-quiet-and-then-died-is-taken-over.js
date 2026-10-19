@@ -28,6 +28,7 @@ import {
 } from '../framework/syncthing-real.js';
 import { dbClient } from '../framework/db-client.js';
 import { installOnNodes } from '../framework/reconciler-suite.js';
+import { clearMaster } from '../framework/fdm-control.js';
 import { waitFor } from '../framework/wait.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -99,6 +100,8 @@ describe('a primary that went quiet and then died is taken over', function () {
     step('the primary\'s machine dies');
     await stopAppContainer(client(B).container, appName, appName);
     await stopDaemon(client(B));
+    // FDM drops a primary whose app stops answering
+    await clearMaster(appName);
     await waitFor(async () => !((await getFolderConfig(client(A), folder))?.devices ?? [])
       .some((d) => d.deviceID === primaryDevice), {
       timeout: 600000, interval: 5000, label: 'the standby drops the dead primary from the folder',
