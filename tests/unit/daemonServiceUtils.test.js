@@ -139,7 +139,7 @@ describe('daemonServiceUtils tests', () => {
         // The retry delay is instant; the refetch spacing reads state.now.
         '../serviceHelper': { ...serviceHelper, delay: async () => { state.delays += 1; } },
         './fluxdCredentials': {
-          readNodeKeyCredential: async () => credential,
+          loadNodeKey: async () => credential,
           readRpcCookie: async () => {
             state.cookieReads += 1;
             return cookies[Math.min(state.cookieReads, cookies.length) - 1] ?? null;

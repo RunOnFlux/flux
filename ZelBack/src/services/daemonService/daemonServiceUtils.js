@@ -68,7 +68,7 @@ const blockCache = cacheManager.daemonBlockCache;
  * @returns {Promise<void>}
  */
 async function readDaemonConfig() {
-  const key = await fluxdCredentials.readNodeKeyCredential();
+  const key = await fluxdCredentials.loadNodeKey();
   const parsed = new daemonConfig.DaemonConfig();
   if (key !== null) {
     await parsed.resolvePaths();

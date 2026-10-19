@@ -22,14 +22,31 @@ const RPC_COOKIE_FILE = '/run/fluxd/rpc.cookie';
 async function readNodeKeyCredential(env = process.env) {
   const dir = env.CREDENTIALS_DIRECTORY;
   if (!dir) return null;
+  const file = path.join(dir, NODE_KEY_CREDENTIAL);
+  let key;
   try {
-    const key = (await fs.readFile(path.join(dir, NODE_KEY_CREDENTIAL), 'utf8')).trim();
-    if (!key) throw new Error(`the ${NODE_KEY_CREDENTIAL} credential is empty`);
-    return key;
+    key = (await fs.readFile(file, 'utf8')).trim();
   } catch (error) {
     if (error.code === 'ENOENT') return null;
-    throw error;
+    throw new Error(`the ${NODE_KEY_CREDENTIAL} credential ${file} cannot be read: ${error.message}`);
   }
+  if (!key) throw new Error(`the ${NODE_KEY_CREDENTIAL} credential ${file} is empty`);
+  return key;
+}
+
+let nodeKeyLoad = null;
+
+/**
+ * The node key credential, read once per process: systemd fixes the credentials
+ * when the service starts. apiServer.initiate awaits it before anything else
+ * starts and stops FluxOS when the credential exists but cannot be used, so every
+ * later caller gets the key, or null for a unit that passes none.
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {Promise<string|null>}
+ */
+function loadNodeKey(env = process.env) {
+  if (!nodeKeyLoad) nodeKeyLoad = readNodeKeyCredential(env);
+  return nodeKeyLoad;
 }
 
 /**
@@ -60,6 +77,7 @@ async function readRpcCookie(file = RPC_COOKIE_FILE) {
 
 module.exports = {
   NODE_KEY_CREDENTIAL,
+  loadNodeKey,
   RPC_COOKIE_FILE,
   parseCookie,
   readNodeKeyCredential,
