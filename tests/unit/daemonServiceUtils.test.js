@@ -1,4 +1,5 @@
 const chai = require('chai');
+const chaiAsPromised = require('chai-as-promised');
 const sinon = require('sinon');
 
 const { FluxTTLCache } = require('../../ZelBack/src/services/utils/cacheManager');
@@ -7,6 +8,7 @@ const proxyquire = require('proxyquire').noCallThru();
 
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 
+chai.use(chaiAsPromised);
 const { expect } = chai;
 
 describe('daemonServiceUtils tests', () => {
@@ -64,6 +66,193 @@ describe('daemonServiceUtils tests', () => {
       await module.ensureConfigLoaded();
       await module.ensureConfigLoaded();
       expect(module.getConfigValue('zelnodeprivkey')).to.equal('akey');
+    });
+  });
+
+  describe('where fluxd is reached from', () => {
+    // A node whose unit passes the node key as a credential: flux.conf must never
+    // be read, the login is fluxd's cookie, and fluxd is asked about itself.
+    const node = ({ credential = null, cookies = [] } = {}) => {
+      const state = {
+        cookieReads: 0, clients: [], batches: [], parsed: 0, resolved: 0,
+      };
+      class DaemonConfig {
+        constructor() { this.configElements = {}; }
+
+        async parseConfig() {
+          state.parsed += 1;
+          this.configElements = {
+            zelnodeprivkey: 'filekey', insightexplorer: '1', addressindex: '0', rpcuser: 'u', rpcpassword: 'p',
+          };
+          return true;
+        }
+
+        async resolvePaths() { state.resolved += 1; }
+
+        get rpcuser() { return this.configElements.rpcuser; }
+
+        get rpcpassword() { return this.configElements.rpcpassword; }
+
+        get rpcport() { return null; }
+
+        get(name) { return this.configElements[name]; }
+
+        async write() { state.written = true; }
+      }
+      class FluxRpc {
+        constructor(uri, options) {
+          this.auth = options.auth;
+          state.clients.push(this);
+        }
+
+        async run(method) {
+          if (state.refuse && state.refuse(this)) {
+            const error = new Error('Request failed with status code 401');
+            error.status = 401;
+            throw error;
+          }
+          if (state.fail) throw state.fail;
+          return `${method}-result`;
+        }
+
+        async runBatch(calls) {
+          state.batches.push(calls.map((c) => c.method));
+          if (state.batchFails) throw new Error('batch refused');
+          return [
+            { id: 0, result: state.indexes ?? { txindex: {}, addressindex: {} }, error: null },
+            { id: 1, result: [{ type: 'pubhashblock', address: 'tcp://127.0.0.1:16123' }], error: null },
+          ];
+        }
+      }
+      const module = proxyquire('../../ZelBack/src/services/daemonService/daemonServiceUtils', {
+        '../utils/daemonConfig': { DaemonConfig },
+        '../utils/fluxRpc': { FluxRpc },
+        './fluxdCredentials': {
+          readNodeKeyCredential: async () => credential,
+          readRpcCookie: async () => {
+            state.cookieReads += 1;
+            return cookies[Math.min(state.cookieReads, cookies.length) - 1] ?? null;
+          },
+        },
+      });
+      return { module, state };
+    };
+    const cookieA = { username: '__cookie__', password: 'a' };
+    const cookieB = { username: '__cookie__', password: 'b' };
+
+    it('reads flux.conf when the unit passes no node key', async () => {
+      const { module, state } = node();
+      expect(module.insightIndexes()).to.equal(null);
+      expect(module.addressIndex()).to.equal(null);
+      await module.buildFluxdClient();
+      expect(state.parsed).to.equal(1);
+      expect(module.isFluxdSelfReporting()).to.equal(false);
+      expect(module.getConfigValue('zelnodeprivkey')).to.equal('filekey');
+      expect(state.clients[0].auth).to.eql({ username: 'u', password: 'p' });
+      expect(module.insightIndexes()).to.equal(true);
+      expect(module.addressIndex()).to.equal(false);
+      await module.executeCall('getblockcount', [], { useCache: false });
+      expect(state.batches, 'fluxd is asked about itself only when it reports itself').to.eql([]);
+    });
+
+    it('never reads flux.conf when the unit passes the node key', async () => {
+      const { module, state } = node({ credential: 'credkey', cookies: [cookieA] });
+      await module.buildFluxdClient();
+      expect(state.parsed).to.equal(0);
+      expect(state.resolved).to.equal(1);
+      expect(module.isFluxdSelfReporting()).to.equal(true);
+      expect(module.getConfigValue('zelnodeprivkey')).to.equal('credkey');
+      expect(module.getConfigValue('rpcpassword')).to.equal(undefined);
+      expect(state.clients[0].auth).to.eql(cookieA);
+      await expect(module.writeFluxdConfig()).to.be.rejectedWith('not FluxOS');
+      expect(state.written).to.equal(undefined);
+    });
+
+    it('learns fluxd\'s indexes and ZMQ notifications before its first answer returns', async () => {
+      const { module, state } = node({ credential: 'credkey', cookies: [cookieA] });
+      await module.buildFluxdClient();
+      expect(module.addressIndex()).to.equal(null);
+      expect(module.insightIndexes()).to.equal(null);
+
+      const answer = await module.executeCall('getblockcount', [], { useCache: false });
+      expect(answer.status).to.equal('success');
+      expect(state.batches).to.eql([['getindexinfo', 'getzmqnotifications']]);
+      expect(module.addressIndex()).to.equal(true);
+      expect(module.insightIndexes()).to.equal(true);
+      expect(module.getConfigValue('zmqpubhashblock')).to.equal('tcp://127.0.0.1:16123');
+      expect(module.getConfigValue('zmqpubrawtx')).to.equal(undefined);
+
+      await module.executeCall('getblockcount', [], { useCache: false });
+      expect(state.batches, 'asked once per start of fluxd').to.have.length(1);
+    });
+
+    it('answers no index when fluxd keeps none', async () => {
+      const { module, state } = node({ credential: 'credkey', cookies: [cookieA] });
+      state.indexes = { txindex: {} };
+      await module.executeCall('getblockcount', [], { useCache: false });
+      expect(module.addressIndex()).to.equal(false);
+      expect(module.insightIndexes()).to.equal(false);
+    });
+
+    it('reads the cookie again on a 401, and asks fluxd about itself again', async () => {
+      const { module, state } = node({ credential: 'credkey', cookies: [cookieA, cookieB] });
+      await module.executeCall('getblockcount', [], { useCache: false });
+      expect(state.batches).to.have.length(1);
+
+      // fluxd restarted: the old cookie is refused.
+      state.refuse = (client) => client.auth?.password === 'a';
+      const answer = await module.executeCall('getblockcount', [], { useCache: false });
+      expect(answer.status).to.equal('success');
+      expect(state.cookieReads).to.equal(2);
+      expect(state.clients.at(-1).auth).to.eql(cookieB);
+      expect(state.batches, 'what fluxd reported before it restarted is asked again').to.have.length(2);
+    });
+
+    it('reads the cookie once per refusal, and reports a second refusal', async () => {
+      const { module, state } = node({ credential: 'credkey', cookies: [cookieA] });
+      await module.buildFluxdClient();
+      state.refuse = () => true;
+      const answer = await module.executeCall('getblockcount', [], { useCache: false });
+      expect(answer.status).to.equal('error');
+      expect(state.cookieReads).to.equal(2);
+      expect(module.addressIndex()).to.equal(null);
+    });
+
+    it('does not read the cookie again for an error that is not a refused login', async () => {
+      const { module, state } = node({ credential: 'credkey', cookies: [cookieA] });
+      await module.buildFluxdClient();
+      state.fail = Object.assign(new Error('Loading block index...'), { code: -28 });
+      const answer = await module.executeCall('getblockcount', [], { useCache: false });
+      expect(answer.status).to.equal('error');
+      expect(state.cookieReads).to.equal(1);
+      expect(state.batches, 'fluxd is asked about itself only once it answers').to.eql([]);
+    });
+
+    it('a 401 on a node that reads flux.conf is an error, not a cookie to read', async () => {
+      const { module, state } = node({ cookies: [cookieA] });
+      await module.buildFluxdClient();
+      state.refuse = () => true;
+      const answer = await module.executeCall('getblockcount', [], { useCache: false });
+      expect(answer.status).to.equal('error');
+      expect(state.cookieReads).to.equal(0);
+    });
+
+    it('leaves the facts unknown when fluxd does not report them, and asks again', async () => {
+      const { module, state } = node({ credential: 'credkey', cookies: [cookieA] });
+      state.batchFails = true;
+      await module.executeCall('getblockcount', [], { useCache: false });
+      expect(module.addressIndex()).to.equal(null);
+
+      state.batchFails = false;
+      await module.executeCall('getblockcount', [], { useCache: false });
+      expect(module.addressIndex()).to.equal(true);
+      expect(state.batches).to.have.length(2);
+    });
+
+    it('shares one request among callers arriving together', async () => {
+      const { module, state } = node({ credential: 'credkey', cookies: [cookieA] });
+      await Promise.all([1, 2, 3].map(() => module.executeCall('getblockcount', [], { useCache: false })));
+      expect(state.batches).to.have.length(1);
     });
   });
 
