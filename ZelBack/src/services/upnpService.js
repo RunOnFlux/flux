@@ -38,6 +38,26 @@ const OWNED_MAPPING_PREFIXES = ['Flux_App_', 'Flux_Prelaunch_App_'];
 // port mapped here is in use - a test port mid-test, an app installing -
 // whatever the app table says so far.
 const mappedHere = new Set();
+// The protocols of each port whose latest map here created the mapping or found
+// it already this node's, by port: what removeMapUpnpPort removes. A router
+// refuses to map a port another machine holds, so a mapping it took is this
+// node's, and one it refused never is.
+const mappedProtocols = new Map();
+
+/**
+ * Records whether this node's latest map of one protocol of a port left the
+ * router mapping it here.
+ * @param {number} port
+ * @param {string} protocol 'TCP' or 'UDP'
+ * @param {boolean} mapped
+ */
+function recordMapped(port, protocol, mapped) {
+  const protocols = mappedProtocols.get(port) || new Set();
+  if (mapped) protocols.add(protocol);
+  else protocols.delete(protocol);
+  if (protocols.size) mappedProtocols.set(port, protocols);
+  else mappedProtocols.delete(port);
+}
 // The cleanup pass runs in a wall-clock slot of its own, laid out as #1710 laid
 // out its refresh: a 10-minute cycle of eight 75-second slots, the slot chosen
 // by the api port's tens digit. Nodes behind one public address have distinct
@@ -367,9 +387,8 @@ async function setupUPNP(apiport = config.server.apiport) {
 /**
  * Maps a port to this node over TCP and then UDP.
  *
- * On a failure the port is no longer held here: a TCP half the router kept is
- * the caller's to remove with removeMapUpnpPort, or the stale mapping
- * cleanup's.
+ * On a failure the port is no longer held here; a TCP half the router took is
+ * still recorded, for removeMapUpnpPort to remove.
  * @param {number} port Port number.
  * @param {string} description Port description.
  * @returns {Promise<{mapped: boolean, code: number|null, reason: string|null, routerWide: boolean}>}
@@ -380,9 +399,11 @@ async function mapUpnpPort(port, description) {
   // moment it is there
   mappedHere.add(+port);
   let result = await mapProtocol(+port, 'TCP', description);
+  recordMapped(+port, 'TCP', result.mapped);
   if (result.mapped) {
     await serviceHelper.delay(500);
     result = await mapProtocol(+port, 'UDP', description);
+    recordMapped(+port, 'UDP', result.mapped);
   }
   if (!result.mapped) {
     log.error(`UPnP - ${result.reason}`);
@@ -394,28 +415,12 @@ async function mapUpnpPort(port, description) {
 }
 
 /**
- * Removes the router's mapping of one protocol of a port when it points at
- * this node. A router removes a mapping by its external port alone, whoever it
- * points at, so the entry is looked up first: one pointing at another machine
- * - another node behind the same router holding that port - is left, and one
- * the router does not hold is gone already. An entry that cannot be looked up
- * is removed.
+ * Removes the router's mapping of one protocol of a port.
  * @param {number} port
  * @param {string} protocol 'TCP' or 'UDP'
- * @returns {Promise<boolean>} whether no mapping of it to this node is left
+ * @returns {Promise<boolean>} whether the router no longer holds it
  */
 async function removeProtocol(port, protocol) {
-  let held;
-  try {
-    held = await client.getMapping({ public: port, protocol });
-  } catch (error) {
-    log.warn(`UPnP - ${protocol} ${port} not looked up, removing it: ${error.message}`);
-  }
-  if (held === null) return true;
-  if (held && held.local === false) {
-    log.info(`UPnP - ${protocol} ${port} left mapped: the router maps it to ${held.private.host}`);
-    return true;
-  }
   try {
     await client.removeMapping({ public: port, protocol });
     return true;
@@ -427,19 +432,29 @@ async function removeProtocol(port, protocol) {
 }
 
 /**
- * Removes the TCP and the UDP mapping of a port to this node, each on its own:
- * a refusal of one leaves the other to go.
+ * Removes the protocols of a port that this node mapped, each on its own: a
+ * refusal of one leaves the other to go. A router removes a mapping by its
+ * external port whoever it points at, so a protocol this node's latest map did
+ * not take - one another machine holds - is never asked for.
  * @param {number} port Port number.
  * @returns {Promise<boolean>} whether no mapping of the port to this node is left
  */
 async function removeMapUpnpPort(port) {
+  const protocols = mappedProtocols.get(+port) || new Set();
   // given up even if the router refuses: what is left is the cleanup pass's
   mappedHere.delete(+port);
-  const tcpRemoved = await removeProtocol(+port, 'TCP');
-  await serviceHelper.delay(500);
-  const udpRemoved = await removeProtocol(+port, 'UDP');
-  await serviceHelper.delay(500);
-  return tcpRemoved && udpRemoved;
+  mappedProtocols.delete(+port);
+  let removed = true;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const protocol of ['TCP', 'UDP']) {
+    // eslint-disable-next-line no-continue
+    if (!protocols.has(protocol)) continue;
+    // eslint-disable-next-line no-await-in-loop
+    if (!await removeProtocol(+port, protocol)) removed = false;
+    // eslint-disable-next-line no-await-in-loop
+    await serviceHelper.delay(500);
+  }
+  return removed;
 }
 
 /**
@@ -762,6 +777,7 @@ module.exports = {
   msUntilCleanupSlot,
   removeStaleMappings,
   mappedHere,
+  mappedProtocols,
   CLEANUP_SLOT_MS,
   mapPortApi,
   removeMapPortApi,
