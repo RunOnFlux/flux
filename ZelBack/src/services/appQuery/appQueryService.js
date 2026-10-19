@@ -48,10 +48,7 @@ async function decryptEnterpriseSpec(spec) {
   const cache = fluxCaching.default.enterpriseAppDecryptionCache;
 
   const cached = cache.get(cacheKey);
-  if (cached) {
-    log.info(`Using cached decrypted app for ${spec.name} (${cacheKey})`);
-    return cached;
-  }
+  if (cached) return cached;
 
   const failure = decryptFailures.get(cacheKey);
   if (failure && Date.now() - failure.at < DECRYPT_FAILURE_WINDOW_MS) {
