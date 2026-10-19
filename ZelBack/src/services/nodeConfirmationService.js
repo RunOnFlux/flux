@@ -135,9 +135,9 @@ async function poll() {
     // ASKED FRESH, NOT OF THE CACHE. This is the only reader here that establishes
     // whether this node can still be heard: it can when the network lists it at its
     // own address. An address the node cannot produce now is what makes it stop
-    // claiming it can broadcast - fluxd with no decided address, or, beside a fluxd
-    // that does not decide addresses, a benchmark daemon that does not answer. A
-    // value served from memory answers the address and not the question.
+    // claiming it can broadcast: neither fluxd's decided address nor one in
+    // FluxBench's benchmark results. A value served from memory answers the
+    // address and not the question.
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress({ fresh: true });
     if (localSocketAddr && ourPubkey) {
       const node = await networkStateService.getFluxnodeBySocketAddress(localSocketAddr);

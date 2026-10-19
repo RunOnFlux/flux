@@ -1155,7 +1155,7 @@ async function getLocalSocketAddress(options = {}) {
   // "what is this node's address", and for the callers below that is all the
   // question is. It is not all of it for a caller reading the ANSWER'S ABSENCE as a
   // fact about the node now: served from memory, a null that meant "no address
-  // right now" (fluxd has decided none, or the benchmark daemon did not answer)
+  // right now" (fluxd has decided none and FluxBench's benchmarks carry none)
   // becomes the last address the node had, for as long as the window lasts.
   const { fresh = false } = options;
 
