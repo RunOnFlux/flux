@@ -255,6 +255,10 @@ async function readAppLocation(appName) {
   return results || [];
 }
 
+// `<folder>|<device>` for each device connectedUnnamedDevices keeps, so keeping
+// it is said once.
+const keptUnnamedDevices = new Set();
+
 /**
  * The devices of a folder that its app's locations no longer name but that are
  * still connected and sharing it.
@@ -390,8 +394,13 @@ async function processContainerData(params) {
 
   if (syncFolder) {
     const kept = await connectedUnnamedDevices(id, syncFolder.devices, devices);
+    [...keptUnnamedDevices].filter((key) => key.startsWith(`${id}|`) && !kept.includes(key.slice(id.length + 1)))
+      .forEach((key) => keptUnnamedDevices.delete(key));
     kept.forEach((deviceID) => {
-      log.info(`processContainerData - ${appId}: keeping device ${deviceID.substring(0, 7)}, connected and sharing the folder though no location names it`);
+      if (!keptUnnamedDevices.has(`${id}|${deviceID}`)) {
+        keptUnnamedDevices.add(`${id}|${deviceID}`);
+        log.info(`processContainerData - ${appId}: keeping device ${deviceID.substring(0, 7)}, connected and sharing the folder though no location names it`);
+      }
       devices.push({ deviceID });
       if (!devicesIds.includes(deviceID)) devicesIds.push(deviceID);
     });
