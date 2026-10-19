@@ -910,8 +910,8 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
   // the same finally, and a refused duplicate must not release the lock the removal
   // actually running is holding.
   let acquired = false;
-  // Set once the teardown of a whole app has begun: a failure from there on leaves
-  // the app part removed.
+  // Set once a teardown has begun: a failure from there on leaves the app part
+  // removed, and an app missing a component cannot run, so it is the whole app.
   let tornDownApp = null;
   let announced = false;
   try {
@@ -1016,7 +1016,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
     appSpecifications = specificationFormatter(appSpecifications);
 
-    if (!isComponent) tornDownApp = appName;
+    tornDownApp = appName;
     if (appSpecifications.version >= 4 && !isComponent) {
       // it is a composed application
       // eslint-disable-next-line no-restricted-syntax
@@ -1179,9 +1179,9 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       }
     }
     // A specification that cannot be found anywhere means the node is not holding
-    // this app, which answers a caller asking for it to be gone. A whole app whose
-    // teardown had begun is finished in the background, and the network is told
-    // once it is gone. Any other error leaves the app as it was.
+    // this app, which answers a caller asking for it to be gone. An app whose
+    // teardown had begun, of the whole app or of one component, is removed whole in
+    // the background, and the network is told once it is gone. Any other error leaves the app as it was.
     if (error instanceof AppNotFoundError) return RemovalOutcome.NOT_INSTALLED;
     if (tornDownApp) finishRemoval(tornDownApp, force, !announced);
     return RemovalOutcome.FAILED;

@@ -767,6 +767,22 @@ describe('appUninstaller tests', () => {
         sinon.assert.calledOnce(getLocalSocketAddressStub);
       });
 
+      it('removes the whole app when the removal of one of its components stops part way', async () => {
+        let heldWhileFinishing = null;
+        const deleteRow = sinon.stub().callsFake(async () => {
+          heldWhileFinishing = globalStateStub.departingApps.has('testapp');
+        });
+        const uninstaller = buildUninstaller(composedSpec, {}, { findOneAndDeleteInDatabase: deleteRow });
+        runtimeStateStub.remove.onFirstCall().rejects(new Error('connection timed out'));
+
+        const outcome = await uninstaller.removeAppLocally('comp1_testapp', res, true);
+        await settle(() => deleteRow.called && !globalStateStub.departingApps.has('testapp'));
+
+        expect(outcome).to.equal('failed');
+        sinon.assert.calledOnce(deleteRow);
+        expect(heldWhileFinishing, 'the app was not held while it was removed whole').to.be.true;
+      });
+
       it('fails the removal, before the row, when the runtime state cannot be removed, and finishes it', async () => {
         const deleteRow = sinon.stub().resolves();
         const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
