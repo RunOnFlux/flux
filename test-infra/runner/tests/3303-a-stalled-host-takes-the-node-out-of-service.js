@@ -177,6 +177,7 @@ describe('a stalled host takes the node out of service', function () {
     let killClient;
     let killContainer;
     let anchor;
+    let runnableAtTrip;
 
     before(async function () {
       this.timeout(240000);
@@ -213,16 +214,20 @@ describe('a stalled host takes the node out of service', function () {
       expect(answer.exitCode, 'docker still answers, so it could still stop the app itself').to.not.equal(0);
       const stuck = await stuckThreads(killContainer, 'dockerd');
       expect(stuck, 'docker\'s held thread was released by its freeze, so the detector has nothing to read').to.not.be.empty;
+      expect(await processesThatCanRun(killContainer, sliceOf(killedName)), 'the app is not running, so there is nothing to kill').to.not.be.empty;
     });
 
     it('takes the node out of service', async function () {
       this.timeout(STALL_MS + READ_INTERVAL_MS * 6);
       await killClient.waitForEvent('dos:changed', outOfServiceForTheStall, STALL_MS + READ_INTERVAL_MS * 4, { afterId: anchor });
+      // read before the removal's deadline, while only a kill can end the app
+      runnableAtTrip = await processesThatCanRun(killContainer, sliceOf(killedName));
     });
 
     it('kills the app its removal could not stop, and nothing of it can run', async function () {
       // every app on the node is removed in turn, each within its deadline
       this.timeout(REMOVAL_DEADLINE_MS * 7);
+      expect(runnableAtTrip, 'nothing of the app could run when the node went out of service, so there was nothing to kill').to.not.be.empty;
       const { data } = await killClient.waitForEvent('hostStall:appUnloaded', (d) => d.app === killedName, REMOVAL_DEADLINE_MS * 6, { afterId: anchor });
       expect(data.removal, 'the app\'s removal finished, so docker could act').to.not.equal('removed');
       expect(data.killed, 'the node never killed the app').to.equal(true);
