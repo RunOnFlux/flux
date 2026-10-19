@@ -81,6 +81,48 @@ describe('a node behind a full router table verifies UPnP', function () {
   });
 });
 
+// The same full table on a router that stores descriptions as a FRITZ!Box does, its
+// underscores and spaces as dots: the left-over test mappings read 'Flux.Test.App' and the
+// like, and are this node's all the same.
+describe('a node behind a full FRITZ!Box-style router table verifies UPnP', function () {
+  let env;
+  dumpLogsOnFailure(() => env);
+  let nodeIp;
+  const fritz = (m) => ({ ...m, description: m.description.replace(/_/g, '.') });
+
+  before(async function () {
+    this.timeout(240000);
+    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false });
+    nodeIp = subnet.nodeIp(1);
+    // the first boot writes userconfig.js (its identity) and would put back the old port
+    await waitForBootSettled(env.clients[0]);
+    await enableUpnpGateway(nodeIp, {
+      capacity: CAPACITY, mappings: [...LEFT_OVER.map(fritz), fritz(OTHERS)], fritzDescriptions: true,
+    });
+    await setNodeApiPort(env.clients[0].container, API_PORT);
+    await restartFluxos(env.clients[0].container, { apiPort: API_PORT });
+    await env.clients[0].followTo(nodeIp, API_PORT);
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await env?.teardown();
+  });
+
+  it('removes its left-over test mappings and maps its own ports in their room', async function () {
+    this.timeout(180000);
+    const corePorts = [API_PORT - 1, API_PORT, API_PORT + 1, API_PORT + 2];
+    let table = [];
+    await waitFor(async () => {
+      table = (await upnpGatewayState(nodeIp)).mappings;
+      return corePorts.every((port) => table.some((m) => m.externalPort === port));
+    }, { timeout: 150000, interval: 2000, label: 'the node\'s own ports mapped' }).catch(() => {});
+
+    expect(table.map((m) => m.externalPort).sort(), 'the router\'s table').to.deep.equal([...corePorts, OTHERS.externalPort].sort());
+    expect(table.find((m) => m.externalPort === API_PORT).description, 'canary: the router stores dots').to.equal('Flux.Backend.API');
+  });
+});
+
 // The same router with nothing of this node's to remove: it holds the node's own four ports,
 // mapped by an earlier run, and other machines' mappings up to its capacity. The test mapping
 // finds no room, and the router already maps this node's api port to it, so the node runs on

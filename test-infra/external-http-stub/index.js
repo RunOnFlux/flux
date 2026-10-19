@@ -789,7 +789,8 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
         protocol: arg('NewProtocol').toUpperCase(),
         internalPort: Number(arg('NewInternalPort')),
         internalClient: arg('NewInternalClient'),
-        description: arg('NewPortMappingDescription'),
+        // a FRITZ!Box stores a description with its underscores and spaces as dots
+        description: gateway.fritzDescriptions ? arg('NewPortMappingDescription').replace(/[_ ]/g, '.') : arg('NewPortMappingDescription'),
         leaseDuration: Number(arg('NewLeaseDuration')),
       });
       soapReply(res, action, {});
@@ -1018,14 +1019,14 @@ control.post('/storage-requests/reset', (req, res) => {
 // Put a node behind a UPnP gateway, with no mappings yet.
 control.post('/upnp-gateway', (req, res) => {
   const {
-    ip, externalIp = null, capacity = null, mappings = [], refuseDeletes = 0,
+    ip, externalIp = null, capacity = null, mappings = [], refuseDeletes = 0, fritzDescriptions = false,
   } = req.body || {};
   if (!ip) {
     res.status(400).json({ error: 'ip is required' });
     return;
   }
   state.upnpGateways[ip] = {
-    externalIp, capacity, mappings, refuseDeletes, requests: [],
+    externalIp, capacity, mappings, refuseDeletes, fritzDescriptions, requests: [],
   };
   res.json({ ok: true });
 });

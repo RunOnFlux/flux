@@ -197,12 +197,14 @@ export async function resetStorageRequests() {
  * @param {object[]} [opts.mappings] - what its table holds already, as upnpGatewayState lists it
  * @param {number} [opts.refuseDeletes] - how many DeletePortMapping requests it refuses with
  *   501 before it removes anything; a refused request carries `refused: 501` in its state
+ * @param {boolean} [opts.fritzDescriptions] - store each new mapping's description as a
+ *   FRITZ!Box does, its underscores and spaces as dots
  */
 export async function enableUpnpGateway(ip, {
-  externalIp = null, capacity = null, mappings = [], refuseDeletes = 0,
+  externalIp = null, capacity = null, mappings = [], refuseDeletes = 0, fritzDescriptions = false,
 } = {}) {
   const res = await post('/upnp-gateway', {
-    ip, externalIp, capacity, mappings, refuseDeletes,
+    ip, externalIp, capacity, mappings, refuseDeletes, fritzDescriptions,
   });
   if (!res.ok) throw new Error(`enableUpnpGateway: ${JSON.stringify(res)}`);
 }
