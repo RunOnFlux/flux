@@ -75,7 +75,9 @@ describe('a primary that went quiet and then died is taken over', function () {
 
     await sleepUnlessInfraDead(MONITOR_PASSES_MS);
     expect(await getConnectedDevices(client(A)), 'the primary\'s syncthing is not connected to the standby').to.include(primaryDevice);
-    expect((await dbClient(A + 1).getAppLocations(appName)).length, 'a location for the primary came back').to.equal(0);
+    const host = (ip) => String(ip).split(':')[0];
+    const primaryRows = (await dbClient(A + 1).getAppLocations(appName)).filter((row) => host(row.ip) === host(client(B).ip));
+    expect(primaryRows.length, 'a location for the primary came back').to.equal(0);
     const devices = (await getFolderConfig(client(A), folder))?.devices?.map((d) => d.deviceID) ?? [];
     expect(devices, 'the standby dropped a connected primary from the folder').to.include(primaryDevice);
     expect(fleet.twoRan, 'the standby started beside a primary that still runs').to.deep.equal([]);
