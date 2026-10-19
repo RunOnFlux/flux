@@ -825,9 +825,20 @@ async function processBlock(blockHeight, isInsightExplorer) {
     }
   } catch (error) {
     someBlockIsProcessing = false;
-    log.error('Block processor encountered an error.');
-    log.error(error);
     if (blockProccessingCanContinue) {
+      // The daemon does not have this block yet — it is still catching up, or the
+      // scan reached one past its tip. Wait for the block to arrive rather than
+      // recovering, which would rebuild the database and retry with no delay.
+      const blockNotYetAvailable = error
+        && (error.code === -8
+          || (typeof error.message === 'string' && error.message.includes('Block height out of range')));
+      if (blockNotYetAvailable) {
+        // eslint-disable-next-line no-use-before-define
+        pollForNewBlocks();
+        return;
+      }
+      log.error('Block processor encountered an error.');
+      log.error(error);
       const deep = error.message && error.message.includes('duplicate key');
       // eslint-disable-next-line no-use-before-define
       recoverAndRestart(true, deep);
@@ -1406,7 +1417,14 @@ async function recoverAndRestart(restoreDatabase, deepRestore) {
     if (isInsightExplorer && scannedBlockHeight < config.fluxapps.epochstart - 1) {
       scannedBlockHeight = config.fluxapps.epochstart - 1;
     }
-    processBlock(scannedBlockHeight + 1, isInsightExplorer);
+    // Resume through the poller: if the restore point is already at the daemon's
+    // tip, wait for the next block instead of asking for a height it does not have.
+    const daemonHeight = daemonServiceMiscRpcs.isDaemonSynced().data.height;
+    if (scannedBlockHeight < daemonHeight) {
+      processBlock(scannedBlockHeight + 1, isInsightExplorer);
+    } else {
+      pollForNewBlocks();
+    }
   } catch (error) {
     log.error(`Recovery failed: ${error.message}`);
     setTimeout(() => recoverAndRestart(true, true), 15 * 60 * 1000);
