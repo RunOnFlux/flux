@@ -73,16 +73,18 @@ describe('daemonServiceUtils tests', () => {
   describe('where fluxd is reached from', () => {
     // A node whose unit passes the node key as a credential: flux.conf must never
     // be read, the login is fluxd's cookie, and fluxd is asked about itself.
-    const node = ({ credential = null, cookies = [] } = {}) => {
+    const node = ({ credential = null, cookies = [], conf = null } = {}) => {
       const state = {
-        cookieReads: 0, clients: [], batches: [], parsed: 0, resolved: 0, delays: 0,
+        cookieReads: 0, cookiePaths: [], clients: [], batches: [], parsed: 0, resolved: 0, delays: 0,
       };
       class DaemonConfig {
         constructor() { this.configElements = {}; }
 
+        get configDir() { return '/home/node/.flux'; }
+
         async parseConfig() {
           state.parsed += 1;
-          this.configElements = {
+          this.configElements = conf ?? {
             zelnodeprivkey: 'filekey', insightexplorer: '1', addressindex: '0', rpcuser: 'u', rpcpassword: 'p',
           };
           return true;
@@ -140,7 +142,9 @@ describe('daemonServiceUtils tests', () => {
         '../serviceHelper': { ...serviceHelper, delay: async () => { state.delays += 1; } },
         './fluxdCredentials': {
           loadNodeKey: async () => credential,
-          readRpcCookie: async () => {
+          RPC_COOKIE_FILE: '/run/fluxd/rpc.cookie',
+          readRpcCookie: async (file) => {
+            state.cookiePaths.push(file);
             state.cookieReads += 1;
             return cookies[Math.min(state.cookieReads, cookies.length) - 1] ?? null;
           },
@@ -237,6 +241,35 @@ describe('daemonServiceUtils tests', () => {
       expect(answer.status).to.equal('error');
       expect(state.cookieReads).to.equal(1);
       expect(state.batches, 'fluxd is asked about itself only once it answers').to.eql([]);
+    });
+
+    describe('a flux.conf that sets no rpcpassword', () => {
+      // fluxd then authenticates only with its cookie: an image that has moved
+      // flux.conf to the cookie, run by FluxOS without the credential.
+      [
+        [{ rpccookiefile: '/run/fluxd/rpc.cookie' }, '/run/fluxd/rpc.cookie'],
+        [{ rpccookiefile: 'rpc.cookie' }, '/home/node/.flux/rpc.cookie'],
+        [{}, '/home/node/.flux/.cookie'],
+        [{ datadir: '/dat/fluxd' }, '/dat/fluxd/.cookie'],
+      ].forEach(([extra, expected]) => {
+        it(`logs in with the cookie at ${expected}`, async () => {
+          const { module, state } = node({ cookies: [cookieA], conf: { zelnodeprivkey: 'filekey', ...extra } });
+          await module.buildFluxdClient();
+          expect(module.isFluxdSelfReporting()).to.equal(false);
+          expect(state.cookiePaths).to.eql([expected]);
+          expect(state.clients[0].auth).to.eql(cookieA);
+        });
+      });
+
+      it('reads the cookie again on a 401, and is never asked about itself', async () => {
+        const { module, state } = node({ cookies: [cookieA, cookieB], conf: { rpccookiefile: '/run/fluxd/rpc.cookie' } });
+        await module.buildFluxdClient();
+        state.refuse = (client) => client.auth?.password === 'a';
+        const answer = await module.executeCall('getblockcount', [], { useCache: false });
+        expect(answer.status).to.equal('success');
+        expect(state.clients.at(-1).auth).to.eql(cookieB);
+        expect(state.batches).to.eql([]);
+      });
     });
 
     it('a 401 on a node that reads flux.conf is an error, not a cookie to read', async () => {

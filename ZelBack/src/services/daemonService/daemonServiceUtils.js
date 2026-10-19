@@ -1,3 +1,4 @@
+const path = require('node:path');
 const log = require('../../lib/log');
 const asyncLock = require('../utils/asyncLock');
 const fluxRpc = require('../utils/fluxRpc');
@@ -95,17 +96,38 @@ async function ensureConfigLoaded() {
   if (!fluxdConfig) await readDaemonConfig();
 }
 
+/**
+ * Whether fluxd authenticates this node's RPC with its cookie: always beside a
+ * fluxd that reports itself, and beside any fluxd whose flux.conf sets no
+ * rpcpassword, as fluxd then uses only its cookie.
+ * @returns {boolean}
+ */
+function usesRpcCookie() {
+  return fluxdReportsItself || !fluxdConfig?.rpcpassword;
+}
+
+/**
+ * Where fluxd writes its RPC cookie: the fixed path beside a fluxd that reports
+ * itself; otherwise flux.conf's rpccookiefile, a relative one inside fluxd's data
+ * directory, or that directory's .cookie.
+ * @returns {string}
+ */
+function rpcCookieFile() {
+  if (fluxdReportsItself) return fluxdCredentials.RPC_COOKIE_FILE;
+  const datadir = fluxdConfig.get('datadir') || fluxdConfig.configDir;
+  const configured = fluxdConfig.get('rpccookiefile');
+  if (!configured) return path.join(datadir, '.cookie');
+  return path.isAbsolute(configured) ? configured : path.join(datadir, configured);
+}
+
 async function buildFluxdClient() {
   await ensureConfigLoaded();
 
   // With no cookie yet (fluxd not started) the client sends no login, fluxd
   // answers 401, and the next call reads the cookie again.
-  const auth = fluxdReportsItself
-    ? await fluxdCredentials.readRpcCookie()
-    : {
-      username: fluxdConfig.rpcuser || 'rpcuser',
-      password: fluxdConfig.rpcpassword || 'rpcpassword',
-    };
+  const auth = usesRpcCookie()
+    ? await fluxdCredentials.readRpcCookie(rpcCookieFile())
+    : { username: fluxdConfig.rpcuser || 'rpcuser', password: fluxdConfig.rpcpassword };
 
   const portId = isTestnet() ? 'rpcporttestnet' : 'rpcport';
 
@@ -134,7 +156,7 @@ async function callFluxd(call) {
   try {
     return await call(fluxdClient);
   } catch (error) {
-    if (!fluxdReportsItself || error.status !== 401) throw error;
+    if (!usesRpcCookie() || error.status !== 401) throw error;
     forgetFluxdFacts();
     await buildFluxdClient();
     return call(fluxdClient);
