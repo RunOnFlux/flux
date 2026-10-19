@@ -6,6 +6,7 @@ const dockerService = require('../dockerService');
 const registryManager = require('../appDatabase/registryManager');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const appConstants = require('../utils/appConstants');
+const mountParser = require('../utils/mountParser');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const fluxCaching = require('../utils/cacheManager');
@@ -47,10 +48,7 @@ async function decryptEnterpriseSpec(spec) {
   const cache = fluxCaching.default.enterpriseAppDecryptionCache;
 
   const cached = cache.get(cacheKey);
-  if (cached) {
-    log.info(`Using cached decrypted app for ${spec.name} (${cacheKey})`);
-    return cached;
-  }
+  if (cached) return cached;
 
   const failure = decryptFailures.get(cacheKey);
   if (failure && Date.now() - failure.at < DECRYPT_FAILURE_WINDOW_MS) {
@@ -382,13 +380,49 @@ async function sendingFolderIds() {
 }
 
 /**
+ * The container names of the g: components of each installed app that has more
+ * than one, anchor first (mountParser.anchorComponentIdentifier).
+ *
+ * Throws when the installed apps cannot be read.
+ * @returns {Promise<string[][]>}
+ */
+async function multiComponentElectedApps() {
+  const installed = await installedApps();
+  if (installed.status !== 'success') throw new Error('the installed apps cannot be read');
+  const { inPlace } = await decryptEnterpriseApps(installed.data);
+  return inPlace
+    .map((app) => mountParser.gComponentIdentifiers(app).map((identifier) => dockerService.getAppIdentifier(identifier)))
+    .filter((names) => names.length > 1);
+}
+
+/**
+ * A holdings list with the anchor of every app it holds any g: component of.
+ *
+ * A peer on a release that elects one g: component asks only about the anchor,
+ * so to it a node holding another of the app's g: components - one whose
+ * anchor has not started yet, has stopped on its own, or failed to start -
+ * holds nothing, and it starts the app beside it.
+ * @param {string[]} holding Container names.
+ * @param {string[][]} apps As multiComponentElectedApps.
+ * @returns {string[]}
+ */
+function withAnchors(holding, apps) {
+  const names = new Set(holding);
+  apps.forEach((members) => {
+    if (members.some((name) => names.has(name))) names.add(members[0]);
+  });
+  return [...names];
+}
+
+/**
  * What this node holds, both ways a peer reads it: `decided` is its own account
  * (ownHoldings), and `held` adds every component whose folder sends here. A
  * component in `held` and not in `decided` has a sending folder and nothing
  * behind it yet: a primary back from a stop, still deciding whether another
- * holder took over.
+ * holder took over. Each list carries the anchor of every app it holds a g:
+ * component of (withAnchors).
  *
- * Throws when the lock store cannot be read.
+ * Throws when the lock store or the installed apps cannot be read.
  * @returns {Promise<{decided: string[], held: string[]}|null>} null while
  *   syncthing cannot say which folders send here
  */
@@ -396,7 +430,11 @@ async function holdingsAccount() {
   const sending = await sendingFolderIds();
   if (sending === null) return null;
   const decided = await ownHoldings();
-  return { decided, held: [...new Set([...decided, ...sending])] };
+  const apps = await multiComponentElectedApps();
+  return {
+    decided: withAnchors(decided, apps),
+    held: withAnchors([...decided, ...sending], apps),
+  };
 }
 
 /**

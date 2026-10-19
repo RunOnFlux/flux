@@ -1591,6 +1591,32 @@ describe('syncthingMonitor tests', () => {
       expect(failure?.message).to.equal('database unavailable');
     });
 
+    // The state machine seeds an app's g: folders on one node, so each is told
+    // the folders of the app's other g: components; a folder of any other
+    // component is told none.
+    it('hands each g: folder the folders of the app\'s other g: components', async () => {
+      writesAFolder();
+      mockInstalledAppsFn.resolves({
+        status: 'success',
+        data: [{
+          name: 'twin',
+          version: 7,
+          compose: [
+            { name: 'db', containerData: 'g:/data' },
+            { name: 'cache', containerData: 'r:/cache' },
+            { name: 'web', containerData: 'g:/srv' },
+          ],
+        }],
+      });
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      const siblings = Object.fromEntries(syncthingFolderStateMachineMock.manageFolderSyncState.getCalls()
+        .map((call) => [call.args[0].appId, call.args[0].electedSiblings]));
+      expect(siblings).to.deep.equal({ db_twin: ['web_twin'], cache_twin: [], web_twin: ['db_twin'] });
+    });
+
     describe('the type of a g: folder', () => {
       const folderCalls = () => syncthingServiceMock.adjustConfigFolders.getCalls()
         .filter((c) => c.args[0] === 'put' || c.args[0] === 'patch');

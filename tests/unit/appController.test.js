@@ -361,6 +361,71 @@ describe('appController tests', () => {
       });
     });
 
+    // An app with more than one g: component is elected as a whole, so its
+    // operator commands defer to the election for each of them, and a lock taken
+    // on the node running any of them is the primary's.
+    describe('an app with more than one g: component', () => {
+      const twinApp = {
+        name: 'Twin',
+        version: 4,
+        compose: [{ name: 'db', containerData: 'g:/data' }, { name: 'cache', containerData: '/c' }, { name: 'web', containerData: 'g:/srv' }],
+      };
+      let requestOperatorStart;
+
+      beforeEach(() => {
+        verificationHelperStub.resolves(true);
+        requestOperatorStart = sinon.stub(appsRuntimeState, 'requestOperatorStart').resolves(true);
+        sinon.stub(fluxEventBus, 'publish');
+      });
+
+      it('leaves every g: component\'s lock for the election to lift', async () => {
+        stubInstalledApp(twinApp);
+
+        await appController.appStart({ params: { appname: 'Twin' }, query: {} }, { json: sinon.fake((param) => param) });
+
+        expect(requestOperatorStart.args.map(([id]) => id)).to.deep.equal(['db_Twin', 'web_Twin']);
+        expect(appsRuntimeState.setOperatorStopped.args.map(([id]) => id)).to.deep.equal(['cache_Twin']);
+      });
+
+      it('takes each g: component\'s lock as the primary\'s when only one of them runs here', async () => {
+        stubInstalledApp(twinApp);
+        sinon.stub(appReconciler, 'clearControllerDesired');
+        sinon.stub(appReconciler, 'committedIdentifiers').returns([]);
+        appReconciler.dockerActual.callsFake(async (id) => ({ reachable: true, exists: true, running: id === 'web_Twin' }));
+
+        await appController.appStop({ params: { appname: 'Twin' }, query: {} }, { json: sinon.fake((param) => param) });
+
+        const options = Object.fromEntries(appsRuntimeState.setOperatorStopped.args.map(([id, , opts]) => [id, opts]));
+        expect(options).to.deep.equal({
+          db_Twin: { force: false, asPrimary: true }, cache_Twin: { force: false }, web_Twin: { force: false, asPrimary: true },
+        });
+      });
+
+      it('takes a single g: component\'s lock as the primary\'s on the node running the other', async () => {
+        stubInstalledApp(twinApp);
+        sinon.stub(appReconciler, 'clearControllerDesired');
+        sinon.stub(appReconciler, 'committedIdentifiers').returns([]);
+        appReconciler.dockerActual.callsFake(async (id) => ({ reachable: true, exists: true, running: id === 'db_Twin' }));
+
+        await appController.appStop({ params: { appname: 'web_Twin' }, query: {} }, { json: sinon.fake((param) => param) });
+
+        sinon.assert.calledOnceWithExactly(appsRuntimeState.setOperatorStopped, 'web_Twin', true, { force: false, asPrimary: true });
+      });
+
+      // Canary for the test above: on a node holding none of the app the same
+      // stop is not the primary's.
+      it('takes it as not the primary\'s on a node running none of them', async () => {
+        stubInstalledApp(twinApp);
+        sinon.stub(appReconciler, 'clearControllerDesired');
+        sinon.stub(appReconciler, 'committedIdentifiers').returns([]);
+        appReconciler.dockerActual.resolves({ reachable: true, exists: true, running: false });
+
+        await appController.appStop({ params: { appname: 'web_Twin' }, query: {} }, { json: sinon.fake((param) => param) });
+
+        sinon.assert.calledOnceWithExactly(appsRuntimeState.setOperatorStopped, 'web_Twin', true, { force: false, asPrimary: false });
+      });
+    });
+
     it('should report an unreachable docker rather than claiming a start', async () => {
       verificationHelperStub.resolves(true);
       stubInstalledApp({

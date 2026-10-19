@@ -822,6 +822,31 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
     });
 
+    // An update requests a restart of every component on every node that holds the
+    // app. On a standby that request must not start the g: component: the election
+    // decides where it runs. It stays pending, and a start the election later asks
+    // for satisfies it.
+    it('does not start a stopped g: component for a restart request while no controller has elected it', async () => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      stubs.appsRuntimeState.getState.resolves({ restartGeneration: 2, actuatedRestartGeneration: 1 });
+      await appReconciler.reconcile('db_App'); // controllerDesired unset, inspect default: stopped
+      expect(stubs.dockerService.appDockerStart.called, 'started').to.be.false;
+      expect(stubs.dockerService.appDockerRestart.called, 'restarted').to.be.false;
+      expect(stubs.appsRuntimeState.recordRestartGeneration.called, 'the request recorded as done').to.be.false;
+    });
+
+    it('does not start a stopped g: component for a restart request once a controller stood it down', async () => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.setControllerDesired('db_App', 'stopped', 'masterSlave standby');
+      stubs.globalState.bootContainerStateSettled = true;
+      stubs.appsRuntimeState.getState.resolves({ restartGeneration: 2, actuatedRestartGeneration: 1 });
+      await appReconciler.reconcile('db_App'); // inspect default: stopped
+      expect(stubs.dockerService.appDockerStart.called, 'started').to.be.false;
+      expect(stubs.dockerService.appDockerRestart.called, 'restarted').to.be.false;
+      expect(stubs.appsRuntimeState.recordRestartGeneration.called, 'the request recorded as done').to.be.false;
+    });
+
     it('starts a g: component once a controller sets it running', async () => {
       localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
       // set desired without triggering the workqueue (boot gate closed -> enqueue held)
