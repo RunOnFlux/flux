@@ -57,39 +57,6 @@ function setOnComponentRemoved(callback) {
   onComponentRemoved = callback;
 }
 
-// Waits between attempts at a cleanup step of an uninstall that failed, the
-// last repeated until the step succeeds.
-const CLEANUP_RETRY_MS = [30 * 1000, 60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000];
-
-/**
- * Runs a cleanup step of an uninstall whose containers are already gone, and
- * retries it until it succeeds. While a step is outstanding the app is held as
- * departing: the reconciler leaves it alone, so a row that outlived its
- * containers is never rebuilt on an empty volume, and announcements leave it out.
- * @param {string} appName The app the step cleans up after.
- * @param {string} what What the step removes, for the log.
- * @param {function(): Promise<void>} step
- * @param {number} [attempt] Attempts already made.
- * @returns {Promise<boolean>} Whether the step succeeded on this attempt.
- */
-async function runCleanupStep(appName, what, step, attempt = 0) {
-  try {
-    await step();
-    if (attempt > 0) {
-      globalState.departingApps.leave(appName);
-      log.info(`${appName}: ${what} removed after ${attempt} failed attempt(s)`);
-    }
-    return true;
-  } catch (error) {
-    if (attempt === 0) globalState.departingApps.enter(appName);
-    const delay = CLEANUP_RETRY_MS[Math.min(attempt, CLEANUP_RETRY_MS.length - 1)];
-    log.error(`${appName}: ${what} could not be removed (${error.message}); held as departing, retrying in ${Math.round(delay / 1000)}s`);
-    const timer = setTimeout(runCleanupStep, delay, appName, what, step, attempt + 1);
-    if (timer.unref) timer.unref();
-    return false;
-  }
-}
-
 /**
  * Stop Syncthing app and clean up cache
  * @param {string} monitoredName - Monitored app name
@@ -1009,7 +976,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     // eslint-disable-next-line no-restricted-syntax
     for (const identifier of removedIdentifiers) {
       // eslint-disable-next-line no-await-in-loop
-      await runCleanupStep(appName, `runtime state of ${identifier}`, () => appsRuntimeState.remove(identifier));
+      await appsRuntimeState.remove(identifier);
       if (onComponentRemoved) onComponentRemoved(identifier);
     }
 
@@ -1124,11 +1091,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         res.write(serviceHelper.ensureString(databaseStatus));
         if (res.flush) res.flush();
       }
-      const rowDeleted = await runCleanupStep(
-        appName,
-        'installed-app row',
-        () => dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection),
-      );
+      await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
       // The app is gone for good: nothing reconciles an app with no row, so its
       // removal records have no reader left. Only this full-uninstall path clears
       // them - softRemoveAppLocally deletes the row too, but as one step of a
@@ -1137,7 +1100,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       // tampering.
       dockerService.clearFluxRemovedContainers(appName);
       const databaseStatus2 = {
-        status: rowDeleted ? 'Database cleaned' : 'Database cleanup pending, retrying',
+        status: 'Database cleaned',
       };
       log.info(databaseStatus2);
       if (res) {
