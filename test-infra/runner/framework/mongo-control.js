@@ -55,17 +55,18 @@ export async function releaseCommands() {
   });
 }
 
-// The given commands on one collection of one node fail, as a call the database could
-// not complete does, and every other node's go through: each node keeps its data in
-// databases of its own (dbClient's prefix). `times` fails that many and then stops; left
-// out, every one fails until released. Resolves to a release that turns the failure off
-// and resolves to how many commands it failed.
+// The given commands on one collection of one node fail, as a call that ran out of time
+// does (MaxTimeMSExpired): the driver neither retries it nor drops its other
+// connections, so nothing but the named commands fails. Every other node's go through:
+// each node keeps its data in databases of its own (dbClient's prefix). `times` fails
+// that many and then stops; left out, every one fails until released. Resolves to a
+// release that turns the failure off and resolves to how many commands it failed.
 export async function failCommands(nodeNum, database, collection, { commands, times } = {}) {
   const namespace = `node${String(nodeNum).padStart(2, '0')}_${database}.${collection}`;
   await withAdmin((admin) => admin.command({
     configureFailPoint: 'failCommand',
     mode: times === undefined ? 'alwaysOn' : { times },
-    data: { failCommands: commands, namespace, errorCode: 91 },
+    data: { failCommands: commands, namespace, errorCode: 50 },
   }));
   return async function release() {
     // turning a failpoint off answers how many times it fired
