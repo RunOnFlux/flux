@@ -78,8 +78,10 @@ async function readThread(taskDir) {
   const switches = status.split('\n')
     .filter((line) => line.startsWith('voluntary_ctxt_switches') || line.startsWith('nonvoluntary_ctxt_switches'))
     .reduce((sum, line) => sum + Number(line.split(/\s+/)[1]), 0);
+  // the kernel writes 0 for a wait point it does not show this account
+  const waitPoint = (wchan ?? '').trim();
   return {
-    state: fields[0], startTime: fields[19], switches, wchan: (wchan ?? '').trim() || 'unknown',
+    state: fields[0], startTime: fields[19], switches, wchan: waitPoint && waitPoint !== '0' ? waitPoint : 'unknown',
   };
 }
 

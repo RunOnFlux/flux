@@ -278,6 +278,14 @@ describe('hostStallService tests', () => {
     });
   });
 
+  it('names no wait point the kernel does not show', async () => {
+    processWith('700', 'dockerd', [{ tid: '701', state: 'D', switches: 9, wchan: '0' }]);
+
+    await readTimes(2);
+
+    expect(fluxNetworkHelper.getPlacementHold()).to.include('dockerd thread 701 has been held in the kernel at unknown');
+  });
+
   it('reads a thread whose command name holds spaces and parentheses', async () => {
     processWith('500', 'syncthing', []);
     const taskDir = path.join(procRoot, '500', 'task', '501');
