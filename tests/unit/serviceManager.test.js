@@ -5,14 +5,13 @@ const sinon = require('sinon');
 chai.use(chaiAsPromised);
 const { expect } = chai;
 
-const {
-  untilSucceeds, prepareDatabaseSchema, dosState,
-} = require('../../ZelBack/src/services/serviceManager');
+const { prepareDatabaseSchema, dosState } = require('../../ZelBack/src/services/serviceManager');
+const { untilSucceeds } = require('../../ZelBack/src/services/utils/untilSucceeds');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 
-describe('serviceManager untilSucceeds', () => {
+describe('untilSucceeds', () => {
   afterEach(() => sinon.restore());
 
   it('runs a failing step again after a wait, until it succeeds, and answers what it resolved', async () => {

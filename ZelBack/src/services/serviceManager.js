@@ -6,7 +6,7 @@ const https = require('https');
 const cacheManager = require('./utils/cacheManager').default;
 const log = require('../lib/log');
 const dbHelper = require('./dbHelper');
-const serviceHelper = require('./serviceHelper');
+const { untilSucceeds } = require('./utils/untilSucceeds');
 const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const networkStateService = require('./networkStateService');
@@ -104,27 +104,6 @@ const dosState = {
 };
 const portsNotWorking = new Set();
 const appsStorageViolations = [];
-
-// How long boot waits before it runs a database step that failed again.
-const BOOT_STEP_RETRY_MS = 15 * 1000;
-
-/**
- * Runs `step` until it succeeds, waiting BOOT_STEP_RETRY_MS after each
- * failure. Boot holds at a database step that fails rather than starting again
- * from the top, so nothing boot already started runs twice.
- * @param {string} what Names the step in the log.
- * @param {function(): Promise<*>} step
- * @returns {Promise<*>} What the step resolved.
- */
-async function untilSucceeds(what, step) {
-  try {
-    return await step();
-  } catch (error) {
-    log.error(`${what} failed, running it again in ${BOOT_STEP_RETRY_MS / 1000}s: ${error.message}`);
-    await serviceHelper.delay(BOOT_STEP_RETRY_MS);
-    return untilSucceeds(what, step);
-  }
-}
 
 /**
  * Brings every collection boot depends on to its schema: indexes, the merges
@@ -842,7 +821,6 @@ async function startFluxFunctions() {
 
 module.exports = {
   startFluxFunctions,
-  untilSucceeds,
   prepareDatabaseSchema,
   // testing exports
   dosState,
