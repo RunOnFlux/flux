@@ -12,19 +12,28 @@ describe('appKill tests', () => {
   let procRoot;
   let dockerRoot;
   let killed;
+  // unit -> its cgroup, as systemd reports it
+  let units;
 
   const id = (n) => String(n).repeat(64).slice(0, 64);
+  // systemd runs in a container here, so its tree starts below the filesystem's root
+  const SYSTEMD_ROOT = '/init';
 
   function cgroup(rel, pids) {
-    const dir = path.join(cgroupRoot, rel);
+    const dir = path.join(cgroupRoot, SYSTEMD_ROOT, rel);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'cgroup.procs'), pids.map((pid) => `${pid}\n`).join(''));
     fs.writeFileSync(path.join(dir, 'cgroup.kill'), '');
+    units.set(path.basename(rel), path.join(SYSTEMD_ROOT, rel));
+    if (rel.startsWith('flux.slice/')) units.set('flux.slice', path.join(SYSTEMD_ROOT, 'flux.slice'));
     return dir;
   }
-  function container(n, name, pids) {
+  function record(n, name, pid = 0) {
     fs.mkdirSync(path.join(dockerRoot, 'containers', id(n)), { recursive: true });
-    fs.writeFileSync(path.join(dockerRoot, 'containers', id(n), 'config.v2.json'), JSON.stringify({ Name: `/${name}`, State: { Pid: Number(pids[0] ?? 0) } }));
+    fs.writeFileSync(path.join(dockerRoot, 'containers', id(n), 'config.v2.json'), JSON.stringify({ Name: `/${name}`, State: { Pid: Number(pid) } }));
+  }
+  function container(n, name, pids) {
+    record(n, name, pids[0]);
     return cgroup(path.join('system.slice', `docker-${id(n)}.scope`), pids);
   }
   // An app's slice, as the kernel lays it out: no process of its own, and each
@@ -39,8 +48,10 @@ describe('appKill tests', () => {
     fs.writeFileSync(path.join(procRoot, pid, 'status'), `Name:\tapp\nSigPnd:\t${sigPnd}\nShdPnd:\t${shdPnd}\n`);
   }
 
-  // what sudo would do: read and list as root, and write to cgroup.kill
+  // what sudo would do: read and list as root, and write to cgroup.kill; and
+  // what systemd answers about a unit's cgroup
   function asRoot(cmd, { params }) {
+    if (cmd === 'systemctl') return Promise.resolve({ stdout: `${units.get(params[4]) ?? ''}\n`, error: null });
     if (cmd === 'ls') return Promise.resolve({ stdout: fs.readdirSync(params[1]).join('\n'), error: null });
     if (cmd === 'cat') {
       try {
@@ -64,6 +75,7 @@ describe('appKill tests', () => {
     fs.mkdirSync(path.join(dockerRoot, 'containers'), { recursive: true });
     appKill.usePaths({ cgroupRoot, procRoot, dockerRoot });
     killed = [];
+    units = new Map();
     sinon.stub(serviceHelper, 'runCommand').callsFake(asRoot);
   });
 
@@ -76,6 +88,7 @@ describe('appKill tests', () => {
   describe('kill', () => {
     it('kills the app\'s slice and the scopes of its containers made before slices, and no other app\'s', async () => {
       const appSliceDir = slice('flux-my\\x2dapp.slice', { [`docker-${id(9)}.scope`]: ['10'] });
+      record(9, 'fluxdb_my-app', '10');
       const web = container(1, 'fluxweb_my-app', ['11']);
       const single = container(2, 'fluxmy-app', ['12']);
       container(3, 'fluxweb_my-app2', ['13']);

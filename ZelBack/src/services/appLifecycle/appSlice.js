@@ -7,6 +7,10 @@
  *
  * A slice outlives its last container until it is stopped. Removing an app
  * stops its slice, and boot stops every slice left empty.
+ *
+ * Where a unit's cgroup is, systemd says: its tree starts wherever systemd itself
+ * runs, which is the filesystem's root on a host and below it when systemd runs
+ * in a container.
  */
 
 const fs = require('fs').promises;
@@ -16,6 +20,8 @@ const serviceHelper = require('../serviceHelper');
 
 const PARENT = 'flux.slice';
 const APP_NAME = /^[A-Za-z0-9-]+$/;
+// systemd answers from memory; a question it has not answered by then gets no answer
+const SYSTEMD_ANSWER_MS = 10 * 1000;
 
 let cgroupRoot = '/sys/fs/cgroup';
 
@@ -39,11 +45,16 @@ function sliceName(appName) {
 }
 
 /**
- * @param {string} unit A slice under flux.slice.
- * @returns {string} Its cgroup directory.
+ * The unit's cgroup directory, as systemd reports it.
+ * @param {string} unit Any systemd unit: a slice, a scope, a service.
+ * @returns {Promise<string|null>} Null when systemd has no such unit, or no answer.
  */
-function cgroupOf(unit) {
-  return path.join(cgroupRoot, PARENT, unit);
+async function controlGroup(unit) {
+  const { stdout, error } = await serviceHelper.runCommand('systemctl', {
+    params: ['show', '-p', 'ControlGroup', '--value', unit], timeout: SYSTEMD_ANSWER_MS, logError: false,
+  });
+  const group = (stdout ?? '').trim();
+  return error || !group ? null : path.join(cgroupRoot, group);
 }
 
 /**
@@ -52,7 +63,8 @@ function cgroupOf(unit) {
  *   null when the slice does not exist.
  */
 async function isPopulated(unit) {
-  const events = await fs.readFile(path.join(cgroupOf(unit), 'cgroup.events'), 'utf8').catch(() => null);
+  const dir = await controlGroup(unit);
+  const events = dir ? await fs.readFile(path.join(dir, 'cgroup.events'), 'utf8').catch(() => null) : null;
   if (events === null) return null;
   return /^populated 1$/m.test(events);
 }
@@ -87,7 +99,8 @@ async function release(appName) {
  * @returns {Promise<number>} How many were stopped.
  */
 async function stopEmptySlices() {
-  const entries = await fs.readdir(path.join(cgroupRoot, PARENT)).catch(() => []);
+  const parent = await controlGroup(PARENT);
+  const entries = parent ? await fs.readdir(parent).catch(() => []) : [];
   const slices = entries.filter((entry) => entry.startsWith('flux-') && entry.endsWith('.slice'));
   let stopped = 0;
   // eslint-disable-next-line no-restricted-syntax
@@ -101,7 +114,7 @@ async function stopEmptySlices() {
 
 module.exports = {
   sliceName,
-  cgroupOf,
+  controlGroup,
   release,
   stopEmptySlices,
   useCgroupRoot,

@@ -3,10 +3,11 @@
  * database, and say whether any of them can still run.
  *
  * An app's containers live in its slice (appSlice). A container created before
- * the slice existed lives in its runtime's scope, `system.slice/docker-<id>.scope`,
- * and the container's name is read from the runtime's own record on disk, which
- * stays readable while docker does not answer. Where those records are is read
- * from docker at boot; until then it is docker's default for the node's kind.
+ * the slice existed lives in its runtime's scope, `docker-<id>.scope`, and the
+ * container's name is read from the runtime's own record on disk, which stays
+ * readable while docker does not answer. Where those records are is read from
+ * docker at boot; until then it is docker's default for the node's kind. Where
+ * each cgroup is, systemd says (appSlice.controlGroup).
  *
  * A process held in the kernel is not removed by a kill: it keeps the kill
  * pending and dies the moment the kernel lets it go, without running the app's
@@ -93,14 +94,14 @@ async function containersOnDisk() {
 }
 
 /**
- * The scopes of the app's containers that live outside its slice.
+ * The scope units of the app's containers, whether in its slice or not.
  * @param {string} appName
- * @returns {Promise<string[]>} Cgroup directories.
+ * @returns {Promise<string[]>}
  */
-async function legacyScopes(appName) {
+async function scopesOf(appName) {
   return (await containersOnDisk())
     .filter(({ name }) => belongsTo(name, appName))
-    .map(({ id }) => path.join(paths.cgroupRoot, 'system.slice', `docker-${id}.scope`));
+    .map(({ id }) => `docker-${id}.scope`);
 }
 
 /**
@@ -110,8 +111,11 @@ async function legacyScopes(appName) {
  */
 async function cgroupsOf(appName) {
   const unit = appSlice.sliceName(appName);
-  const candidates = [...(unit ? [appSlice.cgroupOf(unit)] : []), ...await legacyScopes(appName)];
-  const present = await Promise.all(candidates.map((dir) => fs.access(path.join(dir, 'cgroup.procs')).then(() => dir, () => null)));
+  const units = [...(unit ? [unit] : []), ...await scopesOf(appName)];
+  const found = (await Promise.all(units.map(appSlice.controlGroup))).filter(Boolean);
+  // a scope inside the app's slice is read and killed with the slice
+  const outermost = [...new Set(found)].filter((dir, _, all) => !all.some((other) => dir.startsWith(`${other}/`)));
+  const present = await Promise.all(outermost.map((dir) => fs.access(path.join(dir, 'cgroup.procs')).then(() => dir, () => null)));
   return present.filter(Boolean);
 }
 
@@ -178,7 +182,8 @@ async function stillRunnable(appName) {
  */
 async function appsOnDisk() {
   const names = new Set();
-  const slices = await fs.readdir(path.join(paths.cgroupRoot, 'flux.slice')).catch(() => []);
+  const parent = await appSlice.controlGroup('flux.slice');
+  const slices = parent ? await fs.readdir(parent).catch(() => []) : [];
   slices.filter((entry) => /^flux-.+\.slice$/.test(entry))
     .forEach((entry) => names.add(entry.slice('flux-'.length, -'.slice'.length).replace(/\\x2d/g, '-')));
   (await containersOnDisk()).map(({ name }) => appOf(name)).filter(Boolean).forEach((name) => names.add(name));
