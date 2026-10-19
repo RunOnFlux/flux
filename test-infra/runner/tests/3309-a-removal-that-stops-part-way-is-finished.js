@@ -7,6 +7,10 @@
  * The node's deletes of the row are refused REFUSED times: the redeploy's removal and
  * the next runs of it, so the app is held across at least one announcement. A second
  * app on the node is in every announcement, which shows announcements went out.
+ *
+ * While the app is held, nothing installs it: the removal that finishes it would take
+ * whatever held its name. A second hard redeploy, sent before the removal runs again,
+ * removes the app and is refused the install.
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
@@ -126,5 +130,64 @@ describe('a removal that stops part way is finished', function () {
       { afterId: anchors[env.clients.indexOf(peer)] },
     ))).catch(() => null);
     expect(heard, 'no node was told the app had gone').to.not.equal(null);
+  });
+});
+
+describe('an app whose removal is pending takes no install', function () {
+  let env;
+  dumpLogsOnFailure(() => env);
+  const appName = `e2eheldnoinstall${Date.now()}`;
+  let holder;
+  let release;
+  let afterFailure;
+  let failedDeletes;
+
+  before(async function () {
+    this.timeout(600000);
+    env = await createTestEnv({ hookCtx: this, nodes: 3, tickerAutostart: false });
+    await bootAndPeer(env);
+    holder = env.clients[HOLDER];
+
+    await pushImage(appName, 'v1');
+    const app = await buildSeedableApp({ env, name: appName, compose: [component(appName)] });
+    await installOnNodes(env, app, [HOLDER]);
+    await waitFor(async () => Boolean(await getAppContainerId(holder.container, appName, appName)), {
+      timeout: 120000, interval: 2000, label: 'the app runs before the redeploys',
+    });
+
+    const auth = await authenticate(holder.url, appOwnerKey());
+    release = await failCommands(HOLDER + 1, 'localzelapps', 'zelappsinformation', { commands: ['findAndModify'], times: 1 });
+    step('hard redeploy with the row delete refused once');
+    const first = await holder.redeployApp(appName, auth.zelidauth, { force: true });
+    if (/Unauthorized/i.test(first)) throw new Error(`hard redeploy refused: ${first.slice(0, 400)}`);
+    failedDeletes = await release();
+    release = null;
+    afterFailure = holder.getLastEventId();
+    step('second hard redeploy while the app is held');
+    await holder.redeployApp(appName, auth.zelidauth, { force: true });
+    step('second redeploy returned');
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await release?.().catch(() => {});
+    await env?.teardown();
+  });
+
+  it('had its delete of the app\'s row refused by the database', function () {
+    expect(failedDeletes, 'the database refused none of the node\'s row deletes, so nothing here was tested').to.equal(1);
+  });
+
+  it('no longer holds the app once its removal finishes', async function () {
+    this.timeout(120000);
+    await waitFor(async () => (await holder.getInstalledApps()).data?.some((a) => a.name === appName) === false, {
+      timeout: 90000, interval: 2000, label: 'the node no longer holds the app',
+    });
+  });
+
+  it('never installs the app while its removal is pending', function () {
+    const installed = holder.getEventBuffer().filter((e) => e.id > afterFailure && e.event === 'app:installed'
+      && e.data.name === appName);
+    expect(installed.length, 'the node installed an app its pending removal then took').to.equal(0);
   });
 });
