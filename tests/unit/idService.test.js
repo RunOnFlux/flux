@@ -7,6 +7,7 @@ const os = require('os');
 const bitcoinMessage = require('bitcoinjs-message');
 const proxyquire = require('proxyquire');
 const { PassThrough } = require('stream');
+const qs = require('qs');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
@@ -1283,6 +1284,123 @@ describe('idService tests', () => {
         ws.send,
         'status=error&data%5Bname%5D=error%20message&data%5Bmessage%5D=Unknown%20error',
       );
+    });
+  });
+
+  describe('a login page waiting on its phrase', () => {
+    const zelid = '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg';
+    let findOne;
+    let insert;
+    let phrase;
+    let phraseStored;
+
+    const page = () => ({ send: sinon.stub(), close: sinon.stub() });
+    const sentMessage = (ws) => qs.parse(ws.send.firstCall.args[0]);
+    async function login() {
+      const stream = new PassThrough();
+      stream.push(JSON.stringify({ zelid, signature: '1234356asdf', message: phrase }));
+      stream.end();
+      const res = generateResponse();
+      await idService.verifyLogin(stream, res);
+      await serviceHelper.delay(50);
+      return res;
+    }
+
+    beforeEach(async () => {
+      sinon.stub(bitcoinMessage, 'verify').returns(true);
+      phrase = `${Date.now() - 60000}11111111111111111111111111111`;
+      phraseStored = true;
+      findOne = sinon.stub(dbHelper, 'findOneInDatabase');
+      findOne.withArgs(sinon.match.any, 'loggedusers').resolves(null);
+      findOne.withArgs(sinon.match.any, 'activeloginphrases').callsFake(async () => (phraseStored ? { loginPhrase: phrase } : null));
+      insert = sinon.stub(dbHelper, 'insertOneToDatabase').resolves(true);
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').callsFake(async () => {
+        phraseStored = false;
+        return { loginPhrase: phrase };
+      });
+      await dbHelper.initiateDB();
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('is told the login the moment it is written, and reads nothing more', async () => {
+      const ws = page();
+      await idService.wsRespondLoginPhrase(ws, phrase);
+
+      await login();
+
+      sinon.assert.calledOnce(ws.send);
+      expect(sentMessage(ws)).to.deep.include({ status: 'success' });
+      expect(sentMessage(ws).data).to.include({ zelid, loginPhrase: phrase, message: 'Successfully logged in' });
+      sinon.assert.calledOnceWithExactly(ws.close, 4012);
+      sinon.assert.calledOnce(findOne.withArgs(sinon.match.any, 'loggedusers'));
+    });
+
+    it('is told the login when it connects after the phrase is used and before the login is written', async () => {
+      let writeLogin;
+      insert.withArgs(sinon.match.any, 'loggedusers').callsFake(() => new Promise((resolve) => { writeLogin = resolve; }));
+      const loggingIn = login();
+      await serviceHelper.delay(20);
+      expect(phraseStored, 'the phrase was not used, so this proves nothing').to.equal(false);
+
+      const ws = page();
+      await idService.wsRespondLoginPhrase(ws, phrase);
+      sinon.assert.notCalled(ws.send);
+      writeLogin(true);
+      await loggingIn;
+
+      expect(sentMessage(ws)).to.deep.include({ status: 'success' });
+    });
+
+    it('is told the login when it is written while the page is still reading', async () => {
+      let answerRead;
+      findOne.withArgs(sinon.match.any, 'loggedusers').callsFake(() => new Promise((resolve) => { answerRead = resolve; }));
+      const ws = page();
+      const connecting = idService.wsRespondLoginPhrase(ws, phrase);
+
+      await login();
+      answerRead(null);
+      await connecting;
+
+      expect(sentMessage(ws)).to.deep.include({ status: 'success' });
+    });
+
+    it('is told the login failed once its phrase is used and the login cannot be written', async () => {
+      insert.withArgs(sinon.match.any, 'loggedusers').rejects(new Error('connection timed out'));
+      const ws = page();
+      await idService.wsRespondLoginPhrase(ws, phrase);
+
+      await login();
+
+      expect(sentMessage(ws)).to.deep.include({ status: 'error' });
+      expect(sentMessage(ws).data.message).to.equal('connection timed out');
+    });
+
+    it('is told its phrase is no longer valid when it expires with no login', async () => {
+      const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+      try {
+        const ws = page();
+        await idService.wsRespondLoginPhrase(ws, phrase);
+        await clock.tickAsync(14 * 60 * 1000 - 1000);
+        sinon.assert.notCalled(ws.send);
+
+        await clock.tickAsync(1000);
+
+        expect(sentMessage(ws).data.message).to.equal('Signed message is no longer valid. Please request a new one.');
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it('is told its phrase is no longer valid when the phrase is gone and no login used it', async () => {
+      phraseStored = false;
+      const ws = page();
+
+      await idService.wsRespondLoginPhrase(ws, phrase);
+
+      expect(sentMessage(ws).data.message).to.equal('Signed message is no longer valid. Please request a new one.');
     });
   });
 

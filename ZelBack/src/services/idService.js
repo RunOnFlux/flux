@@ -1,3 +1,4 @@
+const { EventEmitter } = require('node:events');
 const config = require('config');
 const qs = require('qs');
 const log = require('../lib/log');
@@ -25,6 +26,28 @@ const PRIVILEGE_RESPONSE = Object.freeze({
   USER: 'user',
   NONE: 'none',
 });
+
+// How long a login phrase is valid for once issued; the activeLoginPhrases TTL
+// index removes it then.
+const LOGIN_PHRASE_VALID_MS = 15 * 60 * 1000;
+
+// The outcome of a login, published by verifyLogin under the phrase it used:
+// { data } with what the login answered, or { error } once the phrase is used
+// and the login was not written. The login websocket waits on it.
+const loginOutcomes = new EventEmitter();
+loginOutcomes.setMaxListeners(0);
+// The phrases a login has used and not yet published the outcome of.
+const loginsInProgress = new Set();
+
+/**
+ * Publish how a login that used its phrase ended.
+ * @param {string} phrase
+ * @param {{data?: object, error?: object}} outcome
+ */
+function publishLoginOutcome(phrase, outcome) {
+  loginsInProgress.delete(phrase);
+  loginOutcomes.emit(phrase, outcome);
+}
 
 /**
  * Removes a login phrase, so that it signs in once.
@@ -59,7 +82,7 @@ async function loginPhrase(req, res) {
     const collection = config.database.local.collections.activeLoginPhrases;
 
     const timestamp = Date.now();
-    const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
+    const validTill = timestamp + LOGIN_PHRASE_VALID_MS;
     const phrase = timestamp + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 
     const newLoginPhrase = {
@@ -87,7 +110,7 @@ async function loginPhrase(req, res) {
 async function emergencyPhrase(req, res) {
   try {
     const timestamp = Date.now();
-    const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
+    const validTill = timestamp + LOGIN_PHRASE_VALID_MS;
     const phrase = timestamp + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 
     const db = dbHelper.databaseConnection();
@@ -121,6 +144,8 @@ async function verifyLogin(req, res) {
     body += data;
   });
   req.on('end', async () => {
+    // set once this request has used the phrase, which no other can then use
+    let usedPhrase = null;
     try {
       const processedBody = serviceHelper.ensureObject(body);
       const address = processedBody.zelid || processedBody.address;
@@ -201,6 +226,8 @@ async function verifyLogin(req, res) {
             if (!await consumeLoginPhrase(message)) {
               throw new Error('Signed message is no longer valid. Please request a new one.');
             }
+            usedPhrase = message;
+            loginsInProgress.add(message);
             // The signature is the session's credential. The login websocket hands it
             // to whoever holds the login phrase, so it is kept apart from the login,
             // in a collection whose TTL index expires it a minute after the login. It
@@ -223,6 +250,7 @@ async function verifyLogin(req, res) {
               expireAt,
             };
             const resMessage = messageHelper.createDataMessage(resData);
+            publishLoginOutcome(message, { data: resData });
             res.json(resMessage);
           } else {
             throw new Error('Invalid signature');
@@ -236,6 +264,7 @@ async function verifyLogin(req, res) {
     } catch (error) {
       log.error(error);
       const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+      if (usedPhrase) publishLoginOutcome(usedPhrase, { error: errMessage });
       res.json(errMessage);
     }
   });
@@ -530,102 +559,104 @@ async function logoutAllUsers(req, res) {
 }
 
 /**
- * To check if a login phrase is currently active. The user's Flux ID, login phrase, signature and privilege level are returned if the login phrase is active.
+ * Answers a login page waiting on its phrase: with the login once the phrase signs
+ * in, or with why it no longer can. The answer is the outcome verifyLogin
+ * publishes for the phrase; a page that connects after the login reads it instead.
  * @param {object} ws Web socket.
- * @param {object} req Request.
+ * @param {string} loginphrase
  */
 async function wsRespondLoginPhrase(ws, loginphrase) {
-  // console.log(loginphrase)
-  // respond with object containing address and signature to received message
-  let connclosed = false;
-  // eslint-disable-next-line no-param-reassign
-  ws.onclose = (evt) => {
-    console.log(evt.code);
-    connclosed = true;
-  };
-  // eslint-disable-next-line no-param-reassign
-  ws.onerror = (evt) => {
-    log.error(evt.code);
-    connclosed = true;
-  };
-  const db = dbHelper.databaseConnection();
+  let settled = false;
+  let expiry = null;
+  const noLongerValid = () => messageHelper.createErrorMessage('Signed message is no longer valid. Please request a new one.');
 
-  const database = db.db(config.database.local.database);
-  const collection = config.database.local.collections.loggedUsers;
-  const query = { loginPhrase: loginphrase };
-  const projection = {};
-  // eslint-disable-next-line no-inner-declarations
-  async function searchDatabase() {
+  function stop() {
+    settled = true;
+    loginOutcomes.removeListener(loginphrase, onOutcome);
+    clearTimeout(expiry);
+  }
+  function finish(message, code) {
+    if (settled) return;
+    stop();
     try {
-      const result = await dbHelper.findOneInDatabase(database, collection, query, projection).catch((error) => {
-        const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-        ws.send(qs.stringify(errMessage));
-        ws.close(4011);
-        throw error;
-      });
-      if (result) {
-        // user is logged, all ok
-        const loginSignature = await dbHelper.findOneInDatabase(database, config.database.local.collections.loginSignatures, query, projection);
-        const adminZelid = verificationHelperUtils.nodeOperatorZelid();
-        if (!adminZelid) {
-          throw new Error('Node is still starting and cannot establish privileges yet');
-        }
-        let privilage = PRIVILEGE_RESPONSE.USER;
-        if (result.zelid === config.fluxTeamFluxID || verificationHelperUtils.isFluxSupportTeamZelid(result.zelid)) {
-          privilage = PRIVILEGE_RESPONSE.FLUX_TEAM;
-        } else if (result.zelid === adminZelid) {
-          privilage = PRIVILEGE_RESPONSE.NODE_OPERATOR;
-        }
-        const resData = {
-          message: 'Successfully logged in',
-          zelid: result.zelid,
-          loginPhrase: result.loginPhrase,
-          signature: loginSignature ? loginSignature.signature : undefined,
-          privilage,
-          createdAt: result.createdAt,
-          expireAt: result.expireAt,
-        };
-        const message = messageHelper.createDataMessage(resData);
-        if (!connclosed) {
-          try {
-            ws.send(qs.stringify(message));
-            ws.close(4012);
-          } catch (e) {
-            log.error(e);
-          }
-        }
-      } else {
-        // check if this loginPhrase is still active. If so rerun this searching process
-        const activeLoginPhrasesCollection = config.database.local.collections.activeLoginPhrases;
-        const resultB = await dbHelper.findOneInDatabase(database, activeLoginPhrasesCollection, query, projection).catch((error) => {
-          const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-          ws.send(qs.stringify(errMessage));
-          ws.close(4013);
-          throw error;
-        });
-        if (resultB) {
-          setTimeout(() => {
-            if (!connclosed) {
-              searchDatabase();
-            }
-          }, 500);
-        } else {
-          const errMessage = messageHelper.createErrorMessage('Signed message is no longer valid. Please request a new one.');
-          if (!connclosed) {
-            try {
-              ws.send(qs.stringify(errMessage));
-              ws.close();
-            } catch (e) {
-              log.error(e);
-            }
-          }
-        }
-      }
+      ws.send(qs.stringify(message));
+      ws.close(code);
     } catch (error) {
       log.error(error);
     }
   }
-  searchDatabase();
+  function onOutcome({ data, error }) {
+    if (data) finish(messageHelper.createDataMessage(data), 4012);
+    else finish(error);
+  }
+
+  // eslint-disable-next-line no-param-reassign
+  ws.onclose = stop;
+  // eslint-disable-next-line no-param-reassign
+  ws.onerror = (evt) => {
+    log.error(evt.code);
+    stop();
+  };
+  // before the reads, so a login that finishes while they run is not missed
+  loginOutcomes.on(loginphrase, onOutcome);
+
+  const database = dbHelper.databaseConnection().db(config.database.local.database);
+  const query = { loginPhrase: loginphrase };
+  let login;
+  try {
+    login = await dbHelper.findOneInDatabase(database, config.database.local.collections.loggedUsers, query, {});
+  } catch (error) {
+    log.error(error);
+    finish(messageHelper.createErrorMessage(error.message, error.name, error.code), 4011);
+    return;
+  }
+  if (settled) return;
+  if (login) {
+    try {
+      const loginSignature = await dbHelper.findOneInDatabase(database, config.database.local.collections.loginSignatures, query, {});
+      const adminZelid = verificationHelperUtils.nodeOperatorZelid();
+      if (!adminZelid) {
+        throw new Error('Node is still starting and cannot establish privileges yet');
+      }
+      let privilage = PRIVILEGE_RESPONSE.USER;
+      if (login.zelid === config.fluxTeamFluxID || verificationHelperUtils.isFluxSupportTeamZelid(login.zelid)) {
+        privilage = PRIVILEGE_RESPONSE.FLUX_TEAM;
+      } else if (login.zelid === adminZelid) {
+        privilage = PRIVILEGE_RESPONSE.NODE_OPERATOR;
+      }
+      finish(messageHelper.createDataMessage({
+        message: 'Successfully logged in',
+        zelid: login.zelid,
+        loginPhrase: login.loginPhrase,
+        signature: loginSignature ? loginSignature.signature : undefined,
+        privilage,
+        createdAt: login.createdAt,
+        expireAt: login.expireAt,
+      }), 4012);
+    } catch (error) {
+      log.error(error);
+      finish(messageHelper.createErrorMessage(error.message, error.name, error.code), 4011);
+    }
+    return;
+  }
+
+  let phrase;
+  try {
+    phrase = await dbHelper.findOneInDatabase(database, config.database.local.collections.activeLoginPhrases, query, {});
+  } catch (error) {
+    log.error(error);
+    finish(messageHelper.createErrorMessage(error.message, error.name, error.code), 4013);
+    return;
+  }
+  if (settled) return;
+  // a login that has used the phrase and not yet ended publishes its outcome
+  if (!phrase && !loginsInProgress.has(loginphrase)) {
+    finish(noLongerValid());
+    return;
+  }
+  const issuedAt = +loginphrase.substring(0, 13);
+  expiry = setTimeout(() => finish(noLongerValid()), Math.max(issuedAt + LOGIN_PHRASE_VALID_MS - Date.now(), 0));
+  if (expiry.unref) expiry.unref();
 }
 
 /**
