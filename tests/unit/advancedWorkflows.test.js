@@ -7381,18 +7381,32 @@ describe('advancedWorkflows tests', () => {
 
     it('does not uninstall an app whose redeploy stops on a database that does not answer', async () => {
       sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
       const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
-      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').rejects(new MongoNetworkTimeoutError('connection timed out'));
+      sinon.stub(dbHelper, 'replaceOneInDatabase').rejects(new MongoNetworkTimeoutError('connection timed out'));
 
       await advancedWorkflows.reinstallOldApplications();
 
       expect(removeAppLocally.called, 'an app was uninstalled with its data because the database did not answer').to.be.false;
     });
 
+    it('never deletes the app\'s row: the new specification replaces it in one write', async () => {
+      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+      const deleteRow = sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves({});
+      const replaceRow = sinon.stub(dbHelper, 'replaceOneInDatabase').rejects(new MongoNetworkTimeoutError('connection timed out'));
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(replaceRow.called, 'the fixture never reached the row write').to.be.true;
+      expect(deleteRow.called, 'the row was deleted, so a failed write leaves the app with none').to.be.false;
+    });
+
     it('a canary: a redeploy that fails for another reason still uninstalls the app', async () => {
       sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
       const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
-      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').rejects(new Error('Insufficient RAM'));
+      sinon.stub(dbHelper, 'replaceOneInDatabase').rejects(new Error('Insufficient RAM'));
 
       await advancedWorkflows.reinstallOldApplications();
 
@@ -7602,8 +7616,7 @@ describe('advancedWorkflows tests', () => {
       beforeEach(() => {
         sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
         sinon.stub(appUninstaller, 'removeAppLocally').resolves();
-        sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves({});
-        sinon.stub(dbHelper, 'insertOneToDatabase').resolves({ acknowledged: true });
+        sinon.stub(dbHelper, 'replaceOneInDatabase').resolves({ acknowledged: true });
         sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
         installApplicationSoft = sinon.stub(appInstaller, 'installApplicationSoft').resolves();
         sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();

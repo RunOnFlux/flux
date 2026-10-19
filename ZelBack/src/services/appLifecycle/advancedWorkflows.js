@@ -4617,21 +4617,13 @@ async function reinstallOldApplications() {
               const dbopen = dbHelper.databaseConnection();
               const appsDatabase = dbopen.db(config.database.appslocal.database);
               const appsQuery = { name: appSpecifications.name };
-              const appsProjection = {};
-              log.warn('Cleaning up database...');
-              // eslint-disable-next-line no-await-in-loop
-              await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-              const databaseStatus2 = {
-                status: 'Database cleaned',
-              };
-              log.warn('Database cleaned');
-              log.warn(databaseStatus2);
               log.warn(`Compositions of application ${appSpecifications.name} uninstalled. Continuing with installation...`);
-              // composition removal done. Remove from installed apps and being installation
               // eslint-disable-next-line no-await-in-loop
               await appInstaller.checkAppRequirements(appSpecifications); // entire app
 
-              // Register the app in database BEFORE creating Docker containers to prevent race condition
+              // The app's row becomes the new specification in one write, before any
+              // container is created: until it lands the row still holds the old one,
+              // so the app always has a row describing it.
               const isEnterprise = Boolean(
                 appSpecifications.version >= 8 && appSpecifications.enterprise,
               );
@@ -4644,11 +4636,8 @@ async function reinstallOldApplications() {
               }
 
               // eslint-disable-next-line no-await-in-loop
-              const insertResult = await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
-              if (!insertResult) {
-                throw new Error(`CRITICAL: Failed to create database entry for ${appSpecifications.name} during composed app redeployment. Database insert returned undefined - likely duplicate key error or database failure. Aborting redeployment to prevent orphaned Docker containers.`);
-              }
-              log.info(`Database entry created for ${appSpecifications.name} BEFORE component Docker container creation (composed redeployment path)`);
+              await dbHelper.replaceOneInDatabase(appsDatabase, localAppsInformation, appsQuery, dbSpecs, { upsert: true });
+              log.info(`Database entry of ${appSpecifications.name} replaced with its new specification BEFORE component Docker container creation (composed redeployment path)`);
 
               let allComponentsBack = true;
               const replaced = [];
