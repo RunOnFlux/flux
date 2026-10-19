@@ -2,12 +2,16 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, getAppContainerStatus } from '../framework/container.js';
-import { waitFor, waitForUp } from '../framework/wait.js';
-import { bootAndPeer, seedTestApp } from '../framework/reconciler-suite.js';
+import { waitForUp, waitForAppInstalled, assertNoEvent } from '../framework/wait.js';
+import { bootAndPeer, seedTestApp, seedSpawnerApp } from '../framework/reconciler-suite.js';
+import { buildSeedableTestApp } from '../framework/seed-helper.js';
+import { pushTestApp } from '../framework/registry-helper.js';
 import {
-  freezeDocker, thawDocker, stuckThreads, processesThatCanRun,
+  freezeDocker, thawDocker, thawEveryNode, stuckThreads, processesThatCanRun,
 } from '../framework/host-stall.js';
-import { journalCount, restartFluxos } from '../framework/systemd-control.js';
+import {
+  DOCKERD_UNIT, freezeUnit, restartFluxos,
+} from '../framework/systemd-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // A host that stops returning the disk under docker, on a real kernel: the
@@ -17,35 +21,40 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //
 // A thread held for one reading interval holds the node back from new placements,
 // and the hold lifts when the thread runs again. Held for stuckIntervals intervals,
-// the node goes out of service until it reboots, and removes every app: the normal
-// removal, which needs docker and so does not return, runs out of time, and the
-// app's processes are killed through its slice without docker.
+// the node goes out of service until it reboots, and removes every app within a
+// deadline each. On a frozen disk docker still delivers the stop signal, so the
+// app is stopped though its removal runs out. With docker frozen as well
+// (systemd-control.freezeUnit), docker cannot act at all, and the app is killed
+// through its slice without docker.
 //
 // The nodes run systemd, so docker uses its systemd cgroup driver and every app's
 // containers live in the app's own slice, as on a production node.
+//
+// Each case first asserts, independently of FluxOS, that docker was held: on a tree
+// without the detector that canary passes and the assertions after it fail.
 
 const READ_INTERVAL_MS = 5 * 1000;
 const STUCK_INTERVALS = 6;
 const REMOVAL_DEADLINE_MS = 20 * 1000;
 const STALL_MS = READ_INTERVAL_MS * STUCK_INTERVALS;
+const OWNER = 'hostStall';
 
-const HELD = 'Placement hold set by hostStall';
-const RELEASED = 'Placement hold cleared by hostStall';
-const OUT_OF_SERVICE = 'Sticky DOS set by hostStall';
+const byOwner = (data) => data.owner === OWNER;
+const outOfServiceForTheStall = (data) => data.dosState >= 100
+  && String(data.dosMessage).includes('Host stall') && String(data.dosMessage).includes('dockerd');
+const sliceOf = (appName) => `/sys/fs/cgroup/flux.slice/flux-${appName}.slice`;
 
 function step(what) {
   console.log(`# 3303 ${new Date().toISOString()} ${what}`);
 }
-
-const fluxosLog = (container, text) => journalCount(container, 'fluxos', text, { processOnly: true });
 
 describe('a stalled host takes the node out of service', function () {
   let env;
   dumpLogsOnFailure(() => env);
   const appName = `e2ehoststall${Date.now()}`;
   let node;
+  let client;
   let container;
-  let frozen = false;
 
   before(async function () {
     this.timeout(480000);
@@ -62,13 +71,13 @@ describe('a stalled host takes the node out of service', function () {
     });
     await bootAndPeer(env);
     ({ index: node } = await seedTestApp(env, { name: appName, logEveryMs: 200 }));
-    ({ container } = env.clients[node]);
-    await waitForUp(env.clients[node], appName, 'the app is up');
+    client = env.clients[node];
+    ({ container } = client);
+    await waitForUp(client, appName, 'the app is up');
   });
 
   after(async function () {
     this.timeout(60000);
-    if (frozen) await thawDocker(container).catch(() => {});
     await env?.teardown();
   });
 
@@ -79,102 +88,146 @@ describe('a stalled host takes the node out of service', function () {
   });
 
   describe('a stall shorter than the threshold', function () {
-    let counts;
-    let stuck;
+    let anchor;
 
     before(async function () {
-      this.timeout(STALL_MS * 2);
-      counts = { held: await fluxosLog(container, HELD), released: await fluxosLog(container, RELEASED), out: await fluxosLog(container, OUT_OF_SERVICE) };
+      anchor = client.getLastEventId();
       step('freezing');
       await freezeDocker(container);
-      frozen = true;
-      try {
-        stuck = await stuckThreads(container, 'dockerd');
-        await waitFor(async () => (await fluxosLog(container, HELD)) > counts.held, {
-          timeout: READ_INTERVAL_MS * 3, interval: 1000, label: 'the node holds itself back',
-        });
-      } finally {
-        step('thawing');
-        await thawDocker(container);
-        frozen = false;
-      }
     });
 
-    it('held docker in the kernel', function () {
+    after(async function () {
+      await thawEveryNode([client]);
+    });
+
+    it('held docker in the kernel', async function () {
+      const stuck = await stuckThreads(container, 'dockerd');
       expect(stuck, 'no dockerd thread was held across the freeze, so nothing below was tested').to.not.be.empty;
+    });
+
+    it('holds the node back from new placements', async function () {
+      this.timeout(READ_INTERVAL_MS * 4);
+      await client.waitForEvent('placementHold:set', byOwner, READ_INTERVAL_MS * 3, { afterId: anchor });
     });
 
     it('lifts the hold once docker runs again, and stays in service', async function () {
       this.timeout(READ_INTERVAL_MS * 6);
-      await waitFor(async () => (await fluxosLog(container, RELEASED)) > counts.released, {
-        timeout: READ_INTERVAL_MS * 4, interval: 1000, label: 'the hold lifts',
-      });
-      expect(await fluxosLog(container, OUT_OF_SERVICE), 'the node went out of service for a stall it recovered from').to.equal(counts.out);
+      step('thawing');
+      await thawDocker(container);
+      await client.waitForEvent('placementHold:cleared', byOwner, READ_INTERVAL_MS * 4, { afterId: anchor });
+      await assertNoEvent(client, 'dos:changed', (data) => data.dosState >= 100, 0, { afterId: anchor });
       const app = await getAppContainerStatus(container, appName);
       expect(app && app.status.startsWith('Up'), 'the app is still up').to.equal(true);
     });
   });
 
   describe('a stall past the threshold', function () {
-    let stuck;
+    let anchor;
 
     before(async function () {
-      this.timeout(STALL_MS * 4);
-      const out = await fluxosLog(container, OUT_OF_SERVICE);
+      anchor = client.getLastEventId();
       step('freezing');
       await freezeDocker(container);
-      frozen = true;
-      stuck = await stuckThreads(container, 'dockerd');
-      await waitFor(async () => (await fluxosLog(container, OUT_OF_SERVICE)) > out, {
-        timeout: STALL_MS + READ_INTERVAL_MS * 4, interval: 2000, label: 'the node goes out of service',
-      });
-      step('out of service');
     });
 
-    it('held docker in the kernel', function () {
+    after(async function () {
+      await thawEveryNode([client]);
+    });
+
+    it('held docker in the kernel', async function () {
+      const stuck = await stuckThreads(container, 'dockerd');
       expect(stuck, 'no dockerd thread was held across the freeze, so nothing below was tested').to.not.be.empty;
     });
 
     it('takes the node out of service, naming the stall', async function () {
-      const { data } = await env.clients[node].getDOSState();
-      expect(data.dosState).to.be.at.least(100);
-      expect(data.dosMessage).to.include('Host stall').and.include('dockerd');
+      this.timeout(STALL_MS + READ_INTERVAL_MS * 6);
+      await client.waitForEvent('dos:changed', outOfServiceForTheStall, STALL_MS + READ_INTERVAL_MS * 4, { afterId: anchor });
+      step('out of service');
     });
 
     it('leaves nothing of the app that can run, though its removal could not finish', async function () {
       this.timeout(REMOVAL_DEADLINE_MS * 4);
-      // the node's two words for an app with nothing left that can run - killed, or
-      // stopped before its removal ran out - and its one for an app it could not stop
-      await waitFor(async () => (await fluxosLog(container, `${appName} can no longer run`)) > 0
-        || (await fluxosLog(container, `${appName} was not removed`)) > 0
-        || (await fluxosLog(container, `${appName} could not be stopped`)) > 0, {
-        timeout: REMOVAL_DEADLINE_MS * 3, interval: 2000, label: 'the node says what is left of the app',
-      });
-      const ranOut = (await fluxosLog(container, `${appName} was not removed`)) + (await fluxosLog(container, `${appName} still runs after its removal`));
-      expect(ranOut, 'the app\'s removal finished, so its stall was never what removed it').to.be.above(0);
-      expect(await fluxosLog(container, `${appName} could not be stopped`), 'the node could not stop the app').to.equal(0);
-      expect(await processesThatCanRun(container, `/sys/fs/cgroup/flux.slice/flux-${appName}.slice`), 'a process of the app can still run').to.deep.equal([]);
+      const { data } = await client.waitForEvent('hostStall:appUnloaded', (d) => d.app === appName, REMOVAL_DEADLINE_MS * 3, { afterId: anchor });
+      expect(data.removal, 'the app\'s removal finished, so its stall was never what removed it').to.not.equal('removed');
+      expect(data.runnable, 'the node reports a process of the app that can still run').to.deep.equal([]);
+      expect(await processesThatCanRun(container, sliceOf(appName)), 'a process of the app can still run').to.deep.equal([]);
     });
 
     it('stays out of service through a FluxOS restart in the same boot', async function () {
       this.timeout(300000);
-      const restored = await fluxosLog(container, OUT_OF_SERVICE);
+      const restartAnchor = client.getLastEventId();
       step('restarting FluxOS');
       await restartFluxos(container, { timeout: 120000, readyTimeoutMs: 180000 });
-      await waitFor(async () => (await fluxosLog(container, OUT_OF_SERVICE)) > restored, {
-        timeout: 60000, interval: 2000, label: 'the restarted node restores its trip',
-      });
-      const { data } = await env.clients[node].getDOSState();
-      expect(data.dosState, 'a FluxOS restart returned the node to service').to.be.at.least(100);
+      await client.waitForEvent('dos:changed', outOfServiceForTheStall, 60000, { afterId: restartAnchor });
     });
 
     it('stays out of service once docker runs again', async function () {
       this.timeout(READ_INTERVAL_MS * 6);
+      const thawAnchor = client.getLastEventId();
+      step('thawing');
       await thawDocker(container);
-      frozen = false;
-      await new Promise((resolve) => { setTimeout(resolve, READ_INTERVAL_MS * 3); });
-      const { data } = await env.clients[node].getDOSState();
+      await assertNoEvent(client, 'dos:changed', (data) => data.dosState < 100, READ_INTERVAL_MS * 3, { afterId: thawAnchor });
+      const { data } = await client.getDOSState();
       expect(data.dosState, 'the node returned to service without a reboot').to.be.at.least(100);
+    });
+  });
+
+  describe('a stall past the threshold, with docker unable to act at all', function () {
+    const killedName = `e2ehoststallkill${Date.now()}`;
+    let killClient;
+    let killContainer;
+    let anchor;
+
+    before(async function () {
+      this.timeout(240000);
+      // on a node of its own: the node above is out of service until it reboots
+      const others = env.clients.map((_, i) => i).filter((i) => i !== node);
+      await pushTestApp(killedName);
+      const app = await buildSeedableTestApp({ name: killedName, logEveryMs: 200, instances: 1 });
+      await seedSpawnerApp(env, app, others);
+      const index = await Promise.any(others.map(async (i) => {
+        await waitForAppInstalled(env.clients[i], killedName, 120000);
+        return i;
+      }));
+      killClient = env.clients[index];
+      ({ container: killContainer } = killClient);
+      await waitForUp(killClient, killedName, 'the app is up');
+      anchor = killClient.getLastEventId();
+      step(`freezing node ${index}`);
+      await freezeDocker(killContainer);
+    });
+
+    after(async function () {
+      if (killClient) await thawEveryNode([killClient]);
+    });
+
+    it('held docker in the kernel', async function () {
+      const stuck = await stuckThreads(killContainer, 'dockerd');
+      expect(stuck, 'no dockerd thread was held across the freeze, so nothing below was tested').to.not.be.empty;
+    });
+
+    it('left docker unable to answer', async function () {
+      this.timeout(30000);
+      await freezeUnit(killContainer, DOCKERD_UNIT);
+      const answer = await execInContainer(killContainer, 'timeout 5 docker version');
+      expect(answer.exitCode, 'docker still answers, so it could still stop the app itself').to.not.equal(0);
+      const stuck = await stuckThreads(killContainer, 'dockerd');
+      expect(stuck, 'docker\'s held thread was released by its freeze, so the detector has nothing to read').to.not.be.empty;
+    });
+
+    it('takes the node out of service', async function () {
+      this.timeout(STALL_MS + READ_INTERVAL_MS * 6);
+      await killClient.waitForEvent('dos:changed', outOfServiceForTheStall, STALL_MS + READ_INTERVAL_MS * 4, { afterId: anchor });
+    });
+
+    it('kills the app its removal could not stop, and nothing of it can run', async function () {
+      // every app on the node is removed in turn, each within its deadline
+      this.timeout(REMOVAL_DEADLINE_MS * 7);
+      const { data } = await killClient.waitForEvent('hostStall:appUnloaded', (d) => d.app === killedName, REMOVAL_DEADLINE_MS * 6, { afterId: anchor });
+      expect(data.removal, 'the app\'s removal finished, so docker could act').to.not.equal('removed');
+      expect(data.killed, 'the node never killed the app').to.equal(true);
+      expect(data.runnable, 'the node reports a process of the app that can still run').to.deep.equal([]);
+      expect(await processesThatCanRun(killContainer, sliceOf(killedName)), 'a process of the app can still run').to.deep.equal([]);
     });
   });
 });
