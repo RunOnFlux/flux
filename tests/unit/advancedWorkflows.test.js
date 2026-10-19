@@ -27,6 +27,7 @@ const { PeerComponent } = require('../../ZelBack/src/services/appMonitoring/peer
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const { addressMoveEvents, EVENTS: ADDRESS_MOVE_EVENTS } = require('../../ZelBack/src/services/utils/addressMoveEvents');
 const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+const appRebuild = require('../../ZelBack/src/services/appLifecycle/appRebuild');
 const appNetworkLinker = require('../../ZelBack/src/services/appLifecycle/appNetworkLinker');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
@@ -7401,6 +7402,38 @@ describe('advancedWorkflows tests', () => {
 
       expect(replaceRow.called, 'the fixture never reached the row write').to.be.true;
       expect(deleteRow.called, 'the row was deleted, so a failed write leaves the app with none').to.be.false;
+    });
+
+    describe('an app upgraded from the old format', () => {
+      const oldFormat = {
+        version: 3, name: 'myapp', hash: 'oldhash', repotag: 'nginx:1.0', hdd: 5,
+      };
+
+      it('is rebuilt from nothing at its new specification', async () => {
+        const rebuildApp = sinon.stub(appRebuild, 'rebuildApp').resolves('installed');
+        dbHelper.findInDatabase.resolves([oldFormat]);
+
+        await advancedWorkflows.reinstallOldApplications();
+
+        sinon.assert.calledOnce(rebuildApp);
+        expect(rebuildApp.firstCall.args[0]).to.include({ name: 'myapp', hash: 'newhash', version: 4 });
+      });
+
+      it('lets the pass go on to the next app when its rebuild does not complete', async () => {
+        const rebuildApp = sinon.stub(appRebuild, 'rebuildApp').resolves('failed');
+        const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+        sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+        sinon.stub(dbHelper, 'replaceOneInDatabase').resolves({ acknowledged: true });
+        const other = { ...installedApp, name: 'otherapp' };
+        dbHelper.findInDatabase.resolves([oldFormat, other]);
+        dbHelper.findOneInDatabase.callsFake(async (db, collection, query) => (query.name === 'otherapp'
+          ? { ...newSpec, name: 'otherapp' } : newSpec));
+
+        await advancedWorkflows.reinstallOldApplications();
+
+        sinon.assert.calledOnce(rebuildApp);
+        expect(softUninstallComponent.called, 'the pass stopped at the app whose rebuild failed').to.equal(true);
+      });
     });
 
     it('a canary: a redeploy that fails for another reason still uninstalls the app', async () => {
