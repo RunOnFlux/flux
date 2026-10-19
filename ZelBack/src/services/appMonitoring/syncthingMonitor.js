@@ -945,13 +945,16 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // A peer device cannot be attributed to an app without doing that app's
     // work, so while anything is held out the device sweep stands down entirely
     // rather than delete a peer it simply never saw.
-    // A device seen within UNUSED_DEVICE_KEEP_MS stays too, and every device stays
-    // while when each was last seen cannot be read.
+    // A device seen within UNUSED_DEVICE_KEEP_MS stays too, unless another device
+    // is configured under its name - then it is not the device at that address -
+    // and every device stays while when each was last seen cannot be read.
     const deviceStats = unsafeFolderIds.size > 0 ? null : await syncthingService.getDeviceStats().catch(() => null);
     const seenRecently = (deviceID) => Date.now() - Date.parse(deviceStats?.[deviceID]?.lastSeen) < UNUSED_DEVICE_KEEP_MS;
+    const nameHeldByAnother = (device) => Boolean(device.name)
+      && allDevices.some((other) => other.deviceID !== device.deviceID && other.name === device.name);
     const nonUsedDevices = !deviceStats ? [] : allDevices.filter(
       (syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID) && syncthingDevice.deviceID !== localDeviceId
-        && !seenRecently(syncthingDevice.deviceID),
+        && (!seenRecently(syncthingDevice.deviceID) || nameHeldByAnother(syncthingDevice)),
     );
 
     // Parallelize cleanup operations

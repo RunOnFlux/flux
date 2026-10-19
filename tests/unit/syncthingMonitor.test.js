@@ -1904,6 +1904,21 @@ describe('syncthingMonitor tests', () => {
       sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
     });
 
+    it('removes a device seen within a day when another device holds its name', async () => {
+      folderSharedWithPeer();
+      syncthingServiceMock.getConfigDevices.resolves([
+        { deviceID: 'PEER-DEVICE', name: '10.0.0.2:16127' },
+        { deviceID: 'STALE-DEVICE', name: '10.0.0.2:16127' },
+      ]);
+      const recent = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      syncthingServiceMock.getDeviceStats.resolves({ 'PEER-DEVICE': { lastSeen: recent }, 'STALE-DEVICE': { lastSeen: recent } });
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      sinon.assert.calledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'STALE-DEVICE');
+    });
+
     it('removes no device while when each was last seen cannot be read', async () => {
       folderSharedWithPeer();
       syncthingServiceMock.getDeviceStats.rejects(new Error('connect ECONNREFUSED'));
