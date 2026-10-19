@@ -285,6 +285,8 @@ export async function buildSeedableLegacyApp({
     cpu: 0.1,
     ram: 100,
     hdd: 1,
+    // every version 3 specification on the chain carries it, as false
+    tiered: false,
     instances,
     expire,
   };
