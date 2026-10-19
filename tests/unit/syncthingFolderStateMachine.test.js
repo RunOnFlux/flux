@@ -14,6 +14,8 @@ const syncthingService = require('../../ZelBack/src/services/syncthingService');
 const syncthingServiceMock = {
   getDbStatus: sinon.stub(),
   eachDbLocalChanged: sinon.stub(),
+  getDbLocalChanged: sinon.stub(),
+  getDbFile: sinon.stub(),
   systemRestart: sinon.stub(),
   getConfig: sinon.stub(),
   getDbCompletion: sinon.stub(),
@@ -214,6 +216,11 @@ describe('syncthingFolderStateMachine tests', () => {
     globalStateMock.syncthingDevicesIDCache.clear();
     syncthingServiceMock.dbRevert.reset();
     syncthingServiceMock.dbRevert.resolves({ status: 'success' });
+    // default: one local change, whose cluster version another device holds
+    syncthingServiceMock.getDbLocalChanged.reset();
+    syncthingServiceMock.getDbLocalChanged.resolves({ files: [{ name: 'appdata/changed' }] });
+    syncthingServiceMock.getDbFile.reset();
+    syncthingServiceMock.getDbFile.resolves({ global: { localFlags: 0 }, local: { localFlags: 8 } });
     syncthingServiceMock.scanFolder.reset();
     syncthingServiceMock.scanFolder.resolves({});
     // default: this node's syncthing has never been connected to any peer
@@ -2300,6 +2307,72 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       expect(result.cache.restarted).to.be.false;
       sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, sinon.match.any, 'running');
+    });
+
+    // A change whose cluster version is this node's own is held by no other device:
+    // syncthing reverts it by deleting it. It is this node's data, so it is kept and
+    // promoted with the rest.
+    describe('a local change no other device holds', () => {
+      const pollutedCandidate = () => {
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: false, numberOfExecutions: 1 });
+        mockParams.appLocation.resolves([
+          { ip: '10.0.0.0:16127', runningSince: null, broadcastedAt: 1000 },
+          { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+        ]);
+        syncthingServiceMock.getDbStatus.resolves({
+          globalBytes: 1000, inSyncBytes: 1000, state: 'idle', receiveOnlyChangedFiles: 0, receiveOnlyChangedDirectories: 1,
+        });
+      };
+
+      it('is kept, and the folder is promoted', async () => {
+        pollutedCandidate();
+        syncthingServiceMock.getDbFile.resolves({ global: { localFlags: 8 }, local: { localFlags: 8 } });
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+        expect(result.cache.restarted, 'a change only this node holds kept the folder from promoting').to.be.true;
+      });
+
+      it('is found behind changes other devices hold', async () => {
+        pollutedCandidate();
+        syncthingServiceMock.getDbLocalChanged.resolves({ files: [{ name: 'appdata/held' }, { name: 'appdata/only-here' }] });
+        syncthingServiceMock.getDbFile.withArgs('test-app', 'appdata/only-here').resolves({ global: { localFlags: 8 } });
+
+        await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+      });
+
+      it('is kept on a ready standby', async () => {
+        mockParams.containerDataFlags = 'g';
+        mockParams.syncFolder = { id: 'test-app', type: 'receiveonly' };
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+        dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: false } });
+        syncthingServiceMock.getDbStatus.resolves({
+          globalBytes: 1000, inSyncBytes: 1000, state: 'idle', receiveOnlyChangedFiles: 0, receiveOnlyChangedDirectories: 1,
+        });
+        syncthingServiceMock.getDbFile.resolves({ global: { localFlags: 8 } });
+        const publish = sinon.stub(fluxEventBus, 'publish');
+        try {
+          await stateMachine.manageFolderSyncState(mockParams);
+
+          sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+          sinon.assert.calledWithExactly(publish, 'syncthing:localChangesKept', { folder: 'test-app', files: 0, directories: 1 });
+        } finally {
+          publish.restore();
+        }
+      });
+
+      it('is neither reverted nor promoted while which changes others hold cannot be read', async () => {
+        pollutedCandidate();
+        syncthingServiceMock.getDbFile.rejects(new Error('connect ECONNREFUSED'));
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+        expect(result.cache.restarted).to.be.false;
+      });
     });
 
     // Three properties of what counts as "holding", each able to hand the seed to the

@@ -1288,6 +1288,39 @@ async function nudgeFolderDevices(folderId) {
   }
 }
 
+// syncthing's FlagLocalReceiveOnly: an item this node changed in a receive-only folder.
+const RECEIVE_ONLY_CHANGE_FLAG = 8;
+const LOCAL_CHANGE_PAGE_SIZE = 1000;
+
+/**
+ * Whether any of a receive-only folder's local changes is held by no other device:
+ * the cluster's version of it is this node's own change. syncthing reverts such an
+ * item by deleting it, and a directory that is not empty cannot be deleted, so that
+ * revert fails on every pass.
+ * @param {string} appId - The Syncthing folder ID
+ * @returns {Promise<boolean|null>} null when the changes could not be read
+ */
+async function localChangeHeldOnlyHere(appId) {
+  try {
+    for (let page = 1; ; page += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      const batch = (await syncthingService.getDbLocalChanged(appId, page, LOCAL_CHANGE_PAGE_SIZE))?.files;
+      if (!Array.isArray(batch)) return page > 1 ? false : null;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const item of batch) {
+        // eslint-disable-next-line no-await-in-loop
+        const { global } = await syncthingService.getDbFile(appId, item.name);
+        // eslint-disable-next-line no-bitwise
+        if ((global?.localFlags ?? 0) & RECEIVE_ONLY_CHANGE_FLAG) return true;
+      }
+      if (batch.length < LOCAL_CHANGE_PAGE_SIZE) return false;
+    }
+  } catch (error) {
+    log.warn(`localChangeHeldOnlyHere - ${appId}: ${error.message}`);
+    return null;
+  }
+}
+
 /**
  * Reverts a synced receiveonly folder's local changes to the cluster's version.
  *
@@ -1297,24 +1330,37 @@ async function nudgeFolderDevices(folderId) {
  * version and deletes local-only items that are not ignored, so it runs only
  * against a complete global index (isSynced).
  *
+ * A change no other device holds is this node's data, and db/revert would delete
+ * it. A folder holding one is not reverted, and its changes do not hold the node
+ * back from taking over: promoted, it publishes them.
+ *
  * @param {string} appId - The Syncthing folder ID
  * @param {Object|null} syncStatus - A probeFolderSyncCompletion status
- * @returns {Promise<boolean>} True when the folder had local changes and a revert was asked for
+ * @returns {Promise<boolean>} True when the folder has local changes it does not
+ *   keep: a revert was asked for, or which changes other devices hold could not be read
  */
 async function revertLocalChangesIfSynced(appId, syncStatus) {
   if (!syncStatus?.isSynced) return false;
   const changed = (syncStatus.receiveOnlyChangedFiles || 0) + (syncStatus.receiveOnlyChangedDirectories || 0);
   if (changed === 0) return false;
-  log.warn(`revertLocalChangesIfSynced - ${appId} is synced but the receive-only folder has ${changed} locally changed item(s) (${syncStatus.receiveOnlyChangedFiles || 0} files, ${syncStatus.receiveOnlyChangedDirectories || 0} directories); reverting to the cluster's version`);
+  const files = syncStatus.receiveOnlyChangedFiles || 0;
+  const directories = syncStatus.receiveOnlyChangedDirectories || 0;
+  const heldOnlyHere = await localChangeHeldOnlyHere(appId);
+  if (heldOnlyHere === null) {
+    log.warn(`revertLocalChangesIfSynced - ${appId}: could not read which of its ${changed} local change(s) other devices hold; neither reverting nor promoting this pass`);
+    return true;
+  }
+  if (heldOnlyHere) {
+    log.warn(`revertLocalChangesIfSynced - ${appId} holds local changes no other device holds (${files} files, ${directories} directories); keeping them, a revert would delete them`);
+    fluxEventBus.publish('syncthing:localChangesKept', { folder: appId, files, directories });
+    return false;
+  }
+  log.warn(`revertLocalChangesIfSynced - ${appId} is synced but the receive-only folder has ${changed} locally changed item(s) (${files} files, ${directories} directories); reverting to the cluster's version`);
   try {
     // dataOrThrow: dbRevert answers in-band; without it this catch is
     // dead code and a failed revert reads as reverted
     messageHelper.dataOrThrow(await syncthingService.dbRevert(appId));
-    fluxEventBus.publish('syncthing:localChangesReverted', {
-      folder: appId,
-      files: syncStatus.receiveOnlyChangedFiles || 0,
-      directories: syncStatus.receiveOnlyChangedDirectories || 0,
-    });
+    fluxEventBus.publish('syncthing:localChangesReverted', { folder: appId, files, directories });
   } catch (error) {
     log.error(`revertLocalChangesIfSynced - revert of local changes for ${appId} failed: ${error.message}`);
   }
@@ -1708,8 +1754,9 @@ async function handleReceiveOnlyTransition(params) {
     // data: local additions in a receiveonly folder leave needBytes 0 / completion 100,
     // and promoting would broadcast those local changes cluster-wide. Verify the folder
     // is clean first; if not, revert the local changes (db/revert undoes local edits in
-    // a receiveonly folder) and promote on a later cycle once verifiably clean. The
-    // leader path above is exempt by design - the leader's local data IS the seed.
+    // a receiveonly folder) and promote on a later cycle once verifiably clean. Changes
+    // no other device holds are kept, and promoted with the rest of this node's data.
+    // The leader path above is exempt by design - the leader's local data IS the seed.
     if (await revertLocalChangesIfSynced(appId, syncStatus)) {
       return { syncthingFolder, cache };
     }
