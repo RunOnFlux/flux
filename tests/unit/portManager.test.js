@@ -1261,7 +1261,7 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
       return answer;
     });
 
-    return portManager.checkInstallingAppPortAvailable([port]);
+    return portManager.checkInstallingAppPortAvailable([port], 'web');
   };
 
   // The bug: a verdict and "nobody has decided" were the same value, so a last
@@ -1376,6 +1376,16 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
 
     expect(result).to.deep.equal({ ok: false, reason: 'error' });
     sinon.assert.notCalled(axios.post);
-    sinon.assert.calledWith(removeMapping, port, `Flux_Prelaunch_App_${port}`);
+    sinon.assert.calledWith(removeMapping, port, 'Flux_App_web');
+  });
+
+  it('maps the port under test under the application\'s own description, the one it installs under', async () => {
+    upnpService.isUPNP.returns(true);
+    const mapUpnpPort = sinon.stub(upnpService, 'mapUpnpPort').resolves(REFUSED);
+    sinon.stub(upnpService, 'removeMapUpnpPort').resolves(true);
+
+    await withPeers([UNREACHABLE]);
+
+    sinon.assert.calledOnceWithExactly(mapUpnpPort, port, 'Flux_App_web');
   });
 });

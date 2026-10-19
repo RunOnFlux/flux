@@ -236,7 +236,7 @@ describe('appSpawner tests', () => {
       '../appNetwork/portManager': {
         ensureApplicationPortsNotUsed: sinon.stub().resolves(),
         siblingHoldingPort: sinon.stub().resolves(opts.siblingHoldingPort ?? null),
-        checkInstallingAppPortAvailable: sinon.stub().resolves({
+        checkInstallingAppPortAvailable: (opts.portCheck ?? sinon.stub()).resolves({
           ok: opts.portsAvailable ?? true,
           reason: (opts.portsAvailable ?? true) ? 'proven' : 'notOurs',
         }),
@@ -1043,6 +1043,17 @@ describe('appSpawner tests', () => {
 
       expect(delay).to.equal(60000);
       sinon.assert.notCalled(installStub);
+    });
+
+    it('should test the ports for the application it is spawning, by name', async () => {
+      const portCheck = sinon.stub();
+      buildModule({
+        aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0, portsAvailable: false, portCheck,
+      });
+
+      await appSpawner.trySpawningGlobalApplication();
+
+      sinon.assert.calledOnceWithExactly(portCheck, sinon.match.array, fullSpec.name);
     });
 
     it('should add to short-term cache when network error count >= 5', async () => {
