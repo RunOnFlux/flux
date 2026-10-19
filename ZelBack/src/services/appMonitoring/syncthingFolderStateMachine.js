@@ -1347,13 +1347,19 @@ async function localChangeHeldOnlyHere(appId) {
  *
  * @param {string} appId - The Syncthing folder ID
  * @param {Object|null} syncStatus - A probeFolderSyncCompletion status
+ * @param {Object} [folderCache] - The folder's cache entry: `keepingChanges` marks a folder
+ *   already said to be keeping its changes, so that is said once, when it starts
  * @returns {Promise<boolean>} True when the folder has local changes it does not
  *   keep: a revert was asked for, or which changes other devices hold could not be read
  */
-async function revertLocalChangesIfSynced(appId, syncStatus) {
+async function revertLocalChangesIfSynced(appId, syncStatus, folderCache) {
+  const cache = folderCache || {};
   if (!syncStatus?.isSynced) return false;
   const changed = (syncStatus.receiveOnlyChangedFiles || 0) + (syncStatus.receiveOnlyChangedDirectories || 0);
-  if (changed === 0) return false;
+  if (changed === 0) {
+    delete cache.keepingChanges;
+    return false;
+  }
   const files = syncStatus.receiveOnlyChangedFiles || 0;
   const directories = syncStatus.receiveOnlyChangedDirectories || 0;
   const heldOnlyHere = await localChangeHeldOnlyHere(appId);
@@ -1362,10 +1368,13 @@ async function revertLocalChangesIfSynced(appId, syncStatus) {
     return true;
   }
   if (heldOnlyHere) {
+    if (cache.keepingChanges) return false;
+    cache.keepingChanges = true;
     log.warn(`revertLocalChangesIfSynced - ${appId} holds a local change to data from another device that no other device holds (${files} files, ${directories} directories changed); keeping its changes, a revert would delete it`);
     fluxEventBus.publish('syncthing:localChangesKept', { folder: appId, files, directories });
     return false;
   }
+  delete cache.keepingChanges;
   log.warn(`revertLocalChangesIfSynced - ${appId} is synced but the receive-only folder has ${changed} locally changed item(s) (${files} files, ${directories} directories); reverting to the cluster's version`);
   try {
     // dataOrThrow: dbRevert answers in-band; without it this catch is
@@ -1768,7 +1777,7 @@ async function handleReceiveOnlyTransition(params) {
     // a receiveonly folder) and promote on a later cycle once verifiably clean. Changes
     // no other device holds are kept, and promoted with the rest of this node's data.
     // The leader path above is exempt by design - the leader's local data IS the seed.
-    if (await revertLocalChangesIfSynced(appId, syncStatus)) {
+    if (await revertLocalChangesIfSynced(appId, syncStatus, cache)) {
       return { syncthingFolder, cache };
     }
     if (syncStatus.isSynced) {
@@ -2083,7 +2092,7 @@ async function manageFolderSyncState(params) {
     // deviation (an owner or mode included) is never overwritten by syncthing
     // in a receiveonly folder, and the primary counts it as outstanding.
     if (syncFolder?.type === 'receiveonly') {
-      await revertLocalChangesIfSynced(appId, await getFolderSyncCompletion(appId));
+      await revertLocalChangesIfSynced(appId, await getFolderSyncCompletion(appId), cache);
     }
     return { syncthingFolder, cache };
   }

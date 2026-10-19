@@ -2367,9 +2367,14 @@ describe('syncthingFolderStateMachine tests', () => {
         const publish = sinon.stub(fluxEventBus, 'publish');
         try {
           await stateMachine.manageFolderSyncState(mockParams);
+          await stateMachine.manageFolderSyncState(mockParams);
 
           sinon.assert.notCalled(syncthingServiceMock.dbRevert);
-          sinon.assert.calledWithExactly(publish, 'syncthing:localChangesKept', { folder: 'test-app', files: 0, directories: 1 });
+          sinon.assert.calledOnceWithExactly(
+            publish.withArgs('syncthing:localChangesKept'),
+            'syncthing:localChangesKept',
+            { folder: 'test-app', files: 0, directories: 1 },
+          );
         } finally {
           publish.restore();
         }
