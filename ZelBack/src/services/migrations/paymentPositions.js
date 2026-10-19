@@ -10,6 +10,13 @@ const { appPaymentPositions } = require('../appPaymentPositions');
 // worth of records never rides on a single call.
 const BACKFILL_BATCH = 5000;
 
+// The payment records the backfill reads: those without a position. A record
+// already marked notOnChain is decided: if its transaction is mined later, the
+// explorer records the payment from that block. Read through the collection's
+// txIndex index (explorerService.prepareCollections), so a node whose records all
+// have positions reads none of them.
+const UNPOSITIONED = { txIndex: { $exists: false }, notOnChain: { $ne: true } };
+
 /**
  * Gives every app payment record without a position in its block the position
  * and the height the daemon's address index holds for its transaction: one call
@@ -32,10 +39,8 @@ const BACKFILL_BATCH = 5000;
 async function backfillPaymentPositions() {
   const database = dbHelper.databaseConnection().db(config.database.daemon.database);
   const collection = config.database.daemon.collections.appsHashes;
-  // A record already marked notOnChain is decided: if its transaction is mined
-  // later, the explorer records the payment from that block.
   const missing = await dbHelper.findInDatabase(
-    database, collection, { txIndex: { $exists: false }, notOnChain: { $ne: true } }, {
+    database, collection, UNPOSITIONED, {
       projection: {
         _id: 0, hash: 1, txid: 1, height: 1, value: 1,
       },
@@ -91,4 +96,4 @@ async function backfillPaymentPositions() {
   };
 }
 
-module.exports = { backfillPaymentPositions, BACKFILL_BATCH };
+module.exports = { backfillPaymentPositions, BACKFILL_BATCH, UNPOSITIONED };

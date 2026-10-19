@@ -16,6 +16,7 @@ const { MongoNetworkTimeoutError } = require('mongodb');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 const log = require('../../ZelBack/src/lib/log');
 const { requireMongo } = require('./dbTestHelper');
+const { UNPOSITIONED } = require('../../ZelBack/src/services/migrations/paymentPositions');
 
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
@@ -2195,6 +2196,19 @@ describe('explorerService tests', () => {
       const unique = (await hashes.indexes()).find((index) => index.name === 'query for getting app hash');
       expect(unique?.unique, 'the unique hash index').to.equal(true);
       expect((await hashes.find({ hash: 'paid' }).toArray()).map((r) => r.txid)).to.deep.equal(['first']);
+    });
+
+    it('lets the boot backfill read only the payment records without a position', async () => {
+      await hashes.insertMany([
+        ...Array.from({ length: 50 }, (_, i) => ({ hash: `placed${i}`, txid: `placed${i}`, height: i, txIndex: 0 })),
+        { hash: 'unplaced', txid: 'unplaced', height: 60 },
+      ]);
+
+      await explorerService.prepareCollections();
+
+      const { executionStats } = await hashes.find(UNPOSITIONED).explain('executionStats');
+      expect(executionStats.nReturned).to.equal(1);
+      expect(executionStats.totalDocsExamined, 'the backfill read records that have a position').to.equal(1);
     });
 
     it('starts no scan from zero until its collections hold their indexes', async () => {

@@ -825,6 +825,8 @@ async function prepareCollections() {
       key: { hash: 1 }, name: 'query for getting app hash', unique: true, recover: keepEarliestPayment,
     },
     { key: { message: 1 }, name: 'query for getting app hashes depending if we have message' },
+    // a record without a position is indexed under null, so the boot backfill reads only those
+    { key: { txIndex: 1 }, name: 'query for getting app hashes without a position' },
   ]);
   await dbHelper.ensureIndexes(databaseUpdates.collection(chainParamsMessagesCollection), [
     { key: { txid: 1 }, name: 'query for getting txid of some chain parameters update message' },
