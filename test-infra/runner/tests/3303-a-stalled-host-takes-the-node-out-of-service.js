@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, getAppContainerStatus } from '../framework/container.js';
 import { waitForUp, waitForAppInstalled, assertNoEvent } from '../framework/wait.js';
-import { bootAndPeer, seedTestApp, seedSpawnerApp } from '../framework/reconciler-suite.js';
+import { bootAndPeer, seedSpawnerApp } from '../framework/reconciler-suite.js';
 import { buildSeedableTestApp } from '../framework/seed-helper.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import {
@@ -28,7 +28,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // through its slice without docker.
 //
 // The nodes run systemd, so docker uses its systemd cgroup driver and every app's
-// containers live in the app's own slice, as on a production node.
+// containers live in the app's own slice, as on a production node. The node the
+// kill case runs on is a legacy node whose FluxOS runs as the operator's account,
+// not root: it reads docker's threads, asks systemd and kills through sudo.
 //
 // Each case first asserts, independently of FluxOS, that docker was held: on a tree
 // without the detector that canary passes and the assertions after it fail.
@@ -38,6 +40,8 @@ const STUCK_INTERVALS = 6;
 const REMOVAL_DEADLINE_MS = 20 * 1000;
 const STALL_MS = READ_INTERVAL_MS * STUCK_INTERVALS;
 const OWNER = 'hostStall';
+const ARCANE = [0, 1, 2];
+const LEGACY_UNPRIVILEGED = 3;
 
 const byOwner = (data) => data.owner === OWNER;
 const outOfServiceForTheStall = (data) => data.dosState >= 100
@@ -52,6 +56,17 @@ async function sliceProcessesThatCanRun(container, appName) {
 
 function step(what) {
   console.log(`# 3303 ${new Date().toISOString()} ${what}`);
+}
+
+// An app that writes a log line every 200 ms, installed on one of `indices` only.
+async function installOn(env, name, indices) {
+  await pushTestApp(name);
+  const app = await buildSeedableTestApp({ name, logEveryMs: 200, instances: 1 });
+  await seedSpawnerApp(env, app, indices);
+  return Promise.any(indices.map(async (i) => {
+    await waitForAppInstalled(env.clients[i], name, 120000);
+    return i;
+  }));
 }
 
 describe('a stalled host takes the node out of service', function () {
@@ -70,13 +85,15 @@ describe('a stalled host takes the node out of service', function () {
       tickerAutostart: false,
       systemdMode: true,
       freezableDockerRoot: [0, 1, 2, 3],
+      legacyNodes: [LEGACY_UNPRIVILEGED],
+      unprivilegedNodes: [LEGACY_UNPRIVILEGED],
       configOverrides: {
         hostStall: { readIntervalMs: READ_INTERVAL_MS, stuckIntervals: STUCK_INTERVALS },
         fluxapps: { appRemovalDeadlineMs: REMOVAL_DEADLINE_MS },
       },
     });
     await bootAndPeer(env);
-    ({ index: node } = await seedTestApp(env, { name: appName, logEveryMs: 200 }));
+    node = await installOn(env, appName, ARCANE);
     client = env.clients[node];
     ({ container } = client);
     await waitForUp(client, appName, 'the app is up');
@@ -178,7 +195,7 @@ describe('a stalled host takes the node out of service', function () {
     });
   });
 
-  describe('a stall past the threshold, with docker unable to act at all', function () {
+  describe('a stall past the threshold, with docker unable to act at all, on a legacy node whose FluxOS is not root', function () {
     const killedName = `e2ehoststallkill${Date.now()}`;
     let killClient;
     let killContainer;
@@ -189,15 +206,7 @@ describe('a stalled host takes the node out of service', function () {
 
     before(async function () {
       this.timeout(240000);
-      // on a node of its own: the node above is out of service until it reboots
-      const others = env.clients.map((_, i) => i).filter((i) => i !== node);
-      await pushTestApp(killedName);
-      const app = await buildSeedableTestApp({ name: killedName, logEveryMs: 200, instances: 1 });
-      await seedSpawnerApp(env, app, others);
-      const index = await Promise.any(others.map(async (i) => {
-        await waitForAppInstalled(env.clients[i], killedName, 120000);
-        return i;
-      }));
+      const index = await installOn(env, killedName, [LEGACY_UNPRIVILEGED]);
       killClient = env.clients[index];
       ({ container: killContainer } = killClient);
       await waitForUp(killClient, killedName, 'the app is up');
@@ -209,6 +218,11 @@ describe('a stalled host takes the node out of service', function () {
 
     after(async function () {
       if (killClient) await thawEveryNode([killClient]);
+    });
+
+    it('runs FluxOS as an account that is not root', async function () {
+      const owner = await execInContainer(killContainer, 'stat -c %U /proc/$(systemctl show -p MainPID --value fluxos)');
+      expect(owner.stdout.trim(), 'FluxOS runs as root, so nothing below tested an operator\'s own install').to.equal('fluxuser');
     });
 
     it('held docker in the kernel', async function () {
