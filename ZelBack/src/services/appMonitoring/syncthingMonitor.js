@@ -52,6 +52,12 @@ const syncthingEventsConsumer = require('./syncthingEventsConsumer');
 // Global collections
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
+// How long a device no folder uses keeps its entry after syncthing last saw it.
+// Its connection record is what proves a peer gone (peerFolderLiveness), and a
+// standby that remembers a primary no location names any more still has to prove
+// that primary gone before it starts the app; with the entry deleted it never can.
+const UNUSED_DEVICE_KEEP_MS = 24 * 60 * 60 * 1000;
+
 // Path constants
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
@@ -930,8 +936,13 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // A peer device cannot be attributed to an app without doing that app's
     // work, so while anything is held out the device sweep stands down entirely
     // rather than delete a peer it simply never saw.
-    const nonUsedDevices = unsafeFolderIds.size > 0 ? [] : allDevices.filter(
-      (syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID) && syncthingDevice.deviceID !== localDeviceId,
+    // A device seen within UNUSED_DEVICE_KEEP_MS stays too, and every device stays
+    // while when each was last seen cannot be read.
+    const deviceStats = unsafeFolderIds.size > 0 ? null : await syncthingService.getDeviceStats().catch(() => null);
+    const seenRecently = (deviceID) => Date.now() - Date.parse(deviceStats?.[deviceID]?.lastSeen) < UNUSED_DEVICE_KEEP_MS;
+    const nonUsedDevices = !deviceStats ? [] : allDevices.filter(
+      (syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID) && syncthingDevice.deviceID !== localDeviceId
+        && !seenRecently(syncthingDevice.deviceID),
     );
 
     // Parallelize cleanup operations

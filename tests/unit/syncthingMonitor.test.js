@@ -37,6 +37,7 @@ const syncthingServiceMock = {
   systemResume: sinon.stub().resolves(),
   getDbStatus: sinon.stub(),
   getDbCompletion: sinon.stub().resolves({ remoteState: 'notSharing' }),
+  getDeviceStats: sinon.stub().resolves({}),
 };
 
 const syncthingFolderStateMachineMock = {
@@ -1868,6 +1869,8 @@ describe('syncthingMonitor tests', () => {
     afterEach(() => {
       syncthingServiceMock.getDbCompletion.reset();
       syncthingServiceMock.getDbCompletion.resolves({ remoteState: 'notSharing' });
+      syncthingServiceMock.getDeviceStats.reset();
+      syncthingServiceMock.getDeviceStats.resolves({});
     });
 
     it('keeps its device while it is connected and shares the folder', async () => {
@@ -1887,6 +1890,28 @@ describe('syncthingMonitor tests', () => {
       await clock.tickAsync(100);
 
       sinon.assert.calledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
+    });
+
+    // Its connection record is what proves it gone to a standby that remembers it as
+    // the app's primary.
+    it('keeps the entry of a device it dropped while syncthing saw it within a day', async () => {
+      folderSharedWithPeer();
+      syncthingServiceMock.getDeviceStats.resolves({ 'PEER-DEVICE': { lastSeen: new Date(Date.now() - 60 * 60 * 1000).toISOString() } });
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
+    });
+
+    it('removes no device while when each was last seen cannot be read', async () => {
+      folderSharedWithPeer();
+      syncthingServiceMock.getDeviceStats.rejects(new Error('connect ECONNREFUSED'));
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
     });
   });
 
