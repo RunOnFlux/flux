@@ -237,6 +237,15 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       }
     }
 
+    // A router that refused to remove the last test mapping is not given
+    // another until it has.
+    if (isUpnp && upnpService.testRemovalPending()) {
+      log.info('checkMyAppsAvailability - a test mapping is still to be removed from the router; no new one until it is');
+      await serviceHelper.delay(timeouts.error);
+      setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));
+      return;
+    }
+
     if (appPorts.includes(dosState.testingPort)) {
       log.info(`checkMyAppsAvailability - Skipped checking ${dosState.testingPort} - in use`);
       setNextPort();

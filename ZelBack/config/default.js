@@ -107,6 +107,10 @@ module.exports = {
   upnp: {
     gatewayUrl: '',
     nodeIp: '',
+    // a removal of this node's own mapping the router refuses is asked again
+    // after this long, the wait doubling up to removalRetryMaxMs
+    removalRetryFirstMs: 30 * 1000,
+    removalRetryMaxMs: 30 * 60 * 1000,
   },
   benchmark: {
     host: '127.0.0.1',

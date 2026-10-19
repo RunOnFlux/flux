@@ -361,6 +361,7 @@ describe('availabilityChecker tests', () => {
         sinon.stub(fluxNetworkHelper, 'allowTestPort').resolves();
         sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves();
         sinon.stub(upnpService, 'routerRefusals').callsFake(() => refusals);
+        sinon.stub(upnpService, 'testRemovalPending').returns(false);
         mapUpnpPortStub = sinon.stub(upnpService, 'mapUpnpPort').resolves(MAPPED);
         removeMapUpnpPortStub = sinon.stub(upnpService, 'removeMapUpnpPort').resolves(true);
         sinon.stub(fluxHttpTestServer.FluxHttpTestServer.prototype, 'listen').callsFake(function listen() {
@@ -402,6 +403,17 @@ describe('availabilityChecker tests', () => {
         await pass();
 
         expect(mockDosState.portFailureScore ?? 0).to.equal(0);
+      });
+
+      it('makes no test mapping, and opens no port, while the router has yet to remove the last one', async () => {
+        upnpService.testRemovalPending.returns(true);
+
+        await pass();
+
+        sinon.assert.notCalled(mapUpnpPortStub);
+        sinon.assert.notCalled(fluxNetworkHelper.allowTestPort);
+        sinon.assert.notCalled(portTestStub);
+        expect(mockDosState.portFailureScore ?? 0, 'counts nothing').to.equal(0);
       });
 
       it('removes what the router kept of a test mapping it refused', async () => {

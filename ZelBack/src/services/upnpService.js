@@ -44,6 +44,14 @@ const mappedHere = new Set();
 // node's, and one it refused never is.
 const mappedProtocols = new Map();
 
+// Removals of this node's own mappings the router refused, by `port/protocol`:
+// each is asked again, one at a time, after config.upnp.removalRetryFirstMs,
+// the wait doubling to config.upnp.removalRetryMaxMs, until the router removes
+// it or holds no such entry. A port this node maps again is in use, and its
+// pending removal is dropped.
+const pendingRemovals = new Map();
+let pendingRemovalTurn = Promise.resolve();
+
 /**
  * Records whether this node's latest map of one protocol of a port left the
  * router mapping it here.
@@ -280,6 +288,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
     upnpMachine = false;
     return false;
   }
+  recordMapped(+apiport + 3, 'TCP', true);
   await serviceHelper.delay(500);
   try {
     const mapping = await client.getMapping({ public: +apiport + 3, protocol: 'TCP' });
@@ -292,19 +301,9 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
     upnpMachine = false;
     return false;
   }
-  try {
-    await client.removeMapping({
-      public: +apiport + 3,
-    });
-
-    await serviceHelper.delay(500);
-  } catch (error) {
-    log.error(error);
-    log.error('VerifyUPNPsupport - Failed Remove Mapping');
-    upnpMachine = false;
-    return false;
-  }
-  mappedHere.delete(+apiport + 3);
+  // UPnP works once the router has taken the mapping and shows it: a removal it
+  // refuses is asked again until it goes, and fails nothing here.
+  await removeMapUpnpPort(+apiport + 3, 'Flux_UPNP_Mapping_Test');
 
   upnpMachine = true;
   return true;
@@ -398,6 +397,7 @@ async function mapUpnpPort(port, description) {
   // held from before the router has it: the cleanup pass may list it the
   // moment it is there
   mappedHere.add(+port);
+  dropPendingRemovals(+port);
   let result = await mapProtocol(+port, 'TCP', description);
   recordMapped(+port, 'TCP', result.mapped);
   if (result.mapped) {
@@ -432,16 +432,67 @@ async function removeProtocol(port, protocol) {
 }
 
 /**
+ * Drops the pending removals of a port.
+ * @param {number} port
+ */
+function dropPendingRemovals(port) {
+  ['TCP', 'UDP'].forEach((protocol) => {
+    const pending = pendingRemovals.get(`${port}/${protocol}`);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    pendingRemovals.delete(`${port}/${protocol}`);
+  });
+}
+
+/**
+ * Asks the router once more to remove a pending removal's mapping, in turn
+ * behind any other pending removal, and waits longer before the next ask if it
+ * refuses again.
+ * @param {object} pending
+ */
+function schedulePendingRemoval(pending) {
+  const { removalRetryFirstMs, removalRetryMaxMs } = config.upnp;
+  const waitMs = Math.min(removalRetryFirstMs * (2 ** pending.refusals), removalRetryMaxMs);
+  // eslint-disable-next-line no-param-reassign
+  pending.refusals += 1;
+  // eslint-disable-next-line no-param-reassign
+  pending.timer = setTimeout(() => {
+    pendingRemovalTurn = pendingRemovalTurn.then(async () => {
+      const key = `${pending.port}/${pending.protocol}`;
+      if (pendingRemovals.get(key) !== pending) return;
+      if (await removeProtocol(pending.port, pending.protocol)) {
+        pendingRemovals.delete(key);
+        log.info(`UPnP - ${pending.protocol} ${pending.port} (${pending.description}) unmapped after ${pending.refusals} refusal(s)`);
+        return;
+      }
+      // mapped again while the router was being asked: in use, not pending
+      if (pendingRemovals.get(key) === pending) schedulePendingRemoval(pending);
+    });
+  }, waitMs);
+}
+
+/**
+ * Whether a removal of one of this node's test mappings is still pending: no
+ * new test mapping is made until it has gone, so a router refusing removals
+ * gathers no more of them.
+ * @returns {boolean}
+ */
+function testRemovalPending() {
+  return [...pendingRemovals.values()].some((pending) => isTestMappingDescription(pending.description));
+}
+
+/**
  * Removes the protocols of a port that this node mapped, each on its own: a
  * refusal of one leaves the other to go. A router removes a mapping by its
  * external port whoever it points at, so a protocol this node's latest map did
- * not take - one another machine holds - is never asked for.
+ * not take - one another machine holds - is never asked for. A removal the
+ * router refuses is pending, and asked again until it goes.
  * @param {number} port Port number.
- * @returns {Promise<boolean>} whether no mapping of the port to this node is left
+ * @param {string} [description] the mapping's description, for the log and testRemovalPending
+ * @returns {Promise<boolean>} whether the router removed every one of them now
  */
-async function removeMapUpnpPort(port) {
+async function removeMapUpnpPort(port, description = '') {
   const protocols = mappedProtocols.get(+port) || new Set();
-  // given up even if the router refuses: what is left is the cleanup pass's
   mappedHere.delete(+port);
   mappedProtocols.delete(+port);
   let removed = true;
@@ -450,7 +501,15 @@ async function removeMapUpnpPort(port) {
     // eslint-disable-next-line no-continue
     if (!protocols.has(protocol)) continue;
     // eslint-disable-next-line no-await-in-loop
-    if (!await removeProtocol(+port, protocol)) removed = false;
+    if (!await removeProtocol(+port, protocol)) {
+      removed = false;
+      const pending = {
+        port: +port, protocol, description, refusals: 0, timer: null,
+      };
+      dropPendingRemovals(+port);
+      pendingRemovals.set(`${+port}/${protocol}`, pending);
+      schedulePendingRemoval(pending);
+    }
     // eslint-disable-next-line no-await-in-loop
     await serviceHelper.delay(500);
   }
@@ -778,6 +837,8 @@ module.exports = {
   removeStaleMappings,
   mappedHere,
   mappedProtocols,
+  pendingRemovals,
+  testRemovalPending,
   CLEANUP_SLOT_MS,
   mapPortApi,
   removeMapPortApi,
