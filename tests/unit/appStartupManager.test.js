@@ -59,7 +59,7 @@ describe('appStartupManager tests', () => {
     };
 
     appUninstallerStub = {
-      removeAppLocally: sinon.stub().resolves(),
+      removeAppLocally: sinon.stub().resolves('removed'),
     };
 
     const mockDb = { db: sinon.stub().returns('mockDatabase') };
@@ -97,6 +97,18 @@ describe('appStartupManager tests', () => {
       '../appMonitoring/appReconciler': appReconcilerStub,
       './appUninstaller': appUninstallerStub,
       '../utils/globalState': globalStateStub,
+      // runs the step again at once until it succeeds, as the real one does after a wait
+      '../utils/untilSucceeds': {
+        untilSucceeds: async (what, step) => {
+          for (;;) {
+            try {
+              return await step(); // eslint-disable-line no-await-in-loop
+            } catch {
+              // run it again
+            }
+          }
+        },
+      },
       '../appQuery/appQueryService': appQueryServiceStub,
       '../utils/appConstants': { localAppsInformation: 'localAppsInformation', SIGTERM_EXPIRY_MS: 420000, RUNNING_EXPIRY_MS: 7500000 },
       '../utils/appUtilities': appUtilities,
@@ -313,28 +325,33 @@ describe('appStartupManager tests', () => {
       expect(results.appsRemoved).to.deep.equal(['AppB']);
     });
 
-    it('should record failure when removeAppLocally throws', async () => {
+    it('holds an app it could not remove, never starting it, and removes it once it can', async () => {
       dockerServiceStub.dockerListContainers.resolves([
         { Names: ['/fluxAppA'], State: 'exited' },
       ]);
       dbHelperStub.findInDatabase.onFirstCall().resolves([{ name: 'AppA' }]);
-
       // Expired location
       dbHelperStub.findInDatabase.onSecondCall().resolves([]);
-
-      appUninstallerStub.removeAppLocally.rejects(new Error('Remove failed'));
+      let heldWhileRetrying;
+      appUninstallerStub.removeAppLocally.onFirstCall().resolves('failed');
+      appUninstallerStub.removeAppLocally.onSecondCall().callsFake(async () => {
+        heldWhileRetrying = globalStateStub.departingApps.has('AppA');
+        return 'removed';
+      });
 
       const results = await appStartupManager.reconcileAppsOnBoot();
+      await new Promise((resolve) => { setImmediate(resolve); });
 
-      expect(results.appsRemoved).to.deep.equal([]);
-      expect(results.appsFailed).to.have.lengthOf(1);
-      expect(results.appsFailed[0].app).to.equal('AppA');
-      expect(results.appsFailed[0].error).to.equal('Remove failed');
+      expect(results.appsFailed.map((failure) => failure.app)).to.deep.equal(['AppA']);
+      expect(appReconcilerStub.enqueue.calledWith('AppA'), 'an app boot could not remove was started').to.equal(false);
+      expect(heldWhileRetrying, 'the app was not held while its removal was retried').to.equal(true);
+      sinon.assert.calledTwice(appUninstallerStub.removeAppLocally);
+      expect(globalStateStub.departingApps.has('AppA'), 'the hold outlived the removal').to.equal(false);
     });
 
-    it('neither starts nor removes an app whose location record cannot be read', async () => {
-      // Started, an app whose location expired runs beside the instance placed in
-      // its stead; removed, a valid one is lost. The reconciler decides it later.
+    it('removes an app whose location record cannot be read, and tells the network', async () => {
+      // Its location may have been given to another node while this one was down, so
+      // it is never started unconfirmed.
       dockerServiceStub.dockerListContainers.resolves([
         { Names: ['/fluxAppA'], State: 'exited' },
       ]);
@@ -343,9 +360,9 @@ describe('appStartupManager tests', () => {
 
       const results = await appStartupManager.reconcileAppsOnBoot();
 
-      expect(results.appsStarted).to.deep.equal([]);
-      expect(results.appsRemoved).to.deep.equal([]);
-      expect(results.appsFailed.map((failure) => failure.app)).to.deep.equal(['AppA']);
+      sinon.assert.calledOnceWithExactly(appUninstallerStub.removeAppLocally, 'AppA', null, true, true, true);
+      expect(results.appsRemoved).to.deep.equal(['AppA']);
+      expect(appReconcilerStub.enqueue.calledWith('AppA')).to.equal(false);
     });
 
     it('should check location after g: syncthing check', async () => {

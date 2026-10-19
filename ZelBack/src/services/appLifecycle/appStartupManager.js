@@ -22,6 +22,8 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const nodeConfirmationService = require('../nodeConfirmationService');
 const { localAppsInformation, SIGTERM_EXPIRY_MS, RUNNING_EXPIRY_MS } = require('../utils/appConstants');
 const { getNonGComponentIdentifiers, parseContainerName, appHasValidLocationOnNode } = require('../utils/appUtilities');
+const { RemovalOutcome } = require('../utils/removalOutcome');
+const { untilSucceeds } = require('../utils/untilSucceeds');
 
 const SYNC_TIMEOUT_MS = config.system.bootSyncTimeoutMs ?? 300000;
 
@@ -113,6 +115,32 @@ async function openInstalledAppPorts() {
   }
 }
 
+
+/**
+ * Removes an app boot may not start. A removal that does not finish holds the app as
+ * departing - never started by the reconciler, never announced as running - and is
+ * run again until it does.
+ * @param {string} appName
+ * @param {boolean} announce Whether the removal is told to the network.
+ * @returns {Promise<boolean>} Whether the app is gone now.
+ */
+async function removeAppBootMayNotStart(appName, announce) {
+  const remove = async () => {
+    const outcome = await appUninstaller.removeAppLocally(appName, null, true, true, announce);
+    if (outcome !== RemovalOutcome.REMOVED && outcome !== RemovalOutcome.NOT_INSTALLED) {
+      throw new Error(`${appName} was not removed (${outcome})`);
+    }
+  };
+  try {
+    await remove();
+    return true;
+  } catch (error) {
+    log.warn(`appStartupManager - ${error.message}; held stopped and unannounced until it is removed`);
+    globalState.departingApps.enter(appName);
+    untilSucceeds(`Removal of ${appName}`, remove).then(() => globalState.departingApps.leave(appName));
+    return false;
+  }
+}
 /**
  * Reconcile local app state against the network on boot. For each stopped
  * container, checks whether this node still has a valid location record.
@@ -222,24 +250,16 @@ async function reconcileAppsOnBoot() {
       if (localSocketAddr) {
         // eslint-disable-next-line no-await-in-loop
         const hasValidLocation = await appHasValidLocationOnNode(appName, localSocketAddr);
-        if (hasValidLocation === null) {
-          // Neither started nor removed on an unread location: the reconciler decides later.
-          log.warn(`appStartupManager - App ${appName}: its location record could not be read, leaving it as it is`);
-          results.appsFailed.push({ app: appName, error: 'location record unreadable' });
-          // eslint-disable-next-line no-continue
-          continue;
-        }
-        if (!hasValidLocation) {
-          log.warn(`appStartupManager - App ${appName} no longer has a valid location record for this node (${localSocketAddr}), removing locally`);
-          try {
-            // eslint-disable-next-line no-await-in-loop
-            await appUninstaller.removeAppLocally(appName, null, true, true, false);
-            results.appsRemoved.push(appName);
-            log.info(`appStartupManager - App ${appName} removed locally (was reassigned to another node)`);
-          } catch (removeError) {
-            log.error(`appStartupManager - Failed to remove app ${appName}: ${removeError.message}`);
-            results.appsFailed.push({ app: appName, error: removeError.message });
-          }
+        if (hasValidLocation !== true) {
+          // An app whose location this node holds no longer, or cannot read, may have been
+          // placed elsewhere while this node was down: it is removed, never started. One it
+          // cannot confirm is announced as removed; an expired one the network has dropped.
+          const unconfirmed = hasValidLocation === null;
+          log.warn(`appStartupManager - App ${appName}: ${unconfirmed ? 'its location record could not be read' : `no valid location record for this node (${localSocketAddr})`}, removing locally`);
+          // eslint-disable-next-line no-await-in-loop
+          const removed = await removeAppBootMayNotStart(appName, unconfirmed);
+          if (removed) results.appsRemoved.push(appName);
+          else results.appsFailed.push({ app: appName, error: 'not removed; held stopped until it is' });
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(2000);
           // eslint-disable-next-line no-continue
