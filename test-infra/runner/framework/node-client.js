@@ -217,6 +217,8 @@ export function nodeClient(nodeNum) {
         // wording of the response stream.
         'app:installOutcome',
         'app:removed',
+        'app:rebuilt',
+        'reinstall:passEnded',
         'app:componentRedeployed',
         'app:specStored',
         'app:running',

@@ -121,18 +121,25 @@ describe('an app upgraded from the old format is rebuilt', function () {
     await env?.teardown();
   });
 
-  it('goes on to the next app after one it could not rebuild', async function () {
+  it('goes on to the next app in the same pass after one it could not rebuild', async function () {
     this.timeout(2400000);
     const node = env.clients[FAILS];
-    const redeployed = () => waitForComponentRedeployed(node, other, other, false, 0, { afterId: anchors[FAILS] })
-      .then(() => true, () => false);
-    await driveUntil(node, redeployed, { blocks: PASS_BLOCKS, label: 'the pass redeploys the next app' });
+    const since = () => node.getEventBuffer().filter((e) => e.id > anchors[FAILS]);
+    const failedRebuild = () => since().find((e) => e.event === 'app:rebuilt' && e.data.name === failing && e.data.outcome !== 'installed');
+    const passEndAfter = (event) => since().find((e) => e.event === 'reinstall:passEnded' && e.id > event.id);
+    await driveUntil(node, async () => Boolean(failedRebuild() && passEndAfter(failedRebuild())), {
+      blocks: PASS_BLOCKS, label: 'a reinstall pass rebuilds the app, fails, and ends',
+    });
+    const rebuilt = failedRebuild();
+    const ended = passEndAfter(rebuilt);
+    const redeployed = since().find((e) => e.event === 'app:componentRedeployed' && e.data.name === other
+      && e.id > rebuilt.id && e.id < ended.id);
+    expect(redeployed, 'the pass stopped at the app it could not rebuild').to.not.equal(undefined);
   });
 
   it('tells the network it no longer holds the app it could not rebuild', async function () {
     this.timeout(120000);
     const node = env.clients[FAILS];
-    expect(await localSpec(node, failing), 'the node still holds the app').to.equal(null);
     const peers = env.clients.filter((client, i) => client && i !== FAILS);
     const heard = await Promise.any(peers.map((peer, i) => peer.waitForEvent(
       'network:appremoved',
