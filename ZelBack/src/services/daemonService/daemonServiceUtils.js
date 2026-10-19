@@ -14,10 +14,19 @@ let fluxdClient = null;
 // read, and fluxd is asked about itself (see fluxdCredentials).
 let fluxdReportsItself = false;
 let nodeKey = null;
-// What fluxd reports about itself: { indexes: {name: info}, zmq: {type: address} }.
-// Null until fluxd first answers, and again after it restarts.
-let fluxdFacts = null;
+// What fluxd reports about itself, each kept as soon as fluxd gives it:
+// fluxdIndexes {name: info} from getindexinfo, fluxdZmq {type: address} from
+// getzmqnotifications. Null until fluxd reports it, and again after fluxd restarts.
+let fluxdIndexes = null;
+let fluxdZmq = null;
 let fluxdFactsLoading = null;
+// When a fetch last left a fact unknown (Date.now()); 0 when none has.
+let fluxdFactsFailedAt = 0;
+// A fetch makes up to FACTS_ATTEMPTS attempts FACTS_RETRY_MS apart, and one that
+// leaves a fact unknown is not repeated within FACTS_REFETCH_MS.
+const FACTS_ATTEMPTS = 3;
+const FACTS_RETRY_MS = 2000;
+const FACTS_REFETCH_MS = 30_000;
 
 /**
  * AsyncLock used to limit concurrent calls to the Daemon RPC endpoint.
@@ -105,40 +114,67 @@ async function callFluxd(call) {
     return await call(fluxdClient);
   } catch (error) {
     if (!fluxdReportsItself || error.status !== 401) throw error;
-    fluxdFacts = null;
+    forgetFluxdFacts();
     await buildFluxdClient();
     return call(fluxdClient);
   }
 }
 
 /**
- * Asks fluxd for its indexes and ZMQ notifications, once per start of fluxd.
- * Concurrent callers share one request; a failure leaves the facts unknown, to be
- * asked again after the next call fluxd answers.
+ * Forgets what fluxd reported about itself: it restarted.
+ * @returns {void}
+ */
+function forgetFluxdFacts() {
+  fluxdIndexes = null;
+  fluxdZmq = null;
+  fluxdFactsFailedAt = 0;
+}
+
+/**
+ * Asks fluxd for whichever of its indexes and ZMQ notifications is not yet known,
+ * once per start of fluxd. Each answer is kept as soon as fluxd gives it. A fetch
+ * makes up to FACTS_ATTEMPTS attempts, so the address-index check made right after
+ * fluxd's first answer is not decided by one transient failure; a fetch that still
+ * leaves a fact unknown is not repeated for FACTS_REFETCH_MS. Concurrent callers
+ * share one fetch.
  * @returns {Promise<void>}
  */
 async function ensureFluxdFacts() {
-  if (!fluxdReportsItself || fluxdFacts) return;
+  if (!fluxdReportsItself || (fluxdIndexes && fluxdZmq)) return;
+  if (fluxdFactsFailedAt && Date.now() - fluxdFactsFailedAt < FACTS_REFETCH_MS) return;
   if (!fluxdFactsLoading) {
     fluxdFactsLoading = (async () => {
-      try {
-        const [indexes, zmq] = await callFluxd((client) => client.runBatch([
-          { method: 'getindexinfo' },
-          { method: 'getzmqnotifications' },
-        ]));
-        if (indexes.error || zmq.error) {
-          throw new Error((indexes.error || zmq.error).message);
+      let lastError = null;
+      for (let attempt = 1; attempt <= FACTS_ATTEMPTS; attempt += 1) {
+        const calls = [];
+        if (!fluxdIndexes) calls.push({ method: 'getindexinfo' });
+        if (!fluxdZmq) calls.push({ method: 'getzmqnotifications' });
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const answers = await callFluxd((client) => client.runBatch(calls));
+          answers.forEach((answer, i) => {
+            if (answer.error) {
+              lastError = new Error(`${calls[i].method}: ${answer.error.message}`);
+            } else if (calls[i].method === 'getindexinfo') {
+              fluxdIndexes = answer.result;
+            } else {
+              fluxdZmq = Object.fromEntries(answer.result.map(({ type, address }) => [type, address]));
+            }
+          });
+        } catch (error) {
+          lastError = error;
         }
-        fluxdFacts = {
-          indexes: indexes.result,
-          zmq: Object.fromEntries(zmq.result.map(({ type, address }) => [type, address])),
-        };
-      } catch (error) {
-        log.error(`fluxd did not report its indexes and ZMQ notifications: ${error.message}`);
-      } finally {
-        fluxdFactsLoading = null;
+        if (fluxdIndexes && fluxdZmq) break;
+        // eslint-disable-next-line no-await-in-loop
+        if (attempt < FACTS_ATTEMPTS) await serviceHelper.delay(FACTS_RETRY_MS);
       }
-    })();
+      if (fluxdIndexes && fluxdZmq) {
+        fluxdFactsFailedAt = 0;
+      } else {
+        fluxdFactsFailedAt = Date.now();
+        log.error(`fluxd did not report ${fluxdIndexes ? 'its ZMQ notifications' : 'its indexes'}: ${lastError?.message}`);
+      }
+    })().finally(() => { fluxdFactsLoading = null; });
   }
   await fluxdFactsLoading;
 }
@@ -292,7 +328,7 @@ function getConfigValue(parameter) {
   if (!fluxdReportsItself) return fluxdConfig.get(parameter);
 
   if (parameter === 'zelnodeprivkey') return nodeKey;
-  if (parameter.startsWith('zmqpub')) return fluxdFacts?.zmq[parameter.slice('zmq'.length)];
+  if (parameter.startsWith('zmqpub')) return fluxdZmq?.[parameter.slice('zmq'.length)];
   return undefined;
 }
 
@@ -303,7 +339,7 @@ function getConfigValue(parameter) {
  */
 function insightIndexes() {
   if (!fluxdConfig) return null;
-  if (fluxdReportsItself) return fluxdFacts ? Boolean(fluxdFacts.indexes.addressindex) : null;
+  if (fluxdReportsItself) return fluxdIndexes ? Boolean(fluxdIndexes.addressindex) : null;
   const value = fluxdConfig.get('insightexplorer');
   return value === 1 || value === '1';
 }
@@ -314,7 +350,7 @@ function insightIndexes() {
  */
 function addressIndex() {
   if (!fluxdConfig) return null;
-  if (fluxdReportsItself) return fluxdFacts ? Boolean(fluxdFacts.indexes.addressindex) : null;
+  if (fluxdReportsItself) return fluxdIndexes ? Boolean(fluxdIndexes.addressindex) : null;
   const value = fluxdConfig.get('addressindex');
   return value === 1 || value === '1';
 }
