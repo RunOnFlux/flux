@@ -2193,7 +2193,9 @@ describe('AppSyncOrchestrator', () => {
       expect(syncMissingHashesStub.calledTwice).to.be.true;
     });
 
-    it('should rebuild globalAppsInformation when a retry resolves messages, and only then', async () => {
+    // A retry's messages reach the registry as they are stored (appHashSyncService), so
+    // the registry is rebuilt in full only on the way to ready.
+    it('does not rebuild globalAppsInformation after a retry, whatever it resolved', async () => {
       syncMissingHashesStub.onFirstCall().resolves({ resolved: 0, missing: 2, unreachable: 0, nextRetryHeight: 2555200 });
       syncMissingHashesStub.onSecondCall().resolves({ resolved: 0, missing: 2, unreachable: 0, nextRetryHeight: 2555300 });
       syncMissingHashesStub.onThirdCall().resolves({ resolved: 2, missing: 0, unreachable: 0, nextRetryHeight: null });
@@ -2205,15 +2207,13 @@ describe('AppSyncOrchestrator', () => {
       await clock.tickAsync(0);
       const afterInitialSync = reindexStub.callCount;
 
-      // a retry that resolves nothing has nothing to apply
       blockEmitter.emit('blocksProcessed', 2555200);
       await clock.tickAsync(0);
-      expect(reindexStub.callCount).to.equal(afterInitialSync);
-
-      // the messages a retry resolves are stored without promotion: they reach the specs by a rebuild
       blockEmitter.emit('blocksProcessed', 2555300);
       await clock.tickAsync(0);
-      expect(reindexStub.callCount).to.equal(afterInitialSync + 1);
+
+      expect(syncMissingHashesStub.calledThrice, 'the retry that resolved messages never ran').to.equal(true);
+      expect(reindexStub.callCount).to.equal(afterInitialSync);
     });
 
     it('should use fallback interval when no hashes are backed off', async () => {

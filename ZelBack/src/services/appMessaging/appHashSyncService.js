@@ -21,6 +21,7 @@ const { appSyncEvents, EVENTS } = require('../utils/appSyncEvents');
 const { HASH_EXPIRY_BLOCKS, HASH_RETRY_BACKOFF } = require('../utils/appConstants');
 const log = require('../../lib/log');
 const fluxEventBus = require('../utils/fluxEventBus');
+const globalState = require('../utils/globalState');
 const { isBefore, messagesThatCount } = require('../utils/appMessageChain');
 const { invalidMessages } = require('../invalidMessages');
 const { Privilege, authOf } = require('../utils/privileges');
@@ -465,8 +466,9 @@ async function processMessages(messages, records, onProgress) {
     }
 
     // 5. Batch insert permanent messages (ordered so insertedCount is deterministic on failure)
+    let inserted = 0;
     if (permInserts.length > 0) {
-      let inserted = permInserts.length;
+      inserted = permInserts.length;
       await appsGlobalDb.collection(globalAppsMessages).insertMany(permInserts, { ordered: true })
         .catch((err) => {
           inserted = err.result?.insertedCount ?? 0;
@@ -474,6 +476,21 @@ async function processMessages(messages, records, onProgress) {
           log.error(`processMessages insertMany: ${inserted}/${permInserts.length} inserted — ${err.message}`);
         });
       processed += inserted;
+    }
+
+    // The registry rows of the apps whose messages were stored, before their hashes are
+    // marked. A registry not built yet is built in full from every stored message before
+    // the node is ready (dbReady), so only a built one is kept current here. Rows not
+    // written leave the hashes unmarked, and the next retry finds the messages stored and
+    // writes the rows (alignStoredMessagesWithPayments).
+    if (inserted > 0 && globalState.dbReady) {
+      const apps = [...new Set(permInserts.slice(0, inserted).map((message) => message.appSpecifications.name))];
+      try {
+        await messageVerifier.storeGoverningAppSpecifications(apps);
+      } catch (err) {
+        log.error(`processMessages registry rows: ${err.message}`);
+        hashMarkOps = [];
+      }
     }
 
     // 6. Batch mark hashes

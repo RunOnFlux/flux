@@ -878,8 +878,10 @@ describe('appHashSyncService tests', () => {
     let localMessageVerifierStub;
     let localCheckAndDecryptStub;
     let localLogStub;
+    let localGlobalState;
 
     beforeEach(() => {
+      localGlobalState = { dbReady: true };
       localCollectionStub = {
         bulkWrite: sinon.stub().resolves({ ok: 1 }),
         insertMany: sinon.stub().resolves({ insertedCount: 0 }),
@@ -902,6 +904,7 @@ describe('appHashSyncService tests', () => {
       localMessageVerifierStub = {
         alignStoredMessagesWithPayments: sinon.stub().resolves([]),
         checkAndRequestApp: sinon.stub().resolves(true),
+        storeGoverningAppSpecifications: sinon.stub().resolves(),
         appHashHasMessage: sinon.stub().resolves(),
         appHashHasMessageNotFound: sinon.stub().resolves(),
         checkAndRequestMultipleApps: sinon.stub().resolves(),
@@ -940,6 +943,65 @@ describe('appHashSyncService tests', () => {
         '../fluxCommunicationUtils': { deterministicFluxList: sinon.stub().resolves([]) },
         '../fluxCommunication': { openEphemeralConnection: sinon.stub().resolves(null) },
         '../fluxNetworkHelper': { getLocalSocketAddress: sinon.stub().resolves('10.0.0.99:16127') },
+        '../utils/globalState': localGlobalState,
+      });
+    });
+
+    describe('the registry rows of the apps it stores', () => {
+      const streamOne = () => {
+        const bulkMessages = [{
+          type: 'fluxappregister', version: 1, hash: 'hash5', timestamp: Date.now(),
+          signature: 'sig5', appSpecifications: { name: 'lateapp', version: 4, owner: 'owner' },
+          valueSat: 105, txid: 'tx5', height: 1005,
+        }];
+        const manyMissing = Array(600).fill(null).map((_, i) => ({
+          hash: `hash${i}`, txid: `tx${i}`, height: 1000 + i, value: 100 + i, message: false,
+        }));
+        let getMissingCalls = 0;
+        localDbHelperStub.findInDatabase.callsFake(() => {
+          getMissingCalls += 1;
+          return Promise.resolve(getMissingCalls === 1 ? manyMissing : []);
+        });
+        localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+        serviceHelperStub.axiosGet.callsFake((url) => {
+          if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
+          return Promise.resolve({ data: { status: 'success', data: true } });
+        });
+      };
+      // the write that marks a hash's message as held
+      const hashMarks = () => localCollectionStub.bulkWrite.getCalls()
+        .filter((call) => call.args[0].some((op) => op.updateOne?.update?.$set?.message === true));
+
+      it('writes them on a node whose registry is built, before it marks their hashes', async () => {
+        streamOne();
+
+        await localModule.syncMissingHashes();
+
+        expect(localCollectionStub.insertMany.called, 'the fixture stored nothing').to.be.true;
+        sinon.assert.calledOnceWithExactly(localMessageVerifierStub.storeGoverningAppSpecifications, ['lateapp']);
+        expect(hashMarks(), 'the hash was never marked').to.have.length(1);
+        expect(localMessageVerifierStub.storeGoverningAppSpecifications.calledBefore(hashMarks()[0])).to.equal(true);
+      });
+
+      it('leaves them to the full rebuild on a node whose registry is not built yet', async () => {
+        localGlobalState.dbReady = false;
+        streamOne();
+
+        await localModule.syncMissingHashes();
+
+        expect(localCollectionStub.insertMany.called, 'the fixture stored nothing').to.be.true;
+        sinon.assert.notCalled(localMessageVerifierStub.storeGoverningAppSpecifications);
+        expect(hashMarks()).to.have.length(1);
+      });
+
+      it('marks no hash whose app\'s row could not be written, so the next retry writes it', async () => {
+        localMessageVerifierStub.storeGoverningAppSpecifications.rejects(new Error('connection timed out'));
+        streamOne();
+
+        await localModule.syncMissingHashes();
+
+        expect(localCollectionStub.insertMany.called, 'the fixture stored nothing').to.be.true;
+        expect(hashMarks()).to.deep.equal([]);
       });
     });
 
