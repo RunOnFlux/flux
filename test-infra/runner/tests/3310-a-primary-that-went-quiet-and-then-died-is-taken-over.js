@@ -100,8 +100,6 @@ describe('a primary that went quiet and then died is taken over', function () {
     step('the primary\'s machine dies');
     await stopAppContainer(client(B).container, appName, appName);
     await stopDaemon(client(B));
-    // FDM drops a primary whose app stops answering
-    await clearMaster(appName);
     await waitFor(async () => !((await getFolderConfig(client(A), folder))?.devices ?? [])
       .some((d) => d.deviceID === primaryDevice), {
       timeout: 600000, interval: 5000, label: 'the standby drops the dead primary from the folder',
@@ -124,6 +122,11 @@ describe('a primary that went quiet and then died is taken over', function () {
     expect(heldOnlyHere(await getFileInfo(client(A), folder, 'appdata/seed-data')),
       'the unchanged file is held only here too, so the standby\'s copy no longer reads as synced').to.equal(false);
 
+    // FDM still names the dead primary, so the standby stays a standby while its
+    // passes judge the change; then FDM drops it, as it drops a primary whose app
+    // stops answering.
+    await sleepUnlessInfraDead(MONITOR_PASSES_MS);
+    await clearMaster(appName);
     step('waiting for the takeover');
     await waitFor(() => fleet.isUp(A), {
       timeout: TAKEOVER_MS, interval: 5000, label: 'the standby takes the app over',
