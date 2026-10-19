@@ -336,6 +336,19 @@ describe('upnpService tests', () => {
         });
       });
 
+      it('should know the test mappings earlier runs left as a FRITZ!Box stores their descriptions', async () => {
+        getMappingsStub.resolves([
+          listed(31000, 'Flux.Test.App'),
+          listed(31001, 'Flux.Prelaunch.App.31001'),
+          listed(31002, 'Flux.App.web'),
+        ]);
+
+        expect(await upnpService.verifyUPNPsupport()).to.equal(true);
+
+        const removedPorts = removeMappingStub.getCalls().map((call) => call.args[0].public.port ?? call.args[0].public);
+        expect(removedPorts.filter((port) => port !== 16130)).to.deep.equal([31000, 31001]);
+      });
+
       it('should fail without mapping again when there is no test mapping to remove', async () => {
         getMappingsStub.resolves([listed(31002, 'Flux_App_web')]);
 
@@ -592,6 +605,15 @@ describe('upnpService tests', () => {
       expect(result).to.equal(true);
       sinon.assert.callCount(createMappingSpy, 4);
       sinon.assert.calledOnceWithExactly(getMappingStub, { public: 118, protocol: 'TCP' });
+      sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 118, protocol: 'TCP' });
+    });
+
+    it('should know its own maintenance ssh mapping as a FRITZ!Box stores its description', async () => {
+      createMappingSpy.returns(true);
+      getMappingStub.resolves(fluxadmMapping({ description: 'Flux.Fluxadm.SSH' }));
+
+      await runSetup(123);
+
       sinon.assert.calledOnceWithExactly(removeMappingStub, { public: 118, protocol: 'TCP' });
     });
 
@@ -1321,6 +1343,23 @@ describe('upnpService tests', () => {
       sinon.assert.calledOnceWithExactly(getMappingsStub, { local: true, signal: sinon.match.instanceOf(AbortSignal) });
       expect(removed).to.equal(1);
       sinon.assert.calledOnceWithExactly(removeMappingStub, { public: { host: '', port: 31000 }, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
+    });
+
+    it('should know its own mappings as a FRITZ!Box stores their descriptions, and nothing else', async () => {
+      // FRITZ!Box rewrites the punctuation: 'Flux_App_gone' comes back 'Flux.App.gone'
+      routerHas([
+        mapping(31000, 'Flux.App.gone'),
+        mapping(31001, 'Flux.Prelaunch.App.31001'),
+        mapping(31002, 'Flux.Test.App'),
+        mapping(31003, 'Flux.manual.entry'),
+        mapping(31004, 'FluxOS.Reserved'),
+      ]);
+
+      const removed = await upnpService.removeStaleMappings(async () => [16127], BUDGET_MS);
+
+      expect(removed).to.equal(3);
+      const removedPorts = removeMappingStub.getCalls().map((call) => call.args[0].public.port);
+      expect(removedPorts).to.deep.equal([31000, 31001, 31002]);
     });
 
     it('should remove nothing from an empty table', async () => {

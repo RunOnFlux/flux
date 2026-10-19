@@ -23,7 +23,9 @@ const FLUXADM_MAPPING_DESCRIPTION = 'Flux_Fluxadm_SSH';
 // The descriptions this code gives the mappings it makes. Only these are ever
 // cleaned up: 'Flux_manual_entry' is the operator's own request through the
 // API, and anything else on the router - the owner's own forwards, another
-// program's, a description the router truncated - is not ours to judge.
+// program's, a description the router truncated - is not ours to judge. A
+// description is compared as routers store it (natUpnp.canonicalDescription):
+// FRITZ!Box keeps 'Flux_App_web' as 'Flux.App.web'.
 const OWNED_MAPPING_DESCRIPTIONS = new Set([
   'Flux_Backend_API',
   'Flux_Backend_API_SSL',
@@ -352,7 +354,7 @@ async function reconcileFluxadmMapping(apiport) {
     const mapping = await client.getMapping({ public: port, protocol: 'TCP' });
     const ours = mapping !== null
       && mapping.local === true
-      && mapping.description === FLUXADM_MAPPING_DESCRIPTION;
+      && sameDescription(mapping.description, FLUXADM_MAPPING_DESCRIPTION);
     if (ours) {
       await client.removeMapping({ public: port, protocol: 'TCP' });
       log.info(`fluxadm access - UPnP mapping for port ${port} removed`);
@@ -536,9 +538,29 @@ async function removeMapUpnpPort(port, description = '') {
  */
 function isOwnedMappingDescription(description) {
   if (typeof description !== 'string') return false;
-  if (description === FLUXADM_MAPPING_DESCRIPTION && fluxadmPort.isArcane) return false;
-  return OWNED_MAPPING_DESCRIPTIONS.has(description)
-    || OWNED_MAPPING_PREFIXES.some((prefix) => description.startsWith(prefix));
+  if (sameDescription(description, FLUXADM_MAPPING_DESCRIPTION) && fluxadmPort.isArcane) return false;
+  return [...OWNED_MAPPING_DESCRIPTIONS].some((owned) => sameDescription(description, owned))
+    || OWNED_MAPPING_PREFIXES.some((prefix) => descriptionStartsWith(description, prefix));
+}
+
+/**
+ * Whether two mapping descriptions are the same as a router stores them.
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
+function sameDescription(a, b) {
+  return natUpnp.canonicalDescription(a) === natUpnp.canonicalDescription(b);
+}
+
+/**
+ * Whether a mapping description begins with a prefix, as a router stores them.
+ * @param {string} description
+ * @param {string} prefix
+ * @returns {boolean}
+ */
+function descriptionStartsWith(description, prefix) {
+  return natUpnp.canonicalDescription(description).startsWith(natUpnp.canonicalDescription(prefix));
 }
 
 /**
@@ -548,7 +570,8 @@ function isOwnedMappingDescription(description) {
  */
 function isTestMappingDescription(description) {
   return typeof description === 'string'
-    && (TEST_MAPPING_DESCRIPTIONS.has(description) || description.startsWith(TEST_MAPPING_PREFIX));
+    && ([...TEST_MAPPING_DESCRIPTIONS].some((test) => sameDescription(description, test))
+      || descriptionStartsWith(description, TEST_MAPPING_PREFIX));
 }
 
 /**
