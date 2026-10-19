@@ -10,7 +10,7 @@ import {
   freezeDocker, thawDocker, thawEveryNode, stuckThreads, processesThatCanRun,
 } from '../framework/host-stall.js';
 import {
-  DOCKERD_UNIT, freezeUnit, restartFluxos,
+  DOCKERD_UNIT, freezeUnit, restartFluxos, unitCgroup,
 } from '../framework/systemd-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -42,7 +42,8 @@ const OWNER = 'hostStall';
 const byOwner = (data) => data.owner === OWNER;
 const outOfServiceForTheStall = (data) => data.dosState >= 100
   && String(data.dosMessage).includes('Host stall') && String(data.dosMessage).includes('dockerd');
-const sliceOf = (appName) => `/sys/fs/cgroup/flux.slice/flux-${appName}.slice`;
+// the app names here have no '-', which a slice name escapes
+const sliceOf = (appName) => `flux-${appName}.slice`;
 
 function step(what) {
   console.log(`# 3303 ${new Date().toISOString()} ${what}`);
@@ -83,8 +84,9 @@ describe('a stalled host takes the node out of service', function () {
 
   it('runs the app in its own slice', async function () {
     const pid = (await execInContainer(container, `docker inspect -f '{{.State.Pid}}' flux${appName}_${appName}`)).stdout.trim();
-    const cgroup = (await execInContainer(container, `cat /proc/${pid}/cgroup`)).stdout;
-    expect(cgroup, 'the app container is not in its slice, so the kill below has nothing to find').to.include(`/flux.slice/flux-${appName}.slice/`);
+    const cgroup = (await execInContainer(container, `cat /proc/${pid}/cgroup`)).stdout.trim().replace(/^0::/, '/sys/fs/cgroup');
+    const slice = await unitCgroup(container, sliceOf(appName)).catch(() => null);
+    expect(slice !== null && cgroup.startsWith(`${slice}/`), `the app container is in ${cgroup}, not in its slice ${slice}, so the kill below has nothing to find`).to.equal(true);
   });
 
   describe('a stall shorter than the threshold', function () {

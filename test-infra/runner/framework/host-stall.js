@@ -7,6 +7,7 @@
 // mounts its docker data root on a filesystem of its own. The env's teardown thaws
 // it, so a node a failing test left frozen can still be stopped.
 import { execInContainer } from './container.js';
+import { unitCgroup } from './systemd-control.js';
 
 export const DOCKER_ROOT = '/mnt/appdata/docker';
 
@@ -44,15 +45,17 @@ export async function thawEveryNode(clients) {
 }
 
 /**
- * The processes in a cgroup and every cgroup below it that could still run:
- * neither gone nor with SIGKILL pending. Read inside the node, independently of
- * FluxOS.
+ * The processes in a unit's cgroup and every cgroup below it that could still
+ * run: neither gone nor with SIGKILL pending. Read inside the node, independently
+ * of FluxOS, from where the node's systemd says the unit is. Throws when systemd
+ * has no cgroup for the unit, which is never an answer of "nothing can run".
  * @param {object} container
- * @param {string} cgroupDir Under /sys/fs/cgroup.
+ * @param {string} unit A systemd unit, e.g. an app's slice.
  * @returns {Promise<string[]>} Their pids; empty when nothing in it can run again.
  */
-export async function processesThatCanRun(container, cgroupDir) {
-  const script = `[ -d '${cgroupDir}' ] || exit 0; for p in $(find '${cgroupDir}' -name cgroup.procs -exec cat {} +); do `
+export async function processesThatCanRun(container, unit) {
+  const cgroupDir = await unitCgroup(container, unit);
+  const script = `for p in $(find '${cgroupDir}' -name cgroup.procs -exec cat {} +); do `
     + 's=/proc/$p/status; [ -r $s ] || continue; '
     + 'k=$(awk \'/^(SigPnd|ShdPnd):/{print $2}\' $s | while read m; do [ $(( 0x$m & 0x100 )) -ne 0 ] && echo y; done); '
     + '[ -z "$k" ] && echo $p; done; true';

@@ -105,8 +105,8 @@ export async function resumeDockerd(container, opts = {}) {
     { timeout: opts.timeout ?? 60000, interval: 500, label: 'dockerd reachable' });
 }
 
-/** The unit's cgroup directory, as the node sees it. */
-async function unitCgroup(container, unit) {
+/** The unit's cgroup directory, as the node's systemd reports it. Throws when it has none. */
+export async function unitCgroup(container, unit) {
   const r = await execInContainer(container, `systemctl show -p ControlGroup --value ${unit}`);
   const group = r.stdout.trim();
   if (r.exitCode !== 0 || !group) throw new Error(`unit ${unit} has no cgroup: is it running?`);
