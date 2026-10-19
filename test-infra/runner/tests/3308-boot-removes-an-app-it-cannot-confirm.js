@@ -4,8 +4,9 @@
  * cannot be read, the node cannot tell, so it never starts the app: it removes it and
  * tells the network.
  *
- * Every FluxOS start runs that check, so a restart is a boot here. The node's reads of
- * the location collection are refused for the whole of it.
+ * The check runs for apps whose containers are stopped, which is what a machine reboot
+ * leaves. Here FluxOS is killed and held down, the app's container is stopped, and the
+ * node's reads of the location collection are refused before FluxOS comes back.
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
@@ -14,7 +15,9 @@ import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
-import { getAppContainerId, restartFluxos } from '../framework/container.js';
+import {
+  crashFluxos, getAppContainerId, isAppContainerRunning, releaseFluxos, stopAppContainer,
+} from '../framework/container.js';
 import { waitFor } from '../framework/wait.js';
 import { failCommands } from '../framework/mongo-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -33,6 +36,7 @@ describe('boot removes an app whose location it cannot confirm', function () {
   let release;
   let anchors;
   let failedReads;
+  let stoppedAtBoot;
   let heldAfterBoot;
 
   before(async function () {
@@ -66,10 +70,14 @@ describe('boot removes an app whose location it cannot confirm', function () {
       timeout: 120000, interval: 2000, label: 'the app runs before the restart',
     });
 
+    step('taking the node down, its app container stopped and its location reads refused');
+    await crashFluxos(holder.container, { hold: true });
+    const stopped = await stopAppContainer(holder.container, appName, appName);
+    if (stopped.exitCode !== 0) throw new Error(`could not stop the app container: ${stopped.output}`);
+    stoppedAtBoot = !(await isAppContainerRunning(holder.container, appName));
     anchors = env.clients.map((client) => client?.getLastEventId());
     release = await failCommands(HOLDER + 1, 'globalzelapps', 'zelappslocation', { commands: ['find'] });
-    step('restarting FluxOS with its location reads refused');
-    await restartFluxos(holder.container, { readyTimeoutMs: 180000 });
+    await releaseFluxos(holder.container, { readyTimeoutMs: 180000 });
     await holder.waitForEvent('boot:settled', () => true, 300000, { afterId: anchors[HOLDER] });
     // read at boot's end: the node's own spawner may place the app again later
     heldAfterBoot = (await holder.getInstalledApps()).data?.some((a) => a.name === appName) ?? null;
@@ -82,6 +90,10 @@ describe('boot removes an app whose location it cannot confirm', function () {
     this.timeout(60000);
     await release?.().catch(() => {});
     await env?.teardown();
+  });
+
+  it('boots with the app\'s container stopped', function () {
+    expect(stoppedAtBoot, 'the app\'s container was running when FluxOS came back, so boot had nothing to check').to.equal(true);
   });
 
   it('had its reads of the location records refused by the database', function () {
