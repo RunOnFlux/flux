@@ -36,10 +36,44 @@ describe('fluxdCredentials tests', () => {
       expect(await fluxdCredentials.readNodeKeyCredential({ CREDENTIALS_DIRECTORY: dir })).to.equal(null);
     });
 
-    it('refuses an empty node key', async () => {
+    it('refuses an empty node key, naming the file', async () => {
       await fs.writeFile(path.join(dir, 'node-key'), '\n');
       await expect(fluxdCredentials.readNodeKeyCredential({ CREDENTIALS_DIRECTORY: dir }))
-        .to.be.rejectedWith('empty');
+        .to.be.rejectedWith(`the node-key credential ${path.join(dir, 'node-key')} is empty`);
+    });
+
+    it('refuses a node key it cannot read, naming the file', async function unreadable() {
+      if (process.getuid && process.getuid() === 0) this.skip(); // root reads a mode-000 file
+      const file = path.join(dir, 'node-key');
+      await fs.writeFile(file, 'akey');
+      await fs.chmod(file, 0o000);
+      await expect(fluxdCredentials.readNodeKeyCredential({ CREDENTIALS_DIRECTORY: dir }))
+        .to.be.rejectedWith(`the node-key credential ${file} cannot be read`);
+    });
+  });
+
+  describe('loadNodeKey', () => {
+    // A copy of the module of its own: the loaded key is the process's, and every
+    // other suite runs with none.
+    const modulePath = require.resolve('../../ZelBack/src/services/daemonService/fluxdCredentials');
+    let shared;
+    let isolated;
+    beforeEach(() => {
+      shared = require.cache[modulePath];
+      delete require.cache[modulePath];
+      // eslint-disable-next-line global-require
+      isolated = require('../../ZelBack/src/services/daemonService/fluxdCredentials');
+    });
+    afterEach(() => {
+      require.cache[modulePath] = shared;
+    });
+
+    it('reads the credential once per process', async () => {
+      await fs.writeFile(path.join(dir, 'node-key'), 'firstkey');
+      const loaded = await isolated.loadNodeKey({ CREDENTIALS_DIRECTORY: dir });
+      await fs.writeFile(path.join(dir, 'node-key'), 'secondkey');
+      expect(loaded).to.equal('firstkey');
+      expect(await isolated.loadNodeKey({})).to.equal('firstkey');
     });
   });
 
