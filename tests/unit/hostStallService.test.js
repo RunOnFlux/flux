@@ -68,6 +68,31 @@ describe('hostStallService tests', () => {
     sinon.restore();
   });
 
+  // A reading begun before a stop that ends after the next start's readings would
+  // replace what they have counted with what it read.
+  it('keeps nothing from a reading still under way when it stops', async () => {
+    const otherRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hoststall-other-'));
+    fs.mkdirSync(path.join(otherRoot, 'self'));
+    fs.writeFileSync(path.join(otherRoot, 'self', 'status'), 'Name:\tnode\nNSpid:\t4242\n');
+    let finishReading = null;
+    const readdir = fs.promises.readdir.bind(fs.promises);
+    sinon.stub(fs.promises, 'readdir').callsFake((dir, ...rest) => (dir === otherRoot
+      ? new Promise((resolve) => { finishReading = () => resolve([]); })
+      : readdir(dir, ...rest)));
+    stuckMongod();
+    const underWay = hostStallService.readOnce({ ...paths, procRoot: otherRoot });
+    while (!finishReading) await new Promise((resolve) => { setImmediate(resolve); }); // eslint-disable-line no-await-in-loop
+
+    hostStallService.stop();
+    await readTimes(2);
+    finishReading();
+    await underWay;
+    await readTimes(stuckIntervals - 1);
+
+    expect(outOfService(), 'a reading begun before the stop reset what came after it').to.equal(true);
+    fs.rmSync(otherRoot, { recursive: true, force: true });
+  });
+
   it('holds the node back once a thread stays in D without running for one interval', async () => {
     stuckMongod();
     await read();

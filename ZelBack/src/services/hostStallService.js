@@ -40,6 +40,9 @@ const STUCK_INTERVALS = config.hostStall.stuckIntervals;
  */
 let tracked = new Map();
 let readTimer = null;
+// Advanced by stop(), so a reading still under way when the service stops
+// neither keeps what it read nor acts on it.
+let generation = 0;
 /** Called once the node is out of service for a host stall. */
 const tripListeners = [];
 const DEFAULT_PATHS = {
@@ -102,15 +105,16 @@ function namespaceDepth(status) {
 
 /**
  * Every thread of every dependency process in this PID namespace.
+ * @param {string} procRoot The /proc this reading reads, fixed when it starts.
  * @returns {Promise<Array<{process: string, pid: string, tid: string, state: string, startTime: string, switches: number, wchan: string}>>}
  */
-async function readDependencyThreads() {
-  const ownDepth = namespaceDepth(await readOrNull(path.join(paths.procRoot, 'self', 'status')));
-  const pids = (await fs.readdir(paths.procRoot)).filter((entry) => /^\d+$/.test(entry));
+async function readDependencyThreads(procRoot) {
+  const ownDepth = namespaceDepth(await readOrNull(path.join(procRoot, 'self', 'status')));
+  const pids = (await fs.readdir(procRoot)).filter((entry) => /^\d+$/.test(entry));
   const threads = [];
   // eslint-disable-next-line no-restricted-syntax
   for (const pid of pids) {
-    const pidDir = path.join(paths.procRoot, pid);
+    const pidDir = path.join(procRoot, pid);
     // eslint-disable-next-line no-await-in-loop
     const comm = (await readOrNull(path.join(pidDir, 'comm')))?.trim();
     // eslint-disable-next-line no-continue
@@ -244,7 +248,10 @@ async function act() {
  */
 async function readOnce(options = {}) {
   usePaths(options);
-  tracked = carryForward(await readDependencyThreads());
+  const startedIn = generation;
+  const threads = await readDependencyThreads(paths.procRoot);
+  if (startedIn !== generation) return;
+  tracked = carryForward(threads);
   await act();
 }
 
@@ -272,6 +279,7 @@ async function start(options = {}) {
 
 /** Take no more readings and forget every thread. */
 function stop() {
+  generation += 1;
   clearTimeout(readTimer);
   readTimer = null;
   tracked = new Map();
