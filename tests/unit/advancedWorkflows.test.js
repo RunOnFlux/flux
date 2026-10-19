@@ -132,6 +132,19 @@ describe('advancedWorkflows tests', () => {
       expect(nodeTier.called, 'the refusal is decided before any work is done').to.be.false;
       expect(globalState.installationInProgress, 'a refusal released someone else\'s hold').to.be.true;
     });
+
+    it('refuses an app whose removal is pending', async () => {
+      const nodeTier = sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      globalState.departingApps.enter(appSpec.name);
+      try {
+        const result = await advancedWorkflows.softRegisterAppLocally(appSpec, false, makeRes());
+
+        expect(result).to.equal(InstallOutcome.BUSY);
+        expect(nodeTier.called, 'the refusal is decided before any work is done').to.be.false;
+      } finally {
+        globalState.departingApps.leave(appSpec.name);
+      }
+    });
   });
 
   describe('setRemovalInProgress and getRemovalInProgress tests', () => {
@@ -7350,6 +7363,18 @@ describe('advancedWorkflows tests', () => {
     // redeploys nothing. Nothing on that branch judges what it wrote: the installer
     // judges what it installs, and this installs nothing, so an owner the network
     // refuses holds the application until something unrelated sweeps the node.
+    it('leaves an app whose removal is pending to a later pass', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      globalState.departingApps.enter(installedApp.name);
+      try {
+        await advancedWorkflows.reinstallOldApplications();
+      } finally {
+        globalState.departingApps.leave(installedApp.name);
+      }
+
+      expect(softUninstallComponent.called, 'rebuilt an app its pending removal would take again').to.be.false;
+    });
+
     it('asks the sweep about an application whose record it rewrote without redeploying', async () => {
       const requestComplianceSweep = sinon.stub(imageManager, 'requestComplianceSweep').resolves();
       dbHelper.findOneInDatabase.resolves({

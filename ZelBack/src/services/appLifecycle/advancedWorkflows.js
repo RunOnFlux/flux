@@ -1035,6 +1035,17 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       }
       return InstallOutcome.BUSY;
     }
+    // A pending removal of the app removes whatever is installed in its place, so
+    // the app takes no install until that removal has finished.
+    if (globalState.departingApps.has(appSpecs.name)) {
+      const rStatus = messageHelper.createErrorMessage(`Flux App ${appSpecs.name} is being removed`);
+      log.error(rStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(rStatus));
+        if (res.flush) res.flush();
+      }
+      return InstallOutcome.BUSY;
+    }
     globalState.installationInProgress = true;
     acquired = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
@@ -4231,6 +4242,13 @@ async function reinstallOldApplications() {
     const appsInstalled = installedAppsRes.data;
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled) {
+      // An app whose removal is pending is not rebuilt: that removal would take
+      // the rebuilt app too. A later pass finds it again if it is still installed.
+      if (globalState.departingApps.has(installedApp.name)) {
+        log.info(`reinstallOldApplications - ${installedApp.name} is being removed, leaving it for a later pass`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       // get current app specifications for the app name
       // if match found. Check if hash found.
       // if same, do nothing. if different remove and install.
