@@ -17,6 +17,7 @@ const globalState = require('../../ZelBack/src/services/utils/globalState');
 const log = require('../../ZelBack/src/lib/log');
 const { requireMongo } = require('./dbTestHelper');
 const { UNPOSITIONED } = require('../../ZelBack/src/services/migrations/paymentPositions');
+const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
 
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
@@ -2148,6 +2149,18 @@ describe('explorerService tests', () => {
 
       expect(removed).to.equal(3);
       expect((await hashes.find({}, { projection: { _id: 0, txid: 1 } }).sort({ txid: 1 }).toArray()).map((r) => r.txid)).to.deep.equal(['first', 'only']);
+    });
+
+    it('keeps every duplicate when the stored message cannot be moved, so the next index build recovers them again', async () => {
+      await hashes.insertMany([
+        { hash: 'paid', txid: 'first', height: 300 },
+        { hash: 'paid', txid: 'later', height: 400 },
+      ]);
+      sinon.stub(messageVerifier, 'moveStoredMessagesToPayments').rejects(new Error('connection timed out'));
+
+      await expect(explorerService.keepEarliestPayment(hashes)).to.be.rejectedWith('connection timed out');
+
+      expect(await hashes.countDocuments({ hash: 'paid' })).to.equal(2);
     });
 
     it('moves the stored message of a hash it kept the earliest payment of onto that payment', async () => {

@@ -753,9 +753,9 @@ async function processBlock(blockHeight, isInsightExplorer) {
  * hash, and answers how many it removed: a payment this node already holds
  * stands (standingAppPayment), so a scan keeps the earliest, and a record
  * whose transaction the chain does not hold is no payment and gives way to one
- * that is. The stored message of each such hash then moves to the record kept,
- * and the registry rebuild at boot writes its app's row from it. The recovery
- * the unique hash index is built with.
+ * that is. The stored message of each such hash moves to the record kept before
+ * the others are removed, and the registry rebuild at boot writes its app's row
+ * from it. The recovery the unique hash index is built with.
  * @param {object} collection the appsHashes collection
  * @returns {Promise<number>}
  */
@@ -777,10 +777,12 @@ async function keepEarliestPayment(collection) {
   ]).toArray();
   const toRemove = groups.flatMap((group) => group.rows.slice(1).map((row) => row.id));
   if (!toRemove.length) return 0;
-  await collection.deleteMany({ _id: { $in: toRemove } });
+  // the messages first: until the duplicates are gone, a failure here is found
+  // again by the next build of the unique index, which runs this again
   await messageVerifier.moveStoredMessagesToPayments(groups.map(({ _id: hash, rows: [kept] }) => ({
     hash, txid: kept.txid, height: kept.height, value: kept.value,
   })));
+  await collection.deleteMany({ _id: { $in: toRemove } });
   return toRemove.length;
 }
 
