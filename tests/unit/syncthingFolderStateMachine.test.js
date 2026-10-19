@@ -2310,8 +2310,9 @@ describe('syncthingFolderStateMachine tests', () => {
     });
 
     // A change whose cluster version is this node's own is held by no other device:
-    // syncthing reverts it by deleting it. It is this node's data, so it is kept and
-    // promoted with the rest.
+    // syncthing reverts it by deleting it. One to data another device wrote is the
+    // only copy of that data, so it is kept and promoted with the rest; one this node
+    // made itself is reverted, as any pollution is.
     describe('a local change no other device holds', () => {
       const pollutedCandidate = () => {
         mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: false, numberOfExecutions: 1 });
@@ -2326,7 +2327,7 @@ describe('syncthingFolderStateMachine tests', () => {
 
       it('is kept, and the folder is promoted', async () => {
         pollutedCandidate();
-        syncthingServiceMock.getDbFile.resolves({ global: { localFlags: 8 }, local: { localFlags: 8 } });
+        syncthingServiceMock.getDbFile.resolves({ global: { localFlags: 8 }, local: { localFlags: 8, version: ['PRIMARY:5', 'LOCAL-D:9'] } });
 
         const result = await stateMachine.manageFolderSyncState(mockParams);
 
@@ -2334,10 +2335,20 @@ describe('syncthingFolderStateMachine tests', () => {
         expect(result.cache.restarted, 'a change only this node holds kept the folder from promoting').to.be.true;
       });
 
+      it('is reverted when this node made it', async () => {
+        pollutedCandidate();
+        syncthingServiceMock.getDbFile.resolves({ global: { localFlags: 8 }, local: { localFlags: 8, version: ['LOCAL-D:9'] } });
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
+        expect(result.cache.restarted).to.be.false;
+      });
+
       it('is found behind changes other devices hold', async () => {
         pollutedCandidate();
         syncthingServiceMock.getDbLocalChanged.resolves({ files: [{ name: 'appdata/held' }, { name: 'appdata/only-here' }] });
-        syncthingServiceMock.getDbFile.withArgs('test-app', 'appdata/only-here').resolves({ global: { localFlags: 8 } });
+        syncthingServiceMock.getDbFile.withArgs('test-app', 'appdata/only-here').resolves({ global: { localFlags: 8 }, local: { version: ['PRIMARY:5'] } });
 
         await stateMachine.manageFolderSyncState(mockParams);
 
@@ -2352,7 +2363,7 @@ describe('syncthingFolderStateMachine tests', () => {
         syncthingServiceMock.getDbStatus.resolves({
           globalBytes: 1000, inSyncBytes: 1000, state: 'idle', receiveOnlyChangedFiles: 0, receiveOnlyChangedDirectories: 1,
         });
-        syncthingServiceMock.getDbFile.resolves({ global: { localFlags: 8 } });
+        syncthingServiceMock.getDbFile.resolves({ global: { localFlags: 8 }, local: { version: ['PRIMARY:5', 'LOCAL-D:9'] } });
         const publish = sinon.stub(fluxEventBus, 'publish');
         try {
           await stateMachine.manageFolderSyncState(mockParams);

@@ -1293,15 +1293,23 @@ const RECEIVE_ONLY_CHANGE_FLAG = 8;
 const LOCAL_CHANGE_PAGE_SIZE = 1000;
 
 /**
- * Whether any of a receive-only folder's local changes is held by no other device:
- * the cluster's version of it is this node's own change. syncthing reverts such an
- * item by deleting it, and a directory that is not empty cannot be deleted, so that
- * revert fails on every pass.
+ * Whether a receive-only folder holds a local change that is the cluster's data and
+ * that no other device holds: an item whose cluster version is this node's own change
+ * (db/file, global localFlags) and whose history names another device (a version
+ * vector counter that is not this node's). syncthing reverts such an item by deleting
+ * it - the only copy of data the app wrote elsewhere - and a directory that is not
+ * empty cannot be deleted, so that revert fails on every pass.
+ *
+ * An item whose history is this node's alone was made here, never by the app's
+ * writer: reverting deletes it, as it should.
  * @param {string} appId - The Syncthing folder ID
  * @returns {Promise<boolean|null>} null when the changes could not be read
  */
 async function localChangeHeldOnlyHere(appId) {
   try {
+    const deviceId = await syncthingService.getDeviceId();
+    if (!deviceId) return null;
+    const ownCounter = `${deviceId.substring(0, 7)}:`;
     for (let page = 1; ; page += 1) {
       // eslint-disable-next-line no-await-in-loop
       const batch = (await syncthingService.getDbLocalChanged(appId, page, LOCAL_CHANGE_PAGE_SIZE))?.files;
@@ -1309,9 +1317,11 @@ async function localChangeHeldOnlyHere(appId) {
       // eslint-disable-next-line no-restricted-syntax
       for (const item of batch) {
         // eslint-disable-next-line no-await-in-loop
-        const { global } = await syncthingService.getDbFile(appId, item.name);
+        const { global, local } = await syncthingService.getDbFile(appId, item.name);
         // eslint-disable-next-line no-bitwise
-        if ((global?.localFlags ?? 0) & RECEIVE_ONLY_CHANGE_FLAG) return true;
+        const onlyHere = Boolean((global?.localFlags ?? 0) & RECEIVE_ONLY_CHANGE_FLAG);
+        const fromElsewhere = (local?.version ?? []).some((counter) => !counter.startsWith(ownCounter));
+        if (onlyHere && fromElsewhere) return true;
       }
       if (batch.length < LOCAL_CHANGE_PAGE_SIZE) return false;
     }
@@ -1330,9 +1340,10 @@ async function localChangeHeldOnlyHere(appId) {
  * version and deletes local-only items that are not ignored, so it runs only
  * against a complete global index (isSynced).
  *
- * A change no other device holds is this node's data, and db/revert would delete
- * it. A folder holding one is not reverted, and its changes do not hold the node
- * back from taking over: promoted, it publishes them.
+ * A change no other device holds, to data that came from another device, is the
+ * only copy of it left, and db/revert would delete it. A folder holding one is not
+ * reverted - db/revert takes the whole folder, so its other changes stay too - and
+ * its changes do not hold the node back from taking over: promoted, it publishes them.
  *
  * @param {string} appId - The Syncthing folder ID
  * @param {Object|null} syncStatus - A probeFolderSyncCompletion status
@@ -1351,7 +1362,7 @@ async function revertLocalChangesIfSynced(appId, syncStatus) {
     return true;
   }
   if (heldOnlyHere) {
-    log.warn(`revertLocalChangesIfSynced - ${appId} holds local changes no other device holds (${files} files, ${directories} directories); keeping them, a revert would delete them`);
+    log.warn(`revertLocalChangesIfSynced - ${appId} holds a local change to data from another device that no other device holds (${files} files, ${directories} directories changed); keeping its changes, a revert would delete it`);
     fluxEventBus.publish('syncthing:localChangesKept', { folder: appId, files, directories });
     return false;
   }
