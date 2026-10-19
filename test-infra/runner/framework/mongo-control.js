@@ -55,16 +55,17 @@ export async function releaseCommands() {
   });
 }
 
-// The next `times` writes to one collection of one node fail, as a write the
-// database could not complete does, and every other node's go through: each node
-// keeps its data in databases of its own (dbClient's prefix). Resolves to a
-// release that turns the failure off and resolves to how many writes it failed.
-export async function failWrites(nodeNum, database, collection, { times = 1 } = {}) {
+// The given commands on one collection of one node fail, as a call the database could
+// not complete does, and every other node's go through: each node keeps its data in
+// databases of its own (dbClient's prefix). `times` fails that many and then stops; left
+// out, every one fails until released. Resolves to a release that turns the failure off
+// and resolves to how many commands it failed.
+export async function failCommands(nodeNum, database, collection, { commands, times } = {}) {
   const namespace = `node${String(nodeNum).padStart(2, '0')}_${database}.${collection}`;
   await withAdmin((admin) => admin.command({
     configureFailPoint: 'failCommand',
-    mode: { times },
-    data: { failCommands: ['insert', 'update'], namespace, errorCode: 91 },
+    mode: times === undefined ? 'alwaysOn' : { times },
+    data: { failCommands: commands, namespace, errorCode: 91 },
   }));
   return async function release() {
     // turning a failpoint off answers how many times it fired
@@ -73,3 +74,7 @@ export async function failWrites(nodeNum, database, collection, { times = 1 } = 
   };
 }
 
+// The next `times` writes to one collection of one node fail (failCommands).
+export async function failWrites(nodeNum, database, collection, { times = 1 } = {}) {
+  return failCommands(nodeNum, database, collection, { commands: ['insert', 'update'], times });
+}
