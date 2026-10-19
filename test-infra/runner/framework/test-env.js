@@ -1245,12 +1245,6 @@ export async function createTestEnv({
   if (aptBadSource && legacyNodes.length === 0) {
     throw new Error('createTestEnv: aptBadSource needs legacyNodes - no other node type runs apt');
   }
-  // fluxos.service runs FluxOS as root, so an unprivileged node cannot be one.
-  // Refused here rather than at the node's own boot, where it would read as a
-  // node that never came up.
-  if (systemdMode && unprivilegedNodes.length) {
-    throw new Error('createTestEnv: systemdMode runs FluxOS as root - unprivilegedNodes is not supported with it');
-  }
   // The boot-lock queue wait must not count against the suite's hook budget.
   // Mocha enforces a hook's timeout twice: the watchdog timer (which would fire
   // MID-QUEUE whenever the queue alone outlasts the budget), and a completion-time

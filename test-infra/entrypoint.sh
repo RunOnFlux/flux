@@ -253,12 +253,6 @@ fi
 # (/tmp/fluxos.pid — restartFluxos) does not exist under systemd, and
 # framework/systemd-control.js holds the equivalents.
 if [ "$FLUX_SYSTEMD_MODE" = "true" ]; then
-  # fluxos.service runs FluxOS as root. An unprivileged node is a different
-  # install shape, and booting it as root would test the wrong one.
-  if [ -n "$FLUX_FLUXOS_USER" ]; then
-    echo "[entrypoint] FATAL: systemd mode runs FluxOS as root; FLUX_FLUXOS_USER=$FLUX_FLUXOS_USER is not supported here" >&2
-    exit 1
-  fi
 
   # The Ubuntu base image's policy-rc.d refuses every service start a package
   # install asks for. A host has none, so a package installed here starts its
@@ -282,6 +276,15 @@ if [ "$FLUX_SYSTEMD_MODE" = "true" ]; then
   mkdir -p /etc/systemd/system/multi-user.target.wants
   ln -sf /etc/systemd/system/dockerd.service /etc/systemd/system/multi-user.target.wants/dockerd.service
   ln -sf /etc/systemd/system/fluxos.service /etc/systemd/system/multi-user.target.wants/fluxos.service
+  # An unprivileged node runs FluxOS as the operator's account, as an operator's own
+  # install does; systemd gives the service that account's HOME, from which a legacy
+  # node derives its flux directory. The apps folder is the account's, and nothing
+  # else changes hands, as in the default mode below.
+  if [ -n "$FLUX_FLUXOS_USER" ]; then
+    mkdir -p /etc/systemd/system/fluxos.service.d
+    printf '[Service]\nUser=%s\n' "$FLUX_FLUXOS_USER" > /etc/systemd/system/fluxos.service.d/user.conf
+    chown "$(id -u "$FLUX_FLUXOS_USER"):$(id -g "$FLUX_FLUXOS_USER")" "${FLUX_APPS_FOLDER:-/mnt/appdata/flux-apps}"
+  fi
   if [ -n "$FLUX_SYNCTHING_HOST" ]; then
     ln -sf /etc/systemd/system/syncthing-forward.service /etc/systemd/system/multi-user.target.wants/syncthing-forward.service
   fi
