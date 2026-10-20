@@ -692,6 +692,17 @@ describe('upnpService tests', () => {
       sinon.assert.calledOnceWithExactly(removeMappingStub, { public: { host: '', port: 31000 }, protocol: 'TCP', signal: sinon.match.instanceOf(AbortSignal) });
     });
 
+    it('should give the router\'s requests whole-millisecond timeouts from a budget that halves to a fraction', async () => {
+      routerHas([mapping(31000, 'Flux_App_gone')]);
+
+      const removed = await upnpService.removeStaleMappings(async () => [16127], 29_999);
+
+      expect(removed).to.equal(1);
+      const timeouts = AbortSignal.timeout.getCalls().map((call) => call.args[0]);
+      expect(timeouts).to.have.length(2);
+      timeouts.forEach((ms) => expect(Number.isInteger(ms), `${ms} ms`).to.equal(true));
+    });
+
     it('should remove nothing from an empty table', async () => {
       const removed = await upnpService.removeStaleMappings(async () => [16127], BUDGET_MS);
 
