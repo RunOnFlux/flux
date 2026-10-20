@@ -493,16 +493,43 @@ function dropPendingRemovals(port) {
 }
 
 /**
+ * Whether the router still maps one protocol of a port to this node. A router
+ * finds this node's own entries, which carry no lease, whenever it holds them,
+ * so a lookup it answers with a fault is taken as holding none.
+ * @param {number} port
+ * @param {string} protocol 'TCP' or 'UDP'
+ * @returns {Promise<boolean|null>} null when the router did not answer
+ */
+async function routerMapsHere(port, protocol) {
+  try {
+    return mapsHere(await client.getMapping({ public: port, protocol }), port);
+  } catch (error) {
+    if (error instanceof natUpnp.UpnpError) return false;
+    log.error(`UPnP - ${protocol} ${port} not looked up: ${error.message}`);
+    return null;
+  }
+}
+
+/**
  * Asks the router once more to remove a pending removal's mapping, in turn
  * behind any other pending removal, and schedules the next ask if it refuses
- * again.
+ * again. The router is asked first whether the mapping is still this node's:
+ * one it no longer holds, or holds for something else, ends the removal with
+ * nothing sent, and a router that does not answer is asked again later.
  * @param {object} pending
  */
 function askPendingRemoval(pending) {
   pendingRemovalTurn = pendingRemovalTurn.then(async () => {
     const key = `${pending.port}/${pending.protocol}`;
     if (pendingRemovals.get(key) !== pending) return;
-    if (await removeProtocol(pending.port, pending.protocol)) {
+    const held = await routerMapsHere(pending.port, pending.protocol);
+    if (pendingRemovals.get(key) !== pending) return;
+    if (held === false) {
+      deletePendingRemoval(key);
+      log.info(`UPnP - ${pending.protocol} ${pending.port} (${pending.description}) no longer this node's on the router, nothing to remove`);
+      return;
+    }
+    if (held && await removeProtocol(pending.port, pending.protocol)) {
       deletePendingRemoval(key);
       log.info(`UPnP - ${pending.protocol} ${pending.port} (${pending.description}) unmapped after ${pending.refusals} refusal(s)`);
       return;
