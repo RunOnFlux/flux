@@ -210,8 +210,19 @@ export async function enableUpnpGateway(ip, {
 }
 
 /**
+ * Set how many DeletePortMapping requests a node's gateway refuses from now on, keeping its
+ * table and the requests it has seen.
+ * @param {string} ip
+ * @param {number} count - Infinity refuses every one
+ */
+export async function setUpnpRefuseDeletes(ip, count) {
+  const res = await post(`/upnp-gateway/${ip}/refuse-deletes`, { count: Number.isFinite(count) ? count : Number.MAX_SAFE_INTEGER });
+  if (!res.ok) throw new Error(`setUpnpRefuseDeletes: ${JSON.stringify(res)}`);
+}
+
+/**
  * The gateway a node is behind: its port mappings and the actions the node sent it, each with
- * the external port it named (null for an action that names none).
+ * the external port, protocol and description it named (null for one it names none of).
  * @param {string} ip
  * @returns {Promise<{externalIp: string|null, mappings: object[], requests: object[]}|null>}
  */

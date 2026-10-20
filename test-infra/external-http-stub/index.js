@@ -768,7 +768,13 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
   const action = String(req.get('SOAPAction') || '').replace(/"/g, '').split('#')[1] || '';
   const arg = (name) => (String(req.body).match(new RegExp(`<${name}>([^<]*)</${name}>`)) || [])[1] ?? '';
   const sameEntry = (m) => m.externalPort === Number(arg('NewExternalPort')) && m.protocol === arg('NewProtocol').toUpperCase();
-  gateway.requests.push({ action, port: Number(arg('NewExternalPort')) || null, at: new Date().toISOString() });
+  gateway.requests.push({
+    action,
+    port: Number(arg('NewExternalPort')) || null,
+    protocol: arg('NewProtocol').toUpperCase() || null,
+    description: arg('NewPortMappingDescription') || null,
+    at: new Date().toISOString(),
+  });
   switch (action) {
     case 'GetExternalIPAddress':
       soapReply(res, action, { NewExternalIPAddress: gateway.externalIp ?? clientAddress(req) });
@@ -1028,6 +1034,18 @@ control.post('/upnp-gateway', (req, res) => {
   state.upnpGateways[ip] = {
     externalIp, capacity, mappings, refuseDeletes, fritzDescriptions, requests: [],
   };
+  res.json({ ok: true });
+});
+
+// Set how many DeletePortMapping requests a node's gateway refuses from now on,
+// keeping its table and the requests it has seen.
+control.post('/upnp-gateway/:ip/refuse-deletes', (req, res) => {
+  const gateway = state.upnpGateways[req.params.ip];
+  if (!gateway) {
+    res.status(404).json({ error: 'no gateway for that ip' });
+    return;
+  }
+  gateway.refuseDeletes = Number(req.body?.count ?? 0);
   res.json({ ok: true });
 });
 
