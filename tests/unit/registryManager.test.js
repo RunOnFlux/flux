@@ -1203,11 +1203,12 @@ describe('registryManager tests', () => {
       promise.then(() => { state.done = true; }, () => { state.done = true; });
       return state;
     };
-    // the rebuild reads the scanned height from mongo before it reaches the stub
+    // the rebuild reads the scanned height from mongo before it reaches the
+    // stub, so this waits for the stub however long that read takes
     const rebuildsStarted = async (count) => {
-      for (let i = 0; i < 1000 && rebuildStub.callCount < count; i += 1) {
+      while (rebuildStub.callCount < count) {
         // eslint-disable-next-line no-await-in-loop
-        await new Promise((resolve) => { setImmediate(resolve); });
+        await new Promise((resolve) => { setTimeout(resolve, 1); });
       }
       expect(rebuildStub.callCount).to.equal(count);
     };
