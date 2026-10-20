@@ -1263,6 +1263,30 @@ describe('upnpService tests', () => {
       expect(most, 'never two at once').to.equal(1);
     });
 
+    it('should keep asking for both protocols of a port when the router refuses to remove either', async () => {
+      await upnpService.mapUpnpPort(123, 'Flux_App_web');
+      removeMappingStub.onCall(0).rejects(refused());
+      removeMappingStub.onCall(1).rejects(refused());
+      await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
+
+      expect([...upnpService.pendingRemovals.keys()].sort()).to.deep.equal(['123/TCP', '123/UDP']);
+      await clock.tickAsync(FIRST_MS);
+      expect(removals().slice(2).sort()).to.deep.equal(['123/TCP', '123/UDP']);
+      expect(upnpService.pendingRemovals.size).to.equal(0);
+    });
+
+    it('should keep a pending removal when the port is removed again with nothing mapped since', async () => {
+      await mapTcpOnly(123, 'Flux_App_web');
+      removeMappingStub.onCall(0).rejects(refused());
+      await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
+
+      expect(await upnpService.removeMapUpnpPort(123, 'Flux_App_web')).to.equal(true);
+      await clock.tickAsync(FIRST_MS);
+
+      expect(removals()).to.deep.equal(['123/TCP', '123/TCP']);
+      expect(upnpService.pendingRemovals.size).to.equal(0);
+    });
+
     it('should ask now for a test mapping\'s pending removal, and say whether it has gone', async () => {
       await mapTcpOnly(123, 'Flux_Test_App');
       removeMappingStub.onCall(0).rejects(refused());

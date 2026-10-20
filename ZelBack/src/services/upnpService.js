@@ -547,8 +547,9 @@ async function removeMapUpnpPort(port, description = '') {
       const pending = {
         port: +port, protocol, description, refusals: 0, timer: null,
       };
-      dropPendingRemovals(+port);
-      pendingRemovals.set(`${+port}/${protocol}`, pending);
+      const key = `${+port}/${protocol}`;
+      clearTimeout(pendingRemovals.get(key)?.timer);
+      pendingRemovals.set(key, pending);
       schedulePendingRemoval(pending);
     }
     // eslint-disable-next-line no-await-in-loop
