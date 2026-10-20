@@ -59,6 +59,12 @@ const Checkpoint = Object.freeze({
   // A state sync has every answer it needs and the node has not yet become
   // authoritative from them, so it still refuses to answer a peer's sync.
   APPSYNC_BEFORE_AUTHORITATIVE: 'appSync:beforeAuthoritative',
+  // A bulk hash sync has staged what its peers sent and has not yet verified
+  // any of it.
+  HASHSYNC_BEFORE_VERIFY: 'hashSync:beforeVerify',
+  // A node serving its permanent message log by height is about to write the
+  // next piece of it. Keyed by the number of pieces it has written.
+  MESSAGE_LOG_BEFORE_PIECE: 'messageLog:beforePiece',
   // A start decision is about to ask a peer what it holds. Keyed by the peer's
   // socket address.
   MASTERSLAVE_BEFORE_PEER_PROBE: 'masterSlave:beforePeerProbe',
