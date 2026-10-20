@@ -124,7 +124,7 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
         const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
-        if (portResponse === true) {
+        if (portResponse.mapped) {
           const portStatus = {
             status: `Port ${port} mapped OK`,
           };
@@ -134,7 +134,7 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
             if (res.flush) res.flush();
           }
         } else {
-          throw new Error(`Error: Port ${port} FAILed to map.`);
+          throw new Error(`Error: Port ${port} FAILed to map. ${portResponse.reason}`);
         }
       }
     }
@@ -144,7 +144,7 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
     if (isUPNP) {
       log.info('Custom port specified, mapping ports');
       const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
-      if (portResponse === true) {
+      if (portResponse.mapped) {
         const portStatus = {
           status: `Port ${appSpecifications.port} mapped OK`,
         };
@@ -154,7 +154,7 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
           if (res.flush) res.flush();
         }
       } else {
-        throw new Error(`Error: Port ${appSpecifications.port} FAILed to map.`);
+        throw new Error(`Error: Port ${appSpecifications.port} FAILed to map. ${portResponse.reason}`);
       }
     }
   }

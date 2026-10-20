@@ -700,7 +700,7 @@ async function trySpawningGlobalApplication() {
 
     // Note: User-blocked port check happens earlier (line ~353) before Docker Hub calls
     // Check if ports are publicly available - critical for proper Flux network operation
-    const portVerdict = await portManager.checkInstallingAppPortAvailable(appPorts);
+    const portVerdict = await portManager.checkInstallingAppPortAvailable(appPorts, appSpecifications.name);
     if (portVerdict.ok === false) {
       log.error(`trySpawningGlobalApplication - Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
       // The cause lives in portManager, which says which port and which peers;

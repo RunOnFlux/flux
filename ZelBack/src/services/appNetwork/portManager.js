@@ -298,7 +298,7 @@ async function restoreAppsPortsSupport() {
         // eslint-disable-next-line no-restricted-syntax
         for (const port of application.ports) {
           // eslint-disable-next-line no-await-in-loop
-          let upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
+          let upnpOk = (await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`)).mapped;
           if (!upnpOk) {
             if (!retryDelayElapsed) {
               // eslint-disable-next-line no-await-in-loop
@@ -306,7 +306,7 @@ async function restoreAppsPortsSupport() {
               retryDelayElapsed = true;
             }
             // eslint-disable-next-line no-await-in-loop
-            upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
+            upnpOk = (await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`)).mapped;
           }
           if (!upnpOk) {
             failedPort = port;
@@ -817,11 +817,19 @@ function portNotOurs(portsToTest, answered, token) {
  * about the network, and only one of them is evidence. The object returned is
  * the one published to the harness bus, so the two cannot drift.
  *
+ * Behind UPnP each port is mapped for the test under the application's own
+ * description, the one its installation maps it under: a mapping the router
+ * keeps after the test - a removal it refused, an entry it will not rewrite -
+ * is then the application's as it installs, or a stale one of an application
+ * this node does not hold, for the cleanup.
+ *
  * @param {Array} portsToTest Array of ports to test
+ * @param {string} appName the application the ports are for
  * @returns {Promise<{ok: boolean, reason: string, port?: number, peers?: string[],
  *   readings?: object, asked?: string[], silent?: boolean}>}
  */
-async function checkInstallingAppPortAvailable(portsToTest = []) {
+async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
+  const description = `Flux_App_${appName}`;
   const beforeAppInstallTestingServers = [];
   // One secret for this whole test run, published by our own test servers and
   // never sent to the peer. The peer returns what it read; we compare.
@@ -873,9 +881,9 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       }
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
-        const upnpMapResult = await upnpService.mapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
-        if (!upnpMapResult) {
-          throw new Error('Failed to create map UPNP port');
+        const upnpMapResult = await upnpService.mapUpnpPort(portToTest, description);
+        if (!upnpMapResult.mapped) {
+          throw new Error(`Failed to create map UPNP port: ${upnpMapResult.reason}`);
         }
       }
       const testHttpServer = new fluxHttpTestServer.FluxHttpTestServer(portTestToken);
@@ -1131,7 +1139,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       }
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.removeMapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
+        await upnpService.removeMapUpnpPort(portToTest, description);
       }
     }
     // Close all test servers and wait for them to finish
@@ -1158,7 +1166,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       }
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.removeMapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`).catch((e) => log.error(e));
+        await upnpService.removeMapUpnpPort(portToTest, description).catch((e) => log.error(e));
       }
     }
     // Close all test servers and wait for them to finish

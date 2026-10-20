@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
+const proxyquire = require('proxyquire');
 // eslint-disable-next-line no-unused-vars
 const axios = require('axios');
 const config = require('config');
@@ -12,6 +13,13 @@ const verificationHelper = require('../../ZelBack/src/services/verificationHelpe
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const upnpService = require('../../ZelBack/src/services/upnpService');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
+const fluxHttpTestServer = require('../../ZelBack/src/services/utils/fluxHttpTestServer');
+
+const signer = { pubKey: 'pubkey', sign: () => 'signature' };
+// the check with a node that can sign its port test
+const signingAvailabilityChecker = proxyquire('../../ZelBack/src/services/appMonitoring/availabilityChecker', {
+  '../utils/nodeSigner': { nodeSigner: async () => signer },
+});
 
 describe('availabilityChecker tests', () => {
   let mockInstalledAppsFn;
@@ -30,7 +38,7 @@ describe('availabilityChecker tests', () => {
       testingPort: null,
       nextTestingPort: null,
       originalPortFailed: null,
-      lastUPNPMapFailed: false,
+      routerRefusalsSeen: 0,
     };
     mockPortsNotWorking = new Set();
     mockFailedNodesCache = new Map();
@@ -320,29 +328,57 @@ describe('availabilityChecker tests', () => {
       sinon.assert.calledWith(delayStub, 15_000);
     });
 
-    it('should handle UPNP mapping failures', async () => {
-      const apps = [];
+    describe('a node behind UPnP', () => {
+      const UPNP_DOS = 'Not possible to run applications on the node, router returning exceptions when creating UPNP ports mappings';
+      let refusals;
+      let mapUpnpPortStub;
+      let removeMapUpnpPortStub;
+      let portTestStub;
 
-      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({
-        data: { synced: true },
+      const refused = (code, routerWide) => ({
+        mapped: false, code, reason: `TCP 1 not mapped: UPnP error ${code}`, routerWide,
       });
-      sinon.stub(generalService, 'isNodeStatusConfirmed').resolves(true);
-      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.100:16127');
-      mockInstalledAppsFn.resolves({ status: 'success', data: apps });
-      sinon.stub(upnpService, 'isUPNP').returns(true);
-      sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
-      // The port under test is drawn at random, so this gate has to be closed
-      // too: left real, it refuses whenever the draw lands in upnpBannedPorts
-      // and the run returns before it ever reaches mapUpnpPort.
-      sinon.stub(fluxNetworkHelper, 'isPortUPNPBanned').returns(false);
-      sinon.stub(networkStateService, 'getRandomExternalObserver').resolves('192.168.1.200:16127');
-      sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
-      sinon.stub(fluxNetworkHelper, 'allowTestPort').resolves();
-      sinon.stub(upnpService, 'mapUpnpPort').resolves(false); // Failed
-      sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves();
-      sinon.stub(upnpService, 'removeMapUpnpPort').resolves();
+      const MAPPED = {
+        mapped: true, code: null, reason: null, routerWide: false,
+      };
+      // the router refuses `count` mappings of others - an install's, a restore's
+      const routerRefusesOthers = (count) => { refusals += count; };
 
-      await availabilityChecker.checkMyAppsAvailability(
+      beforeEach(() => {
+        refusals = 0;
+        sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
+        sinon.stub(generalService, 'isNodeStatusConfirmed').resolves(true);
+        sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.100:16127');
+        mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+        sinon.stub(upnpService, 'isUPNP').returns(true);
+        sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
+        // The port under test is drawn at random, so this gate has to be closed
+        // too: left real, it refuses whenever the draw lands in upnpBannedPorts
+        // and the run returns before it ever reaches mapUpnpPort.
+        sinon.stub(fluxNetworkHelper, 'isPortUPNPBanned').returns(false);
+        sinon.stub(networkStateService, 'getRandomExternalObserver').resolves('192.168.1.200:16127');
+        sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
+        sinon.stub(fluxNetworkHelper, 'allowTestPort').resolves();
+        sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves();
+        sinon.stub(upnpService, 'routerRefusals').callsFake(() => refusals);
+        sinon.stub(upnpService, 'removalPending').returns(false);
+        mapUpnpPortStub = sinon.stub(upnpService, 'mapUpnpPort').resolves(MAPPED);
+        removeMapUpnpPortStub = sinon.stub(upnpService, 'removeMapUpnpPort').resolves(true);
+        sinon.stub(fluxHttpTestServer.FluxHttpTestServer.prototype, 'listen').callsFake(function listen() {
+          this.emit('listening');
+          return this;
+        });
+        sinon.stub(fluxHttpTestServer.FluxHttpTestServer.prototype, 'close').callsFake((callback) => callback && callback());
+        portTestStub = sinon.stub(axios, 'post').resolves({ data: { status: 'success', data: { message: 'Ports reachable' } } });
+      });
+
+      // the test mapping refused as `result` gives it, one router-wide refusal counted when it is
+      const testMappingRefused = (result) => mapUpnpPortStub.callsFake(async () => {
+        if (result.routerWide) refusals += 1;
+        return result;
+      });
+
+      const pass = () => signingAvailabilityChecker.checkMyAppsAvailability(
         mockInstalledAppsFn,
         mockDosState,
         mockPortsNotWorking,
@@ -350,118 +386,228 @@ describe('availabilityChecker tests', () => {
         isArcane,
       );
 
-      expect(mockDosState.lastUPNPMapFailed).to.be.true;
-    });
+      it('counts a test mapping the router refused for its own reason', async () => {
+        testMappingRefused(refused(728, true));
 
-    it('opens the port under test to IPv4 only, and deletes only that rule', async () => {
-      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
-      sinon.stub(generalService, 'isNodeStatusConfirmed').resolves(true);
-      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.100:16127');
-      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
-      sinon.stub(upnpService, 'isUPNP').returns(true);
-      sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
-      sinon.stub(fluxNetworkHelper, 'isPortUPNPBanned').returns(false);
-      sinon.stub(networkStateService, 'getRandomExternalObserver').resolves('192.168.1.200:16127');
-      sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
-      const allowTest = sinon.stub(fluxNetworkHelper, 'allowTestPort').resolves();
-      const deleteTest = sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves();
-      const allowBoth = sinon.stub(fluxNetworkHelper, 'allowPort').resolves();
-      const deleteBoth = sinon.stub(fluxNetworkHelper, 'deleteAllowPortRule').resolves();
-      sinon.stub(upnpService, 'mapUpnpPort').resolves(false);
-      sinon.stub(upnpService, 'removeMapUpnpPort').resolves();
+        await pass();
 
-      await availabilityChecker.checkMyAppsAvailability(mockInstalledAppsFn, mockDosState, mockPortsNotWorking, mockFailedNodesCache, isArcane);
-
-      sinon.assert.calledOnceWithExactly(allowTest, mockDosState.testingPort);
-      sinon.assert.calledWith(deleteTest, mockDosState.testingPort);
-      sinon.assert.notCalled(allowBoth);
-      sinon.assert.notCalled(deleteBoth);
-    });
-
-    it('should increase DOS state on repeated UPNP failures', async () => {
-      const apps = [];
-      mockDosState.lastUPNPMapFailed = true; // Already failed once
-
-      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({
-        data: { synced: true },
+        expect(mockDosState.portFailureScore).to.equal(4);
+        expect(mockDosState.dosStateValue, 'the node\'s DOS, which a count below the threshold leaves alone').to.equal(0);
+        sinon.assert.notCalled(portTestStub);
+        sinon.assert.calledWith(delayStub, 60_000);
       });
-      sinon.stub(generalService, 'isNodeStatusConfirmed').resolves(true);
-      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.100:16127');
-      mockInstalledAppsFn.resolves({ status: 'success', data: apps });
-      sinon.stub(upnpService, 'isUPNP').returns(true);
-      sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
-      // The port under test is drawn at random, so this gate has to be closed
-      // too: left real, it refuses whenever the draw lands in upnpBannedPorts
-      // and the run returns before it ever reaches mapUpnpPort.
-      sinon.stub(fluxNetworkHelper, 'isPortUPNPBanned').returns(false);
-      sinon.stub(networkStateService, 'getRandomExternalObserver').resolves('192.168.1.200:16127');
-      sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
-      sinon.stub(fluxNetworkHelper, 'allowTestPort').resolves();
-      sinon.stub(upnpService, 'mapUpnpPort').resolves(false);
-      sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves();
-      sinon.stub(upnpService, 'removeMapUpnpPort').resolves();
 
-      await availabilityChecker.checkMyAppsAvailability(
-        mockInstalledAppsFn,
-        mockDosState,
-        mockPortsNotWorking,
-        mockFailedNodesCache,
-        isArcane,
-      );
+      it('does not count a test mapping refused for its port alone', async () => {
+        testMappingRefused(refused(718, false));
 
-      expect(mockDosState.portFailureScore).to.equal(4);
-      expect(mockDosState.dosStateValue, 'the node\'s DOS, which a count below the threshold leaves alone').to.equal(0);
-    });
+        await pass();
 
-    it('leaves another check\'s DOS message standing when its own UPnP failures reach the threshold', async () => {
-      mockDosState.lastUPNPMapFailed = true;
-      mockDosState.portFailureScore = 96;
-      mockDosState.dosStateValue = 12;
-      mockDosState.dosMessage = 'Flux is not available for outside communication';
+        expect(mockDosState.portFailureScore ?? 0).to.equal(0);
+      });
 
-      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
-      sinon.stub(generalService, 'isNodeStatusConfirmed').resolves(true);
-      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.100:16127');
-      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
-      sinon.stub(upnpService, 'isUPNP').returns(true);
-      sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
-      sinon.stub(fluxNetworkHelper, 'isPortUPNPBanned').returns(false);
-      sinon.stub(networkStateService, 'getRandomExternalObserver').resolves('192.168.1.200:16127');
-      sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
-      sinon.stub(fluxNetworkHelper, 'allowTestPort').resolves();
-      sinon.stub(upnpService, 'mapUpnpPort').resolves(false);
-      sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves();
-      sinon.stub(upnpService, 'removeMapUpnpPort').resolves();
+      it('maps the port under test over TCP alone', async () => {
+        await pass();
 
-      await availabilityChecker.checkMyAppsAvailability(mockInstalledAppsFn, mockDosState, mockPortsNotWorking, mockFailedNodesCache, isArcane);
+        sinon.assert.calledOnceWithExactly(mapUpnpPortStub, mockDosState.testingPort, 'Flux_Test_App', { protocols: ['TCP'] });
+      });
 
-      expect(mockDosState.portFailureScore).to.equal(100);
-      expect(mockDosState.dosStateValue).to.equal(12);
-      expect(mockDosState.dosMessage).to.equal('Flux is not available for outside communication');
-    });
+      it('makes no test mapping, opens no port, and counts a failed check while the router has yet to remove a mapping of this node', async () => {
+        upnpService.removalPending.returns(true);
 
-    it('holds the node out of service with its own message when its UPnP failures reach the threshold and no other stands', async () => {
-      mockDosState.lastUPNPMapFailed = true;
-      mockDosState.portFailureScore = 96;
+        await pass();
 
-      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
-      sinon.stub(generalService, 'isNodeStatusConfirmed').resolves(true);
-      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.100:16127');
-      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
-      sinon.stub(upnpService, 'isUPNP').returns(true);
-      sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
-      sinon.stub(fluxNetworkHelper, 'isPortUPNPBanned').returns(false);
-      sinon.stub(networkStateService, 'getRandomExternalObserver').resolves('192.168.1.200:16127');
-      sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
-      sinon.stub(fluxNetworkHelper, 'allowTestPort').resolves();
-      sinon.stub(upnpService, 'mapUpnpPort').resolves(false);
-      sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves();
-      sinon.stub(upnpService, 'removeMapUpnpPort').resolves();
+        sinon.assert.notCalled(mapUpnpPortStub);
+        sinon.assert.notCalled(fluxNetworkHelper.allowTestPort);
+        sinon.assert.notCalled(portTestStub);
+        expect(mockDosState.portFailureScore).to.equal(4);
+        sinon.assert.calledWith(delayStub, 60_000);
+      });
 
-      await availabilityChecker.checkMyAppsAvailability(mockInstalledAppsFn, mockDosState, mockPortsNotWorking, mockFailedNodesCache, isArcane);
+      it('holds the node out of service once the router has yet to remove a mapping for as many passes as the threshold takes', async () => {
+        upnpService.removalPending.returns(true);
 
-      expect(mockDosState.dosMessage).to.match(/^Not possible to run applications on the node/);
-      expect(mockDosState.dosStateValue).to.equal(100);
+        // eslint-disable-next-line no-restricted-syntax
+        for (let i = 0; i < 25; i += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await pass();
+        }
+
+        expect(mockDosState.portFailureScore).to.equal(100);
+        expect(mockDosState.dosMessage).to.equal(UPNP_DOS);
+        expect(mockDosState.dosStateValue).to.equal(100);
+        sinon.assert.calledWith(delayStub.lastCall, 300_000);
+      });
+
+      it('waits no longer than an error\'s wait after a pass that left a removal pending', async () => {
+        upnpService.removalPending.onFirstCall().returns(false).returns(true);
+
+        await pass();
+
+        sinon.assert.calledOnce(portTestStub);
+        sinon.assert.calledWith(delayStub.lastCall, 60_000);
+      });
+
+      it('waits no longer than an error\'s wait after a passing test in a pass that counted a router refusal', async () => {
+        routerRefusesOthers(1);
+
+        await pass();
+
+        sinon.assert.calledOnce(portTestStub);
+        sinon.assert.calledWith(delayStub.lastCall, 60_000);
+      });
+
+      it('waits no longer than an error\'s wait after a pass the router refused a mapping during', async () => {
+        portTestStub.callsFake(async () => {
+          routerRefusesOthers(1);
+          return { data: { status: 'success', data: { message: 'Ports reachable' } } };
+        });
+
+        await pass();
+
+        expect(mockDosState.portFailureScore ?? 0, 'counted by the next pass').to.equal(0);
+        sinon.assert.calledWith(delayStub.lastCall, 60_000);
+      });
+
+      it('waits a DOS\'s wait after a pass that counted a router refusal while out of service', async () => {
+        mockDosState.portFailureScore = 100;
+        mockDosState.dosStateValue = 100;
+        mockDosState.dosMessage = UPNP_DOS;
+        routerRefusesOthers(1);
+
+        await pass();
+
+        sinon.assert.calledWith(delayStub.lastCall, 300_000);
+      });
+
+      it('waits the whole wait after a passing test that left nothing pending', async () => {
+        await pass();
+
+        sinon.assert.calledWith(delayStub.lastCall, 3_600_000);
+      });
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const event of ['mappingRefused', 'removalPending', 'removalsClear']) {
+        it(`starts its next pass at once on UPnP's ${event}`, async () => {
+          delayStub.returns(new Promise(() => {}));
+          let waited = false;
+          const done = pass().then(() => { waited = true; });
+          // eslint-disable-next-line no-await-in-loop
+          for (let i = 0; i < 1000 && !delayStub.called; i += 1) await Promise.resolve();
+          sinon.assert.calledOnceWithExactly(delayStub, 3_600_000);
+          expect(waited, 'still waiting').to.equal(false);
+
+          upnpService.routerEvents.emit(event);
+          upnpService.routerEvents.emit(event);
+          await done;
+
+          expect(waited).to.equal(true);
+          sinon.assert.calledOnce(setImmediateStub);
+        });
+      }
+
+      it('starts no pass on a wake while it is not waiting', async () => {
+        portTestStub.callsFake(async () => {
+          upnpService.routerEvents.emit('removalsClear');
+          return { data: { status: 'success', data: { message: 'Ports reachable' } } };
+        });
+
+        await pass();
+
+        sinon.assert.calledOnce(setImmediateStub);
+        sinon.assert.calledWith(delayStub.lastCall, 3_600_000);
+      });
+
+      it('removes what the router kept of a test mapping it refused', async () => {
+        testMappingRefused(refused(718, false));
+
+        await pass();
+
+        sinon.assert.calledOnceWithExactly(removeMapUpnpPortStub, mockDosState.testingPort, 'Flux_Test_App');
+      });
+
+      it('opens the port under test to IPv4 only, and deletes only that rule', async () => {
+        testMappingRefused(refused(728, true));
+        const allowBoth = sinon.stub(fluxNetworkHelper, 'allowPort').resolves();
+        const deleteBoth = sinon.stub(fluxNetworkHelper, 'deleteAllowPortRule').resolves();
+
+        await pass();
+
+        sinon.assert.calledOnceWithExactly(fluxNetworkHelper.allowTestPort, mockDosState.testingPort);
+        sinon.assert.calledWith(fluxNetworkHelper.deleteTestPortRule, mockDosState.testingPort);
+        sinon.assert.notCalled(allowBoth);
+        sinon.assert.notCalled(deleteBoth);
+      });
+
+      it('counts once a pass however many mappings the router refused since the last', async () => {
+        routerRefusesOthers(7);
+
+        await pass();
+
+        expect(mockDosState.portFailureScore).to.equal(4);
+        expect(mockDosState.routerRefusalsSeen).to.equal(7);
+      });
+
+      it('counts nothing for refusals an earlier pass counted', async () => {
+        routerRefusesOthers(7);
+        mockDosState.routerRefusalsSeen = 7;
+
+        await pass();
+
+        expect(mockDosState.portFailureScore ?? 0).to.equal(0);
+      });
+
+      it('keeps its router DOS through a pass whose test worked while the router refused others', async () => {
+        mockDosState.portFailureScore = 100;
+        mockDosState.dosStateValue = 100;
+        mockDosState.dosMessage = UPNP_DOS;
+        routerRefusesOthers(1);
+
+        await pass();
+
+        sinon.assert.calledOnce(portTestStub);
+        expect(mockDosState.dosMessage).to.equal(UPNP_DOS);
+        expect(mockDosState.dosStateValue).to.equal(100);
+        expect(mockDosState.portFailureScore).to.equal(100);
+      });
+
+      it('ends its router DOS on a pass whose test worked and the router refused nothing', async () => {
+        mockDosState.portFailureScore = 100;
+        mockDosState.dosStateValue = 100;
+        mockDosState.dosMessage = UPNP_DOS;
+        routerRefusesOthers(3);
+        mockDosState.routerRefusalsSeen = 3;
+
+        await pass();
+
+        sinon.assert.calledOnce(portTestStub);
+        expect(mockDosState.dosMessage).to.equal(null);
+        expect(mockDosState.dosStateValue).to.equal(0);
+        expect(mockDosState.portFailureScore).to.equal(0);
+      });
+
+      it('leaves another check\'s DOS message standing when its own UPnP failures reach the threshold', async () => {
+        mockDosState.portFailureScore = 96;
+        mockDosState.dosStateValue = 12;
+        mockDosState.dosMessage = 'Flux is not available for outside communication';
+        testMappingRefused(refused(728, true));
+
+        await pass();
+
+        expect(mockDosState.portFailureScore).to.equal(100);
+        expect(mockDosState.dosStateValue).to.equal(12);
+        expect(mockDosState.dosMessage).to.equal('Flux is not available for outside communication');
+      });
+
+      it('holds the node out of service with its own message when its UPnP failures reach the threshold and no other stands', async () => {
+        mockDosState.portFailureScore = 96;
+        testMappingRefused(refused(728, true));
+
+        await pass();
+
+        expect(mockDosState.dosMessage).to.equal(UPNP_DOS);
+        expect(mockDosState.dosStateValue).to.equal(100);
+        sinon.assert.calledWith(delayStub, 300_000);
+      });
     });
 
     it('should handle errors gracefully and retry', async () => {
