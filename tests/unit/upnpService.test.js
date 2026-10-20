@@ -1454,6 +1454,17 @@ describe('upnpService tests', () => {
       expect(removedPorts).to.deep.equal([31000, 31001, 31002]);
     });
 
+    it('should give the router\'s requests whole-millisecond timeouts from a budget that halves to a fraction', async () => {
+      routerHas([mapping(31000, 'Flux_App_gone')]);
+
+      const removed = await upnpService.removeStaleMappings(async () => [16127], 29_999);
+
+      expect(removed).to.equal(1);
+      const timeouts = AbortSignal.timeout.getCalls().map((call) => call.args[0]);
+      expect(timeouts).to.have.length(2);
+      timeouts.forEach((ms) => expect(Number.isInteger(ms), `${ms} ms`).to.equal(true));
+    });
+
     it('should remove nothing from an empty table', async () => {
       const removed = await upnpService.removeStaleMappings(async () => [16127], BUDGET_MS);
 

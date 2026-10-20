@@ -660,9 +660,11 @@ function msUntilCleanupSlot(apiport, now = Date.now()) {
  * @returns {Promise<number>} how many mappings were removed
  */
 async function removeOwnMappings(select, budgetMs, what) {
-  const deadline = monotonicMs() + budgetMs;
+  // AbortSignal.timeout takes whole milliseconds only
+  const wholeBudgetMs = Math.floor(budgetMs);
+  const deadline = monotonicMs() + wholeBudgetMs;
   const left = () => deadline - monotonicMs();
-  const listingMs = budgetMs - Math.min(CLEANUP_REMOVAL_RESERVE_MS, budgetMs / 2);
+  const listingMs = wholeBudgetMs - Math.min(CLEANUP_REMOVAL_RESERVE_MS, Math.floor(wholeBudgetMs / 2));
   const mappings = await client.getMappings({ local: true, signal: AbortSignal.timeout(listingMs) });
   const chosen = (await select(mappings)).filter((mapping) => Number.isInteger(mapping.public.port));
   let removed = 0;
