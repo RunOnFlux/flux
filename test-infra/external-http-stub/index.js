@@ -812,6 +812,13 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
       }
       const before = gateway.mappings.length;
       gateway.mappings = gateway.mappings.filter((m) => !sameEntry(m));
+      // a router that removes the entry and answers with a fault, and answers a
+      // removal of one it does not hold with the same fault, never 714
+      if (gateway.deleteFault) {
+        gateway.requests[gateway.requests.length - 1].refused = gateway.deleteFault;
+        soapFault(res, gateway.deleteFault, 'ActionFailed');
+        return;
+      }
       if (gateway.mappings.length === before) soapFault(res, 714, 'NoSuchEntryInArray');
       else soapReply(res, action, {});
       return;
@@ -1047,6 +1054,19 @@ control.post('/upnp-gateway/:ip/refuse-deletes', (req, res) => {
     return;
   }
   gateway.refuseDeletes = Number(req.body?.count ?? 0);
+  res.json({ ok: true });
+});
+
+// Set the fault a node's gateway answers every removal with from now on, while
+// still carrying it out (null: answer as the spec says), keeping its table and
+// the requests it has seen.
+control.post('/upnp-gateway/:ip/delete-fault', (req, res) => {
+  const gateway = state.upnpGateways[req.params.ip];
+  if (!gateway) {
+    res.status(404).json({ error: 'no gateway for that ip' });
+    return;
+  }
+  gateway.deleteFault = req.body?.code ?? null;
   res.json({ ok: true });
 });
 

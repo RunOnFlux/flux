@@ -221,6 +221,18 @@ export async function setUpnpRefuseDeletes(ip, count) {
 }
 
 /**
+ * Set the fault a node's gateway answers every removal with from now on, while still carrying
+ * it out, and the same fault for a removal of an entry it does not hold, where the spec says
+ * 714. Keeps its table and the requests it has seen; each such answer carries `refused: <code>`.
+ * @param {string} ip
+ * @param {number|null} code - null answers as the spec says
+ */
+export async function setUpnpDeleteFault(ip, code) {
+  const res = await post(`/upnp-gateway/${ip}/delete-fault`, { code });
+  if (!res.ok) throw new Error(`setUpnpDeleteFault: ${JSON.stringify(res)}`);
+}
+
+/**
  * Set how many mappings a node's gateway holds from now on, keeping its table and the requests
  * it has seen. A new mapping past it is refused with 728, carried as `refused: 728` in its state.
  * @param {string} ip

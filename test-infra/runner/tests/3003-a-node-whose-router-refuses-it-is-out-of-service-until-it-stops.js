@@ -9,7 +9,7 @@ import { pushBusybox } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, seedSpawnerApp } from '../framework/reconciler-suite.js';
 import {
-  enableUpnpGateway, setUpnpCapacity, setUpnpRefuseDeletes, upnpGatewayState,
+  enableUpnpGateway, setUpnpCapacity, setUpnpDeleteFault, setUpnpRefuseDeletes, upnpGatewayState,
 } from '../framework/external-http-control.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
 import {
@@ -31,7 +31,10 @@ const subnet = getSubnetConfig();
 // the router taking the removal starts the pass that tests and releases the
 // node. An app's mapping a full router refuses starts the next pass at once;
 // that pass's own test mapping is refused too, and so is every one after it
-// until the router has room, when the next pass releases the node.
+// until the router has room, when the next pass releases the node. A router
+// that carries out a removal but answers it with a fault - and answers the
+// same for an entry it no longer holds - leaves nothing pending: the retry
+// finds the entry gone, and the node stays in service.
 
 const NODE = 0;
 const PASSED_WAIT_MS = 10 * 60 * 1000;
@@ -208,5 +211,41 @@ describe('a node whose router refuses it is out of service until it stops', func
 
     const made = testMappings((await gateway()).requests, roomFrom);
     expect(made.some((r) => r.refused === undefined), 'a test mapping the router took').to.equal(true);
+  });
+
+  it('stays in service when its router carries out an app\'s removal but answers it with a fault', async function () {
+    this.timeout(DOS_WITHIN_MS + 400000);
+    const name = `e2eupnpfault${Date.now()}`;
+    const app = await buildApp(name);
+    const [port] = app.spec.compose[0].ports;
+    const mark = node.getLastEventId();
+    await seedSpawnerApp(env, app, [NODE]);
+    await waitForAppInstalled(node, name, 240000, { afterId: mark });
+    expect((await gateway()).mappings.some((m) => m.externalPort === port), 'the app\'s port mapped').to.equal(true);
+
+    await setUpnpDeleteFault(nodeIp, 501);
+    const faultFrom = Date.now();
+    const auth = await authenticate(node.url, fluxTeamKey());
+    const res = await fetch(`${node.url}/apps/appremove/${name}`, { headers: { zelidauth: auth.zelidauth } });
+    await res.text();
+    await waitForAppRemoved(node, name, 120000);
+
+    // a pending removal would count every 5 s pass and reach the DOS inside this window
+    const watchedUntil = Date.now() + DOS_WITHIN_MS;
+    while (Date.now() < watchedUntil) {
+      // eslint-disable-next-line no-await-in-loop
+      expect((await dosOf(node)).dosMessage ?? null, 'never out of service').to.not.equal(UPNP_DOS);
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((resolve) => { setTimeout(resolve, 5000); });
+    }
+    await setUpnpDeleteFault(nodeIp, null);
+
+    const { requests, mappings } = await gateway();
+    const ofPort = requests.filter((r) => r.port === port && Date.parse(r.at) >= faultFrom);
+    expect(ofPort.some((r) => r.action === 'DeletePortMapping' && r.refused === 501), 'canary: the router answered the removal with a fault').to.equal(true);
+    expect(mappings.some((m) => m.externalPort === port), 'canary: and carried it out').to.equal(false);
+    const lookup = ofPort.findIndex((r) => r.action === 'GetSpecificPortMappingEntry');
+    expect(lookup, 'the retry looked the entry up').to.be.at.least(0);
+    expect(ofPort.slice(lookup).filter((r) => r.action === 'DeletePortMapping'), 'no removal sent once it was found gone').to.have.length(0);
   });
 });
