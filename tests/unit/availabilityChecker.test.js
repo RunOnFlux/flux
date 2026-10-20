@@ -362,6 +362,7 @@ describe('availabilityChecker tests', () => {
         sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves();
         sinon.stub(upnpService, 'routerRefusals').callsFake(() => refusals);
         sinon.stub(upnpService, 'testRemovalPending').returns(false);
+        sinon.stub(upnpService, 'askPendingTestRemovals').resolves(false);
         mapUpnpPortStub = sinon.stub(upnpService, 'mapUpnpPort').resolves(MAPPED);
         removeMapUpnpPortStub = sinon.stub(upnpService, 'removeMapUpnpPort').resolves(true);
         sinon.stub(fluxHttpTestServer.FluxHttpTestServer.prototype, 'listen').callsFake(function listen() {
@@ -405,15 +406,60 @@ describe('availabilityChecker tests', () => {
         expect(mockDosState.portFailureScore ?? 0).to.equal(0);
       });
 
-      it('makes no test mapping, and opens no port, while the router has yet to remove the last one', async () => {
+      it('maps the port under test over TCP alone', async () => {
+        await pass();
+
+        sinon.assert.calledOnceWithExactly(mapUpnpPortStub, mockDosState.testingPort, 'Flux_Test_App', { protocols: ['TCP'] });
+      });
+
+      it('makes no test mapping, opens no port, and counts a failed check while the router refuses to remove the last one', async () => {
         upnpService.testRemovalPending.returns(true);
 
         await pass();
 
+        sinon.assert.calledOnce(upnpService.askPendingTestRemovals);
         sinon.assert.notCalled(mapUpnpPortStub);
         sinon.assert.notCalled(fluxNetworkHelper.allowTestPort);
         sinon.assert.notCalled(portTestStub);
-        expect(mockDosState.portFailureScore ?? 0, 'counts nothing').to.equal(0);
+        expect(mockDosState.portFailureScore).to.equal(4);
+        sinon.assert.calledWith(delayStub, 60_000);
+      });
+
+      it('holds the node out of service once the router has refused to remove the last test mapping for as many passes as the threshold takes', async () => {
+        upnpService.testRemovalPending.returns(true);
+
+        // eslint-disable-next-line no-restricted-syntax
+        for (let i = 0; i < 25; i += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await pass();
+        }
+
+        expect(mockDosState.portFailureScore).to.equal(100);
+        expect(mockDosState.dosMessage).to.equal(UPNP_DOS);
+        expect(mockDosState.dosStateValue).to.equal(100);
+        sinon.assert.calledWith(delayStub.lastCall, 300_000);
+      });
+
+      it('tests, and ends its DOS, on the pass whose ask the router removes the last test mapping on', async () => {
+        mockDosState.portFailureScore = 100;
+        mockDosState.dosStateValue = 100;
+        mockDosState.dosMessage = UPNP_DOS;
+        upnpService.testRemovalPending.returns(true);
+        upnpService.askPendingTestRemovals.resolves(true);
+
+        await pass();
+
+        sinon.assert.calledOnce(mapUpnpPortStub);
+        sinon.assert.calledOnce(portTestStub);
+        expect(mockDosState.dosMessage).to.equal(null);
+        expect(mockDosState.dosStateValue).to.equal(0);
+        expect(mockDosState.portFailureScore).to.equal(0);
+      });
+
+      it('asks the router for no removal when none is pending', async () => {
+        await pass();
+
+        sinon.assert.notCalled(upnpService.askPendingTestRemovals);
       });
 
       it('removes what the router kept of a test mapping it refused', async () => {

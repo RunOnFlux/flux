@@ -399,26 +399,31 @@ async function setupUPNP(apiport = config.server.apiport) {
 }
 
 /**
- * Maps a port to this node over TCP and then UDP.
+ * Maps a port to this node over each of `protocols` in turn, TCP and then UDP
+ * unless given.
  *
- * On a failure the port is no longer held here; a TCP half the router took is
+ * On a failure the port is no longer held here; a protocol the router took is
  * still recorded, for removeMapUpnpPort to remove.
  * @param {number} port Port number.
  * @param {string} description Port description.
+ * @param {{protocols?: string[]}} [options]
  * @returns {Promise<{mapped: boolean, code: number|null, reason: string|null, routerWide: boolean}>}
- *   the first refusal, as mapProtocol gives it; mapped when both protocols are
+ *   the first refusal, as mapProtocol gives it; mapped when every protocol is
  */
-async function mapUpnpPort(port, description) {
+async function mapUpnpPort(port, description, { protocols = ['TCP', 'UDP'] } = {}) {
   // held from before the router has it: the cleanup pass may list it the
   // moment it is there
   mappedHere.add(+port);
   dropPendingRemovals(+port);
-  let result = await mapProtocol(+port, 'TCP', description);
-  recordMapped(+port, 'TCP', result.mapped);
-  if (result.mapped) {
-    await serviceHelper.delay(500);
-    result = await mapProtocol(+port, 'UDP', description);
-    recordMapped(+port, 'UDP', result.mapped);
+  let result = MAPPED;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [i, protocol] of protocols.entries()) {
+    // eslint-disable-next-line no-await-in-loop
+    if (i > 0) await serviceHelper.delay(500);
+    // eslint-disable-next-line no-await-in-loop
+    result = await mapProtocol(+port, protocol, description);
+    recordMapped(+port, protocol, result.mapped);
+    if (!result.mapped) break;
   }
   if (!result.mapped) {
     log.error(`UPnP - ${result.reason}`);
@@ -461,8 +466,29 @@ function dropPendingRemovals(port) {
 
 /**
  * Asks the router once more to remove a pending removal's mapping, in turn
- * behind any other pending removal, and waits longer before the next ask if it
- * refuses again.
+ * behind any other pending removal, and schedules the next ask if it refuses
+ * again.
+ * @param {object} pending
+ * @returns {Promise<void>} settles once the router has been asked
+ */
+function askPendingRemoval(pending) {
+  pendingRemovalTurn = pendingRemovalTurn.then(async () => {
+    const key = `${pending.port}/${pending.protocol}`;
+    if (pendingRemovals.get(key) !== pending) return;
+    if (await removeProtocol(pending.port, pending.protocol)) {
+      pendingRemovals.delete(key);
+      log.info(`UPnP - ${pending.protocol} ${pending.port} (${pending.description}) unmapped after ${pending.refusals} refusal(s)`);
+      return;
+    }
+    // mapped again while the router was being asked: in use, not pending
+    if (pendingRemovals.get(key) === pending) schedulePendingRemoval(pending);
+  });
+  return pendingRemovalTurn;
+}
+
+/**
+ * Asks the router again to remove a pending removal's mapping after a wait
+ * that doubles with each refusal, up to config.upnp.removalRetryMaxMs.
  * @param {object} pending
  */
 function schedulePendingRemoval(pending) {
@@ -471,19 +497,7 @@ function schedulePendingRemoval(pending) {
   // eslint-disable-next-line no-param-reassign
   pending.refusals += 1;
   // eslint-disable-next-line no-param-reassign
-  pending.timer = setTimeout(() => {
-    pendingRemovalTurn = pendingRemovalTurn.then(async () => {
-      const key = `${pending.port}/${pending.protocol}`;
-      if (pendingRemovals.get(key) !== pending) return;
-      if (await removeProtocol(pending.port, pending.protocol)) {
-        pendingRemovals.delete(key);
-        log.info(`UPnP - ${pending.protocol} ${pending.port} (${pending.description}) unmapped after ${pending.refusals} refusal(s)`);
-        return;
-      }
-      // mapped again while the router was being asked: in use, not pending
-      if (pendingRemovals.get(key) === pending) schedulePendingRemoval(pending);
-    });
-  }, waitMs);
+  pending.timer = setTimeout(() => askPendingRemoval(pending), waitMs);
 }
 
 /**
@@ -494,6 +508,18 @@ function schedulePendingRemoval(pending) {
  */
 function testRemovalPending() {
   return [...pendingRemovals.values()].some((pending) => isTestMappingDescription(pending.description));
+}
+
+/**
+ * Asks the router now to remove every pending removal of this node's test
+ * mappings, without waiting for their next scheduled ask.
+ * @returns {Promise<boolean>} whether none is pending any longer
+ */
+async function askPendingTestRemovals() {
+  const tests = [...pendingRemovals.values()].filter((pending) => isTestMappingDescription(pending.description));
+  tests.forEach((pending) => clearTimeout(pending.timer));
+  await Promise.all(tests.map(askPendingRemoval));
+  return !testRemovalPending();
 }
 
 /**
@@ -884,6 +910,7 @@ module.exports = {
   mappedProtocols,
   pendingRemovals,
   testRemovalPending,
+  askPendingTestRemovals,
   CLEANUP_SLOT_MS,
   BOOT_LISTING_STAGGER_MS,
   mapPortApi,

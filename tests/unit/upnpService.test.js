@@ -819,6 +819,17 @@ describe('upnpService tests', () => {
       });
     });
 
+    it('should map only the protocols it is given', async () => {
+      upnpService.mappedProtocols.clear();
+      const result = await upnpService.mapUpnpPort(123, 'Flux_Test_App', { protocols: ['TCP'] });
+
+      expect(result.mapped).to.equal(true);
+      sinon.assert.calledOnceWithExactly(createMappingStub, {
+        public: 123, private: 123, ttl: 0, protocol: 'TCP', description: 'Flux_Test_App',
+      });
+      expect([...upnpService.mappedProtocols.get(123)]).to.deep.equal(['TCP']);
+    });
+
     it('should not ask for UDP when TCP is refused', async () => {
       createMappingStub.rejects(refusal(718, 'ConflictInMappingEntry'));
 
@@ -1250,6 +1261,33 @@ describe('upnpService tests', () => {
 
       expect(removals().slice(2).sort()).to.deep.equal(['123/TCP', '124/TCP']);
       expect(most, 'never two at once').to.equal(1);
+    });
+
+    it('should ask now for a test mapping\'s pending removal, and say whether it has gone', async () => {
+      await mapTcpOnly(123, 'Flux_Test_App');
+      removeMappingStub.onCall(0).rejects(refused());
+      removeMappingStub.onCall(1).rejects(refused());
+      await upnpService.removeMapUpnpPort(123, 'Flux_Test_App');
+
+      expect(await upnpService.askPendingTestRemovals(), 'refused again').to.equal(false);
+      expect(removals().length, 'asked at once, not after the wait').to.equal(2);
+      expect(upnpService.testRemovalPending()).to.equal(true);
+
+      expect(await upnpService.askPendingTestRemovals(), 'removed').to.equal(true);
+      expect(removals().length).to.equal(3);
+      expect(upnpService.pendingRemovals.size).to.equal(0);
+      await clock.tickAsync(MAX_MS);
+      expect(removals().length, 'no scheduled ask left behind').to.equal(3);
+    });
+
+    it('should ask now for no app mapping\'s pending removal', async () => {
+      await mapTcpOnly(123, 'Flux_App_web');
+      removeMappingStub.onCall(0).rejects(refused());
+      await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
+
+      expect(await upnpService.askPendingTestRemovals()).to.equal(true);
+      expect(removals().length).to.equal(1);
+      expect(upnpService.pendingRemovals.has('123/TCP')).to.equal(true);
     });
 
     it('should hold back new test mappings while a test mapping\'s removal is pending, and only then', async () => {

@@ -237,11 +237,13 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       }
     }
 
-    // A router that refused to remove the last test mapping is not given
-    // another until it has.
-    if (isUpnp && upnpService.testRemovalPending()) {
-      log.info('checkMyAppsAvailability - a test mapping is still to be removed from the router; no new one until it is');
-      await serviceHelper.delay(timeouts.error);
+    // A test the router cannot remove the mapping of has not completed: the
+    // pass asks for the removal again, and while it is refused makes no new
+    // test mapping and counts as a failed check.
+    if (isUpnp && upnpService.testRemovalPending() && !await upnpService.askPendingTestRemovals()) {
+      log.info('checkMyAppsAvailability - the router has not removed the last test mapping; no new one until it has');
+      countPortFailure(dosState, thresholds.dos, UPNP_DOS_MESSAGE);
+      await serviceHelper.delay(dosState.portFailureScore >= thresholds.dos ? timeouts.dos : timeouts.error);
       setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));
       return;
     }
@@ -276,13 +278,13 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     }
 
     if (isUpnp) {
-      const upnpMapResult = await upnpService.mapUpnpPort(dosState.testingPort, 'Flux_Test_App');
+      // the test server is HTTP: TCP is all it needs
+      const upnpMapResult = await upnpService.mapUpnpPort(dosState.testingPort, 'Flux_Test_App', { protocols: ['TCP'] });
       routerRefused = routerRefusedSinceLastPass(dosState);
       if (routerRefused) countPortFailure(dosState, thresholds.dos, UPNP_DOS_MESSAGE);
       if (!upnpMapResult.mapped) {
         log.info(`checkMyAppsAvailability - Testing port ${dosState.testingPort} failed to create UPnP mapping: ${upnpMapResult.reason}`);
         setNextPort();
-        // the router may have kept the TCP half
         await handleTestShutdown(dosState.testingPort, testHttpServer, isArcane, {
           skipFirewall: !firewallActive,
           skipHttpServer: true,
