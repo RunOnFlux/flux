@@ -824,6 +824,11 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
       return;
     }
     case 'GetSpecificPortMappingEntry': {
+      if (gateway.lookupFault) {
+        gateway.requests[gateway.requests.length - 1].refused = gateway.lookupFault;
+        soapFault(res, gateway.lookupFault, 'ActionFailed');
+        return;
+      }
       const entry = gateway.mappings.find(sameEntry);
       if (!entry) {
         soapFault(res, 714, 'NoSuchEntryInArray');
@@ -1054,6 +1059,19 @@ control.post('/upnp-gateway/:ip/refuse-deletes', (req, res) => {
     return;
   }
   gateway.refuseDeletes = Number(req.body?.count ?? 0);
+  res.json({ ok: true });
+});
+
+// Set the fault a node's gateway answers every lookup with from now on, whether
+// or not it holds the entry (null: answer as the spec says), keeping its table
+// and the requests it has seen.
+control.post('/upnp-gateway/:ip/lookup-fault', (req, res) => {
+  const gateway = state.upnpGateways[req.params.ip];
+  if (!gateway) {
+    res.status(404).json({ error: 'no gateway for that ip' });
+    return;
+  }
+  gateway.lookupFault = req.body?.code ?? null;
   res.json({ ok: true });
 });
 

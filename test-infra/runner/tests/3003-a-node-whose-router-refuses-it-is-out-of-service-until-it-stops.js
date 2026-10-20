@@ -9,7 +9,8 @@ import { pushBusybox } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, seedSpawnerApp } from '../framework/reconciler-suite.js';
 import {
-  enableUpnpGateway, setUpnpCapacity, setUpnpDeleteFault, setUpnpRefuseDeletes, upnpGatewayState,
+  enableUpnpGateway, setUpnpCapacity, setUpnpDeleteFault, setUpnpLookupFault, setUpnpRefuseDeletes,
+  upnpGatewayState,
 } from '../framework/external-http-control.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
 import {
@@ -34,7 +35,10 @@ const subnet = getSubnetConfig();
 // until the router has room, when the next pass releases the node. A router
 // that carries out a removal but answers it with a fault - and answers the
 // same for an entry it no longer holds - leaves nothing pending: the retry
-// finds the entry gone, and the node stays in service.
+// finds the entry gone, and the node stays in service. A lookup the router
+// answers with a fault settles nothing: the mapping still counts as the
+// node's, the node is out of service while the router refuses to remove it,
+// and back once the router has.
 
 const NODE = 0;
 const PASSED_WAIT_MS = 10 * 60 * 1000;
@@ -247,5 +251,42 @@ describe('a node whose router refuses it is out of service until it stops', func
     const lookup = ofPort.findIndex((r) => r.action === 'GetSpecificPortMappingEntry');
     expect(lookup, 'the retry looked the entry up').to.be.at.least(0);
     expect(ofPort.slice(lookup).filter((r) => r.action === 'DeletePortMapping'), 'no removal sent once it was found gone').to.have.length(0);
+  });
+
+  it('counts a mapping as its own while the router answers its lookup with a fault, until the router removes it', async function () {
+    this.timeout(DOS_WITHIN_MS + RELEASED_WITHIN_MS + 400000);
+    const name = `e2eupnplookup${Date.now()}`;
+    const app = await buildApp(name);
+    const [port] = app.spec.compose[0].ports;
+    const mark = node.getLastEventId();
+    await seedSpawnerApp(env, app, [NODE]);
+    await waitForAppInstalled(node, name, 240000, { afterId: mark });
+    expect((await gateway()).mappings.some((m) => m.externalPort === port), 'the app\'s port mapped').to.equal(true);
+
+    await setUpnpLookupFault(nodeIp, 501);
+    await setUpnpRefuseDeletes(nodeIp, Infinity);
+    const faultFrom = Date.now();
+    const auth = await authenticate(node.url, fluxTeamKey());
+    const res = await fetch(`${node.url}/apps/appremove/${name}`, { headers: { zelidauth: auth.zelidauth } });
+    await res.text();
+    await waitForAppRemoved(node, name, 120000);
+
+    await waitFor(async () => (await dosOf(node)).dosMessage === UPNP_DOS, {
+      timeout: DOS_WITHIN_MS, interval: 2000, label: 'the node out of service while the router keeps the mapping',
+    });
+    let state = await gateway();
+    const ofPort = () => state.requests.filter((r) => r.port === port && Date.parse(r.at) >= faultFrom);
+    expect(ofPort().some((r) => r.action === 'GetSpecificPortMappingEntry' && r.refused === 501), 'canary: a lookup answered with a fault').to.equal(true);
+    const firstLookup = ofPort().findIndex((r) => r.action === 'GetSpecificPortMappingEntry');
+    expect(ofPort().slice(firstLookup).some((r) => r.action === 'DeletePortMapping'), 'the removal sent after a lookup that settled nothing').to.equal(true);
+    expect(state.mappings.some((m) => m.externalPort === port), 'the mapping still on the router').to.equal(true);
+
+    await setUpnpRefuseDeletes(nodeIp, 0);
+    await waitFor(async () => (await dosOf(node)).dosMessage !== UPNP_DOS, {
+      timeout: RELEASED_WITHIN_MS, interval: 2000, label: 'the node back in service once the router removed the mapping',
+    });
+    await setUpnpLookupFault(nodeIp, null);
+    state = await gateway();
+    expect(state.mappings.some((m) => m.externalPort === port), 'the mapping removed').to.equal(false);
   });
 });

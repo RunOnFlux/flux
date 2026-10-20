@@ -221,6 +221,18 @@ export async function setUpnpRefuseDeletes(ip, count) {
 }
 
 /**
+ * Set the fault a node's gateway answers every GetSpecificPortMappingEntry with from now on,
+ * whether or not it holds the entry. Keeps its table and the requests it has seen; each such
+ * answer carries `refused: <code>`.
+ * @param {string} ip
+ * @param {number|null} code - null answers as the spec says
+ */
+export async function setUpnpLookupFault(ip, code) {
+  const res = await post(`/upnp-gateway/${ip}/lookup-fault`, { code });
+  if (!res.ok) throw new Error(`setUpnpLookupFault: ${JSON.stringify(res)}`);
+}
+
+/**
  * Set the fault a node's gateway answers every removal with from now on, while still carrying
  * it out, and the same fault for a removal of an entry it does not hold, where the spec says
  * 714. Keeps its table and the requests it has seen; each such answer carries `refused: <code>`.
