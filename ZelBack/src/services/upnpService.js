@@ -10,7 +10,13 @@ const ufw = require('./utils/ufw');
 const fluxadmPort = require('./fluxadmPort');
 const { Privilege, authOf } = require('./utils/privileges');
 
-const client = new natUpnp.Client();
+// config.upnp.gatewayUrl names the router's device description, used in place
+// of discovering the router; the node's address is then config.upnp.nodeIp.
+// A discovered router is kept between calls, and found again when it stops
+// answering where it was.
+const client = config.upnp.gatewayUrl
+  ? new natUpnp.Client({ url: config.upnp.gatewayUrl, localAddress: config.upnp.nodeIp || '127.0.0.1' })
+  : new natUpnp.Client({ cacheGateway: true });
 
 const FLUXADM_MAPPING_DESCRIPTION = 'Flux_Fluxadm_SSH';
 
@@ -40,51 +46,11 @@ const mappedHere = new Set();
 const CLEANUP_CYCLE_MS = 10 * 60 * 1000;
 const CLEANUP_SLOT_COUNT = 8;
 const CLEANUP_SLOT_MS = CLEANUP_CYCLE_MS / CLEANUP_SLOT_COUNT;
-// The library's requests have no timeout of their own: a router that restarts
-// with one in flight never answers it.
-const CLEANUP_REQUEST_TIMEOUT_MS = 15 * 1000;
-// The listing stops asking this long before the slot ends, so that what it has
-// listed by then still has time to be removed.
+// The listing has to finish this long before the slot ends, so that what it
+// lists still has time to be removed.
 const CLEANUP_REMOVAL_RESERVE_MS = 15 * 1000;
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
-
-/**
- * Settles with `work`, or rejects once `timeoutMs` has passed, with an error
- * marked `timedOut`. Only the wait ends: the request is still in flight.
- * @param {Promise<*>} work
- * @param {number} timeoutMs
- * @param {string} what what is waited for, for the error
- * @returns {Promise<*>}
- */
-async function withinTime(work, timeoutMs, what) {
-  let timer;
-  try {
-    return await Promise.race([
-      work,
-      new Promise((_, reject) => {
-        timer = setTimeout(() => {
-          const error = new Error(`${what}: the router did not answer within ${timeoutMs / 1000}s`);
-          error.timedOut = true;
-          reject(error);
-        }, timeoutMs);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-if (config.upnp.gatewayUrl) {
-  // eslint-disable-next-line global-require
-  const { Device } = require('@runonflux/nat-upnp/build/src/nat-upnp/device');
-  const { gatewayUrl } = config.upnp;
-  const nodeIp = config.upnp.nodeIp || '127.0.0.1';
-  client.getGateway = async () => ({
-    gateway: new Device(gatewayUrl),
-    address: nodeIp,
-  });
-}
 
 let upnpMachine = false;
 
@@ -181,12 +147,13 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
     return false;
   }
   try {
-    await client.getMappings();
+    const mapping = await client.getMapping({ public: +apiport + 3, protocol: 'TCP' });
+    if (!mapping) throw new Error(`the router holds no mapping for port ${+apiport + 3}`);
 
     await serviceHelper.delay(500);
   } catch (error) {
     log.error(error);
-    log.error('VerifyUPNPsupport - Failed get Mappings');
+    log.error('VerifyUPNPsupport - Failed get Mapping');
     upnpMachine = false;
     return false;
   }
@@ -235,10 +202,10 @@ async function reconcileFluxadmMapping(apiport) {
       });
       return;
     }
-    const mappings = await client.getMappings();
-    const ours = mappings.some((mapping) => mapping.local
-      && mapping.public.port === port
-      && mapping.description === FLUXADM_MAPPING_DESCRIPTION);
+    const mapping = await client.getMapping({ public: port, protocol: 'TCP' });
+    const ours = mapping !== null
+      && mapping.local === true
+      && mapping.description === FLUXADM_MAPPING_DESCRIPTION;
     if (ours) {
       await client.removeMapping({ public: port, protocol: 'TCP' });
       log.info(`fluxadm access - UPnP mapping for port ${port} removed`);
@@ -402,53 +369,6 @@ function msUntilCleanupSlot(apiport, now = Date.now()) {
 }
 
 /**
- * Lists the router's mappings to this node, one GetGenericPortMappingEntry per
- * index, as the library's getMappings does. The walk is this code's rather than
- * the library's so that it can stop: getMappings walks to the end of the table
- * whatever its caller has given up on, into the next node's slot. No request
- * goes out once `until` has passed (one already in flight cannot be called
- * back under nat-upnp 1.x), and what was listed by then is returned: the pass
- * only removes what it has seen.
- *
- * The router's error reply to an index past the last entry ends the table. No
- * reply at all - a request that times out, a connection refused or reset - is a
- * router in trouble, and rejects: nothing more is sent to it.
- * @param {number} until monotonic ms after which no request is sent
- * @param {number} deadline monotonic ms the whole pass ends at
- * @returns {Promise<object[]>} the mappings, in the library's getMappings shape
- */
-async function listOwnMappings(until, deadline) {
-  const timeout = () => Math.min(CLEANUP_REQUEST_TIMEOUT_MS, deadline - monotonicMs());
-  const { gateway, address } = await withinTime(client.getGateway(), timeout(), 'finding the gateway');
-  const mappings = [];
-  for (let index = 0; ; index += 1) {
-    if (monotonicMs() >= until) {
-      log.warn(`UPnP - stale mapping cleanup out of time after ${index} router entries, the rest wait for the next start`);
-      return mappings;
-    }
-    let data;
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      data = await withinTime(gateway.run('GetGenericPortMappingEntry', [['NewPortMappingIndex', index]]), timeout(), 'listing the mappings');
-    } catch (error) {
-      if (error.response) return mappings;
-      throw error;
-    }
-    const key = Object.keys(data || {}).find((k) => /^GetGenericPortMappingEntryResponse/.test(k));
-    if (!key) throw new Error('listing the mappings: incorrect response');
-    const entry = data[key];
-    if (entry.NewInternalClient === address) {
-      mappings.push({
-        public: { host: (typeof entry.NewRemoteHost === 'string' && entry.NewRemoteHost) || '', port: parseInt(entry.NewExternalPort, 10) },
-        private: { host: entry.NewInternalClient, port: parseInt(entry.NewInternalPort, 10) },
-        protocol: String(entry.NewProtocol).toLowerCase(),
-        description: entry.NewPortMappingDescription,
-      });
-    }
-  }
-}
-
-/**
  * Removes the router's mappings to this node that this code made and nothing
  * here holds any more: an app removed while the router was unreachable, a
  * FluxOS that died between mapping and unmapping, a node reinstalled on the
@@ -466,18 +386,22 @@ async function listOwnMappings(until, deadline) {
  * holds already has its app in the answer.
  *
  * Everything - the listing and each removal - happens within `budgetMs`. The
- * listing stops asking the router early enough to leave time for removals, and
- * what has not been listed or removed by the end is left for the next start. A
- * removal the router refuses is stepped past; one it does not answer ends the
- * pass, so as not to send more to a router that is not keeping up.
+ * listing has to finish early enough to leave time for removals, or nothing is
+ * removed; what has not been removed by the end is left for the next start. A
+ * removal the router refuses with a UPnP error is stepped past; any other
+ * failure - no answer in time, a connection refused or reset - ends the pass,
+ * so as not to send more to a router that is not keeping up.
  * @param {function(): Promise<Iterable<number>>} heldPorts every port something on this node holds
  * @param {number} budgetMs
  * @returns {Promise<number>} how many mappings were removed
  */
 async function removeStaleMappings(heldPorts, budgetMs) {
-  const deadline = monotonicMs() + budgetMs;
+  // AbortSignal.timeout takes whole milliseconds only
+  const wholeBudgetMs = Math.floor(budgetMs);
+  const deadline = monotonicMs() + wholeBudgetMs;
   const left = () => deadline - monotonicMs();
-  const mappings = await listOwnMappings(deadline - Math.min(CLEANUP_REMOVAL_RESERVE_MS, budgetMs / 2), deadline);
+  const listingMs = wholeBudgetMs - Math.min(CLEANUP_REMOVAL_RESERVE_MS, Math.floor(wholeBudgetMs / 2));
+  const mappings = await client.getMappings({ local: true, signal: AbortSignal.timeout(listingMs) });
   const keep = new Set([...await heldPorts()].map(Number));
   const stale = mappings.filter((mapping) => Number.isInteger(mapping.public.port)
     && !keep.has(mapping.public.port)
@@ -497,12 +421,12 @@ async function removeStaleMappings(heldPorts, budgetMs) {
     const protocol = mapping.protocol.toUpperCase();
     try {
       // eslint-disable-next-line no-await-in-loop
-      await withinTime(client.removeMapping({ public: { host, port }, protocol }), Math.min(CLEANUP_REQUEST_TIMEOUT_MS, left()), 'removing the mapping');
+      await client.removeMapping({ public: { host, port }, protocol, signal: AbortSignal.timeout(left()) });
       removed += 1;
       log.info(`UPnP - stale mapping removed: ${protocol} ${port} (${mapping.description})`);
     } catch (error) {
       log.warn(`UPnP - stale mapping ${protocol} ${port} (${mapping.description}) not removed: ${error.message}`);
-      if (error.timedOut) {
+      if (!(error instanceof natUpnp.UpnpError)) {
         log.warn(`UPnP - stale mapping cleanup stopped, ${stale.length - index - 1} left for the next start`);
         break;
       }
@@ -663,8 +587,12 @@ async function getGatewayApi(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (authorized) {
-      const gateway = await client.getGateway();
-      const message = messageHelper.createDataMessage(gateway);
+      const info = await client.getGateway();
+      const { description, services } = info.gateway;
+      const message = messageHelper.createDataMessage({
+        gateway: { description, services },
+        address: await info.getLocalAddress(),
+      });
       res.json(message);
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
