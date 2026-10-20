@@ -830,6 +830,25 @@ describe('upnpService tests', () => {
       expect([...upnpService.mappedProtocols.get(123)]).to.deep.equal(['TCP']);
     });
 
+    it('should signal each refusal it counts as the router\'s, and no other', async () => {
+      const onRefused = sinon.spy();
+      upnpService.routerEvents.on('mappingRefused', onRefused);
+      try {
+        createMappingStub.rejects(refusal(718, 'ConflictInMappingEntry'));
+        getMappingStub.resolves(entry({ private: { host: '192.168.1.20', port: 123 }, local: false }));
+        await upnpService.mapUpnpPort(123, 'Flux_App_web');
+        sinon.assert.notCalled(onRefused);
+
+        createMappingStub.rejects(refusal(728, 'NoPortMapsAvailable'));
+        getMappingStub.resolves(null);
+        await upnpService.mapUpnpPort(124, 'Flux_App_web');
+        await upnpService.mapUpnpPort(125, 'Flux_App_web');
+        sinon.assert.calledTwice(onRefused);
+      } finally {
+        upnpService.routerEvents.off('mappingRefused', onRefused);
+      }
+    });
+
     it('should not ask for UDP when TCP is refused', async () => {
       createMappingStub.rejects(refusal(718, 'ConflictInMappingEntry'));
 
@@ -1301,8 +1320,8 @@ describe('upnpService tests', () => {
       const events = [];
       const onPending = () => events.push('pending');
       const onClear = () => events.push('clear');
-      upnpService.removalState.on('pending', onPending);
-      upnpService.removalState.on('clear', onClear);
+      upnpService.routerEvents.on('removalPending', onPending);
+      upnpService.routerEvents.on('removalsClear', onClear);
       try {
         await mapTcpOnly(123, 'Flux_App_web');
         await mapTcpOnly(124, 'Flux_Test_App');
@@ -1318,14 +1337,14 @@ describe('upnpService tests', () => {
         await clock.tickAsync(MAX_MS);
         expect(events).to.deep.equal(['pending', 'clear']);
       } finally {
-        upnpService.removalState.off('pending', onPending);
-        upnpService.removalState.off('clear', onClear);
+        upnpService.routerEvents.off('removalPending', onPending);
+        upnpService.routerEvents.off('removalsClear', onClear);
       }
     });
 
     it('should clear when the port of the last pending removal is mapped again', async () => {
       const onClear = sinon.spy();
-      upnpService.removalState.on('clear', onClear);
+      upnpService.routerEvents.on('removalsClear', onClear);
       try {
         await mapTcpOnly(123, 'Flux_App_web');
         removeMappingStub.onCall(0).rejects(refused());
@@ -1336,7 +1355,7 @@ describe('upnpService tests', () => {
         sinon.assert.calledOnce(onClear);
         expect(upnpService.removalPending()).to.equal(false);
       } finally {
-        upnpService.removalState.off('clear', onClear);
+        upnpService.routerEvents.off('removalsClear', onClear);
       }
     });
   });

@@ -447,6 +447,38 @@ describe('availabilityChecker tests', () => {
         sinon.assert.calledWith(delayStub.lastCall, 60_000);
       });
 
+      it('waits no longer than an error\'s wait after a passing test in a pass that counted a router refusal', async () => {
+        routerRefusesOthers(1);
+
+        await pass();
+
+        sinon.assert.calledOnce(portTestStub);
+        sinon.assert.calledWith(delayStub.lastCall, 60_000);
+      });
+
+      it('waits no longer than an error\'s wait after a pass the router refused a mapping during', async () => {
+        portTestStub.callsFake(async () => {
+          routerRefusesOthers(1);
+          return { data: { status: 'success', data: { message: 'Ports reachable' } } };
+        });
+
+        await pass();
+
+        expect(mockDosState.portFailureScore ?? 0, 'counted by the next pass').to.equal(0);
+        sinon.assert.calledWith(delayStub.lastCall, 60_000);
+      });
+
+      it('waits a DOS\'s wait after a pass that counted a router refusal while out of service', async () => {
+        mockDosState.portFailureScore = 100;
+        mockDosState.dosStateValue = 100;
+        mockDosState.dosMessage = UPNP_DOS;
+        routerRefusesOthers(1);
+
+        await pass();
+
+        sinon.assert.calledWith(delayStub.lastCall, 300_000);
+      });
+
       it('waits the whole wait after a passing test that left nothing pending', async () => {
         await pass();
 
@@ -454,8 +486,8 @@ describe('availabilityChecker tests', () => {
       });
 
       // eslint-disable-next-line no-restricted-syntax
-      for (const event of ['pending', 'clear']) {
-        it(`starts its next pass at once when UPnP says its removals are ${event}`, async () => {
+      for (const event of ['mappingRefused', 'removalPending', 'removalsClear']) {
+        it(`starts its next pass at once on UPnP's ${event}`, async () => {
           delayStub.returns(new Promise(() => {}));
           let waited = false;
           const done = pass().then(() => { waited = true; });
@@ -464,13 +496,26 @@ describe('availabilityChecker tests', () => {
           sinon.assert.calledOnceWithExactly(delayStub, 3_600_000);
           expect(waited, 'still waiting').to.equal(false);
 
-          upnpService.removalState.emit(event);
+          upnpService.routerEvents.emit(event);
+          upnpService.routerEvents.emit(event);
           await done;
 
           expect(waited).to.equal(true);
           sinon.assert.calledOnce(setImmediateStub);
         });
       }
+
+      it('starts no pass on a wake while it is not waiting', async () => {
+        portTestStub.callsFake(async () => {
+          upnpService.routerEvents.emit('removalsClear');
+          return { data: { status: 'success', data: { message: 'Ports reachable' } } };
+        });
+
+        await pass();
+
+        sinon.assert.calledOnce(setImmediateStub);
+        sinon.assert.calledWith(delayStub.lastCall, 3_600_000);
+      });
 
       it('removes what the router kept of a test mapping it refused', async () => {
         testMappingRefused(refused(718, false));

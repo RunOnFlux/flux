@@ -55,9 +55,10 @@ const mappedProtocols = new Map();
 const pendingRemovals = new Map();
 let pendingRemovalTurn = Promise.resolve();
 
-// Emits 'pending' when a removal becomes pending with none pending before, and
-// 'clear' when the last pending removal goes.
-const removalState = new EventEmitter();
+// Emits 'removalPending' when a removal becomes pending with none pending
+// before, 'removalsClear' when the last pending removal goes, and
+// 'mappingRefused' each time a refusal is counted in routerRefusals.
+const routerEvents = new EventEmitter();
 
 /**
  * Makes a removal pending under `key`, in place of any pending there.
@@ -68,7 +69,7 @@ function setPendingRemoval(key, pending) {
   const wasClear = pendingRemovals.size === 0;
   clearTimeout(pendingRemovals.get(key)?.timer);
   pendingRemovals.set(key, pending);
-  if (wasClear) removalState.emit('pending');
+  if (wasClear) routerEvents.emit('removalPending');
 }
 
 /**
@@ -80,7 +81,7 @@ function deletePendingRemoval(key) {
   if (!pending) return;
   clearTimeout(pending.timer);
   pendingRemovals.delete(key);
-  if (pendingRemovals.size === 0) removalState.emit('clear');
+  if (pendingRemovals.size === 0) routerEvents.emit('removalsClear');
 }
 
 /**
@@ -213,7 +214,10 @@ async function mapProtocol(port, protocol, description, { counted = true } = {})
     const code = answered ? error.code : null;
     // no answer, with no code, is the router's too
     const routerWide = !PORT_REFUSALS.has(code) && !(heldElsewhere && code !== NO_PORT_MAPS_AVAILABLE);
-    if (routerWide && counted) routerRefusalCount += 1;
+    if (routerWide && counted) {
+      routerRefusalCount += 1;
+      routerEvents.emit('mappingRefused');
+    }
     return {
       mapped: false, code, reason: `${protocol} ${port} not mapped: ${error.message}`, routerWide,
     };
@@ -917,7 +921,7 @@ module.exports = {
   mappedProtocols,
   pendingRemovals,
   removalPending,
-  removalState,
+  routerEvents,
   CLEANUP_SLOT_MS,
   BOOT_LISTING_STAGGER_MS,
   mapPortApi,
