@@ -493,18 +493,16 @@ function dropPendingRemovals(port) {
 }
 
 /**
- * Whether the router still maps one protocol of a port to this node. A router
- * finds this node's own entries, which carry no lease, whenever it holds them,
- * so a lookup it answers with a fault is taken as holding none.
+ * Whether the router still maps one protocol of a port to this node.
  * @param {number} port
  * @param {string} protocol 'TCP' or 'UDP'
- * @returns {Promise<boolean|null>} null when the router did not answer
+ * @returns {Promise<boolean|null>} null when the router did not say: a lookup
+ *   it answered with a fault, or did not answer
  */
 async function routerMapsHere(port, protocol) {
   try {
     return mapsHere(await client.getMapping({ public: port, protocol }), port);
   } catch (error) {
-    if (error instanceof natUpnp.UpnpError) return false;
     log.error(`UPnP - ${protocol} ${port} not looked up: ${error.message}`);
     return null;
   }
@@ -515,7 +513,8 @@ async function routerMapsHere(port, protocol) {
  * behind any other pending removal, and schedules the next ask if it refuses
  * again. The router is asked first whether the mapping is still this node's:
  * one it no longer holds, or holds for something else, ends the removal with
- * nothing sent, and a router that does not answer is asked again later.
+ * nothing sent. A lookup it does not settle leaves the mapping counted as
+ * this node's, and the removal is sent.
  * @param {object} pending
  */
 function askPendingRemoval(pending) {
@@ -529,7 +528,7 @@ function askPendingRemoval(pending) {
       log.info(`UPnP - ${pending.protocol} ${pending.port} (${pending.description}) no longer this node's on the router, nothing to remove`);
       return;
     }
-    if (held && await removeProtocol(pending.port, pending.protocol)) {
+    if (await removeProtocol(pending.port, pending.protocol)) {
       deletePendingRemoval(key);
       log.info(`UPnP - ${pending.protocol} ${pending.port} (${pending.description}) unmapped after ${pending.refusals} refusal(s)`);
       return;

@@ -1415,31 +1415,49 @@ describe('upnpService tests', () => {
       expect(upnpService.removalPending()).to.equal(false);
     });
 
-    it('should end a removal with nothing sent when the router answers the lookup with a fault', async () => {
+    it('should send the removal when the router answers the lookup with a fault, and keep it pending while the removal is refused', async () => {
       await mapTcpOnly(123, 'Flux_App_web');
-      removeMappingStub.onCall(0).rejects(refused());
+      removeMappingStub.rejects(refused());
       await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
       getMappingStub.rejects(new natUpnp.UpnpError(501, 'ActionFailed', 'GetSpecificPortMappingEntry'));
 
       await clock.tickAsync(FIRST_MS);
 
-      expect(removals()).to.deep.equal(['123/TCP']);
+      expect(removals(), 'a lookup it did not settle leaves the mapping counted as this node\'s').to.deep.equal(['123/TCP', '123/TCP']);
+      expect(upnpService.removalPending()).to.equal(true);
+
+      removeMappingStub.resolves();
+      await clock.tickAsync(MAX_MS);
+      expect(removals()).to.have.length(3);
+      expect(upnpService.removalPending(), 'ended once the router removed it').to.equal(false);
+    });
+
+    it('should end a removal whose lookup the router answers with a fault once it answers the removal with no such entry', async () => {
+      await mapTcpOnly(123, 'Flux_App_web');
+      removeMappingStub.onCall(0).rejects(refused());
+      removeMappingStub.onCall(1).rejects(new natUpnp.UpnpError(714, 'NoSuchEntryInArray', 'DeletePortMapping'));
+      await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
+      getMappingStub.rejects(new natUpnp.UpnpError(501, 'ActionFailed', 'GetSpecificPortMappingEntry'));
+
+      await clock.tickAsync(FIRST_MS);
+
+      expect(removals()).to.deep.equal(['123/TCP', '123/TCP']);
       expect(upnpService.removalPending()).to.equal(false);
     });
 
-    it('should keep a removal pending, with nothing sent, while the router does not answer the lookup', async () => {
+    it('should send the removal while the router does not answer the lookup, and keep it pending while the removal is refused', async () => {
       await mapTcpOnly(123, 'Flux_App_web');
-      removeMappingStub.onCall(0).rejects(refused());
+      removeMappingStub.rejects(refused());
       await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
-      getMappingStub.onCall(0).rejects(new Error('timeout of 10000ms exceeded'));
+      getMappingStub.rejects(new Error('timeout of 10000ms exceeded'));
 
       await clock.tickAsync(FIRST_MS);
-      expect(removals(), 'nothing sent on no answer').to.deep.equal(['123/TCP']);
+      expect(removals()).to.deep.equal(['123/TCP', '123/TCP']);
       expect(upnpService.removalPending()).to.equal(true);
 
+      removeMappingStub.resolves();
       await clock.tickAsync(MAX_MS);
-      expect(removals(), 'removed once the router answers').to.deep.equal(['123/TCP', '123/TCP']);
-      expect(upnpService.removalPending()).to.equal(false);
+      expect(upnpService.removalPending(), 'ended once the router removed it').to.equal(false);
     });
   });
 
