@@ -8,7 +8,9 @@ import { restartFluxos, setNodeApiPort } from '../framework/container.js';
 import { pushBusybox } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, seedSpawnerApp } from '../framework/reconciler-suite.js';
-import { enableUpnpGateway, setUpnpRefuseDeletes, upnpGatewayState } from '../framework/external-http-control.js';
+import {
+  enableUpnpGateway, setUpnpCapacity, setUpnpRefuseDeletes, upnpGatewayState,
+} from '../framework/external-http-control.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
 import {
   waitFor, waitForAppInstalled, waitForAppRemoved, waitForBootSettled,
@@ -19,19 +21,24 @@ import { fluxTeamKey } from '../framework/keys.js';
 
 const subnet = getSubnetConfig();
 
-// A node behind UPnP whose router refuses to remove its mappings is out of
-// service until the router removes them. Its availability check waits ten
-// minutes after a passing test and ten in DOS, so only UPnP reaching it can
-// start a pass sooner: an app's removal the router refuses starts the next pass
-// at once, each pass while it stays refused makes no test mapping and counts
-// toward the DOS, and the router taking the removal starts the pass that tests
-// and releases the node.
+// A node behind UPnP whose router refuses it - to remove a mapping, or to make
+// one - is out of service until the router stops. Its availability check waits
+// ten minutes after a passing test and five in DOS, so only UPnP reaching it
+// can start a pass sooner than that.
+//
+// An app's removal the router refuses starts the next pass at once; each pass
+// while it stays refused makes no test mapping and counts toward the DOS, and
+// the router taking the removal starts the pass that tests and releases the
+// node. An app's mapping a full router refuses starts the next pass at once;
+// that pass's own test mapping is refused too, and so is every one after it
+// until the router has room, when the next pass releases the node.
 
 const NODE = 0;
-const LONG_WAIT_MS = 10 * 60 * 1000;
+const PASSED_WAIT_MS = 10 * 60 * 1000;
+const DOS_WAIT_MS = 5 * 60 * 1000;
 const APPS_PORT_CHECK = {
   timeoutsMs: {
-    default: LONG_WAIT_MS, error: 5000, failure: 1000, dos: LONG_WAIT_MS, appError: 5000,
+    default: PASSED_WAIT_MS, error: 5000, failure: 1000, dos: DOS_WAIT_MS, appError: 5000,
   },
   thresholds: { dos: 100, portsHighEdge: 3, portsLowEdge: 1 },
 };
@@ -39,12 +46,15 @@ const APPS_PORT_CHECK = {
 const DOS_WITHIN_MS = 4 * 60 * 1000;
 // the harness's longest removal retry (8 s) and one pass
 const RELEASED_WITHIN_MS = 90 * 1000;
+if (DOS_WITHIN_MS >= PASSED_WAIT_MS || RELEASED_WITHIN_MS >= DOS_WAIT_MS) {
+  throw new Error('3003: each budget must end before the wait only a wake can cut short');
+}
 const UPNP_DOS = 'Not possible to run applications on the node, router returning exceptions when creating UPNP ports mappings';
 const LISTEN_PORT = 8080;
 
 const dosOf = async (client) => (await client.getDOSState()).data ?? {};
 
-describe('a node whose router refuses to remove its mappings is out of service until it does', function () {
+describe('a node whose router refuses it is out of service until it stops', function () {
   let env;
   dumpLogsOnFailure(() => env);
   let node;
@@ -54,6 +64,24 @@ describe('a node whose router refuses to remove its mappings is out of service u
   const gateway = () => upnpGatewayState(nodeIp);
   const testMappings = (requests, sinceMs = 0) => requests.filter((r) => r.action === 'AddPortMapping'
     && r.description === 'Flux_Test_App' && Date.parse(r.at) >= sinceMs);
+  const buildApp = (name) => buildSeedableApp({
+    name,
+    compose: [{
+      name,
+      description: 'holds a port on the router',
+      repotag: `${REGISTRY_REPO_HOST}/e2eupnprefuse:v1`,
+      ports: [],
+      domains: [''],
+      environmentParameters: [],
+      commands: [],
+      containerPorts: [LISTEN_PORT],
+      containerData: '/tmp',
+      cpu: 0.1,
+      ram: 100,
+      hdd: 1,
+      repoauth: '',
+    }],
+  });
 
   before(async function () {
     this.timeout(600000);
@@ -72,6 +100,9 @@ describe('a node whose router refuses to remove its mappings is out of service u
     await setNodeApiPort(node.container, 16127);
     await restartFluxos(node.container);
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
+    await pushBusybox('e2eupnprefuse', 'v1', 'busybox', {
+      entrypoint: ['/bin/busybox', 'nc', '-lk', '-p', String(LISTEN_PORT), '-e', '/bin/busybox', 'echo', 'ok'],
+    });
 
     const { requests } = await gateway();
     expect(requests.some((r) => r.action === 'AddPortMapping' && r.description === 'Flux_UPNP_Mapping_Test'), 'canary: the node verified UPnP on its gateway').to.equal(true);
@@ -104,28 +135,8 @@ describe('a node whose router refuses to remove its mappings is out of service u
 
   it('is out of service, with no new test mapping, once its router has refused an app\'s removal for as many passes as the threshold takes', async function () {
     this.timeout(DOS_WITHIN_MS + 400000);
-    await pushBusybox('e2eupnprefuse', 'v1', 'busybox', {
-      entrypoint: ['/bin/busybox', 'nc', '-lk', '-p', String(LISTEN_PORT), '-e', '/bin/busybox', 'echo', 'ok'],
-    });
     appName = `e2eupnprefuse${Date.now()}`;
-    const app = await buildSeedableApp({
-      name: appName,
-      compose: [{
-        name: appName,
-        description: 'holds a port on the router',
-        repotag: `${REGISTRY_REPO_HOST}/e2eupnprefuse:v1`,
-        ports: [],
-        domains: [''],
-        environmentParameters: [],
-        commands: [],
-        containerPorts: [LISTEN_PORT],
-        containerData: '/tmp',
-        cpu: 0.1,
-        ram: 100,
-        hdd: 1,
-        repoauth: '',
-      }],
-    });
+    const app = await buildApp(appName);
     [appPort] = app.spec.compose[0].ports;
     const mark = node.getLastEventId();
     await seedSpawnerApp(env, app, [NODE]);
@@ -150,7 +161,7 @@ describe('a node whose router refuses to remove its mappings is out of service u
     expect(testMappings(requests, refusedFrom), 'no test mapping while a removal is refused').to.have.length(0);
   });
 
-  it('is back in service soon after its router removes the mapping', async function () {
+  it('is back in service soon after its router removes the mapping, sooner than its wait in DOS', async function () {
     this.timeout(RELEASED_WITHIN_MS + 60000);
     const takenFrom = Date.now();
     await setUpnpRefuseDeletes(nodeIp, 0);
@@ -162,5 +173,40 @@ describe('a node whose router refuses to remove its mappings is out of service u
     const { requests, mappings } = await gateway();
     expect(mappings.some((m) => m.externalPort === appPort), 'the app\'s mapping removed').to.equal(false);
     expect(testMappings(requests, takenFrom).length, 'a test ran once the router took the removal').to.be.at.least(1);
+  });
+
+  it('is out of service once a full router refuses an app\'s mapping, sooner than its wait after a passing test', async function () {
+    this.timeout(DOS_WITHIN_MS + 400000);
+    // the pass that released the node passed its test: the check is in its wait after one
+    await waitFor(async () => (await dosOf(node)).dosMessage !== UPNP_DOS, { timeout: 30000, interval: 2000 });
+    const { mappings } = await gateway();
+    await setUpnpCapacity(nodeIp, mappings.length);
+    const fullFrom = Date.now();
+    const name = `e2eupnpfull${Date.now()}`;
+    const app = await buildApp(name);
+    const [port] = app.spec.compose[0].ports;
+    await seedSpawnerApp(env, app, [NODE]);
+
+    await waitFor(async () => (await dosOf(node)).dosMessage === UPNP_DOS, {
+      timeout: DOS_WITHIN_MS, interval: 2000, label: 'the node out of service for its full router',
+    });
+
+    const { requests } = await gateway();
+    const refused = requests.filter((r) => r.action === 'AddPortMapping' && r.refused === 728 && Date.parse(r.at) >= fullFrom);
+    expect(refused.some((r) => r.port === port), 'canary: the router refused the app\'s mapping').to.equal(true);
+    expect(refused.some((r) => r.description === 'Flux_Test_App'), 'the check\'s own test mapping refused too').to.equal(true);
+  });
+
+  it('is back in service at its next pass once the router has room', async function () {
+    this.timeout(DOS_WAIT_MS + 120000);
+    const roomFrom = Date.now();
+    await setUpnpCapacity(nodeIp, null);
+
+    await waitFor(async () => (await dosOf(node)).dosMessage !== UPNP_DOS, {
+      timeout: DOS_WAIT_MS + 60000, interval: 2000, label: 'the node back in service',
+    });
+
+    const made = testMappings((await gateway()).requests, roomFrom);
+    expect(made.some((r) => r.refused === undefined), 'a test mapping the router took').to.equal(true);
   });
 });

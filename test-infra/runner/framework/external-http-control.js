@@ -221,6 +221,17 @@ export async function setUpnpRefuseDeletes(ip, count) {
 }
 
 /**
+ * Set how many mappings a node's gateway holds from now on, keeping its table and the requests
+ * it has seen. A new mapping past it is refused with 728, carried as `refused: 728` in its state.
+ * @param {string} ip
+ * @param {number|null} capacity - null for no limit
+ */
+export async function setUpnpCapacity(ip, capacity) {
+  const res = await post(`/upnp-gateway/${ip}/capacity`, { capacity });
+  if (!res.ok) throw new Error(`setUpnpCapacity: ${JSON.stringify(res)}`);
+}
+
+/**
  * The gateway a node is behind: its port mappings and the actions the node sent it, each with
  * the external port, protocol and description it named (null for one it names none of).
  * @param {string} ip

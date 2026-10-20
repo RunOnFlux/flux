@@ -786,6 +786,7 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
         return;
       }
       if (!held && gateway.capacity !== null && gateway.mappings.length >= gateway.capacity) {
+        gateway.requests[gateway.requests.length - 1].refused = 728;
         soapFault(res, 728, 'NoPortMapsAvailable');
         return;
       }
@@ -1046,6 +1047,18 @@ control.post('/upnp-gateway/:ip/refuse-deletes', (req, res) => {
     return;
   }
   gateway.refuseDeletes = Number(req.body?.count ?? 0);
+  res.json({ ok: true });
+});
+
+// Set how many mappings a node's gateway holds from now on (null: no limit),
+// keeping its table and the requests it has seen.
+control.post('/upnp-gateway/:ip/capacity', (req, res) => {
+  const gateway = state.upnpGateways[req.params.ip];
+  if (!gateway) {
+    res.status(404).json({ error: 'no gateway for that ip' });
+    return;
+  }
+  gateway.capacity = req.body?.capacity ?? null;
   res.json({ ok: true });
 });
 
