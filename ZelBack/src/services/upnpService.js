@@ -1,3 +1,4 @@
+const { EventEmitter } = require('node:events');
 const config = require('config');
 const natUpnp = require('@runonflux/nat-upnp');
 const serviceHelper = require('./serviceHelper');
@@ -53,6 +54,34 @@ const mappedProtocols = new Map();
 // pending removal is dropped.
 const pendingRemovals = new Map();
 let pendingRemovalTurn = Promise.resolve();
+
+// Emits 'pending' when a removal becomes pending with none pending before, and
+// 'clear' when the last pending removal goes.
+const removalState = new EventEmitter();
+
+/**
+ * Makes a removal pending under `key`, in place of any pending there.
+ * @param {string} key `port/protocol`
+ * @param {object} pending
+ */
+function setPendingRemoval(key, pending) {
+  const wasClear = pendingRemovals.size === 0;
+  clearTimeout(pendingRemovals.get(key)?.timer);
+  pendingRemovals.set(key, pending);
+  if (wasClear) removalState.emit('pending');
+}
+
+/**
+ * Ends the pending removal under `key`, if there is one.
+ * @param {string} key `port/protocol`
+ */
+function deletePendingRemoval(key) {
+  const pending = pendingRemovals.get(key);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingRemovals.delete(key);
+  if (pendingRemovals.size === 0) removalState.emit('clear');
+}
 
 /**
  * Records whether this node's latest map of one protocol of a port left the
@@ -456,12 +485,7 @@ async function removeProtocol(port, protocol) {
  * @param {number} port
  */
 function dropPendingRemovals(port) {
-  ['TCP', 'UDP'].forEach((protocol) => {
-    const pending = pendingRemovals.get(`${port}/${protocol}`);
-    if (!pending) return;
-    clearTimeout(pending.timer);
-    pendingRemovals.delete(`${port}/${protocol}`);
-  });
+  ['TCP', 'UDP'].forEach((protocol) => deletePendingRemoval(`${port}/${protocol}`));
 }
 
 /**
@@ -469,21 +493,19 @@ function dropPendingRemovals(port) {
  * behind any other pending removal, and schedules the next ask if it refuses
  * again.
  * @param {object} pending
- * @returns {Promise<void>} settles once the router has been asked
  */
 function askPendingRemoval(pending) {
   pendingRemovalTurn = pendingRemovalTurn.then(async () => {
     const key = `${pending.port}/${pending.protocol}`;
     if (pendingRemovals.get(key) !== pending) return;
     if (await removeProtocol(pending.port, pending.protocol)) {
-      pendingRemovals.delete(key);
+      deletePendingRemoval(key);
       log.info(`UPnP - ${pending.protocol} ${pending.port} (${pending.description}) unmapped after ${pending.refusals} refusal(s)`);
       return;
     }
     // mapped again while the router was being asked: in use, not pending
     if (pendingRemovals.get(key) === pending) schedulePendingRemoval(pending);
   });
-  return pendingRemovalTurn;
 }
 
 /**
@@ -501,25 +523,11 @@ function schedulePendingRemoval(pending) {
 }
 
 /**
- * Whether a removal of one of this node's test mappings is still pending: no
- * new test mapping is made until it has gone, so a router refusing removals
- * gathers no more of them.
+ * Whether the router has yet to remove a mapping of this node it was asked to.
  * @returns {boolean}
  */
-function testRemovalPending() {
-  return [...pendingRemovals.values()].some((pending) => isTestMappingDescription(pending.description));
-}
-
-/**
- * Asks the router now to remove every pending removal of this node's test
- * mappings, without waiting for their next scheduled ask.
- * @returns {Promise<boolean>} whether none is pending any longer
- */
-async function askPendingTestRemovals() {
-  const tests = [...pendingRemovals.values()].filter((pending) => isTestMappingDescription(pending.description));
-  tests.forEach((pending) => clearTimeout(pending.timer));
-  await Promise.all(tests.map(askPendingRemoval));
-  return !testRemovalPending();
+function removalPending() {
+  return pendingRemovals.size > 0;
 }
 
 /**
@@ -529,7 +537,7 @@ async function askPendingTestRemovals() {
  * not take - one another machine holds - is never asked for. A removal the
  * router refuses is pending, and asked again until it goes.
  * @param {number} port Port number.
- * @param {string} [description] the mapping's description, for the log and testRemovalPending
+ * @param {string} [description] the mapping's description, for the log
  * @returns {Promise<boolean>} whether the router removed every one of them now
  */
 async function removeMapUpnpPort(port, description = '') {
@@ -547,9 +555,7 @@ async function removeMapUpnpPort(port, description = '') {
       const pending = {
         port: +port, protocol, description, refusals: 0, timer: null,
       };
-      const key = `${+port}/${protocol}`;
-      clearTimeout(pendingRemovals.get(key)?.timer);
-      pendingRemovals.set(key, pending);
+      setPendingRemoval(`${+port}/${protocol}`, pending);
       schedulePendingRemoval(pending);
     }
     // eslint-disable-next-line no-await-in-loop
@@ -910,8 +916,8 @@ module.exports = {
   mappedHere,
   mappedProtocols,
   pendingRemovals,
-  testRemovalPending,
-  askPendingTestRemovals,
+  removalPending,
+  removalState,
   CLEANUP_SLOT_MS,
   BOOT_LISTING_STAGGER_MS,
   mapPortApi,

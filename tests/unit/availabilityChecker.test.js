@@ -361,8 +361,7 @@ describe('availabilityChecker tests', () => {
         sinon.stub(fluxNetworkHelper, 'allowTestPort').resolves();
         sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves();
         sinon.stub(upnpService, 'routerRefusals').callsFake(() => refusals);
-        sinon.stub(upnpService, 'testRemovalPending').returns(false);
-        sinon.stub(upnpService, 'askPendingTestRemovals').resolves(false);
+        sinon.stub(upnpService, 'removalPending').returns(false);
         mapUpnpPortStub = sinon.stub(upnpService, 'mapUpnpPort').resolves(MAPPED);
         removeMapUpnpPortStub = sinon.stub(upnpService, 'removeMapUpnpPort').resolves(true);
         sinon.stub(fluxHttpTestServer.FluxHttpTestServer.prototype, 'listen').callsFake(function listen() {
@@ -412,12 +411,11 @@ describe('availabilityChecker tests', () => {
         sinon.assert.calledOnceWithExactly(mapUpnpPortStub, mockDosState.testingPort, 'Flux_Test_App', { protocols: ['TCP'] });
       });
 
-      it('makes no test mapping, opens no port, and counts a failed check while the router refuses to remove the last one', async () => {
-        upnpService.testRemovalPending.returns(true);
+      it('makes no test mapping, opens no port, and counts a failed check while the router has yet to remove a mapping of this node', async () => {
+        upnpService.removalPending.returns(true);
 
         await pass();
 
-        sinon.assert.calledOnce(upnpService.askPendingTestRemovals);
         sinon.assert.notCalled(mapUpnpPortStub);
         sinon.assert.notCalled(fluxNetworkHelper.allowTestPort);
         sinon.assert.notCalled(portTestStub);
@@ -425,8 +423,8 @@ describe('availabilityChecker tests', () => {
         sinon.assert.calledWith(delayStub, 60_000);
       });
 
-      it('holds the node out of service once the router has refused to remove the last test mapping for as many passes as the threshold takes', async () => {
-        upnpService.testRemovalPending.returns(true);
+      it('holds the node out of service once the router has yet to remove a mapping for as many passes as the threshold takes', async () => {
+        upnpService.removalPending.returns(true);
 
         // eslint-disable-next-line no-restricted-syntax
         for (let i = 0; i < 25; i += 1) {
@@ -440,27 +438,39 @@ describe('availabilityChecker tests', () => {
         sinon.assert.calledWith(delayStub.lastCall, 300_000);
       });
 
-      it('tests, and ends its DOS, on the pass whose ask the router removes the last test mapping on', async () => {
-        mockDosState.portFailureScore = 100;
-        mockDosState.dosStateValue = 100;
-        mockDosState.dosMessage = UPNP_DOS;
-        upnpService.testRemovalPending.returns(true);
-        upnpService.askPendingTestRemovals.resolves(true);
+      it('waits no longer than an error\'s wait after a pass that left a removal pending', async () => {
+        upnpService.removalPending.onFirstCall().returns(false).returns(true);
 
         await pass();
 
-        sinon.assert.calledOnce(mapUpnpPortStub);
         sinon.assert.calledOnce(portTestStub);
-        expect(mockDosState.dosMessage).to.equal(null);
-        expect(mockDosState.dosStateValue).to.equal(0);
-        expect(mockDosState.portFailureScore).to.equal(0);
+        sinon.assert.calledWith(delayStub.lastCall, 60_000);
       });
 
-      it('asks the router for no removal when none is pending', async () => {
+      it('waits the whole wait after a passing test that left nothing pending', async () => {
         await pass();
 
-        sinon.assert.notCalled(upnpService.askPendingTestRemovals);
+        sinon.assert.calledWith(delayStub.lastCall, 3_600_000);
       });
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const event of ['pending', 'clear']) {
+        it(`starts its next pass at once when UPnP says its removals are ${event}`, async () => {
+          delayStub.returns(new Promise(() => {}));
+          let waited = false;
+          const done = pass().then(() => { waited = true; });
+          // eslint-disable-next-line no-await-in-loop
+          for (let i = 0; i < 1000 && !delayStub.called; i += 1) await Promise.resolve();
+          sinon.assert.calledOnceWithExactly(delayStub, 3_600_000);
+          expect(waited, 'still waiting').to.equal(false);
+
+          upnpService.removalState.emit(event);
+          await done;
+
+          expect(waited).to.equal(true);
+          sinon.assert.calledOnce(setImmediateStub);
+        });
+      }
 
       it('removes what the router kept of a test mapping it refused', async () => {
         testMappingRefused(refused(718, false));

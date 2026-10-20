@@ -534,7 +534,7 @@ describe('upnpService tests', () => {
 
       expect(result).to.equal(true);
       expect([...upnpService.pendingRemovals.keys()]).to.deep.equal(['16130/TCP']);
-      expect(upnpService.testRemovalPending()).to.equal(true);
+      expect(upnpService.removalPending()).to.equal(true);
       upnpService.pendingRemovals.forEach((pending) => clearTimeout(pending.timer));
       upnpService.pendingRemovals.clear();
     });
@@ -1141,7 +1141,7 @@ describe('upnpService tests', () => {
 
   describe('pending removal tests', () => {
     const FIRST_MS = 30 * 1000;
-    const MAX_MS = 30 * 60 * 1000;
+    const MAX_MS = 60 * 1000;
     let clock;
     let createMappingStub;
     let removeMappingStub;
@@ -1188,12 +1188,12 @@ describe('upnpService tests', () => {
       expect(removals().length, 'nothing before the first wait').to.equal(1);
       await clock.tickAsync(1);
       expect(removals().length, 'asked again after the first wait').to.equal(2);
-      await clock.tickAsync(2 * FIRST_MS - 1);
+      await clock.tickAsync(MAX_MS - 1);
       expect(removals().length, 'the wait doubles').to.equal(2);
       await clock.tickAsync(1);
       expect(removals().length).to.equal(3);
-      await clock.tickAsync(4 * FIRST_MS);
-      expect(removals().length, 'removed on the fourth ask').to.equal(4);
+      await clock.tickAsync(MAX_MS);
+      expect(removals().length, 'removed on the fourth ask, the wait capped').to.equal(4);
       expect(upnpService.pendingRemovals.size).to.equal(0);
 
       await clock.tickAsync(MAX_MS * 2);
@@ -1205,15 +1205,15 @@ describe('upnpService tests', () => {
       removeMappingStub.rejects(refused());
       await upnpService.removeMapUpnpPort(123, 'Flux_Test_App');
 
-      // 30s, 1m, 2m, 4m, 8m, 16m, then 30m each
-      await clock.tickAsync((30 + 60 + 120 + 240 + 480 + 960) * 1000);
-      expect(removals().length).to.equal(7);
+      // 30s, then 1m each
+      await clock.tickAsync(FIRST_MS);
+      expect(removals().length).to.equal(2);
       await clock.tickAsync(MAX_MS - 1);
-      expect(removals().length).to.equal(7);
+      expect(removals().length).to.equal(2);
       await clock.tickAsync(1);
-      expect(removals().length).to.equal(8);
+      expect(removals().length).to.equal(3);
       await clock.tickAsync(MAX_MS * 10);
-      expect(removals().length, 'still asking').to.equal(18);
+      expect(removals().length, 'still asking').to.equal(13);
       expect(upnpService.pendingRemovals.has('123/TCP')).to.equal(true);
     });
 
@@ -1287,46 +1287,57 @@ describe('upnpService tests', () => {
       expect(upnpService.pendingRemovals.size).to.equal(0);
     });
 
-    it('should ask now for a test mapping\'s pending removal, and say whether it has gone', async () => {
-      await mapTcpOnly(123, 'Flux_Test_App');
-      removeMappingStub.onCall(0).rejects(refused());
-      removeMappingStub.onCall(1).rejects(refused());
-      await upnpService.removeMapUpnpPort(123, 'Flux_Test_App');
-
-      expect(await upnpService.askPendingTestRemovals(), 'refused again').to.equal(false);
-      expect(removals().length, 'asked at once, not after the wait').to.equal(2);
-      expect(upnpService.testRemovalPending()).to.equal(true);
-
-      expect(await upnpService.askPendingTestRemovals(), 'removed').to.equal(true);
-      expect(removals().length).to.equal(3);
-      expect(upnpService.pendingRemovals.size).to.equal(0);
-      await clock.tickAsync(MAX_MS);
-      expect(removals().length, 'no scheduled ask left behind').to.equal(3);
-    });
-
-    it('should ask now for no app mapping\'s pending removal', async () => {
+    it('should say a removal is pending until the router has removed it, whatever the mapping', async () => {
       await mapTcpOnly(123, 'Flux_App_web');
       removeMappingStub.onCall(0).rejects(refused());
       await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
-
-      expect(await upnpService.askPendingTestRemovals()).to.equal(true);
-      expect(removals().length).to.equal(1);
-      expect(upnpService.pendingRemovals.has('123/TCP')).to.equal(true);
-    });
-
-    it('should hold back new test mappings while a test mapping\'s removal is pending, and only then', async () => {
-      await mapTcpOnly(123, 'Flux_App_web');
-      removeMappingStub.onCall(0).rejects(refused());
-      await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
-      expect(upnpService.testRemovalPending(), 'an app mapping holds nothing back').to.equal(false);
-
-      await mapTcpOnly(124, 'Flux_Test_App');
-      removeMappingStub.onCall(1).rejects(refused());
-      await upnpService.removeMapUpnpPort(124, 'Flux_Test_App');
-      expect(upnpService.testRemovalPending()).to.equal(true);
+      expect(upnpService.removalPending()).to.equal(true);
 
       await clock.tickAsync(FIRST_MS);
-      expect(upnpService.testRemovalPending(), 'removed on the next ask').to.equal(false);
+      expect(upnpService.removalPending(), 'removed on the next ask').to.equal(false);
+    });
+
+    it('should say pending when the first removal is refused, and clear when the last goes', async () => {
+      const events = [];
+      const onPending = () => events.push('pending');
+      const onClear = () => events.push('clear');
+      upnpService.removalState.on('pending', onPending);
+      upnpService.removalState.on('clear', onClear);
+      try {
+        await mapTcpOnly(123, 'Flux_App_web');
+        await mapTcpOnly(124, 'Flux_Test_App');
+        removeMappingStub.onCall(0).rejects(refused());
+        removeMappingStub.onCall(1).rejects(refused());
+        removeMappingStub.onCall(2).rejects(refused());
+        await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
+        await upnpService.removeMapUpnpPort(124, 'Flux_Test_App');
+        expect(events, 'once, for the first').to.deep.equal(['pending']);
+
+        await clock.tickAsync(FIRST_MS);
+        expect(events, 'one still pending').to.deep.equal(['pending']);
+        await clock.tickAsync(MAX_MS);
+        expect(events).to.deep.equal(['pending', 'clear']);
+      } finally {
+        upnpService.removalState.off('pending', onPending);
+        upnpService.removalState.off('clear', onClear);
+      }
+    });
+
+    it('should clear when the port of the last pending removal is mapped again', async () => {
+      const onClear = sinon.spy();
+      upnpService.removalState.on('clear', onClear);
+      try {
+        await mapTcpOnly(123, 'Flux_App_web');
+        removeMappingStub.onCall(0).rejects(refused());
+        await upnpService.removeMapUpnpPort(123, 'Flux_App_web');
+
+        await upnpService.mapUpnpPort(123, 'Flux_App_web');
+
+        sinon.assert.calledOnce(onClear);
+        expect(upnpService.removalPending()).to.equal(false);
+      } finally {
+        upnpService.removalState.off('clear', onClear);
+      }
     });
   });
 

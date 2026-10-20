@@ -97,6 +97,30 @@ function releaseOwnDos(dosState) {
   dosState.dosStateValue = 0;
 }
 
+let wakeNextPass = null;
+
+/**
+ * Waits `ms` before the next pass, or less: a UPnP removal becoming pending, or
+ * the last one going, starts the next pass at once.
+ * @param {number} ms
+ * @returns {Promise<void>}
+ */
+async function waitForNextPass(ms) {
+  const woken = new Promise((resolve) => { wakeNextPass = resolve; });
+  await Promise.race([serviceHelper.delay(ms), woken]);
+  wakeNextPass = null;
+}
+
+/**
+ * Starts the next pass now, if the check is waiting for it.
+ */
+function wakeCheck() {
+  if (wakeNextPass) wakeNextPass();
+}
+
+upnpService.removalState.on('pending', wakeCheck);
+upnpService.removalState.on('clear', wakeCheck);
+
 /**
  * Whether the router has refused a mapping for a reason of its own - a full
  * table, no answer - since this check last asked: any mapping, an install's, a
@@ -237,13 +261,12 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       }
     }
 
-    // A test the router cannot remove the mapping of has not completed: the
-    // pass asks for the removal again, and while it is refused makes no new
-    // test mapping and counts as a failed check.
-    if (isUpnp && upnpService.testRemovalPending() && !await upnpService.askPendingTestRemovals()) {
-      log.info('checkMyAppsAvailability - the router has not removed the last test mapping; no new one until it has');
+    // A router that has yet to remove a mapping of this node fails the check,
+    // and is given no test mapping until it has.
+    if (isUpnp && upnpService.removalPending()) {
+      log.info('checkMyAppsAvailability - the router has yet to remove a mapping of this node; no test mapping until it has');
       countPortFailure(dosState, thresholds.dos, UPNP_DOS_MESSAGE);
-      await serviceHelper.delay(dosState.portFailureScore >= thresholds.dos ? timeouts.dos : timeouts.error);
+      await waitForNextPass(dosState.portFailureScore >= thresholds.dos ? timeouts.dos : timeouts.error);
       setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));
       return;
     }
@@ -436,7 +459,9 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       log.error(`checkMyAppsAvailability - Count: ${portsNotWorking.size}. portsNotWorking: ${JSON.stringify(Array.from(portsNotWorking))}`);
     }
 
-    await serviceHelper.delay(waitMs);
+    // a removal refused during this pass gave no wake: the check was not waiting
+    if (isUpnp && upnpService.removalPending()) waitMs = Math.min(waitMs, timeouts.error);
+    await waitForNextPass(waitMs);
     setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));
   } catch (error) {
     await handleTestShutdown(dosState.testingPort, testHttpServer, isArcane, { skipUpnp: !isUpnp });
