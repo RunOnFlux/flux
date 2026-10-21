@@ -426,10 +426,82 @@ describe('availabilityChecker tests', () => {
         expect(mockDosState.portFailureScore ?? 0).to.equal(0);
       });
 
-      it('maps the port under test over TCP and UDP', async () => {
+      // A pass costs the router one mapping and one removal.
+      it('maps the port under test for one protocol a pass, TCP first', async () => {
         await pass();
 
-        sinon.assert.calledOnceWithExactly(mapUpnpPortStub, mockDosState.testingPort, 'Flux_Test_App');
+        sinon.assert.calledOnceWithExactly(mapUpnpPortStub, mockDosState.testingPort, 'Flux_Test_App', { protocols: ['TCP'] });
+        expect(JSON.parse(portTestStub.firstCall.args[1]).protocols).to.deep.equal(['tcp']);
+        sinon.assert.notCalled(fluxUdpTestServer.FluxUdpTestServer);
+      });
+
+      it('tests UDP alone on the pass after a TCP pass that passed, and TCP after that', async () => {
+        await pass();
+        portTestStub.callsFake(async (url, body) => {
+          const { ports: [port] } = JSON.parse(body);
+          return { data: { status: 'success', data: { udpAnswered: { [port]: fluxUdpTestServer.udpReply(udpToken).toString() } } } };
+        });
+        await pass();
+
+        expect(mapUpnpPortStub.secondCall.args[2]).to.deep.equal({ protocols: ['UDP'] });
+        expect(JSON.parse(portTestStub.secondCall.args[1]).protocols).to.deep.equal(['udp']);
+        expect(fluxHttpTestServer.FluxHttpTestServer.prototype.listen.callCount, 'a TCP test server on the UDP pass').to.equal(1);
+        expect(fluxNetworkHelper.getUdpReachability()).to.deep.equal({ reachable: true });
+
+        await pass();
+        expect(mapUpnpPortStub.thirdCall.args[2]).to.deep.equal({ protocols: ['TCP'] });
+      });
+
+      // A peer that does not know `protocols` tests TCP, finds it unmapped, and
+      // says the port failed: on a UDP pass that is no evidence at all.
+      it('reads nothing from a peer\'s TCP failure on a UDP pass, and tests UDP again with another peer', async () => {
+        mockDosState.testingProtocol = 'udp';
+        portTestStub.callsFake(async (url, body) => {
+          const { ports: [port] } = JSON.parse(body);
+          return { data: { status: 'error', data: { message: `Flux Applications on 1.2.3.4:16127 are not available. Failed port: ${port}` } } };
+        });
+
+        await pass();
+
+        expect(mockPortsNotWorking.size).to.equal(0);
+        expect(mockDosState.portFailureScore ?? 0).to.equal(0);
+        expect(mockDosState.nextTestingPort).to.equal(mockDosState.testingPort);
+        expect(mockDosState.testingProtocol).to.equal('udp');
+        sinon.assert.calledWith(delayStub.lastCall, 15_000);
+      });
+
+      it('goes back to TCP after as many UDP passes as learn nothing', async () => {
+        mockDosState.testingProtocol = 'udp';
+        portTestStub.resolves({ data: { status: 'error', data: { message: 'Failed port: 1' } } });
+
+        await pass();
+        await pass();
+        expect(mockDosState.testingProtocol, 'gave up early').to.equal('udp');
+        await pass();
+
+        expect(mockDosState.testingProtocol).to.equal('tcp');
+        expect(mockDosState.udpUnsettled).to.equal(0);
+      });
+
+      // A router refusing the UDP mapping is as broken as one refusing TCP.
+      it('counts a UDP mapping the router refused for its own reason as a router fault, and stays on UDP', async () => {
+        mockDosState.testingProtocol = 'udp';
+        testMappingRefused(refused(606, true));
+
+        await pass();
+
+        expect(mockDosState.portFailureScore).to.equal(4);
+        expect(mockDosState.testingProtocol).to.equal('udp');
+        sinon.assert.notCalled(portTestStub);
+      });
+
+      it('stays on TCP while its TCP test fails', async () => {
+        portTestStub.resolves({ data: { status: 'error', data: { message: 'Failed port: 1' } } });
+
+        await pass();
+
+        expect(mockPortsNotWorking.size).to.equal(1);
+        expect(mockDosState.testingProtocol ?? 'tcp').to.equal('tcp');
       });
 
       it('makes no test mapping, opens no port, and counts a failed check while the router has yet to remove a mapping of this node', async () => {
@@ -553,8 +625,8 @@ describe('availabilityChecker tests', () => {
 
         await pass();
 
-        expect(fluxNetworkHelper.allowTestPort.args).to.deep.equal([[mockDosState.testingPort, 'tcp'], [mockDosState.testingPort, 'udp']]);
-        expect(fluxNetworkHelper.deleteTestPortRule.args).to.deep.equal([[mockDosState.testingPort, 'tcp'], [mockDosState.testingPort, 'udp']]);
+        expect(fluxNetworkHelper.allowTestPort.args).to.deep.equal([[mockDosState.testingPort, 'tcp']]);
+        expect(fluxNetworkHelper.deleteTestPortRule.args).to.deep.equal([[mockDosState.testingPort, 'tcp']]);
         sinon.assert.notCalled(allowBoth);
         sinon.assert.notCalled(deleteBoth);
       });
@@ -681,7 +753,7 @@ describe('availabilityChecker tests', () => {
 
         const body = JSON.parse(portTestStub.firstCall.args[1]);
         expect(body.echo).to.equal(true);
-        expect(body.udp).to.equal(true);
+        expect(body.protocols).to.deep.equal(['tcp', 'udp']);
         sinon.assert.calledOnceWithExactly(udpServers[0].listen, mockDosState.testingPort);
         sinon.assert.calledOnceWithExactly(udpServers[0].allow, '192.168.1.200');
         expect(udpServers[0].allow.calledBefore(portTestStub)).to.equal(true);

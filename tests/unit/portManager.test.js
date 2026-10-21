@@ -1427,7 +1427,7 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
   it('asks the peer to probe UDP, and opens a UDP test server on every port', async () => {
     await withPeers([answering('ours')]);
 
-    expect(JSON.parse(axios.post.firstCall.args[1]).udp).to.equal(true);
+    expect(JSON.parse(axios.post.firstCall.args[1]).protocols).to.deep.equal(['tcp', 'udp']);
     expect(udpServers).to.have.length(1);
     sinon.assert.calledWith(udpServers[0].listen, port);
     sinon.assert.calledOnce(udpServers[0].close);

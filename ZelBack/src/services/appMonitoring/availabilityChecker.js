@@ -23,6 +23,7 @@ async function handleTestShutdown(testingPort, testHttpServer, isArcane, options
   const skipFirewall = options.skipFirewall || false;
   const skipUpnp = options.skipUpnp || false;
   const skipHttpServer = options.skipHttpServer || false;
+  const protocols = options.protocols || ['tcp', 'udp'];
 
   if (options.udpTestServer) options.udpTestServer.close();
 
@@ -32,12 +33,13 @@ async function handleTestShutdown(testingPort, testHttpServer, isArcane, options
     || await fluxNetworkHelper.isFirewallActive().catch(() => true);
 
   if (updateFirewall) {
-    await fluxNetworkHelper
-      .deleteTestPortRule(testingPort, 'tcp')
-      .catch((e) => log.error(e));
-    await fluxNetworkHelper
-      .deleteTestPortRule(testingPort, 'udp')
-      .catch((e) => log.error(e));
+    // eslint-disable-next-line no-restricted-syntax
+    for (const protocol of protocols) {
+      // eslint-disable-next-line no-await-in-loop
+      await fluxNetworkHelper
+        .deleteTestPortRule(testingPort, protocol)
+        .catch((e) => log.error(e));
+    }
   }
 
   if (!skipUpnp) {
@@ -123,11 +125,23 @@ function udpDosEnabled() {
 }
 
 /**
- * How many passes a port one peer heard nothing on over UDP is tested again,
- * looking for a second peer that probes UDP, before that peer's silence is
- * dropped unconfirmed.
+ * How many passes a port is tested again over UDP, looking for a peer that
+ * probes UDP - to confirm one peer's silence, or on a UDP pass that learned
+ * nothing - before the pass is left unsettled.
  */
 const UDP_RETESTS = 3;
+
+/**
+ * The protocols a pass tests. A node behind UPnP maps one protocol per pass,
+ * TCP and UDP in turn, so a pass costs its router one mapping and one removal;
+ * a node with no mapping to make tests both every pass.
+ * @param {boolean} isUpnp
+ * @param {object} dosState
+ * @returns {string[]}
+ */
+function passProtocols(isUpnp, dosState) {
+  return isUpnp ? [dosState.testingProtocol ?? 'tcp'] : ['tcp', 'udp'];
+}
 
 /**
  * Whether an application the network lists at this node's public address holds
@@ -356,8 +370,12 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       return;
     }
 
+    const protocols = passProtocols(isUpnp, dosState);
+    const tcpTested = protocols.includes('tcp');
+    const udpTested = protocols.includes('udp');
+
     // A port one peer heard nothing on over UDP is tested again by another.
-    const udpSuspect = dosState.udpSuspect?.port === dosState.testingPort ? dosState.udpSuspect : null;
+    const udpSuspect = udpTested && dosState.udpSuspect?.port === dosState.testingPort ? dosState.udpSuspect : null;
 
     // An external observer: this asks a peer whether it can reach US, and a Flux
     // node sharing our public address cannot answer that. Null when there is no
@@ -380,12 +398,17 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
 
     const firewallActive = isArcane ? true : await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
-      await fluxNetworkHelper.allowTestPort(dosState.testingPort, 'tcp');
-      await fluxNetworkHelper.allowTestPort(dosState.testingPort, 'udp');
+      // eslint-disable-next-line no-restricted-syntax
+      for (const protocol of protocols) {
+        // eslint-disable-next-line no-await-in-loop
+        await fluxNetworkHelper.allowTestPort(dosState.testingPort, protocol);
+      }
     }
 
     if (isUpnp) {
-      const upnpMapResult = await upnpService.mapUpnpPort(dosState.testingPort, 'Flux_Test_App');
+      // A router refusing either protocol's mapping for a reason of its own is
+      // a router fault, counted as one.
+      const upnpMapResult = await upnpService.mapUpnpPort(dosState.testingPort, 'Flux_Test_App', { protocols: protocols.map((protocol) => protocol.toUpperCase()) });
       routerRefused = routerRefusedSinceLastPass(dosState);
       if (routerRefused) countPortFailure(dosState, thresholds.dos, UPNP_DOS_MESSAGE);
       if (!upnpMapResult.mapped) {
@@ -394,6 +417,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
         await handleTestShutdown(dosState.testingPort, testHttpServer, isArcane, {
           skipFirewall: !firewallActive,
           skipHttpServer: true,
+          protocols,
         });
         const upnpDelay = dosState.portFailureScore >= thresholds.dos ? timeouts.dos : timeouts.error;
         await waitForNextPass(upnpDelay);
@@ -402,22 +426,25 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       }
     }
 
-    const listening = new Promise((resolve, reject) => {
-      testHttpServer
-        .once('error', (err) => {
-          testHttpServer.removeAllListeners('listening');
-          reject(err.message);
-        })
-        .once('listening', () => {
-          testHttpServer.removeAllListeners('error');
-          resolve(null);
-        });
-      testHttpServer.listen(dosState.testingPort);
-    });
-
-    let error = await listening.catch((err) => err);
-    const httpListening = !error;
-    if (httpListening) {
+    let error = null;
+    let httpListening = false;
+    if (tcpTested) {
+      const listening = new Promise((resolve, reject) => {
+        testHttpServer
+          .once('error', (err) => {
+            testHttpServer.removeAllListeners('listening');
+            reject(err.message);
+          })
+          .once('listening', () => {
+            testHttpServer.removeAllListeners('error');
+            resolve(null);
+          });
+        testHttpServer.listen(dosState.testingPort);
+      });
+      error = await listening.catch((err) => err);
+      httpListening = !error;
+    }
+    if (!error && udpTested) {
       udpTestServer = new fluxUdpTestServer.FluxUdpTestServer(portTestToken);
       error = await udpTestServer.listen(dosState.testingPort).then(() => null, (err) => err.message);
     }
@@ -429,6 +456,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
         skipUpnp: !isUpnp,
         skipHttpServer: !httpListening,
         udpTestServer,
+        protocols,
       });
       await waitForNextPass(timeouts.error);
       setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));
@@ -455,16 +483,16 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       appname: 'appPortsTest',
       ports: [dosState.testingPort],
       pubKey: signer.pubKey,
-      // Read the port back rather than merely reach it, and probe it over UDP.
+      // Read the port back rather than merely reach it, over this pass's protocols.
       echo: true,
-      udp: true,
+      protocols,
     };
 
     const signature = signer.sign(JSON.stringify(data));
     if (!signature) throw new Error('checkMyAppsAvailability - the port test could not be signed');
     data.signature = signature;
 
-    udpTestServer.allow(remoteIp);
+    if (udpTestServer) udpTestServer.allow(remoteIp);
 
     const resMyAppAvailability = await axios
       .post(`http://${remoteIp}:${remotePort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig)
@@ -479,7 +507,9 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     await handleTestShutdown(dosState.testingPort, testHttpServer, isArcane, {
       skipFirewall: !firewallActive,
       skipUpnp: !isUpnp,
+      skipHttpServer: !httpListening,
       udpTestServer,
+      protocols,
     });
 
     if (!resMyAppAvailability) {
@@ -503,12 +533,14 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     }
 
     const { answered, udpAnswered } = resMyAppAvailability.data.data || {};
-    let portTestFailed = responseStatus === 'error';
+    // A pass that does not test TCP reads nothing from the peer's TCP answer: a
+    // peer that does not know `protocols` tests TCP anyway, and finds it unmapped.
+    let portTestFailed = tcpTested && responseStatus === 'error';
 
     // A peer that read the port: only our token says this node is what
     // answered. Anything else holding the port leaves it as unusable here as
     // nothing answering. A peer that does not read ports is taken at its word.
-    if (!portTestFailed && answered && portManager.portNotOurs([dosState.testingPort], answered, portTestToken) !== null) {
+    if (tcpTested && !portTestFailed && answered && portManager.portNotOurs([dosState.testingPort], answered, portTestToken) !== null) {
       log.warn(`checkMyAppsAvailability - Port ${dosState.testingPort} answered ${remoteIp}:${remotePort} as something other than this node`);
       portTestFailed = true;
     }
@@ -516,7 +548,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     // Over UDP, our token heard by one peer proves the port; silence heard by
     // one peer is tested again by another, and counts once two have heard it.
     let retestUdp = false;
-    const udp = portTestFailed ? 'unknown' : udpVerdict(udpAnswered, dosState.testingPort, portTestToken);
+    const udp = !udpTested || portTestFailed ? 'unknown' : udpVerdict(udpAnswered, dosState.testingPort, portTestToken);
     if (udp === 'proven') {
       // eslint-disable-next-line no-param-reassign
       dosState.udpSuspect = null;
@@ -543,9 +575,19 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       retestUdp = udpSuspect.retests < UDP_RETESTS;
       // eslint-disable-next-line no-param-reassign
       if (!retestUdp) dosState.udpSuspect = null;
+    } else if (udpTested && !tcpTested) {
+      // A UDP pass whose peer does not probe UDP learned nothing.
+      // eslint-disable-next-line no-param-reassign
+      dosState.udpUnsettled = (dosState.udpUnsettled ?? 0) + 1;
+      retestUdp = dosState.udpUnsettled < UDP_RETESTS;
+    }
+    if (udp !== 'unknown' || !retestUdp) {
+      // eslint-disable-next-line no-param-reassign
+      dosState.udpUnsettled = 0;
     }
 
     let waitMs = 0;
+    let passed = false;
 
     if (portTestFailed && portsNotWorking.size < thresholds.portsHighEdge) {
       portsNotWorking.add(dosState.testingPort);
@@ -576,6 +618,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       setRandomPort();
       waitMs = timeouts.failure;
     } else {
+      passed = true;
       portsNotWorking.clear();
       // eslint-disable-next-line no-param-reassign
       dosState.nextTestingPort = null;
@@ -600,6 +643,10 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       // eslint-disable-next-line no-param-reassign
       dosState.nextTestingPort = dosState.testingPort;
       waitMs = Math.min(waitMs, timeouts.failure);
+    } else if (isUpnp && passed) {
+      // The other protocol's turn, once this one has passed.
+      // eslint-disable-next-line no-param-reassign
+      dosState.testingProtocol = tcpTested ? 'udp' : 'tcp';
     }
 
     // A router that refused this node a mapping or has yet to remove one is
@@ -614,7 +661,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     await waitForNextPass(waitMs);
     setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));
   } catch (error) {
-    await handleTestShutdown(dosState.testingPort, testHttpServer, isArcane, { skipUpnp: !isUpnp, udpTestServer });
+    await handleTestShutdown(dosState.testingPort, testHttpServer, isArcane, { skipUpnp: !isUpnp, udpTestServer, protocols: passProtocols(isUpnp, dosState) });
     log.error(`checkMyAppsAvailability - Error: ${error}`);
     await waitForNextPass(timeouts.appError);
     setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));

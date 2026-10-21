@@ -1000,8 +1000,9 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
       // it should find is deliberately not here: a peer that never learns it
       // cannot produce it without actually reaching us.
       echo: true,
-      // And to probe each port over UDP, handing back what replied.
-      udp: true,
+      // Over both protocols: UDP is probed once TCP has passed, and what replied
+      // is handed back.
+      protocols: ['tcp', 'udp'],
     };
     const stringData = JSON.stringify(data);
     // eslint-disable-next-line no-await-in-loop

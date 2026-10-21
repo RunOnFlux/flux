@@ -756,8 +756,14 @@ async function checkAppAvailability(req, res) {
       // null, rather than the test ending at the first port that failed. Only
       // with echo: the answers are what it returns.
       const everyPort = echo && processedBody.everyPort === true;
-      // Each port probed over UDP as well, once TCP has passed.
-      const udp = processedBody.udp === true;
+      // The protocols to test each port over. TCP alone when the caller names
+      // none; with both, UDP is probed once TCP has passed.
+      const protocols = processedBody.protocols ?? ['tcp'];
+      if (!Array.isArray(protocols) || !protocols.length || !protocols.every((protocol) => protocol === 'tcp' || protocol === 'udp')) {
+        throw new Error('Protocols to test must be tcp, udp or both');
+      }
+      const tcp = protocols.includes('tcp');
+      const udp = protocols.includes('udp');
       const answered = {};
 
       const testable = ports.filter((port) => {
@@ -770,11 +776,11 @@ async function checkAppAvailability(req, res) {
         return withinRange && !iBP;
       });
 
-      if (everyPort) {
+      if (tcp && everyPort) {
         await forEachLimited(testable, PORT_PROBE_CONCURRENCY, async (port) => {
           answered[port] = await portAnswered(ip, port);
         });
-      } else {
+      } else if (tcp) {
         // eslint-disable-next-line no-restricted-syntax
         for (const port of testable) {
           if (echo) {
@@ -810,7 +816,7 @@ async function checkAppAvailability(req, res) {
       // available from this peer, which is not the same as the ports being bad.
       // Added as a field rather than through createSuccessMessage, whose second
       // and third parameters are name and code.
-      if (echo) successResponse.data.answered = answered;
+      if (echo && tcp) successResponse.data.answered = answered;
       // Present at all says this peer probed UDP, as `answered` does for TCP.
       if (udp) successResponse.data.udpAnswered = udpAnswered;
       res.json(successResponse);

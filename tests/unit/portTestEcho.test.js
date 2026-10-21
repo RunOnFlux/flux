@@ -321,7 +321,7 @@ describe('checkAppAvailability probes the address that asked', () => {
 
     const answer = await ask(
       {
-        ip: HERE, port: 16127, ports: [port], pubKey: 'k', signature: 's', echo: true, udp: true,
+        ip: HERE, port: 16127, ports: [port], pubKey: 'k', signature: 's', echo: true, protocols: ['tcp', 'udp'],
       },
       HERE,
     );
@@ -341,7 +341,7 @@ describe('checkAppAvailability probes the address that asked', () => {
 
     const answer = await ask(
       {
-        ip: '::1', port: 16127, ports: [v6Port], pubKey: 'k', signature: 's', echo: true, udp: true,
+        ip: '::1', port: 16127, ports: [v6Port], pubKey: 'k', signature: 's', echo: true, protocols: ['tcp', 'udp'],
       },
       '::1',
     );
@@ -350,6 +350,37 @@ describe('checkAppAvailability probes the address that asked', () => {
     expect(answer.status).to.equal('success');
     expect(answer.data.answered[v6Port]).to.include(TOKEN);
     expect(answer.data.udpAnswered).to.deep.equal({});
+  });
+
+  it('probes UDP alone, reading nothing over TCP, for a caller that asks for UDP alone', async () => {
+    // Nothing listens on this port over TCP, so a TCP read would fail the test.
+    const udpServer = new FluxUdpTestServer(TOKEN);
+    await udpServer.listen(0, HERE);
+    udpServer.allow(HERE);
+    const udpOnly = udpServer.address().port;
+    const answer = await ask(
+      {
+        ip: HERE, port: 16127, ports: [udpOnly], pubKey: 'k', signature: 's', echo: true, protocols: ['udp'],
+      },
+      HERE,
+    );
+    udpServer.close();
+
+    expect(answer.status, 'the port was read over TCP').to.equal('success');
+    expect(answer.data.udpAnswered[udpOnly]).to.include(TOKEN);
+    expect(answer.data).to.not.have.property('answered');
+  });
+
+  it('refuses protocols other than tcp and udp', async () => {
+    const answer = await ask(
+      {
+        ip: HERE, port: 16127, ports: [port], pubKey: 'k', signature: 's', echo: true, protocols: ['sctp'],
+      },
+      HERE,
+    );
+
+    expect(answer.status).to.equal('error');
+    expect(answer.data.message).to.include('tcp, udp or both');
   });
 
   it('probes no UDP for a caller that does not ask', async () => {
@@ -414,7 +445,7 @@ describe('checkAppAvailability probes the address that asked', () => {
     const started = Date.now();
     const answer = await ask(
       {
-        ip: HERE, port: 16127, ports, pubKey: 'k', signature: 's', echo: true, udp: true,
+        ip: HERE, port: 16127, ports, pubKey: 'k', signature: 's', echo: true, protocols: ['tcp', 'udp'],
       },
       HERE,
     );
