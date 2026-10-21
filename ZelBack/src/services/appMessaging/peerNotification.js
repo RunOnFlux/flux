@@ -10,6 +10,7 @@ const log = require('../../lib/log');
 const globalState = require('../utils/globalState');
 const appQueryService = require('../appQuery/appQueryService');
 const appReconciler = require('../appMonitoring/appReconciler');
+const dockerService = require('../dockerService');
 
 const fluxEventBus = require('../utils/fluxEventBus');
 const { nodeSigner } = require('../utils/nodeSigner');
@@ -125,6 +126,99 @@ function initialize() {
   });
 }
 
+/**
+ * When each of this node's app containers was created, keyed by container name
+ * without the leading slash, in epoch ms. One container list per cycle.
+ *
+ * An unreadable list is no list: the announcement still goes out, carrying what
+ * the location row says, which is what it carried before this was read at all.
+ *
+ * @returns {Promise<Map<string, number>>}
+ */
+async function containerCreationTimes() {
+  const created = new Map();
+  try {
+    const res = await appQueryService.listAllApps();
+    if (!res || res.status !== 'success' || !Array.isArray(res.data)) {
+      log.warn('checkAndNotifyPeersOfRunningApps - container list unreadable; runningSince comes from the location rows alone');
+      return created;
+    }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const container of res.data) {
+      const name = Array.isArray(container.Names) && container.Names[0];
+      const createdMs = Number(container.Created) * 1000;
+      if (name && Number.isFinite(createdMs) && createdMs > 0) created.set(name.replace(/^\//, ''), createdMs);
+    }
+  } catch (error) {
+    log.warn(`checkAndNotifyPeersOfRunningApps - container list unreadable (${error.message}); runningSince comes from the location rows alone`);
+  }
+  return created;
+}
+
+/**
+ * When this node created the containers of an installed app: the earliest of its
+ * components, or null when none is on this node.
+ *
+ * Containers are named the way installation names them - `<component>_<app>` from
+ * v4, the app name before it, behind the `flux` prefix or the `zel` one it
+ * replaced - so the lookup is exact. A spec this node cannot read names no
+ * components; its containers are matched by the `_<app>` suffix every v4
+ * container carries, which app names (no underscores) cannot fake.
+ *
+ * @param {object} application Installed app spec.
+ * @param {Map<string, number>} createdByContainer From containerCreationTimes.
+ * @returns {number|null} Epoch ms.
+ */
+function earliestContainerCreation(application, createdByContainer) {
+  const components = Array.isArray(application.compose) ? application.compose : [];
+  const named = (identifier) => [dockerService.getAppIdentifier(identifier), `zel${identifier}`];
+  let names;
+  if (application.version >= 4) {
+    names = components.length
+      ? components.flatMap((component) => named(`${component.name}_${application.name}`))
+      : [...createdByContainer.keys()].filter((name) => name.endsWith(`_${application.name}`));
+  } else {
+    names = named(application.name);
+  }
+  let earliest = null;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const name of names) {
+    const createdMs = createdByContainer.get(name);
+    if (createdMs !== undefined && (earliest === null || createdMs < earliest)) earliest = createdMs;
+  }
+  return earliest;
+}
+
+/**
+ * The runningSince this node announces for an app: the earlier of what its own
+ * location row says and when it created the app's containers. Now only when
+ * neither knows.
+ *
+ * The row is not this node's record of itself. It is this node's copy of the
+ * gossip every node keeps, and it goes while the app keeps running: it expires
+ * after two missed announcements, an eviction or a prune removes it, a sigterm
+ * shortens it. Announcing now in its place is not a gap in the record, it is a
+ * new value for it - a receiver takes runningSince from any newer announcement,
+ * so an instance that has run for weeks becomes, everywhere at once, the newest
+ * copy of its app, which is the copy a surplus check removes.
+ *
+ * The containers cannot go that way: they are this node's own, and they were
+ * created when it took the app. Earlier of the two, because each is wrong in one
+ * direction only - a row that lapsed and came back is too late, and a redeploy
+ * recreates the containers of an app the node has held all along. That also
+ * heals a row an earlier lapse already moved: the next announcement carries the
+ * containers' time and every receiver takes it.
+ *
+ * @param {Date|string|number|null|undefined} rowSince runningSince on this node's own location row.
+ * @param {number|null} containersCreatedMs From earliestContainerCreation.
+ * @returns {string} ISO timestamp.
+ */
+function runningSinceToAnnounce(rowSince, containersCreatedMs) {
+  const rowMs = rowSince ? new Date(rowSince).getTime() : NaN;
+  const known = [rowMs, containersCreatedMs].filter((ms) => Number.isFinite(ms) && ms > 0);
+  return new Date(known.length ? Math.min(...known) : Date.now()).toISOString();
+}
+
 async function checkAndNotifyPeersOfRunningApps() {
   if (broadcastInProgress) {
     rebroadcastNeeded = true;
@@ -197,20 +291,17 @@ async function checkAndNotifyPeersOfRunningApps() {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     try {
+      const createdByContainer = await containerCreationTimes();
       // eslint-disable-next-line no-restricted-syntax
       for (const application of applicationsToBroadcast) {
         const queryFind = { name: application.name, ip: localSocketAddr };
         const projection = { _id: 0, runningSince: 1 };
         // eslint-disable-next-line no-await-in-loop
         const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
-        let runningOnMyNodeSince = new Date().toISOString();
-        if (result && result.runningSince) {
-          runningOnMyNodeSince = result.runningSince;
-        }
         apps.push({
           name: application.name,
           hash: application.hash,
-          runningSince: runningOnMyNodeSince,
+          runningSince: runningSinceToAnnounce(result && result.runningSince, earliestContainerCreation(application, createdByContainer)),
         });
       }
       // An empty snapshot is NEVER broadcast: the receive side treats an empty

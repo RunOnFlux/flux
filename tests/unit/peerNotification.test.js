@@ -19,6 +19,7 @@ describe('peerNotification tests', () => {
   let testInstallingApps;
   let announceCycle;
   let findOneInDatabaseStub;
+  let listAllAppsStub;
 
   // One stub map, so a test that needs a different interval, expiry or cycle
   // length states only that difference instead of restating sixty lines.
@@ -45,6 +46,9 @@ describe('peerNotification tests', () => {
     '../dockerService': {
       appDockerStart: sinon.stub().resolves(),
       getDockerContainerOnly: sinon.stub().resolves(null),
+      // the real naming rule, so a container this suite lists is found by the
+      // name installation gives it
+      getAppIdentifier: (name) => (name.startsWith('zel') || name.startsWith('flux') ? name : `flux${name}`),
     },
     '../serviceHelper': {
       delay: sinon.stub().resolves(),
@@ -89,6 +93,7 @@ describe('peerNotification tests', () => {
     },
     '../appQuery/appQueryService': {
       installedApps: opts.installedApps ?? installedAppsStub,
+      listAllApps: listAllAppsStub,
       decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
     },
     '../appTamperingDetectionService': {
@@ -124,6 +129,7 @@ describe('peerNotification tests', () => {
     };
 
     findOneInDatabaseStub = sinon.stub().resolves(null);
+    listAllAppsStub = sinon.stub().resolves({ status: 'success', data: [] });
     enqueueAllStub = sinon.stub().resolves();
     waitForBootDrainSettledStub = sinon.stub().resolves();
     storeAppRunningMessageStub = sinon.stub().resolves();
@@ -380,6 +386,99 @@ describe('peerNotification tests', () => {
       await peerNotification.checkAndNotifyPeersOfRunningApps();
       const [message] = storeAppRunningMessageStub.firstCall.args;
       expect(message.apps.map((a) => a.name).sort()).to.deep.equal(['app1', 'gapp', 'rapp']);
+    });
+  });
+
+  // runningSince is the seniority every node ranks an app's instances by, and a
+  // receiver takes it from the newest announcement. So what this node announces
+  // is what the whole network believes about how long it has held the app.
+  describe('the runningSince it announces', () => {
+    const weeksAgo = Date.parse('2026-09-01T00:00:00.000Z');
+    const hoursAgo = Date.parse('2026-10-21T02:00:00.000Z');
+    const container = (name, createdMs) => ({ Names: [`/${name}`], Created: Math.floor(createdMs / 1000) });
+    const announced = (name = 'app1') => storeAppRunningMessageStub.firstCall.args[0].apps.find((a) => a.name === name).runningSince;
+
+    it('takes when it created the containers when its own location row is gone', async () => {
+      listAllAppsStub.resolves({ status: 'success', data: [container('fluxc1_app1', weeksAgo)] });
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      expect(announced(), 'a lost row announced as now makes a weeks-old instance the newest').to.equal(new Date(weeksAgo).toISOString());
+    });
+
+    it('takes the containers over a row that is later than them, and so heals a row a lapse already moved', async () => {
+      findOneInDatabaseStub.resolves({ runningSince: new Date(hoursAgo) });
+      listAllAppsStub.resolves({ status: 'success', data: [container('fluxc1_app1', weeksAgo)] });
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      expect(announced()).to.equal(new Date(weeksAgo).toISOString());
+    });
+
+    it('keeps a row that is earlier than the containers - a redeploy recreates them, the node held the app all along', async () => {
+      findOneInDatabaseStub.resolves({ runningSince: new Date(weeksAgo) });
+      listAllAppsStub.resolves({ status: 'success', data: [container('fluxc1_app1', hoursAgo)] });
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      expect(announced()).to.equal(new Date(weeksAgo).toISOString());
+    });
+
+    it('takes the earliest component of a compose app', async () => {
+      installedAppsStub.resolves({
+        status: 'success',
+        data: [{ name: 'app1', version: 4, compose: [{ name: 'web' }, { name: 'db' }] }],
+      });
+      listAllAppsStub.resolves({
+        status: 'success',
+        data: [container('fluxweb_app1', hoursAgo), container('fluxdb_app1', weeksAgo)],
+      });
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      expect(announced()).to.equal(new Date(weeksAgo).toISOString());
+    });
+
+    it('finds the containers of an app whose spec it cannot read by their app suffix', async () => {
+      installedAppsStub.resolves({
+        status: 'success',
+        data: [{ name: 'sealed', version: 8, enterprise: 'encrypted-blob', compose: [], hash: 'h2' }],
+      });
+      listAllAppsStub.resolves({
+        status: 'success',
+        data: [container('fluxc1_sealed', weeksAgo), container('fluxc1_unsealed', 1000)],
+      });
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      expect(announced('sealed')).to.equal(new Date(weeksAgo).toISOString());
+    });
+
+    it('names a v1-3 app container by the app name alone', async () => {
+      installedAppsStub.resolves({ status: 'success', data: [{ name: 'legacy', version: 3 }] });
+      listAllAppsStub.resolves({ status: 'success', data: [container('zellegacy', weeksAgo)] });
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      expect(announced('legacy'), 'pre-rename containers carry the zel prefix').to.equal(new Date(weeksAgo).toISOString());
+    });
+
+    it('takes now only when neither the row nor a container knows', async () => {
+      sinon.stub(Date, 'now').returns(hoursAgo);
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      expect(announced()).to.equal(new Date(hoursAgo).toISOString());
+    });
+
+    it('still announces, from the row, when the container list cannot be read', async () => {
+      findOneInDatabaseStub.resolves({ runningSince: new Date(weeksAgo) });
+      listAllAppsStub.rejects(new Error('docker unavailable'));
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      expect(announced()).to.equal(new Date(weeksAgo).toISOString());
+      expect(logStub.warn.calledWith(sinon.match('container list unreadable'))).to.be.true;
     });
   });
 
