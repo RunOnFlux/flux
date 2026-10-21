@@ -303,6 +303,61 @@ describe('a node behind UPnP tests one protocol a pass', function () {
   });
 });
 
+// A pass whose TCP passes clears what the TCP failures before it left, even
+// when the first peer hears nothing over UDP and the port is retested over UDP.
+describe('a node whose TCP comes back while its UDP is blocked', function () {
+  const NODE = 0;
+  let env;
+  dumpLogsOnFailure(() => env);
+  // Inbound TCP connections to the node, bar its FluxOS ports, dropped on its fleet device.
+  const tcpBlock = (op) => {
+    const ip = subnet.nodeIp(NODE + 1);
+    return `dev=$(ip -o -4 addr show | awk -v ip=${ip} '{ split($4, a, "/"); if (a[1] == ip) print $2 }'); `
+      + `iptables -w ${op} INPUT -i "$dev" -p tcp -m conntrack --ctstate NEW -m multiport ! --dports 16100:16299 -j DROP`;
+  };
+
+  before(async function () {
+    this.timeout(600000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 4,
+      networkShapes: { [NODE]: 'udp-blocked' },
+      configOverrides: { fluxapps: { minOutgoing: 2, minIncoming: 1, ...PORT_TEST } },
+      // failed ports never outnumber the low edge, so a passing pass clears them all
+      nodeConfigOverrides: {
+        [NODE]: { fluxapps: { appsPortCheck: { ...APPS_PORT_CHECK, thresholds: { dos: 100, portsHighEdge: 2, portsLowEdge: 2 } } } },
+      },
+    });
+    await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await env?.teardown();
+  });
+
+  it('clears its failed ports on the pass whose TCP passes and whose first peer hears nothing over UDP', async function () {
+    this.timeout(600000);
+    const client = env.clients[NODE];
+    const blockedFrom = client.getLastEventId();
+    const blocked = await execInContainer(client.container, tcpBlock('-I'));
+    expect(blocked.exitCode, blocked.output).to.equal(0);
+    const failing = await client.waitForEvent('availability:pass', (d) => d.tcp === 'unreachable' && d.portsNotWorking >= 1, 300000, { afterId: blockedFrom });
+    expect(failing.data.udp, 'UDP is probed only once TCP has passed').to.equal('unknown');
+
+    const unblockedFrom = client.getLastEventId();
+    const unblocked = await execInContainer(client.container, tcpBlock('-D'));
+    expect(unblocked.exitCode, unblocked.output).to.equal(0);
+    const recovered = await client.waitForEvent('availability:pass', (d) => d.tcp === 'passed', 300000, { afterId: unblockedFrom });
+
+    expect(recovered.data.udp, 'canary: the first peer heard nothing over UDP').to.equal('silent');
+    expect(recovered.data.portsNotWorking, 'failed ports left for the retest to clear').to.equal(0);
+    expect(recovered.data.dosReleased).to.equal(true);
+    expect(recovered.data.udpRetest).to.equal(true);
+    expect(recovered.data.nextPort).to.equal(recovered.data.port);
+  });
+});
+
 describe('a port closed over UDP, with the policy that counts it', function () {
   const BLOCKED = 0;
   let env;

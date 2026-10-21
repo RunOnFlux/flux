@@ -18,6 +18,7 @@ const fluxUdpTestServer = require('../../ZelBack/src/services/utils/fluxUdpTestS
 const portManager = require('../../ZelBack/src/services/appNetwork/portManager');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const policyStore = require('../../ZelBack/src/services/policyStore');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 const signer = { pubKey: 'pubkey', sign: () => 'signature' };
 // the check with a node that can sign its port test
@@ -824,6 +825,36 @@ describe('availabilityChecker tests', () => {
 
         expect(mockDosState.testingPort).to.equal(port);
         sinon.assert.calledWith(networkStateService.getRandomExternalObserver.secondCall, '192.168.1.100:16127', { exclude: [PEERS[0]] });
+      });
+
+      // A pass whose TCP passes is a passing pass for TCP, whatever UDP needs next.
+      it('clears its failed ports and lifts its DOS on a TCP pass whose first peer heard nothing over UDP, and still retests UDP', async () => {
+        const publish = sinon.spy(fluxEventBus, 'publish');
+        mockPortsNotWorking.add(1234);
+        mockDosState.portFailureScore = 8;
+        mockDosState.dosMessage = 'Ports tested not reachable from outside, DMZ or UPNP required! All ports that have failed: [1234]';
+        mockDosState.dosStateValue = 100;
+        portTestStub.callsFake(reading('ours', null));
+
+        await pass();
+
+        expect(mockPortsNotWorking.size, 'failed ports left until the retest').to.equal(0);
+        expect(mockDosState.dosMessage, 'its DOS left until the retest').to.equal(null);
+        expect(mockDosState.nextTestingPort).to.equal(mockDosState.testingPort);
+        sinon.assert.calledWith(delayStub.lastCall, 15_000);
+        sinon.assert.calledWithMatch(publish, 'availability:pass', {
+          port: mockDosState.testingPort, tcp: 'passed', udp: 'silent', portsNotWorking: 0, dosReleased: true, udpRetest: true,
+        });
+      });
+
+      it('publishes every pass\'s verdict', async () => {
+        const publish = sinon.spy(fluxEventBus, 'publish');
+
+        await pass();
+
+        sinon.assert.calledWithMatch(publish, 'availability:pass', {
+          protocols: ['tcp', 'udp'], peer: '192.168.1.200', tcp: 'passed', udp: 'proven', udpRetest: false,
+        });
       });
 
       it('takes our token heard by a second peer over the first peer\'s silence', async () => {

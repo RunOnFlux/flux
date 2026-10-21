@@ -13,6 +13,7 @@ const fluxUdpTestServer = require('../utils/fluxUdpTestServer');
 const portManager = require('../appNetwork/portManager');
 const registryManager = require('../appDatabase/registryManager');
 const policyStore = require('../policyStore');
+const fluxEventBus = require('../utils/fluxEventBus');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
@@ -536,6 +537,8 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     // A pass that does not test TCP reads nothing from the peer's TCP answer: a
     // peer that does not know `protocols` tests TCP anyway, and finds it unmapped.
     let portTestFailed = tcpTested && responseStatus === 'error';
+    let tcpOutcome = 'notTested';
+    if (tcpTested) tcpOutcome = portTestFailed ? 'unreachable' : 'passed';
 
     // A peer that read the port: only our token says this node is what
     // answered. Anything else holding the port leaves it as unusable here as
@@ -543,6 +546,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     if (tcpTested && !portTestFailed && answered && portManager.portNotOurs([dosState.testingPort], answered, portTestToken) !== null) {
       log.warn(`checkMyAppsAvailability - Port ${dosState.testingPort} answered ${remoteIp}:${remotePort} as something other than this node`);
       portTestFailed = true;
+      tcpOutcome = 'notOurs';
     }
 
     // Over UDP, our token heard by one peer proves the port; silence heard by
@@ -554,14 +558,12 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       dosState.udpSuspect = null;
       fluxNetworkHelper.setUdpReachability({ reachable: true });
     } else if (udp === 'silent' && !udpSuspect) {
+      // The pass's TCP result is handled as any other's; only the port and the
+      // wait are the retest's.
       log.warn(`checkMyAppsAvailability - ${remoteIp}:${remotePort} heard nothing of this node on port ${dosState.testingPort} over UDP; asking another peer`);
       // eslint-disable-next-line no-param-reassign
       dosState.udpSuspect = { port: dosState.testingPort, peer: remoteSocketAddress, retests: 0 };
-      // eslint-disable-next-line no-param-reassign
-      dosState.nextTestingPort = dosState.testingPort;
-      await waitForNextPass(timeouts.failure);
-      setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));
-      return;
+      retestUdp = true;
     } else if (udp === 'silent') {
       const peers = [extractIp(udpSuspect.peer), remoteIp];
       log.error(`checkMyAppsAvailability - Port ${dosState.testingPort} does not answer this node over UDP, as heard by ${peers.join(' and ')}`
@@ -588,6 +590,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
 
     let waitMs = 0;
     let passed = false;
+    let dosReleased = false;
 
     if (portTestFailed && portsNotWorking.size < thresholds.portsHighEdge) {
       portsNotWorking.add(dosState.testingPort);
@@ -625,7 +628,10 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       // eslint-disable-next-line no-param-reassign
       dosState.originalPortFailed = null;
       // a router refusing others' mappings is not cleared by one that took this test's
-      if (!routerRefused) releaseOwnDos(dosState);
+      if (!routerRefused) {
+        releaseOwnDos(dosState);
+        dosReleased = true;
+      }
       waitMs = timeouts.default;
     }
 
@@ -658,6 +664,18 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     if (isUpnp && routerFaulting) {
       waitMs = Math.min(waitMs, dosState.portFailureScore >= thresholds.dos ? timeouts.dos : timeouts.error);
     }
+    fluxEventBus.publish('availability:pass', {
+      port: dosState.testingPort,
+      protocols,
+      peer: remoteIp,
+      tcp: tcpOutcome,
+      udp: udpTested ? udp : 'notTested',
+      portsNotWorking: portsNotWorking.size,
+      dosReleased,
+      udpRetest: retestUdp,
+      nextPort: dosState.nextTestingPort,
+      waitMs,
+    });
     await waitForNextPass(waitMs);
     setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));
   } catch (error) {
