@@ -9,7 +9,7 @@ import { bootAndPeer, seedSpawnerApp } from '../framework/reconciler-suite.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { execInContainer, restartFluxos, setNodeApiPort } from '../framework/container.js';
-import { enableUpnpGateway, upnpGatewayState } from '../framework/external-http-control.js';
+import { enableUpnpGateway, setUpnpProtocolFault, upnpGatewayState } from '../framework/external-http-control.js';
 import { waitFor, waitForAppInstalled, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -56,6 +56,7 @@ const APPS_PORT_CHECK = {
 const PORT_TEST = { portTestMaxAttempts: 3 };
 
 const PORTS_DOS_PREFIX = 'Ports tested not reachable from outside';
+const UPNP_DOS = 'Not possible to run applications on the node, router returning exceptions when creating UPNP ports mappings';
 
 const appPinnedTo = async (name, port, index) => {
   await pushImage(name, 'v1');
@@ -222,6 +223,83 @@ describe('a node whose first peers cannot hear UDP replies', function () {
   it('is proven by the peer that hears it', async function () {
     this.timeout(720000);
     await provenAndInstalled(env, NODE, 'udpdeafpeersapp', 31146);
+  });
+});
+
+// A node behind UPnP maps one protocol a pass, TCP and UDP in turn, so a pass
+// costs its router one mapping and one removal. A router refusing the UDP
+// mapping is as broken as one refusing TCP.
+describe('a node behind UPnP tests one protocol a pass', function () {
+  const NODE = 0;
+  let env;
+  let nodeIp;
+  dumpLogsOnFailure(() => env);
+  const testMappings = (requests) => requests.filter((r) => r.action === 'AddPortMapping' && r.description === 'Flux_Test_App');
+
+  before(async function () {
+    this.timeout(600000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 4,
+      configOverrides: { fluxapps: { minOutgoing: 2, minIncoming: 1, ...PORT_TEST } },
+      // a passing test is followed by the next pass 20 s later, and a router fault
+      // reaches the DOS on its second count
+      nodeConfigOverrides: {
+        [NODE]: {
+          fluxapps: {
+            appsPortCheck: {
+              timeoutsMs: {
+                default: 20000, error: 2000, failure: 1000, dos: 5 * 60 * 1000, appError: 5000,
+              },
+              thresholds: { dos: 8, portsHighEdge: 3, portsLowEdge: 1 },
+            },
+          },
+        },
+      },
+    });
+    nodeIp = subnet.nodeIp(NODE + 1);
+    const node = env.clients[NODE];
+    await waitForBootSettled(node);
+    await enableUpnpGateway(nodeIp);
+    await setNodeApiPort(node.container, 16127);
+    await restartFluxos(node.container);
+    await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await env?.teardown();
+  });
+
+  it('maps TCP and UDP on alternate passes, one mapping a pass, and proves both', async function () {
+    this.timeout(600000);
+    let made = [];
+    await waitFor(async () => {
+      made = testMappings((await upnpGatewayState(nodeIp)).requests);
+      return made.length >= 3;
+    }, { timeout: 480000, interval: 5000, label: 'three passes behind UPnP' });
+
+    const [first, second, third] = made;
+    expect([first.protocol, second.protocol, third.protocol]).to.deep.equal(['TCP', 'UDP', 'TCP']);
+    expect(new Set([first.port, second.port, third.port]).size, 'one mapping a pass').to.equal(3);
+    expect(await udpCheck(env.clients[NODE])).to.equal('ok');
+  });
+
+  it('is out of service, mapping UDP and nothing else, once its router refuses UDP mappings', async function () {
+    this.timeout(600000);
+    await setUpnpProtocolFault(nodeIp, 'UDP', 606);
+    const from = Date.now();
+
+    await waitFor(async () => (await env.clients[NODE].getDOSState()).data?.dosMessage === UPNP_DOS, {
+      timeout: 480000, interval: 5000, label: 'the node is out of service for its router',
+    });
+
+    const refusedSince = testMappings((await upnpGatewayState(nodeIp)).requests).filter((r) => Date.parse(r.at) >= from);
+    const lastTcp = refusedSince.findLastIndex((r) => r.protocol === 'TCP');
+    const firstRefusal = refusedSince.findIndex((r) => r.refused === 606);
+    expect(firstRefusal, 'canary: the router refused a UDP mapping').to.be.at.least(0);
+    expect(lastTcp, 'a TCP pass after the router refused UDP').to.be.below(firstRefusal);
+    await setUpnpProtocolFault(nodeIp, 'UDP', null);
   });
 });
 

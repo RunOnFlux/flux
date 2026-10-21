@@ -221,6 +221,19 @@ export async function setUpnpRefuseDeletes(ip, count) {
 }
 
 /**
+ * Set the fault a node's gateway answers every mapping of one protocol with from now on - a
+ * router that forwards TCP and refuses UDP. Keeps its table and the requests it has seen; each
+ * such answer carries `refused: <code>`.
+ * @param {string} ip
+ * @param {'TCP'|'UDP'} protocol
+ * @param {number|null} code - null maps the protocol as the spec says
+ */
+export async function setUpnpProtocolFault(ip, protocol, code) {
+  const res = await post(`/upnp-gateway/${ip}/protocol-fault`, { protocol, code });
+  if (!res.ok) throw new Error(`setUpnpProtocolFault: ${JSON.stringify(res)}`);
+}
+
+/**
  * Set the fault a node's gateway answers every GetSpecificPortMappingEntry with from now on,
  * whether or not it holds the entry. Keeps its table and the requests it has seen; each such
  * answer carries `refused: <code>`.

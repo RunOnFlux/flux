@@ -120,7 +120,7 @@ describe('a node whose router refuses it is out of service until it stops', func
     await env?.teardown();
   });
 
-  it('tests its ports over TCP and UDP, and waits the long wait after a test that passed', async function () {
+  it('tests its port over one protocol a pass, TCP first, and waits the long wait after a test that passed', async function () {
     this.timeout(300000);
     let state = { requests: [] };
     await waitFor(async () => {
@@ -132,8 +132,8 @@ describe('a node whose router refuses it is out of service until it stops', func
 
     const made = testMappings(state.requests);
     const [first] = made;
-    expect(made.filter((r) => r.port === first.port).map((r) => r.protocol).sort(), 'both protocols of the port under test')
-      .to.deep.equal(['TCP', 'UDP']);
+    expect(made.filter((r) => r.port === first.port).map((r) => r.protocol), 'one protocol, TCP')
+      .to.deep.equal(['TCP']);
 
     // a failed test is retried within seconds; a passed one only after the long wait
     const quietFrom = Date.now();

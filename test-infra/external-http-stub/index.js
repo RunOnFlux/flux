@@ -794,6 +794,12 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
         soapFault(res, 728, 'NoPortMapsAvailable');
         return;
       }
+      const protocolFault = gateway.protocolFaults?.[arg('NewProtocol').toUpperCase()];
+      if (protocolFault) {
+        gateway.requests[gateway.requests.length - 1].refused = protocolFault;
+        soapFault(res, protocolFault, 'ActionFailed');
+        return;
+      }
       gateway.mappings = gateway.mappings.filter((m) => !sameEntry(m));
       gateway.mappings.push({
         externalPort: Number(arg('NewExternalPort')),
@@ -1089,6 +1095,24 @@ control.post('/upnp-gateway/:ip/delete-fault', (req, res) => {
     return;
   }
   gateway.deleteFault = req.body?.code ?? null;
+  res.json({ ok: true });
+});
+
+// Set the fault a node's gateway answers every mapping of one protocol with from
+// now on (null: maps it as the spec says), keeping its table and the requests it
+// has seen - a router that forwards TCP and refuses UDP.
+control.post('/upnp-gateway/:ip/protocol-fault', (req, res) => {
+  const gateway = state.upnpGateways[req.params.ip];
+  if (!gateway) {
+    res.status(404).json({ error: 'no gateway for that ip' });
+    return;
+  }
+  const protocol = String(req.body?.protocol ?? '').toUpperCase();
+  if (!['TCP', 'UDP'].includes(protocol)) {
+    res.status(400).json({ error: 'protocol must be TCP or UDP' });
+    return;
+  }
+  gateway.protocolFaults = { ...gateway.protocolFaults, [protocol]: req.body?.code ?? null };
   res.json({ ok: true });
 });
 
