@@ -50,6 +50,13 @@
 #   direct-nameserver   the node's resolv.conf names the fleet's resolver itself,
 #                       as a host that lists a public resolver does, rather than
 #                       Docker's embedded server in front of it.
+#   udp-blocked         no UDP datagram starting a flow reaches the node, as behind
+#                       a router that forwards TCP alone; replies to the node's own
+#                       datagrams (DNS among them) still arrive.
+#   udp-first-lost      the first UDP datagram from each source starting a flow is
+#                       dropped, and every later one within 30 s arrives: loss that
+#                       a probe sending once never survives and one that sends
+#                       again always does.
 set -euo pipefail
 
 shape="$1"
@@ -155,6 +162,13 @@ case "$shape" in
   direct-nameserver)
     : "${FLUX_E2E_RESOLVER:?}"
     printf 'nameserver %s\n' "$FLUX_E2E_RESOLVER" > /etc/resolv.conf
+    ;;
+  udp-blocked)
+    iptables -A INPUT -p udp -m conntrack --ctstate NEW -j DROP
+    ;;
+  udp-first-lost)
+    iptables -A INPUT -p udp -m conntrack --ctstate NEW -m recent --name udpseen --rcheck --seconds 30 -j ACCEPT
+    iptables -A INPUT -p udp -m conntrack --ctstate NEW -m recent --name udpseen --set -j DROP
     ;;
   *)
     echo "network-shapes: unknown shape '$shape'" >&2

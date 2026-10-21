@@ -1148,6 +1148,7 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
 
         if (tcpProven && everyUdpPortProven(portsToTest, udpProven)) {
           decision = { ok: true, reason: 'proven', port: null };
+          fluxEventBus.publish('ports:proven', { ...decision, ports: portsToTest, peer: askingIP });
           break;
         }
       } else {

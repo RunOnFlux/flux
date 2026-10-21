@@ -231,6 +231,8 @@ export function nodeClient(nodeNum) {
         // it. Nothing existing carries that.
         'ports:notOurs',
         'ports:unproven',
+        'ports:proven',
+        'ports:udpUnreachable',
         'discovery:started',
         'peers:added',
         'peers:accepting',
