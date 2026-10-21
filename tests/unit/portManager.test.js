@@ -13,6 +13,7 @@ const networkStateService = require('../../ZelBack/src/services/networkStateServ
 const { EventEmitter } = require('node:events');
 const fluxHttpTestServer = require('../../ZelBack/src/services/utils/fluxHttpTestServer');
 const fluxUdpTestServer = require('../../ZelBack/src/services/utils/fluxUdpTestServer');
+const policyStore = require('../../ZelBack/src/services/policyStore');
 const { requireMongo } = require('./dbTestHelper');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
@@ -1570,6 +1571,26 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
   it('reports UDP reachable in health on a proof', async () => {
     await withPeers([answering('ours')]);
     expect(fluxNetworkHelper.getUdpReachability()).to.deep.equal({ reachable: true });
+  });
+
+  // A kill switch, not an opt-in: absent, the refusal stands.
+  it('installs as udpUnproven, still reporting UDP in health, when the policy turns the refusal over UDP off', async () => {
+    sinon.stub(policyStore, 'getDocument').withArgs('udpinstallrefusaloff').returns(true);
+
+    const result = await withPeers([answering(null), answering(null), UNREACHABLE]);
+
+    expect(result.ok).to.equal(true);
+    expect(result.reason).to.equal('udpUnproven');
+    expect(result.peers).to.deep.equal(['10.0.0.1', '10.0.0.2']);
+    expect(fluxNetworkHelper.getUdpReachability()).to.deep.equal({ reachable: false, port, peers: ['10.0.0.1', '10.0.0.2'] });
+  });
+
+  it('refuses when the policy carries the switch as anything but true', async () => {
+    sinon.stub(policyStore, 'getDocument').withArgs('udpinstallrefusaloff').returns(false);
+
+    const result = await withPeers([answering(null), answering(null), UNREACHABLE]);
+
+    expect(result.reason).to.equal('udpUnreachable');
   });
 
   it('reports the refused port and its peers in health when two peers hear nothing over UDP', async () => {

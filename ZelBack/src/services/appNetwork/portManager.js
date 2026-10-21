@@ -18,6 +18,7 @@ const { Privilege, authOf } = require('../utils/privileges');
 const fluxCaching = require('../utils/cacheManager');
 const globalState = require('../utils/globalState');
 const fluxEventBus = require('../utils/fluxEventBus');
+const policyStore = require('../policyStore');
 const { nodeSigner } = require('../utils/nodeSigner');
 
 // Global cache for failed nodes
@@ -736,6 +737,22 @@ async function askSiblingsForHeldPort(appPorts, localSocketAddress) {
 }
 
 /**
+ * The signed policy document that turns the pre-install refusal over UDP off.
+ * Published as `true`, a port two peers heard nothing on over UDP installs as
+ * `udpUnproven`, its UDP still reported in /flux/health; absent or anything
+ * else, the refusal stands.
+ */
+const UDP_INSTALL_REFUSAL_OFF_DOCUMENT = 'udpinstallrefusaloff';
+
+/**
+ * Whether the signed policy has turned the pre-install refusal over UDP off.
+ * @returns {boolean}
+ */
+function udpInstallRefusalOff() {
+  return policyStore.getDocument(UDP_INSTALL_REFUSAL_OFF_DOCUMENT) === true;
+}
+
+/**
  * How many independent peers must agree before a port test refuses an install.
  * Not config: it is a property of what counts as evidence, not a tuning knob,
  * and a fluxapps key has to be added in two places to be visible under test.
@@ -1231,17 +1248,22 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
       const udpRefused = refusedPort(disputed, PORT_TEST_CORROBORATION);
       if (udpRefused !== null) {
         const readings = [...disputed.entries()].map(([peer, port]) => `${peer} on port ${port}`);
-        log.warn(`checkInstallingAppPortAvailable - port ${udpRefused} at this address does not answer this node over UDP, as heard by `
-          + `${disputed.size} peers (${readings.join(', ')}) and proven by none of the ${asked.length} asked. Installation aborted.`);
-        decision = {
-          ok: false,
-          reason: 'udpUnreachable',
-          port: udpRefused,
-          peers: [...disputed.keys()],
-          readings: Object.fromEntries(disputed),
-        };
-        fluxNetworkHelper.setUdpReachability({ reachable: false, port: udpRefused, peers: decision.peers });
-        fluxEventBus.publish('ports:udpUnreachable', decision);
+        fluxNetworkHelper.setUdpReachability({ reachable: false, port: udpRefused, peers: [...disputed.keys()] });
+        if (udpInstallRefusalOff()) {
+          log.warn(`checkInstallingAppPortAvailable - port ${udpRefused} does not answer this node over UDP, as heard by `
+            + `${readings.join(', ')}; the network policy has the refusal over UDP off, so the install goes ahead`);
+        } else {
+          log.warn(`checkInstallingAppPortAvailable - port ${udpRefused} at this address does not answer this node over UDP, as heard by `
+            + `${disputed.size} peers (${readings.join(', ')}) and proven by none of the ${asked.length} asked. Installation aborted.`);
+          decision = {
+            ok: false,
+            reason: 'udpUnreachable',
+            port: udpRefused,
+            peers: [...disputed.keys()],
+            readings: Object.fromEntries(disputed),
+          };
+          fluxEventBus.publish('ports:udpUnreachable', decision);
+        }
       }
     }
 

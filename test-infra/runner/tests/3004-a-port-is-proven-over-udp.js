@@ -358,8 +358,10 @@ describe('a node whose TCP comes back while its UDP is blocked', function () {
   });
 });
 
-describe('a port closed over UDP, with the policy that counts it', function () {
+describe('a port closed over UDP, under the policy that counts it and turns the install refusal off', function () {
   const BLOCKED = 0;
+  // blocked too, on the default thresholds, so it stays in service to install
+  const INSTALLS = 1;
   let env;
   dumpLogsOnFailure(() => env);
 
@@ -368,8 +370,8 @@ describe('a port closed over UDP, with the policy that counts it', function () {
     env = await createTestEnv({
       hookCtx: this,
       nodes: 4,
-      networkShapes: { [BLOCKED]: 'udp-blocked' },
-      policy: { documents: { udpportdos: true } },
+      networkShapes: { [BLOCKED]: 'udp-blocked', [INSTALLS]: 'udp-blocked' },
+      policy: { documents: { udpportdos: true, udpinstallrefusaloff: true } },
       configOverrides: { fluxapps: { minOutgoing: 2, minIncoming: 1, ...PORT_TEST } },
       // the first port failure is walked, the next counts, and one count is the threshold
       nodeConfigOverrides: {
@@ -382,6 +384,19 @@ describe('a port closed over UDP, with the policy that counts it', function () {
   after(async function () {
     this.timeout(60000);
     await env?.teardown();
+  });
+
+  // The switch that turns the refusal off without a release.
+  it('installs on a port two peers hear nothing on over UDP, as udpUnproven', async function () {
+    this.timeout(420000);
+    const client = env.clients[INSTALLS];
+    const after = client.getLastEventId();
+    await seedSpawnerApp(env, await appPinnedTo('udprefusaloffapp', 31147, INSTALLS));
+
+    const unproven = await client.waitForEvent('ports:unproven', () => true, 420000, { afterId: after });
+    expect(unproven.data.reason).to.equal('udpUnproven');
+    expect(unproven.data.peers, 'canary: peers heard nothing over UDP').to.have.length.at.least(2);
+    await waitForAppInstalled(client, 'udprefusaloffapp', 300000, { afterId: after });
   });
 
   it('takes the node out of service once the failures it confirms reach the threshold', async function () {
