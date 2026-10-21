@@ -844,6 +844,21 @@ function udpPortsNotOurs(portsToTest, udpAnswered, token, proven) {
 }
 
 /**
+ * What a peer heard over UDP on one port, read against our token: `ours`,
+ * `silent`, `otherAnswer`, or `notProbed` for a port it could not send to.
+ * @param {object} udpAnswered - port -> what that port replied, or null, from the peer
+ * @param {number} port
+ * @param {string} token
+ * @returns {string}
+ */
+function udpReadingOf(udpAnswered, port, token) {
+  const reply = udpAnswered[port] !== undefined ? udpAnswered[port] : udpAnswered[String(port)];
+  if (reply === undefined) return 'notProbed';
+  if (reply === null) return 'silent';
+  return typeof reply === 'string' && reply.includes(token) ? 'ours' : 'otherAnswer';
+}
+
+/**
  * Each peer whose UDP evidence still stands, with the first port it heard
  * nothing on that no peer has proven.
  * @param {Map<string, number[]>} udpDisagreements - peer -> ports it heard nothing on
@@ -1032,6 +1047,12 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
     let tcpProven = false;
     // Ports our token came back from over UDP, from any peer.
     const udpProven = new Set();
+    // Peer address -> what it heard over UDP on the port it read as not ours.
+    // A port answered over TCP by something else is a port forwarded elsewhere,
+    // so what the same peer heard over UDP describes that forward, not whether
+    // this node receives UDP: it goes with that peer's reading, never into the
+    // UDP tally.
+    const udpWhereNotOurs = new Map();
     let sawNoUdpPeer = false;
     // Every peer already asked, so a redraw is ANOTHER peer rather than another
     // draw. Without this the picker can hand back the one just asked - which on
@@ -1137,7 +1158,9 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
           reportedPort = notOurs;
         }
 
-        if (udpAnswered && typeof udpAnswered === 'object') {
+        if (udpAnswered && typeof udpAnswered === 'object' && notOurs !== null) {
+          udpWhereNotOurs.set(askingIP, udpReadingOf(udpAnswered, notOurs, portTestToken));
+        } else if (udpAnswered && typeof udpAnswered === 'object') {
           udpClosedPorts = udpPortsNotOurs(portsToTest, udpAnswered, portTestToken, udpProven);
           if (udpClosedPorts.length) {
             log.warn(`checkInstallingAppPortAvailable - ${askingIP} heard nothing of this node over UDP on port(s) ${udpClosedPorts.join(', ')}`);
@@ -1149,6 +1172,7 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
 
         if (tcpProven && everyUdpPortProven(portsToTest, udpProven)) {
           decision = { ok: true, reason: 'proven', port: null };
+          fluxNetworkHelper.setUdpReachability({ reachable: true });
           fluxEventBus.publish('ports:proven', { ...decision, ports: portsToTest, peer: askingIP });
           break;
         }
@@ -1194,6 +1218,10 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
         port: refused,
         peers: [...disagreements.keys()],
         readings: Object.fromEntries(disagreements),
+        // what each of those peers heard over UDP on the same port, where it probed
+        udpReadings: Object.fromEntries([...disagreements.keys()]
+          .filter((peer) => udpWhereNotOurs.has(peer))
+          .map((peer) => [peer, udpWhereNotOurs.get(peer)])),
       };
       fluxEventBus.publish('ports:notOurs', decision);
     }
@@ -1212,6 +1240,7 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
           peers: [...disputed.keys()],
           readings: Object.fromEntries(disputed),
         };
+        fluxNetworkHelper.setUdpReachability({ reachable: false, port: udpRefused, peers: decision.peers });
         fluxEventBus.publish('ports:udpUnreachable', decision);
       }
     }
@@ -1451,6 +1480,7 @@ module.exports = {
   portsInUseApi,
   portNotOurs,
   udpPortsNotOurs,
+  udpReadingOf,
   udpDisputes,
   everyUdpPortProven,
   refusedPort,

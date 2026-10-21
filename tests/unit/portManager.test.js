@@ -1254,6 +1254,7 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
 
   afterEach(() => {
     sinon.restore();
+    fluxNetworkHelper.setUdpReachability(null);
   });
 
   // One attempt per drawn peer: the observer is drawn first, so the attempt
@@ -1549,6 +1550,33 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
     expect(result.readings).to.deep.equal({ '10.0.0.1': other, '10.0.0.2': other });
   });
 
+  // A port answered over TCP by something else is forwarded elsewhere; what the
+  // same peer heard over UDP describes that forward, not this node's UDP.
+  it('refuses as notOurs, not udpUnreachable, when the peers that hear nothing read TCP as someone else\'s', async () => {
+    const elsewhere = () => ({
+      data: {
+        status: 'success',
+        data: { answered: { [port]: 'HTTP/1.1 200 OK\r\n\r\nsomebody else' }, udpAnswered: { [port]: null } },
+      },
+    });
+
+    const result = await withPeers([elsewhere, elsewhere, UNREACHABLE]);
+
+    expect(result.reason).to.equal('notOurs');
+    expect(result.udpReadings).to.deep.equal({ '10.0.0.1': 'silent', '10.0.0.2': 'silent' });
+    expect(fluxNetworkHelper.getUdpReachability(), 'reported as this node\'s UDP').to.equal(null);
+  });
+
+  it('reports UDP reachable in health on a proof', async () => {
+    await withPeers([answering('ours')]);
+    expect(fluxNetworkHelper.getUdpReachability()).to.deep.equal({ reachable: true });
+  });
+
+  it('reports the refused port and its peers in health when two peers hear nothing over UDP', async () => {
+    await withPeers([answering(null), answering(null), UNREACHABLE]);
+    expect(fluxNetworkHelper.getUdpReachability()).to.deep.equal({ reachable: false, port, peers: ['10.0.0.1', '10.0.0.2'] });
+  });
+
   it('closes its UDP test servers when the test fails', async () => {
     fluxNetworkHelper.getLocalSocketAddress.resolves('1.2.3.4:16127');
     fluxUdpTestServer.FluxUdpTestServer.callsFake(() => {
@@ -1587,6 +1615,13 @@ describe('udpPortsNotOurs and udpDisputes', () => {
     const proven = new Set();
     expect(portManager.udpPortsNotOurs([0], { 0: null }, TOKEN, proven)).to.deep.equal([]);
     expect(portManager.everyUdpPortProven([0], proven)).to.equal(true);
+  });
+
+  it('reads one port\'s UDP answer as ours, silent, another\'s answer, or not probed', () => {
+    expect(portManager.udpReadingOf({ 31000: ours }, 31000, TOKEN)).to.equal('ours');
+    expect(portManager.udpReadingOf({ 31000: null }, 31000, TOKEN)).to.equal('silent');
+    expect(portManager.udpReadingOf({ 31000: 'hello' }, 31000, TOKEN)).to.equal('otherAnswer');
+    expect(portManager.udpReadingOf({}, 31000, TOKEN)).to.equal('notProbed');
   });
 
   it('keeps a peer as a witness only while a port it heard nothing on is unproven', () => {
