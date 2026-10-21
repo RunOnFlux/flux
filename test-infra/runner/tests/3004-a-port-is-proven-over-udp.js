@@ -28,6 +28,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //                    arrives. A probe that sends once never gets through; one that
 //                    sends again always does. Proven.
 //   udp-every-other  every other datagram is lost, whatever its source. Proven.
+//   udp-replies-lost on a PEER: it never hears a reply to its own probes, so it is
+//                    silent about every node. Two such peers do not refuse a node
+//                    while a peer that proves its port is still to ask.
 //
 // The open node runs ufw as an install leaves it, so its UDP test rule is what
 // admits the probes, and it is gone once the test ends. The every-other node is
@@ -187,6 +190,35 @@ describe('a port is proven over UDP', function () {
     });
     const dos = (await env.clients[BLOCKED].getDOSState()).data;
     expect(dos.dosMessage).to.equal(null);
+  });
+});
+
+describe('a node whose first peers cannot hear UDP replies', function () {
+  const NODE = 0;
+  const DEAF = [1, 2];
+  let env;
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(600000);
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 4,
+      networkShapes: Object.fromEntries(DEAF.map((i) => [i, 'udp-replies-lost'])),
+      // every other node is asked, the two deaf ones among them
+      configOverrides: { fluxapps: { minOutgoing: 2, minIncoming: 1, portTestMaxAttempts: 3 } },
+    });
+    await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    await env?.teardown();
+  });
+
+  it('is proven by the peer that hears it, whichever order the peers are asked in', async function () {
+    this.timeout(720000);
+    await provenAndInstalled(env, NODE, 'udpdeafpeersapp', 31146);
   });
 });
 

@@ -1158,25 +1158,11 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
         continue;
       }
 
-      if (udpClosedPorts.length) {
-        udpDisagreements.set(askingIP, udpClosedPorts);
-        const disputed = udpDisputes(udpDisagreements, udpProven);
-        const udpRefused = refusedPort(disputed, PORT_TEST_CORROBORATION);
-        if (udpRefused !== null) {
-          const readings = [...disputed.entries()].map(([peer, port]) => `${peer} on port ${port}`);
-          log.warn(`checkInstallingAppPortAvailable - port ${udpRefused} at this address does not answer this node over UDP, as heard by `
-            + `${disputed.size} peers (${readings.join(', ')}). Installation aborted.`);
-          decision = {
-            ok: false,
-            reason: 'udpUnreachable',
-            port: udpRefused,
-            peers: [...disputed.keys()],
-            readings: Object.fromEntries(disputed),
-          };
-          fluxEventBus.publish('ports:udpUnreachable', decision);
-          break;
-        }
-      }
+      // UDP silence is decided after the loop: a peer that cannot hear UDP
+      // replies is silent for every node it probes, so every attempt left is
+      // spent looking for a peer that proves the port before two silent ones
+      // refuse it.
+      if (udpClosedPorts.length) udpDisagreements.set(askingIP, udpClosedPorts);
 
       if (reportedPort === null) {
         // eslint-disable-next-line no-continue
@@ -1209,6 +1195,24 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
         readings: Object.fromEntries(disagreements),
       };
       fluxEventBus.publish('ports:notOurs', decision);
+    }
+
+    if (decision === null) {
+      const disputed = udpDisputes(udpDisagreements, udpProven);
+      const udpRefused = refusedPort(disputed, PORT_TEST_CORROBORATION);
+      if (udpRefused !== null) {
+        const readings = [...disputed.entries()].map(([peer, port]) => `${peer} on port ${port}`);
+        log.warn(`checkInstallingAppPortAvailable - port ${udpRefused} at this address does not answer this node over UDP, as heard by `
+          + `${disputed.size} peers (${readings.join(', ')}) and proven by none of the ${asked.length} asked. Installation aborted.`);
+        decision = {
+          ok: false,
+          reason: 'udpUnreachable',
+          port: udpRefused,
+          peers: [...disputed.keys()],
+          readings: Object.fromEntries(disputed),
+        };
+        fluxEventBus.publish('ports:udpUnreachable', decision);
+      }
     }
 
     if (decision === null) {

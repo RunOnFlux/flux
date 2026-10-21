@@ -1442,7 +1442,7 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
     expect(udpServers[0].allow.secondCall.calledBefore(axios.post.secondCall)).to.equal(true);
   });
 
-  it('refuses once two distinct peers hear nothing over UDP', async () => {
+  it('refuses once two distinct peers hear nothing over UDP and no peer proves it', async () => {
     const result = await withPeers([answering(null), answering(null), UNREACHABLE, UNREACHABLE, UNREACHABLE]);
 
     expect(result.ok, 'two peers hearing nothing did not refuse').to.equal(false);
@@ -1456,6 +1456,15 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
 
     expect(result.ok).to.equal(false);
     expect(result.reason).to.equal('udpUnreachable');
+  });
+
+  // A peer that cannot hear UDP replies is silent for every node. Two of them
+  // first do not refuse while a peer that can prove the port is still to ask.
+  it('asks every attempt left for proof after two peers hear nothing', async () => {
+    const result = await withPeers([answering(null), answering(null), answering('ours')]);
+
+    expect(result).to.deep.equal({ ok: true, reason: 'proven', port: null });
+    sinon.assert.callCount(axios.post, 3);
   });
 
   // UDP loses datagrams. Our token heard by one peer is proof, and another

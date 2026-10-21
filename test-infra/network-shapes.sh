@@ -60,6 +60,9 @@
 #                       and one that sends again always does.
 #   udp-every-other     every other UDP datagram starting a flow on the fleet
 #                       device is dropped, whatever its source: steady loss of half.
+#   udp-replies-lost    no reply to a UDP datagram the node sent arrives on its fleet
+#                       device: a peer that probes a port and never hears back,
+#                       whatever the port does.
 set -euo pipefail
 
 shape="$1"
@@ -168,6 +171,9 @@ case "$shape" in
     ;;
   udp-blocked)
     iptables -A INPUT -i "$dev" -p udp -m conntrack --ctstate NEW -j DROP
+    ;;
+  udp-replies-lost)
+    iptables -A INPUT -i "$dev" -p udp -m conntrack --ctstate ESTABLISHED -j DROP
     ;;
   udp-every-other)
     iptables -A INPUT -i "$dev" -p udp -m conntrack --ctstate NEW -m statistic --mode nth --every 2 --packet 0 -j DROP
