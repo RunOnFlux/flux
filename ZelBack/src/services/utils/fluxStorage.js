@@ -8,9 +8,11 @@
  * every node hosting the app into a signed request to wherever that node can
  * reach, and hands the response back as the container's own environment.
  *
- * Only the two markers the node actually fetches belong here. F_S_CONTACTS
- * carries the same shape but nothing in FluxOS dereferences it, so a URL there
- * is not a request this node will ever make.
+ * Only the two markers the node fetches to start a container belong here.
+ * F_S_CONTACTS carries the same shape but starting an app never dereferences it.
+ * The one place any of the three is fetched outside a container start is
+ * fluxStorageResolver, on its owner's request, and it holds every link to
+ * isFluxStorageUrl as the start does.
  */
 
 const config = require('config');

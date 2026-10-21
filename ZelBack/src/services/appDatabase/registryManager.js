@@ -15,6 +15,7 @@ const placementFeasibility = require('../appPlacement/placementFeasibility');
 const { withRegistryWrite } = require('./registryWriteLock');
 const appMessageChain = require('../utils/appMessageChain');
 const mountParser = require('../utils/mountParser');
+const fluxStorageResolver = require('../utils/fluxStorageResolver');
 const signatureVerifier = require('../signatureVerifier');
 const {
   SIGTERM_EXPIRY_MS,
@@ -1258,6 +1259,11 @@ async function getApplicationSpecificationAPI(req, res) {
     // query params take precedence over params (they were set explictly)
     decrypt = req.query.decrypt || decrypt;
 
+    // Opt-in: expand F_S_ storage links into the values they hold, for the app's
+    // owner only. Off by default, so an ordinary spec read never fetches from
+    // storage.
+    const resolveStorage = req.query.resolvestorage === 'true';
+
     const specifications = await getApplicationSpecifications(appname);
     const mainAppName = appname.split('_')[1] || appname;
 
@@ -1270,6 +1276,30 @@ async function getApplicationSpecificationAPI(req, res) {
     );
 
     if (!decrypt) {
+      if (resolveStorage) {
+        // In clear, so never for an enterprise app: its values are revealed only
+        // inside the session-encrypted answer below.
+        if (isEnterprise) {
+          throw new Error('Enterprise apps require decryption to resolve Flux Storage values.');
+        }
+
+        // The owner's alone, as decryption is: what a storage link holds is what
+        // the owner kept off the public chain.
+        const ownerAuthorized = await verificationHelper.verifyPrivilege(
+          Privilege.APP_OWNER,
+          authOf(req),
+          { appName: mainAppName },
+        );
+        if (ownerAuthorized !== true) {
+          res.json(messageHelper.errUnauthorizedMessage());
+          return null;
+        }
+
+        const resolved = await fluxStorageResolver.attachResolvedStorage(specifications, mainAppName);
+        res.json(messageHelper.createDataMessage(resolved));
+        return null;
+      }
+
       if (isEnterprise) {
         specifications.compose = [];
         specifications.contacts = [];
@@ -1311,8 +1341,14 @@ async function getApplicationSpecificationAPI(req, res) {
 
     // this seems a bit weird, but the client can ask for the specs encrypted or decrypted.
     // If decrypted, they pass us another session key and we use that to encrypt.
+    // Storage values are resolved into a clone before encryption, so they ride the
+    // caller's session key and the stored spec is untouched.
+    const specificationsToEncrypt = resolveStorage
+      ? await fluxStorageResolver.attachResolvedStorage(specifications, mainAppName)
+      : specifications;
+
     specifications.enterprise = await encryptEnterpriseFromSession(
-      specifications,
+      specificationsToEncrypt,
       daemonHeight,
       encryptedEnterpriseKey,
     );

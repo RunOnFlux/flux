@@ -195,6 +195,12 @@ class FluxCacheManager {
       max: 100,
       ttl: 7 * FluxCacheManager.oneDay,
     },
+    // fluxStorageResolver - F_S_ payloads resolved for an app owner, keyed by app and link:
+    // storage answers some links per app (flux-app header), so the link alone is not a key.
+    storagePayloadCache: {
+      max: 500,
+      ttl: 6 * FluxCacheManager.oneHour,
+    },
     // Pending app updates queue - stores update messages that arrived before registration
     pendingAppUpdatesCache: {
       max: 200,
