@@ -408,6 +408,9 @@ const state = {
   // enterprise node, which is what every suite that is not about enterprise placement wants.
   // Absent would be a different thing entirely - see the policy block below.
   enterpriseNodes: {},
+  // Whether a port closed over UDP counts toward the availability check's DOS. null is
+  // the document absent from the published bundle, which is the default.
+  udpPortDos: null,
   latestRelease: { tag_name: 'v0.0.0', name: 'stub-release' },
   geolocation: {},
   // The syncthing the node image ships, read from the repository the image was built
@@ -543,6 +546,7 @@ function resignPolicy({ bumpSeq = true } = {}) {
       vettedrepositories: state.vettedRepositories,
       tamperingblockednodes: state.tamperingBlocklist,
       enterprisenodes: state.enterpriseNodes,
+      ...(state.udpPortDos === null ? {} : { udpportdos: state.udpPortDos }),
     },
     // Content-addressed, as the real publisher does it: the plain name is mutable and means
     // "the current table", so the bundle names the hash a fetch should produce. Derived from
@@ -1267,6 +1271,7 @@ control.post('/policy', (req, res) => {
       vettedrepositories: 'vettedRepositories',
       tamperingblockednodes: 'tamperingBlocklist',
       enterprisenodes: 'enterpriseNodes',
+      udpportdos: 'udpPortDos',
     };
     for (const [name, value] of Object.entries(body.documents)) {
       if (!map[name]) return res.status(400).json({ error: `unknown document ${name}` });
@@ -1314,6 +1319,7 @@ control.post('/reset', (req, res) => {
   state.vettedRepositories = [];
   state.tamperingBlocklist = [];
   state.enterpriseNodes = {};
+  state.udpPortDos = null;
   state.latestRelease = { tag_name: 'v0.0.0', name: 'stub-release' };
   state.geolocation = {};
   artifacts.clear();
