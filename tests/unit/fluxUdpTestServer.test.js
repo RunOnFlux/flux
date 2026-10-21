@@ -90,6 +90,18 @@ describe('FluxUdpTestServer', () => {
     expect(await exchange(probe(), MAX_REPLIES + 8)).to.have.length(MAX_REPLIES);
   });
 
+  // Probes forged from one asked peer's address use up that peer's replies,
+  // never the next peer's.
+  it('gives each peer it is told to answer a fresh reply cap', async () => {
+    server.allow('127.0.0.1');
+    expect(await exchange(probe(), MAX_REPLIES), 'canary: the cap was used up').to.have.length(MAX_REPLIES);
+    expect(await exchange(probe())).to.deep.equal([]);
+
+    server.allow('127.0.0.1');
+
+    expect(await exchange(probe())).to.have.length(1);
+  });
+
   it('refuses a token too long for a reply no larger than a probe', () => {
     expect(() => new FluxUdpTestServer('x'.repeat(UDP_PROBE_BYTES))).to.throw();
   });

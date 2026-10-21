@@ -14,9 +14,10 @@ const UDP_PROBE_MAGIC = 'FLUXPT';
 const UDP_PROBE_BYTES = 64;
 
 /**
- * The most replies one test server sends while it listens. A peer sends a
+ * The most replies a test server sends to one asked peer. A peer sends a
  * handful of datagrams per port per attempt; this bounds what a flood of
- * probes forged from the asked peer's address can make the server send.
+ * probes forged from the asked peer's address can make the server send, and
+ * a flood forged from one peer's address leaves the next peer its own replies.
  */
 const MAX_REPLIES = 32;
 
@@ -63,11 +64,13 @@ class FluxUdpTestServer {
   }
 
   /**
-   * The peer whose probes this server answers from now on; null answers nobody.
+   * The peer whose probes this server answers from now on, with a fresh reply
+   * cap; null answers nobody.
    * @param {string|null} ip
    */
   allow(ip) {
     this.#allowed = ip ? ip.replace(/^::ffff:/i, '') : null;
+    this.#replies = 0;
   }
 
   /**
