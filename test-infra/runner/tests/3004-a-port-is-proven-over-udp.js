@@ -100,10 +100,10 @@ describe('a port is proven over UDP', function () {
   it('installs on a node whose port answers over TCP and UDP, proven by one peer', async function () {
     this.timeout(420000);
     const after = env.clients[OPEN].getLastEventId();
-    const app = await appPinnedTo('udpopenapp', 31201, OPEN);
+    const app = await appPinnedTo('udpopenapp', 31141, OPEN);
     await seedSpawnerApp(env, app);
 
-    const proven = await env.clients[OPEN].waitForEvent('ports:proven', (d) => d.ports.includes(31201), 420000, { afterId: after });
+    const proven = await env.clients[OPEN].waitForEvent('ports:proven', (d) => d.ports.includes(31141), 420000, { afterId: after });
     expect(proven.data.reason).to.equal('proven');
     await waitForAppInstalled(env.clients[OPEN], 'udpopenapp', 300000, { afterId: after });
   });
@@ -111,10 +111,10 @@ describe('a port is proven over UDP', function () {
   it('refuses a port two peers hear nothing on over UDP', async function () {
     this.timeout(420000);
     const after = env.clients[BLOCKED].getLastEventId();
-    const app = await appPinnedTo('udpblockedapp', 31202, BLOCKED);
+    const app = await appPinnedTo('udpblockedapp', 31142, BLOCKED);
     await seedSpawnerApp(env, app);
 
-    const refused = await env.clients[BLOCKED].waitForEvent('ports:udpUnreachable', (d) => d.port === 31202, 420000, { afterId: after });
+    const refused = await env.clients[BLOCKED].waitForEvent('ports:udpUnreachable', (d) => d.port === 31142, 420000, { afterId: after });
     expect(refused.data.reason).to.equal('udpUnreachable');
     expect(refused.data.peers).to.have.length(2);
     expect(new Set(refused.data.peers).size).to.equal(2);
@@ -131,10 +131,10 @@ describe('a port is proven over UDP', function () {
   it('proves a port whose first datagram from each peer is lost', async function () {
     this.timeout(420000);
     const after = env.clients[FIRST_LOST].getLastEventId();
-    const app = await appPinnedTo('udplossyapp', 31203, FIRST_LOST);
+    const app = await appPinnedTo('udplossyapp', 31143, FIRST_LOST);
     await seedSpawnerApp(env, app);
 
-    const proven = await env.clients[FIRST_LOST].waitForEvent('ports:proven', (d) => d.ports.includes(31203), 420000, { afterId: after });
+    const proven = await env.clients[FIRST_LOST].waitForEvent('ports:proven', (d) => d.ports.includes(31143), 420000, { afterId: after });
     expect(proven.data.reason).to.equal('proven');
     await waitForAppInstalled(env.clients[FIRST_LOST], 'udplossyapp', 300000, { afterId: after });
   });
@@ -181,7 +181,7 @@ describe('a node whose peers do not probe UDP', function () {
   it('installs on TCP proof, its UDP unproven', async function () {
     this.timeout(420000);
     const after = env.clients[NODE].getLastEventId();
-    const app = await appPinnedTo('udpoldpeersapp', 31204, NODE);
+    const app = await appPinnedTo('udpoldpeersapp', 31144, NODE);
     await seedSpawnerApp(env, app);
 
     const unproven = await env.clients[NODE].waitForEvent('ports:unproven', () => true, 420000, { afterId: after });
