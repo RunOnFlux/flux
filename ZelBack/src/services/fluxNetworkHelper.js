@@ -1032,6 +1032,24 @@ function getDosMessage() {
   return getStickyDosMessage() || dosMessage;
 }
 
+// Whether this node's ports answer over UDP, as the availability check last
+// established it with a peer's proof or two peers' silence; null until it has.
+let udpReachability = null;
+
+/**
+ * @param {{reachable: boolean, port?: number, peers?: string[]}|null} value
+ */
+function setUdpReachability(value) {
+  udpReachability = value;
+}
+
+/**
+ * @returns {{reachable: boolean, port?: number, peers?: string[]}|null}
+ */
+function getUdpReachability() {
+  return udpReachability;
+}
+
 /**
  * Take this node out of service for as long as one owner says so. Idempotent
  * per owner.
@@ -3656,6 +3674,8 @@ module.exports = {
   setLocalSocketAddress,
   getDosMessage,
   setDosMessage,
+  getUdpReachability,
+  setUdpReachability,
   setDosStateValue,
   getDosStateValue,
   isNodeDos,

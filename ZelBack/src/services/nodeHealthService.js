@@ -195,6 +195,13 @@ async function checkNodeFitness() {
   // that has stopped answering, and daemonHealthMonitor acts on one that stays so.
   checks.daemon = daemonServiceMiscRpcs.isDaemonSynced().data.synced ? CHECK.OK : CHECK.DEGRADED;
 
+  // udp: whether this node's ports answer over UDP, as the availability check
+  // last established it. Reported, never refused on here: whether a port closed
+  // over UDP takes the node out of service is that check's to decide.
+  const udp = fluxNetworkHelper.getUdpReachability();
+  if (udp === null) checks.udp = CHECK.UNMEASURED;
+  else checks.udp = udp.reachable ? CHECK.OK : CHECK.DEGRADED;
+
   // hardware: the node must still meet its tier requirements
   const hardware = await confirmNodeTierHardware();
   if (hardware.result === CHECK.FAIL) {
