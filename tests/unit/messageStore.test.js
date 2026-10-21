@@ -56,6 +56,7 @@ describe('messageStore tests', () => {
       },
       fluxapps: {
         maxAppsPerNode: 200,
+        tempMsgTtlS: 7200,
       },
     };
 
@@ -184,6 +185,28 @@ describe('messageStore tests', () => {
 
       expect(result).to.be.true;
       expect(dbHelperStub.insertOneToDatabase.calledOnce).to.be.true;
+    });
+
+    it('stamps expireAt one tempMsgTtlS after it was received', async () => {
+      const message = {
+        type: 'fluxappregister',
+        version: 1,
+        appSpecifications: { name: 'test' },
+        hash: 'hash123',
+        timestamp: Date.now(),
+        signature: 'sig123',
+      };
+
+      messageVerifierStub.checkAppMessageExistence.resolves(null);
+      messageVerifierStub.checkAppTemporaryMessageExistence.resolves(null);
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+      dbHelperStub.findOneInDatabase.resolves(null);
+      dbHelperStub.insertOneToDatabase.resolves();
+
+      await messageStore.storeAppTemporaryMessage(message, { furtherVerification: false });
+
+      const stored = dbHelperStub.insertOneToDatabase.firstCall.args[2];
+      expect(stored.expireAt.getTime() - stored.receivedAt.getTime()).to.equal(7200 * 1000);
     });
 
     it('should handle database errors gracefully', async () => {

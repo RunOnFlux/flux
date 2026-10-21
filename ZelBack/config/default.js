@@ -602,11 +602,14 @@ module.exports = {
     // key kept the old mechanism's number for three months while nothing read
     // it. The 24h the code has actually run since is the value.
     installErrorTtlS: 86400,
-    // 2 hours. A fiat payment (Stripe/PayPal) is settled by the bridge reading
-    // the temporary message back from a node after checkout completes, and
-    // checkouts finishing more than an hour after the message was signed were
-    // failing once it had expired. Changing it rebuilds the TTL index on boot
-    // (ensureIndex drops and recreates on IndexOptionsConflict).
+    // 2 hours. A fiat payment (Stripe/PayPal) is settled after the customer
+    // pays: the apps monitor reads the temporary message back from the network
+    // and pays it in FLUX, and the nodes need the message until that payment is
+    // mined. At 3600 every checkout completed more than about an hour after
+    // signing was charged for a message that no longer existed. The fiat bridge
+    // sizes its checkout sessions from this value (TEMP_MESSAGE_TTL_MS), so keep
+    // the two in step. Changing it rebuilds the TTL index on boot (ensureIndex
+    // drops and recreates on IndexOptionsConflict, which deletes no documents).
     tempMsgTtlS: 7200, // collection-level index, serviceManager.js
     hashSyncIntervalMs: 1800000,
     cpuCheckIntervalMs: 900000,

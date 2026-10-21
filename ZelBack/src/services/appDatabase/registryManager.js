@@ -2266,7 +2266,7 @@ async function registerAppGlobalyApi(req, res) {
       const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
       const messageHASH = await generalService.messageHash(message);
 
-      // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
+      // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages, kept for fluxapps.tempMsgTtlS. Broadcast this message to all outgoing connections.
       const temporaryAppMessage = { // specification of temp message
         type: messageType,
         version: typeVersion,
