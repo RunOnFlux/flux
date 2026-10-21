@@ -829,7 +829,7 @@ describe('availabilityChecker tests', () => {
 
       // A pass whose TCP passes is a passing pass for TCP, whatever UDP needs next.
       it('clears its failed ports and lifts its DOS on a TCP pass whose first peer heard nothing over UDP, and still retests UDP', async () => {
-        const publish = sinon.spy(fluxEventBus, 'publish');
+        const count = sinon.spy(fluxEventBus, 'count');
         mockPortsNotWorking.add(1234);
         mockDosState.portFailureScore = 8;
         mockDosState.dosMessage = 'Ports tested not reachable from outside, DMZ or UPNP required! All ports that have failed: [1234]';
@@ -842,19 +842,16 @@ describe('availabilityChecker tests', () => {
         expect(mockDosState.dosMessage, 'its DOS left until the retest').to.equal(null);
         expect(mockDosState.nextTestingPort).to.equal(mockDosState.testingPort);
         sinon.assert.calledWith(delayStub.lastCall, 15_000);
-        sinon.assert.calledWithMatch(publish, 'availability:pass', {
-          port: mockDosState.testingPort, tcp: 'passed', udp: 'silent', portsNotWorking: 0, dosReleased: true, udpRetest: true,
-        });
+        sinon.assert.calledWithExactly(count, 'availability:firstUdpSilence', 'passed', 'cleared');
       });
 
-      it('publishes every pass\'s verdict', async () => {
-        const publish = sinon.spy(fluxEventBus, 'publish');
+      it('tallies the branch each pass took', async () => {
+        const count = sinon.spy(fluxEventBus, 'count');
 
         await pass();
 
-        sinon.assert.calledWithMatch(publish, 'availability:pass', {
-          protocols: ['tcp', 'udp'], peer: '192.168.1.200', tcp: 'passed', udp: 'proven', udpRetest: false,
-        });
+        sinon.assert.calledWithExactly(count, 'availability:pass', 'passed', 'proven');
+        sinon.assert.neverCalledWith(count, 'availability:firstUdpSilence');
       });
 
       it('takes our token heard by a second peer over the first peer\'s silence', async () => {

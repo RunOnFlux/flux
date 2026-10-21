@@ -233,9 +233,6 @@ export function nodeClient(nodeNum) {
         'ports:unproven',
         'ports:proven',
         'ports:udpUnreachable',
-        // One availability pass's verdict: the port and protocols it tested,
-        // each outcome, and what it cleared and scheduled.
-        'availability:pass',
         'discovery:started',
         'peers:added',
         'peers:accepting',

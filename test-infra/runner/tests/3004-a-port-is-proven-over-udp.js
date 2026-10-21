@@ -336,25 +336,28 @@ describe('a node whose TCP comes back while its UDP is blocked', function () {
     await env?.teardown();
   });
 
+  // Which branch a pass took is a tally on /flux/testcounters, never a stream.
   it('clears its failed ports on the pass whose TCP passes and whose first peer hears nothing over UDP', async function () {
     this.timeout(600000);
     const client = env.clients[NODE];
-    const blockedFrom = client.getLastEventId();
+    const tally = async (name, ...path) => path.reduce((node, key) => node?.[key], (await client.getTestCounters())[name]) || 0;
+
     const blocked = await execInContainer(client.container, tcpBlock('-I'));
     expect(blocked.exitCode, blocked.output).to.equal(0);
-    const failing = await client.waitForEvent('availability:pass', (d) => d.tcp === 'unreachable' && d.portsNotWorking >= 1, 300000, { afterId: blockedFrom });
-    expect(failing.data.udp, 'UDP is probed only once TCP has passed').to.equal('unknown');
+    const unreachableBefore = await tally('availability:pass', 'unreachable', 'unknown');
+    await waitFor(async () => (await tally('availability:pass', 'unreachable', 'unknown')) > unreachableBefore, {
+      timeout: 300000, interval: 2000, label: 'a pass whose TCP test failed',
+    });
 
-    const unblockedFrom = client.getLastEventId();
     const unblocked = await execInContainer(client.container, tcpBlock('-D'));
     expect(unblocked.exitCode, unblocked.output).to.equal(0);
-    const recovered = await client.waitForEvent('availability:pass', (d) => d.tcp === 'passed', 300000, { afterId: unblockedFrom });
+    await waitFor(async () => (await tally('availability:firstUdpSilence', 'passed', 'cleared')) >= 1
+      || (await tally('availability:firstUdpSilence', 'passed', 'notCleared')) >= 1, {
+      timeout: 300000, interval: 2000, label: 'a pass whose TCP passed and whose first peer heard nothing over UDP',
+    });
 
-    expect(recovered.data.udp, 'canary: the first peer heard nothing over UDP').to.equal('silent');
-    expect(recovered.data.portsNotWorking, 'failed ports left for the retest to clear').to.equal(0);
-    expect(recovered.data.dosReleased).to.equal(true);
-    expect(recovered.data.udpRetest).to.equal(true);
-    expect(recovered.data.nextPort).to.equal(recovered.data.port);
+    expect(await tally('availability:firstUdpSilence', 'passed', 'notCleared'), 'failed ports left for the retest to clear').to.equal(0);
+    expect(await tally('availability:firstUdpSilence', 'passed', 'cleared')).to.be.at.least(1);
   });
 });
 

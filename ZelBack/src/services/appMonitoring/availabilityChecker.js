@@ -552,6 +552,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     // Over UDP, our token heard by one peer proves the port; silence heard by
     // one peer is tested again by another, and counts once two have heard it.
     let retestUdp = false;
+    let firstUdpSilence = false;
     const udp = !udpTested || portTestFailed ? 'unknown' : udpVerdict(udpAnswered, dosState.testingPort, portTestToken);
     if (udp === 'proven') {
       // eslint-disable-next-line no-param-reassign
@@ -564,6 +565,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       // eslint-disable-next-line no-param-reassign
       dosState.udpSuspect = { port: dosState.testingPort, peer: remoteSocketAddress, retests: 0 };
       retestUdp = true;
+      firstUdpSilence = true;
     } else if (udp === 'silent') {
       const peers = [extractIp(udpSuspect.peer), remoteIp];
       log.error(`checkMyAppsAvailability - Port ${dosState.testingPort} does not answer this node over UDP, as heard by ${peers.join(' and ')}`
@@ -590,7 +592,6 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
 
     let waitMs = 0;
     let passed = false;
-    let dosReleased = false;
 
     if (portTestFailed && portsNotWorking.size < thresholds.portsHighEdge) {
       portsNotWorking.add(dosState.testingPort);
@@ -628,10 +629,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       // eslint-disable-next-line no-param-reassign
       dosState.originalPortFailed = null;
       // a router refusing others' mappings is not cleared by one that took this test's
-      if (!routerRefused) {
-        releaseOwnDos(dosState);
-        dosReleased = true;
-      }
+      if (!routerRefused) releaseOwnDos(dosState);
       waitMs = timeouts.default;
     }
 
@@ -664,18 +662,11 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     if (isUpnp && routerFaulting) {
       waitMs = Math.min(waitMs, dosState.portFailureScore >= thresholds.dos ? timeouts.dos : timeouts.error);
     }
-    fluxEventBus.publish('availability:pass', {
-      port: dosState.testingPort,
-      protocols,
-      peer: remoteIp,
-      tcp: tcpOutcome,
-      udp: udpTested ? udp : 'notTested',
-      portsNotWorking: portsNotWorking.size,
-      dosReleased,
-      udpRetest: retestUdp,
-      nextPort: dosState.nextTestingPort,
-      waitMs,
-    });
+    // Which branch each pass took, as a tally: the passes run too often to stream.
+    fluxEventBus.count('availability:pass', tcpOutcome, udpTested ? udp : 'notTested');
+    if (firstUdpSilence) {
+      fluxEventBus.count('availability:firstUdpSilence', tcpOutcome, portsNotWorking.size === 0 ? 'cleared' : 'notCleared');
+    }
     await waitForNextPass(waitMs);
     setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));
   } catch (error) {
