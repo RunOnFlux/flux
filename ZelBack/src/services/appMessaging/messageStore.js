@@ -6,6 +6,7 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const messageVerifier = require('./messageVerifier');
 const appValidator = require('../appRequirements/appValidator');
 const registryManager = require('../appDatabase/registryManager');
+const fluxNetworkHelper = require('../fluxNetworkHelper');
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
@@ -1006,6 +1007,13 @@ async function handleEvictedEvent({ ip, evictedAt }) {
  * back on the network and stays. An eviction older than a location lifetime
  * changes nothing.
  *
+ * An eviction of this node's own address is neither applied nor recorded. It is
+ * another node's judgement that this address is gone, made from one probe and
+ * passed on unsigned by peer sync, and this node is running - the one place that
+ * knows the judgement is wrong. Applied here it deletes the node's own rows while
+ * its apps keep running; recorded, it is relayed onwards as if this node agreed.
+ * Peers that applied it get the rows back with this node's next announcement.
+ *
  * @param {string} ip - The evicted node's socket address
  * @param {number} [evictedAt] - When the eviction was made, ms; now when absent
  * @returns {Promise<void>}
@@ -1014,8 +1022,13 @@ async function applyEviction(ip, evictedAt) {
   if (!ip) return;
   const at = evictionTime(evictedAt);
   if (at + EVICTED_EXPIRY_MS <= Date.now()) return;
-  await handleEvictedEvent({ ip, evictedAt: at });
   const [evicted] = await registryManager.currentAddressesOf([{ ip, at }]);
+  const own = fluxNetworkHelper.getKnownLocalSocketAddress();
+  if (own && (socketAddressesMatch(ip, own) || socketAddressesMatch(evicted, own))) {
+    log.info(`applyEviction - not applying an eviction of this node's own address ${ip}`);
+    return;
+  }
+  await handleEvictedEvent({ ip, evictedAt: at });
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   await dbHelper.removeDocumentsFromCollection(

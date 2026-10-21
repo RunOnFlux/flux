@@ -9,6 +9,7 @@ describe('messageStore tests', () => {
   let messageVerifierStub;
   let logStub;
   let configStub;
+  let fluxNetworkHelperStub;
 
   beforeEach(() => {
     // Stubs
@@ -39,6 +40,11 @@ describe('messageStore tests', () => {
       warn: sinon.stub(),
     };
 
+    fluxNetworkHelperStub = {
+      // this node has not learned its own address yet
+      getKnownLocalSocketAddress: sinon.stub().returns(null),
+    };
+
     configStub = {
       database: {
         daemon: {
@@ -63,6 +69,7 @@ describe('messageStore tests', () => {
     messageStore = proxyquire('../../ZelBack/src/services/appMessaging/messageStore', {
       config: configStub,
       '../dbHelper': dbHelperStub,
+      '../fluxNetworkHelper': fluxNetworkHelperStub,
       '../serviceHelper': serviceHelperStub,
       './messageVerifier': messageVerifierStub,
       '../../lib/log': logStub,
@@ -1097,6 +1104,50 @@ describe('messageStore tests', () => {
 
       const { $set } = dbHelperStub.updateOneInDatabase.firstCall.args[3];
       expect($set.expireAt.getTime()).to.equal(broadcastedAt + (15 * 60 * 1000));
+    });
+  });
+
+  // An eviction is another node's judgement, made from one probe and relayed
+  // unsigned. Applied by the node it names, it deletes that node's own rows -
+  // and with them what it announces as how long it has held its apps.
+  describe('applyEviction of this node itself', () => {
+    const own = '203.0.113.7:16127';
+    let events;
+
+    beforeEach(() => {
+      events = { updateOne: sinon.stub().resolves({}) };
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns({ collection: sinon.stub().returns(events) }) });
+      dbHelperStub.removeDocumentsFromCollection.resolves();
+      fluxNetworkHelperStub.getKnownLocalSocketAddress.returns(own);
+    });
+
+    it('neither applies nor records an eviction of its own address', async () => {
+      await messageStore.applyEviction(own, Date.now());
+
+      expect(dbHelperStub.removeDocumentsFromCollection.called, 'deleted its own rows').to.be.false;
+      expect(events.updateOne.called, 'recorded the eviction, so relays it onwards').to.be.false;
+    });
+
+    it('knows its own address with the default port left off', async () => {
+      await messageStore.applyEviction('203.0.113.7', Date.now());
+
+      expect(dbHelperStub.removeDocumentsFromCollection.called).to.be.false;
+    });
+
+    it('still evicts every other node', async () => {
+      await messageStore.applyEviction('203.0.113.8:16127', Date.now());
+
+      expect(events.updateOne.calledOnce).to.be.true;
+      expect(dbHelperStub.removeDocumentsFromCollection.calledOnce).to.be.true;
+      expect(dbHelperStub.removeDocumentsFromCollection.firstCall.args[2].ip).to.equal('203.0.113.8:16127');
+    });
+
+    it('evicts as before while it does not yet know its own address', async () => {
+      fluxNetworkHelperStub.getKnownLocalSocketAddress.returns(null);
+
+      await messageStore.applyEviction(own, Date.now());
+
+      expect(dbHelperStub.removeDocumentsFromCollection.calledOnce).to.be.true;
     });
   });
 });

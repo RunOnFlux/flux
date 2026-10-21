@@ -187,8 +187,10 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
           // probe decisions about whether a remote node is alive. The
           // isSyncResponseWanted check above ensures only solicited responses are
           // processed, but a compromised confirmed peer we sync from could still
-          // include fake evictions. Impact is limited: only affects this node's
-          // view and self-heals on the next apprunning broadcast (≤60 min).
+          // include fake evictions. Impact is limited to this node's view of the
+          // evicted node, until that node's next apprunning broadcast (≤60 min).
+          // An eviction of this node itself is dropped in applyEviction: applied
+          // here it would delete the node's own rows while its apps keep running.
           //
           // The root cause is nodeStatusMonitor itself — it will be replaced by
           // a peer quorum approach where eviction is determined by consensus of

@@ -9,7 +9,7 @@ const messageStore = require('../appMessaging/messageStore');
 const nodeConfirmationService = require('../nodeConfirmationService');
 const networkStateService = require('../networkStateService');
 const log = require('../../lib/log');
-const { extractIp, extractPort } = require('../utils/socketAddressUtils');
+const { extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
 
 let removalInProgress = false;
 
@@ -122,8 +122,17 @@ async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
       }
 
       log.info(`monitorNodeStatus - Found ${appsLocationsNotOnNodelist.length} IP(s) not present on deterministic node list`);
+      const ownAddress = fluxNetworkHelper.getKnownLocalSocketAddress();
       // eslint-disable-next-line no-restricted-syntax
       for (const location of appsLocationsNotOnNodelist) {
+        // This node missing from its own copy of the list says the copy is behind,
+        // not that the node is gone - and a probe of its own public address fails
+        // wherever the router does not hairpin. applyEviction refuses it anyway.
+        if (ownAddress && socketAddressesMatch(location, ownAddress)) {
+          log.info(`monitorNodeStatus - ${location} is this node; not probing or evicting it`);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
         log.info(`monitorNodeStatus - Checking IP ${location}.`);
         const ip = extractIp(location);
         const port = extractPort(location);
