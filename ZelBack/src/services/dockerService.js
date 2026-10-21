@@ -4,13 +4,13 @@ const tar = require('tar');
 const Docker = require('dockerode');
 const path = require('path');
 const serviceHelper = require('./serviceHelper');
-const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const pgpService = require('./pgpService');
 const deviceHelper = require('./deviceHelper');
 const generalService = require('./generalService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const { extractIp } = require('./utils/socketAddressUtils');
-const { isFluxStorageUrl, storageLinkOf } = require('./utils/fluxStorage');
+const { storageLinkOf } = require('./utils/fluxStorage');
+const { obtainPayloadFromStorage } = require('./utils/fluxStorageResolver');
 const log = require('../lib/log');
 const cpuBurstHelper = require('./utils/cpuBurstHelper');
 const LogFrameDecoder = require('./utils/logFrameDecoder');
@@ -664,43 +664,6 @@ async function dockerContainerLogsPolling(idOrName, options = {}) {
   return {
     lines, position: nextPosition, rolledOver, truncated, skipped,
   };
-}
-
-async function obtainPayloadFromStorage(url, appName) {
-  // Ahead of the try so the reason reaches the log as itself rather than as the
-  // generic failure the catch below reports for a storage that did not answer.
-  if (!isFluxStorageUrl(url)) {
-    throw new Error(`Storage link ${url} does not address Flux storage over https`);
-  }
-
-  try {
-    // do a signed request in headers
-    // we want to be able to fetch even from unsecure storages that may not have all the auths
-    // and so this is only basic auth where timestamp is important
-    // server should verify valid signature based on publicKey that server can get from
-    // deterministic node list of ip address that did this request
-    const version = 1;
-    const timestamp = Date.now();
-    const message = version + url + timestamp;
-    const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(message);
-    if (!signature) throw new Error('This node cannot sign the request as itself');
-    const axiosConfig = {
-      headers: {
-        'flux-message': message,
-        'flux-signature': signature,
-        'flux-app': appName,
-      },
-      timeout: 20000,
-      // The host is the whole of the check, so a redirect off it would put the
-      // node back where it started: fetching an address chosen by the response.
-      maxRedirects: 0,
-    };
-    const response = await serviceHelper.axiosGet(url, axiosConfig);
-    return response.data;
-  } catch (error) {
-    log.error(error);
-    throw new Error(`Parameters from Flux Storage ${url} failed to be obtained`);
-  }
 }
 
 /**

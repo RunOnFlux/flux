@@ -813,6 +813,106 @@ describe('registryManager tests', () => {
 
       sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.APP_OWNER, authOf(req), { appName: 'EntSpecApp' });
     });
+
+    describe('resolvestorage', () => {
+      const collection = () => config.database.appsglobal.collections.appsInformation;
+
+      beforeEach(async () => {
+        await dbHelper.insertOneToDatabase(database, collection(), {
+          name: 'StorageSpecApp',
+          version: 7,
+          owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          compose: [{ name: 'web', environmentParameters: ['F_S_ENV=https://storage.runonflux.io/v1/env/1'] }],
+          hash: 'storagespechash',
+          height: 100,
+        });
+      });
+
+      afterEach(async () => {
+        await dbHelper.removeDocumentsFromCollection(database, collection(), { name: { $in: ['StorageSpecApp', 'EntStorageApp'] } });
+      });
+
+      function subjectWith(verifyPrivilege, attachResolvedStorage) {
+        return proxyquire('../../ZelBack/src/services/appDatabase/registryManager', {
+          '../utils/appUtilities': { specificationFormatter: (spec) => spec },
+          '../verificationHelper': { verifyPrivilege },
+          '../utils/fluxStorageResolver': { attachResolvedStorage },
+        });
+      }
+
+      // What a storage link holds is what the owner kept off the chain, so it is
+      // revealed to the owner alone, as a decryption is.
+      it('reveals nothing to anyone but the owner', async () => {
+        const verifyPrivilege = sinon.stub().resolves(false);
+        const attachResolvedStorage = sinon.stub().resolves({});
+        const req = { params: { appname: 'StorageSpecApp' }, query: { resolvestorage: 'true' }, headers: {} };
+        const res = { json: sinon.fake((param) => param) };
+
+        await subjectWith(verifyPrivilege, attachResolvedStorage).getApplicationSpecificationAPI(req, res);
+
+        sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.APP_OWNER, authOf(req), { appName: 'StorageSpecApp' });
+        sinon.assert.notCalled(attachResolvedStorage);
+        expect(res.json.firstCall.args[0].status).to.equal('error');
+      });
+
+      // Under the app's name, which is the flux-app a node starting the app's
+      // containers sends - storage answers some links per app.
+      it('answers the owner with the spec resolved under its app name', async () => {
+        const verifyPrivilege = sinon.stub().resolves(true);
+        const attachResolvedStorage = sinon.stub().resolves({ name: 'StorageSpecApp', resolved: true });
+        const req = { params: { appname: 'StorageSpecApp' }, query: { resolvestorage: 'true' }, headers: {} };
+        const res = { json: sinon.fake((param) => param) };
+
+        await subjectWith(verifyPrivilege, attachResolvedStorage).getApplicationSpecificationAPI(req, res);
+
+        sinon.assert.calledOnce(attachResolvedStorage);
+        expect(attachResolvedStorage.firstCall.args[1]).to.equal('StorageSpecApp');
+        const result = res.json.firstCall.args[0];
+        expect(result.status).to.equal('success');
+        expect(result.data).to.deep.equal({ name: 'StorageSpecApp', resolved: true });
+      });
+
+      it('fetches nothing for an ordinary spec read', async () => {
+        const verifyPrivilege = sinon.stub().resolves(true);
+        const attachResolvedStorage = sinon.stub().resolves({});
+        const req = { params: { appname: 'StorageSpecApp' }, query: {}, headers: {} };
+        const res = { json: sinon.fake((param) => param) };
+
+        await subjectWith(verifyPrivilege, attachResolvedStorage).getApplicationSpecificationAPI(req, res);
+
+        sinon.assert.notCalled(attachResolvedStorage);
+        sinon.assert.notCalled(verifyPrivilege);
+        expect(res.json.firstCall.args[0].status).to.equal('success');
+      });
+
+      it('never resolves an enterprise app in clear', async () => {
+        await dbHelper.insertOneToDatabase(database, collection(), {
+          name: 'EntStorageApp',
+          version: 8,
+          enterprise: 'encrypted-blob',
+          owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          compose: [],
+          hash: 'entstoragehash',
+          height: 100,
+        });
+        const verifyPrivilege = sinon.stub().resolves(true);
+        const attachResolvedStorage = sinon.stub().resolves({});
+        const req = { params: { appname: 'EntStorageApp' }, query: { resolvestorage: 'true' }, headers: {} };
+        const res = { json: sinon.fake((param) => param) };
+
+        const subject = proxyquire('../../ZelBack/src/services/appDatabase/registryManager', {
+          '../utils/enterpriseHelper': { checkAndDecryptAppSpecs: async (spec) => spec },
+          '../utils/appUtilities': { specificationFormatter: (spec) => spec },
+          '../verificationHelper': { verifyPrivilege },
+          '../utils/fluxStorageResolver': { attachResolvedStorage },
+        });
+        await subject.getApplicationSpecificationAPI(req, res);
+
+        sinon.assert.notCalled(attachResolvedStorage);
+        expect(res.json.firstCall.args[0].status).to.equal('error');
+        expect(res.json.firstCall.args[0].data.message).to.include('require decryption');
+      });
+    });
   });
 
   describe('getApplicationComponentNamesAPI tests', () => {
