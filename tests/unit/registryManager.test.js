@@ -1666,6 +1666,21 @@ describe('registryManager tests', () => {
           ip: '192.168.1.2:16127',
           hash: 'hash3',
         },
+        {
+          name: 'BeginsWithTheIp',
+          ip: '192.168.1.10:16127',
+          hash: 'hash4',
+        },
+        {
+          name: 'MatchesOnlyAsAPattern',
+          ip: '192x168x1x1:16127',
+          hash: 'hash5',
+        },
+        {
+          name: 'OtherPort',
+          ip: '192.168.1.1:16137',
+          hash: 'hash6',
+        },
       ];
 
       try {
@@ -1676,14 +1691,29 @@ describe('registryManager tests', () => {
       await dbHelper.insertManyToDatabase(database, collection, testLocations);
     });
 
-    it('should return apps running on specific IP', async () => {
+    it('should return apps running on specific IP, at every port', async () => {
       const result = await registryManager.getRunningAppIpList('192.168.1.1');
 
-      expect(result).to.be.an('array');
-      expect(result.length).to.equal(2);
-      result.forEach((app) => {
-        expect(app.ip).to.include('192.168.1.1');
-      });
+      expect(result.map((app) => app.name).sort()).to.deep.equal(['App1', 'App2', 'OtherPort']);
+    });
+
+    // An address that only begins with the IP, or matches it with its dots read
+    // as a pattern, is another node.
+    it('returns no app at an address that only begins with the IP or matches it as a pattern', async () => {
+      const names = (await registryManager.getRunningAppIpList('192.168.1.1')).map((app) => app.name);
+
+      expect(names).to.not.include('BeginsWithTheIp');
+      expect(names).to.not.include('MatchesOnlyAsAPattern');
+    });
+
+    it('reads a socket address as its IP', async () => {
+      const result = await registryManager.getRunningAppIpList('192.168.1.1:16137');
+
+      expect(result.map((app) => app.name).sort()).to.deep.equal(['App1', 'App2', 'OtherPort']);
+    });
+
+    it('returns nothing for no address', async () => {
+      expect(await registryManager.getRunningAppIpList('')).to.deep.equal([]);
     });
 
     it('should return empty array for IP with no apps', async () => {
