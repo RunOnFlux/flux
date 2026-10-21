@@ -602,7 +602,12 @@ module.exports = {
     // key kept the old mechanism's number for three months while nothing read
     // it. The 24h the code has actually run since is the value.
     installErrorTtlS: 86400,
-    tempMsgTtlS: 3600, // collection-level index, serviceManager.js
+    // 2 hours. A fiat payment (Stripe/PayPal) is settled by the bridge reading
+    // the temporary message back from a node after checkout completes, and
+    // checkouts finishing more than an hour after the message was signed were
+    // failing once it had expired. Changing it rebuilds the TTL index on boot
+    // (ensureIndex drops and recreates on IndexOptionsConflict).
+    tempMsgTtlS: 7200, // collection-level index, serviceManager.js
     hashSyncIntervalMs: 1800000,
     cpuCheckIntervalMs: 900000,
     statsSampleIntervalMs: 60000,

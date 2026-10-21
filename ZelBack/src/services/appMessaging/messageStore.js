@@ -209,7 +209,8 @@ async function storeAppTemporaryMessage(message, options = {}) {
   }
 
   const receivedAt = Date.now();
-  const validTill = receivedAt + (60 * 60 * 1000); // 60 minutes
+  // informational: the TTL index on receivedAt is what removes the message
+  const validTill = receivedAt + (config.fluxapps.tempMsgTtlS * 1000);
 
   const newMessage = {
     appSpecifications: appSpecFormatted,

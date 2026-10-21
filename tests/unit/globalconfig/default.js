@@ -297,7 +297,7 @@ module.exports = {
     locationTtlS: 7500,
     installingTtlS: 900,
     installErrorTtlS: 86400,
-    tempMsgTtlS: 3600,
+    tempMsgTtlS: 7200,
     hashSyncIntervalMs: 1800000,
     cpuCheckIntervalMs: 900000,
     statsSampleIntervalMs: 60000,
