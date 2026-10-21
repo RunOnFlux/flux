@@ -58,6 +58,8 @@
 #                       the fleet device is dropped, and every later one within
 #                       30 s arrives: loss that a probe sending once never survives
 #                       and one that sends again always does.
+#   udp-every-other     every other UDP datagram starting a flow on the fleet
+#                       device is dropped, whatever its source: steady loss of half.
 set -euo pipefail
 
 shape="$1"
@@ -166,6 +168,9 @@ case "$shape" in
     ;;
   udp-blocked)
     iptables -A INPUT -i "$dev" -p udp -m conntrack --ctstate NEW -j DROP
+    ;;
+  udp-every-other)
+    iptables -A INPUT -i "$dev" -p udp -m conntrack --ctstate NEW -m statistic --mode nth --every 2 --packet 0 -j DROP
     ;;
   udp-first-lost)
     iptables -A INPUT -i "$dev" -p udp -m conntrack --ctstate NEW -m recent --name udpseen --rcheck --seconds 30 -j ACCEPT
