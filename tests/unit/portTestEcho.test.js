@@ -452,9 +452,12 @@ describe('checkAppAvailability probes the address that asked', () => {
     const elapsed = Date.now() - started;
     await Promise.all(servers.map((s) => new Promise((resolve) => s.close(resolve))));
 
+    // Nothing proves a port. A probe can land on another probe's socket here -
+    // requester and peer share this host - so an answer can be a probe rather
+    // than silence; it is never our token.
     expect(answer.status).to.equal('success');
     expect(Object.values(answer.data.udpAnswered)).to.have.length(50);
-    expect(Object.values(answer.data.udpAnswered).every((reply) => reply === null)).to.equal(true);
+    expect(Object.values(answer.data.udpAnswered).every((reply) => reply === null || !reply.includes(TOKEN))).to.equal(true);
     expect(elapsed, 'outlasted the requester\'s wait for a peer').to.be.below(config.fluxapps.portTestPeerTimeoutMs);
   });
 
