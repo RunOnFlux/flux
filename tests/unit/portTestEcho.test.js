@@ -1,6 +1,7 @@
 const http = require('node:http');
 const { EventEmitter } = require('node:events');
 const { expect } = require('chai');
+const config = require('config');
 const sinon = require('sinon');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
@@ -155,6 +156,27 @@ describe('the pre-install port test over UDP, end to end', () => {
 
     expect(answer).to.include(TOKEN);
     expect(seen).to.be.at.least(2);
+  });
+
+  // A NAT in front of the requester can rewrite the reply's source port, so
+  // the reply is taken from whatever port it comes from.
+  it('takes a reply that comes from another source port', async () => {
+    const probed = dgram.createSocket('udp4');
+    const rewritten = dgram.createSocket('udp4');
+    await new Promise((resolve) => { probed.bind(0, '127.0.0.1', resolve); });
+    await new Promise((resolve) => { rewritten.bind(0, '127.0.0.1', resolve); });
+    probed.on('message', (message, rinfo) => {
+      rewritten.send(Buffer.from(`FLUXPT ${TOKEN}`), rinfo.port, rinfo.address);
+    });
+
+    const probedPort = probed.address().port;
+    const replyPort = rewritten.address().port;
+    const answer = await fluxNetworkHelper.portAnsweredUdp('127.0.0.1', probedPort, QUICK);
+    probed.close();
+    rewritten.close();
+
+    expect(replyPort, 'the reply came from the port probed').to.not.equal(probedPort);
+    expect(answer).to.include(TOKEN);
   });
 
   it('says nothing about a port it could not send to', async () => {
@@ -375,6 +397,34 @@ describe('checkAppAvailability probes the address that asked', () => {
 
     expect(answer.status).to.equal('error');
     expect(answer.data.message).to.include(`Failed port: ${closedPort}`);
+  });
+
+  // The largest app's ports, every one of them silent over UDP: each costs a
+  // probe's full deadline, and all of them have to be answered for inside the
+  // time the requester waits for this peer.
+  it('answers for 50 ports silent over UDP inside the requester\'s wait', async function () {
+    this.timeout(60000);
+    const servers = await Promise.all(Array.from({ length: 50 }, async () => {
+      const s = new FluxHttpTestServer(TOKEN);
+      await new Promise((resolve) => s.listen(0, HERE, resolve));
+      return s;
+    }));
+    const ports = servers.map((s) => s.address().port);
+
+    const started = Date.now();
+    const answer = await ask(
+      {
+        ip: HERE, port: 16127, ports, pubKey: 'k', signature: 's', echo: true, udp: true,
+      },
+      HERE,
+    );
+    const elapsed = Date.now() - started;
+    await Promise.all(servers.map((s) => new Promise((resolve) => s.close(resolve))));
+
+    expect(answer.status).to.equal('success');
+    expect(Object.values(answer.data.udpAnswered)).to.have.length(50);
+    expect(Object.values(answer.data.udpAnswered).every((reply) => reply === null)).to.equal(true);
+    expect(elapsed, 'outlasted the requester\'s wait for a peer').to.be.below(config.fluxapps.portTestPeerTimeoutMs);
   });
 
   // maxComponents (10) x ports per component (5) in appValidator. Each port
