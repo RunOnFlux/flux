@@ -78,7 +78,11 @@ const appPinnedTo = async (name, port, index) => {
   });
 };
 
-const udpCheck = async (client) => (await client.get('/flux/health').catch(() => null))?.data?.udp;
+// A fit node answers with its checks as the data; an unfit one, under data.checks.
+const udpCheck = async (client) => {
+  const health = await client.get('/flux/health').catch(() => null);
+  return health?.status === 'success' ? health.data?.udp : health?.data?.checks?.udp;
+};
 
 // Seeds an app pinned to one node and waits for that node's port test to prove
 // its port, then for the install.
