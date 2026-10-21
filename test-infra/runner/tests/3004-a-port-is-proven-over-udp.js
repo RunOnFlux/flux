@@ -150,10 +150,13 @@ describe('a port is proven over UDP', function () {
     const after = client.getLastEventId();
     await seedSpawnerApp(env, await appPinnedTo('udpblockedapp', 31142, BLOCKED));
 
+    // Every peer is silent here, and the node may ask as many as it has
+    // attempts. Silence is weighed only once no attempt is left that could prove
+    // the port, so the refusal names a peer for every attempt.
     const refused = await client.waitForEvent('ports:udpUnreachable', (d) => d.port === 31142, 420000, { afterId: after });
     expect(refused.data.reason).to.equal('udpUnreachable');
-    expect(refused.data.peers).to.have.length(2);
-    expect(new Set(refused.data.peers).size).to.equal(2);
+    expect(refused.data.peers, 'refused before every attempt was spent').to.have.length(PORT_TEST.portTestMaxAttempts);
+    expect(new Set(refused.data.peers).size).to.equal(PORT_TEST.portTestMaxAttempts);
     await client.waitForEvent(
       'spawner:deferred',
       (d) => d.appName === 'udpblockedapp' && d.reason === 'ports_not_available',
@@ -216,7 +219,7 @@ describe('a node whose first peers cannot hear UDP replies', function () {
     await env?.teardown();
   });
 
-  it('is proven by the peer that hears it, whichever order the peers are asked in', async function () {
+  it('is proven by the peer that hears it', async function () {
     this.timeout(720000);
     await provenAndInstalled(env, NODE, 'udpdeafpeersapp', 31146);
   });
