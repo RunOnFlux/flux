@@ -1523,11 +1523,14 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   // Takes the stub's own /policy control body: { documents }, { signer: 'rogue' },
   // { seq }, { available: false } to boot a fleet whose source never answers.
   if (policy) {
-    await fetch(`http://${EXTERNAL_STUB_IP}:3001/policy`, {
+    const published = await fetch(`http://${EXTERNAL_STUB_IP}:3001/policy`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(policy),
     });
+    if (!published.ok) {
+      throw new Error(`createTestEnv: the stub refused the policy (${published.status}): ${await published.text()}`);
+    }
   }
 
   // Names the fleet's resolver answers itself, set before any node starts so the first

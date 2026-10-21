@@ -128,7 +128,7 @@ loses the property, so the factor is pinned by a unit test.
 | `fluxapps.portRestoreIntervalMs` | 600000 | 30000 | 20.0x |
 | `fluxapps.portTestBindDelayMs` | 5000 | 100 | 50.0x |
 | `fluxapps.portTestMaxAttempts` | 5 | 2 | 2.5x |
-| `fluxapps.portTestPeerTimeoutMs` | 30000 | 3000 | 10.0x |
+| `fluxapps.portTestPeerTimeoutMs` | 30000 | 8000 | 3.8x |
 | `fluxapps.portTestPropagationDelayMs` | 10000 | 100 | 100.0x |
 | `fluxapps.redeploy.composedDelay` | 5 | 1 | 5.0x |
 | `fluxapps.removal.delay` | 300 | 5 | 60.0x |

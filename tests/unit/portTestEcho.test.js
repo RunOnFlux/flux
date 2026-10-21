@@ -1,10 +1,12 @@
 const http = require('node:http');
 const { EventEmitter } = require('node:events');
 const { expect } = require('chai');
+const config = require('config');
 const sinon = require('sinon');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const { FluxHttpTestServer } = require('../../ZelBack/src/services/utils/fluxHttpTestServer');
+const { FluxUdpTestServer } = require('../../ZelBack/src/services/utils/fluxUdpTestServer');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const portManager = require('../../ZelBack/src/services/appNetwork/portManager');
 const { Privilege } = require('../../ZelBack/src/services/utils/privileges');
@@ -93,6 +95,92 @@ describe('the pre-install port test, end to end', () => {
     const answer = await fluxNetworkHelper.portAnswered('127.0.0.1', port);
 
     expect(answer.length, 'a port could hand the peer an unbounded payload').to.be.at.most(256);
+  });
+});
+
+// The UDP half, end to end: this node's UDP test server answers a probe with
+// the run's secret, the peer probes and hands back what replied, and this node
+// compares.
+describe('the pre-install port test over UDP, end to end', () => {
+  const TOKEN = 'f00dcafe'.repeat(4);
+  // Short enough that silence costs the suite little; the schedule's shape is
+  // the default's.
+  const QUICK = { schedule: [0, 50, 150], deadline: 400 };
+  let server;
+  let port;
+
+  beforeEach(async () => {
+    server = new FluxUdpTestServer(TOKEN);
+    await server.listen(0, '127.0.0.1');
+    ({ port } = server.address());
+  });
+
+  afterEach(() => server.close());
+
+  it('proves the port when our own test server is what answers', async () => {
+    server.allow('127.0.0.1');
+
+    const answer = await fluxNetworkHelper.portAnsweredUdp('127.0.0.1', port, QUICK);
+
+    expect(answer, 'the peer heard nothing back').to.be.a('string');
+    const proven = new Set();
+    expect(portManager.udpPortsNotOurs([port], { [port]: answer }, TOKEN, proven)).to.deep.equal([]);
+    expect(proven.has(port)).to.equal(true);
+  });
+
+  it('hears nothing from a test server answering another peer', async () => {
+    server.allow('198.51.100.7');
+
+    expect(await fluxNetworkHelper.portAnsweredUdp('127.0.0.1', port, QUICK)).to.equal(null);
+  });
+
+  it('hears nothing from a port with nothing on it', async () => {
+    server.close();
+
+    expect(await fluxNetworkHelper.portAnsweredUdp('127.0.0.1', port, QUICK)).to.equal(null);
+  });
+
+  // A datagram lost on the way is the normal case for UDP, not a closed port.
+  it('is answered by a later datagram when the first is lost', async () => {
+    const lossy = dgram.createSocket('udp4');
+    await new Promise((resolve) => { lossy.bind(0, '127.0.0.1', resolve); });
+    const lossyPort = lossy.address().port;
+    let seen = 0;
+    lossy.on('message', (message, rinfo) => {
+      seen += 1;
+      if (seen > 1) lossy.send(Buffer.from(`FLUXPT ${TOKEN}`), rinfo.port, rinfo.address);
+    });
+
+    const answer = await fluxNetworkHelper.portAnsweredUdp('127.0.0.1', lossyPort, QUICK);
+    lossy.close();
+
+    expect(answer).to.include(TOKEN);
+    expect(seen).to.be.at.least(2);
+  });
+
+  // A NAT in front of the requester can rewrite the reply's source port, so
+  // the reply is taken from whatever port it comes from.
+  it('takes a reply that comes from another source port', async () => {
+    const probed = dgram.createSocket('udp4');
+    const rewritten = dgram.createSocket('udp4');
+    await new Promise((resolve) => { probed.bind(0, '127.0.0.1', resolve); });
+    await new Promise((resolve) => { rewritten.bind(0, '127.0.0.1', resolve); });
+    probed.on('message', (message, rinfo) => {
+      rewritten.send(Buffer.from(`FLUXPT ${TOKEN}`), rinfo.port, rinfo.address);
+    });
+
+    const probedPort = probed.address().port;
+    const replyPort = rewritten.address().port;
+    const answer = await fluxNetworkHelper.portAnsweredUdp('127.0.0.1', probedPort, QUICK);
+    probed.close();
+    rewritten.close();
+
+    expect(replyPort, 'the reply came from the port probed').to.not.equal(probedPort);
+    expect(answer).to.include(TOKEN);
+  });
+
+  it('says nothing about a port it could not send to', async () => {
+    expect(await fluxNetworkHelper.portAnsweredUdp('::1', port, QUICK)).to.equal(undefined);
   });
 });
 
@@ -224,6 +312,153 @@ describe('checkAppAvailability probes the address that asked', () => {
       verificationHelper.verifyPrivilege,
       Privilege.NODE_OPERATOR_OR_FLUX_TEAM,
     );
+  });
+
+  it('probes each port over UDP when asked, handing back what replied', async () => {
+    const udpServer = new FluxUdpTestServer(TOKEN);
+    await udpServer.listen(port, HERE);
+    udpServer.allow(HERE);
+
+    const answer = await ask(
+      {
+        ip: HERE, port: 16127, ports: [port], pubKey: 'k', signature: 's', echo: true, protocols: ['tcp', 'udp'],
+      },
+      HERE,
+    );
+    udpServer.close();
+
+    expect(answer.status).to.equal('success');
+    expect(answer.data.answered[port]).to.include(TOKEN);
+    expect(answer.data.udpAnswered[port]).to.include(TOKEN);
+  });
+
+  // The test server answers over IPv6 too, so TCP passes; a UDP probe is IPv4
+  // and cannot be sent there. That says nothing about the port.
+  it('leaves out a port it could not send a UDP probe to', async () => {
+    const dualStack = new FluxHttpTestServer(TOKEN);
+    await new Promise((resolve) => dualStack.listen(0, '::1', resolve));
+    const v6Port = dualStack.address().port;
+
+    const answer = await ask(
+      {
+        ip: '::1', port: 16127, ports: [v6Port], pubKey: 'k', signature: 's', echo: true, protocols: ['tcp', 'udp'],
+      },
+      '::1',
+    );
+    await new Promise((resolve) => dualStack.close(resolve));
+
+    expect(answer.status).to.equal('success');
+    expect(answer.data.answered[v6Port]).to.include(TOKEN);
+    expect(answer.data.udpAnswered).to.deep.equal({});
+  });
+
+  it('probes UDP alone, reading nothing over TCP, for a caller that asks for UDP alone', async () => {
+    // Nothing listens on this port over TCP, so a TCP read would fail the test.
+    const udpServer = new FluxUdpTestServer(TOKEN);
+    await udpServer.listen(0, HERE);
+    udpServer.allow(HERE);
+    const udpOnly = udpServer.address().port;
+    const answer = await ask(
+      {
+        ip: HERE, port: 16127, ports: [udpOnly], pubKey: 'k', signature: 's', echo: true, protocols: ['udp'],
+      },
+      HERE,
+    );
+    udpServer.close();
+
+    expect(answer.status, 'the port was read over TCP').to.equal('success');
+    expect(answer.data.udpAnswered[udpOnly]).to.include(TOKEN);
+    expect(answer.data).to.not.have.property('answered');
+  });
+
+  it('refuses protocols other than tcp and udp', async () => {
+    const answer = await ask(
+      {
+        ip: HERE, port: 16127, ports: [port], pubKey: 'k', signature: 's', echo: true, protocols: ['sctp'],
+      },
+      HERE,
+    );
+
+    expect(answer.status).to.equal('error');
+    expect(answer.data.message).to.include('tcp, udp or both');
+  });
+
+  it('probes no UDP for a caller that does not ask', async () => {
+    const answer = await ask(
+      {
+        ip: HERE, port: 16127, ports: [port], pubKey: 'k', signature: 's', echo: true,
+      },
+      HERE,
+    );
+
+    expect(answer.status).to.equal('success');
+    expect(answer.data).to.not.have.property('udpAnswered');
+  });
+
+  it('answers for every port when asked, a port that did not answer reading null', async () => {
+    const gone = http.createServer();
+    await new Promise((resolve) => gone.listen(0, HERE, resolve));
+    const closedPort = gone.address().port;
+    await new Promise((resolve) => gone.close(resolve));
+
+    const answer = await ask(
+      {
+        ip: HERE, port: 16127, ports: [closedPort, port], pubKey: 'k', signature: 's', echo: true, everyPort: true,
+      },
+      HERE,
+    );
+
+    expect(answer.status, 'the test ended at the first port that failed').to.equal('success');
+    expect(answer.data.answered[closedPort]).to.equal(null);
+    expect(answer.data.answered[port]).to.include(TOKEN);
+  });
+
+  it('ends at the first port that failed for a caller that does not ask for every port', async () => {
+    const gone = http.createServer();
+    await new Promise((resolve) => gone.listen(0, HERE, resolve));
+    const closedPort = gone.address().port;
+    await new Promise((resolve) => gone.close(resolve));
+
+    const answer = await ask(
+      {
+        ip: HERE, port: 16127, ports: [closedPort, port], pubKey: 'k', signature: 's', echo: true,
+      },
+      HERE,
+    );
+
+    expect(answer.status).to.equal('error');
+    expect(answer.data.message).to.include(`Failed port: ${closedPort}`);
+  });
+
+  // The largest app's ports, every one of them silent over UDP: each costs a
+  // probe's full deadline, and all of them have to be answered for inside the
+  // time the requester waits for this peer.
+  it('answers for 50 ports silent over UDP inside the requester\'s wait', async function () {
+    this.timeout(60000);
+    const servers = await Promise.all(Array.from({ length: 50 }, async () => {
+      const s = new FluxHttpTestServer(TOKEN);
+      await new Promise((resolve) => s.listen(0, HERE, resolve));
+      return s;
+    }));
+    const ports = servers.map((s) => s.address().port);
+
+    const started = Date.now();
+    const answer = await ask(
+      {
+        ip: HERE, port: 16127, ports, pubKey: 'k', signature: 's', echo: true, protocols: ['tcp', 'udp'],
+      },
+      HERE,
+    );
+    const elapsed = Date.now() - started;
+    await Promise.all(servers.map((s) => new Promise((resolve) => s.close(resolve))));
+
+    // Nothing proves a port. A probe can land on another probe's socket here -
+    // requester and peer share this host - so an answer can be a probe rather
+    // than silence; it is never our token.
+    expect(answer.status).to.equal('success');
+    expect(Object.values(answer.data.udpAnswered)).to.have.length(50);
+    expect(Object.values(answer.data.udpAnswered).every((reply) => reply === null || !reply.includes(TOKEN))).to.equal(true);
+    expect(elapsed, 'outlasted the requester\'s wait for a peer').to.be.below(config.fluxapps.portTestPeerTimeoutMs);
   });
 
   // maxComponents (10) x ports per component (5) in appValidator. Each port

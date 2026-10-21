@@ -2969,6 +2969,21 @@ describe('fluxNetworkHelper tests', () => {
       });
     });
 
+    it('opens and deletes a UDP test rule that names udp', async () => {
+      await fluxNetworkHelper.allowTestPort(31350, 'udp');
+      await fluxNetworkHelper.deleteTestPortRule(31350, 'udp');
+      expect(runUfw.args).to.deep.equal([
+        [['allow', 'proto', 'udp', 'from', '0.0.0.0/0', 'to', 'any', 'port', '31350']],
+        [['delete', 'allow', 'proto', 'udp', 'from', '0.0.0.0/0', 'to', 'any', 'port', '31350']],
+      ]);
+    });
+
+    it('refuses a protocol other than tcp or udp, running nothing', async () => {
+      expect((await fluxNetworkHelper.allowTestPort(31350, 'any')).status).to.equal(false);
+      expect((await fluxNetworkHelper.deleteTestPortRule(31350, 'any')).status).to.equal(false);
+      sinon.assert.notCalled(runUfw);
+    });
+
     it('reports a held lock and refuses a port that is not a number', async () => {
       runUfw.resolves({ error: null, stdout: '', stderr: '', locked: true });
       expect(await fluxNetworkHelper.allowTestPort(31350)).to.deep.equal({ status: false, message: 'ufw is locked by another ufw command' });

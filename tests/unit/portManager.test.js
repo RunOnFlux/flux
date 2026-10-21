@@ -12,6 +12,8 @@ const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUnins
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const { EventEmitter } = require('node:events');
 const fluxHttpTestServer = require('../../ZelBack/src/services/utils/fluxHttpTestServer');
+const fluxUdpTestServer = require('../../ZelBack/src/services/utils/fluxUdpTestServer');
+const policyStore = require('../../ZelBack/src/services/policyStore');
 const { requireMongo } = require('./dbTestHelper');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
@@ -1198,6 +1200,8 @@ describe('portManager tests', () => {
 // one witness to accept, two to refuse - and where the exits that skip them are.
 describe('checkInstallingAppPortAvailable decides on every way of running out', () => {
   let port;
+  let token;
+  let udpServers;
 
   const PEERS = ['10.0.0.1:16127', '10.0.0.2:16127', '10.0.0.3:16127', '10.0.0.4:16127', '10.0.0.5:16127'];
 
@@ -1225,10 +1229,18 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
   });
 
   beforeEach(() => {
-    sinon.stub(fluxHttpTestServer, 'FluxHttpTestServer').callsFake(() => {
+    token = null;
+    udpServers = [];
+    sinon.stub(fluxHttpTestServer, 'FluxHttpTestServer').callsFake((runToken) => {
+      token = runToken;
       const server = new EventEmitter();
       server.listen = () => { setImmediate(() => server.emit('listening')); return server; };
       server.close = (callback) => { if (callback) setImmediate(callback); return server; };
+      return server;
+    });
+    sinon.stub(fluxUdpTestServer, 'FluxUdpTestServer').callsFake(() => {
+      const server = { listen: sinon.stub().resolves(), allow: sinon.stub(), close: sinon.stub() };
+      udpServers.push(server);
       return server;
     });
     sinon.stub(serviceHelper, 'delay').resolves();
@@ -1243,6 +1255,7 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
 
   afterEach(() => {
     sinon.restore();
+    fluxNetworkHelper.setUdpReachability(null);
   });
 
   // One attempt per drawn peer: the observer is drawn first, so the attempt
@@ -1256,7 +1269,8 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
     });
 
     sinon.stub(axios, 'post').callsFake(async () => {
-      const answer = answers[attempt];
+      // An answer that carries our token is written against the run's token.
+      const answer = typeof answers[attempt] === 'function' ? answers[attempt](token) : answers[attempt];
       if (!answer || answer === UNREACHABLE) throw new Error('connect ECONNREFUSED');
       return answer;
     });
@@ -1289,9 +1303,9 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
 
     await withPeers([UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE]);
 
-    sinon.assert.calledOnceWithExactly(allowTest, port);
-    sinon.assert.calledWith(deleteTest, port);
-    expect(deleteTest.firstCall.calledAfter(allowTest.firstCall)).to.equal(true);
+    expect(allowTest.args).to.deep.equal([[port, 'tcp'], [port, 'udp']]);
+    expect(deleteTest.args).to.deep.equal([[port, 'tcp'], [port, 'udp']]);
+    expect(deleteTest.firstCall.calledAfter(allowTest.lastCall)).to.equal(true);
     sinon.assert.notCalled(allowBoth);
     sinon.assert.notCalled(deleteBoth);
   });
@@ -1387,5 +1401,252 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
     await withPeers([UNREACHABLE]);
 
     sinon.assert.calledOnceWithExactly(mapUpnpPort, port, 'Flux_App_web');
+  });
+
+  // What a peer that probes UDP answers. `udp` is the port's UDP reply: our
+  // token's reply, null for silence, or absent for a port it could not send to.
+  const answering = (udp) => (runToken) => ({
+    data: {
+      status: 'success',
+      data: {
+        answered: { [port]: `HTTP/1.1 200 OK\r\nX-Flux-Port-Test: ${runToken}\r\n\r\n` },
+        udpAnswered: udp === undefined ? {} : { [port]: udp === 'ours' ? fluxUdpTestServer.udpReply(runToken).toString() : udp },
+      },
+    },
+  });
+  // A peer on code that reads TCP and does not probe UDP.
+  const tcpOnly = (runToken) => ({
+    data: { status: 'success', data: { answered: { [port]: `X-Flux-Port-Test: ${runToken}` } } },
+  });
+
+  it('proves the ports when one peer reads our token over TCP and hears it over UDP', async () => {
+    const result = await withPeers([answering('ours')]);
+
+    expect(result).to.deep.equal({ ok: true, reason: 'proven', port: null });
+    sinon.assert.calledOnce(axios.post);
+  });
+
+  it('asks the peer to probe UDP, and opens a UDP test server on every port', async () => {
+    await withPeers([answering('ours')]);
+
+    expect(JSON.parse(axios.post.firstCall.args[1]).protocols).to.deep.equal(['tcp', 'udp']);
+    expect(udpServers).to.have.length(1);
+    sinon.assert.calledWith(udpServers[0].listen, port);
+    sinon.assert.calledOnce(udpServers[0].close);
+  });
+
+  // A UDP reply goes wherever a probe claims to come from; answering anyone
+  // but the peer being asked would make the port under test a reflector.
+  it('answers only the peer it is asking, from before it asks', async () => {
+    await withPeers([answering(null), answering('ours')]);
+
+    expect(udpServers[0].allow.args).to.deep.equal([['10.0.0.1'], ['10.0.0.2']]);
+    expect(udpServers[0].allow.secondCall.calledBefore(axios.post.secondCall)).to.equal(true);
+  });
+
+  it('refuses once two distinct peers hear nothing over UDP and no peer proves it', async () => {
+    const result = await withPeers([answering(null), answering(null), UNREACHABLE, UNREACHABLE, UNREACHABLE]);
+
+    expect(result.ok, 'two peers hearing nothing did not refuse').to.equal(false);
+    expect(result.reason).to.equal('udpUnreachable');
+    expect(result.port).to.equal(port);
+    expect(result.peers).to.deep.equal(['10.0.0.1', '10.0.0.2']);
+  });
+
+  it('refuses on a UDP answer that is not our token, as on silence', async () => {
+    const result = await withPeers([answering('somebody else'), answering(null)]);
+
+    expect(result.ok).to.equal(false);
+    expect(result.reason).to.equal('udpUnreachable');
+  });
+
+  // A peer that cannot hear UDP replies is silent for every node. Two of them
+  // first do not refuse while a peer that can prove the port is still to ask.
+  it('asks every attempt left for proof after two peers hear nothing', async () => {
+    const result = await withPeers([answering(null), answering(null), answering('ours')]);
+
+    expect(result).to.deep.equal({ ok: true, reason: 'proven', port: null });
+    sinon.assert.callCount(axios.post, 3);
+  });
+
+  // UDP loses datagrams. Our token heard by one peer is proof, and another
+  // peer's silence on the same port is loss.
+  it('takes our token heard by one peer over silence heard by another', async () => {
+    const result = await withPeers([answering(null), answering('ours'), answering(null)]);
+
+    expect(result).to.deep.equal({ ok: true, reason: 'proven', port: null });
+  });
+
+  it('proceeds without proof over UDP when one peer alone heard nothing', async () => {
+    const result = await withPeers([answering(null), UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE]);
+
+    expect(result.ok, 'refused on a single UDP witness').to.equal(true);
+    expect(result.reason).to.equal('udpUnproven');
+    expect(result.port).to.equal(port);
+    expect(result.peers).to.deep.equal(['10.0.0.1']);
+  });
+
+  // A peer that could not send says nothing about the port.
+  it('counts a port the peer could not send to as no evidence', async () => {
+    const result = await withPeers([answering(undefined), answering(undefined), answering(undefined), answering(undefined), answering(undefined)]);
+
+    expect(result.ok).to.equal(true);
+    expect(result.reason).to.equal('udpUnproven');
+    expect(result.peers).to.deep.equal([]);
+  });
+
+  // While the fleet carries peers that do not probe UDP, an install goes ahead
+  // on TCP proof, having asked every peer it may for UDP.
+  it('proceeds on TCP proof when no peer asked probes UDP', async () => {
+    const result = await withPeers([tcpOnly, tcpOnly, tcpOnly, tcpOnly, tcpOnly]);
+
+    expect(result.ok).to.equal(true);
+    expect(result.reason).to.equal('udpUnproven');
+    sinon.assert.callCount(axios.post, 5);
+  });
+
+  // Our token over TCP is proof; peers that later fail to reach the port over
+  // TCP cannot outweigh it.
+  it('lets no later peers that could not reach the port outweigh TCP proof', async () => {
+    const result = await withPeers([tcpOnly, couldNotReach(port), couldNotReach(port), UNREACHABLE, UNREACHABLE]);
+
+    expect(result.ok, 'TCP proof was outweighed').to.equal(true);
+    expect(result.reason).to.equal('udpUnproven');
+  });
+
+  it('lets no later peers reading something else outweigh TCP proof', async () => {
+    const result = await withPeers([tcpOnly, answeringSomethingElse(port), answeringSomethingElse(port), UNREACHABLE, UNREACHABLE]);
+
+    expect(result.ok, 'TCP proof was outweighed').to.equal(true);
+    expect(result.reason).to.equal('udpUnproven');
+  });
+
+  // Two ports. The first peer hears nothing on either; the second proves the
+  // first port and hears nothing on the second. Both peers are silent on the
+  // second port, and the first peer's silence on the first is withdrawn.
+  it('corroborates on the port two peers heard nothing on, withdrawing what was proven', async () => {
+    const other = port + 1;
+    const two = (udp) => (runToken) => ({
+      data: {
+        status: 'success',
+        data: {
+          answered: { [port]: `X-Flux-Port-Test: ${runToken}`, [other]: `X-Flux-Port-Test: ${runToken}` },
+          udpAnswered: Object.fromEntries(Object.entries(udp).map(([p, v]) => [p, v === 'ours' ? fluxUdpTestServer.udpReply(runToken).toString() : v])),
+        },
+      },
+    });
+    let attempt = -1;
+    sinon.stub(networkStateService, 'getRandomExternalObserver').callsFake(async () => { attempt += 1; return PEERS[attempt] || null; });
+    const answers = [two({ [port]: null, [other]: null }), two({ [port]: 'ours', [other]: null })];
+    sinon.stub(axios, 'post').callsFake(async () => {
+      if (!answers[attempt]) throw new Error('connect ECONNREFUSED');
+      return answers[attempt](token);
+    });
+
+    const result = await portManager.checkInstallingAppPortAvailable([port, other], 'web');
+
+    expect(result.ok).to.equal(false);
+    expect(result.reason).to.equal('udpUnreachable');
+    expect(result.port).to.equal(other);
+    expect(result.readings).to.deep.equal({ '10.0.0.1': other, '10.0.0.2': other });
+  });
+
+  // A port answered over TCP by something else is forwarded elsewhere; what the
+  // same peer heard over UDP describes that forward, not this node's UDP.
+  it('refuses as notOurs, not udpUnreachable, when the peers that hear nothing read TCP as someone else\'s', async () => {
+    const elsewhere = () => ({
+      data: {
+        status: 'success',
+        data: { answered: { [port]: 'HTTP/1.1 200 OK\r\n\r\nsomebody else' }, udpAnswered: { [port]: null } },
+      },
+    });
+
+    const result = await withPeers([elsewhere, elsewhere, UNREACHABLE]);
+
+    expect(result.reason).to.equal('notOurs');
+    expect(result.udpReadings).to.deep.equal({ '10.0.0.1': 'silent', '10.0.0.2': 'silent' });
+    expect(fluxNetworkHelper.getUdpReachability(), 'reported as this node\'s UDP').to.equal(null);
+  });
+
+  it('reports UDP reachable in health on a proof', async () => {
+    await withPeers([answering('ours')]);
+    expect(fluxNetworkHelper.getUdpReachability()).to.deep.equal({ reachable: true });
+  });
+
+  // A kill switch, not an opt-in: absent, the refusal stands.
+  it('installs as udpUnproven, still reporting UDP in health, when the policy turns the refusal over UDP off', async () => {
+    sinon.stub(policyStore, 'getDocument').withArgs('udpinstallrefusaloff').returns(true);
+
+    const result = await withPeers([answering(null), answering(null), UNREACHABLE]);
+
+    expect(result.ok).to.equal(true);
+    expect(result.reason).to.equal('udpUnproven');
+    expect(result.peers).to.deep.equal(['10.0.0.1', '10.0.0.2']);
+    expect(fluxNetworkHelper.getUdpReachability()).to.deep.equal({ reachable: false, port, peers: ['10.0.0.1', '10.0.0.2'] });
+  });
+
+  it('refuses when the policy carries the switch as anything but true', async () => {
+    sinon.stub(policyStore, 'getDocument').withArgs('udpinstallrefusaloff').returns(false);
+
+    const result = await withPeers([answering(null), answering(null), UNREACHABLE]);
+
+    expect(result.reason).to.equal('udpUnreachable');
+  });
+
+  it('reports the refused port and its peers in health when two peers hear nothing over UDP', async () => {
+    await withPeers([answering(null), answering(null), UNREACHABLE]);
+    expect(fluxNetworkHelper.getUdpReachability()).to.deep.equal({ reachable: false, port, peers: ['10.0.0.1', '10.0.0.2'] });
+  });
+
+  it('closes its UDP test servers when the test fails', async () => {
+    fluxNetworkHelper.getLocalSocketAddress.resolves('1.2.3.4:16127');
+    fluxUdpTestServer.FluxUdpTestServer.callsFake(() => {
+      const server = { listen: sinon.stub().rejects(new Error('EADDRINUSE')), allow: sinon.stub(), close: sinon.stub() };
+      udpServers.push(server);
+      return server;
+    });
+
+    const result = await withPeers([answering('ours')]);
+
+    expect(result).to.deep.equal({ ok: false, reason: 'error' });
+    sinon.assert.calledOnce(udpServers[0].close);
+  });
+});
+
+describe('udpPortsNotOurs and udpDisputes', () => {
+  const TOKEN = 'a'.repeat(32);
+  const ours = fluxUdpTestServer.udpReply(TOKEN).toString();
+
+  it('adds every port our token came back from to the proven set', () => {
+    const proven = new Set();
+    expect(portManager.udpPortsNotOurs([31000, 31001], { 31000: ours, 31001: ours }, TOKEN, proven)).to.deep.equal([]);
+    expect([...proven]).to.deep.equal([31000, 31001]);
+  });
+
+  it('names every port this peer heard nothing of ours on', () => {
+    expect(portManager.udpPortsNotOurs([31000, 31001, 31002], { 31000: ours, 31001: null, 31002: 'other' }, TOKEN, new Set()))
+      .to.deep.equal([31001, 31002]);
+  });
+
+  it('reads a port missing from the answers as no evidence', () => {
+    expect(portManager.udpPortsNotOurs([31000], {}, TOKEN, new Set())).to.deep.equal([]);
+  });
+
+  it('skips ports outside the app port range, which the peer does not probe', () => {
+    const proven = new Set();
+    expect(portManager.udpPortsNotOurs([0], { 0: null }, TOKEN, proven)).to.deep.equal([]);
+    expect(portManager.everyUdpPortProven([0], proven)).to.equal(true);
+  });
+
+  it('reads one port\'s UDP answer as ours, silent, another\'s answer, or not probed', () => {
+    expect(portManager.udpReadingOf({ 31000: ours }, 31000, TOKEN)).to.equal('ours');
+    expect(portManager.udpReadingOf({ 31000: null }, 31000, TOKEN)).to.equal('silent');
+    expect(portManager.udpReadingOf({ 31000: 'hello' }, 31000, TOKEN)).to.equal('otherAnswer');
+    expect(portManager.udpReadingOf({}, 31000, TOKEN)).to.equal('notProbed');
+  });
+
+  it('keeps a peer as a witness only while a port it heard nothing on is unproven', () => {
+    const disagreements = new Map([['a', [31000, 31001]], ['b', [31000]]]);
+    expect(portManager.udpDisputes(disagreements, new Set([31000]))).to.deep.equal(new Map([['a', 31001]]));
   });
 });

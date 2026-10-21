@@ -225,7 +225,10 @@ module.exports = {
     installCollisionWaitMs: 5000,
     portTestBindDelayMs: 100,
     portTestPropagationDelayMs: 100,
-    portTestPeerTimeoutMs: 3000,
+    // A peer answers only once its UDP probe of a silent port has reached its deadline
+    // (UDP_PROBE_DEADLINE_MS, 3 s, fluxNetworkHelper.js), so the wait for that peer has to
+    // outlast it, or every UDP refusal reads as a peer that never answered.
+    portTestPeerTimeoutMs: 8000,
     portTestMaxAttempts: 2,
     spawnReconfirmDelayMs: 30000,
     globalCmdDelayMs: 100,

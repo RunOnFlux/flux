@@ -14,6 +14,11 @@ const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/
 const upnpService = require('../../ZelBack/src/services/upnpService');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const fluxHttpTestServer = require('../../ZelBack/src/services/utils/fluxHttpTestServer');
+const fluxUdpTestServer = require('../../ZelBack/src/services/utils/fluxUdpTestServer');
+const portManager = require('../../ZelBack/src/services/appNetwork/portManager');
+const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+const policyStore = require('../../ZelBack/src/services/policyStore');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 const signer = { pubKey: 'pubkey', sign: () => 'signature' };
 // the check with a node that can sign its port test
@@ -29,6 +34,8 @@ describe('availabilityChecker tests', () => {
   let isArcane;
   let delayStub;
   let setImmediateStub;
+  let udpServers;
+  let udpToken;
 
   beforeEach(() => {
     mockInstalledAppsFn = sinon.stub();
@@ -48,10 +55,25 @@ describe('availabilityChecker tests', () => {
     delayStub = sinon.stub(serviceHelper, 'delay').resolves();
     // Stub setImmediate to prevent infinite recursion
     setImmediateStub = sinon.stub(global, 'setImmediate');
+
+    // No application at this address holds a port, unless a test says so.
+    sinon.stub(registryManager, 'getRunningAppIpList').resolves([]);
+    sinon.stub(portManager, 'assignedPortsGlobalApps').resolves([]);
+    sinon.stub(portManager, 'siblingHoldingPort').resolves(null);
+
+    udpServers = [];
+    udpToken = null;
+    sinon.stub(fluxUdpTestServer, 'FluxUdpTestServer').callsFake((token) => {
+      udpToken = token;
+      const server = { listen: sinon.stub().resolves(), allow: sinon.stub(), close: sinon.stub() };
+      udpServers.push(server);
+      return server;
+    });
   });
 
   afterEach(() => {
     sinon.restore();
+    fluxNetworkHelper.setUdpReachability(null);
   });
 
   describe('checkMyAppsAvailability tests', () => {
@@ -405,10 +427,82 @@ describe('availabilityChecker tests', () => {
         expect(mockDosState.portFailureScore ?? 0).to.equal(0);
       });
 
-      it('maps the port under test over TCP alone', async () => {
+      // A pass costs the router one mapping and one removal.
+      it('maps the port under test for one protocol a pass, TCP first', async () => {
         await pass();
 
         sinon.assert.calledOnceWithExactly(mapUpnpPortStub, mockDosState.testingPort, 'Flux_Test_App', { protocols: ['TCP'] });
+        expect(JSON.parse(portTestStub.firstCall.args[1]).protocols).to.deep.equal(['tcp']);
+        sinon.assert.notCalled(fluxUdpTestServer.FluxUdpTestServer);
+      });
+
+      it('tests UDP alone on the pass after a TCP pass that passed, and TCP after that', async () => {
+        await pass();
+        portTestStub.callsFake(async (url, body) => {
+          const { ports: [port] } = JSON.parse(body);
+          return { data: { status: 'success', data: { udpAnswered: { [port]: fluxUdpTestServer.udpReply(udpToken).toString() } } } };
+        });
+        await pass();
+
+        expect(mapUpnpPortStub.secondCall.args[2]).to.deep.equal({ protocols: ['UDP'] });
+        expect(JSON.parse(portTestStub.secondCall.args[1]).protocols).to.deep.equal(['udp']);
+        expect(fluxHttpTestServer.FluxHttpTestServer.prototype.listen.callCount, 'a TCP test server on the UDP pass').to.equal(1);
+        expect(fluxNetworkHelper.getUdpReachability()).to.deep.equal({ reachable: true });
+
+        await pass();
+        expect(mapUpnpPortStub.thirdCall.args[2]).to.deep.equal({ protocols: ['TCP'] });
+      });
+
+      // A peer that does not know `protocols` tests TCP, finds it unmapped, and
+      // says the port failed: on a UDP pass that is no evidence at all.
+      it('reads nothing from a peer\'s TCP failure on a UDP pass, and tests UDP again with another peer', async () => {
+        mockDosState.testingProtocol = 'udp';
+        portTestStub.callsFake(async (url, body) => {
+          const { ports: [port] } = JSON.parse(body);
+          return { data: { status: 'error', data: { message: `Flux Applications on 1.2.3.4:16127 are not available. Failed port: ${port}` } } };
+        });
+
+        await pass();
+
+        expect(mockPortsNotWorking.size).to.equal(0);
+        expect(mockDosState.portFailureScore ?? 0).to.equal(0);
+        expect(mockDosState.nextTestingPort).to.equal(mockDosState.testingPort);
+        expect(mockDosState.testingProtocol).to.equal('udp');
+        sinon.assert.calledWith(delayStub.lastCall, 15_000);
+      });
+
+      it('goes back to TCP after as many UDP passes as learn nothing', async () => {
+        mockDosState.testingProtocol = 'udp';
+        portTestStub.resolves({ data: { status: 'error', data: { message: 'Failed port: 1' } } });
+
+        await pass();
+        await pass();
+        expect(mockDosState.testingProtocol, 'gave up early').to.equal('udp');
+        await pass();
+
+        expect(mockDosState.testingProtocol).to.equal('tcp');
+        expect(mockDosState.udpUnsettled).to.equal(0);
+      });
+
+      // A router refusing the UDP mapping is as broken as one refusing TCP.
+      it('counts a UDP mapping the router refused for its own reason as a router fault, and stays on UDP', async () => {
+        mockDosState.testingProtocol = 'udp';
+        testMappingRefused(refused(606, true));
+
+        await pass();
+
+        expect(mockDosState.portFailureScore).to.equal(4);
+        expect(mockDosState.testingProtocol).to.equal('udp');
+        sinon.assert.notCalled(portTestStub);
+      });
+
+      it('stays on TCP while its TCP test fails', async () => {
+        portTestStub.resolves({ data: { status: 'error', data: { message: 'Failed port: 1' } } });
+
+        await pass();
+
+        expect(mockPortsNotWorking.size).to.equal(1);
+        expect(mockDosState.testingProtocol ?? 'tcp').to.equal('tcp');
       });
 
       it('makes no test mapping, opens no port, and counts a failed check while the router has yet to remove a mapping of this node', async () => {
@@ -532,8 +626,8 @@ describe('availabilityChecker tests', () => {
 
         await pass();
 
-        sinon.assert.calledOnceWithExactly(fluxNetworkHelper.allowTestPort, mockDosState.testingPort);
-        sinon.assert.calledWith(fluxNetworkHelper.deleteTestPortRule, mockDosState.testingPort);
+        expect(fluxNetworkHelper.allowTestPort.args).to.deep.equal([[mockDosState.testingPort, 'tcp']]);
+        expect(fluxNetworkHelper.deleteTestPortRule.args).to.deep.equal([[mockDosState.testingPort, 'tcp']]);
         sinon.assert.notCalled(allowBoth);
         sinon.assert.notCalled(deleteBoth);
       });
@@ -607,6 +701,206 @@ describe('availabilityChecker tests', () => {
         expect(mockDosState.dosMessage).to.equal(UPNP_DOS);
         expect(mockDosState.dosStateValue).to.equal(100);
         sinon.assert.calledWith(delayStub, 300_000);
+      });
+    });
+
+    describe('proof over TCP and UDP', () => {
+      const PEERS = ['192.168.1.200:16127', '192.168.1.201:16127', '192.168.1.202:16127', '192.168.1.203:16127', '192.168.1.204:16127'];
+      let observer;
+      let portTestStub;
+
+      // What a peer that reads the port and probes UDP answers: `tcp` and `udp`
+      // are 'ours', another application's bytes, or null for silence; `udp`
+      // undefined is a peer that does not probe UDP.
+      const reading = (tcp, udp) => async (url, body) => {
+        const { ports: [port] } = JSON.parse(body);
+        const value = (v, ours) => (v === 'ours' ? ours : v);
+        const data = { message: 'Ports reachable', answered: { [port]: value(tcp, `X-Flux-Port-Test: ${udpToken}`) } };
+        if (udp !== undefined) data.udpAnswered = { [port]: value(udp, fluxUdpTestServer.udpReply(udpToken).toString()) };
+        return { data: { status: 'success', data } };
+      };
+
+      beforeEach(() => {
+        sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
+        sinon.stub(generalService, 'isNodeStatusConfirmed').resolves(true);
+        sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.100:16127');
+        mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+        sinon.stub(upnpService, 'isUPNP').returns(false);
+        sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
+        observer = -1;
+        sinon.stub(networkStateService, 'getRandomExternalObserver').callsFake(async () => {
+          observer += 1;
+          return PEERS[observer];
+        });
+        sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(false);
+        sinon.stub(fluxHttpTestServer.FluxHttpTestServer.prototype, 'listen').callsFake(function listen() {
+          this.emit('listening');
+          return this;
+        });
+        sinon.stub(fluxHttpTestServer.FluxHttpTestServer.prototype, 'close').callsFake((callback) => callback && callback());
+        portTestStub = sinon.stub(axios, 'post').callsFake(reading('ours', 'ours'));
+      });
+
+      const pass = () => signingAvailabilityChecker.checkMyAppsAvailability(
+        mockInstalledAppsFn,
+        mockDosState,
+        mockPortsNotWorking,
+        mockFailedNodesCache,
+        isArcane,
+      );
+
+      it('asks the peer to read the port and probe it over UDP, answering only that peer', async () => {
+        await pass();
+
+        const body = JSON.parse(portTestStub.firstCall.args[1]);
+        expect(body.echo).to.equal(true);
+        expect(body.protocols).to.deep.equal(['tcp', 'udp']);
+        sinon.assert.calledOnceWithExactly(udpServers[0].listen, mockDosState.testingPort);
+        sinon.assert.calledOnceWithExactly(udpServers[0].allow, '192.168.1.200');
+        expect(udpServers[0].allow.calledBefore(portTestStub)).to.equal(true);
+        sinon.assert.calledOnce(udpServers[0].close);
+      });
+
+      it('passes, and reports UDP reachable, on our token over TCP and UDP', async () => {
+        await pass();
+
+        expect(mockPortsNotWorking.size).to.equal(0);
+        expect(fluxNetworkHelper.getUdpReachability()).to.deep.equal({ reachable: true });
+        sinon.assert.calledWith(delayStub.lastCall, 3_600_000);
+      });
+
+      // Whatever holds the port, this node cannot serve an application on it.
+      it('counts a port that answered as something other than this node as failed', async () => {
+        portTestStub.callsFake(reading('somebody else entirely', undefined));
+
+        await pass();
+
+        expect(mockPortsNotWorking.has(mockDosState.testingPort)).to.equal(true);
+      });
+
+      it('takes a peer that does not read ports at its word', async () => {
+        portTestStub.resolves({ data: { status: 'success', data: { message: 'Ports reachable' } } });
+
+        await pass();
+
+        expect(mockPortsNotWorking.size).to.equal(0);
+        expect(fluxNetworkHelper.getUdpReachability()).to.equal(null);
+      });
+
+      it('skips a port an application at this address holds, testing nothing', async () => {
+        sinon.stub(Math, 'random').returns(0.5);
+        const { fluxapps: { portMin, portMax } } = config;
+        const port = Math.floor(0.5 * (portMax - portMin) + portMin);
+        registryManager.getRunningAppIpList.resolves([{ name: 'neighbour' }]);
+        portManager.assignedPortsGlobalApps.resolves([{ name: 'neighbour', ports: [port] }]);
+
+        await pass();
+
+        sinon.assert.calledWith(portManager.assignedPortsGlobalApps, ['neighbour']);
+        sinon.assert.notCalled(portTestStub);
+        expect(mockPortsNotWorking.size).to.equal(0);
+      });
+
+      it('skips a port a node sharing this address says it holds, testing nothing', async () => {
+        portManager.siblingHoldingPort.resolves({ address: '192.168.1.100:16137', port: 1 });
+
+        await pass();
+
+        sinon.assert.notCalled(portTestStub);
+      });
+
+      // UDP loses datagrams: one peer's silence is tested again by another.
+      it('counts nothing on one peer\'s silence over UDP, and tests the port again with another peer', async () => {
+        portTestStub.callsFake(reading('ours', null));
+
+        await pass();
+        const port = mockDosState.testingPort;
+
+        expect(mockPortsNotWorking.size).to.equal(0);
+        expect(mockDosState.nextTestingPort).to.equal(port);
+        sinon.assert.calledWith(delayStub.lastCall, 15_000);
+        expect(fluxNetworkHelper.getUdpReachability()).to.equal(null);
+
+        await pass();
+
+        expect(mockDosState.testingPort).to.equal(port);
+        sinon.assert.calledWith(networkStateService.getRandomExternalObserver.secondCall, '192.168.1.100:16127', { exclude: [PEERS[0]] });
+      });
+
+      // A pass whose TCP passes is a passing pass for TCP, whatever UDP needs next.
+      it('clears its failed ports and lifts its DOS on a TCP pass whose first peer heard nothing over UDP, and still retests UDP', async () => {
+        const count = sinon.spy(fluxEventBus, 'count');
+        mockPortsNotWorking.add(1234);
+        mockDosState.portFailureScore = 8;
+        mockDosState.dosMessage = 'Ports tested not reachable from outside, DMZ or UPNP required! All ports that have failed: [1234]';
+        mockDosState.dosStateValue = 100;
+        portTestStub.callsFake(reading('ours', null));
+
+        await pass();
+
+        expect(mockPortsNotWorking.size, 'failed ports left until the retest').to.equal(0);
+        expect(mockDosState.dosMessage, 'its DOS left until the retest').to.equal(null);
+        expect(mockDosState.nextTestingPort).to.equal(mockDosState.testingPort);
+        sinon.assert.calledWith(delayStub.lastCall, 15_000);
+        sinon.assert.calledWithExactly(count, 'availability:firstUdpSilence', 'passed', 'cleared');
+      });
+
+      it('tallies the branch each pass took', async () => {
+        const count = sinon.spy(fluxEventBus, 'count');
+
+        await pass();
+
+        sinon.assert.calledWithExactly(count, 'availability:pass', 'passed', 'proven');
+        sinon.assert.neverCalledWith(count, 'availability:firstUdpSilence');
+      });
+
+      it('takes our token heard by a second peer over the first peer\'s silence', async () => {
+        portTestStub.onFirstCall().callsFake(reading('ours', null));
+
+        await pass();
+        await pass();
+
+        expect(fluxNetworkHelper.getUdpReachability()).to.deep.equal({ reachable: true });
+        expect(mockDosState.udpSuspect).to.equal(null);
+      });
+
+      it('reports UDP unreachable, and counts nothing, when two peers hear nothing and policy has not switched the DOS on', async () => {
+        portTestStub.callsFake(reading('ours', null));
+
+        await pass();
+        await pass();
+
+        expect(fluxNetworkHelper.getUdpReachability()).to.deep.equal({
+          reachable: false, port: mockDosState.testingPort, peers: ['192.168.1.200', '192.168.1.201'],
+        });
+        expect(mockPortsNotWorking.size).to.equal(0);
+      });
+
+      it('counts the port failed when two peers hear nothing and policy has switched the DOS on', async () => {
+        sinon.stub(policyStore, 'getDocument').withArgs('udpportdos').returns(true);
+        portTestStub.callsFake(reading('ours', null));
+
+        await pass();
+        await pass();
+
+        expect(mockPortsNotWorking.has(mockDosState.testingPort)).to.equal(true);
+        expect(fluxNetworkHelper.getUdpReachability().reachable).to.equal(false);
+      });
+
+      it('drops one peer\'s silence unconfirmed after as many passes as find no peer that probes UDP', async () => {
+        portTestStub.onFirstCall().callsFake(reading('ours', null));
+        portTestStub.callsFake(reading('ours', undefined));
+
+        await pass();
+        const port = mockDosState.testingPort;
+        await pass();
+        await pass();
+        expect(mockDosState.nextTestingPort, 'stopped retesting early').to.equal(port);
+        await pass();
+
+        expect(mockDosState.udpSuspect).to.equal(null);
+        expect(mockDosState.nextTestingPort).to.equal(null);
+        expect(fluxNetworkHelper.getUdpReachability()).to.equal(null);
       });
     });
 
