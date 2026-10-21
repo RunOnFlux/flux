@@ -974,8 +974,8 @@ function uploadFolder(req) {
 }
 
 /**
- * Bring an upload's folder into existence, one level at a time, each level made
- * the way a new folder is: published, with the owner of the folder above it.
+ * Bring an upload's folder into existence the way a new folder is made:
+ * published, with the owner of the folder it lands in.
  *
  * A bare `mkdir -p` here made every missing level root's, because flux-op runs
  * as root and inheritOwner only acts on a publish. Each file then took the
@@ -983,6 +983,11 @@ function uploadFolder(req) {
  * dropped into the file browser arrived wholly root's, and an app running as
  * another user could not write inside its own tree. Synced ownership then
  * carried the same to every standby.
+ *
+ * The whole missing chain is built in staging and published as one, at the
+ * highest level that is not there: flux-op gives everything in staging the
+ * owner of the folder that receives it, so every level takes it, and one
+ * container does what one mkdir did. A failure leaves nothing half made.
  *
  * The walk stops at the first thing that is already there. Only the
  * destination itself has to be a folder (the caller refuses it otherwise); an
@@ -992,31 +997,34 @@ function uploadFolder(req) {
  * @param {VolumePath} target - the upload folder, known to be missing
  */
 async function createMissingFolders(volume, target) {
-  const missing = [];
-  for (let level = target; level.relative !== ''; level = volume.parent(level)) {
+  let top = target;
+  for (let level = volume.parent(target); level.relative !== ''; level = volume.parent(level)) {
     // eslint-disable-next-line no-await-in-loop
     const present = await volume.isDirectory(level).then(() => true, () => false);
     if (present) break;
-    missing.unshift(level);
+    top = level;
   }
 
-  for (const folder of missing) {
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      await executor.run(volume, [], {
-        publish: { staging: volume.staging(), destination: folder },
-        mkdirStaging: true,
-        noReplace: true,
-        inheritOwner: true,
-        slotHeld: true,
-      });
-    } catch (error) {
-      // A parallel upload of the same tree made it first. Theirs is as good as
-      // ours, since it was made the same way.
-      // eslint-disable-next-line no-await-in-loop
-      const madeMeanwhile = error.code === 'EEXIST' && await volume.isDirectory(folder).catch(() => false);
-      if (!madeMeanwhile) throw error;
-    }
+  // Resolved, not built: this is the name a new entry is published under, and
+  // resolve is what keeps a reserved name in the volume root from being one.
+  const destination = await volume.resolve(top.relative);
+  const staging = volume.staging();
+  const below = path.posix.relative(top.relative, target.relative);
+
+  try {
+    await executor.run(volume, below ? ['mkdir', '-p', `${staging.containerPath}/${below}`] : [], {
+      publish: { staging, destination },
+      mkdirStaging: true,
+      noReplace: true,
+      inheritOwner: true,
+      slotHeld: true,
+    });
+  } catch (error) {
+    // Something else made that level first - a parallel upload of the same
+    // tree, or the app. What is still missing below it is made from there.
+    const madeMeanwhile = error.code === 'EEXIST' && await volume.isDirectory(destination).catch(() => false);
+    if (!madeMeanwhile) throw error;
+    if (top !== target) await createMissingFolders(volume, target);
   }
 }
 
