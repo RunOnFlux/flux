@@ -971,7 +971,7 @@ export async function createTestEnv({
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
   geolocation = {}, locationTable = null, staticIp = true, policy = null, policySeeds = null,
-  awaitPolicy = true, pm2Nodes = {}, pausedSyncthingNodes = [], syncthingFaults = {}, sharedKeys = {}, collateralOf = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], rejoinOnRestart = true, networkShapes = {}, globalIpv6 = [], dnsRecords = [],
+  awaitPolicy = true, pm2Nodes = {}, pausedSyncthingNodes = [], syncthingFaults = {}, sharedKeys = {}, collateralOf = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], freezableConfig = [], rejoinOnRestart = true, networkShapes = {}, globalIpv6 = [], dnsRecords = [],
   // Firewalled nodes boot with ufw active as their install leaves it - the legacy
   // installer's rules on a legacy node, the ISO's on an Arcane one - and FluxOS
   // adds its own on top. true for every node, or a list of node indices. Off
@@ -987,6 +987,11 @@ export async function createTestEnv({
   // (framework/host-stall.js), by node index.
   for (const index of freezableDockerRoot) {
     if (!Number.isInteger(index) || index < 0 || index >= nodes) throw new Error(`createTestEnv: freezableDockerRoot names node ${index}, outside a fleet of ${nodes}`);
+  }
+  // Nodes whose FluxOS config directory is a filesystem a suite can freeze
+  // (framework/host-stall.js), by node index.
+  for (const index of freezableConfig) {
+    if (!Number.isInteger(index) || index < 0 || index >= nodes) throw new Error(`createTestEnv: freezableConfig names node ${index}, outside a fleet of ${nodes}`);
   }
   for (const index of pausedSyncthingNodes) {
     if (syncthing !== 'binary') throw new Error('createTestEnv: pausedSyncthingNodes needs syncthing: \'binary\'');
@@ -1278,7 +1283,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, firewall, collateralOf, syncthingFaults, configuredIp, nodeImageTags, freezableDockerRoot);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, firewall, collateralOf, syncthingFaults, configuredIp, nodeImageTags, freezableDockerRoot, freezableConfig);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -1307,7 +1312,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = []) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], freezableConfig = []) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -1674,6 +1679,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     if (!isLegacy) nodeEnv.FLUXOS_PATH = '/flux';
     if (pausedSyncthingNodes.includes(i)) nodeEnv.FLUX_SYNCTHING_PAUSED = '1';
     if (freezableDockerRoot.includes(i)) nodeEnv.FLUX_FREEZABLE_DOCKER_ROOT = 'true';
+    if (freezableConfig.includes(i)) nodeEnv.FLUX_FREEZABLE_CONFIG = 'true';
     if (syncthingFaults[i]) nodeEnv.FLUX_SYNCTHING_FAULT = syncthingFaults[i];
     // WHETHER THIS NODE'S FLUXOS IS ROOT. Declared per node rather than derived from
     // legacy, because the field carries both: Arcane runs FluxOS as root, and an

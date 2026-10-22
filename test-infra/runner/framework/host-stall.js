@@ -9,6 +9,8 @@
 import { execInContainer } from './container.js';
 
 export const DOCKER_ROOT = '/mnt/appdata/docker';
+// A harness node's FluxOS directory is /flux, legacy and Arcane alike.
+export const FLUXOS_CONFIG = '/flux/config';
 
 async function run(container, command, what) {
   const result = await execInContainer(container, command);
@@ -29,14 +31,28 @@ export async function thawDocker(container) {
 }
 
 /**
- * Thaw every node's docker data root that is frozen, and every cgroup frozen in it
+ * Hold every write the node's FluxOS makes to its config directory, until
+ * thawConfig. The node is booted with createTestEnv({ freezableConfig: [index] }).
+ */
+export async function freezeConfig(container) {
+  await run(container, `mountpoint -q ${FLUXOS_CONFIG}`, `${FLUXOS_CONFIG} is not a mount of its own: boot the node with freezableConfig`);
+  await run(container, `fsfreeze -f ${FLUXOS_CONFIG}`, 'freezeConfig');
+}
+
+/** Let the node's FluxOS write its config directory again. One not frozen is left as it is. */
+export async function thawConfig(container) {
+  await run(container, `out=$(fsfreeze -u ${FLUXOS_CONFIG} 2>&1) || echo "$out" | grep -q 'Invalid argument' || { echo "$out"; exit 1; }`, 'thawConfig');
+}
+
+/**
+ * Thaw every node's docker data root and config directory that is frozen, and every cgroup frozen in it
  * (systemd-control.freezeUnit), and pass over the rest: the last step before
  * anything reads a node through its docker or stops it, since a node whose docker
  * is held can be neither read nor stopped. Never rejects.
  * @param {Array<{container?: object}>} clients
  */
 export async function thawEveryNode(clients) {
-  const thaw = `fsfreeze -u ${DOCKER_ROOT} 2>/dev/null; `
+  const thaw = `fsfreeze -u ${DOCKER_ROOT} 2>/dev/null; fsfreeze -u ${FLUXOS_CONFIG} 2>/dev/null; `
     + 'for f in $(find /sys/fs/cgroup -name cgroup.freeze 2>/dev/null); do [ "$(cat $f)" = 1 ] && echo 0 > $f; done; true';
   await Promise.all(clients.map(async (client) => {
     if (!client?.container) return;

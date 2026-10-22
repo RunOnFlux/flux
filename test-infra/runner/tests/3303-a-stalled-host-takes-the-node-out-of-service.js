@@ -2,12 +2,15 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, getAppContainerStatus } from '../framework/container.js';
-import { waitForUp, waitForAppInstalled, assertNoEvent } from '../framework/wait.js';
+import {
+  waitFor, waitForUp, waitForAppInstalled, assertNoEvent,
+} from '../framework/wait.js';
 import { bootAndPeer, seedSpawnerApp } from '../framework/reconciler-suite.js';
 import { buildSeedableTestApp } from '../framework/seed-helper.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import {
-  freezeDocker, thawDocker, thawEveryNode, stuckThreads, processesThatCanRun, containerCgroup,
+  freezeDocker, thawDocker, freezeConfig, thawConfig, FLUXOS_CONFIG,
+  thawEveryNode, stuckThreads, processesThatCanRun, containerCgroup,
 } from '../framework/host-stall.js';
 import {
   DOCKERD_UNIT, freezeUnit, restartFluxos, unitCgroup,
@@ -28,7 +31,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // runs out. With docker frozen as well (systemd-control.freezeUnit), docker
 // cannot act at all, and the app is killed without docker. A node holding several
 // apps has every one of them stopped within that one window, long before even one
-// removal's deadline.
+// removal's deadline. A node whose FluxOS config directory, where the trip is
+// recorded, is frozen as well stops its apps all the same, and records the trip
+// once the directory takes writes again.
 //
 // The nodes run systemd, so docker uses its systemd cgroup driver and every app's
 // containers live in the app's own slice, as on a production node. The node the
@@ -90,6 +95,7 @@ describe('a stalled host takes the node out of service', function () {
       nodes: 4,
       tickerAutostart: false,
       freezableDockerRoot: [0, 1, 2, 3],
+      freezableConfig: [0, 1, 2, 3],
       legacyNodes: [LEGACY_UNPRIVILEGED],
       unprivilegedNodes: [LEGACY_UNPRIVILEGED],
       configOverrides: {
@@ -330,6 +336,65 @@ describe('a stalled host takes the node out of service', function () {
       expect(stopped.apps.map((a) => a.app), 'the apps the node stopped').to.include.members(names);
       stopped.apps.filter((a) => names.includes(a.app))
         .forEach((a) => expect(a.runnable, `the node reports a process of ${a.app} that can still run`).to.deep.equal([]));
+    });
+  });
+
+  describe('a stall past the threshold, on a node whose config directory stalls too', function () {
+    const recordName = `e2ehoststallrec${Date.now()}`;
+    const record = `${FLUXOS_CONFIG}/hostStall.json`;
+    let recClient;
+    let recContainer;
+    let anchor;
+    let trippedAt;
+    let stopped;
+    let recordedWhileFrozen;
+
+    before(async function () {
+      this.timeout(480000);
+      // the Arcane node no other case here uses
+      const index = ARCANE.filter((i) => i !== node).at(-1);
+      recClient = env.clients[index];
+      ({ container: recContainer } = recClient);
+      await installOn(env, recordName, [index]);
+      await waitForUp(recClient, recordName, `${recordName} is up`);
+      anchor = recClient.getLastEventId();
+      step(`freezing node ${index}'s docker and its config directory`);
+      await freezeConfig(recContainer);
+      await freezeDocker(recContainer);
+      const trip = await recClient.waitForEvent('dos:changed', outOfServiceForTheStall, STALL_MS + READ_INTERVAL_MS * 4, { afterId: anchor })
+        .catch(() => null);
+      trippedAt = trip ? Date.now() : null;
+      stopped = (await recClient.waitForEvent('hostStall:appsStopped', () => true, STOP_WINDOW_MS + KILL_SLACK_MS, { afterId: anchor })
+        .catch(() => null))?.data ?? null;
+      recordedWhileFrozen = (await execInContainer(recContainer, `test -e ${record}`)).exitCode === 0;
+    });
+
+    after(async function () {
+      if (recClient) await thawEveryNode([recClient]);
+    });
+
+    it('held the config directory: a write to it does not return', async function () {
+      const write = await execInContainer(recContainer, `timeout 3 touch ${FLUXOS_CONFIG}/.probe`);
+      expect(write.exitCode, 'a write to the config directory returned, so the record was never held').to.equal(124);
+    });
+
+    it('takes the node out of service', function () {
+      expect(trippedAt, 'the node never went out of service for the stall, so nothing below was tested').to.not.equal(null);
+    });
+
+    it('stops its apps though the trip cannot be recorded', function () {
+      expect(recordedWhileFrozen, 'fixture: the trip was recorded on a frozen directory').to.equal(false);
+      expect(stopped, 'the node never stopped its apps while its trip could not be recorded').to.not.equal(null);
+      expect(stopped.apps.map((a) => a.app), 'the apps the node stopped').to.include(recordName);
+    });
+
+    it('records the trip once the config directory takes writes again', async function () {
+      this.timeout(60000);
+      await thawConfig(recContainer);
+      await thawDocker(recContainer);
+      await waitFor(async () => (await execInContainer(recContainer, `grep -q 'Host stall' ${record}`)).exitCode === 0, {
+        timeout: 30000, interval: 1000, label: 'the trip recorded once the config directory came back',
+      });
     });
   });
 });

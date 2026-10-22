@@ -63,6 +63,22 @@ if [ "$FLUX_FREEZABLE_DOCKER_ROOT" = "true" ]; then
   mountpoint -q /mnt/appdata/docker || mount -o loop "$img" /mnt/appdata/docker
 fi
 
+# The same for the node's FluxOS config directory, where FluxOS keeps the record of
+# a host stall: frozen, every write FluxOS makes there is held in the kernel. Seeded
+# with the directory's own files and owner on first boot.
+if [ "$FLUX_FREEZABLE_CONFIG" = "true" ]; then
+  cfg="${FLUXOS_PATH:-/flux}/config"
+  img=/mnt/appdata/flux-config.img
+  owner="$(stat -c %u:%g "$cfg")"
+  if [ ! -f "$img" ]; then
+    truncate -s 64M "$img" && mkfs.ext4 -q -F "$img"
+    seed="$(mktemp -d)"
+    mount -o loop "$img" "$seed" && cp -a "$cfg/." "$seed/" && chown "$owner" "$seed" && umount "$seed"
+    rmdir "$seed"
+  fi
+  mountpoint -q "$cfg" || mount -o loop "$img" "$cfg"
+fi
+
 # In stub mode FluxOS only needs somewhere to read an API key from; the calls
 # themselves go to the shared stub. In binary mode the config is syncthing's own
 # and this fixture must not be in the way of it.
