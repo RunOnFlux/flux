@@ -21,11 +21,14 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //
 // A thread held for one reading interval holds the node back from new placements,
 // and the hold lifts when the thread runs again. Held for stuckIntervals intervals,
-// the node goes out of service until it reboots, and removes every app within a
-// deadline each. On a frozen disk docker still delivers the stop signal, so the
-// app is stopped though its removal runs out. With docker frozen as well
-// (systemd-control.freezeUnit), docker cannot act at all, and the app is killed
-// through its slice without docker.
+// the node goes out of service until it reboots: every app is asked to stop at
+// once, whatever of them can still run after one shared stop window is killed
+// through its slice, and then each is removed within a deadline. On a frozen disk
+// docker still delivers the stop signal, so the app is stopped though its removal
+// runs out. With docker frozen as well (systemd-control.freezeUnit), docker
+// cannot act at all, and the app is killed without docker. A node holding several
+// apps has every one of them stopped within that one window, long before even one
+// removal's deadline.
 //
 // The nodes run systemd, so docker uses its systemd cgroup driver and every app's
 // containers live in the app's own slice, as on a production node. The node the
@@ -37,7 +40,10 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const READ_INTERVAL_MS = 5 * 1000;
 const STUCK_INTERVALS = 6;
-const REMOVAL_DEADLINE_MS = 20 * 1000;
+const REMOVAL_DEADLINE_MS = 45 * 1000;
+const STOP_WINDOW_MS = 10 * 1000;
+// what the node takes beyond the window to check and kill every app
+const KILL_SLACK_MS = 10 * 1000;
 const STALL_MS = READ_INTERVAL_MS * STUCK_INTERVALS;
 const OWNER = 'hostStall';
 const ARCANE = [0, 1, 2];
@@ -88,7 +94,7 @@ describe('a stalled host takes the node out of service', function () {
       legacyNodes: [LEGACY_UNPRIVILEGED],
       unprivilegedNodes: [LEGACY_UNPRIVILEGED],
       configOverrides: {
-        hostStall: { readIntervalMs: READ_INTERVAL_MS, stuckIntervals: STUCK_INTERVALS },
+        hostStall: { readIntervalMs: READ_INTERVAL_MS, stuckIntervals: STUCK_INTERVALS, stopWindowMs: STOP_WINDOW_MS },
         fluxapps: { appRemovalDeadlineMs: REMOVAL_DEADLINE_MS },
       },
     });
@@ -256,6 +262,75 @@ describe('a stalled host takes the node out of service', function () {
       expect(data.killed, 'the node never killed the app').to.equal(true);
       expect(data.runnable, 'the node reports a process of the app that can still run').to.deep.equal([]);
       expect(await sliceProcessesThatCanRun(killContainer, killedName), 'a process of the app can still run').to.deep.equal([]);
+    });
+  });
+
+  describe('a stall past the threshold, with docker unable to act at all, on a node holding several apps', function () {
+    const stamp = Date.now();
+    const names = [1, 2, 3].map((n) => `e2ehoststallmany${n}${stamp}`);
+    let manyClient;
+    let manyContainer;
+    let anchor;
+    let runningBefore;
+    let trippedAt;
+    let stopped;
+    let runnableAfterWindow;
+
+    before(async function () {
+      this.timeout(480000);
+      const index = ARCANE.find((i) => i !== node);
+      manyClient = env.clients[index];
+      ({ container: manyContainer } = manyClient);
+      // eslint-disable-next-line no-restricted-syntax
+      for (const name of names) {
+        // eslint-disable-next-line no-await-in-loop
+        await installOn(env, name, [index]);
+        // eslint-disable-next-line no-await-in-loop
+        await waitForUp(manyClient, name, `${name} is up`);
+      }
+      anchor = manyClient.getLastEventId();
+      step(`freezing node ${index}, which holds ${names.length} apps`);
+      await freezeDocker(manyContainer);
+      await freezeUnit(manyContainer, DOCKERD_UNIT);
+      runningBefore = await Promise.all(names.map((name) => sliceProcessesThatCanRun(manyContainer, name)));
+      const trip = await manyClient.waitForEvent('dos:changed', outOfServiceForTheStall, STALL_MS + READ_INTERVAL_MS * 4, { afterId: anchor })
+        .catch(() => null);
+      trippedAt = trip ? Date.now() : null;
+      stopped = (await manyClient.waitForEvent('hostStall:appsStopped', () => true, STOP_WINDOW_MS + KILL_SLACK_MS, { afterId: anchor })
+        .catch(() => null))?.data ?? null;
+      // read once the window and the kill are over, and before even one removal's deadline
+      runnableAfterWindow = trippedAt
+        ? await Promise.all(names.map((name) => sliceProcessesThatCanRun(manyContainer, name)))
+        : null;
+      step('read every app after the stop window');
+    });
+
+    after(async function () {
+      if (manyClient) await thawEveryNode([manyClient]);
+    });
+
+    it('held docker in the kernel, unable to answer, while every app could run', async function () {
+      const stuck = await stuckThreads(manyContainer, 'dockerd');
+      expect(stuck, 'no dockerd thread was held across the freeze, so nothing below was tested').to.not.be.empty;
+      const answer = await execInContainer(manyContainer, 'timeout 5 docker version');
+      expect(answer.exitCode, 'docker still answers, so it could still stop the apps itself').to.not.equal(0);
+      runningBefore.forEach((running, i) => expect(running, `${names[i]} was not running, so there was nothing to stop`).to.not.be.empty);
+    });
+
+    it('takes the node out of service', function () {
+      expect(trippedAt, 'the node never went out of service for the stall, so nothing below was tested').to.not.equal(null);
+    });
+
+    it('stops every app within one stop window, before even one removal\'s deadline', function () {
+      expect(STOP_WINDOW_MS + KILL_SLACK_MS, 'fixture: the window and the kill do not fit inside one removal\'s deadline').to.be.below(REMOVAL_DEADLINE_MS);
+      runnableAfterWindow.forEach((runnable, i) => expect(runnable, `${names[i]} can still run one stop window after the node went out of service`).to.deep.equal([]));
+    });
+
+    it('says every app was stopped, and that nothing of any can run', function () {
+      expect(stopped, 'the node never said its apps were stopped').to.not.equal(null);
+      expect(stopped.apps.map((a) => a.app), 'the apps the node stopped').to.include.members(names);
+      stopped.apps.filter((a) => names.includes(a.app))
+        .forEach((a) => expect(a.runnable, `the node reports a process of ${a.app} that can still run`).to.deep.equal([]));
     });
   });
 });
