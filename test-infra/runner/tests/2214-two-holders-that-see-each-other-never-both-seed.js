@@ -168,9 +168,13 @@ describe('two holders that can reach each other never both seed', function () {
 
   it('seeds once, on the holder, when the holder has decided before the lowest address reads it', async function () {
     this.timeout(600000);
-    const app = await placeSplitApp('holderfirst', [[lowest, BEFORE_DECISION]]);
-    await heldAt(lowest, BEFORE_DECISION, app);
+    // Both held, so the lowest address is at its decision before the holder seeds:
+    // left to run, the holder seeds before the lowest address has confirmed its
+    // election, and the lowest address never reaches the decision at all.
+    const app = await placeSplitApp('holderfirst', contenders.map((i) => [i, BEFORE_DECISION]));
+    await Promise.all(contenders.map((i) => heldAt(i, BEFORE_DECISION, app)));
 
+    await release(holder, BEFORE_DECISION, app);
     await waitFor(async () => (await runners(app.name)).includes(holder), {
       timeout: 120000, interval: 1000, label: 'the holder seeds while the lowest address is held',
     });
