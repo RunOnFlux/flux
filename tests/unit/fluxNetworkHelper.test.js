@@ -1648,6 +1648,8 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('concludes nothing, without retrying, when the observer does not list this node yet', async () => {
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(0);
       fluxNetworkHelper.resetAvailabilityDos();
       fluxNetworkHelper.setDosMessage(null);
       fluxNetworkHelper.setDosStateValue(0);
