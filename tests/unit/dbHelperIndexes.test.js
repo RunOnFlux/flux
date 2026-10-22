@@ -74,6 +74,26 @@ describe('dbHelper ensureIndex', () => {
     sinon.assert.notCalled(logErrorSpy);
   });
 
+  // A node holding the old non-unique index of the same key also holds the rows it
+  // never refused: the build after the drop meets them, and repairs them the same way.
+  it('repairs duplicate rows that block the build after a conflicting index is dropped', async () => {
+    const conflict = new Error('Index with name: hash_1 already exists with different options');
+    conflict.codeName = 'IndexOptionsConflict';
+    const createIndex = sinon.stub();
+    createIndex.onFirstCall().rejects(conflict);
+    createIndex.onSecondCall().rejects(duplicateError());
+    createIndex.onThirdCall().resolves('hash_1');
+    const collection = stubCollection(createIndex);
+    collection.listIndexes.returns({ toArray: async () => [{ key: { hash: 1 }, name: 'hash_1' }] });
+    const recover = sinon.stub().resolves(2);
+
+    await ensureIndex(collection, { hash: 1 }, { unique: true }, recover);
+
+    sinon.assert.calledOnceWithExactly(collection.dropIndex, 'hash_1');
+    sinon.assert.calledOnceWithExactly(recover, collection, { hash: 1 }, { unique: true });
+    sinon.assert.calledThrice(createIndex);
+  });
+
   it('runs the recovery strategy and rebuilds when duplicate rows block a unique index', async () => {
     // The node ends up WITH the index, not running degraded without it.
     const createIndex = sinon.stub();

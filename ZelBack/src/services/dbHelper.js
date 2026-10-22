@@ -248,7 +248,8 @@ async function dedupeByKey(collection, spec, options = {}) {
  *     IndexKeySpecsConflict) is dropped by its real name and recreated;
  *   - a unique build blocked by DUPLICATE ROWS runs the caller's `recover`
  *     strategy (see dedupeByKey) and rebuilds, so the node ends up WITH the
- *     index rather than running degraded without it;
+ *     index rather than running degraded without it. Every build goes this way,
+ *     the one after a conflicting index is dropped included (buildIndex);
  *   - anything else rethrows.
  *
  * The rethrow is deliberate. Index setup runs in serviceManager's
@@ -266,30 +267,41 @@ async function dedupeByKey(collection, spec, options = {}) {
  * @param {(collection: object, spec: object, options: object) => Promise<number>} [recover]
  *   run when a unique build is blocked by existing duplicate rows
  */
-async function ensureIndex(collection, spec, options = {}, recover = null) {
+/**
+ * Builds one index; a unique build blocked by rows that already violate it runs
+ * `recover` and builds again.
+ * @param {object} collection - a mongo collection handle
+ * @param {object} spec - the index key
+ * @param {object} options - the index options
+ * @param {Function|null} recover
+ * @returns {Promise<void>}
+ */
+async function buildIndex(collection, spec, options, recover) {
   try {
     await collection.createIndex(spec, options);
   } catch (err) {
-    const conflict = err && (err.codeName === 'IndexOptionsConflict' || err.codeName === 'IndexKeySpecsConflict');
-    if (conflict) {
-      const specKeys = JSON.stringify(spec);
-      const indexes = await collection.listIndexes().toArray();
-      const match = indexes.find((idx) => JSON.stringify(idx.key) === specKeys);
-      if (match?.name) {
-        log.warn(`ensureIndex - conflicting index '${match.name}' on ${collection.collectionName} (key: ${specKeys}), dropping and recreating`);
-        await collection.dropIndex(match.name);
-      }
-      await collection.createIndex(spec, options);
-      return;
-    }
     const duplicate = err && (err.code === 11000 || err.codeName === 'DuplicateKey');
-    if (duplicate && recover) {
-      const removed = await recover(collection, spec, options);
-      log.warn(`ensureIndex - ${collection.collectionName} (key: ${JSON.stringify(spec)}) held ${removed} row(s) violating a unique index; removed and rebuilding`);
-      await collection.createIndex(spec, options);
-      return;
+    if (!duplicate || !recover) throw err;
+    const removed = await recover(collection, spec, options);
+    log.warn(`ensureIndex - ${collection.collectionName} (key: ${JSON.stringify(spec)}) held ${removed} row(s) violating a unique index; removed and rebuilding`);
+    await collection.createIndex(spec, options);
+  }
+}
+
+async function ensureIndex(collection, spec, options = {}, recover = null) {
+  try {
+    await buildIndex(collection, spec, options, recover);
+  } catch (err) {
+    const conflict = err && (err.codeName === 'IndexOptionsConflict' || err.codeName === 'IndexKeySpecsConflict');
+    if (!conflict) throw err;
+    const specKeys = JSON.stringify(spec);
+    const indexes = await collection.listIndexes().toArray();
+    const match = indexes.find((idx) => JSON.stringify(idx.key) === specKeys);
+    if (match?.name) {
+      log.warn(`ensureIndex - conflicting index '${match.name}' on ${collection.collectionName} (key: ${specKeys}), dropping and recreating`);
+      await collection.dropIndex(match.name);
     }
-    throw err;
+    await buildIndex(collection, spec, options, recover);
   }
 }
 
