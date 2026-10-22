@@ -10,7 +10,12 @@
  * Here FluxOS is killed and held down, the apps' containers are stopped, and the
  * node's reads of the location collection are refused before FluxOS comes back. The
  * holder's records are made to outlive the restart, as a production record does and
- * the harness's compressed one would not; a record meant to have expired is deleted.
+ * the harness's compressed one would not.
+ *
+ * A record that has expired is one the holder last renewed longer ago than its TTL,
+ * everywhere: the holder stays down that long. A node down that long whose boot
+ * history says so removes every app at once; one with no boot history - a FluxOS
+ * that never wrote one - decides app by app, which is the path tested here.
  *
  * The mixed app pairs an active-standby component, which only the election starts,
  * with a plain one boot starts. Its decision is held at a checkpoint once the
@@ -39,6 +44,8 @@ import { dbClient } from '../framework/db-client.js';
 import { isDaemonUp } from '../framework/syncthing-real.js';
 import { gComponent, watchGComponents } from '../framework/g-components.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { loadSharedConfig, BOOT_DRIFT_MS } from '../framework/coupled-knobs.js';
+import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 
 const HOLDER = 0;
 const NODES = 3;
@@ -46,6 +53,8 @@ const APP_UID = 1000;
 const BEFORE_DECISION = 'boot:beforeLocationDecision';
 // Longer than anything below, and far shorter than a production record's TTL.
 const RECORD_OUTLIVES_MS = 60 * 60 * 1000;
+// Down this long, every location record of the holder has expired on every node.
+const RECORDS_EXPIRE_MS = loadSharedConfig().fluxapps.locationTtlS * 1000 + BOOT_DRIFT_MS;
 
 function step(what) {
   console.log(`# 3308 ${new Date().toISOString()} ${what}`);
@@ -126,9 +135,10 @@ describe('boot holds an app whose location it cannot read', function () {
     .catch(() => null);
 
   // FluxOS killed and held, the given containers stopped, the holder's records of
-  // `keep` made to outlive the restart and those of `drop` deleted, and its reads of
-  // the location collection refused from before FluxOS comes back.
-  async function rebootUnreadable(identifiers, { keep, drop }) {
+  // `keep` made to outlive the restart, and its reads of the location collection
+  // refused from before FluxOS comes back. `expire` holds it down until every record
+  // of it has expired, its boot history forgotten.
+  async function rebootUnreadable(identifiers, { keep = [], expire = false }) {
     await crashFluxos(holder.container, { hold: true });
     for (const identifier of identifiers) {
       const [component, appName] = identifier.split('_');
@@ -141,10 +151,9 @@ describe('boot holds an app whose location it cannot read', function () {
       const kept = await holderDb.extendAppLocation(appName, holder.ip, RECORD_OUTLIVES_MS);
       if (kept < 1) throw new Error(`the holder has no location record of ${appName} to keep`);
     }
-    for (const appName of drop) {
-      // eslint-disable-next-line no-await-in-loop
-      const gone = await holderDb.expireAppLocation(appName, holder.ip);
-      if (gone < 1) throw new Error(`the holder has no location record of ${appName} to expire`);
+    if (expire) {
+      await sleepUnlessInfraDead(RECORDS_EXPIRE_MS);
+      await holderDb.forgetHeartbeat();
     }
     const anchors = env.clients.map((client) => client?.getLastEventId());
     const release = await failCommands(HOLDER + 1, 'globalzelapps', 'zelappslocation', { commands: ['find'] });
@@ -227,7 +236,7 @@ describe('boot holds an app whose location it cannot read', function () {
     before(async function () {
       this.timeout(900000);
       step('taking the node down, its containers stopped and its location reads refused');
-      ({ anchors, release } = await rebootUnreadable([db, web, plain], { keep: [mixedApp, plainApp], drop: [] }));
+      ({ anchors, release } = await rebootUnreadable([db, web, plain], { keep: [mixedApp, plainApp] }));
       // Held before boot's first read, which fails: the decision it holds comes at
       // least one retry interval after that.
       const holdable = await holder.holdCheckpoint(BEFORE_DECISION, mixedApp).then(() => true, () => false);
@@ -348,8 +357,8 @@ describe('boot holds an app whose location it cannot read', function () {
 
     before(async function () {
       this.timeout(900000);
-      step('taking the node down again, the lapsed app\'s record deleted');
-      ({ anchors, release } = await rebootUnreadable([lapsed, plain], { keep: [plainApp], drop: [lapsedApp] }));
+      step('taking the node down again, for longer than its records live, its boot history forgotten');
+      ({ anchors, release } = await rebootUnreadable([lapsed], { expire: true }));
       const settled = await holder.waitForEvent('boot:settled', () => true, 300000, { afterId: anchors[HOLDER] });
       heldAtBoot = Boolean(await heard('boot:appUnconfirmed', (d) => d.name === lapsedApp, 60000, anchors[HOLDER]));
       sweptAfterBoot = Boolean(await holder.waitForEvent('reconciler:swept', () => true, 120000, { afterId: settled.id })
@@ -389,7 +398,7 @@ describe('boot holds an app whose location it cannot read', function () {
 
     it('tells the network nothing of the removal, the network having dropped the record', async function () {
       this.timeout(120000);
-      await waitFor(() => heardRunning(plainApp, anchors), {
+      await waitFor(() => heardRunning(mixedApp, anchors), {
         timeout: 100000, interval: 2000, label: 'a peer heard the holder announce once the database answered',
       });
       expect(heardRemoved(lapsedApp, anchors), 'a peer was told of the removal of an app whose record had expired').to.equal(false);

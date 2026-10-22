@@ -64,6 +64,13 @@ export function dbClient(nodeNum) {
       await localDb.collection('ownaddress').deleteMany({});
     },
 
+    // The node keeps no record of when it was last alive, as on a node whose FluxOS
+    // never wrote one: its next boot reads as a first boot.
+    async forgetHeartbeat() {
+      const localDb = await db('local');
+      await localDb.collection('nodestartuptracker').deleteOne({ _id: 'heartbeat' });
+    },
+
     // The node's own geolocation record: what it decided about its address.
     async nodeGeolocation() {
       const localDb = await db('local');
@@ -113,16 +120,6 @@ export function dbClient(nodeNum) {
 
     // This node's view of where an app runs (the rows fluxapprunning messages
     // upsert and the empty-broadcast bug used to wipe).
-    // A location's expiry on this node: its rows for the app at that address are
-    // gone, as the TTL index removes them. Resolves to how many rows went.
-    async expireAppLocation(appName, ip) {
-      const globalDb = await db('appsGlobal');
-      const host = String(ip).replace(/:\d+$/, '').replace(/\./g, '\\.');
-      const { deletedCount } = await globalDb.collection('zelappslocation')
-        .deleteMany({ name: appName, ip: { $regex: `^${host}(:\\d+)?$` } });
-      return deletedCount;
-    },
-
     // This node's rows for the app at that address stay unexpired for `ms` from now,
     // as a production record does across a restart the harness's compressed record
     // would not outlive. Resolves to how many rows were found.
