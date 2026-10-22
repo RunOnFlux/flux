@@ -85,7 +85,6 @@ describe('appStartupManager tests', () => {
 
     appPlacementsStub = {
       removeStrayPlacements: sinon.stub().resolves(0),
-      backfillPlacements: sinon.stub().resolves({ created: 0, fromLocationRows: 0 }),
     };
 
     appQueryServiceStub = {
@@ -945,46 +944,24 @@ describe('appStartupManager tests', () => {
       await appStartupManager.manageAppsOnBoot(KEEP);
 
       expect(logStub.error.calledWithMatch(/not opened in the firewall: helper crashed/)).to.equal(true);
-      // once each for tidying and backfilling the placement records, twice for the reconcile
-      expect(dbHelperStub.findInDatabase.callCount, 'the reconcile read the installed apps').to.equal(4);
-    });
-
-    // The first announcement reads these records, and it waits for boot to settle.
-    it('gives the installed apps their records before it opens their ports', async () => {
-      fluxNetworkHelperStub.getLocalSocketAddress.resolves('203.0.113.40:16127');
-
-      await appStartupManager.manageAppsOnBoot(KEEP);
-
-      sinon.assert.calledOnceWithExactly(appPlacementsStub.backfillPlacements, ['web', 'db'], '203.0.113.40:16127');
-      sinon.assert.callOrder(appPlacementsStub.backfillPlacements, portManagerStub.appsWithPorts);
-    });
-
-    // Boot holds at a database step that fails, so the first announcement never
-    // goes out over apps without their records.
-    it('backfills the records again until it succeeds, before it goes on', async () => {
-      appPlacementsStub.backfillPlacements.onFirstCall().rejects(new Error('mongo went away'));
-
-      await appStartupManager.manageAppsOnBoot(KEEP);
-
-      sinon.assert.calledTwice(appPlacementsStub.backfillPlacements);
-      sinon.assert.callOrder(appPlacementsStub.backfillPlacements, portManagerStub.appsWithPorts);
+      // once for tidying the placement records, twice for the reconcile
+      expect(dbHelperStub.findInDatabase.callCount, 'the reconcile read the installed apps').to.equal(3);
     });
 
     it('removes stray records first, against the installed apps', async () => {
       await appStartupManager.manageAppsOnBoot(KEEP);
 
       sinon.assert.calledOnceWithExactly(appPlacementsStub.removeStrayPlacements, ['web', 'db']);
-      sinon.assert.callOrder(appPlacementsStub.removeStrayPlacements, appPlacementsStub.backfillPlacements);
+      sinon.assert.callOrder(appPlacementsStub.removeStrayPlacements, portManagerStub.appsWithPorts);
     });
 
     // A boot that stops before it reconciles the apps still clears stray records.
-    it('removes stray records on a boot that stops early, and backfills none', async () => {
+    it('removes stray records on a boot that stops early', async () => {
       fluxNetworkHelperStub.isNodeDos.returns(true);
 
       await appStartupManager.manageAppsOnBoot(KEEP);
 
       sinon.assert.calledOnce(appPlacementsStub.removeStrayPlacements);
-      sinon.assert.notCalled(appPlacementsStub.backfillPlacements);
     });
 
     it('removes stray records again until it succeeds, before it goes on', async () => {
@@ -993,7 +970,7 @@ describe('appStartupManager tests', () => {
       await appStartupManager.manageAppsOnBoot(KEEP);
 
       sinon.assert.calledTwice(appPlacementsStub.removeStrayPlacements);
-      sinon.assert.callOrder(appPlacementsStub.removeStrayPlacements, appPlacementsStub.backfillPlacements);
+      sinon.assert.callOrder(appPlacementsStub.removeStrayPlacements, portManagerStub.appsWithPorts);
     });
 
     it('opens nothing when the apps are all being removed', async () => {

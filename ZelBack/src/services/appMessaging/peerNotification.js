@@ -153,11 +153,10 @@ async function checkAndNotifyPeersOfRunningApps() {
     // best-effort. Resolves immediately in steady state; capped reconciler-side,
     // so a wedged reconcile cannot block the node's network presence.
     await appReconciler.waitForBootDrainSettled();
+    // Every app installed at start has a record before the first snapshot reads them.
+    await appPlacements.waitForBackfill();
 
-    const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
-    if (!localSocketAddr) {
-      throw new Error('Unable to detect Flux IP address');
-    }
+    const localSocketAddr = await fluxNetworkHelper.waitForLocalSocketAddress();
 
     // Stamped where the snapshot is taken, not where the message is built: every
     // consumer reads broadcastedAt as the time these apps were installed here, and
@@ -211,9 +210,8 @@ async function checkAndNotifyPeersOfRunningApps() {
     try {
       // When this node took each app comes from its own record of that, never from
       // the network's copy of its location rows: those lapse in normal running
-      // while the app goes on running here. An app with no record - the boot step
-      // writes one for every installed app - is announced from its row, and from
-      // now without one.
+      // while the app goes on running here. An app with no record is announced
+      // from its row, and from now without one.
       const placements = await appPlacements.placementsOf(announceable.map((application) => application.name));
       const unrecorded = [];
       // eslint-disable-next-line no-restricted-syntax

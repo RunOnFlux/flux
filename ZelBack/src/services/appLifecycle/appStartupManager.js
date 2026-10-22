@@ -408,19 +408,6 @@ async function tidyPlacementsOnBoot() {
   });
 }
 
-/**
- * Give each installed app without a placement record one, before this node's
- * first announcement reads them. Run again until it succeeds.
- * @returns {Promise<void>}
- */
-async function backfillPlacementsOnBoot() {
-  await untilSucceeds('Backfilling placement records', async () => {
-    const installed = await getInstalledAppsFromDb();
-    const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
-    await appPlacements.backfillPlacements(installed.map((app) => app.name), localSocketAddr);
-  });
-}
-
 async function manageAppsOnBoot(bootContext) {
   try {
     await tidyPlacementsOnBoot();
@@ -484,7 +471,6 @@ async function manageAppsOnBoot(bootContext) {
     }
 
     log.info('appStartupManager - Daemon, DB, and node confirmed, reconciling apps');
-    await backfillPlacementsOnBoot();
     await openInstalledAppPorts();
     await reconcileAppsOnBoot();
   } finally {

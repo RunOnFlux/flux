@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const config = require('config');
+const proxyquire = require('proxyquire');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appPlacements = require('../../ZelBack/src/services/appManagement/appPlacements');
 const { requireMongo } = require('./dbTestHelper');
@@ -151,16 +152,6 @@ describe('appPlacements', () => {
       expect(placedAt.getTime()).to.be.within(before, Date.now());
     });
 
-    it('dates an app now when this node does not know its own address', async () => {
-      await locations.insertOne(row('web', me, june));
-      const before = Date.now();
-
-      await appPlacements.backfillPlacements(['web'], null);
-
-      const [{ placedAt }] = await recorded();
-      expect(placedAt.getTime()).to.be.within(before, Date.now());
-    });
-
     it('leaves a record it already has, whatever the row says', async () => {
       await seed('web', june);
       await locations.insertOne(row('web', me, july));
@@ -177,6 +168,22 @@ describe('appPlacements', () => {
       await appPlacements.backfillPlacements(['web'], me);
 
       expect((await recorded()).map((r) => r.name)).to.deep.equal(['gone', 'web']);
+    });
+  });
+
+  describe('waitForBackfill', () => {
+    it('resolves once the backfill has written, and not before', async () => {
+      const fresh = proxyquire('../../ZelBack/src/services/appManagement/appPlacements', {});
+      let resolved = false;
+      const waiting = fresh.waitForBackfill().then(() => { resolved = true; });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(resolved, 'resolved before the backfill ran').to.equal(false);
+
+      await fresh.backfillPlacements(['web'], me);
+      await waiting;
+
+      expect(resolved).to.equal(true);
+      expect((await recorded()).map((r) => r.name)).to.deep.equal(['web']);
     });
   });
 });

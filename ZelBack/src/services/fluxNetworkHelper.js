@@ -148,6 +148,7 @@ let storedFluxBenchAllowed = null;
 let tooManyIpChangesAt = null;
 let maxNumberOfIpChanges = 0;
 const { lruRateLimit } = require('./utils/rateLimit');
+const { AsyncGate } = require('./utils/asyncGate');
 const { Privilege, authOf } = require('./utils/privileges');
 
 // This node's socket address (ip:port) from benchmark
@@ -171,6 +172,8 @@ let lastKnownSocketAddress = null;
 // Emits 'change' with the new address when the node learns one that differs
 // from lastKnownSocketAddress.
 const localSocketAddressEvents = new EventEmitter();
+// Open while localSocketAddress holds an address.
+const localSocketAddressGate = new AsyncGate();
 
 /**
  * The device an os.networkInterfaces() entry is bound on. A labelled address
@@ -991,6 +994,8 @@ function setLocalSocketAddress(value) {
   // (Re)set the freshness deadline whenever the value changes, so getLocalSocketAddress
   // serves it without a benchmark RPC until it goes stale (cleared when set to null).
   localSocketAddressFreshUntil = localSocketAddress ? process.hrtime.bigint() + LOCAL_SOCKET_ADDRESS_TTL_NS : 0n;
+  if (localSocketAddress) localSocketAddressGate.open();
+  else localSocketAddressGate.close();
   // Told here because this is the one place the node learns what it is. The
   // peer manager needs it to keep this node out of its own peer draws - a node
   // that syncs from itself learns nothing, and it spends one of very few
@@ -1008,6 +1013,22 @@ function setLocalSocketAddress(value) {
  */
 function getKnownLocalSocketAddress() {
   return lastKnownSocketAddress;
+}
+
+/**
+ * This node's socket address, once it has one. Resolves as soon as benchmark
+ * reports an address to any caller of getLocalSocketAddress; while none is known
+ * the own-standing watch keeps asking for one.
+ * @returns {Promise<string>} ip:port
+ */
+async function waitForLocalSocketAddress() {
+  let address = await getLocalSocketAddress();
+  while (!address) {
+    // eslint-disable-next-line no-await-in-loop
+    await localSocketAddressGate.wait();
+    address = localSocketAddress;
+  }
+  return address;
 }
 
 /**
@@ -3728,6 +3749,7 @@ module.exports = {
   checkFluxAvailability,
   getLocalSocketAddress,
   getKnownLocalSocketAddress,
+  waitForLocalSocketAddress,
   onLocalSocketAddressChange,
   offLocalSocketAddressChange,
   getFluxNodePrivateKey,

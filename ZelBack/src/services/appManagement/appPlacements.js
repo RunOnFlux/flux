@@ -2,6 +2,7 @@ const config = require('config');
 const log = require('../../lib/log');
 const dbHelper = require('../dbHelper');
 const fluxEventBus = require('../utils/fluxEventBus');
+const { AsyncGate } = require('../utils/asyncGate');
 
 // When this node took each app it holds: one record per app, keyed by name.
 //
@@ -14,10 +15,11 @@ const fluxEventBus = require('../utils/fluxEventBus');
 // network's copy of this node's own location rows lapses in normal running -
 // expiry, eviction, sigterm - while the app goes on running.
 //
-// A record outlives its app only when a soft redeploy removes the app and its
-// reinstall does not happen: the volume is left on disk and the record with it,
-// until boot removes records of apps not installed. Only an installed app's record
-// is read, and the app returns only through a hard install, which overwrites it.
+// A record outlives its app when a soft redeploy removes the app and its reinstall
+// does not happen, which leaves the volume on disk and the record with it, or when
+// the app is removed while the backfill below is writing. Boot removes records of
+// apps not installed. Only an installed app's record is read, and the app returns
+// only through a hard install, which overwrites it.
 //
 // Kept apart from the app's specification in appsInformation: a spec update
 // deletes and re-inserts that, and this record must outlive it.
@@ -25,6 +27,9 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const appsLocalDatabase = config.database.appslocal.database;
 const { appsPlacements } = config.database.appslocal.collections;
 const { appsLocations } = config.database.appsglobal.collections;
+
+// Open once every app installed at start has a record.
+const backfilledGate = new AsyncGate();
 
 function localDatabase() {
   return dbHelper.databaseConnection().db(appsLocalDatabase);
@@ -97,19 +102,19 @@ async function removeStrayPlacements(installedNames) {
 }
 
 /**
- * Give each installed app without a record one, before this node first announces
- * it. It is dated at the runningSince this node's own location row holds, so the
- * app keeps the place among its instances the network already gives it, and
- * dated now when there is no row. A record that exists is left as it is.
+ * Give each installed app without a record one. It is dated at the runningSince
+ * this node's own location row holds, so the app keeps the place among its
+ * instances the network already gives it, and dated now when there is no row. A
+ * record that exists is left as it is. Opens waitForBackfill.
  * @param {Array<string>} installedNames Names of the apps installed here.
- * @param {string} localSocketAddr This node's address.
+ * @param {string} localSocketAddr This node's address, which its rows are filed under.
  * @returns {Promise<{created: number, fromLocationRows: number}>} What was written.
  */
 async function backfillPlacements(installedNames, localSocketAddr) {
   const recorded = await placementsOf(installedNames);
   const missing = installedNames.filter((name) => !recorded.has(name));
 
-  const ownRows = missing.length && localSocketAddr
+  const ownRows = missing.length
     ? await dbHelper.findInDatabase(
       dbHelper.databaseConnection().db(config.database.appsglobal.database),
       appsLocations,
@@ -139,7 +144,16 @@ async function backfillPlacements(installedNames, localSocketAddr) {
     log.info(`appPlacements - recorded ${missing.length} placement(s), ${rowSince.size} from this node's location rows`);
   }
   fluxEventBus.publish('app:placementsBackfilled', { created: missing.length, fromLocationRows: rowSince.size });
+  backfilledGate.open();
   return { created: missing.length, fromLocationRows: rowSince.size };
+}
+
+/**
+ * Resolves once every app installed at start has a record.
+ * @returns {Promise<void>}
+ */
+function waitForBackfill() {
+  return backfilledGate.wait();
 }
 
 module.exports = {
@@ -149,4 +163,5 @@ module.exports = {
   removePlacement,
   removeStrayPlacements,
   backfillPlacements,
+  waitForBackfill,
 };

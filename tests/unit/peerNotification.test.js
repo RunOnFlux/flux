@@ -21,6 +21,8 @@ describe('peerNotification tests', () => {
   let announceCycle;
   let findOneInDatabaseStub;
   let placementsOfStub;
+  let waitForBackfillStub;
+  let waitForLocalSocketAddressStub;
 
   // One stub map, so a test that needs a different interval, expiry or cycle
   // length states only that difference instead of restating sixty lines.
@@ -57,7 +59,7 @@ describe('peerNotification tests', () => {
       nodeTier: sinon.stub().resolves('cumulus'),
     },
     '../fluxNetworkHelper': {
-      getLocalSocketAddress: sinon.stub().resolves('192.168.1.1:16127'),
+      waitForLocalSocketAddress: waitForLocalSocketAddressStub,
     },
     '../geolocationService': {
       isStaticIP: sinon.stub().returns(true),
@@ -116,7 +118,7 @@ describe('peerNotification tests', () => {
       runningAppsCache: new Set(),
     },
     '../utils/nodeSigner': { nodeSigner: nodeSignerStub },
-    '../appManagement/appPlacements': { placementsOf: placementsOfStub },
+    '../appManagement/appPlacements': { placementsOf: placementsOfStub, waitForBackfill: waitForBackfillStub },
     '../../lib/log': logStub,
   });
 
@@ -132,6 +134,8 @@ describe('peerNotification tests', () => {
     placementsOfStub = sinon.stub().callsFake(async (names) => new Map(names.map((name) => [name, new Date('2026-09-01T00:00:00.000Z')])));
     enqueueAllStub = sinon.stub().resolves();
     waitForBootDrainSettledStub = sinon.stub().resolves();
+    waitForBackfillStub = sinon.stub().resolves();
+    waitForLocalSocketAddressStub = sinon.stub().resolves('192.168.1.1:16127');
     storeAppRunningMessageStub = sinon.stub().resolves();
     storeAppStateEventStub = sinon.stub().resolves();
     broadcastMessageToAllStub = sinon.stub().resolves('signed');
@@ -496,6 +500,38 @@ describe('peerNotification tests', () => {
       expect(broadcastMessageToAllStub.calledOnce, 'broadcast proceeds once the drain settles').to.be.true;
       const [message] = storeAppRunningMessageStub.firstCall.args;
       expect(message.apps.map((a) => a.name)).to.deep.equal(['app1']);
+    });
+
+    it('reads no placement record before every app installed at start has one', async () => {
+      let openBackfillGate;
+      waitForBackfillStub.callsFake(() => new Promise((resolve) => { openBackfillGate = resolve; }));
+
+      const callPromise = peerNotification.checkAndNotifyPeersOfRunningApps();
+      await new Promise((resolve) => { setImmediate(resolve); });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(placementsOfStub.called, 'read the records before the backfill finished').to.be.false;
+      expect(broadcastMessageToAllStub.called).to.be.false;
+
+      openBackfillGate();
+      await callPromise;
+      expect(placementsOfStub.calledOnce).to.be.true;
+      expect(broadcastMessageToAllStub.calledOnce).to.be.true;
+    });
+
+    it('announces as soon as this node learns its address', async () => {
+      let learnAddress;
+      waitForLocalSocketAddressStub.callsFake(() => new Promise((resolve) => { learnAddress = resolve; }));
+
+      const callPromise = peerNotification.checkAndNotifyPeersOfRunningApps();
+      await new Promise((resolve) => { setImmediate(resolve); });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(broadcastMessageToAllStub.called, 'broadcast before the node knew its address').to.be.false;
+
+      learnAddress('192.168.1.1:16127');
+      await callPromise;
+      expect(broadcastMessageToAllStub.calledOnce).to.be.true;
+      const [message] = storeAppRunningMessageStub.firstCall.args;
+      expect(message.ip).to.equal('192.168.1.1:16127');
     });
 
     // g:/r: apps needed a carve-out while the set came from run-state, because a

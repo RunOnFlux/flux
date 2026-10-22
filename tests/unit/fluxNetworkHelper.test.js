@@ -404,6 +404,55 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
+  describe('waitForLocalSocketAddress tests', () => {
+    let benchStub;
+
+    beforeEach(() => {
+      benchStub = sinon.stub(benchmarkService, 'getBenchmarks');
+      fluxNetworkHelper.setLocalSocketAddress(null);
+    });
+
+    afterEach(() => {
+      benchStub.restore();
+      fluxNetworkHelper.setLocalSocketAddress(null);
+    });
+
+    it('answers at once when benchmark reports an address', async () => {
+      benchStub.resolves({ status: 'success', data: { ipaddress: '203.0.113.40:16127' } });
+
+      expect(await fluxNetworkHelper.waitForLocalSocketAddress()).to.equal('203.0.113.40:16127');
+    });
+
+    it('waits while no address is known, and answers with the first one learned', async () => {
+      benchStub.resolves({ status: 'error' });
+      let answer = null;
+      const waiting = fluxNetworkHelper.waitForLocalSocketAddress().then((address) => { answer = address; });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(answer, 'answered before an address was known').to.equal(null);
+
+      fluxNetworkHelper.setLocalSocketAddress('203.0.113.41:16127');
+      await waiting;
+
+      expect(answer).to.equal('203.0.113.41:16127');
+    });
+
+    it('waits again when the address it was woken for is gone before it reads it', async () => {
+      benchStub.resolves({ status: 'error' });
+      let answer = null;
+      const waiting = fluxNetworkHelper.waitForLocalSocketAddress().then((address) => { answer = address; });
+      await new Promise((resolve) => { setImmediate(resolve); });
+
+      fluxNetworkHelper.setLocalSocketAddress('203.0.113.42:16127');
+      fluxNetworkHelper.setLocalSocketAddress(null);
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(answer, 'answered with no address').to.equal(null);
+
+      fluxNetworkHelper.setLocalSocketAddress('203.0.113.43:16127');
+      await waiting;
+      expect(answer).to.equal('203.0.113.43:16127');
+    });
+  });
+
   describe('isFluxAvailable tests', () => {
     let stub;
     const ip = '127.0.0.1';

@@ -50,6 +50,7 @@ const appQueryService = require('./appQuery/appQueryService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const paymentPositions = require('./migrations/paymentPositions');
+const placements = require('./migrations/placements');
 const fluxService = require('./fluxService');
 const geolocationService = require('./geolocationService');
 const ipLocationSync = require('./appPlacement/ipLocationSync');
@@ -393,6 +394,9 @@ async function startFluxFunctions() {
     appStartupManager.manageAppsOnBoot(bootContext).catch((error) => {
       log.error(`App startup manager error: ${error.message}`);
     });
+    // Not awaited: it waits for this node's address, and the announcer, the one
+    // reader of what it writes, waits for it.
+    placements.backfillPlacements();
 
     // Above the daemon wait, because syncthing has nothing to do with the
     // daemon: the sentinel talks to syncthing's own API and reads userconfig,
