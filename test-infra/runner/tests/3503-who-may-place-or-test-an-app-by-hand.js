@@ -42,8 +42,14 @@ describe('who may place or test an app by hand', function () {
 
   before(async function () {
     this.timeout(420000);
-    env = await createTestEnv({ hookCtx: this, nodes: REAL_NODES, tickerAutostart: false });
-    await bootAndPeer(env);
+    // Registration wants this many peers each way, and two nodes hold one.
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: REAL_NODES,
+      tickerAutostart: false,
+      configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1 } },
+    });
+    await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
     await Promise.all(env.clients.map((c) => waitForBootSettled(c, 240000)));
 
     appName = `e2ehandplaced${Date.now()}`;
