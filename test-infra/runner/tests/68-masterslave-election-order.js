@@ -677,6 +677,13 @@ describe('primary election under a divergent placement order', function () {
       await env.clients[seedIndex].releaseCheckpoint(BEFORE_HOLDINGS, folder)
         .catch((err) => console.warn(`cleanup: checkpoint release failed: ${err.message}`));
     }
+    // The genesis winner is the holder the seed election picks. A folder pinned
+    // synced before it has picked lets the primary election start index 0 instead.
+    const seeded = async () => (await Promise.all(holders.map((i) => env.clients[i]
+      .getDecisionCount('syncthing:seedDecision', folder, 'seeded')))).reduce((sum, n) => sum + n, 0);
+    await waitFor(async () => (await seeded()) > 0, {
+      timeout: 120000, interval: 1000, label: 'a holder decided to seed the folder',
+    });
     await Promise.all(holders.map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder })));
     await Promise.all(holders.map((i, k) => env.clients[i].waitForEvent('syncthing:folderReady',
       (d) => d.folder === folder, 180000, { afterId: deployedFrom[k] })));
