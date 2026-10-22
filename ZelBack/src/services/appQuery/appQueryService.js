@@ -17,6 +17,7 @@ const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 const networkStateService = require('../networkStateService');
 const peerIdentityService = require('../peerIdentityService');
 const primaryRoleChanges = require('../appLifecycle/primaryRoleChanges');
+const folderStates = require('../appMonitoring/folderStates');
 const syncthingService = require('../syncthingService');
 const log = require('../../lib/log');
 
@@ -823,35 +824,18 @@ async function callerIsFluxnode(body) {
  * The answer is signed over the challenge the request body carries, when it
  * carries one.
  *
- * @param {object} req Request.
- * @param {object} res Response.
  * `seeding` is where this node stands in deciding which holder seeds each folder at a
  * cold start (globalState.seedMarks); it carries the same figures as `holding`, so it
  * goes only where `holding` does.
  *
- * `notLookedAt` is every synced folder of an installed app this node has neither
- * measured nor made writable: an install its monitor has not yet reached. A peer about
- * to seed waits on them, so a holder that has not looked is never read as holding
- * nothing. A node that cannot read its installed apps cannot say, and answers not ready.
+ * `notLookedAt` is every receive-only folder of an installed app this node has not yet
+ * looked at (folderStates). A peer about to seed waits on them, so a holder that has
+ * not looked is never read as holding nothing.
  *
+ * @param {object} req Request.
+ * @param {object} res Response.
  * @returns {object} Message carrying { ready, folders, notLookedAt, holding, seeding }.
  */
-/**
- * The synced folders of the apps installed here that this node has neither measured
- * nor made writable.
- * @param {Set<string>} writable The folders this node holds writable.
- * @param {Map<string, object>|null} held The folders it has measured.
- * @returns {Promise<string[]>}
- * @throws {Error} When the installed apps cannot be read.
- */
-async function foldersNotLookedAt(writable, held) {
-  const { readable } = await decryptEnterpriseApps(await installedAppSpecs());
-  return readable
-    .flatMap((app) => mountParser.syncedComponentIdentifiers(app))
-    .map((identifier) => dockerService.getAppIdentifier(identifier))
-    .filter((folder) => !writable.has(folder) && !held?.has(folder));
-}
-
 async function promotedFolderHoldings(req, res) {
   try {
     // eslint-disable-next-line global-require
@@ -880,24 +864,15 @@ async function promotedFolderHoldings(req, res) {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
     const entitled = authorized === true || await callerIsFluxnode(body);
 
-    const held = globalState.folderHoldings;
-    let ready = ids !== null;
-    let notLookedAt = [];
-    if (ready) {
-      try {
-        notLookedAt = await foldersNotLookedAt(ids, held);
-      } catch (error) {
-        log.warn(`promotedFolderHoldings - the installed apps could not be read, so which folders are measured cannot be said; answering not ready: ${error.message}`);
-        ready = false;
-      }
-    }
+    const ready = ids !== null;
+    const { holding, notLookedAt } = ready ? folderStates.answer(ids) : { holding: {}, notLookedAt: [] };
     const seal = peerIdentityService.answerSealer(peerIdentityService.AnswerPurpose.PROMOTED_FOLDERS, body);
     const response = messageHelper.createDataMessage(await seal({
       ready,
       folders: ids === null ? [] : [...ids],
       notLookedAt,
       ...(entitled ? {
-        holding: held === null ? {} : Object.fromEntries(held),
+        holding,
         seeding: Object.fromEntries(globalState.seedMarks),
       } : {}),
     }));

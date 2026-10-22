@@ -1024,8 +1024,8 @@ describe('appQueryService tests', () => {
       });
 
       beforeEach(() => {
-        globalState.promotedFolderIds = new Set(['fluxa_a']);
-        globalState.folderHoldings = new Map([['fluxa_a', { bytes: 5821604997, newestModified: 200 }]]);
+        globalState.promotedFolderIds = new Set(['fluxw_w']);
+        globalState.folderStates.set('fluxa_a', { state: 'measured', bytes: 5821604997, newestModified: 200 });
         messageHelperStub.createDataMessage.returnsArg(0);
         // no app installed unless a test says otherwise
         dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('appsDatabase') });
@@ -1033,7 +1033,7 @@ describe('appQueryService tests', () => {
       });
 
       afterEach(() => {
-        globalState.folderHoldings = null;
+        globalState.folderStates.clear();
         globalState.seedMarks.clear();
       });
 
@@ -1074,7 +1074,7 @@ describe('appQueryService tests', () => {
           const result = await appQueryService.promotedFolderHoldings({ body });
 
           expect(result.holding, 'holdings went to a caller that proved nothing').to.equal(undefined);
-          expect(result).to.deep.equal({ ready: true, folders: ['fluxa_a'], notLookedAt: [] });
+          expect(result).to.deep.equal({ ready: true, folders: ['fluxw_w'], notLookedAt: [] });
         });
       });
 
@@ -1091,7 +1091,7 @@ describe('appQueryService tests', () => {
         });
 
         expect(result.holding, 'a body dated in the future served as a credential').to.equal(undefined);
-        expect(result).to.deep.equal({ ready: true, folders: ['fluxa_a'], notLookedAt: [] });
+        expect(result).to.deep.equal({ ready: true, folders: ['fluxw_w'], notLookedAt: [] });
       });
 
       // The bound is the fleet's clocks disagreeing, which is honest and must still work.
@@ -1150,7 +1150,7 @@ describe('appQueryService tests', () => {
         const result = await appQueryService.promotedFolderHoldings({ body: signed({ target: '10.0.0.8:16127' }) });
 
         expect(result.holding, 'a signature captured in flight worked on another node').to.equal(undefined);
-        expect(result).to.deep.equal({ ready: true, folders: ['fluxa_a'], notLookedAt: [] });
+        expect(result).to.deep.equal({ ready: true, folders: ['fluxw_w'], notLookedAt: [] });
       });
 
       it('withholds the holdings when this node does not know its own address', async () => {
@@ -1192,50 +1192,52 @@ describe('appQueryService tests', () => {
 
       // An install its monitor has not reached: a peer about to seed waits on it rather
       // than read this node as holding nothing.
-      describe('the folders it holds and has not yet measured', () => {
-        const synced = (name, mode) => ({ name, version: 8, compose: [{ name, containerData: `${mode}:/data` }] });
-
-        it('lists a synced folder of an installed app that it has neither measured nor made writable, to any caller', async () => {
-          dbHelperStub.findInDatabase.resolves([synced('b', 'r'), synced('c', 'g')]);
-
-          const result = await appQueryService.promotedFolderHoldings({ body: {} });
-
-          expect(result.ready).to.equal(true);
-          expect(result.notLookedAt).to.have.members(['fluxb_b', 'fluxc_c']);
+      describe('the folders it has not yet looked at', () => {
+        beforeEach(() => {
+          fluxNetworkHelperStub.verifySignedFluxnodeMessage.resolves(true);
         });
 
-        it('leaves out a folder it has measured, one it could not read, one it holds writable, and one that does not sync', async () => {
-          globalState.promotedFolderIds = new Set(['fluxa_a', 'fluxw_w']);
-          globalState.folderHoldings = new Map([
-            ['fluxm_m', { bytes: 10, newestModified: 1 }],
-            ['fluxu_u', { unreadable: true }],
-          ]);
-          dbHelperStub.findInDatabase.resolves([
-            synced('m', 'r'), synced('u', 'r'), synced('w', 's'),
-            { name: 'p', version: 8, compose: [{ name: 'p', containerData: '/data' }] },
-          ]);
+        it('lists a folder not yet looked at, to any caller, and claims nothing of it', async () => {
+          globalState.folderStates.set('fluxb_b', { state: 'notLookedAt' });
 
-          const result = await appQueryService.promotedFolderHoldings({ body: {} });
+          const open = await appQueryService.promotedFolderHoldings({ body: {} });
+          const signedAnswer = await appQueryService.promotedFolderHoldings({ body: signed() });
+
+          expect(open.notLookedAt).to.deep.equal(['fluxb_b']);
+          expect(signedAnswer.holding).to.not.have.property('fluxb_b');
+        });
+
+        it('answers no claim, not "not looked at", for a folder held out, one it could not read, and one it has sent', async () => {
+          globalState.folderStates.set('fluxh_h', { state: 'heldOut' });
+          globalState.folderStates.set('fluxn_n', { state: 'noClaim' });
+
+          const result = await appQueryService.promotedFolderHoldings({ body: signed() });
 
           expect(result.notLookedAt).to.deep.equal([]);
+          expect(result.holding).to.deep.equal({
+            fluxa_a: { bytes: 5821604997, newestModified: 200 },
+            fluxh_h: { unreadable: true },
+            fluxn_n: { unreadable: true },
+          });
         });
 
-        it('lists every synced folder before its monitor has measured any', async () => {
-          globalState.folderHoldings = null;
-          dbHelperStub.findInDatabase.resolves([synced('b', 'r')]);
+        it('leaves a writable folder out of both, whatever its state', async () => {
+          globalState.folderStates.set('fluxw_w', { state: 'notLookedAt' });
 
-          const result = await appQueryService.promotedFolderHoldings({ body: {} });
+          const result = await appQueryService.promotedFolderHoldings({ body: signed() });
 
-          expect(result.notLookedAt).to.deep.equal(['fluxb_b']);
-        });
-
-        it('answers not ready when it cannot read its installed apps', async () => {
-          dbHelperStub.findInDatabase.rejects(new Error('operation exceeded time limit'));
-
-          const result = await appQueryService.promotedFolderHoldings({ body: {} });
-
-          expect(result.ready, 'a node that cannot say which folders it has measured answered ready').to.equal(false);
           expect(result.notLookedAt).to.deep.equal([]);
+          expect(result.holding).to.not.have.property('fluxw_w');
+        });
+
+        // The route is open: the answer is what the monitor already recorded, read
+        // from memory, so a caller cannot make this node read its database.
+        it('reads no database to answer', async () => {
+          globalState.folderStates.set('fluxb_b', { state: 'notLookedAt' });
+
+          await appQueryService.promotedFolderHoldings({ body: {} });
+
+          sinon.assert.notCalled(dbHelperStub.findInDatabase);
         });
       });
 

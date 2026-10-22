@@ -27,6 +27,7 @@ const imageVerifier = require('../utils/imageVerifier');
 const registryCredentialHelper = require('../utils/registryCredentialHelper');
 const upnpService = require('../upnpService');
 const globalState = require('../utils/globalState');
+const folderStates = require('../appMonitoring/folderStates');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const mountParser = require('../utils/mountParser');
@@ -542,6 +543,9 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
         throw new Error(`CRITICAL: Failed to create database entry for ${appSpecifications.name}. Database insert returned undefined - likely duplicate key error or database failure. Aborting installation to prevent orphaned Docker containers.`);
       }
       log.info(`Database entry created for ${appSpecifications.name} BEFORE Docker container creation`);
+      // Installed from here: a peer deciding a cold-start seed waits on this node
+      // until its monitor has measured what it holds.
+      folderStates.installed(appSpecifications);
       claimed = true;
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;

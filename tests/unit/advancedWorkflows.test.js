@@ -120,6 +120,35 @@ describe('advancedWorkflows tests', () => {
       expect(globalState.installationInProgress).to.be.false;
     });
 
+    // A soft registration keeps the app's volumes, so a folder that already has a
+    // state keeps it; one the spec adds has not been looked at.
+    it('records a folder the spec adds as not looked at, and keeps the state of one it already has', async () => {
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+      const insert = sinon.stub(dbHelper, 'insertOneToDatabase').resolves({ insertedId: 'id' });
+      sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
+      sinon.stub(appInstaller, 'ensureAppDockerNetwork').resolves();
+      sinon.stub(appInstaller, 'installApplicationSoft').rejects(new Error('Error pulling image'));
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      globalState.folderStates.clear();
+      globalState.folderStates.set('fluxkept_softapp', { state: 'measured', bytes: 10, newestModified: 1 });
+
+      await advancedWorkflows.softRegisterAppLocally({
+        name: 'softapp',
+        version: 4,
+        compose: [
+          { name: 'kept', containerData: 'g:/data', cpu: 0.5, ram: 500, hdd: 5 },
+          { name: 'added', containerData: 'g:/data', cpu: 0.5, ram: 500, hdd: 5 },
+        ],
+      }, false, makeRes());
+
+      sinon.assert.called(insert);
+      expect(globalState.folderStates.get('fluxkept_softapp')).to.deep.equal({ state: 'measured', bytes: 10, newestModified: 1 });
+      expect(globalState.folderStates.get('fluxadded_softapp')).to.deep.equal({ state: 'notLookedAt' });
+      globalState.folderStates.clear();
+    });
+
     it('does not release a hold it never took', async () => {
       // Refused because another install owns the node. Lowering the flag here
       // hands the node to the next caller while that install is still running.
@@ -5296,10 +5325,8 @@ describe('advancedWorkflows tests', () => {
     // What this node publishes about the volume being replaced. Peers rank a seed
     // on it, so it describes one incarnation and must not outlive it.
     const armHolding = () => {
-      volGlobalState.folderHoldings = new Map([
-        [identifier, { bytes: 5821604997, newestModified: 200 }],
-        ['fluxother_TestApp', { bytes: 4096, newestModified: 100 }],
-      ]);
+      volGlobalState.folderStates.set(identifier, { state: 'measured', bytes: 5821604997, newestModified: 200 });
+      volGlobalState.folderStates.set('fluxother_TestApp', { state: 'measured', bytes: 4096, newestModified: 100 });
       volGlobalState.seedMarks.set(identifier, { stage: 'intent', bytes: 5821604997, newestModified: 200 });
       volGlobalState.seedMarks.set('fluxother_TestApp', { stage: 'intent', bytes: 4096, newestModified: 100 });
     };
@@ -5307,7 +5334,7 @@ describe('advancedWorkflows tests', () => {
     beforeEach(() => {
       volGlobalState = require('../../ZelBack/src/services/utils/globalState');
       volGlobalState.receiveOnlySyncthingAppsCache.clear();
-      volGlobalState.folderHoldings = null;
+      volGlobalState.folderStates.clear();
       volGlobalState.seedMarks.clear();
       const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
       sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
@@ -5485,12 +5512,12 @@ describe('advancedWorkflows tests', () => {
 
       expect(thrown, 'the pre-flight abort did not fire').to.not.equal(null);
       expect(
-        volGlobalState.folderHoldings.has(identifier),
+        volGlobalState.folderStates.get(identifier),
         'an aborted pre-flight withdrew a claim whose data is intact',
-      ).to.equal(true);
+      ).to.include({ state: 'measured' });
     });
 
-    it('drops the published holding at the point of no return', async () => {
+    it('records the volume as not looked at from the point of no return', async () => {
       // Once the allocation runs the volume is empty. A claim surviving from the
       // previous incarnation describes data this node no longer has, and peers rank
       // the seed on it - so it outranks a node that still holds the app and seeds
@@ -5510,11 +5537,11 @@ describe('advancedWorkflows tests', () => {
       expect(thrown, 'the flow never reached the allocation').to.not.equal(null);
       expect(thrown.message, 'the flow aborted before the allocation').to.equal('fallocate blocked by test');
       expect(
-        volGlobalState.folderHoldings.has(identifier),
+        volGlobalState.folderStates.get(identifier),
         'the point of no return left a claim for a volume that is now empty',
-      ).to.equal(false);
+      ).to.deep.equal({ state: 'notLookedAt' });
       // Scoped to the volume being replaced, not a clear of every answer the node holds.
-      expect(volGlobalState.folderHoldings.has('fluxother_TestApp')).to.equal(true);
+      expect(volGlobalState.folderStates.get('fluxother_TestApp')).to.include({ state: 'measured' });
       expect(volGlobalState.seedMarks.has(identifier), 'the point of no return left an offer to seed an empty volume').to.equal(false);
       expect(volGlobalState.seedMarks.has('fluxother_TestApp')).to.equal(true);
     });

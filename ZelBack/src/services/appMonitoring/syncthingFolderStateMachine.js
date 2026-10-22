@@ -28,6 +28,7 @@ const {
 
 const { isPathMounted } = require('../utils/volumeService');
 const globalState = require('../utils/globalState');
+const folderStates = require('./folderStates');
 const { isSyncedRootName } = require('../appSystem/volumeReservedNames');
 const primaryRole = require('../appLifecycle/primaryRole');
 const { componentStateOnOtherHolders } = require('./peerComponent');
@@ -649,10 +650,6 @@ function lowestIpHolder(allPeersList) {
  * @param {object} claim - a candidate's { bytes, newestModified }, or nothing
  * @returns {boolean}
  */
-// What a folder's holdings are recorded as when this node cannot read them: no claim,
-// and not a folder it has yet to look at.
-const UNREADABLE_HOLDINGS = Object.freeze({ unreadable: true });
-
 function isRankableClaim(claim) {
   return Number.isFinite(claim?.bytes) && Number.isFinite(claim.newestModified);
 }
@@ -1489,12 +1486,11 @@ async function handleReceiveOnlyTransition(params) {
   // not a smaller claim, it is no claim - and standDownOnUnknown below refuses to lead
   // on exactly that. Left up, the last good figure says 5.8 GB to every peer while this
   // node refuses to act on it: they rank it first and defer, it defers to its own
-  // unknown, and nobody seeds for as long as the read keeps failing. Recorded as
-  // unreadable, a peer reads it as no claim, which drops the field to the address
-  // order - the case that already exists for a peer too old to answer at all - and the
-  // folder is not one this node has yet to look at (promotedFolderHoldings).
-  if (!globalState.folderHoldings) globalState.folderHoldings = new Map();
-  globalState.folderHoldings.set(appId, holdings ?? UNREADABLE_HOLDINGS);
+  // unknown, and nobody seeds for as long as the read keeps failing. Recorded as no
+  // claim, it drops the field to the address order - the case that already exists for
+  // a peer too old to answer at all - and the folder is not one this node has yet to
+  // look at.
+  folderStates.measured(appId, holdings);
   // Designated-leader election, debounced: require leadership to hold for
   // LEADER_CONFIRM_COUNT consecutive cycles, so a single transient peer-visibility blip
   // doesn't flip a follower to leader.
@@ -1531,7 +1527,7 @@ async function handleReceiveOnlyTransition(params) {
   // decides where the answer comes from and nothing else - keyed from anywhere but
   // the list, a node stops finding its own claim the moment the two spellings of
   // its address differ, and the ranking degrades to the address order silently.
-  const ownClaim = electedAppClaim(holdings, electedSiblings.map((sibling) => globalState.folderHoldings?.get(sibling)));
+  const ownClaim = electedAppClaim(holdings, electedSiblings.map((sibling) => folderStates.claimOf(sibling)));
   const claims = {};
   // Candidates that hold this app and have not yet measured what they hold of it - an
   // install their monitor has not reached. Ranked now, one would read as holding
@@ -2101,6 +2097,7 @@ async function manageFolderSyncState(params) {
   }
 
   // Default case - ensure container is running
+  folderStates.settled(appId);
   await ensureContainerRunning(appId, containerDataFlags);
   if (containerDataFlags.includes('g')) {
     // The ready mark the election reads has to outlive this pass.

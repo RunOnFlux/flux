@@ -38,6 +38,7 @@ const volumeService = require('../utils/volumeService');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
 const appReconciler = require('./appReconciler');
 const syncthingFolderWrites = require('./syncthingFolderWrites');
+const folderStates = require('./folderStates');
 const primaryRole = require('../appLifecycle/primaryRole');
 const {
   manageFolderSyncState,
@@ -351,6 +352,7 @@ async function processContainerData(params) {
   if (!markerReady) {
     log.warn(`processContainerData - ${appId} volume not mounted; skipping syncthing configuration this cycle`);
     fluxEventBus.count('syncthing:folderPass', appId, 'volumeNotMounted');
+    folderStates.heldOut(appId);
     return;
   }
 
@@ -377,6 +379,7 @@ async function processContainerData(params) {
     log.warn(`processContainerData - ${appId} locations could not be read (${error.message}); leaving the folder as it is this cycle`);
     fluxEventBus.count('syncthing:folderPass', appId, 'locationsUnread');
     unsafeFolderIds.add(appId);
+    folderStates.heldOut(appId);
     return;
   }
   locations = sortAndFilterLocations(locations, localSocketAddr);
@@ -582,6 +585,11 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // missing" by it, and the sweep at the end deletes by it.
     const ownerIds = syncingFolderOwnerIds(appsInstalled.data);
 
+    // Every receive-only folder of an installed app has a state before this node first
+    // answers its peers below. After a restart the states start empty while the volumes
+    // still hold their data, so each folder is not looked at until this pass measures it.
+    appsInstalled.data.forEach((installedApp) => folderStates.installed(installedApp));
+
     // Get required IDs and configurations
     const localDeviceId = await syncthingService.getDeviceId();
     if (!localDeviceId) {
@@ -777,6 +785,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       const unreadableIds = new Set(unreadableFolderEntries.map(({ appId }) => appId));
       for (const { appId, reason } of unmountedApps) {
         unsafeFolderIds.add(appId);
+        folderStates.heldOut(appId);
         // The container is the other writer over the bad mount, and holding it
         // asks nothing of syncthing: a component that syncs the folder, or one
         // whose spec cannot be read to say it does not, is held before the

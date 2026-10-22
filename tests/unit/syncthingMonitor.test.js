@@ -5,6 +5,8 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 const eventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+const folderStates = require('../../ZelBack/src/services/appMonitoring/folderStates');
+const { folderStates: folderStateMap } = require('../../ZelBack/src/services/utils/globalState');
 
 // Create mocks for all dependencies
 const dbHelperMock = {
@@ -1438,6 +1440,93 @@ describe('syncthingMonitor tests', () => {
     });
   });
 
+  // What a peer about to seed reads of each receive-only folder here: it waits on one
+  // this node has not looked at, so every folder a pass reaches must leave that state.
+  describe('the folders it tells peers it has not looked at', () => {
+    // Folder ids already in identifier form, so the state the install records and the
+    // one the pass records name the same folder.
+    const installedApps = (apps) => mockInstalledAppsFn.resolves({ status: 'success', data: apps });
+    const notLookedAt = () => folderStates.answer(new Set()).notLookedAt;
+
+    beforeEach(() => {
+      folderStateMap.clear();
+    });
+
+    afterEach(() => {
+      folderStateMap.clear();
+    });
+
+    // After a restart the volumes still hold their data and nothing has been measured,
+    // so a peer must wait on every folder until this node has looked.
+    it('records every receive-only folder of an installed app as not looked at, and no other', async () => {
+      installedApps([
+        { name: 'fluxg', version: 3, containerData: 'g:/appdata' },
+        { name: 'fluxr', version: 3, containerData: 'r:/appdata' },
+        { name: 'fluxs', version: 3, containerData: 's:/appdata' },
+        { name: 'fluxplain', version: 3, containerData: '/appdata' },
+      ]);
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(notLookedAt()).to.have.members(['fluxg', 'fluxr']);
+    });
+
+    it('keeps a state a folder already has', async () => {
+      installedApps([{ name: 'fluxg', version: 3, containerData: 'g:/appdata' }]);
+      folderStateMap.set('fluxg', { state: 'measured', bytes: 10, newestModified: 1 });
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(folderStateMap.get('fluxg')).to.deep.equal({ state: 'measured', bytes: 10, newestModified: 1 });
+    });
+
+    // A volume that did not mount is never measured. Left not looked at, every peer
+    // would wait on this node for as long as the mount stays broken, and the app would
+    // start nowhere.
+    it('records a folder held out because its volume did not mount as held out, which no peer waits on', async () => {
+      installedApps([{ name: 'fluxg', version: 3, containerData: 'g:/appdata' }]);
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['fluxg']);
+      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'fluxg', path: '/apps/fluxg', type: 'receiveonly' }]);
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(folderStateMap.get('fluxg')).to.deep.equal({ state: 'heldOut' });
+      expect(notLookedAt()).to.deep.equal([]);
+    });
+
+    it('records a folder whose volume directory is not mounted as held out', async () => {
+      installedApps([{ name: 'fluxg', version: 3, containerData: 'g:/appdata' }]);
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingMonitorHelpersMock.ensureStfolderExists.resolves(false);
+      syncthingServiceMock.getConfigFolders.resolves([]);
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(folderStateMap.get('fluxg')).to.deep.equal({ state: 'heldOut' });
+    });
+
+    it('records a folder whose locations could not be read as held out', async () => {
+      installedApps([{ name: 'fluxg', version: 3, containerData: 'g:/appdata' }]);
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingMonitorHelpersMock.ensureStfolderExists.resolves(true);
+      dbHelperMock.findInDatabase.rejects(new Error('database unavailable'));
+      syncthingServiceMock.getConfigFolders.resolves([]);
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(folderStateMap.get('fluxg')).to.deep.equal({ state: 'heldOut' });
+    });
+  });
+
   describe('holds a busy app out of the config write', () => {
     const syncingApp = { name: 'testapp', version: 3, containerData: 'g:/appdata' };
     // Bound while this file loads, which is when the module under test bound its
@@ -1495,13 +1584,11 @@ describe('syncthingMonitor tests', () => {
     // question. Promotion answers it - everything this node holds is published
     // from here - so the claim stops being true as the write lands, which is
     // where promotedFolderIds is reconciled for the same reason.
-    it('drops the published holding of a folder it promotes', async () => {
+    it('withdraws the published holding of a folder it promotes', async () => {
       writesAFolder();
       syncthingMonitorHelpersMock.getContainerDataFlags.returns('r');
-      globalState.folderHoldings = new Map([
-        ['testapp', { bytes: 5821604997, newestModified: 200 }],
-        ['untouchedapp', { bytes: 4096, newestModified: 100 }],
-      ]);
+      globalState.folderStates.set('testapp', { state: 'measured', bytes: 5821604997, newestModified: 200 });
+      globalState.folderStates.set('untouchedapp', { state: 'measured', bytes: 4096, newestModified: 100 });
 
       monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
       await clock.tickAsync(100);
@@ -1511,10 +1598,10 @@ describe('syncthingMonitor tests', () => {
       expect(put, 'nothing was written, so this asserts nothing').to.not.equal(undefined);
       expect(put.args[1].find((f) => f.id === 'testapp')?.type).to.equal('sendreceive');
 
-      expect(globalState.folderHoldings.has('testapp'), 'a promoted folder still claims receive-only holdings').to.equal(false);
-      // A folder this pass did not promote keeps its claim: the drop is scoped to
-      // what changed, not a clear of everything the node has answered for.
-      expect(globalState.folderHoldings.has('untouchedapp')).to.equal(true);
+      expect(globalState.folderStates.get('testapp'), 'a promoted folder still claims receive-only holdings').to.deep.equal({ state: 'noClaim' });
+      // A folder this pass did not promote keeps its claim: the withdrawal is scoped
+      // to what changed, not a clear of everything the node has answered for.
+      expect(globalState.folderStates.get('untouchedapp')).to.include({ state: 'measured' });
     });
 
     // The election reads a folder as ready to start once it is writable, so a

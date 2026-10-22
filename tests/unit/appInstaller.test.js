@@ -5,6 +5,7 @@ const { resetGlobalState } = require('./fixtures/globalState');
 
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
+const { folderStates: folderStateMap } = require('../../ZelBack/src/services/utils/globalState');
 
 // what upnpService.mapUpnpPort answers for a port mapped, and for one the router refused
 const MAPPED = {
@@ -1377,6 +1378,27 @@ describe('appInstaller tests', () => {
 
       expect(removeAppLocallyStub.calledOnce, 'the teardown must have run, or the argument below proves nothing').to.be.true;
       expect(removeAppLocallyStub.firstCall.args[4], 'broadcast a removal for an app this node never had').to.equal(false);
+    });
+
+    // From its row on, the app is installed here and a peer may list this node as a
+    // holder: until the monitor has measured the folder, a peer about to seed waits.
+    it('records the app\'s receive-only folder as not looked at once its row is written', async () => {
+      folderStateMap.clear();
+      const appInstallerWithDb = buildFailingInstaller(sinon.stub().resolves());
+
+      await appInstallerWithDb.registerAppLocally({ ...appSpec, name: 'fluxinst', containerData: 'g:/appdata' }, false, { write: sinon.stub(), end: sinon.stub() });
+
+      expect(folderStateMap.get('fluxinst')).to.deep.equal({ state: 'notLookedAt' });
+      folderStateMap.clear();
+    });
+
+    it('records nothing when it gave up before the app reached the table', async () => {
+      folderStateMap.clear();
+      const appInstallerWithDb = buildFailingInstaller(sinon.stub().resolves(), { failBeforeRow: true });
+
+      await appInstallerWithDb.registerAppLocally({ ...appSpec, name: 'fluxinst', containerData: 'g:/appdata' }, false, { write: sinon.stub(), end: sinon.stub() });
+
+      expect(folderStateMap.has('fluxinst')).to.equal(false);
     });
 
     // A test install writes the app's row like any other and throws it away, so the

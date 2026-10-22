@@ -193,6 +193,7 @@ const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncth
 
 describe('syncthingFolderStateMachine tests', () => {
   beforeEach(() => {
+    globalStateMock.folderStates.clear();
     peerIdentityMock.reset();
     primaryRoleMock.holdAsStandby.resetHistory();
     peerComponentMock.componentStateOnPeers.reset();
@@ -903,6 +904,26 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
     });
 
+    // A ready standby is not measured, so a peer about to seed must not wait on it:
+    // every state but a measurement it already holds becomes no claim.
+    [
+      ['not looked at', { state: 'notLookedAt' }, { state: 'noClaim' }],
+      ['held out', { state: 'heldOut' }, { state: 'noClaim' }],
+      ['measured', { state: 'measured', bytes: 7, newestModified: 3 }, { state: 'measured', bytes: 7, newestModified: 3 }],
+    ].forEach(([what, before, after]) => {
+      it(`records a ready single-writer standby it found ${what} as ${after.state}`, async () => {
+        mockParams.containerDataFlags = 'g';
+        mockParams.syncFolder = { id: 'test-app', type: 'receiveonly' };
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+        dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: false } });
+        globalStateMock.folderStates.set('test-app', before);
+
+        await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(globalStateMock.folderStates.get('test-app')).to.deep.equal(after);
+      });
+    });
+
     // A receiveonly folder keeps its own deviations, owner and mode included, and
     // the primary counts every one of them as outstanding for this node.
     it('reverts a ready single-writer standby whose directories differ from the cluster', async () => {
@@ -1158,18 +1179,16 @@ describe('syncthingFolderStateMachine tests', () => {
 
       await stateMachine.manageFolderSyncState(mockParams);
 
-      expect(globalStateMock.folderHoldings.get('test-app').bytes).to.equal(5821604997);
+      expect(globalStateMock.folderStates.get('test-app')).to.include({ state: 'measured', bytes: 5821604997 });
     });
 
     // A read it cannot make is not a smaller claim, it is no claim - and the node
     // stands down on exactly that. Left up, the last good figure makes every peer
     // defer to a node that is refusing to lead, and nobody seeds. Recorded as
-    // unreadable rather than removed, so the folder is not one it has yet to look at.
-    it('records the folder unreadable, claiming nothing, when it can no longer read what it holds', async () => {
-      globalStateMock.folderHoldings = new Map([
-        ['test-app', { bytes: 5821604997, newestModified: 200 }],
-        ['other-app', { bytes: 900, newestModified: 100 }],
-      ]);
+    // no claim rather than removed, so the folder is not one it has yet to look at.
+    it('records the folder as no claim when it can no longer read what it holds', async () => {
+      globalStateMock.folderStates.set('test-app', { state: 'measured', bytes: 5821604997, newestModified: 200 });
+      globalStateMock.folderStates.set('other-app', { state: 'measured', bytes: 900, newestModified: 100 });
       fsMock.promises.readdir.resolves([]);
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false, numberOfExecutions: 1, leaderStreak: 5,
@@ -1182,8 +1201,8 @@ describe('syncthingFolderStateMachine tests', () => {
 
       await stateMachine.manageFolderSyncState(mockParams);
 
-      expect(globalStateMock.folderHoldings.get('test-app'), 'an unreadable folder still claims its last good figure').to.deep.equal({ unreadable: true });
-      expect(globalStateMock.folderHoldings.has('other-app'), 'another folder\'s claim is not this folder\'s to withdraw').to.equal(true);
+      expect(globalStateMock.folderStates.get('test-app'), 'an unreadable folder still claims its last good figure').to.deep.equal({ state: 'noClaim' });
+      expect(globalStateMock.folderStates.get('other-app'), 'another folder\'s claim is not this folder\'s to withdraw').to.include({ state: 'measured' });
     });
 
     // The status read for the decision is the one the disk is judged against. Read
@@ -2460,7 +2479,7 @@ describe('syncthingFolderStateMachine tests', () => {
         mockParams.electedSiblings = ['sibling-app'];
         // no node writes the app's other folder yet, so the election decides this one
         appQueryServiceMock.holdsComponent.resolves(false);
-        globalStateMock.folderHoldings = new Map([['sibling-app', { bytes: 0, newestModified: 0 }]]);
+        globalStateMock.folderStates.set('sibling-app', { state: 'measured', bytes: 0, newestModified: 0 });
 
         const result = await stateMachine.manageFolderSyncState(mockParams);
 
@@ -2594,7 +2613,7 @@ describe('syncthingFolderStateMachine tests', () => {
       const seeds = (result) => result.cache.designationPending === true;
 
       afterEach(() => {
-        globalStateMock.folderHoldings?.delete(SIBLING);
+        globalStateMock.folderStates.clear();
       });
 
       describe('a component the spec has just added', () => {
@@ -2689,8 +2708,7 @@ describe('syncthingFolderStateMachine tests', () => {
           });
           appQueryServiceMock.holdsComponent.withArgs(SIBLING).resolves(false);
           syncthingServiceMock.eachDbLocalChanged.callsFake(feed({ files: [localEntry('a.dat', 100)] }));
-          globalStateMock.folderHoldings = globalStateMock.folderHoldings || new Map();
-          globalStateMock.folderHoldings.set(SIBLING, { bytes: 0, newestModified: 0 });
+          globalStateMock.folderStates.set(SIBLING, { state: 'measured', bytes: 0, newestModified: 0 });
         };
 
         it('ranks the whole app, so the node holding the most of it seeds every folder', async () => {
@@ -2709,7 +2727,7 @@ describe('syncthingFolderStateMachine tests', () => {
 
         it('falls back to the address order while this node cannot say what it holds of the other folder', async () => {
           split();
-          globalStateMock.folderHoldings.delete(SIBLING);
+          globalStateMock.folderStates.delete(SIBLING);
 
           expect(seeds(await stateMachine.manageFolderSyncState(mockParams))).to.equal(true);
         });
