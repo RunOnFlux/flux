@@ -28,9 +28,11 @@ describe('appKill tests', () => {
     if (rel.startsWith('flux.slice/')) units.set('flux.slice', path.join(SYSTEMD_ROOT, 'flux.slice'));
     return dir;
   }
-  function record(n, name, pid = 0) {
+  // `app`: the runonflux.app label FluxOS sets; left out, a container made before it
+  function record(n, name, pid = 0, { app } = {}) {
     fs.mkdirSync(path.join(dockerRoot, 'containers', id(n)), { recursive: true });
-    fs.writeFileSync(path.join(dockerRoot, 'containers', id(n), 'config.v2.json'), JSON.stringify({ Name: `/${name}`, State: { Pid: Number(pid) } }));
+    const labels = app ? { 'runonflux.app': app } : {};
+    fs.writeFileSync(path.join(dockerRoot, 'containers', id(n), 'config.v2.json'), JSON.stringify({ Name: `/${name}`, State: { Pid: Number(pid) }, Config: { Labels: labels } }));
   }
   function container(n, name, pids) {
     record(n, name, pids[0]);
@@ -158,6 +160,13 @@ describe('appKill tests', () => {
 
       expect(await appKill.appsOnDisk()).to.have.members(['sliced-app', 'composed', 'single']);
     });
+
+    it('names a labelled container\'s app by its label, and a zel component\'s by its name', async () => {
+      record(1, 'fluxgame', 0, { app: 'fluxgame' });
+      record(2, 'zelcash_legacy');
+
+      expect(await appKill.appsOnDisk()).to.have.members(['fluxgame', 'legacy']);
+    });
   });
 
   describe('containersOf', () => {
@@ -168,6 +177,31 @@ describe('appKill tests', () => {
       record(4, 'fluxcomposed');
 
       expect(await appKill.containersOf('composed')).to.have.members(['fluxweb_composed', 'fluxdb_composed', 'fluxcomposed']);
+    });
+
+    it('takes a container\'s label over its name', async () => {
+      record(1, 'fluxweb_composed', 0, { app: 'other' });
+      record(2, 'renamed', 0, { app: 'composed' });
+
+      expect(await appKill.containersOf('composed')).to.have.members(['renamed']);
+    });
+
+    it('finds a label-less component whose name starts with zel', async () => {
+      record(1, 'zelcash_legacy');
+
+      expect(await appKill.containersOf('legacy')).to.have.members(['zelcash_legacy']);
+    });
+
+    it('finds the label-less container of an app whose own name starts with flux', async () => {
+      record(1, 'fluxgame');
+
+      expect(await appKill.containersOf('fluxgame')).to.have.members(['fluxgame']);
+    });
+
+    it('does not take a container FluxOS did not name for an app whose name it ends with', async () => {
+      record(1, 'my_composed');
+
+      expect(await appKill.containersOf('composed')).to.deep.equal([]);
     });
   });
 });

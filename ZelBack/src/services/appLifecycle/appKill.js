@@ -20,6 +20,7 @@ const path = require('path');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
 const appSlice = require('./appSlice');
+const { getAppIdentifier } = require('../dockerService');
 const { isArcane } = require('../utils/appConstants');
 
 const SIGKILL_MASK = 1n << 8n;
@@ -50,28 +51,38 @@ async function readAsRoot(file) {
   return error ? null : stdout;
 }
 
+// The name FluxOS gives an app's containers carries the flux or zel prefix
+// (dockerService.getAppIdentifier).
+const APP_PREFIX = /^(flux|zel)/;
+
 /**
- * The app a container belongs to: `flux<app>` for a single container,
- * `flux<component>_<app>` for a component.
- * @param {string} name The container's name.
+ * The app a container belongs to: its runonflux.app label, which FluxOS sets on
+ * every container it creates; for a container made before the label, read from
+ * its name, `<flux|zel><component>_<app>` or `flux<app>`. A label-less container
+ * of an app whose own name starts with flux reads as the name without it.
+ * @param {{name: string, app: string|null}} container
  * @returns {string|null} Null for a container that is not an app's.
  */
-function appOf(name) {
-  if (!name.startsWith('flux')) return null;
-  return name.includes('_') ? name.slice(name.indexOf('_') + 1) : name.slice('flux'.length);
+function appOf({ name, app }) {
+  if (app) return app;
+  if (!APP_PREFIX.test(name)) return null;
+  if (name.includes('_')) return name.slice(name.indexOf('_') + 1);
+  return name.startsWith('flux') ? name.slice('flux'.length) : name;
 }
 
 /**
- * @param {string} name The container's name.
+ * @param {{name: string, app: string|null}} container
  * @param {string} appName
  */
-function belongsTo(name, appName) {
-  return appOf(name) === appName;
+function belongsTo({ name, app }, appName) {
+  if (app) return app === appName;
+  return name === getAppIdentifier(appName) || (APP_PREFIX.test(name) && name.endsWith(`_${appName}`));
 }
 
 /**
  * Every container docker has a record of, read from its records on disk.
- * @returns {Promise<Array<{id: string, name: string}>>} Names without the leading '/'.
+ * @returns {Promise<Array<{id: string, name: string, app: string|null}>>} Names
+ *   without the leading '/', and the app its runonflux.app label names.
  */
 async function containersOnDisk() {
   const listing = await serviceHelper.runCommand('ls', { runAsRoot: true, params: ['-1', path.join(paths.dockerRoot, 'containers')] });
@@ -82,13 +93,15 @@ async function containersOnDisk() {
   for (const id of ids) {
     // eslint-disable-next-line no-await-in-loop
     const text = await readAsRoot(path.join(paths.dockerRoot, 'containers', id, 'config.v2.json'));
-    let name = null;
+    let parsed = null;
     try {
-      ({ Name: name } = JSON.parse(text ?? 'null') ?? {});
+      parsed = JSON.parse(text ?? 'null');
     } catch {
-      name = null;
+      parsed = null;
     }
-    if (typeof name === 'string') containers.push({ id, name: name.replace(/^\//, '') });
+    const name = parsed?.Name;
+    const app = parsed?.Config?.Labels?.['runonflux.app'];
+    if (typeof name === 'string') containers.push({ id, name: name.replace(/^\//, ''), app: typeof app === 'string' && app ? app : null });
   }
   return containers;
 }
@@ -99,7 +112,7 @@ async function containersOnDisk() {
  * @returns {Promise<string[]>}
  */
 async function containersOf(appName) {
-  return (await containersOnDisk()).filter(({ name }) => belongsTo(name, appName)).map(({ name }) => name);
+  return (await containersOnDisk()).filter((container) => belongsTo(container, appName)).map(({ name }) => name);
 }
 
 /**
@@ -109,7 +122,7 @@ async function containersOf(appName) {
  */
 async function scopesOf(appName) {
   return (await containersOnDisk())
-    .filter(({ name }) => belongsTo(name, appName))
+    .filter((container) => belongsTo(container, appName))
     .map(({ id }) => `docker-${id}.scope`);
 }
 
@@ -195,7 +208,7 @@ async function appsOnDisk() {
   const slices = parent ? await fs.readdir(parent).catch(() => []) : [];
   slices.filter((entry) => /^flux-.+\.slice$/.test(entry))
     .forEach((entry) => names.add(entry.slice('flux-'.length, -'.slice'.length).replace(/\\x2d/g, '-')));
-  (await containersOnDisk()).map(({ name }) => appOf(name)).filter(Boolean).forEach((name) => names.add(name));
+  (await containersOnDisk()).map(appOf).filter(Boolean).forEach((name) => names.add(name));
   return [...names];
 }
 
