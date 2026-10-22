@@ -244,6 +244,34 @@ const UPGRADE_FILES = ['package.json', 'ZelBack/pinEnvironment.js', 'ZelBack/con
 // The new build's per-node config files and the script that writes the overlay from them.
 const UPGRADE_HARNESS = ['test-infra/config', 'test-infra/write-node-config.sh'];
 
+// A digest of the FluxOS code a running node holds: the path and content of every
+// file the process loads, so two builds of the same code agree whatever their
+// version, tag or file times.
+async function fluxosCodeDigest(container) {
+  const paths = [...UPGRADE_DIRS, ...UPGRADE_FILES].join(' ');
+  const res = await execInContainer(container, `cd /flux && find ${paths} -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum`);
+  const digest = res.stdout.trim().split(/\s+/)[0];
+  if (res.exitCode !== 0 || !/^[0-9a-f]{64}$/.test(digest)) throw new Error(`cannot read the FluxOS code of ${container.getId()}: ${res.output}`);
+  return digest;
+}
+
+// A fleet that names more than one image runs more than one FluxOS: every tag's
+// nodes hold code no other tag's nodes hold.
+async function assertTagsRunOtherCode(fluxNodes) {
+  const byTag = new Map();
+  for (const node of fluxNodes) {
+    if (node.container && !byTag.has(node.imageTag)) byTag.set(node.imageTag, node.container);
+  }
+  if (byTag.size < 2) return;
+  const tags = [...byTag.keys()];
+  const digests = await Promise.all(tags.map((tag) => fluxosCodeDigest(byTag.get(tag))));
+  const tagOf = new Map();
+  digests.forEach((digest, i) => {
+    if (tagOf.has(digest)) throw new Error(`node images ${nodeImageRef(tagOf.get(digest))} and ${nodeImageRef(tags[i])} hold the same FluxOS code, so the fleet is not mixed`);
+    tagOf.set(digest, tags[i]);
+  });
+}
+
 async function dockerCp(from, to) {
   const res = await dockerCli(['cp', from, to], 180000);
   if (!res.ok) throw new Error(`docker cp ${from} ${to}: ${res.stderr.trim()}`);
@@ -1885,6 +1913,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     }
   }
   containers.fluxNodes = fluxNodes;
+  await assertTagsRunOtherCode(fluxNodes);
 
   for (const n of fluxNodes) {
     if (!n.container) {
@@ -2029,6 +2058,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       if (!tag) throw new Error('upgradeNode: the image tag to run is required');
       await assertNodeImageStamped(tag);
       const nodeId = node.container.getId();
+      const codeBefore = await fluxosCodeDigest(node.container);
       const created = await dockerCli(['create', nodeImageRef(tag)], 60000);
       if (!created.ok) throw new Error(`upgradeNode: cannot read ${nodeImageRef(tag)}: ${created.stderr.trim()}`);
       const sourceId = created.stdout.trim();
@@ -2061,6 +2091,9 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       } finally {
         await dockerCli(['rm', '-f', sourceId], 60000);
         rmSync(host, { recursive: true, force: true });
+      }
+      if (await fluxosCodeDigest(node.container) === codeBefore) {
+        throw new Error(`upgradeNode: ${nodeImageRef(tag)} holds the FluxOS code node ${index} already ran, so nothing was upgraded`);
       }
       await restartFluxos(node.container, { readyTimeoutMs });
       node.imageTag = tag;
