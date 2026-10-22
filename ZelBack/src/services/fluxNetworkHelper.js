@@ -170,7 +170,8 @@ const EGRESS_TARGET = '203.0.113.1';
 // localSocketAddress but gives the node no new address, so this keeps it.
 let lastKnownSocketAddress = null;
 // Emits 'change' with the new address when the node learns one that differs
-// from lastKnownSocketAddress.
+// from lastKnownSocketAddress, and 'known' with it when the node has an address
+// after having none.
 const localSocketAddressEvents = new EventEmitter();
 // Open while localSocketAddress holds an address.
 const localSocketAddressGate = new AsyncGate();
@@ -990,6 +991,7 @@ async function keepUPNPPortsOpen(req, res) {
  * @param {string} value ip or ip:port to be set (normalized to ip:port)
  */
 function setLocalSocketAddress(value) {
+  const wasKnown = localSocketAddressGate.ready;
   localSocketAddress = value ? normalizeSocketAddress(value) : null;
   // (Re)set the freshness deadline whenever the value changes, so getLocalSocketAddress
   // serves it without a benchmark RPC until it goes stale (cleared when set to null).
@@ -1005,6 +1007,7 @@ function setLocalSocketAddress(value) {
     lastKnownSocketAddress = localSocketAddress;
     localSocketAddressEvents.emit('change', localSocketAddress);
   }
+  if (localSocketAddress && !wasKnown) localSocketAddressEvents.emit('known', localSocketAddress);
 }
 
 /**
@@ -1046,6 +1049,15 @@ function onLocalSocketAddressChange(listener) {
  */
 function offLocalSocketAddressChange(listener) {
   localSocketAddressEvents.off('change', listener);
+}
+
+/**
+ * @param {function(string): void} listener Called with the address each time the
+ *   node has one after having none.
+ * @returns {void}
+ */
+function onLocalSocketAddressKnown(listener) {
+  localSocketAddressEvents.on('known', listener);
 }
 
 /**
@@ -3752,6 +3764,7 @@ module.exports = {
   waitForLocalSocketAddress,
   onLocalSocketAddressChange,
   offLocalSocketAddressChange,
+  onLocalSocketAddressKnown,
   getFluxNodePrivateKey,
   getFluxNodePublicKey,
   MAX_KEEPALIVE_PORTS,

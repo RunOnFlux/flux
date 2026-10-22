@@ -436,6 +436,19 @@ describe('fluxNetworkHelper tests', () => {
       expect(answer).to.equal('203.0.113.41:16127');
     });
 
+    it('tells its listeners each time the node has an address after having none', () => {
+      const heard = [];
+      const listener = (address) => heard.push(address);
+      fluxNetworkHelper.onLocalSocketAddressKnown(listener);
+
+      fluxNetworkHelper.setLocalSocketAddress('203.0.113.44:16127');
+      fluxNetworkHelper.setLocalSocketAddress('203.0.113.44:16127');
+      fluxNetworkHelper.setLocalSocketAddress(null);
+      fluxNetworkHelper.setLocalSocketAddress('203.0.113.44:16127');
+
+      expect(heard).to.deep.equal(['203.0.113.44:16127', '203.0.113.44:16127']);
+    });
+
     it('waits again when the address it was woken for is gone before it reads it', async () => {
       benchStub.resolves({ status: 'error' });
       let answer = null;
