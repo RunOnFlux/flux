@@ -20,6 +20,7 @@ describe('residentialNodeDosService tests', () => {
   let benchmarkServiceStub;
   let dbHelperStub;
   let markerStore;
+  let applyUpdate;
   let globalStateStub;
   let deps;
   let installedApps;
@@ -101,12 +102,17 @@ describe('residentialNodeDosService tests', () => {
     // The settle marker lives in mongo, so the double has to remember it across
     // a reload - surviving a restart is the whole point of that field.
     markerStore = new Map();
+    applyUpdate = (query, update) => {
+      const held = { _id: query._id, ...(markerStore.get(query._id) || {}), ...update.$set };
+      Object.entries(update.$max || {}).forEach(([field, value]) => {
+        if (held[field] === undefined || value > held[field]) held[field] = value;
+      });
+      markerStore.set(query._id, held);
+    };
     dbHelperStub = {
       databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
       findOneInDatabase: sinon.stub().callsFake(async (db, coll, query) => markerStore.get(query._id) || null),
-      findOneAndUpdateInDatabase: sinon.stub().callsFake(async (db, coll, query, update) => {
-        markerStore.set(query._id, { _id: query._id, ...(markerStore.get(query._id) || {}), ...update.$set });
-      }),
+      findOneAndUpdateInDatabase: sinon.stub().callsFake(async (db, coll, query, update) => applyUpdate(query, update)),
       findOneAndDeleteInDatabase: sinon.stub().callsFake(async (db, coll, query) => {
         markerStore.delete(query._id);
       }),
@@ -619,6 +625,51 @@ describe('residentialNodeDosService tests', () => {
       await service.enforceResidentialPolicy(deps);
 
       expect(markerStore.get('residentialDos').lastEvacuationAt).to.be.a('number');
+    });
+
+    it('keeps the newer departure time when an older one it could not record is written again', async () => {
+      installedApps = [{ name: 'someapp' }];
+      markerStore.set('residentialDos', windowServed());
+      const wall = sinon.stub(Date, 'now');
+      try {
+        dbHelperStub.findOneAndUpdateInDatabase.onFirstCall().rejects(new Error('marker write failed'));
+        wall.returns(1000000);
+        service.noteEvacuated('someapp');
+        await new Promise((resolve) => { setImmediate(resolve); });
+        wall.returns(2000000);
+        service.noteEvacuated('otherapp');
+        await new Promise((resolve) => { setImmediate(resolve); });
+        expect(markerStore.get('residentialDos').lastEvacuationAt, 'the newer departure was not recorded').to.equal(2000000);
+
+        await service.enforceResidentialPolicy(deps);
+      } finally {
+        wall.restore();
+      }
+
+      expect(markerStore.get('residentialDos').lastEvacuationAt, 'an older departure replaced a newer one').to.equal(2000000);
+    });
+
+    it('keeps the newer departure time when an older write lands after it', async () => {
+      markerStore.set('residentialDos', windowServed());
+      let landOlder;
+      dbHelperStub.findOneAndUpdateInDatabase.onFirstCall().callsFake(async (db, coll, query, update) => {
+        await new Promise((resolve) => { landOlder = resolve; });
+        applyUpdate(query, update);
+      });
+      const wall = sinon.stub(Date, 'now');
+      try {
+        wall.returns(1000000);
+        service.noteEvacuated('someapp');
+        wall.returns(2000000);
+        service.noteEvacuated('otherapp');
+        await new Promise((resolve) => { setImmediate(resolve); });
+        landOlder();
+        await new Promise((resolve) => { setImmediate(resolve); });
+      } finally {
+        wall.restore();
+      }
+
+      expect(markerStore.get('residentialDos').lastEvacuationAt, 'an older departure replaced a newer one').to.equal(2000000);
     });
 
     it('gives an empty location list the longest wait, not the shortest', async () => {

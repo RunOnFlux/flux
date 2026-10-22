@@ -580,7 +580,8 @@ async function persistLastEvacuationAt(now) {
       database,
       startupCollection,
       { _id: SETTLE_MARKER_KEY },
-      { $set: { lastEvacuationAt: now } },
+      // never backwards: a retried older time does not replace a newer one
+      { $max: { lastEvacuationAt: now } },
       { upsert: true },
     );
     if (unpersistedEvacuationAt === now) unpersistedEvacuationAt = null;
