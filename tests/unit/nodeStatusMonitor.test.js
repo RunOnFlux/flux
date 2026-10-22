@@ -25,6 +25,7 @@ describe('nodeStatusMonitor tests', () => {
       },
       config: {
         fluxapps: { appRemovalDeadlineMs: 300000 },
+        hostStall: { stopWindowMs: 60000 },
         database: {
           appsglobal: {
             database: 'globalapps',
@@ -118,9 +119,11 @@ describe('nodeStatusMonitor tests', () => {
 
   describe('removal while out of service', () => {
     const DEADLINE = 300000;
+    const STOP_WINDOW = 60000;
     let clock;
     let monitor;
     let appKill;
+    let dockerService;
     let onTrip;
     let dos;
     let bus;
@@ -133,11 +136,17 @@ describe('nodeStatusMonitor tests', () => {
       bus = { publish: sinon.stub() };
       appKill = {
         appsOnDisk: sinon.stub().resolves([]),
+        containersOf: sinon.stub().callsFake(async (name) => [`flux${name}`]),
         stillRunnable: sinon.stub().resolves([]),
         kill: sinon.stub().resolves([]),
       };
+      dockerService = { appDockerStop: sinon.stub().resolves('stopped') };
       monitor = proxyquire('../../ZelBack/src/services/appMonitoring/nodeStatusMonitor', {
-        config: { fluxapps: { appRemovalDeadlineMs: DEADLINE, nodeMonitorRemovalDelayMs: 0 }, database: { appsglobal: { collections: {} } } },
+        config: {
+          fluxapps: { appRemovalDeadlineMs: DEADLINE, nodeMonitorRemovalDelayMs: 0 },
+          hostStall: { stopWindowMs: STOP_WINDOW },
+          database: { appsglobal: { collections: {} } },
+        },
         '../dbHelper': {},
         // the spacing between apps passes, and the wait before the next pass never ends
         '../serviceHelper': { delay: sinon.stub().callsFake((ms) => (ms === 0 ? Promise.resolve() : never())) },
@@ -150,6 +159,7 @@ describe('nodeStatusMonitor tests', () => {
         },
         '../hostStallService': { onTrip: (listener) => { onTrip = listener; } },
         '../appLifecycle/appKill': appKill,
+        '../dockerService': dockerService,
         '../utils/fluxEventBus': bus,
         '../../lib/log': logStub,
       });
@@ -162,21 +172,72 @@ describe('nodeStatusMonitor tests', () => {
     it('publishes an app its removal removed, with nothing left to run', async () => {
       await monitor.unloadForHostStall(installed('gone'), sinon.stub().resolves('removed'));
 
-      sinon.assert.calledOnceWithExactly(bus.publish, 'hostStall:appUnloaded', {
+      sinon.assert.calledWithExactly(bus.publish, 'hostStall:appUnloaded', {
         app: 'gone', removal: 'removed', killed: false, runnable: [],
       });
     });
 
-    it('publishes an app it killed after its removal ran out, and what of it can still run', async () => {
+    it('publishes an app it killed, and what of it can still run, once it has stopped every app', async () => {
       appKill.stillRunnable.onFirstCall().resolves(['41', '42']).onSecondCall().resolves(['42']);
 
       const unload = monitor.unloadForHostStall(installed('stuck'), sinon.stub().callsFake(never));
-      await clock.tickAsync(DEADLINE);
+      await clock.tickAsync(STOP_WINDOW + DEADLINE);
       await unload;
 
-      sinon.assert.calledOnceWithExactly(bus.publish, 'hostStall:appUnloaded', {
+      sinon.assert.calledWithExactly(bus.publish, 'hostStall:appsStopped', {
+        apps: [{ app: 'stuck', killed: true, runnable: ['42'] }],
+      });
+      sinon.assert.calledWithExactly(bus.publish, 'hostStall:appUnloaded', {
         app: 'stuck', removal: 'timedOut', killed: true, runnable: ['42'],
       });
+    });
+
+    it('asks docker to stop every container of every app at once', async () => {
+      appKill.containersOf.withArgs('one').resolves(['fluxweb_one', 'fluxdb_one']);
+      dockerService.appDockerStop.callsFake(never);
+
+      const unload = monitor.unloadForHostStall(installed('one', 'two'), sinon.stub().resolves('removed'));
+      await clock.tickAsync(0);
+
+      expect(dockerService.appDockerStop.getCalls().map((call) => call.args[0])).to.have.members(['fluxweb_one', 'fluxdb_one', 'fluxtwo']);
+      await clock.tickAsync(STOP_WINDOW);
+      await unload;
+    });
+
+    it('waits one stop window for every app together, then kills what can still run', async () => {
+      dockerService.appDockerStop.callsFake(never);
+      appKill.stillRunnable.callsFake(async (name) => (appKill.kill.calledWith(name) ? [] : ['41']));
+
+      const unload = monitor.unloadForHostStall(installed('a', 'b', 'c'), sinon.stub().resolves('removed'));
+      await clock.tickAsync(STOP_WINDOW - 1);
+      sinon.assert.notCalled(appKill.kill);
+      await clock.tickAsync(1);
+      await unload;
+
+      expect(appKill.kill.getCalls().map((call) => call.args[0])).to.deep.equal(['a', 'b', 'c']);
+    });
+
+    it('goes on as soon as docker has stopped every app, without waiting out the window', async () => {
+      const remove = sinon.stub().resolves('removed');
+
+      await monitor.unloadForHostStall(installed('a', 'b'), remove);
+
+      sinon.assert.calledTwice(remove);
+      sinon.assert.notCalled(appKill.kill);
+    });
+
+    it('removes no app, and so tells the network of none, until every app has stopped or been killed', async () => {
+      dockerService.appDockerStop.callsFake(never);
+      appKill.stillRunnable.callsFake(async (name) => (appKill.kill.calledWith(name) ? [] : ['41']));
+      const remove = sinon.stub().resolves('removed');
+
+      const unload = monitor.unloadForHostStall(installed('a', 'b'), remove);
+      await clock.tickAsync(STOP_WINDOW - 1);
+      sinon.assert.notCalled(remove);
+      await clock.tickAsync(1);
+      await unload;
+
+      sinon.assert.callOrder(appKill.kill.withArgs('b'), remove.withArgs('a'));
     });
 
     it('removes every app once the host stalls, starting from the trip', async () => {
@@ -190,20 +251,26 @@ describe('nodeStatusMonitor tests', () => {
       sinon.assert.notCalled(appKill.kill);
     });
 
-    it('kills an app whose removal does not return within the deadline, and moves on', async () => {
+    it('moves past a removal that does not return within the deadline', async () => {
       const remove = sinon.stub();
       remove.withArgs('stuck').callsFake(never);
       remove.withArgs('next').resolves('removed');
-      appKill.stillRunnable.withArgs('stuck').onFirstCall().resolves(['41']).onSecondCall().resolves([]);
 
       const unload = monitor.unloadForHostStall(installed('stuck', 'next'), remove);
       await clock.tickAsync(DEADLINE - 1);
-      sinon.assert.notCalled(appKill.kill);
+      sinon.assert.neverCalledWith(remove, 'next');
       await clock.tickAsync(1);
       await unload;
 
-      sinon.assert.calledOnceWithExactly(appKill.kill, 'stuck');
       sinon.assert.calledWith(remove, 'next');
+    });
+
+    it('says an app it killed can no longer run', async () => {
+      appKill.stillRunnable.onFirstCall().resolves(['41']).onSecondCall().resolves([]);
+
+      await monitor.unloadForHostStall(installed('stuck'), sinon.stub().resolves('removed'));
+
+      sinon.assert.calledOnceWithExactly(appKill.kill, 'stuck');
       sinon.assert.calledWithMatch(logStub.warn, /stuck can no longer run/);
     });
 
@@ -222,15 +289,6 @@ describe('nodeStatusMonitor tests', () => {
       await monitor.unloadForHostStall(installed('gone'), sinon.stub().resolves('removed'));
 
       sinon.assert.neverCalledWithMatch(logStub.warn, /can no longer run/);
-    });
-
-    it('kills an app whose removal failed while its processes can still run', async () => {
-      const remove = sinon.stub().resolves('failed');
-      appKill.stillRunnable.onFirstCall().resolves(['41']).onSecondCall().resolves([]);
-
-      await monitor.unloadForHostStall(installed('app'), remove);
-
-      sinon.assert.calledOnceWithExactly(appKill.kill, 'app');
     });
 
     it('names the processes a kill could not stop', async () => {

@@ -313,6 +313,7 @@ export function nodeClient(nodeNum) {
         'placementHold:set',
         'placementHold:cleared',
         'hostStall:appUnloaded',
+        'hostStall:appsStopped',
         'network:apprunning',
         'network:appinstalling',
         'network:appinstallingerror',

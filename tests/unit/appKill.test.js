@@ -159,4 +159,15 @@ describe('appKill tests', () => {
       expect(await appKill.appsOnDisk()).to.have.members(['sliced-app', 'composed', 'single']);
     });
   });
+
+  describe('containersOf', () => {
+    it('names every container of the app from docker\'s records, and no other app\'s', async () => {
+      record(1, 'fluxweb_composed');
+      record(2, 'fluxdb_composed');
+      record(3, 'fluxweb_composedtoo');
+      record(4, 'fluxcomposed');
+
+      expect(await appKill.containersOf('composed')).to.have.members(['fluxweb_composed', 'fluxdb_composed', 'fluxcomposed']);
+    });
+  });
 });

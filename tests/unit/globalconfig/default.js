@@ -32,6 +32,7 @@ module.exports = {
   hostStall: {
     readIntervalMs: 5 * 60 * 1000,
     stuckIntervals: 6,
+    stopWindowMs: 60 * 1000,
   },
   database: {
     url: database,

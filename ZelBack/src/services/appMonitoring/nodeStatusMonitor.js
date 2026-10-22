@@ -10,6 +10,7 @@ const nodeConfirmationService = require('../nodeConfirmationService');
 const networkStateService = require('../networkStateService');
 const hostStallService = require('../hostStallService');
 const appKill = require('../appLifecycle/appKill');
+const dockerService = require('../dockerService');
 const { RemovalOutcome } = require('../utils/removalOutcome');
 const { withinDeadline, TIMED_OUT } = require('../utils/withinDeadline');
 const fluxEventBus = require('../utils/fluxEventBus');
@@ -22,6 +23,7 @@ let unloadingForHostStall = false;
 let deps = null;
 
 const REMOVAL_DEADLINE_MS = config.fluxapps.appRemovalDeadlineMs;
+const STOP_WINDOW_MS = config.hostStall.stopWindowMs;
 const STILL_REMOVING = 'stillRemoving';
 /** Apps whose removal started here and has not returned, deadline or not. */
 const removalsRunning = new Set();
@@ -105,15 +107,29 @@ async function removeAllAppsOnSignal(installedAppsFn, removeAppLocallyFn, reason
 }
 
 /**
+ * Ask docker to stop every container of the app, on its normal grace.
+ * @param {string} name
+ * @returns {Promise<void>}
+ */
+async function stopApp(name) {
+  const containers = await appKill.containersOf(name);
+  await Promise.allSettled(containers.map((container) => dockerService.appDockerStop(container)));
+}
+
+/**
  * Remove every app from a node whose host is stalled, and make sure none can
- * run again. Each app gets its normal removal, which stops its containers before
- * it tells the network, within REMOVAL_DEADLINE_MS. Whatever of it can still run
- * afterwards is killed through its cgroups, and checked: an app whose every
- * process is gone or has the kill pending can never run its code again.
+ * run again before the network is told.
+ *
+ * Every app is asked to stop at once, and all of them share one STOP_WINDOW_MS:
+ * a docker that can still deliver a stop signal stops each app cleanly, and one
+ * that cannot costs the window once, not once per app. Whatever of each app can
+ * still run after the window is killed through its cgroups and checked: an app
+ * whose every process is gone or has the kill pending can never run its code
+ * again. Then each app gets its normal removal, which tells the network, within
+ * REMOVAL_DEADLINE_MS; nothing of it runs by then, so the removals take turns.
  *
  * The apps are read from the database and from what is on disk, so an app the
- * database cannot list is still found. Apps are not spaced out: every minute a
- * stalled node keeps one is a minute its standby waits.
+ * database cannot list is still found.
  * @param {Function} installedAppsFn
  * @param {Function} removeAppLocallyFn
  */
@@ -124,18 +140,17 @@ async function unloadForHostStall(installedAppsFn, removeAppLocallyFn) {
     const listed = await withinDeadline(installedAppsFn(), REMOVAL_DEADLINE_MS).catch(() => null);
     const installed = listed?.status === 'success' ? listed.data.map((app) => app.name) : [];
     const names = [...new Set([...installed, ...await appKill.appsOnDisk()])];
-    const canBroadcast = nodeConfirmationService.canSendMessages();
+    log.warn(`monitorNodeStatus - host stall: stopping ${names.length} applications, ${STOP_WINDOW_MS / 1000}s between them`);
+    await withinDeadline(Promise.allSettled(names.map(stopApp)), STOP_WINDOW_MS);
+
+    const stopped = new Map();
     // eslint-disable-next-line no-restricted-syntax
     for (const name of names) {
-      log.warn(`monitorNodeStatus - Application ${name} going to be removed: host stall`);
-      // eslint-disable-next-line no-await-in-loop
-      const outcome = await removeWithinDeadline(removeAppLocallyFn, name, canBroadcast)
-        .catch(() => RemovalOutcome.FAILED);
       // eslint-disable-next-line no-await-in-loop
       let runnable = await appKill.stillRunnable(name);
       const killed = runnable.length > 0;
       if (killed) {
-        log.error(`monitorNodeStatus - Application ${name} still runs after its removal (${outcome}), killing it`);
+        log.error(`monitorNodeStatus - Application ${name} still runs after being asked to stop, killing it`);
         // eslint-disable-next-line no-await-in-loop
         await appKill.kill(name);
         // eslint-disable-next-line no-await-in-loop
@@ -145,10 +160,25 @@ async function unloadForHostStall(installedAppsFn, removeAppLocallyFn) {
         } else {
           log.warn(`monitorNodeStatus - Application ${name} can no longer run`);
         }
-      } else if (outcome !== RemovalOutcome.REMOVED && outcome !== RemovalOutcome.NOT_INSTALLED) {
+      }
+      stopped.set(name, { killed, runnable });
+    }
+    // runnable: the processes of each app that can still run its code, empty when none can
+    fluxEventBus.publish('hostStall:appsStopped', {
+      apps: names.map((name) => ({ app: name, ...stopped.get(name) })),
+    });
+
+    const canBroadcast = nodeConfirmationService.canSendMessages();
+    // eslint-disable-next-line no-restricted-syntax
+    for (const name of names) {
+      log.warn(`monitorNodeStatus - Application ${name} going to be removed: host stall`);
+      // eslint-disable-next-line no-await-in-loop
+      const outcome = await removeWithinDeadline(removeAppLocallyFn, name, canBroadcast)
+        .catch(() => RemovalOutcome.FAILED);
+      const { killed, runnable } = stopped.get(name);
+      if (!runnable.length && outcome !== RemovalOutcome.REMOVED && outcome !== RemovalOutcome.NOT_INSTALLED) {
         log.warn(`monitorNodeStatus - Application ${name} was not removed (${outcome}), and can no longer run`);
       }
-      // runnable: the processes of the app that can still run its code, empty when none can
       fluxEventBus.publish('hostStall:appUnloaded', {
         app: name, removal: outcome, killed, runnable,
       });

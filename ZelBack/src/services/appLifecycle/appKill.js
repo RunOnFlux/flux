@@ -94,6 +94,15 @@ async function containersOnDisk() {
 }
 
 /**
+ * The names of the app's containers, read from docker's records on disk.
+ * @param {string} appName
+ * @returns {Promise<string[]>}
+ */
+async function containersOf(appName) {
+  return (await containersOnDisk()).filter(({ name }) => belongsTo(name, appName)).map(({ name }) => name);
+}
+
+/**
  * The scope units of the app's containers, whether in its slice or not.
  * @param {string} appName
  * @returns {Promise<string[]>}
@@ -196,6 +205,7 @@ function reset() {
 }
 
 module.exports = {
+  containersOf,
   kill,
   stillRunnable,
   appsOnDisk,

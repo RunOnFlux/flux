@@ -42,10 +42,14 @@ module.exports = {
   },
   // A thread of a process FluxOS depends on that stays in the kernel without
   // running for one interval holds the node back from new placements, and for
-  // stuckIntervals intervals takes it out of service until it reboots.
+  // stuckIntervals intervals takes it out of service until it reboots. Its apps
+  // are then asked to stop all at once, and whatever of them can still run after
+  // stopWindowMs is killed: longer than the slowest removal of a component seen on
+  // the fleet (39 s), which stops it first.
   hostStall: {
     readIntervalMs: 5 * 60 * 1000,
     stuckIntervals: 6,
+    stopWindowMs: 60 * 1000,
   },
   database: {
     url: '127.0.0.1',
