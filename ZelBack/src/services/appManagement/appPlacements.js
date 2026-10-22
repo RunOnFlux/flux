@@ -12,9 +12,12 @@ const fluxEventBus = require('../utils/fluxEventBus');
 //
 // The announcer reads runningSince from here and nowhere else, because the
 // network's copy of this node's own location rows lapses in normal running -
-// expiry, eviction, sigterm - while the app goes on running. A record outliving
-// its app is never read: only an installed app's record is, and a hard install
-// overwrites whatever it finds.
+// expiry, eviction, sigterm - while the app goes on running.
+//
+// A record outlives its app only when a soft redeploy removes the app and its
+// reinstall does not happen: the volume is left on disk and the record with it,
+// until boot removes records of apps not installed. Only an installed app's record
+// is read, and the app returns only through a hard install, which overwrites it.
 //
 // Kept apart from the app's specification in appsInformation: a spec update
 // deletes and re-inserts that, and this record must outlive it.
