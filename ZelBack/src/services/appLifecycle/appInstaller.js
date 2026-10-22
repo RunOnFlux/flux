@@ -34,7 +34,7 @@ const mountParser = require('../utils/mountParser');
 const { ensureStignoreCovers } = require('../appSystem/syncthingIgnorePolicy');
 const { findCommonArchitectures } = require('../utils/appUtilities');
 const log = require('../../lib/log');
-const { localAppsInformation, scannedHeightCollection } = require('../utils/appConstants');
+const { localAppsInformation } = require('../utils/appConstants');
 const appPlacements = require('../appManagement/appPlacements');
 const messageVerifier = require('../appMessaging/messageVerifier');
 const { availableApps, getApplicationGlobalSpecifications } = require('../appDatabase/registryManager');
@@ -1089,25 +1089,13 @@ async function installAppLocally(req, res) {
         appSpecifications.hash = hash;
       }
 
-      // get current height
-      const dbopen = dbHelper.databaseConnection();
-      if (!appSpecifications.height && appSpecifications.height !== 0) {
-        // A specification without a height runs for ownerAppAllowance blocks from now.
-        const database = dbopen.db(config.database.daemon.database);
-        const query = { generalScannedHeight: { $gte: 0 } };
-        const projection = {
-          projection: {
-            _id: 0,
-            generalScannedHeight: 1,
-          },
-        };
-        const result = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
-        if (!result) {
-          throw new Error('Scanning not initiated');
-        }
-        const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
-        appSpecifications.height = explorerHeight - config.fluxapps.blocksLasting + config.fluxapps.ownerAppAllowance;
+      // An app's term runs from the height its payment was mined at, and the
+      // expiry sweep removes it when the term ends. A specification without one
+      // has no term to run, so it is not installed.
+      if (appSpecifications.height === undefined || appSpecifications.height === null) {
+        throw new Error(`Application Specifications of ${appname} carry no height`);
       }
+      const dbopen = dbHelper.databaseConnection();
 
       const appsDatabase = dbopen.db(config.database.appslocal.database);
       const appsQuery = {}; // all

@@ -87,8 +87,6 @@ describe('appInstaller tests', () => {
       fluxapps: {
         blocksLasting: 22000,
         latestAppSpecification: 1,
-        ownerAppAllowance: 100,
-        temporaryAppAllowance: 200,
         maxImageSize: 10000000000,
       },
     };
@@ -523,6 +521,42 @@ describe('appInstaller tests', () => {
       expect(res.json.calledOnce).to.be.true;
       expect(res.json.firstCall.args[0].data.message).to.equal('Application Specifications of a1b2c3hash not found');
       expect(hwRequirementsStub.checkAppHWRequirements.called, 'nothing is installed').to.be.false;
+    });
+
+    // An app's term runs from the height its payment was mined at; one without a
+    // height has no term, and nothing would ever expire it.
+    it('refuses a specification that carries no height', async () => {
+      const req = { params: { appname: 'noheightapp' }, query: {} };
+      const res = { json: sinon.stub(), setHeader: sinon.stub(), write: sinon.stub(), end: sinon.stub(), writableEnded: false };
+
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(true);
+      baseStubs['../appDatabase/registryManager'].availableApps.resolves([{ name: 'noheightapp', version: 3, owner: 'someone' }]);
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+      dbHelperStub.findInDatabase.resolves([]);
+      messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
+
+      await appInstaller.installAppLocally(req, res);
+
+      expect(res.json.calledOnce).to.be.true;
+      expect(res.json.firstCall.args[0].data.message).to.equal('Application Specifications of noheightapp carry no height');
+      expect(hwRequirementsStub.checkAppHWRequirements.called, 'nothing is installed').to.be.false;
+      expect(dbHelperStub.insertOneToDatabase.called, 'nothing is installed').to.be.false;
+    });
+
+    it('installs a permanent-lasting local app, whose height is zero', async () => {
+      const req = { params: { appname: 'foreverapp' }, query: {} };
+      const res = { json: sinon.stub(), setHeader: sinon.stub(), write: sinon.stub(), end: sinon.stub(), writableEnded: false };
+
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(true);
+      baseStubs['../appDatabase/registryManager'].availableApps.resolves([{ name: 'foreverapp', version: 3, owner: 'someone', height: 0 }]);
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+      dbHelperStub.findInDatabase.resolves([]);
+      hwRequirementsStub.checkAppHWRequirements.rejects(new Error('stop here'));
+      messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
+
+      await appInstaller.installAppLocally(req, res);
+
+      expect(hwRequirementsStub.checkAppHWRequirements.calledOnce, 'a height of zero was refused').to.be.true;
     });
 
     it('installs a permanent message with the hash and height the message carries', async () => {
