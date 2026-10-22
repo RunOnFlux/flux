@@ -18,9 +18,10 @@
  * watched leaving it alone. The plain app is decided as soon as the database
  * answers: it is the canary that the announcement and the decisions run at all.
  *
- * Every app asks for as many instances as the fleet has nodes and is on every node
- * before the holder goes down, so none is placed anew while the holder is away. A
- * standby may take over the mixed app's active-standby component in that time.
+ * Every app asks for as many instances as the fleet has nodes and is installed on
+ * every node, the holder first so it is the mixed app's primary, before the holder
+ * goes down: none is placed anew while the holder is away. A standby may take over
+ * the mixed app's active-standby component in that time.
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
@@ -183,6 +184,11 @@ describe('boot holds an app whose location it cannot read', function () {
     await waitFor(async () => (await Promise.all([db, web, plain, lapsed].map(isUp))).every(Boolean), {
       timeout: 300000, interval: 3000, label: 'every app runs on the holder, the mixed app\'s db as its primary',
     });
+    const peers = [...Array(NODES).keys()].filter((i) => i !== HOLDER);
+    for (const app of apps) {
+      // eslint-disable-next-line no-await-in-loop
+      await installOnNodes(env, app, peers);
+    }
     await waitFor(async () => (await Promise.all([mixedApp, plainApp, lapsedApp].map((appName) => installedInstanceIndices(env, appName))))
       .every((holders) => holders.length === NODES), {
       timeout: 300000, interval: 5000, label: 'every app is on every node',
