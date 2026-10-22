@@ -10,6 +10,7 @@ import {
 import {
   clearNodeAddress, clearRpcFailures, failRpc, getJournal, holdRpc, releaseRpc, setNodeAddress,
 } from '../framework/daemon-control.js';
+import { askToBeDialed } from '../framework/peer-topology.js';
 import { waitFor } from '../framework/wait.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
@@ -27,8 +28,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // events and reads the list.
 //
 // Node 1 runs no app, so a peer that hears its move once the chain lists it at
-// the new address only has nothing to prove the move by, and drops it. Its
-// confirmation is held after it is back until the bystander holds the move.
+// the new address only has nothing to prove the move by, and drops it. Once it
+// is back its confirmation is held, and it is asked to dial the bystander, until
+// the bystander holds the move.
 
 const REFUSED = 0;
 const CRASHED = 1;
@@ -140,7 +142,14 @@ describe('a move a failure or a crash interrupted is finished once', function ()
     // The daemon knows a node by the address its calls come from.
     holding.push(toIp);
     await holdRpc(toIp, 'createconfirmationtransaction');
+    const bystander = client(BYSTANDER);
+    const peeredAnchor = bystander.getLastEventId();
     await releaseFluxos(node.container);
+    // A node tells its move to each peer as it connects.
+    await waitFor(async () => askToBeDialed(bystander, node, API_PORT).then(() => true, () => false), {
+      timeout: 180000, interval: 5000, label: `node ${CRASHED} takes the bystander's ask to be dialed`,
+    });
+    await bystander.waitForEvent('peers:added', (d) => d.ip === toIp, 120000, { afterId: peeredAnchor });
 
     await bystanderHolds(CRASHED, addresses);
     expect(await listedAt(pubkey), 'fixture: the bystander heard the move with the chain listing the old address').to.equal(addresses.from);
