@@ -2575,6 +2575,111 @@ describe('fluxCommunication tests', () => {
       });
     });
 
+    // A call that throws part way through a message loses the rest of it, so the
+    // answer is not all recorded: the peer's request ends and another is asked,
+    // and the done that follows is not counted.
+    describe('a response whose calls threw', () => {
+      let writeFailures;
+      let verdict;
+      const onWriteFailed = (peerKey) => writeFailures.push(peerKey);
+      const envelope = () => ({ version: 1, timestamp: Date.now(), pubKey: '04key', signature: 'sig' });
+      const broadcast = () => ({ ...envelope(), data: { ip: '1.2.3.4:16127', name: 'a', broadcastedAt: Date.now() } });
+      const running = () => ({
+        type: 'apprunning', envelope: envelope(), data: { version: 2, ip: '1.2.3.4:16127', broadcastedAt: Date.now(), apps: [{ name: 'a' }] },
+      });
+      const sigterm = () => ({ type: 'sigterm', envelope: envelope(), data: { ip: '1.2.3.4:16127', broadcastedAt: Date.now() } });
+      const respond = (handler, type, messages, done) => fluxCommunication[handler]({ data: { type, messages, done } }, PEER_SOCKET);
+
+      beforeEach(() => {
+        writeFailures = [];
+        verdict = fluxCommunicationUtils.VerifyResult.OK;
+        appSyncEvents.on(SYNC_EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, onWriteFailed);
+        sinon.stub(fluxCommunicationUtils, 'verifyBroadcasts').callsFake(async (items) => items.map(() => ({ result: verdict })));
+        sinon.stub(messageStore, 'storeBatchAppRunningMessages').resolves({ stored: 1, writeFailed: false });
+        sinon.stub(messageStore, 'storeBatchAppInstallingMessages').resolves({ stored: 1, writeFailed: false });
+        sinon.stub(messageStore, 'storeBatchAppInstallingErrorMessages').resolves({ stored: 1, writeFailed: false });
+        sinon.stub(messageStore, 'storeAppStateEvent').resolves();
+        sinon.stub(messageStore, 'expireLocationsForSigterm').resolves();
+      });
+
+      afterEach(() => {
+        appSyncEvents.removeListener(SYNC_EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, onWriteFailed);
+      });
+
+      [
+        ['appinstalling', 'handleAppInstallingSyncResponse', 'fluxappinstallingsync', broadcast],
+        ['apperrors', 'handleAppInstallingErrorsSyncResponse', 'fluxappinstallingerrorssync', broadcast],
+        ['apprunning', 'handleAppRunningSyncResponse', 'fluxapprunningsync', running],
+      ].forEach(([syncType, handler, type, event]) => {
+        it(`ends the ${syncType} request when a broadcast it sent cannot be verified for want of the database`, async () => {
+          verdict = fluxCommunicationUtils.VerifyResult.UNREADABLE;
+
+          await respond(handler, type, [event()], true);
+
+          expect(writeFailures, 'a response the node could not verify left the request open').to.deep.equal([PEER]);
+          expect(completions, 'a response the node could not verify was counted').to.deep.equal([]);
+        });
+
+        it(`a canary: the same ${syncType} response verified and stored is counted`, async () => {
+          await respond(handler, type, [event()], true);
+
+          expect(writeFailures).to.deep.equal([]);
+          expect(completions).to.deep.equal([{ syncType, peerKey: PEER }]);
+        });
+      });
+
+      it('ends the appinstalling request when its store throws', async () => {
+        messageStore.storeBatchAppInstallingMessages.rejects(new Error('operation exceeded time limit'));
+
+        await respond('handleAppInstallingSyncResponse', 'fluxappinstallingsync', [broadcast()], true);
+
+        expect(writeFailures).to.deep.equal([PEER]);
+        expect(completions).to.deep.equal([]);
+      });
+
+      it('ends the apprunning request when pruning its locations throws', async () => {
+        messageStore.pruneAppRunningLocations.rejects(new Error('operation exceeded time limit'));
+
+        await respond('handleAppRunningSyncResponse', 'fluxapprunningsync', [running()], true);
+
+        expect(messageStore.pruneAppRunningLocations.called, 'the fixture never reached the prune').to.be.true;
+        expect(writeFailures).to.deep.equal([PEER]);
+        expect(completions).to.deep.equal([]);
+      });
+
+      it('ends the apprunning request when storing a state event throws', async () => {
+        messageStore.storeAppStateEvent.rejects(new Error('operation exceeded time limit'));
+
+        await respond('handleAppRunningSyncResponse', 'fluxapprunningsync', [running(), sigterm()], true);
+
+        expect(messageStore.storeAppStateEvent.called, 'the fixture never reached the state event').to.be.true;
+        expect(writeFailures).to.deep.equal([PEER]);
+        expect(completions).to.deep.equal([]);
+      });
+
+      it('a canary: the same apprunning response with its state event stored is counted', async () => {
+        await respond('handleAppRunningSyncResponse', 'fluxapprunningsync', [running(), sigterm()], true);
+
+        expect(messageStore.storeAppStateEvent.called, 'the fixture never reached the state event').to.be.true;
+        expect(writeFailures).to.deep.equal([]);
+        expect(completions).to.deep.equal([{ syncType: 'apprunning', peerKey: PEER }]);
+      });
+
+      // The request this answer belonged to ended while it was being stored - the
+      // peer reconnected and was asked again - so a failure here ends nothing.
+      it('ends nothing when the request it answered has already ended', async () => {
+        messageStore.storeBatchAppInstallingMessages.callsFake(async () => {
+          wanted = () => false;
+          throw new Error('operation exceeded time limit');
+        });
+
+        await respond('handleAppInstallingSyncResponse', 'fluxappinstallingsync', [broadcast()], true);
+
+        expect(messageStore.storeBatchAppInstallingMessages.called, 'the fixture never reached the store').to.be.true;
+        expect(writeFailures, 'a failure ended a request it did not belong to').to.deep.equal([]);
+      });
+    });
+
     describe('a chunk takes its place in the queue when it arrives', () => {
       const chunkFor = (marker) => ({
         data: { type: 'fluxapprunningsync', messages: [{ marker }], done: false },

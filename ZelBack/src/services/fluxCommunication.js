@@ -150,6 +150,20 @@ async function handleTempSyncResponse(message, peerSocket) {
   }
 }
 
+/**
+ * Ends the request of a peer whose sync response threw part way: what it sent is
+ * not all recorded, so another peer is asked, and the rest of its answer is not
+ * read. A peer whose response this node no longer wants has no request to end.
+ * @param {{key: string, connectionId?: number}} peerSocket
+ * @param {string} handler Names the handler in the log.
+ * @returns {void}
+ */
+function endUnrecordedRequest(peerSocket, handler) {
+  if (!peerManager.isSyncResponseWanted(peerSocket)) return;
+  log.warn(`${handler} - the response was not all recorded, ending ${peerSocket.key}'s request`);
+  appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, peerSocket.key);
+}
+
 async function handleAppRunningSyncResponse(message, peerSocket) {
   try {
     if (!message.data || message.data.type !== 'fluxapprunningsync') return;
@@ -280,6 +294,7 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
     }
   } catch (error) {
     log.error(error);
+    endUnrecordedRequest(peerSocket, 'handleAppRunningSyncResponse');
   }
 }
 
@@ -319,6 +334,7 @@ async function handleAppInstallingSyncResponse(message, peerSocket) {
     }
   } catch (error) {
     log.error(error);
+    endUnrecordedRequest(peerSocket, 'handleAppInstallingSyncResponse');
   }
 }
 
@@ -358,6 +374,7 @@ async function handleAppInstallingErrorsSyncResponse(message, peerSocket) {
     }
   } catch (error) {
     log.error(error);
+    endUnrecordedRequest(peerSocket, 'handleAppInstallingErrorsSyncResponse');
   }
 }
 
