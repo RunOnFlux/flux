@@ -1,15 +1,21 @@
 [Unit]
-Description=Inner Docker daemon (harness node, systemd mode)
+Description=Inner Docker daemon (harness node)
 After=network.target
+# Restarted as often as a suite asks: a test that restarts it repeatedly is not a
+# unit failing.
+StartLimitIntervalSec=0
 
 [Service]
 ExecStartPre=/bin/rm -f /var/run/docker.pid
-# No flags: /etc/docker/daemon.json (written by the entrypoint's systemd
-# branch) owns the configuration — dockerd refuses the same directive from
+# No flags: /etc/docker/daemon.json (written by the entrypoint) owns the
+# configuration — dockerd refuses the same directive from
 # both a flag and the file.
 ExecStart=/usr/bin/dockerd
 Restart=always
 RestartSec=1
+# The node's output stream, where the harness reads the unit's lines (entrypoint.sh).
+StandardOutput=append:/var/lib/flux-harness/stream
+StandardError=inherit
 Delegate=yes
 LimitNOFILE=1048576
 

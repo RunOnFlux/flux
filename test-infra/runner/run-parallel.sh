@@ -145,7 +145,7 @@ if [ "$ino_now" -lt "$INOTIFY_MIN" ]; then
   ino_now=$(sysctl -n fs.inotify.max_user_instances 2>/dev/null || echo 0)
   if [ "$ino_now" -lt "$INOTIFY_MIN" ]; then
     abort 94 "###ABORT inotify instance pool too small (max_user_instances=$ino_now < $INOTIFY_MIN) and could not raise it." \
-             "Every systemd-mode node needs one and the pool is host-wide, so a gate on this host" \
+             "Every node's systemd needs one and the pool is host-wide, so a gate on this host" \
              "produces silent exit-255 boot deaths by design." \
              "Raise it for the run:  sudo sysctl -w fs.inotify.max_user_instances=$INOTIFY_MIN" \
              "Or lower the bar deliberately with E2E_INOTIFY_MAX_USER_INSTANCES."

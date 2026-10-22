@@ -4,7 +4,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import {
-  execInContainer, getAppContainerStatus, crashFluxos, releaseFluxos,
+  execInContainer, getAppContainerStatus, crashFluxos, releaseFluxos, fluxosPid,
 } from '../framework/container.js';
 import {
   waitFor, waitForUp, waitForDown, waitForOperatorIntent, waitForBootSettled, assertNoEvent,
@@ -54,10 +54,6 @@ function step(what) {
   console.log(`# 3301 ${new Date().toISOString()} ${what}`);
 }
 
-async function fluxosPid(client) {
-  return Number((await execInContainer(client.container, 'cat /tmp/fluxos.pid')).stdout.trim());
-}
-
 describe('a database that stops answering takes nothing down', function () {
   let env;
   dumpLogsOnFailure(() => env);
@@ -103,7 +99,7 @@ describe('a database that stops answering takes nothing down', function () {
     before(async function () {
       this.timeout(HOLD_MS + 120000);
       step('reading the FluxOS pids');
-      pidsBefore = await Promise.all(env.clients.map(fluxosPid));
+      pidsBefore = await Promise.all(env.clients.map((c) => fluxosPid(c.container)));
       anchors = env.clients.map((client) => client.getLastEventId());
       step('holding the commands');
       await holdCommands(HOLD_MS);
@@ -137,7 +133,7 @@ describe('a database that stops answering takes nothing down', function () {
     });
 
     it('keeps every FluxOS process it had', async function () {
-      const pidsAfter = await Promise.all(env.clients.map(fluxosPid));
+      const pidsAfter = await Promise.all(env.clients.map((c) => fluxosPid(c.container)));
       expect(pidsAfter, 'a node\'s FluxOS exited during the hold').to.deep.equal(pidsBefore);
     });
 

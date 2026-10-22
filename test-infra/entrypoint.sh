@@ -194,7 +194,7 @@ if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
 fi
 
 # Syncthing listens on apiport+2 in production. The availability checker tests
-# that port. In systemd mode the stub forward runs as a unit instead
+# that port. Against the stub, the forward to it runs as a unit
 # (syncthing-forward.service), so systemd supervises it like everything else.
 SYNCTHING_LISTEN_PORT=$((${FLUX_API_PORT:-16127} + 2))
 if [ "$FLUX_SYNCTHING_MODE" = "binary" ]; then
@@ -225,8 +225,6 @@ if [ "$FLUX_SYNCTHING_MODE" = "binary" ]; then
     # the flags a real Arcane node is supervised with, read off a live one
     /flux/test-infra/start-syncthing.sh
   fi
-elif [ -n "$FLUX_SYNCTHING_HOST" ] && [ "$FLUX_SYSTEMD_MODE" != "true" ]; then
-  socat TCP-LISTEN:${SYNCTHING_LISTEN_PORT},fork,reuseaddr TCP:${FLUX_SYNCTHING_HOST}:${FLUX_SYNCTHING_PORT:-8384} &
 fi
 
 # Trust test registry CA for dockerd (Node.js uses NODE_EXTRA_CA_CERTS directly).
@@ -245,234 +243,122 @@ if [ -n "$FLUX_BOOT_ID" ]; then
   echo "$FLUX_BOOT_ID" > /tmp/flux-boot-id
 fi
 
-# ── systemd mode (opt-in) ──────────────────────────────────────────────────
-# The node runs a real systemd as PID 1: dockerd and fluxos become units, as
-# they are on a production host, and anything FluxOS manages through systemctl
-# behaves as it does there. Everything below this block is the default path
-# and is unreachable in this mode; the fault-injection lever that lives there
-# (/tmp/fluxos.pid — restartFluxos) does not exist under systemd, and
-# framework/systemd-control.js holds the equivalents.
-if [ "$FLUX_SYSTEMD_MODE" = "true" ]; then
+# ── systemd ────────────────────────────────────────────────────────────────
+# The node runs a real systemd as PID 1, as a production host does: dockerd and
+# FluxOS are units, anything FluxOS manages through systemctl behaves as it does
+# there, and Docker places containers through systemd's cgroup driver.
 
-  # The Ubuntu base image's policy-rc.d refuses every service start a package
-  # install asks for. A host has none, so a package installed here starts its
-  # service as it does on a node.
-  rm -f /usr/sbin/policy-rc.d
+# The Ubuntu base image's policy-rc.d refuses every service start a package
+# install asks for. A host has none, so a package installed here starts its
+# service as it does on a node.
+rm -f /usr/sbin/policy-rc.d
 
-  # Container env does not cross into systemd services (the manager
-  # environment arrives empty), so dump it for the
-  # units' EnvironmentFile. node writes C-style-quoted values, which keeps
-  # NODE_CONFIG's embedded JSON quoting intact.
-  node -e '
-    const fs = require("fs");
-    const skip = new Set(["PATH", "HOSTNAME", "HOME", "PWD", "OLDPWD", "SHLVL", "TERM", "SHELL", "_", "DEBIAN_FRONTEND", "LS_COLORS"]);
-    const lines = Object.entries(process.env)
-      .filter(([k]) => !skip.has(k))
-      .map(([k, v]) => `${k}=${JSON.stringify(v)}`);
-    fs.writeFileSync("/etc/fluxos-harness.env", lines.join("\n") + "\n");
-  '
+# Container env does not cross into systemd services (the manager
+# environment arrives empty), so dump it for the
+# units' EnvironmentFile. node writes C-style-quoted values, which keeps
+# NODE_CONFIG's embedded JSON quoting intact.
+node -e '
+  const fs = require("fs");
+  const skip = new Set(["PATH", "HOSTNAME", "HOME", "PWD", "OLDPWD", "SHLVL", "TERM", "SHELL", "_", "DEBIAN_FRONTEND", "LS_COLORS"]);
+  const lines = Object.entries(process.env)
+    .filter(([k]) => !skip.has(k))
+    .map(([k, v]) => `${k}=${JSON.stringify(v)}`);
+  fs.writeFileSync("/etc/fluxos-harness.env", lines.join("\n") + "\n");
+'
 
-  cp /flux/test-infra/systemd/*.service /etc/systemd/system/
-  mkdir -p /etc/systemd/system/multi-user.target.wants
-  ln -sf /etc/systemd/system/dockerd.service /etc/systemd/system/multi-user.target.wants/dockerd.service
+cp /flux/test-infra/systemd/*.service /etc/systemd/system/
+mkdir -p /etc/systemd/system/multi-user.target.wants
+for unit in dockerd flux-node-network; do
+  ln -sf "/etc/systemd/system/$unit.service" "/etc/systemd/system/multi-user.target.wants/$unit.service"
+done
+# A legacy node the multitool installed runs FluxOS under pm2 as the operator's
+# account (pm2-fluxuser.service); every other node runs the fluxos unit.
+if [ "$FLUX_PM2" = "1" ]; then
+  for unit in pm2-fluxuser flux-pm2-logs; do
+    ln -sf "/etc/systemd/system/$unit.service" "/etc/systemd/system/multi-user.target.wants/$unit.service"
+  done
+else
   ln -sf /etc/systemd/system/fluxos.service /etc/systemd/system/multi-user.target.wants/fluxos.service
-  # An unprivileged node runs FluxOS as the operator's account, as an operator's own
-  # install does; systemd gives the service that account's HOME, from which a legacy
-  # node derives its flux directory. The apps folder is the account's, and nothing
-  # else changes hands, as in the default mode below.
-  if [ -n "$FLUX_FLUXOS_USER" ]; then
-    mkdir -p /etc/systemd/system/fluxos.service.d
-    printf '[Service]\nUser=%s\n' "$FLUX_FLUXOS_USER" > /etc/systemd/system/fluxos.service.d/user.conf
-    chown "$(id -u "$FLUX_FLUXOS_USER"):$(id -g "$FLUX_FLUXOS_USER")" "${FLUX_APPS_FOLDER:-/mnt/appdata/flux-apps}"
-  fi
-  if [ -n "$FLUX_SYNCTHING_HOST" ]; then
-    ln -sf /etc/systemd/system/syncthing-forward.service /etc/systemd/system/multi-user.target.wants/syncthing-forward.service
-  fi
+fi
 
-  # Container hygiene: kernel modules cannot be loaded here, and a tmpfs
-  # over /tmp would shadow the harness's /tmp/flux-boot-config bind mount.
-  # kernel.*, fs.*, vm.* and binfmt_misc are the host's, not the container's,
-  # and a privileged node can write them: systemd-sysctl and systemd-binfmt
-  # would apply the image's settings to the shared runner host.
-  ln -sf /dev/null /etc/systemd/system/systemd-modules-load.service
-  ln -sf /dev/null /etc/systemd/system/systemd-sysctl.service
-  ln -sf /dev/null /etc/systemd/system/systemd-binfmt.service
-  ln -sf /dev/null /etc/systemd/system/tmp.mount
+# The node's output: dockerd's, FluxOS's and the network setup's lines go to the
+# container's own stream, where the harness reads them, through this FIFO. Its
+# reader is started here so it holds the container's stdout; opened read-write, it
+# never sees an end of file when a writer stops.
+mkdir -p /var/lib/flux-harness
+rm -f /var/lib/flux-harness/stream
+mkfifo /var/lib/flux-harness/stream
+cat 0<>/var/lib/flux-harness/stream &
+# An unprivileged node runs FluxOS as the operator's account, as an operator's own
+# install does; systemd gives the service that account's HOME, from which a legacy
+# node derives its flux directory. The apps folder is the account's, and nothing
+# else changes hands.
+if [ -n "$FLUX_FLUXOS_USER" ]; then
+  mkdir -p /etc/systemd/system/fluxos.service.d
+  printf '[Service]\nUser=%s\n' "$FLUX_FLUXOS_USER" > /etc/systemd/system/fluxos.service.d/user.conf
+  chown "$(id -u "$FLUX_FLUXOS_USER"):$(id -g "$FLUX_FLUXOS_USER")" "${FLUX_APPS_FOLDER:-/mnt/appdata/flux-apps}"
+fi
+if [ -n "$FLUX_SYNCTHING_HOST" ]; then
+  ln -sf /etc/systemd/system/syncthing-forward.service /etc/systemd/system/multi-user.target.wants/syncthing-forward.service
+fi
 
-  # docker-ce's packaged containerd.service would boot under systemd and
-  # dockerd then prefers it — with its snapshotter on the overlayfs root
-  # (EINVAL on overlay-on-overlay). Masked, dockerd spawns its own
-  # containerd under the data-root, exactly like the default mode.
-  ln -sf /dev/null /etc/systemd/system/containerd.service
+# Container hygiene: kernel modules cannot be loaded here, and a tmpfs
+# over /tmp would shadow the harness's /tmp/flux-boot-config bind mount.
+# kernel.*, fs.*, vm.* and binfmt_misc are the host's, not the container's,
+# and a privileged node can write them: systemd-sysctl and systemd-binfmt
+# would apply the image's settings to the shared runner host.
+ln -sf /dev/null /etc/systemd/system/systemd-modules-load.service
+ln -sf /dev/null /etc/systemd/system/systemd-sysctl.service
+ln -sf /dev/null /etc/systemd/system/systemd-binfmt.service
+ln -sf /dev/null /etc/systemd/system/tmp.mount
 
-  # docker-ce's own docker.service and docker.socket start a second dockerd on
-  # the same daemon.json. It takes the volume store's lock, then waits for the
-  # masked containerd, and dockerd.service can never open the store. Masked,
-  # dockerd.service is the node's only daemon.
-  ln -sf /dev/null /etc/systemd/system/docker.service
-  ln -sf /dev/null /etc/systemd/system/docker.socket
+# docker-ce's packaged containerd.service would boot under systemd and
+# dockerd then prefers it — with its snapshotter on the overlayfs root
+# (EINVAL on overlay-on-overlay). Masked, dockerd spawns its own
+# containerd under the data-root.
+ln -sf /dev/null /etc/systemd/system/containerd.service
 
-  # The default mode's data-root, in the file the dockerd unit reads its
-  # configuration from.
-  mkdir -p /etc/docker
-  cat > /etc/docker/daemon.json <<EOF
+# docker-ce's own docker.service and docker.socket start a second dockerd on
+# the same daemon.json. It takes the volume store's lock, then waits for the
+# masked containerd, and dockerd.service can never open the store. Masked,
+# dockerd.service is the node's only daemon.
+ln -sf /dev/null /etc/systemd/system/docker.service
+ln -sf /dev/null /etc/systemd/system/docker.socket
+
+# The data-root, in the file the dockerd unit reads its configuration from.
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json <<EOF
 {
   "data-root": "/mnt/appdata/docker"
 }
 EOF
 
-  # The handoff marker. Everything above runs as PID 1's shell, whose output IS the
-  # container's stdout; everything after it belongs to systemd, whose output is not.
-  # So a container that died with this line in `docker logs` failed under systemd (read
-  # its journal), and one that died WITHOUT it failed in the setup above, where the
-  # failing command's own stderr is the diagnosis.
-  # systemd's FIRST act is to create an inotify instance to watch cgroups, and
-  # fs.inotify.max_user_instances is a PER-UID, HOST-WIDE pool that every container
-  # on the box draws from as root. Exhaust it and systemd cannot allocate its manager
-  # object and PID 1 exits 255 — having written the reason to /dev/console, which a
-  # container without a TTY does not have. That is total silence: no docker logs, no
-  # journal (journald never started), nothing.
-  #
-  # So ask the question here, where the answer can be printed. node is in this image;
-  # fs.watch allocates exactly the resource systemd is about to need.
-  if ! node -e 'const w=require("fs").watch("/tmp",()=>{}); w.close();' 2>/dev/null; then
-    echo "[entrypoint] FATAL: cannot allocate an inotify instance — systemd will exit 255." >&2
-    echo "[entrypoint] fs.inotify.max_user_instances=$(cat /proc/sys/fs/inotify/max_user_instances 2>/dev/null) is a HOST-WIDE per-uid pool" >&2
-    echo "[entrypoint] shared by every container on this box. Raise it on the HOST, not here." >&2
-    exit 3
-  fi
-  echo "[entrypoint] setup complete, handing off to systemd as pid 1"
-  # journal-or-kmsg, not the default: systemd's own messages go to the journal once
-  # journald exists, and to the KERNEL RING BUFFER before it does — which is the exact
-  # window a boot failure happens in. The default target leaves that window writing to
-  # /dev/console, and a container without a TTY has none, so a systemd that dies before
-  # journald is completely mute. The fallback only fires when the journal is
-  # unavailable, so a healthy boot writes nothing to kmsg.
-  exec /lib/systemd/systemd --log-target=journal-or-kmsg
-fi
-
-# Start dockerd under a tiny watchdog so it is respawned if it exits. Production
-# nodes run dockerd under systemd (which restarts it); this mirrors that and lets
-# tests bounce dockerd (kill it) to exercise the reconciler's reconnect/orphan
-# recovery without bricking the node. node app.js stays PID 1 (via exec below).
-rm -f /var/run/docker.pid
-(
-  set +e
-  while true; do
-    rm -f /var/run/docker.pid
-    dockerd --data-root /mnt/appdata/docker
-    echo "dockerd exited (rc=$?), respawning in 1s" >&2
-    sleep 1
-  done
-) &
-
-TIMEOUT=30
-ELAPSED=0
-until docker info > /dev/null 2>&1; do
-  if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
-    echo "ERROR: dockerd failed to start within ${TIMEOUT}s" >&2
-    exit 1
-  fi
-  sleep 1
-  ELAPSED=$((ELAPSED + 1))
-done
-echo "dockerd is ready (took ${ELAPSED}s)"
-
-# A named network shape (test-infra/network-shapes.sh), declared per node by the
-# suite, built before FluxOS starts because a node reads its network at boot.
-# Built after dockerd is up, as a VPN comes up after docker on a host: dockerd
-# refuses to start when every private range it could give its bridge overlaps a
-# route, and the def1 split routes overlap them all. Not swallowed, for the
-# reason given for the default route: a shape that failed to build would leave a
-# plain static node answering for it.
-if [ -n "${FLUX_E2E_NETWORK_SHAPE:-}" ]; then
-  if ! /flux/test-infra/network-shapes.sh "$FLUX_E2E_NETWORK_SHAPE"; then
-    echo "ERROR: could not build network shape $FLUX_E2E_NETWORK_SHAPE" >&2
-    exit 1
-  fi
-fi
-
-# A global IPv6 address, declared per node by the suite (createTestEnv globalIpv6). It sits on
-# a device of its own with no IPv6 route beyond it, so the node holds a routable IPv6 address
-# as a dual-stack host does while every IPv6 connection fails at once (ENETUNREACH): an IPv6
-# that is configured and does not route. Independent of the network shape, and built before
-# FluxOS starts for the same reason.
-if [ -n "${FLUX_E2E_GLOBAL_IPV6:-}" ]; then
-  if ! { ip link add flux6 type dummy \
-      && sysctl -qw net.ipv6.conf.flux6.disable_ipv6=0 \
-      && ip link set flux6 up \
-      && ip -6 addr add "$FLUX_E2E_GLOBAL_IPV6/64" dev flux6 nodad; }; then
-    echo "ERROR: could not add the global IPv6 address $FLUX_E2E_GLOBAL_IPV6" >&2
-    exit 1
-  fi
-fi
-
-# WHO FLUXOS RUNS AS. Root unless the fleet names an account, which is the Arcane
-# node; named, it is the unprivileged install - FluxOS as the user the operator
-# installed it as, with passwordless sudo for everything privileged.
+# The handoff marker. Everything above runs as PID 1's shell, whose output IS the
+# container's stdout; after it, the units' lines reach that stdout only through the
+# stream FIFO, and systemd's own output does not reach it at all.
+# So a container that died with this line in `docker logs` failed under systemd (read
+# its journal), and one that died WITHOUT it failed in the setup above, where the
+# failing command's own stderr is the diagnosis.
+# systemd's FIRST act is to create an inotify instance to watch cgroups, and
+# fs.inotify.max_user_instances is a PER-UID, HOST-WIDE pool that every container
+# on the box draws from as root. Exhaust it and systemd cannot allocate its manager
+# object and PID 1 exits 255 — having written the reason to /dev/console, which a
+# container without a TTY does not have. That is total silence: no docker logs, no
+# journal (journald never started), nothing.
 #
-# What that account owns is decided here rather than in the image, because it is
-# per-node: the tree FluxOS writes into, its logs, and the apps folder, which on an
-# unprivileged node belongs to the operator. Nothing else changes hands - dockerd,
-# syncthing and every app volume stay root's, and that is what makes the node's own
-# reads refusable, exactly as a container's mount point is on a real node.
-#
-# setpriv rather than sudo: this node's environment IS its configuration, and sudo
-# rebuilds the environment it passes on. HOME travels with the account because a
-# legacy node derives its flux directory from it.
-if [ -n "$FLUX_FLUXOS_USER" ]; then
-  FLUXOS_UID="$(id -u "$FLUX_FLUXOS_USER")"
-  FLUXOS_GID="$(id -g "$FLUX_FLUXOS_USER")"
-  HOME="$(getent passwd "$FLUX_FLUXOS_USER" | cut -d: -f6)"
-  export HOME
-  # The apps folder only. The install itself already belongs to this account, from
-  # the image - a recursive chown of it here would copy the whole tree up into the
-  # overlay and outlast the node's readiness window.
-  chown "$FLUXOS_UID:$FLUXOS_GID" "${FLUX_APPS_FOLDER:-/mnt/appdata/flux-apps}"
-  set -- setpriv --reuid="$FLUXOS_UID" --regid="$FLUXOS_GID" --init-groups "$@"
+# So ask the question here, where the answer can be printed. node is in this image;
+# fs.watch allocates exactly the resource systemd is about to need.
+if ! node -e 'const w=require("fs").watch("/tmp",()=>{}); w.close();' 2>/dev/null; then
+  echo "[entrypoint] FATAL: cannot allocate an inotify instance — systemd will exit 255." >&2
+  echo "[entrypoint] fs.inotify.max_user_instances=$(cat /proc/sys/fs/inotify/max_user_instances 2>/dev/null) is a HOST-WIDE per-uid pool" >&2
+  echo "[entrypoint] shared by every container on this box. Raise it on the HOST, not here." >&2
+  exit 3
 fi
-
-# Run FluxOS (CMD ["node","app.js"]) under a respawn watchdog instead of exec'ing it
-# as PID 1. This mirrors the dockerd watchdog above and production's systemd: the
-# entrypoint shell stays PID 1 and node runs as a child, so a test can kill+respawn
-# the FluxOS process (restartFluxos) WITHOUT restarting the container or the inner
-# dockerd - the app containers keep running, exactly like `systemctl restart fluxos`.
-# The child PID is written to /tmp/fluxos.pid so a test kills only the node process,
-# never PID 1. A SIGTERM/SIGINT (docker stop at teardown) stops the child and exits.
-#
-# While /tmp/fluxos.hold exists the loop does not respawn: the node stays down
-# after FluxOS exits, as a machine does between a shutdown and its next boot,
-# and comes back once a test removes the file.
-# A legacy node the multitool installed: the pm2 daemon starts FluxOS through
-# start.sh, which runs npm start - npm install, then FluxOS - from the account's
-# home, with the flags the multitool gives it. The kill timeout is the fleet's
-# to choose; unset, pm2 uses its own default. There is no registry here, so npm
-# answers its install from the image's own. The entrypoint stays in the
-# foreground streaming pm2's logs, so FluxOS's output is the container's, and a
-# test stops and starts FluxOS through pm2 as an operator or the OS does.
-if [ "$FLUX_PM2" = "1" ]; then
-  export NPM_CONFIG_OFFLINE=true NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_UPDATE_NOTIFIER=false
-  cd "$HOME" || exit 1
-  pm2 start "$HOME/zelflux/start.sh" --name flux \
-    --max-memory-restart 1500M --restart-delay 30000 --max-restarts 40 --time \
-    ${FLUX_PM2_KILL_TIMEOUT_MS:+--kill-timeout "$FLUX_PM2_KILL_TIMEOUT_MS"} >/dev/null
-  trap 'pm2 kill >/dev/null 2>&1; exit 0' TERM INT
-  pm2 logs --raw --lines 0 &
-  wait $!
-  exit 0
-fi
-
-set +e
-STOPPING=0
-trap 'STOPPING=1; kill -TERM "$(cat /tmp/fluxos.pid 2>/dev/null)" 2>/dev/null' TERM INT
-while [ "$STOPPING" = "0" ]; do
-  "$@" &
-  FLUXOS_PID=$!
-  echo "$FLUXOS_PID" > /tmp/fluxos.pid
-  wait "$FLUXOS_PID"
-  [ "$STOPPING" = "1" ] && break
-  while [ -f /tmp/fluxos.hold ] && [ "$STOPPING" = "0" ]; do sleep 1; done
-  [ "$STOPPING" = "1" ] && break
-  echo "fluxos (node app.js) exited, respawning in 1s" >&2
-  sleep 1
-done
+echo "[entrypoint] setup complete, handing off to systemd as pid 1"
+# journal-or-kmsg, not the default: systemd's own messages go to the journal once
+# journald exists, and to the KERNEL RING BUFFER before it does — which is the exact
+# window a boot failure happens in. The default target leaves that window writing to
+# /dev/console, and a container without a TTY has none, so a systemd that dies before
+# journald is completely mute. The fallback only fires when the journal is
+# unavailable, so a healthy boot writes nothing to kmsg.
+exec /lib/systemd/systemd --log-target=journal-or-kmsg

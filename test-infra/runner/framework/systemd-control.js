@@ -1,10 +1,7 @@
-// Node control for systemd-mode nodes (createTestEnv({ systemdMode: true })).
-//
-// The default entrypoint's levers in container.js (restartFluxos,
-// restartDockerd) drive a shell watchdog that does not exist here: under systemd
-// FluxOS and dockerd are real units, so the equivalents are systemctl calls —
-// which is also how a production host does it, making these the more faithful
-// instruments of the two.
+// Node control through systemd, which every node runs as PID 1: FluxOS and dockerd
+// are units, controlled with systemctl as on a production host. container.js holds
+// the faults (a FluxOS killed outright, a dockerd killed); these are the orderly
+// stops and starts.
 //
 // The unit names mirror production: `fluxos` is the name an Arcane node's unit
 // carries.
@@ -83,8 +80,9 @@ export async function startFluxos(container, { apiPort = 16127, readyTimeoutMs =
 }
 
 /**
- * The systemd-mode restartFluxos: FluxOS's in-memory state is wiped while
- * dockerd and the app containers keep running. Observably down, then up.
+ * `systemctl restart fluxos`, as an operator runs it: FluxOS stops in order and
+ * starts again, its in-memory state wiped while dockerd and the app containers keep
+ * running. Observably down, then up.
  */
 export async function restartFluxos(container, opts = {}) {
   await stopFluxos(container, opts);

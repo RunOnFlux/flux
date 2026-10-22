@@ -368,10 +368,9 @@ class StaticIpContainer extends GenericContainer {
     return this;
   }
 
-  // Per-container stop signal (the image's STOPSIGNAL stays SIGTERM for the
-  // default entrypoint). systemd-mode nodes need SIGRTMIN+3: systemd as PID 1
-  // treats SIGTERM as a reexec request, so a plain docker stop would sit out
-  // the full kill timeout on every teardown.
+  // Per-container stop signal. A node needs SIGRTMIN+3: systemd as PID 1 treats
+  // SIGTERM as a reexec request, so a plain docker stop would sit out the full kill
+  // timeout on every teardown.
   withStopSignal(signal) {
     this.#stopSignal = signal;
     return this;
@@ -634,9 +633,8 @@ function makeEnvShell(networkName) {
       return [...byIndex.values()].sort((a, b) => a.index - b.index);
     },
 
-    // Each systemd-mode node's journal, read from the host copy, so a node whose
-    // container is already gone - one that never finished booting - still has its
-    // record. Empty for a default-mode env, whose nodes log to the container stream.
+    // Each node's journal, read from the host copy, so a node whose container is
+    // already gone - one that never finished booting - still has its record.
     async nodeJournals() {
       return Promise.all(nodeConfigs
         .filter((cfg) => cfg.journalDir && existsSync(cfg.journalDir))
@@ -974,10 +972,6 @@ export async function createTestEnv({
   rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true, aptBadSource = false,
   geolocation = {}, locationTable = null, staticIp = true, policy = null, policySeeds = null,
   awaitPolicy = true, pm2Nodes = {}, pausedSyncthingNodes = [], syncthingFaults = {}, sharedKeys = {}, collateralOf = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], rejoinOnRestart = true, networkShapes = {}, globalIpv6 = [], dnsRecords = [],
-  // systemd-mode nodes: the entrypoint execs a real systemd as PID 1, so dockerd
-  // and fluxos run as units and FluxOS's output goes to the journal. Env-level
-  // and uniform across nodes.
-  systemdMode = false,
   // Firewalled nodes boot with ufw active as their install leaves it - the legacy
   // installer's rules on a legacy node, the ISO's on an Arcane one - and FluxOS
   // adds its own on top. true for every node, or a list of node indices. Off
@@ -1284,7 +1278,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, systemdMode, firewall, collateralOf, syncthingFaults, configuredIp, nodeImageTags, freezableDockerRoot);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, firewall, collateralOf, syncthingFaults, configuredIp, nodeImageTags, freezableDockerRoot);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -1313,7 +1307,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], systemdMode = false, firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = []) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = []) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -1627,7 +1621,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     // the rest of the run's record.
     // Kept for passing suites too: a green suite is exactly where a node that died
     // and was never noticed would hide, and this record cannot be reconstructed later.
-    const journalDir = systemdMode ? join(runLogDir(), `journal-${networkName}-${num}`) : null;
+    const journalDir = join(runLogDir(), `journal-${networkName}-${num}`);
     if (journalDir) {
       mkdirSync(journalDir, { recursive: true });
       bindMounts.push(
@@ -1688,8 +1682,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     // can READ - syncthing is spawned with sudo whichever account FluxOS holds, so on
     // an unprivileged node the index can describe files the node itself is refused.
     if (unprivilegedNodes.includes(i)) nodeEnv.FLUX_FLUXOS_USER = 'fluxuser';
+    // pm2 runs as the account the multitool installed under, and FluxOS as pm2 does.
     if (Object.prototype.hasOwnProperty.call(pm2Nodes, i)) {
       nodeEnv.FLUX_PM2 = '1';
+      nodeEnv.FLUX_FLUXOS_USER = 'fluxuser';
       if (pm2Nodes[i] != null) nodeEnv.FLUX_PM2_KILL_TIMEOUT_MS = String(pm2Nodes[i]);
     }
     // Legacy only, because it is the only node type that installs anything:
@@ -1697,7 +1693,6 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     // of syncthing would simply never get it back.
     if (!aptSeeded && isLegacy) nodeEnv.FLUX_APT_SEEDED = 'false';
     if (aptBadSource && isLegacy) nodeEnv.FLUX_APT_BAD_SOURCE = 'true';
-    if (systemdMode) nodeEnv.FLUX_SYSTEMD_MODE = 'true';
     if (firewall === true || (Array.isArray(firewall) && firewall.includes(i))) nodeEnv.FLUX_FIREWALL = 'true';
     // Point the node's config at the base-derived infra IPs. The mounted config
     // files carry the default 31.200.0 addresses; this is written into the node's
@@ -1819,7 +1814,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
       .withLogConsumer(logCollector)
       .withEnvironment(nodeEnv)
       .withWaitStrategy(nodeReadyWaitStrategy(nodeIp).withStartupTimeout(120000));
-    if (systemdMode) builder.withStopSignal('SIGRTMIN+3');
+    builder.withStopSignal('SIGRTMIN+3');
     if (nodeAppArmor()) builder.withAppArmorProfile(nodeAppArmor());
 
     nodeConfigs.push({
@@ -1971,18 +1966,6 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
   // Nodes this fixture has cut off from the fleet. They reach nobody and nobody reaches
   // them, so they peer with nobody and obtain no policy - by the fixture's own doing.
   const heldOut = new Set();
-  // In systemd mode the container's stdout is systemd's console and FluxOS's
-  // own stream goes to the journal, so the log collectors legitimately receive
-  // nothing from FluxOS. Answering "no match" would leave every assertion built
-  // on these silently unfalsifiable, so refuse and name the replacement.
-  const assertCollectorSeesFluxos = (fn) => {
-    if (!systemdMode) return;
-    throw new Error(
-      `${fn}() cannot see FluxOS logs in systemd mode: its stdout goes to the journal, `
-      + 'not the container stream. Read the journal instead — journalGrep(container, '
-      + "'fluxos', pattern, { processOnly: true }) from framework/systemd-control.js",
-    );
-  };
 
   // Post-boot methods join the shell here (they close over _buildEnv locals like
   // deferredBuilders/fluxNodes); identity, registries and teardown live on the
@@ -2372,17 +2355,14 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
     },
 
     nodeHasLog(index, pattern) {
-      assertCollectorSeesFluxos('nodeHasLog');
       return fluxNodes[index].logCollector.hasLine(pattern);
     },
 
     nodeLogCount(index, pattern) {
-      assertCollectorSeesFluxos('nodeLogCount');
       return fluxNodes[index].logCollector.countPattern(pattern);
     },
 
     nodeLogLines(index) {
-      assertCollectorSeesFluxos('nodeLogLines');
       return fluxNodes[index].logCollector.getLines();
     },
   });

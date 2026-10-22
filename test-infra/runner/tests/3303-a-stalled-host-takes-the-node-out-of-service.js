@@ -89,7 +89,6 @@ describe('a stalled host takes the node out of service', function () {
       hookCtx: this,
       nodes: 4,
       tickerAutostart: false,
-      systemdMode: true,
       freezableDockerRoot: [0, 1, 2, 3],
       legacyNodes: [LEGACY_UNPRIVILEGED],
       unprivilegedNodes: [LEGACY_UNPRIVILEGED],
