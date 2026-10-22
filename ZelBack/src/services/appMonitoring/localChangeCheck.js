@@ -101,6 +101,7 @@ async function findOnlyCopy(folderId) {
  */
 async function runCheck(check) {
   const onlyCopy = await findOnlyCopy(check.folderId);
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_LOCAL_CHANGE_ANSWER, check.folderId);
   if (onlyCopy === null || !check.isCurrent()) return;
   // eslint-disable-next-line no-param-reassign
   check.entry.localChangeCheck = { stamp: check.stamp, onlyCopy };
