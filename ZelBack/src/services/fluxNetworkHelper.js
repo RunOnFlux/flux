@@ -29,6 +29,7 @@ const fluxEventBus = require('./utils/fluxEventBus');
 const { NON_PUBLIC_IPV4 } = require('./utils/nonPublicNetworks');
 const ufw = require('./utils/ufw');
 const ufwHelper = require('./utils/ufwHelper');
+const { UDP_PROBE_MAGIC, UDP_PROBE_BYTES } = require('./utils/fluxUdpTestServer');
 const {
   normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch, parseSocketAddress, ipsMatch,
 } = require('./utils/socketAddressUtils');
@@ -422,12 +423,129 @@ async function isPortOpen(ip, port, options = {}) {
 }
 
 /**
- * To perform a basic check of current FluxOS version.
+ * When each datagram of a UDP probe is sent, in ms from the first. UDP drops
+ * packets and loss comes in bursts, so the sends are spread rather than sent
+ * together.
+ */
+const UDP_PROBE_SCHEDULE_MS = [0, 250, 750, 1750];
+
+/** How long a UDP probe waits for a reply after its first datagram. */
+const UDP_PROBE_DEADLINE_MS = 3_000;
+
+/**
+ * What a UDP port answered, capped, for the requester to judge - the UDP twin
+ * of portAnswered.
+ *
+ * UDP has no handshake, so silence is all a closed port and a lost datagram
+ * ever say. The requester's test server answers a probe with its secret, and
+ * only that tells the requester the port is reachable; this hands back what
+ * came, and the requester compares.
+ *
+ * The reply is taken from whatever source port it arrives from: a NAT in front
+ * of the requester may rewrite it.
+ *
+ * @param {string} ip - the requester's address
+ * @param {number} port - the port to probe
+ * @param {{schedule?: number[], deadline?: number}} [options]
+ * @returns {Promise<string|null|undefined>} what it answered; null when probes
+ *   went out and nothing came back; undefined when no probe could be sent, which
+ *   says nothing about the port
+ */
+async function portAnsweredUdp(ip, port, options = {}) {
+  const schedule = options.schedule ?? UDP_PROBE_SCHEDULE_MS;
+  const deadline = options.deadline ?? UDP_PROBE_DEADLINE_MS;
+
+  const probe = Buffer.alloc(UDP_PROBE_BYTES);
+  probe.write(UDP_PROBE_MAGIC, 'latin1');
+
+  const socket = dgram.createSocket('udp4');
+
+  return new Promise((resolve) => {
+    const timers = [];
+    let settled = false;
+    let sent = 0;
+    let failed = 0;
+
+    const done = (answer) => {
+      if (settled) return;
+      settled = true;
+      timers.forEach(clearTimeout);
+      socket.close();
+      resolve(answer);
+    };
+
+    const afterSend = (error) => {
+      if (!error) {
+        sent += 1;
+        return;
+      }
+      failed += 1;
+      if (failed === schedule.length) done(undefined);
+    };
+
+    socket.on('message', (message, rinfo) => {
+      if (rinfo.address.replace(/^::ffff:/i, '') !== ip) return;
+      done(message.subarray(0, MAX_ECHO_BYTES).toString('utf8'));
+    });
+    socket.on('error', () => done(undefined));
+
+    schedule.forEach((at) => {
+      timers.push(setTimeout(() => socket.send(probe, port, ip, afterSend), at));
+    });
+    timers.push(setTimeout(() => done(sent ? null : undefined), deadline));
+  });
+}
+
+/**
+ * Runs `task` once per item, at most `limit` at a time.
+ * @param {Array} items
+ * @param {number} limit
+ * @param {function(*): Promise<void>} task
+ * @returns {Promise<void>}
+ */
+async function forEachLimited(items, limit, task) {
+  const queue = [...items];
+  async function worker() {
+    while (queue.length) {
+      // eslint-disable-next-line no-await-in-loop
+      await task(queue.shift());
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, worker));
+}
+
+/**
+ * What a node finds at an address it is asked about. NOT_LISTED is no finding at
+ * all: the address is not on this node's deterministic list, so it was never
+ * probed - an address change this node has not yet seen confirmed reads so.
+ */
+const FluxAvailability = Object.freeze({
+  AVAILABLE: 'available',
+  UNAVAILABLE: 'unavailable',
+  NOT_LISTED: 'notListed',
+});
+
+/** `/flux/checkfluxavailability`'s answer for an address the asked node does not list. */
+const NOT_LISTED_MESSAGE = 'Asking Flux is not listed';
+
+/**
+ * Whether the answer to `/flux/checkfluxavailability` says the asked node does not
+ * list the address, rather than that it found nothing there.
+ * @param {object} answer The response body.
+ * @returns {boolean}
+ */
+function isNotListedAnswer(answer) {
+  return answer?.status === 'error' && answer?.data?.message === NOT_LISTED_MESSAGE;
+}
+
+/**
+ * Whether a Flux node answers at `ip:port`: listed on the deterministic list, its
+ * API on the minimum FluxOS version, its UI and its syncthing port up.
  * @param {string} ip IP address.
  * @param {string} port Port. Defaults to config.server.apiport.
- * @returns {Promise<boolean>} False unless FluxOS version meets or exceeds the minimum allowed version.
+ * @returns {Promise<string>} One of FluxAvailability.
  */
-async function isFluxAvailable(ip, port = config.server.apiport) {
+async function fluxAvailability(ip, port = config.server.apiport) {
   const axiosConfig = {
     timeout: 5000,
   };
@@ -443,14 +561,14 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     const socketAddress = normalizeSocketAddress(`${ip}:${port}`);
     const isConfirmedNode = await fluxCommunicationUtils.socketAddressInFluxList(socketAddress);
     if (!isConfirmedNode) {
-      return false;
+      return FluxAvailability.NOT_LISTED;
     }
     const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${port}/flux/version`, axiosConfig);
-    if (fluxResponse.data.status !== 'success') return false;
+    if (fluxResponse.data.status !== 'success') return FluxAvailability.UNAVAILABLE;
 
     const fluxVersion = fluxResponse.data.data;
     const versionMinOK = serviceHelper.semverAtLeast(fluxVersion, config.minimumFluxOSAllowedVersion);
-    if (!versionMinOK) return false;
+    if (!versionMinOK) return FluxAvailability.UNAVAILABLE;
 
     const homePort = +port - 1;
     // There is a new /health endpoint on the frontend express server. Since we have a catch-all route,
@@ -459,15 +577,25 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     const fluxResponseUi = await serviceHelper.axiosGet(`http://${ip}:${homePort}/health`, axiosConfig);
     const { data: UiPayload = '' } = fluxResponseUi;
     const uiAvailable = UiPayload === 'OK' || UiPayload.includes('<title>');
-    if (!uiAvailable) return false;
+    if (!uiAvailable) return FluxAvailability.UNAVAILABLE;
 
     const syncthingPort = +port + 2;
     const portOpen = await isPortOpen(ip, syncthingPort);
-    return portOpen;
+    return portOpen ? FluxAvailability.AVAILABLE : FluxAvailability.UNAVAILABLE;
   } catch (e) {
     log.error(e);
-    return false;
+    return FluxAvailability.UNAVAILABLE;
   }
+}
+
+/**
+ * To perform a basic check of current FluxOS version.
+ * @param {string} ip IP address.
+ * @param {string} port Port. Defaults to config.server.apiport.
+ * @returns {Promise<boolean>} True when a Flux node answers there (fluxAvailability).
+ */
+async function isFluxAvailable(ip, port = config.server.apiport) {
+  return (await fluxAvailability(ip, port)) === FluxAvailability.AVAILABLE;
 }
 
 /**
@@ -486,12 +614,14 @@ async function checkFluxAvailability(req, res) {
     return res.json(errMessage);
   }
 
-  const available = await isFluxAvailable(ip, port);
+  const availability = await fluxAvailability(ip, port);
 
   let message;
 
-  if (available === true) {
+  if (availability === FluxAvailability.AVAILABLE) {
     message = messageHelper.createSuccessMessage('Asking Flux is available');
+  } else if (availability === FluxAvailability.NOT_LISTED) {
+    message = messageHelper.createErrorMessage(NOT_LISTED_MESSAGE);
   } else {
     message = messageHelper.createErrorMessage('Asking Flux is not available');
   }
@@ -556,6 +686,14 @@ const MAX_TESTABLE_PORTS = 50;
 // how long one request can keep this node poking, and nothing tighter: the
 // honest list really can be that long.
 const NODE_SERVICE_PORTS_KEPT_ALIVE = 4;
+
+/**
+ * How many of one request's ports a peer probes at once, where it probes them
+ * in parallel: UDP always, TCP when asked for every port's answer. A port that
+ * never answers costs a full probe timeout, and 50 of them one after another
+ * would outlast the requester's wait.
+ */
+const PORT_PROBE_CONCURRENCY = 16;
 const MAX_KEEPALIVE_PORTS = config.fluxapps.maxAppsPerNode * MAX_TESTABLE_PORTS + NODE_SERVICE_PORTS_KEPT_ALIVE;
 
 /**
@@ -650,15 +788,37 @@ async function checkAppAvailability(req, res) {
       // A requester that wants proof asks for it. One that does not - an older
       // node - gets exactly the check it always got.
       const echo = processedBody.echo === true;
+      // Every port read and answered for, a port that did not answer reading
+      // null, rather than the test ending at the first port that failed. Only
+      // with echo: the answers are what it returns.
+      const everyPort = echo && processedBody.everyPort === true;
+      // The protocols to test each port over. TCP alone when the caller names
+      // none; with both, UDP is probed once TCP has passed.
+      const protocols = processedBody.protocols ?? ['tcp'];
+      if (!Array.isArray(protocols) || !protocols.length || !protocols.every((protocol) => protocol === 'tcp' || protocol === 'udp')) {
+        throw new Error('Protocols to test must be tcp, udp or both');
+      }
+      const tcp = protocols.includes('tcp');
+      const udp = protocols.includes('udp');
       const answered = {};
 
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of ports) {
+      const testable = ports.filter((port) => {
         const iBP = isPortBanned(+port);
         const portNum = +port;
         const withinRange = portNum >= minPort && portNum <= maxPort;
+        if (!withinRange || iBP) {
+          log.error(`Flux App port ${port} is outside allowed range. minPort: ${minPort}, maxPort: ${maxPort}, isBanned: ${iBP}`);
+        }
+        return withinRange && !iBP;
+      });
 
-        if (withinRange && !iBP) {
+      if (tcp && everyPort) {
+        await forEachLimited(testable, PORT_PROBE_CONCURRENCY, async (port) => {
+          answered[port] = await portAnswered(ip, port);
+        });
+      } else if (tcp) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const port of testable) {
           if (echo) {
             // Read rather than merely reached. The requester compares.
             // eslint-disable-next-line no-await-in-loop
@@ -674,9 +834,17 @@ async function checkAppAvailability(req, res) {
               throw new Error(`Flux Applications on ${ip}:${ipPort} are not available. Failed port: ${port}`);
             }
           }
-        } else {
-          log.error(`Flux App port ${port} is outside allowed range. minPort: ${minPort}, maxPort: ${maxPort}, isBanned: ${iBP}`);
         }
+      }
+
+      // A port this node could not send to is left out: that says nothing about
+      // the port, and the requester reads an absent port as no proof.
+      const udpAnswered = {};
+      if (udp) {
+        await forEachLimited(testable, PORT_PROBE_CONCURRENCY, async (port) => {
+          const reply = await portAnsweredUdp(ip, +port);
+          if (reply !== undefined) udpAnswered[port] = reply;
+        });
       }
       const successResponse = messageHelper.createSuccessMessage(`Flux Applications on ${ip}:${ipPort} are available.`);
       // `answered` present at all is how the requester knows this peer READ the
@@ -684,7 +852,9 @@ async function checkAppAvailability(req, res) {
       // available from this peer, which is not the same as the ports being bad.
       // Added as a field rather than through createSuccessMessage, whose second
       // and third parameters are name and code.
-      if (echo) successResponse.data.answered = answered;
+      if (echo && tcp) successResponse.data.answered = answered;
+      // Present at all says this peer probed UDP, as `answered` does for TCP.
+      if (udp) successResponse.data.udpAnswered = udpAnswered;
       res.json(successResponse);
     } catch (error) {
       const errorResponse = messageHelper.createErrorMessage(
@@ -902,6 +1072,24 @@ function setDosMessage(message) {
  */
 function getDosMessage() {
   return getStickyDosMessage() || dosMessage;
+}
+
+// Whether this node's ports answer over UDP, as the availability check last
+// established it with a peer's proof or two peers' silence; null until it has.
+let udpReachability = null;
+
+/**
+ * @param {{reachable: boolean, port?: number, peers?: string[]}|null} value
+ */
+function setUdpReachability(value) {
+  udpReachability = value;
+}
+
+/**
+ * @returns {{reachable: boolean, port?: number, peers?: string[]}|null}
+ */
+function getUdpReachability() {
+  return udpReachability;
 }
 
 /**
@@ -2127,7 +2315,8 @@ async function peersFindAt(socketAddress) {
       log.info(`${peer} reaches a Flux node at ${socketAddress}`);
       return PeerFinding.REACHED;
     }
-    if (status === 'error') foundNothing += 1;
+    // A peer that does not list the address has not looked there.
+    if (status === 'error' && !isNotListedAnswer(answer.data)) foundNothing += 1;
   }
   if (foundNothing >= PEERS_FINDING_NOTHING) return PeerFinding.NOTHING;
   log.info(`too few peers answered whether a Flux node is at ${socketAddress} to say`);
@@ -2459,6 +2648,14 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       return null;
     },
   );
+
+  // The observer does not list this address yet - typically a move it has not seen
+  // confirmed - so it has not looked. Like having nobody to ask: nothing is
+  // concluded, dosState is untouched, and the next cycle asks again.
+  if (resMyAvailability && isNotListedAnswer(resMyAvailability.data)) {
+    log.info(`checkMyFluxAvailability - ${remoteIp}:${remotePort} does not list ${localSocketAddress} yet; skipping this pass`);
+    return false;
+  }
 
   // Known limitation, replaced in v9: a failed check retries at once against another
   // random node, up to seven times, and each failure adds 2 to dosState, so one bad
@@ -3016,36 +3213,42 @@ async function allowPort(port) {
   return cmdStat;
 }
 
-// The ufw rule that admits IPv4 TCP clients to a port FluxOS opens for a moment,
-// to test it from outside, and nothing else. ufw counts a rule that names no
-// protocol as the same rule as the matching half of an app port's
+// The ufw rule that admits IPv4 clients of one protocol to a port FluxOS opens
+// for a moment, to test it from outside, and nothing else. ufw counts a rule that
+// names no protocol as the same rule as the matching half of an app port's
 // `allow <port>`, so a test that opened and deleted one would delete that half;
-// a TCP rule is a rule of its own.
-const testPortRule = (port) => ['proto', 'tcp', 'from', '0.0.0.0/0', 'to', 'any', 'port', String(port)];
+// a rule naming its protocol is a rule of its own.
+const testPortRule = (port, protocol) => ['proto', protocol, 'from', '0.0.0.0/0', 'to', 'any', 'port', String(port)];
+
+const TEST_PORT_PROTOCOLS = ['tcp', 'udp'];
 
 /**
- * Opens a port to IPv4 TCP clients while FluxOS tests it from outside: the only rule
- * for the port that deleteTestPortRule deletes.
+ * Opens a port to IPv4 clients of one protocol while FluxOS tests it from
+ * outside: the only rule for the port that deleteTestPortRule deletes.
  * @param {number|string} port Port.
+ * @param {string} [protocol] 'tcp' or 'udp'.
  * @returns {Promise<{status: boolean, message: (string|null)}>}
  */
-async function allowTestPort(port) {
+async function allowTestPort(port, protocol = 'tcp') {
   if (Number.isNaN(+port)) return { status: false, message: 'Port needs to be a number' };
-  const ran = await ufw.runUfw(['allow', ...testPortRule(port)]);
+  if (!TEST_PORT_PROTOCOLS.includes(protocol)) return { status: false, message: 'Protocol needs to be tcp or udp' };
+  const ran = await ufw.runUfw(['allow', ...testPortRule(port, protocol)]);
   if (ran.locked) return { status: false, message: 'ufw is locked by another ufw command' };
   const cmdres = ran.stdout + ran.stderr;
   return { status: /added|updated|existing/.test(cmdres), message: cmdres };
 }
 
 /**
- * Deletes the rule allowTestPort writes, and no other rule for the port. A rule
- * already gone counts as deleted.
+ * Deletes the rule allowTestPort writes for a protocol, and no other rule for
+ * the port. A rule already gone counts as deleted.
  * @param {number|string} port Port.
+ * @param {string} [protocol] 'tcp' or 'udp'.
  * @returns {Promise<{status: boolean, message: (string|null)}>}
  */
-async function deleteTestPortRule(port) {
+async function deleteTestPortRule(port, protocol = 'tcp') {
   if (Number.isNaN(+port)) return { status: false, message: 'Port needs to be a number' };
-  const ran = await ufw.runUfw(['delete', 'allow', ...testPortRule(port)]);
+  if (!TEST_PORT_PROTOCOLS.includes(protocol)) return { status: false, message: 'Protocol needs to be tcp or udp' };
+  const ran = await ufw.runUfw(['delete', 'allow', ...testPortRule(port, protocol)]);
   if (ran.locked) return { status: false, message: 'ufw is locked by another ufw command' };
   const cmdres = ran.stdout + ran.stderr;
   return { status: cmdres.includes('delete'), message: cmdres };
@@ -3634,6 +3837,9 @@ function getNumberOfPeers() {
 
 module.exports = {
   isFluxAvailable,
+  fluxAvailability,
+  FluxAvailability,
+  NOT_LISTED_MESSAGE,
   checkFluxAvailability,
   getDecidedAddress,
   getPublicIp,
@@ -3700,6 +3906,8 @@ module.exports = {
   setLocalSocketAddress,
   getDosMessage,
   setDosMessage,
+  getUdpReachability,
+  setUdpReachability,
   setDosStateValue,
   getDosStateValue,
   isNodeDos,
@@ -3720,6 +3928,7 @@ module.exports = {
   isPortOpen,
   portAnswered,
   MAX_ECHO_BYTES,
+  portAnsweredUdp,
   checkAppAvailability,
   verifySignedFluxnodeMessage,
   isPortEnterprise,

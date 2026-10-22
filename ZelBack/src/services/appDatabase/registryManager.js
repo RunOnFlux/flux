@@ -243,17 +243,31 @@ async function addressMovesTo(address) {
 }
 
 /**
+ * The query condition for every stored address at an IP, whatever its port.
+ *
+ * Every location and every move is stored under its node's address in ip:port
+ * form, so the IP and the colon after it match exactly the addresses at that
+ * IP: never one that only begins with it.
+ * @param {string} ip An IP, or a socket address whose IP is meant.
+ * @returns {RegExp|null} null when there is no IP
+ */
+function storedAtIp(ip) {
+  const bare = extractIp(ip);
+  if (!bare) return null;
+  return new RegExp(`^${bare.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:`);
+}
+
+/**
  * The socket addresses at `ip` that a recorded move leaves.
  * @param {string} ip An IP, or a socket address whose IP is meant.
  * @returns {Promise<string[]>}
  */
 async function addressesMovedFromIp(ip) {
-  const bare = extractIp(ip);
-  if (!bare) return [];
+  const atIp = storedAtIp(ip);
+  if (!atIp) return [];
   const collection = dbHelper.databaseConnection().db(config.database.appsglobal.database).collection(globalAppStateEvents);
-  const escaped = bare.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const events = await collection.find(
-    { ip: new RegExp(`^${escaped}:`), type: 'ipchanged', expireAt: { $gt: new Date() } },
+    { ip: atIp, type: 'ipchanged', expireAt: { $gt: new Date() } },
     { projection: { _id: 0, ip: 1 } },
   ).toArray();
   return [...new Set(events.map((event) => event.ip))];
@@ -1688,13 +1702,15 @@ async function getRunningApps() {
 
 /**
  * To get all apps running on a specific IP address. Returns all apps running on this ip
- * @param {string} ip IP address to check
+ * @param {string} ip An IP, or a socket address whose IP is meant.
  * @returns {Promise<Array>} Array of apps running on the specified IP
  */
 async function getRunningAppIpList(ip) {
+  const atIp = storedAtIp(ip);
+  if (!atIp) return [];
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appsglobal.database);
-  const query = { ip: new RegExp(`^${ip}`) };
+  const query = { ip: atIp };
   const projection = {
     projection: {
       _id: 0,

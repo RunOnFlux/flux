@@ -59,38 +59,9 @@ if [ "$FLUX_SYNCTHING_MODE" != "binary" ]; then
   cp /flux/test-infra/fixtures/syncthing-config.xml /dat/usr/lib/syncthing/config.xml 2>/dev/null || true
 fi
 
-# Overlay test config into ZelBack/config/ so app.js loads it naturally.
-# app.js hardcodes NODE_CONFIG_DIR to ZelBack/config/ (cannot be overridden
-# from env — fluxbenchd hashes that directory for tamper detection).
-if [ -n "$NODE_CONFIG_DIR" ] && [ -d "$NODE_CONFIG_DIR" ]; then
-  cp "$NODE_CONFIG_DIR"/default.js /flux/ZelBack/config/local.js
-  cp "$(dirname "$NODE_CONFIG_DIR")/shared.js" /flux/ZelBack/ 2>/dev/null || true
-fi
+# The node's config overlay: its per-node file with the runner's overrides over it.
+/flux/test-infra/write-node-config.sh
 
-# The runner's own overrides arrive as JSON and are merged OVER the per-node file
-# copied above, which is where the per-node database names come from - replacing
-# that file rather than merging would take them with it.
-#
-# They used to arrive as NODE_CONFIG. The config package merges that variable over
-# every file whatever directory is pinned, so it could redirect any endpoint
-# without touching the directory fluxbenchd hashes - the one change tamper
-# detection cannot see. The entry points delete it now, and this carries the same
-# content to the same place through a file instead.
-if [ -n "$FLUX_TEST_CONFIG" ]; then
-  node -e '
-    const fs = require("fs");
-    const target = "/flux/ZelBack/config/local.js";
-    const base = fs.existsSync(target) ? require(target) : {};
-    const isPlain = (v) => v && typeof v === "object" && !Array.isArray(v);
-    const merge = (a, b) => {
-      const out = { ...a };
-      for (const [k, v] of Object.entries(b)) out[k] = isPlain(v) && isPlain(a[k]) ? merge(a[k], v) : v;
-      return out;
-    };
-    const merged = merge(base, JSON.parse(process.env.FLUX_TEST_CONFIG));
-    fs.writeFileSync(target, `module.exports = ${JSON.stringify(merged, null, 2)};\n`);
-  '
-fi
 # A node whose discovery the harness has started rejoins the mesh by itself on
 # every later start, the run's own discoveryAutostart notwithstanding.
 node /flux/test-infra/rejoin-discovery.cjs apply

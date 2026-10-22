@@ -95,7 +95,9 @@ describe('fluxNetworkHelper tests', () => {
     fluxNetworkHelper.resetPublicAddressNote();
     sinon.stub(upnpService, 'isUPNP').returns(false);
     sinon.stub(upnpService, 'removeMapUpnpPort').resolves(true);
-    sinon.stub(upnpService, 'mapUpnpPort').resolves(true);
+    sinon.stub(upnpService, 'mapUpnpPort').resolves({
+      mapped: true, code: null, reason: null, routerWide: false,
+    });
     // The installed copy of the ufw helper is the one to run (utils/ufwHelper has its own tests).
     sinon.stub(ufwHelper, 'path').resolves(ufwHelper.UFW_HELPER);
   });
@@ -556,6 +558,55 @@ describe('fluxNetworkHelper tests', () => {
       expect(second).to.be.null;
       // a null result is never cached, so every call re-probes until fluxbench resolves
       sinon.assert.calledTwice(benchStub);
+    });
+  });
+
+  describe('fluxAvailability tests', () => {
+    const versionResponse = { data: { status: 'success', data: '8.2.0' } };
+    Object.setPrototypeOf(versionResponse.data, { // axios on home expects string
+      includes() {
+        return true;
+      },
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('is AVAILABLE when the listed node answers on its api, ui and syncthing ports', async () => {
+      sinon.stub(serviceHelper, 'axiosGet').resolves(versionResponse);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
+      sinon.stub(net.Socket.prototype, 'connect').callsFake((_port, _ip, callback) => {
+        callback();
+      });
+
+      expect(await fluxNetworkHelper.fluxAvailability('127.0.0.1', '16127')).to.equal(fluxNetworkHelper.FluxAvailability.AVAILABLE);
+    });
+
+    it('is NOT_LISTED, without probing, when the address is not on the deterministic list', async () => {
+      const axiosGet = sinon.stub(serviceHelper, 'axiosGet').resolves(versionResponse);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(false);
+
+      expect(await fluxNetworkHelper.fluxAvailability('127.0.0.1', '16127')).to.equal(fluxNetworkHelper.FluxAvailability.NOT_LISTED);
+      sinon.assert.notCalled(axiosGet);
+    });
+
+    it('is UNAVAILABLE when the listed node does not answer', async () => {
+      sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused'));
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
+
+      expect(await fluxNetworkHelper.fluxAvailability('127.0.0.1', '16127')).to.equal(fluxNetworkHelper.FluxAvailability.UNAVAILABLE);
+    });
+
+    it('answers checkfluxavailability for an address it does not list as not listed', async () => {
+      sinon.stub(serviceHelper, 'axiosGet').resolves(versionResponse);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(false);
+      const res = { json: sinon.fake((param) => param) };
+
+      const answer = await fluxNetworkHelper.checkFluxAvailability({ params: { ip: '127.0.0.1', port: '16127' }, query: {} }, res);
+
+      expect(answer.status).to.equal('error');
+      expect(answer.data.message).to.equal(fluxNetworkHelper.NOT_LISTED_MESSAGE);
     });
   });
 
@@ -1581,6 +1632,22 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
       expect(result).to.be.false;
+    });
+
+    it('concludes nothing, without retrying, when the observer does not list this node yet', async () => {
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(0);
+      fluxNetworkHelper.resetAvailabilityDos();
+      getRandomExternalObserver.resolves('1.2.3.4:16127');
+      const axiosGet = sinon.stub(serviceHelper, 'axiosGet')
+        .resolves({ data: { status: 'error', data: { message: fluxNetworkHelper.NOT_LISTED_MESSAGE } } });
+
+      const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+      expect(result).to.be.false;
+      sinon.assert.calledOnce(axiosGet);
+      expect(fluxNetworkHelper.isNodeDos()).to.be.false;
+      expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
     });
 
     it('should return true if axios status response is success', async () => {
@@ -2797,6 +2864,25 @@ describe('fluxNetworkHelper tests', () => {
       fluxNetworkHelper.setDosMessage(null);
       fluxNetworkHelper.setDosStateValue(0);
     });
+
+    it('takes nothing over while the peers asked do not list the other node', async () => {
+      const otherIp = '192.168.1.204:16127';
+      const collateral = 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)';
+      getBenchmarksStub.resolves({ status: 'success', data: { ipaddress: '192.168.1.104:16127' } });
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns([{ ...deterministicFluxnodeListResponse[0], collateral, ip: otherIp }]);
+      getFluxNodeStatusStub.returns({ status: 'success', data: { status: 'CONFIRMED', collateral } });
+      const axiosGetStub = sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused'));
+      axiosGetStub.withArgs(sinon.match(/\/flux\/checkfluxavailability/))
+        .resolves({ data: { status: 'error', data: { message: fluxNetworkHelper.NOT_LISTED_MESSAGE } } });
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      expect(fluxNetworkHelper.getDosStateValue(), 'a peer that has not looked finds nothing either way').to.equal(0);
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(0);
+    });
   });
 
   describe('getDOSState tests', () => {
@@ -3197,6 +3283,21 @@ describe('fluxNetworkHelper tests', () => {
         expect(call.args[0].slice(-8, -6), 'a protocol named').to.deep.equal(['proto', 'tcp']);
         expect(call.args[0], 'IPv4 alone').to.include('0.0.0.0/0');
       });
+    });
+
+    it('opens and deletes a UDP test rule that names udp', async () => {
+      await fluxNetworkHelper.allowTestPort(31350, 'udp');
+      await fluxNetworkHelper.deleteTestPortRule(31350, 'udp');
+      expect(runUfw.args).to.deep.equal([
+        [['allow', 'proto', 'udp', 'from', '0.0.0.0/0', 'to', 'any', 'port', '31350']],
+        [['delete', 'allow', 'proto', 'udp', 'from', '0.0.0.0/0', 'to', 'any', 'port', '31350']],
+      ]);
+    });
+
+    it('refuses a protocol other than tcp or udp, running nothing', async () => {
+      expect((await fluxNetworkHelper.allowTestPort(31350, 'any')).status).to.equal(false);
+      expect((await fluxNetworkHelper.deleteTestPortRule(31350, 'any')).status).to.equal(false);
+      sinon.assert.notCalled(runUfw);
     });
 
     it('reports a held lock and refuses a port that is not a number', async () => {

@@ -8,8 +8,8 @@ const {
 const { silenceVerdict, SilenceVerdict } = require('./peerFolderLiveness');
 
 /**
- * What this node can show about a peer's copy of a g: component. UNKNOWN is not
- * a soft NOT_RUNNING: only NOT_RUNNING releases the component for a start here,
+ * What this node can show about a peer's copy of an app's g: components. UNKNOWN
+ * is not a soft NOT_RUNNING: only NOT_RUNNING releases them for a start here,
  * because starting is what puts a second writer on a shared volume.
  */
 const PeerComponent = Object.freeze({
@@ -33,7 +33,11 @@ const SILENCE_REASONS = Object.freeze({
 });
 
 /**
- * What this node can show one peer to be doing with a component.
+ * What this node can show one peer to be doing with an app's g: components.
+ *
+ * The peer holds the app when it holds ANY of them. Its primary runs them all on
+ * one node, so a peer holding one has the others' writes too, and starting one
+ * beside it splits the app across two nodes.
  *
  * The election, the surplus rule and a returning primary's stand-down ask this
  * question through the same code. Two implementations of "is that peer running
@@ -45,7 +49,7 @@ const SILENCE_REASONS = Object.freeze({
  * primary, or from the instance order the surplus rule ranks.
  * @param {string} peerSocketAddr The peer's socket address.
  * @param {object} ctx Everything the probe needs that is not the peer.
- * @param {string} ctx.appId Container name for the component.
+ * @param {string[]} ctx.appIds Container names of the app's g: components.
  * @param {string} ctx.identifier `<component>_<app>` the election keys on.
  * @param {string} ctx.appName Global app name, for the log lines.
  * @param {object} ctx.liveness Peer folder liveness, for judging silence.
@@ -54,16 +58,17 @@ const SILENCE_REASONS = Object.freeze({
  * @returns {Promise<string>} A PeerComponent state.
  */
 async function peerComponentState(peerSocketAddr, {
-  appId, identifier, appName, liveness, label, logPrefix,
+  appIds, identifier, appName, liveness, label, logPrefix,
 }) {
   // Docker reports names with a leading slash, and getAppIdentifier yields
-  // exactly the container name for this component. Compare whole names: a
+  // exactly the container name for each component. Compare whole names: a
   // substring test also matches a longer app whose name merely begins the same
   // way - myapp against myapp2, or simplexsmp against simplexsmp1 - and a false
-  // positive here means the component is never started at all.
-  const peerRunsThisComponent = (appsRunning) => appsRunning.some(
-    (app) => (app.Names || []).some((name) => name.replace(/^\//, '') === appId),
-  );
+  // positive here means the app is never started at all.
+  const holdsAny = (names) => appIds.some((appId) => names.includes(appId));
+  const peerRunsThisComponent = (appsRunning) => holdsAny(appsRunning.flatMap(
+    (app) => (app.Names || []).map((name) => name.replace(/^\//, '')),
+  ));
   const ipToCheck = extractIp(peerSocketAddr);
   const portToCheck = extractPort(peerSocketAddr);
 
@@ -71,7 +76,7 @@ async function peerComponentState(peerSocketAddr, {
 
   const { IdentityVerdict, AnswerPurpose } = peerIdentityService;
   const silent = () => silentPeerState(peerSocketAddr, {
-    appId, identifier, appName, liveness, label, logPrefix,
+    appIds, identifier, appName, liveness, label, logPrefix,
   });
 
   // "Not running" is a clearance to start a second writer, so it counts only
@@ -97,9 +102,9 @@ async function peerComponentState(peerSocketAddr, {
       log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} signed an answer that does not list what it holds for app:${appName}, will not start`);
       return PeerComponent.UNKNOWN;
     }
-    if (held.includes(appId)) {
+    if (holdsAny(held)) {
       fluxEventBus.count('masterSlave:decision', identifier, 'heldOnPeer');
-      log.info(`${logPrefix}: component:${identifier} is held on peer node (${label}) at ${ipToCheck}, will not start`);
+      log.info(`${logPrefix}: app:${appName} is held on peer node (${label}) at ${ipToCheck}, will not start`);
       return PeerComponent.RUNNING;
     }
     return PeerComponent.NOT_RUNNING;
@@ -134,9 +139,9 @@ async function peerComponentState(peerSocketAddr, {
       });
     const held = heldResponse?.data?.data;
     if (Array.isArray(held)) {
-      if (held.includes(appId)) {
+      if (holdsAny(held)) {
         fluxEventBus.count('masterSlave:decision', identifier, 'heldOnPeer');
-        log.info(`${logPrefix}: component:${identifier} is held on peer node (${label}) at ${ipToCheck}, will not start`);
+        log.info(`${logPrefix}: app:${appName} is held on peer node (${label}) at ${ipToCheck}, will not start`);
         return PeerComponent.RUNNING;
       }
       return PeerComponent.NOT_RUNNING;
@@ -165,11 +170,11 @@ async function peerComponentState(peerSocketAddr, {
       log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} is alive but did not list what it runs for app:${appName}, will not start`);
       return PeerComponent.UNKNOWN;
     }
-    // Match on the g: component identifier, not the app name: non-g siblings
+    // Match on the g: component identifiers, not the app name: non-g siblings
     // (e.g. a DB cluster component) run on every node and must not be mistaken
-    // for the master/slave component being active there.
+    // for the app's primary being there.
     if (peerRunsThisComponent(appsRunning)) {
-      log.info(`${logPrefix}: component:${identifier} is running on peer node (${label}) at ${ipToCheck}, will not start`);
+      log.info(`${logPrefix}: app:${appName} is running on peer node (${label}) at ${ipToCheck}, will not start`);
       return PeerComponent.RUNNING;
     }
     return PeerComponent.NOT_RUNNING;
@@ -185,21 +190,23 @@ async function peerComponentState(peerSocketAddr, {
 }
 
 /**
- * What a peer that did not reply at all can be shown to be doing with a
- * component: free only when this node's own syncthing shows the peer's
- * connection to the folder gone.
+ * What a peer that did not reply at all can be shown to be doing with an app's
+ * g: components: free only when this node's own syncthing shows the peer's
+ * connection gone for every one of their folders. A folder still connected is a
+ * component the peer may still be writing.
  * @param {string} peerSocketAddr The peer's socket address.
  * @param {object} ctx As peerComponentState.
  * @returns {Promise<string>} NOT_RUNNING or UNKNOWN.
  */
 async function silentPeerState(peerSocketAddr, {
-  appId, identifier, appName, liveness, label, logPrefix,
+  appIds, identifier, appName, liveness, label, logPrefix,
 }) {
   const ipToCheck = extractIp(peerSocketAddr);
-  const verdict = await silenceVerdict(appId, peerSocketAddr, liveness);
+  const verdicts = await Promise.all(appIds.map((appId) => silenceVerdict(appId, peerSocketAddr, liveness)));
+  const verdict = verdicts.find((each) => each !== SilenceVerdict.GONE) ?? SilenceVerdict.GONE;
   fluxEventBus.count('peer:silenceVerdict', identifier, verdict);
   if (verdict === SilenceVerdict.GONE) {
-    log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} is silent and this node's syncthing shows its connection for ${appId} gone - the component is free there`);
+    log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} is silent and this node's syncthing shows its connection for ${appIds.join(', ')} gone - the app is free there`);
     return PeerComponent.NOT_RUNNING;
   }
   log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} is silent for app:${appName} and ${SILENCE_REASONS[verdict]}, will not start`);
@@ -208,10 +215,10 @@ async function silentPeerState(peerSocketAddr, {
 
 /**
  * Whether a peer is shown, in its own signed words, not to have decided it holds
- * a component: it neither runs it, nor is committed to or becoming its primary,
- * nor was stopped there by its owner as its primary. It holds it at most by a
- * sending folder - a primary back from a stop, still deciding whether another
- * holder took over, which gives way to one that has.
+ * an app: of its g: components it runs none, is committed to or becoming the
+ * primary of none, and was stopped there by its owner as the primary of none. It
+ * holds them at most by sending folders - a primary back from a stop, still
+ * deciding whether another holder took over, which gives way to one that has.
  *
  * Anything short of a signed answer saying so is false: an unsigned or unproven
  * reply, a peer that cannot be reached, or one too old to say what it decided.
@@ -220,7 +227,7 @@ async function silentPeerState(peerSocketAddr, {
  * @returns {Promise<boolean>}
  */
 async function peerUndecided(peerSocketAddr, {
-  appId, identifier, appName, label, logPrefix,
+  appIds, identifier, appName, label, logPrefix,
 }) {
   const { IdentityVerdict, AnswerPurpose } = peerIdentityService;
   const asked = await peerIdentityService.askSigned(
@@ -235,14 +242,14 @@ async function peerUndecided(peerSocketAddr, {
     log.info(`${logPrefix}: peer node (${label}) at ${extractIp(peerSocketAddr)} cannot be shown to be undecided about app:${appName}`);
     return false;
   }
-  const undecided = !decided.includes(appId);
+  const undecided = !appIds.some((appId) => decided.includes(appId));
   if (undecided) fluxEventBus.count('masterSlave:decision', identifier, 'peerUndecided');
   return undecided;
 }
 
 /**
- * What this node can show the other holders of a component to be doing with it,
- * taken together. One peer that cannot be ruled out decides on its own: every
+ * What this node can show the other holders of an app to be doing with its g:
+ * components, taken together. One peer that cannot be ruled out decides on its own: every
  * other peer answering "not me" says nothing about that one.
  * @param {Array<{ip: string, label: string}>} peers The other holders.
  * @param {object} ctx As peerComponentState, without `label`.
@@ -259,9 +266,10 @@ async function componentStateOnPeers(peers, ctx) {
 }
 
 /**
- * What every other holder of a component is doing with it, read from its app
- * locations: the one question a primary returning paused asks before its unsent
- * changes go out or are discarded, whichever pass reaches the folder first.
+ * What every other holder of an app is doing with its g: components, read from
+ * its app locations: the one question a primary returning paused asks before its
+ * unsent changes go out or are discarded, whichever pass reaches the folder
+ * first.
  * @param {(appName: string) => Promise<Array<{ip: string}>>} readLocations
  * @param {string} localSocketAddr This node, never asked.
  * @param {object} ctx As peerComponentState, without `label`.
@@ -277,7 +285,7 @@ async function componentStateOnOtherHolders(readLocations, localSocketAddr, ctx,
   try {
     locations = await readLocations(ctx.appName);
   } catch (error) {
-    log.warn(`${ctx.logPrefix} - ${ctx.appId}: the other holders cannot be read: ${error.message}`);
+    log.warn(`${ctx.logPrefix} - ${ctx.appName}: the other holders cannot be read: ${error.message}`);
     return PeerComponent.UNKNOWN;
   }
   const peers = (locations || [])

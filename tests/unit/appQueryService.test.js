@@ -601,10 +601,31 @@ describe('appQueryService tests', () => {
     });
   });
 
+  // The apps installed on this node, as the local database answers them.
+  const installedAppsAre = (apps) => {
+    dbHelperStub.databaseConnection.returns({ db: () => ({}) });
+    dbHelperStub.findInDatabase.resolves(apps);
+  };
+  // Two g: components and one that runs on every instance; the anchor is db.
+  const twoElected = {
+    name: 'App',
+    version: 7,
+    compose: [
+      { name: 'cache', containerData: '/cache' },
+      { name: 'db', containerData: 'g:/data' },
+      { name: 'web', containerData: 'g:/srv' },
+    ],
+  };
+  const oneElected = { name: 'Solo', version: 7, compose: [{ name: 'game', containerData: 'g:/data' }, { name: 'web', containerData: '/www' }] };
+
   describe('heldComponents', () => {
     // What a peer mid-election is told this node owns. Answering short here is not
     // a stale reading - it is a second container started on a volume this node is
     // already writing, which corrupts it.
+
+    beforeEach(() => {
+      installedAppsAre([]);
+    });
 
     // A primary back from a stop: its folder still sends, paused, and nothing runs
     // or is committed while it decides whether another holder took over.
@@ -645,8 +666,9 @@ describe('appQueryService tests', () => {
       sinon.stub(appReconciler, 'committedIdentifiers').returns(committed);
       sinon.stub(primaryRoleChanges, 'promotingIdentifiers').returns(promoting);
       sinon.stub(appsRuntimeState, 'operatorHeldIdentifiers').resolves(stopped);
-      messageHelperStub.createDataMessage.returnsArg(0);
-      return appQueryService.heldComponents();
+      messageHelperStub.createDataMessage.callsFake((data) => ({ status: 'success', data }));
+      const answer = await appQueryService.heldComponents();
+      return answer?.status === 'success' ? answer.data : answer;
     };
 
     // A node becoming the primary has committed before its folder sends and long
@@ -725,6 +747,62 @@ describe('appQueryService tests', () => {
       expect(result).to.deep.equal({ status: 'error' });
       expect(messageHelperStub.createDataMessage.called, 'answered with a list built from a failed read').to.be.false;
     });
+
+    // A release that elects one g: component asks a peer only about the app's
+    // anchor. To it a node holding another of the app's g: components holds
+    // nothing, and it starts the app beside that node.
+    describe('an app with more than one g: component', () => {
+      beforeEach(() => {
+        installedAppsAre([twoElected, oneElected]);
+      });
+
+      it('reports the anchor of an app it runs a later g: component of', async () => {
+        const result = await held({ running: ['fluxweb_App'] });
+
+        expect(result).to.have.members(['fluxweb_App', 'fluxdb_App']);
+      });
+
+      it('reports the anchor of an app whose later g: component\'s folder alone sends here', async () => {
+        syncthingServiceStub.getConfigFolders.resolves([{ id: 'fluxweb_App', type: 'sendreceive' }]);
+
+        const result = await held();
+
+        expect(result).to.have.members(['fluxweb_App', 'fluxdb_App']);
+      });
+
+      it('reports the anchor of an app it is becoming the primary of', async () => {
+        const result = await held({ promoting: ['web_App'] });
+
+        expect(result).to.have.members(['fluxweb_App', 'fluxdb_App']);
+      });
+
+      // The non-elected component runs on every instance: holding it is not
+      // holding the app.
+      it('adds nothing for a component that is not elected', async () => {
+        const result = await held({ running: ['fluxcache_App'] });
+
+        expect(result).to.deep.equal(['fluxcache_App']);
+      });
+
+      it('adds nothing for an app with one g: component', async () => {
+        const result = await held({ running: ['fluxweb_Solo'] });
+
+        expect(result).to.deep.equal(['fluxweb_Solo']);
+      });
+
+      it('adds nothing when it holds none of the app', async () => {
+        expect(await held()).to.deep.equal([]);
+      });
+    });
+
+    it('fails the request when the installed apps cannot be read, rather than answering without the anchors', async () => {
+      dbHelperStub.findInDatabase.rejects(new Error('no primary available'));
+      messageHelperStub.createErrorMessage.returns({ status: 'error' });
+
+      const result = await held({ running: ['fluxweb_App'] });
+
+      expect(result).to.deep.equal({ status: 'error' });
+    });
   });
 
   // The same account as a peer asks it: sealed - signed over the caller's
@@ -736,6 +814,7 @@ describe('appQueryService tests', () => {
     const sealWith = (seal) => peerIdentityServiceStub.answerSealer.returns(seal);
 
     beforeEach(() => {
+      installedAppsAre([]);
       nowNs += 10n ** 10n;
       sinon.stub(process.hrtime, 'bigint').callsFake(() => nowNs);
       dockerServiceStub.dockerListContainers.resolves([{ Names: ['/fluxwww_App'] }]);
@@ -753,6 +832,28 @@ describe('appQueryService tests', () => {
 
       expect(answer).to.deep.equal({ status: 'success', data: { held: ['fluxwww_App'], decided: ['fluxwww_App'], sealed: true } });
       sinon.assert.calledOnceWithExactly(peerIdentityServiceStub.answerSealer, 'held', req.body);
+    });
+
+    // A peer asking whether this node has DECIDED it holds the app reads the
+    // anchor there too, and only where a g: component of the app is decided.
+    it('carries the anchor in each list only where that list holds the app', async () => {
+      installedAppsAre([twoElected]);
+      dockerServiceStub.dockerListContainers.resolves([]);
+      syncthingServiceStub.getConfigFolders.resolves([{ id: 'fluxweb_App', type: 'sendreceive' }]);
+
+      const answer = await appQueryService.heldComponentsAnswer({ body: {} }, res());
+
+      expect(answer.data.held).to.have.members(['fluxweb_App', 'fluxdb_App']);
+      expect(answer.data.decided).to.deep.equal([]);
+    });
+
+    it('carries the anchor as decided when a later g: component is decided here', async () => {
+      installedAppsAre([twoElected]);
+      dockerServiceStub.dockerListContainers.resolves([{ Names: ['/fluxweb_App'] }]);
+
+      const answer = await appQueryService.heldComponentsAnswer({ body: {} }, res());
+
+      expect(answer.data.decided).to.have.members(['fluxweb_App', 'fluxdb_App']);
     });
 
     it('holds a component whose folder alone sends here without having decided it', async () => {

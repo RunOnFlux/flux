@@ -99,7 +99,7 @@ const dosState = {
   testingPort: null,
   nextTestingPort: null,
   originalPortFailed: null,
-  lastUPNPMapFailed: false,
+  routerRefusalsSeen: 0,
 };
 const portsNotWorking = new Set();
 const appsStorageViolations = [];

@@ -268,6 +268,8 @@ async function appLocation(appName) {
  * This function handles both legacy apps (version <= 3) and newer apps (version > 3)
  *
  * @param {Object} params - Parameters object
+ * @param {string[]} [params.electedFolderIds] Folder ids of the app's g:
+ *   components, which its primary runs together.
  * @returns {Promise<void>}
  */
 async function processContainerData(params) {
@@ -286,6 +288,7 @@ async function processContainerData(params) {
     foldersConfiguration,
     newFoldersConfiguration,
     liveness,
+    electedFolderIds = [],
   } = params;
 
   const containersData = containerData.split('|');
@@ -365,6 +368,7 @@ async function processContainerData(params) {
       syncthingFolder,
       installedAppName,
       liveness,
+      electedSiblings: electedFolderIds.includes(appId) ? electedFolderIds.filter((folderId) => folderId !== appId) : [],
     });
 
     // Update cache if provided
@@ -834,6 +838,9 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
         });
       } else {
         // Newer app (version > 3) - compose with multiple components
+        // The folders of the app's g: components, which its primary runs together.
+        const electedFolderIds = mountParser.gComponentIdentifiers(installedApp)
+          .map((electedIdentifier) => dockerService.getAppIdentifier(electedIdentifier));
         // eslint-disable-next-line no-restricted-syntax
         for (const installedComponent of installedApp.compose) {
           const identifier = `${installedComponent.name}_${installedApp.name}`;
@@ -844,6 +851,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
               containerData: installedComponent.containerData,
               identifier,
               installedAppName: installedApp.name,
+              electedFolderIds,
             });
           }
         }
