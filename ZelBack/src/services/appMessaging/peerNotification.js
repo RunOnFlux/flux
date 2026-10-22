@@ -35,11 +35,14 @@ let overrunning = false;
 // loop survives its own abort. Nothing resets this.
 let broadcasting = false;
 
-// Held for the whole of a cycle, so a stop can wait for the cycle in flight
-// rather than returning while it is still running. A teardown that returns
-// before the thing is torn down is the same lie as a stop that does not stop.
-// A removal waits on it too, which is why it lives in globalState.
+// Held from a cycle's snapshot to its broadcast. A removal waits on it, so its
+// message goes out after an announcement that took its list before the removal,
+// which is why it lives in globalState.
 const cycleLock = globalState.announceCycle;
+// Settles when the cycle in flight, if any, has finished, so a stop can wait for
+// it rather than returning while it is still running. A teardown that returns
+// before the thing is torn down is the same lie as a stop that does not stop.
+let cycleFinished = Promise.resolve();
 
 /**
  * Schedule the next announcement so that the PERIOD is fixed, rather than the
@@ -115,7 +118,7 @@ async function stopBroadcasting() {
   // The queued repeat goes with the stop. Left set, it is a cycle the next
   // start would run before the one it schedules for itself.
   rebroadcastNeeded = false;
-  await cycleLock.waitReady();
+  await cycleFinished;
 }
 
 function initialize() {
@@ -134,13 +137,15 @@ async function checkAndNotifyPeersOfRunningApps() {
     return;
   }
   broadcastInProgress = true;
+  let finishCycle;
+  cycleFinished = new Promise((resolve) => { finishCycle = resolve; });
   // Taken before any work, so the schedule below subtracts the WHOLE cycle -
   // including the paths that give up early, which cost time too.
   const startedAt = process.hrtime.bigint();
-  await cycleLock.enable();
+  let locked = false;
   try {
-    // Observation only. The lock above is what a caller waiting on a cycle in
-    // flight actually waits for.
+    // Observation only. The lock taken below is what a caller waiting on a cycle
+    // in flight actually waits for.
     fluxEventBus.publish('app:announcing', {});
     if (!nodeConfirmationService.canSendMessages()) {
       log.info('checkAndNotifyPeersOfRunningApps - Node cannot send messages, skipping broadcast');
@@ -157,6 +162,12 @@ async function checkAndNotifyPeersOfRunningApps() {
     await appPlacements.waitForBackfill();
 
     const localSocketAddr = await fluxNetworkHelper.waitForLocalSocketAddress();
+
+    // A cycle is in flight from the snapshot to the broadcast, and a removal waits
+    // for it so the two go out in the order they happened. The waits above are
+    // outside it, so a node waiting for its address holds up no removal.
+    await cycleLock.enable();
+    locked = true;
 
     // Stamped where the snapshot is taken, not where the message is built: every
     // consumer reads broadcastedAt as the time these apps were installed here, and
@@ -287,7 +298,8 @@ async function checkAndNotifyPeersOfRunningApps() {
     log.error(error);
   } finally {
     broadcastInProgress = false;
-    cycleLock.disable();
+    if (locked) cycleLock.disable();
+    finishCycle();
     if (rebroadcastNeeded) {
       rebroadcastNeeded = false;
       setImmediate(() => checkAndNotifyPeersOfRunningApps());

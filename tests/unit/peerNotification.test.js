@@ -534,6 +534,23 @@ describe('peerNotification tests', () => {
       expect(message.ip).to.equal('192.168.1.1:16127');
     });
 
+    // A removal waits for a cycle in flight; a cycle still waiting for the node's
+    // address has taken no snapshot and holds up no removal.
+    it('is not in flight while it waits for the node\'s address', async () => {
+      let learnAddress;
+      waitForLocalSocketAddressStub.callsFake(() => new Promise((resolve) => { learnAddress = resolve; }));
+
+      const callPromise = peerNotification.checkAndNotifyPeersOfRunningApps();
+      await new Promise((resolve) => { setImmediate(resolve); });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(announceCycle.locked, 'in flight while waiting for the address').to.equal(false);
+
+      learnAddress('192.168.1.1:16127');
+      await callPromise;
+      expect(announceCycle.locked).to.equal(false);
+      expect(broadcastMessageToAllStub.calledOnce).to.be.true;
+    });
+
     // g:/r: apps needed a carve-out while the set came from run-state, because a
     // masterSlave app stops its slave components deliberately. They need none now.
     it('announces g:/r: apps with stopped components, without a carve-out', async () => {
