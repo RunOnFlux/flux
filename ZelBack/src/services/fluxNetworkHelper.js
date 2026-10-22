@@ -1469,19 +1469,23 @@ function checkDockerVersionAllowed(dockerVersion) {
  * host stall makes all rely on the three.
  *
  * Asked once, when Docker first answers at startup. The kernel's answers are
- * read from the cgroup filesystem; init.scope is the cgroup systemd always
- * creates, and cgroup.kill exists in every cgroup but the root. A driver that
- * could not be read gives no verdict on the driver.
+ * read from the cgroup filesystem: cgroup.kill is asked of FluxOS's own cgroup,
+ * which /proc/self/cgroup names and which is never the root, the one cgroup
+ * without the file. A driver that could not be read gives no verdict on the
+ * driver.
  * @param {?string} cgroupDriver The cgroup driver Docker reports, or null when
  *   it could not be read.
- * @param {string} [cgroupRoot] Where the cgroup filesystem is mounted.
+ * @param {{cgroupRoot?: string, selfCgroupFile?: string}} [paths] Where the
+ *   cgroup filesystem is mounted, and the file naming this process's cgroup.
  * @returns {Promise<boolean>} True unless a requirement is known to be unmet.
  */
-async function checkCgroupsAllowed(cgroupDriver, cgroupRoot = '/sys/fs/cgroup') {
+async function checkCgroupsAllowed(cgroupDriver, { cgroupRoot = '/sys/fs/cgroup', selfCgroupFile = '/proc/self/cgroup' } = {}) {
   const exists = (file) => fs.access(path.join(cgroupRoot, file)).then(() => true, () => false);
+  // cgroup v2 lists one line, 0::<path>
+  const ownCgroup = (await fs.readFile(selfCgroupFile, 'utf8').catch(() => '')).match(/^0::(\/.*)$/m)?.[1];
   const unmet = [];
   if (!await exists('cgroup.controllers')) unmet.push('cgroup v2');
-  else if (!await exists('init.scope/cgroup.kill')) unmet.push('cgroup.kill (Linux 5.14 or later)');
+  else if (!ownCgroup || !await exists(path.join(ownCgroup, 'cgroup.kill'))) unmet.push('cgroup.kill (Linux 5.14 or later)');
   if (cgroupDriver === null) {
     log.error('checkCgroupsAllowed - Docker did not report its cgroup driver, no verdict on it');
   } else if (cgroupDriver !== 'systemd') {

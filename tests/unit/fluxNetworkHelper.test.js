@@ -1129,16 +1129,20 @@ describe('fluxNetworkHelper tests', () => {
     const { CGROUP_FLOOR } = fluxNetworkHelper.StickyDosOwner;
     let root;
 
-    // A cgroup filesystem holding the given files.
+    // A cgroup filesystem holding the given files, with FluxOS in
+    // system.slice/fluxos.service.
     async function cgroupRoot(files) {
       root = await fs.mkdtemp(path.join(os.tmpdir(), 'cgroup-'));
+      const cgroupFs = path.join(root, 'cgroup');
       await Promise.all(files.map(async (file) => {
-        await fs.mkdir(path.dirname(path.join(root, file)), { recursive: true });
-        await fs.writeFile(path.join(root, file), '');
+        await fs.mkdir(path.dirname(path.join(cgroupFs, file)), { recursive: true });
+        await fs.writeFile(path.join(cgroupFs, file), '');
       }));
-      return root;
+      const selfCgroupFile = path.join(root, 'self-cgroup');
+      await fs.writeFile(selfCgroupFile, '0::/system.slice/fluxos.service\n');
+      return { cgroupRoot: cgroupFs, selfCgroupFile };
     }
-    const everything = ['cgroup.controllers', 'init.scope/cgroup.kill'];
+    const everything = ['cgroup.controllers', 'system.slice/fluxos.service/cgroup.kill'];
 
     afterEach(async () => {
       fluxNetworkHelper.clearStickyDos(CGROUP_FLOOR);
@@ -1158,6 +1162,12 @@ describe('fluxNetworkHelper tests', () => {
       expect(reported.dosMessage).to.include('missing: cgroup v2');
       expect(reported.dosMessage).to.include('restart FluxOS');
       expect(reported.dosState).to.equal(100);
+    });
+
+    it('asks cgroup.kill of FluxOS\'s own cgroup, not of another', async () => {
+      const paths = await cgroupRoot(['cgroup.controllers', 'init.scope/cgroup.kill']);
+      expect(await fluxNetworkHelper.checkCgroupsAllowed('systemd', paths)).to.equal(false);
+      expect(fluxNetworkHelper.getDOSState().data.dosMessage).to.include('missing: cgroup.kill (Linux 5.14 or later)');
     });
 
     it('takes a node whose kernel cannot kill a cgroup out of service', async () => {
