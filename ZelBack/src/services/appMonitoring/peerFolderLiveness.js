@@ -76,7 +76,7 @@ async function holdingsRequest(socketAddr, challenge) {
 /**
  * A peer's answer as the callers read it.
  * @param {object} answer The `data` of the reply.
- * @returns {{reachable: boolean, answerable: boolean, ready: boolean, folders: string[], holding: object, seeding: object}}
+ * @returns {{reachable: boolean, answerable: boolean, ready: boolean, folders: string[], holding: object, seeding: object, notLookedAt: string[]}}
  */
 function readAnswer(answer) {
   // A peer that has not completed its first monitor pass cannot tell "I hold
@@ -90,8 +90,11 @@ function readAnswer(answer) {
   // Where the peer stands in deciding a cold-start seed, per folder. Absent reads as
   // nowhere, for the same reasons.
   const seeding = (answer && typeof answer.seeding === 'object' && answer.seeding) || {};
+  // The folders the peer holds and has not yet measured. Absent on a peer too old to
+  // say, which reads as none, as that node's answer always has.
+  const notLookedAt = Array.isArray(answer?.notLookedAt) ? answer.notLookedAt : [];
   return {
-    reachable: true, answerable: true, ready, folders, holding, seeding,
+    reachable: true, answerable: true, ready, folders, holding, seeding, notLookedAt,
   };
 }
 
@@ -101,7 +104,7 @@ function readAnswer(answer) {
 // may be the one holding the copy.
 function notReady() {
   return {
-    reachable: true, answerable: true, ready: false, folders: [], holding: {}, seeding: {},
+    reachable: true, answerable: true, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [],
   };
 }
 
@@ -132,7 +135,7 @@ function notReady() {
  *   somewhere else, and says nothing of the peer.
  *
  * @param {string} socketAddr Peer socket address
- * @returns {Promise<{reachable: boolean, answerable: boolean, misrouted?: boolean, unproven?: boolean, ready: boolean, folders: string[], holding: object, seeding: object}>}
+ * @returns {Promise<{reachable: boolean, answerable: boolean, misrouted?: boolean, unproven?: boolean, ready: boolean, folders: string[], holding: object, seeding: object, notLookedAt: string[]}>}
  */
 async function probePeer(socketAddr) {
   const ip = extractIp(socketAddr);
@@ -156,13 +159,13 @@ async function probePeer(socketAddr) {
   if (asked.verdict === IdentityVerdict.MISROUTED) {
     log.info(`peerFolderLiveness - a call to ${ip} was answered by ${asked.answeredAs}; nothing it holds is known`);
     return {
-      reachable: true, answerable: false, misrouted: true, ready: false, folders: [], holding: {}, seeding: {},
+      reachable: true, answerable: false, misrouted: true, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [],
     };
   }
   if (asked.verdict === IdentityVerdict.UNREACHABLE) {
     log.info(`peerFolderLiveness - could not read ${ip}: ${asked.reason}`);
     return {
-      reachable: false, answerable: false, ready: false, folders: [], holding: {}, seeding: {},
+      reachable: false, answerable: false, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [],
     };
   }
 
@@ -176,7 +179,7 @@ async function probePeer(socketAddr) {
   if (!asked.mayReadUnsigned) {
     log.info(`peerFolderLiveness - a reply from ${ip} does not prove it came from that node; nothing it holds is known`);
     return {
-      reachable: true, answerable: false, unproven: true, ready: false, folders: [], holding: {}, seeding: {},
+      reachable: true, answerable: false, unproven: true, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [],
     };
   }
 
@@ -196,12 +199,12 @@ async function probePeer(socketAddr) {
       }
       log.info(`peerFolderLiveness - ${ip} answered ${error.response.status} and cannot say which folders it holds`);
       return {
-        reachable: true, answerable: false, ready: false, folders: [], holding: {}, seeding: {},
+        reachable: true, answerable: false, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [],
       };
     }
     log.info(`peerFolderLiveness - could not read ${ip}: ${error.message}`);
     return {
-      reachable: false, answerable: false, ready: false, folders: [], holding: {}, seeding: {},
+      reachable: false, answerable: false, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [],
     };
   }
 }

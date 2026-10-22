@@ -443,6 +443,31 @@ describe('mountParser tests', () => {
   // The election decides the app and runs every g: component on its primary; an
   // operator start defers to it for the same set. Both read it here, so they
   // cannot disagree.
+  describe('syncedComponentIdentifiers', () => {
+    it('names every synced component of a composed app, in compose order', () => {
+      const spec = {
+        name: 'App',
+        version: 4,
+        compose: [
+          { name: 'two', containerData: 'g:/data' },
+          { name: 'db', containerData: '/data' },
+          { name: 'cache', containerData: 'r:/data' },
+          { name: 'shared', containerData: 's:/data' },
+        ],
+      };
+      expect(mountParser.syncedComponentIdentifiers(spec)).to.deep.equal(['two_App', 'cache_App', 'shared_App']);
+    });
+
+    it('names a v1-3 synced app by its own name', () => {
+      expect(mountParser.syncedComponentIdentifiers({ name: 'Old', version: 3, containerData: 'r:/data' })).to.deep.equal(['Old']);
+    });
+
+    it('names nothing for an app with no synced component, or no spec', () => {
+      expect(mountParser.syncedComponentIdentifiers({ name: 'Old', version: 3, containerData: '/data' })).to.deep.equal([]);
+      expect(mountParser.syncedComponentIdentifiers(null)).to.deep.equal([]);
+    });
+  });
+
   describe('gComponentIdentifiers', () => {
     it('names every g: component of a composed app, in compose order', () => {
       const spec = {

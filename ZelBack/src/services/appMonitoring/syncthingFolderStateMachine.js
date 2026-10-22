@@ -649,6 +649,10 @@ function lowestIpHolder(allPeersList) {
  * @param {object} claim - a candidate's { bytes, newestModified }, or nothing
  * @returns {boolean}
  */
+// What a folder's holdings are recorded as when this node cannot read them: no claim,
+// and not a folder it has yet to look at.
+const UNREADABLE_HOLDINGS = Object.freeze({ unreadable: true });
+
 function isRankableClaim(claim) {
   return Number.isFinite(claim?.bytes) && Number.isFinite(claim.newestModified);
 }
@@ -1457,6 +1461,7 @@ async function handleReceiveOnlyTransition(params) {
   } = params;
 
   const folderPath = syncthingFolder.path || `${appsFolder}${appId}/appdata`;
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_HOLDINGS, appId);
 
   // Whether any CONNECTED peer genuinely holds the data. Gates the election (a true
   // cold start - nobody serving - must still elect one seed instead of standing off)
@@ -1484,15 +1489,12 @@ async function handleReceiveOnlyTransition(params) {
   // not a smaller claim, it is no claim - and standDownOnUnknown below refuses to lead
   // on exactly that. Left up, the last good figure says 5.8 GB to every peer while this
   // node refuses to act on it: they rank it first and defer, it defers to its own
-  // unknown, and nobody seeds for as long as the read keeps failing. Removed, a peer
-  // reads it as not having answered, which drops the field to the address order - the
-  // case that already exists for a peer too old to answer at all.
-  if (holdings) {
-    if (!globalState.folderHoldings) globalState.folderHoldings = new Map();
-    globalState.folderHoldings.set(appId, holdings);
-  } else {
-    globalState.folderHoldings?.delete(appId);
-  }
+  // unknown, and nobody seeds for as long as the read keeps failing. Recorded as
+  // unreadable, a peer reads it as no claim, which drops the field to the address
+  // order - the case that already exists for a peer too old to answer at all - and the
+  // folder is not one this node has yet to look at (promotedFolderHoldings).
+  if (!globalState.folderHoldings) globalState.folderHoldings = new Map();
+  globalState.folderHoldings.set(appId, holdings ?? UNREADABLE_HOLDINGS);
   // Designated-leader election, debounced: require leadership to hold for
   // LEADER_CONFIRM_COUNT consecutive cycles, so a single transient peer-visibility blip
   // doesn't flip a follower to leader.
@@ -1531,12 +1533,21 @@ async function handleReceiveOnlyTransition(params) {
   // its address differ, and the ranking degrades to the address order silently.
   const ownClaim = electedAppClaim(holdings, electedSiblings.map((sibling) => globalState.folderHoldings?.get(sibling)));
   const claims = {};
+  // Candidates that hold this app and have not yet measured what they hold of it - an
+  // install their monitor has not reached. Ranked now, one would read as holding
+  // nothing and the field would fall to the address order over a holder that may hold
+  // the owner's data, so nobody seeds this pass.
+  const notLookedAt = [];
   await Promise.all(electionList.map(async (peer) => {
     if (socketAddressesMatch(peer.ip, localSocketAddr)) {
       if (ownClaim) claims[peer.ip] = ownClaim;
       return;
     }
     const answer = await liveness.read(peer.ip);
+    if (answer?.ready && [appId, ...electedSiblings].some((folder) => (answer.notLookedAt ?? []).includes(folder))) {
+      notLookedAt.push(peer.ip);
+      return;
+    }
     // Only a READY peer's claim counts - before its first monitor pass a node cannot
     // tell "I hold nothing" from "I have not looked". Defence in depth rather than
     // the thing that enforces it: a peer that has not determined its folder state
@@ -1562,9 +1573,14 @@ async function handleReceiveOnlyTransition(params) {
   const appWriter = electedSiblings.length
     ? await electedAppWriter(electedSiblings, electionList, localSocketAddr, liveness)
     : null;
+  if (notLookedAt.length) {
+    fluxEventBus.count('syncthing:seedDecision', appId, 'holderNotLookedAt');
+    if (!cache.waitingOnLook) log.info(`handleReceiveOnlyTransition - ${appId}: ${notLookedAt.join(', ')} has not yet measured what it holds; nobody seeds until it has`);
+  }
+  cache.waitingOnLook = notLookedAt.length > 0;
   const electedLeader = appWriter
     ? appWriter.here && !aPeerHasData
-    : !standDownOnUnknown && isDesignatedLeader(electionList, localSocketAddr, aPeerHasData, claims);
+    : !standDownOnUnknown && !notLookedAt.length && isDesignatedLeader(electionList, localSocketAddr, aPeerHasData, claims);
   // The floor holderIsGone asks of a silent holder, asked of this node before
   // its own win can count: a node whose peers have gone quiet is the one that
   // fell over, and a win it confirms in that state seeds the app on a

@@ -1163,8 +1163,9 @@ describe('syncthingFolderStateMachine tests', () => {
 
     // A read it cannot make is not a smaller claim, it is no claim - and the node
     // stands down on exactly that. Left up, the last good figure makes every peer
-    // defer to a node that is refusing to lead, and nobody seeds.
-    it('withdraws the published claim when it can no longer read what it holds', async () => {
+    // defer to a node that is refusing to lead, and nobody seeds. Recorded as
+    // unreadable rather than removed, so the folder is not one it has yet to look at.
+    it('records the folder unreadable, claiming nothing, when it can no longer read what it holds', async () => {
       globalStateMock.folderHoldings = new Map([
         ['test-app', { bytes: 5821604997, newestModified: 200 }],
         ['other-app', { bytes: 900, newestModified: 100 }],
@@ -1181,7 +1182,7 @@ describe('syncthingFolderStateMachine tests', () => {
 
       await stateMachine.manageFolderSyncState(mockParams);
 
-      expect(globalStateMock.folderHoldings.has('test-app'), 'an unreadable folder still claims its last good figure').to.equal(false);
+      expect(globalStateMock.folderHoldings.get('test-app'), 'an unreadable folder still claims its last good figure').to.deep.equal({ unreadable: true });
       expect(globalStateMock.folderHoldings.has('other-app'), 'another folder\'s claim is not this folder\'s to withdraw').to.equal(true);
     });
 
@@ -2409,6 +2410,72 @@ describe('syncthingFolderStateMachine tests', () => {
         restarted: false, numberOfExecutions: 1, leaderStreak: 5,
       });
     };
+
+    // A holder that has not yet measured what it holds of the folder - an install its
+    // monitor has not reached - would read as holding nothing, and the field would fall
+    // to the address order over a holder that may hold the owner's data. So nobody
+    // seeds while one has not looked. This node's address sorts first and it holds
+    // nothing, so the address order would give it the seed.
+    describe('a holder that has not yet looked at the folder', () => {
+      const coldStartBeside = (peerAnswer) => {
+        mockParams.localSocketAddr = '10.0.0.1:16127';
+        mockParams.appLocation.resolves([
+          { ip: '10.0.0.1:16127', runningSince: 2000, broadcastedAt: 1000 },
+          { ip: '10.0.0.2:16127', runningSince: 2000, broadcastedAt: 1000 },
+        ]);
+        syncthingServiceMock.eachDbLocalChanged.callsFake(feed({ files: [] }));
+        syncthingServiceMock.getDbStatus.resolves({
+          globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+        });
+        axiosMock.get.resolves({ data: { data: { ready: true, folders: [], holding: {}, ...peerAnswer } } });
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+          restarted: false, numberOfExecutions: 1, leaderStreak: 5,
+        });
+      };
+
+      it('keeps any node from seeding until it has', async () => {
+        const count = sinon.spy(fluxEventBus, 'count');
+        try {
+          coldStartBeside({ notLookedAt: ['test-app'] });
+
+          const result = await stateMachine.manageFolderSyncState(mockParams);
+
+          expect(result.syncthingFolder.type, 'seeded over a holder that had not looked at what it holds').to.equal('receiveonly');
+          sinon.assert.calledWith(count, 'syncthing:seedDecision', 'test-app', 'holderNotLookedAt');
+        } finally {
+          count.restore();
+        }
+      });
+
+      it('a canary: the same holder, having looked and holding nothing, leaves the seed to the address order', async () => {
+        coldStartBeside({ notLookedAt: [] });
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.syncthingFolder.type).to.equal('sendreceive');
+      });
+
+      it('is waited on for one of the app\'s other elected folders too', async () => {
+        coldStartBeside({ notLookedAt: ['sibling-app'] });
+        mockParams.electedSiblings = ['sibling-app'];
+        // no node writes the app's other folder yet, so the election decides this one
+        appQueryServiceMock.holdsComponent.resolves(false);
+        globalStateMock.folderHoldings = new Map([['sibling-app', { bytes: 0, newestModified: 0 }]]);
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.syncthingFolder.type).to.equal('receiveonly');
+      });
+
+      // A peer too old to say reads as having looked at everything, as it always has.
+      it('is not assumed of a peer that does not say', async () => {
+        coldStartBeside({});
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.syncthingFolder.type).to.equal('sendreceive');
+      });
+    });
 
     // Every claim is filed under the address the election list carries, because an
     // object key matches exactly where addresses compare tolerantly. Keyed from
