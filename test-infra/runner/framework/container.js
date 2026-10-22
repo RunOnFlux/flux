@@ -455,9 +455,10 @@ export async function crashFluxos(container, { hold = false, exitTimeoutMs = 300
   throw new Error(`crashFluxos: FluxOS ${pid} still running ${exitTimeoutMs}ms after SIGKILL`);
 }
 
-// pm2 as a legacy node's operator runs it: as their account, against their pm2 home
-// (test-infra/systemd/pm2-fluxuser.service).
-const PM2 = 'runuser -u fluxuser -- env PM2_HOME=/home/fluxuser/.pm2 pm2';
+// A command as a legacy node's operator runs pm2: as their account, against their pm2
+// home (test-infra/systemd/pm2-fluxuser.service).
+export const AS_PM2_OPERATOR = 'runuser -u fluxuser -- env PM2_HOME=/home/fluxuser/.pm2';
+const PM2 = `${AS_PM2_OPERATOR} pm2`;
 
 // The kill timeout of FluxOS's pm2 registration on a legacy node whose FluxOS
 // pm2 runs (createTestEnv pm2Nodes), as the daemon holds it and as `pm2 save`
