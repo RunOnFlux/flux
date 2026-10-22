@@ -1,6 +1,7 @@
 const config = require('config');
 const log = require('../../lib/log');
 const dbHelper = require('../dbHelper');
+const fluxEventBus = require('../utils/fluxEventBus');
 
 // When this node took each app it holds: one record per app, keyed by name.
 //
@@ -35,18 +36,22 @@ async function prepareCollection() {
  * Record that this node took an app at `placedAt`, unless a record for it exists.
  * @param {string} name App name.
  * @param {Date} [placedAt] When this node took it.
+ * @param {string} [source] What the time was taken from: install, locationRow or now.
  * @returns {Promise<void>}
  */
-async function recordPlacement(name, placedAt = new Date()) {
+async function recordPlacement(name, placedAt = new Date(), source = 'install') {
   // Two writers racing the first insert leave one record: the server retries an
   // upsert that collides on a unique index matched by equality.
-  await dbHelper.updateOneInDatabase(
+  const result = await dbHelper.updateOneInDatabase(
     localDatabase(),
     appsPlacements,
     { name },
     { $setOnInsert: { name, placedAt } },
     { upsert: true },
   );
+  if (result?.upsertedCount) {
+    fluxEventBus.publish('app:placementRecorded', { name, placedAt: placedAt.toISOString(), source });
+  }
 }
 
 /**
@@ -70,7 +75,8 @@ async function placementsOf(names) {
  * @returns {Promise<void>}
  */
 async function removePlacement(name) {
-  await dbHelper.removeDocumentsFromCollection(localDatabase(), appsPlacements, { name });
+  const result = await dbHelper.removeDocumentsFromCollection(localDatabase(), appsPlacements, { name });
+  if (result?.deletedCount) fluxEventBus.publish('app:placementRemoved', { name });
 }
 
 /**
@@ -103,7 +109,7 @@ async function reconcilePlacements(installedNames, localSocketAddr) {
   // eslint-disable-next-line no-restricted-syntax
   for (const name of missing) {
     // eslint-disable-next-line no-await-in-loop
-    await recordPlacement(name, rowSince.get(name) ?? now);
+    await recordPlacement(name, rowSince.get(name) ?? now, rowSince.has(name) ? 'locationRow' : 'now');
   }
 
   const removal = await dbHelper.removeDocumentsFromCollection(database, appsPlacements, { name: { $nin: installedNames } });
@@ -111,6 +117,7 @@ async function reconcilePlacements(installedNames, localSocketAddr) {
   if (missing.length || removed) {
     log.info(`appPlacements - recorded ${missing.length} placement(s) (${rowSince.size} from this node's location rows), removed ${removed} for apps not installed here`);
   }
+  fluxEventBus.publish('app:placementsReconciled', { created: missing.length, fromLocationRows: rowSince.size, removed });
   return { created: missing.length, removed };
 }
 

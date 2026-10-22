@@ -268,11 +268,12 @@ async function checkAndNotifyPeersOfRunningApps() {
       const ownStore = await messageStore.storeAppRunningMessage(appRunningMessage);
       if (ownStore instanceof Error) {
         log.error(`checkAndNotifyPeersOfRunningApps - this node refuses its own announcement, not broadcast: ${ownStore.message}`);
+        fluxEventBus.publish('app:announcementRefused', { reason: ownStore.message });
         return;
       }
       const signed = await fluxCommunicationMessagesSender.broadcastMessageToAll(appRunningMessage);
       await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: signed });
-      fluxEventBus.publish('app:running', { apps, ip: appRunningMessage.ip });
+      fluxEventBus.publish('app:running', { apps, ip: appRunningMessage.ip, unannounced: refused.map((application) => application?.name ?? null) });
       log.info(`App Running Message broadcasted: ${apps.length} apps`);
     } catch (err) {
       log.error(err);

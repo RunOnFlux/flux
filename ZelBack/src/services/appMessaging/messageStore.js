@@ -11,6 +11,7 @@ const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const globalState = require('../utils/globalState');
 const { appRunningEntries } = require('../utils/appRunningEntries');
+const fluxEventBus = require('../utils/fluxEventBus');
 const {
   globalAppsMessages,
   globalAppsTempMessages,
@@ -356,7 +357,10 @@ async function storeAppRunningMessage(message) {
       return new Error('Invalid Flux App Running message: apps array exceeds maxAppsPerNode');
     }
     const { stored, refused } = appRunningEntries(message.apps);
-    if (refused.length) logRefusedEntries('storeAppRunningMessage', [{ ip: message.ip, broadcastedAt: message.broadcastedAt, refused }]);
+    if (refused.length) {
+      logRefusedEntries('storeAppRunningMessage', [{ ip: message.ip, broadcastedAt: message.broadcastedAt, refused }]);
+      fluxEventBus.publish('network:apprunningRefused', { path: 'gossip', refusals: [{ ip: message.ip, names: refused.map((app) => app?.name ?? null) }] });
+    }
     if (message.apps.length && !stored.length) {
       return { stored: false, rebroadcast: false };
     }
@@ -854,6 +858,12 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
 
   await flushLocationOps();
   logRefusedEntries('storeBatchAppRunningMessages', refusals);
+  if (refusals.length) {
+    fluxEventBus.publish('network:apprunningRefused', {
+      path: 'sync',
+      refusals: refusals.map(({ ip, refused }) => ({ ip, names: refused.map((app) => app?.name ?? null) })),
+    });
+  }
 
   // Upserts only. Removing the rows a node no longer reports belongs to
   // pruneAppRunningLocations, which is driven from the newest broadcast per node

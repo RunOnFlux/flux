@@ -1115,7 +1115,7 @@ describe('messageStore tests', () => {
     const now = () => Date.now();
     // Every event a node records once and serves to the peers syncing from it.
     const events = () => [
-      ['apprunning', { signedBroadcast: { data: { ip: '1.2.3.4:16127', broadcastedAt: now(), version: 2, apps: [{ name: 'a' }] } } }],
+      ['apprunning', { signedBroadcast: { data: { ip: '1.2.3.4:16127', broadcastedAt: now(), version: 2, apps: [{ name: 'a', hash: 'h' }] } } }],
       ['sigterm', { message: { ip: '1.2.3.4:16127', broadcastedAt: now() } }],
       ['appremoved', { message: { ip: '1.2.3.4:16127', appName: 'a', broadcastedAt: now() } }],
       ['evicted', { ip: '1.2.3.4:16127', evictedAt: now() }],
