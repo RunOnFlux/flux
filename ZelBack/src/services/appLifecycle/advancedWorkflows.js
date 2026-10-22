@@ -3876,8 +3876,10 @@ async function checkAndRemoveApplicationInstance() {
       return;
     }
 
-    // get list of locally installed apps.
-    const installedAppsRes = await getInstalledAppsFromDb();
+    // Decrypted, because the surplus rule finds an app's writer in its compose,
+    // and an enterprise app's stored compose is empty: its components exist only
+    // in the encrypted blob.
+    const installedAppsRes = await getInstalledAppsFromDb({ decryptApps: true });
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
     }

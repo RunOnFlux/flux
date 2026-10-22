@@ -339,6 +339,10 @@ export async function buildSeedableLegacyApp({
  * that never uses them is testing sync against a volume real apps do not have -
  * which is how a cold start could deadlock on every `g:`+`f:` app on the network
  * while the suite written for exactly that standoff stayed green.
+ *
+ * `enterprise: true` stores the same components the way every enterprise app is
+ * stored - compose empty, the components in the encrypted blob - so a suite can
+ * prove a rule that reads the components holds for both storage shapes.
  */
 export async function buildSeedableSyncthingApp({
   name,
@@ -347,6 +351,7 @@ export async function buildSeedableSyncthingApp({
   containerPorts = [80],
   sibling = false,
   extraMounts = [],
+  enterprise = false,
   ...rest
 }) {
   const compose = [{
@@ -383,6 +388,7 @@ export async function buildSeedableSyncthingApp({
     });
   }
 
+  if (enterprise) return buildSeedableEnterpriseApp({ name, compose, ...rest });
   return buildSeedableApp({ name, compose, ...rest });
 }
 

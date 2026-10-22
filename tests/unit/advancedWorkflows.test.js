@@ -31,6 +31,8 @@ const registryManager = require('../../ZelBack/src/services/appDatabase/registry
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
 const volumeService = require('../../ZelBack/src/services/utils/volumeService');
 const dockerServiceModule = require('../../ZelBack/src/services/dockerService');
+const appQueryServiceModule = require('../../ZelBack/src/services/appQuery/appQueryService');
+const fluxCaching = require('../../ZelBack/src/services/utils/cacheManager');
 
 // The operator stop lock as appsRuntimeState.operatorStopState answers it.
 const UNLOCKED = { stopped: false, startRequested: false, force: false };
@@ -7866,6 +7868,61 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
         .map((call) => String(call.args[0]))
         .filter((line) => /refused \d+ passes running/.test(line));
       expect(escalations, 'waiting a turn is not a fault and must not escalate').to.be.empty;
+    });
+  });
+
+  // An enterprise app is stored as the network carries it: compose empty, the
+  // components only in the encrypted blob. The writer the surplus rule protects
+  // is one of those components, so the pass has to judge the decrypted spec.
+  // Decryption here runs through the real path from a seeded cache entry.
+  describe('a surplus enterprise app is judged by the components it runs', () => {
+    const appName = 'entapp';
+    const hash = 'enthash';
+    const identifier = `w_${appName}`;
+    const stored = {
+      name: appName, version: 8, instances: 2, hash, compose: [], enterprise: 'encryptedblob',
+    };
+    const decrypted = {
+      ...stored, enterprise: '', compose: [{ name: 'w', containerData: 'g:/data' }],
+    };
+    const cache = fluxCaching.default.enterpriseAppDecryptionCache;
+
+    beforeEach(() => {
+      cache.set(hash, decrypted);
+      dbHelper.findInDatabase.resolves([stored]);
+    });
+
+    afterEach(() => {
+      cache.delete(hash);
+    });
+
+    it('keeps the newest copy when it is running the writer', async () => {
+      sinon.stub(appQueryServiceModule, 'listRunningApps').resolves({
+        status: 'success', data: [{ Names: [`/flux${identifier}`] }],
+      });
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.notCalled(evacuationSafety.canSafelyRemoveApp);
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('trims the second-newest copy when the newest signs that it holds the writer', async () => {
+      sinon.stub(appQueryServiceModule, 'listRunningApps').resolves({ status: 'success', data: [] });
+      peerIdentityService.askSigned.withArgs('9.9.9.9:16127').resolves({
+        verdict: peerIdentityService.IdentityVerdict.VERIFIED,
+        answer: {
+          held: [dockerServiceModule.getAppIdentifier(identifier)],
+          purpose: peerIdentityService.AnswerPurpose.HELD_COMPONENTS,
+        },
+      });
+      // LOCAL is second of three: 9.9.9.9 started last.
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', LOCAL, '9.9.9.9:16127'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.calledWith(appUninstaller.removeAppLocally, appName);
     });
   });
 
