@@ -61,32 +61,39 @@ async function firstHeldOnlyHere(folderId, names) {
 }
 
 /**
- * A local change that is the only copy of data from another device: its history names
- * another device, so the data came from elsewhere, and no other device holds a valid
- * version of it. syncthing reverts such an item by deleting it - the only copy of data
- * the app wrote elsewhere - and a directory that is not empty cannot be deleted, so
- * that revert fails on every pass. A change whose history is this node's alone was
- * made here, never by the app's writer, and is not asked about.
+ * What a receive-only folder's local changes are, for whether they may be reverted:
+ *  - `onlyCopy`: a change that is the only copy of data from another device. Its
+ *    history names another device, so the data came from elsewhere, and no other
+ *    device holds a valid version of it. syncthing reverts such an item by deleting
+ *    it, and a directory that is not empty cannot be deleted, so that revert fails on
+ *    every pass. The first one found ends the check.
+ *  - `madeHere`: whether any change's history is this node's alone. Such a change was
+ *    made on this node, as a standby or earlier as the primary, and no other device's
+ *    history says otherwise. It is not asked about: whether it may be reverted turns
+ *    on whether another holder runs the app, not on what other devices hold.
  * @param {string} folderId
- * @returns {Promise<string|false|null>} the item's name; false when there is none; null
- *   when the changes could not be read
+ * @returns {Promise<{onlyCopy: string|false, madeHere: boolean}|null>} null when the
+ *   changes could not be read
  */
-async function findOnlyCopy(folderId) {
+async function examineLocalChanges(folderId) {
   try {
     const deviceId = await syncthingService.getDeviceId();
     if (!deviceId) return null;
     const ownCounter = `${deviceId.substring(0, 7)}:`;
+    let madeHere = false;
     for (let page = 1; ; page += 1) {
       // eslint-disable-next-line no-await-in-loop
       const batch = (await syncthingService.getDbLocalChanged(folderId, page, LOCAL_CHANGE_PAGE_SIZE))?.files;
-      if (!Array.isArray(batch)) return page > 1 ? false : null;
-      const fromElsewhere = batch
-        .filter((item) => (item?.version ?? []).some((counter) => !counter.startsWith(ownCounter)))
-        .map((item) => item.name);
+      if (!Array.isArray(batch)) return page > 1 ? { onlyCopy: false, madeHere } : null;
+      const fromElsewhere = [];
+      batch.forEach((item) => {
+        if ((item?.version ?? []).some((counter) => !counter.startsWith(ownCounter))) fromElsewhere.push(item.name);
+        else madeHere = true;
+      });
       // eslint-disable-next-line no-await-in-loop
       const found = await firstHeldOnlyHere(folderId, fromElsewhere);
-      if (found !== undefined) return found;
-      if (batch.length < LOCAL_CHANGE_PAGE_SIZE) return false;
+      if (found !== undefined) return { onlyCopy: found, madeHere };
+      if (batch.length < LOCAL_CHANGE_PAGE_SIZE) return { onlyCopy: false, madeHere };
     }
   } catch (error) {
     log.warn(`localChangeCheck - ${folderId}: ${error.message}`);
@@ -101,12 +108,12 @@ async function findOnlyCopy(folderId) {
  */
 async function runCheck(check) {
   await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_LOCAL_CHANGE_CHECK, check.folderId);
-  const onlyCopy = await findOnlyCopy(check.folderId);
+  const found = await examineLocalChanges(check.folderId);
   await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_LOCAL_CHANGE_ANSWER, check.folderId);
-  if (onlyCopy === null || !check.isCurrent()) return;
+  if (found === null || !check.isCurrent()) return;
   // eslint-disable-next-line no-param-reassign
-  check.entry.localChangeCheck = { stamp: check.stamp, onlyCopy };
-  fluxEventBus.publish('syncthing:localChangesChecked', { folder: check.folderId, onlyCopy: Boolean(onlyCopy) });
+  check.entry.localChangeCheck = { stamp: check.stamp, ...found };
+  fluxEventBus.publish('syncthing:localChangesChecked', { folder: check.folderId, onlyCopy: Boolean(found.onlyCopy), madeHere: found.madeHere });
 }
 
 async function runWaitingChecks() {
@@ -141,7 +148,7 @@ function request(folderId, entry, stamp, isCurrent) {
  * The answer left for a folder's entry, if it was made against the folder as it is now.
  * @param {object} entry The folder's entry in receiveOnlySyncthingAppsCache.
  * @param {string} stamp stampOf the folder now.
- * @returns {{onlyCopy: string|false}|null}
+ * @returns {{onlyCopy: string|false, madeHere: boolean}|null}
  */
 function answerFor(entry, stamp) {
   const answer = entry?.localChangeCheck;
@@ -150,7 +157,7 @@ function answerFor(entry, stamp) {
 
 module.exports = {
   answerFor,
-  findOnlyCopy,
+  examineLocalChanges,
   request,
   stampOf,
 };

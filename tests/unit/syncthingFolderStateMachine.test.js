@@ -957,6 +957,8 @@ describe('syncthingFolderStateMachine tests', () => {
 
       const publish = sinon.stub(fluxEventBus, 'publish');
       try {
+        // The primary runs the app on another holder.
+        peerComponentMock.componentStateOnOtherHolders.resolves('running');
         // The first pass asks for the check; the next acts on its answer.
         await stateMachine.manageFolderSyncState(mockParams);
         await checksSettled();
@@ -987,6 +989,8 @@ describe('syncthingFolderStateMachine tests', () => {
 
       const publish = sinon.stub(fluxEventBus, 'publish');
       try {
+        // The primary runs the app on another holder.
+        peerComponentMock.componentStateOnOtherHolders.resolves('running');
         // The first pass asks for the check; the next acts on its answer.
         await stateMachine.manageFolderSyncState(mockParams);
         await checksSettled();
@@ -2413,7 +2417,7 @@ describe('syncthingFolderStateMachine tests', () => {
         expect(result.cache.restarted, 'a change only this node holds kept the folder from promoting').to.be.true;
       });
 
-      it('is reverted when this node made it, asking nothing about it', async () => {
+      it('is reverted on an r: folder when this node made it, asking nothing about it', async () => {
         pollutedCandidate();
         changes({ name: 'appdata/made-here', version: ['LOCAL-D:9'] });
 
@@ -2534,6 +2538,109 @@ describe('syncthingFolderStateMachine tests', () => {
         expect(result.cache.restarted).to.be.false;
       });
 
+      // A change only this node made, on a single-writer folder, is the app's data
+      // while no other holder runs the app - its own writes as an earlier primary
+      // included - and junk beside a holder that runs it.
+      describe('made on this node, on a single-writer folder', () => {
+        const MADE_HERE = ['LOCAL-D:9'];
+        const othersRun = (state) => peerComponentMock.componentStateOnOtherHolders.resolves(state);
+
+        it('is reverted while another holder runs the app', async () => {
+          readyStandby();
+          changes({ name: 'appdata/stray', version: MADE_HERE });
+          othersRun('running');
+
+          await checkedPass();
+
+          sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
+        });
+
+        it('is kept while no other holder runs the app, and said once', async () => {
+          readyStandby();
+          changes({ name: 'appdata/written-as-primary', version: MADE_HERE }, { name: 'appdata', version: MADE_HERE });
+          othersRun('notRunning');
+          const publish = sinon.stub(fluxEventBus, 'publish');
+          try {
+            await checkedPass();
+            await pass();
+
+            sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+            sinon.assert.calledOnceWithExactly(
+              publish.withArgs('syncthing:localChangesKept'),
+              'syncthing:localChangesKept',
+              {
+                folder: 'test-app', files: 0, directories: 1, reason: 'noHolderRunsTheApp',
+              },
+            );
+          } finally {
+            publish.restore();
+          }
+        });
+
+        it('is neither reverted nor promoted while whether another holder runs the app cannot be said', async () => {
+          pollutedCandidate();
+          mockParams.containerDataFlags = 'g';
+          changes({ name: 'appdata/stray', version: MADE_HERE });
+          othersRun('unknown');
+
+          const result = await checkedPass();
+
+          sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+          expect(result.cache.restarted).to.be.false;
+        });
+
+        // The sole survivor of an app it was once the primary of: its folder becomes
+        // ready to take over with its changes, rather than being held for a revert
+        // that deletes them.
+        it('lets a folder become ready to take over while no other holder runs the app', async () => {
+          pollutedCandidate();
+          mockParams.containerDataFlags = 'g';
+          changes({ name: 'appdata/written-as-primary', version: MADE_HERE });
+          othersRun('notRunning');
+
+          const result = await checkedPass();
+
+          sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+          expect(result.cache.restarted).to.be.true;
+        });
+
+        it('is reverted once a holder runs the app, though it was kept while none did', async () => {
+          readyStandby();
+          changes({ name: 'appdata/stray', version: MADE_HERE });
+          othersRun('notRunning');
+          await checkedPass();
+          sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+
+          othersRun('running');
+          await pass();
+
+          sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
+        });
+
+        it('is kept beside a holder that runs the app when another change is the only copy of another device\'s data', async () => {
+          readyStandby();
+          changes({ name: 'appdata/stray', version: MADE_HERE }, { name: 'appdata/only-here', version: FROM_PRIMARY });
+          onlyHere('appdata/only-here');
+          othersRun('running');
+
+          await checkedPass();
+
+          sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+          sinon.assert.notCalled(peerComponentMock.componentStateOnOtherHolders);
+        });
+
+        it('does not ask whether another holder runs the app when every change names another device', async () => {
+          readyStandby();
+          changes({ name: 'appdata/held', version: FROM_PRIMARY });
+          heldElsewhere('appdata/held');
+
+          await checkedPass();
+
+          sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
+          sinon.assert.notCalled(peerComponentMock.componentStateOnOtherHolders);
+        });
+      });
+
       it('is kept on a ready standby, said once, and costs nothing on the passes after', async () => {
         readyStandby();
         changes({ name: 'appdata/only-here', version: FROM_PRIMARY });
@@ -2548,7 +2655,7 @@ describe('syncthingFolderStateMachine tests', () => {
           sinon.assert.calledOnceWithExactly(
             publish.withArgs('syncthing:localChangesKept'),
             'syncthing:localChangesKept',
-            { folder: 'test-app', files: 0, directories: 1 },
+            { folder: 'test-app', files: 0, directories: 1, reason: 'onlyCopy' },
           );
           sinon.assert.calledOnce(syncthingServiceMock.getDbLocalChanged);
           sinon.assert.calledOnce(syncthingServiceMock.getDbFile);
@@ -2804,6 +2911,8 @@ describe('syncthingFolderStateMachine tests', () => {
             globalBytes: 4096, globalFiles: 1, inSyncBytes: 4096, state: 'idle', receiveOnlyChangedFiles: 1,
           });
 
+          // The primary runs the app on another holder.
+          peerComponentMock.componentStateOnOtherHolders.resolves('running');
           // The first pass asks for the check; the next acts on its answer.
           await stateMachine.manageFolderSyncState(mockParams);
           await checksSettled();

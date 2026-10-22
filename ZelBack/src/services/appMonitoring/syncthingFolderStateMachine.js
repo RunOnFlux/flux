@@ -32,7 +32,7 @@ const folderStates = require('./folderStates');
 const localChangeCheck = require('./localChangeCheck');
 const { isSyncedRootName } = require('../appSystem/volumeReservedNames');
 const primaryRole = require('../appLifecycle/primaryRole');
-const { componentStateOnOtherHolders } = require('./peerComponent');
+const { componentStateOnOtherHolders, PeerComponent } = require('./peerComponent');
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
@@ -1302,12 +1302,19 @@ async function nudgeFolderDevices(folderId) {
  * version and deletes local-only items that are not ignored, so it runs only
  * against a complete global index (isSynced).
  *
- * A change no other device holds, to data that came from another device, is the
- * only copy of it left, and db/revert would delete it. A folder holding one is not
- * reverted - db/revert takes the whole folder, so its other changes stay too - and
- * its changes do not hold the node back from taking over: promoted, it publishes them.
- * Which of the two a folder is comes from localChangeCheck, and is acted on only while
- * the folder is still the one it was checked against. Until then the folder is neither
+ * db/revert takes the whole folder, and deletes every change no other device holds.
+ * A folder is reverted only when both say its changes are not the app's data:
+ *  - none of them is the only copy of data another device wrote, and
+ *  - another holder runs the app, when any of them is a change this node made itself.
+ *    A holder running the app is authoritative, and a change it does not have is
+ *    this node's alone. No holder running it, this node holds the app's data, its
+ *    earlier writes as primary included, and a revert has nothing to restore them
+ *    from. Whether a holder runs it is asked on every pass that would revert, so a
+ *    folder kept while none did is reverted once one does.
+ * A kept folder's changes do not hold the node back from taking over: promoted, it
+ * publishes them. Which changes the folder holds comes from localChangeCheck, and is
+ * acted on only while the folder is still the one it was checked against. Until then,
+ * and while whether another holder runs the app cannot be said, the folder is neither
  * reverted nor promoted.
  *
  * @param {string} appId - The Syncthing folder ID
@@ -1315,11 +1322,14 @@ async function nudgeFolderDevices(folderId) {
  * @param {Object} folderCache - The folder's entry in receiveOnlySyncthingAppsCache: it
  *   carries the check's answer, and `keepingChanges` marks a folder already said to be
  *   keeping its changes, so that is said once, when it starts
- * @param {Function} isCurrent - Whether `folderCache` is still the folder's entry
+ * @param {Object} options
+ * @param {Function} options.isCurrent - Whether `folderCache` is still the folder's entry
+ * @param {Function|null} options.othersRunTheApp - What the app's other holders are doing
+ *   with it, as a PeerComponent state; null when every holder runs it
  * @returns {Promise<boolean>} True when the folder has local changes it does not
- *   keep: a revert was asked for, or which changes other devices hold is not yet known
+ *   keep: a revert was asked for, or whether to revert cannot be said yet
  */
-async function revertLocalChangesIfSynced(appId, syncStatus, folderCache, isCurrent) {
+async function revertLocalChangesIfSynced(appId, syncStatus, folderCache, { isCurrent, othersRunTheApp }) {
   const cache = folderCache;
   if (!syncStatus?.isSynced) return false;
   const changed = (syncStatus.receiveOnlyChangedFiles || 0) + (syncStatus.receiveOnlyChangedDirectories || 0);
@@ -1341,13 +1351,32 @@ async function revertLocalChangesIfSynced(appId, syncStatus, folderCache, isCurr
     localChangeCheck.request(appId, cache, stamp, isCurrent);
     return true;
   }
-  if (answer.onlyCopy) {
-    if (cache.keepingChanges) return false;
-    cache.keepingChanges = true;
-    log.warn(`revertLocalChangesIfSynced - ${appId} holds a local change to data from another device that no other device holds (${answer.onlyCopy}; ${files} files, ${directories} directories changed); keeping its changes, a revert would delete it`);
-    fluxEventBus.publish('syncthing:localChangesKept', { folder: appId, files, directories });
+  const keep = (reason, why) => {
+    if (cache.keepingChanges === reason) return false;
+    cache.keepingChanges = reason;
+    log.warn(`revertLocalChangesIfSynced - ${appId} ${why} (${files} files, ${directories} directories changed); keeping its changes, a revert would delete them`);
+    fluxEventBus.publish('syncthing:localChangesKept', {
+      folder: appId, files, directories, reason,
+    });
     return false;
+  };
+  if (answer.onlyCopy) {
+    delete cache.waitingOnHolders;
+    return keep('onlyCopy', `holds a local change to data from another device that no other device holds (${answer.onlyCopy})`);
   }
+  if (answer.madeHere && othersRunTheApp) {
+    const elsewhere = await othersRunTheApp();
+    if (elsewhere === PeerComponent.NOT_RUNNING) {
+      delete cache.waitingOnHolders;
+      return keep('noHolderRunsTheApp', 'holds changes it made itself while no other holder runs the app');
+    }
+    if (elsewhere !== PeerComponent.RUNNING) {
+      if (!cache.waitingOnHolders) log.info(`revertLocalChangesIfSynced - ${appId}: whether another holder runs the app cannot be said; neither reverting nor promoting until it can`);
+      cache.waitingOnHolders = true;
+      return true;
+    }
+  }
+  delete cache.waitingOnHolders;
   delete cache.keepingChanges;
   log.warn(`revertLocalChangesIfSynced - ${appId} is synced but the receive-only folder has ${changed} locally changed item(s) (${files} files, ${directories} directories); reverting to the cluster's version`);
   try {
@@ -1429,6 +1458,7 @@ async function handleReceiveOnlyTransition(params) {
     liveness,
     electedSiblings = [],
     receiveOnlySyncthingAppsCache,
+    othersRunTheApp = null,
   } = params;
 
   const folderPath = syncthingFolder.path || `${appsFolder}${appId}/appdata`;
@@ -1763,7 +1793,9 @@ async function handleReceiveOnlyTransition(params) {
     // a receiveonly folder) and promote on a later cycle once verifiably clean. Changes
     // no other device holds are kept, and promoted with the rest of this node's data.
     // The leader path above is exempt by design - the leader's local data IS the seed.
-    if (await revertLocalChangesIfSynced(appId, syncStatus, cache, () => receiveOnlySyncthingAppsCache.get(appId) === cache)) {
+    if (await revertLocalChangesIfSynced(appId, syncStatus, cache, {
+      isCurrent: () => receiveOnlySyncthingAppsCache.get(appId) === cache, othersRunTheApp,
+    })) {
       return { syncthingFolder, cache };
     }
     if (syncStatus.isSynced) {
@@ -1955,6 +1987,15 @@ async function manageFolderSyncState(params) {
   // passes from an event to know every holder has decided since it.
   fluxEventBus.count('syncthing:folderPass', appId, 'evaluated');
 
+  // What the app's other holders are doing with its g: components. Every one of
+  // them is asked about: a holder running any of them is its primary.
+  const othersHold = () => componentStateOnOtherHolders(readAppLocation, localSocketAddr, {
+    appIds: [appId, ...electedSiblings], identifier, appName: installedAppName, liveness, logPrefix: 'manageFolderSyncState',
+  });
+  // Whether a change only this node made, and no other device holds, is reverted
+  // turns on whether another holder runs the app. Every holder of an r: folder runs it.
+  const othersRunTheApp = containerDataFlags.includes('g') ? othersHold : null;
+
   // Check if folder already exists and is in sendreceive mode
   const folderAlreadySyncing = syncFolder && syncFolder.type === 'sendreceive';
   const sendingSingleWriter = folderAlreadySyncing && containerDataFlags.includes('g');
@@ -1971,11 +2012,6 @@ async function manageFolderSyncState(params) {
     // its process, and what it holds must not go out until the election says
     // it is primary again.
     log.info(`manageFolderSyncState - ${appId} is sendreceive and not held here, demoting until the election decides`);
-    // Every g: component of the app is asked about: a holder running any of
-    // them is its primary, and this folder's changes are not to go out beside it.
-    const othersHold = () => componentStateOnOtherHolders(readAppLocation, localSocketAddr, {
-      appIds: [appId, ...electedSiblings], identifier, appName: installedAppName, liveness, logPrefix: 'manageFolderSyncState',
-    });
     await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_STANDBY_HOLD, appId);
     await primaryRole.holdAsStandby(identifier, appId, { othersHold });
     return { syncthingFolder, cache: { restarted: false, numberOfExecutions: 0 } };
@@ -2034,6 +2070,7 @@ async function manageFolderSyncState(params) {
       liveness,
       electedSiblings,
       receiveOnlySyncthingAppsCache,
+      othersRunTheApp,
     });
     return result;
   }
@@ -2080,7 +2117,9 @@ async function manageFolderSyncState(params) {
     // deviation (an owner or mode included) is never overwritten by syncthing
     // in a receiveonly folder, and the primary counts it as outstanding.
     if (syncFolder?.type === 'receiveonly') {
-      await revertLocalChangesIfSynced(appId, await getFolderSyncCompletion(appId), cache, () => receiveOnlySyncthingAppsCache.get(appId) === cache);
+      await revertLocalChangesIfSynced(appId, await getFolderSyncCompletion(appId), cache, {
+        isCurrent: () => receiveOnlySyncthingAppsCache.get(appId) === cache, othersRunTheApp,
+      });
     }
     return { syncthingFolder, cache };
   }
