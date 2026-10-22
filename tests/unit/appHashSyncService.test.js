@@ -6,6 +6,8 @@ const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileg
 const { Readable } = require('stream');
 const config = require('config');
 
+const MESSAGES = config.database.appsglobal.collections.appsMessages;
+
 function makeStreamResponse(data) {
   const json = JSON.stringify({ status: 'success', data });
   const stream = new Readable({ read() { this.push(json); this.push(null); } });
@@ -834,6 +836,7 @@ describe('appHashSyncService tests', () => {
       const { recentRetry, oldRetry } = makeExpiryTestHashes();
       const both = [recentRetry, oldRetry];
       dbHelperStub.findInDatabase.resolves(both);
+      dbHelperStub.findInDatabase.withArgs(sinon.match.any, MESSAGES).resolves([]);
 
       advanceDateOnDelay();
       try {
@@ -854,6 +857,7 @@ describe('appHashSyncService tests', () => {
 
       dbHelperStub.findInDatabase.onFirstCall().resolves([recentRetry, oldRetry, ...padding]);
       dbHelperStub.findInDatabase.resolves([recentRetry, oldRetry]);
+      dbHelperStub.findInDatabase.withArgs(sinon.match.any, MESSAGES).resolves([]);
 
       serviceHelperStub.axiosGet.callsFake((url) => {
         if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse([]));
@@ -868,6 +872,59 @@ describe('appHashSyncService tests', () => {
       }
 
       assertExpiryBehavior();
+    });
+
+    // A hash whose message this node holds waits on no peer: the next pass writes its
+    // registry row from the stored copy, so the ladder that spaces out asking peers
+    // does not apply to it.
+    describe('a hash whose message is already stored', () => {
+      const backedOff = (hash) => collectionStub.bulkWrite.getCalls().some((call) => call.args[0]
+        .some((op) => op.updateOne?.filter?.hash === hash && op.updateOne.update.$set.syncAttempts !== undefined));
+
+      it('is not backed off', async () => {
+        const { recentRetry } = makeExpiryTestHashes();
+        dbHelperStub.findInDatabase.resolves([recentRetry]);
+        dbHelperStub.findInDatabase.withArgs(sinon.match.any, MESSAGES).resolves([{ hash: recentRetry.hash }]);
+
+        advanceDateOnDelay();
+        try {
+          await appHashSyncService.syncMissingHashes({ currentHeight: 2555000 });
+        } finally {
+          Date.now.restore();
+        }
+
+        expect(backedOff(recentRetry.hash), 'a hash whose message is stored was backed off').to.equal(false);
+      });
+
+      it('a canary: the same hash with no message stored is backed off', async () => {
+        const { recentRetry } = makeExpiryTestHashes();
+        dbHelperStub.findInDatabase.resolves([recentRetry]);
+        dbHelperStub.findInDatabase.withArgs(sinon.match.any, MESSAGES).resolves([]);
+
+        advanceDateOnDelay();
+        try {
+          await appHashSyncService.syncMissingHashes({ currentHeight: 2555000 });
+        } finally {
+          Date.now.restore();
+        }
+
+        expect(backedOff(recentRetry.hash)).to.equal(true);
+      });
+
+      it('is not given up on, however long it has waited', async () => {
+        const { oldRetry } = makeExpiryTestHashes();
+        dbHelperStub.findInDatabase.resolves([oldRetry]);
+        dbHelperStub.findInDatabase.withArgs(sinon.match.any, MESSAGES).resolves([{ hash: oldRetry.hash }]);
+
+        advanceDateOnDelay();
+        try {
+          await appHashSyncService.syncMissingHashes({ currentHeight: 2555000 });
+        } finally {
+          Date.now.restore();
+        }
+
+        expect(messageVerifierStub.appHashHasMessageNotFound.called, 'a hash whose message is stored was given up on').to.equal(false);
+      });
     });
   });
 

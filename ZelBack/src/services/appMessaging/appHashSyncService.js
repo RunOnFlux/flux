@@ -790,10 +790,22 @@ async function syncMissingHashes(options = {}) {
     // Update backoff for unresolved hashes
     const finalMissing = await getMissingHashes({ force: false, currentHeight });
 
+    // A hash whose message this node already stores waits on no peer: the next pass
+    // writes its registry row from the stored copy, so it is neither backed off nor
+    // given up on.
+    const stored = new Set();
+    for (let i = 0; i < finalMissing.length; i += CHUNK_SIZE) {
+      const hashValues = finalMissing.slice(i, i + CHUNK_SIZE).map((h) => h.hash);
+      // eslint-disable-next-line no-await-in-loop
+      const found = await dbHelper.findInDatabase(appsGlobalDb, globalAppsMessages, { hash: { $in: hashValues } }, { projection: { _id: 0, hash: 1 } });
+      found.forEach((m) => stored.add(m.hash));
+    }
+
     let unreachable = 0;
     let minNextRetry = null;
     const backoffOps = [];
     for (const hashDoc of finalMissing) {
+      if (stored.has(hashDoc.hash)) continue;
       if (currentHeight - hashDoc.retryFromHeight > HASH_EXPIRY_BLOCKS) {
         // eslint-disable-next-line no-await-in-loop
         await messageVerifier.appHashHasMessageNotFound(hashDoc.hash);
