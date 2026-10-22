@@ -46,6 +46,8 @@ import { gComponent, watchGComponents } from '../framework/g-components.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { loadSharedConfig, BOOT_DRIFT_MS } from '../framework/coupled-knobs.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
+import { authenticate } from '../auth.js';
+import { fluxTeamKey } from '../framework/keys.js';
 
 const HOLDER = 0;
 const NODES = 3;
@@ -88,10 +90,14 @@ describe('boot holds an app whose location it cannot read', function () {
   const mixedApp = `e2ebootmixed${stamp}`;
   // its record is gone
   const lapsedApp = `e2ebootlapsed${stamp}`;
+  // its record is gone, and it is uninstalled and installed again while its decision is held
+  const againApp = `e2ebootagain${stamp}`;
   const db = `db_${mixedApp}`;
   const web = `web_${mixedApp}`;
   const plain = `${plainApp}_${plainApp}`;
   const lapsed = `${lapsedApp}_${lapsedApp}`;
+  const again = `${againApp}_${againApp}`;
+  let againSpec;
   let holder;
   let holderDb;
   const activeStandby = watchGComponents(() => env, {
@@ -182,6 +188,7 @@ describe('boot holds an app whose location it cannot read', function () {
     await pushTestApp(mixedApp, 'v1', 'bootmixed', { user: APP_UID });
     await pushImage(plainApp, 'v1');
     await pushImage(lapsedApp, 'v1');
+    await pushImage(againApp, 'v1');
     const apps = await Promise.all([
       buildSeedableApp({
         env,
@@ -191,12 +198,14 @@ describe('boot holds an app whose location it cannot read', function () {
       }),
       buildSeedableApp({ env, name: plainApp, instances: NODES, compose: [plainComponent(plainApp)] }),
       buildSeedableApp({ env, name: lapsedApp, instances: NODES, compose: [plainComponent(lapsedApp)] }),
+      buildSeedableApp({ env, name: againApp, instances: NODES, compose: [plainComponent(againApp)] }),
     ]);
+    [, , , againSpec] = apps;
     for (const app of apps) {
       // eslint-disable-next-line no-await-in-loop
       await installOnNodes(env, app, [HOLDER]);
     }
-    await waitFor(async () => (await Promise.all([db, web, plain, lapsed].map(isUp))).every(Boolean), {
+    await waitFor(async () => (await Promise.all([db, web, plain, lapsed, again].map(isUp))).every(Boolean), {
       timeout: 300000, interval: 3000, label: 'every app runs on the holder, the mixed app\'s db as its primary',
     });
     const peers = [...Array(NODES).keys()].filter((i) => i !== HOLDER);
@@ -204,7 +213,7 @@ describe('boot holds an app whose location it cannot read', function () {
       // eslint-disable-next-line no-await-in-loop
       await installOnNodes(env, app, peers);
     }
-    await waitFor(async () => (await Promise.all([mixedApp, plainApp, lapsedApp].map((appName) => installedInstanceIndices(env, appName))))
+    await waitFor(async () => (await Promise.all([mixedApp, plainApp, lapsedApp, againApp].map((appName) => installedInstanceIndices(env, appName))))
       .every((holders) => holders.length === NODES), {
       timeout: 300000, interval: 5000, label: 'every app is on every node',
     });
@@ -403,6 +412,86 @@ describe('boot holds an app whose location it cannot read', function () {
         timeout: 100000, interval: 2000, label: 'a peer heard the holder announce once the database answered',
       });
       expect(heardRemoved(lapsedApp, anchors), 'a peer was told of the removal of an app whose record had expired').to.equal(false);
+    });
+  });
+
+  // The decision is held after boot has read the expired record. While it is held
+  // the app is uninstalled and installed again: the install is a new app, which the
+  // decision about the old one must leave alone.
+  describe('an app uninstalled and installed again while its decision is held', function () {
+    let release;
+    let failedReads;
+    let heldAtBoot;
+    let parkedAtDecision;
+    let installedAfterUninstall;
+    let installedAgain;
+    let decision;
+    let removedAfterDecision;
+
+    before(async function () {
+      this.timeout(900000);
+      step('taking the node down for longer than its records live, its location reads refused');
+      let anchors;
+      ({ anchors, release } = await rebootUnreadable([again], { expire: true }));
+      const holdable = await holder.holdCheckpoint(BEFORE_DECISION, againApp).then(() => true, () => false);
+      await holder.waitForEvent('boot:settled', () => true, 300000, { afterId: anchors[HOLDER] });
+      heldAtBoot = Boolean(await heard('boot:appUnconfirmed', (d) => d.name === againApp, 60000, anchors[HOLDER]));
+
+      step('the database answers: the expired record is read, its decision held');
+      const answeredFrom = holder.getLastEventId();
+      failedReads = await release();
+      release = null;
+      parkedAtDecision = holdable && Boolean(await heard(
+        'checkpoint:held', (d) => d.name === BEFORE_DECISION && d.key === againApp, 120000, answeredFrom,
+      ));
+
+      step('uninstalling the app and installing it again while its decision is held');
+      const auth = await authenticate(holder.url, fluxTeamKey());
+      await (await fetch(`${holder.url}/apps/appremove/${againApp}`, { headers: { zelidauth: auth.zelidauth } })).text();
+      await waitFor(async () => !(await installedNames()).includes(againApp), {
+        timeout: 120000, interval: 2000, label: 'the app is uninstalled',
+      }).catch(() => {});
+      installedAfterUninstall = await installedNames();
+      await installOnNodes(env, againSpec, [HOLDER]).catch(() => {});
+      await waitFor(async () => (await installedNames()).includes(againApp), {
+        timeout: 180000, interval: 2000, label: 'the app is installed again',
+      }).catch(() => {});
+      installedAgain = await installedNames();
+
+      step('the decision released');
+      const releasedFrom = holder.getLastEventId();
+      if (holdable) await holder.releaseCheckpoint(BEFORE_DECISION, againApp);
+      decision = (await heard('boot:appConfirmed', (d) => d.name === againApp, 60000, releasedFrom))?.data ?? null;
+      removedAfterDecision = Boolean(await heard('app:removed', (d) => d.name === againApp, 30000, releasedFrom));
+    });
+
+    after(async function () {
+      this.timeout(60000);
+      await release?.().catch(() => {});
+      await holder?.releaseAllCheckpoints().catch(() => {});
+    });
+
+    it('had its reads of the location records refused by the database', function () {
+      expect(failedReads, 'the database refused none of the node\'s location reads, so nothing below was tested').to.be.at.least(1);
+    });
+
+    it('holds the app\'s decision after reading its expired record', function () {
+      expect(heldAtBoot, 'boot did not hold the app whose location it could not read').to.equal(true);
+      expect(parkedAtDecision, 'the decision was not held, so the uninstall and install below did not land before it').to.equal(true);
+    });
+
+    it('uninstalls the app and installs it again while its decision is held', function () {
+      expect(installedAfterUninstall, 'the app was not uninstalled').to.not.include(againApp);
+      expect(installedAgain, 'the app was not installed again').to.include(againApp);
+    });
+
+    it('leaves the app installed again alone when the decision about the uninstalled one is released', async function () {
+      this.timeout(240000);
+      expect(decision, 'the held decision never ran, so nothing below was tested').to.not.equal(null);
+      expect(decision.valid, 'the record boot read was not the expired one').to.equal(false);
+      expect(removedAfterDecision, 'the decision about the uninstalled app removed the app installed after it').to.equal(false);
+      expect(await installedNames(), 'the app installed again was removed').to.include(againApp);
+      await waitFor(() => isUp(again), { timeout: 200000, interval: 3000, label: 'the app installed again runs' });
     });
   });
 });
