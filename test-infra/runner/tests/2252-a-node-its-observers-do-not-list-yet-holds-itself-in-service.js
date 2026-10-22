@@ -37,7 +37,11 @@ describe('a node its observers do not list yet holds itself in service', functio
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
     await client(SUBJECT).waitForEvent('availability:checked', (d) => d.available === true, 240000);
+    const others = env.clients.filter((_unused, i) => i !== SUBJECT);
+    const anchors = others.map((c) => c.getLastEventId());
     await hideNodeFromPeers(client(SUBJECT).ip);
+    // Every other node has read a list without the node before anything is asked.
+    await Promise.all(others.map((c, k) => c.waitForEvent('networkstate:updated', () => true, 180000, { afterId: anchors[k] })));
   });
 
   after(async function () {
