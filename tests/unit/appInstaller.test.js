@@ -112,7 +112,9 @@ describe('appInstaller tests', () => {
     };
 
     dbHelperStub = {
-      databaseConnection: sinon.stub(),
+      // A connection always hands back a client; a test that needs a database
+      // to answer says what it answers.
+      databaseConnection: sinon.stub().returns({ db: sinon.stub().returns('database') }),
       findInDatabase: sinon.stub(),
       findOneInDatabase: sinon.stub(),
       insertOneToDatabase: sinon.stub(),
@@ -640,6 +642,19 @@ describe('appInstaller tests', () => {
       await appInstaller.testAppInstall(req, res);
 
       expect(pastTheGate()).to.equal(true);
+    });
+
+    it('refuses to test an app this node holds, before it takes the node', async () => {
+      const req = requestAs(owner);
+      const res = response();
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+      dbHelperStub.findOneInDatabase.resolves({ name: 'trialapp' });
+
+      await appInstaller.testAppInstall(req, res);
+
+      expect(pastTheGate(), 'the test went on to install over the app').to.equal(false);
+      expect(res.json.firstCall.args[0].data.message).to.equal('Flux App trialapp is installed on this node. Test it on a node that does not hold it.');
     });
 
     it('refuses a caller with no session at all', async () => {
@@ -1367,14 +1382,15 @@ describe('appInstaller tests', () => {
     // has: the row is written before the image is fetched, so the claim exists by
     // the time the install gives up. `failBeforeRow` moves the failure ahead of
     // the row instead.
-    function buildFailingInstaller(removeAppLocallyStub, { failBeforeRow = false } = {}) {
+    function buildFailingInstaller(removeAppLocallyStub, { failBeforeRow = false, alreadyInstalled = false } = {}) {
       const dbHelperStubLocal = {
         databaseConnection: sinon.stub().returns({ db: () => ({ collection: () => ({}) }) }),
         findInDatabase: sinon.stub().resolves([]),
-        // 1st call = "already installed?" -> null so the install proceeds.
+        // 1st call = "already installed?" -> null so the install proceeds, unless
+        // the app is already installed here.
         findOneInDatabase: (() => {
           const stub = sinon.stub().resolves({ name: 'testapp' });
-          stub.onFirstCall().resolves(null);
+          stub.onFirstCall().resolves(alreadyInstalled ? { name: 'testapp' } : null);
           return stub;
         })(),
         findOneAndDeleteInDatabase: sinon.stub().resolves(),
@@ -1632,6 +1648,19 @@ describe('appInstaller tests', () => {
 
         sinon.assert.notCalled(appPlacementsStub.recordPlacement);
       });
+    });
+
+    // A test install refused because the app is already installed here created
+    // nothing, and the installed app is not its to remove.
+    it('leaves an app already installed here alone when a test install of it is refused', async () => {
+      const removeAppLocallyStub = sinon.stub().resolves();
+      const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub, { alreadyInstalled: true });
+
+      const outcome = await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
+
+      expect(outcome, 'never reached the refusal this test is about').to.equal(InstallOutcome.ALREADY_INSTALLED);
+      expect(removeAppLocallyStub.called, 'a refused test install removed the app installed here').to.equal(false);
+      expect(globalStateStub.testInstallingApps.has('testapp'), 'left the mark behind').to.equal(false);
     });
 
     it('runs the post-install broadcast only AFTER releasing the install lock', async () => {

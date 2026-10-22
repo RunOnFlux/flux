@@ -683,16 +683,18 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
     // costs the node every install, redeploy, spawn and reinstall pass it is offered
     // until FluxOS restarts.
     if (acquired) globalState.installationInProgress = false;
-    // Bound to the hold: a call that did not take it never wrote the app's row
-    // and never set the mark, so it has neither to take back. The mark is set
-    // under the hold with nothing awaited in between, so holding it is the same
-    // fact as having marked.
+    // The mark is bound to the hold: it is set under the hold with nothing awaited
+    // in between, so a call that took the hold has a mark to take back. The
+    // teardown is bound to the row: a call that never wrote one created nothing,
+    // and an app a refusal finds already installed is not its to remove.
     if (test && acquired) {
-      try {
-        await appUninstaller.removeAppLocally(appSpecs.name, null, true, false, false);
-        log.info(`Test cleanup completed for ${appSpecs.name}`);
-      } catch (cleanupError) {
-        log.error(`Error during test cleanup for ${appSpecs.name}: ${cleanupError.message}`);
+      if (claimed) {
+        try {
+          await appUninstaller.removeAppLocally(appSpecs.name, null, true, false, false);
+          log.info(`Test cleanup completed for ${appSpecs.name}`);
+        } catch (cleanupError) {
+          log.error(`Error during test cleanup for ${appSpecs.name}: ${cleanupError.message}`);
+        }
       }
       // Released after the teardown, not before: the row is what the announcement
       // reads, and it exists until the teardown has deleted it.
@@ -1276,6 +1278,18 @@ async function testAppInstall(req, res) {
         appSpecifications = specificationFormatter(appSpecifications);
         appSpecifications.height = height;
         appSpecifications.hash = hash;
+      }
+
+      // An app this node holds is not tested here: the test would install over it.
+      const installed = await dbHelper.findOneInDatabase(
+        dbHelper.databaseConnection().db(config.database.appslocal.database),
+        localAppsInformation,
+        { name: appSpecifications.name },
+        { projection: { _id: 0, name: 1 } },
+      );
+      if (installed) {
+        res.json(messageHelper.createErrorMessage(`Flux App ${appSpecifications.name} is installed on this node. Test it on a node that does not hold it.`));
+        return;
       }
 
       // Test installation - similar to regular install but with test flag
