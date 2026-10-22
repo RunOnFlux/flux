@@ -102,6 +102,7 @@ module.exports = {
       collections: {
         appsInformation: 'zelappsinformation',
         appsRuntimeState: 'zelappsruntimestate', // node-local per-component controller state: desiredState, restartHistory (crash backoff), last exit
+        appsPlacements: 'zelappsplacements', // when this node took each app it holds, kept through redeploys
       },
     },
     appsglobal: {

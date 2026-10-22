@@ -9,6 +9,7 @@ describe('appRebuild tests', () => {
   let installer;
   let appRebuild;
   let bus;
+  let placements;
   const spec = { name: 'myapp', version: 8 };
 
   beforeEach(() => {
@@ -21,10 +22,12 @@ describe('appRebuild tests', () => {
       registerAppLocally: sinon.stub().resolves(InstallOutcome.INSTALLED),
     };
     bus = { publish: sinon.stub() };
+    placements = { removePlacement: sinon.stub().resolves() };
     appRebuild = proxyquire('../../ZelBack/src/services/appLifecycle/appRebuild', {
       '../utils/fluxEventBus': bus,
       './appUninstaller': uninstaller,
       './appInstaller': installer,
+      '../appManagement/appPlacements': placements,
       '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
     });
   });
@@ -38,6 +41,50 @@ describe('appRebuild tests', () => {
 
     sinon.assert.callOrder(uninstaller.removeAppLocally, installer.checkAppRequirements, installer.registerAppLocally);
     sinon.assert.notCalled(uninstaller.announceRemoval);
+  });
+
+  // A rebuild removes the app to install it here again, so the record of when
+  // this node took it stays - unless the app does not come back.
+  describe('the placement record', () => {
+    it('is kept through the removal and the reinstall', async () => {
+      await appRebuild.rebuildApp(spec);
+
+      expect(uninstaller.removeAppLocally.firstCall.args[5]).to.deep.equal({ redeploying: true });
+      sinon.assert.notCalled(placements.removePlacement);
+    });
+
+    it('goes when the app was removed and not reinstalled', async () => {
+      installer.registerAppLocally.resolves(InstallOutcome.FAILED);
+
+      await appRebuild.rebuildApp(spec);
+
+      sinon.assert.calledOnceWithExactly(placements.removePlacement, 'myapp');
+    });
+
+    it('goes when the requirements are no longer met', async () => {
+      installer.checkAppRequirements.rejects(new Error('Insufficient RAM'));
+
+      await appRebuild.rebuildApp(spec);
+
+      sinon.assert.calledOnceWithExactly(placements.removePlacement, 'myapp');
+    });
+
+    it('goes when the app was not installed and did not install', async () => {
+      uninstaller.removeAppLocally.resolves(RemovalOutcome.NOT_INSTALLED);
+      installer.registerAppLocally.resolves(InstallOutcome.FAILED);
+
+      await appRebuild.rebuildApp(spec);
+
+      sinon.assert.calledOnceWithExactly(placements.removePlacement, 'myapp');
+    });
+
+    it('stays when the removal did not finish, for the removal that finishes it', async () => {
+      uninstaller.removeAppLocally.resolves(RemovalOutcome.FAILED);
+
+      await appRebuild.rebuildApp(spec);
+
+      sinon.assert.notCalled(placements.removePlacement);
+    });
   });
 
   it('leaves the installer\'s teardown silent, so the network is told once, here', async () => {

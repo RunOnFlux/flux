@@ -35,6 +35,7 @@ const { ensureStignoreCovers } = require('../appSystem/syncthingIgnorePolicy');
 const { findCommonArchitectures } = require('../utils/appUtilities');
 const log = require('../../lib/log');
 const { localAppsInformation, scannedHeightCollection } = require('../utils/appConstants');
+const appPlacements = require('../appManagement/appPlacements');
 const messageVerifier = require('../appMessaging/messageVerifier');
 const { availableApps, getApplicationGlobalSpecifications } = require('../appDatabase/registryManager');
 const hwRequirements = require('../appRequirements/hwRequirements');
@@ -547,6 +548,9 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
       // until its monitor has measured what it holds.
       folderStates.installed(appSpecifications);
       claimed = true;
+      // A redeploy reinstalls an app whose record this node kept; only a new
+      // placement writes one.
+      if (!test) await appPlacements.recordPlacement(appSpecifications.name);
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;

@@ -33,6 +33,13 @@ const makeDockerServiceStub = (overrides = {}) => ({
 });
 
 describe('appInstaller tests', () => {
+  // The placement record is its own module with its own tests; here it is the
+  // seam an install writes through. Fresh per test.
+  let appPlacementsStub;
+  beforeEach(() => {
+    appPlacementsStub = { recordPlacement: sinon.stub().resolves() };
+  });
+
   let appInstaller;
   // The same stub map the default instance is built from, so a test that needs one
   // more seam spreads it rather than restating eighty lines of it.
@@ -141,6 +148,7 @@ describe('appInstaller tests', () => {
 
     // Proxy require
     baseStubs = {
+      '../appManagement/appPlacements': appPlacementsStub,
       config: configStub,
       '../verificationHelper': verificationHelperStub,
       '../messageHelper': messageHelperStub,
@@ -790,6 +798,7 @@ describe('appInstaller tests', () => {
       };
 
       const appInstallerForArchTest = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -904,6 +913,7 @@ describe('appInstaller tests', () => {
       };
 
       const appInstallerForArchTest = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -1138,6 +1148,7 @@ describe('appInstaller tests', () => {
 
     it('should return false if node tier does not return anything', async () => {
       const appInstallerWithNodeTier = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -1252,6 +1263,7 @@ describe('appInstaller tests', () => {
     // present for that reason, and appQueryService - the first call PAST the guard - rejects,
     // so a guard that stops matching lands on FAILED rather than running on into the install.
     const installerReachingTheAlreadyInstalledGuard = () => proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+      '../appManagement/appPlacements': appPlacementsStub,
       config: configStub,
       '../messageHelper': messageHelperStub,
       '../dbHelper': {
@@ -1336,6 +1348,7 @@ describe('appInstaller tests', () => {
       };
 
       return proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -1559,6 +1572,34 @@ describe('appInstaller tests', () => {
       ).to.be.false;
     });
 
+    // When this node took the app is written with the app's row; a redeploy's
+    // reinstall finds the record it kept and leaves it alone.
+    describe('the placement record', () => {
+      it('is written with the app\'s row', async () => {
+        const appInstallerWithDb = buildFailingInstaller(sinon.stub().resolves());
+
+        await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false, true);
+
+        sinon.assert.calledOnceWithExactly(appPlacementsStub.recordPlacement, 'testapp');
+      });
+
+      it('is not written for a test install', async () => {
+        const appInstallerWithDb = buildFailingInstaller(sinon.stub().resolves());
+
+        await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
+
+        sinon.assert.notCalled(appPlacementsStub.recordPlacement);
+      });
+
+      it('is not written when the install gave up before the app\'s row', async () => {
+        const appInstallerWithDb = buildFailingInstaller(sinon.stub().resolves(), { failBeforeRow: true });
+
+        await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false, true);
+
+        sinon.assert.notCalled(appPlacementsStub.recordPlacement);
+      });
+    });
+
     it('runs the post-install broadcast only AFTER releasing the install lock', async () => {
       // The announcement runs for as long as a broadcast cycle takes, and every
       // other install, removal and redeploy on this node refuses while the install
@@ -1583,6 +1624,7 @@ describe('appInstaller tests', () => {
       };
 
       const appInstallerSuccess = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -1770,6 +1812,7 @@ describe('appInstaller tests', () => {
       upnpStub = { isUPNP: sinon.stub().returns(true), mapUpnpPort: sinon.stub().resolves(MAPPED) };
       logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
       appInstallerPorts = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
         '../fluxNetworkHelper': firewallStub,
         '../upnpService': upnpStub,
         '../../lib/log': logStub,
@@ -1839,6 +1882,7 @@ describe('appInstaller tests', () => {
       dockerServiceStub = makeDockerServiceStub({ getFreeFluxAppNetworkOctet: sinon.stub().resolves(7) });
       egressRulesStub = sinon.stub().resolves(true);
       appInstallerNet = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
         '../serviceHelper': { ensureString: sinon.stub().returnsArg(0) },
         '../dockerService': dockerServiceStub,
         '../fluxNetworkHelper': { applyContainerEgressRules: egressRulesStub },

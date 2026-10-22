@@ -21,6 +21,7 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const { addressMoveEvents, EVENTS: ADDRESS_MOVE_EVENTS } = require('../utils/addressMoveEvents');
 const { InstallOutcome } = require('../utils/installOutcome');
 const appRebuild = require('./appRebuild');
+const appPlacements = require('../appManagement/appPlacements');
 const generalService = require('../generalService');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
 // eslint-disable-next-line no-unused-vars
@@ -4499,7 +4500,7 @@ async function reinstallOldApplications() {
               log.warn(`REMOVAL REASON: Component structure change (v8+) - ${appSpecifications.name} component count/names changed`);
 
               // eslint-disable-next-line no-await-in-loop
-              await appUninstaller.removeAppLocally(appSpecifications.name, null, false, false);
+              await appUninstaller.removeAppLocally(appSpecifications.name, null, false, false, false, { redeploying: true });
               const appRedeployResponse = messageHelper.createSuccessMessage('Application removed. Awaiting installation...');
               log.info(appRedeployResponse);
 
@@ -4518,6 +4519,9 @@ async function reinstallOldApplications() {
                 // so this node has simply lost the instance until it is placed
                 // here again.
                 log.error(`Application ${appSpecifications.name} was removed for a component structure change and NOT reinstalled (${outcome}). This node no longer holds it and cannot recover it on its own.`);
+                // eslint-disable-next-line no-await-in-loop
+                await appPlacements.removePlacement(appSpecifications.name)
+                  .catch((error) => log.error(`the placement of ${appSpecifications.name} was not removed: ${error.message}`));
               }
 
               // eslint-disable-next-line no-continue

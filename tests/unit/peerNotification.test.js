@@ -20,6 +20,7 @@ describe('peerNotification tests', () => {
   let unconfirmedApps;
   let announceCycle;
   let findOneInDatabaseStub;
+  let placementsOfStub;
 
   // One stub map, so a test that needs a different interval, expiry or cycle
   // length states only that difference instead of restating sixty lines.
@@ -115,6 +116,7 @@ describe('peerNotification tests', () => {
       runningAppsCache: new Set(),
     },
     '../utils/nodeSigner': { nodeSigner: nodeSignerStub },
+    '../appManagement/appPlacements': { placementsOf: placementsOfStub },
     '../../lib/log': logStub,
   });
 
@@ -126,6 +128,8 @@ describe('peerNotification tests', () => {
     };
 
     findOneInDatabaseStub = sinon.stub().resolves(null);
+    // every installed app has a record unless a test says otherwise
+    placementsOfStub = sinon.stub().callsFake(async (names) => new Map(names.map((name) => [name, new Date('2026-09-01T00:00:00.000Z')])));
     enqueueAllStub = sinon.stub().resolves();
     waitForBootDrainSettledStub = sinon.stub().resolves();
     storeAppRunningMessageStub = sinon.stub().resolves();
@@ -357,6 +361,51 @@ describe('peerNotification tests', () => {
         message.apps.map((a) => a.name),
         'claimed a placement for an app it is only trying out',
       ).to.deep.equal(['app1']);
+    });
+
+    describe('when this node took each app', () => {
+      it('announces the time from its placement record, not from its location row', async () => {
+        placementsOfStub.resolves(new Map([['app1', new Date('2026-06-01T12:00:00.000Z')]]));
+        findOneInDatabaseStub.resolves({ runningSince: new Date('2026-10-21T02:08:56.000Z') });
+
+        await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+        const [message] = storeAppRunningMessageStub.firstCall.args;
+        expect(message.apps).to.deep.equal([{ name: 'app1', hash: 'app1hash', runningSince: '2026-06-01T12:00:00.000Z' }]);
+        expect(findOneInDatabaseStub.called, 'the location row is not read for a recorded app').to.equal(false);
+      });
+
+      it('keeps announcing the recorded time when its own location row has lapsed', async () => {
+        placementsOfStub.resolves(new Map([['app1', new Date('2026-06-01T12:00:00.000Z')]]));
+        findOneInDatabaseStub.resolves(null);
+
+        await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+        const [message] = storeAppRunningMessageStub.firstCall.args;
+        expect(message.apps[0].runningSince).to.equal('2026-06-01T12:00:00.000Z');
+      });
+
+      it('announces an app with no record from its location row, and says so', async () => {
+        placementsOfStub.resolves(new Map());
+        findOneInDatabaseStub.resolves({ runningSince: new Date('2026-07-01T00:00:00.000Z') });
+
+        await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+        const [message] = storeAppRunningMessageStub.firstCall.args;
+        expect(message.apps[0].runningSince).to.equal('2026-07-01T00:00:00.000Z');
+        expect(logStub.warn.calledWithMatch(/no placement record for app1/)).to.equal(true);
+      });
+
+      it('announces an app with neither a record nor a row as placed now', async () => {
+        placementsOfStub.resolves(new Map());
+        findOneInDatabaseStub.resolves(null);
+        const before = Date.now();
+
+        await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+        const [message] = storeAppRunningMessageStub.firstCall.args;
+        expect(new Date(message.apps[0].runningSince).getTime()).to.be.within(before, Date.now());
+      });
     });
 
     // No node stores an entry without a name and hash, and a node that has not

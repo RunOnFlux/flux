@@ -80,6 +80,7 @@ module.exports = {
       collections: {
         appsInformation: 'zelappsinformation',
         appsRuntimeState: 'zelappsruntimestate',
+        appsPlacements: 'zelappsplacements',
       },
     },
     appsglobal: {

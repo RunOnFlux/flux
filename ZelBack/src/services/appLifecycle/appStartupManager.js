@@ -18,6 +18,7 @@ const appUninstaller = require('./appUninstaller');
 const appNetworkLinker = require('./appNetworkLinker');
 const appSlice = require('./appSlice');
 const nodeStatusMonitor = require('../appMonitoring/nodeStatusMonitor');
+const appPlacements = require('../appManagement/appPlacements');
 const { TIMED_OUT } = require('../utils/withinDeadline');
 const portManager = require('../appNetwork/portManager');
 const globalState = require('../utils/globalState');
@@ -395,6 +396,23 @@ async function removeAllApps(reason) {
   }
 }
 
+/**
+ * Make this node's placement records match the apps installed here, before its
+ * first announcement reads them. A failure is logged and boot goes on: an app
+ * without a record is announced from its location row, as it is without one at
+ * any time.
+ * @returns {Promise<void>}
+ */
+async function reconcilePlacementsOnBoot() {
+  try {
+    const installed = await getInstalledAppsFromDb();
+    const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+    await appPlacements.reconcilePlacements(installed.map((app) => app.name), localSocketAddr);
+  } catch (error) {
+    log.error(`appStartupManager - placement records not reconciled: ${error.message}`);
+  }
+}
+
 async function manageAppsOnBoot(bootContext) {
   try {
     // ahead of every container start, so no slice in use can be empty here
@@ -457,6 +475,7 @@ async function manageAppsOnBoot(bootContext) {
     }
 
     log.info('appStartupManager - Daemon, DB, and node confirmed, reconciling apps');
+    await reconcilePlacementsOnBoot();
     await openInstalledAppPorts();
     await reconcileAppsOnBoot();
   } finally {

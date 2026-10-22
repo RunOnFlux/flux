@@ -14,6 +14,7 @@ const appReconciler = require('../appMonitoring/appReconciler');
 const fluxEventBus = require('../utils/fluxEventBus');
 const { nodeSigner } = require('../utils/nodeSigner');
 const { appRunningEntries } = require('../utils/appRunningEntries');
+const appPlacements = require('../appManagement/appPlacements');
 const { ANNOUNCE_INTERVAL_MS } = require('../utils/appConstants');
 
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
@@ -208,21 +209,32 @@ async function checkAndNotifyPeersOfRunningApps() {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     try {
+      // When this node took each app comes from its own record of that, never from
+      // the network's copy of its location rows: those lapse in normal running
+      // while the app goes on running here. An app with no record - the boot step
+      // writes one for every installed app - is announced from its row, and from
+      // now without one.
+      const placements = await appPlacements.placementsOf(announceable.map((application) => application.name));
+      const unrecorded = [];
       // eslint-disable-next-line no-restricted-syntax
       for (const application of announceable) {
-        const queryFind = { name: application.name, ip: localSocketAddr };
-        const projection = { _id: 0, runningSince: 1 };
-        // eslint-disable-next-line no-await-in-loop
-        const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
-        let runningOnMyNodeSince = new Date().toISOString();
-        if (result && result.runningSince) {
-          runningOnMyNodeSince = result.runningSince;
+        let runningOnMyNodeSince = placements.get(application.name);
+        if (!runningOnMyNodeSince) {
+          unrecorded.push(application.name);
+          const queryFind = { name: application.name, ip: localSocketAddr };
+          const projection = { _id: 0, runningSince: 1 };
+          // eslint-disable-next-line no-await-in-loop
+          const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
+          runningOnMyNodeSince = result?.runningSince ?? new Date();
         }
         apps.push({
           name: application.name,
           hash: application.hash,
-          runningSince: runningOnMyNodeSince,
+          runningSince: new Date(runningOnMyNodeSince).toISOString(),
         });
+      }
+      if (unrecorded.length) {
+        log.warn(`checkAndNotifyPeersOfRunningApps - no placement record for ${unrecorded.join(', ')}; announced from the location table`);
       }
       // An empty snapshot is NEVER broadcast: the receive side treats an empty
       // v2 message as "delete every appsLocations row for this IP" - and we
