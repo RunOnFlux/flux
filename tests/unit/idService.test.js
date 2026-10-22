@@ -8,6 +8,7 @@ const bitcoinMessage = require('bitcoinjs-message');
 const proxyquire = require('proxyquire');
 const { PassThrough } = require('stream');
 const qs = require('qs');
+const config = require('config');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
@@ -669,7 +670,7 @@ describe('idService tests', () => {
         loginPhrase: `${timestamp - 10000}11111111111111111111111111111`,
       });
       sinon.stub(dbHelper, 'insertOneToDatabase').resolves(true);
-      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves({ loginPhrase: 'removed' });
+      sinon.stub(dbHelper, 'findOneAndUpdateInDatabase').resolves({ loginPhrase: 'used' });
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       const req = {
@@ -698,13 +699,13 @@ describe('idService tests', () => {
       sinon.assert.calledOnceWithMatch(res.json, expectedError);
     });
 
-    const loginWithPhrase = async (removed) => {
+    const loginWithPhrase = async (claimed) => {
       bitcoinMessageStub.returns(true);
       const timestamp = Date.now();
       const message = `${timestamp - 300000}11111111111111111111111111111`;
       sinon.stub(dbHelper, 'findOneInDatabase').resolves({ loginPhrase: message });
       const insertStub = sinon.stub(dbHelper, 'insertOneToDatabase').resolves(true);
-      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').callsFake(removed);
+      sinon.stub(dbHelper, 'findOneAndUpdateInDatabase').callsFake(claimed);
       await dbHelper.initiateDB();
       const mockStream = new PassThrough();
       mockStream.push(JSON.stringify({ zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg', signature: '1234356asdf', message }));
@@ -715,14 +716,14 @@ describe('idService tests', () => {
       return { res, insertStub };
     };
 
-    it('writes no login when its phrase cannot be removed', async () => {
+    it('writes no login when its phrase cannot be marked used', async () => {
       const { res, insertStub } = await loginWithPhrase(async () => { throw new Error('connection timed out'); });
 
       sinon.assert.notCalled(insertStub);
       sinon.assert.calledOnceWithMatch(res.json, { status: 'error' });
     });
 
-    it('writes no login when another request removed its phrase first', async () => {
+    it('writes no login when another request used its phrase first', async () => {
       const { res, insertStub } = await loginWithPhrase(async () => null);
 
       sinon.assert.notCalled(insertStub);
@@ -735,7 +736,7 @@ describe('idService tests', () => {
       const timestamp = Date.now();
       const message = `${timestamp - 300000}11111111111111111111111111111`;
       sinon.stub(dbHelper, 'findOneInDatabase').resolves({ loginPhrase: message });
-      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves({ loginPhrase: message });
+      sinon.stub(dbHelper, 'findOneAndUpdateInDatabase').resolves({ loginPhrase: message });
       const insertStub = sinon.stub(dbHelper, 'insertOneToDatabase').resolves(true);
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
@@ -1291,8 +1292,10 @@ describe('idService tests', () => {
     const zelid = '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg';
     let findOne;
     let insert;
+    let claim;
     let phrase;
-    let phraseStored;
+    // the phrase's record: absent, or as issued, or marked used
+    let phraseRecord;
 
     const page = () => ({ send: sinon.stub(), close: sinon.stub() });
     const sentMessage = (ws) => qs.parse(ws.send.firstCall.args[0]);
@@ -1309,14 +1312,20 @@ describe('idService tests', () => {
     beforeEach(async () => {
       sinon.stub(bitcoinMessage, 'verify').returns(true);
       phrase = `${Date.now() - 60000}11111111111111111111111111111`;
-      phraseStored = true;
+      phraseRecord = { loginPhrase: phrase };
       findOne = sinon.stub(dbHelper, 'findOneInDatabase');
       findOne.withArgs(sinon.match.any, 'loggedusers').resolves(null);
-      findOne.withArgs(sinon.match.any, 'activeloginphrases').callsFake(async () => (phraseStored ? { loginPhrase: phrase } : null));
+      // a login asks for the phrase unused; the page asks for it in any state
+      findOne.withArgs(sinon.match.any, 'activeloginphrases').callsFake(async (db, coll, query) => {
+        if (!phraseRecord) return null;
+        if (query.usedAt && phraseRecord.usedAt) return null;
+        return phraseRecord;
+      });
       insert = sinon.stub(dbHelper, 'insertOneToDatabase').resolves(true);
-      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').callsFake(async () => {
-        phraseStored = false;
-        return { loginPhrase: phrase };
+      claim = sinon.stub(dbHelper, 'findOneAndUpdateInDatabase').callsFake(async () => {
+        if (!phraseRecord || phraseRecord.usedAt) return null;
+        phraseRecord = { ...phraseRecord, usedAt: new Date() };
+        return phraseRecord;
       });
       await dbHelper.initiateDB();
     });
@@ -1343,7 +1352,7 @@ describe('idService tests', () => {
       insert.withArgs(sinon.match.any, 'loggedusers').callsFake(() => new Promise((resolve) => { writeLogin = resolve; }));
       const loggingIn = login();
       await serviceHelper.delay(20);
-      expect(phraseStored, 'the phrase was not used, so this proves nothing').to.equal(false);
+      expect(phraseRecord.usedAt, 'the phrase was not used, so this proves nothing').to.be.a('date');
 
       const ws = page();
       await idService.wsRespondLoginPhrase(ws, phrase);
@@ -1395,12 +1404,220 @@ describe('idService tests', () => {
     });
 
     it('is told its phrase is no longer valid when the phrase is gone and no login used it', async () => {
-      phraseStored = false;
+      phraseRecord = null;
       const ws = page();
 
       await idService.wsRespondLoginPhrase(ws, phrase);
 
       expect(sentMessage(ws).data.message).to.equal('Signed message is no longer valid. Please request a new one.');
+    });
+
+    // The phrase is marked used before any login is written, and a login is counted
+    // from before it tries the phrase: a page never reads a used phrase while the
+    // login using it is uncounted.
+    it('waits, and is told the login, when it reads the phrase used while the login that used it is still being written', async () => {
+      let writeLogin;
+      insert.withArgs(sinon.match.any, 'loggedusers').callsFake(() => new Promise((resolve) => { writeLogin = resolve; }));
+      const loggingIn = login();
+      await serviceHelper.delay(20);
+      expect(phraseRecord.usedAt, 'the phrase was not used, so this proves nothing').to.be.a('date');
+
+      const ws = page();
+      await idService.wsRespondLoginPhrase(ws, phrase);
+      sinon.assert.notCalled(ws.send);
+
+      writeLogin(true);
+      await loggingIn;
+      expect(sentMessage(ws)).to.deep.include({ status: 'success' });
+    });
+
+    it('waits while the phrase is being marked used, and is told the login', async () => {
+      let markUsed;
+      claim.callsFake(() => new Promise((resolve) => {
+        markUsed = () => {
+          phraseRecord = { ...phraseRecord, usedAt: new Date() };
+          resolve(phraseRecord);
+        };
+      }));
+      const loggingIn = login();
+      await serviceHelper.delay(20);
+      expect(markUsed, 'no login was marking the phrase, so this proves nothing').to.be.a('function');
+      // the mark has landed in the database, and the login has not yet heard so
+      phraseRecord = { ...phraseRecord, usedAt: new Date() };
+
+      const ws = page();
+      await idService.wsRespondLoginPhrase(ws, phrase);
+      sinon.assert.notCalled(ws.send);
+
+      markUsed();
+      await loggingIn;
+      expect(sentMessage(ws)).to.deep.include({ status: 'success' });
+    });
+
+    it('is told at once that its phrase is no longer valid when it was used by a login that has ended without writing one', async () => {
+      insert.withArgs(sinon.match.any, 'loggedusers').rejects(new Error('connection timed out'));
+      await login();
+      expect(phraseRecord.usedAt, 'the phrase was not used, so this proves nothing').to.be.a('date');
+
+      const ws = page();
+      await idService.wsRespondLoginPhrase(ws, phrase);
+
+      expect(sentMessage(ws).data.message).to.equal('Signed message is no longer valid. Please request a new one.');
+    });
+
+    it('is told the login when it reads the phrase used by a login that has written it and ended', async () => {
+      await login();
+      findOne.withArgs(sinon.match.any, 'loggedusers').resolves({ zelid, loginPhrase: phrase });
+
+      const ws = page();
+      await idService.wsRespondLoginPhrase(ws, phrase);
+
+      expect(sentMessage(ws)).to.deep.include({ status: 'success' });
+    });
+
+    // Two requests of one phrase: one uses it, the other is refused. The page waits
+    // on whichever is still counted, and reads again once neither is.
+    it('is told its phrase is no longer valid once the last login counted against it ends, when none wrote a login', async () => {
+      const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['setTimeout', 'clearTimeout', 'Date'], shouldAdvanceTime: true });
+      try {
+        insert.withArgs(sinon.match.any, 'loggedusers').rejects(new Error('connection timed out'));
+        let refuseSecond;
+        claim.onSecondCall().callsFake(() => new Promise((resolve) => { refuseSecond = () => resolve(null); }));
+        // the second reads the phrase while it is still unused
+        const first = login();
+        const second = login();
+        await first;
+        expect(refuseSecond, 'the second login was not under way, so this proves nothing').to.be.a('function');
+
+        const ws = page();
+        await idService.wsRespondLoginPhrase(ws, phrase);
+        sinon.assert.notCalled(ws.send);
+
+        refuseSecond();
+        await second;
+        await clock.tickAsync(0);
+
+        expect(sentMessage(ws).data.message, 'the page waited out the phrase instead').to.equal('Signed message is no longer valid. Please request a new one.');
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it('is told the login, not that its phrase is gone, when a refused login ends while the one that used it is still writing', async () => {
+      let writeLogin;
+      insert.withArgs(sinon.match.any, 'loggedusers').callsFake(() => new Promise((resolve) => { writeLogin = resolve; }));
+      const first = login();
+      const second = login();
+      await second;
+      expect(writeLogin, 'the first login was not writing, so this proves nothing').to.be.a('function');
+
+      const ws = page();
+      await idService.wsRespondLoginPhrase(ws, phrase);
+      sinon.assert.notCalled(ws.send);
+
+      writeLogin(true);
+      await first;
+      expect(sentMessage(ws)).to.deep.include({ status: 'success' });
+    });
+
+    // The login was written before the page connected, and the last login counted
+    // against the phrase ends while the page is still reading: the page reads again
+    // rather than taking the end for a phrase that signed nobody in.
+    it('is told the login when the last login counted ends while it is still reading', async () => {
+      let refuseSecond;
+      claim.onSecondCall().callsFake(() => new Promise((resolve) => { refuseSecond = () => resolve(null); }));
+      const first = login();
+      const second = login();
+      await first;
+      expect(refuseSecond, 'the second login was not under way, so this proves nothing').to.be.a('function');
+      let answerRead;
+      const loginRow = { zelid, loginPhrase: phrase };
+      findOne.withArgs(sinon.match.any, 'loggedusers').onFirstCall().callsFake(() => new Promise((resolve) => { answerRead = resolve; }));
+      findOne.withArgs(sinon.match.any, 'loggedusers').resolves(loginRow);
+
+      const ws = page();
+      const connecting = idService.wsRespondLoginPhrase(ws, phrase);
+      refuseSecond();
+      await second;
+      answerRead(loginRow);
+      await connecting;
+
+      sinon.assert.calledOnce(ws.send);
+      expect(sentMessage(ws)).to.deep.include({ status: 'success' });
+    });
+
+    it('lists only the phrases no login has used as active', async () => {
+      const list = sinon.stub(dbHelper, 'findInDatabase').resolves([]);
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+
+      await idService.activeLoginPhrases({}, generateResponse());
+
+      expect(list.firstCall.args[2]).to.deep.equal({ usedAt: { $exists: false } });
+    });
+  });
+
+  // On the database itself: of the logins that try one phrase at once, one marks it
+  // used and writes its login; the rest are refused, and the phrase stays, used.
+  describe('a login phrase on the database', () => {
+    const zelid = '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg';
+    let phrase;
+    let database;
+    const { activeLoginPhrases, loggedUsers } = config.database.local.collections;
+
+    async function login() {
+      const stream = new PassThrough();
+      stream.push(JSON.stringify({ zelid, signature: '1234356asdf', message: phrase }));
+      stream.end();
+      const res = generateResponse();
+      await idService.verifyLogin(stream, res);
+      await serviceHelper.delay(100);
+      return res.json.firstCall.args[0];
+    }
+
+    beforeEach(async () => {
+      sinon.stub(bitcoinMessage, 'verify').returns(true);
+      await dbHelper.initiateDB();
+      database = dbHelper.databaseConnection().db(config.database.local.database);
+      phrase = `${Date.now() - 60000}${Math.random().toString(36).substring(2, 15)}1111111111111111111`;
+      await database.collection(activeLoginPhrases).insertOne({ loginPhrase: phrase, createdAt: new Date(), expireAt: new Date(Date.now() + 900000) });
+    });
+
+    afterEach(async () => {
+      sinon.restore();
+      await database.collection(activeLoginPhrases).deleteMany({ loginPhrase: phrase });
+      await database.collection(loggedUsers).deleteMany({ loginPhrase: phrase });
+    });
+
+    it('signs in one of two logins that try the phrase at once, and leaves the phrase marked used', async () => {
+      // both have read the phrase unused before either marks it
+      const markUsed = dbHelper.findOneAndUpdateInDatabase;
+      let arrived = 0;
+      let bothArrived;
+      const barrier = new Promise((resolve) => { bothArrived = resolve; });
+      sinon.stub(dbHelper, 'findOneAndUpdateInDatabase').callsFake(async (...args) => {
+        arrived += 1;
+        if (arrived === 2) bothArrived();
+        await barrier;
+        return markUsed(...args);
+      });
+
+      const answers = await Promise.all([login(), login()]);
+
+      expect(arrived, 'the two logins did not both try the phrase, so this proves nothing').to.equal(2);
+
+      expect(answers.map((a) => a.status).sort()).to.deep.equal(['error', 'success']);
+      expect(answers.find((a) => a.status === 'error').data.message).to.equal('Signed message is no longer valid. Please request a new one.');
+      expect(await database.collection(loggedUsers).countDocuments({ loginPhrase: phrase }), 'logins written').to.equal(1);
+      expect((await database.collection(activeLoginPhrases).findOne({ loginPhrase: phrase }))?.usedAt).to.be.a('date');
+    });
+
+    it('refuses a login of a phrase already used', async () => {
+      expect((await login()).status).to.equal('success');
+
+      const again = await login();
+
+      expect(again.status).to.equal('error');
+      expect(await database.collection(loggedUsers).countDocuments({ loginPhrase: phrase })).to.equal(1);
     });
   });
 
