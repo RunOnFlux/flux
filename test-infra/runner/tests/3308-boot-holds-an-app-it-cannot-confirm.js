@@ -447,10 +447,13 @@ describe('boot holds an app whose location it cannot read', function () {
 
       step('uninstalling the app and installing it again while its decision is held');
       const auth = await authenticate(holder.url, fluxTeamKey());
-      await (await fetch(`${holder.url}/apps/appremove/${againApp}`, { headers: { zelidauth: auth.zelidauth } })).text();
-      await waitFor(async () => !(await installedNames()).includes(againApp), {
-        timeout: 120000, interval: 2000, label: 'the app is uninstalled',
-      }).catch(() => {});
+      // Asked again until it is gone: the node refuses a removal while another runs,
+      // and boot is removing the apps whose records expired with this one's.
+      await waitFor(async () => {
+        if (!(await installedNames()).includes(againApp)) return true;
+        await (await fetch(`${holder.url}/apps/appremove/${againApp}`, { headers: { zelidauth: auth.zelidauth } })).text();
+        return !(await installedNames()).includes(againApp);
+      }, { timeout: 120000, interval: 3000, label: 'the app is uninstalled' }).catch(() => {});
       installedAfterUninstall = await installedNames();
       await installOnNodes(env, againSpec, [HOLDER]).catch(() => {});
       await waitFor(async () => (await installedNames()).includes(againApp), {
