@@ -74,6 +74,26 @@ describe('dbHelper ensureIndex', () => {
     sinon.assert.notCalled(logErrorSpy);
   });
 
+  it('drops the index of the same name when its key differs, and recreates', async () => {
+    const conflict = new Error('An existing index has the same name as the requested index but a different key');
+    conflict.codeName = 'IndexKeySpecsConflict';
+    const createIndex = sinon.stub();
+    createIndex.onFirstCall().rejects(conflict);
+    createIndex.onSecondCall().resolves('by image');
+    const collection = stubCollection(createIndex);
+    collection.listIndexes.returns({
+      toArray: async () => [
+        { key: { _id: 1 }, name: '_id_' },
+        { key: { repotag: 1 }, name: 'by image' },
+      ],
+    });
+
+    await ensureIndex(collection, { 'compose.repotag': 1 }, { name: 'by image' });
+
+    sinon.assert.calledOnceWithExactly(collection.dropIndex, 'by image');
+    sinon.assert.calledTwice(createIndex);
+  });
+
   // A node holding the old non-unique index of the same key also holds the rows it
   // never refused: the build after the drop meets them, and repairs them the same way.
   it('repairs duplicate rows that block the build after a conflicting index is dropped', async () => {
