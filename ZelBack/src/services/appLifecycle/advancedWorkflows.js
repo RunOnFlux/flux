@@ -22,6 +22,7 @@ const { addressMoveEvents, EVENTS: ADDRESS_MOVE_EVENTS } = require('../utils/add
 const { InstallOutcome } = require('../utils/installOutcome');
 const generalService = require('../generalService');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
+const hwRequirements = require('../appRequirements/hwRequirements');
 // eslint-disable-next-line no-unused-vars
 const upnpService = require('../upnpService');
 const {
@@ -41,6 +42,7 @@ const mountParser = require('../utils/mountParser');
 const appReconciler = require('../appMonitoring/appReconciler');
 const syncthingFolderWrites = require('../appMonitoring/syncthingFolderWrites');
 const primaryRole = require('./primaryRole');
+const { createDepartureQueue } = require('./departureQueue');
 const primaryRoleChanges = require('./primaryRoleChanges');
 const { createPeerFolderLiveness } = require('../appMonitoring/peerFolderLiveness');
 const {
@@ -120,6 +122,10 @@ const standingDown = new Map();
 // simply dropped: masterSlaveApps then clears this node's stale primary record
 // and the normal paths restart the component wherever it belongs.
 const STAND_DOWN_PASSES_BEFORE_GIVING_UP = 6;
+// The turn-taking among holders of an app whose geolocation no longer admits
+// them. Every misplaced holder of one app can be asking in the same pass, and
+// the queue is what makes them leave one after another rather than together.
+const misplacedQueue = createDepartureQueue();
 // Ten election cycles. Derived from the election's own cadence rather than
 // written as its own number, so it stays in the same proportion to the pass
 // that refreshes it at every scale - the harness compresses masterSlaveApps by
@@ -3724,9 +3730,11 @@ function isElectedPrimaryHere(appName, localSocketAddr, now = Date.now()) {
 /**
  * Whether this node should give up an app, and why.
  *
- * Two reasons, one answer. SURPLUS: the app runs on more nodes than it needs and
- * this node holds the junior instance. EVACUATION: the node is shedding what it
- * holds because it is no longer fit to serve, and this app's turn has come.
+ * Three reasons, one answer. SURPLUS: the app runs on more nodes than it needs
+ * and this node holds the junior instance. EVACUATION: the node is shedding what
+ * it holds because it is no longer fit to serve, and this app's turn has come.
+ * MISPLACED: the published location table places this node outside the app's
+ * geolocation, and this node's turn among the misplaced holders has come.
  *
  * Only the reason is decided here. Whether it is SAFE to act on it is
  * appEvacuationSafety's question, and both must agree - a count has never been
@@ -3738,6 +3746,9 @@ function isElectedPrimaryHere(appName, localSocketAddr, now = Date.now()) {
  * @param {Function} [deps.isComponentRunningLocally] Whether a component
  *   identifier is running on this node right now.
  * @param {object} [deps.liveness] Peer folder liveness, for judging a silent peer.
+ * @param {Function} [deps.geolocationVerdict] The app's geolocation verdict for
+ *   this node, by app name (hwRequirements.appGeolocationVerdict over the
+ *   global spec). Without it MISPLACED is not considered.
  * @returns {Promise<{giveUp: boolean, reason: string, detail: string}>}
  */
 async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, deps = {}) {
@@ -3844,6 +3855,36 @@ async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, 
     };
   }
 
+  // Only the table's word moves an installed app. The node's own ip-api report
+  // can be wrong about where it is, and an unproven region is not a wrong one;
+  // both still refuse an install, which is where being unsure belongs.
+  //
+  // Misplaced holders leave one per refill, never all at once. A departure takes
+  // the app below its instance count, and every other misplaced holder waits
+  // until a correctly placed node has taken the gap. With nowhere correctly
+  // placed to go, the gap stays open and the rest stay where they are: an app
+  // running outside its geolocation keeps its data and keeps serving, which is
+  // better than an app that has neither.
+  if (deps.geolocationVerdict) {
+    const geo = await deps.geolocationVerdict(installedApp.name);
+    if (geo.verdict === hwRequirements.GeoVerdict.FAIL && geo.source === hwRequirements.GeoSource.TABLE) {
+      const turn = misplacedQueue.mayDepart(installedApp.name, runningAppList, localSocketAddr, minInstances);
+      if (turn.ok) {
+        return {
+          giveUp: true,
+          reason: 'MISPLACED',
+          detail: `the location table places this node outside the app's geolocation (${geo.reason})`,
+        };
+      }
+      return {
+        giveUp: false, reason: 'MISPLACED', code: turn.code, detail: turn.reason,
+      };
+    }
+    // A node that stops being misplaced stops queueing: a turn is earned only
+    // while wanting to leave.
+    misplacedQueue.forget(installedApp.name);
+  }
+
   if (surplusDeclined) {
     return {
       giveUp: false, reason: 'SURPLUS', code: surplusDeclined.code, detail: surplusDeclined.detail,
@@ -3943,6 +3984,20 @@ async function checkAndRemoveApplicationInstance() {
     const isComponentRunningLocally = async (identifier) => (
       runningIdentifiers ? runningIdentifiers.has(identifier) : true
     );
+    // The GLOBAL spec, the same authority the safety gate reads: an owner's
+    // geolocation change this node has not yet reinstalled from must not move
+    // the app on the strength of the spec it is about to replace. Anything that
+    // cannot be read is UNKNOWN, which moves nothing.
+    const globalGeolocationVerdict = async (appName) => {
+      try {
+        const spec = await registryManager.getApplicationGlobalSpecifications(appName);
+        if (!spec) return { verdict: hwRequirements.GeoVerdict.UNKNOWN, source: null, reason: 'no global specification' };
+        return await hwRequirements.appGeolocationVerdict(spec);
+      } catch (error) {
+        log.warn(`Give-up-an-app pass: geolocation of ${appName} unreadable: ${error.message}`);
+        return { verdict: hwRequirements.GeoVerdict.UNKNOWN, source: null, reason: error.message };
+      }
+    };
 
     // One per pass, so a peer asked about twice is asked once. Lazy - it does no
     // work at all unless a probe below actually goes silent.
@@ -3955,6 +4010,7 @@ async function checkAndRemoveApplicationInstance() {
     for (const name of giveUpRefusals.keys()) {
       if (!heldNames.has(name)) giveUpRefusals.delete(name);
     }
+    misplacedQueue.retainOnly(heldNames);
     // Stood-down components age on the pass that would have removed them, so the
     // cap is counted in the thing that re-asks the question. Two ways out: the
     // app left by any route, or this node waited out the cap without being able
@@ -3987,6 +4043,7 @@ async function checkAndRemoveApplicationInstance() {
       const decision = await reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, {
         isComponentRunningLocally,
         liveness,
+        geolocationVerdict: globalGeolocationVerdict,
       });
       // Every pass reports what it decided about every app it holds. Without
       // this the pass is invisible: it logs nothing at all when it has nothing
@@ -4000,7 +4057,7 @@ async function checkAndRemoveApplicationInstance() {
         detail: decision.detail,
       });
       if (!decision.giveUp) {
-        if (decision.reason === 'EVACUATION') {
+        if (decision.reason === 'EVACUATION' || decision.reason === 'MISPLACED') {
           // A node held below the instance count WANTS to leave and cannot, and
           // it is counted and escalated exactly as a safety refusal is - because
           // until the strength test moved into the pacing gate, that is where
@@ -4043,7 +4100,7 @@ async function checkAndRemoveApplicationInstance() {
         code: safety.code,
         detail: safety.reason,
       });
-      if (safety.code === 'STAND_DOWN_REQUIRED' && decision.reason === 'EVACUATION') {
+      if (safety.code === 'STAND_DOWN_REQUIRED' && (decision.reason === 'EVACUATION' || decision.reason === 'MISPLACED')) {
         // Every other condition has already passed - a connected peer holds each
         // synced folder in full, and the app is at strength - so the only thing
         // between this node and leaving is that it is the one writing. Stop
@@ -4051,9 +4108,10 @@ async function checkAndRemoveApplicationInstance() {
         // and the next pass finds the component not running here, re-proves the
         // peer is complete with nothing left to write, and removes.
         //
-        // EVACUATION only. SURPLUS picks the JUNIOR instance and the primary is
-        // the senior one, so a surplus giver-up is never the primary; wiring
-        // this there would stop a container for a case that cannot arise.
+        // EVACUATION and MISPLACED only. SURPLUS picks the JUNIOR instance and
+        // the primary is the senior one, so a surplus giver-up is never the
+        // primary; wiring this there would stop a container for a case that
+        // cannot arise. A misplaced holder can be the senior one.
         // eslint-disable-next-line no-restricted-syntax
         for (const identifier of safety.standDown) {
           // Marked before anything changes, so an election pass that reaches the
@@ -4090,12 +4148,14 @@ async function checkAndRemoveApplicationInstance() {
         return;
       }
       if (!safety.safe) {
+        // The observation window restarts, so the queue wait is served against
+        // an uninterrupted period of the app being whole rather than
+        // accumulated across a gap. Only the queued reasons have a window;
+        // SURPLUS has no mark to clear.
         if (decision.reason === 'EVACUATION') {
-          // The observation window restarts, so the queue wait is served against
-          // an uninterrupted period of the app being whole rather than
-          // accumulated across a gap. Only the evacuation path has a window;
-          // calling this on a surplus refusal cleared a mark nothing had set.
           residentialNodeDosService.forgetAppObservation(installedApp.name);
+        } else if (decision.reason === 'MISPLACED') {
+          misplacedQueue.forget(installedApp.name);
         }
         const refusals = (giveUpRefusals.get(installedApp.name) ?? 0) + 1;
         giveUpRefusals.set(installedApp.name, refusals);
@@ -4124,6 +4184,8 @@ async function checkAndRemoveApplicationInstance() {
       log.warn(`Application ${installedApp.name} locally removed`);
       if (decision.reason === 'EVACUATION') {
         residentialNodeDosService.noteEvacuated(installedApp.name);
+      } else if (decision.reason === 'MISPLACED') {
+        misplacedQueue.forget(installedApp.name);
       }
       // One per pass. Removing a second here would take two instances off the
       // network before the spawner has replaced either.

@@ -1187,7 +1187,10 @@ async function checkAppRequirements(appSpecs, skipGeolocation = false, skipStati
   }
 
   if (!skipGeolocation) {
-    await hwRequirements.checkAppGeolocationRequirements(appSpecs);
+    const geo = await hwRequirements.appGeolocationVerdict(appSpecs);
+    if (geo.verdict !== hwRequirements.GeoVerdict.PASS) {
+      throw new Error(geo.reason);
+    }
   }
 
   return true;

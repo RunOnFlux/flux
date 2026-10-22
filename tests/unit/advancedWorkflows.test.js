@@ -26,6 +26,8 @@ const { PeerComponent } = require('../../ZelBack/src/services/appMonitoring/peer
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const { addressMoveEvents, EVENTS: ADDRESS_MOVE_EVENTS } = require('../../ZelBack/src/services/utils/addressMoveEvents');
 const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
+const { QUEUE_BASE_MS } = require('../../ZelBack/src/services/appLifecycle/departureQueue');
 const appNetworkLinker = require('../../ZelBack/src/services/appLifecycle/appNetworkLinker');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
@@ -5119,7 +5121,6 @@ describe('advancedWorkflows tests', () => {
       volGlobalState.receiveOnlySyncthingAppsCache.clear();
       volGlobalState.folderHoldings = null;
       volGlobalState.seedMarks.clear();
-      const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
       sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
       // The volume search reads the real mount table through findmnt. Stubbing
       // it keeps these cases about the synced-mark rather than about whichever
@@ -5340,7 +5341,6 @@ describe('advancedWorkflows tests', () => {
 
     const withVolume = (availableGib) => {
       // eslint-disable-next-line global-require
-      const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
       sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
       // eslint-disable-next-line global-require
       const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
@@ -8289,6 +8289,155 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
         .map((c) => String(c.args[0]))
         .filter((line) => line.includes('standing down as'));
       expect(stoodDown, 'reported a stand-down for a component still running').to.have.lengthOf(0);
+    });
+  });
+
+  describe('leaving an app whose geolocation no longer admits this node', () => {
+    const MINUTE = 60 * 1000;
+    const TABLE_FAIL = {
+      verdict: hwRequirements.GeoVerdict.FAIL, source: hwRequirements.GeoSource.TABLE, reason: 'not matching',
+    };
+    // The misplaced queue lives as long as the module, so every test holds an
+    // app of its own and starts with no observation of it.
+    let appSeq = 0;
+    let appName;
+    let clock;
+    let geolocationVerdict;
+
+    // This node holds the newest of three, so its turn comes after QUEUE_BASE_MS.
+    const atStrength = () => locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL);
+    const pass = () => advancedWorkflows.checkAndRemoveApplicationInstance();
+
+    beforeEach(() => {
+      appSeq += 1;
+      appName = `misplaced${appSeq}`;
+      clock = sinon.useFakeTimers({ toFake: ['hrtime'] });
+      dbHelper.findInDatabase.resolves(installed(appName));
+      registryManager.appLocation.resolves(atStrength());
+      registryManager.getApplicationGlobalSpecifications.resolves({
+        name: appName, version: 8, instances: 3, geolocation: ['acEU_GB'],
+      });
+      geolocationVerdict = sinon.stub(hwRequirements, 'appGeolocationVerdict').resolves(TABLE_FAIL);
+    });
+
+    it('waits its turn, then removes the app', async () => {
+      await pass();
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+
+      clock.tick(QUEUE_BASE_MS);
+      await pass();
+
+      sinon.assert.calledOnce(appUninstaller.removeAppLocally);
+      expect(appUninstaller.removeAppLocally.firstCall.args[0]).to.equal(appName);
+    });
+
+    it('judges the global specification, not the installed record', async () => {
+      await pass();
+
+      sinon.assert.calledOnce(geolocationVerdict);
+      expect(geolocationVerdict.firstCall.args[0].geolocation).to.deep.equal(['acEU_GB']);
+    });
+
+    it('does not move an app on a FAIL that rests on the node\'s own report', async () => {
+      geolocationVerdict.resolves({ ...TABLE_FAIL, source: hwRequirements.GeoSource.SELF });
+
+      await pass();
+      clock.tick(QUEUE_BASE_MS);
+      await pass();
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does not move an app on an UNKNOWN verdict', async () => {
+      geolocationVerdict.resolves({ verdict: hwRequirements.GeoVerdict.UNKNOWN, source: null, reason: 'unproven' });
+
+      await pass();
+      clock.tick(QUEUE_BASE_MS);
+      await pass();
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does not move an app whose global specification cannot be read', async () => {
+      registryManager.getApplicationGlobalSpecifications.resolves(null);
+
+      await pass();
+      clock.tick(QUEUE_BASE_MS);
+      await pass();
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('starts its turn again when the app drops below its instance count', async () => {
+      await pass();
+      clock.tick(QUEUE_BASE_MS - MINUTE);
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', LOCAL));
+      await pass();
+      clock.tick(2 * MINUTE);
+      registryManager.appLocation.resolves(atStrength());
+      await pass();
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('stays while the gap a departure left is unfilled, however long that takes', async () => {
+      // One misplaced holder has left and nothing correctly placed has taken
+      // the gap: this one keeps the app, and its data, where it is.
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', LOCAL));
+      for (let i = 0; i < 10; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await pass();
+        clock.tick(QUEUE_BASE_MS);
+      }
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('loses its turn when it stops being misplaced', async () => {
+      await pass();
+      clock.tick(QUEUE_BASE_MS - MINUTE);
+      geolocationVerdict.resolves({ verdict: hwRequirements.GeoVerdict.PASS, source: null, reason: null });
+      await pass();
+      clock.tick(2 * MINUTE);
+      geolocationVerdict.resolves(TABLE_FAIL);
+      await pass();
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('starts its turn again after the safety gate refuses', async () => {
+      await pass();
+      clock.tick(QUEUE_BASE_MS);
+      evacuationSafety.canSafelyRemoveApp.resolves({ safe: false, code: 'NO_SYNCED_PEER', reason: 'no peer holds it' });
+      await pass();
+      evacuationSafety.canSafelyRemoveApp.resolves({ safe: true, reason: 'peer holds it' });
+      await pass();
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('stands a misplaced primary down instead of removing the app', async () => {
+      const stop = sinon.stub(appReconciler, 'setControllerDesiredAndWait').resolves(true);
+      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, indeterminate: false, running: false });
+      evacuationSafety.canSafelyRemoveApp.resolves({
+        safe: false, code: 'STAND_DOWN_REQUIRED', reason: 'stop first', standDown: [`server_${appName}`],
+      });
+
+      await pass();
+      clock.tick(QUEUE_BASE_MS);
+      await pass();
+
+      sinon.assert.calledOnceWithExactly(stop, `server_${appName}`, 'stopped', 'standing down to hand the app back');
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does not spend the evacuation interval on a misplaced departure', async () => {
+      await pass();
+      clock.tick(QUEUE_BASE_MS);
+      await pass();
+
+      sinon.assert.calledOnce(appUninstaller.removeAppLocally);
+      sinon.assert.notCalled(residentialNodeDosService.noteEvacuated);
     });
   });
 
