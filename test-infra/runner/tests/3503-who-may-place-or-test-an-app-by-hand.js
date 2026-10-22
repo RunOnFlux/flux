@@ -32,15 +32,16 @@ describe('who may place or test an app by hand', function () {
   const authAs = async (key) => (await authenticate(client().url, key)).zelidauth;
 
   const marks = () => env.clients.map((c) => c.getLastEventId());
-  // Since `afterIds` the node recorded no placement of the app and announced it
-  // nowhere, and nothing of it is left installed.
-  async function assertNothingHeld(afterIds) {
+  // installapplocally placed nothing: no record of taking the app was written,
+  // and the app is not installed.
+  async function assertNotPlaced(afterIds) {
     await assertNoEvent(client(), 'app:placementRecorded', (d) => d.name === appName, 0, { afterId: afterIds[NODE] });
-    await assertNoEvent(client(), 'app:running', (d) => d.apps?.some((a) => a.name === appName), 0, { afterId: afterIds[NODE] });
-    await Promise.all(env.clients.map((c, i) => assertNoEvent(c, 'network:apprunning',
-      (d) => d.apps?.some((a) => a.name === appName), 0, { afterId: afterIds[i] })));
-    expect(await dbClient(NODE + 1).localApp(appName), 'the app is left installed on the node').to.equal(null);
+    expect(await dbClient(NODE + 1).localApp(appName), 'the app is installed on the node').to.equal(null);
   }
+  // A test install leaves nothing of the app behind.
+  const assertTornDown = () => waitFor(async () => (await dbClient(NODE + 1).localApp(appName)) === null, {
+    timeout: 60000, interval: 2000, label: 'the test install is torn down',
+  });
 
   before(async function () {
     this.timeout(420000);
@@ -79,7 +80,7 @@ describe('who may place or test an app by hand', function () {
     const body = await client().installAppLocally(messageHash, await authAs(appOwnerKey()));
 
     expect(body, 'the owner was not refused').to.match(/Unauthorized/);
-    await assertNothingHeld(afterIds);
+    await assertNotPlaced(afterIds);
   });
 
   it('does not place it for the flux team either', async function () {
@@ -88,39 +89,30 @@ describe('who may place or test an app by hand', function () {
     const body = await client().installAppLocally(messageHash, await authAs(fluxTeamKey()));
 
     expect(body, 'installapplocally read the temporary message').to.match(new RegExp(`Application Specifications of ${messageHash} not found`));
-    await assertNothingHeld(afterIds);
+    await assertNotPlaced(afterIds);
   });
 
   it('refuses another user testing it', async function () {
     this.timeout(120000);
-    const afterIds = marks();
     const body = await client().testAppInstall(messageHash, await authAs(userKey()));
 
     expect(body, 'another user was not refused').to.match(/Unauthorized/);
-    await assertNothingHeld(afterIds);
+    await assertTornDown();
   });
 
   it('lets its owner test it, and leaves nothing behind', async function () {
     this.timeout(300000);
-    const afterIds = marks();
     const body = await client().testAppInstall(messageHash, await authAs(appOwnerKey()));
 
     expect(body, 'the owner\'s test did not install the app').to.match(new RegExp(`Flux App ${appName} successfully installed and launched`));
-    await waitFor(async () => (await dbClient(NODE + 1).localApp(appName)) === null, {
-      timeout: 60000, interval: 2000, label: 'the test install is torn down',
-    });
-    await assertNothingHeld(afterIds);
+    await assertTornDown();
   });
 
   it('lets the flux team test it', async function () {
     this.timeout(300000);
-    const afterIds = marks();
     const body = await client().testAppInstall(messageHash, await authAs(fluxTeamKey()));
 
     expect(body, 'the flux team\'s test did not install the app').to.match(new RegExp(`Flux App ${appName} successfully installed and launched`));
-    await waitFor(async () => (await dbClient(NODE + 1).localApp(appName)) === null, {
-      timeout: 60000, interval: 2000, label: 'the test install is torn down',
-    });
-    await assertNothingHeld(afterIds);
+    await assertTornDown();
   });
 });

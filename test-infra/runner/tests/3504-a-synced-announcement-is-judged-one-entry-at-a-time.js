@@ -17,9 +17,10 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //
 // A peer that has not upgraded serves whatever it last recorded for a node,
 // which may be an announcement whose every entry the joiner refuses. The joiner
-// prunes a node's rows against the newest announcement it can store, so such a
-// message never deletes the rows an older readable one stood behind, and it
-// never takes that one's place in the joiner's own log.
+// here is a node coming back: it already holds a row for that node and the
+// readable announcement behind it. It prunes a node's rows only against an
+// announcement it can store, so the refused one deletes neither the row nor the
+// readable announcement in the log it serves its own peers.
 
 const RUNNING = [0, 1, 2, 3];
 const JOINER = 4;
@@ -61,17 +62,20 @@ describe('a synced announcement is judged one entry at a time', function () {
     await waitForNodeStatus(joiner, (d) => d.confirmed === true, 30000);
 
     const at = Date.now();
+    // What the joiner already holds about REFUSED_NODE from before it went away:
+    // the readable announcement and the row it wrote.
+    await dbClient(JOINER + 1).seedAppStateEvent(await apprunningEvent({ nodeNum: REFUSED_NODE, broadcastedAt: at - 5000, apps: [held] }));
+    await dbClient(JOINER + 1).seedAppLocation({
+      name: held, ip: socketAddr(REFUSED_NODE), hash: `hash-${held}`, broadcastedAt: at - 5000, runningSince: at - 5000,
+    });
+    // What every peer serves: for MIXED_NODE one readable entry and one without a
+    // hash; for REFUSED_NODE a newer announcement whose only entry has no hash,
+    // the one a peer that has not upgraded holds for a node it last heard that from.
     const events = [
-      // One readable entry and one without a hash.
       await apprunningEvent({
         nodeNum: MIXED_NODE,
         broadcastedAt: at,
         apps: [kept, { name: dropped, runningSince: new Date(at).toISOString() }],
-      }),
-      // A readable announcement, then a newer one whose only entry has no hash:
-      // what a peer that has not upgraded holds for a node it last heard that from.
-      await apprunningEvent({
-        nodeNum: REFUSED_NODE, broadcastedAt: at - 5000, apps: [held], dedupKey: 'v2:readable',
       }),
       await apprunningEvent({
         nodeNum: REFUSED_NODE, broadcastedAt: at, apps: [{ name: probe, runningSince: new Date(at).toISOString() }],
@@ -102,7 +106,7 @@ describe('a synced announcement is judged one entry at a time', function () {
     expect(refused.some((r) => r.ip === socketAddr(MIXED_NODE) && r.names.includes(dropped)), 'the joiner did not report the entry it refused').to.equal(true);
   });
 
-  it('keeps a node\'s rows past a newer announcement whose every entry it refuses', async function () {
+  it('keeps the row it holds for a node past a newer announcement whose every entry it refuses', async function () {
     const names = await rowNames(REFUSED_NODE);
     expect(names, 'the refused announcement pruned the rows the readable one stood behind').to.include(held);
     expect(names, 'the joiner stored an entry without a hash').to.not.include(probe);
