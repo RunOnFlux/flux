@@ -1,7 +1,9 @@
 const { expect } = require('chai');
+const sinon = require('sinon');
 const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
+const log = require('../../ZelBack/src/lib/log');
 const { appRunningEntries } = require('../../ZelBack/src/services/utils/appRunningEntries');
 const { RUNNING_EXPIRY_MS } = require('../../ZelBack/src/services/utils/appConstants');
 const { requireMongo } = require('./dbTestHelper');
@@ -160,6 +162,21 @@ describe('apprunning entries are stored one at a time', () => {
         const rows = await rowsAt();
         expect(rows.map((r) => r.name)).to.deep.equal(['db', 'web']);
         expect(rows.every((r) => typeof r.hash === 'string')).to.equal(true);
+      });
+
+      it('logs the refusals of a whole batch in one line', async () => {
+        const warn = sinon.stub(log, 'warn');
+        try {
+          await messageStore.storeBatchAppRunningMessages([
+            broadcast(message([{ name: 'probe' }, { name: 'web', hash: 'webhash' }])),
+            broadcast(message([{ name: 'probe2' }, { name: 'probe3' }], Date.now(), otherIp)),
+          ]);
+        } finally {
+          warn.restore();
+        }
+
+        expect(warn.callCount).to.equal(1);
+        expect(warn.firstCall.args[0]).to.match(/^storeBatchAppRunningMessages - 3 app entries in 2 messages have no string name and hash and are not stored\./);
       });
 
       it('stores the other broadcasts of a batch when one has only refused entries', async () => {

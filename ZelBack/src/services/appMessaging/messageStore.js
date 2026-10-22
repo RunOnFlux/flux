@@ -290,15 +290,17 @@ function runningSinceOf(isNewer, runningSince, moved) {
 }
 
 /**
- * Log the entries of one apprunning message that were not stored.
+ * Log, in one line, the apprunning entries a store refused.
  * @param {string} caller The function that refused them.
- * @param {object} message The message's data.
- * @param {Array<*>} refused The refused entries.
+ * @param {Array<{ip: string, broadcastedAt: number, refused: Array<*>}>} refusals One per message with refused entries.
  */
-function logRefusedEntries(caller, message, refused) {
-  if (!refused.length) return;
-  const shown = refused.slice(0, 5).map((app) => JSON.stringify(app)?.slice(0, 200)).join(', ');
-  log.warn(`${caller} - ${refused.length} app entries from ${message.ip} at ${message.broadcastedAt} have no string name and hash and are not stored: ${shown}`);
+function logRefusedEntries(caller, refusals) {
+  if (!refusals.length) return;
+  const entries = refusals.reduce((total, { refused }) => total + refused.length, 0);
+  const shown = refusals.slice(0, 3).map(({ ip, broadcastedAt, refused }) => (
+    `${ip} at ${broadcastedAt}: ${refused.slice(0, 3).map((app) => JSON.stringify(app)?.slice(0, 200)).join(', ')}`
+  )).join('; ');
+  log.warn(`${caller} - ${entries} app entries in ${refusals.length} messages have no string name and hash and are not stored. ${shown}`);
 }
 
 /**
@@ -354,7 +356,7 @@ async function storeAppRunningMessage(message) {
       return new Error('Invalid Flux App Running message: apps array exceeds maxAppsPerNode');
     }
     const { stored, refused } = appRunningEntries(message.apps);
-    logRefusedEntries('storeAppRunningMessage', message, refused);
+    if (refused.length) logRefusedEntries('storeAppRunningMessage', [{ ip: message.ip, broadcastedAt: message.broadcastedAt, refused }]);
     if (message.apps.length && !stored.length) {
       return { stored: false, rebroadcast: false };
     }
@@ -807,6 +809,9 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
     verifiedBroadcasts.map(({ data }) => ({ ip: data.ip, at: data.broadcastedAt })),
   );
 
+  // one log line per call: a sync response is stored a slice at a time, and a
+  // slice holds thousands of broadcasts
+  const refusals = [];
   for (const [index, broadcast] of verifiedBroadcasts.entries()) {
     const { data } = broadcast;
     const validTill = data.broadcastedAt + RUNNING_EXPIRY_MS;
@@ -814,7 +819,7 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
     const ip = addresses[index];
 
     const { stored: apps, refused } = appRunningEntries(data.version === 2 ? (data.apps || []) : [{ name: data.name, hash: data.hash }]);
-    logRefusedEntries('storeBatchAppRunningMessages', data, refused);
+    if (refused.length) refusals.push({ ip: data.ip, broadcastedAt: data.broadcastedAt, refused });
     const incomingDate = new Date(data.broadcastedAt);
     const incomingExpiry = new Date(validTill);
     const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
@@ -848,6 +853,7 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
   }
 
   await flushLocationOps();
+  logRefusedEntries('storeBatchAppRunningMessages', refusals);
 
   // Upserts only. Removing the rows a node no longer reports belongs to
   // pruneAppRunningLocations, which is driven from the newest broadcast per node
