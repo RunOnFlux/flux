@@ -13,6 +13,7 @@ const appReconciler = require('../appMonitoring/appReconciler');
 
 const fluxEventBus = require('../utils/fluxEventBus');
 const { nodeSigner } = require('../utils/nodeSigner');
+const { appRunningEntries } = require('../utils/appRunningEntries');
 const { ANNOUNCE_INTERVAL_MS } = require('../utils/appConstants');
 
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
@@ -196,12 +197,19 @@ async function checkAndNotifyPeersOfRunningApps() {
         && !globalState.testInstallingApps.has(application.name)
         && !globalState.unconfirmedApps.has(application.name),
     );
+    // An installed app without a string name and hash is left out and logged: no
+    // node stores such an entry, and a node that has not upgraded refuses the
+    // whole message for it, which would cost this node every other app it holds.
+    const { stored: announceable, refused } = appRunningEntries(applicationsToBroadcast);
+    if (refused.length) {
+      log.warn(`checkAndNotifyPeersOfRunningApps - installed apps without a name and hash are not announced: ${refused.map((application) => application?.name).join(', ')}`);
+    }
     const apps = [];
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     try {
       // eslint-disable-next-line no-restricted-syntax
-      for (const application of applicationsToBroadcast) {
+      for (const application of announceable) {
         const queryFind = { name: application.name, ip: localSocketAddr };
         const projection = { _id: 0, runningSince: 1 };
         // eslint-disable-next-line no-await-in-loop
@@ -243,7 +251,13 @@ async function checkAndNotifyPeersOfRunningApps() {
         log.warn('checkAndNotifyPeersOfRunningApps - this node cannot sign as itself; its running apps are not announced');
         return;
       }
-      await messageStore.storeAppRunningMessage(appRunningMessage);
+      // Every peer applies the same rule to the message as this store does, so a
+      // message this node will not store is one no peer stores either.
+      const ownStore = await messageStore.storeAppRunningMessage(appRunningMessage);
+      if (ownStore instanceof Error) {
+        log.error(`checkAndNotifyPeersOfRunningApps - this node refuses its own announcement, not broadcast: ${ownStore.message}`);
+        return;
+      }
       const signed = await fluxCommunicationMessagesSender.broadcastMessageToAll(appRunningMessage);
       await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: signed });
       fluxEventBus.publish('app:running', { apps, ip: appRunningMessage.ip });

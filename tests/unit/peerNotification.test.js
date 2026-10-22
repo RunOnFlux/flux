@@ -134,7 +134,7 @@ describe('peerNotification tests', () => {
     nodeSignerStub = sinon.stub().resolves({ pubKey: '04', sign: () => 'sig' });
     installedAppsStub = sinon.stub().resolves({
       status: 'success',
-      data: [{ name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] }],
+      data: [{ name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] }],
     });
     // The REAL departing tracker, taken fresh per test rather than
     // reimplemented here: a fake that counts differently from the module would
@@ -197,8 +197,8 @@ describe('peerNotification tests', () => {
       installedAppsStub.resolves({
         status: 'success',
         data: [
-          { name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
-          { name: 'app2', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
+          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'app2', hash: 'app2hash', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
         ],
       });
       // only app1's container is running
@@ -215,8 +215,8 @@ describe('peerNotification tests', () => {
       installedAppsStub.resolves({
         status: 'success',
         data: [
-          { name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
-          { name: 'app2', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
+          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'app2', hash: 'app2hash', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
         ],
       });
       departingApps.enter('app2');
@@ -251,8 +251,8 @@ describe('peerNotification tests', () => {
       installedAppsStub.resolves({
         status: 'success',
         data: [
-          { name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
-          { name: 'app2', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
+          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'app2', hash: 'app2hash', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
         ],
       });
       unconfirmedApps.set('app2', Symbol('app2'));
@@ -304,7 +304,7 @@ describe('peerNotification tests', () => {
       installedAppsStub.resolves({
         status: 'success',
         data: [
-          { name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
           { name: 'sealed', version: 8, enterprise: 'encrypted-blob', compose: [], hash: 'h2' },
         ],
       });
@@ -344,8 +344,8 @@ describe('peerNotification tests', () => {
       installedAppsStub.resolves({
         status: 'success',
         data: [
-          { name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
-          { name: 'trialapp', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'trialapp', hash: 'trialapphash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
         ],
       });
       testInstallingApps.add('trialapp');
@@ -357,6 +357,52 @@ describe('peerNotification tests', () => {
         message.apps.map((a) => a.name),
         'claimed a placement for an app it is only trying out',
       ).to.deep.equal(['app1']);
+    });
+
+    // No node stores an entry without a name and hash, and a node that has not
+    // upgraded refuses the whole message for one - which would cost this node
+    // every other app it holds.
+    it('leaves out an installed app without a hash and announces the rest', async () => {
+      installedAppsStub.resolves({
+        status: 'success',
+        data: [
+          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'probe', version: 8, compose: [{ name: 'web', containerData: '/data' }] },
+          { name: 'app2', hash: 'app2hash', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
+        ],
+      });
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      const [message] = storeAppRunningMessageStub.firstCall.args;
+      expect(message.apps.map((a) => a.name)).to.deep.equal(['app1', 'app2']);
+      expect(broadcastMessageToAllStub.firstCall.args[0]).to.equal(message);
+      expect(logStub.warn.calledWithMatch(/not announced: probe/)).to.equal(true);
+    });
+
+    it('announces nothing when no installed app has a hash', async () => {
+      installedAppsStub.resolves({
+        status: 'success',
+        data: [{ name: 'probe', version: 8, compose: [{ name: 'web', containerData: '/data' }] }],
+      });
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      expect(storeAppRunningMessageStub.called).to.equal(false);
+      expect(broadcastMessageToAllStub.called).to.equal(false);
+    });
+
+    // Every peer applies the store's rule, so a message this node refuses is one
+    // no peer keeps either.
+    it('broadcasts nothing its own store refuses', async () => {
+      storeAppRunningMessageStub.resolves(new Error('Invalid Flux App Running message: apps array exceeds maxAppsPerNode'));
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      expect(storeAppRunningMessageStub.calledOnce).to.equal(true);
+      expect(broadcastMessageToAllStub.called, 'a refused announcement is not sent').to.equal(false);
+      expect(storeAppStateEventStub.called).to.equal(false);
+      expect(logStub.error.calledWithMatch(/refuses its own announcement/)).to.equal(true);
     });
 
     // An empty snapshot must NEVER be broadcast: on the receive side an empty v2
@@ -409,9 +455,9 @@ describe('peerNotification tests', () => {
       installedAppsStub.resolves({
         status: 'success',
         data: [
-          { name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
-          { name: 'gapp', version: 4, compose: [{ name: 'gc', containerData: 'g:/data' }] },
-          { name: 'rapp', version: 4, compose: [{ name: 'rc', containerData: 'r:/data' }] },
+          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'gapp', hash: 'gapphash', version: 4, compose: [{ name: 'gc', containerData: 'g:/data' }] },
+          { name: 'rapp', hash: 'rapphash', version: 4, compose: [{ name: 'rc', containerData: 'r:/data' }] },
         ],
       });
       // neither gapp's nor rapp's containers are running
@@ -447,7 +493,7 @@ describe('peerNotification tests', () => {
         if (opts.cycleMs && cycles <= (opts.slowCycles ?? 1)) clock.tick(opts.cycleMs);
         return {
           status: 'success',
-          data: [{ name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] }],
+          data: [{ name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] }],
         };
       });
       const mod = loadPeerNotification({ ...opts, installedApps });
