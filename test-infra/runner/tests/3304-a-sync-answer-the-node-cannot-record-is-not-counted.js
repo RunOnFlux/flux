@@ -29,7 +29,7 @@ const JOINING = NODES - 1;
 // what the peers hold when the node joins: more events than one message carries
 const ANSWERED_EVENTS = ANSWER_BATCH + 1;
 // a peer's request ended for any of these reasons is replaced too, and is not this
-const OTHER_ENDINGS = ['ephemeralSync:peerTimedOut', 'ephemeralSync:peerDisconnected', 'ephemeralSync:peerUnverified'];
+const OTHER_ENDINGS = ['ephemeralSync:peerTimedOut', 'ephemeralSync:peerDisconnected', 'ephemeralSync:peerUnverified', 'sync:refused'];
 
 function step(what) {
   console.log(`# 3304 ${new Date().toISOString()} ${what}`);
@@ -78,6 +78,12 @@ FAILURES.forEach(({ what, arm }) => describe(`a sync answer the node cannot reco
       timeout: 180000, interval: 2000, label: 'the peers hold more running-app events than one message carries',
     });
     eventsHeld = (await dbClient(1).appStateEvents({ type: 'apprunning' })).length;
+    // Every peer answers before the node joins: a peer still syncing refuses it,
+    // and asking a third peer then says nothing about the one replaced.
+    await Promise.all(env.clients.slice(0, JOINING).map((client, i) => waitFor(
+      () => client.getEventBuffer().some((e) => e.event === 'orchestrator:stateChanged' && e.data?.to === 'READY'),
+      { timeout: 300000, interval: 1000, label: `node ${i} answers a state sync` },
+    )));
 
     step(`arming ${what}`);
     release = await arm(JOINING + 1);
