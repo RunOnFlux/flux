@@ -120,6 +120,13 @@ export async function seedSpecUpdate(env, updated, indices) {
 // Returns the indices it installed on.
 export async function installOnNodes(env, app, indices, { timeout = 120000 } = {}) {
   await seedGlobalSpec(env, app, indices);
+  return installSeededOnNodes(env, app, indices, { timeout });
+}
+
+// installOnNodes for an app whose chain records the nodes already hold: an app
+// uninstalled from a node and installed on it again, say. A local uninstall
+// leaves those records, and seeding them a second time is refused.
+export async function installSeededOnNodes(env, app, indices, { timeout = 120000 } = {}) {
   const teamKey = fluxTeamKey();
   await Promise.all(indices.map(async (i) => {
     const client = env.clients[i];

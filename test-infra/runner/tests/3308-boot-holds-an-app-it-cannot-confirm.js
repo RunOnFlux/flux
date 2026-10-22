@@ -34,7 +34,9 @@ import { createTestEnv } from '../framework/test-env.js';
 import { pushImage, pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
-import { bootAndPeer, installOnNodes, installedInstanceIndices } from '../framework/reconciler-suite.js';
+import {
+  bootAndPeer, installOnNodes, installSeededOnNodes, installedInstanceIndices,
+} from '../framework/reconciler-suite.js';
 import {
   crashFluxos, listAppContainers, releaseFluxos, stopAppContainer,
 } from '../framework/container.js';
@@ -455,7 +457,7 @@ describe('boot holds an app whose location it cannot read', function () {
         return !(await installedNames()).includes(againApp);
       }, { timeout: 120000, interval: 3000, label: 'the app is uninstalled' }).catch(() => {});
       installedAfterUninstall = await installedNames();
-      await installOnNodes(env, againSpec, [HOLDER]).catch(() => {});
+      await installSeededOnNodes(env, againSpec, [HOLDER]).catch((error) => step(`the install did not settle: ${error.message}`));
       await waitFor(async () => (await installedNames()).includes(againApp), {
         timeout: 180000, interval: 2000, label: 'the app is installed again',
       }).catch(() => {});
