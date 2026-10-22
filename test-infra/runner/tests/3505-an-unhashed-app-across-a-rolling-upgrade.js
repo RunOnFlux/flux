@@ -20,8 +20,8 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // An upgraded node holding an app installed without a hash leaves it out of its
 // announcements (app:running.unannounced), so the node not yet upgraded goes on
 // storing the rest (network:apprunning). A node not yet upgraded announces such
-// an app, and the upgraded nodes store its other entries and refuse that one
-// (network:apprunningRefused).
+// an app, and the upgraded nodes write its other entries and refuse that one,
+// both of which their network:apprunning says.
 //
 // Without FLUX_E2E_BASE_TAG the suite fails before booting, naming what it needs.
 
@@ -116,12 +116,7 @@ describe('an app installed without a hash, across a rolling upgrade', function (
       const { data: stored } = await storedFrom(i, afterIds[i], holder, appName)
         .catch(() => { throw new Error(`upgraded node ${i} stored no announcement from the node not yet upgraded since the unhashed app was installed`); });
       expect(stored.apps.map((a) => a.name)).to.include(appName);
-      await env.clients[i].waitForEvent(
-        'network:apprunningRefused',
-        (d) => d.refusals?.some((r) => bare(r.ip) === bare(socketAddr(holder + 1)) && r.names.includes(unhashed)),
-        10000,
-        { afterId: afterIds[i] },
-      );
+      expect(stored.refused, `upgraded node ${i} did not refuse the app without a hash`).to.deep.equal([unhashed]);
       expect(await dbClient(i + 1).appLocationAt(unhashed, socketAddr(holder + 1)), `upgraded node ${i} holds a row for the app without a hash`).to.equal(null);
     }));
   });

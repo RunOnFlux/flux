@@ -470,14 +470,21 @@ async function handleAppRunningMessage(message, fromIP, port) {
       log.warn(`handleAppRunningMessage - not stored, from ${fromIP}:${port} for ${message.data?.ip}: ${result.message}`);
       return;
     }
-    if (result.stored) {
-      fluxEventBus.publish('network:apprunning', { ip: message.data.ip, apps: message.data.apps || [{ name: message.data.name }] });
-    }
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
-    if (result.rebroadcast && timestampOK) {
+    const relayed = Boolean(result.rebroadcast && timestampOK);
+    if (relayed) {
       announceToPeers(message, `${fromIP}:${port}`);
     }
+    // Everything this node did with the message: the entries it wrote, the names
+    // it refused, whether it cleared the sender's rows, and whether it passed it on.
+    fluxEventBus.publish('network:apprunning', {
+      ip: message.data.ip,
+      apps: result.written,
+      refused: result.refused,
+      cleared: result.cleared,
+      relayed,
+    });
   } catch (error) {
     log.error(error);
   }

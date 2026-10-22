@@ -79,7 +79,13 @@ describe('apprunning entries are stored one at a time', () => {
           { name: 'db', hash: 'dbhash' },
         ]));
 
-        expect(result).to.deep.equal({ stored: true, rebroadcast: true });
+        expect(result).to.deep.equal({
+          stored: true,
+          rebroadcast: true,
+          written: [{ name: 'web', hash: 'webhash' }, { name: 'db', hash: 'dbhash' }],
+          refused: ['probe'],
+          cleared: false,
+        });
         expect((await rowsAt()).map((r) => r.name)).to.deep.equal(['db', 'web']);
       });
 
@@ -105,7 +111,9 @@ describe('apprunning entries are stored one at a time', () => {
       it('stores nothing and relays nothing when every entry is refused', async () => {
         const result = await messageStore.storeAppRunningMessage(message([{ name: 'probe' }, null]));
 
-        expect(result).to.deep.equal({ stored: false, rebroadcast: false });
+        expect(result).to.deep.equal({
+          stored: false, rebroadcast: false, written: [], refused: ['probe', null], cleared: false,
+        });
         expect(await rowsAt()).to.deep.equal([]);
       });
 
@@ -128,8 +136,21 @@ describe('apprunning entries are stored one at a time', () => {
 
         const result = await messageStore.storeAppRunningMessage(message([]));
 
-        expect(result).to.deep.equal({ stored: true, rebroadcast: true });
+        expect(result).to.deep.equal({
+          stored: true, rebroadcast: true, written: [], refused: [], cleared: true,
+        });
         expect(await rowsAt()).to.deep.equal([]);
+      });
+
+      it('reports no entry as written when a message changes no row', async () => {
+        const at = Date.now();
+        await messageStore.storeAppRunningMessage(message([{ name: 'web', hash: 'webhash' }], at));
+
+        const again = await messageStore.storeAppRunningMessage(message([{ name: 'web', hash: 'webhash' }], at));
+
+        expect(again).to.deep.equal({
+          stored: false, rebroadcast: false, written: [], refused: [], cleared: false,
+        });
       });
 
       it('writes nothing for another node', async () => {

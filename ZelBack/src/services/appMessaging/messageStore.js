@@ -313,7 +313,9 @@ function logRefusedEntries(caller, refusals) {
  * is never read as an empty snapshot, which deletes the sender's rows: only a
  * message that names no apps at all says that.
  * @param {object} message - Message to store
- * @returns {Promise<{stored: boolean, rebroadcast: boolean}|Error>} What was stored, or Error when the message itself is malformed
+ * @returns {Promise<{stored: boolean, rebroadcast: boolean, written: Array<object>, refused: Array<*>, cleared: boolean}|Error>}
+ *   Whether anything was stored and the message is to be relayed, the entries written, the names
+ *   refused, and whether the sender's rows were cleared; or Error when the message itself is malformed
  */
 async function storeAppRunningMessage(message) {
   /* message object
@@ -329,6 +331,9 @@ async function storeAppRunningMessage(message) {
   * @param apps array (for version 2)
   */
   const appsMessages = [];
+  // What this message did here, for the caller to report: the entries written,
+  // the names refused, and whether the sender's rows were cleared.
+  let refusedNames = [];
   if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
     || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string') {
     return new Error('Invalid Flux App Running message for storing');
@@ -357,19 +362,23 @@ async function storeAppRunningMessage(message) {
       return new Error('Invalid Flux App Running message: apps array exceeds maxAppsPerNode');
     }
     const { stored, refused } = appRunningEntries(message.apps);
+    refusedNames = refused.map((app) => app?.name ?? null);
     if (refused.length) {
       logRefusedEntries('storeAppRunningMessage', [{ ip: message.ip, broadcastedAt: message.broadcastedAt, refused }]);
-      fluxEventBus.publish('network:apprunningRefused', { path: 'gossip', refusals: [{ ip: message.ip, names: refused.map((app) => app?.name ?? null) }] });
     }
     if (message.apps.length && !stored.length) {
-      return { stored: false, rebroadcast: false };
+      return {
+        stored: false, rebroadcast: false, written: [], refused: refusedNames, cleared: false,
+      };
     }
     appsMessages.push(...stored);
   }
 
   if (message.broadcastedAt + GOSSIP_VALIDITY_MS < Date.now()) {
     log.warn(`Rejecting old/not valid Fluxapprunning message, message:${JSON.stringify(message)}`);
-    return { stored: false, rebroadcast: false };
+    return {
+      stored: false, rebroadcast: false, written: [], refused: refusedNames, cleared: false,
+    };
   }
 
   const db = dbHelper.databaseConnection();
@@ -378,6 +387,7 @@ async function storeAppRunningMessage(message) {
   const [ip] = await registryManager.currentAddressesOf([{ ip: message.ip, at: message.broadcastedAt }]);
 
   let anyStored = false;
+  const written = [];
   const incomingDate = new Date(message.broadcastedAt);
   const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
 
@@ -407,6 +417,7 @@ async function storeAppRunningMessage(message) {
     );
     if (result.modifiedCount > 0 || result.upsertedCount > 0) {
       anyStored = true;
+      written.push(app);
     }
   }
 
@@ -420,7 +431,9 @@ async function storeAppRunningMessage(message) {
       await dbHelper.removeDocumentsFromCollection(database, appsInstallingBroadcasts, { 'data.ip': message.ip });
       anyStored = true;
     } else {
-      return { stored: false, rebroadcast: false };
+      return {
+        stored: false, rebroadcast: false, written: [], refused: refusedNames, cleared: false,
+      };
     }
   }
 
@@ -432,7 +445,13 @@ async function storeAppRunningMessage(message) {
     await dbHelper.removeDocumentsFromCollection(database, appsInstallingBroadcasts, { 'data.name': app.name, 'data.ip': message.ip });
   }
 
-  return { stored: anyStored, rebroadcast: anyStored };
+  return {
+    stored: anyStored,
+    rebroadcast: anyStored,
+    written,
+    refused: refusedNames,
+    cleared: message.version === 2 && appsMessages.length === 0 && anyStored,
+  };
 }
 
 /**
