@@ -10,7 +10,7 @@ const globalState = require('../utils/globalState');
 const folderStates = require('../appMonitoring/folderStates');
 const log = require('../../lib/log');
 const {
-  localAppsInformation, globalAppsInformation, globalAppsMessages, ANNOUNCE_CYCLE_WAIT_MS,
+  localAppsInformation, globalAppsInformation, globalAppsMessages,
 } = require('../utils/appConstants');
 const config = require('config');
 // const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
@@ -110,9 +110,10 @@ async function announceRemoval(appName) {
   // app still names it, and a claim arriving after this message re-creates the
   // row it cleared. Waiting for the cycle in flight puts the two on the wire in
   // the order they happened, so the claim is applied first and this clears it.
-  // A cycle starting from here on reads the mark and leaves the app out.
-  // Bounded: a wedged cycle must not hold up the node's removals.
-  await globalState.announceCycle.readyTimeout(ANNOUNCE_CYCLE_WAIT_MS);
+  // A cycle starting from here on reads the mark and leaves the app out. A cycle
+  // is in flight only from its snapshot to its broadcast, and every call in that
+  // span has its own time limit.
+  await globalState.announceCycle.waitReady({ waitAll: false });
   const ip = await fluxNetworkHelper.getLocalSocketAddress();
   if (!ip) {
     log.warn(`${appName} removed without announcing it - this node's own address is unknown, so peers hold its location row until it expires`);

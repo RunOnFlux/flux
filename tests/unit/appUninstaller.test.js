@@ -1267,23 +1267,6 @@ describe('appUninstaller tests', () => {
         expect(getLocalSocketAddressStub.called, 'the removal never reached its broadcast').to.be.true;
       });
 
-      // A cycle that never finishes must not hold the node's removals: they take the
-      // removal lock, and every install and redeploy queues behind that.
-      it('gives up on a wedged cycle and announces anyway', async () => {
-        const uninstaller = buildUninstaller(v2Spec, { ANNOUNCE_CYCLE_WAIT_MS: 50 });
-        await announceCycle.enable();
-
-        const removal = uninstaller.removeAppLocally('testapp', res, true, true, true);
-        const raced = await Promise.race([
-          removal.then(() => 'announced'),
-          new Promise((resolve) => { setTimeout(() => resolve('stuck'), 2000); }),
-        ]);
-
-        expect(raced, 'a wedged announcement cycle held the removal indefinitely').to.equal('announced');
-        expect(getLocalSocketAddressStub.called, 'gave up on the wait without going on to broadcast').to.be.true;
-        announceCycle.disable();
-      });
-
       // A redeploy tells the network nothing, so it contradicts no announcement and
       // must not queue behind one - every spec change on the node would pay for it.
       it('does not wait for a cycle when the removal says nothing to the network', async () => {
