@@ -581,18 +581,12 @@ class AppSyncOrchestrator {
   }
 
   /**
-   * A peer sent something this node cannot attribute to it.
-   *
-   * Its request ends here rather than on a deadline, because the answer is
-   * already known: a stream with a hole in it is not a survey, and waiting the
-   * peer out would spend one of very few slots on an answer that cannot be
-   * counted whatever else arrives. The record stands, so the peer is not asked
-   * again on this connection.
-   * @param {string} peerKey ip:port of the peer whose response failed.
-   * @returns {void}
-   */
-  /**
    * End a peer's request whose answer cannot be taken, and ask another peer.
+   *
+   * Ended here rather than on a deadline: an answer with a hole in it cannot be
+   * counted whatever else arrives, and waiting the peer out would spend one of very
+   * few slots on it. The record stands, so the peer is not asked again on this
+   * connection.
    * @param {string} peerKey
    * @param {string} outcome What the request is settled as.
    * @param {string} why For the log.

@@ -870,7 +870,7 @@ async function checkAndRequestRecordedApp(hash, txid, height, valueSat, i = 0) {
         // The hash is marked as holding its message only once the message's effect on
         // the registry is written, at each way out below: a failure before that leaves
         // the hash unresolved, and resolving it again writes the registry
-        // (resolveStoredMessage).
+        // (alignStoredMessagesWithPayments).
 
         const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
         const daemonHeight = syncStatus.data.height;
