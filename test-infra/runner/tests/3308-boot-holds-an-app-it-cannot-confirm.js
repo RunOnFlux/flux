@@ -398,7 +398,8 @@ describe('boot holds an app whose location it cannot read', function () {
 
     it('tells the network nothing of the removal, the network having dropped the record', async function () {
       this.timeout(120000);
-      await waitFor(() => heardRunning(mixedApp, anchors), {
+      // the plain app runs throughout, so boot does not check it and the holder names it
+      await waitFor(() => heardRunning(plainApp, anchors), {
         timeout: 100000, interval: 2000, label: 'a peer heard the holder announce once the database answered',
       });
       expect(heardRemoved(lapsedApp, anchors), 'a peer was told of the removal of an app whose record had expired').to.equal(false);
