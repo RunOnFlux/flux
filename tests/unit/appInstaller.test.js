@@ -148,6 +148,7 @@ describe('appInstaller tests', () => {
       '../serviceHelper': {
         ensureString: sinon.stub().returnsArg(0),
         ensureNumber: sinon.stub().returnsArg(0),
+        ensureObject: (value) => (typeof value === 'string' ? JSON.parse(value) : value),
         delay: sinon.stub().resolves(),
       },
       '../generalService': {
@@ -386,7 +387,7 @@ describe('appInstaller tests', () => {
       await appInstaller.installAppLocally(req, res);
 
       expect(res.json.calledOnce).to.be.true;
-      expect(verificationHelperStub.verifyPrivilege.calledWith(Privilege.USER, authOf(req))).to.be.true;
+      expect(verificationHelperStub.verifyPrivilege.calledWith(Privilege.FLUX_TEAM, authOf(req))).to.be.true;
     });
 
     it('should handle missing appname parameter', async () => {
@@ -437,9 +438,9 @@ describe('appInstaller tests', () => {
     });
   });
 
-  // Placing a registered app on a node is not the operator's call, for the same
-  // reason removing one is not. The temporary-message route is deliberately NOT
-  // closed with it - that is how an app is tested before it is registered.
+  // Placing an app on a node is not the operator's call, for the same reason
+  // removing one is not, and an app not yet paid for is never placed: it is
+  // tried out through the test-install route, which tears it down again.
   describe('local install is not the node operator\'s to make', () => {
     const nameInstall = () => ({ params: { appname: 'someCustomerApp' }, query: {} });
 
@@ -477,27 +478,137 @@ describe('appInstaller tests', () => {
       expect(res.json.firstCall.args[0].data.message).to.equal('Unauthorized');
     });
 
-    // The one that must keep working: an app under test is addressed by HASH and
-    // carries a temporary message, so it never reaches the by-name gate at all.
-    it('still lets any logged-in user install an app under test by its temporary message', async () => {
-      const req = { params: { appname: 'a1b2c3hash' }, query: {} };
+    it('refuses a logged-in user installing an app by its temporary message', async () => {
+      const req = { params: { appname: 'a1b2c3hash' }, query: {}, headers: { zelidauth: JSON.stringify({ zelid: 'someone' }) } };
       const res = { json: sinon.stub(), setHeader: sinon.stub(), write: sinon.stub(), end: sinon.stub(), writableEnded: false };
 
       verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
-      verificationHelperStub.verifyPrivilege.withArgs(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)).resolves(false);
       verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(false);
       messageVerifierStub.checkAppTemporaryMessageExistence.resolves({
+        hash: 'a1b2c3hash',
         appSpecifications: { name: 'apptest', version: 3, owner: 'someone' },
       });
       messageHelperStub.errUnauthorizedMessage.returns({ status: 'error', data: { message: 'Unauthorized' } });
 
       await appInstaller.installAppLocally(req, res);
 
-      // It got past the gate: no Unauthorized was returned, and the by-name
-      // privilege was never consulted because a temporary message was found.
-      const unauthorized = res.json.getCalls().some((c) => c.args[0]?.data?.message === 'Unauthorized');
-      expect(unauthorized, 'a temporary app must not be refused').to.equal(false);
-      expect(verificationHelperStub.verifyPrivilege.calledWith(Privilege.FLUX_TEAM, authOf(req)), 'the by-name gate must not be reached').to.be.false;
+      expect(res.json.calledOnce).to.be.true;
+      expect(res.json.firstCall.args[0].data.message).to.equal('Unauthorized');
+      expect(dbHelperStub.insertOneToDatabase.called, 'nothing is installed').to.be.false;
+    });
+
+    it('does not install a temporary message for the flux team either', async () => {
+      const req = { params: { appname: 'a1b2c3hash' }, query: {} };
+      const res = { json: sinon.stub(), setHeader: sinon.stub(), write: sinon.stub(), end: sinon.stub(), writableEnded: false };
+
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(true);
+      messageVerifierStub.checkAppTemporaryMessageExistence.resolves({
+        hash: 'a1b2c3hash',
+        appSpecifications: { name: 'apptest', version: 3, owner: 'someone' },
+      });
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+      dbHelperStub.findInDatabase.resolves([]);
+      messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
+
+      await appInstaller.installAppLocally(req, res);
+
+      expect(res.json.calledOnce).to.be.true;
+      expect(res.json.firstCall.args[0].data.message).to.equal('Application Specifications of a1b2c3hash not found');
+      expect(hwRequirementsStub.checkAppHWRequirements.called, 'nothing is installed').to.be.false;
+    });
+
+    it('installs a permanent message with the hash and height the message carries', async () => {
+      const req = { params: { appname: 'permhash' }, query: {} };
+      const res = { json: sinon.stub(), setHeader: sinon.stub(), write: sinon.stub(), end: sinon.stub(), writableEnded: false };
+
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(true);
+      messageVerifierStub.checkAppMessageExistence.withArgs('permhash').resolves({
+        hash: 'permhash',
+        height: 2000000,
+        appSpecifications: { name: 'permapp', version: 3, owner: 'someone' },
+      });
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+      dbHelperStub.findInDatabase.resolves([]);
+      // stop at the requirement check: the specification it is given is what gets installed
+      hwRequirementsStub.checkAppHWRequirements.rejects(new Error('stop here'));
+      messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
+
+      await appInstaller.installAppLocally(req, res);
+
+      expect(hwRequirementsStub.checkAppHWRequirements.calledOnce).to.be.true;
+      const installed = hwRequirementsStub.checkAppHWRequirements.firstCall.args[0];
+      expect(installed).to.include({ name: 'permapp', hash: 'permhash', height: 2000000 });
+    });
+  });
+
+  // An app not yet paid for is tried out by its owner. Anyone else is refused
+  // before a container is made, and the flux team may test any.
+  describe('testAppInstall of an app not yet paid for', () => {
+    const owner = '1OwnerOfTheTemporaryApp';
+    const tempMessage = {
+      hash: 'temphash',
+      appSpecifications: {
+        name: 'trialapp', version: 4, owner, compose: [{ name: 'web', repotag: 'org/web:1', cpu: 0.5, ram: 500, hdd: 5 }],
+      },
+    };
+    const requestAs = (zelid) => ({ params: { appname: 'temphash' }, query: {}, headers: { zelidauth: JSON.stringify({ zelid, loginPhrase: 'p', signature: 's' }) } });
+    const response = () => ({ json: sinon.stub(), setHeader: sinon.stub(), write: sinon.stub(), end: sinon.stub(), writableEnded: false });
+    // reached only once the caller has been let through
+    const pastTheGate = () => baseStubs['../appSystem/systemIntegration'].systemArchitecture.called;
+
+    beforeEach(() => {
+      messageVerifierStub.checkAppTemporaryMessageExistence.withArgs('temphash').resolves(tempMessage);
+      messageHelperStub.errUnauthorizedMessage.returns({ status: 'error', data: { message: 'Unauthorized' } });
+      // stop at the architecture check: past it the install itself runs
+      baseStubs['../appSystem/systemIntegration'].systemArchitecture.rejects(new Error('stop here'));
+      messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
+    });
+
+    it('lets the owner test it', async () => {
+      const req = requestAs(owner);
+      const res = response();
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(false);
+
+      await appInstaller.testAppInstall(req, res);
+
+      expect(pastTheGate()).to.equal(true);
+      expect(res.json.calledWithMatch({ data: { message: 'Unauthorized' } })).to.equal(false);
+    });
+
+    it('refuses another logged-in user', async () => {
+      const req = requestAs('1SomeoneElse');
+      const res = response();
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(false);
+
+      await appInstaller.testAppInstall(req, res);
+
+      expect(pastTheGate()).to.equal(false);
+      expect(res.json.calledOnce).to.equal(true);
+      expect(res.json.firstCall.args[0].data.message).to.equal('Unauthorized');
+    });
+
+    it('lets the flux team test it', async () => {
+      const req = requestAs('1FluxTeam');
+      const res = response();
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(true);
+
+      await appInstaller.testAppInstall(req, res);
+
+      expect(pastTheGate()).to.equal(true);
+    });
+
+    it('refuses a caller with no session at all', async () => {
+      const req = { params: { appname: 'temphash' }, query: {} };
+      const res = response();
+      verificationHelperStub.verifyPrivilege.resolves(false);
+
+      await appInstaller.testAppInstall(req, res);
+
+      expect(pastTheGate()).to.equal(false);
+      expect(res.json.firstCall.args[0].data.message).to.equal('Unauthorized');
     });
   });
 
@@ -613,6 +724,7 @@ describe('appInstaller tests', () => {
 
       // Mock message verifier to return enterprise app with empty compose
       messageVerifierStub.checkAppTemporaryMessageExistence.resolves({
+        hash: 'enterprisehash',
         appSpecifications: enterpriseAppSpec,
       });
 
@@ -629,8 +741,10 @@ describe('appInstaller tests', () => {
       }
 
       // Verify that decryption was called for enterprise app
-      expect(enterpriseHelperStub.checkAndDecryptAppSpecs.calledWith(enterpriseAppSpec)).to.be.true;
+      expect(enterpriseHelperStub.checkAndDecryptAppSpecs.calledWith({ ...enterpriseAppSpec, hash: 'enterprisehash' })).to.be.true;
       expect(appSpecHelpersStub.specificationFormatter.calledWith(decryptedAppSpec)).to.be.true;
+      // the formatter's output keeps the hash the message carried
+      expect(decryptedAppSpec.hash).to.equal('enterprisehash');
       expect(logStub.info.calledWith('testAppInstall: enterpriseapp')).to.be.true;
     });
 

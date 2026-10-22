@@ -1032,9 +1032,12 @@ async function installAppLocally(req, res) {
     if (!appname) {
       throw new Error('No Flux App specified');
     }
-    let blockAllowance = config.fluxapps.ownerAppAllowance;
-    // needs to be logged in
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
+    // Placing an app on a node is not the node operator's call, for the same
+    // reason removing one is not: hosting an app is not owning it. The spawner
+    // decides placement; the owner decides everything else. An app not yet paid
+    // for is never placed here: it is tried out through testAppInstall, which
+    // tears it down again and never announces it.
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
     if (authorized) {
       // registerAppLocally refuses a concurrent removal or installation but not a
       // redeploy or the periodic reinstall pass, and those hold the node across a
@@ -1045,41 +1048,8 @@ async function installAppLocally(req, res) {
       if (heldBy) {
         throw new Error(`Another application is undergoing ${heldBy}. Installation not possible.`);
       }
-      let appSpecifications;
-      // anyone can deploy temporary app
-      // favor temporary to launch test temporary apps
-      const tempMessage = await messageVerifier.checkAppTemporaryMessageExistence(appname);
-      if (tempMessage) {
-        // eslint-disable-next-line prefer-destructuring
-        appSpecifications = tempMessage.appSpecifications;
-        // blockAllowance is used for future validation
-        // eslint-disable-next-line no-unused-vars
-        blockAllowance = config.fluxapps.temporaryAppAllowance;
-      }
-      if (!appSpecifications) {
-        // Placing a registered app on a node is not the node operator's call, for
-        // the same reason removing one is not: hosting an app is not owning it.
-        // This branch resolves an app BY NAME from the marketplace, the global
-        // registry or a permanent message, so an operator reaching it is choosing
-        // which customer's app runs on hardware they control - and for a g:/r: app
-        // the new instance syncs that customer's data down to it. The spawner
-        // decides placement; the owner decides everything else.
-        //
-        // The temporary-message branch above is untouched and stays open to any
-        // logged-in user: that is how an app is tested before it is registered,
-        // it is addressed by hash rather than by name, and it expires on its own
-        // (temporaryAppAllowance).
-        const ownerAuthorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
-        if (!ownerAuthorized) {
-          const errMessage = messageHelper.errUnauthorizedMessage();
-          res.json(errMessage);
-          return;
-        }
-      }
-      if (!appSpecifications) {
-        const allApps = await availableApps();
-        appSpecifications = allApps.find((app) => app.name === appname);
-      }
+      const allApps = await availableApps();
+      let appSpecifications = allApps.find((app) => app.name === appname);
       if (!appSpecifications) {
         // eslint-disable-next-line no-use-before-define
         appSpecifications = await getApplicationGlobalSpecifications(appname);
@@ -1088,8 +1058,10 @@ async function installAppLocally(req, res) {
       if (!appSpecifications) {
         const permMessage = await messageVerifier.checkAppMessageExistence(appname);
         if (permMessage) {
-          // eslint-disable-next-line prefer-destructuring
-          appSpecifications = permMessage.appSpecifications;
+          // The message carries the hash and height its specification does not:
+          // the announcement names the app by that hash, and the expiry sweep
+          // removes a local row without a height.
+          appSpecifications = { ...permMessage.appSpecifications, hash: permMessage.hash, height: permMessage.height };
         }
       }
       if (!appSpecifications) {
@@ -1116,7 +1088,7 @@ async function installAppLocally(req, res) {
       // get current height
       const dbopen = dbHelper.databaseConnection();
       if (!appSpecifications.height && appSpecifications.height !== 0) {
-        // precaution for old temporary apps. Set up for custom test specifications.
+        // A specification without a height runs for ownerAppAllowance blocks from now.
         const database = dbopen.db(config.database.daemon.database);
         const query = { generalScannedHeight: { $gte: 0 } };
         const projection = {
@@ -1130,7 +1102,7 @@ async function installAppLocally(req, res) {
           throw new Error('Scanning not initiated');
         }
         const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
-        appSpecifications.height = explorerHeight - config.fluxapps.blocksLasting + blockAllowance; // allow running for this amount of blocks
+        appSpecifications.height = explorerHeight - config.fluxapps.blocksLasting + config.fluxapps.ownerAppAllowance;
       }
 
       const appsDatabase = dbopen.db(config.database.appslocal.database);
@@ -1225,7 +1197,6 @@ async function testAppInstall(req, res) {
     }
 
     log.info(`testAppInstall: ${appname}`);
-    let blockAllowance = config.fluxapps.ownerAppAllowance;
 
     // needs to be logged in
     const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
@@ -1238,15 +1209,20 @@ async function testAppInstall(req, res) {
       }
       let appSpecifications;
 
-      // anyone can deploy temporary app
-      // favor temporary to launch test temporary apps
+      // An app not yet paid for is tested by its owner, addressed by its message
+      // hash. The flux team may test any.
       const tempMessage = await messageVerifier.checkAppTemporaryMessageExistence(appname);
       if (tempMessage) {
-        // eslint-disable-next-line prefer-destructuring
-        appSpecifications = tempMessage.appSpecifications;
-        // blockAllowance is used for future validation
-        // eslint-disable-next-line no-unused-vars
-        blockAllowance = config.fluxapps.temporaryAppAllowance;
+        const caller = serviceHelper.ensureObject(authOf(req))?.zelid;
+        const mayTest = caller === tempMessage.appSpecifications?.owner
+          || await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
+        if (!mayTest) {
+          const errMessage = messageHelper.errUnauthorizedMessage();
+          res.json(errMessage);
+          return;
+        }
+        // The hash is the message's, not the specification's.
+        appSpecifications = { ...tempMessage.appSpecifications, hash: tempMessage.hash };
       }
 
       if (!appSpecifications) {
@@ -1257,11 +1233,6 @@ async function testAppInstall(req, res) {
         // which customer's app runs on hardware they control - and for a g:/r: app
         // the new instance syncs that customer's data down to it. The spawner
         // decides placement; the owner decides everything else.
-        //
-        // The temporary-message branch above is untouched and stays open to any
-        // logged-in user: that is how an app is tested before it is registered,
-        // it is addressed by hash rather than by name, and it expires on its own
-        // (temporaryAppAllowance).
         const ownerAuthorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
         if (!ownerAuthorized) {
           const errMessage = messageHelper.errUnauthorizedMessage();
@@ -1283,8 +1254,7 @@ async function testAppInstall(req, res) {
       if (!appSpecifications) {
         const permMessage = await messageVerifier.checkAppMessageExistence(appname);
         if (permMessage) {
-          // eslint-disable-next-line prefer-destructuring
-          appSpecifications = permMessage.appSpecifications;
+          appSpecifications = { ...permMessage.appSpecifications, hash: permMessage.hash, height: permMessage.height };
         }
       }
 
@@ -1305,11 +1275,15 @@ async function testAppInstall(req, res) {
         }
         const daemonHeight = syncStatus.data.height;
 
+        // the formatter strips spec metadata; the hash and height must survive it
+        const { height, hash } = appSpecifications;
         appSpecifications = await checkAndDecryptAppSpecs(appSpecifications, {
           daemonHeight,
           owner: appSpecifications.owner,
         });
         appSpecifications = specificationFormatter(appSpecifications);
+        appSpecifications.height = height;
+        appSpecifications.hash = hash;
       }
 
       // Test installation - similar to regular install but with test flag
