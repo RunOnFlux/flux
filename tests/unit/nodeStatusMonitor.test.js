@@ -69,6 +69,30 @@ describe('nodeStatusMonitor tests', () => {
     // Full testing would require integration tests or extensive mocking
   });
 
+  describe('start', () => {
+    it('runs no pass until boot has settled, and runs one once it has', async () => {
+      let settle;
+      const settled = new Promise((resolve) => { settle = resolve; });
+      const isNodeDos = sinon.stub().returns(false);
+      const monitor = proxyquire('../../ZelBack/src/services/appMonitoring/nodeStatusMonitor', {
+        '../serviceHelper': { delay: () => new Promise(() => {}) },
+        '../fluxNetworkHelper': { isNodeDos },
+        '../nodeConfirmationService': { isDaemonStale: () => false, isConfirmed: () => false },
+        '../utils/globalState': { waitForBootContainerStateSettled: () => settled },
+        '../../lib/log': logStub,
+      });
+      const installedAppsFn = sinon.stub().resolves({ status: 'success', data: [] });
+
+      const started = monitor.start(installedAppsFn, sinon.stub());
+      await new Promise((resolve) => { setImmediate(resolve); });
+      sinon.assert.notCalled(isNodeDos);
+
+      settle();
+      await started;
+      sinon.assert.calledOnce(isNodeDos);
+    });
+  });
+
   describe('initialize', () => {
     let listeners;
     let monitor;

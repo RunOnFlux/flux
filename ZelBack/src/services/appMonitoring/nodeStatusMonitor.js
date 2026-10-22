@@ -14,6 +14,7 @@ const dockerService = require('../dockerService');
 const { RemovalOutcome } = require('../utils/removalOutcome');
 const { withinDeadline, TIMED_OUT } = require('../utils/withinDeadline');
 const fluxEventBus = require('../utils/fluxEventBus');
+const globalState = require('../utils/globalState');
 const log = require('../../lib/log');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 
@@ -32,7 +33,8 @@ const removalsRunning = new Set();
  * Remove one app, waiting for it at most REMOVAL_DEADLINE_MS. A removal past
  * its deadline keeps running, so an app whose removal is still running is not
  * removed again: a second removal beside it would only wait behind the same
- * stall, and the next pass would add a third.
+ * stall, and the next pass would add a third. Boot removes through this too, so a
+ * removal boot stopped waiting for is one the monitor does not start again.
  * @param {Function} removeAppLocallyFn
  * @param {string} name
  * @param {boolean} canBroadcast
@@ -309,8 +311,22 @@ async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
   }
 }
 
+/**
+ * Start the monitor once boot has settled, whatever boot decided: boot removes
+ * every app itself when the node may run none, and the two never remove at once.
+ * @param {Function} installedAppsFn
+ * @param {Function} removeAppLocallyFn
+ */
+async function start(installedAppsFn, removeAppLocallyFn) {
+  await globalState.waitForBootContainerStateSettled();
+  monitorNodeStatus(installedAppsFn, removeAppLocallyFn);
+}
+
 module.exports = {
   initialize,
+  start,
   monitorNodeStatus,
+  removeWithinDeadline,
   unloadForHostStall,
+  STILL_REMOVING,
 };

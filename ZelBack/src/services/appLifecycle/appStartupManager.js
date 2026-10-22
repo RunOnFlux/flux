@@ -17,7 +17,8 @@ const appReconciler = require('../appMonitoring/appReconciler');
 const appUninstaller = require('./appUninstaller');
 const appNetworkLinker = require('./appNetworkLinker');
 const appSlice = require('./appSlice');
-const { withinDeadline, TIMED_OUT } = require('../utils/withinDeadline');
+const nodeStatusMonitor = require('../appMonitoring/nodeStatusMonitor');
+const { TIMED_OUT } = require('../utils/withinDeadline');
 const portManager = require('../appNetwork/portManager');
 const globalState = require('../utils/globalState');
 const fluxEventBus = require('../utils/fluxEventBus');
@@ -387,8 +388,9 @@ async function removeAllApps(reason) {
       log.warn(`REMOVAL REASON: ${reason} - removing ${app.name}`);
       // One removal that never returns must not hold boot, or every app after it.
       // eslint-disable-next-line no-await-in-loop
-      const outcome = await withinDeadline(appUninstaller.removeAppLocally(app.name, null, true, false, true), config.fluxapps.appRemovalDeadlineMs);
+      const outcome = await nodeStatusMonitor.removeWithinDeadline(appUninstaller.removeAppLocally, app.name, true);
       if (outcome === TIMED_OUT) log.error(`appStartupManager - ${app.name} was not removed within ${config.fluxapps.appRemovalDeadlineMs / 1000}s, moving on`);
+      else if (outcome === nodeStatusMonitor.STILL_REMOVING) log.warn(`appStartupManager - ${app.name} is still being removed, moving on`);
     }
   }
 }

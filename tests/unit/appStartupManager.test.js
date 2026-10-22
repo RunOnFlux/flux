@@ -19,6 +19,7 @@ describe('appStartupManager tests', () => {
   let appQueryServiceStub;
   let portManagerStub;
   let appSliceStub;
+  let nodeStatusMonitor;
 
   beforeEach(() => {
     appSliceStub = { stopEmptySlices: sinon.stub().resolves(0) };
@@ -91,6 +92,10 @@ describe('appStartupManager tests', () => {
       '../../lib/log': logStub,
     });
 
+    // The real module, fresh per test: its record of removals still running is what
+    // boot shares with the monitor.
+    nodeStatusMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/nodeStatusMonitor', {});
+
     appStartupManager = proxyquire('../../ZelBack/src/services/appLifecycle/appStartupManager', {
       '../../lib/log': logStub,
       '../dbHelper': dbHelperStub,
@@ -103,6 +108,7 @@ describe('appStartupManager tests', () => {
       '../appMonitoring/appReconciler': appReconcilerStub,
       './appUninstaller': appUninstallerStub,
       './appSlice': appSliceStub,
+      '../appMonitoring/nodeStatusMonitor': nodeStatusMonitor,
       '../utils/globalState': globalStateStub,
       // runs the step again at once until it succeeds, as the real one does after a wait
       '../utils/untilSucceeds': {
@@ -702,6 +708,25 @@ describe('appStartupManager tests', () => {
 
         sinon.assert.calledWith(appUninstallerStub.removeAppLocally, 'next');
         expect(globalStateStub.bootContainerStateSettled).to.equal(true);
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it('leaves a removal it stopped waiting for to run, and the monitor does not start it again', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'stuck' }] });
+        appUninstallerStub.removeAppLocally.withArgs('stuck').returns(new Promise(() => {}));
+
+        const boot = appStartupManager.manageAppsOnBoot({ machineRebooted: true, downtimeMs: 8000000, cleanShutdown: false });
+        await clock.tickAsync(config.fluxapps.appRemovalDeadlineMs);
+        await boot;
+        expect(globalStateStub.bootContainerStateSettled, 'fixture: boot moved past the removal').to.equal(true);
+
+        const outcome = await nodeStatusMonitor.removeWithinDeadline(appUninstallerStub.removeAppLocally, 'stuck', true);
+        expect(outcome).to.equal(nodeStatusMonitor.STILL_REMOVING);
+        sinon.assert.calledOnce(appUninstallerStub.removeAppLocally);
       } finally {
         clock.restore();
       }
