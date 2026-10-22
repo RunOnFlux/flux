@@ -8,7 +8,7 @@ import {
   configuredIpOf, crashFluxos, moveNodeAddress, releaseFluxos,
 } from '../framework/container.js';
 import {
-  clearNodeAddress, clearRpcFailures, failRpc, getJournal, setNodeAddress,
+  clearNodeAddress, clearRpcFailures, failRpc, getJournal, holdRpc, releaseRpc, setNodeAddress,
 } from '../framework/daemon-control.js';
 import { waitFor } from '../framework/wait.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
@@ -25,6 +25,10 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // Node 0 has its confirmation refused once; node 1 is crashed between
 // recording its move and acting on it. Node 2 is a bystander that holds the
 // events and reads the list.
+//
+// Node 1 runs no app, so a peer that hears its move once the chain lists it at
+// the new address only has nothing to prove the move by, and drops it. Its
+// confirmation is held after it is back until the bystander holds the move.
 
 const REFUSED = 0;
 const CRASHED = 1;
@@ -39,6 +43,7 @@ describe('a move a failure or a crash interrupted is finished once', function ()
   dumpLogsOnFailure(() => env);
   const moved = [];
   const failing = [];
+  const holding = [];
   const client = (i) => env.clients[i];
   const socketOf = (ip) => (String(ip).includes(':') ? String(ip) : `${ip}:${API_PORT}`);
   const nodeList = async () => (await client(BYSTANDER).get(`/daemon/viewdeterministiczelnodelist?_=${Date.now()}`)).data || [];
@@ -59,6 +64,17 @@ describe('a move a failure or a crash interrupted is finished once', function ()
     return { from: socketOf(from), to: socketOf(to) };
   }
 
+  // The move the bystander holds from node i's old address.
+  async function bystanderHolds(i, { from, to }) {
+    let held;
+    await waitFor(async () => {
+      held = (await dbClient(BYSTANDER + 1).getAppStateEvents({ ip: from, type: 'ipchanged' }))
+        .find((event) => event.data?.newIP === to);
+      return Boolean(held);
+    }, { timeout: 180000, interval: 5000, label: `the bystander holds node ${i}'s move` });
+    return held;
+  }
+
   // The move as the node recorded it, the move the bystander holds from its old
   // address, and where the list has it.
   async function expectFinishedOnce(i, { from, to }, pubkey) {
@@ -68,12 +84,7 @@ describe('a move a failure or a crash interrupted is finished once', function ()
     const record = await dbClient(i + 1).ownAddressRecord();
     expect(record.socketAddress, `node ${i}'s recorded address`).to.equal(to);
     expect(record.recentIpChanges, `node ${i}'s IP changes counted`).to.have.lengthOf(1);
-    let held;
-    await waitFor(async () => {
-      held = (await dbClient(BYSTANDER + 1).getAppStateEvents({ ip: from, type: 'ipchanged' }))
-        .find((event) => event.data?.newIP === to);
-      return Boolean(held);
-    }, { timeout: 120000, interval: 5000, label: `the bystander holds node ${i}'s move` });
+    const held = await bystanderHolds(i, { from, to });
     expect(held.data.broadcastedAt, `the time node ${i}'s move is told with`).to.equal(record.movedAt);
     expect(await configuredIpOf(client(i).container), `node ${i}'s configured IP`).to.equal(to.split(':')[0]);
   }
@@ -93,6 +104,7 @@ describe('a move a failure or a crash interrupted is finished once', function ()
     this.timeout(60000);
     await Promise.all(moved.map((ip) => clearNodeAddress(ip).catch(() => {})));
     await Promise.all(failing.map((ip) => clearRpcFailures(ip).catch(() => {})));
+    await Promise.all(holding.map((ip) => releaseRpc(ip).catch(() => {})));
     await env?.teardown();
   });
 
@@ -125,8 +137,14 @@ describe('a move a failure or a crash interrupted is finished once', function ()
     await node.waitForEvent('checkpoint:held', (d) => d.name === BEFORE_RECONCILE && d.key === addresses.to, DETECTION_MS, { afterId: anchor });
     expect((await dbClient(CRASHED + 1).ownAddressRecord()).socketAddress, 'fixture: the move recorded before the crash').to.equal(addresses.to);
     await crashFluxos(node.container, { hold: true });
+    // The daemon knows a node by the address its calls come from.
+    holding.push(toIp);
+    await holdRpc(toIp, 'createconfirmationtransaction');
     await releaseFluxos(node.container);
 
+    await bystanderHolds(CRASHED, addresses);
+    expect(await listedAt(pubkey), 'fixture: the bystander heard the move with the chain listing the old address').to.equal(addresses.from);
+    await releaseRpc(toIp);
     await expectFinishedOnce(CRASHED, addresses, pubkey);
   });
 });
