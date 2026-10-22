@@ -10,6 +10,7 @@ const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const globalState = require('../utils/globalState');
+const { appRunningEntries } = require('../utils/appRunningEntries');
 const {
   globalAppsMessages,
   globalAppsTempMessages,
@@ -289,9 +290,27 @@ function runningSinceOf(isNewer, runningSince, moved) {
 }
 
 /**
- * Store app running message
+ * Log the entries of one apprunning message that were not stored.
+ * @param {string} caller The function that refused them.
+ * @param {object} message The message's data.
+ * @param {Array<*>} refused The refused entries.
+ */
+function logRefusedEntries(caller, message, refused) {
+  if (!refused.length) return;
+  const shown = refused.slice(0, 5).map((app) => JSON.stringify(app)?.slice(0, 200)).join(', ');
+  log.warn(`${caller} - ${refused.length} app entries from ${message.ip} at ${message.broadcastedAt} have no string name and hash and are not stored: ${shown}`);
+}
+
+/**
+ * Store app running message.
+ *
+ * A version 2 message is stored entry by entry: the entries with a name and a
+ * hash are written and the rest are refused, logged, and leave the others alone.
+ * A message whose every entry is refused stores nothing and is not relayed. It
+ * is never read as an empty snapshot, which deletes the sender's rows: only a
+ * message that names no apps at all says that.
  * @param {object} message - Message to store
- * @returns {Promise<boolean|Error>} Whether message should be rebroadcast or Error if invalid
+ * @returns {Promise<{stored: boolean, rebroadcast: boolean}|Error>} What was stored, or Error when the message itself is malformed
  */
 async function storeAppRunningMessage(message) {
   /* message object
@@ -334,13 +353,12 @@ async function storeAppRunningMessage(message) {
     if (message.apps.length > config.fluxapps.maxAppsPerNode) {
       return new Error('Invalid Flux App Running message: apps array exceeds maxAppsPerNode');
     }
-    for (let i = 0; i < message.apps.length; i += 1) {
-      const app = message.apps[i];
-      appsMessages.push(app);
-      if (typeof app.hash !== 'string' || typeof app.name !== 'string') {
-        return new Error('Invalid Flux App Running v2 message for storing');
-      }
+    const { stored, refused } = appRunningEntries(message.apps);
+    logRefusedEntries('storeAppRunningMessage', message, refused);
+    if (message.apps.length && !stored.length) {
+      return { stored: false, rebroadcast: false };
     }
+    appsMessages.push(...stored);
   }
 
   if (message.broadcastedAt + GOSSIP_VALIDITY_MS < Date.now()) {
@@ -795,7 +813,8 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
     if (validTill < Date.now()) continue;
     const ip = addresses[index];
 
-    const apps = data.version === 2 ? (data.apps || []) : [{ name: data.name, hash: data.hash }];
+    const { stored: apps, refused } = appRunningEntries(data.version === 2 ? (data.apps || []) : [{ name: data.name, hash: data.hash }]);
+    logRefusedEntries('storeBatchAppRunningMessages', data, refused);
     const incomingDate = new Date(data.broadcastedAt);
     const incomingExpiry = new Date(validTill);
     const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };

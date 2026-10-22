@@ -460,6 +460,10 @@ async function handleAppRunningMessage(message, fromIP, port) {
   try {
     await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: message });
     const result = await messageStore.storeAppRunningMessage(message.data);
+    if (result instanceof Error) {
+      log.warn(`handleAppRunningMessage - not stored, from ${fromIP}:${port} for ${message.data?.ip}: ${result.message}`);
+      return;
+    }
     if (result.stored) {
       fluxEventBus.publish('network:apprunning', { ip: message.data.ip, apps: message.data.apps || [{ name: message.data.name }] });
     }

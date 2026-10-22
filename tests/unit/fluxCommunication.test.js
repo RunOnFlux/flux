@@ -629,6 +629,26 @@ describe('fluxCommunication tests', () => {
 
       sinon.assert.notCalled(broadcastHashSpy);
     }).timeout(5000);
+
+    // A refused message is logged where it arrived, and goes no further.
+    it('logs a message its store refuses, and does not relay it', async () => {
+      sinon.stub(messageStore, 'storeAppRunningMessage').resolves(new Error('Invalid Flux App Running message for storing'));
+      sinon.stub(messageStore, 'storeAppStateEvent');
+      const warn = sinon.stub(log, 'warn');
+      const fromIp = '127.0.0.5';
+      const port = '16127';
+      const message = {
+        data: {
+          type: 'fluxapprunning', version: 2, apps: 'not an array', broadcastedAt: Date.now(), ip: '203.0.113.30:16127',
+        },
+        timestamp: Date.now(),
+      };
+
+      await fluxCommunication.handleAppRunningMessage(message, fromIp, port);
+
+      sinon.assert.notCalled(broadcastHashSpy);
+      sinon.assert.calledWithMatch(warn, /handleAppRunningMessage - not stored, from 127\.0\.0\.5:16127 for 203\.0\.113\.30:16127: Invalid Flux App Running message for storing/);
+    });
   });
 
   describe('the installing claim handlers', () => {
