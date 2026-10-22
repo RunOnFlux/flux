@@ -549,7 +549,9 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
       folderStates.installed(appSpecifications);
       claimed = true;
       // The app's volumes are created next: this node's record of when it took
-      // the app starts now.
+      // the app starts now. The write must succeed, like the insert above: an
+      // install that went on without it would leave any earlier record of the
+      // app standing, dated before this volume existed.
       if (!test) await appPlacements.recordPlacement(appSpecifications.name);
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
