@@ -906,10 +906,23 @@ async function pruneAppRunningLocations(newestByIp) {
 
 // --- Event Log Functions ---
 
+/**
+ * Whether an apprunning message names apps and none of them can be stored. Such a
+ * message says nothing this node can act on, and is kept out of the event log so
+ * it never takes the place of the sender's last announcement there.
+ * @param {object} data The message's data.
+ * @returns {boolean}
+ */
+function namesOnlyRefusedApps(data) {
+  return data.version === 2 && Array.isArray(data.apps) && data.apps.length > 0
+    && appRunningEntries(data.apps).stored.length === 0;
+}
+
 async function handleAppRunningEvent({ signedBroadcast }) {
   const { data } = signedBroadcast;
   if (!data || !data.ip || !data.broadcastedAt) return;
   if (data.broadcastedAt + GOSSIP_VALIDITY_MS < Date.now()) return;
+  if (namesOnlyRefusedApps(data)) return;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
@@ -1072,6 +1085,7 @@ async function storeBatchAppRunningEvents(verifiedBroadcasts) {
     if (!data || !data.ip || !data.broadcastedAt) continue;
     const validTill = data.broadcastedAt + RUNNING_EXPIRY_MS;
     if (validTill < Date.now()) continue;
+    if (namesOnlyRefusedApps(data)) continue;
 
     const dedupKey = data.apps ? 'v2' : `v1:${data.name}`;
     const envelope = { version: broadcast.version, timestamp: broadcast.timestamp, pubKey: broadcast.pubKey, signature: broadcast.signature };

@@ -150,6 +150,46 @@ describe('apprunning entries are stored one at a time', () => {
       });
     });
 
+    // The event log is what a peer syncing from this node is served. A message
+    // naming only entries this node refuses never takes the place of the
+    // sender's last announcement there.
+    describe('the event log', () => {
+      let events;
+      const signed = (apps, broadcastedAt = Date.now()) => ({
+        version: 1, timestamp: broadcastedAt, pubKey: '04ab', signature: 'sig', data: message(apps, broadcastedAt),
+      });
+      const storedApps = async () => (await events.find({ ip, type: 'apprunning' }).toArray()).map((event) => event.data.apps.map((a) => a.name));
+
+      beforeEach(async () => {
+        events = dbHelper.databaseConnection().db(config.database.appsglobal.database)
+          .collection(config.database.appsglobal.collections.appStateEvents);
+        await events.deleteMany({ ip });
+      });
+
+      afterEach(async () => {
+        await events.deleteMany({ ip });
+      });
+
+      it('keeps the sender\'s last announcement over a later one naming only refused entries', async () => {
+        await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: signed([{ name: 'web', hash: 'webhash' }], Date.now() - 1000) });
+        await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: signed([{ name: 'probe' }]) });
+
+        expect(await storedApps()).to.deep.equal([['web']]);
+      });
+
+      it('records a mixed announcement whole, as it was signed', async () => {
+        await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: signed([{ name: 'web', hash: 'webhash' }, { name: 'probe' }]) });
+
+        expect(await storedApps()).to.deep.equal([['web', 'probe']]);
+      });
+
+      it('keeps a synced announcement naming only refused entries out of the log', async () => {
+        await messageStore.storeBatchAppRunningEvents([signed([{ name: 'probe' }])]);
+
+        expect(await storedApps()).to.deep.equal([]);
+      });
+    });
+
     describe('storeBatchAppRunningMessages', () => {
       const broadcast = (data) => ({ version: 1, timestamp: data.broadcastedAt, pubKey: '04ab', signature: 'sig', data });
 

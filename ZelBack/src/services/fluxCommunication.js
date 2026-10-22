@@ -6,6 +6,7 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 const messageStore = require('./appMessaging/messageStore');
+const { appRunningEntries } = require('./utils/appRunningEntries');
 const verificationHelper = require('./verificationHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
@@ -262,9 +263,14 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
         // already-expired rows - but that is a bound to be read out of another
         // file, and two builders of one input should not need reconciling.
         if (data.broadcastedAt + RUNNING_EXPIRY_MS < Date.now()) continue;
+        // Pruned against the apps the broadcast names that can be stored: one
+        // naming only entries this node refuses says nothing about what its
+        // sender runs, and is never read as one naming no apps at all.
+        const { stored } = appRunningEntries(data.apps);
+        if (!stored.length) continue;
         const seen = newestByIp.get(data.ip);
         if (!seen || data.broadcastedAt > seen.broadcastedAt) {
-          newestByIp.set(data.ip, { names: data.apps.map((a) => a.name), broadcastedAt: data.broadcastedAt });
+          newestByIp.set(data.ip, { names: stored.map((a) => a.name), broadcastedAt: data.broadcastedAt });
         }
       }
 

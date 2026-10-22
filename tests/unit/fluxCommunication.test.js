@@ -2324,6 +2324,55 @@ describe('fluxCommunication tests', () => {
       sinon.assert.notCalled(messageStore.storeIPChangedMessage);
     });
 
+    // A node's newest broadcast says which of its rows stand; its refused
+    // entries say nothing about what it runs.
+    describe('pruning against what a synced node runs', () => {
+      const apprunning = (apps, broadcastedAt = Date.now() - 60000) => ({
+        type: 'apprunning',
+        ip: SENDER,
+        envelope,
+        data: {
+          type: 'fluxapprunning', version: 2, apps, ip: SENDER, broadcastedAt, osUptime: 1, staticIp: false,
+        },
+      });
+
+      beforeEach(() => {
+        sinon.stub(messageStore, 'storeBatchAppRunningMessages').resolves({ stored: 1, writeFailed: false });
+      });
+
+      it('prunes against the apps the broadcast names that can be stored', async () => {
+        await fluxCommunication.handleAppRunningSyncResponse({
+          data: { type: 'fluxapprunningsync', messages: [apprunning([{ name: 'web', hash: 'h1' }, { name: 'probe' }])], done: true },
+        }, PEER_SOCKET);
+
+        const [newestByIp] = messageStore.pruneAppRunningLocations.firstCall.args;
+        expect(newestByIp.get(SENDER).names).to.deep.equal(['web']);
+      });
+
+      it('never prunes against a broadcast whose every app is refused', async () => {
+        await fluxCommunication.handleAppRunningSyncResponse({
+          data: { type: 'fluxapprunningsync', messages: [apprunning([{ name: 'probe' }])], done: true },
+        }, PEER_SOCKET);
+
+        const [newestByIp] = messageStore.pruneAppRunningLocations.firstCall.args;
+        expect(newestByIp.has(SENDER), 'pruned the sender\'s rows against an empty list').to.equal(false);
+      });
+
+      it('prunes against the newest broadcast it can read, past a later one it refuses', async () => {
+        const now = Date.now();
+        await fluxCommunication.handleAppRunningSyncResponse({
+          data: {
+            type: 'fluxapprunningsync',
+            messages: [apprunning([{ name: 'web', hash: 'h1' }], now - 120000), apprunning([{ name: 'probe' }], now - 60000)],
+            done: true,
+          },
+        }, PEER_SOCKET);
+
+        const [newestByIp] = messageStore.pruneAppRunningLocations.firstCall.args;
+        expect(newestByIp.get(SENDER)).to.deep.equal({ names: ['web'], broadcastedAt: now - 120000 });
+      });
+    });
+
     it('hands an eviction to messageStore with the time it was made', async () => {
       const evictStub = sinon.stub(messageStore, 'applyEviction').resolves();
       const createdAt = new Date(Date.now() - 45 * 60 * 1000);
