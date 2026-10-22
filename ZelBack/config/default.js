@@ -145,7 +145,8 @@ module.exports = {
   minimumDockerAllowedVersion: '28.1.1',
   // The MongoDB a node runs: the oldest release FluxOS supports. From 6.0 a
   // $group or $sort past the memory limit spills to disk rather than failing,
-  // which the registry rebuild and the duplicate merges at boot rely on.
+  // which the registry rebuild and the duplicate merges at boot rely on; the
+  // patch level is the oldest 6.0 release the fleet runs in numbers.
   minimumMongoDbAllowedVersion: '6.0.27',
   fluxTeamFluxID: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   // A list, so support can be granted to (or revoked from) an identity without
