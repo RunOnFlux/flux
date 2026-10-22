@@ -1051,8 +1051,6 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       if (onComponentRemoved) onComponentRemoved(identifier);
     }
 
-    fluxEventBus.publish('app:removed', { name: appName });
-
     if (sendMessage) {
       await announceRemoval(appName);
       announced = true;
@@ -1152,6 +1150,9 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         if (res.flush) res.flush();
       }
     }
+    // Published once the removal has finished, the app's row included.
+    fluxEventBus.publish('app:removed', { name: appName });
+
     const appRemovalResponseDone = messageHelper.createSuccessMessage(`Removal step done. Result: Flux App ${appName} was successfuly removed`);
     log.info(appRemovalResponseDone);
 
