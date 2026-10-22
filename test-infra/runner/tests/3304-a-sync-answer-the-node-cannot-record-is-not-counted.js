@@ -5,14 +5,16 @@ import {
   waitForDaemonReady, waitForNodeStatus, waitFor,
 } from '../framework/wait.js';
 import { bootAndPeer, seedSimpleApp } from '../framework/reconciler-suite.js';
-import { failWrites } from '../framework/mongo-control.js';
+import { failCommands, failWrites } from '../framework/mongo-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // A node joining the network asks a peer for the network's app state, and the peer
 // answers in several messages, only the last saying it is done. Here the joining
-// node's database fails the write of the first message, and the node must not
-// count that peer as having answered: it ends the request and asks another peer.
+// node's database fails a call made while it records the first message - a write
+// that reports it stored part of the batch, or the prune of old location rows,
+// which throws - and the node must not count that peer as having answered: it ends
+// the request and asks another peer.
 //
 // The harness keeps one sync request open at a time (appSyncMinCompletions), so a
 // peer counted despite the failed write leaves one peer asked, and a peer replaced
@@ -33,7 +35,18 @@ function step(what) {
   console.log(`# 3304 ${new Date().toISOString()} ${what}`);
 }
 
-describe('a sync answer the node cannot record is not counted', function () {
+const FAILURES = [
+  {
+    what: 'a location write the database fails',
+    arm: (nodeNum) => failWrites(nodeNum, 'globalzelapps', 'zelappslocation', { times: 1 }),
+  },
+  {
+    what: 'a location prune the database fails, which throws',
+    arm: (nodeNum) => failCommands(nodeNum, 'globalzelapps', 'zelappslocation', { commands: ['delete'], times: 1 }),
+  },
+];
+
+FAILURES.forEach(({ what, arm }) => describe(`a sync answer the node cannot record is not counted: ${what}`, function () {
   let env;
   dumpLogsOnFailure(() => env);
   const appName = `e2esyncwrite${Date.now()}`;
@@ -66,8 +79,8 @@ describe('a sync answer the node cannot record is not counted', function () {
     });
     eventsHeld = (await dbClient(1).appStateEvents({ type: 'apprunning' })).length;
 
-    step('arming the joining node\'s first location write to fail');
-    release = await failWrites(JOINING + 1, 'globalzelapps', 'zelappslocation', { times: 1 });
+    step(`arming ${what}`);
+    release = await arm(JOINING + 1);
     joining = await env.startNode(JOINING);
     await waitForDaemonReady(joining);
     await waitForNodeStatus(joining, (d) => d.confirmed === true, 60000);
@@ -85,10 +98,10 @@ describe('a sync answer the node cannot record is not counted', function () {
     expect(eventsHeld, 'the answer fits one message, so no early message could fail').to.be.above(ANSWER_BATCH);
   });
 
-  it('had one of its location writes refused by the database', async function () {
+  it('had the call refused by the database', async function () {
     const failed = await release();
     release = null;
-    expect(failed, 'the database failed none of the joining node\'s writes, so nothing below was tested').to.equal(1);
+    expect(failed, 'the database failed none of the joining node\'s calls, so nothing below was tested').to.equal(1);
   });
 
   it('asks another peer in place of the one whose answer it could not record', function () {
@@ -109,4 +122,4 @@ describe('a sync answer the node cannot record is not counted', function () {
       && e.data.syncType === 'apprunning' && e.data.peer === failedAt.data.peer);
     expect(counted, 'the peer whose answer was not recorded was counted').to.deep.equal([]);
   });
-});
+}));
