@@ -2332,8 +2332,12 @@ describe('syncthingFolderStateMachine tests', () => {
     // A change whose cluster version is this node's own is held by no other device:
     // syncthing reverts it by deleting it. One to data another device wrote is the
     // only copy of that data, so it is kept and promoted with the rest; one this node
-    // made itself is reverted, as any pollution is.
+    // made itself is reverted, as any pollution is. Each is decided from the folder's
+    // list of local changes: syncthing marks the entry that is the cluster's version.
     describe('a local change no other device holds', () => {
+      const CHANGED = 8;
+      const CHANGED_AND_GLOBAL = 8 | 16;
+      const changes = (...files) => syncthingServiceMock.getDbLocalChanged.resolves({ files });
       const pollutedCandidate = () => {
         mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: false, numberOfExecutions: 1 });
         mockParams.appLocation.resolves([
@@ -2344,38 +2348,7 @@ describe('syncthingFolderStateMachine tests', () => {
           globalBytes: 1000, inSyncBytes: 1000, state: 'idle', receiveOnlyChangedFiles: 0, receiveOnlyChangedDirectories: 1,
         });
       };
-
-      it('is kept, and the folder is promoted', async () => {
-        pollutedCandidate();
-        syncthingServiceMock.getDbFile.resolves({ global: { localFlags: 8 }, local: { localFlags: 8, version: ['PRIMARY:5', 'LOCAL-D:9'] } });
-
-        const result = await stateMachine.manageFolderSyncState(mockParams);
-
-        sinon.assert.notCalled(syncthingServiceMock.dbRevert);
-        expect(result.cache.restarted, 'a change only this node holds kept the folder from promoting').to.be.true;
-      });
-
-      it('is reverted when this node made it', async () => {
-        pollutedCandidate();
-        syncthingServiceMock.getDbFile.resolves({ global: { localFlags: 8 }, local: { localFlags: 8, version: ['LOCAL-D:9'] } });
-
-        const result = await stateMachine.manageFolderSyncState(mockParams);
-
-        sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
-        expect(result.cache.restarted).to.be.false;
-      });
-
-      it('is found behind changes other devices hold', async () => {
-        pollutedCandidate();
-        syncthingServiceMock.getDbLocalChanged.resolves({ files: [{ name: 'appdata/held' }, { name: 'appdata/only-here' }] });
-        syncthingServiceMock.getDbFile.withArgs('test-app', 'appdata/only-here').resolves({ global: { localFlags: 8 }, local: { version: ['PRIMARY:5'] } });
-
-        await stateMachine.manageFolderSyncState(mockParams);
-
-        sinon.assert.notCalled(syncthingServiceMock.dbRevert);
-      });
-
-      it('is kept on a ready standby', async () => {
+      const readyStandby = () => {
         mockParams.containerDataFlags = 'g';
         mockParams.syncFolder = { id: 'test-app', type: 'receiveonly' };
         mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
@@ -2383,7 +2356,69 @@ describe('syncthingFolderStateMachine tests', () => {
         syncthingServiceMock.getDbStatus.resolves({
           globalBytes: 1000, inSyncBytes: 1000, state: 'idle', receiveOnlyChangedFiles: 0, receiveOnlyChangedDirectories: 1,
         });
-        syncthingServiceMock.getDbFile.resolves({ global: { localFlags: 8 }, local: { version: ['PRIMARY:5', 'LOCAL-D:9'] } });
+      };
+
+      it('is kept, and the folder is promoted, decided from the list alone', async () => {
+        pollutedCandidate();
+        changes({ name: 'appdata/only-here', localFlags: CHANGED_AND_GLOBAL, version: ['PRIMARY:5', 'LOCAL-D:9'] });
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+        sinon.assert.notCalled(syncthingServiceMock.getDbFile);
+        expect(result.cache.restarted, 'a change only this node holds kept the folder from promoting').to.be.true;
+      });
+
+      it('is reverted when this node made it', async () => {
+        pollutedCandidate();
+        changes({ name: 'appdata/made-here', localFlags: CHANGED_AND_GLOBAL, version: ['LOCAL-D:9'] });
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
+        expect(result.cache.restarted).to.be.false;
+      });
+
+      it('is reverted when another device holds the cluster\'s version', async () => {
+        pollutedCandidate();
+        changes({ name: 'appdata/held', localFlags: CHANGED, version: ['PRIMARY:5', 'LOCAL-D:9'] });
+
+        await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
+      });
+
+      it('is found behind changes other devices hold', async () => {
+        pollutedCandidate();
+        changes(
+          { name: 'appdata/held', localFlags: CHANGED, version: ['PRIMARY:5'] },
+          { name: 'appdata/only-here', localFlags: CHANGED_AND_GLOBAL, version: ['PRIMARY:5'] },
+        );
+
+        await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+      });
+
+      it('is found on a later page', async () => {
+        pollutedCandidate();
+        const held = Array.from({ length: 1000 }, (_, k) => ({ name: `appdata/held-${k}`, localFlags: CHANGED, version: ['PRIMARY:5'] }));
+        syncthingServiceMock.getDbLocalChanged.withArgs('test-app', 1).resolves({ files: held });
+        syncthingServiceMock.getDbLocalChanged.withArgs('test-app', 2).resolves({
+          files: [{ name: 'appdata/only-here', localFlags: CHANGED_AND_GLOBAL, version: ['PRIMARY:5'] }],
+        });
+
+        await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+      });
+
+      it('is kept on a ready standby, said once, and asked about first on the next pass', async () => {
+        readyStandby();
+        changes({ name: 'appdata/only-here', localFlags: CHANGED_AND_GLOBAL, version: ['PRIMARY:5', 'LOCAL-D:9'] });
+        syncthingServiceMock.getDbFile.withArgs('test-app', 'appdata/only-here').resolves({
+          local: { localFlags: CHANGED_AND_GLOBAL, version: ['PRIMARY:5', 'LOCAL-D:9'] },
+        });
         const publish = sinon.stub(fluxEventBus, 'publish');
         try {
           await stateMachine.manageFolderSyncState(mockParams);
@@ -2395,14 +2430,33 @@ describe('syncthingFolderStateMachine tests', () => {
             'syncthing:localChangesKept',
             { folder: 'test-app', files: 0, directories: 1 },
           );
+          sinon.assert.calledOnce(syncthingServiceMock.getDbLocalChanged);
+          sinon.assert.calledOnceWithExactly(syncthingServiceMock.getDbFile, 'test-app', 'appdata/only-here');
         } finally {
           publish.restore();
         }
       });
 
+      // Synced from the cluster since, this node's record is the cluster's version and
+      // no longer a change of its own.
+      it('reads the list again once the item that answered no longer does', async () => {
+        readyStandby();
+        changes({ name: 'appdata/only-here', localFlags: CHANGED_AND_GLOBAL, version: ['PRIMARY:5', 'LOCAL-D:9'] });
+        await stateMachine.manageFolderSyncState(mockParams);
+        changes({ name: 'appdata/other', localFlags: CHANGED, version: ['PRIMARY:5', 'LOCAL-D:9'] });
+        syncthingServiceMock.getDbFile.withArgs('test-app', 'appdata/only-here').resolves({
+          local: { localFlags: 16, version: ['PRIMARY:6'] },
+        });
+
+        await stateMachine.manageFolderSyncState(mockParams);
+
+        sinon.assert.calledTwice(syncthingServiceMock.getDbLocalChanged);
+        sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
+      });
+
       it('is neither reverted nor promoted while which changes others hold cannot be read', async () => {
         pollutedCandidate();
-        syncthingServiceMock.getDbFile.rejects(new Error('connect ECONNREFUSED'));
+        syncthingServiceMock.getDbLocalChanged.rejects(new Error('connect ECONNREFUSED'));
 
         const result = await stateMachine.manageFolderSyncState(mockParams);
 

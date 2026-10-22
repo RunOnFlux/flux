@@ -1291,39 +1291,62 @@ async function nudgeFolderDevices(folderId) {
 
 // syncthing's FlagLocalReceiveOnly: an item this node changed in a receive-only folder.
 const RECEIVE_ONLY_CHANGE_FLAG = 8;
+// syncthing's FlagLocalGlobal: this device's record of the item is the cluster's version.
+const GLOBAL_VERSION_FLAG = 16;
 const LOCAL_CHANGE_PAGE_SIZE = 1000;
 
 /**
- * Whether a receive-only folder holds a local change that is the cluster's data and
- * that no other device holds: an item whose cluster version is this node's own change
- * (db/file, global localFlags) and whose history names another device (a version
- * vector counter that is not this node's). syncthing reverts such an item by deleting
+ * Whether this node's record of an item is a local change to data from another device
+ * that no other device holds. A receive-only change is the cluster's version only when
+ * no other device holds a valid version of the item, and its history names another
+ * device when the data came from elsewhere. syncthing reverts such an item by deleting
  * it - the only copy of data the app wrote elsewhere - and a directory that is not
  * empty cannot be deleted, so that revert fails on every pass.
  *
  * An item whose history is this node's alone was made here, never by the app's
  * writer: reverting deletes it, as it should.
- * @param {string} appId - The Syncthing folder ID
- * @returns {Promise<boolean|null>} null when the changes could not be read
+ * @param {object} item This node's record of the item, as db/localchanged and db/file's
+ *   `local` give it.
+ * @param {string} ownCounter This node's version-vector prefix, `<short device id>:`.
+ * @returns {boolean}
  */
-async function localChangeHeldOnlyHere(appId) {
+function isOnlyCopyHere(item, ownCounter) {
+  const flags = item?.localFlags ?? 0;
+  // eslint-disable-next-line no-bitwise
+  const changedHere = Boolean(flags & RECEIVE_ONLY_CHANGE_FLAG);
+  // eslint-disable-next-line no-bitwise
+  const clusterVersion = Boolean(flags & GLOBAL_VERSION_FLAG);
+  const fromElsewhere = (item?.version ?? []).some((counter) => !counter.startsWith(ownCounter));
+  return changedHere && clusterVersion && fromElsewhere;
+}
+
+/**
+ * A local change in a receive-only folder that is the only copy of data from another
+ * device (isOnlyCopyHere), read from the folder's own list of local changes.
+ *
+ * `known` is the item that answered last time. It is asked about first, so a folder
+ * keeping its changes costs one request a pass while that item still answers; the
+ * list is read only when it does not.
+ * @param {string} appId - The Syncthing folder ID
+ * @param {string} [known] - The item that answered last time
+ * @returns {Promise<string|false|null>} the item's name; false when there is none; null
+ *   when the changes could not be read
+ */
+async function localChangeHeldOnlyHere(appId, known) {
   try {
     const deviceId = await syncthingService.getDeviceId();
     if (!deviceId) return null;
     const ownCounter = `${deviceId.substring(0, 7)}:`;
+    if (known) {
+      const answer = await syncthingService.getDbFile(appId, known).catch(() => null);
+      if (isOnlyCopyHere(answer?.local, ownCounter)) return known;
+    }
     for (let page = 1; ; page += 1) {
       // eslint-disable-next-line no-await-in-loop
       const batch = (await syncthingService.getDbLocalChanged(appId, page, LOCAL_CHANGE_PAGE_SIZE))?.files;
       if (!Array.isArray(batch)) return page > 1 ? false : null;
-      // eslint-disable-next-line no-restricted-syntax
-      for (const item of batch) {
-        // eslint-disable-next-line no-await-in-loop
-        const { global, local } = await syncthingService.getDbFile(appId, item.name);
-        // eslint-disable-next-line no-bitwise
-        const onlyHere = Boolean((global?.localFlags ?? 0) & RECEIVE_ONLY_CHANGE_FLAG);
-        const fromElsewhere = (local?.version ?? []).some((counter) => !counter.startsWith(ownCounter));
-        if (onlyHere && fromElsewhere) return true;
-      }
+      const found = batch.find((item) => isOnlyCopyHere(item, ownCounter));
+      if (found) return found.name;
       if (batch.length < LOCAL_CHANGE_PAGE_SIZE) return false;
     }
   } catch (error) {
@@ -1348,8 +1371,9 @@ async function localChangeHeldOnlyHere(appId) {
  *
  * @param {string} appId - The Syncthing folder ID
  * @param {Object|null} syncStatus - A probeFolderSyncCompletion status
- * @param {Object} [folderCache] - The folder's cache entry: `keepingChanges` marks a folder
- *   already said to be keeping its changes, so that is said once, when it starts
+ * @param {Object} [folderCache] - The folder's cache entry: `keepingChanges` names the
+ *   item that is the only copy while the folder keeps its changes, so keeping them is said
+ *   once, when it starts, and the item is asked about first on the next pass
  * @returns {Promise<boolean>} True when the folder has local changes it does not
  *   keep: a revert was asked for, or which changes other devices hold could not be read
  */
@@ -1363,14 +1387,15 @@ async function revertLocalChangesIfSynced(appId, syncStatus, folderCache) {
   }
   const files = syncStatus.receiveOnlyChangedFiles || 0;
   const directories = syncStatus.receiveOnlyChangedDirectories || 0;
-  const heldOnlyHere = await localChangeHeldOnlyHere(appId);
+  const heldOnlyHere = await localChangeHeldOnlyHere(appId, cache.keepingChanges);
   if (heldOnlyHere === null) {
     log.warn(`revertLocalChangesIfSynced - ${appId}: could not read which of its ${changed} local change(s) other devices hold; neither reverting nor promoting this pass`);
     return true;
   }
   if (heldOnlyHere) {
-    if (cache.keepingChanges) return false;
-    cache.keepingChanges = true;
+    const keeping = Boolean(cache.keepingChanges);
+    cache.keepingChanges = heldOnlyHere;
+    if (keeping) return false;
     log.warn(`revertLocalChangesIfSynced - ${appId} holds a local change to data from another device that no other device holds (${files} files, ${directories} directories changed); keeping its changes, a revert would delete it`);
     fluxEventBus.publish('syncthing:localChangesKept', { folder: appId, files, directories });
     return false;

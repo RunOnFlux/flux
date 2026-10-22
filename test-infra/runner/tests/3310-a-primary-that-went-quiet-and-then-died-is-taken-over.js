@@ -42,6 +42,8 @@ const MONITOR_PASSES_MS = 30000;
 const TAKEOVER_MS = 10 * 60 * 1000;
 // syncthing's FlagLocalReceiveOnly
 const RECEIVE_ONLY_CHANGE_FLAG = 8;
+// syncthing's FlagLocalGlobal
+const GLOBAL_VERSION_FLAG = 16;
 const SAVE = 'appdata/save-b';
 const SAVE_CONTENT = 'written by the primary';
 
@@ -119,6 +121,9 @@ describe('a primary that went quiet and then died is taken over', function () {
     }, { timeout: 60000, interval: 2000, label: 'the file and the directory are changes no other device holds' });
     expect(record.local.version.some((counter) => counter.startsWith(`${primaryDevice.substring(0, 7)}:`)),
       'the changed file carries no history from the primary, so it is not the primary\'s data').to.equal(true);
+    // eslint-disable-next-line no-bitwise
+    expect((record.local.localFlags & GLOBAL_VERSION_FLAG) !== 0,
+      'the standby\'s own record of the change is not marked the cluster\'s version, so its list of local changes cannot say no other device holds it').to.equal(true);
     expect(heldOnlyHere(await getFileInfo(client(A), folder, 'appdata/seed-data')),
       'the unchanged file is held only here too, so the standby\'s copy no longer reads as synced').to.equal(false);
 
