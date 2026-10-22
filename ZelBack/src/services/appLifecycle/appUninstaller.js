@@ -58,8 +58,9 @@ function setOnComponentRemoved(callback) {
   onComponentRemoved = callback;
 }
 
-// Apps whose removal stopped part way, each being run again until it finishes.
-const unfinishedRemovals = new Set();
+// Apps whose removal stopped part way, each being run again until it finishes, with
+// whether the run that finishes it is still to tell the network.
+const unfinishedRemovals = new Map();
 
 /**
  * Runs the removal of an app that stopped part way again until it finishes. Until
@@ -67,12 +68,14 @@ const unfinishedRemovals = new Set();
  * announcements leave it out. A call for an app already held does nothing.
  * @param {string} appName
  * @param {boolean} force Passed to each removal.
- * @param {boolean} announce Whether the removal that finishes tells the network.
+ * @param {boolean} announce Whether the removal that finishes tells the network; it
+ *   does not once the network has been told meanwhile (announceRemoval).
  * @returns {void}
  */
 function finishRemoval(appName, force, announce) {
   if (unfinishedRemovals.has(appName)) return;
-  unfinishedRemovals.add(appName);
+  const pending = { announce };
+  unfinishedRemovals.set(appName, pending);
   globalState.departingApps.enter(appName);
   log.warn(`${appName} was not fully removed; held stopped and unannounced until it is`);
   // first run once the removal that stopped has released the node's removal lock
@@ -83,7 +86,7 @@ function finishRemoval(appName, force, announce) {
     const holder = globalState.operationHolding();
     if (holder) throw new Error(`another ${holder} holds the node`);
     // eslint-disable-next-line no-use-before-define
-    const outcome = await removeAppLocally(appName, null, force, true, announce);
+    const outcome = await removeAppLocally(appName, null, force, true, pending.announce);
     if (outcome !== RemovalOutcome.REMOVED && outcome !== RemovalOutcome.NOT_INSTALLED) {
       throw new Error(`${appName} was not removed (${outcome})`);
     }
@@ -121,6 +124,9 @@ async function announceRemoval(appName) {
   };
   log.info('Broadcasting appremoved message to the network');
   await fluxCommunicationMessagesSender.broadcastMessageToAll(appRemovedMessage);
+  // a removal still being finished has nothing left to tell
+  const pending = unfinishedRemovals.get(appName);
+  if (pending) pending.announce = false;
   const { runningAppsCache } = globalState;
   if (runningAppsCache.has(appName)) {
     runningAppsCache.delete(appName);

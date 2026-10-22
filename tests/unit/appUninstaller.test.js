@@ -53,6 +53,7 @@ describe('appUninstaller tests', () => {
   let globalStateStub;
   let announceCycle;
   let getLocalSocketAddressStub;
+  let broadcastStub;
   let runCommandStub;
 
   beforeEach(() => {
@@ -607,6 +608,7 @@ describe('appUninstaller tests', () => {
       const { departingApps, announceCycle: realAnnounceCycle } = proxyquire('../../ZelBack/src/services/utils/globalState', {});
       announceCycle = realAnnounceCycle;
       getLocalSocketAddressStub = sinon.stub().resolves(null);
+      broadcastStub = sinon.stub().resolves();
       globalStateStub = {
         departingApps,
         announceCycle,
@@ -695,7 +697,7 @@ describe('appUninstaller tests', () => {
         '../fluxCommunicationMessagesSender': {
           broadcastMessageToOutgoing: sinon.stub().resolves(),
           broadcastMessageToIncoming: sinon.stub().resolves(),
-          broadcastMessageToAll: sinon.stub().resolves(),
+          broadcastMessageToAll: broadcastStub,
         },
         '../appDatabase/registryManager': {
           availableApps: sinon.stub().resolves([]),
@@ -768,6 +770,37 @@ describe('appUninstaller tests', () => {
         sinon.assert.calledTwice(deleteRow);
         expect(globalStateStub.departingApps.has('testapp'), 'the hold outlived the removal').to.be.false;
         sinon.assert.calledOnce(getLocalSocketAddressStub);
+      });
+
+      // A hard redeploy tells the network once its reinstall fails, and the cleanup
+      // that stopped part way is finished afterwards: that message is the one sent.
+      it('finishes a removal without telling the network again when it was told meanwhile', async () => {
+        const deleteRow = sinon.stub().resolves();
+        deleteRow.onFirstCall().rejects(new Error('connection timed out'));
+        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
+        getLocalSocketAddressStub.resolves('10.0.0.1:16127');
+
+        // the reinstall holds the node, so the run that finishes the removal waits
+        globalStateStub.installationInProgress = true;
+        await uninstaller.removeAppLocally('testapp', res, true);
+        await uninstaller.announceRemoval('testapp');
+        globalStateStub.installationInProgress = false;
+        await settle(() => deleteRow.calledTwice && !globalStateStub.departingApps.has('testapp'));
+
+        sinon.assert.calledTwice(deleteRow);
+        sinon.assert.calledOnce(broadcastStub);
+      });
+
+      it('a canary: the same removal told nothing meanwhile tells the network once it finishes', async () => {
+        const deleteRow = sinon.stub().resolves();
+        deleteRow.onFirstCall().rejects(new Error('connection timed out'));
+        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
+        getLocalSocketAddressStub.resolves('10.0.0.1:16127');
+
+        await uninstaller.removeAppLocally('testapp', res, true);
+        await settle(() => deleteRow.calledTwice && !globalStateStub.departingApps.has('testapp'));
+
+        sinon.assert.calledOnce(broadcastStub);
       });
 
       it('holds an app the network was already told of, and does not tell it twice', async () => {
