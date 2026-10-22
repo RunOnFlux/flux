@@ -459,7 +459,7 @@ describe('appReconciler tests', () => {
     });
 
     it('leaves a component alone while boot has not confirmed its app is still held here', async () => {
-      stubs.globalState.unconfirmedApps.add('App');
+      stubs.globalState.unconfirmedApps.set('App', Symbol('App'));
 
       await appReconciler.reconcile('www_App');
 

@@ -163,16 +163,27 @@ async function readLocation(appName, localSocketAddr) {
  * Decides an app held in globalState.unconfirmedApps once its location record can
  * be read, reading it every BOOT_STEP_RETRY_MS until then. A valid record releases
  * the app and starts the components boot starts; any other answer removes it, the
- * app held until the removal has finished or holds it as departing.
+ * app held until the removal has finished or holds it as departing. An app whose
+ * hold has ended by then - uninstalled meanwhile, perhaps installed again since -
+ * is not this check's to decide, and it does nothing.
  * @param {string} appName
  * @param {string[]} componentsToStart
  * @param {string} localSocketAddr
+ * @param {symbol} hold The hold this check decides, as boot set it.
  * @returns {Promise<void>}
  */
-async function confirmHeldApp(appName, componentsToStart, localSocketAddr) {
+async function confirmHeldApp(appName, componentsToStart, localSocketAddr, hold) {
+  const isHeld = () => globalState.unconfirmedApps.get(appName) === hold;
   await serviceHelper.delay(BOOT_STEP_RETRY_MS);
   const valid = await untilSucceeds(`Location check of ${appName}`, () => readLocation(appName, localSocketAddr));
   await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.BOOT_BEFORE_LOCATION_DECISION, appName);
+  // Nothing awaits between this check and the decision below, so the hold cannot
+  // end in between.
+  if (!isHeld()) {
+    log.info(`appStartupManager - App ${appName}: its hold ended before its location record was read, nothing to decide`);
+    fluxEventBus.publish('boot:appConfirmed', { name: appName, valid, released: true });
+    return;
+  }
   fluxEventBus.publish('boot:appConfirmed', { name: appName, valid });
   if (valid) {
     log.info(`appStartupManager - App ${appName}: its location record is valid, starting it`);
@@ -184,7 +195,7 @@ async function confirmHeldApp(appName, componentsToStart, localSocketAddr) {
   try {
     await removeAppBootMayNotStart(appName);
   } finally {
-    globalState.unconfirmedApps.delete(appName);
+    if (isHeld()) globalState.unconfirmedApps.delete(appName);
   }
 }
 /**
@@ -303,9 +314,10 @@ async function reconcileAppsOnBoot() {
           // Whether the network placed it elsewhere while this node was down is not
           // known, so it is neither started nor removed until it is.
           log.warn(`appStartupManager - App ${appName}: its location record could not be read, held stopped until it can be`);
-          globalState.unconfirmedApps.add(appName);
+          const hold = Symbol(appName);
+          globalState.unconfirmedApps.set(appName, hold);
           fluxEventBus.publish('boot:appUnconfirmed', { name: appName });
-          confirmHeldApp(appName, componentsToStart, localSocketAddr)
+          confirmHeldApp(appName, componentsToStart, localSocketAddr, hold)
             .catch((error) => log.error(`appStartupManager - App ${appName}: the location check stopped: ${error.message}`));
           results.appsUnconfirmed.push(appName);
           // eslint-disable-next-line no-continue

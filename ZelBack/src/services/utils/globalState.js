@@ -129,8 +129,12 @@ const departingApps = {
 // it was down. Until boot reads the records, an app here is not started, elected,
 // announced, backed up, restored or torn down to be rebuilt.
 //
+// Keyed by app name; the value is the hold, so the check deciding an app can tell
+// its own hold from a later one under the same name. An app's full uninstall ends
+// its hold.
+//
 // In-memory deliberately: a restart runs the boot check again.
-const unconfirmedApps = new Set();
+const unconfirmedApps = new Map();
 
 // Containers intentionally stopped by FluxOS — crash recovery skips die events for these
 const stoppingContainers = new Set();

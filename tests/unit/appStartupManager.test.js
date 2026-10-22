@@ -429,6 +429,69 @@ describe('appStartupManager tests', () => {
         expect(appReconcilerStub.enqueue.called).to.equal(false);
       });
 
+      describe('whose hold ends before its record is read', () => {
+        // The record answers only when the test says, after it has ended the hold.
+        const recordAnswersLater = () => {
+          let answer;
+          dbHelperStub.findInDatabase.onThirdCall().returns(new Promise((resolve) => { answer = resolve; }));
+          return (records) => answer(records);
+        };
+
+        it('is not removed when it was uninstalled meanwhile and its record reads expired', async () => {
+          const answer = recordAnswersLater();
+          await appStartupManager.reconcileAppsOnBoot();
+          await settle();
+
+          globalStateStub.unconfirmedApps.delete('AppA');
+          answer([]);
+          await settle();
+
+          expect(appUninstallerStub.removeAppLocally.called, 'removed an app installed again after its uninstall').to.equal(false);
+          expect(appReconcilerStub.enqueue.called).to.equal(false);
+        });
+
+        it('is not started when it was uninstalled meanwhile and its record reads valid', async () => {
+          const answer = recordAnswersLater();
+          await appStartupManager.reconcileAppsOnBoot();
+          await settle();
+
+          globalStateStub.unconfirmedApps.delete('AppA');
+          answer([{ expireAt: futureExpiry() }]);
+          await settle();
+
+          expect(appReconcilerStub.enqueue.called, 'started an app on the word of a hold that had ended').to.equal(false);
+          expect(appUninstallerStub.removeAppLocally.called).to.equal(false);
+        });
+
+        it('decides nothing for a later hold under the same name, and leaves that hold in place', async () => {
+          const answer = recordAnswersLater();
+          await appStartupManager.reconcileAppsOnBoot();
+          await settle();
+
+          const later = Symbol('AppA');
+          globalStateStub.unconfirmedApps.set('AppA', later);
+          answer([]);
+          await settle();
+
+          expect(appUninstallerStub.removeAppLocally.called, 'decided an app another hold now covers').to.equal(false);
+          expect(globalStateStub.unconfirmedApps.get('AppA'), 'released a hold that was not its own').to.equal(later);
+        });
+
+        it('leaves a later hold in place when its own removal ends', async () => {
+          dbHelperStub.findInDatabase.onThirdCall().resolves([]);
+          const later = Symbol('AppA');
+          appUninstallerStub.removeAppLocally.callsFake(async () => {
+            globalStateStub.unconfirmedApps.set('AppA', later);
+            return 'removed';
+          });
+
+          await appStartupManager.reconcileAppsOnBoot();
+          await settle();
+
+          expect(globalStateStub.unconfirmedApps.get('AppA'), 'released a hold set after its removal began').to.equal(later);
+        });
+      });
+
       it('has only the components boot starts started, when its g: components are left to the election', async () => {
         dockerServiceStub.dockerListContainers.resolves([
           { Names: ['/fluxweb_MixedApp'], State: 'exited' },

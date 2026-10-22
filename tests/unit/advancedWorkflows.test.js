@@ -1046,7 +1046,7 @@ describe('advancedWorkflows tests', () => {
 
       it('leaves an app boot has not yet confirmed it holds undecided', async () => {
         const count = sinon.stub(fluxEventBus, 'count');
-        globalState.unconfirmedApps.add(appName);
+        globalState.unconfirmedApps.set(appName, Symbol(appName));
         try {
           await runPass();
         } finally {
@@ -5688,7 +5688,7 @@ describe('advancedWorkflows tests', () => {
 
     it('refuses an app boot has not yet confirmed it holds', async () => {
       const res = makeRes();
-      globalState.unconfirmedApps.add(appname);
+      globalState.unconfirmedApps.set(appname, Symbol(appname));
       let result;
       try {
         result = await advancedWorkflows.appendBackupTask(backupReq(), res);
@@ -6108,7 +6108,7 @@ describe('advancedWorkflows tests', () => {
 
       it('refuses an app boot has not yet confirmed it holds', async () => {
         const res = makeRes();
-        globalState.unconfirmedApps.add(appname);
+        globalState.unconfirmedApps.set(appname, Symbol(appname));
         let result;
         try {
           result = await advancedWorkflows.appendRestoreTask(restoreReq(), res);
@@ -8767,7 +8767,7 @@ describe('a redeploy asks what it may rebuild before it takes anything down', ()
 
   // A rebuilt app starts, and boot has yet to decide whether this one may.
   it('declines while boot has not confirmed the node still holds the app, and leaves it where it is', async () => {
-    globalState.unconfirmedApps.add('plainapp');
+    globalState.unconfirmedApps.set('plainapp', Symbol('plainapp'));
 
     const proceed = await advancedWorkflows.mayTearDownToRebuild({ name: 'plainapp', nodes: [] }, res);
 

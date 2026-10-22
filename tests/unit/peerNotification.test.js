@@ -255,7 +255,7 @@ describe('peerNotification tests', () => {
           { name: 'app2', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
         ],
       });
-      unconfirmedApps.add('app2');
+      unconfirmedApps.set('app2', Symbol('app2'));
 
       await peerNotification.checkAndNotifyPeersOfRunningApps();
 
@@ -267,7 +267,7 @@ describe('peerNotification tests', () => {
     });
 
     it('announces the app again once boot has confirmed it', async () => {
-      unconfirmedApps.add('app1');
+      unconfirmedApps.set('app1', Symbol('app1'));
       await peerNotification.checkAndNotifyPeersOfRunningApps();
       expect(storeAppRunningMessageStub.called, 'announced while unconfirmed').to.be.false;
 

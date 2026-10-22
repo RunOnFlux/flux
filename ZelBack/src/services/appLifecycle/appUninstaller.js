@@ -1152,6 +1152,9 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       // exactly what stops a teardown that fails part way being read as
       // tampering.
       dockerService.clearFluxRemovedContainers(appName);
+      // Nor is there an app left for boot's location check to decide: an install
+      // of the same name from here on is a new app.
+      globalState.unconfirmedApps.delete(appName);
       const databaseStatus2 = {
         status: 'Database cleaned',
       };

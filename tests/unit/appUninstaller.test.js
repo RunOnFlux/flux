@@ -605,12 +605,13 @@ describe('appUninstaller tests', () => {
       // is this suite's alone - evicting the entry instead would hand another
       // object to every module loaded after it, and globalState is a singleton
       // whose flags decide whether an operation may start at all.
-      const { departingApps, announceCycle: realAnnounceCycle } = proxyquire('../../ZelBack/src/services/utils/globalState', {});
+      const { departingApps, unconfirmedApps, announceCycle: realAnnounceCycle } = proxyquire('../../ZelBack/src/services/utils/globalState', {});
       announceCycle = realAnnounceCycle;
       getLocalSocketAddressStub = sinon.stub().resolves(null);
       broadcastStub = sinon.stub().resolves();
       globalStateStub = {
         departingApps,
+        unconfirmedApps,
         announceCycle,
         removalInProgress: false,
         installationInProgress: false,
@@ -1002,6 +1003,46 @@ describe('appUninstaller tests', () => {
 
       sinon.assert.calledOnceWithExactly(runtimeStateStub.remove, 'testapp');
       sinon.assert.notCalled(logStub.error);
+    });
+
+    // Boot holds an app whose location record it could not read until a check
+    // decides it. An uninstall in the meantime leaves that check nothing to
+    // decide, and an install of the same name afterwards is another app.
+    describe('the boot hold', () => {
+      it('ends when the app is uninstalled', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        globalStateStub.unconfirmedApps.set('testapp', Symbol('testapp'));
+
+        await uninstaller.removeAppLocally('testapp', res, true, true, false);
+
+        expect(
+          globalStateStub.unconfirmedApps.has('testapp'),
+          'still held after its uninstall, so boot\'s check would decide an install that came after it',
+        ).to.be.false;
+      });
+
+      it('holds the app while its teardown runs', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        globalStateStub.unconfirmedApps.set('testapp', Symbol('testapp'));
+        let heldDuring = null;
+        uninstaller.setOnComponentRemoved(() => {
+          heldDuring = globalStateStub.unconfirmedApps.has('testapp');
+        });
+
+        await uninstaller.removeAppLocally('testapp', res, true, true, false);
+
+        expect(heldDuring, 'released part way through its teardown, so it could be started or announced').to.be.true;
+      });
+
+      it('stays when a removal is refused', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        globalStateStub.unconfirmedApps.set('testapp', Symbol('testapp'));
+        globalStateStub.removalInProgress = true;
+
+        await uninstaller.removeAppLocally('testapp', res, false, true, false);
+
+        expect(globalStateStub.unconfirmedApps.has('testapp'), 'released by a removal that never ran').to.be.true;
+      });
     });
 
     // A node stops claiming an app when it decides to hand it back, not when the
