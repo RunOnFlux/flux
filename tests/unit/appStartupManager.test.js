@@ -959,14 +959,15 @@ describe('appStartupManager tests', () => {
       sinon.assert.callOrder(appPlacementsStub.backfillPlacements, portManagerStub.appsWithPorts);
     });
 
-    it('logs records it could not backfill and goes on booting', async () => {
-      appPlacementsStub.backfillPlacements.rejects(new Error('mongo went away'));
+    // Boot holds at a database step that fails, so the first announcement never
+    // goes out over apps without their records.
+    it('backfills the records again until it succeeds, before it goes on', async () => {
+      appPlacementsStub.backfillPlacements.onFirstCall().rejects(new Error('mongo went away'));
 
       await appStartupManager.manageAppsOnBoot(KEEP);
 
-      expect(logStub.error.calledWithMatch(/placement records not backfilled: mongo went away/)).to.equal(true);
-      expect(logStub.info.calledWithMatch(/node confirmed, reconciling/)).to.equal(true);
-      expect(globalStateStub.bootContainerStateSettled).to.equal(true);
+      sinon.assert.calledTwice(appPlacementsStub.backfillPlacements);
+      sinon.assert.callOrder(appPlacementsStub.backfillPlacements, portManagerStub.appsWithPorts);
     });
 
     it('removes stray records first, against the installed apps', async () => {
@@ -986,13 +987,13 @@ describe('appStartupManager tests', () => {
       sinon.assert.notCalled(appPlacementsStub.backfillPlacements);
     });
 
-    it('logs stray records it could not remove and goes on booting', async () => {
-      appPlacementsStub.removeStrayPlacements.rejects(new Error('mongo went away'));
+    it('removes stray records again until it succeeds, before it goes on', async () => {
+      appPlacementsStub.removeStrayPlacements.onFirstCall().rejects(new Error('mongo went away'));
 
       await appStartupManager.manageAppsOnBoot(KEEP);
 
-      expect(logStub.error.calledWithMatch(/stray placement records not removed: mongo went away/)).to.equal(true);
-      sinon.assert.calledOnce(appPlacementsStub.backfillPlacements);
+      sinon.assert.calledTwice(appPlacementsStub.removeStrayPlacements);
+      sinon.assert.callOrder(appPlacementsStub.removeStrayPlacements, appPlacementsStub.backfillPlacements);
     });
 
     it('opens nothing when the apps are all being removed', async () => {

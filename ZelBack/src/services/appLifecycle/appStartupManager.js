@@ -398,33 +398,27 @@ async function removeAllApps(reason) {
 
 /**
  * Remove the placement records of apps not installed here, on every boot
- * whichever way it goes on. A failure is logged and boot goes on: a stray record
- * is never read, and the next boot tries again.
+ * whichever way it goes on. Run again until it succeeds.
  * @returns {Promise<void>}
  */
 async function tidyPlacementsOnBoot() {
-  try {
+  await untilSucceeds('Removing stray placement records', async () => {
     const installed = await getInstalledAppsFromDb();
     await appPlacements.removeStrayPlacements(installed.map((app) => app.name));
-  } catch (error) {
-    log.error(`appStartupManager - stray placement records not removed: ${error.message}`);
-  }
+  });
 }
 
 /**
  * Give each installed app without a placement record one, before this node's
- * first announcement reads them. A failure is logged and boot goes on: an app
- * without a record is announced from its location row.
+ * first announcement reads them. Run again until it succeeds.
  * @returns {Promise<void>}
  */
 async function backfillPlacementsOnBoot() {
-  try {
+  await untilSucceeds('Backfilling placement records', async () => {
     const installed = await getInstalledAppsFromDb();
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
     await appPlacements.backfillPlacements(installed.map((app) => app.name), localSocketAddr);
-  } catch (error) {
-    log.error(`appStartupManager - placement records not backfilled: ${error.message}`);
-  }
+  });
 }
 
 async function manageAppsOnBoot(bootContext) {
