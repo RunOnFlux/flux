@@ -27,6 +27,7 @@ const { PeerComponent } = require('../../ZelBack/src/services/appMonitoring/peer
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const { addressMoveEvents, EVENTS: ADDRESS_MOVE_EVENTS } = require('../../ZelBack/src/services/utils/addressMoveEvents');
 const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+const appPlacements = require('../../ZelBack/src/services/appManagement/appPlacements');
 const appRebuild = require('../../ZelBack/src/services/appLifecycle/appRebuild');
 const appNetworkLinker = require('../../ZelBack/src/services/appLifecycle/appNetworkLinker');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
@@ -7550,6 +7551,47 @@ describe('advancedWorkflows tests', () => {
         requestComplianceSweep.called,
         'a redeployed application was swept for as though nothing had judged it',
       ).to.be.false;
+    });
+
+    // A version 8 app whose components change is removed and installed again on
+    // this node, so the record of when the node took it is kept - unless the
+    // reinstall does not bring the app back.
+    describe('a redeploy for a change of components', () => {
+      const v8Installed = { ...installedApp, version: 8, enterprise: '' };
+      const v8New = {
+        ...v8Installed,
+        hash: 'newhash',
+        compose: [...v8Installed.compose, { ...v8Installed.compose[0], name: 'db', ports: ['31001'] }],
+      };
+      let removeAppLocally;
+      let registerAppLocally;
+      let removePlacement;
+
+      beforeEach(() => {
+        dbHelper.findInDatabase.resolves([v8Installed]);
+        dbHelper.findOneInDatabase.resolves(v8New);
+        sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+        removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+        registerAppLocally = sinon.stub(appInstaller, 'registerAppLocally').resolves(InstallOutcome.INSTALLED);
+        removePlacement = sinon.stub(appPlacements, 'removePlacement').resolves();
+      });
+
+      it('removes the app as one being redeployed, and keeps its record', async () => {
+        await advancedWorkflows.reinstallOldApplications();
+
+        expect(removeAppLocally.calledOnce, 'the fixture never reached the redeploy it is about').to.equal(true);
+        expect(removeAppLocally.firstCall.args[5]).to.deep.equal({ redeploying: true });
+        sinon.assert.calledOnce(registerAppLocally);
+        sinon.assert.notCalled(removePlacement);
+      });
+
+      it('drops the record when the reinstall does not bring the app back', async () => {
+        registerAppLocally.resolves(InstallOutcome.FAILED);
+
+        await advancedWorkflows.reinstallOldApplications();
+
+        sinon.assert.calledOnceWithExactly(removePlacement, 'myapp');
+      });
     });
 
     it('does not uninstall an app whose redeploy stops on a database that does not answer', async () => {
