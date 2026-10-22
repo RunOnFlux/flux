@@ -16,14 +16,15 @@ import { fluxTeamKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
-// A node records when it took an app, once (app:placementRecorded), and announces
-// that as the app's runningSince for as long as the app stays on it. The
-// network's copy of the node's own location row is not where it comes from: that
-// row lapses while the app goes on running, and a redeploy removes and
-// reinstalls the app without it leaving. The record goes with the app
-// (app:placementRemoved), and at boot the records are made to match what is
-// installed (app:placementsReconciled), dating a missing one at the node's own
-// row.
+// A node records when it took an app (app:placementRecorded) and announces that
+// as the app's runningSince. The record follows the app's data on the node: a
+// hard install, which creates the app's volume, writes it; a removal, which
+// deletes the volume, deletes it (app:placementRemoved); a soft redeploy keeps
+// the volume and the record. The network's copy of the node's own location row
+// is not where it comes from, because that row lapses while the app goes on
+// running. At boot, records of apps not installed are removed
+// (app:placementsTidied) and an installed app without one is dated at the
+// node's own row (app:placementsBackfilled).
 
 const REAL_NODES = 3;
 const realNodes = Array.from({ length: REAL_NODES }, (_unused, i) => i);
@@ -115,17 +116,37 @@ describe('a node keeps its own record of when it took an app', function () {
     expect(stored, 'the holder re-dated the app when its row lapsed').to.deep.equal(others.map(() => announcedSince));
   });
 
-  it('keeps the record, and the time it announces, through a hard redeploy', async function () {
+  it('keeps the record, and the time it announces, through a soft redeploy', async function () {
+    this.timeout(300000);
+    const afterIds = marks();
+    const body = await env.clients[idx].redeployApp(appName, await teamAuth(), { force: false });
+    const { data: redeployed } = await env.clients[idx].waitForEvent('app:softRedeployed', (d) => d.name === appName, 240000, { afterId: afterIds[idx] });
+    expect(redeployed.outcome, `the redeploy did not reinstall the app: ${body.slice(-400)}`).to.equal('installed');
+
+    await assertNoEvent(env.clients[idx], 'app:placementRemoved', (d) => d.name === appName, 0, { afterId: afterIds[idx] });
+    await assertNoEvent(env.clients[idx], 'app:placementRecorded', (d) => d.name === appName, 0, { afterId: afterIds[idx] });
+    const stored = await nextStoredRunningSince(marks());
+    expect(stored, 'the soft redeploy re-dated the app').to.deep.equal(others.map(() => announcedSince));
+  });
+
+  // A hard redeploy starts the app again from an empty volume, so it starts a
+  // new record: the copy holds none of the data the old date stood for.
+  it('starts a new record, and announces it, after a hard redeploy', async function () {
     this.timeout(300000);
     const afterIds = marks();
     const body = await env.clients[idx].redeployApp(appName, await teamAuth(), { force: true });
     const { data: rebuilt } = await env.clients[idx].waitForEvent('app:rebuilt', (d) => d.name === appName, 240000, { afterId: afterIds[idx] });
     expect(rebuilt.outcome, `the redeploy did not reinstall the app: ${body.slice(-400)}`).to.equal('installed');
 
-    await assertNoEvent(env.clients[idx], 'app:placementRemoved', (d) => d.name === appName, 0, { afterId: afterIds[idx] });
-    await assertNoEvent(env.clients[idx], 'app:placementRecorded', (d) => d.name === appName, 0, { afterId: afterIds[idx] });
+    await env.clients[idx].waitForEvent('app:placementRemoved', (d) => d.name === appName, 10000, { afterId: afterIds[idx] });
+    const { data: recorded } = await env.clients[idx].waitForEvent('app:placementRecorded', (d) => d.name === appName, 10000, { afterId: afterIds[idx] });
+    expect(recorded.source).to.equal('install');
+    const placedAt = new Date(recorded.placedAt).getTime();
+    expect(placedAt, 'the new record is not newer than the old one').to.be.above(announcedSince);
+
     const stored = await nextStoredRunningSince(marks());
-    expect(stored, 'the redeploy re-dated the app').to.deep.equal(others.map(() => announcedSince));
+    expect(stored, 'the announced runningSince is not the new record').to.deep.equal(others.map(() => placedAt));
+    announcedSince = placedAt;
   });
 
   // A node that took an app before it had these records gets one at boot, dated
@@ -144,8 +165,10 @@ describe('a node keeps its own record of when it took an app', function () {
     await restartFluxos(env.clients[idx].container);
     await waitForBootSettled(env.clients[idx], 240000, { afterId: afterIds[idx] });
 
-    const { data: reconciled } = await env.clients[idx].waitForEvent('app:placementsReconciled', () => true, 10000, { afterId: afterIds[idx] });
-    expect(reconciled, 'the boot did not reconcile the records').to.deep.equal({ created: 1, fromLocationRows: 1, removed: 1 });
+    const { data: tidied } = await env.clients[idx].waitForEvent('app:placementsTidied', () => true, 10000, { afterId: afterIds[idx] });
+    expect(tidied, 'the boot did not remove the record of the app it does not hold').to.deep.equal({ removed: 1 });
+    const { data: backfilled } = await env.clients[idx].waitForEvent('app:placementsBackfilled', () => true, 10000, { afterId: afterIds[idx] });
+    expect(backfilled, 'the boot did not give the app a record').to.deep.equal({ created: 1, fromLocationRows: 1 });
     const { data: recorded } = await env.clients[idx].waitForEvent('app:placementRecorded', (d) => d.name === appName, 10000, { afterId: afterIds[idx] });
     expect(recorded.source).to.equal('locationRow');
     expect(new Date(recorded.placedAt).getTime(), 'the missing record was not dated at the node\'s own row').to.equal(rowSince);

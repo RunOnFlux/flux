@@ -222,6 +222,7 @@ export function nodeClient(nodeNum) {
         'app:installOutcome',
         'app:removed',
         'app:rebuilt',
+        'app:softRedeployed',
         'reinstall:passEnded',
         'app:componentRedeployed',
         'app:specStored',
@@ -229,7 +230,8 @@ export function nodeClient(nodeNum) {
         // what this node records of when it took each app it holds
         'app:placementRecorded',
         'app:placementRemoved',
-        'app:placementsReconciled',
+        'app:placementsTidied',
+        'app:placementsBackfilled',
         'app:announcementRefused',
         'app:announcing',
         'fileoperation:imageAcquired',
