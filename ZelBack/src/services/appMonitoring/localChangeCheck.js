@@ -100,6 +100,7 @@ async function findOnlyCopy(folderId) {
  * @param {{folderId: string, entry: object, stamp: string, isCurrent: Function}} check
  */
 async function runCheck(check) {
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_LOCAL_CHANGE_CHECK, check.folderId);
   const onlyCopy = await findOnlyCopy(check.folderId);
   await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_LOCAL_CHANGE_ANSWER, check.folderId);
   if (onlyCopy === null || !check.isCurrent()) return;

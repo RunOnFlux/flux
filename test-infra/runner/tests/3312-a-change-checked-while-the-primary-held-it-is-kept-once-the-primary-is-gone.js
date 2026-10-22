@@ -7,8 +7,9 @@
  * The check is held before it leaves that answer, and the primary's machine dies and
  * is dropped from the folder. From that moment the change is the only copy of the
  * primary's data. The answer, released, describes the folder as it was; a revert on
- * it deletes that copy. The standby keeps the change, and the primary's data is still
- * on its disk.
+ * it deletes that copy. The check the standby asks for next is held before it starts,
+ * so the old answer is the one its passes find. They revert nothing, and once that
+ * check runs the standby keeps the change, with the primary's data still on its disk.
  *
  * A = the standby, B = the primary, C = holds nothing.
  */
@@ -29,6 +30,8 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const SIGTERM_EXPIRY_S = 120;
 const BEFORE_ANSWER = 'syncthing:beforeLocalChangeAnswer';
+const BEFORE_CHECK = 'syncthing:beforeLocalChangeCheck';
+const PASSES_ON_THE_OLD_ANSWER = 3;
 // syncthing's FlagLocalReceiveOnly
 const RECEIVE_ONLY_CHANGE_FLAG = 8;
 const SAVE = 'appdata/save-b';
@@ -45,6 +48,7 @@ describe('a change checked while the primary held it is kept once the primary is
   const folder = `flux${appName}_${appName}`;
   const root = `/mnt/appdata/flux-apps/${folder}`;
   const client = (i) => fleet.env.clients[i];
+  const passes = () => client(A).getDecisionCount('syncthing:folderPass', folder, 'evaluated');
   let primaryDevice;
 
   before(async function () {
@@ -93,9 +97,20 @@ describe('a change checked while the primary held it is kept once the primary is
       timeout: 60000, interval: 2000, label: 'fixture: the change is now the only copy',
     });
 
-    step('the check, answered before the primary left, is released');
+    step('the check, answered before the primary left, is released; the next is held before it starts');
+    await client(A).holdCheckpoint(BEFORE_CHECK, folder);
     const releasedAt = client(A).getLastEventId();
     await client(A).releaseCheckpoint(BEFORE_ANSWER, folder);
+    await client(A).waitForEvent('syncthing:localChangesChecked', (d) => d.folder === folder && d.onlyCopy === false, 300000, { afterId: releasedAt });
+    const passesOnOldAnswer = await passes();
+    await waitFor(async () => await passes() >= passesOnOldAnswer + PASSES_ON_THE_OLD_ANSWER, {
+      timeout: 120000, interval: 2000, label: `${PASSES_ON_THE_OLD_ANSWER} passes with the answer from before the primary left`,
+    });
+    const revertedOnOldAnswer = client(A).getEventBuffer().some((e) => e.id > releasedAt && e.event === 'syncthing:localChangesReverted' && e.data?.folder === folder);
+    expect(revertedOnOldAnswer, 'the standby reverted the only copy on the answer from before the primary left').to.equal(false);
+
+    step('the check asked for since runs');
+    await client(A).releaseCheckpoint(BEFORE_CHECK, folder);
     await client(A).waitForEvent('syncthing:localChangesKept', (d) => d.folder === folder, 300000, { afterId: releasedAt });
 
     const reverted = client(A).getEventBuffer().some((e) => e.id > changedAt && e.event === 'syncthing:localChangesReverted' && e.data?.folder === folder);

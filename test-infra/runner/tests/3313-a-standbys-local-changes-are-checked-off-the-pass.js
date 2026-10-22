@@ -21,6 +21,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const SIGTERM_EXPIRY_S = 120;
 const BEFORE_ANSWER = 'syncthing:beforeLocalChangeAnswer';
+const BEFORE_CHECK = 'syncthing:beforeLocalChangeCheck';
 const FILES = 2000;
 const PASSES_WHILE_HELD = 3;
 
@@ -100,11 +101,20 @@ describe('a standby\'s local changes are checked off the monitor pass', function
       timeout: 120000, interval: 2000, label: 'two passes have seen the second write',
     });
 
+    // The check asked for since the second write is held before it starts, so the
+    // passes find the answer from before it.
+    await client(A).holdCheckpoint(BEFORE_CHECK, folder);
+    const releasedAt = client(A).getLastEventId();
     await client(A).releaseCheckpoint(BEFORE_ANSWER, folder);
-    const reverted = await event('syncthing:localChangesReverted', from);
-    const checks = eventsSince('syncthing:localChangesChecked', from);
-    expect(checks.length, 'checks answered before the revert').to.be.at.least(2);
-    expect(reverted.id, 'reverted on the answer from before the second write').to.be.greaterThan(checks[1].id);
+    await event('syncthing:localChangesChecked', releasedAt);
+    const passesOnOldAnswer = await passes();
+    await waitFor(async () => await passes() >= passesOnOldAnswer + 3, {
+      timeout: 120000, interval: 2000, label: 'three passes with the answer from before the second write',
+    });
+    expect(eventsSince('syncthing:localChangesReverted', from), 'reverted on the answer from before the second write').to.deep.equal([]);
+
+    await client(A).releaseCheckpoint(BEFORE_CHECK, folder);
+    await event('syncthing:localChangesReverted', from);
   });
 
   it('checks again after FluxOS restarts mid-check, and reverts', async function () {

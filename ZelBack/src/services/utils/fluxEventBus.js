@@ -68,6 +68,9 @@ const Checkpoint = Object.freeze({
   // The elected leader has read its sync status and has not yet checked the disk
   // it would seed from holds what that status claims. Keyed by folder id.
   SYNCTHING_BEFORE_SEED_CHECK: 'syncthing:beforeSeedCheck',
+  // A check of a receive-only folder's local changes has been started and has not
+  // read anything. Keyed by folder id.
+  SYNCTHING_BEFORE_LOCAL_CHANGE_CHECK: 'syncthing:beforeLocalChangeCheck',
   // A check of a receive-only folder's local changes has its answer and has not
   // left it for the monitor pass. Keyed by folder id.
   SYNCTHING_BEFORE_LOCAL_CHANGE_ANSWER: 'syncthing:beforeLocalChangeAnswer',
