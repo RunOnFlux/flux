@@ -52,6 +52,10 @@ const BEFORE_START = 'masterSlave:beforeStart';
 // writing it, keyed by folder id.
 const BEFORE_FOLDER_WRITE = 'syncthing:beforeFolderWrite';
 
+// The syncthing monitor's checkpoint before a receiving folder's holdings are
+// measured, keyed by folder id.
+const BEFORE_HOLDINGS = 'syncthing:beforeHoldings';
+
 async function isUp(client, appName) {
   const status = await getAppContainerStatus(client.container, appName);
   return !!(status && status.status.startsWith('Up'));
@@ -651,9 +655,28 @@ describe('primary election under a divergent placement order', function () {
     //
     // The seed is placed first, so the genesis winner is election index 0 and both
     // standbys are below it: each has a turn to book.
+    //
+    // The seed is held before it measures the folder until every later holder has,
+    // so it cannot win on its own before the others are placed: the seed is decided
+    // over the whole field, and the address order decides it because no holder
+    // holds anything.
     const deployedFrom = holders.map((i) => env.clients[i].getLastEventId());
-    await deploy(lossApp, placementOrderWithSeedAt(holders, 0));
     const folder = folderOf(lossApp);
+    const others = holders.filter((i) => i !== seedIndex);
+    const waitedOnSeed = (i) => env.clients[i].getDecisionCount('syncthing:seedDecision', folder, 'holderNotLookedAt');
+    await env.clients[seedIndex].holdCheckpoint(BEFORE_HOLDINGS, folder);
+    try {
+      await deploy(lossApp, placementOrderWithSeedAt(holders, 0));
+      await env.clients[seedIndex].waitForEvent('checkpoint:held',
+        (d) => d.name === BEFORE_HOLDINGS && d.key === folder, 120000, { afterId: deployedFrom[holders.indexOf(seedIndex)] });
+      // A holder that has measured the folder waits on the seed, which has not.
+      await Promise.all(others.map((i) => waitFor(async () => (await waitedOnSeed(i)) > 0, {
+        timeout: 120000, interval: 1000, label: `holder ${i} measured the folder and waits on the seed`,
+      })));
+    } finally {
+      await env.clients[seedIndex].releaseCheckpoint(BEFORE_HOLDINGS, folder)
+        .catch((err) => console.warn(`cleanup: checkpoint release failed: ${err.message}`));
+    }
     await Promise.all(holders.map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder })));
     await Promise.all(holders.map((i, k) => env.clients[i].waitForEvent('syncthing:folderReady',
       (d) => d.folder === folder, 180000, { afterId: deployedFrom[k] })));
