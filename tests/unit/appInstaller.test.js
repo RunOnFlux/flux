@@ -591,6 +591,7 @@ describe('appInstaller tests', () => {
     const owner = '1OwnerOfTheTemporaryApp';
     const tempMessage = {
       hash: 'temphash',
+      type: 'fluxappregister',
       appSpecifications: {
         name: 'trialapp', version: 4, owner, compose: [{ name: 'web', repotag: 'org/web:1', cpu: 0.5, ram: 500, hdd: 5 }],
       },
@@ -655,6 +656,67 @@ describe('appInstaller tests', () => {
 
       expect(pastTheGate(), 'the test went on to install over the app').to.equal(false);
       expect(res.json.firstCall.args[0].data.message).to.equal('Flux App trialapp is installed on this node. Test it on a node that does not hold it.');
+    });
+
+    // An update is signed by the app's owner as registered, whatever owner it names.
+    describe('an update that hands the app to a new owner', () => {
+      const current = '1CurrentOwner';
+      const named = '1NewOwnerNamedInTheUpdate';
+
+      beforeEach(() => {
+        messageVerifierStub.checkAppTemporaryMessageExistence.withArgs('temphash').resolves({
+          ...tempMessage, type: 'fluxappupdate', appSpecifications: { ...tempMessage.appSpecifications, owner: named },
+        });
+        baseStubs['../appDatabase/registryManager'].getApplicationGlobalSpecifications
+          .withArgs('trialapp').resolves({ ...tempMessage.appSpecifications, owner: current });
+      });
+
+      it('lets the current owner test it', async () => {
+        const req = requestAs(current);
+        const res = response();
+        verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+        verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(false);
+
+        await appInstaller.testAppInstall(req, res);
+
+        expect(pastTheGate()).to.equal(true);
+      });
+
+      it('refuses the owner it names, who does not own the app yet', async () => {
+        const req = requestAs(named);
+        const res = response();
+        verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+        verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(false);
+
+        await appInstaller.testAppInstall(req, res);
+
+        expect(pastTheGate()).to.equal(false);
+        expect(res.json.firstCall.args[0].data.message).to.equal('Unauthorized');
+      });
+
+      it('refuses a session that names no address when the app is not registered', async () => {
+        baseStubs['../appDatabase/registryManager'].getApplicationGlobalSpecifications.withArgs('trialapp').resolves(null);
+        const req = requestAs(null);
+        const res = response();
+        verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+        verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(false);
+
+        await appInstaller.testAppInstall(req, res);
+
+        expect(pastTheGate()).to.equal(false);
+      });
+
+      it('refuses everyone but the flux team when the app is not registered', async () => {
+        baseStubs['../appDatabase/registryManager'].getApplicationGlobalSpecifications.withArgs('trialapp').resolves(null);
+        const req = requestAs(current);
+        const res = response();
+        verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+        verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(false);
+
+        await appInstaller.testAppInstall(req, res);
+
+        expect(pastTheGate()).to.equal(false);
+      });
     });
 
     it('refuses a caller with no session at all', async () => {

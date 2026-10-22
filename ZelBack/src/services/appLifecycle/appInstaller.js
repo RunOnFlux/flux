@@ -1177,6 +1177,20 @@ async function checkAppRequirements(appSpecs, skipGeolocation = false, skipStati
 }
 
 /**
+ * The owner whose key signs a pending app message: the owner a registration
+ * names, and for an update the owner of the app as registered, who signs the
+ * update whatever owner it names.
+ * @param {object} tempMessage A temporary app message.
+ * @returns {Promise<string|null>} The signer's address, or null when it cannot be found.
+ */
+async function pendingMessageSigner(tempMessage) {
+  const isUpdate = tempMessage.type === 'fluxappupdate' || tempMessage.type === 'zelappupdate';
+  if (!isUpdate) return tempMessage.appSpecifications?.owner ?? null;
+  const registered = await getApplicationGlobalSpecifications(tempMessage.appSpecifications?.name);
+  return registered?.owner ?? null;
+}
+
+/**
  * Test application installation - Similar to installAppLocally but for testing with reduced resource requirements
  * @param {object} req - Request object containing appname in params or query
  * @param {object} res - Response object
@@ -1205,12 +1219,13 @@ async function testAppInstall(req, res) {
       }
       let appSpecifications;
 
-      // An app not yet paid for is tested by its owner, addressed by its message
-      // hash. The flux team may test any.
+      // An app not yet paid for is tested by the owner whose key signs its
+      // message, addressed by its message hash. The flux team may test any.
       const tempMessage = await messageVerifier.checkAppTemporaryMessageExistence(appname);
       if (tempMessage) {
         const caller = serviceHelper.ensureObject(authOf(req))?.zelid;
-        const mayTest = caller === tempMessage.appSpecifications?.owner
+        const signer = await pendingMessageSigner(tempMessage);
+        const mayTest = (Boolean(caller) && caller === signer)
           || await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
         if (!mayTest) {
           const errMessage = messageHelper.errUnauthorizedMessage();
