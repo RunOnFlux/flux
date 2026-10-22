@@ -5,11 +5,16 @@ const fluxEventBus = require('../utils/fluxEventBus');
 
 // When this node took each app it holds: one record per app, keyed by name.
 //
-// Written when an app is installed here and kept through every redeploy and spec
-// update, which remove and reinstall the app without it leaving the node. Deleted
-// when the app leaves. The announcer reads runningSince from here and nowhere
-// else, because the network's copy of this node's own location rows lapses in
-// normal running - expiry, eviction, sigterm - while the app goes on running.
+// The record follows the app's data on this node. It is written when a hard
+// install creates the app's volume, and deleted when a removal deletes the
+// volume; a soft redeploy keeps the volume and leaves the record as it is. So a
+// hard redeploy, which starts from an empty volume, starts a new record.
+//
+// The announcer reads runningSince from here and nowhere else, because the
+// network's copy of this node's own location rows lapses in normal running -
+// expiry, eviction, sigterm - while the app goes on running. A record outliving
+// its app is never read: only an installed app's record is, and a hard install
+// overwrites whatever it finds.
 //
 // Kept apart from the app's specification in appsInformation: a spec update
 // deletes and re-inserts that, and this record must outlive it.
@@ -33,25 +38,21 @@ async function prepareCollection() {
 }
 
 /**
- * Record that this node took an app at `placedAt`, unless a record for it exists.
+ * Record that this node took an app now, over any record it had of the app: a
+ * hard install has just created the app's volume.
  * @param {string} name App name.
- * @param {Date} [placedAt] When this node took it.
- * @param {string} [source] What the time was taken from: install, locationRow or now.
  * @returns {Promise<void>}
  */
-async function recordPlacement(name, placedAt = new Date(), source = 'install') {
-  // Two writers racing the first insert leave one record: the server retries an
-  // upsert that collides on a unique index matched by equality.
-  const result = await dbHelper.updateOneInDatabase(
+async function recordPlacement(name) {
+  const placedAt = new Date();
+  await dbHelper.updateOneInDatabase(
     localDatabase(),
     appsPlacements,
     { name },
-    { $setOnInsert: { name, placedAt } },
+    { $set: { name, placedAt } },
     { upsert: true },
   );
-  if (result?.upsertedCount) {
-    fluxEventBus.publish('app:placementRecorded', { name, placedAt: placedAt.toISOString(), source });
-  }
+  fluxEventBus.publish('app:placementRecorded', { name, placedAt: placedAt.toISOString(), source: 'install' });
 }
 
 /**
@@ -70,7 +71,7 @@ async function placementsOf(names) {
 }
 
 /**
- * Forget an app this node no longer holds.
+ * Forget an app whose volume this node has deleted.
  * @param {string} name App name.
  * @returns {Promise<void>}
  */
@@ -80,19 +81,28 @@ async function removePlacement(name) {
 }
 
 /**
- * Make the records match the apps installed here, once, before this node first
- * announces them.
- *
- * An installed app with no record gets one dated at the runningSince this node's
- * own location row holds, so it keeps the place among its app's instances the
- * network already gives it, and dated now when there is no row. A record for an
- * app not installed here is removed, so a later install starts a new one.
+ * Remove the records of apps not installed here.
+ * @param {Array<string>} installedNames Names of the apps installed here.
+ * @returns {Promise<number>} How many were removed.
+ */
+async function removeStrayPlacements(installedNames) {
+  const removal = await dbHelper.removeDocumentsFromCollection(localDatabase(), appsPlacements, { name: { $nin: installedNames } });
+  const removed = removal?.deletedCount ?? 0;
+  if (removed) log.info(`appPlacements - removed ${removed} record(s) of apps not installed here`);
+  fluxEventBus.publish('app:placementsTidied', { removed });
+  return removed;
+}
+
+/**
+ * Give each installed app without a record one, before this node first announces
+ * it. It is dated at the runningSince this node's own location row holds, so the
+ * app keeps the place among its instances the network already gives it, and
+ * dated now when there is no row. A record that exists is left as it is.
  * @param {Array<string>} installedNames Names of the apps installed here.
  * @param {string} localSocketAddr This node's address.
- * @returns {Promise<{created: number, removed: number}>} What changed.
+ * @returns {Promise<{created: number, fromLocationRows: number}>} What was written.
  */
-async function reconcilePlacements(installedNames, localSocketAddr) {
-  const database = localDatabase();
+async function backfillPlacements(installedNames, localSocketAddr) {
   const recorded = await placementsOf(installedNames);
   const missing = installedNames.filter((name) => !recorded.has(name));
 
@@ -108,17 +118,25 @@ async function reconcilePlacements(installedNames, localSocketAddr) {
   const now = new Date();
   // eslint-disable-next-line no-restricted-syntax
   for (const name of missing) {
+    const placedAt = rowSince.get(name) ?? now;
     // eslint-disable-next-line no-await-in-loop
-    await recordPlacement(name, rowSince.get(name) ?? now, rowSince.has(name) ? 'locationRow' : 'now');
+    const result = await dbHelper.updateOneInDatabase(
+      localDatabase(),
+      appsPlacements,
+      { name },
+      { $setOnInsert: { name, placedAt } },
+      { upsert: true },
+    );
+    if (result?.upsertedCount) {
+      fluxEventBus.publish('app:placementRecorded', { name, placedAt: placedAt.toISOString(), source: rowSince.has(name) ? 'locationRow' : 'now' });
+    }
   }
 
-  const removal = await dbHelper.removeDocumentsFromCollection(database, appsPlacements, { name: { $nin: installedNames } });
-  const removed = removal?.deletedCount ?? 0;
-  if (missing.length || removed) {
-    log.info(`appPlacements - recorded ${missing.length} placement(s) (${rowSince.size} from this node's location rows), removed ${removed} for apps not installed here`);
+  if (missing.length) {
+    log.info(`appPlacements - recorded ${missing.length} placement(s), ${rowSince.size} from this node's location rows`);
   }
-  fluxEventBus.publish('app:placementsReconciled', { created: missing.length, fromLocationRows: rowSince.size, removed });
-  return { created: missing.length, removed };
+  fluxEventBus.publish('app:placementsBackfilled', { created: missing.length, fromLocationRows: rowSince.size });
+  return { created: missing.length, fromLocationRows: rowSince.size };
 }
 
 module.exports = {
@@ -126,5 +144,6 @@ module.exports = {
   recordPlacement,
   placementsOf,
   removePlacement,
-  reconcilePlacements,
+  removeStrayPlacements,
+  backfillPlacements,
 };

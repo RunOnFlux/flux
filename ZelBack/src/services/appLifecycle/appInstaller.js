@@ -548,8 +548,8 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
       // until its monitor has measured what it holds.
       folderStates.installed(appSpecifications);
       claimed = true;
-      // A redeploy reinstalls an app whose record this node kept; only a new
-      // placement writes one.
+      // The app's volumes are created next: this node's record of when it took
+      // the app starts now.
       if (!test) await appPlacements.recordPlacement(appSpecifications.name);
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;

@@ -6917,9 +6917,9 @@ describe('advancedWorkflows tests', () => {
       expect(globalState.softRedeployInProgress).to.be.false;
     });
 
-    // A redeploy keeps the node's record of when it took the app for the
-    // reinstall; one that ends without the app drops it.
-    it('drops the placement record when the app was removed and the reinstall did not happen', async () => {
+    // A soft redeploy keeps the app's volume, and with it the node's record of
+    // when it took the app, whichever way it ends.
+    it('leaves the placement record alone when the app was removed and the reinstall did not happen', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').resolves(v3Spec);
       sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves();
       sinon.stub(appUninstaller, 'softUninstallApplication').resolves();
@@ -6929,6 +6929,7 @@ describe('advancedWorkflows tests', () => {
         return true;
       });
       const removePlacement = sinon.stub(appPlacements, 'removePlacement').resolves();
+      const recordPlacement = sinon.stub(appPlacements, 'recordPlacement').resolves();
 
       try {
         await advancedWorkflows.softRedeploy(v3Spec, null);
@@ -6936,31 +6937,8 @@ describe('advancedWorkflows tests', () => {
         globalState.installationInProgress = false;
       }
 
-      sinon.assert.calledOnceWithExactly(removePlacement, 'TestApp');
-    });
-
-    it('drops the placement record when the step after the removal cannot read the database', async () => {
-      sinon.stub(dbHelper, 'findOneInDatabase').resolves(v3Spec);
-      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves();
-      sinon.stub(appUninstaller, 'softUninstallApplication').resolves();
-      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new MongoNetworkTimeoutError('connection timed out'));
-      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
-      const removePlacement = sinon.stub(appPlacements, 'removePlacement').resolves();
-
-      await advancedWorkflows.softRedeploy(v3Spec, null);
-
-      sinon.assert.calledOnceWithExactly(removePlacement, 'TestApp');
-    });
-
-    it('keeps the placement record when the removal never finished', async () => {
-      sinon.stub(dbHelper, 'findOneInDatabase').resolves(v3Spec);
-      sinon.stub(appUninstaller, 'softUninstallApplication').rejects(new Error('Container fluxTestApp not found'));
-      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
-      const removePlacement = sinon.stub(appPlacements, 'removePlacement').resolves();
-
-      await advancedWorkflows.softRedeploy(v3Spec, null);
-
       sinon.assert.notCalled(removePlacement);
+      sinon.assert.notCalled(recordPlacement);
     });
 
     it('records that a failure after the app is down still force-uninstalls it', async () => {
@@ -7600,9 +7578,8 @@ describe('advancedWorkflows tests', () => {
       ).to.be.false;
     });
 
-    // A version 8 app whose components change is removed and installed again on
-    // this node, so the record of when the node took it is kept - unless the
-    // reinstall does not bring the app back.
+    // A version 8 app whose components change is removed and installed again as
+    // a whole, and the network is told when it does not come back.
     describe('a redeploy for a change of components', () => {
       const v8Installed = { ...installedApp, version: 8, enterprise: '' };
       const v8New = {
@@ -7612,8 +7589,6 @@ describe('advancedWorkflows tests', () => {
       };
       let removeAppLocally;
       let registerAppLocally;
-      let removePlacement;
-
       let checkAppRequirements;
       let announceRemoval;
 
@@ -7624,35 +7599,30 @@ describe('advancedWorkflows tests', () => {
         removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves(RemovalOutcome.REMOVED);
         announceRemoval = sinon.stub(appUninstaller, 'announceRemoval').resolves();
         registerAppLocally = sinon.stub(appInstaller, 'registerAppLocally').resolves(InstallOutcome.INSTALLED);
-        removePlacement = sinon.stub(appPlacements, 'removePlacement').resolves();
       });
 
-      it('removes the app as one being redeployed, and keeps its record', async () => {
+      it('removes the app and installs it again', async () => {
         await advancedWorkflows.reinstallOldApplications();
 
-        expect(removeAppLocally.calledOnce, 'the fixture never reached the redeploy it is about').to.equal(true);
-        expect(removeAppLocally.firstCall.args[5]).to.deep.equal({ redeploying: true });
-        sinon.assert.calledOnce(registerAppLocally);
-        sinon.assert.notCalled(removePlacement);
+        sinon.assert.callOrder(removeAppLocally, checkAppRequirements, registerAppLocally);
+        sinon.assert.notCalled(announceRemoval);
       });
 
-      it('drops the record when the reinstall does not bring the app back, and tells the network', async () => {
+      it('tells the network when the reinstall does not bring the app back', async () => {
         registerAppLocally.resolves(InstallOutcome.FAILED);
 
         await advancedWorkflows.reinstallOldApplications();
 
-        sinon.assert.calledOnceWithExactly(removePlacement, 'myapp');
         sinon.assert.calledOnceWithExactly(announceRemoval, 'myapp');
       });
 
-      it('drops the record when the new specification\'s requirements are not met after the removal', async () => {
+      it('tells the network when the new specification\'s requirements are not met after the removal', async () => {
         checkAppRequirements.rejects(new Error('Insufficient RAM'));
 
         await advancedWorkflows.reinstallOldApplications();
 
         sinon.assert.calledOnce(removeAppLocally);
         sinon.assert.notCalled(registerAppLocally);
-        sinon.assert.calledOnceWithExactly(removePlacement, 'myapp');
         sinon.assert.calledOnceWithExactly(announceRemoval, 'myapp');
       });
     });

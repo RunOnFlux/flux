@@ -83,7 +83,10 @@ describe('appStartupManager tests', () => {
     sinon.stub(globalStateStub, 'waitForDaemonReady').resolves();
     sinon.stub(globalStateStub, 'waitForBootContainerStateSettled').resolves();
 
-    appPlacementsStub = { reconcilePlacements: sinon.stub().resolves({ created: 0, removed: 0 }) };
+    appPlacementsStub = {
+      removeStrayPlacements: sinon.stub().resolves(0),
+      backfillPlacements: sinon.stub().resolves({ created: 0, fromLocationRows: 0 }),
+    };
 
     appQueryServiceStub = {
       installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
@@ -942,28 +945,54 @@ describe('appStartupManager tests', () => {
       await appStartupManager.manageAppsOnBoot(KEEP);
 
       expect(logStub.error.calledWithMatch(/not opened in the firewall: helper crashed/)).to.equal(true);
-      // once for the placement records, twice for the reconcile
-      expect(dbHelperStub.findInDatabase.callCount, 'the reconcile read the installed apps').to.equal(3);
+      // once each for tidying and backfilling the placement records, twice for the reconcile
+      expect(dbHelperStub.findInDatabase.callCount, 'the reconcile read the installed apps').to.equal(4);
     });
 
     // The first announcement reads these records, and it waits for boot to settle.
-    it('makes the placement records match the installed apps before it opens their ports', async () => {
+    it('gives the installed apps their records before it opens their ports', async () => {
       fluxNetworkHelperStub.getLocalSocketAddress.resolves('203.0.113.40:16127');
 
       await appStartupManager.manageAppsOnBoot(KEEP);
 
-      sinon.assert.calledOnceWithExactly(appPlacementsStub.reconcilePlacements, ['web', 'db'], '203.0.113.40:16127');
-      sinon.assert.callOrder(appPlacementsStub.reconcilePlacements, portManagerStub.appsWithPorts);
+      sinon.assert.calledOnceWithExactly(appPlacementsStub.backfillPlacements, ['web', 'db'], '203.0.113.40:16127');
+      sinon.assert.callOrder(appPlacementsStub.backfillPlacements, portManagerStub.appsWithPorts);
     });
 
-    it('logs records it could not reconcile and goes on booting', async () => {
-      appPlacementsStub.reconcilePlacements.rejects(new Error('mongo went away'));
+    it('logs records it could not backfill and goes on booting', async () => {
+      appPlacementsStub.backfillPlacements.rejects(new Error('mongo went away'));
 
       await appStartupManager.manageAppsOnBoot(KEEP);
 
-      expect(logStub.error.calledWithMatch(/placement records not reconciled: mongo went away/)).to.equal(true);
+      expect(logStub.error.calledWithMatch(/placement records not backfilled: mongo went away/)).to.equal(true);
       expect(logStub.info.calledWithMatch(/node confirmed, reconciling/)).to.equal(true);
       expect(globalStateStub.bootContainerStateSettled).to.equal(true);
+    });
+
+    it('removes stray records first, against the installed apps', async () => {
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      sinon.assert.calledOnceWithExactly(appPlacementsStub.removeStrayPlacements, ['web', 'db']);
+      sinon.assert.callOrder(appPlacementsStub.removeStrayPlacements, appPlacementsStub.backfillPlacements);
+    });
+
+    // A boot that stops before it reconciles the apps still clears stray records.
+    it('removes stray records on a boot that stops early, and backfills none', async () => {
+      fluxNetworkHelperStub.isNodeDos.returns(true);
+
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      sinon.assert.calledOnce(appPlacementsStub.removeStrayPlacements);
+      sinon.assert.notCalled(appPlacementsStub.backfillPlacements);
+    });
+
+    it('logs stray records it could not remove and goes on booting', async () => {
+      appPlacementsStub.removeStrayPlacements.rejects(new Error('mongo went away'));
+
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      expect(logStub.error.calledWithMatch(/stray placement records not removed: mongo went away/)).to.equal(true);
+      sinon.assert.calledOnce(appPlacementsStub.backfillPlacements);
     });
 
     it('opens nothing when the apps are all being removed', async () => {

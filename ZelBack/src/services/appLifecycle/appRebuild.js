@@ -7,7 +7,6 @@ const log = require('../../lib/log');
 const fluxEventBus = require('../utils/fluxEventBus');
 const appUninstaller = require('./appUninstaller');
 const appInstaller = require('./appInstaller');
-const appPlacements = require('../appManagement/appPlacements');
 const { RemovalOutcome } = require('../utils/removalOutcome');
 const { InstallOutcome } = require('../utils/installOutcome');
 
@@ -25,7 +24,7 @@ const { InstallOutcome } = require('../utils/installOutcome');
  *   node, FAILED when the removal did not finish.
  */
 async function rebuildApp(appSpecs, res) {
-  const removal = await appUninstaller.removeAppLocally(appSpecs.name, res, false, false, false, { redeploying: true });
+  const removal = await appUninstaller.removeAppLocally(appSpecs.name, res, false, false);
   if (removal !== RemovalOutcome.REMOVED && removal !== RemovalOutcome.NOT_INSTALLED) {
     log.warn(`appRebuild - ${appSpecs.name} was not removed (${removal}), so it is not reinstalled`);
     const outcome = removal === RemovalOutcome.BUSY ? InstallOutcome.BUSY : InstallOutcome.FAILED;
@@ -43,12 +42,6 @@ async function rebuildApp(appSpecs, res) {
     outcome = InstallOutcome.FAILED;
   }
 
-  // The removal kept this node's record of when it took the app, for the
-  // reinstall; an app that is not back here has left, and the record with it.
-  if (outcome !== InstallOutcome.INSTALLED) {
-    await appPlacements.removePlacement(appSpecs.name)
-      .catch((error) => log.error(`appRebuild - the placement of ${appSpecs.name} was not removed: ${error.message}`));
-  }
   if (outcome !== InstallOutcome.INSTALLED && removal === RemovalOutcome.REMOVED) {
     log.warn(`appRebuild - ${appSpecs.name} was removed and not reinstalled (${outcome}); telling the network`);
     await appUninstaller.announceRemoval(appSpecs.name)

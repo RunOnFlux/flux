@@ -21,7 +21,6 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const { addressMoveEvents, EVENTS: ADDRESS_MOVE_EVENTS } = require('../utils/addressMoveEvents');
 const { InstallOutcome } = require('../utils/installOutcome');
 const appRebuild = require('./appRebuild');
-const appPlacements = require('../appManagement/appPlacements');
 const generalService = require('../generalService');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
 // eslint-disable-next-line no-unused-vars
@@ -1538,18 +1537,6 @@ async function mayTearDownToRebuild(appSpecs, res) {
  * @param {object} appSpecs - App specifications
  * @param {object} res - Response object
  */
-/**
- * Drop this node's record of when it took an app a redeploy removed and did not
- * install again. The removal kept the record for the reinstall; without one the
- * app has left this node, and a later placement here is a new one.
- * @param {string} appName
- * @returns {Promise<void>}
- */
-async function forgetPlacementOfAppNotReinstalled(appName) {
-  await appPlacements.removePlacement(appName)
-    .catch((error) => log.error(`the placement of ${appName} was not removed: ${error.message}`));
-}
-
 async function softRedeploy(appSpecs, res) {
   // Whether softRemoveAppLocally ran to completion. False means the removal did
   // not FINISH - which is not the same as "it never started": softRemoveAppLocally
@@ -1656,12 +1643,13 @@ async function softRedeploy(appSpecs, res) {
         res.write(serviceHelper.ensureString(notReinstalled));
         if (res.flush) res.flush();
       }
-      await forgetPlacementOfAppNotReinstalled(appSpecs.name);
       globalState.softRedeployInProgress = false;
+      fluxEventBus.publish('app:softRedeployed', { name: appSpecs.name, outcome });
       return;
     }
     log.info('Application softly redeployed');
     globalState.softRedeployInProgress = false;
+    fluxEventBus.publish('app:softRedeployed', { name: appSpecs.name, outcome });
   } catch (error) {
     log.info('Error on softRedeploy');
     log.error(error);
@@ -1699,7 +1687,6 @@ async function softRedeploy(appSpecs, res) {
         res.write(serviceHelper.ensureString(notReinstalled));
         if (res.flush) res.flush();
       }
-      await forgetPlacementOfAppNotReinstalled(appSpecs.name);
       return;
     }
     log.warn(`REMOVAL REASON: Soft redeploy failure - ${appSpecs.name} failed during soft redeploy: ${error.message} (softRedeploy)`);
@@ -4514,8 +4501,7 @@ async function reinstallOldApplications() {
               log.warn(`REMOVAL REASON: Component structure change (v8+) - ${appSpecifications.name} component count/names changed`);
 
               // A hard redeploy: removed and installed again as a whole. One that does
-              // not bring the app back tells the network and drops this node's record
-              // of when it took the app.
+              // not bring the app back tells the network.
               // eslint-disable-next-line no-await-in-loop
               const outcome = await appRebuild.rebuildApp(appSpecifications);
               if (outcome === InstallOutcome.INSTALLED) {

@@ -397,24 +397,39 @@ async function removeAllApps(reason) {
 }
 
 /**
- * Make this node's placement records match the apps installed here, before its
- * first announcement reads them. A failure is logged and boot goes on: an app
- * without a record is announced from its location row, as it is without one at
- * any time.
+ * Remove the placement records of apps not installed here, on every boot
+ * whichever way it goes on. A failure is logged and boot goes on: a stray record
+ * is never read, and the next boot tries again.
  * @returns {Promise<void>}
  */
-async function reconcilePlacementsOnBoot() {
+async function tidyPlacementsOnBoot() {
+  try {
+    const installed = await getInstalledAppsFromDb();
+    await appPlacements.removeStrayPlacements(installed.map((app) => app.name));
+  } catch (error) {
+    log.error(`appStartupManager - stray placement records not removed: ${error.message}`);
+  }
+}
+
+/**
+ * Give each installed app without a placement record one, before this node's
+ * first announcement reads them. A failure is logged and boot goes on: an app
+ * without a record is announced from its location row.
+ * @returns {Promise<void>}
+ */
+async function backfillPlacementsOnBoot() {
   try {
     const installed = await getInstalledAppsFromDb();
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
-    await appPlacements.reconcilePlacements(installed.map((app) => app.name), localSocketAddr);
+    await appPlacements.backfillPlacements(installed.map((app) => app.name), localSocketAddr);
   } catch (error) {
-    log.error(`appStartupManager - placement records not reconciled: ${error.message}`);
+    log.error(`appStartupManager - placement records not backfilled: ${error.message}`);
   }
 }
 
 async function manageAppsOnBoot(bootContext) {
   try {
+    await tidyPlacementsOnBoot();
     // ahead of every container start, so no slice in use can be empty here
     await appSlice.stopEmptySlices();
     if (bootContext.firstBoot) {
@@ -475,7 +490,7 @@ async function manageAppsOnBoot(bootContext) {
     }
 
     log.info('appStartupManager - Daemon, DB, and node confirmed, reconciling apps');
-    await reconcilePlacementsOnBoot();
+    await backfillPlacementsOnBoot();
     await openInstalledAppPorts();
     await reconcileAppsOnBoot();
   } finally {

@@ -36,26 +36,38 @@ describe('appPlacements', () => {
     expect(indexes.find((index) => index.name === 'name_unique')).to.include({ unique: true });
   });
 
-  describe('recordPlacement', () => {
-    it('records when this node took an app', async () => {
-      await appPlacements.recordPlacement('web', june);
+  // A record written as an install writes it: dated at the call, over whatever
+  // record the app had.
+  const seed = (name, placedAt) => placements.insertOne({ name, placedAt });
 
-      expect(await recorded()).to.deep.equal([{ name: 'web', placedAt: june }]);
+  describe('recordPlacement', () => {
+    it('records that this node took an app now', async () => {
+      const before = Date.now();
+      await appPlacements.recordPlacement('web');
+
+      const [record] = await recorded();
+      expect(record.name).to.equal('web');
+      expect(record.placedAt.getTime()).to.be.within(before, Date.now());
     });
 
-    // A redeploy reinstalls an app whose record this node kept.
-    it('never moves a record that exists', async () => {
-      await appPlacements.recordPlacement('web', june);
-      await appPlacements.recordPlacement('web', july);
+    // A hard install creates the app's volume: the record of the data before it
+    // describes data this node no longer holds.
+    it('replaces a record the app already had', async () => {
+      await seed('web', june);
+      const before = Date.now();
 
-      expect(await recorded()).to.deep.equal([{ name: 'web', placedAt: june }]);
+      await appPlacements.recordPlacement('web');
+
+      const records = await recorded();
+      expect(records).to.have.length(1);
+      expect(records[0].placedAt.getTime()).to.be.within(before, Date.now());
     });
 
     it('keeps one record when two writers race the first one', async () => {
       await Promise.all([
-        appPlacements.recordPlacement('web', june),
-        appPlacements.recordPlacement('web', july),
-        appPlacements.recordPlacement('web', june),
+        appPlacements.recordPlacement('web'),
+        appPlacements.recordPlacement('web'),
+        appPlacements.recordPlacement('web'),
       ]);
 
       expect(await recorded()).to.have.length(1);
@@ -64,8 +76,8 @@ describe('appPlacements', () => {
 
   describe('placementsOf', () => {
     it('answers the apps it has records for, and only those', async () => {
-      await appPlacements.recordPlacement('web', june);
-      await appPlacements.recordPlacement('db', july);
+      await seed('web', june);
+      await seed('db', july);
 
       const found = await appPlacements.placementsOf(['web', 'cache']);
 
@@ -75,8 +87,8 @@ describe('appPlacements', () => {
 
   describe('removePlacement', () => {
     it('forgets the one app', async () => {
-      await appPlacements.recordPlacement('web', june);
-      await appPlacements.recordPlacement('db', july);
+      await seed('web', june);
+      await seed('db', july);
 
       await appPlacements.removePlacement('web');
 
@@ -84,7 +96,27 @@ describe('appPlacements', () => {
     });
   });
 
-  describe('reconcilePlacements', () => {
+  describe('removeStrayPlacements', () => {
+    it('removes the record of an app not installed here, and only that', async () => {
+      await seed('gone', june);
+      await seed('web', july);
+
+      const removed = await appPlacements.removeStrayPlacements(['web']);
+
+      expect(removed).to.equal(1);
+      expect(await recorded()).to.deep.equal([{ name: 'web', placedAt: july }]);
+    });
+
+    it('removes every record when nothing is installed', async () => {
+      await seed('gone', june);
+
+      await appPlacements.removeStrayPlacements([]);
+
+      expect(await recorded()).to.deep.equal([]);
+    });
+  });
+
+  describe('backfillPlacements', () => {
     const row = (name, ip, runningSince) => ({
       name, ip, hash: `${name}hash`, broadcastedAt: new Date(), expireAt: new Date(Date.now() + 3600000), runningSince,
     });
@@ -94,9 +126,9 @@ describe('appPlacements', () => {
     it('dates an installed app with no record at the runningSince of this node\'s own row', async () => {
       await locations.insertOne(row('web', me, june));
 
-      const result = await appPlacements.reconcilePlacements(['web'], me);
+      const result = await appPlacements.backfillPlacements(['web'], me);
 
-      expect(result).to.deep.equal({ created: 1, removed: 0 });
+      expect(result).to.deep.equal({ created: 1, fromLocationRows: 1 });
       expect(await recorded()).to.deep.equal([{ name: 'web', placedAt: june }]);
     });
 
@@ -104,7 +136,7 @@ describe('appPlacements', () => {
       await locations.insertOne(row('web', other, june));
       const before = Date.now();
 
-      await appPlacements.reconcilePlacements(['web'], me);
+      await appPlacements.backfillPlacements(['web'], me);
 
       const [{ placedAt }] = await recorded();
       expect(placedAt.getTime()).to.be.within(before, Date.now());
@@ -113,7 +145,7 @@ describe('appPlacements', () => {
     it('dates an installed app with neither a record nor a row now', async () => {
       const before = Date.now();
 
-      await appPlacements.reconcilePlacements(['web'], me);
+      await appPlacements.backfillPlacements(['web'], me);
 
       const [{ placedAt }] = await recorded();
       expect(placedAt.getTime()).to.be.within(before, Date.now());
@@ -123,38 +155,28 @@ describe('appPlacements', () => {
       await locations.insertOne(row('web', me, june));
       const before = Date.now();
 
-      await appPlacements.reconcilePlacements(['web'], null);
+      await appPlacements.backfillPlacements(['web'], null);
 
       const [{ placedAt }] = await recorded();
       expect(placedAt.getTime()).to.be.within(before, Date.now());
     });
 
     it('leaves a record it already has, whatever the row says', async () => {
-      await appPlacements.recordPlacement('web', june);
+      await seed('web', june);
       await locations.insertOne(row('web', me, july));
 
-      const result = await appPlacements.reconcilePlacements(['web'], me);
+      const result = await appPlacements.backfillPlacements(['web'], me);
 
-      expect(result).to.deep.equal({ created: 0, removed: 0 });
+      expect(result).to.deep.equal({ created: 0, fromLocationRows: 0 });
       expect(await recorded()).to.deep.equal([{ name: 'web', placedAt: june }]);
     });
 
-    it('removes the record of an app not installed here', async () => {
-      await appPlacements.recordPlacement('gone', june);
-      await appPlacements.recordPlacement('web', july);
+    it('touches no record of an app not installed here', async () => {
+      await seed('gone', june);
 
-      const result = await appPlacements.reconcilePlacements(['web'], me);
+      await appPlacements.backfillPlacements(['web'], me);
 
-      expect(result).to.deep.equal({ created: 0, removed: 1 });
-      expect(await recorded()).to.deep.equal([{ name: 'web', placedAt: july }]);
-    });
-
-    it('removes every record when nothing is installed', async () => {
-      await appPlacements.recordPlacement('gone', june);
-
-      await appPlacements.reconcilePlacements([], me);
-
-      expect(await recorded()).to.deep.equal([]);
+      expect((await recorded()).map((r) => r.name)).to.deep.equal(['gone', 'web']);
     });
   });
 });

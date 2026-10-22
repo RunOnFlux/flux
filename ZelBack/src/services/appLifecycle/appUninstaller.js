@@ -913,13 +913,9 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
  * @param {boolean} force - Force removal
  * @param {boolean} endResponse - Whether to end response
  * @param {boolean} sendMessage - Whether to send message to network
- * @param {object} [options]
- * @param {boolean} [options.redeploying] The app is removed to be installed here again,
- *   so this node keeps its record of when it took the app. Without it the app is
- *   leaving this node and the record goes with it.
  * @returns {Promise<string>} One of RemovalOutcome. BUSY carries no claim about the app.
  */
-async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false, { redeploying = false } = {}) {
+async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false) {
   // Names what this call marked as departing, and nothing else: the guards below
   // return through the same finally without having marked anything, and a refused
   // duplicate must not unmark the removal that is actually running.
@@ -1153,7 +1149,8 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         if (res.flush) res.flush();
       }
       await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-      if (!redeploying) await appPlacements.removePlacement(appName);
+      // the app's volume is gone, and the record of when this node took it with it
+      await appPlacements.removePlacement(appName);
       // The app is gone for good: nothing reconciles an app with no row, so its
       // removal records have no reader left. Only this full-uninstall path clears
       // them - softRemoveAppLocally deletes the row too, but as one step of a

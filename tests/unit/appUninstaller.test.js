@@ -1029,25 +1029,16 @@ describe('appUninstaller tests', () => {
       sinon.assert.notCalled(runtimeStateStub.remove);
     });
 
-    // When this node took an app is kept for as long as the app stays on it: a
-    // redeploy removes and reinstalls it without it ever leaving.
+    // The record follows the app's volume: a removal that deletes the volume
+    // deletes it, and one that keeps the volume keeps it.
     describe('the placement record', () => {
-      it('goes with an app that leaves this node', async () => {
+      it('goes with the app\'s volume', async () => {
         const uninstaller = buildUninstaller(composedSpec);
 
         const outcome = await uninstaller.removeAppLocally('testapp', res, true, false, true);
 
         expect(outcome).to.equal(RemovalOutcome.REMOVED);
         sinon.assert.calledOnceWithExactly(appPlacementsStub.removePlacement, 'testapp');
-      });
-
-      it('stays when the app is removed to be redeployed here', async () => {
-        const uninstaller = buildUninstaller(composedSpec);
-
-        const outcome = await uninstaller.removeAppLocally('testapp', res, true, false, false, { redeploying: true });
-
-        expect(outcome).to.equal(RemovalOutcome.REMOVED);
-        sinon.assert.notCalled(appPlacementsStub.removePlacement);
       });
 
       it('stays when one component is removed and the app with it is not', async () => {
