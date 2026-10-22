@@ -289,6 +289,7 @@ export function nodeClient(nodeNum) {
         'syncthing:namesVisible',
         'syncthing:localChangesReverted',
         'syncthing:localChangesKept',
+        'syncthing:localChangesChecked',
         'syncthing:devicesResumed',
         'pm2:killTimeoutRaiseFailed',
         'pm2:killTimeoutUnchanged',

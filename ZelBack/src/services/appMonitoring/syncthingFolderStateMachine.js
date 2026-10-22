@@ -29,6 +29,7 @@ const {
 const { isPathMounted } = require('../utils/volumeService');
 const globalState = require('../utils/globalState');
 const folderStates = require('./folderStates');
+const localChangeCheck = require('./localChangeCheck');
 const { isSyncedRootName } = require('../appSystem/volumeReservedNames');
 const primaryRole = require('../appLifecycle/primaryRole');
 const { componentStateOnOtherHolders } = require('./peerComponent');
@@ -549,7 +550,7 @@ async function probeFolderSyncCompletion(folderId) {
     // so a folder of empty directories would read as holding data.
     const {
       globalFileBytes: globalBytes = 0, globalFiles = 0, inSyncFileBytes: inSyncBytes = 0, state,
-      receiveOnlyChangedFiles = 0, receiveOnlyChangedDirectories = 0,
+      receiveOnlyChangedFiles = 0, receiveOnlyChangedDirectories = 0, sequence, remoteSequence,
     } = await syncthingService.getDbStatusInFileBytes(folderId);
 
     const syncPercentage = globalBytes > 0 ? (inSyncBytes / globalBytes) * 100 : 100;
@@ -568,6 +569,9 @@ async function probeFolderSyncCompletion(folderId) {
       // Directories are counted apart from files. A directory whose owner or mode
       // differs from the cluster's is a local change like any other.
       receiveOnlyChangedDirectories,
+      // Where this node's index and each other device's stood when the status was read.
+      sequence,
+      remoteSequence,
       // An EMPTY global index (globalBytes 0) means "unknown / not yet synced",
       // never "done": a node holding the only copy before its peers reconnect
       // reads globalBytes 0, and syncPercentage defaults to 100 there (vacuous).
@@ -1289,72 +1293,6 @@ async function nudgeFolderDevices(folderId) {
   }
 }
 
-// syncthing's FlagLocalReceiveOnly: an item this node changed in a receive-only folder.
-const RECEIVE_ONLY_CHANGE_FLAG = 8;
-// syncthing's FlagLocalGlobal: this device's record of the item is the cluster's version.
-const GLOBAL_VERSION_FLAG = 16;
-const LOCAL_CHANGE_PAGE_SIZE = 1000;
-
-/**
- * Whether this node's record of an item is a local change to data from another device
- * that no other device holds. A receive-only change is the cluster's version only when
- * no other device holds a valid version of the item, and its history names another
- * device when the data came from elsewhere. syncthing reverts such an item by deleting
- * it - the only copy of data the app wrote elsewhere - and a directory that is not
- * empty cannot be deleted, so that revert fails on every pass.
- *
- * An item whose history is this node's alone was made here, never by the app's
- * writer: reverting deletes it, as it should.
- * @param {object} item This node's record of the item, as db/localchanged and db/file's
- *   `local` give it.
- * @param {string} ownCounter This node's version-vector prefix, `<short device id>:`.
- * @returns {boolean}
- */
-function isOnlyCopyHere(item, ownCounter) {
-  const flags = item?.localFlags ?? 0;
-  // eslint-disable-next-line no-bitwise
-  const changedHere = Boolean(flags & RECEIVE_ONLY_CHANGE_FLAG);
-  // eslint-disable-next-line no-bitwise
-  const clusterVersion = Boolean(flags & GLOBAL_VERSION_FLAG);
-  const fromElsewhere = (item?.version ?? []).some((counter) => !counter.startsWith(ownCounter));
-  return changedHere && clusterVersion && fromElsewhere;
-}
-
-/**
- * A local change in a receive-only folder that is the only copy of data from another
- * device (isOnlyCopyHere), read from the folder's own list of local changes.
- *
- * `known` is the item that answered last time. It is asked about first, so a folder
- * keeping its changes costs one request a pass while that item still answers; the
- * list is read only when it does not.
- * @param {string} appId - The Syncthing folder ID
- * @param {string} [known] - The item that answered last time
- * @returns {Promise<string|false|null>} the item's name; false when there is none; null
- *   when the changes could not be read
- */
-async function localChangeHeldOnlyHere(appId, known) {
-  try {
-    const deviceId = await syncthingService.getDeviceId();
-    if (!deviceId) return null;
-    const ownCounter = `${deviceId.substring(0, 7)}:`;
-    if (known) {
-      const answer = await syncthingService.getDbFile(appId, known).catch(() => null);
-      if (isOnlyCopyHere(answer?.local, ownCounter)) return known;
-    }
-    for (let page = 1; ; page += 1) {
-      // eslint-disable-next-line no-await-in-loop
-      const batch = (await syncthingService.getDbLocalChanged(appId, page, LOCAL_CHANGE_PAGE_SIZE))?.files;
-      if (!Array.isArray(batch)) return page > 1 ? false : null;
-      const found = batch.find((item) => isOnlyCopyHere(item, ownCounter));
-      if (found) return found.name;
-      if (batch.length < LOCAL_CHANGE_PAGE_SIZE) return false;
-    }
-  } catch (error) {
-    log.warn(`localChangeHeldOnlyHere - ${appId}: ${error.message}`);
-    return null;
-  }
-}
-
 /**
  * Reverts a synced receiveonly folder's local changes to the cluster's version.
  *
@@ -1368,35 +1306,45 @@ async function localChangeHeldOnlyHere(appId, known) {
  * only copy of it left, and db/revert would delete it. A folder holding one is not
  * reverted - db/revert takes the whole folder, so its other changes stay too - and
  * its changes do not hold the node back from taking over: promoted, it publishes them.
+ * Which of the two a folder is comes from localChangeCheck, and is acted on only while
+ * the folder is still the one it was checked against. Until then the folder is neither
+ * reverted nor promoted.
  *
  * @param {string} appId - The Syncthing folder ID
  * @param {Object|null} syncStatus - A probeFolderSyncCompletion status
- * @param {Object} [folderCache] - The folder's cache entry: `keepingChanges` names the
- *   item that is the only copy while the folder keeps its changes, so keeping them is said
- *   once, when it starts, and the item is asked about first on the next pass
+ * @param {Object} folderCache - The folder's entry in receiveOnlySyncthingAppsCache: it
+ *   carries the check's answer, and `keepingChanges` marks a folder already said to be
+ *   keeping its changes, so that is said once, when it starts
+ * @param {Function} isCurrent - Whether `folderCache` is still the folder's entry
  * @returns {Promise<boolean>} True when the folder has local changes it does not
- *   keep: a revert was asked for, or which changes other devices hold could not be read
+ *   keep: a revert was asked for, or which changes other devices hold is not yet known
  */
-async function revertLocalChangesIfSynced(appId, syncStatus, folderCache) {
-  const cache = folderCache || {};
+async function revertLocalChangesIfSynced(appId, syncStatus, folderCache, isCurrent) {
+  const cache = folderCache;
   if (!syncStatus?.isSynced) return false;
   const changed = (syncStatus.receiveOnlyChangedFiles || 0) + (syncStatus.receiveOnlyChangedDirectories || 0);
   if (changed === 0) {
     delete cache.keepingChanges;
+    delete cache.localChangeCheck;
     return false;
   }
   const files = syncStatus.receiveOnlyChangedFiles || 0;
   const directories = syncStatus.receiveOnlyChangedDirectories || 0;
-  const heldOnlyHere = await localChangeHeldOnlyHere(appId, cache.keepingChanges);
-  if (heldOnlyHere === null) {
-    log.warn(`revertLocalChangesIfSynced - ${appId}: could not read which of its ${changed} local change(s) other devices hold; neither reverting nor promoting this pass`);
+  const devices = (await syncthingService.getConfigFolders(appId).catch(() => null))?.devices;
+  if (!Array.isArray(devices)) {
+    log.warn(`revertLocalChangesIfSynced - ${appId}: could not read which devices share the folder; neither reverting nor promoting this pass`);
     return true;
   }
-  if (heldOnlyHere) {
-    const keeping = Boolean(cache.keepingChanges);
-    cache.keepingChanges = heldOnlyHere;
-    if (keeping) return false;
-    log.warn(`revertLocalChangesIfSynced - ${appId} holds a local change to data from another device that no other device holds (${files} files, ${directories} directories changed); keeping its changes, a revert would delete it`);
+  const stamp = localChangeCheck.stampOf(syncStatus, devices);
+  const answer = localChangeCheck.answerFor(cache, stamp);
+  if (!answer) {
+    localChangeCheck.request(appId, cache, stamp, isCurrent);
+    return true;
+  }
+  if (answer.onlyCopy) {
+    if (cache.keepingChanges) return false;
+    cache.keepingChanges = true;
+    log.warn(`revertLocalChangesIfSynced - ${appId} holds a local change to data from another device that no other device holds (${answer.onlyCopy}; ${files} files, ${directories} directories changed); keeping its changes, a revert would delete it`);
     fluxEventBus.publish('syncthing:localChangesKept', { folder: appId, files, directories });
     return false;
   }
@@ -1480,6 +1428,7 @@ async function handleReceiveOnlyTransition(params) {
     syncthingFolder,
     liveness,
     electedSiblings = [],
+    receiveOnlySyncthingAppsCache,
   } = params;
 
   const folderPath = syncthingFolder.path || `${appsFolder}${appId}/appdata`;
@@ -1814,7 +1763,7 @@ async function handleReceiveOnlyTransition(params) {
     // a receiveonly folder) and promote on a later cycle once verifiably clean. Changes
     // no other device holds are kept, and promoted with the rest of this node's data.
     // The leader path above is exempt by design - the leader's local data IS the seed.
-    if (await revertLocalChangesIfSynced(appId, syncStatus, cache)) {
+    if (await revertLocalChangesIfSynced(appId, syncStatus, cache, () => receiveOnlySyncthingAppsCache.get(appId) === cache)) {
       return { syncthingFolder, cache };
     }
     if (syncStatus.isSynced) {
@@ -2084,6 +2033,7 @@ async function manageFolderSyncState(params) {
       syncthingFolder,
       liveness,
       electedSiblings,
+      receiveOnlySyncthingAppsCache,
     });
     return result;
   }
@@ -2130,7 +2080,7 @@ async function manageFolderSyncState(params) {
     // deviation (an owner or mode included) is never overwritten by syncthing
     // in a receiveonly folder, and the primary counts it as outstanding.
     if (syncFolder?.type === 'receiveonly') {
-      await revertLocalChangesIfSynced(appId, await getFolderSyncCompletion(appId), cache);
+      await revertLocalChangesIfSynced(appId, await getFolderSyncCompletion(appId), cache, () => receiveOnlySyncthingAppsCache.get(appId) === cache);
     }
     return { syncthingFolder, cache };
   }
