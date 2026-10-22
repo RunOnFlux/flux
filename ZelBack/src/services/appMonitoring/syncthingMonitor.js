@@ -786,6 +786,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       for (const { appId, reason } of unmountedApps) {
         unsafeFolderIds.add(appId);
         folderStates.heldOut(appId);
+        fluxEventBus.count('syncthing:folderPass', appId, 'mountUnsafe');
         // The container is the other writer over the bad mount, and holding it
         // asks nothing of syncthing: a component that syncs the folder, or one
         // whose spec cannot be read to say it does not, is held before the
