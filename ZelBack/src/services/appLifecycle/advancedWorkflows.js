@@ -1473,6 +1473,12 @@ async function mayTearDownToRebuild(appSpecs, res) {
     }
   };
 
+  // A rebuilt app starts, and boot has yet to decide whether this one may.
+  if (globalState.unconfirmedApps.has(appSpecs.name)) {
+    report(`${appSpecs.name} is held until this node confirms it still holds it, redeploy deferred`);
+    return false;
+  }
+
   const pinned = Array.isArray(appSpecs.nodes) ? appSpecs.nodes : [];
   if (pinned.length) {
     const collateral = await generalService.obtainNodeCollateralInformation().catch(() => null);
@@ -2745,6 +2751,18 @@ async function startOperatorStarted(identifier, appId) {
  * @param {object} req - Request object
  * @param {object} res - Response object
  */
+/**
+ * Refuses a task that starts an app this node is removing, or has not yet confirmed
+ * it still holds.
+ * @param {string} appName
+ * @returns {void}
+ * @throws {Error} When the app is held.
+ */
+function refuseHeldApp(appName) {
+  if (globalState.departingApps.has(appName)) throw new Error(`Refused: ${appName} is being removed from this node`);
+  if (globalState.unconfirmedApps.has(appName)) throw new Error(`Refused: ${appName} is held until this node confirms it still holds it`);
+}
+
 async function appendBackupTask(req, res) {
   let appname;
   let backup;
@@ -2769,6 +2787,8 @@ async function appendBackupTask(req, res) {
     if (hasTrueBackup === false) {
       throw new Error('No backup jobs...');
     }
+    // a backup ends by starting the app
+    refuseHeldApp(appname);
     // The claim, before any awaited work: a second request for the same app
     // finds it taken here rather than passing an emptied check and racing to
     // the archive alongside the first. Last in this synchronous block, so a
@@ -3005,6 +3025,8 @@ async function appendRestoreTask(req, res) {
     if (hasTrueRestore === false) {
       throw new Error('No restore jobs...');
     }
+    // a restore ends by starting the app
+    refuseHeldApp(appname);
     // The claim, before any awaited work: a second request for the same app
     // finds it taken here rather than passing an emptied check and racing to
     // the clear alongside the first. Last in this synchronous block, so a
@@ -5119,6 +5141,19 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
       if (backupSkip || restoreSkip) {
         log.info(`masterSlaveApps: Backup/Restore is running for ${installedApp.name}, syncthing masterSlave check is disabled for that app`);
         fluxEventBus.count('masterSlave:decision', installedApp.name, 'skippedBusy');
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      // An app this node is removing, or has not yet confirmed it still holds, is
+      // neither promoted nor stood down: either would set its folder's type, and
+      // the reconciler starts none of its components.
+      if (globalStateParam.departingApps.has(installedApp.name)) {
+        fluxEventBus.count('masterSlave:decision', installedApp.name, 'skippedDeparting');
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      if (globalStateParam.unconfirmedApps.has(installedApp.name)) {
+        fluxEventBus.count('masterSlave:decision', installedApp.name, 'skippedUnconfirmed');
         // eslint-disable-next-line no-continue
         continue;
       }

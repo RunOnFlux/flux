@@ -1010,6 +1010,54 @@ describe('advancedWorkflows tests', () => {
       }
     });
 
+    // Electing an app sets its folder's type - sending on a primary, receive-only on
+    // a standby - and the reconciler starts none of its components while it is held.
+    // Each hold is checked beside the same app unheld, which the election does decide.
+    describe('an app the node holds back from election', () => {
+      const appName = 'testapp';
+      const runPass = async () => {
+        const installedApps = sinon.stub().resolves({
+          status: 'success',
+          data: [{ name: appName, version: 3, containerData: 'g:/data' }],
+        });
+        const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+        serviceHelperStub.resolves(fdmNoPrimary());
+        await advancedWorkflows.masterSlaveApps(globalState, installedApps, listRunningApps, https);
+      };
+
+      it('decides the app when nothing holds it', async () => {
+        const count = sinon.stub(fluxEventBus, 'count');
+        await runPass();
+        sinon.assert.calledWith(count, 'masterSlave:decision', sinon.match.string, 'evaluated');
+      });
+
+      it('leaves an app whose removal is pending undecided', async () => {
+        const count = sinon.stub(fluxEventBus, 'count');
+        globalState.departingApps.enter(appName);
+        try {
+          await runPass();
+        } finally {
+          globalState.departingApps.leave(appName);
+        }
+        sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'skippedDeparting');
+        sinon.assert.neverCalledWith(count, 'masterSlave:decision', sinon.match.string, 'evaluated');
+        expect(serviceHelperStub.called, 'FDM was asked about an app the election leaves alone').to.be.false;
+      });
+
+      it('leaves an app boot has not yet confirmed it holds undecided', async () => {
+        const count = sinon.stub(fluxEventBus, 'count');
+        globalState.unconfirmedApps.add(appName);
+        try {
+          await runPass();
+        } finally {
+          globalState.unconfirmedApps.delete(appName);
+        }
+        sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'skippedUnconfirmed');
+        sinon.assert.neverCalledWith(count, 'masterSlave:decision', sinon.match.string, 'evaluated');
+        expect(serviceHelperStub.called, 'FDM was asked about an app the election leaves alone').to.be.false;
+      });
+    });
+
     // Shared fixture for the recovery tests below: a v3 g: app with this node in
     // the location list. `peers` are the other nodes, in election order.
     // `selfRunningSince` places this node in the election order; `receiveOnlyCache`
@@ -5619,6 +5667,42 @@ describe('advancedWorkflows tests', () => {
       expect(globalState.backupInProgress).to.not.include(appname);
     });
 
+    // A backup ends by starting the app, so it is refused for an app the node is
+    // removing or has not yet confirmed it still holds.
+    it('refuses an app whose removal is pending', async () => {
+      const res = makeRes();
+      globalState.departingApps.enter(appname);
+      let result;
+      try {
+        result = await advancedWorkflows.appendBackupTask(backupReq(), res);
+      } finally {
+        globalState.departingApps.leave(appname);
+      }
+
+      expect(result).to.equal(false);
+      expect(res.write.getCalls().map((c) => c.args[0]).join(' ')).to.include('is being removed from this node');
+      sinon.assert.notCalled(dockerService.appDockerStop);
+      sinon.assert.notCalled(dockerService.appDockerStart);
+      expect(globalState.backupInProgress).to.not.include(appname);
+    });
+
+    it('refuses an app boot has not yet confirmed it holds', async () => {
+      const res = makeRes();
+      globalState.unconfirmedApps.add(appname);
+      let result;
+      try {
+        result = await advancedWorkflows.appendBackupTask(backupReq(), res);
+      } finally {
+        globalState.unconfirmedApps.delete(appname);
+      }
+
+      expect(result).to.equal(false);
+      expect(res.write.getCalls().map((c) => c.args[0]).join(' ')).to.include('is held until this node confirms it still holds it');
+      sinon.assert.notCalled(dockerService.appDockerStop);
+      sinon.assert.notCalled(dockerService.appDockerStart);
+      expect(globalState.backupInProgress).to.not.include(appname);
+    });
+
     it('refuses cleanly when the app has no specification, not with a TypeError', async () => {
       // The restore guards this; the backup read the spec and handed it straight
       // to syncedComponentsOfApp, which threw on null deep in the flow instead of
@@ -6000,6 +6084,42 @@ describe('advancedWorkflows tests', () => {
         expect(said).to.include('restore must be a list of components');
         expect(said, 'the refusal is stated, not relayed from the interpreter').to.not.include('is not a function');
         sinon.assert.notCalled(IOUtils.untarFile);
+        expect(globalState.restoreInProgress).to.not.include(appname);
+      });
+
+      // A restore ends by starting the app, so it is refused for an app the node
+      // is removing or has not yet confirmed it still holds.
+      it('refuses an app whose removal is pending', async () => {
+        const res = makeRes();
+        globalState.departingApps.enter(appname);
+        let result;
+        try {
+          result = await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+        } finally {
+          globalState.departingApps.leave(appname);
+        }
+
+        expect(result).to.equal(false);
+        expect(res.write.getCalls().map((c) => c.args[0]).join(' ')).to.include('is being removed from this node');
+        sinon.assert.notCalled(dockerService.appDockerStop);
+        sinon.assert.notCalled(dockerService.appDockerStart);
+        expect(globalState.restoreInProgress).to.not.include(appname);
+      });
+
+      it('refuses an app boot has not yet confirmed it holds', async () => {
+        const res = makeRes();
+        globalState.unconfirmedApps.add(appname);
+        let result;
+        try {
+          result = await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+        } finally {
+          globalState.unconfirmedApps.delete(appname);
+        }
+
+        expect(result).to.equal(false);
+        expect(res.write.getCalls().map((c) => c.args[0]).join(' ')).to.include('is held until this node confirms it still holds it');
+        sinon.assert.notCalled(dockerService.appDockerStop);
+        sinon.assert.notCalled(dockerService.appDockerStart);
         expect(globalState.restoreInProgress).to.not.include(appname);
       });
 
@@ -8643,6 +8763,17 @@ describe('a redeploy asks what it may rebuild before it takes anything down', ()
     expect(proceed, 'the teardown must not start').to.be.false;
     sinon.assert.notCalled(appUninstaller.removeAppLocally);
     expect(res.write.firstCall.args[0]).to.match(/policy/i);
+  });
+
+  // A rebuilt app starts, and boot has yet to decide whether this one may.
+  it('declines while boot has not confirmed the node still holds the app, and leaves it where it is', async () => {
+    globalState.unconfirmedApps.add('plainapp');
+
+    const proceed = await advancedWorkflows.mayTearDownToRebuild({ name: 'plainapp', nodes: [] }, res);
+
+    expect(proceed, 'the teardown must not start').to.be.false;
+    sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    expect(res.write.firstCall.args[0]).to.include('redeploy deferred');
   });
 
   it('hands back an app whose spec names other nodes, and tells the network', async () => {

@@ -100,6 +100,7 @@ describe('appStartupManager tests', () => {
       '../utils/globalState': globalStateStub,
       // runs the step again at once until it succeeds, as the real one does after a wait
       '../utils/untilSucceeds': {
+        BOOT_STEP_RETRY_MS: 15000,
         untilSucceeds: async (what, step) => {
           for (;;) {
             try {
@@ -342,20 +343,113 @@ describe('appStartupManager tests', () => {
       sinon.assert.calledOnceWithExactly(appUninstallerStub.finishRemoval, 'AppA', true, false);
     });
 
-    it('removes an app whose location record cannot be read, and tells the network', async () => {
-      // Its location may have been given to another node while this one was down, so
-      // it is never started unconfirmed.
-      dockerServiceStub.dockerListContainers.resolves([
-        { Names: ['/fluxAppA'], State: 'exited' },
-      ]);
-      dbHelperStub.findInDatabase.onFirstCall().resolves([{ name: 'AppA' }]);
-      dbHelperStub.findInDatabase.onSecondCall().rejects(new Error('DB error'));
+    describe('an app whose location record cannot be read', () => {
+      const futureExpiry = () => new Date(Date.now() + (300 * 1000));
+      // the held app's check runs in the background, on stubs that answer at once
+      const settle = () => new Promise((resolve) => { setImmediate(resolve); });
 
-      const results = await appStartupManager.reconcileAppsOnBoot();
+      beforeEach(() => {
+        dockerServiceStub.dockerListContainers.resolves([
+          { Names: ['/fluxAppA'], State: 'exited' },
+        ]);
+        dbHelperStub.findInDatabase.onFirstCall().resolves([{ name: 'AppA' }]);
+        dbHelperStub.findInDatabase.onSecondCall().rejects(new Error('DB error'));
+      });
 
-      sinon.assert.calledOnceWithExactly(appUninstallerStub.removeAppLocally, 'AppA', null, true, true, true);
-      expect(results.appsRemoved).to.deep.equal(['AppA']);
-      expect(appReconcilerStub.enqueue.calledWith('AppA')).to.equal(false);
+      it('is held, neither started nor removed', async () => {
+        // the record stays unreadable for as long as this test looks
+        dbHelperStub.findInDatabase.onThirdCall().returns(new Promise(() => {}));
+
+        const results = await appStartupManager.reconcileAppsOnBoot();
+        await settle();
+
+        expect(results.appsUnconfirmed).to.deep.equal(['AppA']);
+        expect(globalStateStub.unconfirmedApps.has('AppA'), 'the app was not held').to.equal(true);
+        expect(appUninstallerStub.removeAppLocally.called, 'an app whose location is unknown was removed').to.equal(false);
+        expect(appUninstallerStub.finishRemoval.called, 'an app whose location is unknown was handed to be removed').to.equal(false);
+        expect(appReconcilerStub.enqueue.called, 'an app whose location is unknown was started').to.equal(false);
+      });
+
+      it('is started, and released, once its record reads valid', async () => {
+        dbHelperStub.findInDatabase.onThirdCall().resolves([{ expireAt: futureExpiry() }]);
+
+        await appStartupManager.reconcileAppsOnBoot();
+        await settle();
+
+        sinon.assert.calledOnceWithExactly(appReconcilerStub.enqueue, 'AppA');
+        expect(globalStateStub.unconfirmedApps.has('AppA'), 'a confirmed app is still held').to.equal(false);
+        expect(appUninstallerStub.removeAppLocally.called).to.equal(false);
+      });
+
+      it('has its record read again until it answers', async () => {
+        dbHelperStub.findInDatabase.onThirdCall().rejects(new Error('DB error'));
+        dbHelperStub.findInDatabase.onCall(3).rejects(new Error('DB error'));
+        dbHelperStub.findInDatabase.onCall(4).resolves([{ expireAt: futureExpiry() }]);
+
+        await appStartupManager.reconcileAppsOnBoot();
+        await settle();
+
+        expect(dbHelperStub.findInDatabase.callCount, 'the record was not read until it answered').to.equal(5);
+        sinon.assert.calledOnceWithExactly(appReconcilerStub.enqueue, 'AppA');
+      });
+
+      it('is removed once its record reads expired, telling the network nothing', async () => {
+        dbHelperStub.findInDatabase.onThirdCall().resolves([]);
+
+        await appStartupManager.reconcileAppsOnBoot();
+        await settle();
+
+        sinon.assert.calledOnceWithExactly(appUninstallerStub.removeAppLocally, 'AppA', null, true, true, false);
+        expect(appReconcilerStub.enqueue.called, 'an app whose location expired was started').to.equal(false);
+        expect(globalStateStub.unconfirmedApps.has('AppA')).to.equal(false);
+      });
+
+      it('stays held until its removal has run', async () => {
+        dbHelperStub.findInDatabase.onThirdCall().resolves([]);
+        let finishRemoval;
+        appUninstallerStub.removeAppLocally.returns(new Promise((resolve) => { finishRemoval = resolve; }));
+
+        await appStartupManager.reconcileAppsOnBoot();
+        await settle();
+        expect(globalStateStub.unconfirmedApps.has('AppA'), 'released while its removal was running').to.equal(true);
+
+        finishRemoval('removed');
+        await settle();
+        expect(globalStateStub.unconfirmedApps.has('AppA')).to.equal(false);
+      });
+
+      it('is handed to be finished when its removal does not finish', async () => {
+        dbHelperStub.findInDatabase.onThirdCall().resolves([]);
+        appUninstallerStub.removeAppLocally.resolves('busy');
+
+        await appStartupManager.reconcileAppsOnBoot();
+        await settle();
+
+        sinon.assert.calledOnceWithExactly(appUninstallerStub.finishRemoval, 'AppA', true, false);
+        expect(appReconcilerStub.enqueue.called).to.equal(false);
+      });
+
+      it('has only the components boot starts started, when its g: components are left to the election', async () => {
+        dockerServiceStub.dockerListContainers.resolves([
+          { Names: ['/fluxweb_MixedApp'], State: 'exited' },
+          { Names: ['/fluxdb_MixedApp'], State: 'exited' },
+        ]);
+        dbHelperStub.findInDatabase.onFirstCall().resolves([{ name: 'MixedApp' }]);
+        registryManagerStub.getApplicationGlobalSpecifications.withArgs('MixedApp').resolves({
+          version: 8,
+          name: 'MixedApp',
+          compose: [
+            { name: 'web', containerData: '' },
+            { name: 'db', containerData: 'g:/data' },
+          ],
+        });
+        dbHelperStub.findInDatabase.onThirdCall().resolves([{ expireAt: futureExpiry() }]);
+
+        await appStartupManager.reconcileAppsOnBoot();
+        await settle();
+
+        sinon.assert.calledOnceWithExactly(appReconcilerStub.enqueue, 'web_MixedApp');
+      });
     });
 
     it('should check location after g: syncthing check', async () => {

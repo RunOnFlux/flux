@@ -17,6 +17,7 @@ describe('peerNotification tests', () => {
   // same object.
   let departingApps;
   let testInstallingApps;
+  let unconfirmedApps;
   let announceCycle;
   let findOneInDatabaseStub;
 
@@ -109,6 +110,7 @@ describe('peerNotification tests', () => {
     '../utils/globalState': {
       departingApps,
       testInstallingApps,
+      unconfirmedApps,
       announceCycle,
       runningAppsCache: new Set(),
     },
@@ -141,7 +143,9 @@ describe('peerNotification tests', () => {
     // this suite's alone - evicting the entry instead would hand another object
     // to every module loaded after it, and globalState is a singleton whose
     // flags decide whether an operation may start at all.
-    ({ departingApps, testInstallingApps, announceCycle } = proxyquire('../../ZelBack/src/services/utils/globalState', {}));
+    ({
+      departingApps, testInstallingApps, unconfirmedApps, announceCycle,
+    } = proxyquire('../../ZelBack/src/services/utils/globalState', {}));
 
     peerNotification = loadPeerNotification();
   });
@@ -234,6 +238,40 @@ describe('peerNotification tests', () => {
       expect(storeAppRunningMessageStub.called, 'announced while departing').to.be.false;
 
       departingApps.leave('app1');
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      const [message] = storeAppRunningMessageStub.firstCall.args;
+      expect(message.apps.map((a) => a.name)).to.deep.equal(['app1']);
+    });
+
+    // Boot holds an app whose location record it could not read. Naming it would
+    // renew a record that may have expired, and the boot check would then read the
+    // renewed record as valid and start the app beside the one placed elsewhere.
+    it('does not announce an app boot has not yet confirmed it holds', async () => {
+      installedAppsStub.resolves({
+        status: 'success',
+        data: [
+          { name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'app2', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
+        ],
+      });
+      unconfirmedApps.add('app2');
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      const [message] = storeAppRunningMessageStub.firstCall.args;
+      expect(
+        message.apps.map((a) => a.name),
+        'the unconfirmed app is excluded and the rest still announced',
+      ).to.deep.equal(['app1']);
+    });
+
+    it('announces the app again once boot has confirmed it', async () => {
+      unconfirmedApps.add('app1');
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+      expect(storeAppRunningMessageStub.called, 'announced while unconfirmed').to.be.false;
+
+      unconfirmedApps.delete('app1');
       await peerNotification.checkAndNotifyPeersOfRunningApps();
 
       const [message] = storeAppRunningMessageStub.firstCall.args;

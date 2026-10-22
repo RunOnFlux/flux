@@ -458,6 +458,16 @@ describe('appReconciler tests', () => {
       stubs.globalState.departingApps.leave('App');
     });
 
+    it('leaves a component alone while boot has not confirmed its app is still held here', async () => {
+      stubs.globalState.unconfirmedApps.add('App');
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.dockerContainerInspect.called, 'an unconfirmed app was reconciled').to.be.false;
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      stubs.globalState.unconfirmedApps.delete('App');
+    });
+
     it('starts nothing when the stop lock cannot be read, and fails the pass for a retry', async () => {
       stubs.appsRuntimeState.operatorStopState.rejects(new Error('connection timed out'));
 

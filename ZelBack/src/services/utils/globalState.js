@@ -124,6 +124,14 @@ const departingApps = {
   },
 };
 
+// Apps boot found stopped and whose location records it could not read, so it cannot
+// tell whether this node still holds them or the network placed them elsewhere while
+// it was down. Until boot reads the records, an app here is not started, elected,
+// announced, backed up, restored or torn down to be rebuilt.
+//
+// In-memory deliberately: a restart runs the boot check again.
+const unconfirmedApps = new Set();
+
 // Containers intentionally stopped by FluxOS — crash recovery skips die events for these
 const stoppingContainers = new Set();
 
@@ -363,6 +371,7 @@ module.exports = {
   get runningAppsCache() { return runningAppsCache; },
   get departingApps() { return departingApps; },
   get testInstallingApps() { return testInstallingApps; },
+  get unconfirmedApps() { return unconfirmedApps; },
   get announceCycle() { return announceCycle; },
   get stoppingContainers() { return stoppingContainers; },
   get fluxRemovedContainers() { return fluxRemovedContainers; },

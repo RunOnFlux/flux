@@ -377,6 +377,8 @@ function isManagedElsewhere(identifier) {
   if (globalState.stoppingContainers.has(dockerService.getAppIdentifier(identifier))) return true;
   // an app being removed, including one whose removal is still cleaning up
   if (globalState.departingApps.has(mainAppName)) return true;
+  // an app boot has not yet confirmed this node still holds
+  if (globalState.unconfirmedApps.has(mainAppName)) return true;
   return false;
 }
 
@@ -745,6 +747,7 @@ async function healDetachedNetwork(identifier, mainAppName, spec) {
 async function reconcile(rawIdentifier) {
   const identifier = canonical(rawIdentifier);
   if (isManagedElsewhere(identifier)) {
+    fluxEventBus.count('reconciler:deferred', identifier, 'managedElsewhere');
     scheduleRetry(identifier, MANAGED_RETRY_MS);
     return;
   }
