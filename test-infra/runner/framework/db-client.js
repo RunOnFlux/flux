@@ -113,6 +113,27 @@ export function dbClient(nodeNum) {
 
     // This node's view of where an app runs (the rows fluxapprunning messages
     // upsert and the empty-broadcast bug used to wipe).
+    // A location's expiry on this node: its rows for the app at that address are
+    // gone, as the TTL index removes them. Resolves to how many rows went.
+    async expireAppLocation(appName, ip) {
+      const globalDb = await db('appsGlobal');
+      const host = String(ip).replace(/:\d+$/, '').replace(/\./g, '\\.');
+      const { deletedCount } = await globalDb.collection('zelappslocation')
+        .deleteMany({ name: appName, ip: { $regex: `^${host}(:\\d+)?$` } });
+      return deletedCount;
+    },
+
+    // This node's rows for the app at that address stay unexpired for `ms` from now,
+    // as a production record does across a restart the harness's compressed record
+    // would not outlive. Resolves to how many rows were found.
+    async extendAppLocation(appName, ip, ms) {
+      const globalDb = await db('appsGlobal');
+      const host = String(ip).replace(/:\d+$/, '').replace(/\./g, '\\.');
+      const { matchedCount } = await globalDb.collection('zelappslocation')
+        .updateMany({ name: appName, ip: { $regex: `^${host}(:\\d+)?$` } }, { $set: { expireAt: new Date(Date.now() + ms) } });
+      return matchedCount;
+    },
+
     async getAppLocations(appName) {
       const globalDb = await db('appsGlobal');
       return globalDb.collection('zelappslocation').find({ name: appName }).toArray();

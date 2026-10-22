@@ -195,6 +195,10 @@ export function nodeClient(nodeNum) {
         'masterSlave:operatorStartSettled',
         'stream:gap',
         'boot:settled',
+        // an app boot could not confirm this node still holds, held stopped; and the
+        // answer once its location record could be read
+        'boot:appUnconfirmed',
+        'boot:appConfirmed',
         'confirmation:changed',
         'daemon:polled',
         'daemon:recovered',
