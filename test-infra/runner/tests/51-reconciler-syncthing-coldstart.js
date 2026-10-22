@@ -34,6 +34,13 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const subnet = getSubnetConfig();
 
+// The state machine's checkpoint before it measures what this node holds of a
+// receive-only folder, keyed by folder id.
+const BEFORE_HOLDINGS = 'syncthing:beforeHoldings';
+// Passes over a folder a node is counted deciding while another holder is held:
+// more than the leadership confirmation needs, so a win would have been acted on.
+const HELD_PASSES = 4;
+
 async function isUp(client, appName) {
   const status = await getAppContainerStatus(client.container, appName);
   return !!(status && status.status.startsWith('Up'));
@@ -52,6 +59,7 @@ describe('reconciler cold start - fresh multi-node placement, no seeded source',
   const gApp = `e2ecoldg${Date.now()}`;
   const claimApp = `e2ecoldclaim${Date.now()}`;
   const splitApp = `e2ecoldsplit${Date.now()}`;
+  const waitApp = `e2ecoldwait${Date.now()}`;
   const holders = [0, 1, 2];
   // Asked rather than assumed. `holders[0]` is the lowest address only while the
   // list happens to be written in order, and it silently names the wrong node
@@ -126,6 +134,51 @@ describe('reconciler cold start - fresh multi-node placement, no seeded source',
   // signed endpoint and ranks the field on the answers. A unit test reaches the
   // comparator with a claims object handed to it; only a fleet reaches it through a
   // node's own reading of its volume and a peer's reading of that node.
+  // THE CLAIM HAS TO HAVE BEEN MADE. A holder answers what it holds once its monitor
+  // has measured the folder; between its install and that pass it has measured
+  // nothing, and read then it holds nothing, so the field falls to the address order
+  // over the node holding the owner's data. The third holder - neither the
+  // address-order winner nor the one holding the data - is held just before it
+  // measures the folder, which is the window an install opens on every holder.
+  it('r: nobody seeds while a holder has not yet measured what it holds, and then the holder seeds', async function () {
+    this.timeout(300000);
+    const folder = `flux${waitApp}_${waitApp}`;
+    const unmeasured = holders.find((i) => i !== seedIndex && i !== claimHolder);
+    expect(unmeasured, 'no holder is left between the address-order winner and the data holder').to.not.equal(undefined);
+    const passes = () => env.clients[seedIndex].getDecisionCount('syncthing:folderPass', folder, 'evaluated');
+
+    await pushImage(waitApp, 'v1');
+    const spec = await buildSeedableSyncthingApp({ name: waitApp, mode: 'r' });
+    await pinColdStart(holders, folder);
+    await pinHolding(claimHolder, folder, claimBytes);
+    await env.clients[unmeasured].holdCheckpoint(BEFORE_HOLDINGS, folder);
+    const from = env.clients[unmeasured].getLastEventId();
+    try {
+      await installOnNodes(env, spec, holders);
+      await env.clients[unmeasured].waitForEvent('checkpoint:held', (d) => d.name === BEFORE_HOLDINGS && d.key === folder, 120000, { afterId: from });
+
+      // The address-order winner decides the folder pass after pass while the third
+      // holder has not measured it - long enough to confirm a win it would act on.
+      const passesFrom = await passes();
+      await waitFor(async () => (await passes()) >= passesFrom + HELD_PASSES, {
+        timeout: 120000, interval: 2000, label: `the address-order winner ran ${HELD_PASSES} passes over the folder`,
+      });
+      expect(
+        await countUp(env, holders, waitApp),
+        'a holder seeded while another had not yet measured what it holds',
+      ).to.equal(0);
+    } finally {
+      await env.clients[unmeasured].releaseCheckpoint(BEFORE_HOLDINGS, folder);
+    }
+
+    await waitFor(async () => (await countUp(env, holders, waitApp)) >= 1, {
+      timeout: 90000, interval: 3000, label: 'a holder seeds once every holder has measured what it holds',
+    });
+    await new Promise((r) => { setTimeout(r, 12000); });
+    expect(await countUp(env, holders, waitApp)).to.equal(1);
+    expect(await isUp(env.clients[claimHolder], waitApp), 'the node holding the data did not seed').to.equal(true);
+  });
+
   it('r: the holder seeds, against the address the field would otherwise elect', async function () {
     this.timeout(180000);
     // The premise, asserted so a fixture that stops being divergent fails here rather
