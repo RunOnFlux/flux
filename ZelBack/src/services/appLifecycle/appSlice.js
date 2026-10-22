@@ -71,12 +71,15 @@ async function isPopulated(unit) {
 
 /**
  * Stop a slice that holds no process. A slice in use is left alone.
+ *
+ * The stop is queued and not waited for: an empty slice has nothing to stop, and
+ * systemd's own bus timeout bounds the request.
  * @param {string} unit
- * @returns {Promise<boolean>} True when the slice was stopped.
+ * @returns {Promise<boolean>} True when systemd took the stop.
  */
 async function stopIfEmpty(unit) {
   if (await isPopulated(unit) !== false) return false;
-  const { error } = await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['stop', unit] });
+  const { error } = await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['stop', '--no-block', unit] });
   if (error) {
     log.error(`appSlice - ${unit} could not be stopped: ${error.message}`);
     return false;

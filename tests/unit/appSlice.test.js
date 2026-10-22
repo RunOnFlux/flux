@@ -22,7 +22,7 @@ describe('appSlice tests', () => {
     units.set(unit, path.join(SYSTEMD_ROOT, 'flux.slice', unit));
   }
   const stops = () => runCommand.getCalls().filter((call) => call.args[1].params[0] === 'stop');
-  const stopped = () => stops().map((call) => call.args[1].params[1]);
+  const stopped = () => stops().map((call) => call.args[1].params.at(-1));
   let stopResult;
 
   beforeEach(() => {
@@ -64,7 +64,7 @@ describe('appSlice tests', () => {
 
       await appSlice.release('my-app');
 
-      expect(stops().map((call) => call.args)).to.deep.equal([['systemctl', { runAsRoot: true, params: ['stop', 'flux-my\\x2dapp.slice'] }]]);
+      expect(stops().map((call) => call.args)).to.deep.equal([['systemctl', { runAsRoot: true, params: ['stop', '--no-block', 'flux-my\\x2dapp.slice'] }]]);
     });
 
     it('leaves a slice a process still lives in', async () => {
