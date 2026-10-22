@@ -29,7 +29,7 @@ const JOINING = NODES - 1;
 // what the peers hold when the node joins: more events than one message carries
 const ANSWERED_EVENTS = ANSWER_BATCH + 1;
 // a peer's request ended for any of these reasons is replaced too, and is not this
-const OTHER_ENDINGS = ['ephemeralSync:peerTimedOut', 'ephemeralSync:peerDisconnected', 'ephemeralSync:peerUnverified', 'sync:refused'];
+const OTHER_ENDINGS = ['ephemeralSync:peerTimedOut', 'ephemeralSync:peerDisconnected', 'ephemeralSync:peerUnverified'];
 
 function step(what) {
   console.log(`# 3304 ${new Date().toISOString()} ${what}`);
