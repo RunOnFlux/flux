@@ -118,6 +118,14 @@ export function dbClient(nodeNum) {
       return localDb.collection('zelappsinformation').countDocuments({});
     },
 
+    // The names of the apps this node holds, from its own table: the route that
+    // lists them is cached, and this is not.
+    async localAppNames() {
+      const localDb = await db('appsLocal');
+      const rows = await localDb.collection('zelappsinformation').find({}, { projection: { _id: 0, name: 1 } }).toArray();
+      return rows.map((row) => row.name);
+    },
+
     // This node's view of where an app runs (the rows fluxapprunning messages
     // upsert and the empty-broadcast bug used to wipe).
     // This node's rows for the app at that address stay unexpired for `ms` from now,

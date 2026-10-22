@@ -100,7 +100,7 @@ describe('boot holds an app whose location it cannot read', function () {
 
   const isUp = async (identifier) => (await listAppContainers(holder.container))
     .some((c) => c.name === `flux${identifier}` && c.status?.startsWith('Up'));
-  const installedNames = async () => ((await holder.getInstalledApps()).data ?? []).map((a) => a.name);
+  const installedNames = () => holderDb.localAppNames();
   const heardRemoved = (appName, afterIds) => env.clients.some((client, i) => i !== HOLDER && client
     && client.getEventBuffer().some((e) => e.id > afterIds[i] && e.event === 'network:appremoved'
       && e.data?.name === appName && e.data?.ip?.startsWith(holder.ip)));
