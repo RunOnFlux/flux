@@ -616,9 +616,28 @@ describe('appUninstaller tests', () => {
         receiveOnlySyncthingAppsCache: new Map(),
         folderHoldings: new Map(),
         seedMarks: new Map(),
+        // the two operations this suite sets, named as the module names them
+        operationHolding() {
+          if (this.removalInProgress) return 'removal';
+          if (this.installationInProgress) return 'installation';
+          return null;
+        },
       };
       return proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
         '../utils/globalState': globalStateStub,
+        // runs the step again after a moment until it succeeds, as the real one does after its wait
+        '../utils/untilSucceeds': {
+          BOOT_STEP_RETRY_MS: 15000,
+          untilSucceeds: async (what, step) => {
+            for (;;) {
+              try {
+                return await step(); // eslint-disable-line no-await-in-loop
+              } catch {
+                await new Promise((resolve) => { setTimeout(resolve, 10); }); // eslint-disable-line no-await-in-loop
+              }
+            }
+          },
+        },
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -793,6 +812,26 @@ describe('appUninstaller tests', () => {
         await settle(() => deleteRow.called);
 
         sinon.assert.calledOnce(deleteRow);
+      });
+
+      // A forced removal takes the node's removal lock without asking and clears it
+      // when it ends, so one run beside another removal would release that removal's
+      // lock part way through. The rerun waits for the node instead.
+      it('runs the removal again only once no other install or removal holds the node', async () => {
+        const deleteRow = sinon.stub().resolves();
+        deleteRow.onFirstCall().rejects(new Error('connection timed out'));
+        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
+
+        globalStateStub.installationInProgress = true;
+        await uninstaller.removeAppLocally('testapp', res, true);
+        // time for the rerun to have run, had it not waited
+        await new Promise((resolve) => { setTimeout(resolve, 100); });
+        sinon.assert.calledOnce(deleteRow);
+        expect(globalStateStub.installationInProgress, 'the rerun cleared another operation\'s hold').to.equal(true);
+
+        globalStateStub.installationInProgress = false;
+        await settle(() => deleteRow.calledTwice && !globalStateStub.departingApps.has('testapp'));
+        sinon.assert.calledTwice(deleteRow);
       });
 
       it('runs one removal again for an app however often it is handed over', async () => {

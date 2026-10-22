@@ -77,6 +77,11 @@ function finishRemoval(appName, force, announce) {
   log.warn(`${appName} was not fully removed; held stopped and unannounced until it is`);
   // first run once the removal that stopped has released the node's removal lock
   serviceHelper.delay(BOOT_STEP_RETRY_MS).then(() => untilSucceeds(`Removal of ${appName}`, async () => {
+    // Another install or removal holding the node is waited out, never run beside:
+    // a forced removal takes the removal lock without asking and clears it when it
+    // ends. Asked in the same turn as the removal starts, so nothing starts between.
+    const holder = globalState.operationHolding();
+    if (holder) throw new Error(`another ${holder} holds the node`);
     // eslint-disable-next-line no-use-before-define
     const outcome = await removeAppLocally(appName, null, force, true, announce);
     if (outcome !== RemovalOutcome.REMOVED && outcome !== RemovalOutcome.NOT_INSTALLED) {
