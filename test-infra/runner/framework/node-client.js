@@ -226,6 +226,11 @@ export function nodeClient(nodeNum) {
         'app:componentRedeployed',
         'app:specStored',
         'app:running',
+        // what this node records of when it took each app it holds
+        'app:placementRecorded',
+        'app:placementRemoved',
+        'app:placementsReconciled',
+        'app:announcementRefused',
         'app:announcing',
         'fileoperation:imageAcquired',
         'fileoperation:imageDiscarded',
@@ -317,6 +322,8 @@ export function nodeClient(nodeNum) {
         'hostStall:appUnloaded',
         'hostStall:appsStopped',
         'network:apprunning',
+        // entries of an apprunning message this node refused, by gossip or sync
+        'network:apprunningRefused',
         'network:appinstalling',
         'network:appinstallingerror',
         'network:appremoved',
