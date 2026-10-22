@@ -13,19 +13,23 @@ const { InstallOutcome } = require('../utils/installOutcome');
 /**
  * Remove the app and install it again at appSpecs.
  *
- * A removal that does not finish leaves the app as it was, with its row, for the
- * reconciler. Once the removal has finished this node holds nothing of the app, so
- * an install that does not complete is told to the network, once, here.
+ * Nothing is installed unless the removal finished. A node busy with another removal
+ * leaves the app as it was; a removal that stopped part way is finished by the
+ * uninstaller, which removes the whole app and tells the network. Once the removal
+ * has finished this node holds nothing of the app, so an install that does not
+ * complete is told to the network, once, here.
  * @param {object} appSpecs The specification to install.
  * @param {object} [res] A response stream the caller holds.
- * @returns {Promise<string>} The InstallOutcome; FAILED when the removal did not finish.
+ * @returns {Promise<string>} The InstallOutcome; BUSY when another removal held the
+ *   node, FAILED when the removal did not finish.
  */
 async function rebuildApp(appSpecs, res) {
   const removal = await appUninstaller.removeAppLocally(appSpecs.name, res, false, false);
   if (removal !== RemovalOutcome.REMOVED && removal !== RemovalOutcome.NOT_INSTALLED) {
     log.warn(`appRebuild - ${appSpecs.name} was not removed (${removal}), so it is not reinstalled`);
-    fluxEventBus.publish('app:rebuilt', { name: appSpecs.name, outcome: InstallOutcome.FAILED });
-    return InstallOutcome.FAILED;
+    const outcome = removal === RemovalOutcome.BUSY ? InstallOutcome.BUSY : InstallOutcome.FAILED;
+    fluxEventBus.publish('app:rebuilt', { name: appSpecs.name, outcome });
+    return outcome;
   }
 
   let outcome;

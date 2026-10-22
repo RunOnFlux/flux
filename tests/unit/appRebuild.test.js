@@ -63,6 +63,17 @@ describe('appRebuild tests', () => {
     sinon.assert.calledOnceWithExactly(uninstaller.announceRemoval, 'myapp');
   });
 
+  // Another removal held the node, so this one touched nothing: the caller can ask
+  // again, and the app is as it was.
+  it('answers busy, installing nothing and telling the network nothing, when another removal holds the node', async () => {
+    uninstaller.removeAppLocally.resolves(RemovalOutcome.BUSY);
+
+    expect(await appRebuild.rebuildApp(spec)).to.equal(InstallOutcome.BUSY);
+
+    sinon.assert.notCalled(installer.registerAppLocally);
+    sinon.assert.notCalled(uninstaller.announceRemoval);
+  });
+
   it('installs nothing and tells the network nothing when the removal did not finish', async () => {
     uninstaller.removeAppLocally.resolves(RemovalOutcome.FAILED);
 
