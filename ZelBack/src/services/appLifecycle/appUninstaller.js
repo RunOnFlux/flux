@@ -1149,8 +1149,14 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         if (res.flush) res.flush();
       }
       await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-      // the app's volume is gone, and the record of when this node took it with it
-      await appPlacements.removePlacement(appName);
+      // The app's volume is gone, and the record of when this node took it with it.
+      // A record left behind is never read, as the app is not installed, and boot
+      // removes it, so the removal stands whether this delete succeeds or not.
+      try {
+        await appPlacements.removePlacement(appName);
+      } catch (error) {
+        log.warn(`removeAppLocally - the placement record of ${appName} was not removed: ${error.message}`);
+      }
       // The app is gone for good: nothing reconciles an app with no row, so its
       // removal records have no reader left. Only this full-uninstall path clears
       // them - softRemoveAppLocally deletes the row too, but as one step of a

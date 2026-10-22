@@ -16,9 +16,9 @@ const { AsyncGate } = require('../utils/asyncGate');
 // expiry, eviction, sigterm - while the app goes on running.
 //
 // A record outlives its app when a soft redeploy removes the app and its reinstall
-// does not happen, which leaves the volume on disk and the record with it, or when
-// the app is removed while the backfill below is writing. Boot removes records of
-// apps not installed. Only an installed app's record is read, and the app returns
+// does not happen, which leaves the volume on disk and the record with it, when
+// the app is removed while the backfill below is writing, or when the removal
+// cannot delete it. Boot removes records of apps not installed. Only an installed app's record is read, and the app returns
 // only through a hard install, which overwrites it.
 //
 // Kept apart from the app's specification in appsInformation: a spec update

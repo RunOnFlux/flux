@@ -1041,6 +1041,16 @@ describe('appUninstaller tests', () => {
         sinon.assert.calledOnceWithExactly(appPlacementsStub.removePlacement, 'testapp');
       });
 
+      it('a record that cannot be deleted leaves the removal standing', async () => {
+        const uninstaller = buildUninstaller(composedSpec);
+        appPlacementsStub.removePlacement.rejects(new Error('mongo went away'));
+
+        const outcome = await uninstaller.removeAppLocally('testapp', res, true, false, true);
+
+        expect(outcome).to.equal(RemovalOutcome.REMOVED);
+        expect(logStub.warn.calledWithMatch(/placement record of testapp was not removed: mongo went away/)).to.equal(true);
+      });
+
       it('stays when one component is removed and the app with it is not', async () => {
         const uninstaller = buildUninstaller(composedSpec);
 
