@@ -2665,6 +2665,34 @@ describe('fluxCommunication tests', () => {
         expect(completions).to.deep.equal([{ syncType: 'apprunning', peerKey: PEER }]);
       });
 
+      describe('a pending registration', () => {
+        const temp = () => ({
+          type: 'fluxappregister', version: 1, signature: 'sig', timestamp: Date.now(), hash: 'h1', appSpecifications: { name: 'a' },
+        });
+
+        it('this node\'s database could not store ends the apptemp request', async () => {
+          sinon.stub(messageStore, 'storeAppTemporaryMessage').rejects(new MongoNetworkTimeoutError('connection timed out'));
+
+          await respond('handleTempSyncResponse', 'fluxapptempsync', [temp(), temp()], true);
+
+          expect(writeFailures, 'a response the node could not store left the request open').to.deep.equal([PEER]);
+          expect(completions, 'a response the node could not store was counted').to.deep.equal([]);
+          sinon.assert.calledOnce(messageStore.storeAppTemporaryMessage);
+        });
+
+        it('that fails its own checks is skipped, and the rest of the answer counted', async () => {
+          sinon.stub(messageStore, 'storeAppTemporaryMessage')
+            .onFirstCall().rejects(new Error('Invalid Flux App specifications'))
+            .onSecondCall().resolves(true);
+
+          await respond('handleTempSyncResponse', 'fluxapptempsync', [temp(), temp()], true);
+
+          expect(writeFailures, 'a message the peer got wrong ended the request').to.deep.equal([]);
+          expect(completions).to.deep.equal([{ syncType: 'apptemp', peerKey: PEER }]);
+          sinon.assert.calledTwice(messageStore.storeAppTemporaryMessage);
+        });
+      });
+
       // The request this answer belonged to ended while it was being stored - the
       // peer reconnected and was asked again - so a failure here ends nothing.
       it('ends nothing when the request it answered has already ended', async () => {

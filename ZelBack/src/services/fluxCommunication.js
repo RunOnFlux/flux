@@ -4,6 +4,7 @@ const hash = require('object-hash');
 const WebSocket = require('ws');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
+const dbHelper = require('./dbHelper');
 const messageStore = require('./appMessaging/messageStore');
 const verificationHelper = require('./verificationHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
@@ -128,13 +129,27 @@ async function handleTempSyncResponse(message, peerSocket) {
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleTempSyncResponse - Received ${messages.length} temp messages from ${peerKey} (done: ${!!done})`);
     let stored = 0;
+    let writeFailed = false;
     for (const msg of messages) {
       try {
         const result = await messageStore.storeAppTemporaryMessage(msg, { furtherVerification: true });
         if (result === true || result === false) stored += 1;
       } catch (err) {
         log.error(`Temp sync message failed: ${err.message}`);
+        // A message this node's database could not record leaves the answer
+        // incomplete; one that fails its own checks is the peer's, and is skipped.
+        if (dbHelper.isDatabaseError(err)) {
+          writeFailed = true;
+          break;
+        }
       }
+    }
+    if (writeFailed) {
+      // What this peer sent is not all recorded, so its request ends here and
+      // another peer is asked; the rest of its answer is not read.
+      log.warn(`handleTempSyncResponse - a write failed, ending ${peerKey}'s request`);
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, peerKey);
+      return;
     }
     log.info(`handleTempSyncResponse - Processed ${stored} of ${messages.length} messages`);
     // COUNTED LIKE THE REST. A peer is credited once it has delivered every
