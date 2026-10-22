@@ -374,8 +374,11 @@ describe('a stalled host takes the node out of service', function () {
     });
 
     it('held the config directory: a write to it does not return', async function () {
-      const write = await execInContainer(recContainer, `timeout 3 touch ${FLUXOS_CONFIG}/.probe`);
-      expect(write.exitCode, 'a write to the config directory returned, so the record was never held').to.equal(124);
+      // A write held on a frozen filesystem cannot be killed, so it is left to finish
+      // in the background, after the thaw.
+      const write = await execInContainer(recContainer,
+        `rm -f /tmp/probe-written; setsid sh -c 'touch ${FLUXOS_CONFIG}/.probe && touch /tmp/probe-written' </dev/null >/dev/null 2>&1 & sleep 3; test ! -e /tmp/probe-written`);
+      expect(write.exitCode, 'a write to the config directory returned, so the record was never held').to.equal(0);
     });
 
     it('takes the node out of service', function () {
