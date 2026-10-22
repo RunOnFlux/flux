@@ -119,6 +119,11 @@ class AppSyncOrchestrator {
   #ephemeralWriteFailedHandler = null;
   #ephemeralProgressHandler = null;
   #hashUnresolvedHandler = null;
+
+  #hashCheckRequestedHandler = null;
+
+  // An operator's check of every missing app message, waiting for the node.
+  #hashCheckRequested = false;
   #broadcastStarted = null;
   #started = false;
   #syncInProgress = false;
@@ -268,6 +273,12 @@ class AppSyncOrchestrator {
 
     this.#hashUnresolvedHandler = () => this.#onHashUnresolved();
     appSyncEvents.on(EVENTS.HASH_UNRESOLVED, this.#hashUnresolvedHandler);
+
+    this.#hashCheckRequestedHandler = () => {
+      this.#hashCheckRequested = true;
+      this.#runRequestedHashCheck();
+    };
+    appSyncEvents.on(EVENTS.HASH_CHECK_REQUESTED, this.#hashCheckRequestedHandler);
 
     this.#blockReceivedHandler = (blockHeight) => {
       this.#onBlocksProcessed(blockHeight);
@@ -893,6 +904,25 @@ class AppSyncOrchestrator {
       this.#checkReadiness();
       this.#checkHashRetry(blockHeight);
     }
+    this.#runRequestedHashCheck();
+  }
+
+  /**
+   * Runs the check an operator asked for, once no hash sync or registry build holds
+   * the node; a request made while one runs waits for a later block.
+   * @returns {Promise<void>}
+   */
+  async #runRequestedHashCheck() {
+    if (!this.#hashCheckRequested || this.#syncInProgress) return;
+    this.#hashCheckRequested = false;
+    this.#syncInProgress = true;
+    try {
+      await appHashSyncService.syncMissingHashes({ force: true, currentHeight: this.#lastBlockHeight });
+    } catch (error) {
+      log.error(`AppSyncOrchestrator - Requested hash check failed: ${error.message}`);
+    } finally {
+      this.#syncInProgress = false;
+    }
   }
 
   #onHashUnresolved() {
@@ -1067,7 +1097,16 @@ class AppSyncOrchestrator {
 
     // Block timer fired but hash sync / DB rebuild never completed — rebuild from whatever data we have
     if (blockTimerExpired && !this.#dbRebuilt) {
-      await this.#rebuildDb();
+      // Never beside a hash sync: one storing messages while the registry is unbuilt
+      // leaves their rows to this build, which would miss any stored after it read
+      // the log. A build that has to wait is asked again on the next block.
+      if (this.#syncInProgress) return;
+      this.#syncInProgress = true;
+      try {
+        await this.#rebuildDb();
+      } finally {
+        this.#syncInProgress = false;
+      }
       if (!this.#dbRebuilt) return;
     }
 
@@ -1226,6 +1265,9 @@ class AppSyncOrchestrator {
     }
     if (this.#hashUnresolvedHandler) {
       appSyncEvents.removeListener(EVENTS.HASH_UNRESOLVED, this.#hashUnresolvedHandler);
+    }
+    if (this.#hashCheckRequestedHandler) {
+      appSyncEvents.removeListener(EVENTS.HASH_CHECK_REQUESTED, this.#hashCheckRequestedHandler);
     }
     if (this.#blockReceivedHandler) {
       this.#blockEmitter.removeListener('blocksProcessed', this.#blockReceivedHandler);

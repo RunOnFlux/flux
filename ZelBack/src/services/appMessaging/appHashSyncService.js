@@ -846,8 +846,8 @@ async function triggerAppHashesCheckAPI(req, res) {
       res.json(errMessage);
       return;
     }
-    syncMissingHashes({ force: true }).catch((err) => log.error(`syncMissingHashes API trigger: ${err.message}`));
-    const resultsResponse = messageHelper.createSuccessMessage('Running sync on missing application messages');
+    appSyncEvents.emit(EVENTS.HASH_CHECK_REQUESTED);
+    const resultsResponse = messageHelper.createSuccessMessage('Sync on missing application messages queued');
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);

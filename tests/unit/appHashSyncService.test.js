@@ -5,6 +5,7 @@ const proxyquire = require('proxyquire').noCallThru();
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const { Readable } = require('stream');
 const config = require('config');
+const { appSyncEvents: syncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 
 const MESSAGES = config.database.appsglobal.collections.appsMessages;
 
@@ -162,7 +163,19 @@ describe('appHashSyncService tests', () => {
 
 
   describe('triggerAppHashesCheckAPI', () => {
-    it('should trigger sync when authorized', async () => {
+    // queued for the sync orchestrator, which runs it once no hash sync or registry
+    // build holds the node
+    let requested;
+    const onRequested = () => { requested += 1; };
+    beforeEach(() => {
+      requested = 0;
+      syncEvents.on(SYNC_EVENTS.HASH_CHECK_REQUESTED, onRequested);
+    });
+    afterEach(() => {
+      syncEvents.removeListener(SYNC_EVENTS.HASH_CHECK_REQUESTED, onRequested);
+    });
+
+    it('should queue the check when authorized, running nothing itself', async () => {
       const req = {};
       const res = { json: sinon.stub() };
 
@@ -173,6 +186,8 @@ describe('appHashSyncService tests', () => {
 
       expect(res.json.calledOnce).to.be.true;
       expect(verificationHelperStub.verifyPrivilege.calledWith(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req))).to.be.true;
+      expect(requested, 'the check was not queued').to.equal(1);
+      sinon.assert.notCalled(dbHelperStub.findInDatabase);
     });
 
     it('should deny unauthorized access', async () => {
@@ -185,6 +200,7 @@ describe('appHashSyncService tests', () => {
 
       expect(res.json.calledOnce).to.be.true;
       expect(messageHelperStub.errUnauthorizedMessage.calledOnce).to.be.true;
+      expect(requested, 'an unauthorized caller queued a check').to.equal(0);
     });
 
     it('should handle errors gracefully', async () => {

@@ -12,6 +12,9 @@ const EVENTS = Object.freeze({
   READINESS_LOST: 'readinessLost',
   HASH_RESPONSE_RECEIVED: 'hashResponseReceived',
   HASH_UNRESOLVED: 'hashUnresolved',
+  // An operator asked for a check of every missing app message; the orchestrator
+  // runs it once no hash sync or registry build holds the node.
+  HASH_CHECK_REQUESTED: 'hashCheckRequested',
 });
 
 module.exports = { appSyncEvents, EVENTS };
