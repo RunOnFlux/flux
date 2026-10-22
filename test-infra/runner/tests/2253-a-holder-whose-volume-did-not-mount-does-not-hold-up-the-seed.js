@@ -24,11 +24,13 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // volume stays gone, and the app starts nowhere.
 //
 // The lowest address is held before it measures until the broken holder has held
-// the folder out, so its decision is made against that answer.
+// the folder out. The held pass read its peers before that, so the decision under
+// test is the one a later pass makes, held where it opens until the first is done.
 
 const subnet = getSubnetConfig();
 const APP_UID = 1000;
 const BEFORE_HOLDINGS = 'syncthing:beforeHoldings';
+const AFTER_FOLDER_READ = 'syncthing:afterFolderRead';
 const SETTLE_PASSES = 6;
 
 describe('a holder whose volume did not mount does not hold up the seed', function () {
@@ -93,15 +95,20 @@ describe('a holder whose volume did not mount does not hold up the seed', functi
     });
     expect(await seeded(LOWEST), 'fixture: the lowest address seeded before it was released').to.equal(0);
 
-    const from = await folderPasses(LOWEST);
+    await client(LOWEST).holdCheckpoint(AFTER_FOLDER_READ);
+    const opened = client(LOWEST).getLastEventId();
     await client(LOWEST).releaseCheckpoint(BEFORE_HOLDINGS, folder);
+    await client(LOWEST).waitForEvent('checkpoint:held', (d) => d.name === AFTER_FOLDER_READ, 300000, { afterId: opened });
+    const waitsBefore = await waitedOnLook(LOWEST);
+    const from = await folderPasses(LOWEST);
+    await client(LOWEST).releaseCheckpoint(AFTER_FOLDER_READ);
     await waitHolding(async () => {
       await oneHolderAtMost();
       return await seeded(LOWEST) >= 1 || await folderPasses(LOWEST) >= from + SETTLE_PASSES;
     }, { timeout: 300000, interval: 2000, label: `the lowest address seeds, or ${SETTLE_PASSES} folder passes go by without it` });
 
-    expect(await seeded(LOWEST), `seeds on the lowest address in ${SETTLE_PASSES} passes (passes it waited on a holder that had not looked: ${await waitedOnLook(LOWEST)})`).to.be.at.least(1);
-    expect(await waitedOnLook(LOWEST), 'passes the lowest address waited on the held-out holder').to.equal(0);
+    expect(await seeded(LOWEST), `seeds on the lowest address in ${SETTLE_PASSES} passes (passes it waited on a holder that had not looked: ${await waitedOnLook(LOWEST) - waitsBefore})`).to.be.at.least(1);
+    expect(await waitedOnLook(LOWEST) - waitsBefore, 'passes the lowest address waited on the held-out holder').to.equal(0);
     expect(await seeded(BROKEN), 'the broken holder seeded').to.equal(0);
     expect(await heldOutPasses(BROKEN), 'fixture: the broken holder still holds the folder out').to.be.at.least(1);
   });
