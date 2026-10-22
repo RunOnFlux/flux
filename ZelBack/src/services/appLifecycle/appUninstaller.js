@@ -25,6 +25,7 @@ const volumeService = require('../utils/volumeService');
 const fluxEventBus = require('../utils/fluxEventBus');
 const { Privilege, authOf } = require('../utils/privileges');
 const { RemovalOutcome } = require('../utils/removalOutcome');
+const { untilSucceeds, BOOT_STEP_RETRY_MS } = require('../utils/untilSucceeds');
 
 /**
  * The node does not hold this application.
@@ -55,6 +56,82 @@ const crontabLoad = util.promisify(systemcrontab.load);
 let onComponentRemoved = null;
 function setOnComponentRemoved(callback) {
   onComponentRemoved = callback;
+}
+
+// Apps whose removal stopped part way, each being run again until it finishes, with
+// whether the run that finishes it is still to tell the network.
+const unfinishedRemovals = new Map();
+
+/**
+ * Runs the removal of an app that stopped part way again until it finishes. Until
+ * then the app is held as departing: the reconciler never starts it and the node's
+ * announcements leave it out. A call for an app already held does nothing.
+ * @param {string} appName
+ * @param {boolean} force Passed to each removal.
+ * @param {boolean} announce Whether the removal that finishes tells the network; it
+ *   does not once the network has been told meanwhile (announceRemoval).
+ * @returns {void}
+ */
+function finishRemoval(appName, force, announce) {
+  if (unfinishedRemovals.has(appName)) return;
+  const pending = { announce };
+  unfinishedRemovals.set(appName, pending);
+  globalState.departingApps.enter(appName);
+  log.warn(`${appName} was not fully removed; held stopped and unannounced until it is`);
+  // first run once the removal that stopped has released the node's removal lock
+  serviceHelper.delay(BOOT_STEP_RETRY_MS).then(() => untilSucceeds(`Removal of ${appName}`, async () => {
+    // Another install or removal holding the node is waited out, never run beside:
+    // a forced removal takes the removal lock without asking and clears it when it
+    // ends. Asked in the same turn as the removal starts, so nothing starts between.
+    const holder = globalState.operationHolding();
+    if (holder) throw new Error(`another ${holder} holds the node`);
+    // eslint-disable-next-line no-use-before-define
+    const outcome = await removeAppLocally(appName, null, force, true, pending.announce);
+    if (outcome !== RemovalOutcome.REMOVED && outcome !== RemovalOutcome.NOT_INSTALLED) {
+      throw new Error(`${appName} was not removed (${outcome})`);
+    }
+  })).then(() => {
+    unfinishedRemovals.delete(appName);
+    globalState.departingApps.leave(appName);
+  });
+}
+
+/**
+ * Tells the network this node no longer holds the app (fluxappremoved), and drops it
+ * from the running apps cache. For an app whose removal from this node is complete.
+ * @param {string} appName
+ * @returns {Promise<void>}
+ */
+async function announceRemoval(appName) {
+  // An announcement cycle that took its list before this removal marked the
+  // app still names it, and a claim arriving after this message re-creates the
+  // row it cleared. Waiting for the cycle in flight puts the two on the wire in
+  // the order they happened, so the claim is applied first and this clears it.
+  // A cycle starting from here on reads the mark and leaves the app out.
+  // Bounded: a wedged cycle must not hold up the node's removals.
+  await globalState.announceCycle.readyTimeout(ANNOUNCE_CYCLE_WAIT_MS);
+  const ip = await fluxNetworkHelper.getLocalSocketAddress();
+  if (!ip) {
+    log.warn(`${appName} removed without announcing it - this node's own address is unknown, so peers hold its location row until it expires`);
+    return;
+  }
+  const appRemovedMessage = {
+    type: 'fluxappremoved',
+    version: 1,
+    appName,
+    ip,
+    broadcastedAt: Date.now(),
+  };
+  log.info('Broadcasting appremoved message to the network');
+  await fluxCommunicationMessagesSender.broadcastMessageToAll(appRemovedMessage);
+  // a removal still being finished has nothing left to tell
+  const pending = unfinishedRemovals.get(appName);
+  if (pending) pending.announce = false;
+  const { runningAppsCache } = globalState;
+  if (runningAppsCache.has(appName)) {
+    runningAppsCache.delete(appName);
+    log.info(`Removed ${appName} from running apps cache`);
+  }
 }
 
 /**
@@ -844,6 +921,10 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
   // the same finally, and a refused duplicate must not release the lock the removal
   // actually running is holding.
   let acquired = false;
+  // Set once a teardown has begun: a failure from there on leaves the app part
+  // removed, and an app missing a component cannot run, so it is the whole app.
+  let tornDownApp = null;
+  let announced = false;
   try {
     // Normalise to the bare identifier this function reasons about: a caller may
     // pass the flux-prefixed docker name (e.g. the syncthing flow), which would
@@ -920,21 +1001,15 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         // get it from locally available Specifications
         const allApps = await availableApps();
         appSpecifications = allApps.find((a) => a.name === appName);
-        // get it from permanent messages
+        // get it from permanent messages: the app's newest, read through the
+        // index on name, height and timestamp
         if (!appSpecifications) {
-          const query = {};
-          const projection = { projection: { _id: 0 } };
-          const messages = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
-          const appMessages = messages.filter((message) => {
-            const specifications = message.appSpecifications;
-            return specifications.name === appName;
-          });
-          let currentSpecifications;
-          appMessages.forEach((message) => {
-            if (!currentSpecifications || message.height > currentSpecifications.height) {
-              currentSpecifications = message;
-            }
-          });
+          const [currentSpecifications] = await dbHelper.findInDatabase(
+            database,
+            globalAppsMessages,
+            { 'appSpecifications.name': appName },
+            { projection: { _id: 0 }, sort: { height: -1, timestamp: -1 }, limit: 1 },
+          );
           if (currentSpecifications && currentSpecifications.height) {
             ({ appSpecifications } = currentSpecifications);
           }
@@ -952,6 +1027,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
     appSpecifications = specificationFormatter(appSpecifications);
 
+    tornDownApp = appName;
     if (appSpecifications.version >= 4 && !isComponent) {
       // it is a composed application
       // eslint-disable-next-line no-restricted-syntax
@@ -986,38 +1062,9 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       if (onComponentRemoved) onComponentRemoved(identifier);
     }
 
-    fluxEventBus.publish('app:removed', { name: appName });
-
     if (sendMessage) {
-      // An announcement cycle that took its list before this removal marked the
-      // app still names it, and a claim arriving after this message re-creates the
-      // row it cleared. Waiting for the cycle in flight puts the two on the wire in
-      // the order they happened, so the claim is applied first and this clears it.
-      // A cycle starting from here on reads the mark and leaves the app out.
-      // Bounded: a wedged cycle must not hold up the node's removals.
-      await globalState.announceCycle.readyTimeout(ANNOUNCE_CYCLE_WAIT_MS);
-      const ip = await fluxNetworkHelper.getLocalSocketAddress();
-      if (ip) {
-        const broadcastedAt = Date.now();
-        const appRemovedMessage = {
-          type: 'fluxappremoved',
-          version: 1,
-          appName,
-          ip,
-          broadcastedAt,
-        };
-        log.info('Broadcasting appremoved message to the network');
-        // broadcast messages about app removed to all peers
-        await fluxCommunicationMessagesSender.broadcastMessageToAll(appRemovedMessage);
-        // Remove app from running apps cache
-        const { runningAppsCache } = globalState;
-        if (runningAppsCache.has(appName)) {
-          runningAppsCache.delete(appName);
-          log.info(`Removed ${appName} from running apps cache`);
-        }
-      } else {
-        log.warn(`${appName} removed without announcing it - this node's own address is unknown, so peers hold its location row until it expires`);
-      }
+      await announceRemoval(appName);
+      announced = true;
     }
 
     if (!isComponent) {
@@ -1105,6 +1152,9 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       // exactly what stops a teardown that fails part way being read as
       // tampering.
       dockerService.clearFluxRemovedContainers(appName);
+      // Nor is there an app left for boot's location check to decide: an install
+      // of the same name from here on is a new app.
+      globalState.unconfirmedApps.delete(appName);
       const databaseStatus2 = {
         status: 'Database cleaned',
       };
@@ -1114,6 +1164,9 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         if (res.flush) res.flush();
       }
     }
+    // Published once the removal has finished, the app's row included.
+    fluxEventBus.publish('app:removed', { name: appName });
+
     const appRemovalResponseDone = messageHelper.createSuccessMessage(`Removal step done. Result: Flux App ${appName} was successfuly removed`);
     log.info(appRemovalResponseDone);
 
@@ -1141,12 +1194,12 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       }
     }
     // A specification that cannot be found anywhere means the node is not holding
-    // this app, which answers a caller asking for it to be gone. Every other error
-    // leaves it possibly here, whole or in part, and only the caller can decide what
-    // that costs it.
-    return error instanceof AppNotFoundError
-      ? RemovalOutcome.NOT_INSTALLED
-      : RemovalOutcome.FAILED;
+    // this app, which answers a caller asking for it to be gone. An app whose
+    // teardown had begun, of the whole app or of one component, is removed whole in
+    // the background, and the network is told once it is gone. Any other error leaves the app as it was.
+    if (error instanceof AppNotFoundError) return RemovalOutcome.NOT_INSTALLED;
+    if (tornDownApp) finishRemoval(tornDownApp, force, !announced);
+    return RemovalOutcome.FAILED;
   } finally {
     if (acquired) globalState.removalInProgress = false;
     if (departingName) {
@@ -1339,6 +1392,8 @@ async function removeAppLocallyApi(req, res) {
 }
 
 module.exports = {
+  announceRemoval,
+  finishRemoval,
   hardUninstallComponent,
   hardUninstallApplication,
   softUninstallComponent,

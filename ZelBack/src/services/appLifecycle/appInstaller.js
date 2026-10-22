@@ -370,6 +370,17 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
       }
       return InstallOutcome.BUSY;
     }
+    // A pending removal of the app removes whatever is installed in its place, so
+    // the app takes no install until that removal has finished.
+    if (globalState.departingApps.has(appSpecs.name)) {
+      const rStatus = messageHelper.createWarningMessage(`Flux App ${appSpecs.name} is being removed. Installation not possible`);
+      log.error(rStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(rStatus));
+        if (res.flush) res.flush();
+      }
+      return InstallOutcome.BUSY;
+    }
     globalState.installationInProgress = true;
     acquired = true;
     // A test install holds nothing: it writes the app's row like any other install

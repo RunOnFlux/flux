@@ -287,13 +287,17 @@ describe('appQueryService tests', () => {
       expect(await appQueryService.installedAppsListedAt('198.51.100.1:16127')).to.deep.equal(['kept']);
     });
 
-    it('names none when the installed apps cannot be read', async () => {
+    it('rejects when the installed apps cannot be read', async () => {
       dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('appsDatabase') });
       dbHelperStub.findInDatabase.rejects(new Error('db down'));
-      messageHelperStub.createErrorMessage.returns({ status: 'error' });
+      messageHelperStub.createErrorMessage.returns({ status: 'error', data: { message: 'db down' } });
       registryManagerStub.appsListedAt.resolves(['kept']);
 
-      expect(await appQueryService.installedAppsListedAt('198.51.100.1:16127')).to.deep.equal([]);
+      const error = await appQueryService.installedAppsListedAt('198.51.100.1:16127').catch((caught) => caught);
+
+      expect(error).to.be.an('error');
+      expect(error.message).to.include('db down');
+      sinon.assert.notCalled(registryManagerStub.appsListedAt);
     });
   });
 

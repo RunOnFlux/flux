@@ -22,6 +22,8 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const nodeConfirmationService = require('../nodeConfirmationService');
 const { localAppsInformation, SIGTERM_EXPIRY_MS, RUNNING_EXPIRY_MS } = require('../utils/appConstants');
 const { getNonGComponentIdentifiers, parseContainerName, appHasValidLocationOnNode } = require('../utils/appUtilities');
+const { RemovalOutcome } = require('../utils/removalOutcome');
+const { untilSucceeds, BOOT_STEP_RETRY_MS } = require('../utils/untilSucceeds');
 
 const SYNC_TIMEOUT_MS = config.system.bootSyncTimeoutMs ?? 300000;
 
@@ -52,19 +54,14 @@ async function awaitWithin(work, timeoutMs, reason) {
  * @returns {Promise<Array>} Array of installed app specifications
  */
 async function getInstalledAppsFromDb() {
-  try {
-    const dbopen = dbHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
-    const appsQuery = {};
-    const appsProjection = {
-      projection: { _id: 0 },
-    };
-    const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-    return apps || [];
-  } catch (error) {
-    log.error(`appStartupManager - Error getting installed apps: ${error.message}`);
-    return [];
-  }
+  const dbopen = dbHelper.databaseConnection();
+  const appsDatabase = dbopen.db(config.database.appslocal.database);
+  const appsQuery = {};
+  const appsProjection = {
+    projection: { _id: 0 },
+  };
+  const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+  return apps || [];
 }
 
 /**
@@ -118,12 +115,97 @@ async function openInstalledAppPorts() {
   }
 }
 
+
+/**
+ * Removes an app whose location this node no longer holds. The network has dropped
+ * the record, so the removal tells it nothing. A removal that does not finish holds
+ * the app as departing - never started by the reconciler, never announced as
+ * running - and is run again until it does.
+ * @param {string} appName
+ * @returns {Promise<boolean>} Whether the app is gone now.
+ */
+async function removeAppBootMayNotStart(appName) {
+  const outcome = await appUninstaller.removeAppLocally(appName, null, true, true, false);
+  if (outcome === RemovalOutcome.REMOVED || outcome === RemovalOutcome.NOT_INSTALLED) return true;
+  appUninstaller.finishRemoval(appName, true, false);
+  return false;
+}
+
+/**
+ * Hands the components boot starts to the reconciler.
+ * @param {string[]} componentsToStart
+ * @returns {void}
+ */
+function startAtBoot(componentsToStart) {
+  // the reconciler actuates once the boot gate opens (daemon/DB ready) and applies
+  // desired-state + restart policy
+  // eslint-disable-next-line no-restricted-syntax
+  for (const identifier of componentsToStart) {
+    appReconciler.enqueue(identifier);
+    log.info(`appStartupManager - Queued ${identifier} for reconcile`);
+  }
+}
+
+/**
+ * Whether this node holds an unexpired location record for an app.
+ * @param {string} appName
+ * @param {string} localSocketAddr
+ * @returns {Promise<boolean>}
+ * @throws {Error} When the records cannot be read.
+ */
+async function readLocation(appName, localSocketAddr) {
+  const valid = await appHasValidLocationOnNode(appName, localSocketAddr);
+  if (valid === null) throw new Error(`the location record of ${appName} could not be read`);
+  return valid;
+}
+
+/**
+ * Decides an app held in globalState.unconfirmedApps once its location record can
+ * be read, reading it every BOOT_STEP_RETRY_MS until then. A valid record releases
+ * the app and starts the components boot starts; any other answer removes it, the
+ * app held until the removal has finished or holds it as departing. An app whose
+ * hold has ended by then - uninstalled meanwhile, perhaps installed again since -
+ * is not this check's to decide, and it does nothing.
+ * @param {string} appName
+ * @param {string[]} componentsToStart
+ * @param {string} localSocketAddr
+ * @param {symbol} hold The hold this check decides, as boot set it.
+ * @returns {Promise<void>}
+ */
+async function confirmHeldApp(appName, componentsToStart, localSocketAddr, hold) {
+  const isHeld = () => globalState.unconfirmedApps.get(appName) === hold;
+  await serviceHelper.delay(BOOT_STEP_RETRY_MS);
+  const valid = await untilSucceeds(`Location check of ${appName}`, () => readLocation(appName, localSocketAddr));
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.BOOT_BEFORE_LOCATION_DECISION, appName);
+  // Nothing awaits between this check and the decision below, so the hold cannot
+  // end in between.
+  if (!isHeld()) {
+    log.info(`appStartupManager - App ${appName}: its hold ended before its location record was read, nothing to decide`);
+    fluxEventBus.publish('boot:appConfirmed', { name: appName, valid, released: true });
+    return;
+  }
+  fluxEventBus.publish('boot:appConfirmed', { name: appName, valid });
+  if (valid) {
+    log.info(`appStartupManager - App ${appName}: its location record is valid, starting it`);
+    globalState.unconfirmedApps.delete(appName);
+    startAtBoot(componentsToStart);
+    return;
+  }
+  log.warn(`appStartupManager - App ${appName}: no valid location record for this node (${localSocketAddr}), removing locally`);
+  try {
+    await removeAppBootMayNotStart(appName);
+  } finally {
+    if (isHeld()) globalState.unconfirmedApps.delete(appName);
+  }
+}
 /**
  * Reconcile local app state against the network on boot. For each stopped
  * container, checks whether this node still has a valid location record.
  * - Valid location, non-g components: started.
  * - Valid location, g: components: left stopped (managed by masterSlaveApps).
  * - Expired/missing location: app removed locally (node was reassigned).
+ * - Unreadable location: app held stopped until the record can be read, then
+ *   decided as above (confirmHeldApp).
  * @returns {Promise<Object>} Results of the reconciliation
  */
 async function reconcileAppsOnBoot() {
@@ -134,6 +216,7 @@ async function reconcileAppsOnBoot() {
     appsSkippedGMode: [],
     appsSkippedNoSpec: [],
     appsRemoved: [],
+    appsUnconfirmed: [], // location unreadable: held stopped until it can be read
     appsFailed: [],
   };
 
@@ -227,17 +310,26 @@ async function reconcileAppsOnBoot() {
       if (localSocketAddr) {
         // eslint-disable-next-line no-await-in-loop
         const hasValidLocation = await appHasValidLocationOnNode(appName, localSocketAddr);
+        if (hasValidLocation === null) {
+          // Whether the network placed it elsewhere while this node was down is not
+          // known, so it is neither started nor removed until it is.
+          log.warn(`appStartupManager - App ${appName}: its location record could not be read, held stopped until it can be`);
+          const hold = Symbol(appName);
+          globalState.unconfirmedApps.set(appName, hold);
+          fluxEventBus.publish('boot:appUnconfirmed', { name: appName });
+          confirmHeldApp(appName, componentsToStart, localSocketAddr, hold)
+            .catch((error) => log.error(`appStartupManager - App ${appName}: the location check stopped: ${error.message}`));
+          results.appsUnconfirmed.push(appName);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
         if (!hasValidLocation) {
-          log.warn(`appStartupManager - App ${appName} no longer has a valid location record for this node (${localSocketAddr}), removing locally`);
-          try {
-            // eslint-disable-next-line no-await-in-loop
-            await appUninstaller.removeAppLocally(appName, null, true, true, false);
-            results.appsRemoved.push(appName);
-            log.info(`appStartupManager - App ${appName} removed locally (was reassigned to another node)`);
-          } catch (removeError) {
-            log.error(`appStartupManager - Failed to remove app ${appName}: ${removeError.message}`);
-            results.appsFailed.push({ app: appName, error: removeError.message });
-          }
+          // placed elsewhere while this node was down: removed, never started
+          log.warn(`appStartupManager - App ${appName}: no valid location record for this node (${localSocketAddr}), removing locally`);
+          // eslint-disable-next-line no-await-in-loop
+          const removed = await removeAppBootMayNotStart(appName);
+          if (removed) results.appsRemoved.push(appName);
+          else results.appsFailed.push({ app: appName, error: 'not removed; held stopped until it is' });
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(2000);
           // eslint-disable-next-line no-continue
@@ -253,13 +345,7 @@ async function reconcileAppsOnBoot() {
         log.info(`appStartupManager - App ${appName} has valid location, starting app`);
       }
 
-      // hand each component to the reconciler; it actuates once the boot gate
-      // opens (daemon/DB ready) and applies desired-state + restart policy
-      // eslint-disable-next-line no-restricted-syntax
-      for (const identifier of componentsToStart) {
-        appReconciler.enqueue(identifier);
-        log.info(`appStartupManager - Queued ${identifier} for reconcile`);
-      }
+      startAtBoot(componentsToStart);
 
       if (isPartial) {
         results.appsPartiallyStarted.push(appName);
@@ -274,6 +360,7 @@ async function reconcileAppsOnBoot() {
       + `Apps started: ${results.appsStarted.length}, `
       + `Apps partially started (mixed g:): ${results.appsPartiallyStarted.length}, `
       + `Apps removed (expired location): ${results.appsRemoved.length}, `
+      + `Apps held (location unreadable): ${results.appsUnconfirmed.length}, `
       + `Apps skipped (g: mode): ${results.appsSkippedGMode.length}, `
       + `Apps skipped (no spec): ${results.appsSkippedNoSpec.length}, `
       + `Apps failed: ${results.appsFailed.length}`,
@@ -306,6 +393,8 @@ async function manageAppsOnBoot(bootContext) {
   try {
     if (bootContext.firstBoot) {
       log.info('appStartupManager - First boot (no heartbeat history), waiting for sync');
+    } else if (bootContext.unreadable) {
+      log.warn('appStartupManager - Boot context unreadable: whether locations expired is decided app by app');
     } else {
       const locationsExpired = (bootContext.cleanShutdown && bootContext.downtimeMs > SIGTERM_EXPIRY_MS)
         || bootContext.downtimeMs > RUNNING_EXPIRY_MS;

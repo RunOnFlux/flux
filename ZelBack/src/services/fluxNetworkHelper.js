@@ -70,13 +70,18 @@ function setInstalledAppsListedAt(callback) {
  * Whether this node ran apps at `socketAddress`: an app installed here is one
  * the network lists there. A configuration names an address, and a machine
  * started on a copy of another's names that machine's; only apps left there
- * show this node held it.
+ * show this node held it. `null` when that cannot be read.
  * @param {string} socketAddress
- * @returns {Promise<boolean>}
+ * @returns {Promise<boolean|null>}
  */
 async function ranAppsAt(socketAddress) {
   if (!installedAppsListedAt) return false;
-  return (await installedAppsListedAt(socketAddress)).length > 0;
+  try {
+    return (await installedAppsListedAt(socketAddress)).length > 0;
+  } catch (error) {
+    log.warn(`own address - whether this node ran apps at ${socketAddress} cannot be read: ${error.message}`);
+    return null;
+  }
 }
 
 let dosState = 0; // we can start at bigger number later
@@ -93,6 +98,7 @@ const StickyDosOwner = Object.freeze({
   PEER_SET_STABILITY: 'peerSetStability',
   NODEJS_FLOOR: 'nodejsFloor',
   DOCKER_FLOOR: 'dockerFloor',
+  MONGODB_FLOOR: 'mongodbFloor',
 });
 
 // Declares the node unfit for the apps it already runs, and is not moved by the
@@ -1451,6 +1457,42 @@ function checkDockerVersionAllowed(dockerVersion) {
 }
 
 /**
+ * Whether the MongoDB this node runs meets the network minimum: the oldest
+ * release FluxOS supports.
+ *
+ * Asked once, when MongoDB first answers at startup. Upgrading MongoDB
+ * restarts mongod, not FluxOS, so the verdict stands until FluxOS next starts,
+ * and the message says so. A version that could not be read, or is not a
+ * SemVer version, gives no verdict. A pre-release is below its release.
+ * @param {?string} mongoDbVersion The version MongoDB reports, or null when it
+ *   could not be read.
+ * @returns {boolean} True unless the version is known and below the floor.
+ */
+function checkMongoDbVersionAllowed(mongoDbVersion) {
+  const minimumVersion = config.minimumMongoDbAllowedVersion;
+  if (!minimumVersion) {
+    log.error('checkMongoDbVersionAllowed - no minimum MongoDB version configured, skipping the check');
+    return true;
+  }
+  if (!mongoDbVersion) {
+    log.error('checkMongoDbVersionAllowed - MongoDB did not report its version, no verdict');
+    return true;
+  }
+  if (!serviceHelper.parseSemver(mongoDbVersion)) {
+    log.error(`checkMongoDbVersionAllowed - MongoDB reported ${mongoDbVersion}, which is not a SemVer version, no verdict`);
+    return true;
+  }
+  if (serviceHelper.semverAtLeast(mongoDbVersion, minimumVersion)) {
+    return true;
+  }
+  setStickyDos(
+    StickyDosOwner.MONGODB_FLOOR,
+    `MongoDB Version Error. Current lower version allowed is v${minimumVersion} found v${mongoDbVersion}. Upgrade MongoDB and restart FluxOS`,
+  );
+  return false;
+}
+
+/**
  * To check if Flux benchmark version is allowed.
  * @returns {boolean} True if version is verified as allowed. Otherwise false.
  */
@@ -2201,7 +2243,9 @@ async function fluxGoneFrom(socketAddress) {
 /**
  * Adopts `current` in place of `previous`, the configured address, which this
  * node has no record of leaving. Told to the network as a move only when this
- * node ran apps there.
+ * node ran apps there. While that cannot be read nothing is adopted: the
+ * collision check that calls this finds the same listing on its next pass and
+ * asks again.
  * @param {string} previous
  * @param {string} current
  * @returns {Promise<void>}
@@ -2209,9 +2253,16 @@ async function fluxGoneFrom(socketAddress) {
 function leaveConfiguredAddress(previous, current) {
   return serialiseOwnAddressWork(async () => {
     const from = normalizeSocketAddress(previous);
-    await adjustExternalIp(from, current, { announceMove: await ranAppsAt(from) });
+    const ran = await ranAppsAt(from);
+    if (ran === null) return;
+    await adjustExternalIp(from, current, { announceMove: ran });
   });
 }
+
+// How long an adoption deferred on an unreadable database waits before this
+// node's address is acted on again; the retry pending, while one is.
+const OWN_ADDRESS_RETRY_MS = 60 * 1000;
+let ownAddressRetry = null;
 
 /**
  * Acts on the address benchmark reports as this node's own. One that differs
@@ -2222,6 +2273,8 @@ function leaveConfiguredAddress(previous, current) {
  * the Flux node there is gone (fluxGoneFrom) it adopts the reported address and
  * the collision check judges it; once it is, it adopts the reported address in
  * place of the configured one, told as a move only when it ran apps there.
+ * While whether it ran apps there cannot be read it adopts nothing, and acts on
+ * the address it knows again after OWN_ADDRESS_RETRY_MS.
  * @param {string} current The reported socket address.
  * @returns {Promise<void>}
  */
@@ -2238,7 +2291,15 @@ function handleOwnAddress(current) {
         await writeOwnAddressRecord(reported);
         return;
       }
-      await adjustExternalIp(previous, reported, { announceMove: Boolean(record) || await ranAppsAt(previous) });
+      const announceMove = record ? true : await ranAppsAt(previous);
+      if (announceMove === null) {
+        ownAddressRetry ??= setTimeout(() => {
+          ownAddressRetry = null;
+          handleOwnAddress(getKnownLocalSocketAddress() || reported);
+        }, OWN_ADDRESS_RETRY_MS);
+        return;
+      }
+      await adjustExternalIp(previous, reported, { announceMove });
     } else if (!record) {
       await writeOwnAddressRecord(reported);
     } else {
@@ -2266,6 +2327,8 @@ function startOwnAddressWatch() {
   return () => {
     if (ownAddressListener) offLocalSocketAddressChange(ownAddressListener);
     ownAddressListener = null;
+    clearTimeout(ownAddressRetry);
+    ownAddressRetry = null;
   };
 }
 
@@ -3657,6 +3720,7 @@ module.exports = {
   checkFluxbenchVersionAllowed,
   checkNodeJsVersionAllowed,
   checkDockerVersionAllowed,
+  checkMongoDbVersionAllowed,
   checkMyFluxAvailability,
   adjustExternalIp,
   handleOwnAddress,

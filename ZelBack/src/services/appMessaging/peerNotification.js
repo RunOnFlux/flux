@@ -188,10 +188,13 @@ async function checkAndNotifyPeersOfRunningApps() {
     // installed until the removal finishes, and naming it here would re-create the
     // location row the removal just cleared. An app this node is only testing is
     // excluded too: its row is thrown away at the end of the test, and the teardown
-    // that throws it away tells the network nothing.
+    // that throws it away tells the network nothing. So is an app boot has not yet
+    // confirmed this node still holds: naming it would renew a location record that
+    // may have expired, and the boot check would then read it as valid.
     const applicationsToBroadcast = appsInstalled.filter(
       (application) => !globalState.departingApps.has(application.name)
-        && !globalState.testInstallingApps.has(application.name),
+        && !globalState.testInstallingApps.has(application.name)
+        && !globalState.unconfirmedApps.has(application.name),
     );
     const apps = [];
     const db = dbHelper.databaseConnection();

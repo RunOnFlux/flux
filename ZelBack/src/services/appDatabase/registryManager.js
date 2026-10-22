@@ -1626,78 +1626,15 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
 }
 
 /**
- * Get app specification from database
- * @param {string} appName - Application name
- * @returns {Promise<object|null>} App specification
- */
-async function getAppSpecificationFromDb(appName) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const query = { name: new RegExp(`^${appName}$`, 'i') };
-    const projection = { projection: { _id: 0 } };
-
-    const appSpec = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-    return appSpec;
-  } catch (error) {
-    log.error(`Error getting app specification from database: ${error.message}`);
-    return null;
-  }
-}
-
-/**
- * Get all apps information (both global and local)
- * @returns {Promise<Array>} Array of all app information
- */
-async function getAllAppsInformation() {
-  try {
-    const allApps = await availableApps();
-    return allApps;
-  } catch (error) {
-    log.error(`Error getting all apps information: ${error.message}`);
-    return [];
-  }
-}
-
-/**
  * Get installed apps information
- * @returns {Promise<Array>} Array of installed apps
+ * @returns {Promise<Array>} Array of installed apps. Rejects when the read fails:
+ *   an unread list is not an empty one.
  */
 async function getInstalledApps() {
-  try {
-    const localDb = dbHelper.databaseConnection();
-    const localDatabase = localDb.db(config.database.appslocal.database);
-
-    const query = {};
-    const projection = { projection: { _id: 0 } };
-
-    const installedApps = await dbHelper.findInDatabase(localDatabase, localAppsInformation, query, projection);
-    return installedApps;
-  } catch (error) {
-    log.error(`Error getting installed apps: ${error.message}`);
-    return [];
-  }
-}
-
-/**
- * Get running apps information
- * @returns {Promise<Array>} Array of running apps
- */
-async function getRunningApps() {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const query = {};
-    const projection = { projection: { _id: 0 } };
-
-    const runningApps = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
-    return runningApps;
-  } catch (error) {
-    log.error(`Error getting running apps: ${error.message}`);
-    return [];
-  }
+  const localDb = dbHelper.databaseConnection();
+  const localDatabase = localDb.db(config.database.appslocal.database);
+  const projection = { projection: { _id: 0 } };
+  return dbHelper.findInDatabase(localDatabase, localAppsInformation, {}, projection);
 }
 
 /**
@@ -1747,31 +1684,6 @@ function registrationInformation(_req, res) {
       error.code,
     );
     res.json(errorResponse);
-  }
-}
-
-/**
- * Get all global applications from database
- * @param {string[]} proj - Optional projection fields
- * @returns {Promise<object[]>} Array of global applications
- */
-async function getAllGlobalApplications(proj = []) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    const query = {};
-    const wantedProjection = {
-      _id: 0,
-    };
-    proj.forEach((field) => {
-      wantedProjection[field] = 1;
-    });
-    const projection = { projection: wantedProjection, sort: { height: 1 } }; // ensure sort from oldest to newest
-    const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
-    return results;
-  } catch (error) {
-    log.error(error);
-    return [];
   }
 }
 
@@ -1938,28 +1850,26 @@ async function isGoverningAppMessage(appName, hash) {
  * force (appMessageChain): the one that governs the name in the message log, and alive at the
  * current block. Any other message changes nothing: a newer one governs the app, or its term has ended.
  * A registration and an update are stored alike, so an update renews an app this node's expiry
- * pass has already removed, and this node holds what a rebuild from the log would.
+ * pass has already removed, and this node holds what a rebuild from the log would. A row that
+ * already holds this message at this height is left as it is.
  * @param {object} appSpecs the message's specifications, with its hash and height
- * @returns {Promise<boolean>} false when the write failed
+ * @returns {Promise<void>} Rejects when a read or the write fails: the caller decides what an
+ *   unwritten registry row costs it.
  */
 async function storeAppSpecificationInForce(appSpecs) {
   return withRegistryWrite(async () => {
-    try {
-      if (!await isGoverningAppMessage(appSpecs.name, appSpecs.hash)) return true;
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      const currentHeight = syncStatus && syncStatus.data ? syncStatus.data.height : 0;
-      if (!appMessageChain.isInForce(appSpecs.height, appSpecs.expire, currentHeight)) return true;
-      const db = dbHelper.databaseConnection();
-      const database = db.db(config.database.appsglobal.database);
-      await dbHelper.replaceOneInDatabase(database, globalAppsInformation, { name: appSpecs.name }, appSpecs, { upsert: true });
-      fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
-      await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, { name: appSpecs.name });
-      await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsBroadcasts, { 'data.name': appSpecs.name });
-      return true;
-    } catch (error) {
-      log.error(`storeAppSpecificationInForce failed for ${appSpecs.name}: ${error.message}`);
-      return false;
-    }
+    if (!await isGoverningAppMessage(appSpecs.name, appSpecs.hash)) return;
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const currentHeight = syncStatus && syncStatus.data ? syncStatus.data.height : 0;
+    if (!appMessageChain.isInForce(appSpecs.height, appSpecs.expire, currentHeight)) return;
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    const held = await dbHelper.findOneInDatabase(database, globalAppsInformation, { name: appSpecs.name }, { projection: { _id: 0, hash: 1, height: 1 } });
+    if (held && held.hash === appSpecs.hash && held.height === appSpecs.height) return;
+    await dbHelper.replaceOneInDatabase(database, globalAppsInformation, { name: appSpecs.name }, appSpecs, { upsert: true });
+    fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
+    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, { name: appSpecs.name });
+    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsBroadcasts, { 'data.name': appSpecs.name });
   });
 }
 
@@ -2046,8 +1956,12 @@ async function reindexGlobalAppsInformation() {
   return rebuildFollowing;
 }
 
+// Hash records corrected per round trip.
+const HASH_RECONSTRUCTION_BATCH = 5000;
+
 /**
- * Reconstruct app messages hash collection by validating hash records against actual messages
+ * Reconstruct app messages hash collection by validating hash records against actual messages.
+ * Reads only the fields it compares, and writes its corrections HASH_RECONSTRUCTION_BATCH at a time.
  * @returns {Promise<string>} Success message
  */
 async function reconstructAppMessagesHashCollection() {
@@ -2057,11 +1971,13 @@ async function reconstructAppMessagesHashCollection() {
     const databaseDaemon = db.db(config.database.daemon.database);
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     const currentHeight = syncStatus.data.height || 0;
-    const query = {};
-    const projection = { projection: { _id: 0 } };
 
-    const permanentMessages = await dbHelper.findInDatabase(databaseApps, globalAppsMessages, query, projection);
-    const appHashes = await dbHelper.findInDatabase(databaseDaemon, appsHashesCollection, query, projection);
+    const permanentMessages = await dbHelper.findInDatabase(databaseApps, globalAppsMessages, {}, { projection: { _id: 0, hash: 1 } });
+    const appHashes = await dbHelper.findInDatabase(databaseDaemon, appsHashesCollection, {}, {
+      projection: {
+        _id: 0, hash: 1, txid: 1, height: 1, message: 1, messageNotFound: 1, retryFromHeight: 1,
+      },
+    });
     const permHashSet = new Set(permanentMessages.map((m) => m.hash));
 
     const ops = [];
@@ -2099,8 +2015,9 @@ async function reconstructAppMessagesHashCollection() {
     }
 
     let changed = 0;
-    if (ops.length > 0) {
-      const result = await databaseDaemon.collection(appsHashesCollection).bulkWrite(ops, { ordered: false });
+    for (let i = 0; i < ops.length; i += HASH_RECONSTRUCTION_BATCH) {
+      // eslint-disable-next-line no-await-in-loop
+      const result = await databaseDaemon.collection(appsHashesCollection).bulkWrite(ops.slice(i, i + HASH_RECONSTRUCTION_BATCH), { ordered: false });
       changed += result.modifiedCount;
     }
 
@@ -2633,13 +2550,9 @@ module.exports = {
   storeAppSpecificationInForce,
   governingAppMessage,
   isGoverningAppMessage,
-  getAppSpecificationFromDb,
-  getAllAppsInformation,
   getInstalledApps,
-  getRunningApps,
   getRunningAppIpList,
   registrationInformation,
-  getAllGlobalApplications,
   expireGlobalApplications,
   reindexGlobalAppsInformation,
   reindexGlobalAppsLocation,

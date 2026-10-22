@@ -53,6 +53,7 @@ describe('appUninstaller tests', () => {
   let globalStateStub;
   let announceCycle;
   let getLocalSocketAddressStub;
+  let broadcastStub;
   let runCommandStub;
 
   beforeEach(() => {
@@ -595,7 +596,7 @@ describe('appUninstaller tests', () => {
     // and unforced paths alike.
     let runtimeStateStub;
 
-    function buildUninstaller(spec, constantOverrides = {}) {
+    function buildUninstaller(spec, constantOverrides = {}, dbOverrides = {}) {
       runtimeStateStub = { remove: sinon.stub().resolves(), removeControllerState: sinon.stub().resolves() };
       // The REAL departing tracker, taken fresh per test rather than
       // reimplemented here: a fake that counts differently from the module
@@ -604,11 +605,13 @@ describe('appUninstaller tests', () => {
       // is this suite's alone - evicting the entry instead would hand another
       // object to every module loaded after it, and globalState is a singleton
       // whose flags decide whether an operation may start at all.
-      const { departingApps, announceCycle: realAnnounceCycle } = proxyquire('../../ZelBack/src/services/utils/globalState', {});
+      const { departingApps, unconfirmedApps, announceCycle: realAnnounceCycle } = proxyquire('../../ZelBack/src/services/utils/globalState', {});
       announceCycle = realAnnounceCycle;
       getLocalSocketAddressStub = sinon.stub().resolves(null);
+      broadcastStub = sinon.stub().resolves();
       globalStateStub = {
         departingApps,
+        unconfirmedApps,
         announceCycle,
         removalInProgress: false,
         installationInProgress: false,
@@ -616,9 +619,28 @@ describe('appUninstaller tests', () => {
         receiveOnlySyncthingAppsCache: new Map(),
         folderHoldings: new Map(),
         seedMarks: new Map(),
+        // the two operations this suite sets, named as the module names them
+        operationHolding() {
+          if (this.removalInProgress) return 'removal';
+          if (this.installationInProgress) return 'installation';
+          return null;
+        },
       };
       return proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
         '../utils/globalState': globalStateStub,
+        // runs the step again after a moment until it succeeds, as the real one does after its wait
+        '../utils/untilSucceeds': {
+          BOOT_STEP_RETRY_MS: 15000,
+          untilSucceeds: async (what, step) => {
+            for (;;) {
+              try {
+                return await step(); // eslint-disable-line no-await-in-loop
+              } catch {
+                await new Promise((resolve) => { setTimeout(resolve, 10); }); // eslint-disable-line no-await-in-loop
+              }
+            }
+          },
+        },
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -635,6 +657,7 @@ describe('appUninstaller tests', () => {
           findOneInDatabase: sinon.stub().resolves(spec),
           findInDatabase: sinon.stub().resolves([]),
           findOneAndDeleteInDatabase: sinon.stub().resolves(),
+          ...dbOverrides,
         },
         '../dockerService': {
           appDockerKill: sinon.stub().resolves(),
@@ -675,7 +698,7 @@ describe('appUninstaller tests', () => {
         '../fluxCommunicationMessagesSender': {
           broadcastMessageToOutgoing: sinon.stub().resolves(),
           broadcastMessageToIncoming: sinon.stub().resolves(),
-          broadcastMessageToAll: sinon.stub().resolves(),
+          broadcastMessageToAll: broadcastStub,
         },
         '../appDatabase/registryManager': {
           availableApps: sinon.stub().resolves([]),
@@ -720,6 +743,167 @@ describe('appUninstaller tests', () => {
     };
 
     const res = null; // exercised without a response stream
+
+    describe('a cleanup step that fails after the containers are gone', () => {
+      // The app is part removed: it is held as departing - never started, never
+      // announced - and its removal runs again until it finishes, which tells the network.
+      const settle = async (done) => {
+        for (let i = 0; i < 200 && !done(); i += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((resolve) => { setTimeout(resolve, 10); });
+        }
+      };
+
+      it('fails the removal, holds the app, and finishes the removal once the row can be deleted', async () => {
+        const deleteRow = sinon.stub().resolves();
+        deleteRow.onFirstCall().rejects(new Error('connection timed out'));
+        let heldWhileFinishing = null;
+        deleteRow.onSecondCall().callsFake(async () => {
+          heldWhileFinishing = globalStateStub.departingApps.has('testapp');
+        });
+        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
+
+        const outcome = await uninstaller.removeAppLocally('testapp', res, true);
+        await settle(() => !globalStateStub.departingApps.has('testapp') && deleteRow.calledTwice);
+
+        expect(outcome).to.equal('failed');
+        expect(heldWhileFinishing, 'the part-removed app was not held while its removal was run again').to.be.true;
+        sinon.assert.calledTwice(deleteRow);
+        expect(globalStateStub.departingApps.has('testapp'), 'the hold outlived the removal').to.be.false;
+        sinon.assert.calledOnce(getLocalSocketAddressStub);
+      });
+
+      // A hard redeploy tells the network once its reinstall fails, and the cleanup
+      // that stopped part way is finished afterwards: that message is the one sent.
+      it('finishes a removal without telling the network again when it was told meanwhile', async () => {
+        const deleteRow = sinon.stub().resolves();
+        deleteRow.onFirstCall().rejects(new Error('connection timed out'));
+        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
+        getLocalSocketAddressStub.resolves('10.0.0.1:16127');
+
+        // the reinstall holds the node, so the run that finishes the removal waits
+        globalStateStub.installationInProgress = true;
+        await uninstaller.removeAppLocally('testapp', res, true);
+        await uninstaller.announceRemoval('testapp');
+        globalStateStub.installationInProgress = false;
+        await settle(() => deleteRow.calledTwice && !globalStateStub.departingApps.has('testapp'));
+
+        sinon.assert.calledTwice(deleteRow);
+        sinon.assert.calledOnce(broadcastStub);
+      });
+
+      it('a canary: the same removal told nothing meanwhile tells the network once it finishes', async () => {
+        const deleteRow = sinon.stub().resolves();
+        deleteRow.onFirstCall().rejects(new Error('connection timed out'));
+        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
+        getLocalSocketAddressStub.resolves('10.0.0.1:16127');
+
+        await uninstaller.removeAppLocally('testapp', res, true);
+        await settle(() => deleteRow.calledTwice && !globalStateStub.departingApps.has('testapp'));
+
+        sinon.assert.calledOnce(broadcastStub);
+      });
+
+      it('holds an app the network was already told of, and does not tell it twice', async () => {
+        const deleteRow = sinon.stub().resolves();
+        deleteRow.onFirstCall().rejects(new Error('connection timed out'));
+        let heldWhileFinishing = null;
+        deleteRow.onSecondCall().callsFake(async () => {
+          heldWhileFinishing = globalStateStub.departingApps.has('testapp');
+        });
+        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
+
+        await uninstaller.removeAppLocally('testapp', res, true, true, true);
+        await settle(() => !globalStateStub.departingApps.has('testapp') && deleteRow.calledTwice);
+
+        expect(heldWhileFinishing, 'the part-removed app was not held while its removal was run again').to.be.true;
+        sinon.assert.calledOnce(getLocalSocketAddressStub);
+      });
+
+      it('removes the whole app when the removal of one of its components stops part way', async () => {
+        let heldWhileFinishing = null;
+        const deleteRow = sinon.stub().callsFake(async () => {
+          heldWhileFinishing = globalStateStub.departingApps.has('testapp');
+        });
+        const uninstaller = buildUninstaller(composedSpec, {}, { findOneAndDeleteInDatabase: deleteRow });
+        runtimeStateStub.remove.onFirstCall().rejects(new Error('connection timed out'));
+
+        const outcome = await uninstaller.removeAppLocally('comp1_testapp', res, true);
+        await settle(() => deleteRow.called && !globalStateStub.departingApps.has('testapp'));
+
+        expect(outcome).to.equal('failed');
+        sinon.assert.calledOnce(deleteRow);
+        expect(heldWhileFinishing, 'the app was not held while it was removed whole').to.be.true;
+      });
+
+      it('fails the removal, before the row, when the runtime state cannot be removed, and finishes it', async () => {
+        const deleteRow = sinon.stub().resolves();
+        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
+        runtimeStateStub.remove.onFirstCall().rejects(new Error('connection timed out'));
+
+        const outcome = await uninstaller.removeAppLocally('testapp', res, true);
+        expect(outcome).to.equal('failed');
+        await settle(() => deleteRow.called);
+
+        sinon.assert.calledOnce(deleteRow);
+      });
+
+      // A forced removal takes the node's removal lock without asking and clears it
+      // when it ends, so one run beside another removal would release that removal's
+      // lock part way through. The rerun waits for the node instead.
+      it('runs the removal again only once no other install or removal holds the node', async () => {
+        const deleteRow = sinon.stub().resolves();
+        deleteRow.onFirstCall().rejects(new Error('connection timed out'));
+        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
+
+        globalStateStub.installationInProgress = true;
+        await uninstaller.removeAppLocally('testapp', res, true);
+        // time for the rerun to have run, had it not waited
+        await new Promise((resolve) => { setTimeout(resolve, 100); });
+        sinon.assert.calledOnce(deleteRow);
+        expect(globalStateStub.installationInProgress, 'the rerun cleared another operation\'s hold').to.equal(true);
+
+        globalStateStub.installationInProgress = false;
+        await settle(() => deleteRow.calledTwice && !globalStateStub.departingApps.has('testapp'));
+        sinon.assert.calledTwice(deleteRow);
+      });
+
+      it('runs one removal again for an app however often it is handed over', async () => {
+        let finishRow;
+        const deleteRow = sinon.stub().resolves();
+        deleteRow.onFirstCall().rejects(new Error('connection timed out'));
+        deleteRow.onSecondCall().returns(new Promise((resolve) => { finishRow = resolve; }));
+        const uninstaller = buildUninstaller(v2Spec, {}, { findOneAndDeleteInDatabase: deleteRow });
+
+        await uninstaller.removeAppLocally('testapp', res, true);
+        await settle(() => deleteRow.calledTwice);
+        uninstaller.finishRemoval('testapp', true, true);
+        finishRow();
+        await settle(() => !globalStateStub.departingApps.has('testapp'));
+        // time for a second run, had one been started, to reach the row
+        await new Promise((resolve) => { setTimeout(resolve, 100); });
+
+        sinon.assert.calledTwice(deleteRow);
+      });
+    });
+
+    it('takes a forced removal\'s spec from the app\'s newest stored message, read by its name', async () => {
+      const messages = sinon.stub().resolves([{ height: 900, appSpecifications: v2Spec }]);
+      const uninstaller = buildUninstaller(null, {}, { findInDatabase: messages });
+      const onRemoved = sinon.stub();
+      uninstaller.setOnComponentRemoved(onRemoved);
+
+      await uninstaller.removeAppLocally('testapp', res, true);
+
+      sinon.assert.calledWithExactly(
+        messages,
+        sinon.match.any,
+        'appsMessages',
+        { 'appSpecifications.name': 'testapp' },
+        { projection: { _id: 0 }, sort: { height: -1, timestamp: -1 }, limit: 1 },
+      );
+      sinon.assert.calledOnceWithExactly(onRemoved, 'testapp');
+    });
 
     it('notifies the seam with the bare name for a v1-3 app', async () => {
       const uninstaller = buildUninstaller(v2Spec);
@@ -819,6 +1003,46 @@ describe('appUninstaller tests', () => {
 
       sinon.assert.calledOnceWithExactly(runtimeStateStub.remove, 'testapp');
       sinon.assert.notCalled(logStub.error);
+    });
+
+    // Boot holds an app whose location record it could not read until a check
+    // decides it. An uninstall in the meantime leaves that check nothing to
+    // decide, and an install of the same name afterwards is another app.
+    describe('the boot hold', () => {
+      it('ends when the app is uninstalled', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        globalStateStub.unconfirmedApps.set('testapp', Symbol('testapp'));
+
+        await uninstaller.removeAppLocally('testapp', res, true, true, false);
+
+        expect(
+          globalStateStub.unconfirmedApps.has('testapp'),
+          'still held after its uninstall, so boot\'s check would decide an install that came after it',
+        ).to.be.false;
+      });
+
+      it('holds the app while its teardown runs', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        globalStateStub.unconfirmedApps.set('testapp', Symbol('testapp'));
+        let heldDuring = null;
+        uninstaller.setOnComponentRemoved(() => {
+          heldDuring = globalStateStub.unconfirmedApps.has('testapp');
+        });
+
+        await uninstaller.removeAppLocally('testapp', res, true, true, false);
+
+        expect(heldDuring, 'released part way through its teardown, so it could be started or announced').to.be.true;
+      });
+
+      it('stays when a removal is refused', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        globalStateStub.unconfirmedApps.set('testapp', Symbol('testapp'));
+        globalStateStub.removalInProgress = true;
+
+        await uninstaller.removeAppLocally('testapp', res, false, true, false);
+
+        expect(globalStateStub.unconfirmedApps.has('testapp'), 'released by a removal that never ran').to.be.true;
+      });
     });
 
     // A node stops claiming an app when it decides to hand it back, not when the

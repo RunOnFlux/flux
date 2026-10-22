@@ -64,6 +64,13 @@ export function dbClient(nodeNum) {
       await localDb.collection('ownaddress').deleteMany({});
     },
 
+    // The node keeps no record of when it was last alive, as on a node whose FluxOS
+    // never wrote one: its next boot reads as a first boot.
+    async forgetHeartbeat() {
+      const localDb = await db('local');
+      await localDb.collection('nodestartuptracker').deleteOne({ _id: 'heartbeat' });
+    },
+
     // The node's own geolocation record: what it decided about its address.
     async nodeGeolocation() {
       const localDb = await db('local');
@@ -111,8 +118,27 @@ export function dbClient(nodeNum) {
       return localDb.collection('zelappsinformation').countDocuments({});
     },
 
+    // The names of the apps this node holds, from its own table: the route that
+    // lists them is cached, and this is not.
+    async localAppNames() {
+      const localDb = await db('appsLocal');
+      const rows = await localDb.collection('zelappsinformation').find({}, { projection: { _id: 0, name: 1 } }).toArray();
+      return rows.map((row) => row.name);
+    },
+
     // This node's view of where an app runs (the rows fluxapprunning messages
     // upsert and the empty-broadcast bug used to wipe).
+    // This node's rows for the app at that address stay unexpired for `ms` from now,
+    // as a production record does across a restart the harness's compressed record
+    // would not outlive. Resolves to how many rows were found.
+    async extendAppLocation(appName, ip, ms) {
+      const globalDb = await db('appsGlobal');
+      const host = String(ip).replace(/:\d+$/, '').replace(/\./g, '\\.');
+      const { matchedCount } = await globalDb.collection('zelappslocation')
+        .updateMany({ name: appName, ip: { $regex: `^${host}(:\\d+)?$` } }, { $set: { expireAt: new Date(Date.now() + ms) } });
+      return matchedCount;
+    },
+
     async getAppLocations(appName) {
       const globalDb = await db('appsGlobal');
       return globalDb.collection('zelappslocation').find({ name: appName }).toArray();

@@ -1008,6 +1008,19 @@ describe('appInstaller tests', () => {
       expect(globalStateStub.installationInProgress, 'a refusal released someone else\'s hold').to.be.true;
     });
 
+    it('refuses an app whose removal is pending, taking no hold', async () => {
+      const res = { write: sinon.stub(), end: sinon.stub() };
+      globalStateStub.departingApps.enter(appSpec.name);
+      try {
+        const result = await appInstaller.registerAppLocally(appSpec, false, res);
+
+        expect(result).to.equal(InstallOutcome.BUSY);
+        expect(globalStateStub.installationInProgress, 'the refusal took the install hold').to.be.false;
+      } finally {
+        globalStateStub.departingApps.leave(appSpec.name);
+      }
+    });
+
     it('should return false if node tier does not return anything', async () => {
       const appInstallerWithNodeTier = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
         config: configStub,

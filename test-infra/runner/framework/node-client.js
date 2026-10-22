@@ -195,6 +195,10 @@ export function nodeClient(nodeNum) {
         'masterSlave:operatorStartSettled',
         'stream:gap',
         'boot:settled',
+        // an app boot could not confirm this node still holds, held stopped; and the
+        // answer once its location record could be read
+        'boot:appUnconfirmed',
+        'boot:appConfirmed',
         'confirmation:changed',
         'daemon:polled',
         'daemon:recovered',
@@ -217,6 +221,8 @@ export function nodeClient(nodeNum) {
         // wording of the response stream.
         'app:installOutcome',
         'app:removed',
+        'app:rebuilt',
+        'reinstall:passEnded',
         'app:componentRedeployed',
         'app:specStored',
         'app:running',
@@ -319,6 +325,7 @@ export function nodeClient(nodeNum) {
         'sync:refused',
         'ephemeralSync:peerTimedOut',
         'ephemeralSync:peerUnverified',
+        'ephemeralSync:peerWriteFailed',
         'ephemeralSync:peerDisconnected',
         'ephemeralSync:budgetSpent',
         'sync:chunkVerified',

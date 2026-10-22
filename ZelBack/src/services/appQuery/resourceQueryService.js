@@ -75,72 +75,65 @@ async function fluxUsage(req, res) {
  * of them means this node cannot account for itself. It does not leave the
  * process: the API halves publish the totals alone.
  *
- * @returns {object} Message carrying {appsCpusLocked, appsRamLocked, appsHddLocked, unreadable}
+ * @returns {object} Message carrying {appsCpusLocked, appsRamLocked, appsHddLocked, unreadable}.
+ *   Rejects with the original error when the installed apps cannot be read: a
+ *   node that cannot count what it has committed has no totals to give.
  */
 async function appsResources() {
   log.info('Checking appsResources');
-  try {
-    const dbopen = dbHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
-    const appsQuery = {};
-    const appsProjection = { projection: { _id: 0 } };
-    const stored = await dbHelper.findInDatabase(appsDatabase, appConstants.localAppsInformation, appsQuery, appsProjection);
+  const dbopen = dbHelper.databaseConnection();
+  const appsDatabase = dbopen.db(config.database.appslocal.database);
+  const appsQuery = {};
+  const appsProjection = { projection: { _id: 0 } };
+  const stored = await dbHelper.findInDatabase(appsDatabase, appConstants.localAppsInformation, appsQuery, appsProjection);
 
-    // eslint-disable-next-line global-require
-    const { decryptEnterpriseApps } = require('./appQueryService');
-    const { inPlace: appsResult, unreadable } = await decryptEnterpriseApps(stored, { formatSpecs: false });
+  // eslint-disable-next-line global-require
+  const { decryptEnterpriseApps } = require('./appQueryService');
+  const { inPlace: appsResult, unreadable } = await decryptEnterpriseApps(stored, { formatSpecs: false });
 
-    let appsCpusLocked = 0;
-    let appsRamLocked = 0;
-    let appsHddLocked = 0;
-    const tier = await generalService.nodeTier().catch((error) => log.error(error));
-    const hddTier = `hdd${tier}`;
-    const ramTier = `ram${tier}`;
-    const cpuTier = `cpu${tier}`;
+  let appsCpusLocked = 0;
+  let appsRamLocked = 0;
+  let appsHddLocked = 0;
+  const tier = await generalService.nodeTier().catch((error) => log.error(error));
+  const hddTier = `hdd${tier}`;
+  const ramTier = `ram${tier}`;
+  const cpuTier = `cpu${tier}`;
 
-    // Ensure appsResult is an array
-    const apps = Array.isArray(appsResult) ? appsResult : [];
-    apps.forEach((app) => {
-      if (app.version >= 4) {
-        app.compose.forEach((component) => {
-          if (component.tiered && tier) {
-            appsCpusLocked += serviceHelper.ensureNumber(component[cpuTier] || component.cpu) || 0;
-            appsRamLocked += serviceHelper.ensureNumber(component[ramTier] || component.ram) || 0;
-            appsHddLocked += serviceHelper.ensureNumber(component[hddTier] || component.hdd) || 0;
-          } else {
-            appsCpusLocked += serviceHelper.ensureNumber(component.cpu) || 0;
-            appsRamLocked += serviceHelper.ensureNumber(component.ram) || 0;
-            appsHddLocked += serviceHelper.ensureNumber(component.hdd) || 0;
-          }
-          appsHddLocked += config.fluxapps.hddFileSystemMinimum + config.fluxapps.defaultSwap; // 5gb per component + 2gb swap
-        });
-      } else if (app.tiered && tier) {
-        appsCpusLocked += serviceHelper.ensureNumber(app[cpuTier] || app.cpu) || 0;
-        appsRamLocked += serviceHelper.ensureNumber(app[ramTier] || app.ram) || 0;
-        appsHddLocked += serviceHelper.ensureNumber(app[hddTier] || app.hdd) || 0;
+  // Ensure appsResult is an array
+  const apps = Array.isArray(appsResult) ? appsResult : [];
+  apps.forEach((app) => {
+    if (app.version >= 4) {
+      app.compose.forEach((component) => {
+        if (component.tiered && tier) {
+          appsCpusLocked += serviceHelper.ensureNumber(component[cpuTier] || component.cpu) || 0;
+          appsRamLocked += serviceHelper.ensureNumber(component[ramTier] || component.ram) || 0;
+          appsHddLocked += serviceHelper.ensureNumber(component[hddTier] || component.hdd) || 0;
+        } else {
+          appsCpusLocked += serviceHelper.ensureNumber(component.cpu) || 0;
+          appsRamLocked += serviceHelper.ensureNumber(component.ram) || 0;
+          appsHddLocked += serviceHelper.ensureNumber(component.hdd) || 0;
+        }
         appsHddLocked += config.fluxapps.hddFileSystemMinimum + config.fluxapps.defaultSwap; // 5gb per component + 2gb swap
-      } else {
-        appsCpusLocked += serviceHelper.ensureNumber(app.cpu) || 0;
-        appsRamLocked += serviceHelper.ensureNumber(app.ram) || 0;
-        appsHddLocked += serviceHelper.ensureNumber(app.hdd) || 0;
-        appsHddLocked += config.fluxapps.hddFileSystemMinimum + config.fluxapps.defaultSwap; // 5gb per component + 2gb swap
-      }
-    });
-    const appsUsage = {
-      appsCpusLocked,
-      appsRamLocked,
-      appsHddLocked,
-      unreadable: unreadable.map((app) => app.name),
-    };
-    return messageHelper.createDataMessage(appsUsage);
-  } catch (error) {
-    log.error(error);
-    return messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-  }
+      });
+    } else if (app.tiered && tier) {
+      appsCpusLocked += serviceHelper.ensureNumber(app[cpuTier] || app.cpu) || 0;
+      appsRamLocked += serviceHelper.ensureNumber(app[ramTier] || app.ram) || 0;
+      appsHddLocked += serviceHelper.ensureNumber(app[hddTier] || app.hdd) || 0;
+      appsHddLocked += config.fluxapps.hddFileSystemMinimum + config.fluxapps.defaultSwap; // 5gb per component + 2gb swap
+    } else {
+      appsCpusLocked += serviceHelper.ensureNumber(app.cpu) || 0;
+      appsRamLocked += serviceHelper.ensureNumber(app.ram) || 0;
+      appsHddLocked += serviceHelper.ensureNumber(app.hdd) || 0;
+      appsHddLocked += config.fluxapps.hddFileSystemMinimum + config.fluxapps.defaultSwap; // 5gb per component + 2gb swap
+    }
+  });
+  const appsUsage = {
+    appsCpusLocked,
+    appsRamLocked,
+    appsHddLocked,
+    unreadable: unreadable.map((app) => app.name),
+  };
+  return messageHelper.createDataMessage(appsUsage);
 }
 
 /**
@@ -179,10 +172,12 @@ function unaccountedApps(response) {
  * @returns {Promise<void>}
  */
 async function appsResourcesApi(req, res) {
-  const response = await appsResources();
-
-  if (response.status === 'error') {
-    res.json(response);
+  let response;
+  try {
+    response = await appsResources();
+  } catch (error) {
+    log.error(error);
+    res.json(messageHelper.createErrorMessage(error.message || error, error.name, error.code));
     return;
   }
 

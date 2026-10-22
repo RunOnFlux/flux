@@ -43,6 +43,13 @@ module.exports = {
   database: {
     url: '127.0.0.1',
     port: 27017,
+    // How long one round trip, or the wait for a pooled connection, may take
+    // before the call fails. callTimeoutMs bounds every call on the main client:
+    // over four times the slowest healthy round trip seen on the fleet.
+    // maintenanceCallTimeoutMs bounds the client for the named long operations:
+    // index builds, the explorer restore's deletes and the registry rebuild.
+    callTimeoutMs: 60 * 1000,
+    maintenanceCallTimeoutMs: 15 * 60 * 1000,
     local: {
       database: `${dbPrefix}zelfluxlocal`,
       collections: {
@@ -140,6 +147,11 @@ module.exports = {
   // Docker's networking rules and its patch releases fixed them; 28.1.1 is the
   // oldest release the fleet runs in numbers.
   minimumDockerAllowedVersion: '28.1.1',
+  // The MongoDB a node runs: the oldest release FluxOS supports. From 6.0 a
+  // $group or $sort past the memory limit spills to disk rather than failing,
+  // which the registry rebuild and the duplicate merges at boot rely on; the
+  // patch level is the oldest 6.0 release the fleet runs in numbers.
+  minimumMongoDbAllowedVersion: '6.0.27',
   fluxTeamFluxID: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   // A list, so support can be granted to (or revoked from) an identity without
   // touching every privilege check. A bare string is still read as a one entry
@@ -649,6 +661,8 @@ module.exports = {
     connectionBackoffMs: [120000, 300000, 600000, 900000],
     nodeMonitorIntervalMs: 1200000,
     nodeMonitorRemovalDelayMs: 60000,
+    // events per message of an answer to a peer's state sync
+    syncAnswerBatchSize: 2000,
     // Residential-node staging. The placement hold is immediate and is not
     // tunable; these pace only the part that moves customer data.
     residentialCheckIntervalMs: 6 * 60 * 60 * 1000, // re-evaluate the verdict

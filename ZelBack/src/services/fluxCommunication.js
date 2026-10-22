@@ -4,6 +4,7 @@ const hash = require('object-hash');
 const WebSocket = require('ws');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
+const dbHelper = require('./dbHelper');
 const messageStore = require('./appMessaging/messageStore');
 const verificationHelper = require('./verificationHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
@@ -80,6 +81,14 @@ async function handleAppMessages(message, fromIP, port) {
   }
 }
 
+/**
+ * The broadcasts of a sync response that verify. Rejects when any of them
+ * could not be verified because the database did not answer: the response is
+ * then not all recorded, and its peer has not answered.
+ * @param {object[]} broadcasts
+ * @param {string} label
+ * @returns {Promise<object[]>}
+ */
 async function batchVerifyBroadcasts(broadcasts, label) {
   if (broadcasts.length === 0) return [];
 
@@ -87,6 +96,8 @@ async function batchVerifyBroadcasts(broadcasts, label) {
   const verdicts = await fluxCommunicationUtils.verifyBroadcasts(broadcasts, {
     verifySignatures: (items) => verifyPool.verify(items),
   });
+  const unreadable = verdicts.filter(({ result }) => result === VerifyResult.UNREADABLE).length;
+  if (unreadable > 0) throw new Error(`${label} - ${unreadable} broadcasts could not be verified, the database did not answer`);
   const verified = broadcasts.filter((broadcast, i) => verdicts[i].result === VerifyResult.OK);
   const signatureFailures = verdicts.filter(({ result }) => result === VerifyResult.BAD_SIGNATURE).length;
   const nodeCheckFailures = broadcasts.length - verified.length - signatureFailures;
@@ -118,13 +129,27 @@ async function handleTempSyncResponse(message, peerSocket) {
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleTempSyncResponse - Received ${messages.length} temp messages from ${peerKey} (done: ${!!done})`);
     let stored = 0;
+    let writeFailed = false;
     for (const msg of messages) {
       try {
         const result = await messageStore.storeAppTemporaryMessage(msg, { furtherVerification: true });
         if (result === true || result === false) stored += 1;
       } catch (err) {
         log.error(`Temp sync message failed: ${err.message}`);
+        // A message this node's database could not record leaves the answer
+        // incomplete; one that fails its own checks is the peer's, and is skipped.
+        if (dbHelper.isDatabaseError(err)) {
+          writeFailed = true;
+          break;
+        }
       }
+    }
+    if (writeFailed) {
+      // What this peer sent is not all recorded, so its request ends here and
+      // another peer is asked; the rest of its answer is not read.
+      log.warn(`handleTempSyncResponse - a write failed, ending ${peerKey}'s request`);
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, peerKey);
+      return;
     }
     log.info(`handleTempSyncResponse - Processed ${stored} of ${messages.length} messages`);
     // COUNTED LIKE THE REST. A peer is credited once it has delivered every
@@ -138,6 +163,20 @@ async function handleTempSyncResponse(message, peerSocket) {
   } catch (error) {
     log.error(error);
   }
+}
+
+/**
+ * Ends the request of a peer whose sync response threw part way: what it sent is
+ * not all recorded, so another peer is asked, and the rest of its answer is not
+ * read. A peer whose response this node no longer wants has no request to end.
+ * @param {{key: string, connectionId?: number}} peerSocket
+ * @param {string} handler Names the handler in the log.
+ * @returns {void}
+ */
+function endUnrecordedRequest(peerSocket, handler) {
+  if (!peerManager.isSyncResponseWanted(peerSocket)) return;
+  log.warn(`${handler} - the response was not all recorded, ending ${peerSocket.key}'s request`);
+  appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, peerSocket.key);
 }
 
 async function handleAppRunningSyncResponse(message, peerSocket) {
@@ -238,10 +277,13 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
     });
 
     if (locationWriteFailed) {
-      log.warn('handleAppRunningSyncResponse - skipping location pruning, a location write failed');
-    } else {
-      await messageStore.pruneAppRunningLocations(newestByIp);
+      // What this peer sent is not all recorded, so its request ends here and
+      // another peer is asked; the rest of its answer is not read.
+      log.warn(`handleAppRunningSyncResponse - a location write failed, ending ${peerKey}'s request`);
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, peerKey);
+      return;
     }
+    await messageStore.pruneAppRunningLocations(newestByIp);
 
     // Applied after every slice, once every apprunning row in the response is
     // stored. Each event removes, shortens or carries only the rows broadcast
@@ -267,6 +309,7 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
     }
   } catch (error) {
     log.error(error);
+    endUnrecordedRequest(peerSocket, 'handleAppRunningSyncResponse');
   }
 }
 
@@ -284,19 +327,29 @@ async function handleAppInstallingSyncResponse(message, peerSocket) {
     }
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleAppInstallingSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
+    let writeFailed = false;
     await serviceHelper.processInSlices(messages, SYNC_EVENTS_PER_SLICE, async (slice) => {
       const verified = await batchVerifyBroadcasts(slice, 'handleAppInstallingSyncResponse');
       if (verified.length === 0) return;
-      const { stored } = await messageStore.storeBatchAppInstallingMessages(verified);
-      log.info(`handleAppInstallingSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
-      fluxEventBus.publish('sync:chunkVerified', { syncType: 'appinstalling', peer: peerKey, verified: verified.length, stored });
+      const stored = await messageStore.storeBatchAppInstallingMessages(verified);
+      if (stored.writeFailed) writeFailed = true;
+      log.info(`handleAppInstallingSyncResponse - Stored ${stored.stored} of ${verified.length} verified broadcasts`);
+      fluxEventBus.publish('sync:chunkVerified', { syncType: 'appinstalling', peer: peerKey, verified: verified.length, stored: stored.stored });
     });
+    if (writeFailed) {
+      // What this peer sent is not all recorded, so its request ends here and
+      // another peer is asked; the rest of its answer is not read.
+      log.warn(`handleAppInstallingSyncResponse - a write failed, ending ${peerKey}'s request`);
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, peerKey);
+      return;
+    }
     if (done) {
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling', peerKey);
       log.info('handleAppInstallingSyncResponse - Sync complete');
     }
   } catch (error) {
     log.error(error);
+    endUnrecordedRequest(peerSocket, 'handleAppInstallingSyncResponse');
   }
 }
 
@@ -314,19 +367,29 @@ async function handleAppInstallingErrorsSyncResponse(message, peerSocket) {
     }
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleAppInstallingErrorsSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
+    let writeFailed = false;
     await serviceHelper.processInSlices(messages, SYNC_EVENTS_PER_SLICE, async (slice) => {
       const verified = await batchVerifyBroadcasts(slice, 'handleAppInstallingErrorsSyncResponse');
       if (verified.length === 0) return;
-      const { stored } = await messageStore.storeBatchAppInstallingErrorMessages(verified);
-      log.info(`handleAppInstallingErrorsSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
-      fluxEventBus.publish('sync:chunkVerified', { syncType: 'apperrors', peer: peerKey, verified: verified.length, stored });
+      const stored = await messageStore.storeBatchAppInstallingErrorMessages(verified);
+      if (stored.writeFailed) writeFailed = true;
+      log.info(`handleAppInstallingErrorsSyncResponse - Stored ${stored.stored} of ${verified.length} verified broadcasts`);
+      fluxEventBus.publish('sync:chunkVerified', { syncType: 'apperrors', peer: peerKey, verified: verified.length, stored: stored.stored });
     });
+    if (writeFailed) {
+      // What this peer sent is not all recorded, so its request ends here and
+      // another peer is asked; the rest of its answer is not read.
+      log.warn(`handleAppInstallingErrorsSyncResponse - a write failed, ending ${peerKey}'s request`);
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, peerKey);
+      return;
+    }
     if (done) {
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors', peerKey);
       log.info('handleAppInstallingErrorsSyncResponse - Sync complete');
     }
   } catch (error) {
     log.error(error);
+    endUnrecordedRequest(peerSocket, 'handleAppInstallingErrorsSyncResponse');
   }
 }
 
@@ -428,7 +491,9 @@ async function handleAppInstallingMessage(message, fromIP, port) {
         withdrawn: message.data.withdrawn === true,
       });
     }
-    messageStore.storeSignedAppInstallingBroadcast(message);
+    // The signed claim is what this node serves to peers syncing from it: one that is
+    // not recorded is not relayed as though it were.
+    await messageStore.storeSignedAppInstallingBroadcast(message);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp);
     if (rebroadcastToPeers === true && timestampOK) {
@@ -451,7 +516,7 @@ async function handleAppInstallingErrorMessage(message, fromIP, port) {
     if (rebroadcastToPeers === true) {
       fluxEventBus.publish('network:appinstallingerror', { ip: message.data.ip, name: message.data.name });
     }
-    messageStore.storeSignedAppInstallingErrorBroadcast(message);
+    await messageStore.storeSignedAppInstallingErrorBroadcast(message);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp);
     if (rebroadcastToPeers === true && timestampOK) {
@@ -555,7 +620,6 @@ function dropExpiredOwnMoves() {
  * key signed is the previous holder's.
  */
 async function loadRecordedOwnMoves() {
-  recordedLoaded = true;
   try {
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
     const ownKey = await fluxNetworkHelper.getFluxNodePublicKey();
@@ -565,6 +629,8 @@ async function loadRecordedOwnMoves() {
     for (const [oldIp, { to, at, signer }] of recorded) {
       if (signer === ownKey) addPendingOwnMove(oldIp, to, at);
     }
+    // Only a completed read counts: until then each connecting peer asks again.
+    recordedLoaded = true;
   } catch (error) {
     log.warn(`loadRecordedOwnMoves - this node's recorded moves cannot be read: ${error.message}`);
   }
@@ -591,7 +657,7 @@ async function sendOwnMovesTo(peerKey) {
       log.error(`sendOwnMovesTo - the move from ${move.oldIp} to ${move.newIp} could not be sent to ${peerKey}: ${error.message}`);
     }
   }
-  if (!pendingOwnMoves.length) stopSendingOwnMoves();
+  stopSendingOwnMovesWhenDone();
 }
 
 function startSendingOwnMoves() {
@@ -607,6 +673,14 @@ function stopSendingOwnMoves() {
 }
 
 /**
+ * Stop listening for peers once nothing is left to send: every pending move is
+ * gone and the recorded ones have been read.
+ */
+function stopSendingOwnMovesWhenDone() {
+  if (recordedLoaded && !pendingOwnMoves.length) stopSendingOwnMoves();
+}
+
+/**
  * A peer announced, or relayed, a message this node holds the hash of. When it
  * is one of this node's own moves, the move has gone further than the peers
  * this node sent it to - a peer never announces a message back to the one it
@@ -619,7 +693,7 @@ function noteOwnMoveHeardBack(messageHash) {
   if (index === -1) return false;
   const [move] = pendingOwnMoves.splice(index, 1);
   log.info(`Address move from ${move.oldIp} to ${move.newIp} heard back from the network - no longer sent`);
-  if (!pendingOwnMoves.length) stopSendingOwnMoves();
+  stopSendingOwnMovesWhenDone();
   return true;
 }
 
@@ -783,6 +857,10 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
 // byte budget is ever wanted it belongs in lruRateLimit, covering every type, not in a
 // second counter here.
 
+// How long a broadcast this node could not verify, because its database did
+// not answer, waits before it is dispatched again.
+const BROADCAST_VERIFY_RETRY_MS = 30 * 1000;
+
 async function dispatchFluxMessage(msgObj, peerSocket) {
   const codes = peerSocket.closeCodes;
   const {
@@ -872,7 +950,20 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   const { VerifyResult } = fluxCommunicationUtils;
   const verifyResult = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj, undefined, currentTimeStamp);
 
-  if (verifyResult === VerifyResult.OK) {
+  if (verifyResult === VerifyResult.UNREADABLE) {
+    // The slot stays claimed while the broadcast waits, so its copies are not
+    // verified meanwhile; it is dispatched afresh while it is within its window.
+    if (fluxCommunicationUtils.verifyTimestampInFluxBroadcast(msgObj, currentTimeStamp + BROADCAST_VERIFY_RETRY_MS)) {
+      log.warn(`Deferring a ${msgObj.data?.type} from ${peerSocket.direction} peer ${peerSocket.key}: the database did not answer`);
+      setTimeout(() => {
+        releaseSlot();
+        dispatchFluxMessage(msgObj, peerSocket).catch((error) => log.error(error));
+      }, BROADCAST_VERIFY_RETRY_MS);
+    } else {
+      releaseSlot();
+      log.warn(`Dropping a ${msgObj.data?.type} from ${peerSocket.direction} peer ${peerSocket.key}: the database did not answer within its window`);
+    }
+  } else if (verifyResult === VerifyResult.OK) {
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(msgObj, currentTimeStamp);
     if (timestampOK === true) {
       const handler = handlerFor(msgObj.data.type);
@@ -2105,6 +2196,7 @@ module.exports = {
   logSocketsEvery,
   handleAppRunningMessage,
   handleAppInstallingMessage,
+  handleAppInstallingErrorMessage,
   handleTempSyncResponse,
   handleAppRunningSyncResponse,
   handleAppInstallingSyncResponse,

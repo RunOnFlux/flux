@@ -1178,6 +1178,12 @@ async function trySpawningGlobalApplication() {
     return isEnterprise ? 0 : delayTime;
   } catch (error) {
     log.error(error);
+    // A database that did not answer says nothing about the app: the next pass
+    // tries it again.
+    if (appHash && dbHelper.isDatabaseError(error)) {
+      globalState.trySpawningGlobalAppCache.delete(appHash);
+      return shortDelayTime || 5 * 60 * 1000;
+    }
     if (appHash && !globalState.spawnErrorsLongerAppCache.has(appHash) && !globalState.trySpawningGlobalAppCache.has(appHash)) {
       log.info(`trySpawningGlobalApplication - Adding app hash ${appHash} to trySpawningGlobalAppCache due to pre-install error`);
       globalState.trySpawningGlobalAppCache.set(appHash, '', { ttl: FluxCacheManager.oneHour * 6 });

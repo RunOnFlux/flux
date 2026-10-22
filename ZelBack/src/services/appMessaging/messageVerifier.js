@@ -574,15 +574,24 @@ async function storeGoverningAppSpecifications(appNames) {
 }
 
 /**
- * Moves each stored message to this node's record of its payment (moveStoredMessagesToPayments),
- * and writes the registry row of each app with a message that moved
- * (storeGoverningAppSpecifications).
+ * Resolves messages this node already holds: moves each to this node's record of its payment
+ * (moveStoredMessagesToPayments), and writes the registry row of every app they belong to
+ * (storeGoverningAppSpecifications). A message whose promotion stopped before its registry row
+ * was written is completed here, so the row is written before the hash is marked as resolved.
  * @param {Array<{hash: string, txid: string, height: number, value: number}>} records
  * @returns {Promise<string[]>} the names of the apps with a message that moved
  */
 async function alignStoredMessagesWithPayments(records) {
   const moved = await moveStoredMessagesToPayments(records);
-  await storeGoverningAppSpecifications(moved);
+  if (records.length === 0) return moved;
+  const appsDatabase = dbHelper.databaseConnection().db(config.database.appsglobal.database);
+  const stored = await dbHelper.findInDatabase(
+    appsDatabase,
+    globalAppsMessages,
+    { hash: { $in: records.map((record) => record.hash) } },
+    { projection: { _id: 0, 'appSpecifications.name': 1 } },
+  );
+  await storeGoverningAppSpecifications([...new Set(stored.map((message) => message.appSpecifications.name))]);
   return moved;
 }
 
@@ -753,10 +762,17 @@ async function paymentRecordOf(hash) {
  * @param {number} height
  * @param {number} valueSat
  * @param {number} [i] attempt
- * @returns {Promise<boolean>} whether the message is stored
+ * @returns {Promise<boolean>} whether the message is stored. False when the payment record
+ *   could not be read: the hash stays unresolved and is asked about again.
  */
 async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
-  const record = await paymentRecordOf(hash);
+  let record;
+  try {
+    record = await paymentRecordOf(hash);
+  } catch (error) {
+    log.error(`checkAndRequestApp - payment record for ${hash} could not be read, left unresolved: ${error.message}`);
+    return false;
+  }
   if (!record) {
     log.warn(`checkAndRequestApp - no payment recorded for ${hash} (requested from txid ${txid}), not stored`);
     return false;
@@ -851,8 +867,10 @@ async function checkAndRequestRecordedApp(hash, txid, height, valueSat, i = 0) {
         // eslint-disable-next-line global-require
         const messageStore = require('./messageStore');
         await messageStore.storeAppPermanentMessage(permanentAppMessage);
-        // await update zelapphashes that we already have it stored
-        await appHashHasMessage(hash);
+        // The hash is marked as holding its message only once the message's effect on
+        // the registry is written, at each way out below: a failure before that leaves
+        // the hash unresolved, and resolving it again writes the registry
+        // (alignStoredMessagesWithPayments).
 
         const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
         const daemonHeight = syncStatus.data.height;
@@ -897,12 +915,8 @@ async function checkAndRequestRecordedApp(hash, txid, height, valueSat, i = 0) {
               updateForSpecifications.hash = permanentAppMessage.hash;
               updateForSpecifications.height = permanentAppMessage.height;
               // object of appSpecifications extended for hash and height
-              const inserted = await storeAppSpecificationInForce(updateForSpecifications);
+              await storeAppSpecificationInForce(updateForSpecifications);
               const appName = specifications.name;
-              if (!inserted) {
-                globalState.clearPendingUpdates(appName);
-                return true;
-              }
               const pendingUpdates = globalState.getPendingUpdates(appName);
               if (pendingUpdates.length > 0) {
                 log.info(`Processing ${pendingUpdates.length} pending updates for ${appName}`);
@@ -939,6 +953,7 @@ async function checkAndRequestRecordedApp(hash, txid, height, valueSat, i = 0) {
             );
             if (!messageInfo) {
               log.error(`Last permanent message for ${specifications.name} not found`);
+              await appHashHasMessage(hash);
               return true;
             }
             const previousSpecs = messageInfo.appSpecifications;
@@ -984,6 +999,7 @@ async function checkAndRequestRecordedApp(hash, txid, height, valueSat, i = 0) {
               log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8}`);
             }
           }
+          await appHashHasMessage(hash);
           return true;
         } else {
           // App has expired (actualExpirationHeight <= daemonHeight)
@@ -995,6 +1011,7 @@ async function checkAndRequestRecordedApp(hash, txid, height, valueSat, i = 0) {
           // ending the app here would drop a paid app from this node and uninstall it.
           if (!await isGoverningAppMessage(specifications.name, permanentAppMessage.hash)) {
             log.info(`App message ${permanentAppMessage.hash} for ${specifications.name} has expired, but does not govern the app. Nothing to clean up.`);
+            await appHashHasMessage(hash);
             return true;
           }
           log.warn(`App ${specifications.name} has expired (expiration height ${actualExpirationHeight} <= daemon height ${daemonHeight}). Cleaning up stale data.`);
@@ -1025,6 +1042,7 @@ async function checkAndRequestRecordedApp(hash, txid, height, valueSat, i = 0) {
             await appUninstaller.removeAppLocally(specifications.name, null, true, false, true);
           }
 
+          await appHashHasMessage(hash);
           return true;
         }
       }

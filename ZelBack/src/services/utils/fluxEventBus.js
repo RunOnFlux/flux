@@ -87,6 +87,9 @@ const Checkpoint = Object.freeze({
   // This node has recorded a move of its own address and has not yet acted on
   // it. Keyed by the address it moved to.
   OWN_ADDRESS_BEFORE_RECONCILE: 'ownAddress:beforeReconcile',
+  // Boot has read the location record of an app it held unconfirmed, and has not
+  // yet released the app or acted on the answer. Keyed by app name.
+  BOOT_BEFORE_LOCATION_DECISION: 'boot:beforeLocationDecision',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.

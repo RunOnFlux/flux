@@ -454,7 +454,7 @@ async function respondWithTempMessages(peer, sinceTimestamp = 0) {
       .find(query, { projection: { _id: 0, receivedAt: 0, expireAt: 0 } })
       .sort({ receivedAt: 1 });
 
-    const batchSize = 2000;
+    const batchSize = config.fluxapps.syncAnswerBatchSize;
     let batch = [];
     let total = 0;
     for await (const msg of cursor) {
@@ -515,7 +515,7 @@ async function streamBatchedSync(peer, { sinceTimestamp, collectionName, validit
       .find(finalQuery, { projection: finalProjection })
       .sort({ broadcastedAt: 1 });
 
-    const batchSize = 2000;
+    const batchSize = config.fluxapps.syncAnswerBatchSize;
     let batch = [];
     let total = 0;
     for await (const doc of cursor) {

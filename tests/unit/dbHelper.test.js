@@ -1,6 +1,7 @@
 const { expect } = require('chai');
 const config = require('config');
-const { ObjectId } = require('mongodb');
+const { ObjectId, MongoClient } = require('mongodb');
+const sinon = require('sinon');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const { requireMongo } = require('./dbTestHelper');
@@ -778,6 +779,98 @@ describe('dbHelper tests', () => {
     });
   });
 
+  describe('the maintenance client', () => {
+    afterEach(async () => {
+      sinon.restore();
+      await dbHelper.closeDbConnection();
+    });
+
+    const client = () => ({ close: sinon.stub().resolves(), db: sinon.stub().callsFake((name) => ({ databaseName: name, client: 'maintenance' })) });
+
+    it('is connected beside the main client, each bounded by its own configured call timeout', async () => {
+      await dbHelper.closeDbConnection();
+      const main = client();
+      const maintenance = client();
+      const connect = sinon.stub(MongoClient, 'connect');
+      connect.onFirstCall().resolves(main);
+      connect.onSecondCall().resolves(maintenance);
+
+      await dbHelper.initiateDB();
+
+      const { callTimeoutMs, maintenanceCallTimeoutMs } = config.database;
+      expect(callTimeoutMs, 'the two clients share one bound, so this proves nothing').to.not.equal(maintenanceCallTimeoutMs);
+      expect(connect.firstCall.args[1]).to.include({ maxPoolSize: 100, socketTimeoutMS: callTimeoutMs, waitQueueTimeoutMS: callTimeoutMs });
+      expect(connect.secondCall.args[1]).to.include({ socketTimeoutMS: maintenanceCallTimeoutMs, waitQueueTimeoutMS: maintenanceCallTimeoutMs });
+      expect(dbHelper.databaseConnection()).to.equal(main);
+      expect(dbHelper.maintenanceConnection()).to.equal(maintenance);
+      expect(dbHelper.onMaintenanceClient({ databaseName: 'globalzelappstest' })).to.deep.equal({ databaseName: 'globalzelappstest', client: 'maintenance' });
+    });
+
+    it('is connected with the main client or not at all', async () => {
+      await dbHelper.closeDbConnection();
+      const main = client();
+      const connect = sinon.stub(MongoClient, 'connect');
+      connect.onFirstCall().resolves(main);
+      connect.onSecondCall().rejects(new Error('connection refused'));
+
+      const error = await dbHelper.initiateDB().catch((caught) => caught);
+
+      expect(error.message).to.equal('connection refused');
+
+      sinon.assert.calledOnce(main.close);
+      expect(dbHelper.databaseConnection()).to.equal(null);
+      expect(dbHelper.maintenanceConnection()).to.equal(null);
+    });
+  });
+
+  describe('repairNanInAppsMessagesDb', () => {
+    const { appsglobal, daemon, local } = config.database;
+    let messages;
+    let hashes;
+    let tracker;
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      const client = dbHelper.databaseConnection();
+      messages = client.db(appsglobal.database).collection(appsglobal.collections.appsMessages);
+      hashes = client.db(daemon.database).collection(daemon.collections.appsHashes);
+      tracker = client.db(local.database).collection(local.collections.nodeStartupTracker);
+      await messages.deleteMany({});
+      await hashes.deleteMany({});
+      await tracker.deleteMany({});
+      await hashes.insertMany([{ hash: 'first', value: 5 }, { hash: 'later', value: 7 }]);
+    });
+
+    it('repairs once, and later calls do not scan again unless forced', async () => {
+      await messages.insertOne({ hash: 'first', valueSat: NaN });
+
+      await dbHelper.repairNanInAppsMessagesDb();
+      expect((await messages.findOne({ hash: 'first' })).valueSat).to.equal(5);
+      expect(await tracker.findOne({ _id: 'appsMessagesValueSatRepaired' })).to.not.equal(null);
+
+      await messages.insertOne({ hash: 'later', valueSat: NaN });
+      await dbHelper.repairNanInAppsMessagesDb();
+      expect((await messages.findOne({ hash: 'later' })).valueSat).to.be.NaN;
+
+      await dbHelper.repairNanInAppsMessagesDb({ force: true });
+      expect((await messages.findOne({ hash: 'later' })).valueSat).to.equal(7);
+    });
+
+    it('leaves no marker when the repair fails', async () => {
+      await messages.insertOne({ hash: 'first', valueSat: NaN });
+      const globalDb = dbHelper.databaseConnection().db(appsglobal.database);
+      // the repaired value is refused, so the repair's write fails
+      await globalDb.command({ collMod: appsglobal.collections.appsMessages, validator: { valueSat: { $ne: 5 } } });
+      try {
+        const error = await dbHelper.repairNanInAppsMessagesDb().catch((caught) => caught);
+        expect(error).to.be.an('error');
+      } finally {
+        await globalDb.command({ collMod: appsglobal.collections.appsMessages, validator: {} });
+      }
+      expect(await tracker.findOne({ _id: 'appsMessagesValueSatRepaired' })).to.equal(null);
+    });
+  });
+
   describe('rebuilding globalAppsInformation from the message log', () => {
     const { appsglobal, appslocal, daemon } = config.database;
     const scannedHeight = 3008000;
@@ -834,6 +927,15 @@ describe('dbHelper tests', () => {
 
       const apps = await appsGlobalDb.collection(appsglobal.collections.appsInformation).find({}).toArray();
       expect(apps.map((a) => `${a.name}:${a.hash}`).sort()).to.deep.equal(['IncidentApp:i4', 'LegacyApp:l3', 'RenewedApp:r2', 'TiedApp:ta']);
+    });
+
+    it('does not report a registry valid when there is nothing to validate it against', async () => {
+      await appsGlobalDb.collection(appsglobal.collections.appsMessages).deleteMany({});
+
+      const result = await dbHelper.validateAppsInformation();
+
+      expect(result.validated).to.equal(false);
+      expect(result.reindexed).to.equal(false);
     });
 
     it('should judge the rebuilt collection as valid, not reindex it on every check', async () => {
