@@ -130,30 +130,47 @@ function signerAddresses(payload, target) {
 }
 
 /**
- * The key that signed the location rows standing at `address`: the signer of
- * the newest unexpired apprunning event stored for it, which only the node
- * listed there when it was sent could have signed. Rows stand at an address
- * only when an apprunning came after its eviction and after any move away from
- * it, so the newest apprunning is the one that wrote them.
+ * The key that signed the location rows standing at `address` when a move from
+ * it was made at `at`, read from the app state events: the signer of the newest
+ * unexpired apprunning sent from it before `at`. None stood there when that
+ * apprunning carried no apps, or when the address was evicted or moved away from
+ * after it and before `at`. Rows taken by an eviction or a move made after `at`
+ * stood there when the move was made.
  * @param {string} address
- * @returns {Promise<string|null>} Null when no rows stand there, no apprunning
- *   is stored for it, or either cannot be read.
+ * @param {number} at When the move was made, ms.
+ * @returns {Promise<string|null>} Null when no rows stood there, or the events
+ *   cannot be read.
  */
-async function lastSignerAt(address) {
+async function lastSignerAt(address, at) {
+  if (!Number.isFinite(at)) return null;
   try {
-    const database = dbHelper.databaseConnection().db(config.database.appsglobal.database);
-    const row = await database.collection(config.database.appsglobal.collections.appsLocations)
-      .findOne({ ip: address }, { projection: { _id: 0, ip: 1 } });
-    if (!row) return null;
-    const [event] = await database.collection(config.database.appsglobal.collections.appStateEvents)
+    const events = dbHelper.databaseConnection().db(config.database.appsglobal.database)
+      .collection(config.database.appsglobal.collections.appStateEvents);
+    const madeAt = new Date(at);
+    const [running] = await events
       .find(
-        { ip: address, type: 'apprunning', expireAt: { $gt: new Date() } },
-        { projection: { _id: 0, 'envelope.pubKey': 1 } },
+        {
+          ip: address, type: 'apprunning', broadcastedAt: { $lt: madeAt }, expireAt: { $gt: new Date() },
+        },
+        { projection: { _id: 0, broadcastedAt: 1, 'data.apps': 1, 'envelope.pubKey': 1 } },
       )
       .sort({ broadcastedAt: -1 })
       .limit(1)
       .toArray();
-    return event?.envelope?.pubKey ?? null;
+    if (!running) return null;
+    if (Array.isArray(running.data?.apps) && running.data.apps.length === 0) return null;
+    const ended = await events.findOne(
+      {
+        ip: address,
+        $or: [
+          { type: 'evicted', createdAt: { $gt: running.broadcastedAt, $lt: madeAt } },
+          { type: 'ipchanged', broadcastedAt: { $gt: running.broadcastedAt, $lt: madeAt } },
+        ],
+      },
+      { projection: { _id: 0, type: 1 } },
+    );
+    if (ended) return null;
+    return running.envelope?.pubKey ?? null;
   } catch (error) {
     log.error(`lastSignerAt ${address}: ${error.message}`);
     return null;
@@ -199,8 +216,9 @@ async function listedSignerVerdict(addresses, pubKey) {
 }
 
 /**
- * Whether `pubKey` speaks for `address`, which a move left and the list no longer
- * shows, by the key that signed the location rows standing there:
+ * Whether `pubKey` speaks for `address`, which a move made at `at` left and the
+ * list no longer shows, by the key that signed the location rows standing there
+ * when the move was made:
  *
  *   rows at the address   signed by       verdict
  *   standing              pubKey          OK
@@ -211,12 +229,13 @@ async function listedSignerVerdict(addresses, pubKey) {
  * the chain already lists its node where it is.
  * @param {string} address The address the move left.
  * @param {string} pubKey The move's signer.
+ * @param {number} at When the move was made, ms.
  * @returns {Promise<{result: string, reason?: string}>}
  */
-async function lastSignerVerdict(address, pubKey) {
-  const lastSigner = await lastSignerAt(address);
+async function lastSignerVerdict(address, pubKey, at) {
+  const lastSigner = await lastSignerAt(address, at);
   if (lastSigner === null) {
-    return { result: VerifyResult.NODE_NOT_FOUND, reason: `No location rows stand at ${address}, which a move signed by ${pubKey} left` };
+    return { result: VerifyResult.NODE_NOT_FOUND, reason: `No location rows stood at ${address} when a move signed by ${pubKey} left it` };
   }
   if (lastSigner !== pubKey) {
     return { result: VerifyResult.PUBKEY_MISMATCH, reason: `Sender pubkey ${pubKey} did not sign the location rows at ${address}` };
@@ -289,7 +308,7 @@ async function checkBeforeSignature(broadcast, now) {
     if (listed === VerifyResult.PUBKEY_MISMATCH) {
       return { refused: { result: listed, reason: `Sender pubkey ${pubKey} does not match node at ${target}` } };
     }
-    if (listed === SIGNER_AT_NEW_ADDRESS_ONLY) [proveAt] = addresses;
+    if (listed === SIGNER_AT_NEW_ADDRESS_ONLY) proveAt = { address: addresses[0], at: payload.broadcastedAt };
   }
 
   return {
@@ -339,7 +358,7 @@ async function verifyBroadcasts(broadcasts, { verifySignatures = verifySignature
     const { index, pubKey, proveAt } = unsigned[i];
     if (!signed[i]) verdicts[index] = { result: VerifyResult.BAD_SIGNATURE };
     // eslint-disable-next-line no-await-in-loop
-    else verdicts[index] = proveAt ? await lastSignerVerdict(proveAt, pubKey) : { result: VerifyResult.OK };
+    else verdicts[index] = proveAt ? await lastSignerVerdict(proveAt.address, pubKey, proveAt.at) : { result: VerifyResult.OK };
   }
   return verdicts;
 }
