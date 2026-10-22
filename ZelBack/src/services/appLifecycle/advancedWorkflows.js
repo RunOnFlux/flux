@@ -1538,6 +1538,18 @@ async function mayTearDownToRebuild(appSpecs, res) {
  * @param {object} appSpecs - App specifications
  * @param {object} res - Response object
  */
+/**
+ * Drop this node's record of when it took an app a redeploy removed and did not
+ * install again. The removal kept the record for the reinstall; without one the
+ * app has left this node, and a later placement here is a new one.
+ * @param {string} appName
+ * @returns {Promise<void>}
+ */
+async function forgetPlacementOfAppNotReinstalled(appName) {
+  await appPlacements.removePlacement(appName)
+    .catch((error) => log.error(`the placement of ${appName} was not removed: ${error.message}`));
+}
+
 async function softRedeploy(appSpecs, res) {
   // Whether softRemoveAppLocally ran to completion. False means the removal did
   // not FINISH - which is not the same as "it never started": softRemoveAppLocally
@@ -1644,6 +1656,7 @@ async function softRedeploy(appSpecs, res) {
         res.write(serviceHelper.ensureString(notReinstalled));
         if (res.flush) res.flush();
       }
+      await forgetPlacementOfAppNotReinstalled(appSpecs.name);
       globalState.softRedeployInProgress = false;
       return;
     }
@@ -1686,6 +1699,7 @@ async function softRedeploy(appSpecs, res) {
         res.write(serviceHelper.ensureString(notReinstalled));
         if (res.flush) res.flush();
       }
+      await forgetPlacementOfAppNotReinstalled(appSpecs.name);
       return;
     }
     log.warn(`REMOVAL REASON: Soft redeploy failure - ${appSpecs.name} failed during soft redeploy: ${error.message} (softRedeploy)`);
@@ -4499,29 +4513,15 @@ async function reinstallOldApplications() {
               log.warn('Performing full hard redeploy to handle component changes...');
               log.warn(`REMOVAL REASON: Component structure change (v8+) - ${appSpecifications.name} component count/names changed`);
 
+              // A hard redeploy: removed and installed again as a whole. One that does
+              // not bring the app back tells the network and drops this node's record
+              // of when it took the app.
               // eslint-disable-next-line no-await-in-loop
-              await appUninstaller.removeAppLocally(appSpecifications.name, null, false, false, false, { redeploying: true });
-              const appRedeployResponse = messageHelper.createSuccessMessage('Application removed. Awaiting installation...');
-              log.info(appRedeployResponse);
-
-              // verify requirements
-              // eslint-disable-next-line no-await-in-loop
-              await appInstaller.checkAppRequirements(appSpecifications);
-
-              // register
-              // eslint-disable-next-line no-await-in-loop
-              const outcome = await appInstaller.registerAppLocally(appSpecifications, undefined, null, false, true);
+              const outcome = await appRebuild.rebuildApp(appSpecifications);
               if (outcome === InstallOutcome.INSTALLED) {
                 log.info(`Application ${appSpecifications.name} redeployed with new component structure`);
               } else {
-                // The removal above deleted the local row, and only a successful
-                // install writes it back. Nothing reconciles an app with no row,
-                // so this node has simply lost the instance until it is placed
-                // here again.
-                log.error(`Application ${appSpecifications.name} was removed for a component structure change and NOT reinstalled (${outcome}). This node no longer holds it and cannot recover it on its own.`);
-                // eslint-disable-next-line no-await-in-loop
-                await appPlacements.removePlacement(appSpecifications.name)
-                  .catch((error) => log.error(`the placement of ${appSpecifications.name} was not removed: ${error.message}`));
+                log.error(`Application ${appSpecifications.name} was not redeployed for a component structure change (${outcome}).`);
               }
 
               // eslint-disable-next-line no-continue
