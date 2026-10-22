@@ -8,7 +8,7 @@
  * A = the standby, B = the primary, C = holds nothing.
  */
 import {
-  describe, it, before, after,
+  describe, it, before, after, afterEach,
 } from 'mocha';
 import { expect } from 'chai';
 import {
@@ -54,6 +54,11 @@ describe('a standby\'s local changes are checked off the monitor pass', function
     await waitFor(async () => (await sh(A, `ls ${root}/appdata/many | wc -l`)).trim() === String(FILES), {
       timeout: 600000, interval: 5000, label: 'the primary\'s files reached the standby',
     });
+  });
+
+  // A test that fails holding a check would hold the next test's checks too.
+  afterEach(async function () {
+    await client(A)?.releaseAllCheckpoints().catch(() => {});
   });
 
   after(async function () {
