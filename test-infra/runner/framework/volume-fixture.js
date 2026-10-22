@@ -26,6 +26,8 @@ export const APP_GID = 33;
 export const appId = (name) => `flux${name}_${name}`;
 export const volumeRoot = (name) => `/mnt/appdata/flux-apps/${appId(name)}`;
 export const volumeImage = (name) => `/mnt/appdata/${appId(name)}FLUXFSVOL`;
+const folderRoot = (folderId) => `/mnt/appdata/flux-apps/${folderId}`;
+const folderImage = (folderId) => `/mnt/appdata/${folderId}FLUXFSVOL`;
 
 // Single-quote for the shell. Fixture content is chosen by the suites, but a
 // literal $ or backtick in one must stay a literal rather than becoming
@@ -43,12 +45,20 @@ async function run(container, command, what) {
 }
 
 /**
- * Takes an app's volume away for good: unmounted, its directory no longer
+ * Takes a component's volume away for good: unmounted, its directory no longer
  * immutable, and its image removed, so nothing on the node can mount it again.
+ * @param {string} folderId The component's identifier, flux<component>_<app>.
+ */
+export async function destroyFolderVolume(container, folderId) {
+  const root = folderRoot(folderId);
+  await run(container, `umount -l ${sq(root)} && chattr -i ${sq(root)} && rm -f ${sq(folderImage(folderId))}`, `destroy the volume of ${folderId}`);
+}
+
+/**
+ * destroyFolderVolume for an app whose one component shares its name.
  */
 export async function destroyVolume(container, name) {
-  const root = volumeRoot(name);
-  await run(container, `umount -l ${sq(root)} && chattr -i ${sq(root)} && rm -f ${sq(volumeImage(name))}`, `destroy the volume of ${name}`);
+  await destroyFolderVolume(container, appId(name));
 }
 
 /**
