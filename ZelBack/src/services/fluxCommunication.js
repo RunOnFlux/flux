@@ -478,13 +478,17 @@ async function handleAppRunningMessage(message, fromIP, port) {
     }
     // Everything this node did with the message: the entries it wrote, the names
     // it refused, whether it cleared the sender's rows, and whether it passed it on.
-    fluxEventBus.publish('network:apprunning', {
-      ip: message.data.ip,
-      apps: result.written,
-      refused: result.refused,
-      cleared: result.cleared,
-      relayed,
-    });
+    // A message that did none of these, such as a copy of one already stored,
+    // publishes nothing.
+    if (result.written.length || result.refused.length || result.cleared || relayed) {
+      fluxEventBus.publish('network:apprunning', {
+        ip: message.data.ip,
+        apps: result.written,
+        refused: result.refused,
+        cleared: result.cleared,
+        relayed,
+      });
+    }
   } catch (error) {
     log.error(error);
   }

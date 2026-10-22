@@ -28,6 +28,7 @@ const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 const { PEER_SOURCE } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
 const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 let localWsServer;
 let localWsUrl;
@@ -552,7 +553,9 @@ describe('fluxCommunication tests', () => {
     });
 
     it('should broadcast the app message if a proper data is given', async () => {
-      sinon.stub(messageStore, 'storeAppRunningMessage').resolves({ stored: true, rebroadcast: true });
+      sinon.stub(messageStore, 'storeAppRunningMessage').resolves({
+        stored: true, rebroadcast: true, written: [{ name: 'myApp', hash: 'myapphash' }], refused: [], cleared: false,
+      });
       sinon.stub(messageStore, 'storeAppStateEvent');
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 0 } });
       const fromIp = '127.0.0.5';
@@ -629,6 +632,41 @@ describe('fluxCommunication tests', () => {
 
       sinon.assert.notCalled(broadcastHashSpy);
     }).timeout(5000);
+
+    const runningMessage = () => ({
+      data: {
+        type: 'fluxapprunning', version: 2, apps: [{ name: 'myApp', hash: 'myapphash' }], broadcastedAt: Date.now(), ip: '203.0.113.31:16127',
+      },
+      timestamp: Date.now(),
+    });
+    const apprunningPublished = (publish) => publish.getCalls().filter((call) => call.args[0] === 'network:apprunning');
+
+    it('publishes nothing for a message that wrote, refused, cleared and relayed nothing', async () => {
+      sinon.stub(messageStore, 'storeAppRunningMessage').resolves({
+        stored: false, rebroadcast: false, written: [], refused: [], cleared: false,
+      });
+      sinon.stub(messageStore, 'storeAppStateEvent');
+      const publish = sinon.stub(fluxEventBus, 'publish');
+
+      await fluxCommunication.handleAppRunningMessage(runningMessage(), '127.0.0.5', '16127');
+
+      expect(apprunningPublished(publish)).to.have.lengthOf(0);
+    });
+
+    it('publishes the names it refused, though it wrote and relayed nothing', async () => {
+      sinon.stub(messageStore, 'storeAppRunningMessage').resolves({
+        stored: false, rebroadcast: false, written: [], refused: ['unhashed'], cleared: false,
+      });
+      sinon.stub(messageStore, 'storeAppStateEvent');
+      const publish = sinon.stub(fluxEventBus, 'publish');
+
+      await fluxCommunication.handleAppRunningMessage(runningMessage(), '127.0.0.5', '16127');
+
+      const [call] = apprunningPublished(publish);
+      expect(call.args[1]).to.deep.equal({
+        ip: '203.0.113.31:16127', apps: [], refused: ['unhashed'], cleared: false, relayed: false,
+      });
+    });
 
     // A refused message is logged where it arrived, and goes no further.
     it('logs a message its store refuses, and does not relay it', async () => {
