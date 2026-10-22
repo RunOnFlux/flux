@@ -67,7 +67,7 @@ describe('a move a failure or a crash interrupted is finished once', function ()
     });
     const record = await dbClient(i + 1).ownAddressRecord();
     expect(record.socketAddress, `node ${i}'s recorded address`).to.equal(to);
-    expect(record.recentIpChanges, `node ${i}'s IP changes counted`).to.have.lengthOf(1);
+    expect(record.ipChangeHeights, `node ${i}'s IP changes counted`).to.have.lengthOf(1);
     let held;
     await waitFor(async () => {
       held = (await dbClient(BYSTANDER + 1).getAppStateEvents({ ip: from, type: 'ipchanged' }))

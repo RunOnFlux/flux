@@ -275,6 +275,10 @@ async function startFluxFunctions() {
     fluxNetworkHelper.checkNodeJsVersionAllowed();
     // Hard dependencies — nothing starts until these are confirmed.
     await dbHelper.waitForMongo();
+    // A node over the limit on IP changes is out of service from its first
+    // moment with a database, before anything can ask whether it is fit, until
+    // the chain has passed its hold.
+    fluxNetworkHelper.startIpChangeHoldWatch();
     await dockerService.waitForDocker();
     // As soon as Docker answers, before the container firewall is applied: a
     // below-floor node stays up holding a sticky DOS, so /flux/info names the
