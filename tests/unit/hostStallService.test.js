@@ -227,6 +227,7 @@ describe('hostStallService tests', () => {
     it('tells a listener when a trip recorded in this boot is restored at start', async () => {
       stuckMongod();
       await readTimes(stuckIntervals + 1);
+      while (!fs.existsSync(paths.recordFile)) await new Promise((resolve) => { setImmediate(resolve); }); // eslint-disable-line no-await-in-loop
       hostStallService.stop();
       fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
       const listener = sinon.stub();
@@ -239,9 +240,21 @@ describe('hostStallService tests', () => {
   });
 
   describe('the trip record', () => {
+    const settled = () => new Promise((resolve) => { setImmediate(resolve); });
+    // The trip, and its record on disk where the boot id says one is made.
     async function trip() {
       stuckMongod();
       await readTimes(stuckIntervals + 1);
+      while (fs.existsSync(paths.bootIdPath) && !fs.existsSync(paths.recordFile)) await settled(); // eslint-disable-line no-await-in-loop
+    }
+    // Every write of the record to disk, held until released.
+    function holdRecordWrites() {
+      const writeFile = fs.promises.writeFile.bind(fs.promises);
+      const held = [];
+      sinon.stub(fs.promises, 'writeFile').callsFake((file, ...rest) => (file.startsWith(paths.recordFile)
+        ? new Promise((resolve) => { held.push(() => resolve(writeFile(file, ...rest))); })
+        : writeFile(file, ...rest)));
+      return held;
     }
     async function restart() {
       hostStallService.stop();
@@ -292,6 +305,57 @@ describe('hostStallService tests', () => {
 
       expect(outOfService()).to.equal(false);
       expect(fs.existsSync(paths.recordFile)).to.equal(true);
+    });
+
+    it('takes the node out of service and tells its listeners while the record cannot be written', async () => {
+      holdRecordWrites();
+      const listener = sinon.stub();
+      hostStallService.onTrip(listener);
+      stuckMongod();
+
+      await readTimes(stuckIntervals + 1);
+
+      expect(outOfService()).to.equal(true);
+      sinon.assert.calledOnce(listener);
+    });
+
+    it('goes on reading while the record cannot be written', async () => {
+      holdRecordWrites();
+      stuckMongod();
+      await readTimes(stuckIntervals + 1);
+      processWith('100', 'mongod', [{ tid: '101', state: 'S', switches: 41 }]);
+
+      const outcome = await Promise.race([read().then(() => 'read'), new Promise((resolve) => { setTimeout(() => resolve('waiting'), 1000); })]);
+
+      expect(outcome, 'a reading waited on the record').to.equal('read');
+      expect(placementHeld(), 'the reading after the trip released the hold').to.equal(false);
+    });
+
+    it('starts without the record when it cannot be read in time, and restores it when the read ends', async () => {
+      await trip();
+      hostStallService.stop();
+      fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
+      const readFile = fs.promises.readFile.bind(fs.promises);
+      let finishRead = null;
+      sinon.stub(fs.promises, 'readFile').callsFake((file, ...rest) => (file === paths.recordFile
+        ? new Promise((resolve) => { finishRead = () => resolve(readFile(file, ...rest)); })
+        : readFile(file, ...rest)));
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        const started = hostStallService.start(paths);
+        let done = false;
+        started.then(() => { done = true; });
+        await clock.tickAsync(config.hostStall.recordReadMs - 1);
+        expect(done, 'the start returned before its wait for the record ran out').to.equal(false);
+        await clock.tickAsync(1);
+        await started;
+        expect(outOfService(), 'restored without a record').to.equal(false);
+
+        finishRead();
+        while (!outOfService()) await clock.tickAsync(0); // eslint-disable-line no-await-in-loop
+      } finally {
+        clock.restore();
+      }
     });
 
     it('starts in service when the record cannot be read', async () => {

@@ -28,10 +28,12 @@ const config = require('config');
 const log = require('../lib/log');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const { fluxDirPath } = require('./utils/appConstants');
+const { withinDeadline, TIMED_OUT } = require('./utils/withinDeadline');
 
 const DEPENDENCIES = new Set(['mongod', 'dockerd', 'containerd', 'syncthing', 'fluxd', 'fluxbenchd']);
 const READ_INTERVAL_MS = config.hostStall.readIntervalMs;
 const STUCK_INTERVALS = config.hostStall.stuckIntervals;
+const RECORD_READ_MS = config.hostStall.recordReadMs;
 
 /**
  * Every dependency thread in D at the last reading, keyed by process, thread
@@ -237,8 +239,10 @@ async function act() {
   if (longest.intervals >= STUCK_INTERVALS && !fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL)) {
     const reason = `Host stall: ${describe(longest)}`;
     fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL, reason);
-    await recordTrip(reason);
+    // Announced before it is recorded, and the reading does not wait for the record:
+    // the disk the record goes to may be the one that stalled.
     announceTrip();
+    recordTrip(reason);
   }
 }
 
@@ -267,14 +271,21 @@ async function readAndReschedule() {
 /**
  * Restore a trip recorded in this boot, then read now, and every
  * READ_INTERVAL_MS after each reading ends.
+ *
+ * A record that cannot be read within RECORD_READ_MS is not waited for further:
+ * its disk is stalled, and a stall still under way takes the node out of service
+ * again at the readings. A restore that ends later still restores.
  * @param {object} [options] Paths, as usePaths takes them.
- * @returns {Promise<void>} Resolves once a recorded trip is restored.
+ * @returns {Promise<void>} Resolves once a recorded trip is restored, or the
+ *   record could not be read within RECORD_READ_MS.
  */
 async function start(options = {}) {
   if (readTimer !== null) return;
   usePaths(options);
   readTimer = setTimeout(readAndReschedule, 0);
-  await restoreTrip();
+  if (await withinDeadline(restoreTrip(), RECORD_READ_MS) === TIMED_OUT) {
+    log.error(`hostStall - the trip record could not be read within ${RECORD_READ_MS / 1000}s; going on without it`);
+  }
 }
 
 /** Take no more readings and forget every thread. */
