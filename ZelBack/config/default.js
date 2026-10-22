@@ -481,9 +481,10 @@ module.exports = {
     peerShortfallDosPerMinute: 0.13,
     // While this node knows no address of its own it asks benchmark to detect its
     // public IP this often, and is out of service after this many asks find none.
-    // Benchmark caches its answer for 69 s.
-    publicIpAskIntervalMs: 90 * 1000,
-    publicIpAsksBeforeDos: 8,
+    // Benchmark caches an address it found for 69 s and none it failed to find, so
+    // each ask while none is known is a fresh lookup against public IP services.
+    publicIpAskIntervalMs: 15 * 1000,
+    publicIpAsksBeforeDos: 48,
     // The apps port check. timeoutsMs: how long it waits before testing again
     // after a pass, an error, a failed port, once its count reaches the DOS
     // threshold, and after an app error. thresholds: once portsHighEdge ports

@@ -266,8 +266,8 @@ module.exports = {
     availabilityCheckIntervalMs: 300000,
     availabilityRecheckMs: 60000,
     peerShortfallDosPerMinute: 0.13,
-    publicIpAskIntervalMs: 90000,
-    publicIpAsksBeforeDos: 8,
+    publicIpAskIntervalMs: 15000,
+    publicIpAsksBeforeDos: 48,
     appsPortCheck: {
       timeoutsMs: {
         default: 3600000, error: 60000, failure: 15000, dos: 300000, appError: 240000,
