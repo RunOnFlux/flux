@@ -8,7 +8,7 @@ import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
 import { assertNoEvent } from '../framework/wait.js';
-import { bootAndPeer, seedAndInstall } from '../framework/reconciler-suite.js';
+import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
 import { execInContainer } from '../framework/container.js';
 import { socketAddr } from '../framework/state-events.js';
@@ -189,7 +189,11 @@ describe('an announcement is judged one entry at a time', function () {
     const appName = `e2eentryreal${stamp}`;
     await pushImage(appName, 'v1');
     const app = await buildSeedableApp({ name: appName, instances: 1, compose: [appComponent(appName)] });
-    const idx = await seedAndInstall(env, app);
+    // Node 1: it announces on its own interval. Node 2's ring neighbour is the
+    // stub's slot, which it cannot reach, so it holds fewer peers than the
+    // threshold that starts a node's announcements.
+    const idx = 1;
+    await installOnNodes(env, app, [idx]);
     const holder = socketAddr(idx + 1);
     const others = realNodes.filter((i) => i !== idx);
 
