@@ -7,7 +7,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
-import { waitFor, assertNoEvent } from '../framework/wait.js';
+import { assertNoEvent } from '../framework/wait.js';
 import { bootAndPeer, seedAndInstall } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
 import { execInContainer } from '../framework/container.js';
@@ -87,22 +87,21 @@ describe('an announcement is judged one entry at a time', function () {
       tickerAutostart: false,
       configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1 } },
     });
-    await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
     stub = env.stubPeerClients.get(STUB_INDEX);
-
-    // Nodes 1 and 2 cannot reach the stub, whatever their own peering would choose.
+    // Nodes 1 and 2 cannot reach the stub, cut off before the fleet peers so
+    // neither ever holds a connection to it.
     await Promise.all(BEHIND_RELAY.map(async (i) => {
       const cut = await execInContainer(env.clients[i].container,
         `iptables -I INPUT -s ${stubIp()} -j DROP && iptables -I OUTPUT -d ${stubIp()} -j DROP`);
       if (cut.exitCode !== 0) throw new Error(`fixture: node ${i} could not cut the stub off (exit ${cut.exitCode}): ${cut.output}`);
     }));
-    await waitFor(async () => {
-      const peered = await Promise.all(BEHIND_RELAY.map(async (i) => {
-        const [outgoing, incoming] = await Promise.all([env.clients[i].getPeers(), env.clients[i].getIncomingPeers()]);
-        return JSON.stringify([...(outgoing.data ?? []), ...(incoming.data ?? [])]).includes(stubIp());
-      }));
-      return peered.every((p) => !p) && (await stub.connectedNodes()) === 1;
-    }, { timeout: 180000, interval: 3000, label: 'only node 0 is peered with the stub' });
+    await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
+    const peeredWithStub = await Promise.all(BEHIND_RELAY.map(async (i) => {
+      const [outgoing, incoming] = await Promise.all([env.clients[i].getPeers(), env.clients[i].getIncomingPeers()]);
+      return JSON.stringify([...(outgoing.data ?? []), ...(incoming.data ?? [])]).includes(stubIp());
+    }));
+    expect(peeredWithStub, 'fixture: a node behind the relay is peered with the stub').to.deep.equal([false, false]);
+    expect(await stub.connectedNodes(), 'fixture: the stub holds connections beyond node 0').to.equal(1);
   });
 
   after(async function () {

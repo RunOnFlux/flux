@@ -20,7 +20,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // down, and never announces it - for its owner or the flux team, and refuses any
 // other caller before a container is made.
 
-const REAL_NODES = 2;
+const REAL_NODES = 3;
 const NODE = 0;
 
 describe('who may place or test an app by hand', function () {
@@ -44,7 +44,7 @@ describe('who may place or test an app by hand', function () {
 
   before(async function () {
     this.timeout(420000);
-    // Registration wants this many peers each way, and two nodes hold one.
+    // Registration wants peers both ways; a fleet this small holds one each way.
     env = await createTestEnv({
       hookCtx: this,
       nodes: REAL_NODES,
@@ -53,6 +53,10 @@ describe('who may place or test an app by hand', function () {
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
     await Promise.all(env.clients.map((c) => waitForBootSettled(c, 240000)));
+    await waitFor(async () => {
+      const [outgoing, incoming] = await Promise.all([client().getPeers(), client().getIncomingPeers()]);
+      return (outgoing.data?.length ?? 0) >= 1 && (incoming.data?.length ?? 0) >= 1;
+    }, { timeout: 120000, interval: 2000, label: 'the registering node has a peer each way' });
 
     appName = `e2ehandplaced${Date.now()}`;
     const spec = buildAppSpec({ name: appName });
