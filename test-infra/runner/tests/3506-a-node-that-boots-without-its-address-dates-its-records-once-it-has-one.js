@@ -30,6 +30,10 @@ const LOCATION_TTL_S = 30 * 60;
 // Long enough that the node is not out of service while the case holds its
 // address back, at the harness's 15 s ask interval.
 const PUBLIC_IP_ASKS_BEFORE_DOS = 40;
+// A node syncs its apps only once it can be heard, which needs its address, and
+// removes them when it has not synced within this: long enough to hold the
+// address back and keep the app.
+const BOOT_SYNC_TIMEOUT_MS = 300000;
 // One harness ask interval and three confirmation polls: a backfill that ran
 // without the address has written by then.
 const UNRESOLVED_WINDOW_MS = 20000;
@@ -55,7 +59,10 @@ describe('a node that boots without its address dates its records once it has on
       hookCtx: this,
       nodes: REAL_NODES,
       tickerAutostart: false,
-      configOverrides: { fluxapps: { locationTtlS: LOCATION_TTL_S, publicIpAsksBeforeDos: PUBLIC_IP_ASKS_BEFORE_DOS } },
+      configOverrides: {
+        fluxapps: { locationTtlS: LOCATION_TTL_S, publicIpAsksBeforeDos: PUBLIC_IP_ASKS_BEFORE_DOS },
+        system: { bootSyncTimeoutMs: BOOT_SYNC_TIMEOUT_MS },
+      },
     });
     await bootAndPeer(env);
     await pushImage(appName, 'v1');
@@ -100,12 +107,12 @@ describe('a node that boots without its address dates its records once it has on
     await setBenchmarkUnresolved(holder, true);
     const afterIds = marks();
     await restartFluxos(env.clients[idx].container);
-    await waitForBootSettled(env.clients[idx], 240000, { afterId: afterIds[idx] });
 
     await assertNoEvent(env.clients[idx], 'app:placementRecorded', (d) => d.name === appName, UNRESOLVED_WINDOW_MS, { afterId: afterIds[idx] });
 
     const resolvedIds = marks();
     await setBenchmarkUnresolved(holder, false);
+    await waitForBootSettled(env.clients[idx], 240000, { afterId: afterIds[idx] });
     const { data: recorded } = await env.clients[idx].waitForEvent('app:placementRecorded', (d) => d.name === appName, 120000, { afterId: resolvedIds[idx] });
     expect(recorded.source, 'the record was not dated from the node\'s own row').to.equal('locationRow');
     expect(new Date(recorded.placedAt).getTime(), 'the record is not the node\'s own row\'s date').to.equal(rowSince);
