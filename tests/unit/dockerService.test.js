@@ -2336,22 +2336,12 @@ describe('dockerService tests', () => {
         ...baseNodeApp, containerPorts: [], ports: [], version: 3,
       };
       const created = () => dockerStub.firstCall.args[0];
-      const driverIs = (CgroupDriver) => sinon.stub(Dockerode.prototype, 'info').resolves({ CgroupDriver, DriverStatus: [] });
-
-      it('puts the container in its app\'s slice under the systemd cgroup driver', async () => {
-        driverIs('systemd');
+      it('puts the container in its app\'s slice', async () => {
+        sinon.stub(Dockerode.prototype, 'info').resolves({ CgroupDriver: 'systemd', DriverStatus: [] });
 
         await dockerService.appDockerCreate(nodeApp, 'my-app', true);
 
         expect(created().HostConfig.CgroupParent).to.equal('flux-my\\x2dapp.slice');
-      });
-
-      it('leaves the parent to docker under any other cgroup driver', async () => {
-        driverIs('cgroupfs');
-
-        await dockerService.appDockerCreate(nodeApp, 'my-app', true);
-
-        expect(created().HostConfig).to.not.have.property('CgroupParent');
       });
     });
   });

@@ -99,6 +99,7 @@ const StickyDosOwner = Object.freeze({
   NODEJS_FLOOR: 'nodejsFloor',
   DOCKER_FLOOR: 'dockerFloor',
   MONGODB_FLOOR: 'mongodbFloor',
+  CGROUP_FLOOR: 'cgroupFloor',
   HOST_STALL: 'hostStall',
 });
 
@@ -1457,6 +1458,39 @@ function checkDockerVersionAllowed(dockerVersion) {
   setStickyDos(
     StickyDosOwner.DOCKER_FLOOR,
     `Docker Version Error. Current lower version allowed is v${minimumVersion} found v${dockerVersion}. Upgrade Docker and restart FluxOS`,
+  );
+  return false;
+}
+
+/**
+ * Whether this node's cgroups are the ones FluxOS runs apps in: cgroup v2,
+ * a kernel that can kill a whole cgroup (cgroup.kill, Linux 5.14), and Docker
+ * placing containers through systemd. App slices, CPU burst and the kill a
+ * host stall makes all rely on the three.
+ *
+ * Asked once, when Docker first answers at startup. The kernel's answers are
+ * read from the cgroup filesystem; init.scope is the cgroup systemd always
+ * creates, and cgroup.kill exists in every cgroup but the root. A driver that
+ * could not be read gives no verdict on the driver.
+ * @param {?string} cgroupDriver The cgroup driver Docker reports, or null when
+ *   it could not be read.
+ * @param {string} [cgroupRoot] Where the cgroup filesystem is mounted.
+ * @returns {Promise<boolean>} True unless a requirement is known to be unmet.
+ */
+async function checkCgroupsAllowed(cgroupDriver, cgroupRoot = '/sys/fs/cgroup') {
+  const exists = (file) => fs.access(path.join(cgroupRoot, file)).then(() => true, () => false);
+  const unmet = [];
+  if (!await exists('cgroup.controllers')) unmet.push('cgroup v2');
+  else if (!await exists('init.scope/cgroup.kill')) unmet.push('cgroup.kill (Linux 5.14 or later)');
+  if (cgroupDriver === null) {
+    log.error('checkCgroupsAllowed - Docker did not report its cgroup driver, no verdict on it');
+  } else if (cgroupDriver !== 'systemd') {
+    unmet.push(`Docker's systemd cgroup driver (found ${cgroupDriver})`);
+  }
+  if (!unmet.length) return true;
+  setStickyDos(
+    StickyDosOwner.CGROUP_FLOOR,
+    `Cgroup Error. FluxOS requires cgroup v2, cgroup.kill and Docker's systemd cgroup driver; missing: ${unmet.join(', ')}. Fix the host and restart FluxOS`,
   );
   return false;
 }
@@ -3725,6 +3759,7 @@ module.exports = {
   checkFluxbenchVersionAllowed,
   checkNodeJsVersionAllowed,
   checkDockerVersionAllowed,
+  checkCgroupsAllowed,
   checkMongoDbVersionAllowed,
   checkMyFluxAvailability,
   adjustExternalIp,

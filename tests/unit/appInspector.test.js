@@ -340,13 +340,7 @@ describe('appInspector tests', () => {
       expect(stored.memoryCache).to.equal(512);
     });
 
-    it('takes the cgroup v1 name when the v2 one is absent', async () => {
-      const stored = await tickOnce({ stats: { cache: 300 } });
-
-      expect(stored.memoryCache).to.equal(300);
-    });
-
-    it('records no cache rather than a zero when the host reports neither', async () => {
+    it('records no cache rather than a zero when the host does not report it', async () => {
       // Zero would read as "nothing cached" and be silently subtracted; null says
       // the figure is unavailable, and leaves the consumer where it was before.
       const stored = await tickOnce({});
