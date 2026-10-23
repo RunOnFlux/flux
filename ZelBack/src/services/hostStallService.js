@@ -15,10 +15,11 @@
  * it starts, and a start soon after another adds nothing.
  *
  * Out of service lasts until the machine reboots, through any number of FluxOS
- * restarts, and so does the count of readings toward it. Both are kept in a file
- * on /dev/shm, the tmpfs every Linux mounts at boot: memory, so reading it cannot
- * stall with a disk, and emptied by a reboot and by nothing else. Not a database
- * row, because the database may be what is stuck.
+ * restarts, and so does the count of readings toward it. Both are kept in
+ * /run/fluxos, on the tmpfs every Linux mounts at /run at boot: memory, so
+ * reading it cannot stall with a disk, and emptied by a reboot. Only root and
+ * FluxOS's own account may write there. Not a database row, because the database
+ * may be what is stuck. The file is written only when what it holds changes.
  *
  * WHAT IS READ. The threads of the processes FluxOS depends on, in FluxOS's own
  * PID namespace. An app container that runs one of the same programs has its
@@ -27,9 +28,11 @@
  */
 
 const fs = require('fs').promises;
+const os = require('os');
 const path = require('path');
 const config = require('config');
 const log = require('../lib/log');
+const serviceHelper = require('./serviceHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 
 const DEPENDENCIES = new Set(['mongod', 'dockerd', 'containerd', 'syncthing', 'fluxd', 'fluxbenchd']);
@@ -47,6 +50,7 @@ const UPTIME_RESOLUTION_MS = 10;
 let tracked = new Map();
 /** Why the node is out of service for a host stall, once it is. */
 let tripReason = null;
+let running = false;
 let readTimer = null;
 // Advanced by stop(), so a reading still under way when the service stops
 // neither keeps what it read nor acts on it.
@@ -57,9 +61,13 @@ let keeping = Promise.resolve();
 const tripListeners = [];
 const DEFAULT_PATHS = {
   procRoot: '/proc',
-  stateFile: '/dev/shm/flux-host-stall.json',
+  stateFile: '/run/fluxos/host-stall.json',
 };
 let paths = { ...DEFAULT_PATHS };
+// What the state file holds with nothing stuck and no trip.
+const NOTHING_KEPT = JSON.stringify({ trip: null, threads: [] });
+/** What the state file holds, as this process last wrote or found it; null when unknown. */
+let keptText = NOTHING_KEPT;
 
 /**
  * @param {{procRoot?: string, stateFile?: string}} options
@@ -193,16 +201,40 @@ function describe(thread) {
 }
 
 /**
+ * Make the state file's directory. /run is root's: a FluxOS that is not root
+ * makes it through sudo, owned by its own account, and writes in it directly.
+ * @param {string} dir
+ */
+async function makeStateDirectory(dir) {
+  try {
+    await fs.mkdir(dir, { recursive: true, mode: 0o755 });
+    return;
+  } catch (error) {
+    if (error.code !== 'EACCES' && error.code !== 'EPERM') throw error;
+  }
+  const { uid, gid } = os.userInfo();
+  const { error } = await serviceHelper.runCommand('install', {
+    runAsRoot: true,
+    params: ['-d', '-m', '755', '-o', String(uid), '-g', String(gid), dir],
+  });
+  if (error) throw error;
+}
+
+/**
  * Keep the trip and every thread's count, so a FluxOS restart before the next
- * reboot carries both on.
+ * reboot carries both on. Nothing is written when the file already holds them.
  */
 async function keepState() {
   const trip = fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL) ? tripReason : null;
+  const text = JSON.stringify({ trip, threads: [...tracked] });
+  if (text === keptText) return;
   const { stateFile } = paths;
   const staged = `${stateFile}.tmp`;
   try {
-    await fs.writeFile(staged, JSON.stringify({ trip, threads: [...tracked] }));
+    await makeStateDirectory(path.dirname(stateFile));
+    await fs.writeFile(staged, text);
     await fs.rename(staged, stateFile);
+    keptText = text;
   } catch (error) {
     log.error(`hostStall - the state could not be kept: ${error.message}`);
   }
@@ -227,10 +259,12 @@ function onTrip(listener) {
 /** Restore what an earlier FluxOS in this boot kept: the trip, and every thread's count. */
 async function restoreState() {
   const text = await readOrNull(paths.stateFile);
+  keptText = text === null ? NOTHING_KEPT : null;
   if (text === null) return;
   try {
     const { trip, threads } = JSON.parse(text);
     tracked = new Map(threads);
+    keptText = text;
     if (trip) {
       tripReason = trip;
       fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL, trip);
@@ -282,20 +316,21 @@ async function readAndReschedule() {
   } catch (error) {
     log.error(`hostStall - reading the dependency threads failed: ${error.message}`);
   }
-  if (readTimer !== null) readTimer = setTimeout(readAndReschedule, READ_INTERVAL_MS);
+  if (running) readTimer = setTimeout(readAndReschedule, READ_INTERVAL_MS);
 }
 
 /**
  * Restore what an earlier FluxOS in this boot kept, then read now, and every
  * READ_INTERVAL_MS after each reading ends.
  * @param {object} [options] Paths, as usePaths takes them.
- * @returns {Promise<void>} Resolves once the kept state is restored.
+ * @returns {Promise<void>} Resolves once the kept state is restored and the first reading taken.
  */
 async function start(options = {}) {
-  if (readTimer !== null) return;
+  if (running) return;
+  running = true;
   usePaths(options);
   await restoreState();
-  readTimer = setTimeout(readAndReschedule, 0);
+  await readAndReschedule();
 }
 
 /**
@@ -304,10 +339,12 @@ async function start(options = {}) {
  */
 function stop() {
   generation += 1;
+  running = false;
   clearTimeout(readTimer);
   readTimer = null;
   tracked = new Map();
   tripReason = null;
+  keptText = NOTHING_KEPT;
   paths = { ...DEFAULT_PATHS };
   tripListeners.length = 0;
   return keeping;

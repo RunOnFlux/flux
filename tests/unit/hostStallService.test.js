@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const config = require('config');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const hostStallService = require('../../ZelBack/src/services/hostStallService');
 
@@ -56,14 +57,6 @@ describe('hostStallService tests', () => {
   const kept = () => JSON.parse(fs.readFileSync(paths.stateFile, 'utf8'));
   async function readTimes(n) {
     for (let i = 0; i < n; i += 1) await read(); // eslint-disable-line no-await-in-loop
-  }
-  // A start takes a reading of its own, as soon as it has restored the kept state;
-  // this waits for that reading to be kept, so no other reading runs beside it.
-  const keptAtMs = () => (fs.existsSync(paths.stateFile) ? fs.statSync(paths.stateFile).mtimeMs : null);
-  async function startAndRead() {
-    const before = keptAtMs();
-    await hostStallService.start(paths);
-    while (keptAtMs() === before) await new Promise((resolve) => { setTimeout(resolve, 1); }); // eslint-disable-line no-await-in-loop
   }
   const placementHeld = () => fluxNetworkHelper.isPlacementHeld();
   const outOfService = () => fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
@@ -251,7 +244,7 @@ describe('hostStallService tests', () => {
       const listener = sinon.stub();
       hostStallService.onTrip(listener);
 
-      await startAndRead();
+      await hostStallService.start(paths);
 
       sinon.assert.calledOnce(listener);
     });
@@ -261,7 +254,7 @@ describe('hostStallService tests', () => {
     async function restart() {
       await hostStallService.stop();
       fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
-      await startAndRead();
+      await hostStallService.start(paths);
     }
 
     it('keeps the trip and every thread\'s count after each reading', async () => {
@@ -361,6 +354,116 @@ describe('hostStallService tests', () => {
       });
     });
 
+    describe('what is written', () => {
+      const writesOfState = () => fs.promises.writeFile.getCalls().filter((call) => String(call.args[0]).startsWith(paths.stateFile)).length;
+      beforeEach(() => {
+        sinon.spy(fs.promises, 'writeFile');
+      });
+
+      it('writes nothing while nothing is stuck', async () => {
+        processWith('100', 'mongod', [{ tid: '101', state: 'S', switches: 40 }]);
+
+        await readTimes(3);
+
+        expect(fs.existsSync(paths.stateFile)).to.equal(false);
+      });
+
+      it('writes nothing at a start with nothing kept while nothing is stuck', async () => {
+        processWith('100', 'mongod', [{ tid: '101', state: 'S', switches: 40 }]);
+
+        await restart();
+        await readTimes(2);
+
+        expect(fs.existsSync(paths.stateFile)).to.equal(false);
+      });
+
+      it('writes again at the next reading when a write fails', async () => {
+        const rename = fs.promises.rename.bind(fs.promises);
+        const renames = sinon.stub(fs.promises, 'rename').callsFake((from, ...rest) => rename(from, ...rest));
+        renames.onFirstCall().rejects(new Error('no space left on device'));
+        stuckMongod();
+        await read();
+
+        await hostStallService.readOnce(paths);
+
+        expect(kept().threads.map(([, thread]) => thread.tid)).to.deep.equal(['101']);
+      });
+
+      it('writes nothing for a reading that changes nothing', async () => {
+        stuckMongod();
+        await read();
+        const writes = writesOfState();
+
+        await hostStallService.readOnce(paths);
+
+        expect(writesOfState()).to.equal(writes);
+      });
+
+      it('writes nothing at a start that finds what it kept unchanged, and writes once something changes', async () => {
+        stuckMongod();
+        await readTimes(2);
+        const writes = writesOfState();
+        await restart();
+        expect(writesOfState(), 'the start wrote back what it had just read').to.equal(writes);
+
+        await read();
+
+        expect(writesOfState()).to.equal(writes + 1);
+      });
+
+      it('writes again once the stuck thread runs', async () => {
+        stuckMongod();
+        await readTimes(2);
+        processWith('100', 'mongod', [{ tid: '101', state: 'S', switches: 41 }]);
+
+        await read();
+
+        expect(kept().threads).to.deep.equal([]);
+      });
+    });
+
+    describe('a FluxOS that may not make the state directory', () => {
+      let stateDir;
+      beforeEach(() => {
+        stateDir = path.join(procRoot, 'run-fluxos');
+        paths.stateFile = path.join(stateDir, 'host-stall.json');
+        const mkdir = fs.promises.mkdir.bind(fs.promises);
+        sinon.stub(fs.promises, 'mkdir').callsFake((dir, ...rest) => (dir === stateDir && !fs.existsSync(stateDir)
+          ? Promise.reject(Object.assign(new Error('permission denied'), { code: 'EACCES' }))
+          : mkdir(dir, ...rest)));
+      });
+
+      const makesTheDirectory = async () => {
+        fs.mkdirSync(stateDir);
+        return { error: null, stdout: '', stderr: '' };
+      };
+
+      it('makes it through sudo, owned by its own account, and keeps the state in it', async () => {
+        sinon.stub(serviceHelper, 'runCommand').callsFake(makesTheDirectory);
+        const { uid, gid } = os.userInfo();
+        stuckMongod();
+
+        await read();
+
+        sinon.assert.calledOnceWithExactly(serviceHelper.runCommand, 'install', {
+          runAsRoot: true, params: ['-d', '-m', '755', '-o', String(uid), '-g', String(gid), stateDir],
+        });
+        expect(kept().threads.map(([, thread]) => thread.tid)).to.deep.equal(['101']);
+      });
+
+      it('tries again at the next reading when sudo fails', async () => {
+        const runCommand = sinon.stub(serviceHelper, 'runCommand').resolves({ error: new Error('sudo: a password is required'), stdout: '', stderr: '' });
+        stuckMongod();
+        await read();
+        expect(fs.existsSync(paths.stateFile), 'fixture: the state was kept though sudo failed').to.equal(false);
+        runCommand.callsFake(makesTheDirectory);
+
+        await hostStallService.readOnce(paths);
+
+        expect(kept().threads.map(([, thread]) => thread.tid)).to.deep.equal(['101']);
+      });
+    });
+
     it('takes the node out of service and tells its listeners when the state cannot be kept', async () => {
       const writeFile = fs.promises.writeFile.bind(fs.promises);
       sinon.stub(fs.promises, 'writeFile').callsFake((file, ...rest) => (file.startsWith(paths.stateFile)
@@ -407,7 +510,7 @@ describe('hostStallService tests', () => {
       while (!outOfService()) {
         await hostStallService.stop(); // eslint-disable-line no-await-in-loop
         passMs(RESTART_EVERY_MS);
-        await startAndRead(); // eslint-disable-line no-await-in-loop
+        await hostStallService.start(paths); // eslint-disable-line no-await-in-loop
         expect(uptimeMs - heldSince, 'never went out of service').to.be.below(2 * stuckIntervals * readIntervalMs);
       }
 
