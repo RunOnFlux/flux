@@ -1539,17 +1539,32 @@ describe('syncthingMonitor tests', () => {
       expect(folderStateMap.get('fluxg')).to.deep.equal({ state: 'heldOut' });
     });
 
-    it('records a folder whose locations could not be read as held out', async () => {
+    // A read that failed says nothing about what the volume holds.
+    const locationsUnreadable = () => {
       installedApps([{ name: 'fluxg', version: 3, containerData: 'g:/appdata' }]);
       syncthingMonitorHelpersMock.requiresSyncing.returns(true);
       syncthingMonitorHelpersMock.ensureStfolderExists.resolves(true);
       dbHelperMock.findInDatabase.rejects(new Error('database unavailable'));
       syncthingServiceMock.getConfigFolders.resolves([]);
+    };
+
+    it('leaves what it measured of a folder whose locations could not be read', async () => {
+      folderStateMap.set('fluxg', { state: 'measured', bytes: 10, newestModified: 1 });
+      locationsUnreadable();
 
       monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
       await clock.tickAsync(100);
 
-      expect(folderStateMap.get('fluxg')).to.deep.equal({ state: 'heldOut' });
+      expect(folderStateMap.get('fluxg')).to.deep.equal({ state: 'measured', bytes: 10, newestModified: 1 });
+    });
+
+    it('leaves a folder it has not looked at whose locations could not be read as not looked at, which peers wait on', async () => {
+      locationsUnreadable();
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(folderStateMap.get('fluxg')).to.deep.equal({ state: 'notLookedAt' });
     });
   });
 

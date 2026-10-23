@@ -351,11 +351,12 @@ async function processContainerData(params) {
     locations = await readAppLocation(installedAppName);
   } catch (error) {
     // Without its locations the folder would be shared with no peer, and the device
-    // sweep would remove every peer it has: it is held out of this pass instead.
+    // sweep would remove every peer it has: it is held out of this pass instead. What
+    // this node tells its peers of the folder stays as it was: a read that failed says
+    // nothing about what the volume holds.
     log.warn(`processContainerData - ${appId} locations could not be read (${error.message}); leaving the folder as it is this cycle`);
     fluxEventBus.count('syncthing:folderPass', appId, 'locationsUnread');
     unsafeFolderIds.add(appId);
-    folderStates.heldOut(appId);
     return;
   }
   locations = sortAndFilterLocations(locations, localSocketAddr);
