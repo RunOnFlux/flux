@@ -1758,6 +1758,9 @@ async function expireGlobalApplications() {
     const appsToRemove = [];
     const locallyExpired = [];
     appsInstalled.forEach((app) => {
+      // An app being tested has no height until it is registered, and its test
+      // removes it when it ends.
+      if (globalState.testInstallingApps.has(app.name)) return;
       if (appNamesToExpire.includes(app.name)) {
         appsToRemove.push(app);
       } else if (!app.height) {
