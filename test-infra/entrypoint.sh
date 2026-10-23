@@ -52,15 +52,32 @@ mkdir -p /dat/var/lib/fluxd \
          /dat/usr/lib/fluxwatchdog \
          /mnt/appdata/flux-apps
 
-# A node whose docker data a suite freezes (framework/host-stall.js) keeps it on a
-# filesystem of its own, mounted before docker starts. Freezing it holds every write
-# docker makes there in the kernel, which is what a stalled host does to docker. The
-# image lives on the node's volume, so a restarted node mounts the same data again.
+# Mount a filesystem image through a device-mapper device of its own, so a suite
+# can freeze it (every write held) or suspend the device (every read and write
+# held), framework/host-stall.js. Device-mapper names are the host kernel's, so
+# each carries the node's hostname. The device and its loop are released lazily:
+# both go away with the last mount of them, when the node's container does.
+mount_stallable() {
+  local img="$1" mnt="$2" name loop
+  mountpoint -q "$mnt" && return 0
+  name="flux-$(hostname)-$(basename "$mnt")"
+  loop="$(losetup -f --show "$img")"
+  dmsetup create --noudevsync "$name" --table "0 $(blockdev --getsz "$loop") linear $loop 0"
+  dmsetup mknodes "$name"
+  mount "/dev/mapper/$name" "$mnt"
+  dmsetup remove --deferred "$name"
+  losetup -d "$loop"
+}
+
+# A node whose docker data a suite stalls (framework/host-stall.js) keeps it on a
+# filesystem of its own, mounted before docker starts. Holding it holds docker's
+# threads in the kernel, which is what a stalled host does to docker. The image
+# lives on the node's volume, so a restarted node mounts the same data again.
 if [ "$FLUX_FREEZABLE_DOCKER_ROOT" = "true" ]; then
   img=/mnt/appdata/docker-root.img
   [ -f "$img" ] || { truncate -s 8G "$img" && mkfs.ext4 -q -F "$img"; }
   mkdir -p /mnt/appdata/docker
-  mountpoint -q /mnt/appdata/docker || mount -o loop "$img" /mnt/appdata/docker
+  mount_stallable "$img" /mnt/appdata/docker
 fi
 
 # The same for the node's FluxOS config directory, where FluxOS keeps the record of
@@ -76,7 +93,7 @@ if [ "$FLUX_FREEZABLE_CONFIG" = "true" ]; then
     mount -o loop "$img" "$seed" && cp -a "$cfg/." "$seed/" && chown "$owner" "$seed" && umount "$seed"
     rmdir "$seed"
   fi
-  mountpoint -q "$cfg" || mount -o loop "$img" "$cfg"
+  mount_stallable "$img" "$cfg"
 fi
 
 # In stub mode FluxOS only needs somewhere to read an API key from; the calls

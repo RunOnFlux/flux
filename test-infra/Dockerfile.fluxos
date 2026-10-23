@@ -48,6 +48,7 @@ RUN set -eu; \
     conntrack \
     tcpdump \
     e2fsprogs \
+    dmsetup \
     systemd \
     dbus \
     openssh-client \
