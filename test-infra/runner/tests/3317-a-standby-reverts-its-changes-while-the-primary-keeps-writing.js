@@ -100,8 +100,14 @@ describe('a standby reverts its local changes while the primary keeps writing', 
     await event('syncthing:localChangesReverted', from, REVERT_MS).catch(() => {
       throw new Error('the standby did not revert its changes while the primary kept writing');
     });
-    expect(await readPath(client(A), `${root}/appdata/stray-1`), 'the stray is still on the standby').to.equal(null);
-    expect((await sh(A, `stat -c %a ${root}/appdata/seed-data`)).trim(), 'the primary\'s file keeps the standby\'s mode').to.not.equal('600');
+    // A revert resets syncthing's index; the pull that follows puts the primary's
+    // version back.
+    await waitFor(async () => (await readPath(client(A), `${root}/appdata/stray-1`)) === null, {
+      timeout: 120000, interval: 2000, label: 'the stray is gone from the standby',
+    });
+    await waitFor(async () => (await sh(A, `stat -c %a ${root}/appdata/seed-data`)).trim() !== '600', {
+      timeout: 120000, interval: 2000, label: 'the primary\'s file has the primary\'s mode again',
+    });
     await waitFor(async () => (await linesOnStandby()) > linesAtChange, {
       timeout: 60000, interval: 2000, label: 'the primary\'s writes kept reaching the standby',
     });
@@ -127,7 +133,9 @@ describe('a standby reverts its local changes while the primary keeps writing', 
     const reverted = await event('syncthing:localChangesReverted', releasedAt, REVERT_MS);
     const checked = eventsSince('syncthing:localChangesChecked', releasedAt);
     expect(checked.filter((e) => e.id < reverted.id), 'reverted changes it had not checked').to.not.deep.equal([]);
-    expect(await readPath(client(A), `${root}/appdata/stray-2`), 'the first stray is still on the standby').to.equal(null);
-    expect(await readPath(client(A), `${root}/appdata/stray-3`), 'the second stray is still on the standby').to.equal(null);
+    await waitFor(async () => (await readPath(client(A), `${root}/appdata/stray-2`)) === null
+      && (await readPath(client(A), `${root}/appdata/stray-3`)) === null, {
+      timeout: 120000, interval: 2000, label: 'both strays are gone from the standby',
+    });
   });
 });
