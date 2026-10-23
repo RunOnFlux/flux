@@ -21,6 +21,7 @@ const dnsLookup = require('../../ZelBack/src/services/utils/dnsLookup');
 const configManager = require('../../ZelBack/src/services/utils/configManager');
 const fluxServer = require('../../ZelBack/src/lib/fluxServer');
 const portFile = require('../../ZelBack/src/services/utils/portFile');
+const fluxdCredentials = require('../../ZelBack/src/services/daemonService/fluxdCredentials');
 
 /**
  * These tests isolate and test the SIGTERM handling logic from apiServer.js
@@ -836,6 +837,18 @@ describe('apiServer initiate readiness', () => {
 
     sinon.assert.notCalled(notifyReady);
     sinon.assert.notCalled(startFluxFunctions);
+  });
+
+  it('exits as a configuration error, before it listens, when the node-key credential cannot be used', async () => {
+    sinon.stub(fluxdCredentials, 'loadNodeKey').rejects(new Error('the node-key credential /run/credentials/fluxos.service/node-key is empty'));
+    sinon.stub(serviceHelper, 'delay').resolves();
+    const exit = sinon.stub(process, 'exit');
+
+    await apiServer.initiate();
+    await new Promise(setImmediate);
+
+    sinon.assert.calledWithExactly(exit, systemdNotify.EXIT_CONFIG);
+    sinon.assert.callOrder(exit, listen);
   });
 
   ['http', 'https'].forEach((mode, failing) => {

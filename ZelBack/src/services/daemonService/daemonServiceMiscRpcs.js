@@ -33,30 +33,28 @@ configManager.on('configReloaded', (newConfig) => {
 });
 
 /**
- * To check if Insight Explorer is activated in the daemon configuration file.
- * @returns {boolean} True if the daemon is configured with Insight Explorer on.
+ * Whether fluxd keeps the insight explorer's indexes. The answer is kept once
+ * known; while it is not (flux.conf not yet read, or fluxd not yet asked) this
+ * answers false and asks again next time.
+ * @returns {boolean}
  */
 function isInsightExplorer() {
   if (isDaemonInsightExplorer != null) {
     return isDaemonInsightExplorer;
   }
-  const insightValue = daemonServiceUtils.getConfigValue('insightexplorer');
-  if (insightValue === 1 || insightValue === '1') {
-    isDaemonInsightExplorer = true;
-    return true;
-  }
-  isDaemonInsightExplorer = false;
-  return false;
+  const known = daemonServiceUtils.insightIndexes();
+  if (known === null) return false;
+  isDaemonInsightExplorer = known;
+  return known;
 }
 
 /**
- * Whether the daemon configuration file turns on the address index, which
- * answers getaddressdeltas and getaddresstxids.
+ * Whether fluxd keeps the address index, which answers getaddressdeltas and
+ * getaddresstxids. False while not known.
  * @returns {boolean}
  */
 function isAddressIndex() {
-  const value = daemonServiceUtils.getConfigValue('addressindex');
-  return value === 1 || value === '1';
+  return daemonServiceUtils.addressIndex() === true;
 }
 
 // == NON Daemon ==
