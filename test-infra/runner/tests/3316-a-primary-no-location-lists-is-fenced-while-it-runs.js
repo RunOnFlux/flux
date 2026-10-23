@@ -4,10 +4,10 @@
  * FluxOS is gone, its syncthing and its container are not. Its location expires.
  *
  * The standby drops it from the folder though its syncthing is still connected, so
- * what it writes from then on reaches no holder. Once FDM stops naming it, the
- * standby takes the app over beside it: a primary no location lists is out of the
- * app. What each writes stays on its own side, and a holder placed after the
- * location expired syncs the standby's copy and nothing of the old primary's.
+ * what it writes from then on reaches no holder. The standby starts nothing beside
+ * it while that connection is up, though FDM no longer names it: it may still be
+ * running the app. A holder placed after the location expired syncs the standby's
+ * copy and nothing the old primary wrote since.
  *
  * A = the standby, B = the primary, C = the holder placed later.
  */
@@ -32,13 +32,13 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 const SIGTERM_EXPIRY_S = 120;
 // The harness's syncthing monitor passes every 3s; this is several of them.
 const MONITOR_PASSES_MS = 30000;
-// A few election passes and a container start.
-const TAKEOVER_MS = 10 * 60 * 1000;
+// Several election passes, each of which would start the app on the standby
+// if it read the old primary as gone.
+const ELECTION_PASSES_MS = 3 * 60 * 1000;
 const SAVE = 'appdata/save-b';
 const SAVE_CONTENT = 'written by the primary';
 const FENCED = 'appdata/written-after-expiry';
-const FENCED_LATER = 'appdata/written-beside-the-new-primary';
-const NEW_PRIMARY = 'appdata/written-by-the-new-primary';
+const FENCED_LATER = 'appdata/written-before-a-holder-is-placed';
 
 function step(what) {
   console.log(`# 3316 ${new Date().toISOString()} ${what}`);
@@ -99,33 +99,31 @@ describe('a primary no location lists is fenced while it runs', function () {
     expect(await fleet.isUp(B), 'the primary\'s app stopped, so nothing here is tested').to.equal(true);
   });
 
-  it('takes the app over on the standby once FDM stops naming the primary, beside the primary still running it', async function () {
-    this.timeout(TAKEOVER_MS + 60000);
+  it('starts nothing on the standby while the old primary\'s syncthing is connected, though FDM no longer names it', async function () {
+    this.timeout(ELECTION_PASSES_MS + 120000);
+    const before = await fleet.verdicts(A, 'connectionAlive');
     await clearMaster(appName);
-    step('waiting for the takeover');
-    await waitFor(() => fleet.isUp(A), {
-      timeout: TAKEOVER_MS, interval: 5000, label: 'the standby takes the app over',
-    });
-    expect(await client(A).getDecisionCount('masterSlave:decision', fleet.identifier, 'previousPrimaryUnlisted'),
-      'the standby took over without reading the primary as out of the app').to.be.at.least(1);
-    expect(await fleet.isUp(B), 'the old primary stopped, so nothing here is tested').to.equal(true);
-    expect(await readPath(client(A), `${root}/${SAVE}`), 'the old primary\'s data is gone from the new primary').to.equal(SAVE_CONTENT);
+    step('watching the standby\'s election');
+    await sleepUnlessInfraDead(ELECTION_PASSES_MS);
+    expect(await fleet.verdicts(A, 'connectionAlive'),
+      'the standby never judged the old primary\'s silence, so nothing here is tested').to.be.above(before);
+    expect(await fleet.isUp(A), 'the standby started the app beside the old primary still running it').to.equal(false);
+    expect(await fleet.isUp(B), 'the old primary\'s app stopped, so nothing here is tested').to.equal(true);
   });
 
-  it('keeps what each primary writes on its own side, and a holder placed later syncs only the new primary\'s copy', async function () {
+  it('gives a holder placed after the expiry the standby\'s copy and nothing the old primary wrote since', async function () {
     this.timeout(900000);
-    await write(A, NEW_PRIMARY, 'written by the new primary');
-    await write(B, FENCED_LATER, 'written beside the new primary');
+    await write(B, FENCED_LATER, 'written before a holder is placed');
 
     step('a holder is placed after the old primary\'s location expired');
     await installOnNodes(fleet.env, fleet.app, [C]);
-    await waitFor(async () => (await readPath(client(C), `${root}/${NEW_PRIMARY}`)) === 'written by the new primary', {
-      timeout: 300000, interval: 5000, label: 'the new primary\'s write reached the holder placed later',
+    await waitFor(async () => (await readPath(client(C), `${root}/${SAVE}`)) === SAVE_CONTENT, {
+      timeout: 300000, interval: 5000, label: 'the standby\'s copy reached the holder placed later',
     });
-    expect(await readPath(client(C), `${root}/${SAVE}`), 'the holder placed later lacks the data from before the expiry').to.equal(SAVE_CONTENT);
+    await sleepUnlessInfraDead(Math.max(MONITOR_PASSES_MS, 5 * listedSyncMs));
     expect(await readPath(client(C), `${root}/${FENCED}`), 'the old primary\'s write after its location expired reached the holder placed later').to.equal(null);
     expect(await readPath(client(C), `${root}/${FENCED_LATER}`), 'the old primary\'s later write reached the holder placed later').to.equal(null);
-    expect(await readPath(client(A), `${root}/${FENCED_LATER}`), 'the old primary\'s later write reached the new primary').to.equal(null);
-    expect(await readPath(client(B), `${root}/${NEW_PRIMARY}`), 'the new primary\'s write reached the old primary').to.equal(null);
+    expect(await readPath(client(A), `${root}/${FENCED_LATER}`), 'the old primary\'s later write reached the standby').to.equal(null);
+    expect(await fleet.isUp(A), 'the standby started the app beside the old primary still running it').to.equal(false);
   });
 });
