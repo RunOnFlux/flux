@@ -42,8 +42,12 @@ describe('a boot does not wait for a host stall\'s state write', function () {
     await sh(`rm -rf ${STATE_DIR} && mkdir -p ${STATE_DIR} && dd if=/dev/zero of=${IMAGE} bs=1M count=16 status=none`
       + ` && mke2fs -q -t ext4 ${IMAGE} && mount -o loop ${IMAGE} ${STATE_DIR}`
       + ` && printf '{ not json' > ${STATE_FILE} && sync -f ${STATE_FILE} && fsfreeze -f ${STATE_DIR}`);
-    const probe = await execInContainer(client.container, `timeout 3 sh -c 'echo x > ${STATE_DIR}/probe'`);
-    writesHeld = probe.exitCode === 124;
+    // a write held in the kernel cannot be killed: it runs in the background, and is
+    // held while its marker has not appeared
+    const marker = `/tmp/state-write-returned-${Date.now()}`;
+    const probe = await execInContainer(client.container,
+      `setsid sh -c 'echo x > ${STATE_DIR}/probe && touch ${marker}' </dev/null >/dev/null 2>&1 & sleep 3; test ! -e ${marker}`);
+    writesHeld = probe.exitCode === 0;
 
     bootLinesBefore = env.nodeLogCount(0, NEXT_STEP);
     await releaseFluxos(client.container);
