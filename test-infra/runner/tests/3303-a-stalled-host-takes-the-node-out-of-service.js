@@ -34,7 +34,8 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // apps has every one of them stopped within that one window, long before even one
 // removal's deadline. A node whose FluxOS restarts while the stall is under way
 // carries on counting it, and goes out of service when it would have without the
-// restart. A node whose docker disk stops answering
+// restart; one whose FluxOS restarts over and over adds nothing to the count for
+// the restarts. A node whose docker disk stops answering
 // reads as well, so docker's own records of its containers cannot be read, stops
 // and kills its apps through their slices within the same window.
 //
@@ -64,6 +65,13 @@ const DISK_STALLED = 4;
 // The node whose FluxOS restarts mid-stall reads every RESTART_READ_INTERVAL_MS, so
 // the readings a restart would lose take far longer than a restart does.
 const RESTART_READ_INTERVAL_MS = 20 * 1000;
+// A node whose FluxOS restarts over and over while its docker is held, every
+// restart well inside one reading interval, so restarts that each counted as one
+// would take it out of service long before the readings could.
+const CRASH_LOOPED = 5;
+const CRASH_LOOP_READ_INTERVAL_MS = 180 * 1000;
+// a start's reading for each restart would reach the threshold with one to spare
+const CRASH_LOOP_RESTARTS = STUCK_INTERVALS + 2;
 
 const byOwner = (data) => data.owner === OWNER;
 const outOfServiceForTheStall = (data) => data.dosState >= 100
@@ -103,10 +111,13 @@ describe('a stalled host takes the node out of service', function () {
     this.timeout(480000);
     env = await createTestEnv({
       hookCtx: this,
-      nodes: 5,
+      nodes: 6,
       tickerAutostart: false,
-      freezableDockerRoot: [...ARCANE, RESTARTED, LEGACY_UNPRIVILEGED, DISK_STALLED],
-      nodeConfigOverrides: { [RESTARTED]: { hostStall: { readIntervalMs: RESTART_READ_INTERVAL_MS } } },
+      freezableDockerRoot: [...ARCANE, RESTARTED, LEGACY_UNPRIVILEGED, DISK_STALLED, CRASH_LOOPED],
+      nodeConfigOverrides: {
+        [RESTARTED]: { hostStall: { readIntervalMs: RESTART_READ_INTERVAL_MS } },
+        [CRASH_LOOPED]: { hostStall: { readIntervalMs: CRASH_LOOP_READ_INTERVAL_MS } },
+      },
       legacyNodes: [LEGACY_UNPRIVILEGED],
       unprivilegedNodes: [LEGACY_UNPRIVILEGED],
       configOverrides: {
@@ -397,6 +408,46 @@ describe('a stalled host takes the node out of service', function () {
       expect(trippedAt, 'the node never went out of service after the restart').to.not.equal(null);
       // two readings were left when FluxOS restarted; a count started again needs all of them
       expect(trippedAt - restartedAt, 'the restart started the count of readings again').to.be.below(RESTART_READ_INTERVAL_MS * 3);
+    });
+  });
+
+  describe('a stall on a node whose FluxOS restarts over and over', function () {
+    const loopName = `e2ehoststallloop${Date.now()}`;
+    let loopClient;
+    let loopContainer;
+    let restartsTookMs;
+
+    before(async function () {
+      this.timeout(900000);
+      loopClient = env.clients[CRASH_LOOPED];
+      ({ container: loopContainer } = loopClient);
+      await installOn(env, loopName, [CRASH_LOOPED]);
+      await waitForUp(loopClient, loopName, `${loopName} is up`);
+      step(`freezing node ${CRASH_LOOPED}'s docker`);
+      await freezeDocker(loopContainer);
+      const from = Date.now();
+      for (let i = 0; i < CRASH_LOOP_RESTARTS; i += 1) {
+        step(`restarting FluxOS, ${i + 1} of ${CRASH_LOOP_RESTARTS}`);
+        // eslint-disable-next-line no-await-in-loop
+        await restartFluxos(loopContainer, { timeout: 120000, readyTimeoutMs: 180000 });
+      }
+      restartsTookMs = Date.now() - from;
+    });
+
+    after(async function () {
+      if (loopClient) await thawEveryNode([loopClient]);
+    });
+
+    it('held docker in the kernel across the restarts, every one of them inside two readings', async function () {
+      const stuck = await stuckThreads(loopContainer, 'dockerd');
+      expect(stuck, 'no dockerd thread was held across the restarts, so nothing below was tested').to.not.be.empty;
+      expect(restartsTookMs, 'fixture: the restarts took long enough for the readings alone to count').to.be.below(CRASH_LOOP_READ_INTERVAL_MS * 2);
+    });
+
+    // Out of service for a stall lasts through every restart, so the state after the
+    // last one says whether any of them took the node out.
+    it('stays in service, the restarts adding nothing to the count', async function () {
+      expect((await loopClient.getDOSState()).data.dosState, 'the restarts took the node out of service').to.be.below(100);
     });
   });
 
