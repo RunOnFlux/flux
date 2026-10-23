@@ -38,20 +38,29 @@ export async function holdCommands(holdMs) {
 // Turning the failpoint off waits for every command inside it to leave, and a held
 // command stays for the whole hold. So the held commands are killed until the
 // release completes: their wait is interruptible, and they leave at once.
+//
+// Resolves to how many commands were held from each client address (ip, no port):
+// read on the server, so it says the calls reached mongod and waited, whatever the
+// client did about it.
 export async function releaseCommands() {
-  await withAdmin(async (admin) => {
+  return withAdmin(async (admin) => {
+    const heldFrom = new Map();
     let released = false;
     const off = admin.command({ configureFailPoint: 'failCommand', mode: 'off' }).finally(() => { released = true; });
     while (!released) {
       // eslint-disable-next-line no-await-in-loop
       const { inprog } = await admin.command({ currentOp: 1, active: true });
       const held = inprog.filter((op) => op.command && HELD_COMMANDS.some((name) => name in op.command));
+      for (const op of held) heldFrom.set(op.opid, (op.client ?? '').replace(/:\d+$/, ''));
       // eslint-disable-next-line no-await-in-loop
       await Promise.all(held.map((op) => admin.command({ killOp: 1, op: op.opid }).catch(() => {})));
       // eslint-disable-next-line no-await-in-loop
       await Promise.race([off.catch(() => {}), new Promise((resolve) => { setTimeout(resolve, 1000); })]);
     }
     await off;
+    const byClient = {};
+    for (const ip of heldFrom.values()) byClient[ip] = (byClient[ip] ?? 0) + 1;
+    return byClient;
   });
 }
 

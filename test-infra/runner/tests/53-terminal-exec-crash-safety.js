@@ -4,7 +4,7 @@ import { io } from 'socket.io-client';
 import { createTestEnv } from '../framework/test-env.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
-import { execInContainer, getAppContainerStatus } from '../framework/container.js';
+import { execInContainer, getAppContainerStatus, fluxosPid } from '../framework/container.js';
 import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, seedSimpleApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -28,16 +28,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //
 // The assertion that matters in both cases is the same: a socket error reaches the
 // client AND the FluxOS process is the same one it was before (an exit(1) is
-// invisible from outside once the watchdog respawns it, so we compare the pid).
+// invisible from outside once systemd starts it again, so we compare the pid).
 
 const TERMINAL_TIMEOUT_MS = 20000;
-
-// The node app.js child pid, written by the image entrypoint watchdog. It changes
-// if and only if FluxOS died and was respawned.
-async function fluxosPid(container) {
-  const { stdout } = await execInContainer(container, 'cat /tmp/fluxos.pid 2>/dev/null || echo ""');
-  return stdout.trim();
-}
 
 async function apiAlive(client) {
   const res = await client.get('/flux/version').catch(() => null);
@@ -119,7 +112,7 @@ describe('docker terminal fails cleanly and never crashes the node', function ()
     this.timeout(180000);
 
     const pidBefore = await fluxosPid(client.container);
-    expect(pidBefore).to.not.equal('');
+    expect(pidBefore).to.not.equal(null);
 
     // A real session against the harness stub image, which has no shell and no
     // passwd: exec the one binary it carries (/bin/pause) as the image-default
@@ -179,7 +172,7 @@ describe('docker terminal fails cleanly and never crashes the node', function ()
     }, { timeout: 60000, interval: 2000, label: 'app container stopped' });
 
     const pidBefore = await fluxosPid(client.container);
-    expect(pidBefore).to.not.equal('');
+    expect(pidBefore).to.not.equal(null);
 
     const result = await openTerminal(client, zelidauth, identifier);
 

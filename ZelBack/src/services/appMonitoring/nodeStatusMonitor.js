@@ -8,10 +8,46 @@ const fluxCommunicationUtils = require('../fluxCommunicationUtils');
 const messageStore = require('../appMessaging/messageStore');
 const nodeConfirmationService = require('../nodeConfirmationService');
 const networkStateService = require('../networkStateService');
+const hostStallService = require('../hostStallService');
+const appKill = require('../appLifecycle/appKill');
+const dockerService = require('../dockerService');
+const { RemovalOutcome } = require('../utils/removalOutcome');
+const { withinDeadline, TIMED_OUT } = require('../utils/withinDeadline');
+const fluxEventBus = require('../utils/fluxEventBus');
+const globalState = require('../utils/globalState');
 const log = require('../../lib/log');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 
 let removalInProgress = false;
+let unloadingForHostStall = false;
+/** What initialize was given, for the removal a host stall starts. */
+let deps = null;
+
+const REMOVAL_DEADLINE_MS = config.fluxapps.appRemovalDeadlineMs;
+const STOP_WINDOW_MS = config.hostStall.stopWindowMs;
+const STILL_REMOVING = 'stillRemoving';
+/** Apps whose removal started here and has not returned, deadline or not. */
+const removalsRunning = new Set();
+
+/**
+ * Remove one app, waiting for it at most REMOVAL_DEADLINE_MS. A removal past
+ * its deadline keeps running, so an app whose removal is still running is not
+ * removed again: a second removal beside it would only wait behind the same
+ * stall, and the next pass would add a third. Boot removes through this too, so a
+ * removal boot stopped waiting for is one the monitor does not start again.
+ * @param {Function} removeAppLocallyFn
+ * @param {string} name
+ * @param {boolean} canBroadcast
+ * @returns {Promise<string>} The removal's outcome, TIMED_OUT, or STILL_REMOVING.
+ */
+async function removeWithinDeadline(removeAppLocallyFn, name, canBroadcast) {
+  if (removalsRunning.has(name)) return STILL_REMOVING;
+  removalsRunning.add(name);
+  const removal = Promise.resolve()
+    .then(() => removeAppLocallyFn(name, null, true, false, canBroadcast))
+    .finally(() => removalsRunning.delete(name));
+  return withinDeadline(removal, REMOVAL_DEADLINE_MS);
+}
 
 // Database collections
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
@@ -34,11 +70,20 @@ async function removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, reason)
     const appsInstalled = installedAppsRes.data;
     const canBroadcast = nodeConfirmationService.canSendMessages();
     for (const installedApp of appsInstalled) {
+      // a host stall's own removal has the node, and this one gives way to it
+      if (unloadingForHostStall) break;
       log.info(`monitorNodeStatus - Application ${installedApp.name} going to be removed: ${reason}`);
       log.warn(`monitorNodeStatus - Removing application ${installedApp.name} locally`);
+      // One removal that never returns must not hold every other app here.
       // eslint-disable-next-line no-await-in-loop
-      await removeAppLocallyFn(installedApp.name, null, true, false, canBroadcast);
-      log.warn(`monitorNodeStatus - Application ${installedApp.name} locally removed`);
+      const outcome = await removeWithinDeadline(removeAppLocallyFn, installedApp.name, canBroadcast);
+      if (outcome === TIMED_OUT) {
+        log.error(`monitorNodeStatus - Application ${installedApp.name} was not removed within ${REMOVAL_DEADLINE_MS / 1000}s, moving on`);
+      } else if (outcome === STILL_REMOVING) {
+        log.warn(`monitorNodeStatus - Application ${installedApp.name} is still being removed, moving on`);
+      } else {
+        log.warn(`monitorNodeStatus - Application ${installedApp.name} locally removed`);
+      }
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(config.fluxapps.nodeMonitorRemovalDelayMs ?? 60000);
     }
@@ -63,7 +108,128 @@ async function removeAllAppsOnSignal(installedAppsFn, removeAppLocallyFn, reason
   }
 }
 
+/**
+ * Ask docker to stop every container of the app, on its normal grace.
+ * @param {string} name
+ * @param {Array<object>|null} containers appKill.readContainers
+ * @returns {Promise<void>}
+ */
+async function stopApp(name, containers) {
+  await Promise.allSettled(appKill.containersOf(name, containers).map((container) => dockerService.appDockerStop(container)));
+}
+
+/**
+ * Remove every app from a node whose host is stalled, and make sure none can
+ * run again before the network is told.
+ *
+ * Every app is asked to stop at once, and all of them share one STOP_WINDOW_MS:
+ * a docker that can still deliver a stop signal stops each app cleanly, and one
+ * that cannot costs the window once, not once per app. Whatever of each app can
+ * still run after the window is killed through its cgroups and checked: an app
+ * whose every process is gone or has the kill pending can never run its code
+ * again. Then each app gets its normal removal, which tells the network, within
+ * REMOVAL_DEADLINE_MS; nothing of it runs by then, so the removals take turns.
+ *
+ * The apps are read from the database and from what is on disk, at once, so an
+ * app the database cannot list is still found. Docker's records of its
+ * containers are read once, within STOP_WINDOW_MS: on a disk that does not answer
+ * they are not waited for further, and every app is still stopped and killed
+ * through its slice, with every container outside the slices (appKill). An app
+ * is reported with runnable null only when systemd does not say which containers
+ * are outside the slices.
+ * @param {Function} installedAppsFn
+ * @param {Function} removeAppLocallyFn
+ */
+async function unloadForHostStall(installedAppsFn, removeAppLocallyFn) {
+  if (unloadingForHostStall) return;
+  unloadingForHostStall = true;
+  try {
+    // Read at once: a stall that holds one of them is likely to hold the other.
+    const [listed, read] = await Promise.all([
+      withinDeadline(installedAppsFn(), REMOVAL_DEADLINE_MS).catch(() => null),
+      withinDeadline(appKill.readContainers(), STOP_WINDOW_MS),
+    ]);
+    const installed = listed?.status === 'success' ? listed.data.map((app) => app.name) : [];
+    const containers = Array.isArray(read) ? read : null;
+    if (!containers) log.error(`monitorNodeStatus - host stall: docker's container records could not be read (${read === TIMED_OUT ? 'no answer' : 'refused'}); every container outside the app slices is killed`);
+    const names = [...new Set([...installed, ...await appKill.appsOnDisk(containers)])];
+    log.warn(`monitorNodeStatus - host stall: stopping ${names.length} applications within one ${STOP_WINDOW_MS / 1000}s window`);
+    await withinDeadline(Promise.allSettled(names.map((name) => stopApp(name, containers))), STOP_WINDOW_MS);
+
+    // With no records, a container outside the slices cannot be named, whatever apps
+    // were found: every one is killed and checked, once.
+    let outsideSlices;
+    if (!containers) {
+      const killedIn = await appKill.killOutsideSlices();
+      const runnable = await appKill.stillRunnableOutsideSlices();
+      outsideSlices = { containers: killedIn?.length ?? null, runnable };
+      if (runnable === null) log.error('monitorNodeStatus - host stall: which containers are outside the app slices cannot be known');
+      else if (runnable.length) log.error(`monitorNodeStatus - host stall: processes ${runnable.join(', ')} of containers outside the app slices can still run`);
+      else log.warn(`monitorNodeStatus - host stall: nothing of the ${killedIn.length} containers outside the app slices can run`);
+    }
+
+    const stopped = new Map();
+    // eslint-disable-next-line no-restricted-syntax
+    for (const name of names) {
+      // eslint-disable-next-line no-await-in-loop
+      let runnable = await appKill.stillRunnable(name, containers);
+      const killed = Boolean(runnable?.length);
+      if (killed) {
+        log.error(`monitorNodeStatus - Application ${name} still runs after being asked to stop, killing it`);
+        // eslint-disable-next-line no-await-in-loop
+        await appKill.kill(name, containers);
+        // eslint-disable-next-line no-await-in-loop
+        runnable = await appKill.stillRunnable(name, containers);
+        if (runnable?.length) {
+          log.error(`monitorNodeStatus - Application ${name} could not be stopped: processes ${runnable.join(', ')} can still run`);
+        } else if (runnable) {
+          log.warn(`monitorNodeStatus - Application ${name} can no longer run`);
+        }
+      }
+      if (runnable === null) log.error(`monitorNodeStatus - Application ${name}: whether it can still run cannot be known`);
+      stopped.set(name, { killed, runnable });
+    }
+    // runnable: the processes of each app that can still run its code, empty when
+    // none can, null when that cannot be known; outsideSlices, when the records could
+    // not be read: how many containers outside the slices were killed, and which of
+    // their processes can still run
+    fluxEventBus.publish('hostStall:appsStopped', {
+      apps: names.map((name) => ({ app: name, ...stopped.get(name) })),
+      ...(outsideSlices ? { outsideSlices } : {}),
+    });
+
+    const canBroadcast = nodeConfirmationService.canSendMessages();
+    // eslint-disable-next-line no-restricted-syntax
+    for (const name of names) {
+      log.warn(`monitorNodeStatus - Application ${name} going to be removed: host stall`);
+      // eslint-disable-next-line no-await-in-loop
+      const outcome = await removeWithinDeadline(removeAppLocallyFn, name, canBroadcast)
+        .catch(() => RemovalOutcome.FAILED);
+      const { killed, runnable } = stopped.get(name);
+      if (runnable?.length === 0 && outcome !== RemovalOutcome.REMOVED && outcome !== RemovalOutcome.NOT_INSTALLED) {
+        log.warn(`monitorNodeStatus - Application ${name} was not removed (${outcome}), and can no longer run`);
+      }
+      fluxEventBus.publish('hostStall:appUnloaded', {
+        app: name, removal: outcome, killed, runnable,
+      });
+    }
+  } finally {
+    unloadingForHostStall = false;
+  }
+}
+
+/** The removal a host stall starts. Nothing awaits it, so its failure is logged here. */
+async function unloadOnHostStall() {
+  try {
+    await unloadForHostStall(deps.installedAppsFn, deps.removeAppLocallyFn);
+  } catch (error) {
+    log.error(`monitorNodeStatus - app removal (host stall) failed: ${error.message}`);
+  }
+}
+
 function initialize(installedAppsFn, removeAppLocallyFn) {
+  deps = { installedAppsFn, removeAppLocallyFn };
+  hostStallService.onTrip(unloadOnHostStall);
   nodeConfirmationService.onConfirmationChange((confirmed) => {
     if (!confirmed) {
       log.info('monitorNodeStatus - Confirmation lost, triggering immediate app removal');
@@ -173,7 +339,22 @@ async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
   }
 }
 
+/**
+ * Start the monitor once boot has settled, whatever boot decided: boot removes
+ * every app itself when the node may run none, and the two never remove at once.
+ * @param {Function} installedAppsFn
+ * @param {Function} removeAppLocallyFn
+ */
+async function start(installedAppsFn, removeAppLocallyFn) {
+  await globalState.waitForBootContainerStateSettled();
+  monitorNodeStatus(installedAppsFn, removeAppLocallyFn);
+}
+
 module.exports = {
   initialize,
+  start,
   monitorNodeStatus,
+  removeWithinDeadline,
+  unloadForHostStall,
+  STILL_REMOVING,
 };

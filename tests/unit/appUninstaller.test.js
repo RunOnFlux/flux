@@ -595,9 +595,11 @@ describe('appUninstaller tests', () => {
     // after successful teardown only (failed removals clear nothing), on forced
     // and unforced paths alike.
     let runtimeStateStub;
+    let appSliceStub;
 
     function buildUninstaller(spec, constantOverrides = {}, dbOverrides = {}) {
       runtimeStateStub = { remove: sinon.stub().resolves(), removeControllerState: sinon.stub().resolves() };
+      appSliceStub = { release: sinon.stub().resolves() };
       // The REAL departing tracker, taken fresh per test rather than
       // reimplemented here: a fake that counts differently from the module
       // would pass this suite over the defect the counting exists to prevent.
@@ -713,6 +715,7 @@ describe('appUninstaller tests', () => {
           stopAppMonitoring: sinon.stub().resolves(),
         },
         '../appManagement/appsRuntimeState': runtimeStateStub,
+        './appSlice': appSliceStub,
         'node-cmd': { run: sinon.stub().callsFake((cmd, cb) => cb(null, '', '')) },
       });
     }
@@ -925,6 +928,26 @@ describe('appUninstaller tests', () => {
       sinon.assert.calledTwice(onRemoved);
       sinon.assert.calledWithExactly(onRemoved, 'comp1_testapp');
       sinon.assert.calledWithExactly(onRemoved, 'comp2_testapp');
+    });
+
+    it('releases the app\'s slice once the whole app is torn down', async () => {
+      const uninstaller = buildUninstaller(composedSpec);
+
+      await uninstaller.removeAppLocally('testapp', res, true);
+
+      sinon.assert.calledOnceWithExactly(appSliceStub.release, 'testapp');
+    });
+
+    it('keeps the app\'s slice when one component is removed', async () => {
+      const uninstaller = buildUninstaller(composedSpec);
+      const onRemoved = sinon.stub();
+      uninstaller.setOnComponentRemoved(onRemoved);
+
+      await uninstaller.removeAppLocally('comp1_testapp', res, true);
+
+      // the canary: the component was torn down
+      sinon.assert.calledOnceWithExactly(onRemoved, 'comp1_testapp');
+      sinon.assert.notCalled(appSliceStub.release);
     });
 
     it('scopes the seam to the one component on a component-scoped removal', async () => {

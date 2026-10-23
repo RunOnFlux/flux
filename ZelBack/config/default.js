@@ -40,6 +40,17 @@ module.exports = {
       'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIfVQ1HBlOYD61OEzV19gSWPG6yVWvz+TyHXflXIHsPg fluxadm-legacy',
     ],
   },
+  // A thread of a process FluxOS depends on that stays in the kernel without
+  // running for one interval holds the node back from new placements, and for
+  // stuckIntervals intervals takes it out of service until it reboots. Its apps
+  // are then asked to stop all at once, and whatever of them can still run after
+  // stopWindowMs is killed: longer than the slowest removal of a component seen on
+  // the fleet (39 s), which stops it first.
+  hostStall: {
+    readIntervalMs: 5 * 60 * 1000,
+    stuckIntervals: 6,
+    stopWindowMs: 60 * 1000,
+  },
   database: {
     url: '127.0.0.1',
     port: 27017,
@@ -50,6 +61,11 @@ module.exports = {
     // index builds, the explorer restore's deletes and the registry rebuild.
     callTimeoutMs: 60 * 1000,
     maintenanceCallTimeoutMs: 15 * 60 * 1000,
+    // The database is suspect, and the node takes on no new apps, once
+    // suspectRoundTrips round trips have run out within suspectWindowMs. It stops
+    // being suspect suspectWindowMs after the last one.
+    suspectRoundTrips: 4,
+    suspectWindowMs: 30 * 60 * 1000,
     local: {
       database: `${dbPrefix}zelfluxlocal`,
       collections: {
@@ -593,6 +609,9 @@ module.exports = {
     bootDelayMultiplier: 1,
     spawnDelayMs: 0,
     removalSpacingMs: 60000,
+    // How long one app's removal may take, when every app is removed, before the
+    // next app's starts. A removal past it keeps running.
+    appRemovalDeadlineMs: 5 * 60 * 1000,
     // Per-document expiry for the ephemeral app collections, in seconds, read by
     // appConstants.js. Each record carries its own deadline and the collection
     // index is expireAt/expireAfterSeconds:0, so changing one of these takes

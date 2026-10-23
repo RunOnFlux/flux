@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { execInContainer, getAppContainerStatus } from '../framework/container.js';
+import { execInContainer, getAppContainerStatus, fluxosPid } from '../framework/container.js';
 import {
   setSyncState, setSynced, setSyncing, getSyncthingState, resetSyncState,
   injectSyncthingEvent,
@@ -48,10 +48,10 @@ async function folderType(nodeIp, folderId) {
   return node?.folders?.find((f) => f.id === folderId)?.type ?? null;
 }
 
-// The account the node's own FluxOS process holds, read off the process the
-// entrypoint supervises rather than off the container, which stays root.
+// The account the node's own FluxOS process holds, read off the process rather
+// than off the container, which stays root.
 async function fluxosAccount(client) {
-  const r = await execInContainer(client.container, 'sh -c \'ps -o user= -p "$(cat /tmp/fluxos.pid)"\'');
+  const r = await execInContainer(client.container, `ps -o user= -p ${await fluxosPid(client.container)}`);
   return r.output.trim();
 }
 

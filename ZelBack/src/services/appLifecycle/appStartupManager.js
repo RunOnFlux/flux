@@ -16,6 +16,9 @@ const registryManager = require('../appDatabase/registryManager');
 const appReconciler = require('../appMonitoring/appReconciler');
 const appUninstaller = require('./appUninstaller');
 const appNetworkLinker = require('./appNetworkLinker');
+const appSlice = require('./appSlice');
+const nodeStatusMonitor = require('../appMonitoring/nodeStatusMonitor');
+const { TIMED_OUT } = require('../utils/withinDeadline');
 const portManager = require('../appNetwork/portManager');
 const globalState = require('../utils/globalState');
 const fluxEventBus = require('../utils/fluxEventBus');
@@ -383,14 +386,19 @@ async function removeAllApps(reason) {
   if (installedAppsRes.status === 'success') {
     for (const app of installedAppsRes.data) {
       log.warn(`REMOVAL REASON: ${reason} - removing ${app.name}`);
+      // One removal that never returns must not hold boot, or every app after it.
       // eslint-disable-next-line no-await-in-loop
-      await appUninstaller.removeAppLocally(app.name, null, true, false, true);
+      const outcome = await nodeStatusMonitor.removeWithinDeadline(appUninstaller.removeAppLocally, app.name, true);
+      if (outcome === TIMED_OUT) log.error(`appStartupManager - ${app.name} was not removed within ${config.fluxapps.appRemovalDeadlineMs / 1000}s, moving on`);
+      else if (outcome === nodeStatusMonitor.STILL_REMOVING) log.warn(`appStartupManager - ${app.name} is still being removed, moving on`);
     }
   }
 }
 
 async function manageAppsOnBoot(bootContext) {
   try {
+    // ahead of every container start, so no slice in use can be empty here
+    await appSlice.stopEmptySlices();
     if (bootContext.firstBoot) {
       log.info('appStartupManager - First boot (no heartbeat history), waiting for sync');
     } else if (bootContext.unreadable) {
@@ -423,6 +431,11 @@ async function manageAppsOnBoot(bootContext) {
     if (!nodeConfirmationService.isConfirmed()) {
       log.info('appStartupManager - Node not confirmed, removing all apps');
       await removeAllApps('Node not confirmed');
+      return;
+    }
+
+    if (fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL)) {
+      log.error('appStartupManager - Node is out of service for a host stall; its own removal unloads the apps');
       return;
     }
 

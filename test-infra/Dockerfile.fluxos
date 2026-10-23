@@ -48,6 +48,7 @@ RUN set -eu; \
     conntrack \
     tcpdump \
     e2fsprogs \
+    dmsetup \
     systemd \
     dbus \
     openssh-client \
@@ -177,8 +178,12 @@ RUN set -eu; \
 
 WORKDIR /flux
 
-COPY package.json ./
-RUN npm install --production \
+# node_modules belongs to the account that owns the install, as it does on an
+# operator's node: pm2 starts FluxOS through npm start, which runs npm install as
+# that account. Installed as it, so no chown copies the tree into a layer of its own.
+RUN chown fluxuser:fluxuser /flux
+COPY --chown=fluxuser:fluxuser package.json ./
+RUN runuser -u fluxuser -- npm install --production \
     && cp package-lock.json /tmp/image-package-lock.json
 
 # pm2, for a legacy node started the way the multitool starts one, at the
@@ -203,9 +208,9 @@ RUN PM2_VERSION="$(tr -d '[:space:]' < /tmp/pm2-version)" \
 # key it generates at first boot. Carried by the copy rather than a chown of its
 # own: on an overlay filesystem a recursive chown copies every file it touches up
 # into the container's writable layer, which on this tree is minutes of boot and
-# reads as a node that never came up. node_modules keeps root's ownership - it is
-# .dockerignore'd here and installed above, and FluxOS only reads it. Root ignores
-# all of it, so the image is unchanged for a node that stays root.
+# reads as a node that never came up. node_modules is .dockerignore'd here and
+# installed above. Root ignores all of it, so the image is unchanged for a node that
+# stays root.
 COPY --chown=fluxuser:fluxuser . .
 
 COPY --chown=fluxuser:fluxuser test-infra/fixtures/userconfig-template.js /flux/config/userconfig.js
@@ -214,7 +219,7 @@ COPY --chown=fluxuser:fluxuser test-infra/fixtures/userconfig-template.js /flux/
 # may carry another (development does not track one), and a node started by pm2
 # runs npm install at every start with no registry to reach: it succeeds only
 # when the lockfile and node_modules agree.
-RUN cp /tmp/image-package-lock.json /flux/package-lock.json
+RUN cp /tmp/image-package-lock.json /flux/package-lock.json && chown fluxuser:fluxuser /flux/package-lock.json
 
 RUN touch /flux/debug.log /flux/error.log /flux/info.log /flux/warn.log \
     && chown fluxuser:fluxuser /flux /flux/debug.log /flux/error.log /flux/info.log /flux/warn.log \

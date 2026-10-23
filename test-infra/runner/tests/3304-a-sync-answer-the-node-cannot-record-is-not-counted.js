@@ -78,6 +78,12 @@ FAILURES.forEach(({ what, arm }) => describe(`a sync answer the node cannot reco
       timeout: 180000, interval: 2000, label: 'the peers hold more running-app events than one message carries',
     });
     eventsHeld = (await dbClient(1).appStateEvents({ type: 'apprunning' })).length;
+    // Every peer answers before the node joins: a peer still syncing refuses it,
+    // and asking a third peer then says nothing about the one replaced.
+    await Promise.all(env.clients.slice(0, JOINING).map((client, i) => waitFor(
+      () => client.getEventBuffer().some((e) => e.event === 'orchestrator:stateChanged' && e.data?.to === 'READY'),
+      { timeout: 300000, interval: 1000, label: `node ${i} answers a state sync` },
+    )));
 
     step(`arming ${what}`);
     release = await arm(JOINING + 1);

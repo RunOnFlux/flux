@@ -99,6 +99,8 @@ const StickyDosOwner = Object.freeze({
   NODEJS_FLOOR: 'nodejsFloor',
   DOCKER_FLOOR: 'dockerFloor',
   MONGODB_FLOOR: 'mongodbFloor',
+  CGROUP_FLOOR: 'cgroupFloor',
+  HOST_STALL: 'hostStall',
 });
 
 // Declares the node unfit for the apps it already runs, and is not moved by the
@@ -123,6 +125,8 @@ const STICKY_DOS_STATE = 100;
 // a new one.
 const PlacementHoldOwner = Object.freeze({
   RESIDENTIAL_DOS: 'residentialDos',
+  DATABASE_SUSPECT: 'databaseSuspect',
+  HOST_STALL: 'hostStall',
 });
 
 // Stops the node taking on NEW apps without declaring it unfit for the ones it
@@ -1186,6 +1190,7 @@ function setPlacementHold(owner, reason) {
   if (placementHolds.get(owner) === reason) return;
   placementHolds.set(owner, reason);
   log.info(`Placement hold set by ${owner}: ${reason}`);
+  fluxEventBus.publish('placementHold:set', { owner, reason });
 }
 
 /**
@@ -1199,6 +1204,7 @@ function clearPlacementHold(owner) {
   if (reason === undefined) return;
   placementHolds.delete(owner);
   log.info(`Placement hold cleared by ${owner} (was: ${reason})`);
+  fluxEventBus.publish('placementHold:cleared', { owner, reason });
 }
 
 /**
@@ -1452,6 +1458,43 @@ function checkDockerVersionAllowed(dockerVersion) {
   setStickyDos(
     StickyDosOwner.DOCKER_FLOOR,
     `Docker Version Error. Current lower version allowed is v${minimumVersion} found v${dockerVersion}. Upgrade Docker and restart FluxOS`,
+  );
+  return false;
+}
+
+/**
+ * Whether this node's cgroups are the ones FluxOS runs apps in: cgroup v2,
+ * a kernel that can kill a whole cgroup (cgroup.kill, Linux 5.14), and Docker
+ * placing containers through systemd. App slices, CPU burst and the kill a
+ * host stall makes all rely on the three.
+ *
+ * Asked once, when Docker first answers at startup. The kernel's answers are
+ * read from the cgroup filesystem: cgroup.kill is asked of FluxOS's own cgroup,
+ * which /proc/self/cgroup names and which is never the root, the one cgroup
+ * without the file. A driver that could not be read gives no verdict on the
+ * driver.
+ * @param {?string} cgroupDriver The cgroup driver Docker reports, or null when
+ *   it could not be read.
+ * @param {{cgroupRoot?: string, selfCgroupFile?: string}} [paths] Where the
+ *   cgroup filesystem is mounted, and the file naming this process's cgroup.
+ * @returns {Promise<boolean>} True unless a requirement is known to be unmet.
+ */
+async function checkCgroupsAllowed(cgroupDriver, { cgroupRoot = '/sys/fs/cgroup', selfCgroupFile = '/proc/self/cgroup' } = {}) {
+  const exists = (file) => fs.access(path.join(cgroupRoot, file)).then(() => true, () => false);
+  // cgroup v2 lists one line, 0::<path>
+  const ownCgroup = (await fs.readFile(selfCgroupFile, 'utf8').catch(() => '')).match(/^0::(\/.*)$/m)?.[1];
+  const unmet = [];
+  if (!await exists('cgroup.controllers')) unmet.push('cgroup v2');
+  else if (!ownCgroup || !await exists(path.join(ownCgroup, 'cgroup.kill'))) unmet.push('cgroup.kill (Linux 5.14 or later)');
+  if (cgroupDriver === null) {
+    log.error('checkCgroupsAllowed - Docker did not report its cgroup driver, no verdict on it');
+  } else if (cgroupDriver !== 'systemd') {
+    unmet.push(`Docker's systemd cgroup driver (found ${cgroupDriver})`);
+  }
+  if (!unmet.length) return true;
+  setStickyDos(
+    StickyDosOwner.CGROUP_FLOOR,
+    `Cgroup Error. FluxOS requires cgroup v2, cgroup.kill and Docker's systemd cgroup driver; missing: ${unmet.join(', ')}. Fix the host and restart FluxOS`,
   );
   return false;
 }
@@ -3720,6 +3763,7 @@ module.exports = {
   checkFluxbenchVersionAllowed,
   checkNodeJsVersionAllowed,
   checkDockerVersionAllowed,
+  checkCgroupsAllowed,
   checkMongoDbVersionAllowed,
   checkMyFluxAvailability,
   adjustExternalIp,

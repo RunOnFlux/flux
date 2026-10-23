@@ -11,6 +11,9 @@ const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const networkStateService = require('./networkStateService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
+const databaseHealthService = require('./databaseHealthService');
+const hostStallService = require('./hostStallService');
+const appKill = require('./appLifecycle/appKill');
 // App modular services - replacing appsService
 const appInstaller = require('./appLifecycle/appInstaller');
 const appUninstaller = require('./appLifecycle/appUninstaller');
@@ -263,16 +266,26 @@ async function startFluxFunctions() {
     // below-floor node stays up holding a sticky DOS, so /flux/info names the
     // version found and the version required.
     fluxNetworkHelper.checkNodeJsVersionAllowed();
+    // Before the dependencies are waited for: a stalled one is what this sees.
+    // Awaited so a trip recorded in this boot holds the node before boot acts.
+    await hostStallService.start();
     // Hard dependencies — nothing starts until these are confirmed.
     await dbHelper.waitForMongo();
+    databaseHealthService.watch(dbHelper.databaseConnection(), 'main');
+    databaseHealthService.watch(dbHelper.maintenanceConnection(), 'maintenance');
     // As soon as MongoDB answers: a below-floor node stays up holding a sticky
     // DOS, so /flux/info names the version found and the version required.
     fluxNetworkHelper.checkMongoDbVersionAllowed(await dbHelper.getMongoDbVersion());
     await dockerService.waitForDocker();
+    const dockerInfo = await dockerService.dockerInfo().catch(() => null);
+    // Where docker keeps its records, read while it answers, for a kill made
+    // while it does not.
+    if (dockerInfo?.DockerRootDir) appKill.usePaths({ dockerRoot: dockerInfo.DockerRootDir });
     // As soon as Docker answers, before the container firewall is applied: a
     // below-floor node stays up holding a sticky DOS, so /flux/info names the
     // version found and the version required.
     fluxNetworkHelper.checkDockerVersionAllowed(await dockerService.dockerVersion().then((version) => version.Version, () => null));
+    await fluxNetworkHelper.checkCgroupsAllowed(dockerInfo?.CgroupDriver ?? null);
     // Before any work that a restart would cut short: a registration that
     // needs its kill timeout raised restarts FluxOS, and this waits for it.
     await fluxService.ensurePm2KillTimeout();
@@ -735,9 +748,7 @@ async function startFluxFunctions() {
       );
     }, bootDelay(3 * 60 * 1000));
     nodeStatusMonitor.initialize(appQueryService.installedApps, appUninstaller.removeAppLocally);
-    setTimeout(() => {
-      nodeStatusMonitor.monitorNodeStatus(appQueryService.installedApps, appUninstaller.removeAppLocally);
-    }, bootDelay(1.5 * 60 * 1000));
+    nodeStatusMonitor.start(appQueryService.installedApps, appUninstaller.removeAppLocally);
     // Start the syncthing/masterSlave deciders once boot container state has settled
     // (the same AsyncGate the reconciler starts on), not after a fixed delay. Each
     // decider self-gates per cycle on its own prerequisites (mounts, syncthing health,

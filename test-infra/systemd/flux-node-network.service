@@ -1,0 +1,20 @@
+[Unit]
+Description=Node network shape and global IPv6 (harness node)
+# Built once dockerd answers and before FluxOS starts: a node reads its network at
+# boot, and dockerd refuses to start under the routes a shape adds. Wanted, not
+# required: a dockerd restart leaves this unit and FluxOS running, as on a node.
+After=dockerd.service
+Wants=dockerd.service
+Before=fluxos.service pm2-fluxuser.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=/etc/fluxos-harness.env
+ExecStartPre=/bin/bash -c 'for i in $$(seq 1 30); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; echo "dockerd not ready" >&2; exit 1'
+ExecStart=/flux/test-infra/node-network.sh
+StandardOutput=append:/var/lib/flux-harness/stream
+StandardError=inherit
+
+[Install]
+WantedBy=multi-user.target

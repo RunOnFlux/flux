@@ -318,12 +318,9 @@ function extractSample(stats) {
     // space. `docker stats` subtracts it, so every consumer that reports a
     // container's memory subtracts it too, and without this figure none of them
     // can: they subtract zero and report a number that climbs with disk reads.
-    // cgroup v2 names it inactive_file and v1 names it cache; they are not the
-    // same counter (v1's is the whole page cache, v2's the reclaimable part) but
-    // docker's own CLI reads them from the same slot, so this does too. Null
-    // where neither is present, which leaves the consumer exactly where it was.
-    memoryCache: stats.memory_stats?.stats?.inactive_file
-      ?? stats.memory_stats?.stats?.cache ?? null,
+    // cgroup v2 names it inactive_file. Null where it is absent, which leaves
+    // the consumer exactly where it was.
+    memoryCache: stats.memory_stats?.stats?.inactive_file ?? null,
     ioRead: sumBlkio('read'),
     ioWrite: sumBlkio('write'),
     // EVERY interface, not just eth0. appNetworkLinker connects a container to
@@ -362,9 +359,6 @@ function expandSample(sample) {
       cpu_usage: { total_usage: sample.cpuTotalBefore },
       system_cpu_usage: sample.cpuSystemBefore,
     },
-    // Reported under the cgroup v2 name whichever key it was read from: a
-    // consumer's `inactive_file ?? cache` chain then settles on the first, and
-    // the value is the same either way.
     memory_stats: {
       usage: sample.memoryUsage,
       limit: sample.memoryLimit,

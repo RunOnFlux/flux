@@ -1,10 +1,7 @@
-// Node control for systemd-mode nodes (createTestEnv({ systemdMode: true })).
-//
-// The default entrypoint's levers in container.js (restartFluxos,
-// restartDockerd) drive a shell watchdog that does not exist here: under systemd
-// FluxOS and dockerd are real units, so the equivalents are systemctl calls —
-// which is also how a production host does it, making these the more faithful
-// instruments of the two.
+// Node control through systemd, which every node runs as PID 1: FluxOS and dockerd
+// are units, controlled with systemctl as on a production host. container.js holds
+// the faults (a FluxOS killed outright, a dockerd killed); these are the orderly
+// stops and starts.
 //
 // The unit names mirror production: `fluxos` is the name an Arcane node's unit
 // carries.
@@ -12,7 +9,7 @@ import { execInContainer } from './container.js';
 import { waitFor } from './wait.js';
 
 const FLUXOS_UNIT = 'fluxos';
-const DOCKERD_UNIT = 'dockerd';
+export const DOCKERD_UNIT = 'dockerd';
 
 // Single-quote for `sh -c`: end the quote, escape the quote, reopen.
 const shQuote = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
@@ -83,8 +80,9 @@ export async function startFluxos(container, { apiPort = 16127, readyTimeoutMs =
 }
 
 /**
- * The systemd-mode restartFluxos: FluxOS's in-memory state is wiped while
- * dockerd and the app containers keep running. Observably down, then up.
+ * `systemctl restart fluxos`, as an operator runs it: FluxOS stops in order and
+ * starts again, its in-memory state wiped while dockerd and the app containers keep
+ * running. Observably down, then up.
  */
 export async function restartFluxos(container, opts = {}) {
   await stopFluxos(container, opts);
@@ -103,6 +101,36 @@ export async function resumeDockerd(container, opts = {}) {
   await startUnit(container, DOCKERD_UNIT, opts);
   await poll(async () => (await execInContainer(container, 'docker info > /dev/null 2>&1')).exitCode === 0,
     { timeout: opts.timeout ?? 60000, interval: 500, label: 'dockerd reachable' });
+}
+
+/** The unit's cgroup directory, as the node's systemd reports it. Throws when it has none. */
+export async function unitCgroup(container, unit) {
+  const r = await execInContainer(container, `systemctl show -p ControlGroup --value ${unit}`);
+  const group = r.stdout.trim();
+  if (r.exitCode !== 0 || !group) throw new Error(`unit ${unit} has no cgroup: is it running?`);
+  return `/sys/fs/cgroup${group}`;
+}
+
+/**
+ * Stop every process of a unit where it stands, alive, until thawUnit: a service
+ * that cannot act at all, as a wedged or memory-starved one cannot. Writes the
+ * cgroup's freeze switch directly, because `systemctl freeze` waits for the freeze
+ * to complete, and a thread held in the kernel (on a frozen filesystem) completes
+ * it only once it is released. Such a thread stays held, unchanged, and every
+ * other thread of the unit stops at once. The env's teardown thaws it
+ * (host-stall.thawEveryNode).
+ */
+export async function freezeUnit(container, unit) {
+  const freeze = `${await unitCgroup(container, unit)}/cgroup.freeze`;
+  const r = await execInContainer(container, `echo 1 > ${freeze} && cat ${freeze}`);
+  if (r.exitCode !== 0 || r.stdout.trim() !== '1') throw new Error(`freezeUnit ${unit}: ${(r.stderr || r.stdout).trim()}`);
+}
+
+/** Let a unit frozen by freezeUnit run again. */
+export async function thawUnit(container, unit) {
+  const freeze = `${await unitCgroup(container, unit)}/cgroup.freeze`;
+  const r = await execInContainer(container, `echo 0 > ${freeze} && cat ${freeze}`);
+  if (r.exitCode !== 0 || r.stdout.trim() !== '0') throw new Error(`thawUnit ${unit}: ${(r.stderr || r.stdout).trim()}`);
 }
 
 /**

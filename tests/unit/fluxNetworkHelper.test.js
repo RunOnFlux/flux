@@ -1125,6 +1125,72 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
+  describe('checkCgroupsAllowed tests', () => {
+    const { CGROUP_FLOOR } = fluxNetworkHelper.StickyDosOwner;
+    let root;
+
+    // A cgroup filesystem holding the given files, with FluxOS in
+    // system.slice/fluxos.service.
+    async function cgroupRoot(files) {
+      root = await fs.mkdtemp(path.join(os.tmpdir(), 'cgroup-'));
+      const cgroupFs = path.join(root, 'cgroup');
+      await Promise.all(files.map(async (file) => {
+        await fs.mkdir(path.dirname(path.join(cgroupFs, file)), { recursive: true });
+        await fs.writeFile(path.join(cgroupFs, file), '');
+      }));
+      const selfCgroupFile = path.join(root, 'self-cgroup');
+      await fs.writeFile(selfCgroupFile, '0::/system.slice/fluxos.service\n');
+      return { cgroupRoot: cgroupFs, selfCgroupFile };
+    }
+    const everything = ['cgroup.controllers', 'system.slice/fluxos.service/cgroup.kill'];
+
+    afterEach(async () => {
+      fluxNetworkHelper.clearStickyDos(CGROUP_FLOOR);
+      fluxNetworkHelper.setDosStateValue(0);
+      fluxNetworkHelper.setDosMessage(null);
+      await fs.rm(root, { recursive: true, force: true });
+    });
+
+    it('allows cgroup v2 with cgroup.kill under Docker\'s systemd driver', async () => {
+      expect(await fluxNetworkHelper.checkCgroupsAllowed('systemd', await cgroupRoot(everything))).to.equal(true);
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+    });
+
+    it('takes a node without cgroup v2 out of service, and says so', async () => {
+      expect(await fluxNetworkHelper.checkCgroupsAllowed('systemd', await cgroupRoot([]))).to.equal(false);
+      const reported = fluxNetworkHelper.getDOSState().data;
+      expect(reported.dosMessage).to.include('missing: cgroup v2');
+      expect(reported.dosMessage).to.include('restart FluxOS');
+      expect(reported.dosState).to.equal(100);
+    });
+
+    it('asks cgroup.kill of FluxOS\'s own cgroup, not of another', async () => {
+      const paths = await cgroupRoot(['cgroup.controllers', 'init.scope/cgroup.kill']);
+      expect(await fluxNetworkHelper.checkCgroupsAllowed('systemd', paths)).to.equal(false);
+      expect(fluxNetworkHelper.getDOSState().data.dosMessage).to.include('missing: cgroup.kill (Linux 5.14 or later)');
+    });
+
+    it('takes a node whose kernel cannot kill a cgroup out of service', async () => {
+      expect(await fluxNetworkHelper.checkCgroupsAllowed('systemd', await cgroupRoot(['cgroup.controllers']))).to.equal(false);
+      expect(fluxNetworkHelper.getDOSState().data.dosMessage).to.include('missing: cgroup.kill (Linux 5.14 or later)');
+    });
+
+    it('takes a node whose Docker uses another cgroup driver out of service, and names it', async () => {
+      expect(await fluxNetworkHelper.checkCgroupsAllowed('cgroupfs', await cgroupRoot(everything))).to.equal(false);
+      expect(fluxNetworkHelper.getDOSState().data.dosMessage).to.include('missing: Docker\'s systemd cgroup driver (found cgroupfs)');
+    });
+
+    it('gives no verdict on a driver Docker did not report', async () => {
+      expect(await fluxNetworkHelper.checkCgroupsAllowed(null, await cgroupRoot(everything))).to.equal(true);
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+    });
+
+    it('still refuses the kernel when Docker did not report its driver', async () => {
+      expect(await fluxNetworkHelper.checkCgroupsAllowed(null, await cgroupRoot([]))).to.equal(false);
+      expect(fluxNetworkHelper.getDOSState().data.dosMessage).to.include('missing: cgroup v2');
+    });
+  });
+
   describe('checkDockerVersionAllowed tests', () => {
     // minimumDockerAllowedVersion = '28.1.1'
     const { DOCKER_FLOOR, RESIDENTIAL_DOS } = fluxNetworkHelper.StickyDosOwner;
@@ -4002,6 +4068,29 @@ describe('fluxNetworkHelper tests', () => {
       fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
 
       expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
+    });
+
+    it('publishes a hold when it is set, and again when its reason changes', () => {
+      const publish = sinon.stub(fluxEventBus, 'publish');
+
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'first');
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'first');
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'second');
+
+      expect(publish.args.filter(([name]) => name === 'placementHold:set')).to.deep.equal([
+        ['placementHold:set', { owner: RESIDENTIAL_DOS, reason: 'first' }],
+        ['placementHold:set', { owner: RESIDENTIAL_DOS, reason: 'second' }],
+      ]);
+    });
+
+    it('publishes a release only of a hold that stood', () => {
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'held');
+      const publish = sinon.stub(fluxEventBus, 'publish');
+
+      fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
+      fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
+
+      sinon.assert.calledOnceWithExactly(publish, 'placementHold:cleared', { owner: RESIDENTIAL_DOS, reason: 'held' });
     });
 
     it('refuses an owner it does not know, rather than minting one', () => {

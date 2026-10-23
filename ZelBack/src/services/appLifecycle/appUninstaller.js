@@ -23,6 +23,7 @@ const { stopAppMonitoring } = require('../appManagement/appInspector');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const volumeService = require('../utils/volumeService');
 const fluxEventBus = require('../utils/fluxEventBus');
+const appSlice = require('./appSlice');
 const { Privilege, authOf } = require('../utils/privileges');
 const { RemovalOutcome } = require('../utils/removalOutcome');
 const { untilSucceeds, BOOT_STEP_RETRY_MS } = require('../utils/untilSucceeds');
@@ -1044,6 +1045,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     } else {
       await hardUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring, force);
     }
+    if (!isComponent) await appSlice.release(appName);
 
     // clear node-local runtime state (operator stop lock, crash backoff) for the
     // removed component(s) so a later reinstall starts from a clean slate

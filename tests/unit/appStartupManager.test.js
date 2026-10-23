@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
+const config = require('config');
 const { resetGlobalState } = require('./fixtures/globalState');
 const proxyquire = require('proxyquire').noCallThru();
 
@@ -17,8 +18,11 @@ describe('appStartupManager tests', () => {
   let globalStateStub;
   let appQueryServiceStub;
   let portManagerStub;
+  let appSliceStub;
+  let nodeStatusMonitor;
 
   beforeEach(() => {
+    appSliceStub = { stopEmptySlices: sinon.stub().resolves(0) };
     logStub = {
       info: sinon.stub(),
       warn: sinon.stub(),
@@ -37,6 +41,8 @@ describe('appStartupManager tests', () => {
     fluxNetworkHelperStub = {
       getLocalSocketAddress: sinon.stub(),
       isNodeDos: sinon.stub().returns(false),
+      isStickyDosHeldBy: sinon.stub().returns(false),
+      StickyDosOwner: { HOST_STALL: 'hostStall' },
       allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
     };
 
@@ -86,6 +92,10 @@ describe('appStartupManager tests', () => {
       '../../lib/log': logStub,
     });
 
+    // The real module, fresh per test: its record of removals still running is what
+    // boot shares with the monitor.
+    nodeStatusMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/nodeStatusMonitor', {});
+
     appStartupManager = proxyquire('../../ZelBack/src/services/appLifecycle/appStartupManager', {
       '../../lib/log': logStub,
       '../dbHelper': dbHelperStub,
@@ -97,6 +107,8 @@ describe('appStartupManager tests', () => {
       './advancedWorkflows': advancedWorkflowsStub,
       '../appMonitoring/appReconciler': appReconcilerStub,
       './appUninstaller': appUninstallerStub,
+      './appSlice': appSliceStub,
+      '../appMonitoring/nodeStatusMonitor': nodeStatusMonitor,
       '../utils/globalState': globalStateStub,
       // runs the step again at once until it succeeds, as the real one does after a wait
       '../utils/untilSucceeds': {
@@ -670,6 +682,75 @@ describe('appStartupManager tests', () => {
   });
 
   describe('manageAppsOnBoot', () => {
+    it('leaves a node out of service for a host stall to its own removal, and starts no app', async () => {
+      fluxNetworkHelperStub.isStickyDosHeldBy.returns(true);
+      fluxNetworkHelperStub.isNodeDos.returns(true);
+      appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'app1' }] });
+
+      await appStartupManager.manageAppsOnBoot({ machineRebooted: false, downtimeMs: 1000, cleanShutdown: true });
+
+      sinon.assert.calledWithExactly(fluxNetworkHelperStub.isStickyDosHeldBy, 'hostStall');
+      sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
+      sinon.assert.notCalled(globalStateStub.waitForDbReady);
+    });
+
+    it('moves past an app whose removal does not return within the deadline, and boot still settles', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'stuck' }, { name: 'next' }] });
+        appUninstallerStub.removeAppLocally.withArgs('stuck').returns(new Promise(() => {}));
+
+        const boot = appStartupManager.manageAppsOnBoot({ machineRebooted: true, downtimeMs: 8000000, cleanShutdown: false });
+        await clock.tickAsync(config.fluxapps.appRemovalDeadlineMs - 1);
+        sinon.assert.neverCalledWith(appUninstallerStub.removeAppLocally, 'next');
+        await clock.tickAsync(1);
+        await boot;
+
+        sinon.assert.calledWith(appUninstallerStub.removeAppLocally, 'next');
+        expect(globalStateStub.bootContainerStateSettled).to.equal(true);
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it('leaves a removal it stopped waiting for to run, and the monitor does not start it again', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'stuck' }] });
+        appUninstallerStub.removeAppLocally.withArgs('stuck').returns(new Promise(() => {}));
+
+        const boot = appStartupManager.manageAppsOnBoot({ machineRebooted: true, downtimeMs: 8000000, cleanShutdown: false });
+        await clock.tickAsync(config.fluxapps.appRemovalDeadlineMs);
+        await boot;
+        expect(globalStateStub.bootContainerStateSettled, 'fixture: boot moved past the removal').to.equal(true);
+
+        const outcome = await nodeStatusMonitor.removeWithinDeadline(appUninstallerStub.removeAppLocally, 'stuck', true);
+        expect(outcome).to.equal(nodeStatusMonitor.STILL_REMOVING);
+        sinon.assert.calledOnce(appUninstallerStub.removeAppLocally);
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it('stops every empty app slice before it removes any app', async () => {
+      appQueryServiceStub.installedApps.resolves({ status: 'success', data: [{ name: 'app1' }] });
+
+      await appStartupManager.manageAppsOnBoot({ machineRebooted: true, downtimeMs: 8000000, cleanShutdown: false });
+
+      sinon.assert.calledOnce(appSliceStub.stopEmptySlices);
+      sinon.assert.callOrder(appSliceStub.stopEmptySlices, appUninstallerStub.removeAppLocally);
+    });
+
+    it('stops every empty app slice before it reconciles the apps', async () => {
+      dockerServiceStub.dockerListContainers.resolves([]);
+      dbHelperStub.findInDatabase.resolves([]);
+
+      await appStartupManager.manageAppsOnBoot({ machineRebooted: false, downtimeMs: 1000, cleanShutdown: true });
+
+      sinon.assert.calledOnce(appSliceStub.stopEmptySlices);
+      sinon.assert.callOrder(appSliceStub.stopEmptySlices, globalStateStub.waitForDbReady);
+    });
+
     it('should reconcile on FluxOS-only restart (no stopped containers)', async () => {
       const bootContext = {
         machineRebooted: false, downtimeMs: 1000, cleanShutdown: true,
