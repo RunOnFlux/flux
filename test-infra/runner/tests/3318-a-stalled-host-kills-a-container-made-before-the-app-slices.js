@@ -10,15 +10,17 @@ import { pushTestApp } from '../framework/registry-helper.js';
 import {
   DOCKER_ROOT, stallDisk, resumeDisk, readsHeld, thawEveryNode, containerCgroup, processesThatCanRun,
 } from '../framework/host-stall.js';
+import { failCommands } from '../framework/mongo-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // A node upgraded from a release that gave app containers no slice of their own:
 // the app's container, made by the release, lives in its runtime's scope under
 // system.slice, and only docker's records on disk say which app it is. The node's
-// docker disk then stops answering reads, so those records cannot be read, and the
-// node goes out of service for the stall. Every container on a node is an app's,
-// so it kills every container outside the slices: the app's container among them,
-// and the app is reported as unable to run.
+// docker disk then stops answering reads, so those records cannot be read, and its
+// database refuses the read of its installed apps, as one on the same disk does, so
+// the node finds no app by name. It goes out of service for the stall, and kills
+// every container outside the slices all the same: the app's container among them,
+// and nothing of those containers is reported as able to run.
 //
 // Without FLUX_E2E_BASE_TAG the suite fails before booting, naming the build it needs.
 
@@ -53,6 +55,7 @@ describe('a stalled host kills a container made before the app slices', function
   let trippedAt;
   let stopped;
   let runnableAfterWindow;
+  let releaseDatabase = null;
 
   before(async function () {
     this.timeout(900000);
@@ -88,6 +91,7 @@ describe('a stalled host kills a container made before the app slices', function
     runningBefore = await canRun(container, scope);
 
     const anchor = client.getLastEventId();
+    releaseDatabase = await failCommands(UPGRADED + 1, 'localzelapps', 'zelappsinformation', { commands: ['find'] });
     await stallDisk(container, DOCKER_ROOT);
     readsWereHeld = await readsHeld(container, `${DOCKER_ROOT}/containers`, { file: 'config.v2.json' });
     const trip = await client.waitForEvent('dos:changed', outOfServiceForTheStall, STALL_MS + READ_INTERVAL_MS * 4, { afterId: anchor })
@@ -101,6 +105,7 @@ describe('a stalled host kills a container made before the app slices', function
 
   after(async function () {
     this.timeout(60000);
+    await releaseDatabase?.().catch(() => {});
     if (container) await resumeDisk(container, DOCKER_ROOT).catch(() => {});
     if (client) await thawEveryNode([client]);
     await env?.teardown();
@@ -116,14 +121,15 @@ describe('a stalled host kills a container made before the app slices', function
     expect(trippedAt, 'the node never went out of service for the stall, so nothing below was tested').to.not.equal(null);
   });
 
-  it('kills the app\'s container though docker\'s records cannot say it is the app\'s', function () {
+  it('kills the app\'s container though neither docker\'s records nor the database name the app', function () {
     expect(stopped, 'the node never said it had stopped its apps').to.not.equal(null);
+    expect(stopped.apps.map((a) => a.app), 'fixture: the node found the app by name, so nothing below was tested').to.not.include(appName);
     expect(runnableAfterWindow, 'the app\'s container can still run after the stop window').to.deep.equal([]);
   });
 
-  it('says the app can no longer run', function () {
-    const reported = stopped?.apps.find((a) => a.app === appName);
-    expect(reported, 'the node did not name the app among those it stopped').to.not.equal(undefined);
-    expect(reported.runnable, 'the node reports the app as one it cannot tell can still run, or names its processes').to.deep.equal([]);
+  it('says nothing of the containers outside the app slices can run', function () {
+    expect(stopped?.outsideSlices, 'the node did not report the containers outside the app slices').to.not.equal(undefined);
+    expect(stopped.outsideSlices.containers, 'the node killed no container outside the app slices').to.be.at.least(1);
+    expect(stopped.outsideSlices.runnable, 'the node reports them as ones it cannot tell can still run, or names their processes').to.deep.equal([]);
   });
 });
