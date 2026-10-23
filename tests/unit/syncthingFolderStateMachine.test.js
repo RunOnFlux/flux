@@ -959,10 +959,11 @@ describe('syncthingFolderStateMachine tests', () => {
       try {
         // The primary runs the app on another holder.
         peerComponentMock.componentStateOnOtherHolders.resolves('running');
-        // The first pass asks for the check; the next acts on its answer.
+        // The first pass asks for the check; the next asks for the revert its answer allows.
         await stateMachine.manageFolderSyncState(mockParams);
         await checksSettled();
         const result = await stateMachine.manageFolderSyncState(mockParams);
+        await checksSettled();
 
         sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
         expect(result.syncthingFolder, 'a g: folder\'s type is its primary role\'s').to.not.have.property('type');
@@ -991,10 +992,11 @@ describe('syncthingFolderStateMachine tests', () => {
       try {
         // The primary runs the app on another holder.
         peerComponentMock.componentStateOnOtherHolders.resolves('running');
-        // The first pass asks for the check; the next acts on its answer.
+        // The first pass asks for the check; the next asks for the revert its answer allows.
         await stateMachine.manageFolderSyncState(mockParams);
         await checksSettled();
         await stateMachine.manageFolderSyncState(mockParams);
+        await checksSettled();
 
         sinon.assert.calledOnce(syncthingServiceMock.dbRevert);
         sinon.assert.neverCalledWith(publish, 'syncthing:localChangesReverted');
@@ -2392,7 +2394,9 @@ describe('syncthingFolderStateMachine tests', () => {
       const checkedPass = async () => {
         await pass();
         await checksSettled();
-        return pass();
+        const result = await pass();
+        await checksSettled();
+        return result;
       };
 
       it('is neither reverted nor promoted before the check has answered', async () => {
@@ -2482,9 +2486,25 @@ describe('syncthingFolderStateMachine tests', () => {
         expect(result.cache.restarted, 'the only copy, kept, is promoted').to.be.true;
       });
 
+      // A pull moves the folder's sequences and not its counts of this node's changes,
+      // so the answer stands while the primary keeps writing.
+      it('reverts on its answer while the folder only pulls, its sequences moving every pass', async () => {
+        pollutedCandidate();
+        changes({ name: 'appdata/held', version: FROM_PRIMARY });
+        heldElsewhere('appdata/held');
+        await pass();
+        await checksSettled();
+        status({ sequence: 11, remoteSequence: { 'PRIMARY-DEVICE': 6 } });
+
+        await pass();
+        await checksSettled();
+
+        sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
+      });
+
       [
-        ['a local write', { sequence: 11 }],
-        ['another device\'s index', { remoteSequence: { 'PRIMARY-DEVICE': 6 } }],
+        ['another change on this node', { receiveOnlyChangedFiles: 1 }],
+        ['a change of what this node changed', { receiveOnlyChangedBytes: 4096 }],
       ].forEach(([what, moved]) => {
         it(`is checked again after ${what}, and not reverted on the answer from before it`, async () => {
           pollutedCandidate();
@@ -2495,10 +2515,48 @@ describe('syncthingFolderStateMachine tests', () => {
           status(moved);
 
           await pass();
+          await checksSettled();
 
           sinon.assert.notCalled(syncthingServiceMock.dbRevert);
           sinon.assert.calledTwice(syncthingServiceMock.getDbLocalChanged);
         });
+      });
+
+      // The counts can stay the same while the changes do not: the revert reads them
+      // again, and goes ahead only on the ones the check examined.
+      it('does not revert changes other than the ones checked, and checks them before any revert', async () => {
+        pollutedCandidate();
+        changes({ name: 'appdata/held', version: FROM_PRIMARY });
+        heldElsewhere('appdata/held');
+        await pass();
+        await checksSettled();
+        changes({ name: 'appdata/other', version: FROM_PRIMARY });
+        onlyHere('appdata/other');
+
+        await pass();
+        await checksSettled();
+
+        sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+        expect(mockParams.receiveOnlySyncthingAppsCache.get('test-app'), 'the answer the revert did not rest on').to.not.have.property('localChangeCheck');
+
+        await checkedPass();
+
+        sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+        expect(mockParams.receiveOnlySyncthingAppsCache.get('test-app').localChangeCheck.onlyCopy).to.equal('appdata/other');
+      });
+
+      it('does not revert when its changes cannot be read again', async () => {
+        pollutedCandidate();
+        changes({ name: 'appdata/held', version: FROM_PRIMARY });
+        heldElsewhere('appdata/held');
+        await pass();
+        await checksSettled();
+        syncthingServiceMock.getDbLocalChanged.rejects(new Error('connect ECONNREFUSED'));
+
+        await pass();
+        await checksSettled();
+
+        sinon.assert.notCalled(syncthingServiceMock.dbRevert);
       });
 
       it('leaves no answer on a folder whose entry was replaced while it was checked', async () => {
@@ -2613,6 +2671,7 @@ describe('syncthingFolderStateMachine tests', () => {
 
           othersRun('running');
           await pass();
+          await checksSettled();
 
           sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
         });

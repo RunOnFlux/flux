@@ -5,7 +5,6 @@ const log = require('../../lib/log');
 const dockerService = require('../dockerService');
 const appReconciler = require('./appReconciler');
 const appUninstaller = require('../appLifecycle/appUninstaller');
-const messageHelper = require('../messageHelper');
 const syncthingService = require('../syncthingService');
 const appQueryService = require('../appQuery/appQueryService');
 const serviceHelper = require('../serviceHelper');
@@ -550,7 +549,8 @@ async function probeFolderSyncCompletion(folderId) {
     // so a folder of empty directories would read as holding data.
     const {
       globalFileBytes: globalBytes = 0, globalFiles = 0, inSyncFileBytes: inSyncBytes = 0, state,
-      receiveOnlyChangedFiles = 0, receiveOnlyChangedDirectories = 0, sequence, remoteSequence,
+      receiveOnlyChangedFiles = 0, receiveOnlyChangedDirectories = 0, receiveOnlyChangedSymlinks = 0,
+      receiveOnlyChangedDeletes = 0, receiveOnlyChangedBytes = 0,
     } = await syncthingService.getDbStatusInFileBytes(folderId);
 
     const syncPercentage = globalBytes > 0 ? (inSyncBytes / globalBytes) * 100 : 100;
@@ -569,9 +569,11 @@ async function probeFolderSyncCompletion(folderId) {
       // Directories are counted apart from files. A directory whose owner or mode
       // differs from the cluster's is a local change like any other.
       receiveOnlyChangedDirectories,
-      // Where this node's index and each other device's stood when the status was read.
-      sequence,
-      remoteSequence,
+      // The rest of what syncthing counts of this node's changes, which with the two
+      // above is what a check of them is stamped with: a pull moves none of them.
+      receiveOnlyChangedSymlinks,
+      receiveOnlyChangedDeletes,
+      receiveOnlyChangedBytes,
       // An EMPTY global index (globalBytes 0) means "unknown / not yet synced",
       // never "done": a node holding the only copy before its peers reconnect
       // reads globalBytes 0, and syncPercentage defaults to 100 there (vacuous).
@@ -1315,7 +1317,8 @@ async function nudgeFolderDevices(folderId) {
  * publishes them. Which changes the folder holds comes from localChangeCheck, and is
  * acted on only while the folder is still the one it was checked against. Until then,
  * and while whether another holder runs the app cannot be said, the folder is neither
- * reverted nor promoted.
+ * reverted nor promoted. The revert is localChangeCheck's, of the changes checked and
+ * no others.
  *
  * @param {string} appId - The Syncthing folder ID
  * @param {Object|null} syncStatus - A probeFolderSyncCompletion status
@@ -1378,15 +1381,7 @@ async function revertLocalChangesIfSynced(appId, syncStatus, folderCache, { isCu
   }
   delete cache.waitingOnHolders;
   delete cache.keepingChanges;
-  log.warn(`revertLocalChangesIfSynced - ${appId} is synced but the receive-only folder has ${changed} locally changed item(s) (${files} files, ${directories} directories); reverting to the cluster's version`);
-  try {
-    // dataOrThrow: dbRevert answers in-band; without it this catch is
-    // dead code and a failed revert reads as reverted
-    messageHelper.dataOrThrow(await syncthingService.dbRevert(appId));
-    fluxEventBus.publish('syncthing:localChangesReverted', { folder: appId, files, directories });
-  } catch (error) {
-    log.error(`revertLocalChangesIfSynced - revert of local changes for ${appId} failed: ${error.message}`);
-  }
+  localChangeCheck.revert(appId, cache, answer, isCurrent, { files, directories });
   return true;
 }
 

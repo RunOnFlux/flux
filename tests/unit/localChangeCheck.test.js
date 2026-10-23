@@ -7,6 +7,7 @@ const syncthingServiceMock = {
   getDeviceId: sinon.stub(),
   getDbLocalChanged: sinon.stub(),
   getDbFile: sinon.stub(),
+  dbRevert: sinon.stub(),
 };
 const localChangeCheck = proxyquire('../../ZelBack/src/services/appMonitoring/localChangeCheck', {
   '../syncthingService': syncthingServiceMock,
@@ -34,26 +35,47 @@ describe('localChangeCheck tests', () => {
     syncthingServiceMock.getDbLocalChanged.resolves({ files: [] });
     syncthingServiceMock.getDbFile.reset();
     syncthingServiceMock.getDbFile.resolves({ global: { localFlags: 0 } });
+    syncthingServiceMock.dbRevert.reset();
+    syncthingServiceMock.dbRevert.resolves({ status: 'success', data: {} });
   });
 
-  describe('stampOf', () => {
-    it('is the same for the same folder, whatever order syncthing lists it in', () => {
-      const one = localChangeCheck.stampOf({ sequence: 3, remoteSequence: { B: 2, A: 1 } }, [{ deviceID: 'Y' }, { deviceID: 'X' }]);
-      const two = localChangeCheck.stampOf({ sequence: 3, remoteSequence: { A: 1, B: 2 } }, [{ deviceID: 'X' }, { deviceID: 'Y' }]);
+  // An answer with no only copy, as runCheck leaves it.
+  const FINGERPRINT = sinon.match(/^[0-9a-f]{64}$/);
 
-      expect(one).to.equal(two);
+  describe('stampOf', () => {
+    const COUNTS = {
+      receiveOnlyChangedFiles: 2, receiveOnlyChangedDirectories: 1, receiveOnlyChangedSymlinks: 0, receiveOnlyChangedDeletes: 0, receiveOnlyChangedBytes: 4096,
+    };
+
+    it('is the same for the same folder, whatever order syncthing lists its devices in', () => {
+      expect(localChangeCheck.stampOf(COUNTS, [{ deviceID: 'Y' }, { deviceID: 'X' }]))
+        .to.equal(localChangeCheck.stampOf(COUNTS, [{ deviceID: 'X' }, { deviceID: 'Y' }]));
+    });
+
+    // A pull moves both, and neither says anything about what this node changed.
+    it('does not change with this node\'s sequence or another device\'s', () => {
+      const devices = [{ deviceID: 'X' }];
+
+      expect(localChangeCheck.stampOf({ ...COUNTS, sequence: 3, remoteSequence: { A: 1 } }, devices))
+        .to.equal(localChangeCheck.stampOf({ ...COUNTS, sequence: 90, remoteSequence: { A: 70 } }, devices));
     });
 
     [
-      ['this node\'s sequence', { sequence: 4, remoteSequence: { A: 1 } }, [{ deviceID: 'X' }, { deviceID: 'Y' }]],
-      ['another device\'s sequence', { sequence: 3, remoteSequence: { A: 2 } }, [{ deviceID: 'X' }, { deviceID: 'Y' }]],
-      ['the devices the folder is shared with', { sequence: 3, remoteSequence: { A: 1 } }, [{ deviceID: 'X' }]],
-    ].forEach(([what, status, devices]) => {
+      ['the files this node changed', { receiveOnlyChangedFiles: 3 }],
+      ['the directories this node changed', { receiveOnlyChangedDirectories: 2 }],
+      ['the symlinks this node changed', { receiveOnlyChangedSymlinks: 1 }],
+      ['the deletions this node made', { receiveOnlyChangedDeletes: 1 }],
+      ['the bytes this node changed', { receiveOnlyChangedBytes: 8192 }],
+    ].forEach(([what, moved]) => {
       it(`changes with ${what}`, () => {
-        const before = localChangeCheck.stampOf({ sequence: 3, remoteSequence: { A: 1 } }, [{ deviceID: 'X' }, { deviceID: 'Y' }]);
+        const devices = [{ deviceID: 'X' }];
 
-        expect(localChangeCheck.stampOf(status, devices)).to.not.equal(before);
+        expect(localChangeCheck.stampOf({ ...COUNTS, ...moved }, devices)).to.not.equal(localChangeCheck.stampOf(COUNTS, devices));
       });
+    });
+
+    it('changes with the devices the folder is shared with', () => {
+      expect(localChangeCheck.stampOf(COUNTS, [{ deviceID: 'X' }])).to.not.equal(localChangeCheck.stampOf(COUNTS, [{ deviceID: 'X' }, { deviceID: 'Y' }]));
     });
   });
 
@@ -71,8 +93,12 @@ describe('localChangeCheck tests', () => {
       sinon.assert.neverCalledWith(syncthingServiceMock.getDbLocalChanged, 'fluxb_b');
       first.release();
       await settled();
-      expect(a.localChangeCheck).to.deep.equal({ stamp: 's1', onlyCopy: false, madeHere: false });
-      expect(b.localChangeCheck).to.deep.equal({ stamp: 's1', onlyCopy: false, madeHere: false });
+      sinon.assert.match(a.localChangeCheck, {
+        stamp: 's1', onlyCopy: false, madeHere: false, changes: FINGERPRINT,
+      });
+      sinon.assert.match(b.localChangeCheck, {
+        stamp: 's1', onlyCopy: false, madeHere: false, changes: FINGERPRINT,
+      });
     });
 
     it('replaces a check still waiting with the newer one for the same folder', async () => {
@@ -130,7 +156,7 @@ describe('localChangeCheck tests', () => {
     it('says a change was made here, asking nothing about it', async () => {
       syncthingServiceMock.getDbLocalChanged.resolves({ files: [{ name: 'stray', version: ['LOCAL-D:4'] }] });
 
-      expect(await localChangeCheck.examineLocalChanges('fluxa_a')).to.deep.equal({ onlyCopy: false, madeHere: true });
+      sinon.assert.match(await localChangeCheck.examineLocalChanges('fluxa_a'), { onlyCopy: false, madeHere: true, changes: FINGERPRINT });
       sinon.assert.notCalled(syncthingServiceMock.getDbFile);
     });
 
@@ -139,13 +165,13 @@ describe('localChangeCheck tests', () => {
       syncthingServiceMock.getDbLocalChanged.withArgs('fluxa_a', 1).resolves({ files: held });
       syncthingServiceMock.getDbLocalChanged.withArgs('fluxa_a', 2).resolves({ files: [{ name: 'stray', version: ['LOCAL-D:4'] }] });
 
-      expect(await localChangeCheck.examineLocalChanges('fluxa_a')).to.deep.equal({ onlyCopy: false, madeHere: true });
+      sinon.assert.match(await localChangeCheck.examineLocalChanges('fluxa_a'), { onlyCopy: false, madeHere: true, changes: FINGERPRINT });
     });
 
     it('says nothing was made here when every change names another device', async () => {
       syncthingServiceMock.getDbLocalChanged.resolves({ files: [{ name: 'f', version: ['PRIMARY:1', 'LOCAL-D:2'] }] });
 
-      expect(await localChangeCheck.examineLocalChanges('fluxa_a')).to.deep.equal({ onlyCopy: false, madeHere: false });
+      sinon.assert.match(await localChangeCheck.examineLocalChanges('fluxa_a'), { onlyCopy: false, madeHere: false, changes: FINGERPRINT });
     });
 
     it('cannot say when an item cannot be read', async () => {
@@ -153,6 +179,147 @@ describe('localChangeCheck tests', () => {
       syncthingServiceMock.getDbFile.rejects(new Error('404 No such object in the index'));
 
       expect(await localChangeCheck.examineLocalChanges('fluxa_a')).to.equal(null);
+    });
+  });
+
+  describe('changesFingerprint', () => {
+    it('is the fingerprint the check left for the same changes', async () => {
+      syncthingServiceMock.getDbLocalChanged.resolves({ files: [{ name: 'f', version: ['PRIMARY:1', 'LOCAL-D:2'] }] });
+
+      expect(await localChangeCheck.changesFingerprint('fluxa_a')).to.equal((await localChangeCheck.examineLocalChanges('fluxa_a')).changes);
+    });
+
+    [
+      ['another name', { name: 'g', version: ['PRIMARY:1', 'LOCAL-D:2'] }],
+      ['another history', { name: 'f', version: ['PRIMARY:1', 'LOCAL-D:3'] }],
+      ['a deletion', {
+        name: 'f', version: ['PRIMARY:1', 'LOCAL-D:2'], deleted: true,
+      }],
+    ].forEach(([what, item]) => {
+      it(`differs for ${what}`, async () => {
+        syncthingServiceMock.getDbLocalChanged.resolves({ files: [{ name: 'f', version: ['PRIMARY:1', 'LOCAL-D:2'] }] });
+        const before = await localChangeCheck.changesFingerprint('fluxa_a');
+        syncthingServiceMock.getDbLocalChanged.resolves({ files: [item] });
+
+        expect(await localChangeCheck.changesFingerprint('fluxa_a')).to.not.equal(before);
+      });
+    });
+
+    it('cannot say when the changes cannot be read', async () => {
+      syncthingServiceMock.getDbLocalChanged.rejects(new Error('connect ECONNREFUSED'));
+
+      expect(await localChangeCheck.changesFingerprint('fluxa_a')).to.equal(null);
+    });
+  });
+
+  describe('revert', () => {
+    const CHANGED = { files: 1, directories: 0 };
+    // A folder no other test has stubbed reads for, page by page.
+    // A folder checked with one change, its answer left on its entry.
+    async function checked(folderId = 'fluxr_r') {
+      syncthingServiceMock.getDbLocalChanged.withArgs(folderId).resolves({ files: [{ name: 'f', version: ['PRIMARY:1', 'LOCAL-D:2'] }] });
+      const entry = {};
+      localChangeCheck.request(folderId, entry, 's1', () => true);
+      await settled();
+      return entry;
+    }
+
+    it('reverts the changes the check examined, and says so', async () => {
+      const entry = await checked();
+      const publish = sinon.stub(fluxEventBus, 'publish');
+      try {
+        localChangeCheck.revert('fluxr_r', entry, entry.localChangeCheck, () => true, CHANGED);
+        await settled();
+
+        sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'fluxr_r');
+        sinon.assert.calledWithExactly(publish, 'syncthing:localChangesReverted', { folder: 'fluxr_r', files: 1, directories: 0 });
+        expect(entry).to.not.have.property('localChangeCheck');
+      } finally {
+        publish.restore();
+      }
+    });
+
+    it('does not revert changes other than the ones checked, and drops the answer', async () => {
+      const entry = await checked();
+      syncthingServiceMock.getDbLocalChanged.withArgs('fluxr_r').resolves({ files: [{ name: 'g', version: ['PRIMARY:1', 'LOCAL-D:2'] }] });
+
+      localChangeCheck.revert('fluxr_r', entry, entry.localChangeCheck, () => true, CHANGED);
+      await settled();
+
+      sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+      expect(entry).to.not.have.property('localChangeCheck');
+    });
+
+    it('does not revert while the changes cannot be read, and keeps the answer', async () => {
+      const entry = await checked();
+      const answer = entry.localChangeCheck;
+      syncthingServiceMock.getDbLocalChanged.withArgs('fluxr_r').rejects(new Error('connect ECONNREFUSED'));
+
+      localChangeCheck.revert('fluxr_r', entry, answer, () => true, CHANGED);
+      await settled();
+
+      sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+      expect(entry.localChangeCheck).to.equal(answer);
+    });
+
+    it('does not revert a folder whose entry was replaced, or on an answer the entry no longer carries', async () => {
+      const entry = await checked();
+      const answer = entry.localChangeCheck;
+
+      localChangeCheck.revert('fluxr_r', entry, answer, () => false, CHANGED);
+      await settled();
+      entry.localChangeCheck = { ...answer };
+      localChangeCheck.revert('fluxr_r', entry, answer, () => true, CHANGED);
+      await settled();
+
+      sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+    });
+
+    it('keeps the answer when syncthing refuses the revert, and says nothing was reverted', async () => {
+      const entry = await checked();
+      const answer = entry.localChangeCheck;
+      syncthingServiceMock.dbRevert.resolves({ status: 'error', data: { message: 'folder is not running' } });
+      const publish = sinon.stub(fluxEventBus, 'publish');
+      try {
+        localChangeCheck.revert('fluxr_r', entry, answer, () => true, CHANGED);
+        await settled();
+
+        sinon.assert.calledOnce(syncthingServiceMock.dbRevert);
+        sinon.assert.neverCalledWith(publish, 'syncthing:localChangesReverted');
+        expect(entry.localChangeCheck).to.equal(answer);
+      } finally {
+        publish.restore();
+      }
+    });
+
+    it('runs in the same queue as the checks, one at a time on the node', async () => {
+      const entry = await checked();
+      const first = held({ files: [] });
+      syncthingServiceMock.getDbLocalChanged.withArgs('fluxb_b').returns(first.promise);
+
+      localChangeCheck.request('fluxb_b', {}, 's1', () => true);
+      localChangeCheck.revert('fluxr_r', entry, entry.localChangeCheck, () => true, CHANGED);
+      await settled();
+
+      sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+      first.release();
+      await settled();
+      sinon.assert.calledOnce(syncthingServiceMock.dbRevert);
+    });
+
+    it('does not start again a revert already running on the same answer', async () => {
+      const entry = await checked();
+      const again = held({ files: [{ name: 'f', version: ['PRIMARY:1', 'LOCAL-D:2'] }] });
+      syncthingServiceMock.getDbLocalChanged.withArgs('fluxr_r').returns(again.promise);
+
+      localChangeCheck.revert('fluxr_r', entry, entry.localChangeCheck, () => true, CHANGED);
+      await settled();
+      localChangeCheck.revert('fluxr_r', entry, entry.localChangeCheck, () => true, CHANGED);
+      again.release();
+      await settled();
+
+      sinon.assert.calledOnce(syncthingServiceMock.dbRevert);
+      expect(syncthingServiceMock.getDbLocalChanged.withArgs('fluxr_r').callCount, 'the changes were read again for a second revert').to.equal(2);
     });
   });
 });

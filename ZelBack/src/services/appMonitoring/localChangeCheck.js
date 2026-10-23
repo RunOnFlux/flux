@@ -1,5 +1,7 @@
+const crypto = require('crypto');
 const log = require('../../lib/log');
 const syncthingService = require('../syncthingService');
+const messageHelper = require('../messageHelper');
 const fluxEventBus = require('../utils/fluxEventBus');
 
 // Whether a receive-only folder's local changes include the only copy of data another
@@ -12,12 +14,17 @@ const fluxEventBus = require('../utils/fluxEventBus');
 // answer it left.
 //
 // AN ANSWER HOLDS FOR THE FOLDER IT WAS ASKED ABOUT, AND NO OTHER. It is stamped with
-// the folder as syncthing described it when the check was asked for: this node's
-// sequence, each other device's sequence, and the devices the folder is shared with.
-// A local write moves the first, another device's index the second, and a device
-// leaving the folder - the moment a change held elsewhere becomes the only copy -
-// changes the third. The pass acts on an answer only while the folder still carries
-// its stamp.
+// the folder as syncthing described it when the check was asked for: the counts of
+// this node's changes to it, and the devices it is shared with. A change on this node
+// moves the first, and a device leaving the folder - the moment a change held
+// elsewhere becomes the only copy - changes the second. What this node pulls moves
+// neither, so an answer stands while the primary keeps writing. The pass acts on an
+// answer only while the folder still carries its stamp.
+//
+// A REVERT IS OF THE CHANGES CHECKED, AND NO OTHERS. Counts can stay the same while
+// the changes do not, so the pass does not revert itself: it asks for a revert here,
+// in the same queue as the checks, and the revert reads the folder's changes again
+// and goes ahead only while they are exactly the ones the check examined.
 
 // syncthing's FlagLocalReceiveOnly: an item this node changed in a receive-only folder.
 const RECEIVE_ONLY_CHANGE_FLAG = 8;
@@ -25,20 +32,59 @@ const LOCAL_CHANGE_PAGE_SIZE = 1000;
 // How many items are asked about at once.
 const FILE_REQUESTS_AT_ONCE = 8;
 
-// Checks asked for and not started: { folderId, entry, stamp, isCurrent }.
+// The counts syncthing keeps of a folder's receive-only changes, which make its stamp.
+const CHANGE_COUNTS = Object.freeze([
+  'receiveOnlyChangedFiles', 'receiveOnlyChangedDirectories', 'receiveOnlyChangedSymlinks',
+  'receiveOnlyChangedDeletes', 'receiveOnlyChangedBytes',
+]);
+
+// Jobs asked for and not started, at most one per folder: a check
+// { kind: 'check', folderId, entry, stamp, isCurrent } or a revert
+// { kind: 'revert', folderId, entry, answer, isCurrent, files, directories }.
 const waiting = [];
 let running = null;
 
 /**
  * The folder as syncthing describes it, in the form an answer is stamped with.
- * @param {object} status The folder's db/status: `sequence` and `remoteSequence`.
+ * @param {object} status The folder's db/status: its counts of receive-only changes.
  * @param {Array<{deviceID: string}>} devices The devices the folder is shared with.
  * @returns {string}
  */
 function stampOf(status, devices) {
-  const remote = Object.entries(status?.remoteSequence ?? {}).sort(([a], [b]) => a.localeCompare(b));
+  const changes = CHANGE_COUNTS.map((count) => status?.[count] ?? null);
   const shared = devices.map((device) => device.deviceID).sort();
-  return JSON.stringify({ sequence: status?.sequence ?? null, remote, shared });
+  return JSON.stringify({ changes, shared });
+}
+
+/**
+ * Adds one listed change to a fingerprint of the folder's changes: its name, its
+ * history and whether it is a deletion.
+ * @param {crypto.Hash} hash
+ * @param {object} item An entry of db/localchanged.
+ */
+function addToFingerprint(hash, item) {
+  hash.update(`${item?.name}\0${(item?.version ?? []).join(',')}\0${item?.deleted ? 1 : 0}\n`);
+}
+
+/**
+ * A fingerprint of every local change of a folder, as syncthing lists them now.
+ * @param {string} folderId
+ * @returns {Promise<string|null>} null when the changes could not be read
+ */
+async function changesFingerprint(folderId) {
+  try {
+    const hash = crypto.createHash('sha256');
+    for (let page = 1; ; page += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      const batch = (await syncthingService.getDbLocalChanged(folderId, page, LOCAL_CHANGE_PAGE_SIZE))?.files;
+      if (!Array.isArray(batch)) return page > 1 ? hash.digest('hex') : null;
+      batch.forEach((item) => addToFingerprint(hash, item));
+      if (batch.length < LOCAL_CHANGE_PAGE_SIZE) return hash.digest('hex');
+    }
+  } catch (error) {
+    log.warn(`localChangeCheck - ${folderId}: ${error.message}`);
+    return null;
+  }
 }
 
 /**
@@ -71,29 +117,33 @@ async function firstHeldOnlyHere(folderId, names) {
  *    made on this node, as a standby or earlier as the primary, and no other device's
  *    history says otherwise. It is not asked about: whether it may be reverted turns
  *    on whether another holder runs the app, not on what other devices hold.
+ *  - `changes`: a fingerprint of every change examined, when there is no only copy;
+ *    a revert goes ahead only while the folder's changes still have it.
  * @param {string} folderId
- * @returns {Promise<{onlyCopy: string|false, madeHere: boolean}|null>} null when the
- *   changes could not be read
+ * @returns {Promise<{onlyCopy: string|false, madeHere: boolean, changes?: string}|null>}
+ *   null when the changes could not be read
  */
 async function examineLocalChanges(folderId) {
   try {
     const deviceId = await syncthingService.getDeviceId();
     if (!deviceId) return null;
     const ownCounter = `${deviceId.substring(0, 7)}:`;
+    const hash = crypto.createHash('sha256');
     let madeHere = false;
     for (let page = 1; ; page += 1) {
       // eslint-disable-next-line no-await-in-loop
       const batch = (await syncthingService.getDbLocalChanged(folderId, page, LOCAL_CHANGE_PAGE_SIZE))?.files;
-      if (!Array.isArray(batch)) return page > 1 ? { onlyCopy: false, madeHere } : null;
+      if (!Array.isArray(batch)) return page > 1 ? { onlyCopy: false, madeHere, changes: hash.digest('hex') } : null;
       const fromElsewhere = [];
       batch.forEach((item) => {
+        addToFingerprint(hash, item);
         if ((item?.version ?? []).some((counter) => !counter.startsWith(ownCounter))) fromElsewhere.push(item.name);
         else madeHere = true;
       });
       // eslint-disable-next-line no-await-in-loop
       const found = await firstHeldOnlyHere(folderId, fromElsewhere);
       if (found !== undefined) return { onlyCopy: found, madeHere };
-      if (batch.length < LOCAL_CHANGE_PAGE_SIZE) return { onlyCopy: false, madeHere };
+      if (batch.length < LOCAL_CHANGE_PAGE_SIZE) return { onlyCopy: false, madeHere, changes: hash.digest('hex') };
     }
   } catch (error) {
     log.warn(`localChangeCheck - ${folderId}: ${error.message}`);
@@ -116,19 +166,56 @@ async function runCheck(check) {
   fluxEventBus.publish('syncthing:localChangesChecked', { folder: check.folderId, onlyCopy: Boolean(found.onlyCopy), madeHere: found.madeHere });
 }
 
-async function runWaitingChecks() {
+/**
+ * Reverts a folder's local changes if they are exactly the ones its answer examined,
+ * and the entry has not been replaced. Otherwise the answer is dropped, so the pass
+ * asks for the folder to be checked again.
+ * @param {{folderId: string, entry: object, answer: object, isCurrent: Function, files: number, directories: number}} job
+ */
+async function runRevert(job) {
+  const { folderId, entry, answer } = job;
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_LOCAL_CHANGE_REVERT, folderId);
+  const now = await changesFingerprint(folderId);
+  if (now === null || !job.isCurrent() || entry.localChangeCheck !== answer) return;
+  if (now !== answer.changes) {
+    // eslint-disable-next-line no-param-reassign
+    delete entry.localChangeCheck;
+    log.info(`localChangeCheck - ${folderId}: its local changes are not the ones checked; checking them again before any revert`);
+    return;
+  }
+  log.warn(`localChangeCheck - ${folderId} is synced but the receive-only folder has local changes (${job.files} files, ${job.directories} directories); reverting to the cluster's version`);
+  try {
+    // dataOrThrow: dbRevert answers in-band; without it a failed revert reads as reverted
+    messageHelper.dataOrThrow(await syncthingService.dbRevert(folderId));
+    // eslint-disable-next-line no-param-reassign
+    delete entry.localChangeCheck;
+    fluxEventBus.publish('syncthing:localChangesReverted', { folder: folderId, files: job.files, directories: job.directories });
+  } catch (error) {
+    log.error(`localChangeCheck - revert of local changes for ${folderId} failed: ${error.message}`);
+  }
+}
+
+async function runWaitingJobs() {
   while (waiting.length) {
     running = waiting.shift();
     // eslint-disable-next-line no-await-in-loop
-    await runCheck(running);
+    await (running.kind === 'revert' ? runRevert(running) : runCheck(running));
   }
   running = null;
 }
 
+// The waiting job for `job`'s folder becomes `job`.
+function enqueue(job) {
+  const index = waiting.findIndex((queued) => queued.folderId === job.folderId);
+  if (index >= 0) waiting[index] = job;
+  else waiting.push(job);
+  if (!running) runWaitingJobs();
+}
+
 /**
  * Asks for a folder's local changes to be checked against the folder as `stamp`
- * describes it. A check already asked for the folder is replaced; one running for the
- * same folder, entry and stamp is left to finish.
+ * describes it. A job already asked for the folder is replaced; a check running for
+ * the same folder, entry and stamp is left to finish.
  * @param {string} folderId
  * @param {object} entry The folder's entry in receiveOnlySyncthingAppsCache; the answer
  *   is left on it as `localChangeCheck`.
@@ -136,12 +223,27 @@ async function runWaitingChecks() {
  * @param {Function} isCurrent Whether `entry` is still the folder's entry.
  */
 function request(folderId, entry, stamp, isCurrent) {
-  if (running?.folderId === folderId && running.entry === entry && running.stamp === stamp) return;
-  const check = { folderId, entry, stamp, isCurrent };
-  const index = waiting.findIndex((queued) => queued.folderId === folderId);
-  if (index >= 0) waiting[index] = check;
-  else waiting.push(check);
-  if (!running) runWaitingChecks();
+  if (running?.kind === 'check' && running.folderId === folderId && running.entry === entry && running.stamp === stamp) return;
+  enqueue({
+    kind: 'check', folderId, entry, stamp, isCurrent,
+  });
+}
+
+/**
+ * Asks for a folder's local changes to be reverted, if they are still the ones
+ * `answer` examined. A job already asked for the folder is replaced; a revert running
+ * for the same answer is left to finish.
+ * @param {string} folderId
+ * @param {object} entry The folder's entry in receiveOnlySyncthingAppsCache.
+ * @param {object} answer The answer the revert rests on, left on `entry`.
+ * @param {Function} isCurrent Whether `entry` is still the folder's entry.
+ * @param {{files: number, directories: number}} changed What the folder's status counts.
+ */
+function revert(folderId, entry, answer, isCurrent, { files, directories }) {
+  if (running?.kind === 'revert' && running.folderId === folderId && running.answer === answer) return;
+  enqueue({
+    kind: 'revert', folderId, entry, answer, isCurrent, files, directories,
+  });
 }
 
 /**
@@ -157,7 +259,9 @@ function answerFor(entry, stamp) {
 
 module.exports = {
   answerFor,
+  changesFingerprint,
   examineLocalChanges,
   request,
+  revert,
   stampOf,
 };
