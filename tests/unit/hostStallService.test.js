@@ -422,6 +422,62 @@ describe('hostStallService tests', () => {
       });
     });
 
+    describe('a write that does not end', () => {
+      let releases;
+      let holding;
+      beforeEach(() => {
+        releases = [];
+        holding = true;
+        const writeFile = fs.promises.writeFile.bind(fs.promises);
+        sinon.stub(fs.promises, 'writeFile').callsFake((file, ...rest) => (holding && String(file).startsWith(paths.stateFile)
+          ? new Promise((resolve) => { releases.push(() => resolve(writeFile(file, ...rest))); })
+          : writeFile(file, ...rest)));
+      });
+
+      it('holds up no start: a start returns once its first reading has acted', async () => {
+        holding = false;
+        stuckMongod();
+        await readTimes(stuckIntervals);
+        await hostStallService.stop();
+        fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
+        passMs(readIntervalMs);
+        holding = true;
+
+        await hostStallService.start(paths);
+
+        expect(outOfService(), 'the start\'s reading did not act').to.equal(true);
+        for (let i = 0; i < 100 && !releases.length; i += 1) await new Promise((resolve) => { setImmediate(resolve); }); // eslint-disable-line no-await-in-loop
+        expect(releases.length, 'fixture: the start asked for no write').to.equal(1);
+        const stopped = hostStallService.stop();
+        releases.forEach((release) => release());
+        await stopped;
+      });
+
+      it('lands the writes one at a time and in order, the last one asked for last', async () => {
+        const until = async (done) => {
+          for (let i = 0; i < 2000 && !done(); i += 1) await new Promise((resolve) => { setTimeout(resolve, 1); }); // eslint-disable-line no-await-in-loop
+        };
+        stuckMongod();
+        passMs(readIntervalMs);
+        const first = hostStallService.readOnce(paths);
+        await until(() => releases.length === 1);
+        expect(releases.length, 'fixture: the first reading asked for no write').to.equal(1);
+
+        processWith('100', 'mongod', [{ tid: '101', state: 'S', switches: 41 }]);
+        passMs(readIntervalMs);
+        const second = hostStallService.readOnce(paths);
+        await new Promise((resolve) => { setTimeout(resolve, 50); });
+        expect(releases.length, 'the second write started beside the first').to.equal(1);
+
+        releases[0]();
+        await until(() => releases.length === 2);
+        releases[1]();
+        await Promise.all([first, second]);
+
+        expect(kept().threads).to.deep.equal([]);
+      });
+    });
+
     describe('a FluxOS that may not make the state directory', () => {
       let stateDir;
       beforeEach(() => {

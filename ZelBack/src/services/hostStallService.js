@@ -68,6 +68,8 @@ let paths = { ...DEFAULT_PATHS };
 const NOTHING_KEPT = JSON.stringify({ trip: null, threads: [] });
 /** What the state file holds, as this process last wrote or found it; null when unknown. */
 let keptText = NOTHING_KEPT;
+/** What the state file is to hold once the write asked for last has landed; null when none is waiting. */
+let queuedText = null;
 
 /**
  * @param {{procRoot?: string, stateFile?: string}} options
@@ -221,14 +223,11 @@ async function makeStateDirectory(dir) {
 }
 
 /**
- * Keep the trip and every thread's count, so a FluxOS restart before the next
- * reboot carries both on. Nothing is written when the file already holds them.
+ * Write the state file, once every write asked for before has ended.
+ * @param {string} text
+ * @param {string} stateFile The file as it was when the write was asked for.
  */
-async function keepState() {
-  const trip = fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL) ? tripReason : null;
-  const text = JSON.stringify({ trip, threads: [...tracked] });
-  if (text === keptText) return;
-  const { stateFile } = paths;
+async function writeState(text, stateFile) {
   const staged = `${stateFile}.tmp`;
   try {
     await makeStateDirectory(path.dirname(stateFile));
@@ -237,7 +236,24 @@ async function keepState() {
     keptText = text;
   } catch (error) {
     log.error(`hostStall - the state could not be kept: ${error.message}`);
+  } finally {
+    if (queuedText === text) queuedText = null;
   }
+}
+
+/**
+ * Keep the trip and every thread's count, so a FluxOS restart before the next
+ * reboot carries both on. Nothing is written when the file already holds them, or
+ * a write waiting to land does. Writes land one at a time and in order, and no
+ * reading waits for one.
+ */
+function keepState() {
+  const trip = fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL) ? tripReason : null;
+  const text = JSON.stringify({ trip, threads: [...tracked] });
+  if (text === (queuedText ?? keptText)) return;
+  queuedText = text;
+  const { stateFile } = paths;
+  keeping = keeping.then(() => writeState(text, stateFile));
 }
 
 /** Tell every listener the node is out of service for a host stall. */
@@ -290,12 +306,8 @@ async function act() {
   }
 }
 
-/**
- * Take one reading and act on it.
- * @param {object} [options] Paths, as usePaths takes them.
- */
-async function readOnce(options = {}) {
-  usePaths(options);
+/** Take one reading, act on it, and ask for what it found to be kept. */
+async function takeReading() {
   const startedIn = generation;
   const nowMs = await readUptimeMs(paths.procRoot);
   if (nowMs === null) {
@@ -306,13 +318,23 @@ async function readOnce(options = {}) {
   if (startedIn !== generation) return;
   tracked = carryForward(threads, nowMs);
   await act();
-  keeping = keepState();
+  keepState();
+}
+
+/**
+ * Take one reading and act on it.
+ * @param {object} [options] Paths, as usePaths takes them.
+ * @returns {Promise<void>} Resolves once what it found is kept.
+ */
+async function readOnce(options = {}) {
+  usePaths(options);
+  await takeReading();
   await keeping;
 }
 
 async function readAndReschedule() {
   try {
-    await readOnce();
+    await takeReading();
   } catch (error) {
     log.error(`hostStall - reading the dependency threads failed: ${error.message}`);
   }
@@ -323,7 +345,8 @@ async function readAndReschedule() {
  * Restore what an earlier FluxOS in this boot kept, then read now, and every
  * READ_INTERVAL_MS after each reading ends.
  * @param {object} [options] Paths, as usePaths takes them.
- * @returns {Promise<void>} Resolves once the kept state is restored and the first reading taken.
+ * @returns {Promise<void>} Resolves once the kept state is restored and the first
+ *   reading has acted; the write of what it found goes on without it.
  */
 async function start(options = {}) {
   if (running) return;
@@ -345,6 +368,7 @@ function stop() {
   tracked = new Map();
   tripReason = null;
   keptText = NOTHING_KEPT;
+  queuedText = null;
   paths = { ...DEFAULT_PATHS };
   tripListeners.length = 0;
   return keeping;
