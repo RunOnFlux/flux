@@ -50,7 +50,7 @@ const operations = {
   },
 };
 
-parentPort.on('message', async (payload) => {
+async function answer(payload) {
   try {
     const { operation, params } = payload;
 
@@ -61,4 +61,10 @@ parentPort.on('message', async (payload) => {
   } catch (error) {
     parentPort.postMessage({ ok: false, error: error.message || String(error) });
   }
-});
+}
+
+// parentPort is null outside a worker: required elsewhere, the file only
+// exports its operations.
+if (parentPort) parentPort.on('message', answer);
+
+module.exports = { operations };
