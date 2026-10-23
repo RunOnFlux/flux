@@ -112,9 +112,18 @@ describe('appKill tests', () => {
       expect(killed).to.deep.equal([]);
     });
 
-    it('kills the app\'s slice alone when docker\'s records could not be read', async () => {
+    it('kills the app\'s slice and every container outside the slices when docker\'s records could not be read', async () => {
       const appSliceDir = slice('flux-app.slice', { [`docker-${id(9)}.scope`]: ['10'] });
-      container(1, 'fluxweb_app', ['11']);
+      const web = container(1, 'fluxweb_app', ['11']);
+      const other = container(2, 'fluxother', ['12']);
+      cgroup('system.slice/fluxos.service', ['1']);
+
+      expect(await appKill.kill('app', null)).to.have.members([appSliceDir, web, other]);
+      expect(killed).to.have.members([appSliceDir, web, other]);
+    });
+
+    it('kills the app\'s slice when docker\'s records could not be read and systemd does not say where system.slice is', async () => {
+      const appSliceDir = slice('flux-app.slice', { [`docker-${id(9)}.scope`]: ['10'] });
 
       expect(await appKill.kill('app', null)).to.deep.equal([appSliceDir]);
     });
@@ -166,10 +175,18 @@ describe('appKill tests', () => {
         expect(await appKill.stillRunnable('app', null)).to.deep.equal(['21']);
       });
 
-      it('cannot say the app can no longer run while a container lives outside the slices', async () => {
-        container(3, 'fluxother_other', ['31']);
+      it('names what can still run of a container outside the slices, which may be the app\'s', async () => {
+        container(3, 'fluxweb_other', ['31']);
+        processWith('31');
 
-        expect(await appKill.stillRunnable('app', null)).to.equal(null);
+        expect(await appKill.stillRunnable('app', null)).to.deep.equal(['31']);
+      });
+
+      it('says the app can no longer run once every container outside the slices has the kill pending', async () => {
+        container(3, 'fluxweb_other', ['31']);
+        processWith('31', { sigPnd: '0000000000000100' });
+
+        expect(await appKill.stillRunnable('app', null)).to.deep.equal([]);
       });
 
       it('says the app can no longer run when every container lives in a slice', async () => {
