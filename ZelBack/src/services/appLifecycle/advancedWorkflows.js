@@ -5404,17 +5404,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // primary this node cannot read keeps the component. It is the
                   // instance most likely to still hold the volume, and electing over
                   // it is exactly the split-brain this branch is reached to avoid.
-                  // A previous primary no location lists is out of the app and is not
-                  // asked: its location expired, every holder has dropped it from the
-                  // app's folders, and what it writes reaches none of them.
-                  let previousMasterState = PeerComponent.NOT_RUNNING;
-                  if (previousMasterNode) {
-                    // eslint-disable-next-line no-await-in-loop
-                    previousMasterState = await peerComponentState(previousMasterAddr, { ...probeCtx, label: 'previous primary' });
-                  } else {
-                    fluxEventBus.count('masterSlave:decision', identifier, 'previousPrimaryUnlisted');
-                    log.info(`masterSlaveApps: app:${installedApp.name} previous primary ${previousMasterAddr} holds no location - it is out of the app`);
-                  }
+                  // eslint-disable-next-line no-await-in-loop
+                  const previousMasterState = await peerComponentState(previousMasterAddr, { ...probeCtx, label: 'previous primary' });
                   if (previousMasterState !== PeerComponent.NOT_RUNNING) {
                     if (previousMasterState === PeerComponent.RUNNING) withdrawSeedMarks(members, 'the previous primary runs it');
                     if (resuming && previousMasterState === PeerComponent.RUNNING) {

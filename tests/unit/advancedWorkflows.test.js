@@ -3913,14 +3913,11 @@ describe('advancedWorkflows tests', () => {
         axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
         await runPass();
 
-        // FDM names nobody; its address is silent, and this node's syncthing is
-        // connected to its device.
+        // Its location lapses and FDM names nobody; its address is silent, and this
+        // node's syncthing is connected to its device.
         serviceHelperStub.resetBehavior();
         serviceHelperStub.resolves(fdmNoPrimary());
-        registryManagerStub.resolves([
-          { name: appName, ip: '192.168.1.5:16127', runningSince: '2026-01-01T00:00:00.000Z' },
-          { name: appName, ip: PRIMARY, runningSince: '2026-01-01T00:00:00.000Z' },
-        ]);
+        registryManagerStub.resolves([{ name: appName, ip: '192.168.1.5:16127', runningSince: '2026-01-01T00:00:00.000Z' }]);
         axiosGetStub.resetBehavior();
         axiosGetStub.rejects(new Error('silent'));
         peerSyncthingSays(PRIMARY, 'connected');
@@ -3932,15 +3929,13 @@ describe('advancedWorkflows tests', () => {
         expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
       });
 
-      // Its location expired, so every holder has dropped it from the app's folders
-      // and what it writes reaches none of them: it is out of the app, whatever its
-      // syncthing still says.
-      it('takes a remembered primary no location lists as out of the app, without asking it', async () => {
-        const appName = 'unlistedprimary';
+      // Its location lapsed, so this node has dropped it from the app's folders; its
+      // syncthing is still connected to this one, and it may still be running the app.
+      it('does not start beside a remembered primary no location lists while its syncthing is connected, though no folder is shared with it', async () => {
+        const appName = 'fencedprimary';
         const PRIMARY = '192.168.1.90:16127';
         sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
         const logInfo = sinon.stub(log, 'info');
-        const count = sinon.stub(fluxEventBus, 'count');
         const runPass = electionFixture(appName, [PRIMARY]);
         serviceHelperStub.resetBehavior();
         serviceHelperStub.resolves(fdmNames('192.168.1.90'));
@@ -3954,33 +3949,8 @@ describe('advancedWorkflows tests', () => {
         axiosGetStub.resetBehavior();
         axiosGetStub.rejects(new Error('silent'));
         peerSyncthingSays(PRIMARY, 'connected');
-        logInfo.resetHistory();
-        await runPass();
-
-        expect(axiosGetStub.getCalls().some((call) => String(call.args[0]).includes(PRIMARY)), 'the unlisted primary was asked').to.equal(false);
-        sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'previousPrimaryUnlisted');
-        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
-      });
-
-      // Canary for the test above: listed, the same silent and connected primary
-      // keeps the app.
-      it('keeps the app for a remembered primary a location still lists, silent and connected', async () => {
-        const appName = 'listedprimary';
-        const PRIMARY = '192.168.1.90:16127';
-        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
-        const logInfo = sinon.stub(log, 'info');
-        const runPass = electionFixture(appName, [PRIMARY]);
-        serviceHelperStub.resetBehavior();
-        serviceHelperStub.resolves(fdmNames('192.168.1.90'));
-        axiosGetStub.resetBehavior();
-        axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
-        await runPass();
-
-        serviceHelperStub.resetBehavior();
-        serviceHelperStub.resolves(fdmNoPrimary());
-        axiosGetStub.resetBehavior();
-        axiosGetStub.rejects(new Error('silent'));
-        peerSyncthingSays(PRIMARY, 'connected');
+        // syncthing reports a connected device's last-seen as now
+        syncthingDeviceStatsStub.resolves({ [`DEVICE-${PRIMARY}`]: { lastSeen: new Date().toISOString() } });
         logInfo.resetHistory();
         await runPass();
 
