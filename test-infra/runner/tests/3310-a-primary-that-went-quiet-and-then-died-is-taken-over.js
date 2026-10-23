@@ -1,17 +1,20 @@
 // weight: heavy
 /*
  * A single-writer app's primary stops announcing while it carries on running: its
- * FluxOS is gone, its syncthing and its container are not. Its location expires,
- * and the standby keeps it in the folder for as long as its syncthing is connected
- * and shares the folder; nothing starts beside it.
+ * FluxOS is gone, its syncthing and its container are not.
  *
- * Then the machine dies. The standby drops it from the folder, and changes on the
- * standby's disk to a file and a directory the primary wrote are now held by no other
- * device: syncthing reverts such a change by deleting it, which a directory that is
- * not empty refuses for ever. The rest of the folder is unchanged, so the standby's
- * copy still reads as synced and the revert is due. The standby keeps the changes,
- * takes the app over with the primary's data intact, and a new standby syncs that
- * copy.
+ * While its location is listed it stays in the standby's folder, across a restart
+ * of the standby's FluxOS that leaves the standby unable to ask it for its device.
+ * Once its location expires the standby drops it from the folder, though its
+ * syncthing is still connected, and what it writes from then on reaches no holder.
+ * FDM still names it, so the standby stays a standby.
+ *
+ * Then the machine dies. Changes on the standby's disk to a file and a directory the
+ * primary wrote are held by no other device: syncthing reverts such a change by
+ * deleting it, which a directory that is not empty refuses for ever. The rest of the
+ * folder is unchanged, so the standby's copy still reads as synced and the revert is
+ * due. The standby keeps the changes, takes the app over with the primary's data
+ * intact, and a new standby syncs that copy.
  *
  * A = the standby, B = the primary, C = the new standby.
  */
@@ -22,7 +25,9 @@ import { expect } from 'chai';
 import {
   placeSilentPrimaryApp, A, B, C,
 } from '../framework/silent-primary.js';
-import { crashFluxos, execInContainer, stopAppContainer } from '../framework/container.js';
+import {
+  crashFluxos, execInContainer, releaseFluxos, stopAppContainer,
+} from '../framework/container.js';
 import {
   getDeviceId, getConnectedDevices, getFolderConfig, getFileInfo, isDaemonUp, readPath, scanFolder, stopDaemon,
 } from '../framework/syncthing-real.js';
@@ -36,14 +41,18 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 const SIGTERM_EXPIRY_S = 120;
 // The harness's syncthing monitor passes every 3s; this is several of them.
 const MONITOR_PASSES_MS = 30000;
-// A machine that dies closes none of its connections, so the standby's syncthing
-// holds them until its own receive timeout (5 min, not compressed by the harness).
-// Then a few election passes and a container start.
+// A few election passes and a container start.
 const TAKEOVER_MS = 10 * 60 * 1000;
 // syncthing's FlagLocalReceiveOnly
 const RECEIVE_ONLY_CHANGE_FLAG = 8;
 const SAVE = 'appdata/save-b';
 const SAVE_CONTENT = 'written by the primary';
+const LISTED = 'appdata/written-while-listed';
+const FENCED = 'appdata/written-after-expiry';
+// Lookups of the primary's device on the standby, each one pass.
+const LOOKUP_PASSES = 3;
+// Where a node's syncthing monitor took each device it looked up, counted per source.
+const DEVICE_SOURCES = ['verified', 'verifiedNoDevice', 'introduced', 'withheld', 'held', 'unsigned', 'configured'];
 
 function step(what) {
   console.log(`# 3310 ${new Date().toISOString()} ${what}`);
@@ -58,6 +67,18 @@ describe('a primary that went quiet and then died is taken over', function () {
   const client = (i) => fleet.env.clients[i];
   let primaryDevice;
   let afterDeath;
+  // How long the primary's write took to reach the standby while it was listed.
+  let listedSyncMs;
+  const lookups = async () => {
+    const counts = await Promise.all(DEVICE_SOURCES.map((source) => client(A)
+      .getDecisionCount('syncthing:deviceSource', `${client(B).ip}:16127`, source)));
+    return counts.reduce((sum, n) => sum + n, 0);
+  };
+  async function writeOnPrimary(path, content) {
+    const wrote = await execInContainer(client(B).container, `printf '${content}' > ${root}/${path}`);
+    if (wrote.exitCode !== 0) throw new Error(`could not write on the primary: ${wrote.output}`);
+    await scanFolder(client(B), folder);
+  }
 
   before(async function () {
     this.timeout(900000);
@@ -77,21 +98,48 @@ describe('a primary that went quiet and then died is taken over', function () {
     await fleet?.env?.teardown();
   });
 
-  it('keeps a primary whose location expired in the folder while it is connected', async function () {
-    this.timeout(300000);
+  it('keeps a listed primary whose FluxOS does not answer in the folder, across a restart of the standby\'s FluxOS', async function () {
+    this.timeout(600000);
     step('the primary stops announcing; its syncthing and app carry on');
     await crashFluxos(client(B).container, { hold: true });
     expect(await isDaemonUp(client(B)), 'the primary\'s syncthing went down with its FluxOS, so nothing here is tested').to.equal(true);
+
+    step('the standby\'s FluxOS restarts, holding nothing for the primary\'s device');
+    await crashFluxos(client(A).container, { hold: true });
+    await releaseFluxos(client(A).container);
+    await waitFor(async () => (await lookups()) >= LOOKUP_PASSES, {
+      timeout: 240000, interval: 3000, label: `${LOOKUP_PASSES} lookups of the primary's device on the restarted standby`,
+    });
+    const devices = (await getFolderConfig(client(A), folder))?.devices?.map((d) => d.deviceID) ?? [];
+    expect(devices, 'the standby dropped a listed primary from the folder once it could not ask it for its device').to.include(primaryDevice);
+    expect(await client(A).getDecisionCount('syncthing:deviceSource', `${client(B).ip}:16127`, 'configured'),
+      'the standby never took the primary\'s device from its own configuration').to.be.at.least(1);
+
+    const startedAt = Date.now();
+    await writeOnPrimary(LISTED, 'written while listed');
+    await waitFor(async () => (await readPath(client(A), `${root}/${LISTED}`)) === 'written while listed', {
+      timeout: 120000, interval: 1000, label: 'the listed primary\'s write reached the standby',
+    });
+    listedSyncMs = Date.now() - startedAt;
+    expect(fleet.twoRan, 'the standby started beside a primary that still runs').to.deep.equal([]);
+  });
+
+  it('drops the primary from the folder once its location expires, and what it writes then reaches no holder', async function () {
+    this.timeout(300000);
     const expired = await Promise.all([A, C].map((i) => dbClient(i + 1).expireAppLocation(appName, client(B).ip)));
     expect(expired[0], 'the standby held no location for the primary, so none expired').to.be.at.least(1);
+    await waitFor(async () => !((await getFolderConfig(client(A), folder))?.devices ?? [])
+      .some((d) => d.deviceID === primaryDevice), {
+      timeout: 120000, interval: 3000, label: 'the standby drops the primary no location lists from the folder',
+    });
 
-    await sleepUnlessInfraDead(MONITOR_PASSES_MS);
+    step('the primary writes after its location expired');
+    await writeOnPrimary(FENCED, 'written after expiry');
+    // Connected and fenced: the write would arrive over this connection if the
+    // folder were still shared with it.
     expect(await getConnectedDevices(client(A)), 'the primary\'s syncthing is not connected to the standby').to.include(primaryDevice);
-    const host = (ip) => String(ip).split(':')[0];
-    const primaryRows = (await dbClient(A + 1).getAppLocations(appName)).filter((row) => host(row.ip) === host(client(B).ip));
-    expect(primaryRows.length, 'a location for the primary came back').to.equal(0);
-    const devices = (await getFolderConfig(client(A), folder))?.devices?.map((d) => d.deviceID) ?? [];
-    expect(devices, 'the standby dropped a connected primary from the folder').to.include(primaryDevice);
+    await sleepUnlessInfraDead(Math.max(MONITOR_PASSES_MS, 5 * listedSyncMs));
+    expect(await readPath(client(A), `${root}/${FENCED}`), 'the write of a primary no location lists reached the standby').to.equal(null);
     expect(fleet.twoRan, 'the standby started beside a primary that still runs').to.deep.equal([]);
   });
 
@@ -100,10 +148,6 @@ describe('a primary that went quiet and then died is taken over', function () {
     step('the primary\'s machine dies');
     await stopAppContainer(client(B).container, appName, appName);
     await stopDaemon(client(B));
-    await waitFor(async () => !((await getFolderConfig(client(A), folder))?.devices ?? [])
-      .some((d) => d.deviceID === primaryDevice), {
-      timeout: 600000, interval: 5000, label: 'the standby drops the dead primary from the folder',
-    });
 
     step('the standby\'s copy of the primary\'s data changes on its disk');
     afterDeath = client(A).getLastEventId();
@@ -132,6 +176,7 @@ describe('a primary that went quiet and then died is taken over', function () {
       timeout: TAKEOVER_MS, interval: 5000, label: 'the standby takes the app over',
     });
     expect(await readPath(client(A), `${root}/${SAVE}`), 'the primary\'s file is gone from the standby').to.equal(SAVE_CONTENT);
+    expect(await readPath(client(A), `${root}/${FENCED}`), 'the dead primary\'s write from after its location expired reached the standby').to.equal(null);
     expect((await readPath(client(A), `${root}/appdata/seed-data`))?.trim(), 'the primary\'s data is gone from the standby').to.equal('seeded');
     const kept = client(A).getEventBuffer().some((e) => e.id > afterDeath && e.event === 'syncthing:localChangesKept'
       && e.data?.folder === folder);
@@ -147,5 +192,6 @@ describe('a primary that went quiet and then died is taken over', function () {
       timeout: 300000, interval: 5000, label: 'the new standby holds the primary\'s data',
     });
     await client(C).waitForEvent('syncthing:folderReady', (d) => d.folder === folder, 240000, { afterId: afterInstall });
+    expect(await readPath(client(C), `${root}/${FENCED}`), 'the dead primary\'s write from after its location expired reached the new standby').to.equal(null);
   });
 });
