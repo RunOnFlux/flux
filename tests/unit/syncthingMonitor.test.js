@@ -2018,7 +2018,9 @@ describe('syncthingMonitor tests', () => {
   // folder drops syncthing's whole record of the app: the index, the peer
   // devices and, on the next pass, any mount-safety demotion standing on it.
   describe('a peer no location names any more', () => {
-    function folderSharedWithPeer() {
+    // The peer's device is configured; `peerInFolder` is whether syncthing's
+    // folder still lists it, as it does until a folder write takes it out.
+    function folderSharedWithPeer({ peerInFolder = false } = {}) {
       mockState.backupInProgress = [];
       mockState.restoreInProgress = [];
       syncthingMonitorHelpersMock.buildDeviceConfiguration.callsFake(async () => [{ deviceID: 'DEVICE-ID' }]);
@@ -2028,7 +2030,7 @@ describe('syncthingMonitor tests', () => {
       fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
       mockInstalledAppsFn.resolves({ status: 'success', data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }] });
       syncthingServiceMock.getConfigFolders.resolves([
-        { id: 'testapp', type: 'receiveonly', devices: [{ deviceID: 'DEVICE-ID' }, { deviceID: 'PEER-DEVICE' }] },
+        { id: 'testapp', type: 'receiveonly', devices: [{ deviceID: 'DEVICE-ID' }, ...(peerInFolder ? [{ deviceID: 'PEER-DEVICE' }] : [])] },
       ]);
       syncthingServiceMock.getConfigDevices.resolves([{ deviceID: 'PEER-DEVICE' }]);
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
@@ -2045,7 +2047,7 @@ describe('syncthingMonitor tests', () => {
     // A node whose FluxOS has stopped answering stops announcing while its
     // syncthing and its app carry on; once its location expires its writes reach
     // no holder through this one.
-    it('removes its device though it is connected and shares the folder', async () => {
+    it('removes its device though it is connected, once no folder lists it', async () => {
       folderSharedWithPeer();
       syncthingServiceMock.getDbCompletion.withArgs({ folder: 'testapp', device: 'PEER-DEVICE' }).resolves({ remoteState: 'valid' });
 
@@ -2055,8 +2057,35 @@ describe('syncthingMonitor tests', () => {
       sinon.assert.calledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
     });
 
+    // Syncthing drops a deleted device from every folder that lists it, outside
+    // the folder's writes, which a revert of a standby's changes holds off.
+    it('keeps its device while a folder still lists it', async () => {
+      folderSharedWithPeer({ peerInFolder: true });
+      syncthingServiceMock.getDbCompletion.withArgs({ folder: 'testapp', device: 'PEER-DEVICE' }).resolves({ remoteState: 'valid' });
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      sinon.assert.calledOnce(syncthingServiceMock.getDeviceStats);
+      sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
+    });
+
     // Its connection record is what proves it gone to a standby that remembers it as
     // the app's primary.
+    it('keeps its device while a folder this pass deletes still lists it', async () => {
+      folderSharedWithPeer();
+      syncthingServiceMock.getConfigFolders.resolves([
+        { id: 'testapp', type: 'receiveonly', devices: [{ deviceID: 'DEVICE-ID' }] },
+        { id: 'goneapp', type: 'receiveonly', devices: [{ deviceID: 'DEVICE-ID' }, { deviceID: 'PEER-DEVICE' }] },
+      ]);
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      sinon.assert.calledWithExactly(syncthingServiceMock.adjustConfigFolders, 'delete', undefined, 'goneapp');
+      sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
+    });
+
     it('keeps the entry of a device it dropped while syncthing saw it within a day', async () => {
       folderSharedWithPeer();
       syncthingServiceMock.getDeviceStats.resolves({ 'PEER-DEVICE': { lastSeen: new Date(Date.now() - 60 * 60 * 1000).toISOString() } });

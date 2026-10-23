@@ -929,12 +929,19 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // A device seen within UNUSED_DEVICE_KEEP_MS stays too, unless another device
     // is configured under its name - then it is not the device at that address -
     // and every device stays while when each was last seen cannot be read.
+    // A device any folder lists stays as well: syncthing drops a deleted device
+    // from every folder that lists it, outside the folder's writes here, and a
+    // revert of a standby's changes holds the folder's devices fixed only against
+    // those writes. It leaves its folders through the folder writes below, and is
+    // deleted by the first pass that finds it in none.
     const deviceStats = unsafeFolderIds.size > 0 ? null : await syncthingService.getDeviceStats().catch(() => null);
     const seenRecently = (deviceID) => Date.now() - Date.parse(deviceStats?.[deviceID]?.lastSeen) < UNUSED_DEVICE_KEEP_MS;
     const nameHeldByAnother = (device) => Boolean(device.name)
       && allDevices.some((other) => other.deviceID !== device.deviceID && other.name === device.name);
+    const listedInAFolder = new Set(allFolders.flatMap((folder) => (folder.devices ?? []).map(({ deviceID }) => deviceID)));
     const nonUsedDevices = !deviceStats ? [] : allDevices.filter(
       (syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID) && syncthingDevice.deviceID !== localDeviceId
+        && !listedInAFolder.has(syncthingDevice.deviceID)
         && (!seenRecently(syncthingDevice.deviceID) || nameHeldByAnother(syncthingDevice)),
     );
 
