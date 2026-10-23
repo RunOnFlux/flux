@@ -320,12 +320,12 @@ describe('hostStallService tests', () => {
         while (!release) await new Promise((resolve) => { setImmediate(resolve); }); // eslint-disable-line no-await-in-loop
       });
 
-      it('leaves the kept state as it was', async () => {
+      it('still keeps the state being written', async () => {
         const stopped = hostStallService.stop();
         release();
         await Promise.all([stopped, reading]);
 
-        expect(fs.readdirSync(procRoot).filter((entry) => entry.startsWith('flux-host-stall'))).to.deep.equal([]);
+        expect(kept().threads.map(([, thread]) => thread.tid)).to.deep.equal(['101']);
       });
 
       it('resolves once the write has ended', async () => {

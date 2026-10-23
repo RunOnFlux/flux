@@ -168,20 +168,14 @@ function describe(thread) {
 
 /**
  * Keep the trip and every thread's count, so a FluxOS restart before the next
- * reboot carries both on. A stop() that overtakes it leaves the kept state as it
- * was.
- * @param {number} startedIn The generation of the reading this keeps.
- * @param {string} stateFile Where that reading keeps it.
+ * reboot carries both on.
  */
-async function keepState(startedIn, stateFile) {
+async function keepState() {
   const trip = fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL) ? tripReason : null;
+  const { stateFile } = paths;
   const staged = `${stateFile}.tmp`;
   try {
     await fs.writeFile(staged, JSON.stringify({ trip, threads: [...tracked] }));
-    if (startedIn !== generation) {
-      await fs.rm(staged, { force: true });
-      return;
-    }
     await fs.rename(staged, stateFile);
   } catch (error) {
     log.error(`hostStall - the state could not be kept: ${error.message}`);
@@ -243,12 +237,11 @@ async function act() {
 async function readOnce(options = {}) {
   usePaths(options);
   const startedIn = generation;
-  const { stateFile } = paths;
   const threads = await readDependencyThreads(paths.procRoot);
   if (startedIn !== generation) return;
   tracked = carryForward(threads);
   await act();
-  keeping = keepState(startedIn, stateFile);
+  keeping = keepState();
   await keeping;
 }
 
@@ -276,8 +269,7 @@ async function start(options = {}) {
 
 /**
  * Take no more readings and forget every thread.
- * @returns {Promise<void>} Resolves once the state being kept, if any, is written
- *   or left.
+ * @returns {Promise<void>} Resolves once the state being kept, if any, is written.
  */
 function stop() {
   generation += 1;
