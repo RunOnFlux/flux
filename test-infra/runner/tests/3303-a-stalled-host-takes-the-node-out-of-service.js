@@ -9,8 +9,9 @@ import { bootAndPeer, seedSpawnerApp } from '../framework/reconciler-suite.js';
 import { buildSeedableTestApp } from '../framework/seed-helper.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import {
-  freezeDocker, thawDocker, freezeConfig, thawConfig, FLUXOS_CONFIG,
+  freezeDocker, thawDocker, freezeConfig, thawConfig, FLUXOS_CONFIG, DOCKER_ROOT,
   thawEveryNode, stuckThreads, processesThatCanRun, containerCgroup,
+  stallDisk, resumeDisk, readsHeld,
 } from '../framework/host-stall.js';
 import {
   DOCKERD_UNIT, freezeUnit, restartFluxos, unitCgroup,
@@ -33,7 +34,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // apps has every one of them stopped within that one window, long before even one
 // removal's deadline. A node whose FluxOS config directory, where the trip is
 // recorded, is frozen as well stops its apps all the same, and records the trip
-// once the directory takes writes again.
+// once the directory takes writes again. A node whose docker disk stops answering
+// reads as well, so docker's own records of its containers cannot be read, stops
+// and kills its apps through their slices within the same window.
 //
 // The nodes run systemd, so docker uses its systemd cgroup driver and every app's
 // containers live in the app's own slice, as on a production node. The node the
@@ -53,6 +56,8 @@ const STALL_MS = READ_INTERVAL_MS * STUCK_INTERVALS;
 const OWNER = 'hostStall';
 const ARCANE = [0, 1, 2];
 const LEGACY_UNPRIVILEGED = 3;
+// an Arcane node of its own: every case leaves its node out of service
+const DISK_STALLED = 4;
 
 const byOwner = (data) => data.owner === OWNER;
 const outOfServiceForTheStall = (data) => data.dosState >= 100
@@ -92,9 +97,9 @@ describe('a stalled host takes the node out of service', function () {
     this.timeout(480000);
     env = await createTestEnv({
       hookCtx: this,
-      nodes: 4,
+      nodes: 5,
       tickerAutostart: false,
-      freezableDockerRoot: [0, 1, 2, 3],
+      freezableDockerRoot: [0, 1, 2, 3, DISK_STALLED],
       freezableConfig: [0, 1, 2, 3],
       legacyNodes: [LEGACY_UNPRIVILEGED],
       unprivilegedNodes: [LEGACY_UNPRIVILEGED],
@@ -398,6 +403,66 @@ describe('a stalled host takes the node out of service', function () {
       await waitFor(async () => (await execInContainer(recContainer, `grep -q 'Host stall' ${record}`)).exitCode === 0, {
         timeout: 30000, interval: 1000, label: 'the trip recorded once the config directory came back',
       });
+    });
+  });
+
+  describe('a stall past the threshold, on a node whose docker disk stops answering reads', function () {
+    const diskName = `e2ehoststalldisk${Date.now()}`;
+    let diskClient;
+    let diskContainer;
+    let anchor;
+    let readsWereHeld;
+    let runningBefore;
+    let trippedAt;
+    let stopped;
+    let runnableAfterWindow;
+
+    before(async function () {
+      this.timeout(480000);
+      diskClient = env.clients[DISK_STALLED];
+      ({ container: diskContainer } = diskClient);
+      await installOn(env, diskName, [DISK_STALLED]);
+      await waitForUp(diskClient, diskName, `${diskName} is up`);
+      anchor = diskClient.getLastEventId();
+      step(`stalling node ${DISK_STALLED}'s docker disk`);
+      await stallDisk(diskContainer, DOCKER_ROOT);
+      readsWereHeld = await readsHeld(diskContainer, `${DOCKER_ROOT}/containers`, { file: 'config.v2.json' });
+      runningBefore = await sliceProcessesThatCanRun(diskContainer, diskName);
+      const trip = await diskClient.waitForEvent('dos:changed', outOfServiceForTheStall, STALL_MS + READ_INTERVAL_MS * 4, { afterId: anchor })
+        .catch(() => null);
+      trippedAt = trip ? Date.now() : null;
+      // the records' read waits one window, and the stop another
+      stopped = (await diskClient.waitForEvent('hostStall:appsStopped', () => true, STOP_WINDOW_MS * 2 + KILL_SLACK_MS, { afterId: anchor })
+        .catch(() => null))?.data ?? null;
+      runnableAfterWindow = trippedAt ? await sliceProcessesThatCanRun(diskContainer, diskName) : null;
+      step('read the app after the stop window');
+    });
+
+    after(async function () {
+      if (!diskClient) return;
+      await resumeDisk(diskContainer, DOCKER_ROOT).catch(() => {});
+      await thawEveryNode([diskClient]);
+    });
+
+    it('held every read of docker\'s records of its containers, while the app could run', function () {
+      expect(readsWereHeld, 'a read of docker\'s container records returned, so the disk was never held').to.equal(true);
+      expect(runningBefore, 'the app was not running, so there was nothing to stop').to.not.be.empty;
+    });
+
+    it('takes the node out of service', function () {
+      expect(trippedAt, 'the node never went out of service for the stall, so nothing below was tested').to.not.equal(null);
+    });
+
+    it('stops the app though docker\'s records cannot be read', function () {
+      expect(STOP_WINDOW_MS * 2 + KILL_SLACK_MS, 'fixture: the record read, the window and the kill do not fit inside one removal\'s deadline').to.be.below(REMOVAL_DEADLINE_MS);
+      expect(stopped, 'the node never stopped its apps while docker\'s records could not be read').to.not.equal(null);
+      expect(runnableAfterWindow, `${diskName} can still run after the stop window`).to.deep.equal([]);
+    });
+
+    it('says nothing of the app can run, every container on the node being in its slice', function () {
+      const app = stopped?.apps.find((a) => a.app === diskName);
+      expect(app, 'the node did not name the app among those it stopped').to.not.equal(undefined);
+      expect(app.runnable, 'the node reports the app as one it cannot tell can still run, or names its processes').to.deep.equal([]);
     });
   });
 });
