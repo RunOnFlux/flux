@@ -50,9 +50,6 @@ module.exports = {
     readIntervalMs: 5 * 60 * 1000,
     stuckIntervals: 6,
     stopWindowMs: 60 * 1000,
-    // How long a start waits to read the trip record. A healthy disk reads it in
-    // milliseconds.
-    recordReadMs: 10 * 1000,
   },
   database: {
     url: '127.0.0.1',

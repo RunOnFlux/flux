@@ -12,8 +12,6 @@ yarn-error.log*
 /test/e2e/reports/
 selenium-debug.log
 config/userconfig.js
-config/hostStall.json
-config/hostStall.json.tmp
 ZelApps
 appvolumes
 .nyc_output/

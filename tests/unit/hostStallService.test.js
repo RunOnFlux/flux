@@ -42,8 +42,7 @@ describe('hostStallService tests', () => {
 
   const stuckMongod = (switches = 40) => processWith('100', 'mongod', [{ tid: '101', state: 'D', switches }, { tid: '102', state: 'S', switches: 5 }]);
   const read = () => hostStallService.readOnce(paths);
-  const bootIs = (id) => fs.writeFileSync(paths.bootIdPath, `${id}\n`);
-  const record = () => JSON.parse(fs.readFileSync(paths.recordFile, 'utf8'));
+  const kept = () => JSON.parse(fs.readFileSync(paths.stateFile, 'utf8'));
   async function readTimes(n) {
     for (let i = 0; i < n; i += 1) await read(); // eslint-disable-line no-await-in-loop
   }
@@ -56,8 +55,7 @@ describe('hostStallService tests', () => {
     fs.mkdirSync(path.join(procRoot, 'self', 'ns'), { recursive: true });
     fs.symlinkSync('pid:[4026531836]', path.join(procRoot, 'self', 'ns', 'pid'));
     fs.writeFileSync(path.join(procRoot, 'self', 'status'), 'Name:\tnode\nNSpid:\t4242\n');
-    paths = { procRoot, recordFile: path.join(procRoot, 'hostStall.json'), bootIdPath: path.join(procRoot, 'boot_id') };
-    bootIs('boot-one');
+    paths = { procRoot, stateFile: path.join(procRoot, 'flux-host-stall.json') };
   });
 
   afterEach(() => {
@@ -224,10 +222,9 @@ describe('hostStallService tests', () => {
       sinon.assert.calledOnce(listener);
     });
 
-    it('tells a listener when a trip recorded in this boot is restored at start', async () => {
+    it('tells a listener when a kept trip is restored at start', async () => {
       stuckMongod();
       await readTimes(stuckIntervals + 1);
-      while (!fs.existsSync(paths.recordFile)) await new Promise((resolve) => { setImmediate(resolve); }); // eslint-disable-line no-await-in-loop
       hostStallService.stop();
       fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
       const listener = sinon.stub();
@@ -239,37 +236,32 @@ describe('hostStallService tests', () => {
     });
   });
 
-  describe('the trip record', () => {
-    const settled = () => new Promise((resolve) => { setImmediate(resolve); });
-    // The trip, and its record on disk where the boot id says one is made.
-    async function trip() {
-      stuckMongod();
-      await readTimes(stuckIntervals + 1);
-      while (fs.existsSync(paths.bootIdPath) && !fs.existsSync(paths.recordFile)) await settled(); // eslint-disable-line no-await-in-loop
-    }
-    // Every write of the record to disk, held until released.
-    function holdRecordWrites() {
-      const writeFile = fs.promises.writeFile.bind(fs.promises);
-      const held = [];
-      sinon.stub(fs.promises, 'writeFile').callsFake((file, ...rest) => (file.startsWith(paths.recordFile)
-        ? new Promise((resolve) => { held.push(() => resolve(writeFile(file, ...rest))); })
-        : writeFile(file, ...rest)));
-      return held;
-    }
+  describe('the kept state', () => {
     async function restart() {
       hostStallService.stop();
       fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
       await hostStallService.start(paths);
     }
 
-    it('records the trip with this boot\'s id', async () => {
-      await trip();
+    it('keeps the trip and every thread\'s count after each reading', async () => {
+      stuckMongod();
+      await readTimes(stuckIntervals + 1);
 
-      expect(record()).to.deep.equal({ bootId: 'boot-one', reason: fluxNetworkHelper.getDosMessage() });
+      const { trip, threads } = kept();
+      expect(trip).to.equal(fluxNetworkHelper.getDosMessage());
+      expect(threads.map(([, thread]) => [thread.tid, thread.intervals])).to.deep.equal([['101', stuckIntervals]]);
     });
 
-    it('restores the trip at a start in the same boot', async () => {
-      await trip();
+    it('keeps no trip before the node goes out of service', async () => {
+      stuckMongod();
+      await readTimes(stuckIntervals);
+
+      expect(kept().trip).to.equal(null);
+    });
+
+    it('restores the trip at a start', async () => {
+      stuckMongod();
+      await readTimes(stuckIntervals + 1);
       const reason = fluxNetworkHelper.getDosMessage();
 
       await restart();
@@ -278,37 +270,47 @@ describe('hostStallService tests', () => {
       expect(fluxNetworkHelper.getDosMessage()).to.equal(reason);
     });
 
-    it('discards a trip from an earlier boot, and stays in service', async () => {
-      await trip();
-      bootIs('boot-two');
+    it('carries a stuck thread\'s count through a restart', async () => {
+      stuckMongod();
+      await readTimes(stuckIntervals);
+      await restart();
+      expect(outOfService(), 'out of service before the readings reached the threshold').to.equal(false);
+
+      await read();
+
+      expect(outOfService(), 'the restart started the count again').to.equal(true);
+    });
+
+    it('starts the count again for a thread that ran while FluxOS was not running', async () => {
+      stuckMongod();
+      await readTimes(stuckIntervals);
+      await restart();
+      stuckMongod(41);
+
+      await read();
+
+      expect(outOfService()).to.equal(false);
+    });
+
+    it('starts in service with nothing kept', async () => {
+      await restart();
+
+      expect(outOfService()).to.equal(false);
+    });
+
+    it('starts in service when the kept state cannot be read', async () => {
+      fs.writeFileSync(paths.stateFile, '{ not json');
 
       await restart();
 
       expect(outOfService()).to.equal(false);
-      expect(fs.existsSync(paths.recordFile)).to.equal(false);
     });
 
-    it('records nothing without a boot id, and is still out of service', async () => {
-      fs.rmSync(paths.bootIdPath);
-
-      await trip();
-
-      expect(outOfService()).to.equal(true);
-      expect(fs.existsSync(paths.recordFile)).to.equal(false);
-    });
-
-    it('restores nothing and discards nothing at a start without a boot id', async () => {
-      await trip();
-      fs.rmSync(paths.bootIdPath);
-
-      await restart();
-
-      expect(outOfService()).to.equal(false);
-      expect(fs.existsSync(paths.recordFile)).to.equal(true);
-    });
-
-    it('takes the node out of service and tells its listeners while the record cannot be written', async () => {
-      holdRecordWrites();
+    it('takes the node out of service and tells its listeners when the state cannot be kept', async () => {
+      const writeFile = fs.promises.writeFile.bind(fs.promises);
+      sinon.stub(fs.promises, 'writeFile').callsFake((file, ...rest) => (file.startsWith(paths.stateFile)
+        ? Promise.reject(new Error('read-only'))
+        : writeFile(file, ...rest)));
       const listener = sinon.stub();
       hostStallService.onTrip(listener);
       stuckMongod();
@@ -317,53 +319,6 @@ describe('hostStallService tests', () => {
 
       expect(outOfService()).to.equal(true);
       sinon.assert.calledOnce(listener);
-    });
-
-    it('goes on reading while the record cannot be written', async () => {
-      holdRecordWrites();
-      stuckMongod();
-      await readTimes(stuckIntervals + 1);
-      processWith('100', 'mongod', [{ tid: '101', state: 'S', switches: 41 }]);
-
-      const outcome = await Promise.race([read().then(() => 'read'), new Promise((resolve) => { setTimeout(() => resolve('waiting'), 1000); })]);
-
-      expect(outcome, 'a reading waited on the record').to.equal('read');
-      expect(placementHeld(), 'the reading after the trip released the hold').to.equal(false);
-    });
-
-    it('starts without the record when it cannot be read in time, and restores it when the read ends', async () => {
-      await trip();
-      hostStallService.stop();
-      fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
-      const readFile = fs.promises.readFile.bind(fs.promises);
-      let finishRead = null;
-      sinon.stub(fs.promises, 'readFile').callsFake((file, ...rest) => (file === paths.recordFile
-        ? new Promise((resolve) => { finishRead = () => resolve(readFile(file, ...rest)); })
-        : readFile(file, ...rest)));
-      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-      try {
-        const started = hostStallService.start(paths);
-        let done = false;
-        started.then(() => { done = true; });
-        await clock.tickAsync(config.hostStall.recordReadMs - 1);
-        expect(done, 'the start returned before its wait for the record ran out').to.equal(false);
-        await clock.tickAsync(1);
-        await started;
-        expect(outOfService(), 'restored without a record').to.equal(false);
-
-        finishRead();
-        while (!outOfService()) await clock.tickAsync(0); // eslint-disable-line no-await-in-loop
-      } finally {
-        clock.restore();
-      }
-    });
-
-    it('starts in service when the record cannot be read', async () => {
-      fs.writeFileSync(paths.recordFile, '{ not json');
-
-      await restart();
-
-      expect(outOfService()).to.equal(false);
     });
   });
 

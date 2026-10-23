@@ -12,9 +12,10 @@
  * takes no readings while it is paused, so a pause cannot read as a stall.
  *
  * Out of service lasts until the machine reboots, through any number of FluxOS
- * restarts: the trip is recorded with the kernel's boot id, and a start in the
- * same boot restores it. The record is a file, not a database row, because the
- * database may be what is stuck.
+ * restarts, and so does the count of readings toward it. Both are kept in a file
+ * on /dev/shm, the tmpfs every Linux mounts at boot: memory, so reading it cannot
+ * stall with a disk, and emptied by a reboot and by nothing else. Not a database
+ * row, because the database may be what is stuck.
  *
  * WHAT IS READ. The threads of the processes FluxOS depends on, in FluxOS's own
  * PID namespace. An app container that runs one of the same programs has its
@@ -27,13 +28,10 @@ const path = require('path');
 const config = require('config');
 const log = require('../lib/log');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
-const { fluxDirPath } = require('./utils/appConstants');
-const { withinDeadline, TIMED_OUT } = require('./utils/withinDeadline');
 
 const DEPENDENCIES = new Set(['mongod', 'dockerd', 'containerd', 'syncthing', 'fluxd', 'fluxbenchd']);
 const READ_INTERVAL_MS = config.hostStall.readIntervalMs;
 const STUCK_INTERVALS = config.hostStall.stuckIntervals;
-const RECORD_READ_MS = config.hostStall.recordReadMs;
 
 /**
  * Every dependency thread in D at the last reading, keyed by process, thread
@@ -41,6 +39,8 @@ const RECORD_READ_MS = config.hostStall.recordReadMs;
  * @type {Map<string, {process: string, tid: string, wchan: string, switches: number, intervals: number}>}
  */
 let tracked = new Map();
+/** Why the node is out of service for a host stall, once it is. */
+let tripReason = null;
 let readTimer = null;
 // Advanced by stop(), so a reading still under way when the service stops
 // neither keeps what it read nor acts on it.
@@ -49,14 +49,13 @@ let generation = 0;
 const tripListeners = [];
 const DEFAULT_PATHS = {
   procRoot: '/proc',
-  recordFile: path.join(fluxDirPath, 'config', 'hostStall.json'),
-  bootIdPath: config.system.bootIdPath,
+  stateFile: '/dev/shm/flux-host-stall.json',
 };
 let paths = { ...DEFAULT_PATHS };
 
 /**
- * @param {{procRoot?: string, recordFile?: string, bootIdPath?: string}} options
- *   Where /proc, the trip record and the boot id are; each one given replaces it.
+ * @param {{procRoot?: string, stateFile?: string}} options
+ *   Where /proc and the kept state are; each one given replaces it.
  */
 function usePaths(options) {
   paths = { ...paths, ...options };
@@ -166,29 +165,17 @@ function describe(thread) {
 }
 
 /**
- * @returns {Promise<string|null>} This boot's id, or null when it cannot be read.
+ * Keep the trip and every thread's count, so a FluxOS restart before the next
+ * reboot carries both on.
  */
-async function currentBootId() {
-  const id = (await readOrNull(paths.bootIdPath))?.trim();
-  return id || null;
-}
-
-/**
- * Record the trip, so a FluxOS restart in this boot restores it.
- * @param {string} reason
- */
-async function recordTrip(reason) {
+async function keepState() {
+  const trip = fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL) ? tripReason : null;
   try {
-    const bootId = await currentBootId();
-    if (!bootId) {
-      log.warn('hostStall - the boot id cannot be read; the trip lasts only as long as this process');
-      return;
-    }
-    const staged = `${paths.recordFile}.tmp`;
-    await fs.writeFile(staged, JSON.stringify({ bootId, reason }));
-    await fs.rename(staged, paths.recordFile);
+    const staged = `${paths.stateFile}.tmp`;
+    await fs.writeFile(staged, JSON.stringify({ trip, threads: [...tracked] }));
+    await fs.rename(staged, paths.stateFile);
   } catch (error) {
-    log.error(`hostStall - the trip could not be recorded: ${error.message}`);
+    log.error(`hostStall - the state could not be kept: ${error.message}`);
   }
 }
 
@@ -208,23 +195,20 @@ function onTrip(listener) {
   if (fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL)) listener();
 }
 
-/** Restore a trip recorded in this boot, and discard one from an earlier boot. */
-async function restoreTrip() {
+/** Restore what an earlier FluxOS in this boot kept: the trip, and every thread's count. */
+async function restoreState() {
+  const text = await readOrNull(paths.stateFile);
+  if (text === null) return;
   try {
-    const text = await readOrNull(paths.recordFile);
-    if (text === null) return;
-    const bootId = await currentBootId();
-    if (!bootId) return;
-    const { bootId: recorded, reason } = JSON.parse(text);
-    if (recorded !== bootId) {
-      await fs.rm(paths.recordFile, { force: true });
-      log.info('hostStall - the recorded trip is from an earlier boot and is discarded');
-      return;
+    const { trip, threads } = JSON.parse(text);
+    tracked = new Map(threads);
+    if (trip) {
+      tripReason = trip;
+      fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL, trip);
+      announceTrip();
     }
-    fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL, reason);
-    announceTrip();
   } catch (error) {
-    log.error(`hostStall - the recorded trip could not be read: ${error.message}`);
+    log.error(`hostStall - the kept state could not be read: ${error.message}`);
   }
 }
 
@@ -237,12 +221,9 @@ async function act() {
   }
   fluxNetworkHelper.setPlacementHold(fluxNetworkHelper.PlacementHoldOwner.HOST_STALL, describe(longest));
   if (longest.intervals >= STUCK_INTERVALS && !fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL)) {
-    const reason = `Host stall: ${describe(longest)}`;
-    fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL, reason);
-    // Announced before it is recorded, and the reading does not wait for the record:
-    // the disk the record goes to may be the one that stalled.
+    tripReason = `Host stall: ${describe(longest)}`;
+    fluxNetworkHelper.setStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL, tripReason);
     announceTrip();
-    recordTrip(reason);
   }
 }
 
@@ -257,6 +238,7 @@ async function readOnce(options = {}) {
   if (startedIn !== generation) return;
   tracked = carryForward(threads);
   await act();
+  await keepState();
 }
 
 async function readAndReschedule() {
@@ -269,23 +251,16 @@ async function readAndReschedule() {
 }
 
 /**
- * Restore a trip recorded in this boot, then read now, and every
+ * Restore what an earlier FluxOS in this boot kept, then read now, and every
  * READ_INTERVAL_MS after each reading ends.
- *
- * A record that cannot be read within RECORD_READ_MS is not waited for further:
- * its disk is stalled, and a stall still under way takes the node out of service
- * again at the readings. A restore that ends later still restores.
  * @param {object} [options] Paths, as usePaths takes them.
- * @returns {Promise<void>} Resolves once a recorded trip is restored, or the
- *   record could not be read within RECORD_READ_MS.
+ * @returns {Promise<void>} Resolves once the kept state is restored.
  */
 async function start(options = {}) {
   if (readTimer !== null) return;
   usePaths(options);
+  await restoreState();
   readTimer = setTimeout(readAndReschedule, 0);
-  if (await withinDeadline(restoreTrip(), RECORD_READ_MS) === TIMED_OUT) {
-    log.error(`hostStall - the trip record could not be read within ${RECORD_READ_MS / 1000}s; going on without it`);
-  }
 }
 
 /** Take no more readings and forget every thread. */
@@ -294,6 +269,7 @@ function stop() {
   clearTimeout(readTimer);
   readTimer = null;
   tracked = new Map();
+  tripReason = null;
   paths = { ...DEFAULT_PATHS };
   tripListeners.length = 0;
 }
