@@ -2353,6 +2353,7 @@ describe('syncthingFolderStateMachine tests', () => {
       await stateMachine.manageFolderSyncState(mockParams);
       await checksSettled();
       const result = await stateMachine.manageFolderSyncState(mockParams);
+      await checksSettled();
 
       sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
       expect(result.syncthingFolder.type).to.equal('receiveonly');
@@ -3100,6 +3101,7 @@ describe('syncthingFolderStateMachine tests', () => {
           await stateMachine.manageFolderSyncState(mockParams);
           await checksSettled();
           expect(seeds(await stateMachine.manageFolderSyncState(mockParams))).to.equal(false);
+          await checksSettled();
           sinon.assert.calledWith(syncthingServiceMock.dbRevert, 'test-app');
         });
 
@@ -3348,6 +3350,7 @@ describe('syncthingFolderStateMachine tests', () => {
       await stateMachine.manageFolderSyncState(mockParams);
       await checksSettled();
       const result = await stateMachine.manageFolderSyncState(mockParams);
+      await checksSettled();
 
       sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
       expect(result.syncthingFolder.type).to.equal('receiveonly');

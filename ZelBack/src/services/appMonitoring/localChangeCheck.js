@@ -3,6 +3,7 @@ const log = require('../../lib/log');
 const syncthingService = require('../syncthingService');
 const messageHelper = require('../messageHelper');
 const fluxEventBus = require('../utils/fluxEventBus');
+const syncthingFolderWrites = require('./syncthingFolderWrites');
 
 // Whether a receive-only folder's local changes include the only copy of data another
 // device wrote, decided off the monitor pass.
@@ -21,10 +22,14 @@ const fluxEventBus = require('../utils/fluxEventBus');
 // neither, so an answer stands while the primary keeps writing. The pass acts on an
 // answer only while the folder still carries its stamp.
 //
-// A REVERT IS OF THE CHANGES CHECKED, AND NO OTHERS. Counts can stay the same while
-// the changes do not, so the pass does not revert itself: it asks for a revert here,
-// in the same queue as the checks, and the revert reads the folder's changes again
-// and goes ahead only while they are exactly the ones the check examined.
+// A REVERT IS OF THE CHANGES CHECKED, AND NO OTHERS, ON THE FOLDER CHECKED. Counts can
+// stay the same while the changes do not, so the pass does not revert itself: it asks
+// for a revert here, in the same queue as the checks. The revert reads the folder's
+// changes again and goes ahead only while they are exactly the ones the check
+// examined, and the folder still carries the check's stamp. The stamp is read and the
+// revert sent while the folder's config is held against every write
+// (syncthingFolderWrites), so no device leaves the folder between the two; a write
+// that arrives once syncthing has the revert waits inside syncthing for its work.
 
 // syncthing's FlagLocalReceiveOnly: an item this node changed in a receive-only folder.
 const RECEIVE_ONLY_CHANGE_FLAG = 8;
@@ -46,12 +51,13 @@ let running = null;
 
 /**
  * The folder as syncthing describes it, in the form an answer is stamped with.
- * @param {object} status The folder's db/status: its counts of receive-only changes.
+ * @param {object} status The folder's db/status: its counts of receive-only changes,
+ *   each absent one read as none.
  * @param {Array<{deviceID: string}>} devices The devices the folder is shared with.
  * @returns {string}
  */
 function stampOf(status, devices) {
-  const changes = CHANGE_COUNTS.map((count) => status?.[count] ?? null);
+  const changes = CHANGE_COUNTS.map((count) => status?.[count] ?? 0);
   const shared = devices.map((device) => device.deviceID).sort();
   return JSON.stringify({ changes, shared });
 }
@@ -167,9 +173,25 @@ async function runCheck(check) {
 }
 
 /**
+ * The folder as syncthing describes it now, in the form an answer is stamped with.
+ * @param {string} folderId
+ * @returns {Promise<string|null>} null when it could not be read
+ */
+async function currentStamp(folderId) {
+  try {
+    const [status, folder] = await Promise.all([syncthingService.getDbStatus(folderId), syncthingService.getConfigFolders(folderId)]);
+    return Array.isArray(folder?.devices) ? stampOf(status, folder.devices) : null;
+  } catch (error) {
+    log.warn(`localChangeCheck - ${folderId}: ${error.message}`);
+    return null;
+  }
+}
+
+/**
  * Reverts a folder's local changes if they are exactly the ones its answer examined,
- * and the entry has not been replaced. Otherwise the answer is dropped, so the pass
- * asks for the folder to be checked again.
+ * the folder still carries the answer's stamp, and the entry has not been replaced.
+ * Otherwise the answer is dropped, so the pass asks for the folder to be checked
+ * again; a folder that could not be read keeps it.
  * @param {{folderId: string, entry: object, answer: object, isCurrent: Function, files: number, directories: number}} job
  */
 async function runRevert(job) {
@@ -183,16 +205,26 @@ async function runRevert(job) {
     log.info(`localChangeCheck - ${folderId}: its local changes are not the ones checked; checking them again before any revert`);
     return;
   }
-  log.warn(`localChangeCheck - ${folderId} is synced but the receive-only folder has local changes (${job.files} files, ${job.directories} directories); reverting to the cluster's version`);
-  try {
-    // dataOrThrow: dbRevert answers in-band; without it a failed revert reads as reverted
-    messageHelper.dataOrThrow(await syncthingService.dbRevert(folderId));
-    // eslint-disable-next-line no-param-reassign
-    delete entry.localChangeCheck;
-    fluxEventBus.publish('syncthing:localChangesReverted', { folder: folderId, files: job.files, directories: job.directories });
-  } catch (error) {
-    log.error(`localChangeCheck - revert of local changes for ${folderId} failed: ${error.message}`);
-  }
+  await syncthingFolderWrites.exclusive([folderId], async () => {
+    const stamp = await currentStamp(folderId);
+    if (stamp === null || !job.isCurrent() || entry.localChangeCheck !== answer) return;
+    if (stamp !== answer.stamp) {
+      // eslint-disable-next-line no-param-reassign
+      delete entry.localChangeCheck;
+      log.info(`localChangeCheck - ${folderId}: the folder is not the one checked; checking it again before any revert`);
+      return;
+    }
+    log.warn(`localChangeCheck - ${folderId} is synced but the receive-only folder has local changes (${job.files} files, ${job.directories} directories); reverting to the cluster's version`);
+    try {
+      // dataOrThrow: dbRevert answers in-band; without it a failed revert reads as reverted
+      messageHelper.dataOrThrow(await syncthingService.dbRevert(folderId));
+      // eslint-disable-next-line no-param-reassign
+      delete entry.localChangeCheck;
+      fluxEventBus.publish('syncthing:localChangesReverted', { folder: folderId, files: job.files, directories: job.directories });
+    } catch (error) {
+      log.error(`localChangeCheck - revert of local changes for ${folderId} failed: ${error.message}`);
+    }
+  });
 }
 
 async function runWaitingJobs() {

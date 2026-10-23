@@ -491,6 +491,7 @@ async function changeSyncthingFolderType(folderId, folderType, {
 module.exports = {
   FOLDER_TYPE_SETTLE_MS,
   changeSyncthingFolderType,
+  exclusive,
   folderConfig,
   pauseAllFolders,
   putFolders,

@@ -2,12 +2,15 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+const syncthingFolderWrites = require('../../ZelBack/src/services/appMonitoring/syncthingFolderWrites');
 
 const syncthingServiceMock = {
   getDeviceId: sinon.stub(),
   getDbLocalChanged: sinon.stub(),
   getDbFile: sinon.stub(),
   dbRevert: sinon.stub(),
+  getDbStatus: sinon.stub(),
+  getConfigFolders: sinon.stub(),
 };
 const localChangeCheck = proxyquire('../../ZelBack/src/services/appMonitoring/localChangeCheck', {
   '../syncthingService': syncthingServiceMock,
@@ -27,6 +30,10 @@ function held(answer) {
   return { promise, release };
 }
 
+// The folder a revert's check was made against, as syncthing describes it.
+const FOLDER_STATUS = { receiveOnlyChangedFiles: 1, receiveOnlyChangedBytes: 10 };
+const FOLDER_DEVICES = [{ deviceID: 'LOCAL-DEVICE' }, { deviceID: 'PRIMARY-DEVICE' }];
+
 describe('localChangeCheck tests', () => {
   beforeEach(() => {
     syncthingServiceMock.getDeviceId.reset();
@@ -37,6 +44,10 @@ describe('localChangeCheck tests', () => {
     syncthingServiceMock.getDbFile.resolves({ global: { localFlags: 0 } });
     syncthingServiceMock.dbRevert.reset();
     syncthingServiceMock.dbRevert.resolves({ status: 'success', data: {} });
+    syncthingServiceMock.getDbStatus.reset();
+    syncthingServiceMock.getDbStatus.resolves(FOLDER_STATUS);
+    syncthingServiceMock.getConfigFolders.reset();
+    syncthingServiceMock.getConfigFolders.resolves({ devices: FOLDER_DEVICES });
   });
 
   // An answer with no only copy, as runCheck leaves it.
@@ -219,7 +230,7 @@ describe('localChangeCheck tests', () => {
     async function checked(folderId = 'fluxr_r') {
       syncthingServiceMock.getDbLocalChanged.withArgs(folderId).resolves({ files: [{ name: 'f', version: ['PRIMARY:1', 'LOCAL-D:2'] }] });
       const entry = {};
-      localChangeCheck.request(folderId, entry, 's1', () => true);
+      localChangeCheck.request(folderId, entry, localChangeCheck.stampOf(FOLDER_STATUS, FOLDER_DEVICES), () => true);
       await settled();
       return entry;
     }
@@ -305,6 +316,79 @@ describe('localChangeCheck tests', () => {
       first.release();
       await settled();
       sinon.assert.calledOnce(syncthingServiceMock.dbRevert);
+    });
+
+    it('does not revert a folder a device has left since the check, and drops the answer', async () => {
+      const entry = await checked();
+      syncthingServiceMock.getConfigFolders.resolves({ devices: [{ deviceID: 'LOCAL-DEVICE' }] });
+
+      localChangeCheck.revert('fluxr_r', entry, entry.localChangeCheck, () => true, CHANGED);
+      await settled();
+
+      sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+      expect(entry).to.not.have.property('localChangeCheck');
+    });
+
+    it('does not revert a folder whose counts of changes moved since the check, and drops the answer', async () => {
+      const entry = await checked();
+      syncthingServiceMock.getDbStatus.resolves({ ...FOLDER_STATUS, receiveOnlyChangedBytes: 11 });
+
+      localChangeCheck.revert('fluxr_r', entry, entry.localChangeCheck, () => true, CHANGED);
+      await settled();
+
+      sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+      expect(entry).to.not.have.property('localChangeCheck');
+    });
+
+    it('does not revert while the folder cannot be read, and keeps the answer', async () => {
+      const entry = await checked();
+      const answer = entry.localChangeCheck;
+      syncthingServiceMock.getConfigFolders.rejects(new Error('syncthing did not answer'));
+
+      localChangeCheck.revert('fluxr_r', entry, answer, () => true, CHANGED);
+      await settled();
+
+      sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+      expect(entry.localChangeCheck).to.equal(answer);
+    });
+
+    // The order a monitor pass makes possible: the revert is asked for, and the pass's
+    // write of the folder's devices, which drops the primary, holds the folder first.
+    it('waits for a write to the folder that holds it, and does not revert once that write has dropped a device', async () => {
+      const entry = await checked();
+      const write = held();
+      const writing = syncthingFolderWrites.exclusive(['fluxr_r'], async () => {
+        await write.promise;
+        syncthingServiceMock.getConfigFolders.resolves({ devices: [{ deviceID: 'LOCAL-DEVICE' }] });
+      });
+
+      localChangeCheck.revert('fluxr_r', entry, entry.localChangeCheck, () => true, CHANGED);
+      await settled();
+      sinon.assert.notCalled(syncthingServiceMock.getConfigFolders);
+      write.release();
+      await writing;
+      await settled();
+
+      sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+      expect(entry).to.not.have.property('localChangeCheck');
+    });
+
+    it('holds the folder against every write until the revert is sent', async () => {
+      const entry = await checked();
+      const sent = held({ status: 'success', data: {} });
+      syncthingServiceMock.dbRevert.returns(sent.promise);
+      localChangeCheck.revert('fluxr_r', entry, entry.localChangeCheck, () => true, CHANGED);
+      await settled();
+      sinon.assert.calledOnce(syncthingServiceMock.dbRevert);
+
+      let wrote = false;
+      const writing = syncthingFolderWrites.exclusive(['fluxr_r'], async () => { wrote = true; });
+      await settled();
+      expect(wrote, 'a write to the folder went in while its revert was being sent').to.equal(false);
+      sent.release();
+      await writing;
+
+      expect(wrote).to.equal(true);
     });
 
     it('does not start again a revert already running on the same answer', async () => {
