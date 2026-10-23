@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { waitForDaemonReady, waitFor } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
+import { execInContainer } from '../framework/container.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 
@@ -67,7 +68,9 @@ describe('Boot: prerequisites', function () {
   });
 
   it('should start Docker daemon inside container', async function () {
-    expect(env.nodeHasLog(0, 'dockerd is ready')).to.equal(true);
+    const unit = await execInContainer(env.clients[0].container, 'systemctl is-active dockerd');
+    expect(unit.stdout.trim()).to.equal('active');
+    expect(env.nodeHasLog(0, 'Docker daemon connected')).to.equal(true);
   });
 
   it('should initialize app spawner', async function () {
