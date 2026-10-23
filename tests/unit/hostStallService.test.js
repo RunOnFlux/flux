@@ -58,8 +58,8 @@ describe('hostStallService tests', () => {
     paths = { procRoot, stateFile: path.join(procRoot, 'flux-host-stall.json') };
   });
 
-  afterEach(() => {
-    hostStallService.stop();
+  afterEach(async () => {
+    await hostStallService.stop();
     fluxNetworkHelper.clearPlacementHold(fluxNetworkHelper.PlacementHoldOwner.HOST_STALL);
     fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
     fs.rmSync(procRoot, { recursive: true, force: true });
@@ -238,7 +238,7 @@ describe('hostStallService tests', () => {
 
   describe('the kept state', () => {
     async function restart() {
-      hostStallService.stop();
+      await hostStallService.stop();
       fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
       await hostStallService.start(paths);
     }
@@ -304,6 +304,40 @@ describe('hostStallService tests', () => {
       await restart();
 
       expect(outOfService()).to.equal(false);
+    });
+
+    describe('a stop while the state is being written', () => {
+      let release;
+      let reading;
+      beforeEach(async () => {
+        release = null;
+        const writeFile = fs.promises.writeFile.bind(fs.promises);
+        sinon.stub(fs.promises, 'writeFile').callsFake((file, ...rest) => (file.startsWith(paths.stateFile)
+          ? new Promise((resolve) => { release = () => resolve(writeFile(file, ...rest)); })
+          : writeFile(file, ...rest)));
+        stuckMongod();
+        reading = read();
+        while (!release) await new Promise((resolve) => { setImmediate(resolve); }); // eslint-disable-line no-await-in-loop
+      });
+
+      it('leaves the kept state as it was', async () => {
+        const stopped = hostStallService.stop();
+        release();
+        await Promise.all([stopped, reading]);
+
+        expect(fs.readdirSync(procRoot).filter((entry) => entry.startsWith('flux-host-stall'))).to.deep.equal([]);
+      });
+
+      it('resolves once the write has ended', async () => {
+        let done = false;
+        const stopped = hostStallService.stop().then(() => { done = true; });
+        await new Promise((resolve) => { setImmediate(resolve); });
+        expect(done, 'the stop resolved before the write ended').to.equal(false);
+
+        release();
+        await stopped;
+        await reading;
+      });
     });
 
     it('takes the node out of service and tells its listeners when the state cannot be kept', async () => {

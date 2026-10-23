@@ -45,6 +45,8 @@ let readTimer = null;
 // Advanced by stop(), so a reading still under way when the service stops
 // neither keeps what it read nor acts on it.
 let generation = 0;
+/** The state being kept, which stop() lets its caller wait for. */
+let keeping = Promise.resolve();
 /** Called once the node is out of service for a host stall. */
 const tripListeners = [];
 const DEFAULT_PATHS = {
@@ -166,14 +168,21 @@ function describe(thread) {
 
 /**
  * Keep the trip and every thread's count, so a FluxOS restart before the next
- * reboot carries both on.
+ * reboot carries both on. A stop() that overtakes it leaves the kept state as it
+ * was.
+ * @param {number} startedIn The generation of the reading this keeps.
+ * @param {string} stateFile Where that reading keeps it.
  */
-async function keepState() {
+async function keepState(startedIn, stateFile) {
   const trip = fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL) ? tripReason : null;
+  const staged = `${stateFile}.tmp`;
   try {
-    const staged = `${paths.stateFile}.tmp`;
     await fs.writeFile(staged, JSON.stringify({ trip, threads: [...tracked] }));
-    await fs.rename(staged, paths.stateFile);
+    if (startedIn !== generation) {
+      await fs.rm(staged, { force: true });
+      return;
+    }
+    await fs.rename(staged, stateFile);
   } catch (error) {
     log.error(`hostStall - the state could not be kept: ${error.message}`);
   }
@@ -234,11 +243,13 @@ async function act() {
 async function readOnce(options = {}) {
   usePaths(options);
   const startedIn = generation;
+  const { stateFile } = paths;
   const threads = await readDependencyThreads(paths.procRoot);
   if (startedIn !== generation) return;
   tracked = carryForward(threads);
   await act();
-  await keepState();
+  keeping = keepState(startedIn, stateFile);
+  await keeping;
 }
 
 async function readAndReschedule() {
@@ -263,7 +274,11 @@ async function start(options = {}) {
   readTimer = setTimeout(readAndReschedule, 0);
 }
 
-/** Take no more readings and forget every thread. */
+/**
+ * Take no more readings and forget every thread.
+ * @returns {Promise<void>} Resolves once the state being kept, if any, is written
+ *   or left.
+ */
 function stop() {
   generation += 1;
   clearTimeout(readTimer);
@@ -272,6 +287,7 @@ function stop() {
   tripReason = null;
   paths = { ...DEFAULT_PATHS };
   tripListeners.length = 0;
+  return keeping;
 }
 
 module.exports = {
