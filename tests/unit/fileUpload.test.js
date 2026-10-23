@@ -93,6 +93,7 @@ describe('fileSystemManager upload tests', () => {
       resolve: sinon.stub().callsFake(async (p) => volumePath(p)),
       staging: sinon.stub().callsFake(() => volumePath('.flux-op-abc')),
       isDirectory: sinon.stub().resolves(true),
+      parent: sinon.stub().callsFake((p) => volumePath(p.relative.includes('/') ? p.relative.slice(0, p.relative.lastIndexOf('/')) : '')),
       // Defaults to a volume with room. Left off, every upload here would be
       // refused before a byte was read and the assertions would be made against
       // the error branch; the test below flips it to assert the refusal itself.
@@ -184,6 +185,104 @@ describe('fileSystemManager upload tests', () => {
   // holding has to come back, which is the part that went wrong: the parser
   // reports a body ending, and a request refused part way through does not
   // always get that far.
+  // A folder dropped into the file browser arrives as one request per file,
+  // each naming a folder that may not exist yet. Made with a bare mkdir -p,
+  // every new level was root's and every file inherited root from it, so an app
+  // running as another user could not write inside the tree it was given.
+  describe('into a folder that is not there yet', () => {
+    const missingBelow = (existing) => {
+      sessionStub.isDirectory.callsFake(async (p) => {
+        if (existing.includes(p.relative)) return true;
+        throw new Error(`${p.relative} does not exist`);
+      });
+    };
+
+    it('makes the missing chain in one publish that takes the owner of the folder above it', async () => {
+      missingBelow(['', 'appdata']);
+      const req = multipartRequest({ 'fml.toml': 'x' }, { folder: 'appdata/config/neoforge' });
+
+      const done = concluded();
+      await fileSystemManager.uploadAppsFiles(req, res);
+      await done;
+
+      expect(executorStub.run.callCount, 'one container per level').to.equal(2);
+      const [, argv, options] = executorStub.run.firstCall.args;
+      // Built in staging and published at the highest missing level, so
+      // flux-op's walk over staging re-owns every level, not only the top.
+      expect(argv).to.deep.equal(['mkdir', '-p', '/work/.flux-op-abc/neoforge']);
+      expect(options.publish.destination.relative).to.equal('appdata/config');
+      expect(options.mkdirStaging).to.equal(true);
+      expect(options.inheritOwner, 'the new folders would be root\'s').to.equal(true);
+      expect(options.noReplace).to.equal(true);
+      expect(options.slotHeld).to.equal(true);
+      expect(sessionStub.resolve.calledWith('appdata/config'), 'the published name skipped the reserved-name checks').to.equal(true);
+      expect(executorStub.run.secondCall.args[2].publish.destination.relative).to.equal('appdata/config/neoforge/fml.toml');
+      expect(release.callCount).to.equal(1);
+    });
+
+    it('runs no command when only the folder itself is missing', async () => {
+      missingBelow(['', 'config']);
+
+      const done = concluded();
+      await fileSystemManager.uploadAppsFiles(multipartRequest({ 'a.toml': 'x' }, { folder: 'config/new' }), res);
+      await done;
+
+      const [, argv, options] = executorStub.run.firstCall.args;
+      expect(argv).to.deep.equal([]);
+      expect(options.publish.destination.relative).to.equal('config/new');
+      expect(executorStub.run.lastCall.args[2].publish.destination.relative).to.equal('config/new/a.toml');
+    });
+
+    it('refuses a reserved name in the volume root before starting anything', async () => {
+      missingBelow(['']);
+      sessionStub.resolve.callsFake(async (p) => {
+        if (p === '.stversions') throw new Error('.stversions is not an application\'s to write');
+        return volumePath(p);
+      });
+
+      const done = concluded();
+      await fileSystemManager.uploadAppsFiles(multipartRequest({ 'a.toml': 'x' }, { folder: '.stversions/x' }), res);
+      const outcome = await done;
+
+      expect(executorStub.run.called).to.equal(false);
+      expect(outcome).to.equal('answered');
+      expect(release.called).to.equal(true);
+    });
+
+    it('makes what is still missing below a level something else made first', async () => {
+      let made = false;
+      sessionStub.isDirectory.callsFake(async (p) => {
+        if (p.relative === '' || (made && p.relative === 'config')) return true;
+        throw new Error(`${p.relative} does not exist`);
+      });
+      executorStub.run.onFirstCall().callsFake(async () => {
+        made = true;
+        throw Object.assign(new Error('Destination already exists'), { code: 'EEXIST' });
+      });
+
+      const done = concluded();
+      await fileSystemManager.uploadAppsFiles(multipartRequest({ 'a.toml': 'x' }, { folder: 'config/sub' }), res);
+      await done;
+
+      expect(executorStub.run.getCalls().map((call) => call.args[2].publish.destination.relative))
+        .to.deep.equal(['config', 'config/sub', 'config/sub/a.toml']);
+      expect(res.json.called, 'the upload was refused').to.equal(false);
+    });
+
+    it('refuses when the folder could not be made, and releases the slot', async () => {
+      missingBelow(['']);
+      executorStub.run.onFirstCall().rejects(Object.assign(new Error('Destination already exists'), { code: 'EEXIST' }));
+
+      const done = concluded();
+      await fileSystemManager.uploadAppsFiles(multipartRequest({ 'a.toml': 'x' }, { folder: 'config' }), res);
+      const outcome = await done;
+
+      expect(executorStub.run.callCount, 'a file was written below a folder that was never made').to.equal(1);
+      expect(outcome).to.equal('answered');
+      expect(release.called).to.equal(true);
+    });
+  });
+
   it('releases the slot when a filename is refused, and the caller hears a refusal', async () => {
     const done = concluded();
     await fileSystemManager.uploadAppsFiles(multipartRequest({ '../../escaped.txt': 'x' }), res);
