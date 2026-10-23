@@ -54,6 +54,45 @@ export async function destroyFolderVolume(container, folderId) {
   await run(container, `umount -l ${sq(root)} && chattr -i ${sq(root)} && rm -f ${sq(folderImage(folderId))}`, `destroy the volume of ${folderId}`);
 }
 
+const folderImageHeader = (folderId) => `${folderImage(folderId)}.header`;
+
+/**
+ * Leaves a component's volume image on the node with nothing able to mount it:
+ * unmounted, its directory no longer immutable, and the image's first 4 KiB, which
+ * carry its filesystem's superblock, zeroed. The bytes are kept beside the image for
+ * restoreFolderVolume. Waits for the loop device to release the image first, so no
+ * mount still open on it writes the superblock back.
+ * @param {string} folderId The component's identifier, flux<component>_<app>.
+ */
+export async function breakFolderVolume(container, folderId) {
+  const root = folderRoot(folderId);
+  const image = folderImage(folderId);
+  await run(container, `umount -l ${sq(root)} && chattr -i ${sq(root)}`, `unmount the volume of ${folderId}`);
+  await run(
+    container,
+    `for i in $(seq 1 60); do [ -z "$(losetup -j ${sq(image)})" ] && exit 0; sleep 1; done; losetup -j ${sq(image)}; exit 1`,
+    `wait for the loop device to release the image of ${folderId}`,
+  );
+  await run(
+    container,
+    `dd if=${sq(image)} of=${sq(folderImageHeader(folderId))} bs=4096 count=1 status=none && dd if=/dev/zero of=${sq(image)} bs=4096 count=1 conv=notrunc status=none`,
+    `zero the superblock of ${folderId}`,
+  );
+  const probe = await execInContainer(container, `blkid -p ${sq(image)}`);
+  if (probe.exitCode === 0) throw new Error(`breakFolderVolume: ${image} still reads as a filesystem: ${probe.output}`);
+}
+
+/**
+ * Puts back what breakFolderVolume zeroed, so the image mounts again.
+ * @param {string} folderId The component's identifier, flux<component>_<app>.
+ */
+export async function restoreFolderVolume(container, folderId) {
+  const image = folderImage(folderId);
+  const header = folderImageHeader(folderId);
+  await run(container, `dd if=${sq(header)} of=${sq(image)} bs=4096 count=1 conv=notrunc status=none && rm -f ${sq(header)}`, `restore the superblock of ${folderId}`);
+  await run(container, `blkid -p ${sq(image)}`, `read the restored image of ${folderId} as a filesystem`);
+}
+
 /**
  * destroyFolderVolume for an app whose one component shares its name.
  */
