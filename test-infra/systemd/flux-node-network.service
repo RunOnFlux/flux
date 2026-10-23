@@ -1,9 +1,10 @@
 [Unit]
 Description=Node network shape and global IPv6 (harness node)
 # Built once dockerd answers and before FluxOS starts: a node reads its network at
-# boot, and dockerd refuses to start under the routes a shape adds.
+# boot, and dockerd refuses to start under the routes a shape adds. Wanted, not
+# required: a dockerd restart leaves this unit and FluxOS running, as on a node.
 After=dockerd.service
-Requires=dockerd.service
+Wants=dockerd.service
 Before=fluxos.service pm2-fluxuser.service
 
 [Service]
