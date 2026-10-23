@@ -798,9 +798,9 @@ async function holderIsGone(appId, holderIp, liveness) {
   const answer = await liveness.read(holderIp);
   if (answer.reachable) return false;
 
-  const verdict = await silenceVerdict(appId, holderIp, liveness);
+  const verdict = await silenceVerdict(holderIp, liveness);
   if (verdict === SilenceVerdict.CONNECTION_ALIVE) {
-    log.info(`holderIsGone - ${extractIp(holderIp)}'s API is silent, but this node's syncthing still holds a live connection to it for ${appId}; it is restarting, not gone`);
+    log.info(`holderIsGone - ${extractIp(holderIp)}'s API is silent, but this node's syncthing still holds a live connection to it; ${appId}'s holder is restarting, not gone`);
     fluxEventBus.publish('syncthing:holderRetained', { folder: appId, holder: holderIp, reason: 'connectionAlive' });
     return false;
   }

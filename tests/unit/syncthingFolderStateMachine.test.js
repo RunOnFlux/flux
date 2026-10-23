@@ -19,6 +19,7 @@ const syncthingServiceMock = {
   systemRestart: sinon.stub(),
   getConfig: sinon.stub(),
   getDbCompletion: sinon.stub(),
+  getConnectedDeviceIds: sinon.stub(),
   // findSyncedPeer asks for this node's own device so it can skip it: every
   // folder's device list begins with the local device, and its copy trivially
   // reports 100% complete.
@@ -224,6 +225,9 @@ describe('syncthingFolderStateMachine tests', () => {
     syncthingServiceMock.systemRestart.resolves();
     syncthingServiceMock.getConfig.reset();
     syncthingServiceMock.getDbCompletion.reset();
+    syncthingServiceMock.getConnectedDeviceIds.reset();
+    // default: this node's syncthing is connected to no device
+    syncthingServiceMock.getConnectedDeviceIds.resolves(new Set());
     syncthingServiceMock.getConfigDevices.reset();
     // default: this node's syncthing has no device configured for the peer either,
     // so a cache miss stays a genuine "cannot say" rather than silently resolving
@@ -1507,7 +1511,10 @@ describe('syncthingFolderStateMachine tests', () => {
         globalBytes: 100000, inSyncBytes: 100000, state: 'idle', receiveOnlyChangedFiles: 0,
       });
       globalStateMock.syncthingDevicesIDCache.set('10.0.0.1:16127', 'HOLDER-DEVICE-ID');
-      syncthingServiceMock.getDbCompletion.resolves({ remoteState: 'valid', completion: 100, globalBytes: 100000 });
+      syncthingServiceMock.getDbCompletion.resolves({ remoteState: 'notSharing', completion: 100, globalBytes: 100000 });
+      // Connected, though the folder is not shared with it: a holder no location
+      // lists is dropped from the folder while its syncthing stays connected.
+      syncthingServiceMock.getConnectedDeviceIds.resolves(new Set(['HOLDER-DEVICE-ID']));
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
@@ -1516,13 +1523,6 @@ describe('syncthingFolderStateMachine tests', () => {
       // follower reaches sendreceive by its own route and that route is not what
       // this guard governs.
       expect(result.cache.designatedLeader).to.not.equal(true);
-      // Asked about THIS folder: the completion endpoint's aggregate form never
-      // sets remoteState, so a query without one reports 'unknown' and would
-      // veto nothing.
-      const asked = syncthingServiceMock.getDbCompletion.getCalls()
-        .find((call) => call.args[0]?.device === 'HOLDER-DEVICE-ID');
-      expect(asked, 'the holder was never asked about').to.not.equal(undefined);
-      expect(asked.args[0].folder).to.equal('test-app');
     });
 
     it('leaves a holder that answers an error status in the election - it replied, so it is alive', async () => {

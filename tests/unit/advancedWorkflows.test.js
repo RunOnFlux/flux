@@ -803,7 +803,7 @@ describe('advancedWorkflows tests', () => {
     let shuttingDownNodesStub;
     let dockerServiceStub;
     let syncthingServiceStub;
-    let syncthingCompletionStub;
+    let syncthingConnectedStub;
     let syncthingDeviceStatsStub;
     let syncthingStatusStub;
     let syncthingDevicesStub;
@@ -895,7 +895,8 @@ describe('advancedWorkflows tests', () => {
       // (no device ever resolved) on a healthy fleet, so a test that wants a
       // silence acted on has to supply the evidence for it.
       const syncthingServiceModule = require('../../ZelBack/src/services/syncthingService');
-      syncthingCompletionStub = sinon.stub(syncthingServiceModule, 'getDbCompletion').resolves(null);
+      sinon.stub(syncthingServiceModule, 'getDbCompletion').resolves(null);
+      syncthingConnectedStub = sinon.stub(syncthingServiceModule, 'getConnectedDeviceIds').resolves(new Set());
       syncthingDevicesStub = sinon.stub(syncthingServiceModule, 'getConfigDevices').resolves([]);
       // default: this node's syncthing has never been connected to any peer
       syncthingDeviceStatsStub = sinon.stub(syncthingServiceModule, 'getDeviceStats').resolves({});
@@ -1159,13 +1160,13 @@ describe('advancedWorkflows tests', () => {
     };
 
     // This node's own syncthing view of a peer's device, which is what a silence is
-    // judged on. 'valid' is a live connection; any other state is a closed one if
-    // the connection was ever up, and no answer if it never was; and leaving the
+    // judged on. 'connected' is a live connection; 'closed' is a closed one if the
+    // connection was ever up, and no answer if it never was; and leaving the
     // device out of the cache entirely is the third answer - this node never
     // resolved the peer and cannot say.
-    const peerSyncthingSays = (peerSocketAddr, remoteState, { everConnected = true } = {}) => {
+    const peerSyncthingSays = (peerSocketAddr, connection, { everConnected = true } = {}) => {
       globalState.syncthingDevicesIDCache.set(peerSocketAddr, `DEVICE-${peerSocketAddr}`);
-      syncthingCompletionStub.resolves({ remoteState });
+      syncthingConnectedStub.resolves(new Set(connection === 'connected' ? [`DEVICE-${peerSocketAddr}`] : []));
       syncthingDeviceStatsStub.resolves(everConnected
         ? { [`DEVICE-${peerSocketAddr}`]: { lastSeen: '2026-09-25T14:00:00Z' } }
         : { [`DEVICE-${peerSocketAddr}`]: { lastSeen: '1970-01-01T00:00:00Z' } });
@@ -1624,7 +1625,7 @@ describe('advancedWorkflows tests', () => {
         serviceHelperStub.resolves(fdmNoPrimary());
         axiosGetStub.resetBehavior();
         axiosGetStub.rejects(new Error('previous primary unreachable'));
-        peerSyncthingSays(PEER, 'valid');
+        peerSyncthingSays(PEER, 'connected');
         await runPass();
         sinon.assert.notCalled(releaseOperatorStart);
 
@@ -1644,7 +1645,7 @@ describe('advancedWorkflows tests', () => {
         serviceHelperStub.resolves(fdmNoPrimary());
         axiosGetStub.resetBehavior();
         axiosGetStub.rejects(new Error('peer unreachable'));
-        peerSyncthingSays(PEER, 'valid');
+        peerSyncthingSays(PEER, 'connected');
 
         await runPass();
 
@@ -2537,7 +2538,7 @@ describe('advancedWorkflows tests', () => {
       peerIdentityService.askSigned.withArgs('192.168.1.90:16127').resolves({
         verdict: peerIdentityService.IdentityVerdict.UNREACHABLE, reason: 'connect ECONNREFUSED',
       });
-      peerSyncthingSays('192.168.1.90:16127', 'valid');
+      peerSyncthingSays('192.168.1.90:16127', 'connected');
 
       await runPass();
 
@@ -2974,7 +2975,7 @@ describe('advancedWorkflows tests', () => {
       serviceHelperStub.resolves(fdmNoPrimary());
       // the peer answers nothing at all (the axios default), but its sync connection
       // to this node is open
-      peerSyncthingSays('192.168.1.90:16127', 'valid');
+      peerSyncthingSays('192.168.1.90:16127', 'connected');
 
       await runPass();
 
@@ -3009,7 +3010,7 @@ describe('advancedWorkflows tests', () => {
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
-      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      peerSyncthingSays('192.168.1.90:16127', 'closed');
 
       await runPass();
 
@@ -3025,7 +3026,7 @@ describe('advancedWorkflows tests', () => {
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
-      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      peerSyncthingSays('192.168.1.90:16127', 'closed');
       shuttingDownNodesStub.resolves(['192.168.1.90:16127']);
 
       await runPass();
@@ -3040,7 +3041,7 @@ describe('advancedWorkflows tests', () => {
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
-      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      peerSyncthingSays('192.168.1.90:16127', 'closed');
       shuttingDownNodesStub.resolves(['192.168.1.90:16137']);
 
       await runPass();
@@ -3054,7 +3055,7 @@ describe('advancedWorkflows tests', () => {
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
-      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      peerSyncthingSays('192.168.1.90:16127', 'closed');
       shuttingDownNodesStub.rejects(new Error('database unavailable'));
 
       await runPass();
@@ -3078,7 +3079,6 @@ describe('advancedWorkflows tests', () => {
       // nothing cached, but this node's syncthing still has the device configured
       // under the name the monitor gave it, and reports the connection closed
       syncthingDevicesStub.resolves([{ name: '192.168.1.90:16127', deviceID: 'DEVICE-DEAD-PEER' }]);
-      syncthingCompletionStub.resolves({ remoteState: 'unknown' });
       syncthingDeviceStatsStub.resolves({ 'DEVICE-DEAD-PEER': { lastSeen: '2026-09-25T14:00:00Z' } });
 
       await runPass();
@@ -3096,7 +3096,7 @@ describe('advancedWorkflows tests', () => {
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
-      peerSyncthingSays('192.168.1.90:16127', 'unknown', { everConnected: false });
+      peerSyncthingSays('192.168.1.90:16127', 'closed', { everConnected: false });
 
       await runPass();
 
@@ -3111,7 +3111,7 @@ describe('advancedWorkflows tests', () => {
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
-      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      peerSyncthingSays('192.168.1.90:16127', 'closed');
       syncthingDevicesStub.resolves([{ name: '192.168.1.90:16127', deviceID: 'DEVICE-192.168.1.90:16127', paused: true }]);
 
       await runPass();
@@ -3127,7 +3127,7 @@ describe('advancedWorkflows tests', () => {
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
-      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      peerSyncthingSays('192.168.1.90:16127', 'closed');
       syncthingStatusStub.resolves({ startTime: '2026-09-25T14:00:30Z' });
 
       await runPass();
@@ -3143,7 +3143,7 @@ describe('advancedWorkflows tests', () => {
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
-      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      peerSyncthingSays('192.168.1.90:16127', 'closed');
       syncthingStatusStub.resolves({ startTime: '2026-09-25T14:00:00Z' });
 
       await runPass();
@@ -3158,7 +3158,7 @@ describe('advancedWorkflows tests', () => {
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
-      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      peerSyncthingSays('192.168.1.90:16127', 'closed');
       syncthingStatusStub.resolves({ startTime: '2026-09-25T13:59:59Z' });
 
       await runPass();
@@ -3182,7 +3182,7 @@ describe('advancedWorkflows tests', () => {
         sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
         const runPass = electionFixture(appName, [PEER]);
         serviceHelperStub.resolves(fdmNoPrimary());
-        peerSyncthingSays(PEER, 'unknown', options);
+        peerSyncthingSays(PEER, 'closed', options);
         syncthingStatusStub.resolves({ startTime });
         return runPass;
       };
@@ -3253,7 +3253,7 @@ describe('advancedWorkflows tests', () => {
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
-      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      peerSyncthingSays('192.168.1.90:16127', 'closed');
       syncthingStatusStub.rejects(new Error('syncthing did not answer'));
 
       await runPass();
@@ -3267,7 +3267,7 @@ describe('advancedWorkflows tests', () => {
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
-      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      peerSyncthingSays('192.168.1.90:16127', 'closed');
       syncthingDevicesStub.rejects(new Error('syncthing did not answer'));
 
       await runPass();
@@ -3282,7 +3282,7 @@ describe('advancedWorkflows tests', () => {
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
-      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      peerSyncthingSays('192.168.1.90:16127', 'closed');
       syncthingDeviceStatsStub.rejects(new Error('syncthing busy'));
 
       await runPass();
@@ -3300,7 +3300,7 @@ describe('advancedWorkflows tests', () => {
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
-      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      peerSyncthingSays('192.168.1.90:16127', 'closed');
       const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
       fluxCommunication.peerResponsiveness.returns({ responding: 1, total: 8 });
 
@@ -3321,7 +3321,7 @@ describe('advancedWorkflows tests', () => {
       serviceHelperStub.resolves(fdmNoPrimary());
       axiosGetStub.resetBehavior();
       axiosGetStub.rejects(Object.assign(new Error('Request failed with status code 500'), { response: { status: 500 } }));
-      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      peerSyncthingSays('192.168.1.90:16127', 'closed');
 
       await runPass();
 
@@ -3536,7 +3536,7 @@ describe('advancedWorkflows tests', () => {
       serviceHelperStub.resolves(fdmNoPrimary());
       axiosGetStub.resetBehavior();
       axiosGetStub.rejects(Object.assign(new Error('Request failed with status code 500'), { response: { status: 500 } }));
-      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      peerSyncthingSays('192.168.1.90:16127', 'closed');
 
       await runPass();
 
@@ -3835,7 +3835,7 @@ describe('advancedWorkflows tests', () => {
       serviceHelperStub.resolves(fdmNoPrimary());
       axiosGetStub.resetBehavior();
       axiosGetStub.rejects(new Error('previous primary unreachable'));
-      peerSyncthingSays('192.168.1.90:16127', 'valid');
+      peerSyncthingSays('192.168.1.90:16127', 'connected');
 
       await runPass();
 
@@ -3913,18 +3913,77 @@ describe('advancedWorkflows tests', () => {
         axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
         await runPass();
 
-        // Its location lapses and FDM names nobody; its address is silent, and this
-        // node's syncthing is connected to its device.
+        // FDM names nobody; its address is silent, and this node's syncthing is
+        // connected to its device.
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves(fdmNoPrimary());
+        registryManagerStub.resolves([
+          { name: appName, ip: '192.168.1.5:16127', runningSince: '2026-01-01T00:00:00.000Z' },
+          { name: appName, ip: PRIMARY, runningSince: '2026-01-01T00:00:00.000Z' },
+        ]);
+        axiosGetStub.resetBehavior();
+        axiosGetStub.rejects(new Error('silent'));
+        peerSyncthingSays(PRIMARY, 'connected');
+        logInfo.resetHistory();
+        await runPass();
+
+        expect(axiosGetStub.getCalls().some((call) => String(call.args[0]).includes(PRIMARY))).to.equal(true);
+        expect(linesMatching(logInfo, 'still holds a live connection to it')).to.have.lengthOf(1);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      });
+
+      // Its location expired, so every holder has dropped it from the app's folders
+      // and what it writes reaches none of them: it is out of the app, whatever its
+      // syncthing still says.
+      it('takes a remembered primary no location lists as out of the app, without asking it', async () => {
+        const appName = 'unlistedprimary';
+        const PRIMARY = '192.168.1.90:16127';
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+        const logInfo = sinon.stub(log, 'info');
+        const count = sinon.stub(fluxEventBus, 'count');
+        const runPass = electionFixture(appName, [PRIMARY]);
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves(fdmNames('192.168.1.90'));
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+        await runPass();
+
         serviceHelperStub.resetBehavior();
         serviceHelperStub.resolves(fdmNoPrimary());
         registryManagerStub.resolves([{ name: appName, ip: '192.168.1.5:16127', runningSince: '2026-01-01T00:00:00.000Z' }]);
         axiosGetStub.resetBehavior();
         axiosGetStub.rejects(new Error('silent'));
-        peerSyncthingSays(PRIMARY, 'valid');
+        peerSyncthingSays(PRIMARY, 'connected');
         logInfo.resetHistory();
         await runPass();
 
-        expect(axiosGetStub.getCalls().some((call) => String(call.args[0]).includes(PRIMARY))).to.equal(true);
+        expect(axiosGetStub.getCalls().some((call) => String(call.args[0]).includes(PRIMARY)), 'the unlisted primary was asked').to.equal(false);
+        sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'previousPrimaryUnlisted');
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+      });
+
+      // Canary for the test above: listed, the same silent and connected primary
+      // keeps the app.
+      it('keeps the app for a remembered primary a location still lists, silent and connected', async () => {
+        const appName = 'listedprimary';
+        const PRIMARY = '192.168.1.90:16127';
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+        const logInfo = sinon.stub(log, 'info');
+        const runPass = electionFixture(appName, [PRIMARY]);
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves(fdmNames('192.168.1.90'));
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+        await runPass();
+
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves(fdmNoPrimary());
+        axiosGetStub.resetBehavior();
+        axiosGetStub.rejects(new Error('silent'));
+        peerSyncthingSays(PRIMARY, 'connected');
+        logInfo.resetHistory();
+        await runPass();
+
         expect(linesMatching(logInfo, 'still holds a live connection to it')).to.have.lengthOf(1);
         expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
       });

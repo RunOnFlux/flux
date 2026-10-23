@@ -192,21 +192,19 @@ async function peerComponentState(peerSocketAddr, {
 /**
  * What a peer that did not reply at all can be shown to be doing with an app's
  * g: components: free only when this node's own syncthing shows the peer's
- * connection gone for every one of their folders. A folder still connected is a
- * component the peer may still be writing.
+ * connection gone. A peer still connected may still be writing them.
  * @param {string} peerSocketAddr The peer's socket address.
  * @param {object} ctx As peerComponentState.
  * @returns {Promise<string>} NOT_RUNNING or UNKNOWN.
  */
 async function silentPeerState(peerSocketAddr, {
-  appIds, identifier, appName, liveness, label, logPrefix,
+  identifier, appName, liveness, label, logPrefix,
 }) {
   const ipToCheck = extractIp(peerSocketAddr);
-  const verdicts = await Promise.all(appIds.map((appId) => silenceVerdict(appId, peerSocketAddr, liveness)));
-  const verdict = verdicts.find((each) => each !== SilenceVerdict.GONE) ?? SilenceVerdict.GONE;
+  const verdict = await silenceVerdict(peerSocketAddr, liveness);
   fluxEventBus.count('peer:silenceVerdict', identifier, verdict);
   if (verdict === SilenceVerdict.GONE) {
-    log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} is silent and this node's syncthing shows its connection for ${appIds.join(', ')} gone - the app is free there`);
+    log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} is silent and this node's syncthing shows its connection gone - the app is free there`);
     return PeerComponent.NOT_RUNNING;
   }
   log.info(`${logPrefix}: peer node (${label}) at ${ipToCheck} is silent for app:${appName} and ${SILENCE_REASONS[verdict]}, will not start`);

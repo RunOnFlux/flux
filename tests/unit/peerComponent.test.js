@@ -142,14 +142,13 @@ describe('peerComponent tests', () => {
     });
 
     describe('a peer that does not answer', () => {
-      // This node's syncthing saw the peer after it started, and holds no live
-      // connection to it for whichever folders the test names.
-      const evidence = (connectedFolders) => {
+      // This node's syncthing saw the peer after it started, and holds a live
+      // connection to it or not, whatever folders it shares with it.
+      const evidence = ({ connected }) => {
         sinon.stub(axios, 'get').rejects(new Error('connect ECONNREFUSED'));
         sinon.stub(syncthingService, 'getConfigDevices').resolves([{ name: PEER, deviceID: 'PEERDEVICE' }]);
-        sinon.stub(syncthingService, 'getDbCompletion').callsFake(async ({ folder }) => ({
-          remoteState: connectedFolders.includes(folder) ? 'valid' : 'notSharing',
-        }));
+        sinon.stub(syncthingService, 'getConnectedDeviceIds').resolves(new Set(connected ? ['PEERDEVICE'] : []));
+        sinon.stub(syncthingService, 'getDbCompletion').resolves({ remoteState: 'notSharing' });
         sinon.stub(syncthingService, 'getDeviceStats').resolves({ PEERDEVICE: { lastSeen: '2026-10-16T10:00:00Z' } });
         sinon.stub(syncthingService, 'getSystemStatus').resolves({ startTime: '2026-10-16T09:00:00Z' });
         sinon.stub(registryManager, 'shuttingDownNodes').resolves([]);
@@ -159,22 +158,16 @@ describe('peerComponent tests', () => {
         globalState.syncthingDevicesIDCache.clear();
       });
 
-      it('frees the app when its connection is gone for every g: folder', async () => {
-        evidence([]);
+      it('frees the app when its connection is gone', async () => {
+        evidence({ connected: false });
 
         expect(await peerComponentState(PEER, appCtx)).to.equal(PeerComponent.NOT_RUNNING);
       });
 
-      // Canary for the test above: the same peer with one folder still connected
-      // is one that may still be writing it.
-      it('does not free the app while one g: folder is still connected to it', async () => {
-        evidence(['fluxweb_a']);
-
-        expect(await peerComponentState(PEER, appCtx)).to.equal(PeerComponent.UNKNOWN);
-      });
-
-      it('does not free the app while the anchor\'s folder is still connected to it', async () => {
-        evidence(['fluxdb_a']);
+      // Canary for the test above. The folders are not shared with it, as for a
+      // peer no location lists any more: the connection alone is what keeps it.
+      it('does not free the app while its syncthing is still connected, whatever folders it shares', async () => {
+        evidence({ connected: true });
 
         expect(await peerComponentState(PEER, appCtx)).to.equal(PeerComponent.UNKNOWN);
       });

@@ -944,6 +944,16 @@ async function folderCompleteOnPeers(folder, myId, connectedPeers) {
 }
 
 /**
+ * The devices this node's syncthing holds a live connection to, whatever folders
+ * they share.
+ * @returns {Promise<Set<string>>} Device ids
+ */
+async function getConnectedDeviceIds() {
+  const { connections = {} } = await request('get', '/rest/system/connections');
+  return new Set(Object.keys(connections).filter((id) => connections[id]?.connected));
+}
+
+/**
  * Syncthing's statistics per device, keyed by device id. lastSeen is when the
  * device last connected or disconnected, to the second, and "now" while it is
  * connected; a device this node has never been connected to reads 1970-01-01.
@@ -1021,8 +1031,7 @@ async function drainFoldersToPeers(timeoutMs) {
   const folders = (await getConfigFolders()).filter((folder) => folder.type === 'sendreceive');
   if (!folders.length) return [];
   const myId = await getDeviceId();
-  const { connections = {} } = await request('get', '/rest/system/connections');
-  const connectedPeers = new Set(Object.keys(connections).filter((id) => connections[id]?.connected));
+  const connectedPeers = await getConnectedDeviceIds();
   const scans = await Promise.allSettled(folders.map((folder) => scanFolder(folder.id, {
     timeoutMs: Math.max(1, deadline - monotonicMs()),
   })));
@@ -2753,6 +2762,7 @@ module.exports = {
   eachDbLocalChanged,
   dbRevert,
   drainFoldersToPeers,
+  getConnectedDeviceIds,
   getDeviceStats,
   scanFolder,
   // EVENTS
