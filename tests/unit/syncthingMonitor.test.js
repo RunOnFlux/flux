@@ -2070,8 +2070,6 @@ describe('syncthingMonitor tests', () => {
       sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
     });
 
-    // Its connection record is what proves it gone to a standby that remembers it as
-    // the app's primary.
     it('keeps its device while a folder this pass deletes still lists it', async () => {
       folderSharedWithPeer();
       syncthingServiceMock.getConfigFolders.resolves([
@@ -2086,6 +2084,8 @@ describe('syncthingMonitor tests', () => {
       sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
     });
 
+    // Its connection record is what proves it gone to a standby that remembers it as
+    // the app's primary.
     it('keeps the entry of a device it dropped while syncthing saw it within a day', async () => {
       folderSharedWithPeer();
       syncthingServiceMock.getDeviceStats.resolves({ 'PEER-DEVICE': { lastSeen: new Date(Date.now() - 60 * 60 * 1000).toISOString() } });
