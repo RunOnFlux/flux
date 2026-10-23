@@ -315,6 +315,13 @@ if [ -n "$FLUX_FLUXOS_USER" ]; then
   printf '[Service]\nUser=%s\n' "$FLUX_FLUXOS_USER" > /etc/systemd/system/fluxos.service.d/user.conf
   chown "$(id -u "$FLUX_FLUXOS_USER"):$(id -g "$FLUX_FLUXOS_USER")" "${FLUX_APPS_FOLDER:-/mnt/appdata/flux-apps}"
 fi
+# A legacy node's FluxOS starts syncthing outside its own process tree, and pm2,
+# which runs FluxOS on a legacy node, signals only that tree when FluxOS stops or
+# dies: syncthing runs on. The fluxos unit signals FluxOS's own process alone.
+if [ -z "$FLUXOS_PATH" ] && [ "$FLUX_PM2" != "1" ]; then
+  mkdir -p /etc/systemd/system/fluxos.service.d
+  printf '[Service]\nKillMode=process\n' > /etc/systemd/system/fluxos.service.d/legacy.conf
+fi
 if [ -n "$FLUX_SYNCTHING_HOST" ]; then
   ln -sf /etc/systemd/system/syncthing-forward.service /etc/systemd/system/multi-user.target.wants/syncthing-forward.service
 fi
