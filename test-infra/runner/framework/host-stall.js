@@ -5,15 +5,13 @@
 // (stallDisk), every read is held as well, which is what a disk that stops answering
 // does to everything on it.
 //
-// The node is booted with createTestEnv({ freezableDockerRoot: [index] }), or
-// freezableConfig, which mounts that directory on a filesystem of its own, through a
-// device-mapper device of its own. The env's teardown thaws and resumes it, so a node
+// The node is booted with createTestEnv({ freezableDockerRoot: [index] }), which
+// mounts its docker data root on a filesystem of its own, through a device-mapper
+// device of its own. The env's teardown thaws and resumes it, so a node
 // a failing test left held can still be stopped.
 import { execInContainer } from './container.js';
 
 export const DOCKER_ROOT = '/mnt/appdata/docker';
-// A harness node's FluxOS directory is /flux, legacy and Arcane alike.
-export const FLUXOS_CONFIG = '/flux/config';
 
 async function run(container, command, what) {
   const result = await execInContainer(container, command);
@@ -33,20 +31,6 @@ export async function thawDocker(container) {
   await run(container, `out=$(fsfreeze -u ${DOCKER_ROOT} 2>&1) || echo "$out" | grep -q 'Invalid argument' || { echo "$out"; exit 1; }`, 'thawDocker');
 }
 
-/**
- * Hold every write the node's FluxOS makes to its config directory, until
- * thawConfig. The node is booted with createTestEnv({ freezableConfig: [index] }).
- */
-export async function freezeConfig(container) {
-  await run(container, `mountpoint -q ${FLUXOS_CONFIG}`, `${FLUXOS_CONFIG} is not a mount of its own: boot the node with freezableConfig`);
-  await run(container, `fsfreeze -f ${FLUXOS_CONFIG}`, 'freezeConfig');
-}
-
-/** Let the node's FluxOS write its config directory again. One not frozen is left as it is. */
-export async function thawConfig(container) {
-  await run(container, `out=$(fsfreeze -u ${FLUXOS_CONFIG} 2>&1) || echo "$out" | grep -q 'Invalid argument' || { echo "$out"; exit 1; }`, 'thawConfig');
-}
-
 // The device-mapper device a stallable mount sits on, in the node's shell.
 const deviceOf = (mountpoint) => `$(findmnt -no SOURCE ${mountpoint} | sed -n 's|^/dev/mapper/||p')`;
 
@@ -57,10 +41,10 @@ const deviceOf = (mountpoint) => `$(findmnt -no SOURCE ${mountpoint} | sed -n 's
  * for that filesystem only, so a read of a file or a directory listing on it
  * reaches the device and is held.
  * @param {object} container The node.
- * @param {string} mountpoint DOCKER_ROOT or FLUXOS_CONFIG, mounted stallable.
+ * @param {string} mountpoint DOCKER_ROOT, mounted stallable.
  */
 export async function stallDisk(container, mountpoint) {
-  await run(container, `d=${deviceOf(mountpoint)}; [ -n "$d" ]`, `${mountpoint} is not on a device of its own: boot the node with freezableDockerRoot or freezableConfig`);
+  await run(container, `d=${deviceOf(mountpoint)}; [ -n "$d" ]`, `${mountpoint} is not on a device of its own: boot the node with freezableDockerRoot`);
   await run(container, `fsfreeze -f ${mountpoint} && find ${mountpoint} -xdev -type f -print0 | xargs -0 -r -n 64 -P 8 sh -c 'for f; do dd if="$f" iflag=nocache count=0 status=none; done' sh`
     + ` && blockdev --flushbufs $(findmnt -no SOURCE ${mountpoint}) && dmsetup suspend --nolockfs --noflush ${deviceOf(mountpoint)}`, `stallDisk ${mountpoint}`);
 }
@@ -86,15 +70,15 @@ export async function readsHeld(container, dir, { file, overMs = 3000 } = {}) {
 }
 
 /**
- * Thaw and resume every node's docker data root and config directory that is held, and every cgroup frozen in it
+ * Thaw and resume every node's docker data root that is held, and every cgroup frozen in it
  * (systemd-control.freezeUnit), and pass over the rest: the last step before
  * anything reads a node through its docker or stops it, since a node whose docker
  * is held can be neither read nor stopped. Never rejects.
  * @param {Array<{container?: object}>} clients
  */
 export async function thawEveryNode(clients) {
-  const thaw = `for m in ${DOCKER_ROOT} ${FLUXOS_CONFIG}; do d=${deviceOf('$m')}; [ -n "$d" ] && dmsetup resume "$d" 2>/dev/null; done; `
-    + `fsfreeze -u ${DOCKER_ROOT} 2>/dev/null; fsfreeze -u ${FLUXOS_CONFIG} 2>/dev/null; `
+  const thaw = `d=${deviceOf(DOCKER_ROOT)}; [ -n "$d" ] && dmsetup resume "$d" 2>/dev/null; `
+    + `fsfreeze -u ${DOCKER_ROOT} 2>/dev/null; `
     + 'for f in $(find /sys/fs/cgroup -name cgroup.freeze 2>/dev/null); do [ "$(cat $f)" = 1 ] && echo 0 > $f; done; true';
   await Promise.all(clients.map(async (client) => {
     if (!client?.container) return;

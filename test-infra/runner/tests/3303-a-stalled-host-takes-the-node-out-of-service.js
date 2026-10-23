@@ -9,7 +9,7 @@ import { bootAndPeer, seedSpawnerApp } from '../framework/reconciler-suite.js';
 import { buildSeedableTestApp } from '../framework/seed-helper.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import {
-  freezeDocker, thawDocker, freezeConfig, thawConfig, FLUXOS_CONFIG, DOCKER_ROOT,
+  freezeDocker, thawDocker, DOCKER_ROOT,
   thawEveryNode, stuckThreads, processesThatCanRun, containerCgroup,
   stallDisk, resumeDisk, readsHeld,
 } from '../framework/host-stall.js';
@@ -32,9 +32,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // runs out. With docker frozen as well (systemd-control.freezeUnit), docker
 // cannot act at all, and the app is killed without docker. A node holding several
 // apps has every one of them stopped within that one window, long before even one
-// removal's deadline. A node whose FluxOS config directory, where the trip is
-// recorded, is frozen as well stops its apps all the same, and records the trip
-// once the directory takes writes again. A node whose docker disk stops answering
+// removal's deadline. A node whose FluxOS restarts while the stall is under way
+// carries on counting it, and goes out of service when it would have without the
+// restart. A node whose docker disk stops answering
 // reads as well, so docker's own records of its containers cannot be read, stops
 // and kills its apps through their slices within the same window.
 //
@@ -54,10 +54,16 @@ const STOP_WINDOW_MS = 10 * 1000;
 const KILL_SLACK_MS = 10 * 1000;
 const STALL_MS = READ_INTERVAL_MS * STUCK_INTERVALS;
 const OWNER = 'hostStall';
-const ARCANE = [0, 1, 2];
+// the Arcane nodes the first case's app and the several apps' case share
+const ARCANE = [0, 1];
+// an Arcane node whose FluxOS restarts mid-stall
+const RESTARTED = 2;
 const LEGACY_UNPRIVILEGED = 3;
 // an Arcane node of its own: every case leaves its node out of service
 const DISK_STALLED = 4;
+// The node whose FluxOS restarts mid-stall reads every RESTART_READ_INTERVAL_MS, so
+// the readings a restart would lose take far longer than a restart does.
+const RESTART_READ_INTERVAL_MS = 20 * 1000;
 
 const byOwner = (data) => data.owner === OWNER;
 const outOfServiceForTheStall = (data) => data.dosState >= 100
@@ -99,8 +105,8 @@ describe('a stalled host takes the node out of service', function () {
       hookCtx: this,
       nodes: 5,
       tickerAutostart: false,
-      freezableDockerRoot: [0, 1, 2, 3, DISK_STALLED],
-      freezableConfig: [0, 1, 2, 3],
+      freezableDockerRoot: [...ARCANE, RESTARTED, LEGACY_UNPRIVILEGED, DISK_STALLED],
+      nodeConfigOverrides: { [RESTARTED]: { hostStall: { readIntervalMs: RESTART_READ_INTERVAL_MS } } },
       legacyNodes: [LEGACY_UNPRIVILEGED],
       unprivilegedNodes: [LEGACY_UNPRIVILEGED],
       configOverrides: {
@@ -344,65 +350,53 @@ describe('a stalled host takes the node out of service', function () {
     });
   });
 
-  describe('a stall past the threshold, on a node whose config directory stalls too', function () {
-    const recordName = `e2ehoststallrec${Date.now()}`;
-    const record = `${FLUXOS_CONFIG}/hostStall.json`;
-    let recClient;
-    let recContainer;
+  describe('a stall past the threshold, on a node whose FluxOS restarts before the node goes out of service', function () {
+    const restartName = `e2ehoststallrestart${Date.now()}`;
+    let restartClient;
+    let restartContainer;
     let anchor;
+    let inServiceAtRestart;
+    let restartedAt;
     let trippedAt;
-    let stopped;
-    let recordedWhileFrozen;
 
     before(async function () {
-      this.timeout(480000);
-      // the Arcane node no other case here uses
-      const index = ARCANE.filter((i) => i !== node).at(-1);
-      recClient = env.clients[index];
-      ({ container: recContainer } = recClient);
-      await installOn(env, recordName, [index]);
-      await waitForUp(recClient, recordName, `${recordName} is up`);
-      anchor = recClient.getLastEventId();
-      step(`freezing node ${index}'s docker and its config directory`);
-      await freezeConfig(recContainer);
-      await freezeDocker(recContainer);
-      const trip = await recClient.waitForEvent('dos:changed', outOfServiceForTheStall, STALL_MS + READ_INTERVAL_MS * 4, { afterId: anchor })
+      this.timeout(600000);
+      restartClient = env.clients[RESTARTED];
+      ({ container: restartContainer } = restartClient);
+      await installOn(env, restartName, [RESTARTED]);
+      await waitForUp(restartClient, restartName, `${restartName} is up`);
+      anchor = restartClient.getLastEventId();
+      step(`freezing node ${RESTARTED}'s docker`);
+      await freezeDocker(restartContainer);
+      // the second reading finds docker held; three readings after it, the node is
+      // two readings short of going out of service
+      await restartClient.waitForEvent('placementHold:set', byOwner, RESTART_READ_INTERVAL_MS * 3, { afterId: anchor });
+      await new Promise((resolve) => { setTimeout(resolve, RESTART_READ_INTERVAL_MS * 3.25); });
+      inServiceAtRestart = (await restartClient.getDOSState()).data.dosState < 100;
+      const restartAnchor = restartClient.getLastEventId();
+      restartedAt = Date.now();
+      step('restarting FluxOS');
+      await restartFluxos(restartContainer, { timeout: 120000, readyTimeoutMs: 180000 });
+      const trip = await restartClient.waitForEvent('dos:changed', outOfServiceForTheStall, RESTART_READ_INTERVAL_MS * (STUCK_INTERVALS + 3), { afterId: restartAnchor })
         .catch(() => null);
       trippedAt = trip ? Date.now() : null;
-      stopped = (await recClient.waitForEvent('hostStall:appsStopped', () => true, STOP_WINDOW_MS + KILL_SLACK_MS, { afterId: anchor })
-        .catch(() => null))?.data ?? null;
-      recordedWhileFrozen = (await execInContainer(recContainer, `test -e ${record}`)).exitCode === 0;
+      step('out of service after the restart');
     });
 
     after(async function () {
-      if (recClient) await thawEveryNode([recClient]);
+      if (restartClient) await thawEveryNode([restartClient]);
     });
 
-    it('held the config directory: a write to it does not return', async function () {
-      // A write held on a frozen filesystem cannot be killed, so it is left to finish
-      // in the background, after the thaw.
-      const write = await execInContainer(recContainer,
-        `rm -f /tmp/probe-written; setsid sh -c 'touch ${FLUXOS_CONFIG}/.probe && touch /tmp/probe-written' </dev/null >/dev/null 2>&1 & sleep 3; test ! -e /tmp/probe-written`);
-      expect(write.exitCode, 'a write to the config directory returned, so the record was never held').to.equal(0);
+    it('held docker in the kernel across the restart, the node still in service when FluxOS restarted', async function () {
+      const stuck = await stuckThreads(restartContainer, 'dockerd');
+      expect(stuck, 'no dockerd thread was held across the restart, so nothing below was tested').to.not.be.empty;
+      expect(inServiceAtRestart, 'fixture: the node was out of service before FluxOS restarted').to.equal(true);
     });
 
-    it('takes the node out of service', function () {
-      expect(trippedAt, 'the node never went out of service for the stall, so nothing below was tested').to.not.equal(null);
-    });
-
-    it('stops its apps though the trip cannot be recorded', function () {
-      expect(recordedWhileFrozen, 'fixture: the trip was recorded on a frozen directory').to.equal(false);
-      expect(stopped, 'the node never stopped its apps while its trip could not be recorded').to.not.equal(null);
-      expect(stopped.apps.map((a) => a.app), 'the apps the node stopped').to.include(recordName);
-    });
-
-    it('records the trip once the config directory takes writes again', async function () {
-      this.timeout(60000);
-      await thawConfig(recContainer);
-      await thawDocker(recContainer);
-      await waitFor(async () => (await execInContainer(recContainer, `grep -q 'Host stall' ${record}`)).exitCode === 0, {
-        timeout: 30000, interval: 1000, label: 'the trip recorded once the config directory came back',
-      });
+    it('goes out of service after the restart when it would have without it', function () {
+      expect(trippedAt, 'the node never went out of service after the restart').to.not.equal(null);
+      // two readings were left when FluxOS restarted; a count started again needs all of them
+      expect(trippedAt - restartedAt, 'the restart started the count of readings again').to.be.below(RESTART_READ_INTERVAL_MS * 3);
     });
   });
 
