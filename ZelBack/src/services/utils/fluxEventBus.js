@@ -59,6 +59,8 @@ const Checkpoint = Object.freeze({
   // A state sync has every answer it needs and the node has not yet become
   // authoritative from them, so it still refuses to answer a peer's sync.
   APPSYNC_BEFORE_AUTHORITATIVE: 'appSync:beforeAuthoritative',
+  // The explorer is about to process a block, and has not fetched it yet.
+  EXPLORER_BEFORE_BLOCK: 'explorer:beforeBlock',
   // A start decision is about to ask a peer what it holds. Keyed by the peer's
   // socket address.
   MASTERSLAVE_BEFORE_PEER_PROBE: 'masterSlave:beforePeerProbe',
