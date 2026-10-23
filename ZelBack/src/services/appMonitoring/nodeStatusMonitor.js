@@ -152,7 +152,7 @@ async function unloadForHostStall(installedAppsFn, removeAppLocallyFn) {
     const containers = Array.isArray(read) ? read : null;
     if (!containers) log.error(`monitorNodeStatus - host stall: docker's container records could not be read (${read === TIMED_OUT ? 'no answer' : 'refused'}); containers outside the app slices cannot be found`);
     const names = [...new Set([...installed, ...await appKill.appsOnDisk(containers)])];
-    log.warn(`monitorNodeStatus - host stall: stopping ${names.length} applications, ${STOP_WINDOW_MS / 1000}s between them`);
+    log.warn(`monitorNodeStatus - host stall: stopping ${names.length} applications within one ${STOP_WINDOW_MS / 1000}s window`);
     await withinDeadline(Promise.allSettled(names.map((name) => stopApp(name, containers))), STOP_WINDOW_MS);
 
     const stopped = new Map();
