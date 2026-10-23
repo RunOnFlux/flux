@@ -9,7 +9,10 @@
  * the node goes out of service until it reboots.
  *
  * Readings are counted rather than time measured: a VM its hypervisor paused
- * takes no readings while it is paused, so a pause cannot read as a stall.
+ * takes no readings while it is paused, so a pause cannot read as a stall. A
+ * reading counts only when one interval has passed, by the machine's uptime,
+ * since the reading the thread's count last moved at: FluxOS takes a reading as
+ * it starts, and a start soon after another adds nothing.
  *
  * Out of service lasts until the machine reboots, through any number of FluxOS
  * restarts, and so does the count of readings toward it. Both are kept in a file
@@ -32,11 +35,14 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const DEPENDENCIES = new Set(['mongod', 'dockerd', 'containerd', 'syncthing', 'fluxd', 'fluxbenchd']);
 const READ_INTERVAL_MS = config.hostStall.readIntervalMs;
 const STUCK_INTERVALS = config.hostStall.stuckIntervals;
+// /proc/uptime is written in hundredths of a second.
+const UPTIME_RESOLUTION_MS = 10;
 
 /**
  * Every dependency thread in D at the last reading, keyed by process, thread
- * and the thread's start time so a reused id is a new thread.
- * @type {Map<string, {process: string, tid: string, wchan: string, switches: number, intervals: number}>}
+ * and the thread's start time so a reused id is a new thread, with its count
+ * and the uptime its count last moved at.
+ * @type {Map<string, {process: string, tid: string, wchan: string, switches: number, intervals: number, countedAtMs: number}>}
  */
 let tracked = new Map();
 /** Why the node is out of service for a host stall, once it is. */
@@ -139,19 +145,39 @@ async function readDependencyThreads(procRoot) {
 }
 
 /**
+ * The machine's uptime, which runs on through FluxOS restarts and starts again
+ * only at a boot.
+ * @param {string} procRoot
+ * @returns {Promise<number|null>} Milliseconds, or null when it cannot be read.
+ */
+async function readUptimeMs(procRoot) {
+  const seconds = Number((await readOrNull(path.join(procRoot, 'uptime')))?.split(' ')[0]);
+  return Number.isFinite(seconds) ? seconds * 1000 : null;
+}
+
+/**
  * Carry each thread's count of intervals stuck from the last reading to this
- * one. A thread that ran, or left D, starts again.
+ * one. A thread that did not run adds one once an interval has passed since its
+ * count last moved, and keeps its count before then. A thread that ran, or left
+ * D, starts again.
  * @param {Array<object>} threads One reading.
+ * @param {number} nowMs The uptime the reading was taken at.
  * @returns {Map<string, object>}
  */
-function carryForward(threads) {
+function carryForward(threads, nowMs) {
   const next = new Map();
   threads.filter((thread) => thread.state === 'D').forEach((thread) => {
     const key = `${thread.process}/${thread.pid}/${thread.tid}/${thread.startTime}`;
     const before = tracked.get(key);
-    const intervals = before && before.switches === thread.switches ? before.intervals + 1 : 0;
+    let intervals = 0;
+    let countedAtMs = nowMs;
+    if (before && before.switches === thread.switches) {
+      const intervalPassed = nowMs - before.countedAtMs + UPTIME_RESOLUTION_MS >= READ_INTERVAL_MS;
+      intervals = intervalPassed ? before.intervals + 1 : before.intervals;
+      countedAtMs = intervalPassed ? nowMs : before.countedAtMs;
+    }
     next.set(key, {
-      process: thread.process, tid: thread.tid, wchan: thread.wchan, switches: thread.switches, intervals,
+      process: thread.process, tid: thread.tid, wchan: thread.wchan, switches: thread.switches, intervals, countedAtMs,
     });
   });
   return next;
@@ -237,9 +263,14 @@ async function act() {
 async function readOnce(options = {}) {
   usePaths(options);
   const startedIn = generation;
+  const nowMs = await readUptimeMs(paths.procRoot);
+  if (nowMs === null) {
+    log.error('hostStall - the uptime could not be read; this reading is not taken');
+    return;
+  }
   const threads = await readDependencyThreads(paths.procRoot);
   if (startedIn !== generation) return;
-  tracked = carryForward(threads);
+  tracked = carryForward(threads, nowMs);
   await act();
   keeping = keepState();
   await keeping;

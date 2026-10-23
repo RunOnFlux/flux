@@ -7,7 +7,7 @@ const config = require('config');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const hostStallService = require('../../ZelBack/src/services/hostStallService');
 
-const { stuckIntervals } = config.hostStall;
+const { stuckIntervals, readIntervalMs } = config.hostStall;
 
 describe('hostStallService tests', () => {
   let procRoot;
@@ -41,10 +41,29 @@ describe('hostStallService tests', () => {
   }
 
   const stuckMongod = (switches = 40) => processWith('100', 'mongod', [{ tid: '101', state: 'D', switches }, { tid: '102', state: 'S', switches: 5 }]);
-  const read = () => hostStallService.readOnce(paths);
+  // The machine's uptime in the fake /proc, which a reading reads.
+  let uptimeMs;
+  function setUptime(ms) {
+    uptimeMs = ms;
+    fs.writeFileSync(path.join(procRoot, 'uptime'), `${(ms / 1000).toFixed(2)} 0.00\n`);
+  }
+  const passMs = (ms) => setUptime(uptimeMs + ms);
+  // A reading one interval after the last, as the service's own timer takes them.
+  const read = () => {
+    passMs(readIntervalMs);
+    return hostStallService.readOnce(paths);
+  };
   const kept = () => JSON.parse(fs.readFileSync(paths.stateFile, 'utf8'));
   async function readTimes(n) {
     for (let i = 0; i < n; i += 1) await read(); // eslint-disable-line no-await-in-loop
+  }
+  // A start takes a reading of its own, as soon as it has restored the kept state;
+  // this waits for that reading to be kept, so no other reading runs beside it.
+  const keptAtMs = () => (fs.existsSync(paths.stateFile) ? fs.statSync(paths.stateFile).mtimeMs : null);
+  async function startAndRead() {
+    const before = keptAtMs();
+    await hostStallService.start(paths);
+    while (keptAtMs() === before) await new Promise((resolve) => { setTimeout(resolve, 1); }); // eslint-disable-line no-await-in-loop
   }
   const placementHeld = () => fluxNetworkHelper.isPlacementHeld();
   const outOfService = () => fluxNetworkHelper.isStickyDosHeldBy(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
@@ -56,6 +75,7 @@ describe('hostStallService tests', () => {
     fs.symlinkSync('pid:[4026531836]', path.join(procRoot, 'self', 'ns', 'pid'));
     fs.writeFileSync(path.join(procRoot, 'self', 'status'), 'Name:\tnode\nNSpid:\t4242\n');
     paths = { procRoot, stateFile: path.join(procRoot, 'flux-host-stall.json') };
+    setUptime(1000000);
   });
 
   afterEach(async () => {
@@ -72,6 +92,7 @@ describe('hostStallService tests', () => {
     const otherRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hoststall-other-'));
     fs.mkdirSync(path.join(otherRoot, 'self'));
     fs.writeFileSync(path.join(otherRoot, 'self', 'status'), 'Name:\tnode\nNSpid:\t4242\n');
+    fs.writeFileSync(path.join(otherRoot, 'uptime'), '1000.00 0.00\n');
     let finishReading = null;
     const readdir = fs.promises.readdir.bind(fs.promises);
     sinon.stub(fs.promises, 'readdir').callsFake((dir, ...rest) => (dir === otherRoot
@@ -230,7 +251,7 @@ describe('hostStallService tests', () => {
       const listener = sinon.stub();
       hostStallService.onTrip(listener);
 
-      await hostStallService.start(paths);
+      await startAndRead();
 
       sinon.assert.calledOnce(listener);
     });
@@ -240,7 +261,7 @@ describe('hostStallService tests', () => {
     async function restart() {
       await hostStallService.stop();
       fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.HOST_STALL);
-      await hostStallService.start(paths);
+      await startAndRead();
     }
 
     it('keeps the trip and every thread\'s count after each reading', async () => {
@@ -353,6 +374,56 @@ describe('hostStallService tests', () => {
 
       expect(outOfService()).to.equal(true);
       sinon.assert.calledOnce(listener);
+    });
+  });
+
+  describe('the time between readings', () => {
+    it('adds nothing for a reading taken before an interval has passed since the count moved', async () => {
+      stuckMongod();
+      await readTimes(stuckIntervals);
+      passMs(readIntervalMs - 1000);
+
+      await hostStallService.readOnce(paths);
+
+      expect(outOfService()).to.equal(false);
+      expect(kept().threads.map(([, thread]) => thread.intervals)).to.deep.equal([stuckIntervals - 1]);
+    });
+
+    it('counts a reading one interval after the count moved, by the uptime\'s resolution', async () => {
+      stuckMongod();
+      await readTimes(stuckIntervals);
+      passMs(readIntervalMs - 10);
+
+      await hostStallService.readOnce(paths);
+
+      expect(outOfService()).to.equal(true);
+    });
+
+    it('goes out of service only once the thread has been held for the configured intervals, however often FluxOS restarts', async () => {
+      const RESTART_EVERY_MS = 15000;
+      stuckMongod();
+      await read();
+      const heldSince = uptimeMs;
+      while (!outOfService()) {
+        await hostStallService.stop(); // eslint-disable-line no-await-in-loop
+        passMs(RESTART_EVERY_MS);
+        await startAndRead(); // eslint-disable-line no-await-in-loop
+        expect(uptimeMs - heldSince, 'never went out of service').to.be.below(2 * stuckIntervals * readIntervalMs);
+      }
+
+      expect(uptimeMs - heldSince).to.be.within(stuckIntervals * readIntervalMs, stuckIntervals * readIntervalMs + RESTART_EVERY_MS);
+    });
+
+    it('takes no reading while the uptime cannot be read', async () => {
+      stuckMongod();
+      await readTimes(2);
+      fs.rmSync(path.join(procRoot, 'uptime'));
+      stuckMongod(41);
+
+      await hostStallService.readOnce(paths);
+
+      expect(kept().threads.map(([, thread]) => thread.intervals)).to.deep.equal([1]);
+      expect(placementHeld()).to.equal(true);
     });
   });
 
