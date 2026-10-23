@@ -8,6 +8,10 @@
  * folder's changes again, while a further change lands, does not go ahead until the
  * folder is checked again.
  *
+ * And it is of the folder checked: one held while the primary's location expires and
+ * the primary leaves the standby's folder, which makes the standby's change to the
+ * primary's file the only copy, does not go ahead, and that change is kept.
+ *
  * A = the standby, B = the primary, C = holds nothing.
  */
 import {
@@ -17,8 +21,11 @@ import { expect } from 'chai';
 import {
   placeSilentPrimaryApp, A, B,
 } from '../framework/silent-primary.js';
-import { execInContainer } from '../framework/container.js';
-import { readPath, scanFolder } from '../framework/syncthing-real.js';
+import { execInContainer, crashFluxos } from '../framework/container.js';
+import { dbClient } from '../framework/db-client.js';
+import {
+  readPath, scanFolder, getFolderConfig, getDeviceId,
+} from '../framework/syncthing-real.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -137,5 +144,43 @@ describe('a standby reverts its local changes while the primary keeps writing', 
       && (await readPath(client(A), `${root}/appdata/stray-3`)) === null, {
       timeout: 120000, interval: 2000, label: 'both strays are gone from the standby',
     });
+  });
+
+  // Last: the primary is fenced from here on.
+  it('keeps a change to the primary\'s file whose revert was held while the primary left the folder', async function () {
+    this.timeout(REVERT_MS + 600000);
+    writing = false;
+    await writer;
+    const kept = `${root}/appdata/kept`;
+    await sh(B, `printf primary > ${kept}`);
+    await scanFolder(client(B), folder);
+    await waitFor(async () => (await readPath(client(A), kept)) === 'primary', {
+      timeout: 120000, interval: 2000, label: 'the primary\'s file reached the standby',
+    });
+
+    await client(A).holdCheckpoint(BEFORE_REVERT, folder);
+    const from = client(A).getLastEventId();
+    step('the standby changes the primary\'s file, and its revert is held');
+    await sh(A, `printf standby > ${kept}`);
+    await scanFolder(client(A), folder);
+    await client(A).waitForEvent('checkpoint:held', (d) => d.name === BEFORE_REVERT && d.key === folder, REVERT_MS, { afterId: from });
+
+    step('the primary stops announcing, its location expires, and it leaves the standby\'s folder');
+    const primaryDevice = await getDeviceId(client(B));
+    await crashFluxos(client(B).container, { hold: true });
+    const expired = await dbClient(A + 1).expireAppLocation(appName, client(B).ip);
+    expect(expired, 'fixture: the standby held no location for the primary, so none expired').to.be.at.least(1);
+    await waitFor(async () => !((await getFolderConfig(client(A), folder))?.devices ?? []).some((d) => d.deviceID === primaryDevice), {
+      timeout: 300000, interval: 2000, label: 'the primary left the standby\'s folder',
+    });
+
+    const releasedAt = client(A).getLastEventId();
+    await client(A).releaseCheckpoint(BEFORE_REVERT, folder);
+    const onlyCopy = await client(A).waitForEvent('syncthing:localChangesChecked', (d) => d.folder === folder && d.onlyCopy, REVERT_MS, { afterId: releasedAt })
+      .catch(() => null);
+
+    expect(eventsSince('syncthing:localChangesReverted', releasedAt), 'reverted the standby\'s change once it was the only copy').to.deep.equal([]);
+    expect(await readPath(client(A), kept), 'the standby\'s change to the primary\'s file').to.equal('standby');
+    expect(onlyCopy, 'the standby never checked the folder again and found its change the only copy').to.not.equal(null);
   });
 });
