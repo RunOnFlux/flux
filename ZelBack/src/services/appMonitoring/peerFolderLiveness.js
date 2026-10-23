@@ -349,15 +349,15 @@ async function peerDeviceId(peerIp) {
 }
 
 /**
- * This node's syncthing's view of its own connection to a peer:
- * PeerConnection.CONNECTED, DISCONNECTED, or UNKNOWN.
+ * This node's syncthing's view of its own connection to a peer, for one
+ * folder: PeerConnection.CONNECTED, DISCONNECTED, or UNKNOWN.
  *
  * FluxOS and syncthing are separate processes on that peer and fail
  * independently, so silence from its API is not evidence that it has stopped
  * writing - a FluxOS restart takes the API away for tens of seconds while
- * syncthing and the container carry on. A live sync connection IS evidence,
- * whatever folders it shares: a holder no location lists any more is dropped
- * from the app's folders while its syncthing stays connected to this one.
+ * syncthing and the container carry on. A live sync connection IS evidence:
+ * syncthing reports remoteState 'valid' only for a device whose connection is
+ * open, and clears it the moment the connection closes.
  *
  * The three answers are kept apart because a silence may be acted on only with
  * evidence. 'disconnected' is an answer - this node's syncthing was asked
@@ -380,16 +380,22 @@ async function peerDeviceId(peerIp) {
  * does not need to be. This is local state, maintained by the connection
  * itself.
  *
+ * @param {string} folderId Folder id, always passed explicitly: the completion
+ *   endpoint's aggregate form never sets remoteState and reports 'unknown'.
  * @param {string} peerIp
  * @returns {Promise<string>} One of PeerConnection
  */
-async function peerSyncthingConnection(peerIp) {
+async function peerSyncthingConnection(folderId, peerIp) {
   const deviceId = await peerDeviceId(peerIp);
   if (!deviceId) return PeerConnection.UNKNOWN;
 
-  const connected = await syncthingService.getConnectedDeviceIds().catch(() => null);
-  if (!connected) return PeerConnection.UNKNOWN;
-  if (connected.has(deviceId)) return PeerConnection.CONNECTED;
+  const completion = await syncthingService.getDbCompletion({
+    folder: folderId,
+    device: deviceId,
+  }).catch(() => null);
+
+  if (!completion) return PeerConnection.UNKNOWN;
+  if (completion.remoteState === 'valid') return PeerConnection.CONNECTED;
 
   // A device this node's syncthing has paused is disconnected by this node, not
   // by the peer; a config that cannot be read cannot rule that out.
@@ -440,12 +446,13 @@ async function peerSyncthingConnection(peerIp) {
  * time keeps what it holds. Once it has passed, the closed connection is
  * evidence again.
  *
+ * @param {string} folderId
  * @param {string} peerIp
  * @param {Object} liveness This pass's peer view
  * @returns {Promise<string>} One of SilenceVerdict
  */
-async function silenceVerdict(peerIp, liveness) {
-  const connection = await peerSyncthingConnection(peerIp);
+async function silenceVerdict(folderId, peerIp, liveness) {
+  const connection = await peerSyncthingConnection(folderId, peerIp);
   if (connection === PeerConnection.CONNECTED) return SilenceVerdict.CONNECTION_ALIVE;
   if (connection === PeerConnection.UNKNOWN) return SilenceVerdict.NO_EVIDENCE;
   const shutdown = await announcedShutdown(peerIp);
