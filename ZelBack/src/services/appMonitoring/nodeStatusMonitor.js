@@ -151,10 +151,22 @@ async function unloadForHostStall(installedAppsFn, removeAppLocallyFn) {
     ]);
     const installed = listed?.status === 'success' ? listed.data.map((app) => app.name) : [];
     const containers = Array.isArray(read) ? read : null;
-    if (!containers) log.error(`monitorNodeStatus - host stall: docker's container records could not be read (${read === TIMED_OUT ? 'no answer' : 'refused'}); containers outside the app slices cannot be found`);
+    if (!containers) log.error(`monitorNodeStatus - host stall: docker's container records could not be read (${read === TIMED_OUT ? 'no answer' : 'refused'}); every container outside the app slices is killed`);
     const names = [...new Set([...installed, ...await appKill.appsOnDisk(containers)])];
     log.warn(`monitorNodeStatus - host stall: stopping ${names.length} applications within one ${STOP_WINDOW_MS / 1000}s window`);
     await withinDeadline(Promise.allSettled(names.map((name) => stopApp(name, containers))), STOP_WINDOW_MS);
+
+    // With no records, a container outside the slices cannot be named, whatever apps
+    // were found: every one is killed and checked, once.
+    let outsideSlices;
+    if (!containers) {
+      const killedIn = await appKill.killOutsideSlices();
+      const runnable = await appKill.stillRunnableOutsideSlices();
+      outsideSlices = { containers: killedIn?.length ?? null, runnable };
+      if (runnable === null) log.error('monitorNodeStatus - host stall: which containers are outside the app slices cannot be known');
+      else if (runnable.length) log.error(`monitorNodeStatus - host stall: processes ${runnable.join(', ')} of containers outside the app slices can still run`);
+      else log.warn(`monitorNodeStatus - host stall: nothing of the ${killedIn.length} containers outside the app slices can run`);
+    }
 
     const stopped = new Map();
     // eslint-disable-next-line no-restricted-syntax
@@ -178,9 +190,12 @@ async function unloadForHostStall(installedAppsFn, removeAppLocallyFn) {
       stopped.set(name, { killed, runnable });
     }
     // runnable: the processes of each app that can still run its code, empty when
-    // none can, null when that cannot be known
+    // none can, null when that cannot be known; outsideSlices, when the records could
+    // not be read: how many containers outside the slices were killed, and which of
+    // their processes can still run
     fluxEventBus.publish('hostStall:appsStopped', {
       apps: names.map((name) => ({ app: name, ...stopped.get(name) })),
+      ...(outsideSlices ? { outsideSlices } : {}),
     });
 
     const canBroadcast = nodeConfirmationService.canSendMessages();

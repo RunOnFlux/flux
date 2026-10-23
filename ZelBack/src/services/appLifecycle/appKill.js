@@ -8,10 +8,12 @@
  * read from the runtime's own records on disk (readContainers), which stay
  * readable while docker does not answer but not while its disk does not. The
  * records are read once and passed to every call here; null stands for records
- * that could not be read, and then every container outside the slices counts as
- * each app's: every container on a node is an app's. Where the records are is
- * read from docker at boot; until then it is docker's default for the node's
- * kind. Where each cgroup is, systemd says (appSlice.controlGroup).
+ * that could not be read. Then no container outside the slices can be named, so
+ * those containers are killed and checked together (killOutsideSlices,
+ * stillRunnableOutsideSlices), and an app can be said to be unable to run only
+ * once none of them can. Where the records are is read from docker at boot; until
+ * then it is docker's default for the node's kind. Where each cgroup is, systemd
+ * says (appSlice.controlGroup).
  *
  * A process held in the kernel is not removed by a kill: it keeps the kill
  * pending and dies the moment the kernel lets it go, without running the app's
@@ -152,24 +154,52 @@ async function scopesOutsideSlices() {
 }
 
 /**
- * Every cgroup that holds a container of the app and exists now: its slice, and
- * the scope of each of its containers the records name; with no records, the
- * scope of every container outside the slices.
- * @param {string} appName
- * @param {ContainerRecord[]|null} containers readContainers
- * @returns {Promise<string[]|null>} Null when the records could not be read and
- *   systemd does not say which containers are outside the slices.
+ * The cgroups of the named units that exist now, each once: a scope inside a slice
+ * also named is read and killed with the slice.
+ * @param {string[]} units
+ * @returns {Promise<string[]>}
  */
-async function cgroupsOf(appName, containers) {
-  const unit = appSlice.sliceName(appName);
-  const scopes = containers ? recordsOf(appName, containers).map(({ id }) => `docker-${id}.scope`) : await scopesOutsideSlices();
-  if (scopes === null) return null;
-  const units = [...(unit ? [unit] : []), ...scopes];
+async function existingCgroups(units) {
   const found = (await Promise.all(units.map(appSlice.controlGroup))).filter(Boolean);
-  // a scope inside the app's slice is read and killed with the slice
   const outermost = [...new Set(found)].filter((dir, _, all) => !all.some((other) => dir.startsWith(`${other}/`)));
   const present = await Promise.all(outermost.map((dir) => fs.access(path.join(dir, 'cgroup.procs')).then(() => dir, () => null)));
   return present.filter(Boolean);
+}
+
+/**
+ * Every cgroup that holds a container of the app and exists now: its slice, and
+ * the scope of each of its containers the records name.
+ * @param {string} appName
+ * @param {ContainerRecord[]|null} containers readContainers
+ * @returns {Promise<string[]>}
+ */
+async function cgroupsOf(appName, containers) {
+  const unit = appSlice.sliceName(appName);
+  const scopes = recordsOf(appName, containers).map(({ id }) => `docker-${id}.scope`);
+  return existingCgroups([...(unit ? [unit] : []), ...scopes]);
+}
+
+/**
+ * The cgroup of every container outside the app slices that exists now.
+ * @returns {Promise<string[]|null>} null when systemd does not answer.
+ */
+async function outsideSliceCgroups() {
+  const scopes = await scopesOutsideSlices();
+  return scopes === null ? null : existingCgroups(scopes);
+}
+
+/**
+ * Send SIGKILL to every process in each cgroup.
+ * @param {string} owner What the cgroups hold, for the log.
+ * @param {string[]} cgroups
+ */
+async function killIn(owner, cgroups) {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const dir of cgroups) {
+    // eslint-disable-next-line no-await-in-loop
+    const { error } = await serviceHelper.runCommand('sh', { runAsRoot: true, params: ['-c', 'echo 1 > "$1"', 'sh', path.join(dir, 'cgroup.kill')] });
+    if (error) log.error(`appKill - ${owner}: the kill could not be sent to ${dir}: ${error.message}`);
+  }
 }
 
 /**
@@ -179,14 +209,19 @@ async function cgroupsOf(appName, containers) {
  * @returns {Promise<string[]>} The cgroups it was sent to.
  */
 async function kill(appName, containers) {
-  const cgroups = await cgroupsOf(appName, containers)
-    ?? await cgroupsOf(appName, []);
-  // eslint-disable-next-line no-restricted-syntax
-  for (const dir of cgroups) {
-    // eslint-disable-next-line no-await-in-loop
-    const { error } = await serviceHelper.runCommand('sh', { runAsRoot: true, params: ['-c', 'echo 1 > "$1"', 'sh', path.join(dir, 'cgroup.kill')] });
-    if (error) log.error(`appKill - ${appName}: the kill could not be sent to ${dir}: ${error.message}`);
-  }
+  const cgroups = await cgroupsOf(appName, containers);
+  await killIn(appName, cgroups);
+  return cgroups;
+}
+
+/**
+ * Send SIGKILL to every process of every container outside the app slices.
+ * @returns {Promise<string[]|null>} The cgroups it was sent to; null when systemd
+ *   does not say which containers are outside the slices.
+ */
+async function killOutsideSlices() {
+  const cgroups = await outsideSliceCgroups();
+  if (cgroups !== null) await killIn('containers outside the app slices', cgroups);
   return cgroups;
 }
 
@@ -218,21 +253,40 @@ async function processesUnder(dir) {
 }
 
 /**
+ * Every process in the cgroups that is neither gone nor has SIGKILL pending.
+ * @param {string[]} cgroups
+ * @returns {Promise<string[]>} Their pids.
+ */
+async function runnableIn(cgroups) {
+  const pids = (await Promise.all(cgroups.map(processesUnder))).flat();
+  const settled = await Promise.all(pids.map(killPendingOrGone));
+  return pids.filter((pid, i) => !settled[i]);
+}
+
+/**
+ * Which processes of the containers outside the app slices could still run.
+ * @returns {Promise<string[]|null>} Their pids; null when systemd does not say
+ *   which containers are outside the slices.
+ */
+async function stillRunnableOutsideSlices() {
+  const cgroups = await outsideSliceCgroups();
+  return cgroups === null ? null : runnableIn(cgroups);
+}
+
+/**
  * Which of the app's processes could still run its code: every one that is
  * neither gone nor has SIGKILL pending.
  * @param {string} appName
  * @param {ContainerRecord[]|null} containers readContainers
  * @returns {Promise<string[]|null>} Their pids; empty when the app can never run
- *   again; null when none was found but the records could not be read and
- *   systemd does not say which containers are outside the slices.
+ *   again; null when none was found, the records could not be read, and a
+ *   container outside the slices, which may be the app's, can still run or
+ *   cannot be found.
  */
 async function stillRunnable(appName, containers) {
-  const cgroups = await cgroupsOf(appName, containers);
-  const known = cgroups ?? await cgroupsOf(appName, []);
-  const pids = (await Promise.all(known.map(processesUnder))).flat();
-  const settled = await Promise.all(pids.map(killPendingOrGone));
-  const runnable = pids.filter((pid, i) => !settled[i]);
-  return runnable.length || cgroups ? runnable : null;
+  const runnable = await runnableIn(await cgroupsOf(appName, containers));
+  if (runnable.length || containers) return runnable;
+  return (await stillRunnableOutsideSlices())?.length === 0 ? [] : null;
 }
 
 /**
@@ -260,7 +314,9 @@ module.exports = {
   readContainers,
   containersOf,
   kill,
+  killOutsideSlices,
   stillRunnable,
+  stillRunnableOutsideSlices,
   appsOnDisk,
   usePaths,
   reset,

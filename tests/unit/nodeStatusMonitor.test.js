@@ -164,6 +164,8 @@ describe('nodeStatusMonitor tests', () => {
         containersOf: sinon.stub().callsFake((name) => [`flux${name}`]),
         stillRunnable: sinon.stub().resolves([]),
         kill: sinon.stub().resolves([]),
+        killOutsideSlices: sinon.stub().resolves([]),
+        stillRunnableOutsideSlices: sinon.stub().resolves([]),
       };
       dockerService = { appDockerStop: sinon.stub().resolves('stopped') };
       monitor = proxyquire('../../ZelBack/src/services/appMonitoring/nodeStatusMonitor', {
@@ -382,6 +384,54 @@ describe('nodeStatusMonitor tests', () => {
       sinon.assert.calledWith(dockerService.appDockerStop, 'fluxa');
       await clock.tickAsync(STOP_WINDOW);
       await unload;
+    });
+
+    describe('when docker\'s records cannot be read', () => {
+      beforeEach(() => {
+        appKill.readContainers.resolves(null);
+      });
+
+      // A disk the database and docker share stalls both: no app is listed, and the
+      // containers made before the slices are found by no name.
+      it('kills every container outside the slices though no app is found, and says what can still run of them', async () => {
+        appKill.killOutsideSlices.resolves(['/sys/fs/cgroup/system.slice/docker-1.scope']);
+        appKill.stillRunnableOutsideSlices.resolves([]);
+
+        const unload = monitor.unloadForHostStall(sinon.stub().callsFake(never), sinon.stub().resolves('removed'));
+        await clock.tickAsync(DEADLINE + STOP_WINDOW);
+        await unload;
+
+        sinon.assert.calledOnce(appKill.killOutsideSlices);
+        sinon.assert.calledWithExactly(bus.publish, 'hostStall:appsStopped', { apps: [], outsideSlices: { containers: 1, runnable: [] } });
+      });
+
+      it('kills them once whatever the number of apps, after the stop window', async () => {
+        dockerService.appDockerStop.callsFake(never);
+
+        const unload = monitor.unloadForHostStall(installed('a', 'b', 'c'), sinon.stub().resolves('removed'));
+        await clock.tickAsync(STOP_WINDOW - 1);
+        sinon.assert.notCalled(appKill.killOutsideSlices);
+        await clock.tickAsync(1);
+        await unload;
+
+        sinon.assert.calledOnce(appKill.killOutsideSlices);
+      });
+
+      it('names what of them can still run, or that it cannot be known', async () => {
+        appKill.stillRunnableOutsideSlices.onFirstCall().resolves(['77']);
+
+        await monitor.unloadForHostStall(installed('a'), sinon.stub().resolves('removed'));
+
+        sinon.assert.calledWithMatch(logStub.error, /processes 77 of containers outside the app slices can still run/);
+        sinon.assert.calledWithMatch(bus.publish, 'hostStall:appsStopped', { outsideSlices: { runnable: ['77'] } });
+      });
+    });
+
+    it('kills nothing outside the slices when docker\'s records name every container', async () => {
+      await monitor.unloadForHostStall(installed('a'), sinon.stub().resolves('removed'));
+
+      sinon.assert.notCalled(appKill.killOutsideSlices);
+      sinon.assert.calledWithExactly(bus.publish, 'hostStall:appsStopped', { apps: [{ app: 'a', killed: false, runnable: [] }] });
     });
 
     it('names a refusal to list docker\'s records', async () => {

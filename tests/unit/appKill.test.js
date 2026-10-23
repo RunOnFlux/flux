@@ -112,20 +112,30 @@ describe('appKill tests', () => {
       expect(killed).to.deep.equal([]);
     });
 
-    it('kills the app\'s slice and every container outside the slices when docker\'s records could not be read', async () => {
+    it('kills the app\'s slice alone when docker\'s records could not be read', async () => {
       const appSliceDir = slice('flux-app.slice', { [`docker-${id(9)}.scope`]: ['10'] });
+      container(1, 'fluxweb_app', ['11']);
+
+      expect(await appKill.kill('app', null)).to.deep.equal([appSliceDir]);
+    });
+  });
+
+  describe('killOutsideSlices', () => {
+    it('kills every container outside the app slices, and no other unit', async () => {
+      slice('flux-app.slice', { [`docker-${id(9)}.scope`]: ['10'] });
       const web = container(1, 'fluxweb_app', ['11']);
       const other = container(2, 'fluxother', ['12']);
       cgroup('system.slice/fluxos.service', ['1']);
 
-      expect(await appKill.kill('app', null)).to.have.members([appSliceDir, web, other]);
-      expect(killed).to.have.members([appSliceDir, web, other]);
+      expect(await appKill.killOutsideSlices()).to.have.members([web, other]);
+      expect(killed).to.have.members([web, other]);
     });
 
-    it('kills the app\'s slice when docker\'s records could not be read and systemd does not say where system.slice is', async () => {
-      const appSliceDir = slice('flux-app.slice', { [`docker-${id(9)}.scope`]: ['10'] });
+    it('kills nothing and says so when systemd does not say where system.slice is', async () => {
+      slice('flux-app.slice', { [`docker-${id(9)}.scope`]: ['10'] });
 
-      expect(await appKill.kill('app', null)).to.deep.equal([appSliceDir]);
+      expect(await appKill.killOutsideSlices()).to.equal(null);
+      expect(killed).to.deep.equal([]);
     });
 
     it('passes over a container record it cannot read', async () => {
@@ -175,11 +185,11 @@ describe('appKill tests', () => {
         expect(await appKill.stillRunnable('app', null)).to.deep.equal(['21']);
       });
 
-      it('names what can still run of a container outside the slices, which may be the app\'s', async () => {
+      it('cannot say the app can no longer run while a container outside the slices, which may be the app\'s, can run', async () => {
         container(3, 'fluxweb_other', ['31']);
         processWith('31');
 
-        expect(await appKill.stillRunnable('app', null)).to.deep.equal(['31']);
+        expect(await appKill.stillRunnable('app', null)).to.equal(null);
       });
 
       it('says the app can no longer run once every container outside the slices has the kill pending', async () => {
@@ -198,6 +208,22 @@ describe('appKill tests', () => {
       it('cannot say the app can no longer run when systemd does not say where system.slice is', async () => {
         expect(await appKill.stillRunnable('app', null)).to.equal(null);
       });
+    });
+  });
+
+  describe('stillRunnableOutsideSlices', () => {
+    it('names what can still run of every container outside the app slices', async () => {
+      container(1, 'fluxweb_a', ['11']);
+      container(2, 'fluxweb_b', ['12', '13']);
+      cgroup('system.slice/fluxos.service', ['1']);
+      ['1', '11', '12'].forEach((pid) => processWith(pid));
+      processWith('13', { sigPnd: '0000000000000100' });
+
+      expect(await appKill.stillRunnableOutsideSlices()).to.have.members(['11', '12']);
+    });
+
+    it('cannot say when systemd does not say where system.slice is', async () => {
+      expect(await appKill.stillRunnableOutsideSlices()).to.equal(null);
     });
   });
 
