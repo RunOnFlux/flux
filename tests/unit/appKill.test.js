@@ -25,7 +25,8 @@ describe('appKill tests', () => {
     fs.writeFileSync(path.join(dir, 'cgroup.procs'), pids.map((pid) => `${pid}\n`).join(''));
     fs.writeFileSync(path.join(dir, 'cgroup.kill'), '');
     units.set(path.basename(rel), path.join(SYSTEMD_ROOT, rel));
-    if (rel.startsWith('flux.slice/')) units.set('flux.slice', path.join(SYSTEMD_ROOT, 'flux.slice'));
+    const parent = rel.split('/')[0];
+    if (parent !== rel) units.set(parent, path.join(SYSTEMD_ROOT, parent));
     return dir;
   }
   // `app`: the runonflux.app label FluxOS sets; left out, a container made before it
@@ -97,7 +98,7 @@ describe('appKill tests', () => {
       container(4, 'fluxweb_other', ['14']);
       slice('flux-my.slice', { [`docker-${id(8)}.scope`]: ['15'] });
 
-      const sent = await appKill.kill('my-app');
+      const sent = await appKill.kill('my-app', await appKill.readContainers());
 
       expect(sent).to.have.members([appSliceDir, web, single]);
       expect(killed).to.have.members([appSliceDir, web, single]);
@@ -107,8 +108,15 @@ describe('appKill tests', () => {
       fs.mkdirSync(path.join(dockerRoot, 'containers', id(5)), { recursive: true });
       fs.writeFileSync(path.join(dockerRoot, 'containers', id(5), 'config.v2.json'), JSON.stringify({ Name: '/fluxgone' }));
 
-      expect(await appKill.kill('gone')).to.deep.equal([]);
+      expect(await appKill.kill('gone', await appKill.readContainers())).to.deep.equal([]);
       expect(killed).to.deep.equal([]);
+    });
+
+    it('kills the app\'s slice alone when docker\'s records could not be read', async () => {
+      const appSliceDir = slice('flux-app.slice', { [`docker-${id(9)}.scope`]: ['10'] });
+      container(1, 'fluxweb_app', ['11']);
+
+      expect(await appKill.kill('app', null)).to.deep.equal([appSliceDir]);
     });
 
     it('passes over a container record it cannot read', async () => {
@@ -116,7 +124,7 @@ describe('appKill tests', () => {
       fs.mkdirSync(path.join(dockerRoot, 'containers', id(6)), { recursive: true });
       fs.writeFileSync(path.join(dockerRoot, 'containers', id(6), 'config.v2.json'), '{ broken');
 
-      expect(await appKill.kill('app')).to.deep.equal([web]);
+      expect(await appKill.kill('app', await appKill.readContainers())).to.deep.equal([web]);
     });
   });
 
@@ -131,23 +139,57 @@ describe('appKill tests', () => {
       processWith('23', { sigPnd: '0000000000004100' });
       // 24 is gone
 
-      expect(await appKill.stillRunnable('app')).to.deep.equal(['21']);
+      expect(await appKill.stillRunnable('app', [])).to.deep.equal(['21']);
     });
 
     it('does not take another pending signal for the kill', async () => {
       ['21', '22', '23', '24'].forEach((pid) => processWith(pid, { shdPnd: '0000000000004000' }));
 
-      expect(await appKill.stillRunnable('app')).to.deep.equal(['21', '22', '23', '24']);
+      expect(await appKill.stillRunnable('app', [])).to.deep.equal(['21', '22', '23', '24']);
     });
 
     it('reads the processes in every scope under the slice, the slice itself holding none', async () => {
       ['21', '22', '23', '24'].forEach((pid) => processWith(pid));
 
-      expect(await appKill.stillRunnable('app')).to.have.members(['21', '22', '23', '24']);
+      expect(await appKill.stillRunnable('app', [])).to.have.members(['21', '22', '23', '24']);
     });
 
     it('names nothing for an app with no cgroup left', async () => {
-      expect(await appKill.stillRunnable('other')).to.deep.equal([]);
+      expect(await appKill.stillRunnable('other', [])).to.deep.equal([]);
+    });
+
+    describe('when docker\'s records could not be read', () => {
+      it('names what of the app\'s slice can still run', async () => {
+        processWith('21');
+        container(3, 'fluxother_other', ['31']);
+
+        expect(await appKill.stillRunnable('app', null)).to.deep.equal(['21']);
+      });
+
+      it('cannot say the app can no longer run while a container lives outside the slices', async () => {
+        container(3, 'fluxother_other', ['31']);
+
+        expect(await appKill.stillRunnable('app', null)).to.equal(null);
+      });
+
+      it('says the app can no longer run when every container lives in a slice', async () => {
+        cgroup('system.slice/fluxos.service', ['1']);
+
+        expect(await appKill.stillRunnable('app', null)).to.deep.equal([]);
+      });
+
+      it('cannot say the app can no longer run when systemd does not say where system.slice is', async () => {
+        expect(await appKill.stillRunnable('app', null)).to.equal(null);
+      });
+    });
+  });
+
+  describe('readContainers', () => {
+    it('answers null when docker\'s records cannot be listed', async () => {
+      fs.rmSync(path.join(dockerRoot, 'containers'), { recursive: true });
+      serviceHelper.runCommand.withArgs('ls').resolves({ stdout: '', error: new Error('No such file or directory') });
+
+      expect(await appKill.readContainers()).to.equal(null);
     });
   });
 
@@ -158,14 +200,21 @@ describe('appKill tests', () => {
       container(2, 'fluxsingle', ['12']);
       container(3, 'watchtower', ['13']);
 
-      expect(await appKill.appsOnDisk()).to.have.members(['sliced-app', 'composed', 'single']);
+      expect(await appKill.appsOnDisk(await appKill.readContainers())).to.have.members(['sliced-app', 'composed', 'single']);
+    });
+
+    it('names every app with a slice when docker\'s records could not be read', async () => {
+      slice('flux-sliced.slice', {});
+      container(1, 'fluxweb_composed', ['11']);
+
+      expect(await appKill.appsOnDisk(null)).to.deep.equal(['sliced']);
     });
 
     it('names a labelled container\'s app by its label, and a zel component\'s by its name', async () => {
       record(1, 'fluxgame', 0, { app: 'fluxgame' });
       record(2, 'zelcash_legacy');
 
-      expect(await appKill.appsOnDisk()).to.have.members(['fluxgame', 'legacy']);
+      expect(await appKill.appsOnDisk(await appKill.readContainers())).to.have.members(['fluxgame', 'legacy']);
     });
   });
 
@@ -176,32 +225,36 @@ describe('appKill tests', () => {
       record(3, 'fluxweb_composedtoo');
       record(4, 'fluxcomposed');
 
-      expect(await appKill.containersOf('composed')).to.have.members(['fluxweb_composed', 'fluxdb_composed', 'fluxcomposed']);
+      expect(appKill.containersOf('composed', await appKill.readContainers())).to.have.members(['fluxweb_composed', 'fluxdb_composed', 'fluxcomposed']);
     });
 
     it('takes a container\'s label over its name', async () => {
       record(1, 'fluxweb_composed', 0, { app: 'other' });
       record(2, 'renamed', 0, { app: 'composed' });
 
-      expect(await appKill.containersOf('composed')).to.have.members(['renamed']);
+      expect(appKill.containersOf('composed', await appKill.readContainers())).to.have.members(['renamed']);
     });
 
     it('finds a label-less component whose name starts with zel', async () => {
       record(1, 'zelcash_legacy');
 
-      expect(await appKill.containersOf('legacy')).to.have.members(['zelcash_legacy']);
+      expect(appKill.containersOf('legacy', await appKill.readContainers())).to.have.members(['zelcash_legacy']);
     });
 
     it('finds the label-less container of an app whose own name starts with flux', async () => {
       record(1, 'fluxgame');
 
-      expect(await appKill.containersOf('fluxgame')).to.have.members(['fluxgame']);
+      expect(appKill.containersOf('fluxgame', await appKill.readContainers())).to.have.members(['fluxgame']);
+    });
+
+    it('names none when docker\'s records could not be read', () => {
+      expect(appKill.containersOf('composed', null)).to.deep.equal([]);
     });
 
     it('does not take a container FluxOS did not name for an app whose name it ends with', async () => {
       record(1, 'my_composed');
 
-      expect(await appKill.containersOf('composed')).to.deep.equal([]);
+      expect(appKill.containersOf('composed', await appKill.readContainers())).to.deep.equal([]);
     });
   });
 });

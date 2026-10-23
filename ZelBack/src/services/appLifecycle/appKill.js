@@ -2,12 +2,16 @@
  * Kill every process of an app through its cgroups, without docker or the
  * database, and say whether any of them can still run.
  *
- * An app's containers live in its slice (appSlice). A container created before
- * the slice existed lives in its runtime's scope, `docker-<id>.scope`, and the
- * container's name is read from the runtime's own record on disk, which stays
- * readable while docker does not answer. Where those records are is read from
- * docker at boot; until then it is docker's default for the node's kind. Where
- * each cgroup is, systemd says (appSlice.controlGroup).
+ * An app's containers live in its slice (appSlice), found from the kernel alone.
+ * A container created before the slice existed lives in its runtime's scope,
+ * `docker-<id>.scope`, outside any app's slice, and which app it belongs to is
+ * read from the runtime's own records on disk (readContainers), which stay
+ * readable while docker does not answer but not while its disk does not. The
+ * records are read once and passed to every call here; null stands for records
+ * that could not be read, and then a container outside the slices cannot be
+ * named, killed or ruled out. Where the records are is read from docker at boot;
+ * until then it is docker's default for the node's kind. Where each cgroup is,
+ * systemd says (appSlice.controlGroup).
  *
  * A process held in the kernel is not removed by a kill: it keeps the kill
  * pending and dies the moment the kernel lets it go, without running the app's
@@ -80,13 +84,18 @@ function belongsTo({ name, app }, appName) {
 }
 
 /**
- * Every container docker has a record of, read from its records on disk.
- * @returns {Promise<Array<{id: string, name: string, app: string|null}>>} Names
- *   without the leading '/', and the app its runonflux.app label names.
+ * @typedef {{id: string, name: string, app: string|null}} ContainerRecord
+ *   The name without its leading '/', and the app its runonflux.app label names.
  */
-async function containersOnDisk() {
+
+/**
+ * Every container docker has a record of, read from its records on disk. Nothing
+ * bounds the read: on a disk that does not answer it never returns.
+ * @returns {Promise<ContainerRecord[]|null>} Null when the records cannot be listed.
+ */
+async function readContainers() {
   const listing = await serviceHelper.runCommand('ls', { runAsRoot: true, params: ['-1', path.join(paths.dockerRoot, 'containers')] });
-  if (listing.error) return [];
+  if (listing.error) return null;
   const ids = listing.stdout.split('\n').map((line) => line.trim()).filter((id) => /^[0-9a-f]{64}$/.test(id));
   const containers = [];
   // eslint-disable-next-line no-restricted-syntax
@@ -107,33 +116,35 @@ async function containersOnDisk() {
 }
 
 /**
- * The names of the app's containers, read from docker's records on disk.
  * @param {string} appName
- * @returns {Promise<string[]>}
+ * @param {ContainerRecord[]|null} containers readContainers
+ * @returns {ContainerRecord[]} Empty when the records could not be read.
  */
-async function containersOf(appName) {
-  return (await containersOnDisk()).filter((container) => belongsTo(container, appName)).map(({ name }) => name);
+function recordsOf(appName, containers) {
+  return (containers ?? []).filter((container) => belongsTo(container, appName));
 }
 
 /**
- * The scope units of the app's containers, whether in its slice or not.
+ * The names of the app's containers.
  * @param {string} appName
- * @returns {Promise<string[]>}
+ * @param {ContainerRecord[]|null} containers readContainers
+ * @returns {string[]} Empty when the records could not be read.
  */
-async function scopesOf(appName) {
-  return (await containersOnDisk())
-    .filter((container) => belongsTo(container, appName))
-    .map(({ id }) => `docker-${id}.scope`);
+function containersOf(appName, containers) {
+  return recordsOf(appName, containers).map(({ name }) => name);
 }
 
 /**
- * Every cgroup that holds a container of the app and exists now.
+ * Every cgroup that holds a container of the app and exists now: its slice, and
+ * the scope of each of its containers the records name.
  * @param {string} appName
+ * @param {ContainerRecord[]|null} containers readContainers
  * @returns {Promise<string[]>}
  */
-async function cgroupsOf(appName) {
+async function cgroupsOf(appName, containers) {
   const unit = appSlice.sliceName(appName);
-  const units = [...(unit ? [unit] : []), ...await scopesOf(appName)];
+  const scopes = recordsOf(appName, containers).map(({ id }) => `docker-${id}.scope`);
+  const units = [...(unit ? [unit] : []), ...scopes];
   const found = (await Promise.all(units.map(appSlice.controlGroup))).filter(Boolean);
   // a scope inside the app's slice is read and killed with the slice
   const outermost = [...new Set(found)].filter((dir, _, all) => !all.some((other) => dir.startsWith(`${other}/`)));
@@ -144,10 +155,11 @@ async function cgroupsOf(appName) {
 /**
  * Send SIGKILL to every process of the app.
  * @param {string} appName
+ * @param {ContainerRecord[]|null} containers readContainers
  * @returns {Promise<string[]>} The cgroups it was sent to.
  */
-async function kill(appName) {
-  const cgroups = await cgroupsOf(appName);
+async function kill(appName, containers) {
+  const cgroups = await cgroupsOf(appName, containers);
   // eslint-disable-next-line no-restricted-syntax
   for (const dir of cgroups) {
     // eslint-disable-next-line no-await-in-loop
@@ -185,30 +197,48 @@ async function processesUnder(dir) {
 }
 
 /**
- * Which of the app's processes could still run its code: every one that is
- * neither gone nor has SIGKILL pending.
- * @param {string} appName
- * @returns {Promise<string[]>} Their pids; empty when the app can never run again.
+ * Whether any container lives outside the app slices: in a scope directly under
+ * system.slice, where the runtime puts a container with no slice of its own.
+ * @returns {Promise<boolean>} True as well when systemd does not answer.
  */
-async function stillRunnable(appName) {
-  const cgroups = await cgroupsOf(appName);
-  const pids = (await Promise.all(cgroups.map(processesUnder))).flat();
-  const settled = await Promise.all(pids.map(killPendingOrGone));
-  return pids.filter((pid, i) => !settled[i]);
+async function anyContainerOutsideSlices() {
+  const parent = await appSlice.controlGroup('system.slice');
+  if (!parent) return true;
+  const entries = await fs.readdir(parent).catch(() => null);
+  return entries === null || entries.some((entry) => /^docker-[0-9a-f]{64}\.scope$/.test(entry));
 }
 
 /**
- * Every app with a slice or a container on this node, found without docker or
- * the database.
+ * Which of the app's processes could still run its code: every one that is
+ * neither gone nor has SIGKILL pending.
+ * @param {string} appName
+ * @param {ContainerRecord[]|null} containers readContainers
+ * @returns {Promise<string[]|null>} Their pids; empty when the app can never run
+ *   again; null when none was found but the records could not be read and a
+ *   container outside the slices, which may be the app's, exists.
+ */
+async function stillRunnable(appName, containers) {
+  const cgroups = await cgroupsOf(appName, containers);
+  const pids = (await Promise.all(cgroups.map(processesUnder))).flat();
+  const settled = await Promise.all(pids.map(killPendingOrGone));
+  const runnable = pids.filter((pid, i) => !settled[i]);
+  if (runnable.length || containers || !await anyContainerOutsideSlices()) return runnable;
+  return null;
+}
+
+/**
+ * Every app with a slice or a container record on this node, found without
+ * docker or the database.
+ * @param {ContainerRecord[]|null} containers readContainers
  * @returns {Promise<string[]>}
  */
-async function appsOnDisk() {
+async function appsOnDisk(containers) {
   const names = new Set();
   const parent = await appSlice.controlGroup('flux.slice');
   const slices = parent ? await fs.readdir(parent).catch(() => []) : [];
   slices.filter((entry) => /^flux-.+\.slice$/.test(entry))
     .forEach((entry) => names.add(entry.slice('flux-'.length, -'.slice'.length).replace(/\\x2d/g, '-')));
-  (await containersOnDisk()).map(appOf).filter(Boolean).forEach((name) => names.add(name));
+  (containers ?? []).map(appOf).filter(Boolean).forEach((name) => names.add(name));
   return [...names];
 }
 
@@ -218,6 +248,7 @@ function reset() {
 }
 
 module.exports = {
+  readContainers,
   containersOf,
   kill,
   stillRunnable,

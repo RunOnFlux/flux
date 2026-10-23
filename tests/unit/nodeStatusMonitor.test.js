@@ -159,8 +159,9 @@ describe('nodeStatusMonitor tests', () => {
       dos = false;
       bus = { publish: sinon.stub() };
       appKill = {
+        readContainers: sinon.stub().resolves([]),
         appsOnDisk: sinon.stub().resolves([]),
-        containersOf: sinon.stub().callsFake(async (name) => [`flux${name}`]),
+        containersOf: sinon.stub().callsFake((name) => [`flux${name}`]),
         stillRunnable: sinon.stub().resolves([]),
         kill: sinon.stub().resolves([]),
       };
@@ -217,7 +218,7 @@ describe('nodeStatusMonitor tests', () => {
     });
 
     it('asks docker to stop every container of every app at once', async () => {
-      appKill.containersOf.withArgs('one').resolves(['fluxweb_one', 'fluxdb_one']);
+      appKill.containersOf.withArgs('one').returns(['fluxweb_one', 'fluxdb_one']);
       dockerService.appDockerStop.callsFake(never);
 
       const unload = monitor.unloadForHostStall(installed('one', 'two'), sinon.stub().resolves('removed'));
@@ -294,7 +295,7 @@ describe('nodeStatusMonitor tests', () => {
 
       await monitor.unloadForHostStall(installed('stuck'), sinon.stub().resolves('removed'));
 
-      sinon.assert.calledOnceWithExactly(appKill.kill, 'stuck');
+      sinon.assert.calledOnceWithExactly(appKill.kill, 'stuck', []);
       sinon.assert.calledWithMatch(logStub.warn, /stuck can no longer run/);
     });
 
@@ -339,6 +340,56 @@ describe('nodeStatusMonitor tests', () => {
       await monitor.unloadForHostStall(installed('both'), remove);
 
       sinon.assert.calledOnce(remove);
+    });
+
+    it('reads docker\'s records once, and finds, stops, checks and kills every app from that one read', async () => {
+      const records = [{ id: '1', name: 'fluxa', app: 'a' }];
+      appKill.readContainers.resolves(records);
+      appKill.stillRunnable.onFirstCall().resolves(['41']);
+
+      await monitor.unloadForHostStall(installed('a', 'b'), sinon.stub().resolves('removed'));
+
+      sinon.assert.calledOnce(appKill.readContainers);
+      sinon.assert.calledWithExactly(appKill.appsOnDisk, records);
+      ['containersOf', 'stillRunnable'].forEach((call) => appKill[call].getCalls().forEach(({ args }) => expect(args[1], call).to.equal(records)));
+      sinon.assert.calledOnceWithExactly(appKill.kill, 'a', records);
+    });
+
+    it('stops and kills every app through its slice when docker\'s records do not answer within the stop window', async () => {
+      appKill.readContainers.callsFake(never);
+      appKill.appsOnDisk.withArgs(null).resolves(['ondisk']);
+      dockerService.appDockerStop.callsFake(never);
+      appKill.stillRunnable.callsFake(async (name) => (appKill.kill.calledWith(name) ? [] : ['41']));
+
+      const unload = monitor.unloadForHostStall(installed('a'), sinon.stub().resolves('removed'));
+      await clock.tickAsync(STOP_WINDOW * 2);
+
+      sinon.assert.calledWithMatch(logStub.error, /container records could not be read \(no answer\)/);
+      expect(appKill.kill.getCalls().map(({ args }) => args)).to.deep.equal([['a', null], ['ondisk', null]]);
+      sinon.assert.calledWithMatch(bus.publish, 'hostStall:appsStopped');
+      await unload;
+    });
+
+    it('names a refusal to list docker\'s records', async () => {
+      appKill.readContainers.resolves(null);
+
+      await monitor.unloadForHostStall(installed('a'), sinon.stub().resolves('removed'));
+
+      sinon.assert.calledWithMatch(logStub.error, /container records could not be read \(refused\)/);
+      sinon.assert.calledWithExactly(appKill.appsOnDisk, null);
+    });
+
+    it('reports an app whose processes cannot all be found as unknown, never as unable to run', async () => {
+      appKill.stillRunnable.resolves(null);
+
+      await monitor.unloadForHostStall(installed('app'), sinon.stub().resolves('timedOut'));
+
+      sinon.assert.calledWithExactly(bus.publish, 'hostStall:appsStopped', { apps: [{ app: 'app', killed: false, runnable: null }] });
+      sinon.assert.calledWithExactly(bus.publish, 'hostStall:appUnloaded', {
+        app: 'app', removal: 'timedOut', killed: false, runnable: null,
+      });
+      sinon.assert.calledWithMatch(logStub.error, /app: whether it can still run cannot be known/);
+      sinon.assert.neverCalledWithMatch(logStub.warn, /can no longer run/);
     });
 
     it('starts no second removal of an app whose removal is still running, and still checks it', async () => {

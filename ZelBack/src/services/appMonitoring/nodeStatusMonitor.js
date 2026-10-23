@@ -111,11 +111,11 @@ async function removeAllAppsOnSignal(installedAppsFn, removeAppLocallyFn, reason
 /**
  * Ask docker to stop every container of the app, on its normal grace.
  * @param {string} name
+ * @param {Array<object>|null} containers appKill.readContainers
  * @returns {Promise<void>}
  */
-async function stopApp(name) {
-  const containers = await appKill.containersOf(name);
-  await Promise.allSettled(containers.map((container) => dockerService.appDockerStop(container)));
+async function stopApp(name, containers) {
+  await Promise.allSettled(appKill.containersOf(name, containers).map((container) => dockerService.appDockerStop(container)));
 }
 
 /**
@@ -131,7 +131,11 @@ async function stopApp(name) {
  * REMOVAL_DEADLINE_MS; nothing of it runs by then, so the removals take turns.
  *
  * The apps are read from the database and from what is on disk, so an app the
- * database cannot list is still found.
+ * database cannot list is still found. Docker's records of its containers are
+ * read once, within STOP_WINDOW_MS: on a disk that does not answer they are not
+ * waited for further, every app is still stopped and killed through its slice,
+ * and an app that may have a container outside its slice is reported with
+ * runnable null, since what of it can run cannot be known.
  * @param {Function} installedAppsFn
  * @param {Function} removeAppLocallyFn
  */
@@ -141,31 +145,36 @@ async function unloadForHostStall(installedAppsFn, removeAppLocallyFn) {
   try {
     const listed = await withinDeadline(installedAppsFn(), REMOVAL_DEADLINE_MS).catch(() => null);
     const installed = listed?.status === 'success' ? listed.data.map((app) => app.name) : [];
-    const names = [...new Set([...installed, ...await appKill.appsOnDisk()])];
+    const read = await withinDeadline(appKill.readContainers(), STOP_WINDOW_MS);
+    const containers = Array.isArray(read) ? read : null;
+    if (!containers) log.error(`monitorNodeStatus - host stall: docker's container records could not be read (${read === TIMED_OUT ? 'no answer' : 'refused'}); containers outside the app slices cannot be found`);
+    const names = [...new Set([...installed, ...await appKill.appsOnDisk(containers)])];
     log.warn(`monitorNodeStatus - host stall: stopping ${names.length} applications, ${STOP_WINDOW_MS / 1000}s between them`);
-    await withinDeadline(Promise.allSettled(names.map(stopApp)), STOP_WINDOW_MS);
+    await withinDeadline(Promise.allSettled(names.map((name) => stopApp(name, containers))), STOP_WINDOW_MS);
 
     const stopped = new Map();
     // eslint-disable-next-line no-restricted-syntax
     for (const name of names) {
       // eslint-disable-next-line no-await-in-loop
-      let runnable = await appKill.stillRunnable(name);
-      const killed = runnable.length > 0;
+      let runnable = await appKill.stillRunnable(name, containers);
+      const killed = Boolean(runnable?.length);
       if (killed) {
         log.error(`monitorNodeStatus - Application ${name} still runs after being asked to stop, killing it`);
         // eslint-disable-next-line no-await-in-loop
-        await appKill.kill(name);
+        await appKill.kill(name, containers);
         // eslint-disable-next-line no-await-in-loop
-        runnable = await appKill.stillRunnable(name);
-        if (runnable.length) {
+        runnable = await appKill.stillRunnable(name, containers);
+        if (runnable?.length) {
           log.error(`monitorNodeStatus - Application ${name} could not be stopped: processes ${runnable.join(', ')} can still run`);
-        } else {
+        } else if (runnable) {
           log.warn(`monitorNodeStatus - Application ${name} can no longer run`);
         }
       }
+      if (runnable === null) log.error(`monitorNodeStatus - Application ${name}: whether it can still run cannot be known`);
       stopped.set(name, { killed, runnable });
     }
-    // runnable: the processes of each app that can still run its code, empty when none can
+    // runnable: the processes of each app that can still run its code, empty when
+    // none can, null when that cannot be known
     fluxEventBus.publish('hostStall:appsStopped', {
       apps: names.map((name) => ({ app: name, ...stopped.get(name) })),
     });
@@ -178,7 +187,7 @@ async function unloadForHostStall(installedAppsFn, removeAppLocallyFn) {
       const outcome = await removeWithinDeadline(removeAppLocallyFn, name, canBroadcast)
         .catch(() => RemovalOutcome.FAILED);
       const { killed, runnable } = stopped.get(name);
-      if (!runnable.length && outcome !== RemovalOutcome.REMOVED && outcome !== RemovalOutcome.NOT_INSTALLED) {
+      if (runnable?.length === 0 && outcome !== RemovalOutcome.REMOVED && outcome !== RemovalOutcome.NOT_INSTALLED) {
         log.warn(`monitorNodeStatus - Application ${name} was not removed (${outcome}), and can no longer run`);
       }
       fluxEventBus.publish('hostStall:appUnloaded', {
