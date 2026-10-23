@@ -134,6 +134,19 @@ describe('folderStates tests', () => {
       expect(folderStateMap.get('fluxmeasured')).to.deep.equal({ state: 'heldOut' });
     });
 
+    it('keeps a folder whose volume image is gone when its app\'s spec cannot be read, and holds out any other', () => {
+      folderStates.volumeGone('fluxgone');
+      folderStates.measured('fluxmeasured', { bytes: 5, newestModified: 1 });
+      folderStates.installed({ name: 'fluxwait', version: 3, containerData: 'g:/appdata' });
+
+      ['fluxgone', 'fluxmeasured', 'fluxwait', 'fluxnew'].forEach((folderId) => folderStates.specUnreadable(folderId));
+
+      expect(folderStateMap.get('fluxgone')).to.deep.equal({ state: 'volumeGone' });
+      expect(folderStateMap.get('fluxmeasured')).to.deep.equal({ state: 'heldOut' });
+      expect(folderStateMap.get('fluxwait')).to.deep.equal({ state: 'heldOut' });
+      expect(folderStateMap.get('fluxnew')).to.deep.equal({ state: 'heldOut' });
+    });
+
     it('holds out a folder whose volume image was gone once the mount check finds it on the node', () => {
       folderStates.volumeGone('fluxa');
 

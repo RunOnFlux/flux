@@ -1539,6 +1539,49 @@ describe('syncthingMonitor tests', () => {
       expect(folderStateMap.get('fluxg')).to.deep.equal({ state: 'heldOut' });
     });
 
+    // A folder of an app whose spec cannot be read is never measured. Left not looked
+    // at, every peer would wait on this node for as long as the spec stays unreadable,
+    // even beside a holder that has the app's data.
+    const specUnreadable = (folders) => {
+      installedApps([{ name: 'entapp', version: 8, enterprise: 'blob' }]);
+      appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps) => ({ readable: [], unreadable: apps, inPlace: [] }));
+      syncthingServiceMock.getConfigFolders.resolves(folders);
+    };
+
+    it('records a receive-only folder of an app whose spec cannot be read as held out, which no peer waits on', async () => {
+      folderStateMap.set('fluxwebentapp_entapp', { state: 'notLookedAt' });
+      specUnreadable([{ id: 'fluxwebentapp_entapp', path: '/apps/fluxwebentapp_entapp', type: 'receiveonly' }]);
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(folderStateMap.get('fluxwebentapp_entapp')).to.deep.equal({ state: 'heldOut' });
+      expect(notLookedAt()).to.deep.equal([]);
+    });
+
+    it('records the receive-only folders of an app whose spec cannot be read after a restart, and no other', async () => {
+      specUnreadable([
+        { id: 'fluxwebentapp_entapp', path: '/apps/fluxwebentapp_entapp', type: 'receiveonly' },
+        { id: 'fluxdbentapp_entapp', path: '/apps/fluxdbentapp_entapp', type: 'sendreceive' },
+        { id: 'fluxwebother_other', path: '/apps/fluxwebother_other', type: 'receiveonly' },
+      ]);
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect([...folderStateMap.entries()]).to.deep.equal([['fluxwebentapp_entapp', { state: 'heldOut' }]]);
+    });
+
+    it('keeps a folder of an app whose spec cannot be read as volume gone when its volume image is gone', async () => {
+      folderStateMap.set('fluxwebentapp_entapp', { state: 'volumeGone' });
+      specUnreadable([{ id: 'fluxwebentapp_entapp', path: '/apps/fluxwebentapp_entapp', type: 'receiveonly' }]);
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(folderStateMap.get('fluxwebentapp_entapp')).to.deep.equal({ state: 'volumeGone' });
+    });
+
     // A read that failed says nothing about what the volume holds.
     const locationsUnreadable = () => {
       installedApps([{ name: 'fluxg', version: 3, containerData: 'g:/appdata' }]);

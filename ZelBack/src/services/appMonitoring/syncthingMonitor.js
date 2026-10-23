@@ -604,6 +604,13 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
 
     await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_AFTER_FOLDER_READ);
 
+    // A receive-only folder of an app whose spec cannot be read is one this pass
+    // does not measure, so what it holds is unknown. Its folders come from
+    // syncthing's own list, as the sweep below takes them.
+    allFolders
+      .filter((folder) => folder.type === 'receiveonly' && ownedByUnreadableApp(folder.id))
+      .forEach((folder) => folderStates.specUnreadable(folder.id));
+
     // Publish which folders this node holds writable, for the peers that ask before
     // promoting one of their own. Recorded here rather than read on demand: the
     // answer is a byproduct of a pass the monitor already makes, so serving it costs

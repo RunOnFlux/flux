@@ -21,8 +21,9 @@ const FolderState = Object.freeze({
   // Looked at, with nothing to rank: its holdings could not be read, it has sent
   // everything it held, or it is a ready standby.
   NO_CLAIM: 'noClaim',
-  // Held out of the monitor pass because its volume is not safe to act on, with its
-  // volume image still on the node: what it holds is unknown.
+  // Held out of the monitor pass because its volume is not safe to act on or its app's
+  // specification cannot be read, with its volume image still on the node: what it
+  // holds is unknown.
   HELD_OUT: 'heldOut',
   // Held out of the monitor pass because its volume image is gone: nothing of it is
   // on the node.
@@ -102,14 +103,28 @@ function volumeGone(folderId) {
   globalState.folderStates.set(folderId, { state: FolderState.VOLUME_GONE });
 }
 
+function heldOutUnlessGone(folderId) {
+  if (globalState.folderStates.get(folderId)?.state === FolderState.VOLUME_GONE) return;
+  heldOut(folderId);
+}
+
 /**
  * Records a folder the monitor pass found not mounted without asking why. One whose
  * volume image is known to be gone stays so; any other is held out.
  * @param {string} folderId
  */
 function notMounted(folderId) {
-  if (globalState.folderStates.get(folderId)?.state === FolderState.VOLUME_GONE) return;
-  heldOut(folderId);
+  heldOutUnlessGone(folderId);
+}
+
+/**
+ * Records a folder of an app whose specification this node cannot read, which the
+ * monitor pass does not reach. One whose volume image is known to be gone stays so;
+ * any other is held out.
+ * @param {string} folderId
+ */
+function specUnreadable(folderId) {
+  heldOutUnlessGone(folderId);
 }
 
 /**
@@ -182,5 +197,6 @@ module.exports = {
   removed,
   sending,
   settled,
+  specUnreadable,
   volumeGone,
 };
