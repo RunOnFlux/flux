@@ -214,6 +214,7 @@ async function runRevert(job) {
       log.info(`localChangeCheck - ${folderId}: the folder is not the one checked; checking it again before any revert`);
       return;
     }
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_BEFORE_LOCAL_CHANGE_REVERT_SENT, folderId);
     log.warn(`localChangeCheck - ${folderId} is synced but the receive-only folder has local changes (${job.files} files, ${job.directories} directories); reverting to the cluster's version`);
     try {
       // dataOrThrow: dbRevert answers in-band; without it a failed revert reads as reverted

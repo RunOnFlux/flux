@@ -77,6 +77,10 @@ const Checkpoint = Object.freeze({
   // A revert of a receive-only folder's local changes has not yet read whether they
   // are still the ones checked. Keyed by folder id.
   SYNCTHING_BEFORE_LOCAL_CHANGE_REVERT: 'syncthing:beforeLocalChangeRevert',
+  // A revert of a receive-only folder's local changes holds the folder's config,
+  // has found the folder the one checked, and has not yet sent the revert. Keyed
+  // by folder id.
+  SYNCTHING_BEFORE_LOCAL_CHANGE_REVERT_SENT: 'syncthing:beforeLocalChangeRevertSent',
   // The syncthing monitor has reached a receive-only folder and not yet measured
   // what this node holds in it. Keyed by folder id.
   SYNCTHING_BEFORE_HOLDINGS: 'syncthing:beforeHoldings',
