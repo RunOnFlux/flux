@@ -425,6 +425,15 @@ describe('hostStallService tests', () => {
     describe('a write that does not end', () => {
       let releases;
       let holding;
+      const until = async (done) => {
+        for (let i = 0; i < 2000 && !done(); i += 1) await new Promise((resolve) => { setTimeout(resolve, 1); }); // eslint-disable-line no-await-in-loop
+      };
+      // A write left held would hold the stop after each test, and the node out of
+      // service, for every test after it.
+      afterEach(() => {
+        holding = false;
+        releases.forEach((release) => release());
+      });
       beforeEach(() => {
         releases = [];
         holding = true;
@@ -446,17 +455,11 @@ describe('hostStallService tests', () => {
         await hostStallService.start(paths);
 
         expect(outOfService(), 'the start\'s reading did not act').to.equal(true);
-        for (let i = 0; i < 100 && !releases.length; i += 1) await new Promise((resolve) => { setImmediate(resolve); }); // eslint-disable-line no-await-in-loop
+        await until(() => releases.length > 0);
         expect(releases.length, 'fixture: the start asked for no write').to.equal(1);
-        const stopped = hostStallService.stop();
-        releases.forEach((release) => release());
-        await stopped;
       });
 
       it('lands the writes one at a time and in order, the last one asked for last', async () => {
-        const until = async (done) => {
-          for (let i = 0; i < 2000 && !done(); i += 1) await new Promise((resolve) => { setTimeout(resolve, 1); }); // eslint-disable-line no-await-in-loop
-        };
         stuckMongod();
         passMs(readIntervalMs);
         const first = hostStallService.readOnce(paths);
