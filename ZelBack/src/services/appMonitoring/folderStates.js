@@ -8,7 +8,7 @@ const dockerService = require('../dockerService');
 // Every such folder has exactly one entry from its install to its removal, so a
 // missing entry means only that the folder is not installed here. A peer about to
 // seed waits on a folder this node has not looked at, ranks one it has measured,
-// and reads every other as no claim.
+// leaves out one this node cannot seed, and reads every other as no claim.
 //
 // Written where each fact becomes known: the install and a volume recreate, the
 // monitor pass, a promotion, the removal. Nothing else removes an entry.
@@ -21,8 +21,12 @@ const FolderState = Object.freeze({
   // Looked at, with nothing to rank: its holdings could not be read, it has sent
   // everything it held, or it is a ready standby.
   NO_CLAIM: 'noClaim',
-  // Held out of the monitor pass because its volume is not safe to act on.
+  // Held out of the monitor pass because its volume is not safe to act on, with its
+  // volume image still on the node: what it holds is unknown.
   HELD_OUT: 'heldOut',
+  // Held out of the monitor pass because its volume image is gone: nothing of it is
+  // on the node.
+  VOLUME_GONE: 'volumeGone',
 });
 
 // What a peer is sent for a folder this node has looked at and cannot claim
@@ -91,6 +95,24 @@ function heldOut(folderId) {
 }
 
 /**
+ * Records a folder the monitor pass held out because its volume image is gone.
+ * @param {string} folderId
+ */
+function volumeGone(folderId) {
+  globalState.folderStates.set(folderId, { state: FolderState.VOLUME_GONE });
+}
+
+/**
+ * Records a folder the monitor pass found not mounted without asking why. One whose
+ * volume image is known to be gone stays so; any other is held out.
+ * @param {string} folderId
+ */
+function notMounted(folderId) {
+  if (globalState.folderStates.get(folderId)?.state === FolderState.VOLUME_GONE) return;
+  heldOut(folderId);
+}
+
+/**
  * Records a folder that has turned writable: everything this node held of it is
  * published, so it has nothing left to claim.
  * @param {string} folderId
@@ -124,19 +146,26 @@ function claimOf(folderId) {
 
 /**
  * The receive-only part of the promoted-folders answer. A writable folder is in
- * neither: a peer reads it from the folders this node sends.
+ * none of its lists: a peer reads it from the folders this node sends. Every other
+ * folder is in exactly one.
  * @param {Set<string>} writable The folders this node holds writable.
- * @returns {{holding: object, notLookedAt: string[]}}
+ * @returns {{holding: object, notLookedAt: string[], heldOut: string[], volumeGone: string[]}}
  */
 function answer(writable) {
   const holding = {};
   const notLookedAt = [];
+  const heldOutIds = [];
+  const volumeGoneIds = [];
   globalState.folderStates.forEach((entry, folderId) => {
     if (writable.has(folderId)) return;
     if (entry.state === FolderState.NOT_LOOKED_AT) notLookedAt.push(folderId);
+    else if (entry.state === FolderState.HELD_OUT) heldOutIds.push(folderId);
+    else if (entry.state === FolderState.VOLUME_GONE) volumeGoneIds.push(folderId);
     else holding[folderId] = claimOf(folderId);
   });
-  return { holding, notLookedAt };
+  return {
+    holding, notLookedAt, heldOut: heldOutIds, volumeGone: volumeGoneIds,
+  };
 }
 
 module.exports = {
@@ -147,9 +176,11 @@ module.exports = {
   heldOut,
   installed,
   measured,
+  notMounted,
   receiveOnlyFolderIds,
   recreated,
   removed,
   sending,
   settled,
+  volumeGone,
 };

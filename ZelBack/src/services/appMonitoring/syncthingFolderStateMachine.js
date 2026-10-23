@@ -1538,14 +1538,29 @@ async function handleReceiveOnlyTransition(params) {
   // nothing and the field would fall to the address order over a holder that may hold
   // the owner's data, so nobody seeds this pass.
   const notLookedAt = [];
+  // Candidates that cannot seed this app because a volume of theirs will not mount,
+  // and so are left out of the choice. One whose volume image is still on it may hold
+  // the owner's data, so nobody seeds over it unless another candidate holds data; one
+  // whose image is gone holds nothing.
+  const volumeHeldOut = [];
+  const volumeGone = [];
   await Promise.all(electionList.map(async (peer) => {
     if (socketAddressesMatch(peer.ip, localSocketAddr)) {
       if (ownClaim) claims[peer.ip] = ownClaim;
       return;
     }
     const answer = await liveness.read(peer.ip);
-    if (answer?.ready && [appId, ...electedSiblings].some((folder) => (answer.notLookedAt ?? []).includes(folder))) {
+    const listed = (field) => answer?.ready && [appId, ...electedSiblings].some((folder) => (answer[field] ?? []).includes(folder));
+    if (listed('notLookedAt')) {
       notLookedAt.push(peer.ip);
+      return;
+    }
+    if (listed('heldOut')) {
+      volumeHeldOut.push(peer.ip);
+      return;
+    }
+    if (listed('volumeGone')) {
+      volumeGone.push(peer.ip);
       return;
     }
     // Only a READY peer's claim counts - before its first monitor pass a node cannot
@@ -1578,9 +1593,20 @@ async function handleReceiveOnlyTransition(params) {
     if (!cache.waitingOnLook) log.info(`handleReceiveOnlyTransition - ${appId}: ${notLookedAt.join(', ')} has not yet measured what it holds; nobody seeds until it has`);
   }
   cache.waitingOnLook = notLookedAt.length > 0;
+  const leftOut = [...volumeHeldOut, ...volumeGone];
+  const candidates = electionList.filter((peer) => !leftOut.some((ip) => socketAddressesMatch(ip, peer.ip)));
+  const candidateHolds = candidates.some((peer) => (claims[peer.ip]?.bytes || 0) > 0);
+  const waitingOnVolume = volumeHeldOut.length > 0 && !candidateHolds;
+  if (leftOut.length) fluxEventBus.count('syncthing:seedDecision', appId, 'holderCannotSeed');
+  if (waitingOnVolume) {
+    fluxEventBus.count('syncthing:seedDecision', appId, 'holderVolumeHeldOut');
+    if (!cache.waitingOnVolume) log.info(`handleReceiveOnlyTransition - ${appId}: ${volumeHeldOut.join(', ')} cannot mount a volume that may hold the app's data and no other holder has data; nobody seeds until it mounts`);
+  }
+  cache.waitingOnVolume = waitingOnVolume;
   const electedLeader = appWriter
     ? appWriter.here && !aPeerHasData
-    : !standDownOnUnknown && !notLookedAt.length && isDesignatedLeader(electionList, localSocketAddr, aPeerHasData, claims);
+    : !standDownOnUnknown && !notLookedAt.length && !waitingOnVolume
+      && isDesignatedLeader(candidates, localSocketAddr, aPeerHasData, claims);
   // The floor holderIsGone asks of a silent holder, asked of this node before
   // its own win can count: a node whose peers have gone quiet is the one that
   // fell over, and a win it confirms in that state seeds the app on a

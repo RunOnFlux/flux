@@ -831,9 +831,15 @@ async function callerIsFluxnode(body) {
  * looked at (folderStates). A peer about to seed waits on them, so a holder that has
  * not looked is never read as holding nothing.
  *
+ * `heldOut` and `volumeGone` are the receive-only folders this node cannot seed because
+ * their volume will not mount: under `heldOut` with the volume's image still on the node,
+ * so what it holds is unknown, and under `volumeGone` with the image gone, so it holds
+ * nothing. A peer about to seed leaves this node out of the choice, and does not seed
+ * over a `heldOut` folder unless another holder has data.
+ *
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message carrying { ready, folders, notLookedAt, holding, seeding }.
+ * @returns {object} Message carrying { ready, folders, notLookedAt, heldOut, volumeGone, holding, seeding }.
  */
 async function promotedFolderHoldings(req, res) {
   try {
@@ -864,12 +870,18 @@ async function promotedFolderHoldings(req, res) {
     const entitled = authorized === true || await callerIsFluxnode(body);
 
     const ready = ids !== null;
-    const { holding, notLookedAt } = ready ? folderStates.answer(ids) : { holding: {}, notLookedAt: [] };
+    const {
+      holding, notLookedAt, heldOut, volumeGone,
+    } = ready ? folderStates.answer(ids) : {
+      holding: {}, notLookedAt: [], heldOut: [], volumeGone: [],
+    };
     const seal = peerIdentityService.answerSealer(peerIdentityService.AnswerPurpose.PROMOTED_FOLDERS, body);
     const response = messageHelper.createDataMessage(await seal({
       ready,
       folders: ids === null ? [] : [...ids],
       notLookedAt,
+      heldOut,
+      volumeGone,
       ...(entitled ? {
         holding,
         seeding: Object.fromEntries(globalState.seedMarks),

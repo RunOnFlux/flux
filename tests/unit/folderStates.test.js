@@ -80,7 +80,9 @@ describe('folderStates tests', () => {
 
       folderStates.sending('fluxa');
 
-      expect(folderStates.answer(new Set())).to.deep.equal({ holding: { fluxa: { unreadable: true } }, notLookedAt: [] });
+      expect(folderStates.answer(new Set())).to.deep.equal({
+        holding: { fluxa: { unreadable: true } }, notLookedAt: [], heldOut: [], volumeGone: [],
+      });
     });
 
     it('makes a recreated volume not looked at', () => {
@@ -101,20 +103,43 @@ describe('folderStates tests', () => {
   });
 
   describe('answer', () => {
-    it('lists folders not looked at apart from what it holds, and leaves out writable ones', () => {
+    it('lists each folder in one list by its state, and leaves out writable ones', () => {
       folderStateMap.set('fluxwait', { state: 'notLookedAt' });
       folderStateMap.set('fluxheld', { state: 'measured', bytes: 5, newestModified: 1 });
+      folderStateMap.set('fluxnone', { state: 'noClaim' });
       folderStateMap.set('fluxout', { state: 'heldOut' });
+      folderStateMap.set('fluxgone', { state: 'volumeGone' });
       folderStateMap.set('fluxsend', { state: 'measured', bytes: 9, newestModified: 9 });
       folderStateMap.set('fluxsendwait', { state: 'notLookedAt' });
 
-      const { holding, notLookedAt } = folderStates.answer(new Set(['fluxsend', 'fluxsendwait']));
-
-      expect(notLookedAt).to.deep.equal(['fluxwait']);
-      expect(holding).to.deep.equal({
-        fluxheld: { bytes: 5, newestModified: 1 },
-        fluxout: { unreadable: true },
+      expect(folderStates.answer(new Set(['fluxsend', 'fluxsendwait']))).to.deep.equal({
+        holding: {
+          fluxheld: { bytes: 5, newestModified: 1 },
+          fluxnone: { unreadable: true },
+        },
+        notLookedAt: ['fluxwait'],
+        heldOut: ['fluxout'],
+        volumeGone: ['fluxgone'],
       });
+    });
+
+    it('keeps a folder whose volume image is gone when it is found unmounted without asking why, and holds out any other', () => {
+      folderStates.volumeGone('fluxgone');
+      folderStates.measured('fluxmeasured', { bytes: 5, newestModified: 1 });
+
+      folderStates.notMounted('fluxgone');
+      folderStates.notMounted('fluxmeasured');
+
+      expect(folderStateMap.get('fluxgone')).to.deep.equal({ state: 'volumeGone' });
+      expect(folderStateMap.get('fluxmeasured')).to.deep.equal({ state: 'heldOut' });
+    });
+
+    it('holds out a folder whose volume image was gone once the mount check finds it on the node', () => {
+      folderStates.volumeGone('fluxa');
+
+      folderStates.heldOut('fluxa');
+
+      expect(folderStateMap.get('fluxa')).to.deep.equal({ state: 'heldOut' });
     });
   });
 });

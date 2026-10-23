@@ -50,7 +50,7 @@ describe('peerFolderLiveness', () => {
       const answer = await liveness.read('10.0.0.2:16127');
 
       expect(answer).to.deep.equal({
-        reachable: true, answerable: false, misrouted: true, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [],
+        reachable: true, answerable: false, misrouted: true, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [], heldOut: [], volumeGone: [],
       });
       expect(probes(), 'what another node holds is not this peer\'s answer').to.equal(0);
     });
@@ -94,7 +94,7 @@ describe('peerFolderLiveness', () => {
       const answer = await liveness.read('10.0.0.2:16127');
 
       expect(answer).to.deep.equal({
-        reachable: true, answerable: false, unproven: true, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [],
+        reachable: true, answerable: false, unproven: true, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [], heldOut: [], volumeGone: [],
       });
       sinon.assert.notCalled(axiosMock.get);
     });
@@ -108,7 +108,7 @@ describe('peerFolderLiveness', () => {
       const answer = await liveness.read('10.0.0.2:16127');
 
       expect(answer).to.deep.equal({
-        reachable: true, answerable: true, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [],
+        reachable: true, answerable: true, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [], heldOut: [], volumeGone: [],
       });
     });
 
@@ -188,7 +188,7 @@ describe('peerFolderLiveness', () => {
       const answer = await liveness.read('10.0.0.2:16127');
 
       expect(answer).to.deep.equal({
-        reachable: true, answerable: true, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [],
+        reachable: true, answerable: true, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [], heldOut: [], volumeGone: [],
       });
       sinon.assert.notCalled(axiosMock.get);
     });
@@ -334,7 +334,7 @@ describe('peerFolderLiveness', () => {
       const answer = await liveness.read('10.0.0.2:16127');
 
       expect(answer).to.deep.equal({
-        reachable: false, answerable: false, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [],
+        reachable: false, answerable: false, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [], heldOut: [], volumeGone: [],
       });
     });
 
@@ -350,7 +350,7 @@ describe('peerFolderLiveness', () => {
       const answer = await liveness.read('10.0.0.2:16127');
 
       expect(answer).to.deep.equal({
-        reachable: true, answerable: false, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [],
+        reachable: true, answerable: false, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [], heldOut: [], volumeGone: [],
       });
     });
 
@@ -387,6 +387,16 @@ describe('peerFolderLiveness', () => {
       expect(answer.ready).to.be.false;
     });
 
+    it('reads the folders a peer cannot seed because their volume will not mount, and none from a peer that does not say', async () => {
+      answers({ data: { data: { ready: true, folders: [], heldOut: ['fluxa_a'], volumeGone: ['fluxb_b'] } } });
+      const saying = await createPeerFolderLiveness().read('10.0.0.2:16127');
+      answers({ data: { data: { ready: true, folders: [] } } });
+      const silent = await createPeerFolderLiveness().read('10.0.0.2:16127');
+
+      expect([saying.heldOut, saying.volumeGone]).to.deep.equal([['fluxa_a'], ['fluxb_b']]);
+      expect([silent.heldOut, silent.volumeGone]).to.deep.equal([[], []]);
+    });
+
     it('treats a malformed body as reachable but not ready', async () => {
       answers({ data: {} });
       const liveness = createPeerFolderLiveness();
@@ -394,7 +404,7 @@ describe('peerFolderLiveness', () => {
       const answer = await liveness.read('10.0.0.2:16127');
 
       expect(answer).to.deep.equal({
-        reachable: true, answerable: true, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [],
+        reachable: true, answerable: true, ready: false, folders: [], holding: {}, seeding: {}, notLookedAt: [], heldOut: [], volumeGone: [],
       });
     });
 

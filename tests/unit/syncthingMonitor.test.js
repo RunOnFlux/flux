@@ -1485,20 +1485,46 @@ describe('syncthingMonitor tests', () => {
     // A volume that did not mount is never measured. Left not looked at, every peer
     // would wait on this node for as long as the mount stays broken, and the app would
     // start nowhere.
-    it('records a folder held out because its volume did not mount as held out, which no peer waits on', async () => {
+    const volumeWillNotMount = (reason) => {
       installedApps([{ name: 'fluxg', version: 3, containerData: 'g:/appdata' }]);
       syncthingMonitorHelpersMock.requiresSyncing.returns(true);
       syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['fluxg']);
       syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
-      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason });
       syncthingServiceMock.getConfigFolders.resolves([{ id: 'fluxg', path: '/apps/fluxg', type: 'receiveonly' }]);
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+    };
+
+    it('records a folder whose volume image is on the node and will not mount as held out, which no peer waits on', async () => {
+      volumeWillNotMount('volume_image_unrecognised');
 
       monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
       await clock.tickAsync(100);
 
       expect(folderStateMap.get('fluxg')).to.deep.equal({ state: 'heldOut' });
       expect(notLookedAt()).to.deep.equal([]);
+    });
+
+    it('records a folder whose volume image is gone as volume gone', async () => {
+      volumeWillNotMount('volume_file_missing');
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(folderStateMap.get('fluxg')).to.deep.equal({ state: 'volumeGone' });
+    });
+
+    it('keeps a folder whose volume image is gone so on a pass that finds it unmounted without asking why', async () => {
+      folderStateMap.set('fluxg', { state: 'volumeGone' });
+      installedApps([{ name: 'fluxg', version: 3, containerData: 'g:/appdata' }]);
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingMonitorHelpersMock.ensureStfolderExists.resolves(false);
+      syncthingServiceMock.getConfigFolders.resolves([]);
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(folderStateMap.get('fluxg')).to.deep.equal({ state: 'volumeGone' });
     });
 
     it('records a folder whose volume directory is not mounted as held out', async () => {

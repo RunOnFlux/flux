@@ -2750,6 +2750,130 @@ describe('syncthingFolderStateMachine tests', () => {
       });
     });
 
+    // A holder whose volume will not mount cannot seed, and the address order would
+    // give it the seed whenever it sorts first. Here it does: 10.0.0.1, beside this
+    // node at 10.0.0.2.
+    describe('a holder that cannot mount a volume', () => {
+      const BROKEN = '10.0.0.1:16127';
+      const coldStartBesideBroken = (brokenAnswer, { holdsData = false, others = {} } = {}) => {
+        mockParams.localSocketAddr = '10.0.0.2:16127';
+        mockParams.appLocation.resolves([
+          { ip: BROKEN, runningSince: 2000, broadcastedAt: 1000 },
+          { ip: '10.0.0.2:16127', runningSince: 2000, broadcastedAt: 1000 },
+          ...Object.keys(others).map((ip) => ({ ip, runningSince: 2000, broadcastedAt: 1000 })),
+        ]);
+        syncthingServiceMock.eachDbLocalChanged.callsFake(feed({
+          files: holdsData ? [localEntry('world.dat', 5821604997, '2026-09-16T10:00:00Z')] : [],
+        }));
+        syncthingServiceMock.getDbStatus.resolves({
+          globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: holdsData ? 2 : 0,
+        });
+        axiosMock.get.callsFake(async (url) => {
+          const other = Object.keys(others).find((ip) => url.includes(ip.split(':')[0]));
+          const answer = url.includes(BROKEN.split(':')[0]) ? brokenAnswer : (others[other] ?? {});
+          return { data: { data: { ready: true, folders: [], holding: {}, ...answer } } };
+        });
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+          restarted: false, numberOfExecutions: 1, leaderStreak: 5,
+        });
+      };
+      const counting = async (run) => {
+        const count = sinon.spy(fluxEventBus, 'count');
+        try {
+          return await run(count);
+        } finally {
+          count.restore();
+        }
+      };
+
+      it('seeds from the holder with data, leaving out one whose volume image is on it and will not mount', async () => {
+        await counting(async (count) => {
+          coldStartBesideBroken({ heldOut: ['test-app'] }, { holdsData: true });
+
+          const result = await stateMachine.manageFolderSyncState(mockParams);
+
+          expect(result.syncthingFolder.type, 'the holder with data did not seed').to.equal('sendreceive');
+          sinon.assert.calledWith(count, 'syncthing:seedDecision', 'test-app', 'holderCannotSeed');
+        });
+      });
+
+      it('seeds nothing while a holder whose volume image is on it will not mount and no other holder has data', async () => {
+        await counting(async (count) => {
+          coldStartBesideBroken({ heldOut: ['test-app'] });
+
+          const result = await stateMachine.manageFolderSyncState(mockParams);
+
+          expect(result.syncthingFolder.type, 'an empty copy seeded over a volume that may hold the app\'s data').to.equal('receiveonly');
+          sinon.assert.calledWith(count, 'syncthing:seedDecision', 'test-app', 'holderVolumeHeldOut');
+        });
+      });
+
+      it('seeds an empty copy beside a holder whose volume image is gone', async () => {
+        await counting(async (count) => {
+          coldStartBesideBroken({ volumeGone: ['test-app'] });
+
+          const result = await stateMachine.manageFolderSyncState(mockParams);
+
+          expect(result.syncthingFolder.type, 'the address order gave the seed to a holder with no volume').to.equal('sendreceive');
+          sinon.assert.calledWith(count, 'syncthing:seedDecision', 'test-app', 'holderCannotSeed');
+          sinon.assert.neverCalledWith(count, 'syncthing:seedDecision', 'test-app', 'holderVolumeHeldOut');
+        });
+      });
+
+      // A canary for the three above: the same holder, mounted and holding nothing,
+      // keeps the seed by the address order.
+      it('leaves the seed to the address order when that holder says neither', async () => {
+        coldStartBesideBroken({});
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.syncthingFolder.type).to.equal('receiveonly');
+      });
+
+      it('leaves out a holder that cannot mount the volume of one of the app\'s other elected folders', async () => {
+        coldStartBesideBroken({ volumeGone: ['sibling-app'] });
+        mockParams.electedSiblings = ['sibling-app'];
+        appQueryServiceMock.holdsComponent.resolves(false);
+        globalStateMock.folderStates.set('sibling-app', { state: 'measured', bytes: 0, newestModified: 0 });
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.syncthingFolder.type).to.equal('sendreceive');
+      });
+
+      it('seeds from the holder with data among the rest, not from the next empty address', async () => {
+        // 10.0.0.1 cannot mount; 10.0.0.2 (this node) holds data; 10.0.0.3 holds nothing.
+        coldStartBesideBroken({ heldOut: ['test-app'] }, {
+          holdsData: true,
+          others: { '10.0.0.3:16127': { holding: { 'test-app': { bytes: 0, newestModified: 0 } } } },
+        });
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.syncthingFolder.type).to.equal('sendreceive');
+      });
+
+      it('leaves the seed to another holder\'s larger copy among the rest', async () => {
+        coldStartBesideBroken({ heldOut: ['test-app'] }, {
+          others: { '10.0.0.3:16127': { holding: { 'test-app': { bytes: 900, newestModified: 100 } } } },
+        });
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.syncthingFolder.type, 'an empty copy seeded beside a holder with data').to.equal('receiveonly');
+      });
+
+      it('seeds nothing while every other holder cannot mount', async () => {
+        coldStartBesideBroken({ volumeGone: ['test-app'] }, {
+          others: { '10.0.0.3:16127': { heldOut: ['test-app'] } },
+        });
+
+        const result = await stateMachine.manageFolderSyncState(mockParams);
+
+        expect(result.syncthingFolder.type).to.equal('receiveonly');
+      });
+    });
+
     // Every claim is filed under the address the election list carries, because an
     // object key matches exactly where addresses compare tolerantly. Keyed from
     // anywhere else, this node stops finding its OWN claim as soon as the two

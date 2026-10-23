@@ -81,13 +81,16 @@ const appsFolder = `${appsFolderPath}/`;
  * @param {string} appFolder - App folder path
  * @param {boolean} sending - Whether syncthing currently holds this folder sendreceive
  * @param {string[]} unsyncedSubdirs - volume-root names the spec declared with ml:
- * @returns {Promise<{isSafe: boolean, reason: string}>} Result after any repair
+ * @returns {Promise<{isSafe: boolean, reason: string, volumeFileMissing?: boolean}>} Result
+ *  after any repair; volumeFileMissing when the mount found conclusively that the
+ *  volume's image is not on this node
  */
 async function verifyAppFolderMountWithRepair(appId, appFolder, sending, unsyncedSubdirs = []) {
   const verify = sending ? verifySendReceiveFolderSafety : verifyFolderMountSafety;
   let mountSafety = await verify(appId, appFolder, unsyncedSubdirs);
   if (!mountSafety.isSafe && !mountSafety.isMounted) {
     const mountAttempt = await volumeService.ensureAppVolumeMounted(appId);
+    if (mountAttempt.reason === 'volume_file_missing') return { ...mountSafety, volumeFileMissing: true };
     if (mountAttempt.mounted) {
       // This pass replaces the record when it mounts from somewhere other than
       // where the record puts it, so a later one cannot re-derive the fact -
@@ -135,8 +138,8 @@ function appComponents(installedApp) {
  * @param {Array<{appId: string, appName: string}>} extraFolders - Folder entries
  *  verified by id alone, for folders whose owning app's spec cannot be read
  * @returns {Promise<{unmountedApps: Array, verifiedSafeIds: string[]}>} Apps with
- *  unmounted folders, and the folder ids that verified safe (so a pending
- *  mount-verify flag on them can be resolved)
+ *  unmounted folders, each saying whether its volume image is gone, and the folder
+ *  ids that verified safe (so a pending mount-verify flag on them can be resolved)
  */
 async function checkAppFolderMounts(appsInstalled, sendingFolderIds, extraFolders = []) {
   const unmountedApps = [];
@@ -149,7 +152,9 @@ async function checkAppFolderMounts(appsInstalled, sendingFolderIds, extraFolder
       verifiedSafeIds.push(appId);
     } else {
       // Folder exists but mount is not safe (empty and not mounted - likely unmounted loop device)
-      unmountedApps.push({ appId, appName, reason: mountSafety.reason });
+      unmountedApps.push({
+        appId, appName, reason: mountSafety.reason, volumeFileMissing: !!mountSafety.volumeFileMissing,
+      });
     }
   };
 
@@ -323,7 +328,7 @@ async function processContainerData(params) {
   if (!markerReady) {
     log.warn(`processContainerData - ${appId} volume not mounted; skipping syncthing configuration this cycle`);
     fluxEventBus.count('syncthing:folderPass', appId, 'volumeNotMounted');
-    folderStates.heldOut(appId);
+    folderStates.notMounted(appId);
     return;
   }
 
@@ -740,9 +745,10 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       // re-promotes once the mount is healthy.
       // eslint-disable-next-line no-restricted-syntax
       const unreadableIds = new Set(unreadableFolderEntries.map(({ appId }) => appId));
-      for (const { appId, reason } of unmountedApps) {
+      for (const { appId, reason, volumeFileMissing } of unmountedApps) {
         unsafeFolderIds.add(appId);
-        folderStates.heldOut(appId);
+        if (volumeFileMissing) folderStates.volumeGone(appId);
+        else folderStates.heldOut(appId);
         fluxEventBus.count('syncthing:folderPass', appId, 'mountUnsafe');
         // The container is the other writer over the bad mount, and holding it
         // asks nothing of syncthing: a component that syncs the folder, or one
