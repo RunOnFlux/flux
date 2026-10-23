@@ -130,12 +130,13 @@ async function stopApp(name, containers) {
  * again. Then each app gets its normal removal, which tells the network, within
  * REMOVAL_DEADLINE_MS; nothing of it runs by then, so the removals take turns.
  *
- * The apps are read from the database and from what is on disk, so an app the
- * database cannot list is still found. Docker's records of its containers are
- * read once, within STOP_WINDOW_MS: on a disk that does not answer they are not
- * waited for further, every app is still stopped and killed through its slice,
- * and an app that may have a container outside its slice is reported with
- * runnable null, since what of it can run cannot be known.
+ * The apps are read from the database and from what is on disk, at once, so an
+ * app the database cannot list is still found. Docker's records of its
+ * containers are read once, within STOP_WINDOW_MS: on a disk that does not answer
+ * they are not waited for further, and every app is still stopped and killed
+ * through its slice, with every container outside the slices (appKill). An app
+ * is reported with runnable null only when systemd does not say which containers
+ * are outside the slices.
  * @param {Function} installedAppsFn
  * @param {Function} removeAppLocallyFn
  */
