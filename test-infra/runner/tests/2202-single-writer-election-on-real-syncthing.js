@@ -38,6 +38,12 @@ const APP_UID = 1000;
 const API_PORT = 16127;
 const SYNCTHING_PORT = API_PORT + 2;
 
+// The old primary is down through the whole takeover and comes back as a standby,
+// which a node does only while its locations have not expired: past that its boot
+// removes every app. The shared harness fleet's 63s is shorter than a takeover can
+// take; production's 125 min is not, and this fleet keeps production's order.
+const LOCATION_TTL_S = 30 * 60;
+
 describe('single-writer election on real syncthing', function () {
   let env;
   dumpLogsOnFailure(() => env);
@@ -78,7 +84,7 @@ describe('single-writer election on real syncthing', function () {
       syncthing: 'binary',
       tickerAutostart: false,
       configOverrides: {
-        fluxapps: { minOutgoing: 1, minIncoming: 1 },
+        fluxapps: { minOutgoing: 1, minIncoming: 1, locationTtlS: LOCATION_TTL_S },
       },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });

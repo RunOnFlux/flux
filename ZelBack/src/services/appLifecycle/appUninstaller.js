@@ -7,6 +7,7 @@ const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
 const dbHelper = require('../dbHelper');
 const globalState = require('../utils/globalState');
+const folderStates = require('../appMonitoring/folderStates');
 const log = require('../../lib/log');
 const {
   localAppsInformation, globalAppsInformation, globalAppsMessages, ANNOUNCE_CYCLE_WAIT_MS,
@@ -155,7 +156,7 @@ async function stopSyncthingAndCleanup(monitoredName, appId, res) {
   // and one kept past the removal offers a volume this node no longer has -
   // outranking a node that still holds the app and seeding an empty folder in its
   // place.
-  globalState.folderHoldings?.delete(appId);
+  folderStates.removed(appId);
   globalState.seedMarks.delete(appId);
 
   try {

@@ -2,6 +2,7 @@ const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
 const syncthingService = require('../syncthingService');
 const globalState = require('../utils/globalState');
+const folderStates = require('./folderStates');
 const fluxEventBus = require('../utils/fluxEventBus');
 const { appsFolder } = require('../utils/appConstants');
 const { OWNED_FOLDER_SETTINGS } = require('./syncthingMonitorHelpers');
@@ -81,9 +82,8 @@ function recordType(folderId, type) {
     writable?.add(folderId);
     // What a folder holds that the cluster's index does not is a receive-only
     // question, and promotion answers it: everything this node holds is now
-    // published. Dropped rather than zeroed - absent is what a peer reads as
-    // "not a receive-only holder".
-    globalState.folderHoldings?.delete(folderId);
+    // published.
+    folderStates.sending(folderId);
     // A folder that sends has been seeded; peers read that from the folder itself.
     globalState.seedMarks.delete(folderId);
   } else {
@@ -491,6 +491,7 @@ async function changeSyncthingFolderType(folderId, folderType, {
 module.exports = {
   FOLDER_TYPE_SETTLE_MS,
   changeSyncthingFolderType,
+  exclusive,
   folderConfig,
   pauseAllFolders,
   putFolders,

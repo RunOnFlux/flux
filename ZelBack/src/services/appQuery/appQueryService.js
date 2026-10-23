@@ -17,6 +17,7 @@ const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 const networkStateService = require('../networkStateService');
 const peerIdentityService = require('../peerIdentityService');
 const primaryRoleChanges = require('../appLifecycle/primaryRoleChanges');
+const folderStates = require('../appMonitoring/folderStates');
 const syncthingService = require('../syncthingService');
 const log = require('../../lib/log');
 
@@ -139,6 +140,17 @@ async function decryptEnterpriseApps(apps, options = {}) {
 }
 
 /**
+ * The specifications of the apps installed on this node, from its own table.
+ * @param {object} [query] Narrows the read, as a filter on the table.
+ * @returns {Promise<object[]>}
+ * @throws {Error} When the table cannot be read.
+ */
+async function installedAppSpecs(query = {}) {
+  const appsDatabase = dbHelper.databaseConnection().db(config.database.appslocal.database);
+  return dbHelper.findInDatabase(appsDatabase, appConstants.localAppsInformation, query, { projection: { _id: 0 } });
+}
+
+/**
  * The names of the apps installed on this node that the network lists at
  * `socketAddress`: what a node that held that address left there. Rejects
  * when either cannot be read.
@@ -146,9 +158,7 @@ async function decryptEnterpriseApps(apps, options = {}) {
  * @returns {Promise<string[]>}
  */
 async function installedAppsListedAt(socketAddress) {
-  const installed = await installedApps();
-  if (installed.status !== 'success') throw new Error(`installed apps unreadable: ${installed.data?.message ?? installed.data}`);
-  const names = new Set(installed.data.map((app) => app.name));
+  const names = new Set((await installedAppSpecs()).map((app) => app.name));
   return (await registryManager.appsListedAt(socketAddress)).filter((name) => names.has(name));
 }
 
@@ -160,9 +170,6 @@ async function installedAppsListedAt(socketAddress) {
  */
 async function installedApps(req, res) {
   try {
-    const dbopen = dbHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
-
     let appsQuery = {};
     if (req && req.params && req.query) {
       let { appname } = req.params;
@@ -174,11 +181,7 @@ async function installedApps(req, res) {
       appsQuery = { name: req };
     }
 
-    const appsProjection = {
-      projection: { _id: 0 },
-    };
-
-    const apps = await dbHelper.findInDatabase(appsDatabase, appConstants.localAppsInformation, appsQuery, appsProjection);
+    const apps = await installedAppSpecs(appsQuery);
     const dataResponse = messageHelper.createDataMessage(apps);
     return res ? res.json(dataResponse) : dataResponse;
   } catch (error) {
@@ -820,13 +823,23 @@ async function callerIsFluxnode(body) {
  * The answer is signed over the challenge the request body carries, when it
  * carries one.
  *
- * @param {object} req Request.
- * @param {object} res Response.
  * `seeding` is where this node stands in deciding which holder seeds each folder at a
  * cold start (globalState.seedMarks); it carries the same figures as `holding`, so it
  * goes only where `holding` does.
  *
- * @returns {object} Message carrying { ready, folders, holding, seeding }.
+ * `notLookedAt` is every receive-only folder of an installed app this node has not yet
+ * looked at (folderStates). A peer about to seed waits on them, so a holder that has
+ * not looked is never read as holding nothing.
+ *
+ * `heldOut` and `volumeGone` are the receive-only folders this node cannot seed because
+ * their volume will not mount: under `heldOut` with the volume's image still on the node,
+ * so what it holds is unknown, and under `volumeGone` with the image gone, so it holds
+ * nothing. A peer about to seed leaves this node out of the choice, and does not seed
+ * over a `heldOut` folder unless another holder has data.
+ *
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message carrying { ready, folders, notLookedAt, heldOut, volumeGone, holding, seeding }.
  */
 async function promotedFolderHoldings(req, res) {
   try {
@@ -856,13 +869,21 @@ async function promotedFolderHoldings(req, res) {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
     const entitled = authorized === true || await callerIsFluxnode(body);
 
-    const held = globalState.folderHoldings;
+    const ready = ids !== null;
+    const {
+      holding, notLookedAt, heldOut, volumeGone,
+    } = ready ? folderStates.answer(ids) : {
+      holding: {}, notLookedAt: [], heldOut: [], volumeGone: [],
+    };
     const seal = peerIdentityService.answerSealer(peerIdentityService.AnswerPurpose.PROMOTED_FOLDERS, body);
     const response = messageHelper.createDataMessage(await seal({
-      ready: ids !== null,
+      ready,
       folders: ids === null ? [] : [...ids],
+      notLookedAt,
+      heldOut,
+      volumeGone,
       ...(entitled ? {
-        holding: held === null ? {} : Object.fromEntries(held),
+        holding,
         seeding: Object.fromEntries(globalState.seedMarks),
       } : {}),
     }));
@@ -879,6 +900,7 @@ async function promotedFolderHoldings(req, res) {
 }
 
 module.exports = {
+  installedAppSpecs,
   installedApps,
   installedAppsListedAt,
   decryptEnterpriseApps,

@@ -877,6 +877,17 @@ async function getDbLocalChanged(folder, page = 1, perpage = LOCAL_CHANGED_PAGE_
 }
 
 /**
+ * One item of a folder: this node's record of it (`local`), the cluster's version
+ * (`global`), and the connected devices that hold that version (`availability`).
+ * @param {string} folder Folder ID.
+ * @param {string} file The item's path within the folder.
+ * @returns {Promise<{local: object, global: object, availability: Array<object>}>}
+ */
+async function getDbFile(folder, file) {
+  return request('get', `/rest/db/file?${qs.stringify({ folder, file })}`);
+}
+
+/**
  * A folder's local changes, handed to a caller one page at a time.
  *
  * The paging is syncthing's, so it is answered here rather than by each caller: a
@@ -2737,6 +2748,7 @@ module.exports = {
   nonFileEntryBytes,
   nonFileEntryBytesForVersion,
   statusInFileBytes,
+  getDbFile,
   getDbLocalChanged,
   eachDbLocalChanged,
   dbRevert,

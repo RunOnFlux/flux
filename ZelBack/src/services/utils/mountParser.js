@@ -546,6 +546,20 @@ function gComponentIdentifiers(appSpec) {
 }
 
 /**
+ * The components of an app whose data is synced (g:/r:/s:), in compose order, as
+ * `<component>_<app>` (the app name for a v1-3 app). Empty when it has none.
+ * @param {object} appSpec - Installed app specification, decrypted.
+ * @returns {string[]}
+ */
+function syncedComponentIdentifiers(appSpec) {
+  if (!appSpec) return [];
+  if (appSpec.version <= 3) return isSyncedComponent(appSpec.containerData) ? [appSpec.name] : [];
+  return (appSpec.compose || [])
+    .filter((comp) => isSyncedComponent(comp.containerData))
+    .map((comp) => `${comp.name}_${appSpec.name}`);
+}
+
+/**
  * An app's anchor: its first g: component, or null when it has none.
  *
  * A FluxOS release that predates electing every g: component knows only this
@@ -591,6 +605,7 @@ module.exports = {
   getComponentSyncMode,
   isGComponent,
   gComponentIdentifiers,
+  syncedComponentIdentifiers,
   anchorComponentIdentifier,
   isSyncedComponent,
   validateMountPath,

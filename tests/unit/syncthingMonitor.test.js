@@ -5,6 +5,8 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 const eventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+const folderStates = require('../../ZelBack/src/services/appMonitoring/folderStates');
+const { folderStates: folderStateMap } = require('../../ZelBack/src/services/utils/globalState');
 
 // Create mocks for all dependencies
 const dbHelperMock = {
@@ -36,6 +38,8 @@ const syncthingServiceMock = {
   systemRestart: sinon.stub().resolves(),
   systemResume: sinon.stub().resolves(),
   getDbStatus: sinon.stub(),
+  getDbCompletion: sinon.stub().resolves({ remoteState: 'notSharing' }),
+  getDeviceStats: sinon.stub().resolves({}),
 };
 
 const syncthingFolderStateMachineMock = {
@@ -1436,6 +1440,177 @@ describe('syncthingMonitor tests', () => {
     });
   });
 
+  // What a peer about to seed reads of each receive-only folder here: it waits on one
+  // this node has not looked at, so every folder a pass reaches must leave that state.
+  describe('the folders it tells peers it has not looked at', () => {
+    // Folder ids already in identifier form, so the state the install records and the
+    // one the pass records name the same folder.
+    const installedApps = (apps) => mockInstalledAppsFn.resolves({ status: 'success', data: apps });
+    const notLookedAt = () => folderStates.answer(new Set()).notLookedAt;
+
+    beforeEach(() => {
+      folderStateMap.clear();
+    });
+
+    afterEach(() => {
+      folderStateMap.clear();
+    });
+
+    // After a restart the volumes still hold their data and nothing has been measured,
+    // so a peer must wait on every folder until this node has looked.
+    it('records every receive-only folder of an installed app as not looked at, and no other', async () => {
+      installedApps([
+        { name: 'fluxg', version: 3, containerData: 'g:/appdata' },
+        { name: 'fluxr', version: 3, containerData: 'r:/appdata' },
+        { name: 'fluxs', version: 3, containerData: 's:/appdata' },
+        { name: 'fluxplain', version: 3, containerData: '/appdata' },
+      ]);
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(notLookedAt()).to.have.members(['fluxg', 'fluxr']);
+    });
+
+    it('keeps a state a folder already has', async () => {
+      installedApps([{ name: 'fluxg', version: 3, containerData: 'g:/appdata' }]);
+      folderStateMap.set('fluxg', { state: 'measured', bytes: 10, newestModified: 1 });
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(folderStateMap.get('fluxg')).to.deep.equal({ state: 'measured', bytes: 10, newestModified: 1 });
+    });
+
+    // A volume that did not mount is never measured. Left not looked at, every peer
+    // would wait on this node for as long as the mount stays broken, and the app would
+    // start nowhere.
+    const volumeWillNotMount = (reason) => {
+      installedApps([{ name: 'fluxg', version: 3, containerData: 'g:/appdata' }]);
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['fluxg']);
+      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason });
+      syncthingServiceMock.getConfigFolders.resolves([{ id: 'fluxg', path: '/apps/fluxg', type: 'receiveonly' }]);
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+    };
+
+    it('records a folder whose volume image is on the node and will not mount as held out, which no peer waits on', async () => {
+      volumeWillNotMount('volume_image_unrecognised');
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(folderStateMap.get('fluxg')).to.deep.equal({ state: 'heldOut' });
+      expect(notLookedAt()).to.deep.equal([]);
+    });
+
+    it('records a folder whose volume image is gone as volume gone', async () => {
+      volumeWillNotMount('volume_file_missing');
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(folderStateMap.get('fluxg')).to.deep.equal({ state: 'volumeGone' });
+    });
+
+    it('keeps a folder whose volume image is gone so on a pass that finds it unmounted without asking why', async () => {
+      folderStateMap.set('fluxg', { state: 'volumeGone' });
+      installedApps([{ name: 'fluxg', version: 3, containerData: 'g:/appdata' }]);
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingMonitorHelpersMock.ensureStfolderExists.resolves(false);
+      syncthingServiceMock.getConfigFolders.resolves([]);
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(folderStateMap.get('fluxg')).to.deep.equal({ state: 'volumeGone' });
+    });
+
+    it('records a folder whose volume directory is not mounted as held out', async () => {
+      installedApps([{ name: 'fluxg', version: 3, containerData: 'g:/appdata' }]);
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingMonitorHelpersMock.ensureStfolderExists.resolves(false);
+      syncthingServiceMock.getConfigFolders.resolves([]);
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(folderStateMap.get('fluxg')).to.deep.equal({ state: 'heldOut' });
+    });
+
+    // A folder of an app whose spec cannot be read is never measured. Left not looked
+    // at, every peer would wait on this node for as long as the spec stays unreadable,
+    // even beside a holder that has the app's data.
+    const specUnreadable = (folders) => {
+      installedApps([{ name: 'entapp', version: 8, enterprise: 'blob' }]);
+      appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps) => ({ readable: [], unreadable: apps, inPlace: [] }));
+      syncthingServiceMock.getConfigFolders.resolves(folders);
+    };
+
+    it('records a receive-only folder of an app whose spec cannot be read as held out, which no peer waits on', async () => {
+      folderStateMap.set('fluxwebentapp_entapp', { state: 'notLookedAt' });
+      specUnreadable([{ id: 'fluxwebentapp_entapp', path: '/apps/fluxwebentapp_entapp', type: 'receiveonly' }]);
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(folderStateMap.get('fluxwebentapp_entapp')).to.deep.equal({ state: 'heldOut' });
+      expect(notLookedAt()).to.deep.equal([]);
+    });
+
+    it('records the receive-only folders of an app whose spec cannot be read after a restart, and no other', async () => {
+      specUnreadable([
+        { id: 'fluxwebentapp_entapp', path: '/apps/fluxwebentapp_entapp', type: 'receiveonly' },
+        { id: 'fluxdbentapp_entapp', path: '/apps/fluxdbentapp_entapp', type: 'sendreceive' },
+        { id: 'fluxwebother_other', path: '/apps/fluxwebother_other', type: 'receiveonly' },
+      ]);
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect([...folderStateMap.entries()]).to.deep.equal([['fluxwebentapp_entapp', { state: 'heldOut' }]]);
+    });
+
+    it('keeps a folder of an app whose spec cannot be read as volume gone when its volume image is gone', async () => {
+      folderStateMap.set('fluxwebentapp_entapp', { state: 'volumeGone' });
+      specUnreadable([{ id: 'fluxwebentapp_entapp', path: '/apps/fluxwebentapp_entapp', type: 'receiveonly' }]);
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(folderStateMap.get('fluxwebentapp_entapp')).to.deep.equal({ state: 'volumeGone' });
+    });
+
+    // A read that failed says nothing about what the volume holds.
+    const locationsUnreadable = () => {
+      installedApps([{ name: 'fluxg', version: 3, containerData: 'g:/appdata' }]);
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingMonitorHelpersMock.ensureStfolderExists.resolves(true);
+      dbHelperMock.findInDatabase.rejects(new Error('database unavailable'));
+      syncthingServiceMock.getConfigFolders.resolves([]);
+    };
+
+    it('leaves what it measured of a folder whose locations could not be read', async () => {
+      folderStateMap.set('fluxg', { state: 'measured', bytes: 10, newestModified: 1 });
+      locationsUnreadable();
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(folderStateMap.get('fluxg')).to.deep.equal({ state: 'measured', bytes: 10, newestModified: 1 });
+    });
+
+    it('leaves a folder it has not looked at whose locations could not be read as not looked at, which peers wait on', async () => {
+      locationsUnreadable();
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      expect(folderStateMap.get('fluxg')).to.deep.equal({ state: 'notLookedAt' });
+    });
+  });
+
   describe('holds a busy app out of the config write', () => {
     const syncingApp = { name: 'testapp', version: 3, containerData: 'g:/appdata' };
     // Bound while this file loads, which is when the module under test bound its
@@ -1493,13 +1668,11 @@ describe('syncthingMonitor tests', () => {
     // question. Promotion answers it - everything this node holds is published
     // from here - so the claim stops being true as the write lands, which is
     // where promotedFolderIds is reconciled for the same reason.
-    it('drops the published holding of a folder it promotes', async () => {
+    it('withdraws the published holding of a folder it promotes', async () => {
       writesAFolder();
       syncthingMonitorHelpersMock.getContainerDataFlags.returns('r');
-      globalState.folderHoldings = new Map([
-        ['testapp', { bytes: 5821604997, newestModified: 200 }],
-        ['untouchedapp', { bytes: 4096, newestModified: 100 }],
-      ]);
+      globalState.folderStates.set('testapp', { state: 'measured', bytes: 5821604997, newestModified: 200 });
+      globalState.folderStates.set('untouchedapp', { state: 'measured', bytes: 4096, newestModified: 100 });
 
       monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
       await clock.tickAsync(100);
@@ -1509,10 +1682,10 @@ describe('syncthingMonitor tests', () => {
       expect(put, 'nothing was written, so this asserts nothing').to.not.equal(undefined);
       expect(put.args[1].find((f) => f.id === 'testapp')?.type).to.equal('sendreceive');
 
-      expect(globalState.folderHoldings.has('testapp'), 'a promoted folder still claims receive-only holdings').to.equal(false);
-      // A folder this pass did not promote keeps its claim: the drop is scoped to
-      // what changed, not a clear of everything the node has answered for.
-      expect(globalState.folderHoldings.has('untouchedapp')).to.equal(true);
+      expect(globalState.folderStates.get('testapp'), 'a promoted folder still claims receive-only holdings').to.deep.equal({ state: 'noClaim' });
+      // A folder this pass did not promote keeps its claim: the withdrawal is scoped
+      // to what changed, not a clear of everything the node has answered for.
+      expect(globalState.folderStates.get('untouchedapp')).to.include({ state: 'measured' });
     });
 
     // The election reads a folder as ready to start once it is writable, so a
@@ -1844,6 +2017,111 @@ describe('syncthingMonitor tests', () => {
   // because a pass failed to reach the component that owns it. Deleting a live
   // folder drops syncthing's whole record of the app: the index, the peer
   // devices and, on the next pass, any mount-safety demotion standing on it.
+  describe('a peer no location names any more', () => {
+    // The peer's device is configured; `peerInFolder` is whether syncthing's
+    // folder still lists it, as it does until a folder write takes it out.
+    function folderSharedWithPeer({ peerInFolder = false } = {}) {
+      mockState.backupInProgress = [];
+      mockState.restoreInProgress = [];
+      syncthingMonitorHelpersMock.buildDeviceConfiguration.callsFake(async () => [{ deviceID: 'DEVICE-ID' }]);
+      syncthingMonitorHelpersMock.getContainerDataFlags.returns('g');
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      mockInstalledAppsFn.resolves({ status: 'success', data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }] });
+      syncthingServiceMock.getConfigFolders.resolves([
+        { id: 'testapp', type: 'receiveonly', devices: [{ deviceID: 'DEVICE-ID' }, ...(peerInFolder ? [{ deviceID: 'PEER-DEVICE' }] : [])] },
+      ]);
+      syncthingServiceMock.getConfigDevices.resolves([{ deviceID: 'PEER-DEVICE' }]);
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+      syncthingServiceMock.adjustConfigDevices.resolves({ status: 'success', data: {} });
+    }
+
+    afterEach(() => {
+      syncthingServiceMock.getDbCompletion.reset();
+      syncthingServiceMock.getDbCompletion.resolves({ remoteState: 'notSharing' });
+      syncthingServiceMock.getDeviceStats.reset();
+      syncthingServiceMock.getDeviceStats.resolves({});
+    });
+
+    // A node whose FluxOS has stopped answering stops announcing while its
+    // syncthing and its app carry on; once its location expires its writes reach
+    // no holder through this one.
+    it('removes its device though it is connected, once no folder lists it', async () => {
+      folderSharedWithPeer();
+      syncthingServiceMock.getDbCompletion.withArgs({ folder: 'testapp', device: 'PEER-DEVICE' }).resolves({ remoteState: 'valid' });
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      sinon.assert.calledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
+    });
+
+    // Syncthing drops a deleted device from every folder that lists it, outside
+    // the folder's writes, which a revert of a standby's changes holds off.
+    it('keeps its device while a folder still lists it', async () => {
+      folderSharedWithPeer({ peerInFolder: true });
+      syncthingServiceMock.getDbCompletion.withArgs({ folder: 'testapp', device: 'PEER-DEVICE' }).resolves({ remoteState: 'valid' });
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      sinon.assert.calledOnce(syncthingServiceMock.getDeviceStats);
+      sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
+    });
+
+    it('keeps its device while a folder this pass deletes still lists it', async () => {
+      folderSharedWithPeer();
+      syncthingServiceMock.getConfigFolders.resolves([
+        { id: 'testapp', type: 'receiveonly', devices: [{ deviceID: 'DEVICE-ID' }] },
+        { id: 'goneapp', type: 'receiveonly', devices: [{ deviceID: 'DEVICE-ID' }, { deviceID: 'PEER-DEVICE' }] },
+      ]);
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      sinon.assert.calledWithExactly(syncthingServiceMock.adjustConfigFolders, 'delete', undefined, 'goneapp');
+      sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
+    });
+
+    // Its connection record is what proves it gone to a standby that remembers it as
+    // the app's primary.
+    it('keeps the entry of a device it dropped while syncthing saw it within a day', async () => {
+      folderSharedWithPeer();
+      syncthingServiceMock.getDeviceStats.resolves({ 'PEER-DEVICE': { lastSeen: new Date(Date.now() - 60 * 60 * 1000).toISOString() } });
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
+    });
+
+    it('removes a device seen within a day when another device holds its name', async () => {
+      folderSharedWithPeer();
+      syncthingServiceMock.getConfigDevices.resolves([
+        { deviceID: 'PEER-DEVICE', name: '10.0.0.2:16127' },
+        { deviceID: 'STALE-DEVICE', name: '10.0.0.2:16127' },
+      ]);
+      const recent = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      syncthingServiceMock.getDeviceStats.resolves({ 'PEER-DEVICE': { lastSeen: recent }, 'STALE-DEVICE': { lastSeen: recent } });
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      sinon.assert.calledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'STALE-DEVICE');
+    });
+
+    it('removes no device while when each was last seen cannot be read', async () => {
+      folderSharedWithPeer();
+      syncthingServiceMock.getDeviceStats.rejects(new Error('connect ECONNREFUSED'));
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigDevices, 'delete', undefined, 'PEER-DEVICE');
+    });
+  });
+
   describe('unused-folder cleanup', () => {
     const syncingApp = { name: 'testapp', version: 3, containerData: 'g:/appdata' };
 

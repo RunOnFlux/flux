@@ -38,6 +38,7 @@ const volumeService = require('../utils/volumeService');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
 const appReconciler = require('./appReconciler');
 const syncthingFolderWrites = require('./syncthingFolderWrites');
+const folderStates = require('./folderStates');
 const primaryRole = require('../appLifecycle/primaryRole');
 const {
   manageFolderSyncState,
@@ -51,6 +52,12 @@ const syncthingEventsConsumer = require('./syncthingEventsConsumer');
 
 // Global collections
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
+
+// How long a device no folder uses keeps its entry after syncthing last saw it.
+// Its connection record is what proves a peer gone (peerFolderLiveness), and a
+// standby that remembers a primary no location names any more still has to prove
+// that primary gone before it starts the app; with the entry deleted it never can.
+const UNUSED_DEVICE_KEEP_MS = 24 * 60 * 60 * 1000;
 
 // Path constants
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
@@ -74,13 +81,16 @@ const appsFolder = `${appsFolderPath}/`;
  * @param {string} appFolder - App folder path
  * @param {boolean} sending - Whether syncthing currently holds this folder sendreceive
  * @param {string[]} unsyncedSubdirs - volume-root names the spec declared with ml:
- * @returns {Promise<{isSafe: boolean, reason: string}>} Result after any repair
+ * @returns {Promise<{isSafe: boolean, reason: string, volumeFileMissing?: boolean}>} Result
+ *  after any repair; volumeFileMissing when the mount found conclusively that the
+ *  volume's image is not on this node
  */
 async function verifyAppFolderMountWithRepair(appId, appFolder, sending, unsyncedSubdirs = []) {
   const verify = sending ? verifySendReceiveFolderSafety : verifyFolderMountSafety;
   let mountSafety = await verify(appId, appFolder, unsyncedSubdirs);
   if (!mountSafety.isSafe && !mountSafety.isMounted) {
     const mountAttempt = await volumeService.ensureAppVolumeMounted(appId);
+    if (mountAttempt.reason === 'volume_file_missing') return { ...mountSafety, volumeFileMissing: true };
     if (mountAttempt.mounted) {
       // This pass replaces the record when it mounts from somewhere other than
       // where the record puts it, so a later one cannot re-derive the fact -
@@ -128,8 +138,8 @@ function appComponents(installedApp) {
  * @param {Array<{appId: string, appName: string}>} extraFolders - Folder entries
  *  verified by id alone, for folders whose owning app's spec cannot be read
  * @returns {Promise<{unmountedApps: Array, verifiedSafeIds: string[]}>} Apps with
- *  unmounted folders, and the folder ids that verified safe (so a pending
- *  mount-verify flag on them can be resolved)
+ *  unmounted folders, each saying whether its volume image is gone, and the folder
+ *  ids that verified safe (so a pending mount-verify flag on them can be resolved)
  */
 async function checkAppFolderMounts(appsInstalled, sendingFolderIds, extraFolders = []) {
   const unmountedApps = [];
@@ -142,7 +152,9 @@ async function checkAppFolderMounts(appsInstalled, sendingFolderIds, extraFolder
       verifiedSafeIds.push(appId);
     } else {
       // Folder exists but mount is not safe (empty and not mounted - likely unmounted loop device)
-      unmountedApps.push({ appId, appName, reason: mountSafety.reason });
+      unmountedApps.push({
+        appId, appName, reason: mountSafety.reason, volumeFileMissing: !!mountSafety.volumeFileMissing,
+      });
     }
   };
 
@@ -316,6 +328,7 @@ async function processContainerData(params) {
   if (!markerReady) {
     log.warn(`processContainerData - ${appId} volume not mounted; skipping syncthing configuration this cycle`);
     fluxEventBus.count('syncthing:folderPass', appId, 'volumeNotMounted');
+    folderStates.notMounted(appId);
     return;
   }
 
@@ -338,7 +351,9 @@ async function processContainerData(params) {
     locations = await readAppLocation(installedAppName);
   } catch (error) {
     // Without its locations the folder would be shared with no peer, and the device
-    // sweep would remove every peer it has: it is held out of this pass instead.
+    // sweep would remove every peer it has: it is held out of this pass instead. What
+    // this node tells its peers of the folder stays as it was: a read that failed says
+    // nothing about what the volume holds.
     log.warn(`processContainerData - ${appId} locations could not be read (${error.message}); leaving the folder as it is this cycle`);
     fluxEventBus.count('syncthing:folderPass', appId, 'locationsUnread');
     unsafeFolderIds.add(appId);
@@ -533,6 +548,11 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // missing" by it, and the sweep at the end deletes by it.
     const ownerIds = syncingFolderOwnerIds(appsInstalled.data);
 
+    // Every receive-only folder of an installed app has a state before this node first
+    // answers its peers below. After a restart the states start empty while the volumes
+    // still hold their data, so each folder is not looked at until this pass measures it.
+    appsInstalled.data.forEach((installedApp) => folderStates.installed(installedApp));
+
     // Get required IDs and configurations
     const localDeviceId = await syncthingService.getDeviceId();
     if (!localDeviceId) {
@@ -583,6 +603,13 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     }
 
     await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.SYNCTHING_AFTER_FOLDER_READ);
+
+    // A receive-only folder of an app whose spec cannot be read is one this pass
+    // does not measure, so what it holds is unknown. Its folders come from
+    // syncthing's own list, as the sweep below takes them.
+    allFolders
+      .filter((folder) => folder.type === 'receiveonly' && ownedByUnreadableApp(folder.id))
+      .forEach((folder) => folderStates.specUnreadable(folder.id));
 
     // Publish which folders this node holds writable, for the peers that ask before
     // promoting one of their own. Recorded here rather than read on demand: the
@@ -726,8 +753,11 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       // re-promotes once the mount is healthy.
       // eslint-disable-next-line no-restricted-syntax
       const unreadableIds = new Set(unreadableFolderEntries.map(({ appId }) => appId));
-      for (const { appId, reason } of unmountedApps) {
+      for (const { appId, reason, volumeFileMissing } of unmountedApps) {
         unsafeFolderIds.add(appId);
+        if (volumeFileMissing) folderStates.volumeGone(appId);
+        else folderStates.heldOut(appId);
+        fluxEventBus.count('syncthing:folderPass', appId, 'mountUnsafe');
         // The container is the other writer over the bad mount, and holding it
         // asks nothing of syncthing: a component that syncs the folder, or one
         // whose spec cannot be read to say it does not, is held before the
@@ -896,8 +926,23 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // A peer device cannot be attributed to an app without doing that app's
     // work, so while anything is held out the device sweep stands down entirely
     // rather than delete a peer it simply never saw.
-    const nonUsedDevices = unsafeFolderIds.size > 0 ? [] : allDevices.filter(
-      (syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID) && syncthingDevice.deviceID !== localDeviceId,
+    // A device seen within UNUSED_DEVICE_KEEP_MS stays too, unless another device
+    // is configured under its name - then it is not the device at that address -
+    // and every device stays while when each was last seen cannot be read.
+    // A device any folder lists stays as well: syncthing drops a deleted device
+    // from every folder that lists it, outside the folder's writes here, and a
+    // revert of a standby's changes holds the folder's devices fixed only against
+    // those writes. It leaves its folders through the folder writes below, and is
+    // deleted by the first pass that finds it in none.
+    const deviceStats = unsafeFolderIds.size > 0 ? null : await syncthingService.getDeviceStats().catch(() => null);
+    const seenRecently = (deviceID) => Date.now() - Date.parse(deviceStats?.[deviceID]?.lastSeen) < UNUSED_DEVICE_KEEP_MS;
+    const nameHeldByAnother = (device) => Boolean(device.name)
+      && allDevices.some((other) => other.deviceID !== device.deviceID && other.name === device.name);
+    const listedInAFolder = new Set(allFolders.flatMap((folder) => (folder.devices ?? []).map(({ deviceID }) => deviceID)));
+    const nonUsedDevices = !deviceStats ? [] : allDevices.filter(
+      (syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID) && syncthingDevice.deviceID !== localDeviceId
+        && !listedInAFolder.has(syncthingDevice.deviceID)
+        && (!seenRecently(syncthingDevice.deviceID) || nameHeldByAnother(syncthingDevice)),
     );
 
     // Parallelize cleanup operations

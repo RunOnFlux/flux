@@ -149,6 +149,16 @@ export function dbClient(nodeNum) {
       return globalDb.collection('zelappslocation').find({ ip }).toArray();
     },
 
+    // A location's expiry on this node: its rows for the app at that address are
+    // gone, as the TTL index removes them. Resolves to how many rows went.
+    async expireAppLocation(appName, ip) {
+      const globalDb = await db('appsGlobal');
+      const host = String(ip).replace(/:\d+$/, '').replace(/\./g, '\\.');
+      const { deletedCount } = await globalDb.collection('zelappslocation')
+        .deleteMany({ name: appName, ip: { $regex: `^${host}(:\\d+)?$` } });
+      return deletedCount;
+    },
+
     // The restart attempts this node's reconciler has recorded for a component:
     // the burst window and the backoff ladder, as many entries as each holds.
     async restartAttempts(identifier) {

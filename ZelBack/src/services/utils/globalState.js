@@ -177,12 +177,11 @@ const fluxRemovedContainers = new Set();
 // once. Same null-is-no-opinion convention appReconciler's controllerDesired uses.
 let promotedFolderIds = null;
 
-// What each receive-only folder on this node holds that the cluster's index does not:
-// folderId -> { bytes, newestModified }. Peers ask for it before promoting one of their
-// own, so that the node with the data wins rather than the node with the lowest address.
-// Null until the first monitor pass, for the same reason promotedFolderIds is: "I hold
-// nothing" and "I have not looked" are opposite answers to a peer about to seed.
-let folderHoldings = null;
+// Where each receive-only folder of an installed app stands in telling peers what this
+// node holds of it: folderId -> a state from appMonitoring/folderStates. Peers read it
+// before promoting one of their own, so that the node with the data wins rather than
+// the node with the lowest address.
+const folderStates = new Map();
 
 // This node's place in deciding which holder seeds a folder at a cold start:
 // folderId -> { stage, bytes, newestModified }. `intent` while this node is elected,
@@ -367,8 +366,7 @@ module.exports = {
   get receiveOnlySyncthingAppsCache() { return receiveOnlySyncthingAppsCache; },
   get promotedFolderIds() { return promotedFolderIds; },
   set promotedFolderIds(ids) { promotedFolderIds = ids; },
-  get folderHoldings() { return folderHoldings; },
-  set folderHoldings(map) { folderHoldings = map; },
+  get folderStates() { return folderStates; },
   get seedMarks() { return seedMarks; },
   get syncthingDevicesIDCache() { return syncthingDevicesIDCache; },
   get folderHealthCache() { return folderHealthCache; },

@@ -55,6 +55,7 @@ const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const { stopAppMonitoring } = require('../appManagement/appInspector');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const globalState = require('../utils/globalState');
+const folderStates = require('../appMonitoring/folderStates');
 const appNetworkLinker = require('./appNetworkLinker');
 const { Privilege, authOf } = require('../utils/privileges');
 const { AsyncLock } = require('../utils/asyncLock');
@@ -678,7 +679,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     // Same dead incarnation, and this claim is published: peers rank a seed on what
     // each node says it holds, so the old volume's figures describe the one being
     // replaced and can win the election for a volume that is about to be empty.
-    globalState.folderHoldings?.delete(appId);
+    folderStates.recreated(appId);
     globalState.seedMarks.delete(appId);
     await execAsRoot('fallocate', ['-l', `${appSpecifications.hdd}G`, volumeFile]);
     const allocateSpace2 = {
@@ -1153,6 +1154,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         throw new Error(`CRITICAL: Failed to create database entry for ${appSpecifications.name} in soft registration. Database insert returned undefined - likely duplicate key error or database failure. Aborting soft registration to prevent orphaned Docker containers.`);
       }
       log.info(`Database entry created for ${appSpecifications.name} BEFORE Docker container creation (soft registration)`);
+      folderStates.installed(appSpecifications);
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;

@@ -4,6 +4,7 @@ const proxyquire = require('proxyquire').noCallThru();
 
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const { RemovalOutcome } = require('../../ZelBack/src/services/utils/removalOutcome');
+const { folderStates: folderStateMap } = require('../../ZelBack/src/services/utils/globalState');
 
 describe('appUninstaller tests', () => {
   describe('cleanupPorts tests', () => {
@@ -619,7 +620,6 @@ describe('appUninstaller tests', () => {
         installationInProgress: false,
         runningAppsCache: new Set(),
         receiveOnlySyncthingAppsCache: new Map(),
-        folderHoldings: new Map(),
         seedMarks: new Map(),
         // the two operations this suite sets, named as the module names them
         operationHolding() {
@@ -967,21 +967,19 @@ describe('appUninstaller tests', () => {
       const uninstaller = buildUninstaller(composedSpec);
       // Keyed by the app IDENTIFIER, which is what the folder id and the cleanup
       // both use - not the component name the removal is asked for.
-      globalStateStub.folderHoldings = new Map([
-        ['fluxcomp1_testapp', { bytes: 5821604997, newestModified: 200 }],
-        ['otherapp', { bytes: 4096, newestModified: 100 }],
-      ]);
+      folderStateMap.set('fluxcomp1_testapp', { state: 'measured', bytes: 5821604997, newestModified: 200 });
+      folderStateMap.set('otherapp', { state: 'measured', bytes: 4096, newestModified: 100 });
       globalStateStub.seedMarks.set('fluxcomp1_testapp', { stage: 'intent', bytes: 5821604997, newestModified: 200 });
       globalStateStub.seedMarks.set('otherapp', { stage: 'intent', bytes: 4096, newestModified: 100 });
 
       await uninstaller.removeAppLocally('comp1_testapp', res, true);
 
-      expect(globalStateStub.folderHoldings.has('fluxcomp1_testapp'), 'a removed app still claims to hold its data').to.equal(false);
+      expect(folderStateMap.has('fluxcomp1_testapp'), 'a removed app still claims to hold its data').to.equal(false);
       expect(globalStateStub.seedMarks.has('fluxcomp1_testapp'), 'a removed app still offers to seed').to.equal(false);
       expect(globalStateStub.seedMarks.has('otherapp')).to.equal(true);
       // Scoped to what was removed - a component-scoped removal is not a clear of
       // everything this node has answered for.
-      expect(globalStateStub.folderHoldings.has('otherapp')).to.equal(true);
+      expect(folderStateMap.has('otherapp')).to.equal(true);
     });
 
     it('pairs the seam with the durable runtime-state clear (same identifiers)', async () => {

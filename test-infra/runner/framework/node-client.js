@@ -288,6 +288,8 @@ export function nodeClient(nodeNum) {
         'network:originatorNotListed',
         'syncthing:namesVisible',
         'syncthing:localChangesReverted',
+        'syncthing:localChangesKept',
+        'syncthing:localChangesChecked',
         'syncthing:devicesResumed',
         'pm2:killTimeoutRaiseFailed',
         'pm2:killTimeoutUnchanged',
