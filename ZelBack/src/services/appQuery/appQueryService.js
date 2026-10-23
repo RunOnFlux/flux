@@ -162,7 +162,6 @@ async function installedAppsListedAt(socketAddress) {
   return (await registryManager.appsListedAt(socketAddress)).filter((name) => names.has(name));
 }
 
-
 /**
  * To list installed apps. Returns apps from local database.
  * @param {object} req Request.
