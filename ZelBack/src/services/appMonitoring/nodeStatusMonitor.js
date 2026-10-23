@@ -143,9 +143,12 @@ async function unloadForHostStall(installedAppsFn, removeAppLocallyFn) {
   if (unloadingForHostStall) return;
   unloadingForHostStall = true;
   try {
-    const listed = await withinDeadline(installedAppsFn(), REMOVAL_DEADLINE_MS).catch(() => null);
+    // Read at once: a stall that holds one of them is likely to hold the other.
+    const [listed, read] = await Promise.all([
+      withinDeadline(installedAppsFn(), REMOVAL_DEADLINE_MS).catch(() => null),
+      withinDeadline(appKill.readContainers(), STOP_WINDOW_MS),
+    ]);
     const installed = listed?.status === 'success' ? listed.data.map((app) => app.name) : [];
-    const read = await withinDeadline(appKill.readContainers(), STOP_WINDOW_MS);
     const containers = Array.isArray(read) ? read : null;
     if (!containers) log.error(`monitorNodeStatus - host stall: docker's container records could not be read (${read === TIMED_OUT ? 'no answer' : 'refused'}); containers outside the app slices cannot be found`);
     const names = [...new Set([...installed, ...await appKill.appsOnDisk(containers)])];

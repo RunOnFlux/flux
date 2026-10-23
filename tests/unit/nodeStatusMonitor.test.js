@@ -370,6 +370,20 @@ describe('nodeStatusMonitor tests', () => {
       await unload;
     });
 
+    it('reads the installed apps and docker\'s records at once, so a stall that holds both delays the stop by one wait', async () => {
+      const after = (ms, value) => () => new Promise((resolve) => { setTimeout(resolve, ms, value); });
+      const installedAppsFn = sinon.stub().callsFake(after(STOP_WINDOW - 1, { status: 'success', data: [{ name: 'a' }] }));
+      appKill.readContainers.callsFake(after(STOP_WINDOW - 1, []));
+      dockerService.appDockerStop.callsFake(never);
+
+      const unload = monitor.unloadForHostStall(installedAppsFn, sinon.stub().resolves('removed'));
+      await clock.tickAsync(STOP_WINDOW - 1);
+
+      sinon.assert.calledWith(dockerService.appDockerStop, 'fluxa');
+      await clock.tickAsync(STOP_WINDOW);
+      await unload;
+    });
+
     it('names a refusal to list docker\'s records', async () => {
       appKill.readContainers.resolves(null);
 
