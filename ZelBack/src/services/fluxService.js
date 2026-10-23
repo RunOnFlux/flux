@@ -29,6 +29,7 @@ const syncthingService = require('./syncthingService');
 const dockerService = require('./dockerService');
 const upnpService = require('./upnpService');
 const uplinkService = require('./uplinkService');
+const kernelService = require('./kernelService');
 const enterpriseConfig = require('./utils/enterpriseConfig');
 const { answerDaemonUnavailable } = require('./utils/routeGuards');
 
@@ -1564,6 +1565,7 @@ async function getFluxInfo(req, res) {
     info.flux.ip = ipRes.data;
     info.flux.staticIp = geolocationService.isStaticIP();
     info.flux.uplink = uplinkService.getUplinkSummary();
+    info.flux.kernel = await kernelService.getTaintSummary();
     // How far this node is through being staged out of service, or null. Read
     // beside `dos` below, which reports the last stage: the three read together
     // as HOLD, then EVACUATE, then EVACUATE with a DOS.

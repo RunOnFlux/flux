@@ -63,6 +63,7 @@ const backupRestoreService = require('./services/backupRestoreService');
 const arcaneAuthService = require('./services/arcaneAuthService');
 const appTamperingDetectionService = require('./services/appTamperingDetectionService');
 const uplinkService = require('./services/uplinkService');
+const kernelService = require('./services/kernelService');
 const fluxEventBus = require('./services/utils/fluxEventBus');
 
 module.exports = (app) => {
@@ -288,6 +289,10 @@ module.exports = (app) => {
   // Uncached: the answer depends on who is asking.
   app.get('/flux/uplink', rejectQueryParameters, asyncRoute((req, res) => {
     return uplinkService.uplinkAPI(req, res);
+  }));
+  // Uncached: the answer depends on who is asking.
+  app.get('/flux/kernel', rejectQueryParameters, asyncRoute((req, res) => {
+    return kernelService.kernelAPI(req, res);
   }));
   app.get('/flux/zelid', cache('30 seconds'), asyncRoute((req, res) => { // DEPERCATED
     return fluxService.getFluxZelID(req, res);

@@ -37,6 +37,7 @@ const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonServ
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
+const kernelService = require('../../ZelBack/src/services/kernelService');
 const packageJson = require('../../package.json');
 const log = require('../../ZelBack/src/lib/log');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
@@ -2099,6 +2100,7 @@ describe('fluxService tests', () => {
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
       fluxNetworkHelperStub.returns({ status: 'success', data: 'getIncomingConnectionsInfo data' });
       syncthingServiceStub.returns({ status: 'success', data: 'syncthingVersion data' });
+      sinon.stub(kernelService, 'getTaintSummary').resolves({ tainted: 4736, flags: ['D', 'W', 'O'] });
 
       const result = await fluxService.getFluxInfo();
 
@@ -2112,6 +2114,7 @@ describe('fluxService tests', () => {
       // reason it is here.
       expect(result.data.flux.dosStaging).to.equal(null);
       expect(result.data.flux.uplink).to.eql({ tunnel: 'unknown', mtu: null, rttMs: null });
+      expect(result.data.flux.kernel).to.eql({ tainted: 4736, flags: ['D', 'W', 'O'] });
       expect(result.data.apps).to.be.an('object');
       expect(result.data.benchmark).to.eql({
         info: 'info2 data',
