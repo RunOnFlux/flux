@@ -17,6 +17,7 @@ describe('appStartupManager tests', () => {
   let appUninstallerStub;
   let globalStateStub;
   let appQueryServiceStub;
+  let appPlacementsStub;
   let portManagerStub;
   let appSliceStub;
   let nodeStatusMonitor;
@@ -82,6 +83,10 @@ describe('appStartupManager tests', () => {
     sinon.stub(globalStateStub, 'waitForDaemonReady').resolves();
     sinon.stub(globalStateStub, 'waitForBootContainerStateSettled').resolves();
 
+    appPlacementsStub = {
+      removeStrayPlacements: sinon.stub().resolves(0),
+    };
+
     appQueryServiceStub = {
       installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
       decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
@@ -109,6 +114,7 @@ describe('appStartupManager tests', () => {
       './appUninstaller': appUninstallerStub,
       './appSlice': appSliceStub,
       '../appMonitoring/nodeStatusMonitor': nodeStatusMonitor,
+      '../appManagement/appPlacements': appPlacementsStub,
       '../utils/globalState': globalStateStub,
       // runs the step again at once until it succeeds, as the real one does after a wait
       '../utils/untilSucceeds': {
@@ -938,7 +944,33 @@ describe('appStartupManager tests', () => {
       await appStartupManager.manageAppsOnBoot(KEEP);
 
       expect(logStub.error.calledWithMatch(/not opened in the firewall: helper crashed/)).to.equal(true);
-      expect(dbHelperStub.findInDatabase.callCount, 'the reconcile read the installed apps').to.equal(2);
+      // once for tidying the placement records, twice for the reconcile
+      expect(dbHelperStub.findInDatabase.callCount, 'the reconcile read the installed apps').to.equal(3);
+    });
+
+    it('removes stray records first, against the installed apps', async () => {
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      sinon.assert.calledOnceWithExactly(appPlacementsStub.removeStrayPlacements, ['web', 'db']);
+      sinon.assert.callOrder(appPlacementsStub.removeStrayPlacements, portManagerStub.appsWithPorts);
+    });
+
+    // A boot that stops before it reconciles the apps still clears stray records.
+    it('removes stray records on a boot that stops early', async () => {
+      fluxNetworkHelperStub.isNodeDos.returns(true);
+
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      sinon.assert.calledOnce(appPlacementsStub.removeStrayPlacements);
+    });
+
+    it('removes stray records again until it succeeds, before it goes on', async () => {
+      appPlacementsStub.removeStrayPlacements.onFirstCall().rejects(new Error('mongo went away'));
+
+      await appStartupManager.manageAppsOnBoot(KEEP);
+
+      sinon.assert.calledTwice(appPlacementsStub.removeStrayPlacements);
+      sinon.assert.callOrder(appPlacementsStub.removeStrayPlacements, portManagerStub.appsWithPorts);
     });
 
     it('opens nothing when the apps are all being removed', async () => {

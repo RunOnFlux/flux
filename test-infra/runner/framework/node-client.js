@@ -222,10 +222,17 @@ export function nodeClient(nodeNum) {
         'app:installOutcome',
         'app:removed',
         'app:rebuilt',
+        'app:softRedeployed',
         'reinstall:passEnded',
         'app:componentRedeployed',
         'app:specStored',
         'app:running',
+        // what this node records of when it took each app it holds
+        'app:placementRecorded',
+        'app:placementRemoved',
+        'app:placementsTidied',
+        'app:placementsBackfilled',
+        'app:announcementRefused',
         'app:announcing',
         'fileoperation:imageAcquired',
         'fileoperation:imageDiscarded',
@@ -317,6 +324,8 @@ export function nodeClient(nodeNum) {
         'hostStall:appUnloaded',
         'hostStall:appsStopped',
         'network:apprunning',
+        // entries of an apprunning message this node refused, by gossip or sync
+        'network:apprunningRefused',
         'network:appinstalling',
         'network:appinstallingerror',
         'network:appremoved',
@@ -561,6 +570,20 @@ export function nodeClient(nodeNum) {
     // the app:installed event (waitForAppInstalled).
     installAppLocally: async (appname, zelidauth) => {
       const res = await controlFetch(`${url}/apps/installapplocally/${appname}`, { headers: { zelidauth } });
+      return res.text();
+    },
+    // Test an app on THIS node: install it, check it starts, tear it down. By
+    // name, or by the hash of a temporary message for an app not yet paid for.
+    // Streams like installapplocally, so drained as text.
+    testAppInstall: async (appname, zelidauth) => {
+      const res = await controlFetch(`${url}/apps/testappinstall/${appname}`, { headers: { zelidauth } });
+      return res.text();
+    },
+    // Remove an app from THIS node only. The third path segment is `global`, and
+    // true would remove the app from every node holding it, so it is always false
+    // here. Streams progress, so drained as text.
+    removeAppLocally: async (appname, zelidauth, { force = true } = {}) => {
+      const res = await controlFetch(`${url}/apps/appremove/${appname}/${force}/false`, { headers: { zelidauth } });
       return res.text();
     },
     // Redeploy the WHOLE app on this node, reading the spec from the global table

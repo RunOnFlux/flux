@@ -1644,10 +1644,12 @@ async function softRedeploy(appSpecs, res) {
         if (res.flush) res.flush();
       }
       globalState.softRedeployInProgress = false;
+      fluxEventBus.publish('app:softRedeployed', { name: appSpecs.name, outcome });
       return;
     }
     log.info('Application softly redeployed');
     globalState.softRedeployInProgress = false;
+    fluxEventBus.publish('app:softRedeployed', { name: appSpecs.name, outcome });
   } catch (error) {
     log.info('Error on softRedeploy');
     log.error(error);
@@ -4498,26 +4500,14 @@ async function reinstallOldApplications() {
               log.warn('Performing full hard redeploy to handle component changes...');
               log.warn(`REMOVAL REASON: Component structure change (v8+) - ${appSpecifications.name} component count/names changed`);
 
+              // A hard redeploy: removed and installed again as a whole. One that does
+              // not bring the app back tells the network.
               // eslint-disable-next-line no-await-in-loop
-              await appUninstaller.removeAppLocally(appSpecifications.name, null, false, false);
-              const appRedeployResponse = messageHelper.createSuccessMessage('Application removed. Awaiting installation...');
-              log.info(appRedeployResponse);
-
-              // verify requirements
-              // eslint-disable-next-line no-await-in-loop
-              await appInstaller.checkAppRequirements(appSpecifications);
-
-              // register
-              // eslint-disable-next-line no-await-in-loop
-              const outcome = await appInstaller.registerAppLocally(appSpecifications, undefined, null, false, true);
+              const outcome = await appRebuild.rebuildApp(appSpecifications);
               if (outcome === InstallOutcome.INSTALLED) {
                 log.info(`Application ${appSpecifications.name} redeployed with new component structure`);
               } else {
-                // The removal above deleted the local row, and only a successful
-                // install writes it back. Nothing reconciles an app with no row,
-                // so this node has simply lost the instance until it is placed
-                // here again.
-                log.error(`Application ${appSpecifications.name} was removed for a component structure change and NOT reinstalled (${outcome}). This node no longer holds it and cannot recover it on its own.`);
+                log.error(`Application ${appSpecifications.name} was not redeployed for a component structure change (${outcome}).`);
               }
 
               // eslint-disable-next-line no-continue

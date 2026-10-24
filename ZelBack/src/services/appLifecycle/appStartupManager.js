@@ -18,6 +18,7 @@ const appUninstaller = require('./appUninstaller');
 const appNetworkLinker = require('./appNetworkLinker');
 const appSlice = require('./appSlice');
 const nodeStatusMonitor = require('../appMonitoring/nodeStatusMonitor');
+const appPlacements = require('../appManagement/appPlacements');
 const { TIMED_OUT } = require('../utils/withinDeadline');
 const portManager = require('../appNetwork/portManager');
 const globalState = require('../utils/globalState');
@@ -395,8 +396,21 @@ async function removeAllApps(reason) {
   }
 }
 
+/**
+ * Remove the placement records of apps not installed here, on every boot
+ * whichever way it goes on. Run again until it succeeds.
+ * @returns {Promise<void>}
+ */
+async function tidyPlacementsOnBoot() {
+  await untilSucceeds('Removing stray placement records', async () => {
+    const installed = await getInstalledAppsFromDb();
+    await appPlacements.removeStrayPlacements(installed.map((app) => app.name));
+  });
+}
+
 async function manageAppsOnBoot(bootContext) {
   try {
+    await tidyPlacementsOnBoot();
     // ahead of every container start, so no slice in use can be empty here
     await appSlice.stopEmptySlices();
     if (bootContext.firstBoot) {

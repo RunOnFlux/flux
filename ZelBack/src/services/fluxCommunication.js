@@ -6,6 +6,7 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 const messageStore = require('./appMessaging/messageStore');
+const { appRunningEntries } = require('./utils/appRunningEntries');
 const verificationHelper = require('./verificationHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
@@ -262,9 +263,14 @@ async function handleAppRunningSyncResponse(message, peerSocket) {
         // already-expired rows - but that is a bound to be read out of another
         // file, and two builders of one input should not need reconciling.
         if (data.broadcastedAt + RUNNING_EXPIRY_MS < Date.now()) continue;
+        // Pruned against the apps the broadcast names that can be stored: one
+        // naming only entries this node refuses says nothing about what its
+        // sender runs, and is never read as one naming no apps at all.
+        const { stored } = appRunningEntries(data.apps);
+        if (!stored.length) continue;
         const seen = newestByIp.get(data.ip);
         if (!seen || data.broadcastedAt > seen.broadcastedAt) {
-          newestByIp.set(data.ip, { names: data.apps.map((a) => a.name), broadcastedAt: data.broadcastedAt });
+          newestByIp.set(data.ip, { names: stored.map((a) => a.name), broadcastedAt: data.broadcastedAt });
         }
       }
 
@@ -460,13 +466,28 @@ async function handleAppRunningMessage(message, fromIP, port) {
   try {
     await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: message });
     const result = await messageStore.storeAppRunningMessage(message.data);
-    if (result.stored) {
-      fluxEventBus.publish('network:apprunning', { ip: message.data.ip, apps: message.data.apps || [{ name: message.data.name }] });
+    if (result instanceof Error) {
+      log.warn(`handleAppRunningMessage - not stored, from ${fromIP}:${port} for ${message.data?.ip}: ${result.message}`);
+      return;
     }
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
-    if (result.rebroadcast && timestampOK) {
+    const relayed = Boolean(result.rebroadcast && timestampOK);
+    if (relayed) {
       announceToPeers(message, `${fromIP}:${port}`);
+    }
+    // Everything this node did with the message: the entries it wrote, the names
+    // it refused, whether it cleared the sender's rows, and whether it passed it on.
+    // A message that did none of these, such as a copy of one already stored,
+    // publishes nothing.
+    if (result.written.length || result.refused.length || result.cleared || relayed) {
+      fluxEventBus.publish('network:apprunning', {
+        ip: message.data.ip,
+        apps: result.written,
+        refused: result.refused,
+        cleared: result.cleared,
+        relayed,
+      });
     }
   } catch (error) {
     log.error(error);

@@ -13,6 +13,7 @@ const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileg
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
+const { RemovalOutcome } = require('../../ZelBack/src/services/utils/removalOutcome');
 const { MongoNetworkTimeoutError } = require('mongodb');
 const log = require('../../ZelBack/src/lib/log');
 const https = require('https');
@@ -27,6 +28,7 @@ const { PeerComponent } = require('../../ZelBack/src/services/appMonitoring/peer
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const { addressMoveEvents, EVENTS: ADDRESS_MOVE_EVENTS } = require('../../ZelBack/src/services/utils/addressMoveEvents');
 const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+const appPlacements = require('../../ZelBack/src/services/appManagement/appPlacements');
 const appRebuild = require('../../ZelBack/src/services/appLifecycle/appRebuild');
 const appNetworkLinker = require('../../ZelBack/src/services/appLifecycle/appNetworkLinker');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
@@ -6915,6 +6917,30 @@ describe('advancedWorkflows tests', () => {
       expect(globalState.softRedeployInProgress).to.be.false;
     });
 
+    // A soft redeploy keeps the app's volume, and with it the node's record of
+    // when it took the app, whichever way it ends.
+    it('leaves the placement record alone when the app was removed and the reinstall did not happen', async () => {
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(v3Spec);
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves();
+      sinon.stub(appUninstaller, 'softUninstallApplication').resolves();
+      // the node is taken by another install by the time the reinstall asks for it
+      sinon.stub(appInstaller, 'checkAppRequirements').callsFake(async () => {
+        globalState.installationInProgress = true;
+        return true;
+      });
+      const removePlacement = sinon.stub(appPlacements, 'removePlacement').resolves();
+      const recordPlacement = sinon.stub(appPlacements, 'recordPlacement').resolves();
+
+      try {
+        await advancedWorkflows.softRedeploy(v3Spec, null);
+      } finally {
+        globalState.installationInProgress = false;
+      }
+
+      sinon.assert.notCalled(removePlacement);
+      sinon.assert.notCalled(recordPlacement);
+    });
+
     it('records that a failure after the app is down still force-uninstalls it', async () => {
       // Pins CURRENT behaviour, not desired behaviour. The gate covers a removal
       // that never finished; past that point a failure still force-uninstalls
@@ -7550,6 +7576,55 @@ describe('advancedWorkflows tests', () => {
         requestComplianceSweep.called,
         'a redeployed application was swept for as though nothing had judged it',
       ).to.be.false;
+    });
+
+    // A version 8 app whose components change is removed and installed again as
+    // a whole, and the network is told when it does not come back.
+    describe('a redeploy for a change of components', () => {
+      const v8Installed = { ...installedApp, version: 8, enterprise: '' };
+      const v8New = {
+        ...v8Installed,
+        hash: 'newhash',
+        compose: [...v8Installed.compose, { ...v8Installed.compose[0], name: 'db', ports: ['31001'] }],
+      };
+      let removeAppLocally;
+      let registerAppLocally;
+      let checkAppRequirements;
+      let announceRemoval;
+
+      beforeEach(() => {
+        dbHelper.findInDatabase.resolves([v8Installed]);
+        dbHelper.findOneInDatabase.resolves(v8New);
+        checkAppRequirements = sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+        removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves(RemovalOutcome.REMOVED);
+        announceRemoval = sinon.stub(appUninstaller, 'announceRemoval').resolves();
+        registerAppLocally = sinon.stub(appInstaller, 'registerAppLocally').resolves(InstallOutcome.INSTALLED);
+      });
+
+      it('removes the app and installs it again', async () => {
+        await advancedWorkflows.reinstallOldApplications();
+
+        sinon.assert.callOrder(removeAppLocally, checkAppRequirements, registerAppLocally);
+        sinon.assert.notCalled(announceRemoval);
+      });
+
+      it('tells the network when the reinstall does not bring the app back', async () => {
+        registerAppLocally.resolves(InstallOutcome.FAILED);
+
+        await advancedWorkflows.reinstallOldApplications();
+
+        sinon.assert.calledOnceWithExactly(announceRemoval, 'myapp');
+      });
+
+      it('tells the network when the new specification\'s requirements are not met after the removal', async () => {
+        checkAppRequirements.rejects(new Error('Insufficient RAM'));
+
+        await advancedWorkflows.reinstallOldApplications();
+
+        sinon.assert.calledOnce(removeAppLocally);
+        sinon.assert.notCalled(registerAppLocally);
+        sinon.assert.calledOnceWithExactly(announceRemoval, 'myapp');
+      });
     });
 
     it('does not uninstall an app whose redeploy stops on a database that does not answer', async () => {

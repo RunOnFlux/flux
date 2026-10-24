@@ -80,6 +80,7 @@ module.exports = {
       collections: {
         appsInformation: 'zelappsinformation',
         appsRuntimeState: 'zelappsruntimestate',
+        appsPlacements: 'zelappsplacements',
       },
     },
     appsglobal: {
@@ -265,8 +266,8 @@ module.exports = {
     availabilityCheckIntervalMs: 300000,
     availabilityRecheckMs: 60000,
     peerShortfallDosPerMinute: 0.13,
-    publicIpAskIntervalMs: 90000,
-    publicIpAsksBeforeDos: 8,
+    publicIpAskIntervalMs: 15000,
+    publicIpAsksBeforeDos: 48,
     appsPortCheck: {
       timeoutsMs: {
         default: 3600000, error: 60000, failure: 15000, dos: 300000, appError: 240000,
@@ -301,8 +302,6 @@ module.exports = {
     daemonPONFork: 2020000, // block height where PON (Proof of Node) fork activates - chain works 4x faster after this block
     blocksAllowanceInterval: 1000, // ap differences can be in 1000s - more than 1 day
     removeBlocksAllowanceIntervalBlock: 1625000, // after this block we can start having app updates without extending subscription - block expected in April 19th 2024
-    ownerAppAllowance: 1000, // in case of node owner installing some app, the app will run for this amount of blocks
-    temporaryAppAllowance: 200, // in case of any user installing some temporary app message for testing purposes, the app will run for this many blocks
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
     updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
     removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application

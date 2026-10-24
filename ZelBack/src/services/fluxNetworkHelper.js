@@ -148,6 +148,7 @@ let storedFluxBenchAllowed = null;
 let tooManyIpChangesAt = null;
 let maxNumberOfIpChanges = 0;
 const { lruRateLimit } = require('./utils/rateLimit');
+const { AsyncGate } = require('./utils/asyncGate');
 const { Privilege, authOf } = require('./utils/privileges');
 
 // This node's socket address (ip:port) from benchmark
@@ -169,8 +170,11 @@ const EGRESS_TARGET = '203.0.113.1';
 // localSocketAddress but gives the node no new address, so this keeps it.
 let lastKnownSocketAddress = null;
 // Emits 'change' with the new address when the node learns one that differs
-// from lastKnownSocketAddress.
+// from lastKnownSocketAddress, and 'known' with it when the node has an address
+// after having none.
 const localSocketAddressEvents = new EventEmitter();
+// Open while localSocketAddress holds an address.
+const localSocketAddressGate = new AsyncGate();
 
 /**
  * The device an os.networkInterfaces() entry is bound on. A labelled address
@@ -987,10 +991,13 @@ async function keepUPNPPortsOpen(req, res) {
  * @param {string} value ip or ip:port to be set (normalized to ip:port)
  */
 function setLocalSocketAddress(value) {
+  const wasKnown = localSocketAddressGate.ready;
   localSocketAddress = value ? normalizeSocketAddress(value) : null;
   // (Re)set the freshness deadline whenever the value changes, so getLocalSocketAddress
   // serves it without a benchmark RPC until it goes stale (cleared when set to null).
   localSocketAddressFreshUntil = localSocketAddress ? process.hrtime.bigint() + LOCAL_SOCKET_ADDRESS_TTL_NS : 0n;
+  if (localSocketAddress) localSocketAddressGate.open();
+  else localSocketAddressGate.close();
   // Told here because this is the one place the node learns what it is. The
   // peer manager needs it to keep this node out of its own peer draws - a node
   // that syncs from itself learns nothing, and it spends one of very few
@@ -1000,6 +1007,7 @@ function setLocalSocketAddress(value) {
     lastKnownSocketAddress = localSocketAddress;
     localSocketAddressEvents.emit('change', localSocketAddress);
   }
+  if (localSocketAddress && !wasKnown) localSocketAddressEvents.emit('known', localSocketAddress);
 }
 
 /**
@@ -1008,6 +1016,22 @@ function setLocalSocketAddress(value) {
  */
 function getKnownLocalSocketAddress() {
   return lastKnownSocketAddress;
+}
+
+/**
+ * This node's socket address, once it has one. Resolves as soon as benchmark
+ * reports an address to any caller of getLocalSocketAddress; while none is known
+ * the own-standing watch keeps asking for one.
+ * @returns {Promise<string>} ip:port
+ */
+async function waitForLocalSocketAddress() {
+  let address = await getLocalSocketAddress();
+  while (!address) {
+    // eslint-disable-next-line no-await-in-loop
+    await localSocketAddressGate.wait();
+    address = localSocketAddress;
+  }
+  return address;
 }
 
 /**
@@ -1025,6 +1049,15 @@ function onLocalSocketAddressChange(listener) {
  */
 function offLocalSocketAddressChange(listener) {
   localSocketAddressEvents.off('change', listener);
+}
+
+/**
+ * @param {function(string): void} listener Called with the address each time the
+ *   node has one after having none.
+ * @returns {void}
+ */
+function onLocalSocketAddressKnown(listener) {
+  localSocketAddressEvents.on('known', listener);
 }
 
 /**
@@ -3728,8 +3761,10 @@ module.exports = {
   checkFluxAvailability,
   getLocalSocketAddress,
   getKnownLocalSocketAddress,
+  waitForLocalSocketAddress,
   onLocalSocketAddressChange,
   offLocalSocketAddressChange,
+  onLocalSocketAddressKnown,
   getFluxNodePrivateKey,
   getFluxNodePublicKey,
   MAX_KEEPALIVE_PORTS,

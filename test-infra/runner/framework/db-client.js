@@ -460,6 +460,45 @@ export function dbClient(nodeNum) {
       await localDb.collection('zelappsinformation').insertOne(spec);
     },
 
+    // The app as this node has it installed.
+    async localApp(name) {
+      const localDb = await db('appsLocal');
+      return localDb.collection('zelappsinformation').findOne({ name }, { projection: { _id: 0 } });
+    },
+
+    // When this node took each app it holds: { name: placedAt }.
+    async placements() {
+      const localDb = await db('appsLocal');
+      const records = await localDb.collection('zelappsplacements').find({}, { projection: { _id: 0 } }).toArray();
+      return Object.fromEntries(records.map(({ name, placedAt }) => [name, placedAt]));
+    },
+
+    async seedPlacement(name, placedAt) {
+      const localDb = await db('appsLocal');
+      await localDb.collection('zelappsplacements').insertOne({ name, placedAt: new Date(placedAt) });
+    },
+
+    async deletePlacement(name) {
+      const localDb = await db('appsLocal');
+      await localDb.collection('zelappsplacements').deleteMany({ name });
+    },
+
+    // This node's location row for one app at one address, or null.
+    async appLocationAt(name, ip) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappslocation').findOne({ name, ip }, { projection: { _id: 0 } });
+    },
+
+    async deleteAppLocation(name, ip) {
+      const globalDb = await db('appsGlobal');
+      await globalDb.collection('zelappslocation').deleteMany({ name, ip });
+    },
+
+    async setAppLocationRunningSince(name, ip, runningSince) {
+      const globalDb = await db('appsGlobal');
+      await globalDb.collection('zelappslocation').updateOne({ name, ip }, { $set: { runningSince: new Date(runningSince) } });
+    },
+
 
     async seedInstallingLocation({ name, ip, broadcastedAt }) {
       const globalDb = await db('appsGlobal');

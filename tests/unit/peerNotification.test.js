@@ -20,6 +20,9 @@ describe('peerNotification tests', () => {
   let unconfirmedApps;
   let announceCycle;
   let findOneInDatabaseStub;
+  let placementsOfStub;
+  let waitForBackfillStub;
+  let waitForLocalSocketAddressStub;
 
   // One stub map, so a test that needs a different interval, expiry or cycle
   // length states only that difference instead of restating sixty lines.
@@ -56,7 +59,7 @@ describe('peerNotification tests', () => {
       nodeTier: sinon.stub().resolves('cumulus'),
     },
     '../fluxNetworkHelper': {
-      getLocalSocketAddress: sinon.stub().resolves('192.168.1.1:16127'),
+      waitForLocalSocketAddress: waitForLocalSocketAddressStub,
     },
     '../geolocationService': {
       isStaticIP: sinon.stub().returns(true),
@@ -115,6 +118,7 @@ describe('peerNotification tests', () => {
       runningAppsCache: new Set(),
     },
     '../utils/nodeSigner': { nodeSigner: nodeSignerStub },
+    '../appManagement/appPlacements': { placementsOf: placementsOfStub, waitForBackfill: waitForBackfillStub },
     '../../lib/log': logStub,
   });
 
@@ -126,15 +130,19 @@ describe('peerNotification tests', () => {
     };
 
     findOneInDatabaseStub = sinon.stub().resolves(null);
+    // every installed app has a record unless a test says otherwise
+    placementsOfStub = sinon.stub().callsFake(async (names) => new Map(names.map((name) => [name, new Date('2026-09-01T00:00:00.000Z')])));
     enqueueAllStub = sinon.stub().resolves();
     waitForBootDrainSettledStub = sinon.stub().resolves();
+    waitForBackfillStub = sinon.stub().resolves();
+    waitForLocalSocketAddressStub = sinon.stub().resolves('192.168.1.1:16127');
     storeAppRunningMessageStub = sinon.stub().resolves();
     storeAppStateEventStub = sinon.stub().resolves();
     broadcastMessageToAllStub = sinon.stub().resolves('signed');
     nodeSignerStub = sinon.stub().resolves({ pubKey: '04', sign: () => 'sig' });
     installedAppsStub = sinon.stub().resolves({
       status: 'success',
-      data: [{ name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] }],
+      data: [{ name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] }],
     });
     // The REAL departing tracker, taken fresh per test rather than
     // reimplemented here: a fake that counts differently from the module would
@@ -197,8 +205,8 @@ describe('peerNotification tests', () => {
       installedAppsStub.resolves({
         status: 'success',
         data: [
-          { name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
-          { name: 'app2', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
+          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'app2', hash: 'app2hash', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
         ],
       });
       // only app1's container is running
@@ -215,8 +223,8 @@ describe('peerNotification tests', () => {
       installedAppsStub.resolves({
         status: 'success',
         data: [
-          { name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
-          { name: 'app2', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
+          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'app2', hash: 'app2hash', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
         ],
       });
       departingApps.enter('app2');
@@ -251,8 +259,8 @@ describe('peerNotification tests', () => {
       installedAppsStub.resolves({
         status: 'success',
         data: [
-          { name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
-          { name: 'app2', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
+          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'app2', hash: 'app2hash', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
         ],
       });
       unconfirmedApps.set('app2', Symbol('app2'));
@@ -304,7 +312,7 @@ describe('peerNotification tests', () => {
       installedAppsStub.resolves({
         status: 'success',
         data: [
-          { name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
           { name: 'sealed', version: 8, enterprise: 'encrypted-blob', compose: [], hash: 'h2' },
         ],
       });
@@ -344,8 +352,8 @@ describe('peerNotification tests', () => {
       installedAppsStub.resolves({
         status: 'success',
         data: [
-          { name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
-          { name: 'trialapp', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'trialapp', hash: 'trialapphash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
         ],
       });
       testInstallingApps.add('trialapp');
@@ -357,6 +365,97 @@ describe('peerNotification tests', () => {
         message.apps.map((a) => a.name),
         'claimed a placement for an app it is only trying out',
       ).to.deep.equal(['app1']);
+    });
+
+    describe('when this node took each app', () => {
+      it('announces the time from its placement record, not from its location row', async () => {
+        placementsOfStub.resolves(new Map([['app1', new Date('2026-06-01T12:00:00.000Z')]]));
+        findOneInDatabaseStub.resolves({ runningSince: new Date('2026-10-21T02:08:56.000Z') });
+
+        await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+        const [message] = storeAppRunningMessageStub.firstCall.args;
+        expect(message.apps).to.deep.equal([{ name: 'app1', hash: 'app1hash', runningSince: '2026-06-01T12:00:00.000Z' }]);
+        expect(findOneInDatabaseStub.called, 'the location row is not read for a recorded app').to.equal(false);
+      });
+
+      it('keeps announcing the recorded time when its own location row has lapsed', async () => {
+        placementsOfStub.resolves(new Map([['app1', new Date('2026-06-01T12:00:00.000Z')]]));
+        findOneInDatabaseStub.resolves(null);
+
+        await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+        const [message] = storeAppRunningMessageStub.firstCall.args;
+        expect(message.apps[0].runningSince).to.equal('2026-06-01T12:00:00.000Z');
+      });
+
+      it('announces an app with no record from its location row, and says so', async () => {
+        placementsOfStub.resolves(new Map());
+        findOneInDatabaseStub.resolves({ runningSince: new Date('2026-07-01T00:00:00.000Z') });
+
+        await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+        const [message] = storeAppRunningMessageStub.firstCall.args;
+        expect(message.apps[0].runningSince).to.equal('2026-07-01T00:00:00.000Z');
+        expect(logStub.warn.calledWithMatch(/no placement record for app1/)).to.equal(true);
+      });
+
+      it('announces an app with neither a record nor a row as placed now', async () => {
+        placementsOfStub.resolves(new Map());
+        findOneInDatabaseStub.resolves(null);
+        const before = Date.now();
+
+        await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+        const [message] = storeAppRunningMessageStub.firstCall.args;
+        expect(new Date(message.apps[0].runningSince).getTime()).to.be.within(before, Date.now());
+      });
+    });
+
+    // No node stores an entry without a name and hash, and a node that has not
+    // upgraded refuses the whole message for one - which would cost this node
+    // every other app it holds.
+    it('leaves out an installed app without a hash and announces the rest', async () => {
+      installedAppsStub.resolves({
+        status: 'success',
+        data: [
+          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'probe', version: 8, compose: [{ name: 'web', containerData: '/data' }] },
+          { name: 'app2', hash: 'app2hash', version: 4, compose: [{ name: 'c2', containerData: '/data' }] },
+        ],
+      });
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      const [message] = storeAppRunningMessageStub.firstCall.args;
+      expect(message.apps.map((a) => a.name)).to.deep.equal(['app1', 'app2']);
+      expect(broadcastMessageToAllStub.firstCall.args[0]).to.equal(message);
+      expect(logStub.warn.calledWithMatch(/not announced: probe/)).to.equal(true);
+    });
+
+    it('announces nothing when no installed app has a hash', async () => {
+      installedAppsStub.resolves({
+        status: 'success',
+        data: [{ name: 'probe', version: 8, compose: [{ name: 'web', containerData: '/data' }] }],
+      });
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      expect(storeAppRunningMessageStub.called).to.equal(false);
+      expect(broadcastMessageToAllStub.called).to.equal(false);
+    });
+
+    // Every peer applies the store's rule, so a message this node refuses is one
+    // no peer keeps either.
+    it('broadcasts nothing its own store refuses', async () => {
+      storeAppRunningMessageStub.resolves(new Error('Invalid Flux App Running message: apps array exceeds maxAppsPerNode'));
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps();
+
+      expect(storeAppRunningMessageStub.calledOnce).to.equal(true);
+      expect(broadcastMessageToAllStub.called, 'a refused announcement is not sent').to.equal(false);
+      expect(storeAppStateEventStub.called).to.equal(false);
+      expect(logStub.error.calledWithMatch(/refuses its own announcement/)).to.equal(true);
     });
 
     // An empty snapshot must NEVER be broadcast: on the receive side an empty v2
@@ -403,15 +502,64 @@ describe('peerNotification tests', () => {
       expect(message.apps.map((a) => a.name)).to.deep.equal(['app1']);
     });
 
+    it('reads no placement record before every app installed at start has one', async () => {
+      let openBackfillGate;
+      waitForBackfillStub.callsFake(() => new Promise((resolve) => { openBackfillGate = resolve; }));
+
+      const callPromise = peerNotification.checkAndNotifyPeersOfRunningApps();
+      await new Promise((resolve) => { setImmediate(resolve); });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(placementsOfStub.called, 'read the records before the backfill finished').to.be.false;
+      expect(broadcastMessageToAllStub.called).to.be.false;
+
+      openBackfillGate();
+      await callPromise;
+      expect(placementsOfStub.calledOnce).to.be.true;
+      expect(broadcastMessageToAllStub.calledOnce).to.be.true;
+    });
+
+    it('announces as soon as this node learns its address', async () => {
+      let learnAddress;
+      waitForLocalSocketAddressStub.callsFake(() => new Promise((resolve) => { learnAddress = resolve; }));
+
+      const callPromise = peerNotification.checkAndNotifyPeersOfRunningApps();
+      await new Promise((resolve) => { setImmediate(resolve); });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(broadcastMessageToAllStub.called, 'broadcast before the node knew its address').to.be.false;
+
+      learnAddress('192.168.1.1:16127');
+      await callPromise;
+      expect(broadcastMessageToAllStub.calledOnce).to.be.true;
+      const [message] = storeAppRunningMessageStub.firstCall.args;
+      expect(message.ip).to.equal('192.168.1.1:16127');
+    });
+
+    // A removal waits for a cycle in flight; a cycle still waiting for the node's
+    // address has taken no snapshot and holds up no removal.
+    it('is not in flight while it waits for the node\'s address', async () => {
+      let learnAddress;
+      waitForLocalSocketAddressStub.callsFake(() => new Promise((resolve) => { learnAddress = resolve; }));
+
+      const callPromise = peerNotification.checkAndNotifyPeersOfRunningApps();
+      await new Promise((resolve) => { setImmediate(resolve); });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(announceCycle.locked, 'in flight while waiting for the address').to.equal(false);
+
+      learnAddress('192.168.1.1:16127');
+      await callPromise;
+      expect(announceCycle.locked).to.equal(false);
+      expect(broadcastMessageToAllStub.calledOnce).to.be.true;
+    });
+
     // g:/r: apps needed a carve-out while the set came from run-state, because a
     // masterSlave app stops its slave components deliberately. They need none now.
     it('announces g:/r: apps with stopped components, without a carve-out', async () => {
       installedAppsStub.resolves({
         status: 'success',
         data: [
-          { name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
-          { name: 'gapp', version: 4, compose: [{ name: 'gc', containerData: 'g:/data' }] },
-          { name: 'rapp', version: 4, compose: [{ name: 'rc', containerData: 'r:/data' }] },
+          { name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] },
+          { name: 'gapp', hash: 'gapphash', version: 4, compose: [{ name: 'gc', containerData: 'g:/data' }] },
+          { name: 'rapp', hash: 'rapphash', version: 4, compose: [{ name: 'rc', containerData: 'r:/data' }] },
         ],
       });
       // neither gapp's nor rapp's containers are running
@@ -447,7 +595,7 @@ describe('peerNotification tests', () => {
         if (opts.cycleMs && cycles <= (opts.slowCycles ?? 1)) clock.tick(opts.cycleMs);
         return {
           status: 'success',
-          data: [{ name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] }],
+          data: [{ name: 'app1', hash: 'app1hash', version: 4, compose: [{ name: 'c1', containerData: '/data' }] }],
         };
       });
       const mod = loadPeerNotification({ ...opts, installedApps });

@@ -417,7 +417,9 @@ describe('messageStore tests', () => {
 
       const result = await messageStore.storeAppRunningMessage(message);
 
-      expect(result).to.deep.equal({ stored: false, rebroadcast: false });
+      expect(result).to.deep.equal({
+        stored: false, rebroadcast: false, written: [], refused: [], cleared: false,
+      });
       expect(logStub.warn.called).to.be.true;
     });
 
@@ -438,7 +440,9 @@ describe('messageStore tests', () => {
 
       const result = await messageStore.storeAppRunningMessage(message);
 
-      expect(result).to.deep.equal({ stored: true, rebroadcast: true });
+      expect(result).to.deep.equal({
+        stored: true, rebroadcast: true, written: [{ name: 'testapp', hash: 'hash123' }], refused: [], cleared: false,
+      });
       expect(dbHelperStub.updateOneInDatabase.calledOnce).to.be.true;
     });
 
@@ -461,7 +465,9 @@ describe('messageStore tests', () => {
 
       const result = await messageStore.storeAppRunningMessage(message);
 
-      expect(result).to.deep.equal({ stored: true, rebroadcast: true });
+      expect(result).to.deep.equal({
+        stored: true, rebroadcast: true, written: message.apps, refused: [], cleared: false,
+      });
       expect(dbHelperStub.updateOneInDatabase.callCount).to.equal(2);
       // Should clean up installing records for each app (location + broadcast per app)
       expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(4);
@@ -483,7 +489,9 @@ describe('messageStore tests', () => {
 
       const result = await messageStore.storeAppRunningMessage(message);
 
-      expect(result).to.deep.equal({ stored: true, rebroadcast: true });
+      expect(result).to.deep.equal({
+        stored: true, rebroadcast: true, written: [], refused: [], cleared: true,
+      });
       // Called three times: locations, installing locations, installing broadcasts
       expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(3);
     });
@@ -1115,7 +1123,7 @@ describe('messageStore tests', () => {
     const now = () => Date.now();
     // Every event a node records once and serves to the peers syncing from it.
     const events = () => [
-      ['apprunning', { signedBroadcast: { data: { ip: '1.2.3.4:16127', broadcastedAt: now(), version: 2, apps: [{ name: 'a' }] } } }],
+      ['apprunning', { signedBroadcast: { data: { ip: '1.2.3.4:16127', broadcastedAt: now(), version: 2, apps: [{ name: 'a', hash: 'h' }] } } }],
       ['sigterm', { message: { ip: '1.2.3.4:16127', broadcastedAt: now() } }],
       ['appremoved', { message: { ip: '1.2.3.4:16127', appName: 'a', broadcastedAt: now() } }],
       ['evicted', { ip: '1.2.3.4:16127', evictedAt: now() }],

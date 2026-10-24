@@ -102,6 +102,7 @@ module.exports = {
       collections: {
         appsInformation: 'zelappsinformation',
         appsRuntimeState: 'zelappsruntimestate', // node-local per-component controller state: desiredState, restartHistory (crash backoff), last exit
+        appsPlacements: 'zelappsplacements', // when this node took each app it holds, kept through redeploys
       },
     },
     appsglobal: {
@@ -480,9 +481,10 @@ module.exports = {
     peerShortfallDosPerMinute: 0.13,
     // While this node knows no address of its own it asks benchmark to detect its
     // public IP this often, and is out of service after this many asks find none.
-    // Benchmark caches its answer for 69 s.
-    publicIpAskIntervalMs: 90 * 1000,
-    publicIpAsksBeforeDos: 8,
+    // Benchmark caches an address it found for 69 s and none it failed to find, so
+    // each ask while none is known is a fresh lookup against public IP services.
+    publicIpAskIntervalMs: 15 * 1000,
+    publicIpAsksBeforeDos: 48,
     // The apps port check. timeoutsMs: how long it waits before testing again
     // after a pass, an error, a failed port, once its count reaches the DOS
     // threshold, and after an app error. thresholds: once portsHighEdge ports
@@ -594,8 +596,6 @@ module.exports = {
     daemonPONFork: 2020000, // block height where PON (Proof of Node) fork activates - chain works 4x faster after this block
     blocksAllowanceInterval: 1000, // ap differences can be in 1000s - more than 1 day
     removeBlocksAllowanceIntervalBlock: 1625000, // after this block we can start having app updates without extending subscription - block expected in April 19th 2024
-    ownerAppAllowance: 1000, // a by-name local install (fluxteam only) runs for this amount of blocks before the expiry sweep removes it
-    temporaryAppAllowance: 200, // in case of any user installing some temporary app message for testing purposes, the app will run for this many blocks
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
     updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
     removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application

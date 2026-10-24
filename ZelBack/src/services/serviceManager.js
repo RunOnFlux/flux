@@ -50,6 +50,7 @@ const appQueryService = require('./appQuery/appQueryService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const paymentPositions = require('./migrations/paymentPositions');
+const placements = require('./migrations/placements');
 const fluxService = require('./fluxService');
 const geolocationService = require('./geolocationService');
 const ipLocationSync = require('./appPlacement/ipLocationSync');
@@ -73,6 +74,7 @@ const uplinkService = require('./uplinkService');
 const nodeConfirmationService = require('./nodeConfirmationService');
 const appTamperingDetectionService = require('./appTamperingDetectionService');
 const appsRuntimeState = require('./appManagement/appsRuntimeState');
+const appPlacements = require('./appManagement/appPlacements');
 const imageUpdateService = require('./imageUpdateService');
 const { version: fluxVersion } = require('../../../package.json');
 // const throughputLogger = require('./utils/throughputLogger');
@@ -167,6 +169,8 @@ async function prepareDatabaseSchema() {
   // appsRuntimeState (localzelapps): merge any pre-unique-index duplicate docs,
   // then enforce one doc per component identifier
   await appsRuntimeState.prepareCollection();
+  // appPlacements (localzelapps): one record per app
+  await appPlacements.prepareCollection();
   // The explorer's collections: their indexes are the explorer's to declare.
   await explorerService.prepareCollections();
   log.info('Local database prepared');
@@ -390,6 +394,9 @@ async function startFluxFunctions() {
     appStartupManager.manageAppsOnBoot(bootContext).catch((error) => {
       log.error(`App startup manager error: ${error.message}`);
     });
+    // Not awaited: it waits for this node's address, and the announcer, the one
+    // reader of what it writes, waits for it.
+    placements.backfillPlacements();
 
     // Above the daemon wait, because syncthing has nothing to do with the
     // daemon: the sentinel talks to syncthing's own API and reads userconfig,

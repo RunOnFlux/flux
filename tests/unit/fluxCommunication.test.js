@@ -28,6 +28,7 @@ const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 const { PEER_SOURCE } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
 const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 let localWsServer;
 let localWsUrl;
@@ -552,7 +553,9 @@ describe('fluxCommunication tests', () => {
     });
 
     it('should broadcast the app message if a proper data is given', async () => {
-      sinon.stub(messageStore, 'storeAppRunningMessage').resolves({ stored: true, rebroadcast: true });
+      sinon.stub(messageStore, 'storeAppRunningMessage').resolves({
+        stored: true, rebroadcast: true, written: [{ name: 'myApp', hash: 'myapphash' }], refused: [], cleared: false,
+      });
       sinon.stub(messageStore, 'storeAppStateEvent');
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 0 } });
       const fromIp = '127.0.0.5';
@@ -629,6 +632,61 @@ describe('fluxCommunication tests', () => {
 
       sinon.assert.notCalled(broadcastHashSpy);
     }).timeout(5000);
+
+    const runningMessage = () => ({
+      data: {
+        type: 'fluxapprunning', version: 2, apps: [{ name: 'myApp', hash: 'myapphash' }], broadcastedAt: Date.now(), ip: '203.0.113.31:16127',
+      },
+      timestamp: Date.now(),
+    });
+    const apprunningPublished = (publish) => publish.getCalls().filter((call) => call.args[0] === 'network:apprunning');
+
+    it('publishes nothing for a message that wrote, refused, cleared and relayed nothing', async () => {
+      sinon.stub(messageStore, 'storeAppRunningMessage').resolves({
+        stored: false, rebroadcast: false, written: [], refused: [], cleared: false,
+      });
+      sinon.stub(messageStore, 'storeAppStateEvent');
+      const publish = sinon.stub(fluxEventBus, 'publish');
+
+      await fluxCommunication.handleAppRunningMessage(runningMessage(), '127.0.0.5', '16127');
+
+      expect(apprunningPublished(publish)).to.have.lengthOf(0);
+    });
+
+    it('publishes the names it refused, though it wrote and relayed nothing', async () => {
+      sinon.stub(messageStore, 'storeAppRunningMessage').resolves({
+        stored: false, rebroadcast: false, written: [], refused: ['unhashed'], cleared: false,
+      });
+      sinon.stub(messageStore, 'storeAppStateEvent');
+      const publish = sinon.stub(fluxEventBus, 'publish');
+
+      await fluxCommunication.handleAppRunningMessage(runningMessage(), '127.0.0.5', '16127');
+
+      const [call] = apprunningPublished(publish);
+      expect(call.args[1]).to.deep.equal({
+        ip: '203.0.113.31:16127', apps: [], refused: ['unhashed'], cleared: false, relayed: false,
+      });
+    });
+
+    // A refused message is logged where it arrived, and goes no further.
+    it('logs a message its store refuses, and does not relay it', async () => {
+      sinon.stub(messageStore, 'storeAppRunningMessage').resolves(new Error('Invalid Flux App Running message for storing'));
+      sinon.stub(messageStore, 'storeAppStateEvent');
+      const warn = sinon.stub(log, 'warn');
+      const fromIp = '127.0.0.5';
+      const port = '16127';
+      const message = {
+        data: {
+          type: 'fluxapprunning', version: 2, apps: 'not an array', broadcastedAt: Date.now(), ip: '203.0.113.30:16127',
+        },
+        timestamp: Date.now(),
+      };
+
+      await fluxCommunication.handleAppRunningMessage(message, fromIp, port);
+
+      sinon.assert.notCalled(broadcastHashSpy);
+      sinon.assert.calledWithMatch(warn, /handleAppRunningMessage - not stored, from 127\.0\.0\.5:16127 for 203\.0\.113\.30:16127: Invalid Flux App Running message for storing/);
+    });
   });
 
   describe('the installing claim handlers', () => {
@@ -2302,6 +2360,55 @@ describe('fluxCommunication tests', () => {
 
       sinon.assert.notCalled(messageStore.storeAppStateEvent);
       sinon.assert.notCalled(messageStore.storeIPChangedMessage);
+    });
+
+    // A node's newest broadcast says which of its rows stand; its refused
+    // entries say nothing about what it runs.
+    describe('pruning against what a synced node runs', () => {
+      const apprunning = (apps, broadcastedAt = Date.now() - 60000) => ({
+        type: 'apprunning',
+        ip: SENDER,
+        envelope,
+        data: {
+          type: 'fluxapprunning', version: 2, apps, ip: SENDER, broadcastedAt, osUptime: 1, staticIp: false,
+        },
+      });
+
+      beforeEach(() => {
+        sinon.stub(messageStore, 'storeBatchAppRunningMessages').resolves({ stored: 1, writeFailed: false });
+      });
+
+      it('prunes against the apps the broadcast names that can be stored', async () => {
+        await fluxCommunication.handleAppRunningSyncResponse({
+          data: { type: 'fluxapprunningsync', messages: [apprunning([{ name: 'web', hash: 'h1' }, { name: 'probe' }])], done: true },
+        }, PEER_SOCKET);
+
+        const [newestByIp] = messageStore.pruneAppRunningLocations.firstCall.args;
+        expect(newestByIp.get(SENDER).names).to.deep.equal(['web']);
+      });
+
+      it('never prunes against a broadcast whose every app is refused', async () => {
+        await fluxCommunication.handleAppRunningSyncResponse({
+          data: { type: 'fluxapprunningsync', messages: [apprunning([{ name: 'probe' }])], done: true },
+        }, PEER_SOCKET);
+
+        const [newestByIp] = messageStore.pruneAppRunningLocations.firstCall.args;
+        expect(newestByIp.has(SENDER), 'pruned the sender\'s rows against an empty list').to.equal(false);
+      });
+
+      it('prunes against the newest broadcast it can read, past a later one it refuses', async () => {
+        const now = Date.now();
+        await fluxCommunication.handleAppRunningSyncResponse({
+          data: {
+            type: 'fluxapprunningsync',
+            messages: [apprunning([{ name: 'web', hash: 'h1' }], now - 120000), apprunning([{ name: 'probe' }], now - 60000)],
+            done: true,
+          },
+        }, PEER_SOCKET);
+
+        const [newestByIp] = messageStore.pruneAppRunningLocations.firstCall.args;
+        expect(newestByIp.get(SENDER)).to.deep.equal({ names: ['web'], broadcastedAt: now - 120000 });
+      });
     });
 
     it('hands an eviction to messageStore with the time it was made', async () => {

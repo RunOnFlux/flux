@@ -7,6 +7,13 @@ const { RemovalOutcome } = require('../../ZelBack/src/services/utils/removalOutc
 const { folderStates: folderStateMap } = require('../../ZelBack/src/services/utils/globalState');
 
 describe('appUninstaller tests', () => {
+  // The placement record is its own module with its own tests; here it is the
+  // seam a removal writes through. Fresh per test.
+  let appPlacementsStub;
+  beforeEach(() => {
+    appPlacementsStub = { removePlacement: sinon.stub().resolves() };
+  });
+
   describe('cleanupPorts tests', () => {
     let appUninstallerPorts;
     let firewallStub;
@@ -19,6 +26,7 @@ describe('appUninstaller tests', () => {
       };
       upnpStub = { isUPNP: sinon.stub().returns(true), removeMapUpnpPort: sinon.stub().resolves(true) };
       appUninstallerPorts = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
         '../fluxNetworkHelper': firewallStub,
         '../upnpService': upnpStub,
         '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
@@ -117,6 +125,7 @@ describe('appUninstaller tests', () => {
     runCommandStub = sinon.stub().resolves({ error: null, stdout: '', stderr: '' });
 
     appUninstaller = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+      '../appManagement/appPlacements': appPlacementsStub,
       config: configStub,
       '../verificationHelper': verificationHelperStub,
       '../messageHelper': messageHelperStub,
@@ -428,6 +437,7 @@ describe('appUninstaller tests', () => {
 
     it('should handle app not found case', async () => {
       const appUninstallerWithDb = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -502,6 +512,7 @@ describe('appUninstaller tests', () => {
 
     it('should remove app locally if app name is specified and app in DB', async () => {
       const appUninstallerWithDbApp = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -629,6 +640,7 @@ describe('appUninstaller tests', () => {
         },
       };
       return proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
         '../utils/globalState': globalStateStub,
         // runs the step again after a moment until it succeeds, as the real one does after its wait
         '../utils/untilSucceeds': {
@@ -1017,6 +1029,55 @@ describe('appUninstaller tests', () => {
       sinon.assert.notCalled(runtimeStateStub.remove);
     });
 
+    // The record follows the app's volume: a removal that deletes the volume
+    // deletes it, and one that keeps the volume keeps it.
+    describe('the placement record', () => {
+      it('goes with the app\'s volume', async () => {
+        const uninstaller = buildUninstaller(composedSpec);
+
+        const outcome = await uninstaller.removeAppLocally('testapp', res, true, false, true);
+
+        expect(outcome).to.equal(RemovalOutcome.REMOVED);
+        sinon.assert.calledOnceWithExactly(appPlacementsStub.removePlacement, 'testapp');
+      });
+
+      it('a record that cannot be deleted leaves the removal standing', async () => {
+        const uninstaller = buildUninstaller(composedSpec);
+        appPlacementsStub.removePlacement.rejects(new Error('mongo went away'));
+
+        const outcome = await uninstaller.removeAppLocally('testapp', res, true, false, true);
+
+        expect(outcome).to.equal(RemovalOutcome.REMOVED);
+        expect(logStub.warn.calledWithMatch(/placement record of testapp was not removed: mongo went away/)).to.equal(true);
+      });
+
+      it('stays when one component is removed and the app with it is not', async () => {
+        const uninstaller = buildUninstaller(composedSpec);
+
+        await uninstaller.removeAppLocally('comp1_testapp', res, true);
+
+        sinon.assert.notCalled(appPlacementsStub.removePlacement);
+      });
+
+      it('stays through a soft removal', async () => {
+        const uninstaller = buildUninstaller(composedSpec);
+
+        await uninstaller.softRemoveAppLocally('testapp', null, { removalInProgress: false, installationInProgress: false }, sinon.stub());
+
+        sinon.assert.notCalled(appPlacementsStub.removePlacement);
+      });
+
+      it('stays when the removal is refused', async () => {
+        const uninstaller = buildUninstaller(composedSpec);
+        globalStateStub.removalInProgress = true;
+
+        const outcome = await uninstaller.removeAppLocally('testapp', res, false);
+
+        expect(outcome).to.equal(RemovalOutcome.BUSY);
+        sinon.assert.notCalled(appPlacementsStub.removePlacement);
+      });
+    });
+
     it('completes removal when no seam callback is registered', async () => {
       const uninstaller = buildUninstaller(v2Spec);
 
@@ -1206,23 +1267,6 @@ describe('appUninstaller tests', () => {
         expect(getLocalSocketAddressStub.called, 'the removal never reached its broadcast').to.be.true;
       });
 
-      // A cycle that never finishes must not hold the node's removals: they take the
-      // removal lock, and every install and redeploy queues behind that.
-      it('gives up on a wedged cycle and announces anyway', async () => {
-        const uninstaller = buildUninstaller(v2Spec, { ANNOUNCE_CYCLE_WAIT_MS: 50 });
-        await announceCycle.enable();
-
-        const removal = uninstaller.removeAppLocally('testapp', res, true, true, true);
-        const raced = await Promise.race([
-          removal.then(() => 'announced'),
-          new Promise((resolve) => { setTimeout(() => resolve('stuck'), 2000); }),
-        ]);
-
-        expect(raced, 'a wedged announcement cycle held the removal indefinitely').to.equal('announced');
-        expect(getLocalSocketAddressStub.called, 'gave up on the wait without going on to broadcast').to.be.true;
-        announceCycle.disable();
-      });
-
       // A redeploy tells the network nothing, so it contradicts no announcement and
       // must not queue behind one - every spec change on the node would pay for it.
       it('does not wait for a cycle when the removal says nothing to the network', async () => {
@@ -1281,6 +1325,7 @@ describe('appUninstaller tests', () => {
         db: sinon.stub().returns('appsDatabase'),
       };
       const appUninstallerNoApp = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -1365,6 +1410,7 @@ describe('appUninstaller tests', () => {
         db: sinon.stub().returns('appsDatabase'),
       };
       const appUninstallerWithApp = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,

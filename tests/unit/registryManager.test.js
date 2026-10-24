@@ -1092,6 +1092,29 @@ describe('registryManager tests', () => {
       expect(queued()).to.deep.equal(['DeadApp']);
     });
 
+    describe('an app with no height', () => {
+      afterEach(() => {
+        globalState.testInstallingApps.clear();
+      });
+
+      it('should leave an app being tested installed', async () => {
+        installed = [spec('TestedApp', 't', undefined, 100)];
+        globalState.testInstallingApps.add('TestedApp');
+
+        await registryManager.expireGlobalApplications();
+
+        expect(queued()).to.deep.equal([]);
+      });
+
+      it('should uninstall one no test is running for', async () => {
+        installed = [spec('LeftApp', 't', undefined, 100)];
+
+        await registryManager.expireGlobalApplications();
+
+        expect(queued()).to.deep.equal(['LeftApp']);
+      });
+    });
+
     it('should expire an app at its expiration height, installed or only global', async () => {
       // term ends at the tip
       await database.collection(appsInformation).insertMany([spec('EndsNowApp', 'n', 3007900, 100), spec('LiveApp', 'l', 3007900, 101)]);
