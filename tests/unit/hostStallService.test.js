@@ -439,7 +439,14 @@ describe('hostStallService tests', () => {
         holding = true;
         const writeFile = fs.promises.writeFile.bind(fs.promises);
         sinon.stub(fs.promises, 'writeFile').callsFake((file, ...rest) => (holding && String(file).startsWith(paths.stateFile)
-          ? new Promise((resolve) => { releases.push(() => resolve(writeFile(file, ...rest))); })
+          ? new Promise((resolve) => {
+            let released = false;
+            releases.push(() => {
+              if (released) return;
+              released = true;
+              resolve(writeFile(file, ...rest));
+            });
+          })
           : writeFile(file, ...rest)));
       });
 
