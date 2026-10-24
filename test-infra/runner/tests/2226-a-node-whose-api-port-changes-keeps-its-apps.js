@@ -98,6 +98,13 @@ describe('a node whose api port changes keeps its apps', function () {
     idx = await seedAndInstall(env, app);
     nodeIp = subnet.nodeIp(idx + 1);
     await waitFor(isUp, { timeout: 120000, interval: 3000, label: 'the app running before the port moves' });
+    // A move carries only the rows standing at the address it leaves: a peer that does
+    // not yet hold the app there refuses it.
+    const oldSocket = `${nodeIp}:${OLD_PORT}`;
+    const holdsAtOldPort = async (i) => (await dbClient(i + 1).getAppLocations(appName)).some((row) => row.ip === oldSocket);
+    await waitFor(async () => (await Promise.all([0, 1, 2].map(holdsAtOldPort))).every(Boolean), {
+      timeout: 120000, interval: 3000, label: 'every node holds the app at the old port',
+    });
   });
 
   after(async function () {

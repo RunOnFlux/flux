@@ -8,13 +8,13 @@
  * the response stream left to tell them apart.
  *
  * INSTALLED and ALREADY_INSTALLED both mean the node holds the app. DECLINED and
- * FAILED both mean it does not. BUSY says nothing about the app at all - only about
- * the node at that instant.
+ * FAILED both mean it does not. BUSY and DEFERRED say nothing about the app at all -
+ * only about the node at that instant.
  *
  * Every outcome except BUSY is returned after the install hold is acquired, so each
  * is a true statement about the app whoever asked for it: concurrent attempts are
- * serialised, and the ones that lose get BUSY. BUSY is therefore the only outcome a
- * caller must keep waiting through rather than act on.
+ * serialised, and the ones that lose get BUSY. BUSY and DEFERRED are therefore the
+ * outcomes a caller must keep waiting through rather than act on.
  *
  * Internal only - nothing answers these to a client, so unlike Privilege the values
  * are ours as well as the names. They are strings rather than booleans so a call
@@ -39,6 +39,9 @@ const InstallOutcome = Object.freeze({
   // The install got part way and cleaned up after itself, so the app is no longer on
   // this node. The only outcome that justifies a caller acting on the loss.
   FAILED: 'failed',
+  // The node's database did not answer, so the attempt stopped where it was and
+  // tore nothing down. Carries no claim about the app: a later attempt decides.
+  DEFERRED: 'deferred',
 });
 
 module.exports = { InstallOutcome };

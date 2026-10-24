@@ -191,15 +191,86 @@ export async function resetStorageRequests() {
  * Put a node behind a UPnP gateway the stub serves it. Every other node is served
  * a gateway with no WAN service, and runs without UPnP.
  * @param {string} ip - the node's fleet address, as subnet-config names it
- * @param {{externalIp?: string}} [opts] - the address the gateway reports; the node's own when absent
+ * @param {object} [opts]
+ * @param {string} [opts.externalIp] - the address the gateway reports; the node's own when absent
+ * @param {number} [opts.capacity] - how many mappings its table holds; no limit when absent
+ * @param {object[]} [opts.mappings] - what its table holds already, as upnpGatewayState lists it
+ * @param {number} [opts.refuseDeletes] - how many DeletePortMapping requests it refuses with
+ *   501 before it removes anything; a refused request carries `refused: 501` in its state
+ * @param {boolean} [opts.fritzDescriptions] - store each new mapping's description as a
+ *   FRITZ!Box does, its underscores and spaces as dots
  */
-export async function enableUpnpGateway(ip, { externalIp = null } = {}) {
-  const res = await post('/upnp-gateway', { ip, externalIp });
+export async function enableUpnpGateway(ip, {
+  externalIp = null, capacity = null, mappings = [], refuseDeletes = 0, fritzDescriptions = false,
+} = {}) {
+  const res = await post('/upnp-gateway', {
+    ip, externalIp, capacity, mappings, refuseDeletes, fritzDescriptions,
+  });
   if (!res.ok) throw new Error(`enableUpnpGateway: ${JSON.stringify(res)}`);
 }
 
 /**
- * The gateway a node is behind: its port mappings and the actions the node sent it.
+ * Set how many DeletePortMapping requests a node's gateway refuses from now on, keeping its
+ * table and the requests it has seen.
+ * @param {string} ip
+ * @param {number} count - Infinity refuses every one
+ */
+export async function setUpnpRefuseDeletes(ip, count) {
+  const res = await post(`/upnp-gateway/${ip}/refuse-deletes`, { count: Number.isFinite(count) ? count : Number.MAX_SAFE_INTEGER });
+  if (!res.ok) throw new Error(`setUpnpRefuseDeletes: ${JSON.stringify(res)}`);
+}
+
+/**
+ * Set the fault a node's gateway answers every mapping of one protocol with from now on - a
+ * router that forwards TCP and refuses UDP. Keeps its table and the requests it has seen; each
+ * such answer carries `refused: <code>`.
+ * @param {string} ip
+ * @param {'TCP'|'UDP'} protocol
+ * @param {number|null} code - null maps the protocol as the spec says
+ */
+export async function setUpnpProtocolFault(ip, protocol, code) {
+  const res = await post(`/upnp-gateway/${ip}/protocol-fault`, { protocol, code });
+  if (!res.ok) throw new Error(`setUpnpProtocolFault: ${JSON.stringify(res)}`);
+}
+
+/**
+ * Set the fault a node's gateway answers every GetSpecificPortMappingEntry with from now on,
+ * whether or not it holds the entry. Keeps its table and the requests it has seen; each such
+ * answer carries `refused: <code>`.
+ * @param {string} ip
+ * @param {number|null} code - null answers as the spec says
+ */
+export async function setUpnpLookupFault(ip, code) {
+  const res = await post(`/upnp-gateway/${ip}/lookup-fault`, { code });
+  if (!res.ok) throw new Error(`setUpnpLookupFault: ${JSON.stringify(res)}`);
+}
+
+/**
+ * Set the fault a node's gateway answers every removal with from now on, while still carrying
+ * it out, and the same fault for a removal of an entry it does not hold, where the spec says
+ * 714. Keeps its table and the requests it has seen; each such answer carries `refused: <code>`.
+ * @param {string} ip
+ * @param {number|null} code - null answers as the spec says
+ */
+export async function setUpnpDeleteFault(ip, code) {
+  const res = await post(`/upnp-gateway/${ip}/delete-fault`, { code });
+  if (!res.ok) throw new Error(`setUpnpDeleteFault: ${JSON.stringify(res)}`);
+}
+
+/**
+ * Set how many mappings a node's gateway holds from now on, keeping its table and the requests
+ * it has seen. A new mapping past it is refused with 728, carried as `refused: 728` in its state.
+ * @param {string} ip
+ * @param {number|null} capacity - null for no limit
+ */
+export async function setUpnpCapacity(ip, capacity) {
+  const res = await post(`/upnp-gateway/${ip}/capacity`, { capacity });
+  if (!res.ok) throw new Error(`setUpnpCapacity: ${JSON.stringify(res)}`);
+}
+
+/**
+ * The gateway a node is behind: its port mappings and the actions the node sent it, each with
+ * the external port, protocol and description it named (null for one it names none of).
  * @param {string} ip
  * @returns {Promise<{externalIp: string|null, mappings: object[], requests: object[]}|null>}
  */

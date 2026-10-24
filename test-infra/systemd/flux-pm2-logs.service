@@ -1,0 +1,19 @@
+[Unit]
+# pm2 writes FluxOS's output to its own log files; this streams them into the
+# node's output, where the harness reads FluxOS's lines.
+Description=pm2 log stream (harness node, legacy multitool install)
+After=pm2-fluxuser.service
+BindsTo=pm2-fluxuser.service
+
+[Service]
+User=fluxuser
+EnvironmentFile=/etc/fluxos-harness.env
+Environment=PM2_HOME=/home/fluxuser/.pm2
+ExecStart=/usr/bin/env pm2 logs --raw --lines 0
+StandardOutput=append:/var/lib/flux-harness/stream
+StandardError=inherit
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

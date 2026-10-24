@@ -115,8 +115,15 @@ class AppSyncOrchestrator {
   #ephemeralSyncHandler = null;
   #ephemeralRefusedHandler = null;
   #ephemeralUnverifiedHandler = null;
+
+  #ephemeralWriteFailedHandler = null;
   #ephemeralProgressHandler = null;
   #hashUnresolvedHandler = null;
+
+  #hashCheckRequestedHandler = null;
+
+  // An operator's check of every missing app message, waiting for the node.
+  #hashCheckRequested = false;
   #broadcastStarted = null;
   #started = false;
   #syncInProgress = false;
@@ -164,6 +171,10 @@ class AppSyncOrchestrator {
   #nextHashRetryHeight = 0;
   #lastBlockHeight = 0;
   #fluxVersion = null;
+
+  // Whether this version's once-per-upgrade hash retry reset has run, or was
+  // already recorded as run. The version marker is written only once it has.
+  #upgradeResetDone = false;
   #heartbeatInterval = null;
   #bootContext = null;
   #canSendMessages = false;
@@ -251,14 +262,23 @@ class AppSyncOrchestrator {
     this.#ephemeralRefusedHandler = (syncType, peerKey) => this.#onEphemeralSyncRefused(syncType, peerKey);
     appSyncEvents.on(EVENTS.EPHEMERAL_SYNC_REFUSED, this.#ephemeralRefusedHandler);
 
-    this.#ephemeralUnverifiedHandler = (peerKey) => this.#onEphemeralSyncUnverified(peerKey);
+    this.#ephemeralUnverifiedHandler = (peerKey) => this.#endFailedRequest(peerKey, 'unverified', 'sent a response this node could not verify', 'ephemeralSync:peerUnverified');
     appSyncEvents.on(EVENTS.EPHEMERAL_SYNC_UNVERIFIED, this.#ephemeralUnverifiedHandler);
+
+    this.#ephemeralWriteFailedHandler = (peerKey) => this.#endFailedRequest(peerKey, 'writeFailed', 'sent a response this node could not record', 'ephemeralSync:peerWriteFailed');
+    appSyncEvents.on(EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, this.#ephemeralWriteFailedHandler);
 
     this.#ephemeralProgressHandler = (peerKey) => this.#onEphemeralSyncProgress(peerKey);
     appSyncEvents.on(EVENTS.EPHEMERAL_SYNC_PROGRESS, this.#ephemeralProgressHandler);
 
     this.#hashUnresolvedHandler = () => this.#onHashUnresolved();
     appSyncEvents.on(EVENTS.HASH_UNRESOLVED, this.#hashUnresolvedHandler);
+
+    this.#hashCheckRequestedHandler = () => {
+      this.#hashCheckRequested = true;
+      this.#runRequestedHashCheck();
+    };
+    appSyncEvents.on(EVENTS.HASH_CHECK_REQUESTED, this.#hashCheckRequestedHandler);
 
     this.#blockReceivedHandler = (blockHeight) => {
       this.#onBlocksProcessed(blockHeight);
@@ -304,6 +324,12 @@ class AppSyncOrchestrator {
     // is a fault to report, not to absorb.
     if (!peerKey) {
       log.error(`AppSyncOrchestrator - ${syncType} sync complete with no peer, not counted`);
+      return;
+    }
+    // A message admitted while the request was open can finish after it ended:
+    // timed out, or ended for an answer that could not be verified or recorded.
+    if (!this.#requests.isOpen(peerKey)) {
+      log.info(`AppSyncOrchestrator - ${syncType} sync complete from ${peerKey} after its request ended, not counted`);
       return;
     }
     answered.add(peerKey);
@@ -555,25 +581,26 @@ class AppSyncOrchestrator {
   }
 
   /**
-   * A peer sent something this node cannot attribute to it.
+   * End a peer's request whose answer cannot be taken, and ask another peer.
    *
-   * Its request ends here rather than on a deadline, because the answer is
-   * already known: a stream with a hole in it is not a survey, and waiting the
-   * peer out would spend one of very few slots on an answer that cannot be
-   * counted whatever else arrives. The record stands, so the peer is not asked
-   * again on this connection.
-   * @param {string} peerKey ip:port of the peer whose response failed.
-   * @returns {void}
+   * Ended here rather than on a deadline: an answer with a hole in it cannot be
+   * counted whatever else arrives, and waiting the peer out would spend one of very
+   * few slots on it. The record stands, so the peer is not asked again on this
+   * connection.
+   * @param {string} peerKey
+   * @param {string} outcome What the request is settled as.
+   * @param {string} why For the log.
+   * @param {string} busEvent Published when this ended the request.
    */
-  #onEphemeralSyncUnverified(peerKey) {
+  #endFailedRequest(peerKey, outcome, why, busEvent) {
     if (this.#stateSyncComplete) return;
     if (!peerKey) {
-      log.error('AppSyncOrchestrator - An unverifiable sync response named no peer, cannot replace it');
+      log.error(`AppSyncOrchestrator - A sync response named no peer (${outcome}), cannot replace it`);
       return;
     }
-    if (this.#closeRequest(peerKey, 'unverified')) {
-      log.warn(`AppSyncOrchestrator - ${peerKey} sent a response this node could not verify, asking another peer`);
-      fluxEventBus.publish('ephemeralSync:peerUnverified', { peer: peerKey });
+    if (this.#closeRequest(peerKey, outcome)) {
+      log.warn(`AppSyncOrchestrator - ${peerKey} ${why}, asking another peer`);
+      fluxEventBus.publish(busEvent, { peer: peerKey });
     }
     // Unconditional for the same reason a refusal is: the deficit decides, and
     // a pool that is already whole asks nobody.
@@ -871,6 +898,25 @@ class AppSyncOrchestrator {
       this.#checkReadiness();
       this.#checkHashRetry(blockHeight);
     }
+    this.#runRequestedHashCheck();
+  }
+
+  /**
+   * Runs the check an operator asked for, once no hash sync or registry build holds
+   * the node; a request made while one runs waits for a later block.
+   * @returns {Promise<void>}
+   */
+  async #runRequestedHashCheck() {
+    if (!this.#hashCheckRequested || this.#syncInProgress) return;
+    this.#hashCheckRequested = false;
+    this.#syncInProgress = true;
+    try {
+      await appHashSyncService.syncMissingHashes({ force: true, currentHeight: this.#lastBlockHeight });
+    } catch (error) {
+      log.error(`AppSyncOrchestrator - Requested hash check failed: ${error.message}`);
+    } finally {
+      this.#syncInProgress = false;
+    }
   }
 
   #onHashUnresolved() {
@@ -887,15 +933,12 @@ class AppSyncOrchestrator {
 
     this.#syncInProgress = true;
     try {
+      if (!this.#upgradeResetDone) {
+        await this.#checkVersionUpgrade();
+        await this.#writeVersionMarker();
+      }
       const result = await appHashSyncService.syncMissingHashes({ currentHeight: this.#lastBlockHeight });
       this.#nextHashRetryHeight = result.nextRetryHeight ?? (this.#lastBlockHeight + FALLBACK_RECHECK_BLOCKS);
-      // A retry stores the messages it resolves without promoting them, so nothing else applies
-      // them: a renewal fetched here would never reach globalAppsInformation, and the app would
-      // expire on this node alone. Rebuild from the log, as the initial sync does.
-      if (result.resolved > 0) {
-        await registryManager.reindexGlobalAppsInformation()
-          .catch((error) => log.error(`AppSyncOrchestrator - Rebuild after hash retry failed: ${error.message}`));
-      }
       if (result.missing > 0) {
         log.info(`AppSyncOrchestrator - Hash retry: ${result.resolved} resolved, ${result.missing} remaining, next check at block ${this.#nextHashRetryHeight}`);
       }
@@ -914,7 +957,6 @@ class AppSyncOrchestrator {
       return;
     }
     log.info('AppSyncOrchestrator - Sync started');
-    await this.#checkVersionUpgrade();
     log.info('AppSyncOrchestrator - Starting initial hash sync');
     await this.#runHashSync();
     this.#checkReadiness();
@@ -930,13 +972,14 @@ class AppSyncOrchestrator {
         const resetCount = await appHashSyncService.resetHashSyncForUpgrade(this.#lastBlockHeight);
         log.info(`AppSyncOrchestrator - Version upgrade to ${this.#fluxVersion}, reset ${resetCount} hash sync entries`);
       }
+      this.#upgradeResetDone = true;
     } catch (error) {
       log.error(`AppSyncOrchestrator - Version upgrade check failed: ${error.message}`);
     }
   }
 
   async #writeVersionMarker() {
-    if (!this.#fluxVersion) return;
+    if (!this.#fluxVersion || !this.#upgradeResetDone) return;
     try {
       const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
@@ -956,6 +999,7 @@ class AppSyncOrchestrator {
     this.#syncInProgress = true;
     try {
       this.#hashSyncAttempts += 1;
+      if (!this.#upgradeResetDone) await this.#checkVersionUpgrade();
       const result = await appHashSyncService.syncMissingHashes({ currentHeight: this.#lastBlockHeight });
       if (result.missing > 0) {
         log.warn(`AppSyncOrchestrator - Hash sync has ${result.missing} unresolvable hashes, proceeding`);
@@ -1047,7 +1091,16 @@ class AppSyncOrchestrator {
 
     // Block timer fired but hash sync / DB rebuild never completed — rebuild from whatever data we have
     if (blockTimerExpired && !this.#dbRebuilt) {
-      await this.#rebuildDb();
+      // Never beside a hash sync: one storing messages while the registry is unbuilt
+      // leaves their rows to this build, which would miss any stored after it read
+      // the log. A build that has to wait is asked again on the next block.
+      if (this.#syncInProgress) return;
+      this.#syncInProgress = true;
+      try {
+        await this.#rebuildDb();
+      } finally {
+        this.#syncInProgress = false;
+      }
       if (!this.#dbRebuilt) return;
     }
 
@@ -1124,22 +1177,19 @@ class AppSyncOrchestrator {
       log.info(`Boot context: machineRebooted=${machineRebooted} downtime=${Math.round(downtimeMs / 1000)}s cleanShutdown=${cleanShutdown} firstBoot=${!heartbeat}`);
       return ctx;
     } catch (error) {
+      // Unread is neither a first boot nor a long absence: how long the node was down is
+      // unknown, so whether its locations expired is decided app by app.
       log.error(`Failed to read boot context: ${error.message}`);
-      return { machineRebooted: true, downtimeMs: Infinity, cleanShutdown: false, currentBootId: null, firstBoot: true };
-    }
-  }
-
-  async #clearShutdownReason() {
-    try {
-      const db = dbHelper.databaseConnection();
-      const database = db.db(config.database.local.database);
-      await dbHelper.findOneAndUpdateInDatabase(database, startupCollection, { _id: 'heartbeat' }, { $unset: { shutdownReason: '' } });
-    } catch (error) {
-      log.error(`Failed to clear shutdown reason: ${error.message}`);
+      return {
+        unreadable: true, machineRebooted: true, downtimeMs: null, cleanShutdown: false, currentBootId: null, firstBoot: false,
+      };
     }
   }
 
   #startHeartbeat() {
+    // The reason the previous process stopped is its own: cleared by the first heartbeat
+    // that lands, so a crash of this one never reads as that stop.
+    let shutdownReasonCleared = false;
     const writeHeartbeat = async () => {
       try {
         const db = dbHelper.databaseConnection();
@@ -1148,12 +1198,13 @@ class AppSyncOrchestrator {
         if (this.#bootContext?.currentBootId) {
           update.$set.machineBootId = this.#bootContext.currentBootId;
         }
+        if (!shutdownReasonCleared) update.$unset = { shutdownReason: '' };
         await dbHelper.findOneAndUpdateInDatabase(database, startupCollection, { _id: 'heartbeat' }, update, { upsert: true });
+        shutdownReasonCleared = true;
       } catch (error) {
         log.error(`Heartbeat write failed: ${error.message}`);
       }
     };
-    this.#clearShutdownReason();
     writeHeartbeat();
     this.#heartbeatInterval = setInterval(writeHeartbeat, config.system.heartbeatIntervalMs ?? 30000);
   }
@@ -1204,9 +1255,13 @@ class AppSyncOrchestrator {
     }
     if (this.#ephemeralUnverifiedHandler) {
       appSyncEvents.removeListener(EVENTS.EPHEMERAL_SYNC_UNVERIFIED, this.#ephemeralUnverifiedHandler);
+      appSyncEvents.removeListener(EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, this.#ephemeralWriteFailedHandler);
     }
     if (this.#hashUnresolvedHandler) {
       appSyncEvents.removeListener(EVENTS.HASH_UNRESOLVED, this.#hashUnresolvedHandler);
+    }
+    if (this.#hashCheckRequestedHandler) {
+      appSyncEvents.removeListener(EVENTS.HASH_CHECK_REQUESTED, this.#hashCheckRequestedHandler);
     }
     if (this.#blockReceivedHandler) {
       this.#blockEmitter.removeListener('blocksProcessed', this.#blockReceivedHandler);

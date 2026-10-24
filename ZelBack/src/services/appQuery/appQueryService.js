@@ -6,6 +6,7 @@ const dockerService = require('../dockerService');
 const registryManager = require('../appDatabase/registryManager');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const appConstants = require('../utils/appConstants');
+const mountParser = require('../utils/mountParser');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const fluxCaching = require('../utils/cacheManager');
@@ -16,6 +17,7 @@ const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 const networkStateService = require('../networkStateService');
 const peerIdentityService = require('../peerIdentityService');
 const primaryRoleChanges = require('../appLifecycle/primaryRoleChanges');
+const folderStates = require('../appMonitoring/folderStates');
 const syncthingService = require('../syncthingService');
 const log = require('../../lib/log');
 
@@ -47,10 +49,7 @@ async function decryptEnterpriseSpec(spec) {
   const cache = fluxCaching.default.enterpriseAppDecryptionCache;
 
   const cached = cache.get(cacheKey);
-  if (cached) {
-    log.info(`Using cached decrypted app for ${spec.name} (${cacheKey})`);
-    return cached;
-  }
+  if (cached) return cached;
 
   const failure = decryptFailures.get(cacheKey);
   if (failure && Date.now() - failure.at < DECRYPT_FAILURE_WINDOW_MS) {
@@ -141,15 +140,25 @@ async function decryptEnterpriseApps(apps, options = {}) {
 }
 
 /**
+ * The specifications of the apps installed on this node, from its own table.
+ * @param {object} [query] Narrows the read, as a filter on the table.
+ * @returns {Promise<object[]>}
+ * @throws {Error} When the table cannot be read.
+ */
+async function installedAppSpecs(query = {}) {
+  const appsDatabase = dbHelper.databaseConnection().db(config.database.appslocal.database);
+  return dbHelper.findInDatabase(appsDatabase, appConstants.localAppsInformation, query, { projection: { _id: 0 } });
+}
+
+/**
  * The names of the apps installed on this node that the network lists at
- * `socketAddress`: what a node that held that address left there.
+ * `socketAddress`: what a node that held that address left there. Rejects
+ * when either cannot be read.
  * @param {string} socketAddress
  * @returns {Promise<string[]>}
  */
 async function installedAppsListedAt(socketAddress) {
-  const installed = await installedApps();
-  if (installed.status !== 'success') return [];
-  const names = new Set(installed.data.map((app) => app.name));
+  const names = new Set((await installedAppSpecs()).map((app) => app.name));
   return (await registryManager.appsListedAt(socketAddress)).filter((name) => names.has(name));
 }
 
@@ -161,9 +170,6 @@ async function installedAppsListedAt(socketAddress) {
  */
 async function installedApps(req, res) {
   try {
-    const dbopen = dbHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
-
     let appsQuery = {};
     if (req && req.params && req.query) {
       let { appname } = req.params;
@@ -175,11 +181,7 @@ async function installedApps(req, res) {
       appsQuery = { name: req };
     }
 
-    const appsProjection = {
-      projection: { _id: 0 },
-    };
-
-    const apps = await dbHelper.findInDatabase(appsDatabase, appConstants.localAppsInformation, appsQuery, appsProjection);
+    const apps = await installedAppSpecs(appsQuery);
     const dataResponse = messageHelper.createDataMessage(apps);
     return res ? res.json(dataResponse) : dataResponse;
   } catch (error) {
@@ -382,13 +384,49 @@ async function sendingFolderIds() {
 }
 
 /**
+ * The container names of the g: components of each installed app that has more
+ * than one, anchor first (mountParser.anchorComponentIdentifier).
+ *
+ * Throws when the installed apps cannot be read.
+ * @returns {Promise<string[][]>}
+ */
+async function multiComponentElectedApps() {
+  const installed = await installedApps();
+  if (installed.status !== 'success') throw new Error('the installed apps cannot be read');
+  const { inPlace } = await decryptEnterpriseApps(installed.data);
+  return inPlace
+    .map((app) => mountParser.gComponentIdentifiers(app).map((identifier) => dockerService.getAppIdentifier(identifier)))
+    .filter((names) => names.length > 1);
+}
+
+/**
+ * A holdings list with the anchor of every app it holds any g: component of.
+ *
+ * A peer on a release that elects one g: component asks only about the anchor,
+ * so to it a node holding another of the app's g: components - one whose
+ * anchor has not started yet, has stopped on its own, or failed to start -
+ * holds nothing, and it starts the app beside it.
+ * @param {string[]} holding Container names.
+ * @param {string[][]} apps As multiComponentElectedApps.
+ * @returns {string[]}
+ */
+function withAnchors(holding, apps) {
+  const names = new Set(holding);
+  apps.forEach((members) => {
+    if (members.some((name) => names.has(name))) names.add(members[0]);
+  });
+  return [...names];
+}
+
+/**
  * What this node holds, both ways a peer reads it: `decided` is its own account
  * (ownHoldings), and `held` adds every component whose folder sends here. A
  * component in `held` and not in `decided` has a sending folder and nothing
  * behind it yet: a primary back from a stop, still deciding whether another
- * holder took over.
+ * holder took over. Each list carries the anchor of every app it holds a g:
+ * component of (withAnchors).
  *
- * Throws when the lock store cannot be read.
+ * Throws when the lock store or the installed apps cannot be read.
  * @returns {Promise<{decided: string[], held: string[]}|null>} null while
  *   syncthing cannot say which folders send here
  */
@@ -396,7 +434,11 @@ async function holdingsAccount() {
   const sending = await sendingFolderIds();
   if (sending === null) return null;
   const decided = await ownHoldings();
-  return { decided, held: [...new Set([...decided, ...sending])] };
+  const apps = await multiComponentElectedApps();
+  return {
+    decided: withAnchors(decided, apps),
+    held: withAnchors([...decided, ...sending], apps),
+  };
 }
 
 /**
@@ -781,13 +823,23 @@ async function callerIsFluxnode(body) {
  * The answer is signed over the challenge the request body carries, when it
  * carries one.
  *
- * @param {object} req Request.
- * @param {object} res Response.
  * `seeding` is where this node stands in deciding which holder seeds each folder at a
  * cold start (globalState.seedMarks); it carries the same figures as `holding`, so it
  * goes only where `holding` does.
  *
- * @returns {object} Message carrying { ready, folders, holding, seeding }.
+ * `notLookedAt` is every receive-only folder of an installed app this node has not yet
+ * looked at (folderStates). A peer about to seed waits on them, so a holder that has
+ * not looked is never read as holding nothing.
+ *
+ * `heldOut` and `volumeGone` are the receive-only folders this node cannot seed because
+ * their volume will not mount: under `heldOut` with the volume's image still on the node,
+ * so what it holds is unknown, and under `volumeGone` with the image gone, so it holds
+ * nothing. A peer about to seed leaves this node out of the choice, and does not seed
+ * over a `heldOut` folder unless another holder has data.
+ *
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message carrying { ready, folders, notLookedAt, heldOut, volumeGone, holding, seeding }.
  */
 async function promotedFolderHoldings(req, res) {
   try {
@@ -817,13 +869,21 @@ async function promotedFolderHoldings(req, res) {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
     const entitled = authorized === true || await callerIsFluxnode(body);
 
-    const held = globalState.folderHoldings;
+    const ready = ids !== null;
+    const {
+      holding, notLookedAt, heldOut, volumeGone,
+    } = ready ? folderStates.answer(ids) : {
+      holding: {}, notLookedAt: [], heldOut: [], volumeGone: [],
+    };
     const seal = peerIdentityService.answerSealer(peerIdentityService.AnswerPurpose.PROMOTED_FOLDERS, body);
     const response = messageHelper.createDataMessage(await seal({
-      ready: ids !== null,
+      ready,
       folders: ids === null ? [] : [...ids],
+      notLookedAt,
+      heldOut,
+      volumeGone,
       ...(entitled ? {
-        holding: held === null ? {} : Object.fromEntries(held),
+        holding,
         seeding: Object.fromEntries(globalState.seedMarks),
       } : {}),
     }));
@@ -840,6 +900,7 @@ async function promotedFolderHoldings(req, res) {
 }
 
 module.exports = {
+  installedAppSpecs,
   installedApps,
   installedAppsListedAt,
   decryptEnterpriseApps,

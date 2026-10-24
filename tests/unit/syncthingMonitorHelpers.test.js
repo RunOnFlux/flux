@@ -404,6 +404,41 @@ describe('syncthingMonitorHelpers tests', () => {
       expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map())).to.equal(null);
     });
 
+    // A listed holder whose FluxOS has stopped answering, asked by a node whose
+    // FluxOS restarted and so holds nothing for it.
+    it('keeps the device syncthing has configured under the address of a listed peer that does not answer', async () => {
+      const cache = new Map();
+      sandbox.stub(axios, 'get').rejects(new Error('connect ETIMEDOUT'));
+
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', cache, 'CONFIGURED-DEVICE')).to.equal('CONFIGURED-DEVICE');
+      expect(cache.has('10.0.0.1:16127'), 'a configured device is asked again on the next pass').to.equal(false);
+      counted('configured');
+    });
+
+    it('keeps the configured device while a verified peer\'s syncthing has not answered and nothing is held', async () => {
+      verifyPeer.resolves({
+        verdict: IdentityVerdict.VERIFIED,
+        identity: { socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: null },
+      });
+
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map(), 'CONFIGURED-DEVICE')).to.equal('CONFIGURED-DEVICE');
+      counted('configured');
+    });
+
+    it('takes a peer\'s unsigned answer over the device configured under its address', async () => {
+      sandbox.stub(axios, 'get').resolves({ data: { status: 'success', data: 'ANSWERED-DEVICE' } });
+
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map(), 'CONFIGURED-DEVICE')).to.equal('ANSWERED-DEVICE');
+      counted('unsigned');
+    });
+
+    it('configures no device for an address another node answered, whatever is configured under it', async () => {
+      verifyPeer.resolves({ verdict: IdentityVerdict.MISROUTED, answeredAs: '10.0.0.9:16147' });
+
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map(), 'CONFIGURED-DEVICE')).to.equal(null);
+      counted('withheld');
+    });
+
     // The palworld case: HK held its neighbour's device under UAE's name for five
     // days, and the folder never synced.
     it('configures no device for an address another node answered, and forgets the one it held', async () => {
@@ -485,6 +520,38 @@ describe('syncthingMonitorHelpers tests', () => {
       // The stale entry is not among the devices in use, so the sweep of unused
       // devices removes it.
       expect(devicesIds).to.deep.equal(['REAL-DEVICE']);
+    });
+
+    describe('a listed peer that gives no device', () => {
+      beforeEach(() => {
+        peerIdentityService.verifyPeer.resolves({ verdict: IdentityVerdict.UNVERIFIABLE, reason: 'connect ETIMEDOUT' });
+        sandbox.stub(axios, 'get').rejects(new Error('connect ETIMEDOUT'));
+      });
+
+      it('stays in the folder on the device configured under its address', async () => {
+        const devicesIds = [];
+        const allDevices = [{ name: '10.0.0.1:16127', deviceID: 'CONFIGURED-DEVICE' }];
+
+        const devices = await helpers.buildDeviceConfiguration(
+          [{ ip: '10.0.0.1:16127' }], LOCAL, 'MY-DEVICE', new Map(), [], devicesIds, allDevices,
+        );
+
+        expect(devices).to.deep.equal([{ deviceID: 'MY-DEVICE' }, { deviceID: 'CONFIGURED-DEVICE' }]);
+        expect(devicesIds, 'the sweep of unused devices would remove it').to.deep.equal(['CONFIGURED-DEVICE']);
+      });
+
+      it('leaves the folder while more than one device is configured under its address', async () => {
+        const allDevices = [
+          { name: '10.0.0.1:16127', deviceID: 'CONFIGURED-DEVICE' },
+          { name: '10.0.0.1:16127', deviceID: 'DEVICE-OF-A-NEIGHBOUR' },
+        ];
+
+        const devices = await helpers.buildDeviceConfiguration(
+          [{ ip: '10.0.0.1:16127' }], LOCAL, 'MY-DEVICE', new Map(), [], [], allDevices,
+        );
+
+        expect(devices).to.deep.equal([{ deviceID: 'MY-DEVICE' }]);
+      });
     });
 
     it('configures a new peer device not to auto-accept folders', async () => {

@@ -28,6 +28,7 @@ const fluxEventBus = require('./utils/fluxEventBus');
 const { NON_PUBLIC_IPV4 } = require('./utils/nonPublicNetworks');
 const ufw = require('./utils/ufw');
 const ufwHelper = require('./utils/ufwHelper');
+const { UDP_PROBE_MAGIC, UDP_PROBE_BYTES } = require('./utils/fluxUdpTestServer');
 const {
   normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch, parseSocketAddress, ipsMatch,
 } = require('./utils/socketAddressUtils');
@@ -69,13 +70,18 @@ function setInstalledAppsListedAt(callback) {
  * Whether this node ran apps at `socketAddress`: an app installed here is one
  * the network lists there. A configuration names an address, and a machine
  * started on a copy of another's names that machine's; only apps left there
- * show this node held it.
+ * show this node held it. `null` when that cannot be read.
  * @param {string} socketAddress
- * @returns {Promise<boolean>}
+ * @returns {Promise<boolean|null>}
  */
 async function ranAppsAt(socketAddress) {
   if (!installedAppsListedAt) return false;
-  return (await installedAppsListedAt(socketAddress)).length > 0;
+  try {
+    return (await installedAppsListedAt(socketAddress)).length > 0;
+  } catch (error) {
+    log.warn(`own address - whether this node ran apps at ${socketAddress} cannot be read: ${error.message}`);
+    return null;
+  }
 }
 
 let dosState = 0; // we can start at bigger number later
@@ -92,6 +98,9 @@ const StickyDosOwner = Object.freeze({
   PEER_SET_STABILITY: 'peerSetStability',
   NODEJS_FLOOR: 'nodejsFloor',
   DOCKER_FLOOR: 'dockerFloor',
+  MONGODB_FLOOR: 'mongodbFloor',
+  CGROUP_FLOOR: 'cgroupFloor',
+  HOST_STALL: 'hostStall',
 });
 
 // Declares the node unfit for the apps it already runs, and is not moved by the
@@ -116,6 +125,8 @@ const STICKY_DOS_STATE = 100;
 // a new one.
 const PlacementHoldOwner = Object.freeze({
   RESIDENTIAL_DOS: 'residentialDos',
+  DATABASE_SUSPECT: 'databaseSuspect',
+  HOST_STALL: 'hostStall',
 });
 
 // Stops the node taking on NEW apps without declaring it unfit for the ones it
@@ -137,6 +148,7 @@ let storedFluxBenchAllowed = null;
 let tooManyIpChangesAt = null;
 let maxNumberOfIpChanges = 0;
 const { lruRateLimit } = require('./utils/rateLimit');
+const { AsyncGate } = require('./utils/asyncGate');
 const { Privilege, authOf } = require('./utils/privileges');
 
 // This node's socket address (ip:port) from benchmark
@@ -158,8 +170,11 @@ const EGRESS_TARGET = '203.0.113.1';
 // localSocketAddress but gives the node no new address, so this keeps it.
 let lastKnownSocketAddress = null;
 // Emits 'change' with the new address when the node learns one that differs
-// from lastKnownSocketAddress.
+// from lastKnownSocketAddress, and 'known' with it when the node has an address
+// after having none.
 const localSocketAddressEvents = new EventEmitter();
+// Open while localSocketAddress holds an address.
+const localSocketAddressGate = new AsyncGate();
 
 /**
  * The device an os.networkInterfaces() entry is bound on. A labelled address
@@ -423,6 +438,98 @@ async function isPortOpen(ip, port, options = {}) {
 }
 
 /**
+ * When each datagram of a UDP probe is sent, in ms from the first. UDP drops
+ * packets and loss comes in bursts, so the sends are spread rather than sent
+ * together.
+ */
+const UDP_PROBE_SCHEDULE_MS = [0, 250, 750, 1750];
+
+/** How long a UDP probe waits for a reply after its first datagram. */
+const UDP_PROBE_DEADLINE_MS = 3_000;
+
+/**
+ * What a UDP port answered, capped, for the requester to judge - the UDP twin
+ * of portAnswered.
+ *
+ * UDP has no handshake, so silence is all a closed port and a lost datagram
+ * ever say. The requester's test server answers a probe with its secret, and
+ * only that tells the requester the port is reachable; this hands back what
+ * came, and the requester compares.
+ *
+ * The reply is taken from whatever source port it arrives from: a NAT in front
+ * of the requester may rewrite it.
+ *
+ * @param {string} ip - the requester's address
+ * @param {number} port - the port to probe
+ * @param {{schedule?: number[], deadline?: number}} [options]
+ * @returns {Promise<string|null|undefined>} what it answered; null when probes
+ *   went out and nothing came back; undefined when no probe could be sent, which
+ *   says nothing about the port
+ */
+async function portAnsweredUdp(ip, port, options = {}) {
+  const schedule = options.schedule ?? UDP_PROBE_SCHEDULE_MS;
+  const deadline = options.deadline ?? UDP_PROBE_DEADLINE_MS;
+
+  const probe = Buffer.alloc(UDP_PROBE_BYTES);
+  probe.write(UDP_PROBE_MAGIC, 'latin1');
+
+  const socket = dgram.createSocket('udp4');
+
+  return new Promise((resolve) => {
+    const timers = [];
+    let settled = false;
+    let sent = 0;
+    let failed = 0;
+
+    const done = (answer) => {
+      if (settled) return;
+      settled = true;
+      timers.forEach(clearTimeout);
+      socket.close();
+      resolve(answer);
+    };
+
+    const afterSend = (error) => {
+      if (!error) {
+        sent += 1;
+        return;
+      }
+      failed += 1;
+      if (failed === schedule.length) done(undefined);
+    };
+
+    socket.on('message', (message, rinfo) => {
+      if (rinfo.address.replace(/^::ffff:/i, '') !== ip) return;
+      done(message.subarray(0, MAX_ECHO_BYTES).toString('utf8'));
+    });
+    socket.on('error', () => done(undefined));
+
+    schedule.forEach((at) => {
+      timers.push(setTimeout(() => socket.send(probe, port, ip, afterSend), at));
+    });
+    timers.push(setTimeout(() => done(sent ? null : undefined), deadline));
+  });
+}
+
+/**
+ * Runs `task` once per item, at most `limit` at a time.
+ * @param {Array} items
+ * @param {number} limit
+ * @param {function(*): Promise<void>} task
+ * @returns {Promise<void>}
+ */
+async function forEachLimited(items, limit, task) {
+  const queue = [...items];
+  async function worker() {
+    while (queue.length) {
+      // eslint-disable-next-line no-await-in-loop
+      await task(queue.shift());
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, worker));
+}
+
+/**
  * To perform a basic check of current FluxOS version.
  * @param {string} ip IP address.
  * @param {string} port Port. Defaults to config.server.apiport.
@@ -557,6 +664,14 @@ const MAX_TESTABLE_PORTS = 50;
 // how long one request can keep this node poking, and nothing tighter: the
 // honest list really can be that long.
 const NODE_SERVICE_PORTS_KEPT_ALIVE = 4;
+
+/**
+ * How many of one request's ports a peer probes at once, where it probes them
+ * in parallel: UDP always, TCP when asked for every port's answer. A port that
+ * never answers costs a full probe timeout, and 50 of them one after another
+ * would outlast the requester's wait.
+ */
+const PORT_PROBE_CONCURRENCY = 16;
 const MAX_KEEPALIVE_PORTS = config.fluxapps.maxAppsPerNode * MAX_TESTABLE_PORTS + NODE_SERVICE_PORTS_KEPT_ALIVE;
 
 /**
@@ -651,15 +766,37 @@ async function checkAppAvailability(req, res) {
       // A requester that wants proof asks for it. One that does not - an older
       // node - gets exactly the check it always got.
       const echo = processedBody.echo === true;
+      // Every port read and answered for, a port that did not answer reading
+      // null, rather than the test ending at the first port that failed. Only
+      // with echo: the answers are what it returns.
+      const everyPort = echo && processedBody.everyPort === true;
+      // The protocols to test each port over. TCP alone when the caller names
+      // none; with both, UDP is probed once TCP has passed.
+      const protocols = processedBody.protocols ?? ['tcp'];
+      if (!Array.isArray(protocols) || !protocols.length || !protocols.every((protocol) => protocol === 'tcp' || protocol === 'udp')) {
+        throw new Error('Protocols to test must be tcp, udp or both');
+      }
+      const tcp = protocols.includes('tcp');
+      const udp = protocols.includes('udp');
       const answered = {};
 
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of ports) {
+      const testable = ports.filter((port) => {
         const iBP = isPortBanned(+port);
         const portNum = +port;
         const withinRange = portNum >= minPort && portNum <= maxPort;
+        if (!withinRange || iBP) {
+          log.error(`Flux App port ${port} is outside allowed range. minPort: ${minPort}, maxPort: ${maxPort}, isBanned: ${iBP}`);
+        }
+        return withinRange && !iBP;
+      });
 
-        if (withinRange && !iBP) {
+      if (tcp && everyPort) {
+        await forEachLimited(testable, PORT_PROBE_CONCURRENCY, async (port) => {
+          answered[port] = await portAnswered(ip, port);
+        });
+      } else if (tcp) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const port of testable) {
           if (echo) {
             // Read rather than merely reached. The requester compares.
             // eslint-disable-next-line no-await-in-loop
@@ -675,9 +812,17 @@ async function checkAppAvailability(req, res) {
               throw new Error(`Flux Applications on ${ip}:${ipPort} are not available. Failed port: ${port}`);
             }
           }
-        } else {
-          log.error(`Flux App port ${port} is outside allowed range. minPort: ${minPort}, maxPort: ${maxPort}, isBanned: ${iBP}`);
         }
+      }
+
+      // A port this node could not send to is left out: that says nothing about
+      // the port, and the requester reads an absent port as no proof.
+      const udpAnswered = {};
+      if (udp) {
+        await forEachLimited(testable, PORT_PROBE_CONCURRENCY, async (port) => {
+          const reply = await portAnsweredUdp(ip, +port);
+          if (reply !== undefined) udpAnswered[port] = reply;
+        });
       }
       const successResponse = messageHelper.createSuccessMessage(`Flux Applications on ${ip}:${ipPort} are available.`);
       // `answered` present at all is how the requester knows this peer READ the
@@ -685,7 +830,9 @@ async function checkAppAvailability(req, res) {
       // available from this peer, which is not the same as the ports being bad.
       // Added as a field rather than through createSuccessMessage, whose second
       // and third parameters are name and code.
-      if (echo) successResponse.data.answered = answered;
+      if (echo && tcp) successResponse.data.answered = answered;
+      // Present at all says this peer probed UDP, as `answered` does for TCP.
+      if (udp) successResponse.data.udpAnswered = udpAnswered;
       res.json(successResponse);
     } catch (error) {
       const errorResponse = messageHelper.createErrorMessage(
@@ -844,10 +991,13 @@ async function keepUPNPPortsOpen(req, res) {
  * @param {string} value ip or ip:port to be set (normalized to ip:port)
  */
 function setLocalSocketAddress(value) {
+  const wasKnown = localSocketAddressGate.ready;
   localSocketAddress = value ? normalizeSocketAddress(value) : null;
   // (Re)set the freshness deadline whenever the value changes, so getLocalSocketAddress
   // serves it without a benchmark RPC until it goes stale (cleared when set to null).
   localSocketAddressFreshUntil = localSocketAddress ? process.hrtime.bigint() + LOCAL_SOCKET_ADDRESS_TTL_NS : 0n;
+  if (localSocketAddress) localSocketAddressGate.open();
+  else localSocketAddressGate.close();
   // Told here because this is the one place the node learns what it is. The
   // peer manager needs it to keep this node out of its own peer draws - a node
   // that syncs from itself learns nothing, and it spends one of very few
@@ -857,6 +1007,7 @@ function setLocalSocketAddress(value) {
     lastKnownSocketAddress = localSocketAddress;
     localSocketAddressEvents.emit('change', localSocketAddress);
   }
+  if (localSocketAddress && !wasKnown) localSocketAddressEvents.emit('known', localSocketAddress);
 }
 
 /**
@@ -865,6 +1016,22 @@ function setLocalSocketAddress(value) {
  */
 function getKnownLocalSocketAddress() {
   return lastKnownSocketAddress;
+}
+
+/**
+ * This node's socket address, once it has one. Resolves as soon as benchmark
+ * reports an address to any caller of getLocalSocketAddress; while none is known
+ * the own-standing watch keeps asking for one.
+ * @returns {Promise<string>} ip:port
+ */
+async function waitForLocalSocketAddress() {
+  let address = await getLocalSocketAddress();
+  while (!address) {
+    // eslint-disable-next-line no-await-in-loop
+    await localSocketAddressGate.wait();
+    address = localSocketAddress;
+  }
+  return address;
 }
 
 /**
@@ -882,6 +1049,15 @@ function onLocalSocketAddressChange(listener) {
  */
 function offLocalSocketAddressChange(listener) {
   localSocketAddressEvents.off('change', listener);
+}
+
+/**
+ * @param {function(string): void} listener Called with the address each time the
+ *   node has one after having none.
+ * @returns {void}
+ */
+function onLocalSocketAddressKnown(listener) {
+  localSocketAddressEvents.on('known', listener);
 }
 
 /**
@@ -903,6 +1079,24 @@ function setDosMessage(message) {
  */
 function getDosMessage() {
   return getStickyDosMessage() || dosMessage;
+}
+
+// Whether this node's ports answer over UDP, as the availability check last
+// established it with a peer's proof or two peers' silence; null until it has.
+let udpReachability = null;
+
+/**
+ * @param {{reachable: boolean, port?: number, peers?: string[]}|null} value
+ */
+function setUdpReachability(value) {
+  udpReachability = value;
+}
+
+/**
+ * @returns {{reachable: boolean, port?: number, peers?: string[]}|null}
+ */
+function getUdpReachability() {
+  return udpReachability;
 }
 
 /**
@@ -1029,6 +1223,7 @@ function setPlacementHold(owner, reason) {
   if (placementHolds.get(owner) === reason) return;
   placementHolds.set(owner, reason);
   log.info(`Placement hold set by ${owner}: ${reason}`);
+  fluxEventBus.publish('placementHold:set', { owner, reason });
 }
 
 /**
@@ -1042,6 +1237,7 @@ function clearPlacementHold(owner) {
   if (reason === undefined) return;
   placementHolds.delete(owner);
   log.info(`Placement hold cleared by ${owner} (was: ${reason})`);
+  fluxEventBus.publish('placementHold:cleared', { owner, reason });
 }
 
 /**
@@ -1295,6 +1491,79 @@ function checkDockerVersionAllowed(dockerVersion) {
   setStickyDos(
     StickyDosOwner.DOCKER_FLOOR,
     `Docker Version Error. Current lower version allowed is v${minimumVersion} found v${dockerVersion}. Upgrade Docker and restart FluxOS`,
+  );
+  return false;
+}
+
+/**
+ * Whether this node's cgroups are the ones FluxOS runs apps in: cgroup v2,
+ * a kernel that can kill a whole cgroup (cgroup.kill, Linux 5.14), and Docker
+ * placing containers through systemd. App slices, CPU burst and the kill a
+ * host stall makes all rely on the three.
+ *
+ * Asked once, when Docker first answers at startup. The kernel's answers are
+ * read from the cgroup filesystem: cgroup.kill is asked of FluxOS's own cgroup,
+ * which /proc/self/cgroup names and which is never the root, the one cgroup
+ * without the file. A driver that could not be read gives no verdict on the
+ * driver.
+ * @param {?string} cgroupDriver The cgroup driver Docker reports, or null when
+ *   it could not be read.
+ * @param {{cgroupRoot?: string, selfCgroupFile?: string}} [paths] Where the
+ *   cgroup filesystem is mounted, and the file naming this process's cgroup.
+ * @returns {Promise<boolean>} True unless a requirement is known to be unmet.
+ */
+async function checkCgroupsAllowed(cgroupDriver, { cgroupRoot = '/sys/fs/cgroup', selfCgroupFile = '/proc/self/cgroup' } = {}) {
+  const exists = (file) => fs.access(path.join(cgroupRoot, file)).then(() => true, () => false);
+  // cgroup v2 lists one line, 0::<path>
+  const ownCgroup = (await fs.readFile(selfCgroupFile, 'utf8').catch(() => '')).match(/^0::(\/.*)$/m)?.[1];
+  const unmet = [];
+  if (!await exists('cgroup.controllers')) unmet.push('cgroup v2');
+  else if (!ownCgroup || !await exists(path.join(ownCgroup, 'cgroup.kill'))) unmet.push('cgroup.kill (Linux 5.14 or later)');
+  if (cgroupDriver === null) {
+    log.error('checkCgroupsAllowed - Docker did not report its cgroup driver, no verdict on it');
+  } else if (cgroupDriver !== 'systemd') {
+    unmet.push(`Docker's systemd cgroup driver (found ${cgroupDriver})`);
+  }
+  if (!unmet.length) return true;
+  setStickyDos(
+    StickyDosOwner.CGROUP_FLOOR,
+    `Cgroup Error. FluxOS requires cgroup v2, cgroup.kill and Docker's systemd cgroup driver; missing: ${unmet.join(', ')}. Fix the host and restart FluxOS`,
+  );
+  return false;
+}
+
+/**
+ * Whether the MongoDB this node runs meets the network minimum: the oldest
+ * release FluxOS supports.
+ *
+ * Asked once, when MongoDB first answers at startup. Upgrading MongoDB
+ * restarts mongod, not FluxOS, so the verdict stands until FluxOS next starts,
+ * and the message says so. A version that could not be read, or is not a
+ * SemVer version, gives no verdict. A pre-release is below its release.
+ * @param {?string} mongoDbVersion The version MongoDB reports, or null when it
+ *   could not be read.
+ * @returns {boolean} True unless the version is known and below the floor.
+ */
+function checkMongoDbVersionAllowed(mongoDbVersion) {
+  const minimumVersion = config.minimumMongoDbAllowedVersion;
+  if (!minimumVersion) {
+    log.error('checkMongoDbVersionAllowed - no minimum MongoDB version configured, skipping the check');
+    return true;
+  }
+  if (!mongoDbVersion) {
+    log.error('checkMongoDbVersionAllowed - MongoDB did not report its version, no verdict');
+    return true;
+  }
+  if (!serviceHelper.parseSemver(mongoDbVersion)) {
+    log.error(`checkMongoDbVersionAllowed - MongoDB reported ${mongoDbVersion}, which is not a SemVer version, no verdict`);
+    return true;
+  }
+  if (serviceHelper.semverAtLeast(mongoDbVersion, minimumVersion)) {
+    return true;
+  }
+  setStickyDos(
+    StickyDosOwner.MONGODB_FLOOR,
+    `MongoDB Version Error. Current lower version allowed is v${minimumVersion} found v${mongoDbVersion}. Upgrade MongoDB and restart FluxOS`,
   );
   return false;
 }
@@ -2050,7 +2319,9 @@ async function fluxGoneFrom(socketAddress) {
 /**
  * Adopts `current` in place of `previous`, the configured address, which this
  * node has no record of leaving. Told to the network as a move only when this
- * node ran apps there.
+ * node ran apps there. While that cannot be read nothing is adopted: the
+ * collision check that calls this finds the same listing on its next pass and
+ * asks again.
  * @param {string} previous
  * @param {string} current
  * @returns {Promise<void>}
@@ -2058,9 +2329,16 @@ async function fluxGoneFrom(socketAddress) {
 function leaveConfiguredAddress(previous, current) {
   return serialiseOwnAddressWork(async () => {
     const from = normalizeSocketAddress(previous);
-    await adjustExternalIp(from, current, { announceMove: await ranAppsAt(from) });
+    const ran = await ranAppsAt(from);
+    if (ran === null) return;
+    await adjustExternalIp(from, current, { announceMove: ran });
   });
 }
+
+// How long an adoption deferred on an unreadable database waits before this
+// node's address is acted on again; the retry pending, while one is.
+const OWN_ADDRESS_RETRY_MS = 60 * 1000;
+let ownAddressRetry = null;
 
 /**
  * Acts on the address benchmark reports as this node's own. One that differs
@@ -2071,6 +2349,8 @@ function leaveConfiguredAddress(previous, current) {
  * the Flux node there is gone (fluxGoneFrom) it adopts the reported address and
  * the collision check judges it; once it is, it adopts the reported address in
  * place of the configured one, told as a move only when it ran apps there.
+ * While whether it ran apps there cannot be read it adopts nothing, and acts on
+ * the address it knows again after OWN_ADDRESS_RETRY_MS.
  * @param {string} current The reported socket address.
  * @returns {Promise<void>}
  */
@@ -2087,7 +2367,15 @@ function handleOwnAddress(current) {
         await writeOwnAddressRecord(reported);
         return;
       }
-      await adjustExternalIp(previous, reported, { announceMove: Boolean(record) || await ranAppsAt(previous) });
+      const announceMove = record ? true : await ranAppsAt(previous);
+      if (announceMove === null) {
+        ownAddressRetry ??= setTimeout(() => {
+          ownAddressRetry = null;
+          handleOwnAddress(getKnownLocalSocketAddress() || reported);
+        }, OWN_ADDRESS_RETRY_MS);
+        return;
+      }
+      await adjustExternalIp(previous, reported, { announceMove });
     } else if (!record) {
       await writeOwnAddressRecord(reported);
     } else {
@@ -2115,6 +2403,8 @@ function startOwnAddressWatch() {
   return () => {
     if (ownAddressListener) offLocalSocketAddressChange(ownAddressListener);
     ownAddressListener = null;
+    clearTimeout(ownAddressRetry);
+    ownAddressRetry = null;
   };
 }
 
@@ -2844,36 +3134,42 @@ async function allowPort(port) {
   return cmdStat;
 }
 
-// The ufw rule that admits IPv4 TCP clients to a port FluxOS opens for a moment,
-// to test it from outside, and nothing else. ufw counts a rule that names no
-// protocol as the same rule as the matching half of an app port's
+// The ufw rule that admits IPv4 clients of one protocol to a port FluxOS opens
+// for a moment, to test it from outside, and nothing else. ufw counts a rule that
+// names no protocol as the same rule as the matching half of an app port's
 // `allow <port>`, so a test that opened and deleted one would delete that half;
-// a TCP rule is a rule of its own.
-const testPortRule = (port) => ['proto', 'tcp', 'from', '0.0.0.0/0', 'to', 'any', 'port', String(port)];
+// a rule naming its protocol is a rule of its own.
+const testPortRule = (port, protocol) => ['proto', protocol, 'from', '0.0.0.0/0', 'to', 'any', 'port', String(port)];
+
+const TEST_PORT_PROTOCOLS = ['tcp', 'udp'];
 
 /**
- * Opens a port to IPv4 TCP clients while FluxOS tests it from outside: the only rule
- * for the port that deleteTestPortRule deletes.
+ * Opens a port to IPv4 clients of one protocol while FluxOS tests it from
+ * outside: the only rule for the port that deleteTestPortRule deletes.
  * @param {number|string} port Port.
+ * @param {string} [protocol] 'tcp' or 'udp'.
  * @returns {Promise<{status: boolean, message: (string|null)}>}
  */
-async function allowTestPort(port) {
+async function allowTestPort(port, protocol = 'tcp') {
   if (Number.isNaN(+port)) return { status: false, message: 'Port needs to be a number' };
-  const ran = await ufw.runUfw(['allow', ...testPortRule(port)]);
+  if (!TEST_PORT_PROTOCOLS.includes(protocol)) return { status: false, message: 'Protocol needs to be tcp or udp' };
+  const ran = await ufw.runUfw(['allow', ...testPortRule(port, protocol)]);
   if (ran.locked) return { status: false, message: 'ufw is locked by another ufw command' };
   const cmdres = ran.stdout + ran.stderr;
   return { status: /added|updated|existing/.test(cmdres), message: cmdres };
 }
 
 /**
- * Deletes the rule allowTestPort writes, and no other rule for the port. A rule
- * already gone counts as deleted.
+ * Deletes the rule allowTestPort writes for a protocol, and no other rule for
+ * the port. A rule already gone counts as deleted.
  * @param {number|string} port Port.
+ * @param {string} [protocol] 'tcp' or 'udp'.
  * @returns {Promise<{status: boolean, message: (string|null)}>}
  */
-async function deleteTestPortRule(port) {
+async function deleteTestPortRule(port, protocol = 'tcp') {
   if (Number.isNaN(+port)) return { status: false, message: 'Port needs to be a number' };
-  const ran = await ufw.runUfw(['delete', 'allow', ...testPortRule(port)]);
+  if (!TEST_PORT_PROTOCOLS.includes(protocol)) return { status: false, message: 'Protocol needs to be tcp or udp' };
+  const ran = await ufw.runUfw(['delete', 'allow', ...testPortRule(port, protocol)]);
   if (ran.locked) return { status: false, message: 'ufw is locked by another ufw command' };
   const cmdres = ran.stdout + ran.stderr;
   return { status: cmdres.includes('delete'), message: cmdres };
@@ -3465,8 +3761,10 @@ module.exports = {
   checkFluxAvailability,
   getLocalSocketAddress,
   getKnownLocalSocketAddress,
+  waitForLocalSocketAddress,
   onLocalSocketAddressChange,
   offLocalSocketAddressChange,
+  onLocalSocketAddressKnown,
   getFluxNodePrivateKey,
   getFluxNodePublicKey,
   MAX_KEEPALIVE_PORTS,
@@ -3500,6 +3798,8 @@ module.exports = {
   checkFluxbenchVersionAllowed,
   checkNodeJsVersionAllowed,
   checkDockerVersionAllowed,
+  checkCgroupsAllowed,
+  checkMongoDbVersionAllowed,
   checkMyFluxAvailability,
   adjustExternalIp,
   handleOwnAddress,
@@ -3523,6 +3823,8 @@ module.exports = {
   setLocalSocketAddress,
   getDosMessage,
   setDosMessage,
+  getUdpReachability,
+  setUdpReachability,
   setDosStateValue,
   getDosStateValue,
   isNodeDos,
@@ -3543,6 +3845,7 @@ module.exports = {
   isPortOpen,
   portAnswered,
   MAX_ECHO_BYTES,
+  portAnsweredUdp,
   checkAppAvailability,
   verifySignedFluxnodeMessage,
   isPortEnterprise,

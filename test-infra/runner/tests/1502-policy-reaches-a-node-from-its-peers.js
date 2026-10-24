@@ -10,7 +10,7 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor, waitForBootSettled } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { buildAppSpec } from '../framework/app-helper.js';
-import { execInContainer } from '../framework/container.js';
+import { execInContainer, fluxosPid } from '../framework/container.js';
 
 // Policy arriving from a PEER rather than from the published source.
 //
@@ -175,12 +175,12 @@ describe('policy reaching a node from its peers', function () {
     // message, so a failure inside it has nowhere to go but the process - and the node's
     // answer to that is to exit. Sent from the stub exactly as a real peer would.
     const client = env.clients[TOLD_NODE];
-    const readPid = async () => (await execInContainer(client.container, 'cat /tmp/fluxos.pid')).stdout.trim();
+    const readPid = () => fluxosPid(client.container);
 
     const pidBefore = await readPid();
     // A pid that was never read is equal to itself afterwards, so the comparison below
     // would hold for a node that had died and come back twice.
-    expect(pidBefore, 'no FluxOS pid to compare against').to.match(/^[0-9]+$/);
+    expect(pidBefore, 'no FluxOS pid to compare against').to.be.a('number');
     const seqBefore = await heldSeq(TOLD_NODE);
 
     // Not text. Measuring it raises before anything is parsed and before any signature is

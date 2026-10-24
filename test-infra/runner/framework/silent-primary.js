@@ -105,6 +105,7 @@ export async function placeSilentPrimaryApp({
 
   return {
     env,
+    app,
     identifier,
     // When more than one node ran the component.
     twoRan,

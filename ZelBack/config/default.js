@@ -40,9 +40,32 @@ module.exports = {
       'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIfVQ1HBlOYD61OEzV19gSWPG6yVWvz+TyHXflXIHsPg fluxadm-legacy',
     ],
   },
+  // A thread of a process FluxOS depends on that stays in the kernel without
+  // running for one interval holds the node back from new placements, and for
+  // stuckIntervals intervals takes it out of service until it reboots. Its apps
+  // are then asked to stop all at once, and whatever of them can still run after
+  // stopWindowMs is killed: longer than the slowest removal of a component seen on
+  // the fleet (39 s), which stops it first.
+  hostStall: {
+    readIntervalMs: 5 * 60 * 1000,
+    stuckIntervals: 6,
+    stopWindowMs: 60 * 1000,
+  },
   database: {
     url: '127.0.0.1',
     port: 27017,
+    // How long one round trip, or the wait for a pooled connection, may take
+    // before the call fails. callTimeoutMs bounds every call on the main client:
+    // over four times the slowest healthy round trip seen on the fleet.
+    // maintenanceCallTimeoutMs bounds the client for the named long operations:
+    // index builds, the explorer restore's deletes and the registry rebuild.
+    callTimeoutMs: 60 * 1000,
+    maintenanceCallTimeoutMs: 15 * 60 * 1000,
+    // The database is suspect, and the node takes on no new apps, once
+    // suspectRoundTrips round trips have run out within suspectWindowMs. It stops
+    // being suspect suspectWindowMs after the last one.
+    suspectRoundTrips: 4,
+    suspectWindowMs: 30 * 60 * 1000,
     local: {
       database: `${dbPrefix}zelfluxlocal`,
       collections: {
@@ -79,6 +102,7 @@ module.exports = {
       collections: {
         appsInformation: 'zelappsinformation',
         appsRuntimeState: 'zelappsruntimestate', // node-local per-component controller state: desiredState, restartHistory (crash backoff), last exit
+        appsPlacements: 'zelappsplacements', // when this node took each app it holds, kept through redeploys
       },
     },
     appsglobal: {
@@ -107,6 +131,10 @@ module.exports = {
   upnp: {
     gatewayUrl: '',
     nodeIp: '',
+    // a removal of this node's own mapping the router refuses is asked again
+    // after this long, the wait doubling up to removalRetryMaxMs
+    removalRetryFirstMs: 30 * 1000,
+    removalRetryMaxMs: 60 * 1000,
   },
   benchmark: {
     host: '127.0.0.1',
@@ -136,6 +164,11 @@ module.exports = {
   // Docker's networking rules and its patch releases fixed them; 28.1.1 is the
   // oldest release the fleet runs in numbers.
   minimumDockerAllowedVersion: '28.1.1',
+  // The MongoDB a node runs: the oldest release FluxOS supports. From 6.0 a
+  // $group or $sort past the memory limit spills to disk rather than failing,
+  // which the registry rebuild and the duplicate merges at boot rely on; the
+  // patch level is the oldest 6.0 release the fleet runs in numbers.
+  minimumMongoDbAllowedVersion: '6.0.27',
   fluxTeamFluxID: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   // A list, so support can be granted to (or revoked from) an identity without
   // touching every privilege check. A bare string is still read as a one entry
@@ -448,9 +481,10 @@ module.exports = {
     peerShortfallDosPerMinute: 0.13,
     // While this node knows no address of its own it asks benchmark to detect its
     // public IP this often, and is out of service after this many asks find none.
-    // Benchmark caches its answer for 69 s.
-    publicIpAskIntervalMs: 90 * 1000,
-    publicIpAsksBeforeDos: 8,
+    // Benchmark caches an address it found for 69 s and none it failed to find, so
+    // each ask while none is known is a fresh lookup against public IP services.
+    publicIpAskIntervalMs: 15 * 1000,
+    publicIpAsksBeforeDos: 48,
     // The apps port check. timeoutsMs: how long it waits before testing again
     // after a pass, an error, a failed port, once its count reaches the DOS
     // threshold, and after an app error. thresholds: once portsHighEdge ports
@@ -562,8 +596,6 @@ module.exports = {
     daemonPONFork: 2020000, // block height where PON (Proof of Node) fork activates - chain works 4x faster after this block
     blocksAllowanceInterval: 1000, // ap differences can be in 1000s - more than 1 day
     removeBlocksAllowanceIntervalBlock: 1625000, // after this block we can start having app updates without extending subscription - block expected in April 19th 2024
-    ownerAppAllowance: 1000, // a by-name local install (fluxteam only) runs for this amount of blocks before the expiry sweep removes it
-    temporaryAppAllowance: 200, // in case of any user installing some temporary app message for testing purposes, the app will run for this many blocks
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
     updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
     removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
@@ -577,6 +609,9 @@ module.exports = {
     bootDelayMultiplier: 1,
     spawnDelayMs: 0,
     removalSpacingMs: 60000,
+    // How long one app's removal may take, when every app is removed, before the
+    // next app's starts. A removal past it keeps running.
+    appRemovalDeadlineMs: 5 * 60 * 1000,
     // Per-document expiry for the ephemeral app collections, in seconds, read by
     // appConstants.js. Each record carries its own deadline and the collection
     // index is expireAt/expireAfterSeconds:0, so changing one of these takes
@@ -645,6 +680,8 @@ module.exports = {
     connectionBackoffMs: [120000, 300000, 600000, 900000],
     nodeMonitorIntervalMs: 1200000,
     nodeMonitorRemovalDelayMs: 60000,
+    // events per message of an answer to a peer's state sync
+    syncAnswerBatchSize: 2000,
     // Residential-node staging. The placement hold is immediate and is not
     // tunable; these pace only the part that moves customer data.
     residentialCheckIntervalMs: 6 * 60 * 60 * 1000, // re-evaluate the verdict

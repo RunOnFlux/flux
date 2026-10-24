@@ -14,6 +14,7 @@ describe('appInspector tests', () => {
   let configStub;
   let globalStateStub;
   let cpuBurstHelperStub;
+  let cpuThrottleExemptionStub;
   let appUtilitiesStub;
 
   beforeEach(() => {
@@ -36,6 +37,10 @@ describe('appInspector tests', () => {
 
     cpuBurstHelperStub = {
       isBurstActive: sinon.stub().resolves(false),
+    };
+
+    cpuThrottleExemptionStub = {
+      isCpuThrottleExempt: sinon.stub().returns(false),
     };
 
     // Hoisted so a test can drive the disk reading. A partial one is a floor
@@ -87,6 +92,7 @@ describe('appInspector tests', () => {
       },
       '../utils/appUtilities': appUtilitiesStub,
       '../utils/cpuBurstHelper': cpuBurstHelperStub,
+      '../utils/cpuThrottleExemption': cpuThrottleExemptionStub,
       'node-cmd': {
         run: (cmd, callback) => callback(null, 'data', 'stderr'),
       },
@@ -334,13 +340,7 @@ describe('appInspector tests', () => {
       expect(stored.memoryCache).to.equal(512);
     });
 
-    it('takes the cgroup v1 name when the v2 one is absent', async () => {
-      const stored = await tickOnce({ stats: { cache: 300 } });
-
-      expect(stored.memoryCache).to.equal(300);
-    });
-
-    it('records no cache rather than a zero when the host reports neither', async () => {
+    it('records no cache rather than a zero when the host does not report it', async () => {
       // Zero would read as "nothing cached" and be silently subtracted; null says
       // the figure is unavailable, and leaves the consumer where it was before.
       const stored = await tickOnce({});
@@ -2358,6 +2358,95 @@ describe('appInspector tests', () => {
       );
 
       expect(dockerServiceStub.appDockerUpdateCpu.calledOnceWithExactly('db_myapp', 1.8e9)).to.be.true;
+    });
+
+    // Hub game servers. A game's tick is a latency budget, so the 80% cut shows up as lag,
+    // and a saturated server measured against its reduced allocation never earns it back.
+    describe('throttle-exempt apps', () => {
+      const gameApp = { name: 'enshrouded1792177003381', version: 3, cpu: 3 };
+
+      beforeEach(() => {
+        cpuThrottleExemptionStub.isCpuThrottleExempt.callsFake((name) => name === gameApp.name);
+      });
+
+      it('never lowers a saturated exempt app', async () => {
+        dockerServiceStub.dockerContainerInspect.resolves({ HostConfig: { NanoCpus: 3e9 }, State: { Pid: 1234 } });
+        globalStateStub.appsMonitored = { [gameApp.name]: { statsStore: window([1, 1, 1, 1, 1]) } };
+
+        await appInspector.checkApplicationsCpuUSage(globalStateStub.appsMonitored, installedAppsReturning(gameApp));
+
+        expect(dockerServiceStub.appDockerUpdateCpu.called).to.be.false;
+      });
+
+      it('restores an exempt app already lowered to 80%, even while it is saturated', async () => {
+        dockerServiceStub.dockerContainerInspect.resolves({ HostConfig: { NanoCpus: 2.4e9 }, State: { Pid: 1234 } });
+        globalStateStub.appsMonitored = { [gameApp.name]: { statsStore: window([1, 1, 1, 1, 1]) } };
+
+        await appInspector.checkApplicationsCpuUSage(globalStateStub.appsMonitored, installedAppsReturning(gameApp));
+
+        expect(dockerServiceStub.appDockerUpdateCpu.calledOnceWithExactly(gameApp.name, 3e9)).to.be.true;
+      });
+
+      it('restores without waiting for a full window of samples', async () => {
+        dockerServiceStub.dockerContainerInspect.resolves({ HostConfig: { NanoCpus: 2.4e9 }, State: { Pid: 1234 } });
+        globalStateStub.appsMonitored = { [gameApp.name]: { statsStore: [] } };
+
+        await appInspector.checkApplicationsCpuUSage(globalStateStub.appsMonitored, installedAppsReturning(gameApp));
+
+        expect(dockerServiceStub.appDockerUpdateCpu.calledOnceWithExactly(gameApp.name, 3e9)).to.be.true;
+      });
+
+      it('consumes the window, so the samples it declined to judge are never held against it', async () => {
+        dockerServiceStub.dockerContainerInspect.resolves({ HostConfig: { NanoCpus: 3e9 }, State: { Pid: 1234 } });
+        globalStateStub.appsMonitored = { [gameApp.name]: { statsStore: window([1, 1, 1, 1, 1]), lastCpuDecisionAt: 0 } };
+
+        await appInspector.checkApplicationsCpuUSage(globalStateStub.appsMonitored, installedAppsReturning(gameApp));
+
+        expect(globalStateStub.appsMonitored[gameApp.name].lastCpuDecisionAt).to.be.above(0);
+      });
+
+      it('still throttles an app that is not exempt in the same pass', async () => {
+        dockerServiceStub.dockerContainerInspect.resolves({ HostConfig: { NanoCpus: 2e9 }, State: { Pid: 1234 } });
+        globalStateStub.appsMonitored = {
+          [gameApp.name]: { statsStore: window([1, 1, 1, 1, 1]) },
+          myapp: { statsStore: window([1, 1, 1, 1, 1]) },
+        };
+        const both = sinon.stub().resolves({ status: 'success', data: [{ ...gameApp, cpu: 2 }, simpleApp] });
+
+        await appInspector.checkApplicationsCpuUSage(globalStateStub.appsMonitored, both);
+
+        expect(dockerServiceStub.appDockerUpdateCpu.calledOnceWithExactly('myapp', 1.8e9)).to.be.true;
+      });
+
+      it('holds every component of an exempt composed app at its own spec', async () => {
+        const composed = {
+          name: 'palworld1792177003381',
+          version: 8,
+          compose: [{ name: 'game', cpu: 4 }, { name: 'sidecar', cpu: 2 }],
+        };
+        cpuThrottleExemptionStub.isCpuThrottleExempt.callsFake((name) => name === composed.name);
+        dockerServiceStub.dockerContainerInspect.callsFake(async (name) => ({
+          HostConfig: { NanoCpus: name.startsWith('game_') ? 3.2e9 : 2e9 },
+          State: { Pid: 1234 },
+        }));
+        globalStateStub.appsMonitored = {
+          game_palworld1792177003381: { statsStore: window([1, 1, 1, 1, 1]) },
+          sidecar_palworld1792177003381: { statsStore: window([1, 1, 1, 1, 1]) },
+        };
+
+        await appInspector.checkApplicationsCpuUSage(globalStateStub.appsMonitored, installedAppsReturning(composed));
+
+        expect(dockerServiceStub.appDockerUpdateCpu.calledOnceWithExactly('game_palworld1792177003381', 4e9)).to.be.true;
+      });
+
+      it('leaves the container alone when docker cannot inspect it', async () => {
+        dockerServiceStub.dockerContainerInspect.resolves(null);
+        globalStateStub.appsMonitored = { [gameApp.name]: { statsStore: window([1, 1, 1, 1, 1]) } };
+
+        await appInspector.checkApplicationsCpuUSage(globalStateStub.appsMonitored, installedAppsReturning(gameApp));
+
+        expect(dockerServiceStub.appDockerUpdateCpu.called).to.be.false;
+      });
     });
   });
 

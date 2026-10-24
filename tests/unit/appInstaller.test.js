@@ -5,6 +5,15 @@ const { resetGlobalState } = require('./fixtures/globalState');
 
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
+const { folderStates: folderStateMap } = require('../../ZelBack/src/services/utils/globalState');
+
+// what upnpService.mapUpnpPort answers for a port mapped, and for one the router refused
+const MAPPED = {
+  mapped: true, code: null, reason: null, routerWide: false,
+};
+const REFUSED = {
+  mapped: false, code: 728, reason: 'TCP 31000 not mapped: UPnP error 728: NoPortMapsAvailable (action: AddPortMapping)', routerWide: true,
+};
 
 // The full-install dockerService stub, shared by every proxyquire setup that
 // drives registerAppLocally. Pass overrides for the few tests that need a
@@ -24,6 +33,13 @@ const makeDockerServiceStub = (overrides = {}) => ({
 });
 
 describe('appInstaller tests', () => {
+  // The placement record is its own module with its own tests; here it is the
+  // seam an install writes through. Fresh per test.
+  let appPlacementsStub;
+  beforeEach(() => {
+    appPlacementsStub = { recordPlacement: sinon.stub().resolves() };
+  });
+
   let appInstaller;
   // The same stub map the default instance is built from, so a test that needs one
   // more seam spreads it rather than restating eighty lines of it.
@@ -71,8 +87,6 @@ describe('appInstaller tests', () => {
       fluxapps: {
         blocksLasting: 22000,
         latestAppSpecification: 1,
-        ownerAppAllowance: 100,
-        temporaryAppAllowance: 200,
         maxImageSize: 10000000000,
       },
     };
@@ -98,7 +112,9 @@ describe('appInstaller tests', () => {
     };
 
     dbHelperStub = {
-      databaseConnection: sinon.stub(),
+      // A connection always hands back a client; a test that needs a database
+      // to answer says what it answers.
+      databaseConnection: sinon.stub().returns({ db: sinon.stub().returns('database') }),
       findInDatabase: sinon.stub(),
       findOneInDatabase: sinon.stub(),
       insertOneToDatabase: sinon.stub(),
@@ -132,6 +148,7 @@ describe('appInstaller tests', () => {
 
     // Proxy require
     baseStubs = {
+      '../appManagement/appPlacements': appPlacementsStub,
       config: configStub,
       '../verificationHelper': verificationHelperStub,
       '../messageHelper': messageHelperStub,
@@ -139,6 +156,7 @@ describe('appInstaller tests', () => {
       '../serviceHelper': {
         ensureString: sinon.stub().returnsArg(0),
         ensureNumber: sinon.stub().returnsArg(0),
+        ensureObject: (value) => (typeof value === 'string' ? JSON.parse(value) : value),
         delay: sinon.stub().resolves(),
       },
       '../generalService': {
@@ -207,7 +225,7 @@ describe('appInstaller tests', () => {
       },
       '../upnpService': {
         isUPNP: sinon.stub().returns(false),
-        mapUpnpPort: sinon.stub().resolves(true),
+        mapUpnpPort: sinon.stub().resolves(MAPPED),
       },
       '../utils/globalState': globalStateStub,
       '../../lib/log': logStub,
@@ -377,7 +395,7 @@ describe('appInstaller tests', () => {
       await appInstaller.installAppLocally(req, res);
 
       expect(res.json.calledOnce).to.be.true;
-      expect(verificationHelperStub.verifyPrivilege.calledWith(Privilege.USER, authOf(req))).to.be.true;
+      expect(verificationHelperStub.verifyPrivilege.calledWith(Privilege.FLUX_TEAM, authOf(req))).to.be.true;
     });
 
     it('should handle missing appname parameter', async () => {
@@ -428,9 +446,9 @@ describe('appInstaller tests', () => {
     });
   });
 
-  // Placing a registered app on a node is not the operator's call, for the same
-  // reason removing one is not. The temporary-message route is deliberately NOT
-  // closed with it - that is how an app is tested before it is registered.
+  // Placing an app on a node is not the operator's call, for the same reason
+  // removing one is not, and an app not yet paid for is never placed: it is
+  // tried out through the test-install route, which tears it down again.
   describe('local install is not the node operator\'s to make', () => {
     const nameInstall = () => ({ params: { appname: 'someCustomerApp' }, query: {} });
 
@@ -468,27 +486,248 @@ describe('appInstaller tests', () => {
       expect(res.json.firstCall.args[0].data.message).to.equal('Unauthorized');
     });
 
-    // The one that must keep working: an app under test is addressed by HASH and
-    // carries a temporary message, so it never reaches the by-name gate at all.
-    it('still lets any logged-in user install an app under test by its temporary message', async () => {
-      const req = { params: { appname: 'a1b2c3hash' }, query: {} };
+    it('refuses a logged-in user installing an app by its temporary message', async () => {
+      const req = { params: { appname: 'a1b2c3hash' }, query: {}, headers: { zelidauth: JSON.stringify({ zelid: 'someone' }) } };
       const res = { json: sinon.stub(), setHeader: sinon.stub(), write: sinon.stub(), end: sinon.stub(), writableEnded: false };
 
       verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
-      verificationHelperStub.verifyPrivilege.withArgs(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req)).resolves(false);
       verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(false);
       messageVerifierStub.checkAppTemporaryMessageExistence.resolves({
+        hash: 'a1b2c3hash',
         appSpecifications: { name: 'apptest', version: 3, owner: 'someone' },
       });
       messageHelperStub.errUnauthorizedMessage.returns({ status: 'error', data: { message: 'Unauthorized' } });
 
       await appInstaller.installAppLocally(req, res);
 
-      // It got past the gate: no Unauthorized was returned, and the by-name
-      // privilege was never consulted because a temporary message was found.
-      const unauthorized = res.json.getCalls().some((c) => c.args[0]?.data?.message === 'Unauthorized');
-      expect(unauthorized, 'a temporary app must not be refused').to.equal(false);
-      expect(verificationHelperStub.verifyPrivilege.calledWith(Privilege.FLUX_TEAM, authOf(req)), 'the by-name gate must not be reached').to.be.false;
+      expect(res.json.calledOnce).to.be.true;
+      expect(res.json.firstCall.args[0].data.message).to.equal('Unauthorized');
+      expect(dbHelperStub.insertOneToDatabase.called, 'nothing is installed').to.be.false;
+    });
+
+    it('does not install a temporary message for the flux team either', async () => {
+      const req = { params: { appname: 'a1b2c3hash' }, query: {} };
+      const res = { json: sinon.stub(), setHeader: sinon.stub(), write: sinon.stub(), end: sinon.stub(), writableEnded: false };
+
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(true);
+      messageVerifierStub.checkAppTemporaryMessageExistence.resolves({
+        hash: 'a1b2c3hash',
+        appSpecifications: { name: 'apptest', version: 3, owner: 'someone' },
+      });
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+      dbHelperStub.findInDatabase.resolves([]);
+      messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
+
+      await appInstaller.installAppLocally(req, res);
+
+      expect(res.json.calledOnce).to.be.true;
+      expect(res.json.firstCall.args[0].data.message).to.equal('Application Specifications of a1b2c3hash not found');
+      expect(hwRequirementsStub.checkAppHWRequirements.called, 'nothing is installed').to.be.false;
+    });
+
+    // An app's term runs from the height its payment was mined at; one without a
+    // height has no term, and nothing would ever expire it.
+    it('refuses a specification that carries no height', async () => {
+      const req = { params: { appname: 'noheightapp' }, query: {} };
+      const res = { json: sinon.stub(), setHeader: sinon.stub(), write: sinon.stub(), end: sinon.stub(), writableEnded: false };
+
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(true);
+      baseStubs['../appDatabase/registryManager'].availableApps.resolves([{ name: 'noheightapp', version: 3, owner: 'someone' }]);
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+      dbHelperStub.findInDatabase.resolves([]);
+      messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
+
+      await appInstaller.installAppLocally(req, res);
+
+      expect(res.json.calledOnce).to.be.true;
+      expect(res.json.firstCall.args[0].data.message).to.equal('Application Specifications of noheightapp carry no height');
+      expect(hwRequirementsStub.checkAppHWRequirements.called, 'nothing is installed').to.be.false;
+      expect(dbHelperStub.insertOneToDatabase.called, 'nothing is installed').to.be.false;
+    });
+
+    it('installs a permanent-lasting local app, whose height is zero', async () => {
+      const req = { params: { appname: 'foreverapp' }, query: {} };
+      const res = { json: sinon.stub(), setHeader: sinon.stub(), write: sinon.stub(), end: sinon.stub(), writableEnded: false };
+
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(true);
+      baseStubs['../appDatabase/registryManager'].availableApps.resolves([{ name: 'foreverapp', version: 3, owner: 'someone', height: 0 }]);
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+      dbHelperStub.findInDatabase.resolves([]);
+      hwRequirementsStub.checkAppHWRequirements.rejects(new Error('stop here'));
+      messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
+
+      await appInstaller.installAppLocally(req, res);
+
+      expect(hwRequirementsStub.checkAppHWRequirements.calledOnce, 'a height of zero was refused').to.be.true;
+    });
+
+    it('installs a permanent message with the hash and height the message carries', async () => {
+      const req = { params: { appname: 'permhash' }, query: {} };
+      const res = { json: sinon.stub(), setHeader: sinon.stub(), write: sinon.stub(), end: sinon.stub(), writableEnded: false };
+
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(true);
+      messageVerifierStub.checkAppMessageExistence.withArgs('permhash').resolves({
+        hash: 'permhash',
+        height: 2000000,
+        appSpecifications: { name: 'permapp', version: 3, owner: 'someone' },
+      });
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+      dbHelperStub.findInDatabase.resolves([]);
+      // stop at the requirement check: the specification it is given is what gets installed
+      hwRequirementsStub.checkAppHWRequirements.rejects(new Error('stop here'));
+      messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
+
+      await appInstaller.installAppLocally(req, res);
+
+      expect(hwRequirementsStub.checkAppHWRequirements.calledOnce).to.be.true;
+      const installed = hwRequirementsStub.checkAppHWRequirements.firstCall.args[0];
+      expect(installed).to.include({ name: 'permapp', hash: 'permhash', height: 2000000 });
+    });
+  });
+
+  // An app not yet paid for is tried out by its owner. Anyone else is refused
+  // before a container is made, and the flux team may test any.
+  describe('testAppInstall of an app not yet paid for', () => {
+    const owner = '1OwnerOfTheTemporaryApp';
+    const tempMessage = {
+      hash: 'temphash',
+      type: 'fluxappregister',
+      appSpecifications: {
+        name: 'trialapp', version: 4, owner, compose: [{ name: 'web', repotag: 'org/web:1', cpu: 0.5, ram: 500, hdd: 5 }],
+      },
+    };
+    const requestAs = (zelid) => ({ params: { appname: 'temphash' }, query: {}, headers: { zelidauth: JSON.stringify({ zelid, loginPhrase: 'p', signature: 's' }) } });
+    const response = () => ({ json: sinon.stub(), setHeader: sinon.stub(), write: sinon.stub(), end: sinon.stub(), writableEnded: false });
+    // reached only once the caller has been let through
+    const pastTheGate = () => baseStubs['../appSystem/systemIntegration'].systemArchitecture.called;
+
+    beforeEach(() => {
+      messageVerifierStub.checkAppTemporaryMessageExistence.withArgs('temphash').resolves(tempMessage);
+      messageHelperStub.errUnauthorizedMessage.returns({ status: 'error', data: { message: 'Unauthorized' } });
+      // stop at the architecture check: past it the install itself runs
+      baseStubs['../appSystem/systemIntegration'].systemArchitecture.rejects(new Error('stop here'));
+      messageHelperStub.createErrorMessage.callsFake((message) => ({ status: 'error', data: { message } }));
+    });
+
+    it('lets the owner test it', async () => {
+      const req = requestAs(owner);
+      const res = response();
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(false);
+
+      await appInstaller.testAppInstall(req, res);
+
+      expect(pastTheGate()).to.equal(true);
+      expect(res.json.calledWithMatch({ data: { message: 'Unauthorized' } })).to.equal(false);
+    });
+
+    it('refuses another logged-in user', async () => {
+      const req = requestAs('1SomeoneElse');
+      const res = response();
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(false);
+
+      await appInstaller.testAppInstall(req, res);
+
+      expect(pastTheGate()).to.equal(false);
+      expect(res.json.calledOnce).to.equal(true);
+      expect(res.json.firstCall.args[0].data.message).to.equal('Unauthorized');
+    });
+
+    it('lets the flux team test it', async () => {
+      const req = requestAs('1FluxTeam');
+      const res = response();
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(true);
+
+      await appInstaller.testAppInstall(req, res);
+
+      expect(pastTheGate()).to.equal(true);
+    });
+
+    it('refuses to test an app this node holds, before it takes the node', async () => {
+      const req = requestAs(owner);
+      const res = response();
+      verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+      dbHelperStub.findOneInDatabase.resolves({ name: 'trialapp' });
+
+      await appInstaller.testAppInstall(req, res);
+
+      expect(pastTheGate(), 'the test went on to install over the app').to.equal(false);
+      expect(res.json.firstCall.args[0].data.message).to.equal('Flux App trialapp is installed on this node. Test it on a node that does not hold it.');
+    });
+
+    // An update is signed by the app's owner as registered, whatever owner it names.
+    describe('an update that hands the app to a new owner', () => {
+      const current = '1CurrentOwner';
+      const named = '1NewOwnerNamedInTheUpdate';
+
+      beforeEach(() => {
+        messageVerifierStub.checkAppTemporaryMessageExistence.withArgs('temphash').resolves({
+          ...tempMessage, type: 'fluxappupdate', appSpecifications: { ...tempMessage.appSpecifications, owner: named },
+        });
+        baseStubs['../appDatabase/registryManager'].getApplicationGlobalSpecifications
+          .withArgs('trialapp').resolves({ ...tempMessage.appSpecifications, owner: current });
+      });
+
+      it('lets the current owner test it', async () => {
+        const req = requestAs(current);
+        const res = response();
+        verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+        verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(false);
+
+        await appInstaller.testAppInstall(req, res);
+
+        expect(pastTheGate()).to.equal(true);
+      });
+
+      it('refuses the owner it names, who does not own the app yet', async () => {
+        const req = requestAs(named);
+        const res = response();
+        verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+        verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(false);
+
+        await appInstaller.testAppInstall(req, res);
+
+        expect(pastTheGate()).to.equal(false);
+        expect(res.json.firstCall.args[0].data.message).to.equal('Unauthorized');
+      });
+
+      it('refuses a session that names no address when the app is not registered', async () => {
+        baseStubs['../appDatabase/registryManager'].getApplicationGlobalSpecifications.withArgs('trialapp').resolves(null);
+        const req = requestAs(null);
+        const res = response();
+        verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+        verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(false);
+
+        await appInstaller.testAppInstall(req, res);
+
+        expect(pastTheGate()).to.equal(false);
+      });
+
+      it('refuses everyone but the flux team when the app is not registered', async () => {
+        baseStubs['../appDatabase/registryManager'].getApplicationGlobalSpecifications.withArgs('trialapp').resolves(null);
+        const req = requestAs(current);
+        const res = response();
+        verificationHelperStub.verifyPrivilege.withArgs(Privilege.USER, authOf(req)).resolves(true);
+        verificationHelperStub.verifyPrivilege.withArgs(Privilege.FLUX_TEAM, authOf(req)).resolves(false);
+
+        await appInstaller.testAppInstall(req, res);
+
+        expect(pastTheGate()).to.equal(false);
+      });
+    });
+
+    it('refuses a caller with no session at all', async () => {
+      const req = { params: { appname: 'temphash' }, query: {} };
+      const res = response();
+      verificationHelperStub.verifyPrivilege.resolves(false);
+
+      await appInstaller.testAppInstall(req, res);
+
+      expect(pastTheGate()).to.equal(false);
+      expect(res.json.firstCall.args[0].data.message).to.equal('Unauthorized');
     });
   });
 
@@ -604,6 +843,7 @@ describe('appInstaller tests', () => {
 
       // Mock message verifier to return enterprise app with empty compose
       messageVerifierStub.checkAppTemporaryMessageExistence.resolves({
+        hash: 'enterprisehash',
         appSpecifications: enterpriseAppSpec,
       });
 
@@ -620,8 +860,10 @@ describe('appInstaller tests', () => {
       }
 
       // Verify that decryption was called for enterprise app
-      expect(enterpriseHelperStub.checkAndDecryptAppSpecs.calledWith(enterpriseAppSpec)).to.be.true;
+      expect(enterpriseHelperStub.checkAndDecryptAppSpecs.calledWith({ ...enterpriseAppSpec, hash: 'enterprisehash' })).to.be.true;
       expect(appSpecHelpersStub.specificationFormatter.calledWith(decryptedAppSpec)).to.be.true;
+      // the formatter's output keeps the hash the message carried
+      expect(decryptedAppSpec.hash).to.equal('enterprisehash');
       expect(logStub.info.calledWith('testAppInstall: enterpriseapp')).to.be.true;
     });
 
@@ -667,6 +909,7 @@ describe('appInstaller tests', () => {
       };
 
       const appInstallerForArchTest = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -781,6 +1024,7 @@ describe('appInstaller tests', () => {
       };
 
       const appInstallerForArchTest = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -851,7 +1095,7 @@ describe('appInstaller tests', () => {
         },
         '../upnpService': {
           isUPNP: sinon.stub().returns(false),
-          mapUpnpPort: sinon.stub().resolves(true),
+          mapUpnpPort: sinon.stub().resolves(MAPPED),
         },
         '../appRequirements/hwRequirements': hwRequirementsStub,
         '../appMessaging/messageVerifier': messageVerifierStub,
@@ -1000,8 +1244,22 @@ describe('appInstaller tests', () => {
       expect(globalStateStub.installationInProgress, 'a refusal released someone else\'s hold').to.be.true;
     });
 
+    it('refuses an app whose removal is pending, taking no hold', async () => {
+      const res = { write: sinon.stub(), end: sinon.stub() };
+      globalStateStub.departingApps.enter(appSpec.name);
+      try {
+        const result = await appInstaller.registerAppLocally(appSpec, false, res);
+
+        expect(result).to.equal(InstallOutcome.BUSY);
+        expect(globalStateStub.installationInProgress, 'the refusal took the install hold').to.be.false;
+      } finally {
+        globalStateStub.departingApps.leave(appSpec.name);
+      }
+    });
+
     it('should return false if node tier does not return anything', async () => {
       const appInstallerWithNodeTier = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -1067,7 +1325,7 @@ describe('appInstaller tests', () => {
         },
         '../upnpService': {
           isUPNP: sinon.stub().returns(false),
-          mapUpnpPort: sinon.stub().resolves(true),
+          mapUpnpPort: sinon.stub().resolves(MAPPED),
         },
         '../utils/globalState': globalStateStub,
         '../../lib/log': logStub,
@@ -1116,6 +1374,7 @@ describe('appInstaller tests', () => {
     // present for that reason, and appQueryService - the first call PAST the guard - rejects,
     // so a guard that stops matching lands on FAILED rather than running on into the install.
     const installerReachingTheAlreadyInstalledGuard = () => proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+      '../appManagement/appPlacements': appPlacementsStub,
       config: configStub,
       '../messageHelper': messageHelperStub,
       '../dbHelper': {
@@ -1185,14 +1444,15 @@ describe('appInstaller tests', () => {
     // has: the row is written before the image is fetched, so the claim exists by
     // the time the install gives up. `failBeforeRow` moves the failure ahead of
     // the row instead.
-    function buildFailingInstaller(removeAppLocallyStub, { failBeforeRow = false } = {}) {
+    function buildFailingInstaller(removeAppLocallyStub, { failBeforeRow = false, alreadyInstalled = false } = {}) {
       const dbHelperStubLocal = {
         databaseConnection: sinon.stub().returns({ db: () => ({ collection: () => ({}) }) }),
         findInDatabase: sinon.stub().resolves([]),
-        // 1st call = "already installed?" -> null so the install proceeds.
+        // 1st call = "already installed?" -> null so the install proceeds, unless
+        // the app is already installed here.
         findOneInDatabase: (() => {
           const stub = sinon.stub().resolves({ name: 'testapp' });
-          stub.onFirstCall().resolves(null);
+          stub.onFirstCall().resolves(alreadyInstalled ? { name: 'testapp' } : null);
           return stub;
         })(),
         findOneAndDeleteInDatabase: sinon.stub().resolves(),
@@ -1200,6 +1460,7 @@ describe('appInstaller tests', () => {
       };
 
       return proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -1273,7 +1534,7 @@ describe('appInstaller tests', () => {
         },
         '../upnpService': {
           isUPNP: sinon.stub().returns(false),
-          mapUpnpPort: sinon.stub().resolves(true),
+          mapUpnpPort: sinon.stub().resolves(MAPPED),
         },
         '../utils/globalState': globalStateStub,
         '../../lib/log': logStub,
@@ -1358,6 +1619,27 @@ describe('appInstaller tests', () => {
       expect(removeAppLocallyStub.firstCall.args[4], 'broadcast a removal for an app this node never had').to.equal(false);
     });
 
+    // From its row on, the app is installed here and a peer may list this node as a
+    // holder: until the monitor has measured the folder, a peer about to seed waits.
+    it('records the app\'s receive-only folder as not looked at once its row is written', async () => {
+      folderStateMap.clear();
+      const appInstallerWithDb = buildFailingInstaller(sinon.stub().resolves());
+
+      await appInstallerWithDb.registerAppLocally({ ...appSpec, name: 'fluxinst', containerData: 'g:/appdata' }, false, { write: sinon.stub(), end: sinon.stub() });
+
+      expect(folderStateMap.get('fluxinst')).to.deep.equal({ state: 'notLookedAt' });
+      folderStateMap.clear();
+    });
+
+    it('records nothing when it gave up before the app reached the table', async () => {
+      folderStateMap.clear();
+      const appInstallerWithDb = buildFailingInstaller(sinon.stub().resolves(), { failBeforeRow: true });
+
+      await appInstallerWithDb.registerAppLocally({ ...appSpec, name: 'fluxinst', containerData: 'g:/appdata' }, false, { write: sinon.stub(), end: sinon.stub() });
+
+      expect(folderStateMap.has('fluxinst')).to.equal(false);
+    });
+
     // A test install writes the app's row like any other and throws it away, so the
     // announcement must not read that row as a claim. The mark outlives the teardown
     // that deletes the row: released before it, a cycle in between claims the app.
@@ -1402,6 +1684,47 @@ describe('appInstaller tests', () => {
       ).to.be.false;
     });
 
+    // When this node took the app is written with the app's row; a redeploy's
+    // reinstall finds the record it kept and leaves it alone.
+    describe('the placement record', () => {
+      it('is written with the app\'s row', async () => {
+        const appInstallerWithDb = buildFailingInstaller(sinon.stub().resolves());
+
+        await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false, true);
+
+        sinon.assert.calledOnceWithExactly(appPlacementsStub.recordPlacement, 'testapp');
+      });
+
+      it('is not written for a test install', async () => {
+        const appInstallerWithDb = buildFailingInstaller(sinon.stub().resolves());
+
+        await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
+
+        sinon.assert.notCalled(appPlacementsStub.recordPlacement);
+      });
+
+      it('is not written when the install gave up before the app\'s row', async () => {
+        const appInstallerWithDb = buildFailingInstaller(sinon.stub().resolves(), { failBeforeRow: true });
+
+        await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, false, true);
+
+        sinon.assert.notCalled(appPlacementsStub.recordPlacement);
+      });
+    });
+
+    // A test install refused because the app is already installed here created
+    // nothing, and the installed app is not its to remove.
+    it('leaves an app already installed here alone when a test install of it is refused', async () => {
+      const removeAppLocallyStub = sinon.stub().resolves();
+      const appInstallerWithDb = buildFailingInstaller(removeAppLocallyStub, { alreadyInstalled: true });
+
+      const outcome = await appInstallerWithDb.registerAppLocally(appSpec, false, { write: sinon.stub(), end: sinon.stub() }, true);
+
+      expect(outcome, 'never reached the refusal this test is about').to.equal(InstallOutcome.ALREADY_INSTALLED);
+      expect(removeAppLocallyStub.called, 'a refused test install removed the app installed here').to.equal(false);
+      expect(globalStateStub.testInstallingApps.has('testapp'), 'left the mark behind').to.equal(false);
+    });
+
     it('runs the post-install broadcast only AFTER releasing the install lock', async () => {
       // The announcement runs for as long as a broadcast cycle takes, and every
       // other install, removal and redeploy on this node refuses while the install
@@ -1426,6 +1749,7 @@ describe('appInstaller tests', () => {
       };
 
       const appInstallerSuccess = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -1479,7 +1803,7 @@ describe('appInstaller tests', () => {
           }),
         },
         '../pgpService': { decryptMessage: sinon.stub().resolves('user:token') },
-        '../upnpService': { isUPNP: sinon.stub().returns(false), mapUpnpPort: sinon.stub().resolves(true) },
+        '../upnpService': { isUPNP: sinon.stub().returns(false), mapUpnpPort: sinon.stub().resolves(MAPPED) },
         '../utils/globalState': globalStateStub,
         '../utils/volumeService': { verifyAppVolumeMount: sinon.stub().resolves(), ensureMountPathsExist: sinon.stub().resolves() },
         '../../lib/log': logStub,
@@ -1565,7 +1889,7 @@ describe('appInstaller tests', () => {
         '../appManagement/appInspector': { startAppMonitoring: sinon.stub() },
         '../utils/imageVerifier': { ImageVerifier: sinon.stub().returns({ addCredentials: sinon.stub(), verifyImage: sinon.stub().resolves(), throwIfError: sinon.stub(), supported: true, provider: 'docker.io' }) },
         '../pgpService': { decryptMessage: sinon.stub().resolves('user:token') },
-        '../upnpService': { isUPNP: sinon.stub().returns(false), mapUpnpPort: sinon.stub().resolves(true) },
+        '../upnpService': { isUPNP: sinon.stub().returns(false), mapUpnpPort: sinon.stub().resolves(MAPPED) },
         '../utils/enterpriseHelper': enterpriseHelperStub,
         '../utils/appSpecHelpers': appSpecHelpersStub,
         '../../lib/log': logStub,
@@ -1610,9 +1934,10 @@ describe('appInstaller tests', () => {
         allowPort: sinon.stub().resolves({ status: true }),
         allowAppPorts: sinon.stub().resolves({ failed: [], locked: false }),
       };
-      upnpStub = { isUPNP: sinon.stub().returns(true), mapUpnpPort: sinon.stub().resolves(true) };
+      upnpStub = { isUPNP: sinon.stub().returns(true), mapUpnpPort: sinon.stub().resolves(MAPPED) };
       logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
       appInstallerPorts = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
         '../fluxNetworkHelper': firewallStub,
         '../upnpService': upnpStub,
         '../../lib/log': logStub,
@@ -1649,6 +1974,22 @@ describe('appInstaller tests', () => {
       expect(upnpStub.mapUpnpPort.calledWith(31000, 'Flux_App_myapp')).to.be.true;
     });
 
+    it('fails the install with the router\'s reason when a port is refused', async () => {
+      upnpStub.mapUpnpPort.resolves(REFUSED);
+
+      const error = await appInstallerPorts.setupApplicationPorts({ ports: [31000] }, 'myapp', false, null).catch((e) => e);
+
+      expect(error.message).to.equal(`Error: Port 31000 FAILed to map. ${REFUSED.reason}`);
+    });
+
+    it('fails a v1 install with the router\'s reason when its port is refused', async () => {
+      upnpStub.mapUpnpPort.resolves(REFUSED);
+
+      const error = await appInstallerPorts.setupApplicationPorts({ port: 31000 }, 'myapp', false, null).catch((e) => e);
+
+      expect(error.message).to.equal(`Error: Port 31000 FAILed to map. ${REFUSED.reason}`);
+    });
+
     it('opens nothing for a test install', async () => {
       await appInstallerPorts.setupApplicationPorts({ ports: [31000] }, 'myapp', false, null, true);
 
@@ -1666,6 +2007,7 @@ describe('appInstaller tests', () => {
       dockerServiceStub = makeDockerServiceStub({ getFreeFluxAppNetworkOctet: sinon.stub().resolves(7) });
       egressRulesStub = sinon.stub().resolves(true);
       appInstallerNet = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        '../appManagement/appPlacements': appPlacementsStub,
         '../serviceHelper': { ensureString: sinon.stub().returnsArg(0) },
         '../dockerService': dockerServiceStub,
         '../fluxNetworkHelper': { applyContainerEgressRules: egressRulesStub },

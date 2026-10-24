@@ -6,12 +6,23 @@ const daemonServiceUtils = require('../daemonService/daemonServiceUtils');
 const messageVerifier = require('../appMessaging/messageVerifier');
 const { appPaymentPositions } = require('../appPaymentPositions');
 
+// Records written per round trip: each batch is one bulkWrite, so a fleet's
+// worth of records never rides on a single call.
+const BACKFILL_BATCH = 5000;
+
+// The payment records the backfill reads: those without a position. A record
+// already marked notOnChain is decided: if its transaction is mined later, the
+// explorer records the payment from that block. Read through the collection's
+// txIndex index (explorerService.prepareCollections), so a node whose records all
+// have positions reads none of them.
+const UNPOSITIONED = { txIndex: { $exists: false }, notOnChain: { $ne: true } };
+
 /**
  * Gives every app payment record without a position in its block the position
  * and the height the daemon's address index holds for its transaction: one call
  * over the payment addresses from the first height a payment is recorded at to
  * the chain tip, so a transaction the index does not hold is not on the chain.
- * Such a record is marked `notOnChain`, and is no payment. A record above the
+ * Such a record is marked `notOnChain`, is no payment, and is not read again. A record above the
  * daemon's tip is left for a later run: the daemon has not reached its block.
  *
  * The height is the chain's, not the one recorded: a record written from a block
@@ -21,13 +32,15 @@ const { appPaymentPositions } = require('../appPaymentPositions');
  * them again at the next start; the registry row of its app is written after
  * them, since which message governs reads their positions
  * (messageVerifier.moveStoredMessagesToPayments, storeGoverningAppSpecifications).
+ * The records are written BACKFILL_BATCH at a time; a run that stops part way
+ * leaves the rest without a position, and the next run takes them.
  * @returns {Promise<{positioned: number, heightsCorrected: number, notOnChain: number, aboveTip: number}>}
  */
 async function backfillPaymentPositions() {
   const database = dbHelper.databaseConnection().db(config.database.daemon.database);
   const collection = config.database.daemon.collections.appsHashes;
   const missing = await dbHelper.findInDatabase(
-    database, collection, { txIndex: { $exists: false } }, {
+    database, collection, UNPOSITIONED, {
       projection: {
         _id: 0, hash: 1, txid: 1, height: 1, value: 1,
       },
@@ -72,7 +85,10 @@ async function backfillPaymentPositions() {
     }
   }
   const moved = await messageVerifier.moveStoredMessagesToPayments(corrected);
-  if (operations.length) await dbHelper.bulkWriteInDatabase(database, collection, operations);
+  for (let i = 0; i < operations.length; i += BACKFILL_BATCH) {
+    // eslint-disable-next-line no-await-in-loop
+    await dbHelper.bulkWriteInDatabase(database, collection, operations.slice(i, i + BACKFILL_BATCH));
+  }
   await messageVerifier.storeGoverningAppSpecifications(moved);
   log.info(`migrations - payment positions: ${operations.length - notOnChain} positioned, ${heightsCorrected} of them at the chain's height rather than the recorded one, ${notOnChain} not on the chain, ${aboveTip} above the daemon's tip`);
   return {
@@ -80,4 +96,4 @@ async function backfillPaymentPositions() {
   };
 }
 
-module.exports = { backfillPaymentPositions };
+module.exports = { backfillPaymentPositions, BACKFILL_BATCH, UNPOSITIONED };

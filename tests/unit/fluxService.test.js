@@ -2393,7 +2393,7 @@ describe('fluxService tests', () => {
       });
     });
 
-    it('should return error if appsServiceAppsResources returns error', async () => {
+    it('should return error if appsServiceAppsResources rejects', async () => {
       daemonServiceControlRpcsStub.returns({ status: 'success', data: 'info data' });
       daemonServiceFluxnodeRpcsStub.returns({ status: 'success', data: 'status data' });
       benchmarkServiceGetInfoStub.returns({ status: 'success', data: 'info2 data' });
@@ -2401,7 +2401,7 @@ describe('fluxService tests', () => {
       benchmarkServiceGetBenchmarksStub.returns({ status: 'success', data: 'benchmarks data' });
       appsServiceFluxUsageStub.returns({ status: 'success', data: 'usage data' });
       appsServiceListRunningAppsStub.returns({ status: 'success', data: [runningContainer] });
-      appsServiceAppsResourcesStub.returns({ status: 'error', data: 'appsResources data' });
+      appsServiceAppsResourcesStub.rejects(new Error('appsResources data'));
       appsServiceGetAppHashesStub.returns({ status: 'success', data: [{ height: 694000, message: true }] });
       explorerServiceStub.returns({ status: 'success', data: 'getScannedHeight data' });
       fluxCommunicationStub.returns({ status: 'success', data: 'connectedPeersInfo data' });
@@ -2414,7 +2414,7 @@ describe('fluxService tests', () => {
 
       sinon.assert.calledOnceWithMatch(res.json, {
         status: 'error',
-        data: { code: undefined, name: undefined, message: 'appsResources data' },
+        data: { message: 'appsResources data' },
       });
     });
 

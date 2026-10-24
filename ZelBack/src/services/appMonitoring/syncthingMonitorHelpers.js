@@ -56,15 +56,21 @@ async function getDeviceID(fluxIP, retries = 0) {
  * folder syncing with a device that holds no copy of it. A peer that cannot
  * prove either way is asked the unsigned way.
  *
+ * A node listed at `name` that gives no device - its FluxOS does not answer, or
+ * its syncthing has not answered it - keeps the device syncthing has configured
+ * under `name`, so a holder stays in its folders for as long as it is listed.
+ *
  * Every call counts where its answer came from under `syncthing:deviceSource`,
- * keyed by `name`: verified, verifiedNoDevice, introduced, withheld, held or
- * unsigned.
+ * keyed by `name`: verified, verifiedNoDevice, introduced, withheld, held,
+ * unsigned or configured.
  *
  * @param {string} name - Device name (IP:port)
  * @param {Map} cache - Cache map
+ * @param {string|null} [configured] - The device syncthing has configured under
+ *   `name`, when exactly one is
  * @returns {Promise<string|null>} Device ID or null
  */
-async function getDeviceIDCached(name, cache) {
+async function getDeviceIDCached(name, cache, configured = null) {
   const { IdentityVerdict } = peerIdentityService;
   const from = (source, deviceID) => {
     fluxEventBus.count('syncthing:deviceSource', name, source);
@@ -76,7 +82,10 @@ async function getDeviceIDCached(name, cache) {
     const signedDeviceID = result.identity.deviceId;
     // Verified with no device: that node's syncthing has not answered it yet.
     // What was held stands until it has.
-    if (!signedDeviceID) return from('verifiedNoDevice', cache.get(name) ?? null);
+    if (!signedDeviceID) {
+      if (cache.has(name)) return from('verifiedNoDevice', cache.get(name));
+      return configured ? from('configured', configured) : from('verifiedNoDevice', null);
+    }
     cache.set(name, signedDeviceID);
     return from('verified', signedDeviceID);
   }
@@ -100,8 +109,9 @@ async function getDeviceIDCached(name, cache) {
   const deviceID = await getDeviceID(name);
   if (deviceID) {
     cache.set(name, deviceID);
+    return from('unsigned', deviceID);
   }
-  return from('unsigned', deviceID);
+  return configured ? from('configured', configured) : from('unsigned', null);
 }
 
 /**
@@ -184,7 +194,9 @@ async function buildDeviceConfiguration(
     const addresses = peerSyncthingAddresses(ip, port);
     const name = `${ip}:${port}`;
 
-    const deviceID = await getDeviceIDCached(name, deviceCache);
+    const underName = allDevices.filter((device) => device.name === name);
+    const configured = underName.length === 1 ? underName[0].deviceID : null;
+    const deviceID = await getDeviceIDCached(name, deviceCache, configured);
 
     if (!deviceID) {
       return null;

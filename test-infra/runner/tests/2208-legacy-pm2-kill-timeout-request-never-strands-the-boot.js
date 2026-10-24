@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { execInContainer, pm2Registration } from '../framework/container.js';
+import { execInContainer, pm2Registration, AS_PM2_OPERATOR } from '../framework/container.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { waitFor } from '../framework/wait.js';
 import { isDaemonUp } from '../framework/syncthing-real.js';
@@ -32,7 +32,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // request in the boot.
 
 const SHORT_MS = 1600;
-const REQUEST_MARKER = '/root/.flux-pm2-kill-timeout-request';
+const REQUEST_MARKER = '/home/fluxuser/.flux-pm2-kill-timeout-request';
 // How long a restart loop would take to show itself: pm2 restarts FluxOS
 // within seconds of being asked.
 const QUIET_MS = 45000;
@@ -57,7 +57,7 @@ describe('a legacy node\'s request for a longer pm2 kill timeout never strands i
   // The registration as the multitool made it before it set a kill timeout,
   // with no request recorded for this boot: FluxOS asks as it restarts.
   const registerShort = async () => {
-    const r = await sh(`rm -f ${REQUEST_MARKER} && ${realPm2} restart flux --kill-timeout ${SHORT_MS} >/dev/null && ${realPm2} save >/dev/null`);
+    const r = await sh(`rm -f ${REQUEST_MARKER} && ${AS_PM2_OPERATOR} ${realPm2} restart flux --kill-timeout ${SHORT_MS} >/dev/null && ${AS_PM2_OPERATOR} ${realPm2} save >/dev/null`);
     expect(r.exitCode, `fixture: ${r.output}`).to.equal(0);
   };
 

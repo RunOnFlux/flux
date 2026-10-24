@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { activeTestEnvs } from './test-env.js';
 import { execInContainer } from './container.js';
 import { SYNCTHING_HOME } from './syncthing-real.js';
+import { thawEveryNode } from './host-stall.js';
 import failedHooksModule from './failed-hooks.cjs';
 
 const { failedHooks } = failedHooksModule;
@@ -155,12 +156,15 @@ export function dumpLogsOnFailure(getEnv) {
     // daemon, so they are fetched up front and written alongside them. Each entry
     // is best-effort (see env.infraDiagnostics) — a log fetch that failed carries
     // an `error` and is reported, never thrown.
+    // Everything below reads the nodes through their docker, which a suite may
+    // have left frozen.
+    await Promise.all(envs.map((env) => thawEveryNode(env.clients ?? [])));
     const infraByEnv = await Promise.all(envs.map((env) => env.infraDiagnostics()));
     const cgroupsByEnv = await Promise.all(envs.map((env) => cgroupState(env).catch(
       (err) => `cgroup probe failed: ${err.message}\n`,
     )));
-    // A systemd-mode node's FluxOS writes to its journal, never to the container
-    // stream the log collectors read; see env.nodeJournals.
+    // What a node's units write to the journal rather than to the container stream
+    // the log collectors read; see env.nodeJournals.
     const journalsByEnv = await Promise.all(envs.map((env) => env.nodeJournals().catch(
       (err) => [{ index: 0, text: `journal read failed: ${err.message}\n` }],
     )));

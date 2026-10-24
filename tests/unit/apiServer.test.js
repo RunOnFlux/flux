@@ -12,6 +12,7 @@ const globalState = require('../../ZelBack/src/services/utils/globalState');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
 const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
+const { AppSyncOrchestrator } = require('../../ZelBack/src/services/appMessaging/appSyncOrchestrator');
 const { PM2_KILL_TIMEOUT_MS } = require('../../ZelBack/src/services/fluxService');
 const serviceManager = require('../../ZelBack/src/services/serviceManager');
 const systemdNotify = require('../../ZelBack/src/services/utils/systemdNotify');
@@ -613,6 +614,8 @@ describe('handleSigterm drains syncthing folders before it exits', () => {
     drainStub = sinon.stub(syncthingService, 'drainFoldersToPeers').resolves([]);
     sinon.stub(syncthingFolderWrites, 'pauseAllFolders').resolves({ paused: [], failed: [] });
     sinon.stub(verifyPool, 'stop');
+    // A database another test file left connected would take the write.
+    sinon.stub(AppSyncOrchestrator, 'writeShutdownReason').resolves();
     exitStub = sinon.stub(process, 'exit');
     // The flag is one-way and module-wide; set for real it would refuse every
     // container start in the rest of this mocha process.

@@ -50,20 +50,17 @@ function canonical(identifier) {
 
 /**
  * Returns the persisted runtime-state document for a component identifier
- * (e.g. `component_app`, or the app name for v1-3 apps), or null.
+ * (e.g. `component_app`, or the app name for v1-3 apps), or null when it has
+ * none. Rejects when the read fails: an unread record is not an absent one, and
+ * every lock and ladder this document holds would read as clear.
  *
  * @param {string} identifier
  * @returns {Promise<object|null>}
  */
 async function getState(rawIdentifier) {
   const identifier = canonical(rawIdentifier);
-  try {
-    const database = collection();
-    return await dbHelper.findOneInDatabase(database, appsRuntimeState, { identifier }, { projection: { _id: 0 } });
-  } catch (err) {
-    log.error(`appsRuntimeState - failed to read state for ${identifier}: ${err.message}`);
-    return null;
-  }
+  const database = collection();
+  return dbHelper.findOneInDatabase(database, appsRuntimeState, { identifier }, { projection: { _id: 0 } });
 }
 
 function isDuplicateKeyError(err) {
@@ -149,9 +146,9 @@ async function setOperatorStopped(identifier, stopped, opts = {}) {
   await setFields(identifier, fields);
 }
 
-// The stop lock and its start request, read without getState's swallow: these
-// readers decide whether to lift the lock, and a read failure answered as "no
-// record" is a lock lifted on no evidence.
+// The stop lock and its start request, the only fields these readers need.
+// Rejects when the read fails: a lock lifted on an unread record is lifted on no
+// evidence.
 function readLock(identifier) {
   return dbHelper.findOneInDatabase(
     collection(),
@@ -162,9 +159,8 @@ function readLock(identifier) {
 }
 
 /**
- * Whether the operator stop lock is on, read without getState's swallow: for a
- * caller about to commit a component to running, an unread lock is not an
- * absent one.
+ * Whether the operator stop lock is on: for a caller about to commit a component
+ * to running, an unread lock is not an absent one.
  *
  * @param {string} rawIdentifier
  * @returns {Promise<boolean>}
@@ -298,26 +294,9 @@ async function recordRestartGeneration(identifier, generation) {
 }
 
 /**
- * Whether the operator has deliberately stopped this component, so the
- * reconciler (and the masterSlave/syncthing deciders) must leave it stopped.
- *
- * @param {string} identifier
- * @returns {Promise<boolean>}
- */
-async function isOperatorStopped(identifier) {
-  const state = await getState(identifier);
-  return state?.operatorStopped === true;
-}
-
-/**
- * The operator's stop lock and the mode they asked for, from ONE read.
- *
- * They are two fields of one document, and a caller needing both must not ask
- * twice: getState returns null for a read failure exactly as it does for "no
- * record", so a second read that failed reported no force flag and turned the
- * operator's "kill now" into a drain they did not ask for. Answering both from a
- * single read is a window that cannot open - and one round-trip fewer on every
- * stop the reconciler performs.
+ * The operator's stop lock and the mode they asked for, from ONE read: two
+ * fields of one document, answered together so they always describe the same
+ * moment. Rejects when the read fails.
  *
  * `startRequested` is a start the operator has asked for and the election has
  * not yet decided; the lock stands until it has. `asPrimary` is whether this
@@ -638,18 +617,15 @@ async function removeControllerState(rawIdentifier) {
 }
 
 /**
- * Drops all runtime state for a component (on uninstall).
+ * Drops all runtime state for a component (on uninstall). Rejects when the
+ * delete fails: a stop lock left behind holds a later reinstall stopped.
  *
  * @param {string} identifier
  */
 async function remove(rawIdentifier) {
   const identifier = canonical(rawIdentifier);
-  try {
-    const database = collection();
-    await dbHelper.removeDocumentsFromCollection(database, appsRuntimeState, { identifier });
-  } catch (err) {
-    log.error(`appsRuntimeState - failed to remove state for ${identifier}: ${err.message}`);
-  }
+  const database = collection();
+  await dbHelper.removeDocumentsFromCollection(database, appsRuntimeState, { identifier });
 }
 
 /**
@@ -706,80 +682,81 @@ async function getVolumeImage(rawIdentifier) {
  * the backoff history on the other - so dedupe must merge field-wise rather
  * than keep one doc whole: dropping a doc could drop a real operator lock,
  * whose loss would auto-start a deliberately stopped app.
+ *
+ * Rejects when any step fails, so boot's schema preparation runs it again.
  */
 async function prepareCollection() {
-  try {
-    const database = collection();
-    const all = await dbHelper.findInDatabase(database, appsRuntimeState, {}, { projection: { _id: 0 } });
-    const byIdentifier = new Map();
-    // eslint-disable-next-line no-restricted-syntax
-    for (const doc of all) {
-      const list = byIdentifier.get(doc.identifier) || [];
-      list.push(doc);
-      byIdentifier.set(doc.identifier, list);
-    }
-    // eslint-disable-next-line no-restricted-syntax
-    for (const [identifier, twins] of byIdentifier) {
-      if (twins.length > 1) {
-        // Oldest first, so every field any twin carries survives and the newest
-        // value of each wins. Fields scatter across twins - that is the whole
-        // reason this merge exists - so taking them from one document would
-        // drop exactly what the scatter put on the other, and a field added to
-        // this document later would be lost without ever being named here.
-        // What follows overrides the ones whose correct value is not simply
-        // "whichever was written last".
-        const oldestFirst = [...twins].sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
-        // The image record is one claim - that the file at this path carries
-        // this UUID - so it moves as a pair. Merged field-wise it could take
-        // the path from one twin and the stamp from another, and a record
-        // saying an image carries a UUID it never carried refuses that volume
-        // for good: the refusal returns before the line that would replace it.
-        const withImage = oldestFirst.filter((t) => t.volumeImagePath);
-        const image = withImage.length ? withImage[withImage.length - 1] : null;
-        const merged = {
-          ...Object.assign({}, ...oldestFirst),
-          ...(image ? { volumeImagePath: image.volumeImagePath, volumeFsUuid: image.volumeFsUuid || null } : {}),
-          identifier,
-          // a lock anywhere is a lock: never auto-start a deliberately stopped app
-          operatorStopped: twins.some((t) => t.operatorStopped === true),
-          // a force anywhere is a force: a kill must never be merged down into a
-          // graceful stop the operator did not ask for
-          operatorStopForce: twins.some((t) => t.operatorStopForce === true),
-          // a start waits on the election only if no locked twin withholds it: a
-          // stop without one is the operator's later word
-          operatorStartRequested: twins.some((t) => t.operatorStopped === true)
-            && twins.every((t) => t.operatorStopped !== true || t.operatorStartRequested === true),
-          // the highest request wins and the lowest actuation does, so a restart
-          // asked for on either doc still bounces the container once
-          restartGeneration: Math.max(0, ...twins.map((t) => t.restartGeneration || 0)),
-          actuatedRestartGeneration: Math.min(...twins.map((t) => t.actuatedRestartGeneration || 0)),
-          // likewise, a heal-removal anywhere means a heal may be mid-flight: keep
-          // the reconciler on the recreate path rather than the uninstall path
-          networkHealRemoval: twins.some((t) => t.networkHealRemoval === true),
-          networkHealHistory: [...new Set(twins.flatMap((t) => t.networkHealHistory || []))].sort((a, b) => a - b).slice(-MAX_HISTORY),
-          restartHistory: [...new Set(twins.flatMap((t) => t.restartHistory || []))].sort((a, b) => a - b).slice(-MAX_HISTORY),
-          autoRestartWindow: [...new Set(twins.flatMap((t) => t.autoRestartWindow || []))].sort((a, b) => a - b).slice(-RESTART_BURST_COUNT),
-          updatedAt: Math.max(...twins.map((t) => t.updatedAt || 0)),
-        };
-        // the read projects _id away, but a spread of whatever the documents
-        // carry must not be the thing that reintroduces it into a $set
-        delete merged._id;
-        const newestExit = twins.filter((t) => t.lastDiedAt !== undefined).sort((a, b) => b.lastDiedAt - a.lastDiedAt)[0];
-        if (newestExit) {
-          merged.lastExitCode = newestExit.lastExitCode;
-          merged.lastDiedAt = newestExit.lastDiedAt;
-        }
-        log.warn(`appsRuntimeState - merged ${twins.length} duplicate docs for ${identifier} (operatorStopped=${merged.operatorStopped}, ${merged.restartHistory.length} restart entries)`);
-        // eslint-disable-next-line no-await-in-loop
-        await dbHelper.removeDocumentsFromCollection(database, appsRuntimeState, { identifier });
-        // eslint-disable-next-line no-await-in-loop
-        await dbHelper.updateOneInDatabase(database, appsRuntimeState, { identifier }, { $set: merged }, { upsert: true });
-      }
-    }
-    await database.collection(appsRuntimeState).createIndex({ identifier: 1 }, { unique: true, name: 'identifier_unique' });
-  } catch (err) {
-    log.error(`appsRuntimeState - failed to prepare collection: ${err.message}`);
+  const database = collection();
+  const all = await dbHelper.findInDatabase(database, appsRuntimeState, {}, {});
+  const byIdentifier = new Map();
+  // eslint-disable-next-line no-restricted-syntax
+  for (const doc of all) {
+    const list = byIdentifier.get(doc.identifier) || [];
+    list.push(doc);
+    byIdentifier.set(doc.identifier, list);
   }
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [identifier, twins] of byIdentifier) {
+    if (twins.length > 1) {
+      // Oldest first, so every field any twin carries survives and the newest
+      // value of each wins. Fields scatter across twins - that is the whole
+      // reason this merge exists - so taking them from one document would
+      // drop exactly what the scatter put on the other, and a field added to
+      // this document later would be lost without ever being named here.
+      // What follows overrides the ones whose correct value is not simply
+      // "whichever was written last".
+      const oldestFirst = [...twins].sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
+      // The image record is one claim - that the file at this path carries
+      // this UUID - so it moves as a pair. Merged field-wise it could take
+      // the path from one twin and the stamp from another, and a record
+      // saying an image carries a UUID it never carried refuses that volume
+      // for good: the refusal returns before the line that would replace it.
+      const withImage = oldestFirst.filter((t) => t.volumeImagePath);
+      const image = withImage.length ? withImage[withImage.length - 1] : null;
+      const merged = {
+        ...Object.assign({}, ...oldestFirst),
+        ...(image ? { volumeImagePath: image.volumeImagePath, volumeFsUuid: image.volumeFsUuid || null } : {}),
+        identifier,
+        // a lock anywhere is a lock: never auto-start a deliberately stopped app
+        operatorStopped: twins.some((t) => t.operatorStopped === true),
+        // a force anywhere is a force: a kill must never be merged down into a
+        // graceful stop the operator did not ask for
+        operatorStopForce: twins.some((t) => t.operatorStopForce === true),
+        // a start waits on the election only if no locked twin withholds it: a
+        // stop without one is the operator's later word
+        operatorStartRequested: twins.some((t) => t.operatorStopped === true)
+          && twins.every((t) => t.operatorStopped !== true || t.operatorStartRequested === true),
+        // the highest request wins and the lowest actuation does, so a restart
+        // asked for on either doc still bounces the container once
+        restartGeneration: Math.max(0, ...twins.map((t) => t.restartGeneration || 0)),
+        actuatedRestartGeneration: Math.min(...twins.map((t) => t.actuatedRestartGeneration || 0)),
+        // likewise, a heal-removal anywhere means a heal may be mid-flight: keep
+        // the reconciler on the recreate path rather than the uninstall path
+        networkHealRemoval: twins.some((t) => t.networkHealRemoval === true),
+        networkHealHistory: [...new Set(twins.flatMap((t) => t.networkHealHistory || []))].sort((a, b) => a - b).slice(-MAX_HISTORY),
+        restartHistory: [...new Set(twins.flatMap((t) => t.restartHistory || []))].sort((a, b) => a - b).slice(-MAX_HISTORY),
+        autoRestartWindow: [...new Set(twins.flatMap((t) => t.autoRestartWindow || []))].sort((a, b) => a - b).slice(-RESTART_BURST_COUNT),
+        updatedAt: Math.max(...twins.map((t) => t.updatedAt || 0)),
+      };
+      // the read projects _id away, but a spread of whatever the documents
+      // carry must not be the thing that reintroduces it into a $set
+      delete merged._id;
+      const newestExit = twins.filter((t) => t.lastDiedAt !== undefined).sort((a, b) => b.lastDiedAt - a.lastDiedAt)[0];
+      if (newestExit) {
+        merged.lastExitCode = newestExit.lastExitCode;
+        merged.lastDiedAt = newestExit.lastDiedAt;
+      }
+      log.warn(`appsRuntimeState - merged ${twins.length} duplicate docs for ${identifier} (operatorStopped=${merged.operatorStopped}, ${merged.restartHistory.length} restart entries)`);
+      // The merge lands on one twin before the others go, so a failure part way
+      // leaves duplicates for the next start to merge, never no record at all.
+      const kept = oldestFirst[oldestFirst.length - 1]._id;
+      // eslint-disable-next-line no-await-in-loop
+      await dbHelper.updateOneInDatabase(database, appsRuntimeState, { _id: kept }, { $set: merged });
+      // eslint-disable-next-line no-await-in-loop
+      await dbHelper.removeDocumentsFromCollection(database, appsRuntimeState, { identifier, _id: { $ne: kept } });
+    }
+  }
+  await database.collection(appsRuntimeState).createIndex({ identifier: 1 }, { unique: true, name: 'identifier_unique' });
 }
 
 module.exports = {
@@ -789,7 +766,6 @@ module.exports = {
   requestOperatorStart,
   releaseOperatorStart,
   operatorStoppedOrThrow,
-  isOperatorStopped,
   operatorStopState,
   operatorHeldIdentifiers,
   recordRestart,

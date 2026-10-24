@@ -417,7 +417,9 @@ describe('messageStore tests', () => {
 
       const result = await messageStore.storeAppRunningMessage(message);
 
-      expect(result).to.deep.equal({ stored: false, rebroadcast: false });
+      expect(result).to.deep.equal({
+        stored: false, rebroadcast: false, written: [], refused: [], cleared: false,
+      });
       expect(logStub.warn.called).to.be.true;
     });
 
@@ -438,7 +440,9 @@ describe('messageStore tests', () => {
 
       const result = await messageStore.storeAppRunningMessage(message);
 
-      expect(result).to.deep.equal({ stored: true, rebroadcast: true });
+      expect(result).to.deep.equal({
+        stored: true, rebroadcast: true, written: [{ name: 'testapp', hash: 'hash123' }], refused: [], cleared: false,
+      });
       expect(dbHelperStub.updateOneInDatabase.calledOnce).to.be.true;
     });
 
@@ -461,7 +465,9 @@ describe('messageStore tests', () => {
 
       const result = await messageStore.storeAppRunningMessage(message);
 
-      expect(result).to.deep.equal({ stored: true, rebroadcast: true });
+      expect(result).to.deep.equal({
+        stored: true, rebroadcast: true, written: message.apps, refused: [], cleared: false,
+      });
       expect(dbHelperStub.updateOneInDatabase.callCount).to.equal(2);
       // Should clean up installing records for each app (location + broadcast per app)
       expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(4);
@@ -483,7 +489,9 @@ describe('messageStore tests', () => {
 
       const result = await messageStore.storeAppRunningMessage(message);
 
-      expect(result).to.deep.equal({ stored: true, rebroadcast: true });
+      expect(result).to.deep.equal({
+        stored: true, rebroadcast: true, written: [], refused: [], cleared: true,
+      });
       // Called three times: locations, installing locations, installing broadcasts
       expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(3);
     });
@@ -1097,6 +1105,67 @@ describe('messageStore tests', () => {
 
       const { $set } = dbHelperStub.updateOneInDatabase.firstCall.args[3];
       expect($set.expireAt.getTime()).to.equal(broadcastedAt + (15 * 60 * 1000));
+    });
+  });
+
+  describe('a write that fails is not taken for one that landed', () => {
+    let failingCollection;
+
+    beforeEach(() => {
+      failingCollection = {
+        findOne: sinon.stub().resolves({}),
+        updateOne: sinon.stub().rejects(new Error('connection timed out')),
+        bulkWrite: sinon.stub().rejects(new Error('connection timed out')),
+      };
+      dbHelperStub.databaseConnection.returns({ db: () => ({ collection: () => failingCollection }) });
+    });
+
+    const now = () => Date.now();
+    // Every event a node records once and serves to the peers syncing from it.
+    const events = () => [
+      ['apprunning', { signedBroadcast: { data: { ip: '1.2.3.4:16127', broadcastedAt: now(), version: 2, apps: [{ name: 'a', hash: 'h' }] } } }],
+      ['sigterm', { message: { ip: '1.2.3.4:16127', broadcastedAt: now() } }],
+      ['appremoved', { message: { ip: '1.2.3.4:16127', appName: 'a', broadcastedAt: now() } }],
+      ['evicted', { ip: '1.2.3.4:16127', evictedAt: now() }],
+      ['ipchanged', { message: { oldIP: '1.2.3.4:16127', newIP: '5.6.7.8:16127', broadcastedAt: now() } }],
+    ];
+
+    it('rejects each state event it could not record', async () => {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const [type, payload] of events()) {
+        // eslint-disable-next-line no-await-in-loop
+        const outcome = await messageStore.storeAppStateEvent(type, payload).catch((err) => err);
+        expect(outcome, `a ${type} event was taken as recorded`).to.be.an('error');
+      }
+    });
+
+    it('reports a batch of sync events it could not write', async () => {
+      const broadcast = {
+        version: 1, timestamp: now(), pubKey: 'k', signature: 's',
+        data: { ip: '1.2.3.4:16127', name: 'a', broadcastedAt: now() },
+      };
+
+      const installing = await messageStore.storeBatchAppInstallingMessages([broadcast]);
+      const errors = await messageStore.storeBatchAppInstallingErrorMessages([broadcast]);
+
+      expect(installing.writeFailed).to.equal(true);
+      expect(errors.writeFailed).to.equal(true);
+    });
+
+    it('rejects a signed claim it could not record', async () => {
+      dbHelperStub.updateOneInDatabase.rejects(new Error('connection timed out'));
+      const broadcast = {
+        version: 1, timestamp: now(), pubKey: 'k', signature: 's',
+        data: {
+          ip: '1.2.3.4:16127', name: 'a', hash: 'h', broadcastedAt: now(),
+        },
+      };
+
+      const claim = await messageStore.storeSignedAppInstallingBroadcast(broadcast).catch((err) => err);
+      const error = await messageStore.storeSignedAppInstallingErrorBroadcast(broadcast).catch((err) => err);
+
+      expect(claim).to.be.an('error');
+      expect(error).to.be.an('error');
     });
   });
 });

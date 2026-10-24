@@ -50,6 +50,19 @@
 #   direct-nameserver   the node's resolv.conf names the fleet's resolver itself,
 #                       as a host that lists a public resolver does, rather than
 #                       Docker's embedded server in front of it.
+#   udp-blocked         no UDP datagram starting a flow reaches the node on its
+#                       fleet device, as behind a router that forwards TCP alone;
+#                       replies to the node's own datagrams still arrive, and
+#                       loopback (Docker's embedded DNS) is untouched.
+#   udp-first-lost      the first UDP datagram from each source starting a flow on
+#                       the fleet device is dropped, and every later one within
+#                       30 s arrives: loss that a probe sending once never survives
+#                       and one that sends again always does.
+#   udp-every-other     every other UDP datagram starting a flow on the fleet
+#                       device is dropped, whatever its source: steady loss of half.
+#   udp-replies-lost    no reply to a UDP datagram the node sent arrives on its fleet
+#                       device: a peer that probes a port and never hears back,
+#                       whatever the port does.
 set -euo pipefail
 
 shape="$1"
@@ -155,6 +168,19 @@ case "$shape" in
   direct-nameserver)
     : "${FLUX_E2E_RESOLVER:?}"
     printf 'nameserver %s\n' "$FLUX_E2E_RESOLVER" > /etc/resolv.conf
+    ;;
+  udp-blocked)
+    iptables -A INPUT -i "$dev" -p udp -m conntrack --ctstate NEW -j DROP
+    ;;
+  udp-replies-lost)
+    iptables -A INPUT -i "$dev" -p udp -m conntrack --ctstate ESTABLISHED -j DROP
+    ;;
+  udp-every-other)
+    iptables -A INPUT -i "$dev" -p udp -m conntrack --ctstate NEW -m statistic --mode nth --every 2 --packet 0 -j DROP
+    ;;
+  udp-first-lost)
+    iptables -A INPUT -i "$dev" -p udp -m conntrack --ctstate NEW -m recent --name udpseen --rcheck --seconds 30 -j ACCEPT
+    iptables -A INPUT -i "$dev" -p udp -m conntrack --ctstate NEW -m recent --name udpseen --set -j DROP
     ;;
   *)
     echo "network-shapes: unknown shape '$shape'" >&2

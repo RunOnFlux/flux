@@ -5,6 +5,9 @@ const proxyquire = require('proxyquire').noCallThru();
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
 const { Readable } = require('stream');
 const config = require('config');
+const { appSyncEvents: syncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
+
+const MESSAGES = config.database.appsglobal.collections.appsMessages;
 
 function makeStreamResponse(data) {
   const json = JSON.stringify({ status: 'success', data });
@@ -160,7 +163,19 @@ describe('appHashSyncService tests', () => {
 
 
   describe('triggerAppHashesCheckAPI', () => {
-    it('should trigger sync when authorized', async () => {
+    // queued for the sync orchestrator, which runs it once no hash sync or registry
+    // build holds the node
+    let requested;
+    const onRequested = () => { requested += 1; };
+    beforeEach(() => {
+      requested = 0;
+      syncEvents.on(SYNC_EVENTS.HASH_CHECK_REQUESTED, onRequested);
+    });
+    afterEach(() => {
+      syncEvents.removeListener(SYNC_EVENTS.HASH_CHECK_REQUESTED, onRequested);
+    });
+
+    it('should queue the check when authorized, running nothing itself', async () => {
       const req = {};
       const res = { json: sinon.stub() };
 
@@ -171,6 +186,8 @@ describe('appHashSyncService tests', () => {
 
       expect(res.json.calledOnce).to.be.true;
       expect(verificationHelperStub.verifyPrivilege.calledWith(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req))).to.be.true;
+      expect(requested, 'the check was not queued').to.equal(1);
+      sinon.assert.notCalled(dbHelperStub.findInDatabase);
     });
 
     it('should deny unauthorized access', async () => {
@@ -183,6 +200,7 @@ describe('appHashSyncService tests', () => {
 
       expect(res.json.calledOnce).to.be.true;
       expect(messageHelperStub.errUnauthorizedMessage.calledOnce).to.be.true;
+      expect(requested, 'an unauthorized caller queued a check').to.equal(0);
     });
 
     it('should handle errors gracefully', async () => {
@@ -834,6 +852,7 @@ describe('appHashSyncService tests', () => {
       const { recentRetry, oldRetry } = makeExpiryTestHashes();
       const both = [recentRetry, oldRetry];
       dbHelperStub.findInDatabase.resolves(both);
+      dbHelperStub.findInDatabase.withArgs(sinon.match.any, MESSAGES).resolves([]);
 
       advanceDateOnDelay();
       try {
@@ -854,6 +873,7 @@ describe('appHashSyncService tests', () => {
 
       dbHelperStub.findInDatabase.onFirstCall().resolves([recentRetry, oldRetry, ...padding]);
       dbHelperStub.findInDatabase.resolves([recentRetry, oldRetry]);
+      dbHelperStub.findInDatabase.withArgs(sinon.match.any, MESSAGES).resolves([]);
 
       serviceHelperStub.axiosGet.callsFake((url) => {
         if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse([]));
@@ -869,6 +889,59 @@ describe('appHashSyncService tests', () => {
 
       assertExpiryBehavior();
     });
+
+    // A hash whose message this node holds waits on no peer: the next pass writes its
+    // registry row from the stored copy, so the ladder that spaces out asking peers
+    // does not apply to it.
+    describe('a hash whose message is already stored', () => {
+      const backedOff = (hash) => collectionStub.bulkWrite.getCalls().some((call) => call.args[0]
+        .some((op) => op.updateOne?.filter?.hash === hash && op.updateOne.update.$set.syncAttempts !== undefined));
+
+      it('is not backed off', async () => {
+        const { recentRetry } = makeExpiryTestHashes();
+        dbHelperStub.findInDatabase.resolves([recentRetry]);
+        dbHelperStub.findInDatabase.withArgs(sinon.match.any, MESSAGES).resolves([{ hash: recentRetry.hash }]);
+
+        advanceDateOnDelay();
+        try {
+          await appHashSyncService.syncMissingHashes({ currentHeight: 2555000 });
+        } finally {
+          Date.now.restore();
+        }
+
+        expect(backedOff(recentRetry.hash), 'a hash whose message is stored was backed off').to.equal(false);
+      });
+
+      it('a canary: the same hash with no message stored is backed off', async () => {
+        const { recentRetry } = makeExpiryTestHashes();
+        dbHelperStub.findInDatabase.resolves([recentRetry]);
+        dbHelperStub.findInDatabase.withArgs(sinon.match.any, MESSAGES).resolves([]);
+
+        advanceDateOnDelay();
+        try {
+          await appHashSyncService.syncMissingHashes({ currentHeight: 2555000 });
+        } finally {
+          Date.now.restore();
+        }
+
+        expect(backedOff(recentRetry.hash)).to.equal(true);
+      });
+
+      it('is not given up on, however long it has waited', async () => {
+        const { oldRetry } = makeExpiryTestHashes();
+        dbHelperStub.findInDatabase.resolves([oldRetry]);
+        dbHelperStub.findInDatabase.withArgs(sinon.match.any, MESSAGES).resolves([{ hash: oldRetry.hash }]);
+
+        advanceDateOnDelay();
+        try {
+          await appHashSyncService.syncMissingHashes({ currentHeight: 2555000 });
+        } finally {
+          Date.now.restore();
+        }
+
+        expect(messageVerifierStub.appHashHasMessageNotFound.called, 'a hash whose message is stored was given up on').to.equal(false);
+      });
+    });
   });
 
   describe('processMessages via bulk fetch', () => {
@@ -878,8 +951,10 @@ describe('appHashSyncService tests', () => {
     let localMessageVerifierStub;
     let localCheckAndDecryptStub;
     let localLogStub;
+    let localGlobalState;
 
     beforeEach(() => {
+      localGlobalState = { dbReady: true };
       localCollectionStub = {
         bulkWrite: sinon.stub().resolves({ ok: 1 }),
         insertMany: sinon.stub().resolves({ insertedCount: 0 }),
@@ -902,6 +977,7 @@ describe('appHashSyncService tests', () => {
       localMessageVerifierStub = {
         alignStoredMessagesWithPayments: sinon.stub().resolves([]),
         checkAndRequestApp: sinon.stub().resolves(true),
+        storeGoverningAppSpecifications: sinon.stub().resolves(),
         appHashHasMessage: sinon.stub().resolves(),
         appHashHasMessageNotFound: sinon.stub().resolves(),
         checkAndRequestMultipleApps: sinon.stub().resolves(),
@@ -940,6 +1016,94 @@ describe('appHashSyncService tests', () => {
         '../fluxCommunicationUtils': { deterministicFluxList: sinon.stub().resolves([]) },
         '../fluxCommunication': { openEphemeralConnection: sinon.stub().resolves(null) },
         '../fluxNetworkHelper': { getLocalSocketAddress: sinon.stub().resolves('10.0.0.99:16127') },
+        '../utils/globalState': localGlobalState,
+      });
+    });
+
+    describe('the registry rows of the apps it stores', () => {
+      const streamOne = () => {
+        const bulkMessages = [{
+          type: 'fluxappregister', version: 1, hash: 'hash5', timestamp: Date.now(),
+          signature: 'sig5', appSpecifications: { name: 'lateapp', version: 4, owner: 'owner' },
+          valueSat: 105, txid: 'tx5', height: 1005,
+        }];
+        const manyMissing = Array(600).fill(null).map((_, i) => ({
+          hash: `hash${i}`, txid: `tx${i}`, height: 1000 + i, value: 100 + i, message: false,
+        }));
+        let getMissingCalls = 0;
+        localDbHelperStub.findInDatabase.callsFake(() => {
+          getMissingCalls += 1;
+          return Promise.resolve(getMissingCalls === 1 ? manyMissing : []);
+        });
+        localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+        serviceHelperStub.axiosGet.callsFake((url) => {
+          if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
+          return Promise.resolve({ data: { status: 'success', data: true } });
+        });
+      };
+      // the write that marks a hash's message as held
+      const hashMarks = () => localCollectionStub.bulkWrite.getCalls()
+        .filter((call) => call.args[0].some((op) => op.updateOne?.update?.$set?.message === true));
+
+      it('writes them on a node whose registry is built, before it marks their hashes', async () => {
+        streamOne();
+
+        await localModule.syncMissingHashes();
+
+        expect(localCollectionStub.insertMany.called, 'the fixture stored nothing').to.be.true;
+        sinon.assert.calledOnceWithExactly(localMessageVerifierStub.storeGoverningAppSpecifications, ['lateapp']);
+        expect(hashMarks(), 'the hash was never marked').to.have.length(1);
+        expect(localMessageVerifierStub.storeGoverningAppSpecifications.calledBefore(hashMarks()[0])).to.equal(true);
+      });
+
+      it('leaves them to the full rebuild on a node whose registry is not built yet', async () => {
+        localGlobalState.dbReady = false;
+        streamOne();
+
+        await localModule.syncMissingHashes();
+
+        expect(localCollectionStub.insertMany.called, 'the fixture stored nothing').to.be.true;
+        sinon.assert.notCalled(localMessageVerifierStub.storeGoverningAppSpecifications);
+        expect(hashMarks()).to.have.length(1);
+      });
+
+      it('writes the rows of only the apps whose messages the insert stored', async () => {
+        const bulkMessages = ['firstapp', 'secondapp'].map((name, i) => ({
+          type: 'fluxappregister', version: 1, hash: `hash${5 + i}`, timestamp: Date.now(),
+          signature: `sig${5 + i}`, appSpecifications: { name, version: 4, owner: 'owner' },
+          valueSat: 105 + i, txid: `tx${5 + i}`, height: 1005 + i,
+        }));
+        const manyMissing = Array(600).fill(null).map((_, i) => ({
+          hash: `hash${i}`, txid: `tx${i}`, height: 1000 + i, value: 100 + i, message: false,
+        }));
+        let getMissingCalls = 0;
+        localDbHelperStub.findInDatabase.callsFake(() => {
+          getMissingCalls += 1;
+          return Promise.resolve(getMissingCalls === 1 ? manyMissing : []);
+        });
+        localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+        serviceHelperStub.axiosGet.callsFake((url) => {
+          if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
+          return Promise.resolve({ data: { status: 'success', data: true } });
+        });
+        const partial = new Error('duplicate key');
+        partial.result = { insertedCount: 1 };
+        localCollectionStub.insertMany.rejects(partial);
+
+        await localModule.syncMissingHashes();
+
+        expect(localCollectionStub.insertMany.firstCall.args[0], 'the fixture inserted fewer than two').to.have.length(2);
+        sinon.assert.calledOnceWithExactly(localMessageVerifierStub.storeGoverningAppSpecifications, ['firstapp']);
+      });
+
+      it('marks no hash whose app\'s row could not be written, so the next retry writes it', async () => {
+        localMessageVerifierStub.storeGoverningAppSpecifications.rejects(new Error('connection timed out'));
+        streamOne();
+
+        await localModule.syncMissingHashes();
+
+        expect(localCollectionStub.insertMany.called, 'the fixture stored nothing').to.be.true;
+        expect(hashMarks()).to.deep.equal([]);
       });
     });
 

@@ -472,6 +472,16 @@ describe('resourceQueryService tests', () => {
       expect(res.json.firstCall.args[0].status).to.equal('error');
     });
 
+    it('rejects with the read\'s own error for a caller inside the node', async () => {
+      const failure = new Error('connection timed out');
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findInDatabase').rejects(failure);
+
+      const outcome = await resourceQueryService.appsResources().catch((err) => err);
+
+      expect(outcome, 'a node that cannot count its apps answered totals').to.equal(failure);
+    });
+
     it('should include filesystem overhead for each app/component', async () => {
       const req = {};
       const res = {

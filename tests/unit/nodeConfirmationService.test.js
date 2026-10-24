@@ -15,6 +15,7 @@ describe('nodeConfirmationService', () => {
   let getFluxNodePublicKeyStub;
   let getFluxnodeBySocketAddressStub;
   let logStub;
+  let ownAddressKnown;
 
   beforeEach(() => {
     clock = sinon.useFakeTimers({ shouldAdvanceTime: false });
@@ -29,6 +30,7 @@ describe('nodeConfirmationService', () => {
       './fluxNetworkHelper': {
         getLocalSocketAddress: getLocalSocketAddressStub,
         getFluxNodePublicKey: getFluxNodePublicKeyStub,
+        onLocalSocketAddressKnown: (listener) => { ownAddressKnown = listener; },
       },
       './networkStateService': { getFluxnodeBySocketAddress: getFluxnodeBySocketAddressStub },
       '../lib/log': logStub,
@@ -155,6 +157,40 @@ describe('nodeConfirmationService', () => {
   });
 
   describe('onMessageCapabilityChange', () => {
+    it('is heard the moment the node learns its address', async () => {
+      const callback = sinon.spy();
+      service.onMessageCapabilityChange(callback);
+      setupConfirmed();
+      getLocalSocketAddressStub.resolves(null);
+      await service.start();
+      expect(service.canSendMessages()).to.be.false;
+
+      getLocalSocketAddressStub.resolves('1.2.3.4:16127');
+      ownAddressKnown('1.2.3.4:16127');
+      await clock.tickAsync(0);
+
+      expect(service.canSendMessages()).to.be.true;
+      sinon.assert.calledOnceWithExactly(callback, true);
+    });
+
+    it('reports one change when a poll checks while the address arriving is still being checked', async () => {
+      const callback = sinon.spy();
+      service.onMessageCapabilityChange(callback);
+      setupConfirmed();
+      getLocalSocketAddressStub.resolves(null);
+      await service.start();
+
+      let answerFirstCheck;
+      getLocalSocketAddressStub.onCall(1).returns(new Promise((resolve) => { answerFirstCheck = resolve; }));
+      getLocalSocketAddressStub.resolves('1.2.3.4:16127');
+      ownAddressKnown('1.2.3.4:16127');
+      await advancePoll();
+      answerFirstCheck('1.2.3.4:16127');
+      await clock.tickAsync(0);
+
+      sinon.assert.calledOnceWithExactly(callback, true);
+    });
+
     it('should fire callback on false→true transition', async () => {
       const callback = sinon.spy();
       service.onMessageCapabilityChange(callback);

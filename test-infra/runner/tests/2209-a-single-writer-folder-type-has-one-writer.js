@@ -393,7 +393,9 @@ describe('a single-writer folder type has one writer', function () {
       `rm -rf /tmp/s-${a.appName} && mkdir -p /tmp/s-${a.appName} && printf 'restored\\n' > /tmp/s-${a.appName}/restored.txt `
       + `&& mkdir -p ${dir}/backup/local && tar -czf ${archive} -C /tmp/s-${a.appName} .`);
     expect(staged.exitCode, `fixture: staging the archive failed: ${staged.output}`).to.equal(0);
-    // The clear fails the way a volume gone read-only under an ext4 error does.
+    // The clear fails the way a volume gone read-only under an ext4 error does: the
+    // primary's data cannot be deleted.
+    await seedSyncScopedData(env, a.appName, a.primary);
     const lock = await execInContainer(client.container, `chattr +i ${dir}/appdata`);
     expect(lock.exitCode, `fixture: could not make appdata immutable: ${lock.output}`).to.equal(0);
     const from = client.getLastEventId();

@@ -7,6 +7,7 @@ const logCursor = require('../utils/logCursor');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const globalState = require('../utils/globalState');
 const cpuBurstHelper = require('../utils/cpuBurstHelper');
+const cpuThrottleExemption = require('../utils/cpuThrottleExemption');
 const log = require('../../lib/log');
 const { getContainerStorage } = require('../utils/appUtilities');
 const { Privilege, authOf } = require('../utils/privileges');
@@ -317,12 +318,9 @@ function extractSample(stats) {
     // space. `docker stats` subtracts it, so every consumer that reports a
     // container's memory subtracts it too, and without this figure none of them
     // can: they subtract zero and report a number that climbs with disk reads.
-    // cgroup v2 names it inactive_file and v1 names it cache; they are not the
-    // same counter (v1's is the whole page cache, v2's the reclaimable part) but
-    // docker's own CLI reads them from the same slot, so this does too. Null
-    // where neither is present, which leaves the consumer exactly where it was.
-    memoryCache: stats.memory_stats?.stats?.inactive_file
-      ?? stats.memory_stats?.stats?.cache ?? null,
+    // cgroup v2 names it inactive_file. Null where it is absent, which leaves
+    // the consumer exactly where it was.
+    memoryCache: stats.memory_stats?.stats?.inactive_file ?? null,
     ioRead: sumBlkio('read'),
     ioWrite: sumBlkio('write'),
     // EVERY interface, not just eth0. appNetworkLinker connects a container to
@@ -361,9 +359,6 @@ function expandSample(sample) {
       cpu_usage: { total_usage: sample.cpuTotalBefore },
       system_cpu_usage: sample.cpuSystemBefore,
     },
-    // Reported under the cgroup v2 name whichever key it was read from: a
-    // consumer's `inactive_file ?? cache` chain then settles on the first, and
-    // the value is the same either way.
     memory_stats: {
       usage: sample.memoryUsage,
       limit: sample.memoryLimit,
@@ -909,6 +904,35 @@ function sampleCpuLoad(sample, specifiedCpu) {
 }
 
 /**
+ * Hold a throttle-exempt container at its full specified cpu instead of deciding on it.
+ *
+ * Restoring is not optional. A game server lowered before it became exempt (or before this
+ * node read the policy) would otherwise stay at 80% forever: the decision below measures load
+ * against the reduced allocation, so a saturated server never looks idle enough to be raised.
+ * @param {string} containerName - The app or component container name
+ * @param {number} specifiedCpu - The cpu the app or component specified
+ * @param {object} inspect - The container's docker inspect
+ * @param {object} monitored - The monitoring entry, which may have gone mid-pass
+ * @param {number} decisionAt - The watermark to stamp
+ * @returns {Promise<void>}
+ */
+async function holdExemptAtSpecifiedCpu(containerName, specifiedCpu, inspect, monitored, decisionAt) {
+  const nanoCpus = inspect.HostConfig?.NanoCpus;
+  const specifiedNanoCpus = Math.round(specifiedCpu * 1e9);
+  if (nanoCpus && nanoCpus < specifiedNanoCpus) {
+    await dockerService.appDockerUpdateCpu(containerName, specifiedNanoCpus);
+    log.info(`checkApplicationsCpuUSage ${containerName} throttle-exempt, restoring cpu 100.`);
+  } else {
+    log.info(`checkApplicationsCpuUSage ${containerName} throttle-exempt, skipping CPU throttling`);
+  }
+  // Guarded for the same reason as the watermark writes in the caller.
+  if (monitored) {
+    // eslint-disable-next-line no-param-reassign
+    monitored.lastCpuDecisionAt = decisionAt;
+  }
+}
+
+/**
  * Check if applications are throttling CPU and adjust CPU limits
  * @param {object} appsMonitored - Applications monitoring data
  * @param {Function} installedApps - Async function to get installed apps
@@ -948,6 +972,13 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
             // eslint-disable-next-line no-param-reassign
             appsMonitored[app.name].lastCpuDecisionAt = decisionAt;
           }
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+        // Game servers deployed by the games hub are never throttled. See cpuThrottleExemption.
+        if (inspect && cpuThrottleExemption.isCpuThrottleExempt(app.name)) {
+          // eslint-disable-next-line no-await-in-loop
+          await holdExemptAtSpecifiedCpu(app.name, app.cpu, inspect, appsMonitored[app.name], decisionAt);
           // eslint-disable-next-line no-continue
           continue;
         }
@@ -1028,6 +1059,13 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
               // eslint-disable-next-line no-param-reassign
               appsMonitored[compName].lastCpuDecisionAt = decisionAt;
             }
+            // eslint-disable-next-line no-continue
+            continue;
+          }
+          // Exemption is by APP name: every component of a hub game server is held at spec.
+          if (inspect && cpuThrottleExemption.isCpuThrottleExempt(app.name)) {
+            // eslint-disable-next-line no-await-in-loop
+            await holdExemptAtSpecifiedCpu(compName, appComponent.cpu, inspect, appsMonitored[compName], decisionAt);
             // eslint-disable-next-line no-continue
             continue;
           }

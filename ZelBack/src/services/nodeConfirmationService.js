@@ -15,6 +15,7 @@ let daemonStale = false;
 let messageCapable = false;
 let started = false;
 let lastSuccessfulPoll = null;
+let capabilityCheck = Promise.resolve();
 
 const confirmedGate = new AsyncGate();
 const confirmationStatusGate = new AsyncGate();
@@ -123,6 +124,23 @@ async function poll() {
     return;
   }
 
+  await checkMessageCapability();
+}
+
+/**
+ * Whether this node can be heard: the address benchmark reports is listed under
+ * this node's key. Told to the capability listeners when it changes. One check
+ * runs at a time, so a check started by a poll and one started by the node
+ * learning its address cannot both report the same change.
+ * @returns {Promise<void>}
+ */
+function checkMessageCapability() {
+  capabilityCheck = capabilityCheck.then(readMessageCapability, readMessageCapability);
+  return capabilityCheck;
+}
+
+async function readMessageCapability() {
+  const prevMessageCapable = messageCapable;
   let newMessageCapable = false;
   try {
     if (!ourPubkey) {
@@ -161,6 +179,15 @@ async function poll() {
   }
 }
 
+/**
+ * The node has an address after having none: whether it can be heard is asked
+ * at once.
+ * @returns {void}
+ */
+function onOwnAddressKnown() {
+  if (daemonConfirmed) checkMessageCapability().catch((error) => log.error(error));
+}
+
 function scheduleNext() {
   setTimeout(async () => {
     await poll();
@@ -171,6 +198,7 @@ function scheduleNext() {
 async function start() {
   if (started) return;
   started = true;
+  fluxNetworkHelper.onLocalSocketAddressKnown(onOwnAddressKnown);
   await poll();
   confirmationStatusGate.open();
   scheduleNext();

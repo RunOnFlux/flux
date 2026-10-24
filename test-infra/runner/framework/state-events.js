@@ -22,7 +22,9 @@ async function envelopeFor(nodeNum, data, broadcastedAt, signedBy) {
   };
 }
 
-// A v2 apprunning broadcast: the node runs `apps`, as of broadcastedAt.
+// A v2 apprunning broadcast: the node runs `apps`, as of broadcastedAt. An app
+// named by a string gets a hash and a runningSince; one given as an object is
+// sent as it is, so an entry a node refuses can be built.
 export async function apprunningEvent({
   nodeNum, apps, broadcastedAt, dedupKey = 'v2', signedBy = nodeNum,
 }) {
@@ -30,11 +32,11 @@ export async function apprunningEvent({
   const data = {
     type: 'fluxapprunning',
     version: 2,
-    apps: apps.map((name) => ({
-      name,
-      hash: `hash-${name}`,
+    apps: apps.map((app) => (typeof app === 'string' ? {
+      name: app,
+      hash: `hash-${app}`,
       runningSince: new Date(broadcastedAt).toISOString(),
-    })),
+    } : app)),
     ip,
     broadcastedAt,
     osUptime: 10000,
