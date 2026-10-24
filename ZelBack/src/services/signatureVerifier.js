@@ -1,6 +1,6 @@
 const bs58check = require('bs58check');
 const { pubKeyToAddr } = require('./utils/fluxCryptoUtils');
-const bitcoinMessage = require('bitcoinjs-message');
+const bitcoinMessage = require('./utils/bitcoinMessage');
 const ethereumHelper = require('./ethereumHelper');
 const log = require('../lib/log');
 

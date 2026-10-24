@@ -55,9 +55,6 @@ describe('messageVerifier tests', () => {
         globalAppsMessages: 'appsMessages',
         globalAppsTempMessages: 'appsTempMessages',
       },
-      'bitcoinjs-message': {
-        verify: sinon.stub().returns(true),
-      },
       '../daemonService/daemonServiceControlRpcs': {
         validateAddress: sinon.stub().resolves({ data: { isvalid: true } }),
       },
@@ -265,9 +262,6 @@ describe('messageVerifier tests', () => {
         },
         '../fluxNetworkHelper': {
           getNumberOfPeers: sinon.stub().returns(10),
-        },
-        'bitcoinjs-message': {
-          verify: sinon.stub().returns(true),
         },
         '../daemonService/daemonServiceControlRpcs': {
           validateAddress: sinon.stub().resolves({ data: { isvalid: true } }),
@@ -569,7 +563,6 @@ describe('messageVerifier tests', () => {
           globalAppsMessages: 'appsMessages',
           globalAppsTempMessages: 'appsTempMessages',
         },
-        'bitcoinjs-message': { verify: sinon.stub().returns(true) },
         '../daemonService/daemonServiceControlRpcs': {
           validateAddress: sinon.stub().resolves({ data: { isvalid: true } }),
         },
