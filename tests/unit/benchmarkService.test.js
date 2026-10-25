@@ -163,27 +163,9 @@ describe('benchmarkService tests', () => {
         sinon.assert.calledOnceWithExactly(benchmarkStub, rpc, { params: [message] });
       });
 
-      it(`${fn} should send a request whose owner is an Ethereum address`, async () => {
-        const message = JSON.stringify({ ...validRequest, fluxID: `0x${'aB3'.repeat(13)}c` });
-
-        const result = await benchmarkService[fn](message);
-
-        expect(result.status).to.equal('success');
-        sinon.assert.calledOnce(benchmarkStub);
-      });
-
       [
-        ['an app name with an underscore', { appName: 'my_app' }],
-        ['an app name with a space', { appName: 'my app' }],
-        ['an app name starting with a hyphen', { appName: '-myapp' }],
-        ['an app name longer than 63 characters', { appName: 'a'.repeat(64) }],
-        ['an app name that is not a string', { appName: ['myapp'] }],
-        ['no app name', { appName: undefined }],
-        ['an owner that is not a Flux ID or Ethereum address', { fluxID: 'my-owner' }],
-        ['an owner with a bad checksum', { fluxID: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uD' }],
-        ['an Ethereum owner that is too long', { fluxID: `0x${'a'.repeat(41)}` }],
-        ['an owner that is not a string', { fluxID: { id: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC' } }],
-        ['no owner', { fluxID: undefined }],
+        ['an invalid app name', { appName: 'my_app' }],
+        ['an invalid owner', { fluxID: 'my-owner' }],
       ].forEach(([description, change]) => {
         it(`${fn} should refuse a request with ${description}`, async () => {
           const message = JSON.stringify({ ...validRequest, ...change });

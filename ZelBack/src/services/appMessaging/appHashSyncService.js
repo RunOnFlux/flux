@@ -9,6 +9,7 @@ const messageVerifier = require('./messageVerifier');
 const appValidator = require('../appRequirements/appValidator');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+const { verifyAppNameAndOwner } = require('../utils/appIdentity');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const { serialiseAndSignFluxBroadcast } = require('../utils/fluxBroadcastHelper');
 const { peerManager } = require('../utils/peerState');
@@ -374,6 +375,7 @@ async function processMessages(messages, records, onProgress) {
 
         if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
           try {
+            verifyAppNameAndOwner(appSpecFormatted.name, appSpecFormatted.owner);
             const decrypted = await checkAndDecryptAppSpecs(
               appSpecFormatted,
               { daemonHeight: height, owner: appSpecFormatted.owner },
@@ -414,6 +416,7 @@ async function processMessages(messages, records, onProgress) {
           let prevSpecsForVerification = prevSpecs;
           if (prevSpecs.version >= 8 && prevSpecs.enterprise) {
             try {
+              verifyAppNameAndOwner(prevSpecs.name, prevSpecs.owner);
               const decrypted = await checkAndDecryptAppSpecs(
                 prevSpecs, { daemonHeight: prevMsg.height, owner: prevSpecs.owner },
               );

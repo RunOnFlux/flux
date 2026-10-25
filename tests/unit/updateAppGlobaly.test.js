@@ -107,4 +107,23 @@ describe('updateAppGlobaly tests', () => {
     );
     expect(signatureCheck.called).to.equal(false);
   });
+
+  [
+    ['an invalid app name', { name: 'Submit_App' }],
+    ['an invalid owner', { owner: 'my-owner' }],
+    ['an invalid owner in an enterprise spec', { version: 8, enterprise: 'blob', owner: 'my-owner' }],
+  ].forEach(([description, change]) => {
+    it(`should refuse an update with ${description} before reading the spec`, async () => {
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 3003100 } });
+
+      await advancedWorkflows.updateAppGlobaly({
+        appSpecification: { ...spec, ...change }, timestamp: Date.now(), signature: 'sig', type: 'fluxappupdate', version: 1,
+      }).then(
+        () => expect.fail('should have refused'),
+        (error) => expect(error.message).to.equal('Invalid app name or owner'),
+      );
+      sinon.assert.notCalled(appValidator.verifyAppSpecifications);
+      expect(signatureCheck.called).to.equal(false);
+    });
+  });
 });

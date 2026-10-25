@@ -11,9 +11,8 @@ const generalService = require('./generalService');
 const upnpService = require('./upnpService');
 const fluxRpc = require('./utils/fluxRpc');
 const dbHelper = require('./dbHelper');
-const signatureVerifier = require('./signatureVerifier');
 const { Privilege, authOf } = require('./utils/privileges');
-const { APP_NAME_REGEX, MAX_APP_NAME_LENGTH } = require('./utils/appConstants');
+const { isValidAppNameAndOwner } = require('./utils/appIdentity');
 
 // eslint-disable-next-line no-unused-vars
 const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -282,8 +281,7 @@ async function signFluxTransactionPost(req, res) {
 }
 
 /**
- * Whether a request names a valid app and a valid owner: an app name
- * as a spec allows it, and an owner that can sign (a Flux ID or an Ethereum address).
+ * Whether a request names a well-formed app and owner.
  * @param {string} message JSON object with `appName` and `fluxID`.
  * @returns {boolean}
  */
@@ -296,11 +294,7 @@ function isValidAppRequest(message) {
   }
   if (!request || typeof request !== 'object') return false;
 
-  const { appName, fluxID } = request;
-  return typeof appName === 'string'
-    && appName.length <= MAX_APP_NAME_LENGTH
-    && APP_NAME_REGEX.test(appName)
-    && signatureVerifier.isValidSigningIdentity(fluxID);
+  return isValidAppNameAndOwner(request.appName, request.fluxID);
 }
 
 /**

@@ -1,3 +1,4 @@
+const { EventEmitter } = require('events');
 const { expect } = require('chai');
 const sinon = require('sinon');
 const config = require('config');
@@ -15,6 +16,7 @@ const verificationHelper = require('../../ZelBack/src/services/verificationHelpe
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 const localRemovalQueue = require('../../ZelBack/src/services/appLifecycle/localRemovalQueue');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
+const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 const { requireMongo } = require('./dbTestHelper');
 
 describe('registryManager tests', () => {
@@ -2068,5 +2070,54 @@ describe('registryManager tests', () => {
       const result = await registryManager.appLocationFromEvents({ ip: '9.9.9.9' });
       expect(result).to.be.an('array').with.lengthOf(0);
     });
+  });
+});
+
+describe('registryManager registerAppGlobalyApi tests', () => {
+  const spec = {
+    version: 8,
+    name: 'registertest',
+    description: 'register test',
+    owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    enterprise: 'blob',
+  };
+
+  const register = (appSpecification) => new Promise((resolve) => {
+    const req = new EventEmitter();
+    const res = { json: (response) => resolve(response) };
+    registryManager.registerAppGlobalyApi(req, res);
+    req.emit('data', JSON.stringify({
+      appSpecification, timestamp: Date.now(), signature: 'sig', type: 'fluxappregister', version: 1,
+    }));
+    req.emit('end');
+  });
+
+  beforeEach(() => {
+    sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+    sinon.stub(peerManager, 'outboundCount').get(() => 100);
+    sinon.stub(peerManager, 'inboundCount').get(() => 100);
+    sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 2500000 } });
+  });
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  [
+    ['an invalid app name', { name: 'register_test' }],
+    ['an invalid owner', { owner: 'my-owner' }],
+    ['an invalid app name in a spec that is not enterprise', { version: 4, enterprise: undefined, name: 'register_test' }],
+  ].forEach(([description, change]) => {
+    it(`should refuse a spec with ${description}`, async () => {
+      const response = await register({ ...spec, ...change });
+      expect(response.status).to.equal('error');
+      expect(response.data.message).to.equal('Invalid app name or owner');
+    });
+  });
+
+  it('should decrypt a spec with a valid app name and owner', async () => {
+    // Off ArcaneOS the decrypt refuses, which shows the spec reached it.
+    const response = await register(spec);
+    expect(response.data.message).to.equal('Application Specifications can only be validated on a node running Arcane OS.');
   });
 });

@@ -868,6 +868,28 @@ describe('appSpecHelpers tests', () => {
       const response = await quote(buildSpec('g:/data', { priceUSD: 5.1 }));
       expect(response.data.usd).to.equal(5.1);
     });
+
+    [
+      ['an invalid app name', { name: 'Price_Test' }],
+      ['an invalid owner', { owner: 'my-owner' }],
+    ].forEach(([description, change]) => {
+      it(`should refuse a spec with ${description}`, async () => {
+        const response = await quote(buildSpec('/data', change));
+        expect(response.status).to.equal('error');
+        expect(response.data.message).to.equal('Invalid app name or owner');
+      });
+
+      it(`should refuse an enterprise spec with ${description} before decrypting it`, async () => {
+        const response = await quote(buildSpec('/data', { version: 8, enterprise: 'blob', ...change }));
+        expect(response.data.message).to.equal('Invalid app name or owner');
+      });
+    });
+
+    it('should decrypt an enterprise spec with a valid app name and owner', async () => {
+      // Off ArcaneOS the decrypt refuses, which shows the spec reached it.
+      const response = await quote(buildSpec('/data', { version: 8, enterprise: 'blob' }));
+      expect(response.data.message).to.equal('Application Specifications can only be validated on a node running Arcane OS.');
+    });
   });
 
   describe('module exports tests', () => {

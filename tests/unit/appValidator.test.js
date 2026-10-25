@@ -1,6 +1,9 @@
+const { EventEmitter } = require('events');
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
+const appValidatorService = require('../../ZelBack/src/services/appRequirements/appValidator');
 
 describe('appValidator tests', () => {
   let appValidator;
@@ -1053,6 +1056,55 @@ describe('appValidator tests', () => {
           expect(error.message).to.include('common architecture');
         }
       });
+    });
+  });
+});
+
+describe('appValidator spec verification route tests', () => {
+  const spec = {
+    version: 8,
+    name: 'verifytest',
+    description: 'verify test',
+    owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    enterprise: 'blob',
+  };
+
+  const post = (handler, body) => new Promise((resolve) => {
+    const req = new EventEmitter();
+    const res = { json: (response) => resolve(response) };
+    handler(req, res);
+    req.emit('data', JSON.stringify(body));
+    req.emit('end');
+  });
+
+  beforeEach(() => {
+    sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 2500000 } });
+  });
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  [
+    ['verifyAppRegistrationParameters', appValidatorService.verifyAppRegistrationParameters],
+    ['verifyAppUpdateApi', appValidatorService.verifyAppUpdateApi],
+  ].forEach(([route, handler]) => {
+    [
+      ['an invalid app name', { name: 'verify_test' }],
+      ['an invalid owner', { owner: 'my-owner' }],
+      ['an invalid app name in a spec that is not enterprise', { version: 4, enterprise: undefined, name: 'verify_test' }],
+    ].forEach(([description, change]) => {
+      it(`${route} should refuse a spec with ${description}`, async () => {
+        const response = await post(handler, { ...spec, ...change });
+        expect(response.status).to.equal('error');
+        expect(response.data.message).to.equal('Invalid app name or owner');
+      });
+    });
+
+    it(`${route} should decrypt a spec with a valid app name and owner`, async () => {
+      // Off ArcaneOS the decrypt refuses, which shows the spec reached it.
+      const response = await post(handler, spec);
+      expect(response.data.message).to.equal('Application Specifications can only be validated on a node running Arcane OS.');
     });
   });
 });

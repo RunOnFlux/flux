@@ -9,6 +9,7 @@ const registryManager = require('../appDatabase/registryManager');
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+const { verifyAppNameAndOwner } = require('../utils/appIdentity');
 const globalState = require('../utils/globalState');
 const { appRunningEntries } = require('../utils/appRunningEntries');
 const fluxEventBus = require('../utils/fluxEventBus');
@@ -168,6 +169,7 @@ async function storeAppTemporaryMessage(message, options = {}) {
       // eslint-disable-next-line global-require
       const fluxService = require('../fluxService');
       if (await fluxService.isSystemSecure()) {
+        verifyAppNameAndOwner(appSpecFormatted.name, appSpecFormatted.owner);
         // eslint-disable-next-line no-use-before-define
         const appSpecDecrypted = await checkAndDecryptAppSpecs(
           appSpecFormatted,
