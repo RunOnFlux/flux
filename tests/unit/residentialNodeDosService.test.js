@@ -1011,11 +1011,10 @@ describe('residentialNodeDosService tests', () => {
     const BLOCK_SECONDS = 30; // post-PON; stated in-repo at fluxService.js:1774
     const PON_SPEED_MULTIPLIER = 4; // explorerService.js:610
 
-    // ZelBack/config/default.js requires config/userconfig, which is gitignored
-    // and absent from a fresh checkout, so it is stubbed rather than resolved.
+    // default.js reads the gitignored config/userconfig.js; an empty one is mainnet.
     function productionConfig() {
       return proxyquire('../../ZelBack/config/default', {
-        '../../config/userconfig': { initial: { development: false } },
+        '../../config/userconfig': { initial: {} },
       });
     }
 

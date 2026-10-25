@@ -8,7 +8,6 @@ const mockUserConfig = {
     zelid: '1TestZelID123',
     kadena: 'kadena:test?chainid=0',
     network: 'mainnet',
-    development: false,
     apiport: 16127,
     routerIP: '192.168.1.1',
     pgpPrivateKey: 'test-private-key',
@@ -94,7 +93,6 @@ describe('configManager tests', () => {
       expect(config.initial).to.have.property('zelid');
       expect(config.initial).to.have.property('kadena');
       expect(config.initial).to.have.property('network');
-      expect(config.initial).to.have.property('development');
       expect(config.initial).to.have.property('apiport');
       expect(config.initial).to.have.property('routerIP');
       expect(config.initial).to.have.property('pgpPrivateKey');
@@ -266,7 +264,6 @@ describe('configManager tests', () => {
           zelid: 'GlobalConfigTest',
           kadena: '',
           network: 'labnet',
-          development: true,
           apiport: 16147,
           routerIP: '',
           pgpPrivateKey: '',
@@ -294,12 +291,12 @@ describe('configManager tests', () => {
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
       // Change a simple value
-      globalThis.userconfig.initial.development = true;
-      expect(configManager.getUserConfig().initial.development).to.equal(true);
+      globalThis.userconfig.initial.testnet = true;
+      expect(configManager.getUserConfig().initial.testnet).to.equal(true);
 
       // Change it back
-      globalThis.userconfig.initial.development = false;
-      expect(configManager.getUserConfig().initial.development).to.equal(false);
+      globalThis.userconfig.initial.testnet = false;
+      expect(configManager.getUserConfig().initial.testnet).to.equal(false);
     });
   });
 

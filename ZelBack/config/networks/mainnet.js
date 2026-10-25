@@ -17,8 +17,6 @@ const appSpecsEnforcementHeights = {
 const portBlockheightChange = 1420000;
 
 module.exports = {
-  // Whether userconfig.initial.development selects the values under `development`.
-  developmentApplies: true,
   daemon: {
     chainValidHeight: 1062000,
     port: 16125,
@@ -152,12 +150,10 @@ module.exports = {
     // App-payment receivers. `address` from genesis, `addressMultisig` from
     // appSpecsEnforcementHeights[6], `addressMultisigB` from
     // multisigAddressChange; new deployments pay to the latest in force. The two
-    // multisigs also sign the soft-fork messages. `addressDevelopment` is a
-    // receiver only on a development node.
+    // multisigs also sign the soft-fork messages.
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     addressMultisig: 't3aGJvdtd8NR6GrnqnRuVEzH6MbrXuJFLUX',
     addressMultisigB: 't3NryfAQLGeFs9jEoeqsxmBN2QLRaRKFLUX',
-    addressDevelopment: 't1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A',
     multisigAddressChange: 1670000,
     epochstart: 694000,
     publicepochstart: 705000,
@@ -273,17 +269,5 @@ module.exports = {
   },
   analytics: {
     url: 'https://cloudaudit.runonflux.io',
-  },
-  // What a development node (userconfig.initial.development) reads in place of
-  // the same keys above. Read only where developmentApplies.
-  development: {
-    fluxapps: {
-      appSpecsEnforcementHeights: {
-        ...appSpecsEnforcementHeights,
-        7: 1390000,
-        8: 1921500,
-      },
-      portBlockheightChange: 1390000,
-    },
   },
 };

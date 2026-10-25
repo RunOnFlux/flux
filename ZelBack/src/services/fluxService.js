@@ -1125,18 +1125,13 @@ function getEnterpriseAppOwners(req, res) {
 }
 
 /**
- * To marketplace URL to show based on current development flag setup in configuration file that is being used with FluxOS.
+ * The marketplace listing URL.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
  */
 function getMarketplaceURL(req, res) {
-  const { userconfig } = globalThis;
-  const development = userconfig.initial.development || false;
-  let marketPlaceUrl = `${config.stats.baseUrl}/marketplace/listapps`;
-  if (development) {
-    marketPlaceUrl = `${config.stats.baseUrl}/marketplace/listdevapps`;
-  }
+  const marketPlaceUrl = `${config.stats.baseUrl}/marketplace/listapps`;
   const message = messageHelper.createDataMessage(marketPlaceUrl);
   return res ? res.json(message) : message;
 }
@@ -1612,8 +1607,8 @@ async function getFluxInfo(req, res) {
       info.flux.arcaneHumanVersion = arcaneHumanVersion;
     }
     info.flux.appsDos = dosAppsResult.data;
-    const { userconfig } = globalThis;
-    info.flux.development = userconfig.initial.development || false;
+    // No node runs in a development mode; the field stays in the v1 response.
+    info.flux.development = false;
     const daemonInfoRes = await daemonServiceControlRpcs.getInfo();
     if (daemonInfoRes.status === 'error') {
       throw daemonInfoRes.data;

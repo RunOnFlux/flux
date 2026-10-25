@@ -52,7 +52,6 @@ const adminConfig = {
     zelid: '1K6nyw2VjV6jEN1f1CkbKn9htWnYkQabbR',
     kadena: 'kadena:k:b3d922d1a57793651a1e0d951ef1671a10833e170810d3520388628cdc082fce?chainid=0',
     network: 'mainnet',
-    development: false,
     apiport: 16127,
     routerIP: '',
     pgpPrivateKey: '',

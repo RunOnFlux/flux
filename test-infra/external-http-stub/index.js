@@ -990,10 +990,6 @@ app.get('/marketplace/listapps', (req, res) => {
   res.json({ status: 'success', data: state.marketplaceApps });
 });
 
-app.get('/marketplace/listdevapps', (req, res) => {
-  res.json({ status: 'success', data: state.marketplaceApps });
-});
-
 // Stats: per-spec USD pricing. Unavailable, so a node prices by the USD table it
 // ships with (config fluxapps.usdprice), as it does whenever the stats service
 // does not answer.
