@@ -148,6 +148,7 @@ let storedFluxBenchAllowed = null;
 let maxNumberOfIpChanges = 0;
 const { lruRateLimit } = require('./utils/rateLimit');
 const { AsyncGate } = require('./utils/asyncGate');
+const { forEachLimited } = require('./utils/forEachLimited');
 const { Privilege, authOf } = require('./utils/privileges');
 
 // This node's socket address (ip:port) from benchmark
@@ -512,24 +513,6 @@ async function portAnsweredUdp(ip, port, options = {}) {
     });
     timers.push(setTimeout(() => done(sent ? null : undefined), deadline));
   });
-}
-
-/**
- * Runs `task` once per item, at most `limit` at a time.
- * @param {Array} items
- * @param {number} limit
- * @param {function(*): Promise<void>} task
- * @returns {Promise<void>}
- */
-async function forEachLimited(items, limit, task) {
-  const queue = [...items];
-  async function worker() {
-    while (queue.length) {
-      // eslint-disable-next-line no-await-in-loop
-      await task(queue.shift());
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, worker));
 }
 
 /**
