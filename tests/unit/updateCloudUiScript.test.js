@@ -32,11 +32,13 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
 
   // A release whose build is a dist/ folder, as fluxos-frontend publishes it, or with
   // its files at the top of the archive when flat.
-  function makeRelease(label, { flat = false } = {}) {
+  function makeRelease(label, { flat = false, paddingBytes = 0 } = {}) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudui-release-'));
     const build = flat ? dir : path.join(dir, 'dist');
     fs.mkdirSync(build, { recursive: true });
     fs.writeFileSync(path.join(build, 'index.html'), label);
+    // random, so the archive is as large as the padding
+    if (paddingBytes) fs.writeFileSync(path.join(build, 'padding.bin'), crypto.randomBytes(paddingBytes));
     fs.writeFileSync(path.join(build, 'stats.html'), 'stats');
     fs.writeFileSync(path.join(build, '_redirects'), 'redirects');
     const archive = path.join(os.tmpdir(), `cloudui-${crypto.randomBytes(6).toString('hex')}.tar.gz`);
@@ -68,6 +70,14 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
 
   async function handle(req, res) {
     if (req.url === RELEASE_PATH) {
+      if (releaseShape.stallRelease) {
+        const body = releaseJson();
+        res.setHeader('Content-Length', body.length);
+        res.write(body.slice(0, 10));
+        holds.push(() => res.destroy());
+
+        return;
+      }
       if (releaseShape.unavailable) {
         res.statusCode = 503;
         res.end('{"message":"unavailable"}');
@@ -83,11 +93,34 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
       tarballHold = null;
       if (onTarballRequest) onTarballRequest();
       if (hold) await hold;
+      if (releaseShape.stallAfterBytes !== undefined) {
+        res.setHeader('Content-Length', release.tarball.length);
+        res.write(release.tarball.subarray(0, releaseShape.stallAfterBytes));
+        holds.push(() => res.destroy());
+
+        return;
+      }
+      if (releaseShape.dripBytesPerSecond) {
+        await drip(res, release.tarball, releaseShape.dripBytesPerSecond);
+
+        return;
+      }
       res.end(release.tarball);
 
       return;
     }
     res.statusCode = 404;
+    res.end();
+  }
+
+  // Sends the body in one-second steps of the given size.
+  async function drip(res, body, bytesPerSecond) {
+    res.setHeader('Content-Length', body.length);
+    for (let offset = 0; offset < body.length; offset += bytesPerSecond) {
+      res.write(body.subarray(offset, offset + bytesPerSecond));
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((resolve) => { setTimeout(resolve, 1000); });
+    }
     res.end();
   }
 
@@ -141,6 +174,28 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
       '  if [ "$a" = --exchange ]; then echo "mv: unrecognized option \'--exchange\'" >&2; exit 1; fi',
       'done',
       `exec ${realMv} "$@"`,
+      '',
+    ].join('\n'), { mode: 0o755 });
+
+    return { PATH: `${dir}:${process.env.PATH}` };
+  }
+
+  // A PATH entry whose curl measures the low-speed window in the given seconds instead of
+  // the script's, so a stall is seen within a test. A curl run without --speed-time is
+  // passed through unchanged, and so never gives up on a stalled transfer.
+  function curlWithSpeedTime(seconds) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudui-curl-'));
+    const realCurl = execFileSync('bash', ['-c', 'command -v curl']).toString().trim();
+    fs.writeFileSync(path.join(dir, 'curl'), [
+      '#!/bin/bash',
+      'args=()',
+      'prev=""',
+      'for a in "$@"; do',
+      `  if [ "$prev" = --speed-time ]; then a=${seconds}; fi`,
+      '  args+=("$a")',
+      '  prev="$a"',
+      'done',
+      `exec ${realCurl} "\${args[@]}"`,
       '',
     ].join('\n'), { mode: 0o755 });
 
@@ -360,6 +415,50 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
       expect(fs.lstatSync(cloudUi()).isDirectory()).to.equal(true);
       expect(served()).to.equal('old');
       expect(storeEntries()).to.deep.equal([]);
+    });
+  });
+
+  describe('a slow or stalled download', () => {
+    it('fails when the download stops moving, and keeps the installed build', async () => {
+      await install('v1');
+      const first = installedBuild();
+      release = makeRelease('v2');
+      releaseShape.stallAfterBytes = 100;
+
+      const result = await within(20000, runScript({ env: curlWithSpeedTime(2) }).done);
+
+      expect(result).to.not.equal('timed out');
+      expect(result.code, result.output).to.not.equal(0);
+      expect(served()).to.equal('v1');
+      expect(installedBuild()).to.equal(first);
+      expectOnlyInstalledBuild();
+    });
+
+    it('fails when the release information stops moving, and keeps the installed build', async () => {
+      await install('v1');
+      const first = installedBuild();
+      release = makeRelease('v2');
+      releaseShape.stallRelease = true;
+
+      const result = await within(20000, runScript({ env: curlWithSpeedTime(2) }).done);
+
+      expect(result).to.not.equal('timed out');
+      expect(result.code, result.output).to.not.equal(0);
+      expect(installedBuild()).to.equal(first);
+      expectOnlyInstalledBuild();
+    });
+
+    it('installs a download that is slow but keeps moving, however long it takes', async () => {
+      release = makeRelease('slow', { paddingBytes: 10000 });
+      releaseShape.dripBytesPerSecond = 2500;
+      const started = Date.now();
+
+      const result = await runScript({ env: curlWithSpeedTime(2) }).done;
+
+      expect(result.code, result.output).to.equal(0);
+      expect(Date.now() - started).to.be.above(3000);
+      expect(served()).to.equal('slow');
+      expectOnlyInstalledBuild();
     });
   });
 

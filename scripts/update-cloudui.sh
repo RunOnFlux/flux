@@ -115,11 +115,15 @@ trap cleanup EXIT
 TEMP_DIR=$(mktemp -d "$STORE_DIR/work.XXXXXX")
 RUN_ID="${TEMP_DIR##*.}"
 
+# A transfer that stays under 1 KB/s for two minutes, or a connection that does not open
+# within 30 seconds, fails the run. A slow transfer that keeps moving runs to the end.
+CURL_LIMITS=(--connect-timeout 30 --speed-limit 1024 --speed-time 120)
+
 # Each curl closes the lock descriptor, so a download that outlives a killed run does not
 # hold the lock against the next one.
 echo "1. Fetching latest release information..."
 RELEASE_JSON="$TEMP_DIR/release.json"
-curl -s "$RELEASE_API" -o "$RELEASE_JSON" 9>&-
+curl -s "${CURL_LIMITS[@]}" "$RELEASE_API" -o "$RELEASE_JSON" 9>&-
 
 # Check if we got a valid response
 if ! grep -q '"tag_name"' "$RELEASE_JSON"; then
@@ -179,7 +183,7 @@ fi
 echo "   Expected SHA256: $EXPECTED_SHA256"
 
 TARBALL="$TEMP_DIR/dist.tar.gz"
-curl -L -o "$TARBALL" "$DOWNLOAD_URL" 9>&-
+curl -L "${CURL_LIMITS[@]}" -o "$TARBALL" "$DOWNLOAD_URL" 9>&-
 
 echo ""
 echo "3. Verifying SHA256 checksum..."
