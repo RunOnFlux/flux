@@ -90,6 +90,70 @@ export function derivePeerThresholds(nodeCount, stubCount = 0) {
   };
 }
 
+// Production's readiness thresholds (ZelBack/config/default.js,
+// fluxapps.appSyncPeerThreshold and appSyncDegradedThreshold) and what a production
+// node actually carries: 26 peers at the tenth percentile, measured over 228 fleet
+// nodes and ~20,700 node-hours on 2026-09-12 - the measurement default.js records
+// above the peer-set dip settings. tests/unit/peerTopology.test.js asserts the two
+// thresholds still match the fleet's.
+export const PRODUCTION_READINESS = Object.freeze({
+  peerThreshold: 12,
+  degradedThreshold: 4,
+  carriedP10: 26,
+});
+
+/**
+ * The peers each node of a fleet of this shape carries once its ring has closed:
+ * both arcs, and never more than the fleet has to offer.
+ * @param {number} nodeCount
+ * @param {number} stubCount
+ * @returns {number}
+ */
+export function carriedPeers(nodeCount, stubCount = 0) {
+  if (nodeCount <= 1) return 0;
+  return Math.min(nodeCount - 1, 2 * ringArc(dialerCount(nodeCount, stubCount)));
+}
+
+/**
+ * The readiness thresholds that give a fleet of this shape production's margin.
+ *
+ * A node announces the apps it runs only once it is ready, and it is ready only
+ * while it holds appSyncPeerThreshold peers. Production asks for 12 of the 26 peers
+ * even a tenth-percentile node carries, so a node that loses connections - to a
+ * restart, to a peer leaving - is ready again long before its locations lapse. A
+ * harness ring carries exactly 2 * arc, and asked for the shared threshold a small
+ * fleet has no margin: a node one connection short stays silent until the ring
+ * closes again, its locations lapse after locationTtlS, and its standbys are right
+ * to take its apps - a state a production node does not reach.
+ *
+ * So each threshold is the share of what a node carries that production's is: at
+ * least 1, since a node with no peers is never ready, and never above the shared
+ * value it compresses, so a fleet large enough to carry that comes out unchanged.
+ * The degraded threshold is never above the ready one. Injected as the fleet's
+ * config like derivePeerThresholds; a suite that is TESTING a threshold sets its
+ * own and that wins.
+ * @param {number} nodeCount
+ * @param {number} stubCount
+ * @param {{appSyncPeerThreshold: number, appSyncDegradedThreshold: number}} shared
+ *   the shared fleet's values
+ * @returns {{appSyncPeerThreshold: number, appSyncDegradedThreshold: number}}
+ */
+export function deriveReadinessThresholds(nodeCount, stubCount, shared) {
+  const carried = carriedPeers(nodeCount, stubCount);
+  const shareOf = (production, cap) => Math.min(
+    cap,
+    Math.max(1, Math.floor((carried * production) / PRODUCTION_READINESS.carriedP10)),
+  );
+  const appSyncPeerThreshold = shareOf(PRODUCTION_READINESS.peerThreshold, shared.appSyncPeerThreshold);
+  return {
+    appSyncPeerThreshold,
+    appSyncDegradedThreshold: Math.min(
+      appSyncPeerThreshold,
+      shareOf(PRODUCTION_READINESS.degradedThreshold, shared.appSyncDegradedThreshold),
+    ),
+  };
+}
+
 /**
  * The peer total each node reaches once the ring has closed. Used for the boot
  * wait: it is the same demand expressed as a sum, which is robust even if a
