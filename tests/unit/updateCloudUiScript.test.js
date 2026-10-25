@@ -158,6 +158,23 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
     return { requested, answer };
   }
 
+  // Sends the run's process group SIGTERM until the script exits, as a service manager
+  // stopping it signals every process in it until no new ones appear.
+  async function signalGroupUntilExit(run) {
+    let exited = false;
+    run.exited.then(() => { exited = true; });
+    while (!exited) {
+      try {
+        process.kill(-run.child.pid, 'SIGTERM');
+      } catch {
+        // ESRCH: the group has gone
+        return;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((resolve) => { setTimeout(resolve, 1); });
+    }
+  }
+
   function within(ms, promise) {
     const timeout = new Promise((resolve) => { setTimeout(() => resolve('timed out'), ms); });
 
@@ -499,6 +516,39 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
       expect(storeEntries().some((name) => name.startsWith('work.'))).to.equal(true);
       process.kill(-run.child.pid, 'SIGTERM');
       await run.done;
+
+      expect(served()).to.equal('v1');
+      expect(installedBuild()).to.equal(first);
+      expectOnlyInstalledBuild();
+    });
+
+    it('leaves only the installed build when its process group is signalled until it exits, as a service manager does', async () => {
+      await install('v1');
+      const first = installedBuild();
+      release = makeRelease('v2');
+      const { requested } = holdNextTarball();
+
+      const run = runScript();
+      await requested;
+      await signalGroupUntilExit(run);
+      await run.done;
+
+      expect(served()).to.equal('v1');
+      expect(installedBuild()).to.equal(first);
+      expectOnlyInstalledBuild();
+    });
+
+    it('leaves only the installed build when the reader of its output has gone before it is stopped', async () => {
+      await install('v1');
+      const first = installedBuild();
+      release = makeRelease('v2');
+      const { requested } = holdNextTarball();
+
+      const run = runScript();
+      await requested;
+      run.child.stdout.destroy();
+      run.child.stderr.destroy();
+      await signalGroupUntilExit(run);
 
       expect(served()).to.equal('v1');
       expect(installedBuild()).to.equal(first);
