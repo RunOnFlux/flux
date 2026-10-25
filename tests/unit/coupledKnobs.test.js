@@ -1,11 +1,9 @@
 const { expect } = require('chai');
 const proxyquire = require('proxyquire').noCallThru();
 
-// coupled-knobs.js holds production's side of every harness ratio as constants,
-// because ZelBack/config/default.js requires the gitignored config/userconfig.js
-// and the harness cannot resolve it. Constants copied from a file drift from it;
-// this is what makes the drift fail rather than quietly weaken the check the
-// harness runs on every fleet boot.
+// coupled-knobs.js holds production's side of every harness ratio as constants.
+// Constants copied from a file drift from it; this is what makes the drift fail
+// rather than quietly weaken the check the harness runs on every fleet boot.
 describe('coupled harness knobs track production', () => {
   let knobs;
 
@@ -18,9 +16,7 @@ describe('coupled harness knobs track production', () => {
   });
 
   function productionConfig() {
-    return proxyquire('../../ZelBack/config/default', {
-      '../../config/userconfig': { initial: { development: false } },
-    });
+    return proxyquire('../../ZelBack/config/default', {});
   }
 
   it('holds the same numbers the fleet reads', () => {

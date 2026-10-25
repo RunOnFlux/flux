@@ -120,7 +120,6 @@ class ConfigManager extends EventEmitter {
           ipaddress: '127.0.0.1',
           zelid: null,
           kadena: '',
-          development: false,
           apiport: 16127,
           routerIP: '',
           pgpPrivateKey: '',

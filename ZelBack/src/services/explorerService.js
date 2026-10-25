@@ -395,8 +395,7 @@ async function processInsight(blockDataVerbose, database) {
         if (receiver.scriptPubKey.addresses) { // count for messages
           if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address
             || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig && blockDataVerbose.height >= config.fluxapps.appSpecsEnforcementHeights[6])
-            || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisigB && blockDataVerbose.height >= config.fluxapps.multisigAddressChange)
-            || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressDevelopment && config.development)) { // DEVELOPMENT MODE
+            || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisigB && blockDataVerbose.height >= config.fluxapps.multisigAddressChange)) {
             // it is an app message. Get Satoshi amount
             isFluxAppMessageValue += receiver.valueSat;
           }
@@ -1168,8 +1167,7 @@ function processBootstrapTx(tx, priceSpecs, seenHashes, hashBatch, txIndex) {
       const addr = vout.scriptPubKey.addresses[0];
       if (addr === config.fluxapps.address
         || (addr === config.fluxapps.addressMultisig && height >= config.fluxapps.appSpecsEnforcementHeights[6])
-        || (addr === config.fluxapps.addressMultisigB && height >= config.fluxapps.multisigAddressChange)
-        || (addr === config.fluxapps.addressDevelopment && config.development)) {
+        || (addr === config.fluxapps.addressMultisigB && height >= config.fluxapps.multisigAddressChange)) {
         appValue += vout.valueSat;
       }
     }

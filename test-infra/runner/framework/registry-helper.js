@@ -455,8 +455,7 @@ const EXECUTOR_PIN_FILE = join(__dirname, '..', '..', '..', 'ZelBack', 'config',
  * Its own file rather than the config that spreads it, so this reads a value
  * instead of matching one out of source. Scraping the config coupled the runner
  * to how a pin is written down: changing its shape - a digest to a tag - broke
- * the harness rather than the thing under test. It cannot require the config
- * either, which pulls in the gitignored userconfig.js.
+ * the harness rather than the thing under test.
  *
  * @returns {{image: string, imageIds: Object<string, string>}}
  */
@@ -522,9 +521,7 @@ export function executorAcceptedIds(architecture) {
  *
  * The digest is read out of the app's own config rather than repeated here, so
  * it lives in exactly one place and rebuilding the image cannot leave the
- * harness testing a different one than the fleet runs. Read as text rather than
- * required, because that config pulls in userconfig.js, which is gitignored -
- * the runner would then depend on a file that is not in the checkout.
+ * harness testing a different one than the fleet runs.
  *
  * Call it from a suite's `before`, AFTER createTestEnv and before the first
  * operation - not from createTestEnv itself, because the sixty-odd suites that

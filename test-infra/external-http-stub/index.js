@@ -971,10 +971,6 @@ app.get('/marketplace/listapps', (req, res) => {
   res.json({ status: 'success', data: state.marketplaceApps });
 });
 
-app.get('/marketplace/listdevapps', (req, res) => {
-  res.json({ status: 'success', data: state.marketplaceApps });
-});
-
 // Stats: per-spec USD pricing.
 app.get('/apps/getappspecsusdprice', (req, res) => {
   res.json({ status: 'success', data: state.appSpecsUsdPrice });
