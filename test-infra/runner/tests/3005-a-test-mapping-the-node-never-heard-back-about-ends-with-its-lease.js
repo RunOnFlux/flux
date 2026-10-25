@@ -18,6 +18,9 @@ const subnet = getSubnetConfig();
 // A node's test mappings - its UPnP check's and its port test's - carry a lease on a router
 // that keeps one, so a test mapping the router took after the node stopped waiting for its
 // answer goes when the lease ends: the node never heard it was made, and never removes it.
+// A node removes the test mappings it left once per start, in its stale-mapping cleanup,
+// so the late mapping is made only once that pass has run: from then on only its lease
+// can end it.
 // The UPnP check reads its mapping back to learn whether the router keeps a lease. On a
 // router that refuses one - with 725, as MikroTik does, or with any other fault - or that
 // holds a leased mapping as permanent, the node is in service as on any router, and its
@@ -29,6 +32,9 @@ const LEASE_S = 40;
 const SLOW_ADD_MS = 12000;
 // the port test's question to a peer
 const PEER_ASK_MS = 10000;
+// The stale-mapping cleanup runs once per start, in this node's slot of a cycle of
+// upnpService's CLEANUP_CYCLE_MS (10 minutes), so it has run within one cycle of the boot.
+const CLEANUP_CYCLE_MS = 10 * 60 * 1000;
 if (LEASE_S * 1000 <= SLOW_ADD_MS + PEER_ASK_MS) {
   throw new Error('3005: a test mapping\'s lease must outlast the test that holds it');
 }
@@ -44,6 +50,8 @@ describe('a test mapping the node never heard back about ends with its lease', f
   dumpLogsOnFailure(() => env);
   let node;
   let nodeIp;
+  // when FluxOS last started on the node, for the cleanup pass that follows it
+  let startedAt = 0;
   const gateway = () => upnpGatewayState(nodeIp);
   const adds = (requests, description, sinceMs = 0) => requests.filter((r) => r.action === 'AddPortMapping'
     && r.description === description && Date.parse(r.at) >= sinceMs);
@@ -55,6 +63,7 @@ describe('a test mapping the node never heard back about ends with its lease', f
     await enableUpnpGateway(nodeIp);
     if (leases) await setUpnpLeases(nodeIp, leases);
     const from = Date.now();
+    startedAt = from;
     await restartFluxos(node.container);
     await waitForBootSettled(node);
     let state = { requests: [] };
@@ -112,7 +121,13 @@ describe('a test mapping the node never heard back about ends with its lease', f
   });
 
   it('leaves a test mapping the router answered too late for to its lease, which ends it', async function () {
-    this.timeout(LEASE_S * 1000 + 360000);
+    this.timeout(CLEANUP_CYCLE_MS + LEASE_S * 1000 + 360000);
+    // the cleanup lists the router's table once per start, and removes what it lists then
+    await waitFor(async () => {
+      const { requests } = await gateway();
+      const listed = requests.filter((r) => r.action === 'GetGenericPortMappingEntry' && Date.parse(r.at) >= startedAt);
+      return listed.length > 0 && Date.now() - Date.parse(listed[listed.length - 1].at) > 5000;
+    }, { timeout: CLEANUP_CYCLE_MS + 120000, interval: 2000, label: 'the node\'s stale-mapping cleanup has run since it started' });
     const from = Date.now();
     await setUpnpSlowAdds(nodeIp, { ms: SLOW_ADD_MS, description: 'Flux_Test_App' });
     let late = null;
@@ -132,7 +147,7 @@ describe('a test mapping the node never heard back about ends with its lease', f
       state = await gateway();
       return !state.mappings.some((m) => m.externalPort === late.port && m.protocol === late.protocol);
     }, { timeout: LEASE_S * 1000 + 30000, interval: 2000, label: 'the router ends the mapping when its lease does' });
-    expect(state.requests.filter((r) => r.action === 'DeletePortMapping' && r.port === late.port), 'the node removed it').to.deep.equal([]);
+    expect(state.requests.filter((r) => r.action === 'DeletePortMapping' && r.port === late.port && r.protocol === late.protocol), 'the node removed it').to.deep.equal([]);
   });
 
   it('is in service on a router that keeps permanent mappings only, with its test mappings made with no lease', async function () {
