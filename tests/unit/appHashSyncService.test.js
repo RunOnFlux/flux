@@ -1765,6 +1765,167 @@ describe('appHashSyncService tests', () => {
       const verifyCall = localMessageVerifierStub.verifyAppMessageUpdateSignature.firstCall;
       expect(verifyCall.args[5]).to.equal('my-owner');
     });
+
+    describe('several apps at once', () => {
+      const owner = '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC';
+      const message = (type, name, i, specs = {}) => ({
+        type, version: 1, hash: `hash${i}`, timestamp: 1000 + i, signature: `sig${i}`,
+        appSpecifications: {
+          name, version: 4, owner, ...specs,
+        },
+        valueSat: 100 + i, txid: `tx${i}`, height: 1000 + i,
+      });
+      const registration = (name, i, specs) => message('fluxappregister', name, i, specs);
+      const update = (name, i, specs) => message('fluxappupdate', name, i, specs);
+      const enterprise = (i) => ({ version: 8, enterprise: `blob${i}` });
+
+      const syncMessages = async (bulkMessages) => {
+        const missingRecords = bulkMessages.map((m, i) => ({
+          hash: m.hash, txid: m.txid, height: m.height, value: 100 + i, message: false,
+        }));
+        const manyMissing = missingRecords.length > 500 ? missingRecords : [
+          ...missingRecords,
+          ...Array(600).fill(null).map((_, i) => ({
+            hash: `absent${i}`, txid: `atx${i}`, height: 9000 + i, value: 1, message: false,
+          })),
+        ];
+        let getMissingCalls = 0;
+        localDbHelperStub.findInDatabase.callsFake(() => {
+          getMissingCalls += 1;
+          return Promise.resolve(getMissingCalls === 1 ? manyMissing : []);
+        });
+        localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+        serviceHelperStub.axiosGet.callsFake((url) => {
+          if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkMessages));
+          return Promise.resolve({ data: { status: 'success', data: true } });
+        });
+
+        await localModule.syncMissingHashes();
+      };
+
+      // Each message's hash check takes `turns` trips through the event loop; the log is every
+      // check's start and end, in the order they happened.
+      const checksTaking = (turns = () => 2) => {
+        const events = [];
+        let inFlight = 0;
+        let mostInFlight = 0;
+        localMessageVerifierStub.verifyAppHash.callsFake(async (m) => {
+          events.push(`start ${m.hash}`);
+          inFlight += 1;
+          mostInFlight = Math.max(mostInFlight, inFlight);
+          for (let turn = 0; turn < turns(m); turn += 1) {
+            // eslint-disable-next-line no-await-in-loop
+            await new Promise((resolve) => { setImmediate(resolve); });
+          }
+          inFlight -= 1;
+          events.push(`end ${m.hash}`);
+        });
+        return { events, mostInFlight: () => mostInFlight };
+      };
+      const stored = () => localCollectionStub.insertMany.getCalls().flatMap((call) => call.args[0].map((m) => m.hash));
+      const decryptedBlobs = () => localCheckAndDecryptStub.getCalls().map((call) => call.args[0].enterprise);
+
+      it('checks up to four apps at once', async () => {
+        const checks = checksTaking();
+
+        await syncMessages(['a', 'b', 'c', 'd', 'e', 'f'].map((name, i) => registration(name, i)));
+
+        expect(stored(), 'the fixture stored fewer than six').to.have.length(6);
+        expect(checks.mostInFlight()).to.equal(4);
+      });
+
+      it('checks one app\'s messages one after another, while another app is checked', async () => {
+        const checks = checksTaking();
+
+        await syncMessages([registration('solo', 0), update('solo', 1), registration('other', 2)]);
+
+        expect(stored()).to.deep.equal(['hash0', 'hash1', 'hash2']);
+        const at = (event) => checks.events.indexOf(event);
+        expect(at('end hash0')).to.be.below(at('start hash1'));
+        expect(at('start hash2'), 'the other app waited for this one').to.be.below(at('end hash0'));
+      });
+
+      it('stores the messages in height order, whatever order their apps finish in', async () => {
+        const checks = checksTaking((m) => (m.hash === 'hash0' ? 6 : 1));
+
+        await syncMessages(['slow', 'quick', 'quicker'].map((name, i) => registration(name, i)));
+
+        expect(checks.events.filter((e) => e.startsWith('end')), 'the first app did not finish last')
+          .to.deep.equal(['end hash1', 'end hash2', 'end hash0']);
+        expect(stored()).to.deep.equal(['hash0', 'hash1', 'hash2']);
+        const marked = localCollectionStub.bulkWrite.getCalls()
+          .flatMap((call) => call.args[0].filter((op) => op.updateOne?.update?.$set?.message === true))
+          .map((op) => op.updateOne.filter.hash);
+        expect(marked).to.deep.equal(['hash0', 'hash1', 'hash2']);
+      });
+
+      it('decrypts an update\'s predecessor verified in the same run only once', async () => {
+        localCheckAndDecryptStub.callsFake((spec) => Promise.resolve({ ...spec, compose: [{ name: `from-${spec.enterprise}` }] }));
+
+        await syncMessages([registration('ent', 0, enterprise(0)), update('ent', 1, enterprise(1))]);
+
+        expect(stored()).to.deep.equal(['hash0', 'hash1']);
+        expect(decryptedBlobs()).to.deep.equal(['blob0', 'blob1']);
+        const prevSpecs = localMessageVerifierStub.verifyAppMessageUpdateSignature.firstCall.args[7];
+        expect(prevSpecs.compose).to.deep.equal([{ name: 'from-blob0' }]);
+      });
+
+      it('decrypts a stored predecessor that lies between two updates the run verifies', async () => {
+        localCheckAndDecryptStub.callsFake((spec) => Promise.resolve({ ...spec, compose: [{ name: `from-${spec.enterprise}` }] }));
+        const held = [registration('ent', 0, enterprise(0)), update('ent', 2, enterprise(2))];
+        localCollectionStub.find.returns({
+          project: sinon.stub().returns({ sort: sinon.stub().returns({ toArray: sinon.stub().resolves(held) }) }),
+        });
+
+        await syncMessages([update('ent', 1, enterprise(1)), update('ent', 3, enterprise(3))]);
+
+        expect(stored()).to.deep.equal(['hash1', 'hash3']);
+        expect(decryptedBlobs()).to.deep.equal(['blob1', 'blob0', 'blob3', 'blob2']);
+        const prevSpecs = localMessageVerifierStub.verifyAppMessageUpdateSignature.secondCall.args[7];
+        expect(prevSpecs.compose).to.deep.equal([{ name: 'from-blob2' }]);
+      });
+
+      it('decrypts the predecessor again when its own decrypt failed', async () => {
+        localCheckAndDecryptStub.callsFake((spec) => (spec.enterprise === 'blob0' && localCheckAndDecryptStub.callCount === 1
+          ? Promise.reject(new Error('Error decrypting AES key.'))
+          : Promise.resolve({ ...spec, compose: [] })));
+
+        await syncMessages([registration('ent', 0, enterprise(0)), update('ent', 1, enterprise(1))]);
+
+        expect(stored()).to.deep.equal(['hash0', 'hash1']);
+        expect(decryptedBlobs()).to.deep.equal(['blob0', 'blob1', 'blob0']);
+      });
+
+      [
+        [1000, 'kept', ['blob1000']],
+        [1001, 'dropped and decrypted again', ['blob1500', 'blob0']],
+      ].forEach(([apps, outcome, afterRegistrations]) => {
+        it(`keeps the latest spec of 1000 apps across batches: with ${apps}, the first app's is ${outcome}`, async () => {
+          // a later batch finds what an earlier one stored
+          const inserted = [];
+          localCollectionStub.insertMany.callsFake(async (docs) => { inserted.push(...docs); return { insertedCount: docs.length }; });
+          localCollectionStub.find.callsFake((query) => ({
+            project: () => ({
+              sort: () => ({
+                toArray: async () => inserted.filter((doc) => query['appSpecifications.name']?.$in.includes(doc.appSpecifications.name)),
+              }),
+            }),
+          }));
+          const registrations = Array.from({ length: apps }, (_, i) => registration(`app${i}`, i, enterprise(i)));
+          // non-enterprise registrations that put the update in a batch of its own, after every
+          // enterprise app's spec is kept
+          const fillers = Array.from({ length: (500 - (apps % 500)) % 500 }, (_, i) => registration(`filler${i}`, apps + i));
+          const last = apps + fillers.length;
+
+          await syncMessages([...registrations, ...fillers, update('app0', last, enterprise(last))]);
+
+          expect(stored(), 'the fixture stored fewer than every message').to.have.length(last + 1);
+          expect(localCollectionStub.insertMany.lastCall.args[0].map((m) => m.hash), 'the update shared its batch').to.deep.equal([`hash${last}`]);
+          expect(localCollectionStub.insertMany.callCount, 'the run was one batch').to.be.above(2);
+          expect(decryptedBlobs().slice(apps)).to.deep.equal(afterRegistrations);
+        });
+      });
+    });
   });
 
   describe('waitForResolution', () => {

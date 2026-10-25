@@ -26,6 +26,7 @@ const { isBefore, messagesThatCount } = require('../utils/appMessageChain');
 const { invalidMessages } = require('../invalidMessages');
 const { readMessageLog } = require('./permanentMessageLog');
 const { MessageStage } = require('./messageStage');
+const { forEachLimited } = require('../utils/forEachLimited');
 const { Privilege, authOf } = require('../utils/privileges');
 
 const appsHashesCollection = config.database.daemon.collections.appsHashes;
@@ -145,6 +146,43 @@ const BULK_FETCH_IDLE_MS = config.fluxapps.hashSyncBulkIdleMs ?? 120000;
 // Two runs of missing messages are asked for in one request when fewer than this many app
 // payments this node already holds lie between them.
 const RANGE_GAP_PAYMENTS = 2000;
+// Apps whose messages are verified at once. Each enterprise message is decrypted through
+// fluxbenchd, which serves about as many decrypts at once as the node has cores; a decrypt it
+// refuses leaves that message stored without its contents checked.
+const VERIFY_CONCURRENCY = config.fluxapps.hashSyncVerifyConcurrency ?? 4;
+// Enterprise apps whose latest decrypted spec a hash sync keeps.
+const DECRYPTED_SPECS_KEPT = 1000;
+
+/**
+ * The latest decrypted spec of each enterprise app a hash sync has verified, so an update is
+ * checked against its predecessor without decrypting the predecessor again. One entry per app,
+ * at most DECRYPTED_SPECS_KEPT apps, the earliest stored dropped first. A spec not held here is
+ * decrypted.
+ */
+class LatestDecryptedSpecs {
+  #byApp = new Map();
+
+  /**
+   * @param {string} appName
+   * @param {string} hash the message whose decrypted spec is wanted
+   * @returns {object|null} the formatted decrypted spec, or null when this is not the app's latest
+   */
+  get(appName, hash) {
+    const latest = this.#byApp.get(appName);
+    return latest?.hash === hash ? latest.spec : null;
+  }
+
+  /**
+   * @param {string} appName
+   * @param {string} hash the verified message
+   * @param {object} spec its formatted decrypted spec
+   */
+  set(appName, hash, spec) {
+    this.#byApp.delete(appName);
+    this.#byApp.set(appName, { hash, spec });
+    if (this.#byApp.size > DECRYPTED_SPECS_KEPT) this.#byApp.delete(this.#byApp.keys().next().value);
+  }
+}
 
 /**
  * The first index of a sorted array whose value is not below `value`.
@@ -357,10 +395,11 @@ async function bulkFetch(peers, missing, onProgress) {
 
     let processed = 0;
     let skipped = 0;
+    const decryptedSpecs = new LatestDecryptedSpecs();
     // eslint-disable-next-line no-restricted-syntax
     for await (const batch of stage.batches(BULK_FETCH_BATCH_SIZE)) {
       // eslint-disable-next-line no-await-in-loop
-      const stats = await processMessages(batch, missing, onProgress);
+      const stats = await processMessages(batch, missing, onProgress, decryptedSpecs);
       processed += stats.processed;
       skipped += stats.skipped;
       // eslint-disable-next-line no-restricted-syntax
@@ -402,8 +441,9 @@ function withOwnChainRecord(message, record) {
  * @param {Map<string, {txid: string, height: number, value: number}>} records this node's
  *   payment record of each hash, keyed by hash
  * @param {Function} [onProgress]
+ * @param {LatestDecryptedSpecs} [decryptedSpecs] the run's decrypted specs, read and added to
  */
-async function processMessages(messages, records, onProgress) {
+async function processMessages(messages, records, onProgress, decryptedSpecs = new LatestDecryptedSpecs()) {
   const db = dbHelper.databaseConnection();
   const appsGlobalDb = db.db(config.database.appsglobal.database);
   const daemonDb = db.db(config.database.daemon.database);
@@ -487,118 +527,133 @@ async function processMessages(messages, records, onProgress) {
       paymentFacts.positions,
     );
 
-    // 4. Verify each message and collect for batch insert
-    const permInserts = [];
-    let hashMarkOps = [];
-
+    // 4. Verify each app's messages in height order, VERIFY_CONCURRENCY apps at once. A message is
+    // checked only against its own app's earlier messages, and none is stored until all are checked.
+    const verified = new Map();
+    const messagesByApp = new Map();
     for (const appMessage of newMessages) {
-      try {
-        const specifications = appMessage.appSpecifications;
-        if (!specifications) continue;
+      const appName = serviceHelper.ensureString(appMessage.appSpecifications?.name);
+      if (!messagesByApp.has(appName)) messagesByApp.set(appName, []);
+      messagesByApp.get(appName).push(appMessage);
+    }
 
-        const appSpecFormatted = specificationFormatter(specifications);
-        const messageVersion = serviceHelper.ensureNumber(appMessage.version);
-        const messageTimestamp = serviceHelper.ensureNumber(appMessage.timestamp);
-        const height = serviceHelper.ensureNumber(appMessage.height);
-        const valueSat = serviceHelper.ensureNumber(appMessage.valueSat);
-        const isRegistration = appMessage.type === 'fluxappregister' || appMessage.type === 'zelappregister';
+    // eslint-disable-next-line no-inner-declarations
+    async function verifyAppMessages(appMessages) {
+      for (const appMessage of appMessages) {
+        try {
+          const specifications = appMessage.appSpecifications;
+          if (!specifications) continue;
 
-        await messageVerifier.verifyAppHash(appMessage);
+          const appSpecFormatted = specificationFormatter(specifications);
+          let appSpecDecrypted = null;
+          const messageVersion = serviceHelper.ensureNumber(appMessage.version);
+          const messageTimestamp = serviceHelper.ensureNumber(appMessage.timestamp);
+          const height = serviceHelper.ensureNumber(appMessage.height);
+          const valueSat = serviceHelper.ensureNumber(appMessage.valueSat);
+          const isRegistration = appMessage.type === 'fluxappregister' || appMessage.type === 'zelappregister';
 
-        if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-          try {
-            verifyAppNameAndOwner(appSpecFormatted.name, appSpecFormatted.owner);
-            const decrypted = await checkAndDecryptAppSpecs(
-              appSpecFormatted,
-              { daemonHeight: height, owner: appSpecFormatted.owner },
-            );
-            const appSpecDecrypted = specificationFormatter(decrypted);
-            await appValidator.verifyAppSpecifications(appSpecDecrypted, height);
-          } catch (err) {
-            log.warn(`processMessages enterprise decrypt skipped for ${appSpecFormatted.name}: ${err.message}`);
-          }
-        } else {
-          await appValidator.verifyAppSpecifications(appSpecFormatted, height);
-        }
+          await messageVerifier.verifyAppHash(appMessage);
 
-        const permMsg = {
-          type: appMessage.type,
-          version: messageVersion,
-          appSpecifications: appSpecFormatted,
-          hash: appMessage.hash,
-          timestamp: messageTimestamp,
-          signature: appMessage.signature,
-          txid: serviceHelper.ensureString(appMessage.txid),
-          height,
-          valueSat,
-        };
-
-        if (isRegistration) {
-          await messageVerifier.verifyAppMessageSignature(
-            appMessage.type, messageVersion, appSpecFormatted, messageTimestamp, appMessage.signature,
-          );
-        } else {
-          const prevSpecsList = prevSpecsMap.get(appSpecFormatted.name);
-          const prevMsg = prevSpecsList ? findPrevSpec(countedBefore(prevSpecsList), height, messageTimestamp) : null;
-          if (!prevMsg) {
-            failed += 1;
-            continue;
-          }
-          const prevSpecs = prevMsg.appSpecifications;
-          let prevSpecsForVerification = prevSpecs;
-          if (prevSpecs.version >= 8 && prevSpecs.enterprise) {
+          if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
             try {
-              verifyAppNameAndOwner(prevSpecs.name, prevSpecs.owner);
+              verifyAppNameAndOwner(appSpecFormatted.name, appSpecFormatted.owner);
               const decrypted = await checkAndDecryptAppSpecs(
-                prevSpecs, { daemonHeight: prevMsg.height, owner: prevSpecs.owner },
+                appSpecFormatted,
+                { daemonHeight: height, owner: appSpecFormatted.owner },
               );
-              prevSpecsForVerification = specificationFormatter(decrypted);
+              const formattedDecrypted = specificationFormatter(decrypted);
+              await appValidator.verifyAppSpecifications(formattedDecrypted, height);
+              appSpecDecrypted = formattedDecrypted;
             } catch (err) {
-              log.warn(`processMessages prevSpec decrypt skipped for ${appSpecFormatted.name}: ${err.message}`);
+              log.warn(`processMessages enterprise decrypt skipped for ${appSpecFormatted.name}: ${err.message}`);
             }
+          } else {
+            await appValidator.verifyAppSpecifications(appSpecFormatted, height);
           }
-          try {
-            await messageVerifier.verifyAppMessageUpdateSignature(
-              appMessage.type, messageVersion, appSpecFormatted, messageTimestamp,
-              appMessage.signature, prevSpecsForVerification.owner, daemonHeight, prevSpecsForVerification,
+
+          const permMsg = {
+            type: appMessage.type,
+            version: messageVersion,
+            appSpecifications: appSpecFormatted,
+            hash: appMessage.hash,
+            timestamp: messageTimestamp,
+            signature: appMessage.signature,
+            txid: serviceHelper.ensureString(appMessage.txid),
+            height,
+            valueSat,
+          };
+
+          if (isRegistration) {
+            await messageVerifier.verifyAppMessageSignature(
+              appMessage.type, messageVersion, appSpecFormatted, messageTimestamp, appMessage.signature,
             );
-          } catch (sigError) {
-            // Before height 2000000, owner-change races were accepted by the
-            // network (re-verification not deployed until v8.10.0, well after
-            // the last known race at h=1880981).
-            if (height >= 2000000) throw sigError;
-            const oldOwner = prevOwnerMap.get(appSpecFormatted.name);
-            if (oldOwner && oldOwner !== prevSpecsForVerification.owner) {
+          } else {
+            const prevSpecsList = prevSpecsMap.get(appSpecFormatted.name);
+            const prevMsg = prevSpecsList ? findPrevSpec(countedBefore(prevSpecsList), height, messageTimestamp) : null;
+            if (!prevMsg) {
+              failed += 1;
+              continue;
+            }
+            const prevSpecs = prevMsg.appSpecifications;
+            let prevSpecsForVerification = prevSpecs;
+            if (prevSpecs.version >= 8 && prevSpecs.enterprise) {
+              try {
+                verifyAppNameAndOwner(prevSpecs.name, prevSpecs.owner);
+                prevSpecsForVerification = decryptedSpecs.get(appSpecFormatted.name, prevMsg.hash)
+                  ?? specificationFormatter(await checkAndDecryptAppSpecs(
+                    prevSpecs, { daemonHeight: prevMsg.height, owner: prevSpecs.owner },
+                  ));
+              } catch (err) {
+                log.warn(`processMessages prevSpec decrypt skipped for ${appSpecFormatted.name}: ${err.message}`);
+              }
+            }
+            try {
               await messageVerifier.verifyAppMessageUpdateSignature(
                 appMessage.type, messageVersion, appSpecFormatted, messageTimestamp,
-                appMessage.signature, oldOwner, daemonHeight, prevSpecsForVerification,
+                appMessage.signature, prevSpecsForVerification.owner, daemonHeight, prevSpecsForVerification,
               );
-            } else {
-              throw sigError;
+            } catch (sigError) {
+              // Before height 2000000, owner-change races were accepted by the
+              // network (re-verification not deployed until v8.10.0, well after
+              // the last known race at h=1880981).
+              if (height >= 2000000) throw sigError;
+              const oldOwner = prevOwnerMap.get(appSpecFormatted.name);
+              if (oldOwner && oldOwner !== prevSpecsForVerification.owner) {
+                await messageVerifier.verifyAppMessageUpdateSignature(
+                  appMessage.type, messageVersion, appSpecFormatted, messageTimestamp,
+                  appMessage.signature, oldOwner, daemonHeight, prevSpecsForVerification,
+                );
+              } else {
+                throw sigError;
+              }
+            }
+            const currentOwner = prevSpecs.owner;
+            if (currentOwner && appSpecFormatted.owner !== currentOwner) {
+              prevOwnerMap.set(appSpecFormatted.name, currentOwner);
             }
           }
-          const currentOwner = prevSpecs.owner;
-          if (currentOwner && appSpecFormatted.owner !== currentOwner) {
-            prevOwnerMap.set(appSpecFormatted.name, currentOwner);
-          }
+
+          // Verified — add to batch and update map for subsequent messages
+          verified.set(appMessage.hash, permMsg);
+          if (appSpecDecrypted) decryptedSpecs.set(appSpecFormatted.name, appMessage.hash, appSpecDecrypted);
+          if (!prevSpecsMap.has(appSpecFormatted.name)) prevSpecsMap.set(appSpecFormatted.name, []);
+          // kept sorted, as findPrevSpec searches it: a gap filled late lands mid-list, not at its end
+          const prevList = prevSpecsMap.get(appSpecFormatted.name);
+          const at = prevList.indexOf(findPrevSpec(prevList, height, messageTimestamp)) + 1;
+          prevList.splice(at, 0, permMsg);
+
+        } catch (error) {
+          failed += 1;
+          if (failed <= 10) log.warn(`processMessages verify failed: ${appMessage.hash} - ${error.message}`);
         }
-
-        // Verified — add to batch and update map for subsequent messages
-        permInserts.push(permMsg);
-        if (!prevSpecsMap.has(appSpecFormatted.name)) prevSpecsMap.set(appSpecFormatted.name, []);
-        // kept sorted, as findPrevSpec searches it: a gap filled late lands mid-list, not at its end
-        const prevList = prevSpecsMap.get(appSpecFormatted.name);
-        const at = prevList.indexOf(findPrevSpec(prevList, height, messageTimestamp)) + 1;
-        prevList.splice(at, 0, permMsg);
-
-        hashMarkOps.push({
-          updateOne: { filter: { hash: appMessage.hash }, update: { $set: { message: true, messageNotFound: false } } },
-        });
-      } catch (error) {
-        failed += 1;
-        if (failed <= 10) log.warn(`processMessages verify failed: ${appMessage.hash} - ${error.message}`);
       }
     }
+    await forEachLimited([...messagesByApp.values()], VERIFY_CONCURRENCY, verifyAppMessages);
+
+    const permInserts = newMessages.filter((m) => verified.has(m.hash)).map((m) => verified.get(m.hash));
+    let hashMarkOps = permInserts.map((permMsg) => ({
+      updateOne: { filter: { hash: permMsg.hash }, update: { $set: { message: true, messageNotFound: false } } },
+    }));
 
     // 5. Batch insert permanent messages (ordered so insertedCount is deterministic on failure)
     let inserted = 0;
