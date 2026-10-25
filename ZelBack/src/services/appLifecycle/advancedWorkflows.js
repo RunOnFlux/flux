@@ -3564,7 +3564,9 @@ async function updateAppGlobaly(params) {
   const daemonHeight = syncStatus.data.height;
 
   const appSpecObj = serviceHelper.ensureObject(appSpecification);
-  verifyAppNameAndOwner(appSpecObj.name, appSpecObj.owner);
+  if (appSpecObj.version >= 8 && appSpecObj.enterprise) {
+    verifyAppNameAndOwner(appSpecObj.name, appSpecObj.owner);
+  }
   const appSpecDecrypted = await checkAndDecryptAppSpecs(appSpecObj, { daemonHeight });
   const appSpecFormatted = specificationFormatter(appSpecDecrypted);
 

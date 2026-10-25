@@ -1503,7 +1503,9 @@ async function verifyAppRegistrationParameters(req, res) {
         appSpecification.version >= 8 && appSpecification.enterprise,
       );
 
-      verifyAppNameAndOwner(appSpecification.name, appSpecification.owner);
+      if (isEnterprise) {
+        verifyAppNameAndOwner(appSpecification.name, appSpecification.owner);
+      }
 
       // Decrypt enterprise specifications if needed
       const appSpecDecrypted = await checkAndDecryptAppSpecs(
@@ -1581,7 +1583,9 @@ async function validateAppUpdate(appSpecification) {
     appSpecification.version >= 8 && appSpecification.enterprise,
   );
 
-  verifyAppNameAndOwner(appSpecification.name, appSpecification.owner);
+  if (isEnterprise) {
+    verifyAppNameAndOwner(appSpecification.name, appSpecification.owner);
+  }
 
   const decryptedSpecs = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
 

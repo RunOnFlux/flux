@@ -1092,9 +1092,8 @@ describe('appValidator spec verification route tests', () => {
     [
       ['an invalid app name', { name: 'verify_test' }],
       ['an invalid owner', { owner: 'my-owner' }],
-      ['an invalid app name in a spec that is not enterprise', { version: 4, enterprise: undefined, name: 'verify_test' }],
     ].forEach(([description, change]) => {
-      it(`${route} should refuse a spec with ${description}`, async () => {
+      it(`${route} should refuse an enterprise spec with ${description}`, async () => {
         const response = await post(handler, { ...spec, ...change });
         expect(response.status).to.equal('error');
         expect(response.data.message).to.equal('Invalid app name or owner');

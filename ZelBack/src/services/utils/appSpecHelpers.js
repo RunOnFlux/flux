@@ -326,7 +326,9 @@ async function getAppFiatAndFluxPrice(req, res) {
         throw new Error('Daemon not yet synced.');
       }
       const daemonHeight = syncStatus.data.height;
-      verifyAppNameAndOwner(appSpecification.name, appSpecification.owner);
+      if (appSpecification.version >= 8 && appSpecification.enterprise) {
+        verifyAppNameAndOwner(appSpecification.name, appSpecification.owner);
+      }
       appSpecification = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
       const appSpecFormatted = specificationFormatter(appSpecification);
 

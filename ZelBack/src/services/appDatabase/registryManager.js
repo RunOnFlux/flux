@@ -2149,7 +2149,9 @@ async function registerAppGlobalyApi(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      verifyAppNameAndOwner(appSpecification.name, appSpecification.owner);
+      if (appSpecification.version >= 8 && appSpecification.enterprise) {
+        verifyAppNameAndOwner(appSpecification.name, appSpecification.owner);
+      }
 
       const appSpecDecrypted = await checkAndDecryptAppSpecs(
         appSpecification,

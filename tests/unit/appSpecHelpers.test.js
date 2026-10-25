@@ -870,19 +870,28 @@ describe('appSpecHelpers tests', () => {
     });
 
     [
-      ['an invalid app name', { name: 'Price_Test' }],
-      ['an invalid owner', { owner: 'my-owner' }],
+      ['an app name the rule would reject', { name: 'Price_Test' }],
+      ['an owner the rule would reject', { owner: 'marketplace' }],
     ].forEach(([description, change]) => {
-      it(`should refuse a spec with ${description}`, async () => {
+      // A non-enterprise spec never reaches the decrypt, so its name and owner
+      // are not checked here: it is priced as before.
+      it(`should price a non-enterprise spec with ${description}`, async () => {
         const response = await quote(buildSpec('/data', change));
-        expect(response.status).to.equal('error');
-        expect(response.data.message).to.equal('Invalid app name or owner');
+        expect(response.status).to.equal('success');
       });
 
       it(`should refuse an enterprise spec with ${description} before decrypting it`, async () => {
         const response = await quote(buildSpec('/data', { version: 8, enterprise: 'blob', ...change }));
         expect(response.data.message).to.equal('Invalid app name or owner');
       });
+    });
+
+    it('should price a marketplace spec: version 8, an empty enterprise field, a placeholder owner', async () => {
+      // The shape the marketplace install dialog sends.
+      const response = await quote(buildSpec('/data', {
+        version: 8, enterprise: '', owner: 'marketplace', expire: 22000, contacts: [], geolocation: [], nodes: [], staticip: false,
+      }));
+      expect(response.status).to.equal('success');
     });
 
     it('should decrypt an enterprise spec with a valid app name and owner', async () => {
