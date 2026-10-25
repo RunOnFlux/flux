@@ -776,6 +776,8 @@ module.exports = {
     // a peer that sends nothing for this long during a bulk fetch is abandoned; it covers the wait for
     // the first byte, which the whole-log route spends building its answer
     hashSyncBulkIdleMs: 120000,
+    // apps whose messages a bulk hash sync verifies at once
+    hashSyncVerifyConcurrency: 4,
     syncResponseThrottleMs: 300000,
     wsHandshakeTimeoutMs: 10000,
     imageUpdateCheckIntervalMs: 21600000,
