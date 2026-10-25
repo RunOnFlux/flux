@@ -2066,6 +2066,8 @@ describe('fluxService tests', () => {
       syncthingServiceStub = sinon.stub(syncthingService, 'systemVersion');
       sinon.stub(dockerService, 'dockerVersion').resolves({ Version: '27.5.1' });
       sinon.stub(dbHelper, 'getMongoDbVersion').resolves('7.0.14');
+      sinon.stub(cloudUIUpdateService, 'getLocalVersionTag').returns('v3.20.22');
+      sinon.stub(cloudUIUpdateService, 'getLocalVersionHash').returns('abc123');
     });
 
     afterEach(() => {
@@ -2178,6 +2180,7 @@ describe('fluxService tests', () => {
       expect(result.data.flux.dosStaging).to.equal(null);
       expect(result.data.flux.uplink).to.eql({ tunnel: 'unknown', mtu: null, rttMs: null });
       expect(result.data.flux.kernel).to.eql({ tainted: 4736, flags: ['D', 'W', 'O'] });
+      expect(result.data.flux.cloudUI).to.eql({ tag: 'v3.20.22', sha256: 'abc123' });
       expect(result.data.flux.dockerVersion).to.equal('27.5.1');
       expect(result.data.flux.mongoDbVersion).to.equal('7.0.14');
       expect(result.data.apps).to.be.an('object');

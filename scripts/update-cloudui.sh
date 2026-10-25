@@ -14,6 +14,7 @@
 # - CloudUI, a symlink to the installed build in .cloudui/
 # - CloudUI/version file containing the SHA256 hash of the installed version
 #   (used by external projects to verify nodes have the latest version)
+# - CloudUI/tag file containing the release tag of the installed version
 #
 # Installing never leaves CloudUI missing or partly written: each build is unpacked into
 # its own folder under .cloudui/, and CloudUI is switched to it by renaming a new symlink
@@ -220,9 +221,11 @@ rm -f "$EXTRACT_DIR/stats.html" 2>/dev/null || true
 rm -f "$EXTRACT_DIR/_redirects" 2>/dev/null || true
 
 echo ""
-echo "6. Creating version file..."
+echo "6. Creating version and tag files..."
 echo "$EXPECTED_SHA256" > "$EXTRACT_DIR/version"
+echo "$TAG_NAME" > "$EXTRACT_DIR/tag"
 echo "   Version file created with SHA256: $EXPECTED_SHA256"
+echo "   Tag file created with tag: $TAG_NAME"
 
 echo ""
 echo "7. Installing new CloudUI..."
