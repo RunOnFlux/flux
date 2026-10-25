@@ -32,6 +32,7 @@ const appInspector = require('../../ZelBack/src/services/appManagement/appInspec
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const daemonServiceControlRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceControlRpcs');
 // eslint-disable-next-line no-unused-vars
 const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
@@ -2064,6 +2065,7 @@ describe('fluxService tests', () => {
       fluxNetworkHelperStub = sinon.stub(fluxNetworkHelper, 'getIncomingConnectionsInfo');
       syncthingServiceStub = sinon.stub(syncthingService, 'systemVersion');
       sinon.stub(dockerService, 'dockerVersion').resolves({ Version: '27.5.1' });
+      sinon.stub(dbHelper, 'getMongoDbVersion').resolves('7.0.14');
     });
 
     afterEach(() => {
@@ -2176,6 +2178,8 @@ describe('fluxService tests', () => {
       expect(result.data.flux.dosStaging).to.equal(null);
       expect(result.data.flux.uplink).to.eql({ tunnel: 'unknown', mtu: null, rttMs: null });
       expect(result.data.flux.kernel).to.eql({ tainted: 4736, flags: ['D', 'W', 'O'] });
+      expect(result.data.flux.dockerVersion).to.equal('27.5.1');
+      expect(result.data.flux.mongoDbVersion).to.equal('7.0.14');
       expect(result.data.apps).to.be.an('object');
       expect(result.data.benchmark).to.eql({
         info: 'info2 data',
