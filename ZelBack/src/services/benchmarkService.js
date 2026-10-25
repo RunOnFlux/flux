@@ -12,6 +12,7 @@ const upnpService = require('./upnpService');
 const fluxRpc = require('./utils/fluxRpc');
 const dbHelper = require('./dbHelper');
 const { Privilege, authOf } = require('./utils/privileges');
+const { isValidAppNameAndOwner } = require('./utils/appIdentity');
 
 // eslint-disable-next-line no-unused-vars
 const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -280,43 +281,66 @@ async function signFluxTransactionPost(req, res) {
 }
 
 /**
+ * Whether a request names a well-formed app and owner.
+ * @param {string} message JSON object with `appName` and `fluxID`.
+ * @returns {boolean}
+ */
+function isValidAppRequest(message) {
+  let request;
+  try {
+    request = JSON.parse(message);
+  } catch {
+    return false;
+  }
+  if (!request || typeof request !== 'object') return false;
+
+  return isValidAppNameAndOwner(request.appName, request.fluxID);
+}
+
+/**
+ * Ask FluxBench to handle an app request. A request without a valid app
+ * name and owner is refused here and never sent.
+ * @param {string} rpc FluxBench RPC.
+ * @param {string} message JSON object with `appName` and `fluxID`.
+ * @returns {Promise<object>} Message.
+ */
+async function executeAppCall(rpc, message) {
+  if (!isValidAppRequest(message)) {
+    return messageHelper.createErrorMessage('Invalid app name or owner');
+  }
+  return executeCall(rpc, [message]);
+}
+
+/**
  * Ask FLuxBench to decrypt message
- * @param {object} message message object with information to be decrypted.
+ * @param {string} message JSON object with information to be decrypted.
  */
 async function decryptMessage(message) {
-  const rpccall = 'decryptmessage';
-  const rpcparameters = [message];
-  return executeCall(rpccall, rpcparameters);
+  return executeAppCall('decryptmessage', message);
 }
 
 /**
  * Ask FLuxBench to decrypt rsa message
- * @param {object} message message object with information to be decrypted.
+ * @param {string} message JSON object with information to be decrypted.
  */
 async function decryptRSAMessage(message) {
-  const rpccall = 'decryptrsamessage';
-  const rpcparameters = [message];
-  return executeCall(rpccall, rpcparameters);
+  return executeAppCall('decryptrsamessage', message);
 }
 
 /**
  * Ask FLuxBench to encrypt message
- * @param {object} message message object with information to be decrypted.
+ * @param {string} message JSON object with information to be encrypted.
  */
 async function encryptMessage(message) {
-  const rpccall = 'encryptmessage';
-  const rpcparameters = [message];
-  return executeCall(rpccall, rpcparameters);
+  return executeAppCall('encryptmessage', message);
 }
 
 /**
  * Ask FLuxBench to get public key to encrypt enterprise content
- * @param {object} message message object with the key.
+ * @param {string} message JSON object with the app and its owner.
  */
 async function getPublicKey(message) {
-  const rpccall = 'getpublickey';
-  const rpcparameters = [message];
-  return executeCall(rpccall, rpcparameters);
+  return executeAppCall('getpublickey', message);
 }
 
 // == Control ==

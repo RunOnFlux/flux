@@ -80,7 +80,9 @@ describe('fluxNetworkHelper tests', () => {
   beforeEach(() => {
     sinon.stub(upnpService, 'isUPNP').returns(false);
     sinon.stub(upnpService, 'removeMapUpnpPort').resolves(true);
-    sinon.stub(upnpService, 'mapUpnpPort').resolves(true);
+    sinon.stub(upnpService, 'mapUpnpPort').resolves({
+      mapped: true, code: null, reason: null, routerWide: false,
+    });
     // The installed copy of the ufw helper is the one to run (utils/ufwHelper has its own tests).
     sinon.stub(ufwHelper, 'path').resolves(ufwHelper.UFW_HELPER);
   });
@@ -399,6 +401,68 @@ describe('fluxNetworkHelper tests', () => {
       expect(second).to.be.null;
       // a null result is never cached, so every call re-probes until fluxbench resolves
       sinon.assert.calledTwice(benchStub);
+    });
+  });
+
+  describe('waitForLocalSocketAddress tests', () => {
+    let benchStub;
+
+    beforeEach(() => {
+      benchStub = sinon.stub(benchmarkService, 'getBenchmarks');
+      fluxNetworkHelper.setLocalSocketAddress(null);
+    });
+
+    afterEach(() => {
+      benchStub.restore();
+      fluxNetworkHelper.setLocalSocketAddress(null);
+    });
+
+    it('answers at once when benchmark reports an address', async () => {
+      benchStub.resolves({ status: 'success', data: { ipaddress: '203.0.113.40:16127' } });
+
+      expect(await fluxNetworkHelper.waitForLocalSocketAddress()).to.equal('203.0.113.40:16127');
+    });
+
+    it('waits while no address is known, and answers with the first one learned', async () => {
+      benchStub.resolves({ status: 'error' });
+      let answer = null;
+      const waiting = fluxNetworkHelper.waitForLocalSocketAddress().then((address) => { answer = address; });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(answer, 'answered before an address was known').to.equal(null);
+
+      fluxNetworkHelper.setLocalSocketAddress('203.0.113.41:16127');
+      await waiting;
+
+      expect(answer).to.equal('203.0.113.41:16127');
+    });
+
+    it('tells its listeners each time the node has an address after having none', () => {
+      const heard = [];
+      const listener = (address) => heard.push(address);
+      fluxNetworkHelper.onLocalSocketAddressKnown(listener);
+
+      fluxNetworkHelper.setLocalSocketAddress('203.0.113.44:16127');
+      fluxNetworkHelper.setLocalSocketAddress('203.0.113.44:16127');
+      fluxNetworkHelper.setLocalSocketAddress(null);
+      fluxNetworkHelper.setLocalSocketAddress('203.0.113.44:16127');
+
+      expect(heard).to.deep.equal(['203.0.113.44:16127', '203.0.113.44:16127']);
+    });
+
+    it('waits again when the address it was woken for is gone before it reads it', async () => {
+      benchStub.resolves({ status: 'error' });
+      let answer = null;
+      const waiting = fluxNetworkHelper.waitForLocalSocketAddress().then((address) => { answer = address; });
+      await new Promise((resolve) => { setImmediate(resolve); });
+
+      fluxNetworkHelper.setLocalSocketAddress('203.0.113.42:16127');
+      fluxNetworkHelper.setLocalSocketAddress(null);
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(answer, 'answered with no address').to.equal(null);
+
+      fluxNetworkHelper.setLocalSocketAddress('203.0.113.43:16127');
+      await waiting;
+      expect(answer).to.equal('203.0.113.43:16127');
     });
   });
 
@@ -1078,6 +1142,114 @@ describe('fluxNetworkHelper tests', () => {
       } finally {
         errorLog.restore();
       }
+    });
+  });
+
+  describe('checkMongoDbVersionAllowed tests', () => {
+    // minimumMongoDbAllowedVersion = '6.0.27'
+    const { MONGODB_FLOOR } = fluxNetworkHelper.StickyDosOwner;
+
+    afterEach(() => {
+      fluxNetworkHelper.clearStickyDos(MONGODB_FLOOR);
+      fluxNetworkHelper.setDosStateValue(0);
+      fluxNetworkHelper.setDosMessage(null);
+    });
+
+    it('allows the MongoDB the fleet runs, and the floor itself', () => {
+      ['8.0.20', '7.0.31', '6.0.27'].forEach((version) => {
+        expect(fluxNetworkHelper.checkMongoDbVersionAllowed(version), version).to.equal(true);
+      });
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+    });
+
+    it('takes a node below the floor out of service, and says which version it found and what to do', () => {
+      expect(fluxNetworkHelper.checkMongoDbVersionAllowed('6.0.26')).to.equal(false);
+      const reported = fluxNetworkHelper.getDOSState().data;
+      expect(reported.dosMessage).to.include('6.0.27');
+      expect(reported.dosMessage).to.include('6.0.26');
+      expect(reported.dosMessage).to.include('restart FluxOS');
+      expect(reported.dosState).to.equal(100);
+    });
+
+    it('refuses every release below the floor the fleet still runs, and a pre-release of the floor', () => {
+      ['4.4.29', '4.4.18', '6.0.26', '6.0.27-rc0'].forEach((version) => {
+        fluxNetworkHelper.clearStickyDos(MONGODB_FLOOR);
+        expect(fluxNetworkHelper.checkMongoDbVersionAllowed(version), version).to.equal(false);
+      });
+    });
+
+    it('gives no verdict when MongoDB did not report its version, or reports one that is not SemVer', () => {
+      [null, undefined, '', '6.0', 'dev'].forEach((version) => {
+        expect(fluxNetworkHelper.checkMongoDbVersionAllowed(version), String(version)).to.equal(true);
+      });
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+      expect(fluxNetworkHelper.getDOSState().data.dosState).to.equal(0);
+    });
+  });
+
+  describe('checkCgroupsAllowed tests', () => {
+    const { CGROUP_FLOOR } = fluxNetworkHelper.StickyDosOwner;
+    let root;
+
+    // A cgroup filesystem holding the given files, with FluxOS in
+    // system.slice/fluxos.service.
+    async function cgroupRoot(files) {
+      root = await fs.mkdtemp(path.join(os.tmpdir(), 'cgroup-'));
+      const cgroupFs = path.join(root, 'cgroup');
+      await Promise.all(files.map(async (file) => {
+        await fs.mkdir(path.dirname(path.join(cgroupFs, file)), { recursive: true });
+        await fs.writeFile(path.join(cgroupFs, file), '');
+      }));
+      const selfCgroupFile = path.join(root, 'self-cgroup');
+      await fs.writeFile(selfCgroupFile, '0::/system.slice/fluxos.service\n');
+      return { cgroupRoot: cgroupFs, selfCgroupFile };
+    }
+    const everything = ['cgroup.controllers', 'system.slice/fluxos.service/cgroup.kill'];
+
+    afterEach(async () => {
+      fluxNetworkHelper.clearStickyDos(CGROUP_FLOOR);
+      fluxNetworkHelper.setDosStateValue(0);
+      fluxNetworkHelper.setDosMessage(null);
+      await fs.rm(root, { recursive: true, force: true });
+    });
+
+    it('allows cgroup v2 with cgroup.kill under Docker\'s systemd driver', async () => {
+      expect(await fluxNetworkHelper.checkCgroupsAllowed('systemd', await cgroupRoot(everything))).to.equal(true);
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+    });
+
+    it('takes a node without cgroup v2 out of service, and says so', async () => {
+      expect(await fluxNetworkHelper.checkCgroupsAllowed('systemd', await cgroupRoot([]))).to.equal(false);
+      const reported = fluxNetworkHelper.getDOSState().data;
+      expect(reported.dosMessage).to.include('missing: cgroup v2');
+      expect(reported.dosMessage).to.include('restart FluxOS');
+      expect(reported.dosState).to.equal(100);
+    });
+
+    it('asks cgroup.kill of FluxOS\'s own cgroup, not of another', async () => {
+      const paths = await cgroupRoot(['cgroup.controllers', 'init.scope/cgroup.kill']);
+      expect(await fluxNetworkHelper.checkCgroupsAllowed('systemd', paths)).to.equal(false);
+      expect(fluxNetworkHelper.getDOSState().data.dosMessage).to.include('missing: cgroup.kill (Linux 5.14 or later)');
+    });
+
+    it('takes a node whose kernel cannot kill a cgroup out of service', async () => {
+      expect(await fluxNetworkHelper.checkCgroupsAllowed('systemd', await cgroupRoot(['cgroup.controllers']))).to.equal(false);
+      expect(fluxNetworkHelper.getDOSState().data.dosMessage).to.include('missing: cgroup.kill (Linux 5.14 or later)');
+    });
+
+    it('takes a node whose Docker uses another cgroup driver out of service, and names it', async () => {
+      expect(await fluxNetworkHelper.checkCgroupsAllowed('cgroupfs', await cgroupRoot(everything))).to.equal(false);
+      expect(fluxNetworkHelper.getDOSState().data.dosMessage).to.include('missing: Docker\'s systemd cgroup driver (found cgroupfs)');
+    });
+
+    it('gives no verdict on a driver Docker did not report', async () => {
+      expect(await fluxNetworkHelper.checkCgroupsAllowed(null, await cgroupRoot(everything))).to.equal(true);
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal(null);
+    });
+
+    it('still refuses the kernel when Docker did not report its driver', async () => {
+      expect(await fluxNetworkHelper.checkCgroupsAllowed(null, await cgroupRoot([]))).to.equal(false);
+      expect(fluxNetworkHelper.getDOSState().data.dosMessage).to.include('missing: cgroup v2');
     });
   });
 
@@ -2967,6 +3139,21 @@ describe('fluxNetworkHelper tests', () => {
       });
     });
 
+    it('opens and deletes a UDP test rule that names udp', async () => {
+      await fluxNetworkHelper.allowTestPort(31350, 'udp');
+      await fluxNetworkHelper.deleteTestPortRule(31350, 'udp');
+      expect(runUfw.args).to.deep.equal([
+        [['allow', 'proto', 'udp', 'from', '0.0.0.0/0', 'to', 'any', 'port', '31350']],
+        [['delete', 'allow', 'proto', 'udp', 'from', '0.0.0.0/0', 'to', 'any', 'port', '31350']],
+      ]);
+    });
+
+    it('refuses a protocol other than tcp or udp, running nothing', async () => {
+      expect((await fluxNetworkHelper.allowTestPort(31350, 'any')).status).to.equal(false);
+      expect((await fluxNetworkHelper.deleteTestPortRule(31350, 'any')).status).to.equal(false);
+      sinon.assert.notCalled(runUfw);
+    });
+
     it('reports a held lock and refuses a port that is not a number', async () => {
       runUfw.resolves({ error: null, stdout: '', stderr: '', locked: true });
       expect(await fluxNetworkHelper.allowTestPort(31350)).to.deep.equal({ status: false, message: 'ufw is locked by another ufw command' });
@@ -3943,6 +4130,29 @@ describe('fluxNetworkHelper tests', () => {
       fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
 
       expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
+    });
+
+    it('publishes a hold when it is set, and again when its reason changes', () => {
+      const publish = sinon.stub(fluxEventBus, 'publish');
+
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'first');
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'first');
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'second');
+
+      expect(publish.args.filter(([name]) => name === 'placementHold:set')).to.deep.equal([
+        ['placementHold:set', { owner: RESIDENTIAL_DOS, reason: 'first' }],
+        ['placementHold:set', { owner: RESIDENTIAL_DOS, reason: 'second' }],
+      ]);
+    });
+
+    it('publishes a release only of a hold that stood', () => {
+      fluxNetworkHelper.setPlacementHold(RESIDENTIAL_DOS, 'held');
+      const publish = sinon.stub(fluxEventBus, 'publish');
+
+      fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
+      fluxNetworkHelper.clearPlacementHold(RESIDENTIAL_DOS);
+
+      sinon.assert.calledOnceWithExactly(publish, 'placementHold:cleared', { owner: RESIDENTIAL_DOS, reason: 'held' });
     });
 
     it('refuses an owner it does not know, rather than minting one', () => {

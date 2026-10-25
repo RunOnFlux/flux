@@ -757,6 +757,26 @@ describe('AppSyncOrchestrator', () => {
       await orchestrator.stop();
     });
 
+    it('ends the request and asks another peer when its response cannot be recorded', async () => {
+      const peers = makeEligiblePeers(3);
+      const spare = makePeer('10.0.0.9:16127');
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
+
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peerEmitter.emit('peerThresholdReached', 12);
+      await clock.tickAsync(0);
+
+      getEligibleSyncPeersStub.returns([peers[1], peers[2], spare]);
+      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, peers[0].key);
+      await clock.tickAsync(0);
+
+      expect(spare.send.called, 'a peer whose response was not recorded kept its slot').to.equal(true);
+      expect(orchestrator.isSyncResponseWanted(peers[0]), 'the rest of an unrecorded response was still being taken')
+        .to.equal(false);
+      await orchestrator.stop();
+    });
+
     // The response path has the key and always had it. One arriving without a
     // peer means that path stopped saying, which is a fault to report.
     it('refuses to act on an unverifiable response that names no peer', async () => {
@@ -795,6 +815,26 @@ describe('AppSyncOrchestrator', () => {
       await clock.tickAsync(0);
       return orchestrator;
     };
+
+    it('does not credit a peer whose request ended while its last message was being stored', async () => {
+      const orchestrator = await driveToRequests(makeEligiblePeers(3));
+      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_WRITE_FAILED, makeEligiblePeers(3)[0].key);
+      await clock.tickAsync(0);
+
+      completeAllTypes(3, ['apprunning', 'appinstalling', 'apperrors', 'apptemp']);
+      await clock.tickAsync(0);
+
+      expect(orchestrator.state, 'a peer was credited after its request had ended').to.equal(STATES.SYNCING);
+    });
+
+    it('a canary: the same completions with every request open complete the sync', async () => {
+      const orchestrator = await driveToRequests(makeEligiblePeers(3));
+
+      completeAllTypes(3, ['apprunning', 'appinstalling', 'apperrors', 'apptemp']);
+      await clock.tickAsync(0);
+
+      expect(orchestrator.state).to.equal(STATES.READY);
+    });
 
     it('does not complete the sync on the three surveys alone', async () => {
       const orchestrator = await driveToRequests(makeEligiblePeers(3));
@@ -2063,9 +2103,80 @@ describe('AppSyncOrchestrator', () => {
         blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
+      // the burst arrives inside one hash retry, which the build waits out
+      blockEmitter.emit('blocksProcessed', 2555261);
+      await clock.tickAsync(0);
 
       // The block timer fallback tries rebuildDb again
       expect(reindexStub.callCount).to.be.greaterThan(1);
+    });
+
+    // A hash sync storing messages while the registry is unbuilt leaves their rows
+    // to the build, which would miss any stored after it read the log.
+    it('never runs the fallback\'s DB rebuild beside a hash sync', async () => {
+      reindexStub.onFirstCall().rejects(new Error('reindex failed'));
+      let finishRetry;
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peersUp();
+      blockEmitter.emit('blocksProcessed', 2555000);
+      await clock.tickAsync(0);
+      syncMissingHashesStub.callsFake(() => new Promise((resolve) => { finishRetry = resolve; }));
+
+      for (let i = 1; i <= 260; i += 1) {
+        blockEmitter.emit('blocksProcessed', 2555000 + i);
+      }
+      await clock.tickAsync(0);
+      expect(finishRetry, 'no hash retry was under way, so nothing below was tested').to.be.a('function');
+      expect(reindexStub.callCount, 'the DB rebuild ran beside a hash sync').to.equal(1);
+
+      finishRetry({ resolved: 0, missing: 0, unreachable: 0, nextRetryHeight: null });
+      await clock.tickAsync(0);
+      blockEmitter.emit('blocksProcessed', 2555261);
+      await clock.tickAsync(0);
+      expect(reindexStub.callCount, 'the DB rebuild was not run once the hash sync ended').to.equal(2);
+    });
+  });
+
+  // An operator asks for a check of every missing app message. It is queued, and
+  // runs once nothing else holds the node.
+  describe('a requested hash check', () => {
+    it('runs at once when nothing holds the node', async () => {
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peersUp();
+      blockEmitter.emit('blocksProcessed', 2555000);
+      await clock.tickAsync(0);
+      syncMissingHashesStub.resetHistory();
+
+      appSyncEvents.emit(EVENTS.HASH_CHECK_REQUESTED);
+      await clock.tickAsync(0);
+
+      sinon.assert.calledOnce(syncMissingHashesStub);
+      expect(syncMissingHashesStub.firstCall.args[0].force).to.equal(true);
+    });
+
+    it('waits for a hash sync under way, then runs on a later block', async () => {
+      let finishSync;
+      syncMissingHashesStub.callsFake(() => new Promise((resolve) => { finishSync = resolve; }));
+      const orchestrator = makeOrchestrator();
+      orchestrator.start(defaultBootContext);
+      peersUp();
+      blockEmitter.emit('blocksProcessed', 2555000);
+      await clock.tickAsync(0);
+      expect(finishSync, 'no hash sync was under way, so nothing below was tested').to.be.a('function');
+
+      appSyncEvents.emit(EVENTS.HASH_CHECK_REQUESTED);
+      await clock.tickAsync(0);
+      expect(syncMissingHashesStub.getCalls().filter((c) => c.args[0].force), 'the check ran beside a hash sync').to.have.length(0);
+
+      syncMissingHashesStub.resolves({ resolved: 0, missing: 0, unreachable: 0, nextRetryHeight: 9999999 });
+      finishSync({ resolved: 0, missing: 0, unreachable: 0, nextRetryHeight: 9999999 });
+      await clock.tickAsync(0);
+      blockEmitter.emit('blocksProcessed', 2555001);
+      await clock.tickAsync(0);
+
+      expect(syncMissingHashesStub.getCalls().filter((c) => c.args[0].force), 'the queued check never ran').to.have.length(1);
     });
   });
 
@@ -2153,7 +2264,9 @@ describe('AppSyncOrchestrator', () => {
       expect(syncMissingHashesStub.calledTwice).to.be.true;
     });
 
-    it('should rebuild globalAppsInformation when a retry resolves messages, and only then', async () => {
+    // A retry's messages reach the registry as they are stored (appHashSyncService), so
+    // the registry is rebuilt in full only on the way to ready.
+    it('does not rebuild globalAppsInformation after a retry, whatever it resolved', async () => {
       syncMissingHashesStub.onFirstCall().resolves({ resolved: 0, missing: 2, unreachable: 0, nextRetryHeight: 2555200 });
       syncMissingHashesStub.onSecondCall().resolves({ resolved: 0, missing: 2, unreachable: 0, nextRetryHeight: 2555300 });
       syncMissingHashesStub.onThirdCall().resolves({ resolved: 2, missing: 0, unreachable: 0, nextRetryHeight: null });
@@ -2165,15 +2278,13 @@ describe('AppSyncOrchestrator', () => {
       await clock.tickAsync(0);
       const afterInitialSync = reindexStub.callCount;
 
-      // a retry that resolves nothing has nothing to apply
       blockEmitter.emit('blocksProcessed', 2555200);
       await clock.tickAsync(0);
-      expect(reindexStub.callCount).to.equal(afterInitialSync);
-
-      // the messages a retry resolves are stored without promotion: they reach the specs by a rebuild
       blockEmitter.emit('blocksProcessed', 2555300);
       await clock.tickAsync(0);
-      expect(reindexStub.callCount).to.equal(afterInitialSync + 1);
+
+      expect(syncMissingHashesStub.calledThrice, 'the retry that resolved messages never ran').to.equal(true);
+      expect(reindexStub.callCount).to.equal(afterInitialSync);
     });
 
     it('should use fallback interval when no hashes are backed off', async () => {
@@ -2274,6 +2385,27 @@ describe('AppSyncOrchestrator', () => {
       expect(versionCall.args[3]).to.deep.equal({ $set: { version: '8.12.0' } });
     });
 
+    it('writes no version marker while the reset fails, and runs the reset again on the next hash retry', async () => {
+      dbHelperStub.findOneInDatabase.resolves(null);
+      resetHashSyncForUpgradeStub.onFirstCall().rejects(new Error('db down'));
+      const versionWrites = () => findOneAndUpdateStub.getCalls().filter((c) => c.args[2]?._id === 'hashSyncVersion');
+
+      const orchestrator = makeOrchestrator({ fluxVersion: '8.12.0' });
+      orchestrator.start(defaultBootContext);
+
+      blockEmitter.emit('blocksProcessed', 2555000);
+      await clock.tickAsync(0);
+
+      expect(syncMissingHashesStub.calledOnce).to.be.true;
+      expect(versionWrites()).to.have.length(0);
+
+      blockEmitter.emit('blocksProcessed', 2555100);
+      await clock.tickAsync(0);
+
+      expect(resetHashSyncForUpgradeStub.calledTwice).to.be.true;
+      expect(versionWrites()).to.have.length(1);
+    });
+
     it('should skip version check when fluxVersion not provided', async () => {
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
@@ -2372,15 +2504,15 @@ describe('AppSyncOrchestrator', () => {
       expect(ctx.downtimeMs).to.be.within(299000, 301000);
     });
 
-    it('should return safe defaults on error', async () => {
+    it('reports an unread context as unreadable, neither a first boot nor a long absence', async () => {
       dbHelperStub.findOneInDatabase.rejects(new Error('DB down'));
 
       const ctx = await AppSyncOrchestrator.readBootContext();
 
-      expect(ctx.machineRebooted).to.be.true;
-      expect(ctx.downtimeMs).to.equal(Infinity);
+      expect(ctx.unreadable).to.be.true;
+      expect(ctx.firstBoot).to.be.false;
+      expect(ctx.downtimeMs, 'an unknown downtime read as expired removes every app').to.equal(null);
       expect(ctx.cleanShutdown).to.be.false;
-      expect(ctx.firstBoot).to.be.true;
     });
   });
 
@@ -2412,6 +2544,23 @@ describe('AppSyncOrchestrator', () => {
       );
       expect(heartbeatCall).to.not.be.undefined;
       expect(heartbeatCall.args[3].$set.machineBootId).to.equal('test-boot-id-12345');
+      await orchestrator.stop();
+    });
+
+    it('clears the previous shutdown reason with each heartbeat until one lands', async () => {
+      const heartbeats = () => findOneAndUpdateStub.getCalls()
+        .filter((c) => c.args[2]?._id === 'heartbeat' && c.args[3]?.$set && 'lastAlive' in c.args[3].$set);
+      findOneAndUpdateStub.onFirstCall().rejects(new Error('connection timed out'));
+      const orchestrator = makeOrchestrator();
+      await orchestrator.start(defaultBootContext);
+      // tests/unit/globalconfig: system.heartbeatIntervalMs
+      await clock.tickAsync(30000);
+      await clock.tickAsync(30000);
+
+      const [failed, landed, after] = heartbeats();
+      expect(failed.args[3].$unset, 'the first heartbeat carries the clear').to.deep.equal({ shutdownReason: '' });
+      expect(landed.args[3].$unset, 'a failed clear is carried by the next heartbeat').to.deep.equal({ shutdownReason: '' });
+      expect(after.args[3].$unset, 'cleared once it landed, never again').to.equal(undefined);
       await orchestrator.stop();
     });
 

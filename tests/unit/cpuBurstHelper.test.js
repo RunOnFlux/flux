@@ -12,13 +12,11 @@ describe('cpuBurstHelper tests', () => {
   let cpuBurstHelper;
 
   beforeEach(() => {
-    // Fresh require each time to reset the cache
     cpuBurstHelper = proxyquire('../../ZelBack/src/services/utils/cpuBurstHelper', {
       './enterpriseConfig': {
         getEnterpriseAppOwners: () => ['16mzUh6byiQr7rnYQxKraDbeBPsEHYpSTW'],
       },
     });
-    cpuBurstHelper.resetBurstSupportCache();
   });
 
   afterEach(() => {
@@ -153,51 +151,21 @@ describe('cpuBurstHelper tests', () => {
     });
   });
 
-  describe('isCpuBurstSupported', () => {
-    it('should return false when burst config is disabled', async () => {
-      const helper = proxyquire('../../ZelBack/src/services/utils/cpuBurstHelper', {
-        config: { cpuBurst: { enabled: false, periodUs: 100000 } },
-      });
-      helper.resetBurstSupportCache();
-      const result = await helper.isCpuBurstSupported();
-      expect(result).to.be.false;
+  describe('isCpuBurstEnabled', () => {
+    const withBurst = (cpuBurst) => proxyquire('../../ZelBack/src/services/utils/cpuBurstHelper', {
+      config: { cpuBurst },
     });
 
-    it('should return false when cgroups v2 is not present', async () => {
-      sinon.stub(fs.promises, 'access').rejects(new Error('ENOENT'));
-      cpuBurstHelper.resetBurstSupportCache();
-
-      const result = await cpuBurstHelper.isCpuBurstSupported();
-      expect(result).to.be.false;
+    it('is on when the config switches it on', () => {
+      expect(withBurst({ enabled: true, periodUs: 100000 }).isCpuBurstEnabled()).to.equal(true);
     });
 
-    it('should return false for kernel < 5.14', async () => {
-      sinon.stub(fs.promises, 'access').resolves();
-      sinon.stub(fs.promises, 'readFile').resolves('Linux version 5.4.0-generic');
-      cpuBurstHelper.resetBurstSupportCache();
-
-      const result = await cpuBurstHelper.isCpuBurstSupported();
-      expect(result).to.be.false;
+    it('is off when the config switches it off', () => {
+      expect(withBurst({ enabled: false, periodUs: 100000 }).isCpuBurstEnabled()).to.equal(false);
     });
 
-    it('should return true for kernel >= 5.14 with cgroups v2', async () => {
-      sinon.stub(fs.promises, 'access').resolves();
-      sinon.stub(fs.promises, 'readFile').resolves('Linux version 6.1.0-generic');
-      cpuBurstHelper.resetBurstSupportCache();
-
-      const result = await cpuBurstHelper.isCpuBurstSupported();
-      expect(result).to.be.true;
-    });
-
-    it('should cache the result on subsequent calls', async () => {
-      sinon.stub(fs.promises, 'access').resolves();
-      const readStub = sinon.stub(fs.promises, 'readFile').resolves('Linux version 6.1.0-generic');
-      cpuBurstHelper.resetBurstSupportCache();
-
-      await cpuBurstHelper.isCpuBurstSupported();
-      await cpuBurstHelper.isCpuBurstSupported();
-      // readFile called once for kernel version (cached after that)
-      expect(readStub.callCount).to.equal(1);
+    it('is off when the config does not mention it', () => {
+      expect(withBurst(undefined).isCpuBurstEnabled()).to.equal(false);
     });
   });
 
@@ -307,12 +275,14 @@ describe('cpuBurstHelper tests', () => {
       expect(result).to.be.false;
     });
 
-    it('should return false when isCpuBurstSupported is false', async () => {
-      sinon.stub(fs.promises, 'access').rejects(new Error('ENOENT'));
-      cpuBurstHelper.resetBurstSupportCache();
+    it('applies nothing while burst is switched off', async () => {
+      const writeStub = sinon.stub(fs.promises, 'writeFile').resolves();
+      const helper = proxyquire('../../ZelBack/src/services/utils/cpuBurstHelper', {
+        config: { cpuBurst: { enabled: false, periodUs: 100000 } },
+      });
 
-      const result = await cpuBurstHelper.applyBurst(12345, 2.0);
-      expect(result).to.be.false;
+      expect(await helper.applyBurst(12345, 2.0)).to.equal(false);
+      expect(writeStub.called).to.equal(false);
     });
 
     it('should write burstUs equal to quotaUs when supported and uncapped', async () => {
@@ -320,10 +290,8 @@ describe('cpuBurstHelper tests', () => {
       sinon.stub(os, 'cpus').returns(new Array(32).fill({ model: 'stub', speed: 2400 }));
       const accessStub = sinon.stub(fs.promises, 'access').resolves();
       const readStub = sinon.stub(fs.promises, 'readFile');
-      readStub.withArgs('/proc/version').resolves('Linux version 6.1.0-generic');
       readStub.withArgs('/proc/12345/cgroup').resolves('0::/system.slice/docker-x.scope\n');
       const writeStub = sinon.stub(fs.promises, 'writeFile').resolves();
-      cpuBurstHelper.resetBurstSupportCache();
 
       const result = await cpuBurstHelper.applyBurst(12345, 2.0, 'test-app');
       expect(result).to.be.true;

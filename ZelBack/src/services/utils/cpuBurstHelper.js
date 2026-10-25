@@ -6,8 +6,6 @@ const log = require('../../lib/log');
 const enterpriseConfig = require('./enterpriseConfig');
 const signatureVerifier = require('../signatureVerifier');
 
-let burstSupportCache = null;
-
 /**
  * Checks if an app owner is in the enterprise app owners whitelist. An unknown policy
  * answers false: burst is a privilege, and one that cannot be verified is not granted.
@@ -21,52 +19,12 @@ function isEnterpriseOwner(owner) {
 }
 
 /**
- * Checks if the system supports CFS CPU burst (cgroups v2 + kernel >= 5.14).
- * Caches the result after first check.
- * @returns {Promise<boolean>}
+ * Whether CPU burst is switched on. Every node FluxOS runs apps on has what it
+ * needs: cgroup v2 and Linux 5.14 (fluxNetworkHelper.checkCgroupsAllowed).
+ * @returns {boolean}
  */
-async function isCpuBurstSupported() {
-  if (burstSupportCache !== null) return burstSupportCache;
-
-  try {
-    if (!config.cpuBurst?.enabled) {
-      burstSupportCache = false;
-      return false;
-    }
-
-    // Check cgroups v2: /sys/fs/cgroup/cgroup.controllers must exist
-    try {
-      await fsp.access('/sys/fs/cgroup/cgroup.controllers');
-    } catch {
-      log.warn('CPU burst: cgroups v2 not detected, burst disabled');
-      burstSupportCache = false;
-      return false;
-    }
-
-    // Check kernel version >= 5.14 for cpu.cfs_burst_us support
-    const release = await fsp.readFile('/proc/version', 'utf8');
-    const match = release.match(/(\d+)\.(\d+)/);
-    if (!match) {
-      log.warn('CPU burst: unable to parse kernel version, burst disabled');
-      burstSupportCache = false;
-      return false;
-    }
-    const major = parseInt(match[1], 10);
-    const minor = parseInt(match[2], 10);
-    if (major < 5 || (major === 5 && minor < 14)) {
-      log.warn(`CPU burst: kernel ${major}.${minor} < 5.14, burst disabled`);
-      burstSupportCache = false;
-      return false;
-    }
-
-    burstSupportCache = true;
-    log.info('CPU burst: system supports CFS burst (cgroups v2, kernel >= 5.14)');
-    return true;
-  } catch (error) {
-    log.warn(`CPU burst: capability check failed: ${error.message}`);
-    burstSupportCache = false;
-    return false;
-  }
+function isCpuBurstEnabled() {
+  return config.cpuBurst?.enabled === true;
 }
 
 /**
@@ -185,7 +143,7 @@ async function isBurstActive(pid) {
  */
 async function applyBurst(pid, cpuCores, identifier) {
   if (!cpuCores || cpuCores <= 0) return false;
-  if (!await isCpuBurstSupported()) return false;
+  if (!isCpuBurstEnabled()) return false;
 
   const { burstUs } = calculateBurstParams(cpuCores);
   const ok = await setCpuBurst(pid, burstUs);
@@ -198,20 +156,12 @@ async function applyBurst(pid, cpuCores, identifier) {
   return ok;
 }
 
-/**
- * Resets the burst support cache. Used in testing.
- */
-function resetBurstSupportCache() {
-  burstSupportCache = null;
-}
-
 module.exports = {
   isEnterpriseOwner,
-  isCpuBurstSupported,
+  isCpuBurstEnabled,
   getCgroupBurstPath,
   calculateBurstParams,
   setCpuBurst,
   isBurstActive,
   applyBurst,
-  resetBurstSupportCache,
 };

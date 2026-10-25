@@ -1198,6 +1198,13 @@ function parseContainerName(containerName) {
   };
 }
 
+/**
+ * Whether this node holds an unexpired location record for an app.
+ * @param {string} appName
+ * @param {string} localSocketAddr
+ * @returns {Promise<boolean|null>} null when the records cannot be read: an unread record is
+ *   neither a valid nor an expired one.
+ */
 async function appHasValidLocationOnNode(appName, localSocketAddr) {
   try {
     const db = dbHelper.databaseConnection();
@@ -1215,7 +1222,7 @@ async function appHasValidLocationOnNode(appName, localSocketAddr) {
     });
   } catch (error) {
     log.error(`Error checking app location for ${appName}: ${error.message}`);
-    return true;
+    return null;
   }
 }
 

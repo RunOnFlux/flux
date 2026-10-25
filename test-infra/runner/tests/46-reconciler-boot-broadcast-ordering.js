@@ -83,7 +83,7 @@ describe('first post-boot broadcast: complete, never empty, never destructive', 
     // buffer holds every apprunning it received across the reboot window)
     const received = peerClient.getEventBuffer().filter((e) => e.id > afterId && e.event === 'network:apprunning');
     expect(received.length, 'buffer must hold the apprunning waitForEvent just matched (filter shape drift)').to.be.greaterThan(0);
-    const empty = received.filter((e) => Array.isArray(e.data?.apps) && e.data.apps.length === 0);
+    const empty = received.filter((e) => e.data?.cleared === true);
     expect(empty, 'no empty fluxapprunning v2 snapshots').to.have.lengthOf(0);
 
     // (a): the peer's location rows for the app survived the whole sequence

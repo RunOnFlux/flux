@@ -700,7 +700,7 @@ async function trySpawningGlobalApplication() {
 
     // Note: User-blocked port check happens earlier (line ~353) before Docker Hub calls
     // Check if ports are publicly available - critical for proper Flux network operation
-    const portVerdict = await portManager.checkInstallingAppPortAvailable(appPorts);
+    const portVerdict = await portManager.checkInstallingAppPortAvailable(appPorts, appSpecifications.name);
     if (portVerdict.ok === false) {
       log.error(`trySpawningGlobalApplication - Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
       // The cause lives in portManager, which says which port and which peers;
@@ -1178,6 +1178,12 @@ async function trySpawningGlobalApplication() {
     return isEnterprise ? 0 : delayTime;
   } catch (error) {
     log.error(error);
+    // A database that did not answer says nothing about the app: the next pass
+    // tries it again.
+    if (appHash && dbHelper.isDatabaseError(error)) {
+      globalState.trySpawningGlobalAppCache.delete(appHash);
+      return shortDelayTime || 5 * 60 * 1000;
+    }
     if (appHash && !globalState.spawnErrorsLongerAppCache.has(appHash) && !globalState.trySpawningGlobalAppCache.has(appHash)) {
       log.info(`trySpawningGlobalApplication - Adding app hash ${appHash} to trySpawningGlobalAppCache due to pre-install error`);
       globalState.trySpawningGlobalAppCache.set(appHash, '', { ttl: FluxCacheManager.oneHour * 6 });

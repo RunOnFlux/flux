@@ -228,7 +228,7 @@ export async function getAppContainerExitCode(container, appName, componentName)
 
 /**
  * Bounce the inner dockerd under a running FluxOS (the dockerd-restart orphan
- * case). Kills dockerd; the in-image watchdog respawns it. Without --live-restore
+ * case). Kills dockerd; systemd restarts it (dockerd.service). Without --live-restore
  * this stops dockerd's containers, leaving them 'exited' for the reconnect sweep
  * to recover. Confirms dockerd actually went DOWN and came back UP, so the caller
  * can't observe a false "already ready".
@@ -251,19 +251,38 @@ export async function restartDockerd(container, { readyTimeoutMs = 40000, interv
   throw new Error(`restartDockerd: dockerd did not cycle down and back up within ${readyTimeoutMs}ms`);
 }
 
+// The node's FluxOS runs as the fluxos unit (test-infra/systemd/fluxos.service), which
+// systemd restarts whenever its process exits. A held node is one whose unit carries a
+// runtime drop-in turning the restart off: its FluxOS stays down after it exits, as a
+// machine does between a shutdown and its next boot, until releaseFluxos.
+const FLUXOS_HOLD = '/run/systemd/system/fluxos.service.d/hold.conf';
+
+/**
+ * The pid of the node's FluxOS process, or null while it is not running.
+ * @returns {Promise<number|null>}
+ */
+export async function fluxosPid(container) {
+  const pid = Number((await execInContainer(container, 'systemctl show -p MainPID --value fluxos')).stdout.trim());
+  return pid > 0 ? pid : null;
+}
+
+async function holdFluxos(container) {
+  const r = await execInContainer(container,
+    `mkdir -p "$(dirname ${FLUXOS_HOLD})" && printf '[Service]\nRestart=no\n' > ${FLUXOS_HOLD} && systemctl daemon-reload`);
+  if (r.exitCode !== 0) throw new Error(`holdFluxos: ${r.output}`);
+}
+
 /**
  * Restart the FluxOS process only - the `systemctl restart fluxos` case. Kills just
- * the node app.js child (its PID is in /tmp/fluxos.pid, written by the entrypoint
- * watchdog, so PID 1 is never touched); the watchdog respawns it. The inner dockerd
- * and the running app containers are NOT affected - they keep running while FluxOS's
- * in-memory state (e.g. controllerDesired) is wiped. This is distinct from
- * restartNode (whole container -> dockerd + containers restart) and restartDockerd
- * (dockerd only). Confirms FluxOS went DOWN and came back UP so the caller can't
- * observe a false "already ready".
+ * FluxOS; systemd starts it again. The inner dockerd and the running app containers
+ * are NOT affected - they keep running while FluxOS's in-memory state (e.g.
+ * controllerDesired) is wiped. This is distinct from restartNode (whole container ->
+ * dockerd + containers restart) and restartDockerd (dockerd only). Confirms FluxOS
+ * went DOWN and came back UP so the caller can't observe a false "already ready".
  */
 export async function restartFluxos(container, { apiPort = 16127, readyTimeoutMs = 120000, interval = 500 } = {}) {
-  // hard-kill only the node child (state wiped instantly); never PID 1
-  await execInContainer(container, 'kill -9 "$(cat /tmp/fluxos.pid 2>/dev/null)" 2>/dev/null || true');
+  // hard-kill only FluxOS (state wiped instantly)
+  await execInContainer(container, 'systemctl kill --kill-whom=main -s KILL fluxos');
   const probe = `curl -sf -o /dev/null http://127.0.0.1:${apiPort}/flux/version`;
   const start = Date.now();
   let sawDown = false;
@@ -313,9 +332,10 @@ export async function getContainerImageDigest(container, appName, componentName)
 export async function shutdownFluxosGracefully(container, {
   hold = false, stopSyncthingAfter = false, exitTimeoutMs = 120000, interval = 250,
 } = {}) {
-  const pid = Number((await execInContainer(container, 'cat /tmp/fluxos.pid')).stdout.trim());
-  if (!pid) throw new Error('shutdownFluxosGracefully: no FluxOS pid in /tmp/fluxos.pid');
-  await execInContainer(container, `touch /run/nologin${hold ? ' /tmp/fluxos.hold' : ''}`);
+  const pid = await fluxosPid(container);
+  if (!pid) throw new Error('shutdownFluxosGracefully: FluxOS is not running');
+  if (hold) await holdFluxos(container);
+  await execInContainer(container, 'touch /run/nologin');
   if (stopSyncthingAfter) {
     // Inside the node, so the daemon stops within a poll of the exit rather than
     // a docker exec round trip later.
@@ -360,7 +380,9 @@ export async function shutdownFluxosGracefully(container, {
 // Bring back a node held down by shutdownFluxosGracefully({ hold: true }), and
 // wait for its API to answer.
 export async function releaseFluxos(container, { apiPort = 16127, readyTimeoutMs = 120000, interval = 500 } = {}) {
-  await execInContainer(container, 'rm -f /tmp/fluxos.hold');
+  const released = await execInContainer(container,
+    `rm -f ${FLUXOS_HOLD} && systemctl daemon-reload && systemctl reset-failed fluxos; systemctl start fluxos`);
+  if (released.exitCode !== 0) throw new Error(`releaseFluxos: ${released.output}`);
   const probe = `curl -sf -o /dev/null http://127.0.0.1:${apiPort}/flux/version`;
   const start = Date.now();
   while (Date.now() - start < readyTimeoutMs) {
@@ -418,9 +440,9 @@ export async function configuredIpOf(container) {
 // shutdown handling at all. `hold` keeps the node down afterwards, as a machine
 // that lost power stays down; releaseFluxos brings it back.
 export async function crashFluxos(container, { hold = false, exitTimeoutMs = 30000, interval = 250 } = {}) {
-  const pid = Number((await execInContainer(container, 'cat /tmp/fluxos.pid')).stdout.trim());
-  if (!pid) throw new Error('crashFluxos: no FluxOS pid in /tmp/fluxos.pid');
-  if (hold) await execInContainer(container, 'touch /tmp/fluxos.hold');
+  const pid = await fluxosPid(container);
+  if (!pid) throw new Error('crashFluxos: FluxOS is not running');
+  if (hold) await holdFluxos(container);
   await execInContainer(container, `kill -9 ${pid}`);
   const start = Date.now();
   while (Date.now() - start < exitTimeoutMs) {
@@ -433,17 +455,22 @@ export async function crashFluxos(container, { hold = false, exitTimeoutMs = 300
   throw new Error(`crashFluxos: FluxOS ${pid} still running ${exitTimeoutMs}ms after SIGKILL`);
 }
 
+// A command as a legacy node's operator runs pm2: as their account, against their pm2
+// home (test-infra/systemd/pm2-fluxuser.service).
+export const AS_PM2_OPERATOR = 'runuser -u fluxuser -- env PM2_HOME=/home/fluxuser/.pm2';
+const PM2 = `${AS_PM2_OPERATOR} pm2`;
+
 // The kill timeout of FluxOS's pm2 registration on a legacy node whose FluxOS
 // pm2 runs (createTestEnv pm2Nodes), as the daemon holds it and as `pm2 save`
 // stored it for the next boot. null where pm2 has none, which is its default.
 //
 // @returns {Promise<{live: number|null, saved: number|null, restarts: number}>}
 export async function pm2Registration(container) {
-  const jlist = await execInContainer(container, 'pm2 jlist');
+  const jlist = await execInContainer(container, `${PM2} jlist`);
   if (jlist.exitCode !== 0) throw new Error(`pm2Registration: pm2 jlist failed: ${jlist.output}`);
   const live = JSON.parse(jlist.stdout.trim()).find((p) => p.name === 'flux');
   if (!live) throw new Error('pm2Registration: pm2 lists no process named flux');
-  const dump = await execInContainer(container, 'cat "$HOME/.pm2/dump.pm2" 2>/dev/null || echo "[]"');
+  const dump = await execInContainer(container, 'cat /home/fluxuser/.pm2/dump.pm2 2>/dev/null || echo "[]"');
   const saved = JSON.parse(dump.stdout.trim()).find((p) => p.name === 'flux');
   return {
     live: live.pm2_env.kill_timeout ?? null,
@@ -464,7 +491,7 @@ export async function shutdownFluxosUnderPm2(container, { stopSyncthingAfter = f
   await execInContainer(container, 'touch /run/nologin');
   try {
     const started = Date.now();
-    const stopped = await execInContainer(container, 'pm2 stop flux');
+    const stopped = await execInContainer(container, `${PM2} stop flux`);
     const stopMs = Date.now() - started;
     if (stopped.exitCode !== 0) throw new Error(`shutdownFluxosUnderPm2: pm2 stop failed: ${stopped.output}`);
     if (stopSyncthingAfter) await execInContainer(container, 'pkill -KILL -x syncthing; true');
@@ -477,7 +504,7 @@ export async function shutdownFluxosUnderPm2(container, { stopSyncthingAfter = f
 // Start FluxOS again through pm2 on a node shut down by shutdownFluxosUnderPm2,
 // and wait for its API to answer.
 export async function startFluxosUnderPm2(container, { apiPort = 16127, readyTimeoutMs = 180000, interval = 1000 } = {}) {
-  const started = await execInContainer(container, 'pm2 start flux');
+  const started = await execInContainer(container, `${PM2} start flux`);
   if (started.exitCode !== 0) throw new Error(`startFluxosUnderPm2: pm2 start failed: ${started.output}`);
   const probe = `curl -sf -o /dev/null http://127.0.0.1:${apiPort}/flux/version`;
   const start = Date.now();

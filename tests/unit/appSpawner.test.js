@@ -2,6 +2,8 @@ const { expect } = require('chai');
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const { MongoNetworkTimeoutError } = require('mongodb');
+const { isDatabaseError } = require('../../ZelBack/src/services/dbHelper');
 const realPlacementFeasibility = require('../../ZelBack/src/services/appPlacement/placementFeasibility');
 const realImageManager = require('../../ZelBack/src/services/appSecurity/imageManager');
 const { resetGlobalState } = require('./fixtures/globalState');
@@ -125,7 +127,8 @@ describe('appSpawner tests', () => {
       '../dbHelper': {
         databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
         aggregateInDatabase: aggregateStub,
-        findInDatabase: sinon.stub().resolves([]),
+        findInDatabase: opts.localAppsRead ?? sinon.stub().resolves([]),
+        isDatabaseError,
       },
       '../serviceHelper': {
         delay: delayStub,
@@ -236,7 +239,7 @@ describe('appSpawner tests', () => {
       '../appNetwork/portManager': {
         ensureApplicationPortsNotUsed: sinon.stub().resolves(),
         siblingHoldingPort: sinon.stub().resolves(opts.siblingHoldingPort ?? null),
-        checkInstallingAppPortAvailable: sinon.stub().resolves({
+        checkInstallingAppPortAvailable: (opts.portCheck ?? sinon.stub()).resolves({
           ok: opts.portsAvailable ?? true,
           reason: (opts.portsAvailable ?? true) ? 'proven' : 'notOurs',
         }),
@@ -1045,11 +1048,54 @@ describe('appSpawner tests', () => {
       sinon.assert.notCalled(installStub);
     });
 
+    it('should test the ports for the application it is spawning, by name', async () => {
+      const portCheck = sinon.stub();
+      buildModule({
+        aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0, portsAvailable: false, portCheck,
+      });
+
+      await appSpawner.trySpawningGlobalApplication();
+
+      sinon.assert.calledOnceWithExactly(portCheck, sinon.match.array, fullSpec.name);
+    });
+
     it('should add to short-term cache when network error count >= 5', async () => {
       buildModule({ aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 5 });
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
       expect(globalStateStub.trySpawningGlobalAppCache.has('abc123')).to.be.true;
       expect(globalStateStub.spawnErrorsLongerAppCache.has('abc123')).to.be.false;
+    });
+
+    it('tries the app again on the next pass when the installed apps cannot be read', async () => {
+      const installStub = sinon.stub().resolves(InstallOutcome.INSTALLED);
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: fullSpec,
+        errorCount: 0,
+        installStub,
+        localAppsRead: sinon.stub().rejects(new MongoNetworkTimeoutError('timed out')),
+      });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      sinon.assert.notCalled(installStub);
+      expect(globalStateStub.trySpawningGlobalAppCache.has('abc123')).to.be.false;
+    });
+
+    it('holds the app back after an error that is not the database', async () => {
+      const installStub = sinon.stub().resolves(InstallOutcome.INSTALLED);
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: fullSpec,
+        errorCount: 0,
+        installStub,
+        localAppsRead: sinon.stub().rejects(new Error('bad record')),
+      });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      sinon.assert.notCalled(installStub);
+      expect(globalStateStub.trySpawningGlobalAppCache.has('abc123')).to.be.true;
     });
 
     it('should not block when network error count < 5', async () => {

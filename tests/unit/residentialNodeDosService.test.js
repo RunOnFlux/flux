@@ -20,6 +20,7 @@ describe('residentialNodeDosService tests', () => {
   let benchmarkServiceStub;
   let dbHelperStub;
   let markerStore;
+  let applyUpdate;
   let globalStateStub;
   let deps;
   let installedApps;
@@ -101,12 +102,17 @@ describe('residentialNodeDosService tests', () => {
     // The settle marker lives in mongo, so the double has to remember it across
     // a reload - surviving a restart is the whole point of that field.
     markerStore = new Map();
+    applyUpdate = (query, update) => {
+      const held = { _id: query._id, ...(markerStore.get(query._id) || {}), ...update.$set };
+      Object.entries(update.$max || {}).forEach(([field, value]) => {
+        if (held[field] === undefined || value > held[field]) held[field] = value;
+      });
+      markerStore.set(query._id, held);
+    };
     dbHelperStub = {
       databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
       findOneInDatabase: sinon.stub().callsFake(async (db, coll, query) => markerStore.get(query._id) || null),
-      findOneAndUpdateInDatabase: sinon.stub().callsFake(async (db, coll, query, update) => {
-        markerStore.set(query._id, { _id: query._id, ...(markerStore.get(query._id) || {}), ...update.$set });
-      }),
+      findOneAndUpdateInDatabase: sinon.stub().callsFake(async (db, coll, query, update) => applyUpdate(query, update)),
       findOneAndDeleteInDatabase: sinon.stub().callsFake(async (db, coll, query) => {
         markerStore.delete(query._id);
       }),
@@ -431,6 +437,28 @@ describe('residentialNodeDosService tests', () => {
       expect(service.isEvacuating()).to.equal(false);
     });
 
+    it('counts nothing of a window a verdict flip could not clear, until it is cleared', async () => {
+      installedApps = [{ name: 'someapp' }];
+      markerStore.set('residentialDos', windowServed());
+      const residential = geolocationServiceStub.getNetworkClassification();
+      dbHelperStub.findOneAndDeleteInDatabase.rejects(new Error('marker delete failed'));
+      geolocationServiceStub.getNetworkClassification.returns({ classification: CLASSIFICATION.DATACENTER });
+      await service.enforceResidentialPolicy(deps);
+      expect(markerStore.has('residentialDos')).to.equal(true);
+
+      geolocationServiceStub.getNetworkClassification.returns(residential);
+      await service.enforceResidentialPolicy(deps);
+
+      expect(service.isEvacuating(), 'the window of the earlier verdict is not counted').to.equal(false);
+      expect(markerStore.get('residentialDos').observedMs).to.equal(service.SETTLE_MS + 1000);
+
+      dbHelperStub.findOneAndDeleteInDatabase.callsFake(async (db, coll, query) => { markerStore.delete(query._id); });
+      await service.enforceResidentialPolicy(deps);
+
+      expect(service.isEvacuating()).to.equal(false);
+      expect(markerStore.get('residentialDos').observedMs, 'a fresh window').to.equal(0);
+    });
+
     it('stops evacuating when the marker cannot be read', async () => {
       installedApps = [{ name: 'someapp' }];
       markerStore.set('residentialDos', windowServed());
@@ -505,6 +533,23 @@ describe('residentialNodeDosService tests', () => {
       expect(markerStore.get('residentialDos').observedMs).to.equal(service.CHECK_INTERVAL_MS);
     });
 
+    it('keeps the observed time and evacuates nothing when the marker cannot be read', async () => {
+      const now = Date.now();
+      markerStore.set('residentialDos', {
+        _id: 'residentialDos',
+        residentialSince: now - (5 * 24 * HOUR),
+        lastConfirmedAt: now - service.CHECK_INTERVAL_MS,
+        observedMs: service.SETTLE_MS - HOUR,
+      });
+      dbHelperStub.findOneInDatabase.rejects(new Error('marker read failed'));
+
+      await service.enforceResidentialPolicy(deps);
+
+      sinon.assert.notCalled(dbHelperStub.findOneAndUpdateInDatabase);
+      expect(markerStore.get('residentialDos').observedMs).to.equal(service.SETTLE_MS - HOUR);
+      expect(service.isEvacuating()).to.equal(false);
+    });
+
     it('starts a marker written before observed time was kept at zero, not credited', async () => {
       // An in-place upgrade. The old marker records when the clock started,
       // which is precisely the measure being replaced, so it earns nothing -
@@ -566,6 +611,65 @@ describe('residentialNodeDosService tests', () => {
       await new Promise((resolve) => { setImmediate(resolve); });
 
       expect(markerStore.get('residentialDos').lastEvacuationAt).to.be.a('number');
+    });
+
+    it('writes a departure time it could not record on the next tick', async () => {
+      installedApps = [{ name: 'someapp' }];
+      markerStore.set('residentialDos', windowServed());
+      dbHelperStub.findOneAndUpdateInDatabase.onFirstCall().rejects(new Error('marker write failed'));
+
+      service.noteEvacuated('someapp');
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(markerStore.get('residentialDos').lastEvacuationAt).to.equal(undefined);
+
+      await service.enforceResidentialPolicy(deps);
+
+      expect(markerStore.get('residentialDos').lastEvacuationAt).to.be.a('number');
+    });
+
+    it('keeps the newer departure time when an older one it could not record is written again', async () => {
+      installedApps = [{ name: 'someapp' }];
+      markerStore.set('residentialDos', windowServed());
+      const wall = sinon.stub(Date, 'now');
+      try {
+        dbHelperStub.findOneAndUpdateInDatabase.onFirstCall().rejects(new Error('marker write failed'));
+        wall.returns(1000000);
+        service.noteEvacuated('someapp');
+        await new Promise((resolve) => { setImmediate(resolve); });
+        wall.returns(2000000);
+        service.noteEvacuated('otherapp');
+        await new Promise((resolve) => { setImmediate(resolve); });
+        expect(markerStore.get('residentialDos').lastEvacuationAt, 'the newer departure was not recorded').to.equal(2000000);
+
+        await service.enforceResidentialPolicy(deps);
+      } finally {
+        wall.restore();
+      }
+
+      expect(markerStore.get('residentialDos').lastEvacuationAt, 'an older departure replaced a newer one').to.equal(2000000);
+    });
+
+    it('keeps the newer departure time when an older write lands after it', async () => {
+      markerStore.set('residentialDos', windowServed());
+      let landOlder;
+      dbHelperStub.findOneAndUpdateInDatabase.onFirstCall().callsFake(async (db, coll, query, update) => {
+        await new Promise((resolve) => { landOlder = resolve; });
+        applyUpdate(query, update);
+      });
+      const wall = sinon.stub(Date, 'now');
+      try {
+        wall.returns(1000000);
+        service.noteEvacuated('someapp');
+        wall.returns(2000000);
+        service.noteEvacuated('otherapp');
+        await new Promise((resolve) => { setImmediate(resolve); });
+        landOlder();
+        await new Promise((resolve) => { setImmediate(resolve); });
+      } finally {
+        wall.restore();
+      }
+
+      expect(markerStore.get('residentialDos').lastEvacuationAt, 'an older departure replaced a newer one').to.equal(2000000);
     });
 
     it('gives an empty location list the longest wait, not the shortest', async () => {

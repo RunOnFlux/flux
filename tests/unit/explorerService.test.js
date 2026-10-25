@@ -11,9 +11,13 @@ const daemonServiceAddressRpcs = require('../../ZelBack/src/services/daemonServi
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const { MongoNetworkTimeoutError } = require('mongodb');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 const log = require('../../ZelBack/src/lib/log');
 const { requireMongo } = require('./dbTestHelper');
+const { UNPOSITIONED } = require('../../ZelBack/src/services/migrations/paymentPositions');
+const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
 
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
@@ -1210,6 +1214,17 @@ describe('explorerService tests', () => {
       sinon.assert.calledWithMatch(updateInDatabaseStub, sinon.match.object, 'addresstransactionindex', {}, { $pull: { transactions: { height: sinon.match.object } } });
     });
 
+    it('runs its deletes and updates on the maintenance client', async () => {
+      removeDocumentsFromCollectionStub.returns(true);
+      updateInDatabaseStub.returns(true);
+
+      await explorerService.restoreDatabaseToBlockheightState(100000);
+
+      const clients = [...removeDocumentsFromCollectionStub.getCalls(), ...updateInDatabaseStub.getCalls()].map((call) => call.args[0].client);
+      expect(clients).to.have.length.above(0);
+      clients.forEach((client) => expect(client).to.equal(dbHelper.maintenanceConnection()));
+    });
+
     it('should leave the app messages and the registry alone', async () => {
       removeDocumentsFromCollectionStub.returns(true);
       updateInDatabaseStub.returns(true);
@@ -1988,7 +2003,6 @@ describe('explorerService tests', () => {
       sinon.assert.notCalled(logErrorSpy);
       sinon.assert.calledWithMatch(logInfoSpy, 'Bootstrap: Using address-index fast path');
       sinon.assert.calledWithMatch(logInfoSpy, 'Bootstrap complete');
-      sinon.assert.calledWithMatch(logInfoSpy, 'Preparing apps collections');
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparation done');
     });
 
@@ -2096,7 +2110,6 @@ describe('explorerService tests', () => {
 
       sinon.assert.notCalled(logErrorSpy);
       sinon.assert.calledWithMatch(logInfoSpy, 'Bootstrap: Using address-index fast path');
-      sinon.assert.calledWithMatch(logInfoSpy, 'Preparing apps collections');
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparation done');
       const dropped = dropCollectionStub.getCalls().map((call) => call.args[1]);
       expect(dropped).to.not.include('zelappslocation');
@@ -2105,6 +2118,137 @@ describe('explorerService tests', () => {
       sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'coinbasefusionindex');
       sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'zelappshashes');
       sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'addresstransactionindex');
+    });
+  });
+
+  describe('the explorer\'s collections', () => {
+    const { appsHashes } = config.database.daemon.collections;
+    let hashes;
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      hashes = dbHelper.databaseConnection().db(config.database.daemon.database).collection(appsHashes);
+      await hashes.drop().catch(() => {});
+    });
+
+    afterEach(async () => {
+      sinon.restore();
+      await hashes.drop().catch(() => {});
+    });
+
+    it('keeps, of each hash\'s payment records, the earliest whose transaction is on the chain', async () => {
+      await hashes.insertMany([
+        { hash: 'paid', txid: 'stale', height: 200, notOnChain: true },
+        { hash: 'paid', txid: 'later', height: 400, txIndex: 1 },
+        { hash: 'paid', txid: 'first', height: 300, txIndex: 5 },
+        { hash: 'paid', txid: 'sameblock', height: 300, txIndex: 7 },
+        { hash: 'single', txid: 'only', height: 500 },
+      ]);
+
+      const removed = await explorerService.keepEarliestPayment(hashes);
+
+      expect(removed).to.equal(3);
+      expect((await hashes.find({}, { projection: { _id: 0, txid: 1 } }).sort({ txid: 1 }).toArray()).map((r) => r.txid)).to.deep.equal(['first', 'only']);
+    });
+
+    it('keeps every duplicate when the stored message cannot be moved, so the next index build recovers them again', async () => {
+      await hashes.insertMany([
+        { hash: 'paid', txid: 'first', height: 300 },
+        { hash: 'paid', txid: 'later', height: 400 },
+      ]);
+      sinon.stub(messageVerifier, 'moveStoredMessagesToPayments').rejects(new Error('connection timed out'));
+
+      await expect(explorerService.keepEarliestPayment(hashes)).to.be.rejectedWith('connection timed out');
+
+      expect(await hashes.countDocuments({ hash: 'paid' })).to.equal(2);
+    });
+
+    it('moves the stored message of a hash it kept the earliest payment of onto that payment', async () => {
+      const messages = dbHelper.databaseConnection().db(config.database.appsglobal.database).collection(config.database.appsglobal.collections.appsMessages);
+      await messages.deleteMany({ hash: { $in: ['paid', 'single'] } });
+      await hashes.insertMany([
+        { hash: 'paid', txid: 'first', height: 300, value: 5 },
+        { hash: 'paid', txid: 'later', height: 400, value: 7 },
+        { hash: 'single', txid: 'only', height: 500, value: 9 },
+      ]);
+      await messages.insertMany([
+        { hash: 'paid', txid: 'later', height: 400, valueSat: 7, appSpecifications: { name: 'PaidTwice' } },
+        { hash: 'single', txid: 'only', height: 500, valueSat: 9, appSpecifications: { name: 'PaidOnce' } },
+      ]);
+      try {
+        await explorerService.keepEarliestPayment(hashes);
+
+        const paid = await messages.findOne({ hash: 'paid' }, { projection: { _id: 0, txid: 1, height: 1, valueSat: 1 } });
+        expect(paid).to.deep.equal({ txid: 'first', height: 300, valueSat: 5 });
+        const single = await messages.findOne({ hash: 'single' }, { projection: { _id: 0, txid: 1, height: 1 } });
+        expect(single, 'a hash with one payment is left as it is').to.deep.equal({ txid: 'only', height: 500 });
+      } finally {
+        await messages.deleteMany({ hash: { $in: ['paid', 'single'] } });
+      }
+    });
+
+    it('asserts every index on the maintenance client', async () => {
+      const ensureIndexes = sinon.stub(dbHelper, 'ensureIndexes').resolves();
+
+      await explorerService.prepareCollections();
+
+      expect(dbHelper.maintenanceConnection(), 'no maintenance client, so this proves nothing').to.not.equal(null);
+      expect(ensureIndexes.callCount).to.equal(5);
+      ensureIndexes.getCalls().forEach((call) => expect(call.args[0].client).to.equal(dbHelper.maintenanceConnection()));
+    });
+
+    it('builds the unique hash index over records that hold duplicates, keeping the earliest payment', async () => {
+      // inserted earliest first, so the newest row is the later payment
+      await hashes.insertMany([
+        { hash: 'paid', txid: 'first', height: 300 },
+        { hash: 'paid', txid: 'later', height: 400 },
+      ]);
+
+      await explorerService.prepareCollections();
+
+      const unique = (await hashes.indexes()).find((index) => index.name === 'query for getting app hash');
+      expect(unique?.unique, 'the unique hash index').to.equal(true);
+      expect((await hashes.find({ hash: 'paid' }).toArray()).map((r) => r.txid)).to.deep.equal(['first']);
+    });
+
+    it('lets the boot backfill read only the payment records without a position', async () => {
+      await hashes.insertMany([
+        ...Array.from({ length: 50 }, (_, i) => ({ hash: `placed${i}`, txid: `placed${i}`, height: i, txIndex: 0 })),
+        { hash: 'unplaced', txid: 'unplaced', height: 60 },
+      ]);
+
+      await explorerService.prepareCollections();
+
+      const { executionStats } = await hashes.find(UNPOSITIONED).explain('executionStats');
+      expect(executionStats.nReturned).to.equal(1);
+      expect(executionStats.totalDocsExamined, 'the backfill read records that have a position').to.equal(1);
+    });
+
+    it('starts no scan from zero until its collections hold their indexes', async () => {
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves({ generalScannedHeight: 0 });
+      sinon.stub(dbHelper, 'countInDatabase').resolves(1);
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
+      sinon.stub(daemonServiceBlockchainRpcs, 'getBlockCount').returns({ status: 'success', data: 200000 });
+      // a scan that starts stops the processor, so the assertion below reads it
+      const scan = sinon.stub(daemonServiceBlockchainRpcs, 'getBlock').callsFake(async () => {
+        explorerService.setBlockProccessingCanContinue(false);
+        return { status: 'error', data: {} };
+      });
+      sinon.stub(dbHelper, 'ensureIndexes').rejects(new MongoNetworkTimeoutError('timed out'));
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
+      explorerService.setZelAppSpecsMigrationDone(true);
+      explorerService.setBlockProccessingCanContinue(true);
+      try {
+        await explorerService.initiateBlockProcessor(false, false);
+        await clock.tickAsync(1000);
+
+        sinon.assert.notCalled(scan);
+      } finally {
+        explorerService.setBlockProccessingCanContinue(false);
+        explorerService.setIsInInitiationOfBP(false);
+        explorerService.setZelAppSpecsMigrationDone(false);
+        clock.restore();
+      }
     });
   });
 
@@ -2674,6 +2818,181 @@ describe('explorerService tests', () => {
       await explorerService.bootstrapSoftForks(2579000);
 
       sinon.assert.notCalled(updateOneStub);
+    });
+  });
+
+  describe('a chain write that fails', () => {
+    // A soft fork the foundation sent to itself: a price fork every node applies.
+    const softForkBlock = () => ({
+      height: 1000,
+      tx: [{
+        version: 4,
+        txid: 'softforktx',
+        vin: [{ address: config.fluxapps.addressMultisig }],
+        vout: [{
+          valueSat: 0,
+          scriptPubKey: {
+            addresses: [config.fluxapps.addressMultisig],
+            asm: `OP_RETURN ${Buffer.from('p_1_2_3_4').toString('hex')}`,
+          },
+        }],
+      }],
+    });
+
+    beforeEach(() => {
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('fails the block when its soft fork cannot be written', async () => {
+      sinon.stub(dbHelper, 'updateOneInDatabase').rejects(new MongoNetworkTimeoutError('connection timed out'));
+
+      const outcome = await explorerService.processInsight(softForkBlock(), {}).catch((err) => err);
+
+      expect(outcome, 'the block moved on without its price fork').to.be.instanceOf(MongoNetworkTimeoutError);
+    });
+
+    it('a canary: a soft fork that fails for another reason is skipped', async () => {
+      const updateOne = sinon.stub(dbHelper, 'updateOneInDatabase').rejects(new Error('unreadable message'));
+
+      await explorerService.processInsight(softForkBlock(), {});
+
+      sinon.assert.called(updateOne);
+    });
+
+    describe('on a node without the insight index', () => {
+      // The same soft fork, its sender found through the spent output it names.
+      const standardSoftForkBlock = () => ({
+        ...softForkBlock(),
+        tx: softForkBlock().tx.map((tx) => ({ ...tx, vin: [{ txid: 'fundingtx', vout: 0 }] })),
+      });
+      const { chainMessages } = config.database.chainparams.collections;
+      let updateOne;
+
+      beforeEach(() => {
+        sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves({ value: { address: config.fluxapps.addressMultisig } });
+        sinon.stub(dbHelper, 'insertOneToDatabase').resolves();
+        sinon.stub(serviceHelper, 'delay').resolves();
+        // The block's address index is written the same way first; only the soft
+        // fork's own write fails.
+        updateOne = sinon.stub(dbHelper, 'updateOneInDatabase').resolves();
+      });
+
+      it('fails the block when its soft fork cannot be written', async () => {
+        updateOne.withArgs(sinon.match.any, chainMessages).rejects(new MongoNetworkTimeoutError('connection timed out'));
+
+        const outcome = await explorerService.processStandard(standardSoftForkBlock(), {}).catch((err) => err);
+
+        sinon.assert.calledWith(updateOne, sinon.match.any, chainMessages);
+        expect(outcome, 'the block moved on without its price fork').to.be.instanceOf(MongoNetworkTimeoutError);
+      });
+
+      it('a canary: a soft fork that fails for another reason is skipped', async () => {
+        updateOne.withArgs(sinon.match.any, chainMessages).rejects(new Error('unreadable message'));
+
+        await explorerService.processStandard(standardSoftForkBlock(), {});
+
+        sinon.assert.calledWith(updateOne, sinon.match.any, chainMessages);
+      });
+    });
+
+    it('fails the block when one of its app payments cannot be recorded', async () => {
+      sinon.stub(dbHelper, 'insertManyToDatabase').rejects(new Error('batch failed'));
+      const upsert = sinon.stub(dbHelper, 'updateOneInDatabase');
+      upsert.onFirstCall().resolves();
+      upsert.onSecondCall().rejects(new MongoNetworkTimeoutError('connection timed out'));
+
+      const outcome = await explorerService.insertTransactions([{ hash: 'a', height: 1 }, { hash: 'b', height: 1 }], {}).catch((err) => err);
+
+      expect(outcome, 'the block moved on with a payment unrecorded').to.be.instanceOf(MongoNetworkTimeoutError);
+      sinon.assert.calledTwice(upsert);
+    });
+  });
+
+  describe('explorer reset requests', () => {
+    let res;
+    let clock;
+
+    beforeEach(() => {
+      res = { json: sinon.spy(), status: sinon.stub().returnsThis() };
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: sinon.fake.returns({}) });
+      sinon.stub(log, 'error');
+      explorerService.setIsInInitiationOfBP(false);
+      explorerService.setBlockProccessingCanContinue(true);
+    });
+
+    afterEach(() => {
+      clock?.restore();
+      clock = undefined;
+      explorerService.setIsInInitiationOfBP(false);
+      explorerService.setBlockProccessingCanContinue(true);
+      sinon.restore();
+    });
+
+    async function settle() {
+      for (let k = 0; k < 5; k += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setImmediate(resolve); });
+      }
+    }
+
+    it('reindex answers once with the error and releases the operation when the drop fails', async () => {
+      const dropCollection = sinon.stub(dbHelper, 'dropCollection').rejects(new Error('connection timed out'));
+
+      await explorerService.reindexExplorer({ params: {} }, res);
+      await settle();
+
+      sinon.assert.calledOnce(res.json);
+      sinon.assert.calledWithMatch(res.json, { status: 'error', data: { message: 'connection timed out' } });
+
+      dropCollection.rejects(new Error('connection timed out again'));
+      res.json.resetHistory();
+      await explorerService.reindexExplorer({ params: {} }, res);
+      await settle();
+      sinon.assert.calledWithMatch(res.json, { data: { message: 'connection timed out again' } });
+    });
+
+    it('rescan answers once with the error and releases the operation when the height write fails', async () => {
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves({ generalScannedHeight: 2000 });
+      const updateOne = sinon.stub(dbHelper, 'updateOneInDatabase').rejects(new Error('connection timed out'));
+
+      await explorerService.rescanExplorer({ params: { blockheight: 1000 } }, res);
+      await settle();
+
+      sinon.assert.calledOnce(res.json);
+      sinon.assert.calledWithMatch(res.json, { status: 'error', data: { message: 'connection timed out' } });
+
+      updateOne.rejects(new Error('connection timed out again'));
+      res.json.resetHistory();
+      await explorerService.rescanExplorer({ params: { blockheight: 1000 } }, res);
+      await settle();
+      sinon.assert.calledWithMatch(res.json, { data: { message: 'connection timed out again' } });
+    });
+
+    it('rescan without a block height answers once', async () => {
+      const findOne = sinon.stub(dbHelper, 'findOneInDatabase');
+
+      await explorerService.rescanExplorer({ params: {} }, res);
+
+      sinon.assert.calledOnce(res.json);
+      sinon.assert.calledWithMatch(res.json, { status: 'error', data: { message: 'No blockheight provided' } });
+      sinon.assert.notCalled(findOne);
+    });
+
+    it('a stop that does not take leaves block processing allowed to continue', async () => {
+      clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      explorerService.setIsInInitiationOfBP(true);
+
+      await explorerService.stopBlockProcessing({}, res);
+      await clock.tickAsync(13000);
+
+      sinon.assert.calledWithMatch(res.json, { status: 'error' });
+      expect(explorerService.getBlockProccessingCanContinue()).to.equal(true);
     });
   });
 });

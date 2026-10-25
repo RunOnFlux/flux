@@ -129,14 +129,9 @@ fi
 # - the silent exit-255 class that went unexplained for three gates and survived
 # six reproduction attempts, because a solo run never exhausts a host-wide pool.
 #
-# The arithmetic is why it was intermittent rather than constant. Measured directly
-# once the gauge existed (gate 10): a full gate peaks at 102 concurrent containers
-# and 221 inotify instances - 2.17 each, not the 1.27 a quieter sample suggested.
-# So the harness has been running at 1.7x the default ceiling of 128, and the wonder
-# is not that gates failed but that any passed: containers hold an instance only
-# briefly, so a boot survived or died on the exact overlap. 1024 is 4.6x the measured
-# peak, which leaves room for wider fleets rather than merely clearing today's number.
-INOTIFY_MIN="${E2E_INOTIFY_MAX_USER_INSTANCES:-1024}"
+# Every node's systemd holds instances for as long as the node runs, so the pool is
+# sized far above any gate's need: an instance costs only a little kernel memory.
+INOTIFY_MIN="${E2E_INOTIFY_MAX_USER_INSTANCES:-8192}"
 require_int E2E_INOTIFY_MAX_USER_INSTANCES "$INOTIFY_MIN"
 ino_now=$(sysctl -n fs.inotify.max_user_instances 2>/dev/null || echo 0)
 require_int fs.inotify.max_user_instances "$ino_now"
@@ -145,7 +140,7 @@ if [ "$ino_now" -lt "$INOTIFY_MIN" ]; then
   ino_now=$(sysctl -n fs.inotify.max_user_instances 2>/dev/null || echo 0)
   if [ "$ino_now" -lt "$INOTIFY_MIN" ]; then
     abort 94 "###ABORT inotify instance pool too small (max_user_instances=$ino_now < $INOTIFY_MIN) and could not raise it." \
-             "Every systemd-mode node needs one and the pool is host-wide, so a gate on this host" \
+             "Every node's systemd needs one and the pool is host-wide, so a gate on this host" \
              "produces silent exit-255 boot deaths by design." \
              "Raise it for the run:  sudo sysctl -w fs.inotify.max_user_instances=$INOTIFY_MIN" \
              "Or lower the bar deliberately with E2E_INOTIFY_MAX_USER_INSTANCES."
@@ -174,6 +169,22 @@ if [ -z "${SUITES:-}" ]; then
   done
   SUITES="$heavy $light"
 fi
+
+# A suite that boots a node on another build of FluxOS declares it on a line of its
+# own (`// base-image: FLUX_E2E_BASE_TAG`); the gate refuses before launching anything
+# when a chosen suite declares one and that image is not on this host, rather than
+# letting the suite fail inside the run.
+for s in $SUITES; do
+  grep -qh '^// base-image: FLUX_E2E_BASE_TAG$' tests/${s}-*.js 2>/dev/null || continue
+  if [ -z "${FLUX_E2E_BASE_TAG:-}" ]; then
+    abort 91 "###ABORT suite $s boots a node on a base image and FLUX_E2E_BASE_TAG is not set." \
+      "Build one: FLUX_E2E_TAG=<tag> ./test-infra/build-release-image.sh <release ref>, then run with FLUX_E2E_BASE_TAG=<tag>."
+  fi
+  if ! docker image inspect "flux-e2e-fluxos-01:${FLUX_E2E_BASE_TAG}" >/dev/null 2>&1; then
+    abort 91 "###ABORT suite $s boots a node on flux-e2e-fluxos-01:${FLUX_E2E_BASE_TAG}, which is not on this host." \
+      "Build it: FLUX_E2E_TAG=${FLUX_E2E_BASE_TAG} ./test-infra/build-release-image.sh <release ref>."
+  fi
+done
 
 free_mb(){ free -m | awk '/^Mem:/{print $7}'; }
 load_1m(){ cut -d' ' -f1 /proc/loadavg | cut -d. -f1; }   # integer part is enough for a gate

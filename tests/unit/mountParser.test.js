@@ -440,32 +440,84 @@ describe('mountParser tests', () => {
       expect(result.additional[0].type).to.equal('component_primary');
     });
   });
-  // The election decides one component per app, and an operator start defers to
-  // it only for that one: both read it here, so they cannot disagree.
-  describe('electedComponentIdentifier', () => {
-    it('names the first g: component of a composed app', () => {
+  // The election decides the app and runs every g: component on its primary; an
+  // operator start defers to it for the same set. Both read it here, so they
+  // cannot disagree.
+  describe('syncedComponentIdentifiers', () => {
+    it('names every synced component of a composed app, in compose order', () => {
+      const spec = {
+        name: 'App',
+        version: 4,
+        compose: [
+          { name: 'two', containerData: 'g:/data' },
+          { name: 'db', containerData: '/data' },
+          { name: 'cache', containerData: 'r:/data' },
+          { name: 'shared', containerData: 's:/data' },
+        ],
+      };
+      expect(mountParser.syncedComponentIdentifiers(spec)).to.deep.equal(['two_App', 'cache_App', 'shared_App']);
+    });
+
+    it('names a v1-3 synced app by its own name', () => {
+      expect(mountParser.syncedComponentIdentifiers({ name: 'Old', version: 3, containerData: 'r:/data' })).to.deep.equal(['Old']);
+    });
+
+    it('names nothing for an app with no synced component, or no spec', () => {
+      expect(mountParser.syncedComponentIdentifiers({ name: 'Old', version: 3, containerData: '/data' })).to.deep.equal([]);
+      expect(mountParser.syncedComponentIdentifiers(null)).to.deep.equal([]);
+    });
+  });
+
+  describe('gComponentIdentifiers', () => {
+    it('names every g: component of a composed app, in compose order', () => {
+      const spec = {
+        name: 'App',
+        version: 4,
+        compose: [
+          { name: 'two', containerData: 'g:/data' },
+          { name: 'db', containerData: '/data' },
+          { name: 'one', containerData: 'g:/data' },
+          { name: 'cache', containerData: 'r:/data' },
+        ],
+      };
+      expect(mountParser.gComponentIdentifiers(spec)).to.deep.equal(['two_App', 'one_App']);
+    });
+
+    it('names a v1-3 g: app by its own name', () => {
+      expect(mountParser.gComponentIdentifiers({ name: 'Old', version: 3, containerData: 'g:/data' })).to.deep.equal(['Old']);
+    });
+
+    it('names nothing for an app with no g: component', () => {
+      expect(mountParser.gComponentIdentifiers({ name: 'Old', version: 3, containerData: 'r:/data' })).to.deep.equal([]);
+      expect(mountParser.gComponentIdentifiers({ name: 'App', version: 4, compose: [{ name: 'web', containerData: '/www' }] })).to.deep.equal([]);
+      expect(mountParser.gComponentIdentifiers({ name: 'App', version: 4, compose: [{ name: 'web', containerData: '/data|g:/x' }] })).to.deep.equal([]);
+    });
+
+    it('names nothing for a spec whose components cannot be read', () => {
+      expect(mountParser.gComponentIdentifiers({ name: 'Ent', version: 8, enterprise: 'blob', compose: [] })).to.deep.equal([]);
+      expect(mountParser.gComponentIdentifiers({ name: 'Ent', version: 8 })).to.deep.equal([]);
+      expect(mountParser.gComponentIdentifiers(null)).to.deep.equal([]);
+    });
+  });
+
+  // The one g: component a release that elects a single component knows about.
+  describe('anchorComponentIdentifier', () => {
+    it('names the first g: component in compose order', () => {
       const spec = {
         name: 'App',
         version: 4,
         compose: [{ name: 'db', containerData: '/data' }, { name: 'one', containerData: 'g:/data' }, { name: 'two', containerData: 'g:/data' }],
       };
-      expect(mountParser.electedComponentIdentifier(spec)).to.equal('one_App');
+      expect(mountParser.anchorComponentIdentifier(spec)).to.equal('one_App');
     });
 
     it('names a v1-3 g: app by its own name', () => {
-      expect(mountParser.electedComponentIdentifier({ name: 'Old', version: 3, containerData: 'g:/data' })).to.equal('Old');
+      expect(mountParser.anchorComponentIdentifier({ name: 'Old', version: 3, containerData: 'g:/data' })).to.equal('Old');
     });
 
     it('names nothing for an app with no g: component', () => {
-      expect(mountParser.electedComponentIdentifier({ name: 'Old', version: 3, containerData: 'r:/data' })).to.equal(null);
-      expect(mountParser.electedComponentIdentifier({ name: 'App', version: 4, compose: [{ name: 'web', containerData: '/www' }] })).to.equal(null);
-      expect(mountParser.electedComponentIdentifier({ name: 'App', version: 4, compose: [{ name: 'web', containerData: '/data|g:/x' }] })).to.equal(null);
-    });
-
-    it('names nothing for a spec whose components cannot be read', () => {
-      expect(mountParser.electedComponentIdentifier({ name: 'Ent', version: 8, enterprise: 'blob', compose: [] })).to.equal(null);
-      expect(mountParser.electedComponentIdentifier({ name: 'Ent', version: 8 })).to.equal(null);
-      expect(mountParser.electedComponentIdentifier(null)).to.equal(null);
+      expect(mountParser.anchorComponentIdentifier({ name: 'App', version: 4, compose: [{ name: 'web', containerData: '/www' }] })).to.equal(null);
+      expect(mountParser.anchorComponentIdentifier(null)).to.equal(null);
     });
   });
 });

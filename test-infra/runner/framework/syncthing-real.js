@@ -1,7 +1,8 @@
 // Reads a node's OWN syncthing daemon, for suites booted with
 // `createTestEnv({ syncthing: 'binary' })`.
 //
-// Deliberately observers, not setters. The stub's control surface
+// Observers, apart from the actions a machine itself takes on its daemon
+// (start, stop, scan, pause a folder). The stub's control surface
 // (syncthing-control.js) scripts what a node believes about sync state, because
 // with a stub there is no truth to read. With a real daemon there is, and
 // scripting it would only hide what the test exists to establish - so these
@@ -59,6 +60,13 @@ export async function getFolders(client) {
 
 export async function getFolderStatus(client, folderId) {
   return api(client, `/rest/db/status?folder=${encodeURIComponent(folderId)}`);
+}
+
+// How this node's syncthing sees another device's side of a folder: 'valid' while
+// that device shares it over a live connection, 'paused', 'notSharing' or
+// 'unknown' otherwise. What FluxOS reads a peer's connection to the folder from.
+export async function getRemoteState(client, folderId, deviceId) {
+  return (await api(client, `/rest/db/completion?folder=${encodeURIComponent(folderId)}&device=${encodeURIComponent(deviceId)}`)).remoteState;
 }
 
 // A folder is complete when the index describes something and the disk holds all
@@ -226,6 +234,16 @@ export async function startDaemon(client, { timeout = 60000, interval = 1000, pa
 // Stop the node's own daemon outright, as a machine going down stops it.
 export async function stopDaemon(client) {
   await execInContainer(client.container, 'pkill -KILL -x syncthing --ns 1 --nslist pid; true');
+}
+
+// Pause or resume one folder, as FluxOS's pauseAllFolders does folder by folder -
+// so a FluxOS that stops partway leaves some of a node's folders paused and the
+// rest shared. Peers then read this node's connection to that folder as closed.
+export async function setFolderPaused(client, folderId, paused) {
+  const key = await apiKey(client);
+  const r = await execInContainer(client.container,
+    `curl -sS -f -X PATCH -H "X-API-Key: ${key}" -H "Content-Type: application/json" -d '{"paused":${paused ? 'true' : 'false'}}' "http://127.0.0.1:8384/rest/config/folders/${encodeURIComponent(folderId)}"`);
+  if (r.exitCode !== 0) throw new Error(`syncthing-real: ${paused ? 'pause' : 'resume'} of ${folderId} failed: ${r.stderr || r.output}`);
 }
 
 // The daemon's own event log since `since`, optionally of named types - e.g.

@@ -120,6 +120,13 @@ export async function seedSpecUpdate(env, updated, indices) {
 // Returns the indices it installed on.
 export async function installOnNodes(env, app, indices, { timeout = 120000 } = {}) {
   await seedGlobalSpec(env, app, indices);
+  return installSeededOnNodes(env, app, indices, { timeout });
+}
+
+// installOnNodes for an app whose chain records the nodes already hold: an app
+// uninstalled from a node and installed on it again, say. A local uninstall
+// leaves those records, and seeding them a second time is refused.
+export async function installSeededOnNodes(env, app, indices, { timeout = 120000 } = {}) {
   const teamKey = fluxTeamKey();
   await Promise.all(indices.map(async (i) => {
     const client = env.clients[i];
@@ -221,12 +228,12 @@ export async function placeGAppInOrder(env, app, {
     const installAfter = env.clients[i].getLastEventId();
     // eslint-disable-next-line no-await-in-loop
     await installOnNodes(env, app, [i]);
-    // Wait out the sync layer's first-run reset before writing disk data, or the
-    // reset deletes it - a folder pinned synced later must hold what its index claims.
+    // Every holder enters the election empty, as a newborn app's holders do: the
+    // sync layer's first-run reset has cleared the volume before the next holder is
+    // placed. A folder a suite pins synced later gets its bytes from the synced-data
+    // keeper.
     // eslint-disable-next-line no-await-in-loop
     await waitForReconcileActuated(env.clients[i], identifier, 'dataCleared', 60000, { afterId: installAfter });
-    // eslint-disable-next-line no-await-in-loop
-    await seedSyncScopedData(env, app.spec.name, i);
 
     // WAITED FOR, not slept past. The ordering these placements exist to create
     // is the runningSince stamps, and a fixed gap produces it only while every
@@ -553,9 +560,13 @@ export async function seedSyncthingApp(env, {
 // Seed the configurable test-app (controllable exit code / timed exit) and wait
 // for it to install. Returns { app, index, identifier }. Requires the test-app
 // binary to be built (bash test-infra/test-app/build.sh).
-export async function seedTestApp(env, { name, exitCode = 0, exitAfterS = null } = {}) {
+export async function seedTestApp(env, {
+  name, exitCode = 0, exitAfterS = null, logEveryMs = null,
+} = {}) {
   await pushTestApp(name);
-  const app = await buildSeedableTestApp({ name, exitCode, exitAfterS });
+  const app = await buildSeedableTestApp({
+    name, exitCode, exitAfterS, logEveryMs,
+  });
   const index = await seedAndInstall(env, app);
   return { app, index, identifier: `${name}_${name}` };
 }

@@ -195,6 +195,10 @@ export function nodeClient(nodeNum) {
         'masterSlave:operatorStartSettled',
         'stream:gap',
         'boot:settled',
+        // an app boot could not confirm this node still holds, held stopped; and the
+        // answer once its location record could be read
+        'boot:appUnconfirmed',
+        'boot:appConfirmed',
         'confirmation:changed',
         'daemon:polled',
         'daemon:recovered',
@@ -217,9 +221,18 @@ export function nodeClient(nodeNum) {
         // wording of the response stream.
         'app:installOutcome',
         'app:removed',
+        'app:rebuilt',
+        'app:softRedeployed',
+        'reinstall:passEnded',
         'app:componentRedeployed',
         'app:specStored',
         'app:running',
+        // what this node records of when it took each app it holds
+        'app:placementRecorded',
+        'app:placementRemoved',
+        'app:placementsTidied',
+        'app:placementsBackfilled',
+        'app:announcementRefused',
         'app:announcing',
         'fileoperation:imageAcquired',
         'fileoperation:imageDiscarded',
@@ -231,6 +244,8 @@ export function nodeClient(nodeNum) {
         // it. Nothing existing carries that.
         'ports:notOurs',
         'ports:unproven',
+        'ports:proven',
+        'ports:udpUnreachable',
         'discovery:started',
         'peers:added',
         'peers:accepting',
@@ -280,6 +295,8 @@ export function nodeClient(nodeNum) {
         'network:originatorNotListed',
         'syncthing:namesVisible',
         'syncthing:localChangesReverted',
+        'syncthing:localChangesKept',
+        'syncthing:localChangesChecked',
         'syncthing:devicesResumed',
         'pm2:killTimeoutRaiseFailed',
         'pm2:killTimeoutUnchanged',
@@ -302,7 +319,13 @@ export function nodeClient(nodeNum) {
         'spawner:networkErrorSkip',
         'spawner:paused',
         'spawner:resumed',
+        'placementHold:set',
+        'placementHold:cleared',
+        'hostStall:appUnloaded',
+        'hostStall:appsStopped',
         'network:apprunning',
+        // entries of an apprunning message this node refused, by gossip or sync
+        'network:apprunningRefused',
         'network:appinstalling',
         'network:appinstallingerror',
         'network:appremoved',
@@ -317,6 +340,7 @@ export function nodeClient(nodeNum) {
         'sync:refused',
         'ephemeralSync:peerTimedOut',
         'ephemeralSync:peerUnverified',
+        'ephemeralSync:peerWriteFailed',
         'ephemeralSync:peerDisconnected',
         'ephemeralSync:budgetSpent',
         'sync:chunkVerified',
@@ -546,6 +570,20 @@ export function nodeClient(nodeNum) {
     // the app:installed event (waitForAppInstalled).
     installAppLocally: async (appname, zelidauth) => {
       const res = await controlFetch(`${url}/apps/installapplocally/${appname}`, { headers: { zelidauth } });
+      return res.text();
+    },
+    // Test an app on THIS node: install it, check it starts, tear it down. By
+    // name, or by the hash of a temporary message for an app not yet paid for.
+    // Streams like installapplocally, so drained as text.
+    testAppInstall: async (appname, zelidauth) => {
+      const res = await controlFetch(`${url}/apps/testappinstall/${appname}`, { headers: { zelidauth } });
+      return res.text();
+    },
+    // Remove an app from THIS node only. The third path segment is `global`, and
+    // true would remove the app from every node holding it, so it is always false
+    // here. Streams progress, so drained as text.
+    removeAppLocally: async (appname, zelidauth, { force = true } = {}) => {
+      const res = await controlFetch(`${url}/apps/appremove/${appname}/${force}/false`, { headers: { zelidauth } });
       return res.text();
     },
     // Redeploy the WHOLE app on this node, reading the spec from the global table

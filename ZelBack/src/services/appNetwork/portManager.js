@@ -11,12 +11,14 @@ const upnpService = require('../upnpService');
 const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
+const fluxUdpTestServer = require('../utils/fluxUdpTestServer');
 const { localAppsInformation, globalAppsInformation } = require('../utils/appConstants');
 const appUtilities = require('../utils/appUtilities');
 const { Privilege, authOf } = require('../utils/privileges');
 const fluxCaching = require('../utils/cacheManager');
 const globalState = require('../utils/globalState');
 const fluxEventBus = require('../utils/fluxEventBus');
+const policyStore = require('../policyStore');
 const { nodeSigner } = require('../utils/nodeSigner');
 
 // Global cache for failed nodes
@@ -298,7 +300,7 @@ async function restoreAppsPortsSupport() {
         // eslint-disable-next-line no-restricted-syntax
         for (const port of application.ports) {
           // eslint-disable-next-line no-await-in-loop
-          let upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
+          let upnpOk = (await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`)).mapped;
           if (!upnpOk) {
             if (!retryDelayElapsed) {
               // eslint-disable-next-line no-await-in-loop
@@ -306,7 +308,7 @@ async function restoreAppsPortsSupport() {
               retryDelayElapsed = true;
             }
             // eslint-disable-next-line no-await-in-loop
-            upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
+            upnpOk = (await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`)).mapped;
           }
           if (!upnpOk) {
             failedPort = port;
@@ -735,6 +737,22 @@ async function askSiblingsForHeldPort(appPorts, localSocketAddress) {
 }
 
 /**
+ * The signed policy document that turns the pre-install refusal over UDP off.
+ * Published as `true`, a port two peers heard nothing on over UDP installs as
+ * `udpUnproven`, its UDP still reported in /flux/health; absent or anything
+ * else, the refusal stands.
+ */
+const UDP_INSTALL_REFUSAL_OFF_DOCUMENT = 'udpinstallrefusaloff';
+
+/**
+ * Whether the signed policy has turned the pre-install refusal over UDP off.
+ * @returns {boolean}
+ */
+function udpInstallRefusalOff() {
+  return policyStore.getDocument(UDP_INSTALL_REFUSAL_OFF_DOCUMENT) === true;
+}
+
+/**
  * How many independent peers must agree before a port test refuses an install.
  * Not config: it is a property of what counts as evidence, not a tuning knob,
  * and a fluxapps key has to be added in two places to be visible under test.
@@ -809,6 +827,81 @@ function portNotOurs(portsToTest, answered, token) {
 }
 
 /**
+ * Reads one peer's UDP answers: adds the ports our token came back from to
+ * those proven so far, and names the ports this peer heard nothing of ours on.
+ *
+ * Our token is proof, whichever peer heard it. Silence, or an answer without
+ * our token, is this peer's evidence against a port, and it stands only while
+ * no peer has proven that port: UDP loses datagrams, so one peer's silence on a
+ * port another peer heard our token from is loss. A port missing from the
+ * answers is one the peer could not send to, which says nothing.
+ *
+ * @param {number[]} portsToTest - the ports asked about
+ * @param {object} udpAnswered - port -> what that port replied, or null, from the peer
+ * @param {string} token - the secret this node's test servers answer with
+ * @param {Set<number>} proven - ports proven so far; added to
+ * @returns {number[]} the ports this peer heard nothing of ours on
+ */
+function udpPortsNotOurs(portsToTest, udpAnswered, token, proven) {
+  const closed = [];
+  portsToTest.forEach((port) => {
+    const probed = port >= config.fluxapps.portMin && port <= config.fluxapps.portMax;
+    if (!probed) return;
+
+    const reply = udpAnswered[port] !== undefined ? udpAnswered[port] : udpAnswered[String(port)];
+    if (reply === undefined) return;
+
+    if (typeof reply === 'string' && reply.includes(token)) {
+      proven.add(port);
+    } else {
+      closed.push(port);
+    }
+  });
+  return closed;
+}
+
+/**
+ * What a peer heard over UDP on one port, read against our token: `ours`,
+ * `silent`, `otherAnswer`, or `notProbed` for a port it could not send to.
+ * @param {object} udpAnswered - port -> what that port replied, or null, from the peer
+ * @param {number} port
+ * @param {string} token
+ * @returns {string}
+ */
+function udpReadingOf(udpAnswered, port, token) {
+  const reply = udpAnswered[port] !== undefined ? udpAnswered[port] : udpAnswered[String(port)];
+  if (reply === undefined) return 'notProbed';
+  if (reply === null) return 'silent';
+  return typeof reply === 'string' && reply.includes(token) ? 'ours' : 'otherAnswer';
+}
+
+/**
+ * Each peer whose UDP evidence still stands, with the first port it heard
+ * nothing on that no peer has proven.
+ * @param {Map<string, number[]>} udpDisagreements - peer -> ports it heard nothing on
+ * @param {Set<number>} proven
+ * @returns {Map<string, number>}
+ */
+function udpDisputes(udpDisagreements, proven) {
+  const disputes = new Map();
+  udpDisagreements.forEach((ports, peer) => {
+    const port = ports.find((closed) => !proven.has(closed));
+    if (port !== undefined) disputes.set(peer, port);
+  });
+  return disputes;
+}
+
+/**
+ * Whether every port a peer probes over UDP is proven.
+ * @param {number[]} portsToTest
+ * @param {Set<number>} proven
+ * @returns {boolean}
+ */
+function everyUdpPortProven(portsToTest, proven) {
+  return portsToTest.every((port) => port < config.fluxapps.portMin || port > config.fluxapps.portMax || proven.has(port));
+}
+
+/**
  * To check if app ports are available publicly before installation.
  *
  * Answers with the decision itself rather than a bare boolean: proceeding
@@ -817,12 +910,21 @@ function portNotOurs(portsToTest, answered, token) {
  * about the network, and only one of them is evidence. The object returned is
  * the one published to the harness bus, so the two cannot drift.
  *
+ * Behind UPnP each port is mapped for the test under the application's own
+ * description, the one its installation maps it under: a mapping the router
+ * keeps after the test - a removal it refused, an entry it will not rewrite -
+ * is then the application's as it installs, or a stale one of an application
+ * this node does not hold, for the cleanup.
+ *
  * @param {Array} portsToTest Array of ports to test
+ * @param {string} appName the application the ports are for
  * @returns {Promise<{ok: boolean, reason: string, port?: number, peers?: string[],
  *   readings?: object, asked?: string[], silent?: boolean}>}
  */
-async function checkInstallingAppPortAvailable(portsToTest = []) {
+async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
+  const description = `Flux_App_${appName}`;
   const beforeAppInstallTestingServers = [];
+  const udpTestServers = [];
   // One secret for this whole test run, published by our own test servers and
   // never sent to the peer. The peer returns what it read; we compare.
   const portTestToken = crypto.randomBytes(16).toString('hex');
@@ -869,13 +971,15 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       // now open this port properly and launch listening on it
       if (firewallActive) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxNetworkHelper.allowTestPort(portToTest);
+        await fluxNetworkHelper.allowTestPort(portToTest, 'tcp');
+        // eslint-disable-next-line no-await-in-loop
+        await fluxNetworkHelper.allowTestPort(portToTest, 'udp');
       }
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
-        const upnpMapResult = await upnpService.mapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
-        if (!upnpMapResult) {
-          throw new Error('Failed to create map UPNP port');
+        const upnpMapResult = await upnpService.mapUpnpPort(portToTest, description);
+        if (!upnpMapResult.mapped) {
+          throw new Error(`Failed to create map UPNP port: ${upnpMapResult.reason}`);
         }
       }
       const testHttpServer = new fluxHttpTestServer.FluxHttpTestServer(portTestToken);
@@ -906,6 +1010,11 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       const error = await listening.catch((err) => err);
 
       if (error) throw error;
+
+      const udpTestServer = new fluxUdpTestServer.FluxUdpTestServer(portTestToken);
+      udpTestServers.push(udpTestServer);
+      // eslint-disable-next-line no-await-in-loop
+      await udpTestServer.listen(portToTest);
     }
 
     await serviceHelper.delay(config.fluxapps.portTestPropagationDelayMs);
@@ -923,6 +1032,9 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       // it should find is deliberately not here: a peer that never learns it
       // cannot produce it without actually reaching us.
       echo: true,
+      // Over both protocols: UDP is probed once TCP has passed, and what replied
+      // is handed back.
+      protocols: ['tcp', 'udp'],
     };
     const stringData = JSON.stringify(data);
     // eslint-disable-next-line no-await-in-loop
@@ -943,6 +1055,22 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     // Peer address -> the port that peer said is not serving this node. Keyed by
     // peer so that redrawing the same one does not read as a second opinion.
     const disagreements = new Map();
+    // Peer address -> the ports that peer heard nothing of ours on over UDP.
+    // Kept apart from TCP: a peer that reached every port over TCP and heard
+    // nothing over UDP is saying something else.
+    const udpDisagreements = new Map();
+    // Our token came back over TCP from every port, from one peer. Proof, so no
+    // later peer's reading can outweigh it.
+    let tcpProven = false;
+    // Ports our token came back from over UDP, from any peer.
+    const udpProven = new Set();
+    // Peer address -> what it heard over UDP on the port it read as not ours.
+    // A port answered over TCP by something else is a port forwarded elsewhere,
+    // so what the same peer heard over UDP describes that forward, not whether
+    // this node receives UDP: it goes with that peer's reading, never into the
+    // UDP tally.
+    const udpWhereNotOurs = new Map();
+    let sawNoUdpPeer = false;
     // Every peer already asked, so a redraw is ANOTHER peer rather than another
     // draw. Without this the picker can hand back the one just asked - which on
     // a budget of two attempts it often does - and a check counting distinct
@@ -977,6 +1105,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       const askingIP = extractIp(randomSocketAddress);
       const askingIpPort = extractPort(randomSocketAddress);
       asked.push(randomSocketAddress);
+      udpTestServers.forEach((udpTestServer) => udpTestServer.allow(askingIP));
 
       // first check against our IP address
       // eslint-disable-next-line no-await-in-loop
@@ -988,6 +1117,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       // What this attempt learned about one of our ports, or null when it
       // learned nothing at all. Only a port recorded here counts as a witness.
       let reportedPort = null;
+      let udpClosedPorts = [];
 
       if (!resMyAppAvailability) {
         // The peer never answered us. That is a fact about the peer, not about
@@ -1021,9 +1151,9 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         // token coming back settles a port on one peer's say-so, because only
         // this node could have produced it.
         log.warn(`checkInstallingAppPortAvailable - ${askingIP} could not reach port ${failedPort}`);
-        reportedPort = failedPort;
+        if (!tcpProven) reportedPort = failedPort;
       } else if (resMyAppAvailability.data.status === 'success') {
-        const { answered } = resMyAppAvailability.data.data || {};
+        const { answered, udpAnswered } = resMyAppAvailability.data.data || {};
 
         if (!answered) {
           // This peer is on older code: it reached the ports but did not read
@@ -1038,16 +1168,45 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
 
         if (notOurs === null) {
           // Our own token came back. Proof, not report - only this node could
-          // have produced it - so one peer settles it.
-          decision = { ok: true, reason: 'proven', port: null };
-          break;
+          // have produced it - so one peer settles TCP.
+          tcpProven = true;
+        } else if (!tcpProven) {
+          log.info(`checkInstallingAppPortAvailable - ${askingIP} read something other than this node on port ${notOurs}`);
+          reportedPort = notOurs;
         }
 
-        log.info(`checkInstallingAppPortAvailable - ${askingIP} read something other than this node on port ${notOurs}`);
-        reportedPort = notOurs;
+        if (udpAnswered && typeof udpAnswered === 'object' && notOurs !== null) {
+          udpWhereNotOurs.set(askingIP, udpReadingOf(udpAnswered, notOurs, portTestToken));
+        } else if (udpAnswered && typeof udpAnswered === 'object') {
+          udpClosedPorts = udpPortsNotOurs(portsToTest, udpAnswered, portTestToken, udpProven);
+          if (udpClosedPorts.length) {
+            log.warn(`checkInstallingAppPortAvailable - ${askingIP} heard nothing of this node over UDP on port(s) ${udpClosedPorts.join(', ')}`);
+          }
+        } else {
+          // A peer on older code: it does not probe UDP.
+          sawNoUdpPeer = true;
+        }
+
+        if (tcpProven && everyUdpPortProven(portsToTest, udpProven)) {
+          decision = { ok: true, reason: 'proven', port: null };
+          fluxNetworkHelper.setUdpReachability({ reachable: true });
+          fluxEventBus.publish('ports:proven', { ...decision, ports: portsToTest, peer: askingIP });
+          break;
+        }
       } else {
         // An answer in a shape this node does not understand is not an answer.
         sawSilentPeer = true;
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+
+      // UDP silence is decided after the loop: a peer that cannot hear UDP
+      // replies is silent for every node it probes, so every attempt left is
+      // spent looking for a peer that proves the port before two silent ones
+      // refuse it.
+      if (udpClosedPorts.length) udpDisagreements.set(askingIP, udpClosedPorts);
+
+      if (reportedPort === null) {
         // eslint-disable-next-line no-continue
         continue;
       }
@@ -1076,8 +1235,36 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         port: refused,
         peers: [...disagreements.keys()],
         readings: Object.fromEntries(disagreements),
+        // what each of those peers heard over UDP on the same port, where it probed
+        udpReadings: Object.fromEntries([...disagreements.keys()]
+          .filter((peer) => udpWhereNotOurs.has(peer))
+          .map((peer) => [peer, udpWhereNotOurs.get(peer)])),
       };
       fluxEventBus.publish('ports:notOurs', decision);
+    }
+
+    if (decision === null) {
+      const disputed = udpDisputes(udpDisagreements, udpProven);
+      const udpRefused = refusedPort(disputed, PORT_TEST_CORROBORATION);
+      if (udpRefused !== null) {
+        const readings = [...disputed.entries()].map(([peer, port]) => `${peer} on port ${port}`);
+        fluxNetworkHelper.setUdpReachability({ reachable: false, port: udpRefused, peers: [...disputed.keys()] });
+        if (udpInstallRefusalOff()) {
+          log.warn(`checkInstallingAppPortAvailable - port ${udpRefused} does not answer this node over UDP, as heard by `
+            + `${readings.join(', ')}; the network policy has the refusal over UDP off, so the install goes ahead`);
+        } else {
+          log.warn(`checkInstallingAppPortAvailable - port ${udpRefused} at this address does not answer this node over UDP, as heard by `
+            + `${disputed.size} peers (${readings.join(', ')}) and proven by none of the ${asked.length} asked. Installation aborted.`);
+          decision = {
+            ok: false,
+            reason: 'udpUnreachable',
+            port: udpRefused,
+            peers: [...disputed.keys()],
+            readings: Object.fromEntries(disputed),
+          };
+          fluxEventBus.publish('ports:udpUnreachable', decision);
+        }
+      }
     }
 
     if (decision === null) {
@@ -1086,7 +1273,11 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       // existed, and it is what stops the first nodes to upgrade refusing
       // everything while the rest of the network catches up.
       let reason;
-      if (disagreements.size) {
+      if (tcpProven) {
+        // Proven over TCP; over UDP either no peer that probes it was asked, or
+        // fewer than two heard nothing.
+        reason = 'udpUnproven';
+      } else if (disagreements.size) {
         reason = ranOutOfObservers ? 'noOtherObserver' : 'singleWitness';
       } else if (ranOutOfObservers) {
         reason = 'noObserver';
@@ -1096,10 +1287,15 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         reason = 'noneAnswered';
       }
 
-      const witnesses = [...disagreements.keys()];
-      const disputed = disagreements.size ? [...disagreements.values()][0] : null;
+      const evidence = reason === 'udpUnproven' ? udpDisputes(udpDisagreements, udpProven) : disagreements;
+      const witnesses = [...evidence.keys()];
+      const disputed = evidence.size ? [...evidence.values()][0] : null;
 
-      if (witnesses.length) {
+      if (reason === 'udpUnproven') {
+        log.warn(`checkInstallingAppPortAvailable - proven over TCP; over UDP ${witnesses.length} peer(s) heard nothing `
+          + `(${witnesses.join(', ') || 'none'})${sawNoUdpPeer ? ' and some peers asked do not probe UDP' : ''}; `
+          + 'proceeding without proof over UDP');
+      } else if (witnesses.length) {
         log.warn(`checkInstallingAppPortAvailable - ${witnesses.length} peer(s) read a port that was not ours `
           + `(${witnesses.join(', ')}) and no other Flux node outside this address could be asked; `
           + 'proceeding on reachability alone');
@@ -1127,13 +1323,16 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     for (const portToTest of portsToTest) {
       if (firewallActive) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxNetworkHelper.deleteTestPortRule(portToTest);
+        await fluxNetworkHelper.deleteTestPortRule(portToTest, 'tcp');
+        // eslint-disable-next-line no-await-in-loop
+        await fluxNetworkHelper.deleteTestPortRule(portToTest, 'udp');
       }
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.removeMapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
+        await upnpService.removeMapUpnpPort(portToTest, description);
       }
     }
+    udpTestServers.forEach((udpTestServer) => udpTestServer.close());
     // Close all test servers and wait for them to finish
     await Promise.all(
       beforeAppInstallTestingServers.map((server) => new Promise((resolve) => {
@@ -1154,13 +1353,16 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     for (const portToTest of portsToTest) {
       if (firewallActive) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxNetworkHelper.deleteTestPortRule(portToTest).catch((e) => log.error(e));
+        await fluxNetworkHelper.deleteTestPortRule(portToTest, 'tcp').catch((e) => log.error(e));
+        // eslint-disable-next-line no-await-in-loop
+        await fluxNetworkHelper.deleteTestPortRule(portToTest, 'udp').catch((e) => log.error(e));
       }
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.removeMapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`).catch((e) => log.error(e));
+        await upnpService.removeMapUpnpPort(portToTest, description).catch((e) => log.error(e));
       }
     }
+    udpTestServers.forEach((udpTestServer) => udpTestServer.close());
     // Close all test servers and wait for them to finish
     await Promise.all(
       beforeAppInstallTestingServers.map((server) => new Promise((resolve) => {
@@ -1299,6 +1501,10 @@ module.exports = {
   portsInUse,
   portsInUseApi,
   portNotOurs,
+  udpPortsNotOurs,
+  udpReadingOf,
+  udpDisputes,
+  everyUdpPortProven,
   refusedPort,
   siblingHoldingPort,
   checkInstallingAppPortAvailable,

@@ -19,6 +19,23 @@ const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
  */
 let openDBConnection = null;
 
+// The client for the named long operations: index builds, the explorer
+// restore's deletes and the registry rebuild. One of its round trips may take
+// up to config.database.maintenanceCallTimeoutMs; every other call uses the
+// main client, bounded by config.database.callTimeoutMs.
+function maintenanceSettings() {
+  return {
+    maxPoolSize: 4,
+    socketTimeoutMS: config.database.maintenanceCallTimeoutMs,
+    waitQueueTimeoutMS: config.database.maintenanceCallTimeoutMs,
+  };
+}
+
+/**
+ * @type {mongodb.MongoClient}
+ */
+let maintenanceDBConnection = null;
+
 /**
  * Cached MongoDB server version, populated once per connection.
  * @type {string | null}
@@ -35,28 +52,72 @@ function databaseConnection() {
 }
 
 /**
+ * The maintenance client, if it was initiated before, otherwise null.
+ * @returns {mongodb.MongoClient | null}
+ */
+function maintenanceConnection() {
+  return maintenanceDBConnection;
+}
+
+/**
+ * `database` on the maintenance client: the same database, whose round trips
+ * may take up to config.database.maintenanceCallTimeoutMs. `database` itself while the
+ * maintenance client is not connected.
+ * @param {mongodb.Db} database
+ * @returns {mongodb.Db}
+ */
+function onMaintenanceClient(database) {
+  return maintenanceDBConnection ? maintenanceDBConnection.db(database.databaseName) : database;
+}
+
+/**
+ * Whether an error came from the database rather than from the work around it:
+ * a timeout, a pool wait, an unreachable server, or a refused command. A caller
+ * deciding whether a failure says anything about an app reads this - a database
+ * that did not answer says nothing about the app.
+ * @param {*} error
+ * @returns {boolean}
+ */
+function isDatabaseError(error) {
+  return error instanceof mongodb.MongoError;
+}
+
+/**
  * Initiates connection with the database.
  *
  * @param {string} [url]
+ * @param {object} [settings] Client options over the main client's.
  *
  * @returns {Promise<mongodb.MongoClient>}
  */
-async function connectMongoDb(url) {
+async function connectMongoDb(url, settings = {}) {
   const connectUrl = url || mongoUrl;
   const mongoSettings = {
     maxPoolSize: 100,
+    // One round trip, and the wait for a pooled connection, end in an error
+    // after callTimeoutMs instead of waiting for ever. A read is retried once, so
+    // it fails after two; a write is not, and its outcome is then unknown.
+    socketTimeoutMS: config.database.callTimeoutMs,
+    waitQueueTimeoutMS: config.database.callTimeoutMs,
+    ...settings,
   };
   const client = await MongoClient.connect(connectUrl, mongoSettings);
   return client;
 }
 
 /**
- * Initiates default db connection.
+ * Initiates the default db connection and the maintenance one, both or
+ * neither.
  * @returns true
  */
 async function initiateDB() {
   if (!openDBConnection) {
-    openDBConnection = await connectMongoDb();
+    const main = await connectMongoDb();
+    maintenanceDBConnection = await connectMongoDb(undefined, maintenanceSettings()).catch(async (error) => {
+      await main.close();
+      throw error;
+    });
+    openDBConnection = main;
     // Read the server version once, on the initial connect. It is informational
     // and the getter swallows its own errors, so this cannot fail the connect.
     await getMongoDbVersion();
@@ -122,6 +183,168 @@ async function closeDbConnection() {
     await openDBConnection.close();
     openDBConnection = null;
     mongoDbVersion = null;
+  }
+  if (maintenanceDBConnection) {
+    await maintenanceDBConnection.close();
+    maintenanceDBConnection = null;
+  }
+}
+
+/**
+ * Remove rows that duplicate a would-be-unique key, keeping the newest of each.
+ *
+ * A recovery strategy for ensureIndex: when a unique build fails because the
+ * collection already holds rows that violate it, this makes the data conform to
+ * the invariant the index DECLARES - it deletes duplicates on the key the index
+ * says must be unique, which is enforcing a contract rather than losing data.
+ * Only safe where the key IS the row's identity, so it is passed in per build by
+ * the caller that knows the collection, never applied by default. A rollup whose
+ * duplicates must be summed rather than dropped (the tampering incident count)
+ * belongs to its owning service instead - see the note on ensureIndex.
+ *
+ * Keeps the newest per group (rows sort by _id, which is time-ordered), honours
+ * the index's partialFilterExpression so it only touches rows the index covers,
+ * and returns how many it removed.
+ *
+ * @param {object} collection - a mongo collection handle
+ * @param {object} spec - the index key, e.g. { hash: 1 }
+ * @param {object} options - the index options (read for partialFilterExpression)
+ * @returns {Promise<number>} rows removed
+ */
+async function dedupeByKey(collection, spec, options = {}) {
+  const groupId = {};
+  Object.keys(spec).forEach((key, i) => { groupId[`k${i}`] = `$${key}`; });
+  // Held in memory deliberately, and measured rather than assumed: run against a
+  // live node's collection unioned with itself until every key appeared 16 times
+  // - 1,030,208 rows, the duplicate state this exists to repair - it finished in
+  // under 2s without spilling. The $sort adds nothing on top while it stays an
+  // index walk on _id, which it is for a spec with no partialFilterExpression;
+  // the first partial index to use this wants re-measuring, because the $match
+  // ahead of the sort is what would make the sort blocking. allowDiskUse is not
+  // set: it would take a mongo below 6.0, where the cap errors instead of
+  // spilling, and the network floor is moving past that.
+  //
+  // ids[0] rather than $max: $group does not document that it carries a
+  // preceding sort into an accumulator, and that non-guarantee is about results
+  // merged from several sources - this is one standalone mongod. Checked against
+  // 64,388 real duplicate groups, ids[0] was the newest in all 64,388.
+  const pipeline = [
+    ...(options.partialFilterExpression ? [{ $match: options.partialFilterExpression }] : []),
+    { $sort: { _id: -1 } },
+    { $group: { _id: groupId, ids: { $push: '$_id' } } },
+    { $match: { 'ids.1': { $exists: true } } },
+  ];
+  const groups = await collection.aggregate(pipeline).toArray();
+  const toRemove = groups.flatMap((group) => group.ids.slice(1));
+  if (!toRemove.length) return 0;
+  await collection.deleteMany({ _id: { $in: toRemove } });
+  return toRemove.length;
+}
+
+/**
+ * Assert one index, healing the failures that are recoverable.
+ *
+ *   - a pre-existing index that conflicts is dropped and recreated: the index on
+ *     the same KEY when its options differ (IndexOptionsConflict), the index of
+ *     the same NAME when its key differs (IndexKeySpecsConflict);
+ *   - a unique build blocked by DUPLICATE ROWS runs the caller's `recover`
+ *     strategy (see dedupeByKey) and rebuilds, so the node ends up WITH the
+ *     index rather than running degraded without it. Every build goes this way,
+ *     the one after a conflicting index is dropped included (buildIndex);
+ *   - anything else rethrows.
+ *
+ * The rethrow is deliberate. Index setup runs in serviceManager's
+ * prepareDatabaseSchema, which boot runs again every 15 s until it succeeds: a TRANSIENT
+ * failure (mongo mid-election, a slow-disk blip) heals on the next pass instead
+ * of being skipped until the next reboot,
+ * and a genuinely UNRECOVERABLE database wedges loudly - which is correct, since
+ * a node whose DB cannot hold its schema cannot serve apps and appremove would
+ * not rescue it. The realistic wedge that finding motivated - a unique index
+ * over rows that already violate it - is repaired above, not hidden.
+ *
+ * @param {object} collection - a mongo collection handle
+ * @param {object} spec - the index key
+ * @param {object} [options] - the index options
+ * @param {(collection: object, spec: object, options: object) => Promise<number>} [recover]
+ *   run when a unique build is blocked by existing duplicate rows
+ */
+/**
+ * Builds one index; a unique build blocked by rows that already violate it runs
+ * `recover` and builds again.
+ * @param {object} collection - a mongo collection handle
+ * @param {object} spec - the index key
+ * @param {object} options - the index options
+ * @param {Function|null} recover
+ * @returns {Promise<void>}
+ */
+async function buildIndex(collection, spec, options, recover) {
+  try {
+    await collection.createIndex(spec, options);
+  } catch (err) {
+    const duplicate = err && (err.code === 11000 || err.codeName === 'DuplicateKey');
+    if (!duplicate || !recover) throw err;
+    const removed = await recover(collection, spec, options);
+    log.warn(`ensureIndex - ${collection.collectionName} (key: ${JSON.stringify(spec)}) held ${removed} row(s) violating a unique index; removed and rebuilding`);
+    await collection.createIndex(spec, options);
+  }
+}
+
+async function ensureIndex(collection, spec, options = {}, recover = null) {
+  try {
+    await buildIndex(collection, spec, options, recover);
+  } catch (err) {
+    const conflict = err && (err.codeName === 'IndexOptionsConflict' || err.codeName === 'IndexKeySpecsConflict');
+    if (!conflict) throw err;
+    const specKeys = JSON.stringify(spec);
+    const indexes = await collection.listIndexes().toArray();
+    const match = err.codeName === 'IndexKeySpecsConflict'
+      ? indexes.find((idx) => idx.name === options.name)
+      : indexes.find((idx) => JSON.stringify(idx.key) === specKeys);
+    if (match?.name) {
+      log.warn(`ensureIndex - conflicting index '${match.name}' on ${collection.collectionName} (key: ${specKeys}), dropping and recreating`);
+      await collection.dropIndex(match.name);
+    }
+    await buildIndex(collection, spec, options, recover);
+  }
+}
+
+/**
+ * Assert every index one collection needs, in a single command.
+ *
+ * mongo's index build protocol has a fixed cost per BUILD - register, start,
+ * scan, wait for commit quorum, commit, log - and it does not care that the
+ * collection is empty. A node asserting its schema one index at a time pays
+ * that cost 34 times over 14 collections; createIndexes pays it once per
+ * collection. A node boots faster for it, and the integration harness, where
+ * ten nodes share one mongod and every database is new, feels it ten times over
+ * (measured: 938 concurrent builds per ten-node fleet).
+ *
+ * The batch is the fast path, not the only one. ensureIndex heals two failures
+ * that need to be attributed to a single index - an options conflict it drops
+ * and rebuilds, and a unique build blocked by duplicate rows it repairs through
+ * the caller's strategy - and a batch rejection does not say which member
+ * failed. So any error falls back to asserting them one at a time.
+ *
+ * @param {object} collection - a mongo collection handle
+ * @param {Array<object>} specs - `{ key, ...indexOptions, recover }` per index,
+ *   where `recover` is ours and never reaches mongo
+ */
+async function ensureIndexes(collection, specs) {
+  try {
+    await collection.createIndexes(specs.map((spec) => {
+      // `recover` is a FluxOS concern; mongo is handed the index model alone
+      const model = { ...spec };
+      delete model.recover;
+      return model;
+    }));
+    return;
+  } catch (error) {
+    log.warn(`ensureIndexes - batch of ${specs.length} on ${collection.collectionName} failed (${error.codeName || error.message}); asserting one at a time`);
+  }
+  // eslint-disable-next-line no-restricted-syntax
+  for (const { key, recover = null, ...options } of specs) {
+    // eslint-disable-next-line no-await-in-loop
+    await ensureIndex(collection, key, options, recover);
   }
 }
 
@@ -514,14 +737,28 @@ async function updateValueSatInAppsMessages(brokenHashes, hashMap) {
   }
 }
 
-async function repairNanInAppsMessagesDb() {
+// The marker a completed valueSat repair leaves in the node startup tracker.
+const VALUESAT_REPAIR_MARKER = 'appsMessagesValueSatRepaired';
+
+/**
+ * Gives every app message stored with a NaN valueSat the value its payment
+ * record holds. Runs once: a completed repair leaves a marker, and later calls
+ * return without scanning, unless `force` is set.
+ * @param {object} [options]
+ * @param {boolean} [options.force] Repair whether or not the marker is there.
+ * @returns {Promise<void>}
+ */
+async function repairNanInAppsMessagesDb({ force = false } = {}) {
+  const local = databaseConnection().db(config.database.local.database);
+  const tracker = config.database.local.collections.nodeStartupTracker;
+  if (!force && await findOneInDatabase(local, tracker, { _id: VALUESAT_REPAIR_MARKER })) return;
+
   const brokenHashes = await findValueSatNanInAppsMessages();
-
-  if (!brokenHashes.length) return;
-
-  const hashMap = await findValueSatInAppsHashes();
-
-  await updateValueSatInAppsMessages(brokenHashes, hashMap);
+  if (brokenHashes.length) {
+    const hashMap = await findValueSatInAppsHashes();
+    await updateValueSatInAppsMessages(brokenHashes, hashMap);
+  }
+  await updateOneInDatabase(local, tracker, { _id: VALUESAT_REPAIR_MARKER }, { $set: { repairedAt: new Date() } }, { upsert: true });
 }
 
 /**
@@ -695,13 +932,14 @@ async function liveAppRow(appsGlobalDb, appsMessagesCol, daemonDb, name, scanned
 /**
  * Whether the registry holds a different number of live apps than the messages give: each name's
  * newest message, and for a name the name rule decides (appNamesTheNameRuleDecides), its message
- * in force (liveAppRow), as the rebuild takes them.
+ * in force (liveAppRow), as the rebuild takes them. Null when the messages give no live app, so
+ * there is nothing to validate against. Rejects when the database does not answer.
  * @param {mongodb.Db} appsGlobalDb
  * @param {string} appsMessagesCol mongo collection name
  * @param {string} appsInformationCol mongo collection name
  * @param {number} scannedHeight
  * @param {mongodb.Db} daemonDb the payment records' database
- * @returns {Promise<boolean>}
+ * @returns {Promise<boolean|null>}
  */
 async function isReindexAppsInformationRequired(
   appsGlobalDb,
@@ -761,61 +999,57 @@ async function isReindexAppsInformationRequired(
     },
   ];
 
-  try {
-    await ensureNewestAppMessageIndex(appsGlobalDb.collection(appsMessagesCol));
+  // The index build and the $group run on the maintenance client.
+  await ensureNewestAppMessageIndex(onMaintenanceClient(appsGlobalDb).collection(appsMessagesCol));
 
-    const messagesCursor = await aggregateInDatabase(
-      appsGlobalDb,
-      appsMessagesCol,
-      appsMessagesPipeline,
-      { returnArray: false },
-    );
-    const informationCursor = await aggregateInDatabase(
-      appsGlobalDb,
-      appsInformationCol,
-      appsInformationPipeline,
-      { returnArray: false },
-    );
+  const messagesCursor = await aggregateInDatabase(
+    onMaintenanceClient(appsGlobalDb),
+    appsMessagesCol,
+    appsMessagesPipeline,
+    { returnArray: false },
+  );
+  const informationCursor = await aggregateInDatabase(
+    appsGlobalDb,
+    appsInformationCol,
+    appsInformationPipeline,
+    { returnArray: false },
+  );
 
-    const newestLive = await messagesCursor.next();
-    const appsFromInformation = await informationCursor.next();
-    const appsFromMessagesCount = (newestLive?.count ?? 0) + decidedLive;
+  const newestLive = await messagesCursor.next();
+  const appsFromInformation = await informationCursor.next();
+  const appsFromMessagesCount = (newestLive?.count ?? 0) + decidedLive;
 
-    if (!appsFromMessagesCount) {
-      log.warn('No apps from apps messages found, unable to validate apps information');
-      return false;
-    }
-
-    if (!appsFromInformation) {
-      log.info('No apps information apps found, reindexing colleciton');
-      return true;
-    }
-
-    log.info(
-      `Apps reindex validation. Found ${appsFromMessagesCount} apps from appsMessages.`
-      + ` Found ${appsFromInformation.count} apps from appsInformation`,
-    );
-
-    if (appsFromMessagesCount !== appsFromInformation.count) {
-      return true;
-    }
-
-    // Detect ghost flat fields on v4+ specs caused by $set accumulating
-    // fields from prior spec versions. Fixed by replaceOne in registryManager.
-    const ghostCount = await countInDatabase(appsGlobalDb, appsInformationCol, {
-      version: { $gte: 4 },
-      repotag: { $exists: true },
-    });
-    if (ghostCount > 0) {
-      log.info(`Found ${ghostCount} v4+ specs with ghost fields from prior versions, reindex required`);
-      return true;
-    }
-
-    return false;
-  } catch (err) {
-    log.error(`isReindexAppsInformationRequired - Mongodb Error: ${err}`);
-    return false;
+  if (!appsFromMessagesCount) {
+    log.warn('No apps from apps messages found, unable to validate apps information');
+    return null;
   }
+
+  if (!appsFromInformation) {
+    log.info('No apps information apps found, reindexing colleciton');
+    return true;
+  }
+
+  log.info(
+    `Apps reindex validation. Found ${appsFromMessagesCount} apps from appsMessages.`
+    + ` Found ${appsFromInformation.count} apps from appsInformation`,
+  );
+
+  if (appsFromMessagesCount !== appsFromInformation.count) {
+    return true;
+  }
+
+  // Detect ghost flat fields on v4+ specs caused by $set accumulating
+  // fields from prior spec versions. Fixed by replaceOne in registryManager.
+  const ghostCount = await countInDatabase(appsGlobalDb, appsInformationCol, {
+    version: { $gte: 4 },
+    repotag: { $exists: true },
+  });
+  if (ghostCount > 0) {
+    log.info(`Found ${ghostCount} v4+ specs with ghost fields from prior versions, reindex required`);
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -913,7 +1147,9 @@ async function reindexGlobalAppsInformation(
       if (error.message !== 'ns not found') throw error;
     });
 
-    const infoCol = appsGlobalDb.collection(stagingCol);
+    // The index builds and the $group below run on the maintenance client.
+    const longGlobalDb = onMaintenanceClient(appsGlobalDb);
+    const infoCol = longGlobalDb.collection(stagingCol);
     await infoCol.createIndexes([
       { key: { name: 1 }, name: 'query for getting zelapp based on zelapp specs name' },
       { key: { owner: 1 }, name: 'query for getting zelapp based on zelapp specs owner' },
@@ -921,7 +1157,7 @@ async function reindexGlobalAppsInformation(
       { key: { height: 1 }, name: 'query for getting zelapp based on last height update' },
       { key: { hash: 1 }, name: 'query for getting zelapp based on last hash' },
     ]);
-    await ensureNewestAppMessageIndex(appsGlobalDb.collection(globalAppsMessagesCol));
+    await ensureNewestAppMessageIndex(longGlobalDb.collection(globalAppsMessagesCol));
 
     const pipeline = [
       { $sort: NEWEST_APP_MESSAGE_SORT },
@@ -958,7 +1194,7 @@ async function reindexGlobalAppsInformation(
     ];
 
     const resultCursor = await aggregateInDatabase(
-      appsGlobalDb,
+      longGlobalDb,
       globalAppsMessagesCol,
       pipeline,
       { returnArray: false },
@@ -1004,8 +1240,9 @@ async function reindexGlobalAppsInformation(
 /**
  * Verifies the app count based on an aggregation from appsmessages and compares it to the
  * app count in appsinformation. If they differ - the appsinformation collection is dropped and
- * rebuilt from the appsmessages. The entire process takes about 500-700ms.
- * @returns {Promise<{validated: boolean, reindexed: boolean}>}
+ * rebuilt from the appsmessages. The entire process takes about 500-700ms. Not validated, with
+ * the error, when the check could not be made.
+ * @returns {Promise<{validated: boolean, reindexed: boolean, error?: string}>}
  */
 async function validateAppsInformation() {
   const response = { validated: false, reindexed: false };
@@ -1062,6 +1299,8 @@ async function validateAppsInformation() {
 
     log.info(`validateAppsInformation reindexRequired: ${reindexRequired}`);
 
+    if (reindexRequired === null) return response;
+
     if (!reindexRequired) {
       response.validated = true;
       return response;
@@ -1080,6 +1319,7 @@ async function validateAppsInformation() {
     response.reindexed = true;
   } catch (err) {
     log.error(`Unable to validate apps information. Error: ${err}`);
+    response.error = err.message;
   }
   return response;
 }
@@ -1097,12 +1337,10 @@ async function main(command) {
   if (command === 'validateInfoCol') {
     await validateAppsInformation();
   } else if (command === 'repairMessagesCol') {
-    await repairNanInAppsMessagesDb();
+    await repairNanInAppsMessagesDb({ force: true });
   }
 
-  const client = databaseConnection();
-
-  await client.close();
+  await closeDbConnection();
 }
 
 if (require.main === module) {
@@ -1126,7 +1364,13 @@ if (require.main === module) {
 }
 
 module.exports = {
+  ensureIndex,
+  ensureIndexes,
+  dedupeByKey,
+  maintenanceConnection,
+  onMaintenanceClient,
   aggregateInDatabase,
+  isDatabaseError,
   appMessagesThatCount,
   appPaymentFacts,
   bulkWriteInDatabase,

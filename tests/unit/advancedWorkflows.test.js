@@ -13,6 +13,8 @@ const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileg
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const { InstallOutcome } = require('../../ZelBack/src/services/utils/installOutcome');
+const { RemovalOutcome } = require('../../ZelBack/src/services/utils/removalOutcome');
+const { MongoNetworkTimeoutError } = require('mongodb');
 const log = require('../../ZelBack/src/lib/log');
 const https = require('https');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
@@ -22,14 +24,21 @@ const primaryRoleChanges = require('../../ZelBack/src/services/appLifecycle/prim
 const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
 const syncthingFolderStateMachine = require('../../ZelBack/src/services/appMonitoring/syncthingFolderStateMachine');
 const { RECONNECT_GRACE_MS } = require('../../ZelBack/src/services/appMonitoring/peerFolderLiveness');
+const { PeerComponent } = require('../../ZelBack/src/services/appMonitoring/peerComponent');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const { addressMoveEvents, EVENTS: ADDRESS_MOVE_EVENTS } = require('../../ZelBack/src/services/utils/addressMoveEvents');
 const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+const appPlacements = require('../../ZelBack/src/services/appManagement/appPlacements');
+const appRebuild = require('../../ZelBack/src/services/appLifecycle/appRebuild');
 const appNetworkLinker = require('../../ZelBack/src/services/appLifecycle/appNetworkLinker');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
 const volumeService = require('../../ZelBack/src/services/utils/volumeService');
 const dockerServiceModule = require('../../ZelBack/src/services/dockerService');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
 
 // The operator stop lock as appsRuntimeState.operatorStopState answers it.
 const UNLOCKED = { stopped: false, startRequested: false, force: false };
@@ -98,6 +107,50 @@ describe('advancedWorkflows tests', () => {
       expect(globalState.installationInProgress, 'the node is left holding an install that never began').to.be.false;
     });
 
+    it('stops without tearing anything down when the database does not answer', async () => {
+      // eslint-disable-next-line global-require
+      const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').rejects(new MongoNetworkTimeoutError('connection timed out'));
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      const result = await advancedWorkflows.softRegisterAppLocally({ name: 'testapp', version: 3 }, false, makeRes());
+
+      expect(result).to.equal(InstallOutcome.DEFERRED);
+      expect(removeAppLocally.called, 'a soft registration destroyed the data it exists to keep').to.be.false;
+      expect(globalState.installationInProgress).to.be.false;
+    });
+
+    // A soft registration keeps the app's volumes, so a folder that already has a
+    // state keeps it; one the spec adds has not been looked at.
+    it('records a folder the spec adds as not looked at, and keeps the state of one it already has', async () => {
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+      const insert = sinon.stub(dbHelper, 'insertOneToDatabase').resolves({ insertedId: 'id' });
+      sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
+      sinon.stub(appInstaller, 'ensureAppDockerNetwork').resolves();
+      sinon.stub(appInstaller, 'installApplicationSoft').rejects(new Error('Error pulling image'));
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      globalState.folderStates.clear();
+      globalState.folderStates.set('fluxkept_softapp', { state: 'measured', bytes: 10, newestModified: 1 });
+
+      await advancedWorkflows.softRegisterAppLocally({
+        name: 'softapp',
+        version: 4,
+        compose: [
+          { name: 'kept', containerData: 'g:/data', cpu: 0.5, ram: 500, hdd: 5 },
+          { name: 'added', containerData: 'g:/data', cpu: 0.5, ram: 500, hdd: 5 },
+        ],
+      }, false, makeRes());
+
+      sinon.assert.called(insert);
+      expect(globalState.folderStates.get('fluxkept_softapp')).to.deep.equal({ state: 'measured', bytes: 10, newestModified: 1 });
+      expect(globalState.folderStates.get('fluxadded_softapp')).to.deep.equal({ state: 'notLookedAt' });
+      globalState.folderStates.clear();
+    });
+
     it('does not release a hold it never took', async () => {
       // Refused because another install owns the node. Lowering the flag here
       // hands the node to the next caller while that install is still running.
@@ -109,6 +162,19 @@ describe('advancedWorkflows tests', () => {
       expect(result).to.equal(InstallOutcome.BUSY);
       expect(nodeTier.called, 'the refusal is decided before any work is done').to.be.false;
       expect(globalState.installationInProgress, 'a refusal released someone else\'s hold').to.be.true;
+    });
+
+    it('refuses an app whose removal is pending', async () => {
+      const nodeTier = sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      globalState.departingApps.enter(appSpec.name);
+      try {
+        const result = await advancedWorkflows.softRegisterAppLocally(appSpec, false, makeRes());
+
+        expect(result).to.equal(InstallOutcome.BUSY);
+        expect(nodeTier.called, 'the refusal is decided before any work is done').to.be.false;
+      } finally {
+        globalState.departingApps.leave(appSpec.name);
+      }
     });
   });
 
@@ -297,6 +363,83 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
+  describe('forceAppRemovals', () => {
+    let remove;
+
+    beforeEach(() => {
+      resetGlobalState();
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('203.0.113.60:16127');
+      sinon.stub(appQueryService, 'listAllApps').resolves({ status: 'success', data: [{ Names: ['/fluxweb_orphanapp'] }] });
+      sinon.stub(appQueryService, 'installedApps').resolves({ status: 'success', data: [] });
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(registryManager, 'getApplicationGlobalSpecifications').resolves({ name: 'orphanapp' });
+      sinon.stub(serviceHelper, 'delay').resolves();
+      remove = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+    });
+
+    afterEach(() => sinon.restore());
+
+    it('broadcasts the removal of an orphan whose location cannot be read', async () => {
+      sinon.stub(dbHelper, 'findOneInDatabase').rejects(new MongoNetworkTimeoutError('timed out'));
+
+      await advancedWorkflows.forceAppRemovals();
+
+      sinon.assert.calledOnceWithExactly(remove, 'orphanapp', null, true, true, true);
+    });
+
+    it('does not broadcast the removal of an orphan this node is not listed for', async () => {
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+
+      await advancedWorkflows.forceAppRemovals();
+
+      sinon.assert.calledOnceWithExactly(remove, 'orphanapp', null, true, true, false);
+    });
+
+    it('removes nothing when the installed apps cannot be read', async () => {
+      appQueryService.installedApps.resolves({ status: 'error', data: { message: 'timed out' } });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+      const warned = sinon.stub(log, 'warn');
+
+      await advancedWorkflows.forceAppRemovals();
+
+      sinon.assert.notCalled(remove);
+      sinon.assert.calledWithMatch(warned, /Unable to read the apps docker runs and the installed apps/);
+    });
+
+    it('removes nothing when the apps docker runs cannot be read', async () => {
+      appQueryService.listAllApps.resolves({ status: 'error', data: { message: 'docker did not answer' } });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+      const warned = sinon.stub(log, 'warn');
+
+      await advancedWorkflows.forceAppRemovals();
+
+      sinon.assert.notCalled(remove);
+      sinon.assert.calledWithMatch(warned, /Unable to read the apps docker runs and the installed apps/);
+    });
+  });
+
+  describe('checkAndRemoveEnterpriseAppsOnNonArcane', () => {
+    afterEach(() => sinon.restore());
+
+    it('runs again once the registry it could not read answers, and not after', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findInDatabase').resolves([{ name: 'enterpriseCandidate' }]);
+      const registryRead = sinon.stub(dbHelper, 'findOneInDatabase');
+      registryRead.onFirstCall().rejects(new MongoNetworkTimeoutError('timed out'));
+      registryRead.resolves({ name: 'enterpriseCandidate', version: 7 });
+
+      await advancedWorkflows.checkAndRemoveEnterpriseAppsOnNonArcane();
+      sinon.assert.calledOnce(registryRead);
+
+      await clock.tickAsync(5 * 60 * 1000);
+      sinon.assert.calledTwice(registryRead);
+
+      await clock.tickAsync(60 * 60 * 1000);
+      sinon.assert.calledTwice(registryRead);
+    });
+  });
+
   describe('softRedeployComponent tests', () => {
     let globalState;
     let res;
@@ -321,6 +464,17 @@ describe('advancedWorkflows tests', () => {
     // whatever its last test set standing for the rest of the file.
     afterEach(() => {
       resetGlobalState();
+    });
+
+    it('answers the database error, not "not found", when the registry cannot be read, and clears its flag', async () => {
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').rejects(new MongoNetworkTimeoutError('timed out'));
+
+      const error = await advancedWorkflows.softRedeployComponent('myapp', 'frontend', res).catch((caught) => caught);
+
+      expect(error).to.be.instanceOf(MongoNetworkTimeoutError);
+      expect(globalState.softRedeployInProgress).to.equal(false);
+      sinon.restore();
     });
 
     it('should return early if removal is in progress', async () => {
@@ -583,8 +737,63 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
-  // Note: masterSlaveApps is a recursive function that continuously runs in production.
-  // These tests use a counter to prevent infinite recursion after the first iteration.
+  describe('startMasterSlaveApps tests', () => {
+    const intervalMs = config.fluxapps.masterSlaveIntervalMs;
+    // A pass on a node that is installing returns at the top, so each one is a
+    // single count of masterSlave:cycles and nothing else.
+    const installingNode = () => ({ installationInProgress: true });
+    const noApps = () => sinon.stub().resolves({ status: 'success', data: [] });
+    let clock;
+    let cycles;
+    let loop;
+
+    beforeEach(() => {
+      clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      cycles = sinon.spy(fluxEventBus, 'count').withArgs('masterSlave:cycles');
+    });
+
+    afterEach(() => {
+      loop?.stop();
+      loop = null;
+    });
+
+    it('runs a pass at once, and the next one the interval after it ends', async () => {
+      loop = advancedWorkflows.startMasterSlaveApps(installingNode(), noApps(), noApps(), https);
+      await clock.tickAsync(0);
+      expect(cycles.callCount).to.equal(1);
+
+      await clock.tickAsync(intervalMs - 1);
+      expect(cycles.callCount).to.equal(1);
+      await clock.tickAsync(1);
+      expect(cycles.callCount).to.equal(2);
+      await clock.tickAsync(intervalMs);
+      expect(cycles.callCount).to.equal(3);
+    });
+
+    it('runs no further pass once stopped', async () => {
+      loop = advancedWorkflows.startMasterSlaveApps(installingNode(), noApps(), noApps(), https);
+      await clock.tickAsync(0);
+      loop.stop();
+
+      await clock.tickAsync(intervalMs * 3);
+      expect(cycles.callCount).to.equal(1);
+    });
+
+    it('keeps running passes after one throws', async () => {
+      fluxEventBus.count.restore();
+      const count = sinon.stub(fluxEventBus, 'count');
+      count.withArgs('masterSlave:cycles').onFirstCall().throws(new Error('count failed'));
+      const logError = sinon.stub(log, 'error');
+
+      loop = advancedWorkflows.startMasterSlaveApps(installingNode(), noApps(), noApps(), https);
+      await clock.tickAsync(0);
+      expect(logError.calledWithMatch('count failed'), 'the first pass never threw, so this proves nothing').to.equal(true);
+
+      await clock.tickAsync(intervalMs);
+      expect(count.withArgs('masterSlave:cycles').callCount).to.equal(2);
+    });
+  });
+
   describe('masterSlaveApps tests', () => {
     let globalState;
     let serviceHelperStub;
@@ -601,7 +810,6 @@ describe('advancedWorkflows tests', () => {
     let syncthingStatusStub;
     let syncthingDevicesStub;
     let axiosGetStub;
-    let recursionCounter;
 
     // What FDM sends when it IS answering and this app simply has no primary
     // yet: a success body carrying an empty ips array. test-infra/fdm-stub
@@ -611,7 +819,6 @@ describe('advancedWorkflows tests', () => {
     const fdmNoPrimary = () => ({ data: { status: 'success', data: { ips: [] } } });
 
     beforeEach(() => {
-      recursionCounter = 0;
       // every app directory has its volume mounted unless a test says otherwise
       sinon.stub(volumeService, 'isPathMounted').resolves(true);
       globalState = require('../../ZelBack/src/services/utils/globalState');
@@ -641,15 +848,8 @@ describe('advancedWorkflows tests', () => {
         verdict: peerIdentityService.IdentityVerdict.UNVERIFIABLE, status: 404, data: null, mayReadUnsigned: true,
       });
 
-      // Stub delay to prevent recursive calls - after first call, block recursion
-      serviceHelperDelayStub = sinon.stub(serviceHelper, 'delay').callsFake(async () => {
-        recursionCounter += 1;
-        if (recursionCounter > 1) {
-          // Prevent recursion by returning a promise that never resolves
-          return new Promise(() => {});
-        }
-        return Promise.resolve();
-      });
+      // a wait inside a pass ends at once unless a test says otherwise
+      serviceHelperDelayStub = sinon.stub(serviceHelper, 'delay').resolves();
 
       const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
       fluxNetworkHelperStub = sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress');
@@ -841,6 +1041,54 @@ describe('advancedWorkflows tests', () => {
       }
     });
 
+    // Electing an app sets its folder's type - sending on a primary, receive-only on
+    // a standby - and the reconciler starts none of its components while it is held.
+    // Each hold is checked beside the same app unheld, which the election does decide.
+    describe('an app the node holds back from election', () => {
+      const appName = 'testapp';
+      const runPass = async () => {
+        const installedApps = sinon.stub().resolves({
+          status: 'success',
+          data: [{ name: appName, version: 3, containerData: 'g:/data' }],
+        });
+        const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+        serviceHelperStub.resolves(fdmNoPrimary());
+        await advancedWorkflows.masterSlaveApps(globalState, installedApps, listRunningApps, https);
+      };
+
+      it('decides the app when nothing holds it', async () => {
+        const count = sinon.stub(fluxEventBus, 'count');
+        await runPass();
+        sinon.assert.calledWith(count, 'masterSlave:decision', sinon.match.string, 'evaluated');
+      });
+
+      it('leaves an app whose removal is pending undecided', async () => {
+        const count = sinon.stub(fluxEventBus, 'count');
+        globalState.departingApps.enter(appName);
+        try {
+          await runPass();
+        } finally {
+          globalState.departingApps.leave(appName);
+        }
+        sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'skippedDeparting');
+        sinon.assert.neverCalledWith(count, 'masterSlave:decision', sinon.match.string, 'evaluated');
+        expect(serviceHelperStub.called, 'FDM was asked about an app the election leaves alone').to.be.false;
+      });
+
+      it('leaves an app boot has not yet confirmed it holds undecided', async () => {
+        const count = sinon.stub(fluxEventBus, 'count');
+        globalState.unconfirmedApps.set(appName, Symbol(appName));
+        try {
+          await runPass();
+        } finally {
+          globalState.unconfirmedApps.delete(appName);
+        }
+        sinon.assert.calledWith(count, 'masterSlave:decision', appName, 'skippedUnconfirmed');
+        sinon.assert.neverCalledWith(count, 'masterSlave:decision', sinon.match.string, 'evaluated');
+        expect(serviceHelperStub.called, 'FDM was asked about an app the election leaves alone').to.be.false;
+      });
+    });
+
     // Shared fixture for the recovery tests below: a v3 g: app with this node in
     // the location list. `peers` are the other nodes, in election order.
     // `selfRunningSince` places this node in the election order; `receiveOnlyCache`
@@ -889,25 +1137,7 @@ describe('advancedWorkflows tests', () => {
         data: [{ path: `/root/.flux/ZelApps/${appId}`, type: 'sendreceive' }],
       });
 
-      // masterSlaveApps re-invokes itself from its own finally, so a single call
-      // otherwise executes the election twice and every count assertion doubles.
-      // Let exactly one full pass run: the first delay resolves but arms the
-      // installation gate so the recursive pass returns at the top, and the second
-      // delay never resolves so the chain stops there.
-      let delayCalls = 0;
-      serviceHelperDelayStub.resetBehavior();
-      serviceHelperDelayStub.callsFake(async () => {
-        delayCalls += 1;
-        if (delayCalls === 1) {
-          globalState.installationInProgress = true;
-          return undefined;
-        }
-        return new Promise(() => {});
-      });
-
       return async () => {
-        delayCalls = 0;
-        globalState.installationInProgress = false;
         await advancedWorkflows.masterSlaveApps(
           globalState, installedApps, listRunningApps, https,
         );
@@ -1060,6 +1290,18 @@ describe('advancedWorkflows tests', () => {
       // affordable at election cadence
       await runPass();
       expect(linesMatching(logInfo, 'operator-stopped')).to.have.lengthOf(1);
+    });
+
+    it('excludes a component whose stop lock cannot be read, and elects nothing for it', async () => {
+      const appName = 'unreadlockapp';
+      sinon.stub(appsRuntimeState, 'operatorStopState').rejects(new Error('connection timed out'));
+      const logWarn = sinon.stub(log, 'warn');
+      const runPass = electionFixture(appName);
+
+      await runPass();
+
+      expect(serviceHelperStub.called, 'the election went on to FDM with an unread lock').to.be.false;
+      expect(linesMatching(logWarn, 'stop lock could not be read')).to.have.lengthOf(1);
     });
 
     it('announces again after the operator lock is lifted and re-applied', async () => {
@@ -1728,6 +1970,321 @@ describe('advancedWorkflows tests', () => {
         sinon.assert.neverCalledWith(peerIdentityService.askSigned, PEER);
         sinon.assert.calledOnce(standDown);
         sinon.assert.calledOnce(holdAsStandby);
+      });
+    });
+
+    // An app with more than one g: component is elected as a whole: its primary
+    // runs every one of them on one node, and every other holder runs none.
+    describe('an app with more than one g: component', () => {
+      const APP = 'twinapp';
+      const DB = `db_${APP}`;
+      const WEB = `web_${APP}`;
+      const PEER = '192.168.1.90:16127';
+      const namesThisNode = { data: { status: 'success', data: { ips: ['192.168.1.5'] } } };
+      const namesPeer = { data: { status: 'success', data: { ips: ['192.168.1.90'] } } };
+      let promote;
+      let standDown;
+      let holdAsStandby;
+      let holdAsPrimary;
+      let count;
+      let logInfo;
+
+      // db and web are elected; cache runs on every instance and is never the
+      // election's. `running` and `ready` name components by their identifier.
+      const twinFixture = ({ running = [], ready = [DB, WEB], peers = [PEER] } = {}) => {
+        dockerServiceStub.callsFake((name) => `flux${name}`);
+        const installedApps = sinon.stub().resolves({
+          status: 'success',
+          data: [{
+            name: APP,
+            version: 8,
+            compose: [
+              { name: 'db', containerData: 'g:/data' },
+              { name: 'cache', containerData: '/cache' },
+              { name: 'web', containerData: 'g:/srv' },
+            ],
+          }],
+        });
+        const listRunningApps = sinon.stub().resolves({
+          status: 'success',
+          data: running.map((identifier) => ({ Names: [`/flux${identifier}`] })),
+        });
+        ready.forEach((identifier) => globalState.receiveOnlySyncthingAppsCache.set(`flux${identifier}`, { restarted: true }));
+        fluxNetworkHelperStub.resolves('192.168.1.5:16127');
+        registryManagerStub.resolves([
+          { name: APP, ip: '192.168.1.5:16127', runningSince: '2026-01-01T00:00:00.000Z' },
+          ...peers.map((ip, n) => ({ name: APP, ip, runningSince: `2026-01-01T00:0${n + 1}:00.000Z` })),
+        ]);
+        // no folder sends here, so a copy is ready only when its mark says so
+        syncthingServiceStub.resolves([]);
+        let delayCalls = 0;
+        serviceHelperDelayStub.resetBehavior();
+        serviceHelperDelayStub.callsFake(async () => {
+          delayCalls += 1;
+          if (delayCalls === 1) {
+            globalState.installationInProgress = true;
+            return undefined;
+          }
+          return new Promise(() => {});
+        });
+        return async () => {
+          delayCalls = 0;
+          globalState.installationInProgress = false;
+          await advancedWorkflows.masterSlaveApps(globalState, installedApps, listRunningApps, https);
+        };
+      };
+      const peersHold = (held) => {
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held }));
+      };
+      const promoted = () => promote.args.map(([identifier]) => identifier);
+
+      beforeEach(() => {
+        promote = sinon.stub(primaryRole, 'promote').returns(true);
+        standDown = sinon.stub(primaryRole, 'standDown').returns(true);
+        holdAsStandby = sinon.stub(primaryRole, 'holdAsStandby').resolves();
+        holdAsPrimary = sinon.stub(primaryRole, 'holdAsPrimary').resolves();
+        count = sinon.stub(fluxEventBus, 'count');
+        logInfo = sinon.stub(log, 'info');
+      });
+
+      describe('with no primary named', () => {
+        beforeEach(() => {
+          serviceHelperStub.resolves(fdmNoPrimary());
+        });
+
+        it('starts every g: component, in compose order, and no other', async () => {
+          sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+          const runPass = twinFixture();
+          peersHold([]);
+
+          await runPass();
+
+          expect(promoted()).to.deep.equal([DB, WEB]);
+        });
+
+        it('starts none while one component\'s copy is not ready', async () => {
+          sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+          const runPass = twinFixture({ ready: [DB] });
+          peersHold([]);
+
+          await runPass();
+
+          sinon.assert.notCalled(promote);
+          expect(linesMatching(logInfo, `not ready yet (syncthing not synced for ${WEB})`)).to.have.lengthOf(1);
+        });
+
+        // A peer running only the later component is the app's primary: starting
+        // the anchor here would split the app across two nodes.
+        it('starts none when a peer holds only a later g: component', async () => {
+          sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+          const runPass = twinFixture();
+          peersHold([`flux${WEB}`]);
+
+          await runPass();
+
+          sinon.assert.notCalled(promote);
+        });
+
+        it('starts the component its operator did not stop, and leaves the stopped one down', async () => {
+          sinon.stub(appsRuntimeState, 'operatorStopState').callsFake(async (identifier) => (identifier === WEB ? LOCKED : UNLOCKED));
+          const runPass = twinFixture();
+          peersHold([]);
+
+          await runPass();
+
+          expect(promoted()).to.deep.equal([DB]);
+        });
+
+        it('leaves the app out of the election while its operator has stopped every g: component', async () => {
+          sinon.stub(appsRuntimeState, 'operatorStopState').resolves(LOCKED);
+          const runPass = twinFixture();
+          peersHold([]);
+
+          await runPass();
+
+          sinon.assert.notCalled(promote);
+          sinon.assert.calledWith(count, 'masterSlave:decision', DB, 'operatorStopped');
+        });
+
+        describe('on a node that already runs one of them', () => {
+          it('starts the other once its copy is ready and no peer holds the app', async () => {
+            sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+            const runPass = twinFixture({ running: [DB] });
+            peersHold([]);
+
+            await runPass();
+
+            expect(promoted()).to.deep.equal([WEB]);
+          });
+
+          it('does not start the other beside a peer that holds the app', async () => {
+            sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+            const runPass = twinFixture({ running: [DB] });
+            peersHold([`flux${WEB}`]);
+
+            await runPass();
+
+            sinon.assert.notCalled(promote);
+          });
+
+          // Canary for the test above: the same pass with the peer unreadable is
+          // not a clearance either, while FDM names nobody.
+          it('does not start the other beside a peer it cannot rule out', async () => {
+            sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+            const runPass = twinFixture({ running: [DB] });
+
+            await runPass();
+
+            sinon.assert.notCalled(promote);
+          });
+        });
+      });
+
+      describe('FDM naming this node', () => {
+        beforeEach(() => {
+          serviceHelperStub.resolves(namesThisNode);
+        });
+
+        it('keeps the running component sending and starts the one the spec added once its copy is ready', async () => {
+          sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+          const runPass = twinFixture({ running: [DB] });
+          peersHold([]);
+
+          await runPass();
+
+          sinon.assert.calledOnceWithExactly(holdAsPrimary, DB, `flux${DB}`);
+          expect(promoted()).to.deep.equal([WEB]);
+        });
+
+        it('waits for the missing component\'s copy to be ready', async () => {
+          sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+          const runPass = twinFixture({ running: [DB], ready: [DB] });
+          peersHold([]);
+
+          await runPass();
+
+          sinon.assert.notCalled(promote);
+          sinon.assert.calledWith(count, 'masterSlave:decision', DB, 'notReady');
+        });
+
+        it('takes the app over only once every copy is ready', async () => {
+          sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+          const runPass = twinFixture({ ready: [WEB] });
+          peersHold([]);
+
+          await runPass();
+
+          sinon.assert.notCalled(promote);
+        });
+
+        it('does not take the app over while another holder holds any of it', async () => {
+          sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+          const runPass = twinFixture();
+          peersHold([`flux${WEB}`]);
+
+          await runPass();
+
+          sinon.assert.notCalled(promote);
+          sinon.assert.calledWith(count, 'masterSlave:decision', DB, 'namedButHeldElsewhere');
+        });
+      });
+
+      describe('FDM naming another node', () => {
+        beforeEach(() => {
+          serviceHelperStub.resolves(namesPeer);
+        });
+
+        it('stands down every g: component it runs', async () => {
+          sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+          const runPass = twinFixture({ running: [DB, WEB] });
+
+          await runPass();
+
+          expect(standDown.args.map(([identifier]) => identifier)).to.deep.equal([DB, WEB]);
+          sinon.assert.notCalled(promote);
+        });
+
+        // A component running here beside one that is not still makes this node
+        // a holder of the app, and stands down with it.
+        it('stands down a component that runs here even when the other does not', async () => {
+          sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+          standDown.callsFake((identifier, appId, { running }) => running);
+          const runPass = twinFixture({ running: [WEB] });
+
+          await runPass();
+
+          sinon.assert.calledWith(standDown, WEB, `flux${WEB}`, { running: true });
+          sinon.assert.calledOnceWithExactly(holdAsStandby, DB, `flux${DB}`, { othersHold: sinon.match.func });
+        });
+
+        it('leaves a component its operator stopped as its lock keeps it', async () => {
+          sinon.stub(appsRuntimeState, 'operatorStopState').callsFake(async (identifier) => (identifier === WEB ? LOCKED : UNLOCKED));
+          const runPass = twinFixture({ running: [DB] });
+
+          await runPass();
+
+          expect(standDown.args.map(([identifier]) => identifier)).to.deep.equal([DB]);
+          sinon.assert.notCalled(holdAsStandby);
+        });
+
+        // The question a standby's paused folder asks, and the one the named node
+        // is asked whether it has decided: both about the whole app.
+        it('asks the other holders about every g: component of the app', async () => {
+          sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+          standDown.returns(false);
+          const runPass = twinFixture();
+          peersHold([`flux${WEB}`]);
+
+          await runPass();
+          const { othersHold } = holdAsStandby.firstCall.args[2];
+
+          expect(await othersHold()).to.equal(PeerComponent.RUNNING);
+        });
+      });
+
+      describe('started by its operator after a stop on this node as its primary', () => {
+        beforeEach(() => {
+          serviceHelperStub.resolves(fdmNoPrimary());
+          sinon.stub(appsRuntimeState, 'operatorStopState').resolves(START_REQUESTED_AS_PRIMARY);
+          sinon.stub(appsRuntimeState, 'releaseOperatorStart').resolves(true);
+          sinon.stub(appReconciler, 'applyIntent').callsFake(async (id, mutate) => {
+            await mutate();
+            return true;
+          });
+          promote.callsFake((identifier, appId) => {
+            primaryRoleChanges.set(identifier, { state: 'promoting', appId });
+            return true;
+          });
+        });
+
+        afterEach(() => {
+          primaryRoleChanges.promotingIdentifiers().forEach((identifier) => primaryRoleChanges.end(identifier, primaryRoleChanges.get(identifier)));
+        });
+
+        it('resumes every g: component and lifts each one\'s lock', async () => {
+          const runPass = twinFixture({ peers: [PEER] });
+          peersHold([]);
+
+          await runPass();
+
+          expect(promoted()).to.deep.equal([DB, WEB]);
+          sinon.assert.calledWith(appsRuntimeState.releaseOperatorStart, DB);
+          sinon.assert.calledWith(appsRuntimeState.releaseOperatorStart, WEB);
+        });
+
+        // A peer that took the app over decides it for every component: each lock
+        // is lifted, and none of them starts here.
+        it('lifts each one\'s lock without starting it when a peer holds the app', async () => {
+          const runPass = twinFixture({ peers: [PEER] });
+          peersHold([`flux${WEB}`]);
+
+          await runPass();
+
+          sinon.assert.notCalled(promote);
+          sinon.assert.calledWith(appsRuntimeState.releaseOperatorStart, DB);
+          sinon.assert.calledWith(appsRuntimeState.releaseOperatorStart, WEB);
+        });
       });
     });
 
@@ -2458,7 +3015,7 @@ describe('advancedWorkflows tests', () => {
 
       await runPass();
 
-      expect(linesMatching(logInfo, 'the component is free there')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'the app is free there')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
     });
 
@@ -2467,7 +3024,6 @@ describe('advancedWorkflows tests', () => {
     // back within it keeps what it holds.
     it('will not start beside a silent peer that announced a shutdown and has not passed its expiry', async () => {
       const appName = 'rebootingpeerapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -2491,13 +3047,12 @@ describe('advancedWorkflows tests', () => {
 
       await runPass();
 
-      expect(linesMatching(logInfo, 'the component is free there')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'the app is free there')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
     });
 
     it('will not start beside a silent peer when this node cannot read which nodes announced a shutdown', async () => {
       const appName = 'shutdownsunreadableapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -2530,7 +3085,7 @@ describe('advancedWorkflows tests', () => {
 
       await runPass();
 
-      expect(linesMatching(logInfo, 'the component is free there')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'the app is free there')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
     });
 
@@ -2555,7 +3110,6 @@ describe('advancedWorkflows tests', () => {
     // resumes them. The closed connection is this node's doing, not the peer's.
     it('will not start beside a silent peer whose device this node\'s syncthing has paused', async () => {
       const appName = 'pausedpeerapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -2572,7 +3126,6 @@ describe('advancedWorkflows tests', () => {
     // that closed before it started says nothing about the peer now.
     it('will not start beside a silent peer whose connection closed before this node\'s syncthing started', async () => {
       const appName = 'restartedsyncthingapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -2589,7 +3142,6 @@ describe('advancedWorkflows tests', () => {
     // as the previous syncthing stopped reads the same second as this one's start.
     it('will not start beside a silent peer whose connection closed in the second this node\'s syncthing started', async () => {
       const appName = 'samesecondapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -2700,7 +3252,6 @@ describe('advancedWorkflows tests', () => {
 
     it('will not start beside a silent peer when this node cannot read when its syncthing started', async () => {
       const appName = 'statusunreadableapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -2715,7 +3266,6 @@ describe('advancedWorkflows tests', () => {
 
     it('will not start beside a silent peer when this node cannot read whether its syncthing paused it', async () => {
       const appName = 'devicesunreadableapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves(fdmNoPrimary());
@@ -2778,7 +3328,7 @@ describe('advancedWorkflows tests', () => {
       await runPass();
 
       expect(linesMatching(logInfo, 'alive, and cannot be ruled out')).to.have.lengthOf(1);
-      expect(linesMatching(logInfo, 'the component is free there')).to.have.lengthOf(0);
+      expect(linesMatching(logInfo, 'the app is free there')).to.have.lengthOf(0);
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
@@ -3051,7 +3601,6 @@ describe('advancedWorkflows tests', () => {
     // the node it names may not be the one running it.
     it('lets a standby\'s paused folder ask every other holder, not only the node FDM names', async () => {
       const appName = 'fdmholderapp';
-      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       sinon.stub(log, 'info');
       const hold = sinon.stub(primaryRole, 'holdAsStandby').resolves();
       const runPass = electionFixture(appName, ['192.168.1.90:16137', '192.168.1.91:16127']);
@@ -3321,7 +3870,7 @@ describe('advancedWorkflows tests', () => {
 
       await runPass();
 
-      expect(linesMatching(logInfo, `component:${appName} is held on peer node (index 2)`)).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, `app:${appName} is held on peer node (index 2)`)).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
@@ -3573,19 +4122,7 @@ describe('advancedWorkflows tests', () => {
         ],
       });
 
-      let delayCalls = 0;
-      serviceHelperDelayStub.resetBehavior();
-      serviceHelperDelayStub.callsFake(async () => {
-        delayCalls += 1;
-        if (delayCalls === 1) {
-          globalState.installationInProgress = true;
-          return undefined;
-        }
-        return new Promise(() => {});
-      });
       const runPass = async () => {
-        delayCalls = 0;
-        globalState.installationInProgress = false;
         await advancedWorkflows.masterSlaveApps(
           globalState, installedApps, listRunningApps, https,
         );
@@ -3607,7 +4144,7 @@ describe('advancedWorkflows tests', () => {
 
       await runPass();
 
-      expect(linesMatching(logInfo, `component:${first} is held on peer node (previous primary)`)).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, `app:${first} is held on peer node (previous primary)`)).to.have.lengthOf(1);
       // the assertion that discriminates: the pass carried on to the second app
       expect(linesMatching(logInfo, `starting docker component:${second}`)).to.have.lengthOf(1);
     });
@@ -4790,10 +5327,8 @@ describe('advancedWorkflows tests', () => {
     // What this node publishes about the volume being replaced. Peers rank a seed
     // on it, so it describes one incarnation and must not outlive it.
     const armHolding = () => {
-      volGlobalState.folderHoldings = new Map([
-        [identifier, { bytes: 5821604997, newestModified: 200 }],
-        ['fluxother_TestApp', { bytes: 4096, newestModified: 100 }],
-      ]);
+      volGlobalState.folderStates.set(identifier, { state: 'measured', bytes: 5821604997, newestModified: 200 });
+      volGlobalState.folderStates.set('fluxother_TestApp', { state: 'measured', bytes: 4096, newestModified: 100 });
       volGlobalState.seedMarks.set(identifier, { stage: 'intent', bytes: 5821604997, newestModified: 200 });
       volGlobalState.seedMarks.set('fluxother_TestApp', { stage: 'intent', bytes: 4096, newestModified: 100 });
     };
@@ -4801,7 +5336,7 @@ describe('advancedWorkflows tests', () => {
     beforeEach(() => {
       volGlobalState = require('../../ZelBack/src/services/utils/globalState');
       volGlobalState.receiveOnlySyncthingAppsCache.clear();
-      volGlobalState.folderHoldings = null;
+      volGlobalState.folderStates.clear();
       volGlobalState.seedMarks.clear();
       const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
       sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
@@ -4979,12 +5514,12 @@ describe('advancedWorkflows tests', () => {
 
       expect(thrown, 'the pre-flight abort did not fire').to.not.equal(null);
       expect(
-        volGlobalState.folderHoldings.has(identifier),
+        volGlobalState.folderStates.get(identifier),
         'an aborted pre-flight withdrew a claim whose data is intact',
-      ).to.equal(true);
+      ).to.include({ state: 'measured' });
     });
 
-    it('drops the published holding at the point of no return', async () => {
+    it('records the volume as not looked at from the point of no return', async () => {
       // Once the allocation runs the volume is empty. A claim surviving from the
       // previous incarnation describes data this node no longer has, and peers rank
       // the seed on it - so it outranks a node that still holds the app and seeds
@@ -5004,11 +5539,11 @@ describe('advancedWorkflows tests', () => {
       expect(thrown, 'the flow never reached the allocation').to.not.equal(null);
       expect(thrown.message, 'the flow aborted before the allocation').to.equal('fallocate blocked by test');
       expect(
-        volGlobalState.folderHoldings.has(identifier),
+        volGlobalState.folderStates.get(identifier),
         'the point of no return left a claim for a volume that is now empty',
-      ).to.equal(false);
+      ).to.deep.equal({ state: 'notLookedAt' });
       // Scoped to the volume being replaced, not a clear of every answer the node holds.
-      expect(volGlobalState.folderHoldings.has('fluxother_TestApp')).to.equal(true);
+      expect(volGlobalState.folderStates.get('fluxother_TestApp')).to.include({ state: 'measured' });
       expect(volGlobalState.seedMarks.has(identifier), 'the point of no return left an offer to seed an empty volume').to.equal(false);
       expect(volGlobalState.seedMarks.has('fluxother_TestApp')).to.equal(true);
     });
@@ -5158,6 +5693,42 @@ describe('advancedWorkflows tests', () => {
       // and it cost the app nothing: the refusal lands before any stop
       sinon.assert.notCalled(dockerService.appDockerStop);
       sinon.assert.notCalled(syncthingService.adjustConfigFolders);
+      expect(globalState.backupInProgress).to.not.include(appname);
+    });
+
+    // A backup ends by starting the app, so it is refused for an app the node is
+    // removing or has not yet confirmed it still holds.
+    it('refuses an app whose removal is pending', async () => {
+      const res = makeRes();
+      globalState.departingApps.enter(appname);
+      let result;
+      try {
+        result = await advancedWorkflows.appendBackupTask(backupReq(), res);
+      } finally {
+        globalState.departingApps.leave(appname);
+      }
+
+      expect(result).to.equal(false);
+      expect(res.write.getCalls().map((c) => c.args[0]).join(' ')).to.include('is being removed from this node');
+      sinon.assert.notCalled(dockerService.appDockerStop);
+      sinon.assert.notCalled(dockerService.appDockerStart);
+      expect(globalState.backupInProgress).to.not.include(appname);
+    });
+
+    it('refuses an app boot has not yet confirmed it holds', async () => {
+      const res = makeRes();
+      globalState.unconfirmedApps.set(appname, Symbol(appname));
+      let result;
+      try {
+        result = await advancedWorkflows.appendBackupTask(backupReq(), res);
+      } finally {
+        globalState.unconfirmedApps.delete(appname);
+      }
+
+      expect(result).to.equal(false);
+      expect(res.write.getCalls().map((c) => c.args[0]).join(' ')).to.include('is held until this node confirms it still holds it');
+      sinon.assert.notCalled(dockerService.appDockerStop);
+      sinon.assert.notCalled(dockerService.appDockerStart);
       expect(globalState.backupInProgress).to.not.include(appname);
     });
 
@@ -5542,6 +6113,42 @@ describe('advancedWorkflows tests', () => {
         expect(said).to.include('restore must be a list of components');
         expect(said, 'the refusal is stated, not relayed from the interpreter').to.not.include('is not a function');
         sinon.assert.notCalled(IOUtils.untarFile);
+        expect(globalState.restoreInProgress).to.not.include(appname);
+      });
+
+      // A restore ends by starting the app, so it is refused for an app the node
+      // is removing or has not yet confirmed it still holds.
+      it('refuses an app whose removal is pending', async () => {
+        const res = makeRes();
+        globalState.departingApps.enter(appname);
+        let result;
+        try {
+          result = await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+        } finally {
+          globalState.departingApps.leave(appname);
+        }
+
+        expect(result).to.equal(false);
+        expect(res.write.getCalls().map((c) => c.args[0]).join(' ')).to.include('is being removed from this node');
+        sinon.assert.notCalled(dockerService.appDockerStop);
+        sinon.assert.notCalled(dockerService.appDockerStart);
+        expect(globalState.restoreInProgress).to.not.include(appname);
+      });
+
+      it('refuses an app boot has not yet confirmed it holds', async () => {
+        const res = makeRes();
+        globalState.unconfirmedApps.set(appname, Symbol(appname));
+        let result;
+        try {
+          result = await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+        } finally {
+          globalState.unconfirmedApps.delete(appname);
+        }
+
+        expect(result).to.equal(false);
+        expect(res.write.getCalls().map((c) => c.args[0]).join(' ')).to.include('is held until this node confirms it still holds it');
+        sinon.assert.notCalled(dockerService.appDockerStop);
+        sinon.assert.notCalled(dockerService.appDockerStart);
         expect(globalState.restoreInProgress).to.not.include(appname);
       });
 
@@ -6297,6 +6904,43 @@ describe('advancedWorkflows tests', () => {
       expect(globalState.softRedeployInProgress).to.be.false;
     });
 
+    it('leaves the app down with its data when the step after the removal cannot read the database', async () => {
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(v3Spec);
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves();
+      sinon.stub(appUninstaller, 'softUninstallApplication').resolves();
+      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new MongoNetworkTimeoutError('connection timed out'));
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      await advancedWorkflows.softRedeploy(v3Spec, null);
+
+      expect(removeAppLocally.called, 'the app was uninstalled because the database did not answer').to.be.false;
+      expect(globalState.softRedeployInProgress).to.be.false;
+    });
+
+    // A soft redeploy keeps the app's volume, and with it the node's record of
+    // when it took the app, whichever way it ends.
+    it('leaves the placement record alone when the app was removed and the reinstall did not happen', async () => {
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(v3Spec);
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves();
+      sinon.stub(appUninstaller, 'softUninstallApplication').resolves();
+      // the node is taken by another install by the time the reinstall asks for it
+      sinon.stub(appInstaller, 'checkAppRequirements').callsFake(async () => {
+        globalState.installationInProgress = true;
+        return true;
+      });
+      const removePlacement = sinon.stub(appPlacements, 'removePlacement').resolves();
+      const recordPlacement = sinon.stub(appPlacements, 'recordPlacement').resolves();
+
+      try {
+        await advancedWorkflows.softRedeploy(v3Spec, null);
+      } finally {
+        globalState.installationInProgress = false;
+      }
+
+      sinon.assert.notCalled(removePlacement);
+      sinon.assert.notCalled(recordPlacement);
+    });
+
     it('records that a failure after the app is down still force-uninstalls it', async () => {
       // Pins CURRENT behaviour, not desired behaviour. The gate covers a removal
       // that never finished; past that point a failure still force-uninstalls
@@ -6725,6 +7369,28 @@ describe('advancedWorkflows tests', () => {
       expect(res.writesAfterEnd).to.be.empty;
     });
 
+    it('does not uninstall the app when the step after a soft component removal cannot read the database', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new MongoNetworkTimeoutError('connection timed out'));
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      expect(res.writesAfterEnd).to.be.empty;
+    });
+
+    it('does not uninstall the app when the step after a hard component removal cannot read the database', async () => {
+      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new MongoNetworkTimeoutError('connection timed out'));
+      sinon.stub(appUninstaller, 'hardUninstallComponent').resolves();
+      req.params.force = 'true';
+      const res = streamingRes();
+
+      await advancedWorkflows.redeployComponentAPI(req, res);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      expect(res.writesAfterEnd).to.be.empty;
+    });
+
     // The gate must not be shut. A teardown that COMPLETED and a failure after it
     // is the case the forced uninstall exists for, and a suite that proved only
     // the refusals would pass with the fallback deleted altogether.
@@ -6870,6 +7536,18 @@ describe('advancedWorkflows tests', () => {
     // redeploys nothing. Nothing on that branch judges what it wrote: the installer
     // judges what it installs, and this installs nothing, so an owner the network
     // refuses holds the application until something unrelated sweeps the node.
+    it('leaves an app whose removal is pending to a later pass', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      globalState.departingApps.enter(installedApp.name);
+      try {
+        await advancedWorkflows.reinstallOldApplications();
+      } finally {
+        globalState.departingApps.leave(installedApp.name);
+      }
+
+      expect(softUninstallComponent.called, 'rebuilt an app its pending removal would take again').to.be.false;
+    });
+
     it('asks the sweep about an application whose record it rewrote without redeploying', async () => {
       const requestComplianceSweep = sinon.stub(imageManager, 'requestComplianceSweep').resolves();
       dbHelper.findOneInDatabase.resolves({
@@ -6898,6 +7576,131 @@ describe('advancedWorkflows tests', () => {
         requestComplianceSweep.called,
         'a redeployed application was swept for as though nothing had judged it',
       ).to.be.false;
+    });
+
+    // A version 8 app whose components change is removed and installed again as
+    // a whole, and the network is told when it does not come back.
+    describe('a redeploy for a change of components', () => {
+      const v8Installed = { ...installedApp, version: 8, enterprise: '' };
+      const v8New = {
+        ...v8Installed,
+        hash: 'newhash',
+        compose: [...v8Installed.compose, { ...v8Installed.compose[0], name: 'db', ports: ['31001'] }],
+      };
+      let removeAppLocally;
+      let registerAppLocally;
+      let checkAppRequirements;
+      let announceRemoval;
+
+      beforeEach(() => {
+        dbHelper.findInDatabase.resolves([v8Installed]);
+        dbHelper.findOneInDatabase.resolves(v8New);
+        checkAppRequirements = sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+        removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves(RemovalOutcome.REMOVED);
+        announceRemoval = sinon.stub(appUninstaller, 'announceRemoval').resolves();
+        registerAppLocally = sinon.stub(appInstaller, 'registerAppLocally').resolves(InstallOutcome.INSTALLED);
+      });
+
+      it('removes the app and installs it again', async () => {
+        await advancedWorkflows.reinstallOldApplications();
+
+        sinon.assert.callOrder(removeAppLocally, checkAppRequirements, registerAppLocally);
+        sinon.assert.notCalled(announceRemoval);
+      });
+
+      it('tells the network when the reinstall does not bring the app back', async () => {
+        registerAppLocally.resolves(InstallOutcome.FAILED);
+
+        await advancedWorkflows.reinstallOldApplications();
+
+        sinon.assert.calledOnceWithExactly(announceRemoval, 'myapp');
+      });
+
+      it('tells the network when the new specification\'s requirements are not met after the removal', async () => {
+        checkAppRequirements.rejects(new Error('Insufficient RAM'));
+
+        await advancedWorkflows.reinstallOldApplications();
+
+        sinon.assert.calledOnce(removeAppLocally);
+        sinon.assert.notCalled(registerAppLocally);
+        sinon.assert.calledOnceWithExactly(announceRemoval, 'myapp');
+      });
+    });
+
+    it('does not uninstall an app whose redeploy stops on a database that does not answer', async () => {
+      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(dbHelper, 'replaceOneInDatabase').rejects(new MongoNetworkTimeoutError('connection timed out'));
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(removeAppLocally.called, 'an app was uninstalled with its data because the database did not answer').to.be.false;
+    });
+
+    it('never deletes the app\'s row: the new specification replaces it in one write', async () => {
+      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+      const deleteRow = sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves({});
+      const replaceRow = sinon.stub(dbHelper, 'replaceOneInDatabase').rejects(new MongoNetworkTimeoutError('connection timed out'));
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      expect(replaceRow.called, 'the fixture never reached the row write').to.be.true;
+      expect(deleteRow.called, 'the row was deleted, so a failed write leaves the app with none').to.be.false;
+    });
+
+    describe('an app upgraded from the old format', () => {
+      const oldFormat = {
+        version: 3, name: 'myapp', hash: 'oldhash', repotag: 'nginx:1.0', hdd: 5,
+      };
+
+      it('is rebuilt from nothing at its new specification', async () => {
+        const rebuildApp = sinon.stub(appRebuild, 'rebuildApp').resolves('installed');
+        dbHelper.findInDatabase.resolves([oldFormat]);
+
+        await advancedWorkflows.reinstallOldApplications();
+
+        sinon.assert.calledOnce(rebuildApp);
+        expect(rebuildApp.firstCall.args[0]).to.include({ name: 'myapp', hash: 'newhash', version: 4 });
+      });
+
+      it('says when the pass has ended', async () => {
+        sinon.stub(appRebuild, 'rebuildApp').resolves('installed');
+        const publish = sinon.stub(fluxEventBus, 'publish');
+        dbHelper.findInDatabase.resolves([oldFormat]);
+
+        await advancedWorkflows.reinstallOldApplications();
+
+        sinon.assert.calledWith(publish, 'reinstall:passEnded', {});
+      });
+
+      it('lets the pass go on to the next app when its rebuild does not complete', async () => {
+        const rebuildApp = sinon.stub(appRebuild, 'rebuildApp').resolves('failed');
+        const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+        sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+        sinon.stub(dbHelper, 'replaceOneInDatabase').resolves({ acknowledged: true });
+        const other = { ...installedApp, name: 'otherapp' };
+        dbHelper.findInDatabase.resolves([oldFormat, other]);
+        dbHelper.findOneInDatabase.callsFake(async (db, collection, query) => (query.name === 'otherapp'
+          ? { ...newSpec, name: 'otherapp' } : newSpec));
+
+        await advancedWorkflows.reinstallOldApplications();
+
+        sinon.assert.calledOnce(rebuildApp);
+        expect(softUninstallComponent.called, 'the pass stopped at the app whose rebuild failed').to.equal(true);
+      });
+    });
+
+    it('a canary: a redeploy that fails for another reason still uninstalls the app', async () => {
+      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(dbHelper, 'replaceOneInDatabase').rejects(new Error('Insufficient RAM'));
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      sinon.assert.calledOnce(removeAppLocally);
     });
 
     it('declines a second pass that starts before the first has announced itself', async () => {
@@ -7092,17 +7895,18 @@ describe('advancedWorkflows tests', () => {
 
     // The node records the new specification before it builds the replacement,
     // so the row cannot say the reinstall is done. The announcement does, once
-    // every replaced component is back and the app restarted.
+    // every replaced component is back and the app's restart requested.
     describe('announcing the replaced components', () => {
       let publish;
-      let appDockerRestart;
+      let dockerRestart;
+      let requestRestart;
+      let applyIntent;
       let installApplicationSoft;
 
       beforeEach(() => {
         sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
         sinon.stub(appUninstaller, 'removeAppLocally').resolves();
-        sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves({});
-        sinon.stub(dbHelper, 'insertOneToDatabase').resolves({ acknowledged: true });
+        sinon.stub(dbHelper, 'replaceOneInDatabase').resolves({ acknowledged: true });
         sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
         installApplicationSoft = sinon.stub(appInstaller, 'installApplicationSoft').resolves();
         sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
@@ -7110,13 +7914,18 @@ describe('advancedWorkflows tests', () => {
         sinon.stub(registryManager, 'getApplicationSpecifications').resolves(newSpec);
         sinon.stub(volumeService, 'ensureMountPathsExist').resolves();
         sinon.stub(appInspector, 'startAppMonitoring');
-        appDockerRestart = sinon.stub(dockerServiceModule, 'appDockerRestart').resolves();
+        dockerRestart = sinon.stub(dockerServiceModule, 'appDockerRestart').resolves();
+        requestRestart = sinon.stub(appsRuntimeState, 'requestRestart').resolves();
+        applyIntent = sinon.stub(appReconciler, 'applyIntent').callsFake(async (identifier, mutate) => {
+          await mutate();
+          return true;
+        });
         publish = sinon.spy(fluxEventBus, 'publish');
       });
 
       const redeployedEvents = () => publish.getCalls().filter((c) => c.args[0] === 'app:componentRedeployed');
 
-      it('announces each replaced component after the app is back and restarted', async () => {
+      it('announces each replaced component after the app is back and its restart requested', async () => {
         await advancedWorkflows.reinstallOldApplications();
 
         const events = redeployedEvents();
@@ -7124,8 +7933,32 @@ describe('advancedWorkflows tests', () => {
         expect(events[0].args[1]).to.deep.equal({
           name: 'myapp', component: 'web', identifier: 'web_myapp', hard: false,
         });
-        sinon.assert.calledWith(appDockerRestart, 'web_myapp');
-        expect(appDockerRestart.lastCall.calledBefore(events[0]), 'announced after the restart').to.equal(true);
+        sinon.assert.calledWith(requestRestart, 'web_myapp');
+        expect(requestRestart.lastCall.calledBefore(events[0]), 'announced after the restart is requested').to.equal(true);
+      });
+
+      // The reconciler decides what runs on this node: it bounces a component it
+      // keeps running and starts none it keeps stopped, so a standby's g:
+      // component is not started beside its primary's.
+      it('restarts the app through the reconciler, never by docker', async () => {
+        await advancedWorkflows.reinstallOldApplications();
+
+        expect(requestRestart.called, 'the fixture reached the restart').to.equal(true);
+        sinon.assert.calledWith(applyIntent, 'web_myapp', sinon.match.func);
+        expect(applyIntent.firstCall.calledBefore(requestRestart.firstCall), 'the request is written inside the reconciler\'s slot').to.equal(true);
+        expect(dockerRestart.called, 'docker restarted a container').to.equal(false);
+      });
+
+      it('requests a restart of every component of the app, its g: components included', async () => {
+        registryManager.getApplicationSpecifications.resolves({
+          ...newSpec,
+          compose: [...newSpec.compose, { ...newSpec.compose[0], name: 'db', containerData: 'g:/data' }],
+        });
+
+        await advancedWorkflows.reinstallOldApplications();
+
+        expect(requestRestart.args.map(([identifier]) => identifier)).to.deep.equal(['web_myapp', 'db_myapp']);
+        expect(applyIntent.args.map(([identifier]) => identifier)).to.deep.equal(['web_myapp', 'db_myapp']);
       });
 
       it('announces nothing when a component does not come back', async () => {
@@ -7320,6 +8153,52 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
 
       expect(decision.giveUp).to.equal(true);
       expect(decision.reason).to.equal('SURPLUS');
+    });
+
+    // An app with more than one g: component is written by the node that runs
+    // any of them: its primary runs them together.
+    describe('an app with more than one g: component', () => {
+      const twoWriters = {
+        name: 'a', instances: 2, version: 8, compose: [{ name: 'w', containerData: 'g:/data' }, { name: 'v', containerData: 'g:/srv' }],
+      };
+      const runsOnly = (identifier) => sinon.stub().callsFake(async (each) => each === identifier);
+
+      it('leaves the newest copy alone when it runs only a later g: component', async () => {
+        const decision = await advancedWorkflows.reasonToGiveUpApp(
+          twoWriters,
+          locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL),
+          LOCAL,
+          { isComponentRunningLocally: runsOnly('v_a'), liveness: {} },
+        );
+
+        expect(decision.giveUp).to.equal(false);
+        expect(decision.reason).to.equal('SURPLUS');
+      });
+
+      // Canary for the test above: the same newest copy running none of them trims.
+      it('trims the newest copy when it runs none of them', async () => {
+        const decision = await advancedWorkflows.reasonToGiveUpApp(
+          twoWriters,
+          locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL),
+          LOCAL,
+          { isComponentRunningLocally: runsOnly('other_a'), liveness: {} },
+        );
+
+        expect(decision.giveUp).to.equal(true);
+      });
+
+      it('trims the second-newest once the newest confirms it holds a later g: component', async () => {
+        newestSays({ held: [dockerServiceModule.getAppIdentifier('v_a')] });
+
+        const decision = await advancedWorkflows.reasonToGiveUpApp(
+          twoWriters,
+          locations('5.6.7.8:16127', LOCAL, '9.9.9.9:16127'),
+          LOCAL,
+          { isComponentRunningLocally: sinon.stub().resolves(false), liveness: {} },
+        );
+
+        expect(decision.giveUp).to.equal(true);
+      });
     });
 
     it('trims the second-newest once the newest confirms it holds the writer', async () => {
@@ -7988,6 +8867,17 @@ describe('a redeploy asks what it may rebuild before it takes anything down', ()
     expect(res.write.firstCall.args[0]).to.match(/policy/i);
   });
 
+  // A rebuilt app starts, and boot has yet to decide whether this one may.
+  it('declines while boot has not confirmed the node still holds the app, and leaves it where it is', async () => {
+    globalState.unconfirmedApps.set('plainapp', Symbol('plainapp'));
+
+    const proceed = await advancedWorkflows.mayTearDownToRebuild({ name: 'plainapp', nodes: [] }, res);
+
+    expect(proceed, 'the teardown must not start').to.be.false;
+    sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    expect(res.write.firstCall.args[0]).to.include('redeploy deferred');
+  });
+
   it('hands back an app whose spec names other nodes, and tells the network', async () => {
     const proceed = await advancedWorkflows.mayTearDownToRebuild(pinnedSpec(['10.0.0.9:16127']), res);
 
@@ -8088,6 +8978,16 @@ describe('a redeploy asks what it may rebuild before it takes anything down', ()
       await advancedWorkflows.hardRedeploy({ version: 4, name: 'plainapp', nodes: [] }, res);
 
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      expect(globalState.hardRedeployInProgress).to.be.false;
+    });
+
+    it('hardRedeploy leaves a running app alone when it fails before the teardown', async () => {
+      sinon.stub(globalState, 'operationHolding').throws(new Error('connection timed out'));
+
+      await advancedWorkflows.hardRedeploy({ version: 4, name: 'plainapp', nodes: [] }, res);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      expect(res.write.lastCall.args[0]).to.match(/before the app was taken down/);
       expect(globalState.hardRedeployInProgress).to.be.false;
     });
 

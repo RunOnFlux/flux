@@ -161,6 +161,13 @@ let lastDecision = null;
 // named rather than encoded in a magic origin.
 let lastEvacuationAt = null;
 
+// A clear of the settle marker that failed: the marker still holds the window a
+// verdict that has since flipped accumulated, and nothing may count it.
+let settleMarkerUncleared = false;
+// A departure whose time could not be written to the marker, written again on
+// each tick until it is: the next process reopens the gate early without it.
+let unpersistedEvacuationAt = null;
+
 // Whether this node yet knows what it is running. Starts false and is only
 // raised by the orchestrator's own signal - the same one appSpawner waits on.
 // globalState.spawnerPaused is NOT this signal: it initialises to false, so
@@ -258,7 +265,8 @@ async function isResidential() {
 }
 
 /**
- * The settling marker as stored, or null when it cannot be read.
+ * The settling marker as stored, or null when there is none. Rejects when it
+ * cannot be read.
  *
  * Persisted rather than held in memory: a counter of consecutive evaluations in
  * memory is reset by restarting FluxOS, which would make restarting on a timer a
@@ -266,16 +274,11 @@ async function isResidential() {
  * @returns {Promise<object|null>} The marker document, or null.
  */
 async function getSettleMarker() {
-  try {
-    const db = dbHelper.databaseConnection();
-    if (!db) return null;
-    const database = db.db(config.database.local.database);
-    const marker = await dbHelper.findOneInDatabase(database, startupCollection, { _id: SETTLE_MARKER_KEY });
-    return marker || null;
-  } catch (error) {
-    log.warn(`residentialNodeDos - could not read settle marker: ${error.message}`);
-    return null;
-  }
+  const db = dbHelper.databaseConnection();
+  if (!db) throw new Error('no database connection');
+  const database = db.db(config.database.local.database);
+  const marker = await dbHelper.findOneInDatabase(database, startupCollection, { _id: SETTLE_MARKER_KEY });
+  return marker || null;
 }
 
 /**
@@ -318,10 +321,16 @@ function creditForGap(gapMs) {
  * the router the way to postpone enforcement.
  * @param {number} now Epoch ms.
  * @returns {Promise<number|null>} Observed milliseconds, or null when the marker
- *   cannot be written.
+ *   cannot be read or written. A marker that cannot be read is not written.
  */
 async function noteVerdictConfirmed(now) {
-  const marker = await getSettleMarker();
+  let marker;
+  try {
+    marker = await getSettleMarker();
+  } catch (error) {
+    log.warn(`residentialNodeDos - could not read settle marker: ${error.message}`);
+    return null;
+  }
   // A marker written before this node kept an observed total has no record of
   // what was watched, only of when the clock started - and that is exactly the
   // measure being replaced. It starts accumulating from here rather than being
@@ -377,16 +386,23 @@ async function noteVerdictConfirmed(now) {
 
 /**
  * Clear the settling window. Only a verdict flip does this - the node is no
- * longer residential, or is now ArcaneOS.
+ * longer residential, or is now ArcaneOS. A clear that fails is remembered, and
+ * the window is not counted again until a clear succeeds.
+ * @returns {Promise<boolean>} Whether the marker is cleared.
  */
 async function clearSettleMarker() {
   try {
     const db = dbHelper.databaseConnection();
-    if (!db) return;
+    if (!db) throw new Error('no database connection');
     const database = db.db(config.database.local.database);
     await dbHelper.findOneAndDeleteInDatabase(database, startupCollection, { _id: SETTLE_MARKER_KEY }, {});
+    settleMarkerUncleared = false;
+    unpersistedEvacuationAt = null;
+    return true;
   } catch (error) {
+    settleMarkerUncleared = true;
     log.warn(`residentialNodeDos - could not clear settle marker: ${error.message}`);
+    return false;
   }
 }
 
@@ -558,17 +574,20 @@ function noteEvacuated(appName, now = monotonicMs()) {
 async function persistLastEvacuationAt(now) {
   try {
     const db = dbHelper.databaseConnection();
-    if (!db) return;
+    if (!db) throw new Error('no database connection');
     const database = db.db(config.database.local.database);
     await dbHelper.findOneAndUpdateInDatabase(
       database,
       startupCollection,
       { _id: SETTLE_MARKER_KEY },
-      { $set: { lastEvacuationAt: now } },
+      // never backwards: a retried older time does not replace a newer one
+      { $max: { lastEvacuationAt: now } },
       { upsert: true },
     );
+    if (unpersistedEvacuationAt === now) unpersistedEvacuationAt = null;
   } catch (error) {
-    log.warn(`residentialNodeDos - could not record the departure time: ${error.message}`);
+    unpersistedEvacuationAt = Math.max(unpersistedEvacuationAt ?? 0, now);
+    log.warn(`residentialNodeDos - could not record the departure time, written again on the next tick: ${error.message}`);
   }
 }
 
@@ -722,6 +741,13 @@ async function runResidentialPolicy(deps) {
     applyDos();
     return true;
   }
+
+  if (settleMarkerUncleared && !await clearSettleMarker()) {
+    evacuating = false;
+    log.info('residentialNodeDos - the settle marker of an earlier verdict is not yet cleared, evacuation stays off');
+    return false;
+  }
+  if (unpersistedEvacuationAt !== null) await persistLastEvacuationAt(unpersistedEvacuationAt);
 
   const now = Date.now();
   const observedMs = await noteVerdictConfirmed(now);

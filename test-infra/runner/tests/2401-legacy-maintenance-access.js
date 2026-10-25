@@ -1,4 +1,4 @@
-// Maintenance SSH access on a legacy node, end to end on systemd-mode nodes: the
+// Maintenance SSH access on a legacy node, end to end: the
 // fluxadm account, its passwordless sudo, the configured keys and a dedicated sshd
 // unit on apiport - 5, reached over the fleet network with a real ssh client.
 //
@@ -327,7 +327,6 @@ describe('2401 legacy node maintenance access', function suite() {
       nodes: 7,
       legacyNodes: [LEGACY, NODE_OWNER_SSHD, ...FAULTED],
       firewall: [LEGACY],
-      systemdMode: true,
       tickerAutostart: false,
       configOverrides: { fluxadm: { sshAuthorizedKeys: [publicKey('current')] } },
     });

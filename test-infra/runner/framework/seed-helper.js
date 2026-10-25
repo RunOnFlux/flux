@@ -259,7 +259,8 @@ export async function buildSeedableLegacyApp({
   // whose chain starts later, and assertAliveOnThisChain refuses it.
   env = null,
   height = (env?.initialHeight ?? DEFAULT_INITIAL_HEIGHT) + 10,
-  instances = 1,
+  // below version 8 a specification asks for at least 3, as every one on the chain does
+  instances = 3,
   owner = null,
   expire = 22000,
   allowExternalRepotag = false,
@@ -285,6 +286,8 @@ export async function buildSeedableLegacyApp({
     cpu: 0.1,
     ram: 100,
     hdd: 1,
+    // every version 3 specification on the chain carries it, as false
+    tiered: false,
     instances,
     expire,
   };
@@ -394,7 +397,7 @@ export async function buildSeedableSyncthingApp({
  * registry-helper.pushTestApp(name).
  */
 export async function buildSeedableTestApp({
-  name, exitCode = 0, exitAfterS = null, exitAfterMs = null, ...rest
+  name, exitCode = 0, exitAfterS = null, exitAfterMs = null, logEveryMs = null, ...rest
 }) {
   const environmentParameters = [`EXIT_CODE=${exitCode}`];
   if (exitAfterS != null) environmentParameters.push(`EXIT_AFTER_S=${exitAfterS}`);
@@ -402,6 +405,8 @@ export async function buildSeedableTestApp({
   // own start still succeeds, so the node holds the app, but nothing that polls
   // docker afterwards can catch the process alive.
   if (exitAfterMs != null) environmentParameters.push(`EXIT_AFTER_MS=${exitAfterMs}`);
+  // a line on this interval, which docker writes to its data root as it comes
+  if (logEveryMs != null) environmentParameters.push(`LOG_EVERY_MS=${logEveryMs}`);
 
   const compose = [{
     name,

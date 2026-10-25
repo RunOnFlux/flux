@@ -14,6 +14,7 @@ const { isFluxStorageUrl, storageLinkOf } = require('./utils/fluxStorage');
 const log = require('../lib/log');
 const cpuBurstHelper = require('./utils/cpuBurstHelper');
 const LogFrameDecoder = require('./utils/logFrameDecoder');
+const appSlice = require('./appLifecycle/appSlice');
 
 const globalState = require('./utils/globalState');
 
@@ -1169,7 +1170,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   const appOwner = fullAppSpecs?.owner || null;
   const burstEligible = appOwner
     && cpuBurstHelper.isEnterpriseOwner(appOwner)
-    && await cpuBurstHelper.isCpuBurstSupported();
+    && cpuBurstHelper.isCpuBurstEnabled();
   const burstLabels = burstEligible
     ? {
       'flux.burst.eligible': 'true',
@@ -1239,6 +1240,8 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   // eslint-disable-next-line no-use-before-define
   const dockerInfoResp = await dockerInfo();
   log.info(dockerInfoResp);
+  const slice = appSlice.sliceName(appName);
+  if (slice) options.HostConfig.CgroupParent = slice;
   const driverStatus = dockerInfoResp.DriverStatus;
   const backingFs = driverStatus.find((status) => status[0] === 'Backing Filesystem'); // d_type must be true for overlay, docker would not work if not
   if (backingFs && backingFs[1] === 'xfs') {

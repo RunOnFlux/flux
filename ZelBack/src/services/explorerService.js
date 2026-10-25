@@ -394,17 +394,29 @@ async function processInsight(blockDataVerbose, database) {
           // eslint-disable-next-line no-await-in-loop
           await processSoftFork(tx.txid, blockDataVerbose.height, message);
         } catch (error) {
+          // A message that cannot be read is skipped. One that could not be written is not:
+          // the block is reprocessed, or this node prices apps without that fork for good.
+          if (dbHelper.isDatabaseError(error)) throw error;
           log.error('Error processing soft fork message:', error);
-          // Continue processing other transactions even if soft fork processing fails
         }
       }
     }
   }
 }
 
+/**
+ * Records the app payments of the blocks processed since the last write. A payment that could
+ * not be recorded rejects, so the block processor reprocesses its block instead of moving its
+ * scanned height past it: a payment with no record is never resolved, and the app message it
+ * paid for never reaches this node.
+ * @param {object[]} transactions
+ * @param {object} database
+ * @returns {Promise<void>}
+ */
 async function insertTransactions(transactions, database) {
   if (transactions.length > 0) {
     log.info(`Explorer - insertTransactions - Inserting ${transactions.length} transactions to apps hashes collection`);
+    let unrecorded = null;
     try {
       const options = {
         ordered: false,
@@ -424,10 +436,13 @@ async function insertTransactions(transactions, database) {
           await dbHelper.updateOneInDatabase(database, appsHashesCollection, query, update, options);
         } catch (errorTx) {
           log.error(`Explorer - insertTransactions - Inserting ${transaction.hash} - transaction error - ${errorTx}`);
+          unrecorded = unrecorded ?? errorTx;
         }
       }
     }
+    // Reprocessing the block collects its payments again.
     appsTransactions = [];
+    if (unrecorded) throw unrecorded;
   }
 }
 
@@ -436,35 +451,48 @@ async function insertTransactions(transactions, database) {
  * @param {array} apps array with appstransactions to be processed.
  * @param {string} database Database.
  */
+/**
+ * Stores or requests the messages of a block's app payments. Runs from a timer
+ * nothing awaits, so it logs its own failure: the hashes it leaves unresolved
+ * are found again by hash sync.
+ * @param {array} apps the block's app payments.
+ * @returns {Promise<void>}
+ */
+async function requestAppHashes(apps) {
+  try {
+    const appsToRemove = [];
+    let hasUnresolved = false;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of apps) {
+      // eslint-disable-next-line no-await-in-loop
+      const messageReceived = await messageVerifier.checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
+      if (messageReceived) {
+        appsToRemove.push(app);
+      } else {
+        hasUnresolved = true;
+      }
+    }
+    if (hasUnresolved) {
+      appSyncEvents.emit(SYNC_EVENTS.HASH_UNRESOLVED);
+    }
+    const remaining = apps.filter((item) => !appsToRemove.includes(item));
+    while (remaining.length > 500) {
+      messageVerifier.checkAndRequestMultipleApps(remaining.splice(0, 500));
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(30 * 1000); // delay 30 seconds
+    }
+    if (remaining.length > 0) {
+      messageVerifier.checkAndRequestMultipleApps(remaining);
+    }
+  } catch (error) {
+    log.error(`Explorer - requestAppHashes - ${apps.length} app payments: ${error.message}`);
+  }
+}
+
 async function insertAndRequestAppHashes(apps, database) {
   if (apps.length > 0) {
     await insertTransactions(apps, database);
-    setTimeout(async () => {
-      const appsToRemove = [];
-      let hasUnresolved = false;
-      // eslint-disable-next-line no-restricted-syntax
-      for (const app of apps) {
-        // eslint-disable-next-line no-await-in-loop
-        const messageReceived = await messageVerifier.checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
-        if (messageReceived) {
-          appsToRemove.push(app);
-        } else {
-          hasUnresolved = true;
-        }
-      }
-      if (hasUnresolved) {
-        appSyncEvents.emit(SYNC_EVENTS.HASH_UNRESOLVED);
-      }
-      const remaining = apps.filter((item) => !appsToRemove.includes(item));
-      while (remaining.length > 500) {
-        messageVerifier.checkAndRequestMultipleApps(remaining.splice(0, 500));
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(30 * 1000); // delay 30 seconds
-      }
-      if (remaining.length > 0) {
-        messageVerifier.checkAndRequestMultipleApps(remaining);
-      }
-    }, 1);
+    setTimeout(requestAppHashes, 1, apps);
   }
 }
 /**
@@ -550,8 +578,10 @@ async function processStandard(blockDataVerbose, database) {
         try {
           await processSoftFork(tx.txid, blockDataVerbose.height, message);
         } catch (error) {
+          // A message that cannot be read is skipped. One that could not be written is not:
+          // the block is reprocessed, or this node prices apps without that fork for good.
+          if (dbHelper.isDatabaseError(error)) throw error;
           log.error('Error processing soft fork message:', error);
-          // Continue processing other transactions even if soft fork processing fails
         }
       }
     }
@@ -719,6 +749,124 @@ async function processBlock(blockHeight, isInsightExplorer) {
 }
 
 /**
+ * Removes every payment record but the one a scan keeps for each app message
+ * hash, and answers how many it removed: a payment this node already holds
+ * stands (standingAppPayment), so a scan keeps the earliest, and a record
+ * whose transaction the chain does not hold is no payment and gives way to one
+ * that is. The stored message of each such hash moves to the record kept before
+ * the others are removed, and the registry rebuild at boot writes its app's row
+ * from it. The recovery the unique hash index is built with.
+ * @param {object} collection the appsHashes collection
+ * @returns {Promise<number>}
+ */
+async function keepEarliestPayment(collection) {
+  const groups = await collection.aggregate([
+    { $addFields: { offChain: { $cond: [{ $eq: ['$notOnChain', true] }, 1, 0] } } },
+    { $sort: { offChain: 1, height: 1, txIndex: 1, _id: 1 } },
+    {
+      $group: {
+        _id: '$hash',
+        rows: {
+          $push: {
+            id: '$_id', txid: '$txid', height: '$height', value: '$value',
+          },
+        },
+      },
+    },
+    { $match: { 'rows.1': { $exists: true } } },
+  ]).toArray();
+  const toRemove = groups.flatMap((group) => group.rows.slice(1).map((row) => row.id));
+  if (!toRemove.length) return 0;
+  // the messages first: until the duplicates are gone, a failure here is found
+  // again by the next build of the unique index, which runs this again
+  await messageVerifier.moveStoredMessagesToPayments(groups.map(({ _id: hash, rows: [kept] }) => ({
+    hash, txid: kept.txid, height: kept.height, value: kept.value,
+  })));
+  await collection.deleteMany({ _id: { $in: toRemove } });
+  return toRemove.length;
+}
+
+/**
+ * Asserts every index the explorer's collections need. Boot runs it on every
+ * start, and a scan from zero runs it after emptying them; an index that
+ * already exists costs a catalog check. Runs on the maintenance client.
+ * @returns {Promise<void>}
+ */
+async function prepareCollections() {
+  const db = dbHelper.databaseConnection();
+  const database = dbHelper.onMaintenanceClient(db.db(config.database.daemon.database));
+  const databaseUpdates = dbHelper.onMaintenanceClient(db.db(config.database.chainparams.database));
+  await dbHelper.ensureIndexes(database.collection(utxoIndexCollection), [
+    {
+      key: { txid: 1, vout: 1 }, name: 'query for getting utxo', unique: true, recover: dbHelper.dedupeByKey,
+    },
+    {
+      key: { txid: 1, vout: 1, satoshis: 1 }, name: 'query for getting utxo for zelnode tx', unique: true, recover: dbHelper.dedupeByKey,
+    },
+    { key: { address: 1 }, name: 'query for addresses utxo' },
+    { key: { scriptPubKey: 1 }, name: 'query for scriptPubKey utxo' },
+  ]);
+  await dbHelper.ensureIndexes(database.collection(coinbaseFusionIndexCollection), [
+    {
+      key: { txid: 1, vout: 1 }, name: 'query for getting coinbase fusion utxo', unique: true, recover: dbHelper.dedupeByKey,
+    },
+    {
+      key: { txid: 1, vout: 1, satoshis: 1 }, name: 'query for getting coinbase fusion utxo for zelnode tx', unique: true, recover: dbHelper.dedupeByKey,
+    },
+    { key: { address: 1 }, name: 'query for addresses coinbase fusion utxo' },
+    { key: { scriptPubKey: 1 }, name: 'query for scriptPubKey coinbase fusion utxo' },
+  ]);
+  await dbHelper.ensureIndexes(database.collection(addressTransactionIndexCollection), [
+    { key: { address: 1 }, name: 'query for addresses transactions' },
+    { key: { address: 1, count: 1 }, name: 'query for addresses transactions with count' },
+  ]);
+  await dbHelper.ensureIndexes(database.collection(appsHashesCollection), [
+    { key: { txid: 1 }, name: 'query for getting txid' },
+    { key: { height: 1 }, name: 'query for getting height' },
+    {
+      key: { hash: 1 }, name: 'query for getting app hash', unique: true, recover: keepEarliestPayment,
+    },
+    { key: { message: 1 }, name: 'query for getting app hashes depending if we have message' },
+    // a record without a position is indexed under null, so the boot backfill reads only those
+    { key: { txIndex: 1 }, name: 'query for getting app hashes without a position' },
+  ]);
+  await dbHelper.ensureIndexes(databaseUpdates.collection(chainParamsMessagesCollection), [
+    { key: { txid: 1 }, name: 'query for getting txid of some chain parameters update message' },
+    { key: { height: 1 }, name: 'query for getting height of some chain parameters update message' },
+    { key: { message: 1 }, name: 'query for getting message of some chain parameters update message' },
+    { key: { version: 1 }, name: 'query for getting version of some chain parameters update message' },
+  ]);
+}
+
+/**
+ * Empties the explorer's collections and asserts their indexes, for a scan
+ * from zero. Rejects when either fails, and the scan does not start.
+ * @returns {Promise<void>}
+ */
+async function resetExplorerCollections() {
+  log.info('Preparing daemon collections');
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.daemon.database);
+  const databaseUpdates = db.db(config.database.chainparams.database);
+  const empty = [
+    [database, utxoIndexCollection],
+    [database, addressTransactionIndexCollection],
+    [database, appsHashesCollection],
+    [database, coinbaseFusionIndexCollection],
+    [databaseUpdates, chainParamsMessagesCollection],
+  ];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [owner, collection] of empty) {
+    // eslint-disable-next-line no-await-in-loop
+    await dbHelper.dropCollection(owner, collection).catch((error) => {
+      if (error.message !== 'ns not found') throw error;
+    });
+  }
+  await prepareCollections();
+  log.info('Preparation done');
+}
+
+/**
  * To restore database to specified block height.
  * @param {number} height Block height.
  * @returns {boolean} Value set to true after database is restored.
@@ -727,8 +875,9 @@ async function restoreDatabaseToBlockheightState(height) {
   if (!height) {
     throw new Error('No blockheight for restoring provided');
   }
+  // Whole-collection deletes and updates: they run on the maintenance client.
   const dbopen = dbHelper.databaseConnection();
-  const database = dbopen.db(config.database.daemon.database);
+  const database = dbHelper.onMaintenanceClient(dbopen.db(config.database.daemon.database));
 
   const query = { height: { $gt: height } };
   const queryForAddresses = {}; // we need to remove those transactions in transactions field that have height greater than height
@@ -747,7 +896,7 @@ async function restoreDatabaseToBlockheightState(height) {
   // restore appsHashes collection
   await dbHelper.removeDocumentsFromCollection(database, appsHashesCollection, query);
   log.info('Rescanning Blockchain Parameters!');
-  const databaseUpdates = dbopen.db(config.database.chainparams.database);
+  const databaseUpdates = dbHelper.onMaintenanceClient(dbopen.db(config.database.chainparams.database));
   await dbHelper.removeDocumentsFromCollection(databaseUpdates, chainParamsMessagesCollection, query);
   log.info('Rescan completed');
   return true;
@@ -1142,6 +1291,9 @@ async function recoverAndRestart(restoreDatabase, deepRestore) {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.daemon.database);
     let scannedBlockHeight = await getScannedBlockHeightFromDb(database);
+    // A scan from zero starts on empty collections holding every index, however
+    // the attempt before this one ended.
+    if (scannedBlockHeight === 0) await resetExplorerCollections();
 
     if (scannedBlockHeight !== 0 && restoreDatabase) {
       const deepRestoreBlocks = config.fluxapps.explorerDeepRestoreBlocks ?? 100;
@@ -1204,75 +1356,8 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
     }
     const daemonHeight = daemonBlockCount.data;
 
-    if (scannedBlockHeight === 0) {
-      log.info('Preparing daemon collections');
-      const result = await dbHelper.dropCollection(database, utxoIndexCollection).catch((error) => {
-        if (error.message !== 'ns not found') throw error;
-      });
-      const resultB = await dbHelper.dropCollection(database, addressTransactionIndexCollection).catch((error) => {
-        if (error.message !== 'ns not found') throw error;
-      });
-      const resultD = await dbHelper.dropCollection(database, appsHashesCollection).catch((error) => {
-        if (error.message !== 'ns not found') throw error;
-      });
-      const resultFusion = await dbHelper.dropCollection(database, coinbaseFusionIndexCollection).catch((error) => {
-        if (error.message !== 'ns not found') throw error;
-      });
-      const databaseUpdates = db.db(config.database.chainparams.database);
-      const resultChainParams = await dbHelper.dropCollection(databaseUpdates, chainParamsMessagesCollection).catch((error) => {
-        if (error.message !== 'ns not found') throw error;
-      });
-      log.info(result, resultB, resultD, resultFusion, resultChainParams);
-
-      await database.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1 }, { name: 'query for getting utxo', unique: true });
-      await database.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1, satoshis: 1 }, { name: 'query for getting utxo for zelnode tx', unique: true });
-      await database.collection(utxoIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses utxo' });
-      await database.collection(utxoIndexCollection).createIndex({ scriptPubKey: 1 }, { name: 'query for scriptPubKey utxo' });
-      await database.collection(coinbaseFusionIndexCollection).createIndex({ txid: 1, vout: 1 }, { name: 'query for getting coinbase fusion utxo', unique: true });
-      await database.collection(coinbaseFusionIndexCollection).createIndex({ txid: 1, vout: 1, satoshis: 1 }, { name: 'query for getting coinbase fusion utxo for zelnode tx', unique: true });
-      await database.collection(coinbaseFusionIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses coinbase fusion utxo' });
-      await database.collection(coinbaseFusionIndexCollection).createIndex({ scriptPubKey: 1 }, { name: 'query for scriptPubKey coinbase fusion utxo' });
-      await database.collection(addressTransactionIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses transactions' });
-      await database.collection(addressTransactionIndexCollection).createIndex({ address: 1, count: 1 }, { name: 'query for addresses transactions with count' });
-      await database.collection(appsHashesCollection).createIndex({ txid: 1 }, { name: 'query for getting txid' });
-      await database.collection(appsHashesCollection).createIndex({ height: 1 }, { name: 'query for getting height' });
-      await database.collection(appsHashesCollection).createIndex({ hash: 1 }, { name: 'query for getting app hash', unique: true }).catch((error) => {
-        log.error('Expected throw on index creation as of new uniquness. Do not remove this check until all nodes have rebuild apps data');
-        log.error(error);
-      });
-      await database.collection(appsHashesCollection).createIndex({ message: 1 }, { name: 'query for getting app hashes depending if we have message' });
-      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ txid: 1 }, { name: 'query for getting txid of some chain parameters update message' });
-      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ height: 1 }, { name: 'query for getting height of some chain parameters update message' });
-      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ message: 1 }, { name: 'query for getting message of some chain parameters update message' });
-      await databaseUpdates.collection(chainParamsMessagesCollection).createIndex({ version: 1 }, { name: 'query for getting version of some chain parameters update message' });
-
-      const databaseGlobal = db.db(config.database.appsglobal.database);
-      log.info('Preparing apps collections');
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash', unique: true });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ txid: 1 }, { name: 'query for getting zelapp message based on txid' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ height: 1 }, { name: 'query for getting zelapp message based on height' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.name': 1 }, { name: 'query for getting app message based on zelapp specs name' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.owner': 1 }, { name: 'query for getting app message based on zelapp specs owner' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.repotag': 1 }, { name: 'query for getting app message based on image' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.version': 1 }, { name: 'query for getting app message based on version' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.nodes': 1 }, { name: 'query for getting app message based on nodes' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ name: 1 }, { name: 'query for getting zelapp based on zelapp specs name' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ owner: 1 }, { name: 'query for getting zelapp based on zelapp specs owner' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ repotag: 1 }, { name: 'query for getting zelapp based on image' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ height: 1 }, { name: 'query for getting zelapp based on last height update' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ hash: 1 }, { name: 'query for getting zelapp based on last hash' });
-      await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp location based on zelapp specs name' });
-      await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ hash: 1 }, { name: 'query for getting zelapp location based on zelapp hash' });
-      await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ ip: 1 }, { name: 'query for getting zelapp location based on ip' });
-      await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting app based on ip and name' });
-      await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1, ip: 1, broadcastedAt: 1 }, { name: 'query for getting app to ensure we possess a message' });
-      await database.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp install location based on zelapp specs name' });
-      await database.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting flux app install location based on specs name and node ip' });
-      await database.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1 }, { name: 'query for getting flux app install errors location based on specs name' });
-      await database.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash' });
-      await database.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1, ip: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash and node ip' });
-      log.info('Preparation done');
-    }
+    // A scan from zero starts on empty collections holding every index.
+    if (scannedBlockHeight === 0) await resetExplorerCollections();
 
     if (daemonHeight > scannedBlockHeight) {
       if (scannedBlockHeight !== 0 && restoreDatabase) {
@@ -1676,6 +1761,8 @@ async function checkBlockProcessingStopped(i, callback) {
       if (j < 12) {
         checkBlockProcessingStopped(j, callback);
       } else {
+        // Not stopped: the block in flight keeps chaining to the next one.
+        blockProccessingCanContinue = true;
         const errMessage = messageHelper.createErrorMessage('Unknown error occured. Try again later.');
         callback(errMessage);
       }
@@ -1764,25 +1851,23 @@ async function reindexExplorer(req, res) {
         res.json(errMessage);
       } else {
         operationBlocked = true;
-        const dbopen = dbHelper.databaseConnection();
-        const database = dbopen.db(config.database.daemon.database);
-        const resultOfDropping = await dbHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
-          if (error.message !== 'ns not found') {
-            operationBlocked = false;
-            log.error(error);
-            const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-            res.json(errMessage);
-          }
-        });
-        operationBlocked = false;
-        if (resultOfDropping === true || resultOfDropping === undefined) {
-          initiateBlockProcessor(true, false);
-          const message = messageHelper.createSuccessMessage('Explorer database reindex initiated');
-          res.json(message);
-        } else {
-          const errMessage = messageHelper.createErrorMessage(resultOfDropping, 'Collection dropping error');
-          res.json(errMessage);
+        try {
+          const dbopen = dbHelper.databaseConnection();
+          const database = dbopen.db(config.database.daemon.database);
+          await dbHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
+            // A collection that is already gone is the reindex's starting point.
+            if (error.message !== 'ns not found') throw error;
+          });
+        } catch (error) {
+          operationBlocked = false;
+          log.error(error);
+          res.json(messageHelper.createErrorMessage(error.message, error.name, error.code));
+          return;
         }
+        operationBlocked = false;
+        initiateBlockProcessor(true, false);
+        const message = messageHelper.createSuccessMessage('Explorer database reindex initiated');
+        res.json(message);
       }
     });
   } else {
@@ -1813,6 +1898,7 @@ async function rescanExplorer(req, res) {
       if (!blockheight) {
         const errMessage = messageHelper.createErrorMessage('No blockheight provided');
         res.json(errMessage);
+        return;
       }
       blockheight = serviceHelper.ensureNumber(blockheight);
       const dbopen = dbHelper.databaseConnection();
@@ -1839,17 +1925,23 @@ async function rescanExplorer(req, res) {
       checkBlockProcessingStopped(i, async (response) => {
         if (response.status === 'error') {
           res.json(response);
+        } else if (operationBlocked) {
+          res.json(messageHelper.createErrorMessage('Operation blocked'));
         } else {
-          if (operationBlocked) {
-            throw new Error('Operation blocked');
-          }
           operationBlocked = true;
           const update = { $set: { generalScannedHeight: blockheight } };
           const options = {
             upsert: true,
           };
-          // update scanned Height in scannedBlockHeightCollection
-          await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+          try {
+            // update scanned Height in scannedBlockHeightCollection
+            await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+          } catch (error) {
+            operationBlocked = false;
+            log.error(error);
+            res.json(messageHelper.createErrorMessage(error.message, error.name, error.code));
+            return;
+          }
           operationBlocked = false;
           initiateBlockProcessor(true, false);
           const message = messageHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
@@ -1939,6 +2031,11 @@ function setBlockProccessingCanContinue(value) {
 }
 
 // testing purposes
+function getBlockProccessingCanContinue() {
+  return blockProccessingCanContinue;
+}
+
+// testing purposes
 function setIsInInitiationOfBP(value) {
   isInInitiationOfBP = value;
 }
@@ -1949,6 +2046,9 @@ function setZelAppSpecsMigrationDone(value) {
 }
 
 module.exports = {
+  prepareCollections,
+  resetExplorerCollections,
+  keepEarliestPayment,
   initiateBlockProcessor,
   processBlock,
   reindexExplorer,
@@ -1980,6 +2080,8 @@ module.exports = {
   processTransaction,
   processStandard,
   setBlockProccessingCanContinue,
+  getBlockProccessingCanContinue,
+  insertTransactions,
   setIsInInitiationOfBP,
   setZelAppSpecsMigrationDone,
   restoreDatabaseToBlockheightState,

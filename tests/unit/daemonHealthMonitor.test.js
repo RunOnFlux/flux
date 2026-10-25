@@ -300,6 +300,23 @@ describe('daemonHealthMonitor tests', () => {
       expect(logStub.error.calledWith('Error in daemon health check: RPC error')).to.be.true;
     });
 
+    it('should try the removal again when the installed apps could not be read', async () => {
+      clock = sinon.useFakeTimers();
+
+      registryManagerStub.getInstalledApps.rejects(new Error('connection timed out'));
+
+      daemonServiceMiscRpcsStub.isDaemonSynced.returns({ data: { synced: false } });
+      await daemonHealthMonitor.checkDaemonHealthAndCleanup();
+      clock.tick(2 * 60 * 60 * 1000);
+      await daemonHealthMonitor.checkDaemonHealthAndCleanup();
+      expect(appUninstallerStub.removeAppLocally.called).to.be.false;
+
+      registryManagerStub.getInstalledApps.resolves([{ name: 'app1' }]);
+      await daemonHealthMonitor.checkDaemonHealthAndCleanup();
+
+      expect(appUninstallerStub.removeAppLocally.callCount).to.equal(1);
+    });
+
     it('should reset allAppsRemoved flag when daemon recovers', async () => {
       clock = sinon.useFakeTimers();
 

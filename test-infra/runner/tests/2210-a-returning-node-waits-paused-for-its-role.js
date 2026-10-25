@@ -5,7 +5,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
   execInContainer, isAppContainerRunning, crashFluxos, releaseFluxos, shutdownFluxosGracefully,
-  redirectOutbound, clearOutboundRedirect,
+  redirectOutbound, clearOutboundRedirect, fluxosPid,
 } from '../framework/container.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
@@ -218,8 +218,8 @@ describe('a returning node waits paused until its role is decided', function () 
     this.timeout(300000);
     const since = await lastDaemonEventId(client(ARCANE));
     const mark = client(ARCANE).getLastEventId();
-    const pid = (await sh(ARCANE, 'cat /tmp/fluxos.pid')).stdout.trim();
-    expect(pid, 'fixture: no FluxOS pid').to.match(/^\d+$/);
+    const pid = await fluxosPid(client(ARCANE).container);
+    expect(pid, 'fixture: no FluxOS pid').to.be.a('number');
 
     // SIGTERM with no system shutdown under way: the service restarting.
     await sh(ARCANE, `kill -TERM ${pid}`);

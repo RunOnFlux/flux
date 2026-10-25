@@ -19,10 +19,10 @@ const REMOVAL_DELAY = 3 * 60 * 1000;  // 3 minutes between app removals
  */
 async function removeAllApps(reason) {
   try {
-    allAppsRemoved = true;  // Set flag to prevent repeated attempts
-
     // Get installed apps (follows pattern from checkAndRemoveEnterpriseAppsOnNonArcane)
     const installedApps = await registryManager.getInstalledApps();
+    // Set once the list is read, so a failed read is retried on the next check.
+    allAppsRemoved = true;
 
     if (!installedApps || installedApps.length === 0) {
       log.info('No apps installed, nothing to remove');

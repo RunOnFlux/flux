@@ -390,6 +390,23 @@ describe('nodeHealthService tests', () => {
       });
     });
 
+    // A port closed over UDP is the availability check's to act on; health
+    // reports it and refuses nobody for it.
+    it('reports UDP as unmeasured, ok or degraded, and stays fit on each', async () => {
+      healthyHardware();
+      const readings = [[null, 'unmeasured'], [{ reachable: true }, 'ok'], [{ reachable: false, port: 31000, peers: ['a', 'b'] }, 'degraded']];
+      const getUdp = sinon.stub(fluxNetworkHelper, 'getUdpReachability');
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const [reading, check] of readings) {
+        getUdp.returns(reading);
+        // eslint-disable-next-line no-await-in-loop
+        const fitness = await nodeHealthService.checkNodeFitness();
+        expect(fitness.ok, `unfit on UDP ${check}`).to.equal(true);
+        expect(fitness.checks.udp).to.equal(check);
+      }
+    });
+
     it('checkNodeFitness returns ok with the checks when the node is fit', async () => {
       healthyHardware();
 
@@ -416,7 +433,7 @@ describe('nodeHealthService tests', () => {
           message: 'Node Total Ram (1) below new Cumulus requirements',
           failed: 'hardware',
           checks: {
-            db: 'ok', syncthing: 'ok', docker: 'ok', daemon: 'ok', hardware: 'fail',
+            db: 'ok', syncthing: 'ok', docker: 'ok', daemon: 'ok', udp: 'unmeasured', hardware: 'fail',
           },
         },
       });
@@ -513,7 +530,7 @@ describe('nodeHealthService tests', () => {
         sinon.assert.calledOnceWithExactly(res.json, {
           status: 'success',
           data: {
-            db: 'ok', syncthing: 'ok', docker: 'ok', daemon: 'degraded', hardware: 'unmeasured', dos: 'ok', appsDos: 'ok',
+            db: 'ok', syncthing: 'ok', docker: 'ok', daemon: 'degraded', udp: 'unmeasured', hardware: 'unmeasured', dos: 'ok', appsDos: 'ok',
           },
         });
       });

@@ -27,13 +27,15 @@ const imageVerifier = require('../utils/imageVerifier');
 const registryCredentialHelper = require('../utils/registryCredentialHelper');
 const upnpService = require('../upnpService');
 const globalState = require('../utils/globalState');
+const folderStates = require('../appMonitoring/folderStates');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const mountParser = require('../utils/mountParser');
 const { ensureStignoreCovers } = require('../appSystem/syncthingIgnorePolicy');
 const { findCommonArchitectures } = require('../utils/appUtilities');
 const log = require('../../lib/log');
-const { localAppsInformation, scannedHeightCollection } = require('../utils/appConstants');
+const { localAppsInformation } = require('../utils/appConstants');
+const appPlacements = require('../appManagement/appPlacements');
 const messageVerifier = require('../appMessaging/messageVerifier');
 const { availableApps, getApplicationGlobalSpecifications } = require('../appDatabase/registryManager');
 const hwRequirements = require('../appRequirements/hwRequirements');
@@ -124,7 +126,7 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
         const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
-        if (portResponse === true) {
+        if (portResponse.mapped) {
           const portStatus = {
             status: `Port ${port} mapped OK`,
           };
@@ -134,7 +136,7 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
             if (res.flush) res.flush();
           }
         } else {
-          throw new Error(`Error: Port ${port} FAILed to map.`);
+          throw new Error(`Error: Port ${port} FAILed to map. ${portResponse.reason}`);
         }
       }
     }
@@ -144,7 +146,7 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
     if (isUPNP) {
       log.info('Custom port specified, mapping ports');
       const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
-      if (portResponse === true) {
+      if (portResponse.mapped) {
         const portStatus = {
           status: `Port ${appSpecifications.port} mapped OK`,
         };
@@ -154,7 +156,7 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
           if (res.flush) res.flush();
         }
       } else {
-        throw new Error(`Error: Port ${appSpecifications.port} FAILed to map.`);
+        throw new Error(`Error: Port ${appSpecifications.port} FAILed to map. ${portResponse.reason}`);
       }
     }
   }
@@ -370,6 +372,17 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
       }
       return InstallOutcome.BUSY;
     }
+    // A pending removal of the app removes whatever is installed in its place, so
+    // the app takes no install until that removal has finished.
+    if (globalState.departingApps.has(appSpecs.name)) {
+      const rStatus = messageHelper.createWarningMessage(`Flux App ${appSpecs.name} is being removed. Installation not possible`);
+      log.error(rStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(rStatus));
+        if (res.flush) res.flush();
+      }
+      return InstallOutcome.BUSY;
+    }
     globalState.installationInProgress = true;
     acquired = true;
     // A test install holds nothing: it writes the app's row like any other install
@@ -531,7 +544,15 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
         throw new Error(`CRITICAL: Failed to create database entry for ${appSpecifications.name}. Database insert returned undefined - likely duplicate key error or database failure. Aborting installation to prevent orphaned Docker containers.`);
       }
       log.info(`Database entry created for ${appSpecifications.name} BEFORE Docker container creation`);
+      // Installed from here: a peer deciding a cold-start seed waits on this node
+      // until its monitor has measured what it holds.
+      folderStates.installed(appSpecifications);
       claimed = true;
+      // The app's volumes are created next: this node's record of when it took
+      // the app starts now. The write must succeed, like the insert above: an
+      // install that went on without it would leave any earlier record of the
+      // app standing, dated before this volume existed.
+      if (!test) await appPlacements.recordPlacement(appSpecifications.name);
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
@@ -664,16 +685,18 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
     // costs the node every install, redeploy, spawn and reinstall pass it is offered
     // until FluxOS restarts.
     if (acquired) globalState.installationInProgress = false;
-    // Bound to the hold: a call that did not take it never wrote the app's row
-    // and never set the mark, so it has neither to take back. The mark is set
-    // under the hold with nothing awaited in between, so holding it is the same
-    // fact as having marked.
+    // The mark is bound to the hold: it is set under the hold with nothing awaited
+    // in between, so a call that took the hold has a mark to take back. The
+    // teardown is bound to the row: a call that never wrote one created nothing,
+    // and an app a refusal finds already installed is not its to remove.
     if (test && acquired) {
-      try {
-        await appUninstaller.removeAppLocally(appSpecs.name, null, true, false, false);
-        log.info(`Test cleanup completed for ${appSpecs.name}`);
-      } catch (cleanupError) {
-        log.error(`Error during test cleanup for ${appSpecs.name}: ${cleanupError.message}`);
+      if (claimed) {
+        try {
+          await appUninstaller.removeAppLocally(appSpecs.name, null, true, false, false);
+          log.info(`Test cleanup completed for ${appSpecs.name}`);
+        } catch (cleanupError) {
+          log.error(`Error during test cleanup for ${appSpecs.name}: ${cleanupError.message}`);
+        }
       }
       // Released after the teardown, not before: the row is what the announcement
       // reads, and it exists until the teardown has deleted it.
@@ -1017,9 +1040,12 @@ async function installAppLocally(req, res) {
     if (!appname) {
       throw new Error('No Flux App specified');
     }
-    let blockAllowance = config.fluxapps.ownerAppAllowance;
-    // needs to be logged in
-    const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
+    // Placing an app on a node is not the node operator's call, for the same
+    // reason removing one is not: hosting an app is not owning it. The spawner
+    // decides placement; the owner decides everything else. An app not yet paid
+    // for is never placed here: it is tried out through testAppInstall, which
+    // tears it down again and never announces it.
+    const authorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
     if (authorized) {
       // registerAppLocally refuses a concurrent removal or installation but not a
       // redeploy or the periodic reinstall pass, and those hold the node across a
@@ -1030,41 +1056,8 @@ async function installAppLocally(req, res) {
       if (heldBy) {
         throw new Error(`Another application is undergoing ${heldBy}. Installation not possible.`);
       }
-      let appSpecifications;
-      // anyone can deploy temporary app
-      // favor temporary to launch test temporary apps
-      const tempMessage = await messageVerifier.checkAppTemporaryMessageExistence(appname);
-      if (tempMessage) {
-        // eslint-disable-next-line prefer-destructuring
-        appSpecifications = tempMessage.appSpecifications;
-        // blockAllowance is used for future validation
-        // eslint-disable-next-line no-unused-vars
-        blockAllowance = config.fluxapps.temporaryAppAllowance;
-      }
-      if (!appSpecifications) {
-        // Placing a registered app on a node is not the node operator's call, for
-        // the same reason removing one is not: hosting an app is not owning it.
-        // This branch resolves an app BY NAME from the marketplace, the global
-        // registry or a permanent message, so an operator reaching it is choosing
-        // which customer's app runs on hardware they control - and for a g:/r: app
-        // the new instance syncs that customer's data down to it. The spawner
-        // decides placement; the owner decides everything else.
-        //
-        // The temporary-message branch above is untouched and stays open to any
-        // logged-in user: that is how an app is tested before it is registered,
-        // it is addressed by hash rather than by name, and it expires on its own
-        // (temporaryAppAllowance).
-        const ownerAuthorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
-        if (!ownerAuthorized) {
-          const errMessage = messageHelper.errUnauthorizedMessage();
-          res.json(errMessage);
-          return;
-        }
-      }
-      if (!appSpecifications) {
-        const allApps = await availableApps();
-        appSpecifications = allApps.find((app) => app.name === appname);
-      }
+      const allApps = await availableApps();
+      let appSpecifications = allApps.find((app) => app.name === appname);
       if (!appSpecifications) {
         // eslint-disable-next-line no-use-before-define
         appSpecifications = await getApplicationGlobalSpecifications(appname);
@@ -1073,8 +1066,10 @@ async function installAppLocally(req, res) {
       if (!appSpecifications) {
         const permMessage = await messageVerifier.checkAppMessageExistence(appname);
         if (permMessage) {
-          // eslint-disable-next-line prefer-destructuring
-          appSpecifications = permMessage.appSpecifications;
+          // The message carries the hash and height its specification does not:
+          // the announcement names the app by that hash, and the expiry sweep
+          // removes a local row without a height.
+          appSpecifications = { ...permMessage.appSpecifications, hash: permMessage.hash, height: permMessage.height };
         }
       }
       if (!appSpecifications) {
@@ -1098,25 +1093,13 @@ async function installAppLocally(req, res) {
         appSpecifications.hash = hash;
       }
 
-      // get current height
-      const dbopen = dbHelper.databaseConnection();
-      if (!appSpecifications.height && appSpecifications.height !== 0) {
-        // precaution for old temporary apps. Set up for custom test specifications.
-        const database = dbopen.db(config.database.daemon.database);
-        const query = { generalScannedHeight: { $gte: 0 } };
-        const projection = {
-          projection: {
-            _id: 0,
-            generalScannedHeight: 1,
-          },
-        };
-        const result = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
-        if (!result) {
-          throw new Error('Scanning not initiated');
-        }
-        const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
-        appSpecifications.height = explorerHeight - config.fluxapps.blocksLasting + blockAllowance; // allow running for this amount of blocks
+      // An app's term runs from the height its payment was mined at, and the
+      // expiry sweep removes it when the term ends. A specification without one
+      // has no term to run, so it is not installed.
+      if (appSpecifications.height === undefined || appSpecifications.height === null) {
+        throw new Error(`Application Specifications of ${appname} carry no height`);
       }
+      const dbopen = dbHelper.databaseConnection();
 
       const appsDatabase = dbopen.db(config.database.appslocal.database);
       const appsQuery = {}; // all
@@ -1194,6 +1177,20 @@ async function checkAppRequirements(appSpecs, skipGeolocation = false, skipStati
 }
 
 /**
+ * The owner whose key signs a pending app message: the owner a registration
+ * names, and for an update the owner of the app as registered, who signs the
+ * update whatever owner it names.
+ * @param {object} tempMessage A temporary app message.
+ * @returns {Promise<string|null>} The signer's address, or null when it cannot be found.
+ */
+async function pendingMessageSigner(tempMessage) {
+  const isUpdate = tempMessage.type === 'fluxappupdate' || tempMessage.type === 'zelappupdate';
+  if (!isUpdate) return tempMessage.appSpecifications?.owner ?? null;
+  const registered = await getApplicationGlobalSpecifications(tempMessage.appSpecifications?.name);
+  return registered?.owner ?? null;
+}
+
+/**
  * Test application installation - Similar to installAppLocally but for testing with reduced resource requirements
  * @param {object} req - Request object containing appname in params or query
  * @param {object} res - Response object
@@ -1210,7 +1207,6 @@ async function testAppInstall(req, res) {
     }
 
     log.info(`testAppInstall: ${appname}`);
-    let blockAllowance = config.fluxapps.ownerAppAllowance;
 
     // needs to be logged in
     const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
@@ -1223,15 +1219,21 @@ async function testAppInstall(req, res) {
       }
       let appSpecifications;
 
-      // anyone can deploy temporary app
-      // favor temporary to launch test temporary apps
+      // An app not yet paid for is tested by the owner whose key signs its
+      // message, addressed by its message hash. The flux team may test any.
       const tempMessage = await messageVerifier.checkAppTemporaryMessageExistence(appname);
       if (tempMessage) {
-        // eslint-disable-next-line prefer-destructuring
-        appSpecifications = tempMessage.appSpecifications;
-        // blockAllowance is used for future validation
-        // eslint-disable-next-line no-unused-vars
-        blockAllowance = config.fluxapps.temporaryAppAllowance;
+        const caller = serviceHelper.ensureObject(authOf(req))?.zelid;
+        const signer = await pendingMessageSigner(tempMessage);
+        const mayTest = (Boolean(caller) && caller === signer)
+          || await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
+        if (!mayTest) {
+          const errMessage = messageHelper.errUnauthorizedMessage();
+          res.json(errMessage);
+          return;
+        }
+        // The hash is the message's, not the specification's.
+        appSpecifications = { ...tempMessage.appSpecifications, hash: tempMessage.hash };
       }
 
       if (!appSpecifications) {
@@ -1242,11 +1244,6 @@ async function testAppInstall(req, res) {
         // which customer's app runs on hardware they control - and for a g:/r: app
         // the new instance syncs that customer's data down to it. The spawner
         // decides placement; the owner decides everything else.
-        //
-        // The temporary-message branch above is untouched and stays open to any
-        // logged-in user: that is how an app is tested before it is registered,
-        // it is addressed by hash rather than by name, and it expires on its own
-        // (temporaryAppAllowance).
         const ownerAuthorized = await verificationHelper.verifyPrivilege(Privilege.FLUX_TEAM, authOf(req));
         if (!ownerAuthorized) {
           const errMessage = messageHelper.errUnauthorizedMessage();
@@ -1268,8 +1265,7 @@ async function testAppInstall(req, res) {
       if (!appSpecifications) {
         const permMessage = await messageVerifier.checkAppMessageExistence(appname);
         if (permMessage) {
-          // eslint-disable-next-line prefer-destructuring
-          appSpecifications = permMessage.appSpecifications;
+          appSpecifications = { ...permMessage.appSpecifications, hash: permMessage.hash, height: permMessage.height };
         }
       }
 
@@ -1290,11 +1286,27 @@ async function testAppInstall(req, res) {
         }
         const daemonHeight = syncStatus.data.height;
 
+        // the formatter strips spec metadata; the hash and height must survive it
+        const { height, hash } = appSpecifications;
         appSpecifications = await checkAndDecryptAppSpecs(appSpecifications, {
           daemonHeight,
           owner: appSpecifications.owner,
         });
         appSpecifications = specificationFormatter(appSpecifications);
+        appSpecifications.height = height;
+        appSpecifications.hash = hash;
+      }
+
+      // An app this node holds is not tested here: the test would install over it.
+      const installed = await dbHelper.findOneInDatabase(
+        dbHelper.databaseConnection().db(config.database.appslocal.database),
+        localAppsInformation,
+        { name: appSpecifications.name },
+        { projection: { _id: 0, name: 1 } },
+      );
+      if (installed) {
+        res.json(messageHelper.createErrorMessage(`Flux App ${appSpecifications.name} is installed on this node. Test it on a node that does not hold it.`));
+        return;
       }
 
       // Test installation - similar to regular install but with test flag

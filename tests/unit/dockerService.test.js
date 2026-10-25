@@ -2330,6 +2330,20 @@ describe('dockerService tests', () => {
 
       await expect(dockerService.appDockerCreate(nodeApp, appName, true)).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'forEach\')');
     });
+
+    describe('the app\'s slice', () => {
+      const nodeApp = {
+        ...baseNodeApp, containerPorts: [], ports: [], version: 3,
+      };
+      const created = () => dockerStub.firstCall.args[0];
+      it('puts the container in its app\'s slice', async () => {
+        sinon.stub(Dockerode.prototype, 'info').resolves({ CgroupDriver: 'systemd', DriverStatus: [] });
+
+        await dockerService.appDockerCreate(nodeApp, 'my-app', true);
+
+        expect(created().HostConfig.CgroupParent).to.equal('flux-my\\x2dapp.slice');
+      });
+    });
   });
   describe('loadImage tests', () => {
     const ID = 'sha256:1111111111111111111111111111111111111111111111111111111111111111';

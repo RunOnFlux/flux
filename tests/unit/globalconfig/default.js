@@ -26,9 +26,29 @@ module.exports = {
   fluxadm: {
     sshAuthorizedKeys: [],
   },
+  // A thread of a process FluxOS depends on that stays in the kernel without
+  // running for one interval holds the node back from new placements, and for
+  // stuckIntervals intervals takes it out of service until it reboots.
+  hostStall: {
+    readIntervalMs: 5 * 60 * 1000,
+    stuckIntervals: 6,
+    stopWindowMs: 60 * 1000,
+  },
   database: {
     url: database,
     port: 27017,
+    // How long one round trip, or the wait for a pooled connection, may take
+    // before the call fails. callTimeoutMs bounds every call on the main client:
+    // over four times the slowest healthy round trip seen on the fleet.
+    // maintenanceCallTimeoutMs bounds the client for the named long operations:
+    // index builds, the explorer restore's deletes and the registry rebuild.
+    callTimeoutMs: 60 * 1000,
+    maintenanceCallTimeoutMs: 15 * 60 * 1000,
+    // The database is suspect, and the node takes on no new apps, once
+    // suspectRoundTrips round trips have run out within suspectWindowMs. It stops
+    // being suspect suspectWindowMs after the last one.
+    suspectRoundTrips: 4,
+    suspectWindowMs: 30 * 60 * 1000,
     local: {
       database: 'zelfluxlocaltest',
       collections: {
@@ -39,6 +59,7 @@ module.exports = {
         geolocation: 'geolocation',
         policyDocuments: 'policydocuments', // last-known-good network policy documents, so an unreachable source does not drop enforcement
         benchmark: 'benchmark',
+        nodeStartupTracker: 'nodestartuptracker',
         ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
       },
     },
@@ -59,6 +80,7 @@ module.exports = {
       collections: {
         appsInformation: 'zelappsinformation',
         appsRuntimeState: 'zelappsruntimestate',
+        appsPlacements: 'zelappsplacements',
       },
     },
     appsglobal: {
@@ -87,6 +109,8 @@ module.exports = {
   upnp: {
     gatewayUrl: '',
     nodeIp: '',
+    removalRetryFirstMs: 30 * 1000,
+    removalRetryMaxMs: 60 * 1000,
   },
   benchmark: {
     host: '127.0.0.1',
@@ -108,6 +132,7 @@ module.exports = {
   minimumNodeJsAllowedVersion: '20.8.0',
   minimumSyncthingAllowedVersion: '1.27.6',
   minimumDockerAllowedVersion: '28.1.1',
+  minimumMongoDbAllowedVersion: '6.0.27',
   fluxTeamFluxID: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
   fluxSupportTeamFluxID: ['16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP'],
   deterministicNodesStart: 558000,
@@ -241,8 +266,8 @@ module.exports = {
     availabilityCheckIntervalMs: 300000,
     availabilityRecheckMs: 60000,
     peerShortfallDosPerMinute: 0.13,
-    publicIpAskIntervalMs: 90000,
-    publicIpAsksBeforeDos: 8,
+    publicIpAskIntervalMs: 15000,
+    publicIpAsksBeforeDos: 48,
     appsPortCheck: {
       timeoutsMs: {
         default: 3600000, error: 60000, failure: 15000, dos: 300000, appError: 240000,
@@ -277,8 +302,6 @@ module.exports = {
     daemonPONFork: 2020000, // block height where PON (Proof of Node) fork activates - chain works 4x faster after this block
     blocksAllowanceInterval: 1000, // ap differences can be in 1000s - more than 1 day
     removeBlocksAllowanceIntervalBlock: 1625000, // after this block we can start having app updates without extending subscription - block expected in April 19th 2024
-    ownerAppAllowance: 1000, // in case of node owner installing some app, the app will run for this amount of blocks
-    temporaryAppAllowance: 200, // in case of any user installing some temporary app message for testing purposes, the app will run for this many blocks
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
     updateFluxAppsPeriod: 9, // every 9 blocks we check for reinstalling of old application versions
     removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
@@ -292,6 +315,9 @@ module.exports = {
     bootDelayMultiplier: 1,
     spawnDelayMs: 0,
     removalSpacingMs: 60000,
+    // How long one app's removal may take, when every app is removed, before the
+    // next app's starts. A removal past it keeps running.
+    appRemovalDeadlineMs: 5 * 60 * 1000,
     locationTtlS: 7500,
     installingTtlS: 900,
     installErrorTtlS: 86400,
@@ -367,6 +393,8 @@ module.exports = {
     wsHandshakeTimeoutMs: 10000,
     discoveryConnectionDelayMs: 500,
     nodeMonitorRemovalDelayMs: 60000,
+    // events per message of an answer to a peer's state sync
+    syncAnswerBatchSize: 2000,
     residentialCheckIntervalMs: 21600000,
     residentialSettleMs: 86400000,
     residentialEvacuationIntervalMs: 21600000,

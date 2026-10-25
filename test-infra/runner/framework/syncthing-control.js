@@ -356,3 +356,42 @@ export async function resetSyncState() {
 export async function setFolderPatchDelay({ ip = '*', ms = 0 }) {
   return post('/folder-patch-delay', { ip, ms });
 }
+
+// A folder in a true cold-start shape on every holder: an empty global of its own
+// and no connected peer holding the data. Set before install, so the first election
+// sees it rather than the stub's default phantom-synced peer. Honest only for a bare
+// g:/r: component: an f:/m:/ml: mount leaves FluxOS scaffolding on the volume that a
+// real daemon counts and the stub cannot see, so those shapes run on syncthing: 'binary'.
+export async function pinColdStart(holders, folder) {
+  const subnet = getSubnetConfig();
+  await Promise.all(holders.map((i) => Promise.all([
+    setSyncState({
+      ip: subnet.nodeIp(i + 1), folder, state: 'idle', globalBytes: 0, inSyncBytes: 0, receiveOnlyChangedFiles: 0,
+    }),
+    setNoPeerData({ ip: subnet.nodeIp(i + 1), folder }),
+  ])));
+}
+
+// The owner's data on one holder, declared as ENTRIES rather than a count, because
+// localHoldings totals the entry list and excludes the scaffolding in it by type and
+// by name. Written after pinColdStart, which it overwrites for this one node.
+export async function pinHolding(index, folder, bytes) {
+  const subnet = getSubnetConfig();
+  const modified = new Date().toISOString();
+  await setSyncState({
+    ip: subnet.nodeIp(index + 1),
+    folder,
+    state: 'idle',
+    globalBytes: 0,
+    inSyncBytes: 0,
+    localChanged: [
+      {
+        name: 'appdata', type: 'FILE_INFO_TYPE_DIRECTORY', size: 128, deleted: false, modified,
+      },
+      {
+        name: 'appdata/seed-data', type: 'FILE_INFO_TYPE_FILE', size: bytes, deleted: false, modified,
+      },
+    ],
+  });
+  await setNoPeerData({ ip: subnet.nodeIp(index + 1), folder });
+}

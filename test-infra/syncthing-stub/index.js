@@ -759,8 +759,12 @@ app.get('/rest/db/localchanged', (req, res) => {
   if (ov?.statusUnreadable) return res.status(500).json({ error: 'simulated unreadable folder status' });
   const folderCfg = reqState(req).folders.get(req.query.folder || '');
   const isReceiveOnly = !folderCfg || folderCfg.type === 'receiveonly';
-  const files = isReceiveOnly && Array.isArray(ov?.localChanged) ? ov.localChanged : [];
-  return res.json({ files, page: 1, perpage: 65536 });
+  const all = isReceiveOnly && Array.isArray(ov?.localChanged) ? ov.localChanged : [];
+  // Paged as syncthing pages it: `page` is 1-based, `perpage` defaults to 65536.
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const perpage = Math.max(1, Number(req.query.perpage) || 65536);
+  const files = all.slice((page - 1) * perpage, page * perpage);
+  return res.json({ files, page, perpage });
 });
 
 app.get('/rest/db/status', (req, res) => {

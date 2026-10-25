@@ -6,6 +6,7 @@ const benchmarkService = require('../benchmarkService');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const log = require('../../lib/log');
 const { Privilege, authOf } = require('../utils/privileges');
+const { verifyAppNameAndOwner } = require('../utils/appIdentity');
 
 // Check if running on Arcane OS
 const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -67,6 +68,7 @@ async function getPublicKey(req, res) {
       if (!appSpecification.owner || !appSpecification.name) {
         throw new Error('Input parameters missing.');
       }
+      verifyAppNameAndOwner(appSpecification.name, appSpecification.owner);
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
         throw new Error('Daemon not yet synced.');
