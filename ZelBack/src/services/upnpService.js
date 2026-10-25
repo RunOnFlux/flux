@@ -140,6 +140,19 @@ const NO_PORT_MAPS_AVAILABLE = 728;
 const TEST_MAPPING_DESCRIPTIONS = new Set(['Flux_UPNP_Mapping_Test', 'Flux_Test_App']);
 const TEST_MAPPING_PREFIX = 'Flux_Prelaunch_App_';
 
+// The refusals of a leased test mapping that say nothing of the lease: the port
+// held by another machine or another mechanism, and a full table. Every other
+// refusal may be the router's of the lease, and the mapping is asked for once
+// more without one.
+const LEASE_INDEPENDENT_REFUSALS = new Set([718, 728, 729]);
+
+// Whether this node's router keeps a test mapping's lease: null until
+// verifyUPNPsupport has read one back, false once the router has refused a
+// lease or shown a leased mapping as permanent. A test mapping is leased unless
+// it is false: on such a router a test mapping is permanent, and goes only when
+// this node removes it.
+const testMappingLeases = { kept: null };
+
 const MAPPED = Object.freeze({
   mapped: true, code: null, reason: null, routerWide: false,
 });
@@ -168,12 +181,26 @@ function mapsHere(mapping, port) {
 }
 
 /**
- * Maps one protocol of a port to this node, port for port, with no lease
- * (some routers force a short one instead; the mappings are refreshed every
- * restore). A refusal is no failure when the router already maps the port
- * here: some routers refuse to add an entry they hold, and a full table
- * refuses everything, the refresh of a working mapping included. A router
- * that does not answer is not asked again.
+ * The lease a mapping with `description` is made with: a test mapping's on a
+ * router not known to refuse one, and none for every other mapping (some
+ * routers force a short one instead; the mappings are refreshed every restore).
+ * @param {string} description
+ * @returns {number} seconds; 0 for no lease
+ */
+function leaseFor(description) {
+  return isTestMappingDescription(description) && testMappingLeases.kept !== false
+    ? config.upnp.testMappingLeaseS
+    : 0;
+}
+
+/**
+ * Maps one protocol of a port to this node, port for port, with the lease
+ * leaseFor gives it. A leased mapping the router refuses for a reason that may
+ * be the lease is asked for once more without one, and when that is taken the
+ * router is known to refuse leases. A refusal is no failure when the router
+ * already maps the port here: some routers refuse to add an entry they hold,
+ * and a full table refuses everything, the refresh of a working mapping
+ * included. A router that does not answer is not asked again.
  * @param {number} port
  * @param {string} protocol 'TCP' or 'UDP'
  * @param {string} description
@@ -191,16 +218,29 @@ async function mapProtocol(port, protocol, description, { counted = true } = {})
       mapped: false, code: null, reason: `${protocol} ${port} not mapped: not a port`, routerWide: false,
     };
   }
+  const create = (ttl) => client.createMapping({
+    public: port,
+    private: port,
+    ttl,
+    protocol,
+    description,
+  });
+  const lease = leaseFor(description);
   try {
-    await client.createMapping({
-      public: port,
-      private: port,
-      ttl: 0,
-      protocol,
-      description,
-    });
+    await create(lease);
     return MAPPED;
-  } catch (error) {
+  } catch (refusal) {
+    let error = refusal;
+    if (lease > 0 && error instanceof natUpnp.UpnpError && !LEASE_INDEPENDENT_REFUSALS.has(error.code)) {
+      try {
+        await create(0);
+        testMappingLeases.kept = false;
+        log.info(`UPnP - ${protocol} ${port} refused with a lease (${error.message}) and mapped without one; this router's test mappings are permanent`);
+        return MAPPED;
+      } catch (permanentRefusal) {
+        error = permanentRefusal;
+      }
+    }
     const answered = error instanceof natUpnp.UpnpError;
     let heldElsewhere = false;
     if (answered) {
@@ -303,6 +343,9 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
   // the remove would fail the verify, and a node with a custom api port or a
   // router IP exits on that. A test that fails leaves it held.
   mappedHere.add(+apiport + 3);
+  // Asked again of the router on every verify: this test mapping is the one
+  // whose lease is read back.
+  testMappingLeases.kept = null;
   let testMapping = await mapProtocol(+apiport + 3, 'TCP', 'Flux_UPNP_Mapping_Test', { counted: false });
   // refused for a reason of the router's own, as a full table is: until UPnP is
   // verified the stale mapping cleanup never runs, so the test mappings earlier
@@ -341,6 +384,13 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
   try {
     const mapping = await client.getMapping({ public: +apiport + 3, protocol: 'TCP' });
     if (!mapping) throw new Error(`the router holds no mapping for port ${+apiport + 3}`);
+    // A router that keeps the mapping and drops its lease - by refusing it
+    // (725, which the client answers by asking without one) or by ignoring it -
+    // shows the mapping as permanent.
+    if (testMappingLeases.kept === null) {
+      testMappingLeases.kept = mapping.ttl > 0;
+      log.info(`VerifyUPNPsupport - the router ${testMappingLeases.kept ? `keeps a test mapping's lease (${mapping.ttl} s)` : 'holds a leased test mapping as permanent'}`);
+    }
 
     await serviceHelper.delay(500);
   } catch (error) {
@@ -947,6 +997,7 @@ module.exports = {
   removeStaleMappings,
   mappedHere,
   mappedProtocols,
+  testMappingLeases,
   pendingRemovals,
   removalPending,
   routerEvents,

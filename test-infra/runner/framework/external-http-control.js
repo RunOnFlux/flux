@@ -269,8 +269,38 @@ export async function setUpnpCapacity(ip, capacity) {
 }
 
 /**
+ * Set how a node's gateway treats a mapping asked for with a lease from now on, keeping its
+ * table and the requests it has seen. A refused one carries `refused: <fault>` in its state.
+ * @param {string} ip
+ * @param {object} [opts]
+ * @param {number|null} [opts.fault] - the fault it refuses a leased mapping with; 725 is a
+ *   router that keeps permanent mappings only. Null takes it.
+ * @param {boolean} [opts.drops] - take a leased mapping and hold it as permanent
+ */
+export async function setUpnpLeases(ip, { fault = null, drops = false } = {}) {
+  const res = await post(`/upnp-gateway/${ip}/leases`, { fault, drops });
+  if (!res.ok) throw new Error(`setUpnpLeases: ${JSON.stringify(res)}`);
+}
+
+/**
+ * Set how long a node's gateway takes to answer a mapping it has taken from now on: the
+ * mapping is in its table at once, and the answer comes `ms` later. Keeps its table and the
+ * requests it has seen; each such request carries `answeredAfterMs` in its state.
+ * @param {string} ip
+ * @param {object} opts
+ * @param {number|null} opts.ms - null answers at once
+ * @param {string} [opts.description] - only mappings with this description; every one when absent
+ */
+export async function setUpnpSlowAdds(ip, { ms, description = null }) {
+  const res = await post(`/upnp-gateway/${ip}/slow-adds`, { ms, description });
+  if (!res.ok) throw new Error(`setUpnpSlowAdds: ${JSON.stringify(res)}`);
+}
+
+/**
  * The gateway a node is behind: its port mappings and the actions the node sent it, each with
- * the external port, protocol and description it named (null for one it names none of).
+ * the external port, protocol and description it named (null for one it names none of), and
+ * the lease an AddPortMapping asked for. A mapping with a lease carries `expiresAt` (epoch
+ * ms), and goes from the table once it has passed.
  * @param {string} ip
  * @returns {Promise<{externalIp: string|null, mappings: object[], requests: object[]}|null>}
  */

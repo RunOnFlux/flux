@@ -135,6 +135,13 @@ module.exports = {
     // after this long, the wait doubling up to removalRetryMaxMs
     removalRetryFirstMs: 30 * 1000,
     removalRetryMaxMs: 60 * 1000,
+    // The lease a test mapping is made with on a router that keeps one, so a
+    // mapping the router took after this node stopped waiting for its answer
+    // goes when the lease ends. Longer than a test holds its mapping: two
+    // protocols, each up to three router requests of the client's 10 s
+    // (upnpService.mapProtocol), then the port test's 10 s question to a peer
+    // (availabilityChecker.checkMyAppsAvailability) - under 100 s.
+    testMappingLeaseS: 10 * 60,
   },
   benchmark: {
     host: '127.0.0.1',

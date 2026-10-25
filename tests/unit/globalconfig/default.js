@@ -111,6 +111,7 @@ module.exports = {
     nodeIp: '',
     removalRetryFirstMs: 30 * 1000,
     removalRetryMaxMs: 60 * 1000,
+    testMappingLeaseS: 10 * 60,
   },
   benchmark: {
     host: '127.0.0.1',

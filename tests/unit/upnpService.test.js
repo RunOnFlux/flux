@@ -162,6 +162,70 @@ describe('upnpService tests', () => {
       sinon.assert.notCalled(logSpy);
     });
 
+    // The test mapping is made with a lease and read back: the router keeps the
+    // lease, or shows the mapping as permanent - having refused the lease, or
+    // dropped it without a word.
+    describe('the lease of its test mapping', () => {
+      let createMappingStub;
+      const readBack = (ttl) => sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves({ ...testMapping, ttl });
+
+      beforeEach(() => {
+        sinon.stub(serviceHelper, 'delay').resolves();
+        sinon.stub(natUpnp.Client.prototype, 'getPublicIp').resolves(true);
+        sinon.stub(natUpnp.Client.prototype, 'getGateway').resolves(true);
+        createMappingStub = sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
+        sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
+      });
+
+      it('should make its test mapping with a lease', async () => {
+        readBack(598);
+
+        await upnpService.verifyUPNPsupport();
+
+        sinon.assert.calledOnceWithExactly(createMappingStub, {
+          public: 16130, private: 16130, ttl: 600, protocol: 'TCP', description: 'Flux_UPNP_Mapping_Test',
+        });
+      });
+
+      it('should know the router keeps a lease when the mapping reads back with one', async () => {
+        readBack(598);
+
+        expect(await upnpService.verifyUPNPsupport()).to.equal(true);
+
+        expect(upnpService.testMappingLeases.kept).to.equal(true);
+      });
+
+      it('should know the router drops a lease when the mapping reads back permanent', async () => {
+        readBack(0);
+
+        expect(await upnpService.verifyUPNPsupport()).to.equal(true);
+
+        expect(upnpService.testMappingLeases.kept).to.equal(false);
+      });
+
+      it('should verify, and know the router refuses a lease, when it maps the test only without one', async () => {
+        createMappingStub.onFirstCall().rejects(new natUpnp.UpnpError(402, 'InvalidArgs', 'AddPortMapping'));
+        readBack(0);
+
+        expect(await upnpService.verifyUPNPsupport()).to.equal(true);
+
+        expect(createMappingStub.getCalls().map((call) => call.args[0].ttl)).to.deep.equal([600, 0]);
+        expect(upnpService.testMappingLeases.kept).to.equal(false);
+      });
+
+      it('should ask the router again on every check, whatever an earlier one found', async () => {
+        readBack(0);
+        await upnpService.verifyUPNPsupport();
+        natUpnp.Client.prototype.getMapping.resolves({ ...testMapping, ttl: 598 });
+        createMappingStub.resetHistory();
+
+        await upnpService.verifyUPNPsupport();
+
+        expect(createMappingStub.firstCall.args[0].ttl).to.equal(600);
+        expect(upnpService.testMappingLeases.kept).to.equal(true);
+      });
+    });
+
     it('should not wait for a turn when the router has room for the test mapping', async () => {
       const delayStub = sinon.stub(serviceHelper, 'delay').resolves();
       sinon.stub(natUpnp.Client.prototype, 'getPublicIp').resolves(true);
@@ -369,13 +433,21 @@ describe('upnpService tests', () => {
       });
 
       it('should remove the left-overs, and map once more, when the router refuses with a generic 501 Action Failed', async () => {
+        // a full table refuses the leased mapping and the one asked for without a lease alike
         createMappingStub.onFirstCall().rejects(new natUpnp.UpnpError(501, 'ActionFailed', 'AddPortMapping'));
+        createMappingStub.onSecondCall().rejects(new natUpnp.UpnpError(501, 'ActionFailed', 'AddPortMapping'));
 
         const result = await upnpService.verifyUPNPsupport();
 
         expect(result).to.equal(true);
         sinon.assert.calledOnce(getMappingsStub);
-        sinon.assert.calledTwice(createMappingStub);
+        expect(createMappingStub.getCalls().map((call) => call.args[0].ttl)).to.deep.equal([600, 0, 600]);
+      });
+
+      it('should not ask for a mapping without a lease when the table is full', async () => {
+        await upnpService.verifyUPNPsupport();
+
+        expect(createMappingStub.getCalls().map((call) => call.args[0].ttl)).to.deep.equal([600, 600]);
       });
 
       describe('and holds nothing of this node\'s to remove', () => {
@@ -402,7 +474,8 @@ describe('upnpService tests', () => {
           expect(result).to.equal(true);
           expect(upnpService.isUPNP()).to.equal(true);
           sinon.assert.calledWithExactly(natUpnp.Client.prototype.getMapping, { public: 16127, protocol: 'TCP' });
-          sinon.assert.calledOnce(createMappingStub);
+          // the leased test mapping, and the same asked for once without a lease
+          expect(createMappingStub.getCalls().map((call) => call.args[0].ttl)).to.deep.equal([600, 0]);
           sinon.assert.notCalled(removeMappingStub);
           expect(upnpService.mappedHere.has(16130)).to.equal(false);
         });
@@ -793,6 +866,7 @@ describe('upnpService tests', () => {
 
     beforeEach(() => {
       upnpService.mappedHere.clear();
+      upnpService.testMappingLeases.kept = null;
       logSpy = sinon.spy(log, 'error');
       sinon.stub(serviceHelper, 'delay').resolves();
       createMappingStub = sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
@@ -825,9 +899,104 @@ describe('upnpService tests', () => {
 
       expect(result.mapped).to.equal(true);
       sinon.assert.calledOnceWithExactly(createMappingStub, {
-        public: 123, private: 123, ttl: 0, protocol: 'TCP', description: 'Flux_Test_App',
+        public: 123, private: 123, ttl: 600, protocol: 'TCP', description: 'Flux_Test_App',
       });
       expect([...upnpService.mappedProtocols.get(123)]).to.deep.equal(['TCP']);
+    });
+
+    // A test mapping the router took after this node stopped waiting for its
+    // answer is never removed by this node, so it carries a lease the router
+    // ends it by - on a router that keeps one.
+    describe('the lease of a test mapping', () => {
+      const ttls = () => createMappingStub.getCalls().map((call) => call.args[0].ttl);
+
+      [
+        ['the port test\'s', 'Flux_Test_App'],
+        ['the UPnP check\'s', 'Flux_UPNP_Mapping_Test'],
+        ['one stored as a FRITZ!Box stores it', 'Flux.Test.App'],
+      ].forEach(([what, description]) => {
+        it(`should lease ${what} while the router is not known to refuse a lease`, async () => {
+          await upnpService.mapUpnpPort(123, description);
+
+          expect(ttls()).to.deep.equal([600, 600]);
+        });
+      });
+
+      it('should lease a test mapping on a router known to keep a lease', async () => {
+        upnpService.testMappingLeases.kept = true;
+
+        await upnpService.mapUpnpPort(123, 'Flux_Test_App');
+
+        expect(ttls()).to.deep.equal([600, 600]);
+      });
+
+      it('should map a test mapping without a lease on a router known to drop one', async () => {
+        upnpService.testMappingLeases.kept = false;
+
+        await upnpService.mapUpnpPort(123, 'Flux_Test_App');
+
+        expect(ttls()).to.deep.equal([0, 0]);
+      });
+
+      ['Flux_App_web', 'Flux_Backend_API', 'Flux_Syncthing'].forEach((description) => {
+        it(`should never lease a mapping that is not a test's: ${description}`, async () => {
+          upnpService.testMappingLeases.kept = true;
+
+          await upnpService.mapUpnpPort(123, description);
+
+          expect(ttls()).to.deep.equal([0, 0]);
+        });
+      });
+
+      [402, 501, 606, 725].forEach((code) => {
+        it(`should map without a lease, and know the router refuses one, when it refuses a leased mapping with ${code}`, async () => {
+          createMappingStub.onFirstCall().rejects(refusal(code, 'ActionFailed'));
+
+          const result = await upnpService.mapUpnpPort(123, 'Flux_Test_App');
+
+          expect(result.mapped).to.equal(true);
+          expect(upnpService.testMappingLeases.kept).to.equal(false);
+          // the refused protocol asked once more without a lease, and the next asked without one at once
+          expect(ttls()).to.deep.equal([600, 0, 0]);
+          expect([...upnpService.mappedProtocols.get(123)]).to.deep.equal(['TCP', 'UDP']);
+        });
+      });
+
+      [
+        [718, 'ConflictInMappingEntry'],
+        [728, 'NoPortMapsAvailable'],
+        [729, 'ConflictWithOtherMechanisms'],
+      ].forEach(([code, description]) => {
+        it(`should not ask again without a lease when the router refuses with ${code}, which says nothing of the lease`, async () => {
+          createMappingStub.rejects(refusal(code, description));
+
+          const result = await upnpService.mapUpnpPort(123, 'Flux_Test_App');
+
+          expect(result).to.include({ mapped: false, code });
+          expect(ttls()).to.deep.equal([600]);
+          expect(upnpService.testMappingLeases.kept).to.equal(null);
+        });
+      });
+
+      it('should report the refusal of the mapping asked for without a lease, and learn nothing, when both are refused', async () => {
+        createMappingStub.onFirstCall().rejects(refusal(501, 'ActionFailed'));
+        createMappingStub.onSecondCall().rejects(refusal(402, 'InvalidArgs'));
+
+        const result = await upnpService.mapUpnpPort(123, 'Flux_Test_App');
+
+        expect(result).to.include({ mapped: false, code: 402 });
+        expect(ttls()).to.deep.equal([600, 0]);
+        expect(upnpService.testMappingLeases.kept).to.equal(null);
+      });
+
+      it('should not ask again without a lease when the router does not answer', async () => {
+        createMappingStub.rejects(new Error('timeout of 10000ms exceeded'));
+
+        const result = await upnpService.mapUpnpPort(123, 'Flux_Test_App');
+
+        expect(result).to.include({ mapped: false, code: null });
+        expect(ttls()).to.deep.equal([600]);
+      });
     });
 
     it('should signal each refusal it counts as the router\'s, and no other', async () => {
