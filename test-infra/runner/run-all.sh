@@ -161,6 +161,12 @@ echo "###SUBNET-BASE $TEST_SUBNET_BASE"
 # shellcheck disable=SC2206
 SUITES=( $(ls $SUITE_GLOB 2>/dev/null | sort) )
 total=${#SUITES[@]}
+
+# the released FluxOS each suite that upgrades a node starts it on
+if [ "$total" -gt 0 ] && ! ./ensure-upgrade-bases.sh "${SUITES[@]}"; then
+  echo "###ABORT a suite's upgrade base could not be built - see above."
+  exit 91
+fi
 i=0; pass_suites=0; fail_suites=0; fail_names=""
 
 echo "###RUN-START total=$total $(date -u +%H:%M:%S)"

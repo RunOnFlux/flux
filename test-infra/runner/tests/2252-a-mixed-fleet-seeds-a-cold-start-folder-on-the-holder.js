@@ -1,4 +1,4 @@
-// base-image: FLUX_E2E_BASE_TAG
+// upgrades-from: release
 /*
  * A fleet part way through an upgrade decides a cold-start seed across both releases.
  *
@@ -15,8 +15,8 @@
  * which carry a field it does not know: an answer it could not verify would read as
  * unproven, which blocks its promotion for good.
  *
- * Without FLUX_E2E_BASE_TAG the suite fails before booting, naming the build it needs.
  */
+import { fileURLToPath } from 'node:url';
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
@@ -30,8 +30,9 @@ import { syncthingSeedIndex } from '../framework/g-app-placement.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { upgradeBase } from '../framework/upgrade-base.js';
 
-const BASE_TAG = process.env.FLUX_E2E_BASE_TAG;
+const { tag: BASE_TAG } = upgradeBase(fileURLToPath(import.meta.url));
 const subnet = getSubnetConfig();
 const HOLDERS = [0, 1, 2];
 // The holder the address order would pick last, so that seeding it is a decision the
@@ -69,13 +70,9 @@ describe('a mixed fleet seeds a cold-start folder on the holder', function () {
 
   before(async function () {
     this.timeout(900000);
-    if (!BASE_TAG) {
-      throw new Error('FLUX_E2E_BASE_TAG names the node image of the released FluxOS: build it with FLUX_E2E_TAG=<base-tag> ./test-infra/build-release-image.sh <release ref>');
-    }
     env = await createTestEnv({
       hookCtx: this, nodes: 10, tickerAutostart: false, nodeImageTags: { [DATA_HOLDER]: BASE_TAG },
     });
-    if (BASE_TAG === env.nodeImageTag(ADDRESS_WINNER)) throw new Error('FLUX_E2E_BASE_TAG must name another build than FLUX_E2E_TAG');
     await bootAndPeer(env);
     await resetFdm();
     await resetSyncState();
