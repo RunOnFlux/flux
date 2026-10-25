@@ -23,6 +23,7 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
   let release;
   let releaseShape;
   let tarballHold;
+  let releaseHold;
   let onTarballRequest;
   const holds = [];
 
@@ -77,6 +78,12 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
         holds.push(() => res.destroy());
 
         return;
+      }
+      if (releaseHold) {
+        const { requested, answer } = releaseHold;
+        releaseHold = null;
+        requested();
+        await answer;
       }
       if (releaseShape.unavailable) {
         res.statusCode = 503;
@@ -173,6 +180,57 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
       // eslint-disable-next-line no-await-in-loop
       await new Promise((resolve) => { setTimeout(resolve, 1); });
     }
+  }
+
+  // The next release lookup is answered only when the returned answer() is called.
+  function holdNextRelease() {
+    let answer;
+    let requested;
+    const answered = new Promise((resolve) => { answer = resolve; });
+    holds.push(answer);
+    const asked = new Promise((resolve) => { requested = resolve; });
+    releaseHold = { requested, answer: answered };
+
+    return { requested: asked, answer };
+  }
+
+  // A PATH entry whose readlink, the cleanup's first command, sends the run's process
+  // group SIGTERM before it answers, as a service manager stopping the run would then.
+  function readlinkThatStopsTheRun() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudui-readlink-'));
+    const realReadlink = execFileSync('bash', ['-c', 'command -v readlink']).toString().trim();
+    fs.writeFileSync(path.join(dir, 'readlink'), [
+      '#!/bin/bash',
+      'kill -TERM -- -"$(ps -o pgid= -p $$ | tr -d " ")"',
+      'sleep 0.2',
+      `exec ${realReadlink} "$@"`,
+      '',
+    ].join('\n'), { mode: 0o755 });
+
+    return { PATH: `${dir}:${process.env.PATH}` };
+  }
+
+  // A BASH_ENV whose DEBUG trap sends the script the given signal once, just before the
+  // cleanup's first command, which is where a second signal during a service manager's stop
+  // can land. A trap sees the interrupted command in BASH_COMMAND, so the cleanup is found
+  // by name.
+  function signalAtCleanup(signal) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudui-bashenv-'));
+    const file = path.join(dir, 'env');
+    const sent = path.join(dir, 'sent');
+    fs.writeFileSync(file, [
+      'signal_at_cleanup() {',
+      `  if [ "\${FUNCNAME[1]}" = cleanup ] && [ ! -e ${sent} ]; then`,
+      `    : > ${sent}`,
+      `    kill -${signal} $$`,
+      '  fi',
+      '}',
+      'set -o functrace',
+      'trap signal_at_cleanup DEBUG',
+      '',
+    ].join('\n'));
+
+    return { env: { BASH_ENV: file }, sent };
   }
 
   function within(ms, promise) {
@@ -272,6 +330,7 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
     fs.copyFileSync(SCRIPT, path.join(root, 'scripts', 'update-cloudui.sh'));
     releaseShape = {};
     tarballHold = null;
+    releaseHold = null;
     onTarballRequest = null;
   });
 
@@ -568,6 +627,57 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
       await signalGroupUntilExit(run);
 
       expect(served()).to.equal('v1');
+      expect(installedBuild()).to.equal(first);
+      expectOnlyInstalledBuild();
+    });
+
+    ['TERM', 'PIPE'].forEach((signal) => {
+      it(`leaves only the installed build when a stopped run gets SIG${signal} as the cleanup starts`, async () => {
+        await install('v1');
+        const first = installedBuild();
+        release = makeRelease('v2');
+        const { requested } = holdNextTarball();
+        const second = signalAtCleanup(signal);
+
+        const run = runScript({ env: second.env });
+        await requested;
+        process.kill(-run.child.pid, 'SIGTERM');
+        await run.done;
+
+        expect(fs.existsSync(second.sent), `SIG${signal} was sent`).to.equal(true);
+        expect(served()).to.equal('v1');
+        expect(installedBuild()).to.equal(first);
+        expectOnlyInstalledBuild();
+      });
+    });
+
+    it('leaves only the installed build when a run that failed is stopped while it cleans up', async () => {
+      await install('v1');
+      const first = installedBuild();
+      release = makeRelease('v2');
+      releaseShape.digest = '0'.repeat(64);
+
+      const result = await runScript({ env: readlinkThatStopsTheRun() }).done;
+
+      expect(result.code).to.not.equal(0);
+      expect(installedBuild()).to.equal(first);
+      expectOnlyInstalledBuild();
+    });
+
+    it('leaves only the installed build when it writes after the reader of its output has gone', async () => {
+      await install('v1');
+      const first = installedBuild();
+      release = makeRelease('v2');
+      const { requested, answer } = holdNextRelease();
+
+      const run = runScript();
+      await requested;
+      run.child.stdout.destroy();
+      run.child.stderr.destroy();
+      answer();
+      const result = await run.exited.then((code) => code);
+
+      expect(result).to.not.equal(0);
       expect(installedBuild()).to.equal(first);
       expectOnlyInstalledBuild();
     });
