@@ -98,10 +98,15 @@ remove_unused_builds() {
     done
 }
 
+# A service manager stopping the run signals every process in it until no new ones appear,
+# which includes the processes the cleanup starts, so the cleanup ignores those signals and
+# they inherit that. The reader of the run's output may have stopped with the service, so
+# the cleanup also ignores SIGPIPE and removes before it logs.
 cleanup() {
-    echo ""
-    echo "Cleaning up temporary files..."
+    trap '' TERM INT HUP PIPE
     remove_unused_builds
+    echo ""
+    echo "Removed temporary files."
 }
 
 # One run at a time: a run removes every build but the installed one, which includes any
