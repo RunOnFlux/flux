@@ -117,6 +117,20 @@ flock 9
 
 trap cleanup EXIT
 
+# Stop signals are caught rather than left fatal: a service manager sends SIGTERM more than
+# once, and bash dies on a second fatal signal before its EXIT trap runs. SIGPIPE is caught
+# too, because the reader of the run's output may have stopped with the service, and bash
+# reports a download it saw killed; a failed write then ends the run through the EXIT trap.
+# The commands the script runs start with these signals at their defaults.
+stop_on_signal() {
+    trap '' TERM INT HUP
+    exit "$1"
+}
+trap 'stop_on_signal 143' TERM
+trap 'stop_on_signal 130' INT
+trap 'stop_on_signal 129' HUP
+trap ':' PIPE
+
 TEMP_DIR=$(mktemp -d "$STORE_DIR/work.XXXXXX")
 RUN_ID="${TEMP_DIR##*.}"
 

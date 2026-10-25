@@ -538,6 +538,23 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
       expectOnlyInstalledBuild();
     });
 
+    it('leaves only the installed build when its process group is sent SIGTERM twice at once', async () => {
+      await install('v1');
+      const first = installedBuild();
+      release = makeRelease('v2');
+      const { requested } = holdNextTarball();
+
+      const run = runScript();
+      await requested;
+      process.kill(-run.child.pid, 'SIGTERM');
+      process.kill(-run.child.pid, 'SIGTERM');
+      await run.done;
+
+      expect(served()).to.equal('v1');
+      expect(installedBuild()).to.equal(first);
+      expectOnlyInstalledBuild();
+    });
+
     it('leaves only the installed build when the reader of its output has gone before it is stopped', async () => {
       await install('v1');
       const first = installedBuild();
