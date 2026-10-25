@@ -5,6 +5,7 @@ const messageHelper = require('../messageHelper');
 const serviceHelper = require('../serviceHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const { checkAndDecryptAppSpecs } = require('./enterpriseHelper');
+const { verifyAppNameAndOwner } = require('./appIdentity');
 const { appPricePerMonth } = require('./appUtilities');
 const { specificationFormatter } = require('./appUtilities');
 const { getChainParamsPriceUpdates } = require('./chainUtilities');
@@ -325,6 +326,9 @@ async function getAppFiatAndFluxPrice(req, res) {
         throw new Error('Daemon not yet synced.');
       }
       const daemonHeight = syncStatus.data.height;
+      if (appSpecification.version >= 8 && appSpecification.enterprise) {
+        verifyAppNameAndOwner(appSpecification.name, appSpecification.owner);
+      }
       appSpecification = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
       const appSpecFormatted = specificationFormatter(appSpecification);
 

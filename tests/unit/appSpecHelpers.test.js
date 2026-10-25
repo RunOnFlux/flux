@@ -868,6 +868,37 @@ describe('appSpecHelpers tests', () => {
       const response = await quote(buildSpec('g:/data', { priceUSD: 5.1 }));
       expect(response.data.usd).to.equal(5.1);
     });
+
+    [
+      ['an app name the rule would reject', { name: 'Price_Test' }],
+      ['an owner the rule would reject', { owner: 'marketplace' }],
+    ].forEach(([description, change]) => {
+      // A non-enterprise spec never reaches the decrypt, so its name and owner
+      // are not checked here: it is priced as before.
+      it(`should price a non-enterprise spec with ${description}`, async () => {
+        const response = await quote(buildSpec('/data', change));
+        expect(response.status).to.equal('success');
+      });
+
+      it(`should refuse an enterprise spec with ${description} before decrypting it`, async () => {
+        const response = await quote(buildSpec('/data', { version: 8, enterprise: 'blob', ...change }));
+        expect(response.data.message).to.equal('Invalid app name or owner');
+      });
+    });
+
+    it('should price a marketplace spec: version 8, an empty enterprise field, a placeholder owner', async () => {
+      // The shape the marketplace install dialog sends.
+      const response = await quote(buildSpec('/data', {
+        version: 8, enterprise: '', owner: 'marketplace', expire: 22000, contacts: [], geolocation: [], nodes: [], staticip: false,
+      }));
+      expect(response.status).to.equal('success');
+    });
+
+    it('should decrypt an enterprise spec with a valid app name and owner', async () => {
+      // Off ArcaneOS the decrypt refuses, which shows the spec reached it.
+      const response = await quote(buildSpec('/data', { version: 8, enterprise: 'blob' }));
+      expect(response.data.message).to.equal('Application Specifications can only be validated on a node running Arcane OS.');
+    });
   });
 
   describe('module exports tests', () => {

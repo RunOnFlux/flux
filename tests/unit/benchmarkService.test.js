@@ -125,6 +125,69 @@ describe('benchmarkService tests', () => {
     });
   });
 
+  describe('app request tests', () => {
+    const appCalls = [
+      ['getPublicKey', 'getpublickey'],
+      ['decryptRSAMessage', 'decryptrsamessage'],
+      ['encryptMessage', 'encryptmessage'],
+      ['decryptMessage', 'decryptmessage'],
+    ];
+    const validRequest = {
+      fluxID: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+      appName: 'my-app1',
+      message: 'aGVsbG8=',
+      blockHeight: 2000000,
+    };
+    const refused = {
+      status: 'error',
+      data: { code: undefined, name: undefined, message: 'Invalid app name or owner' },
+    };
+    let benchmarkStub;
+
+    beforeEach(() => {
+      sinon.stub(fs, 'stat').resolves(true);
+      benchmarkStub = sinon.stub(fluxRpc.FluxRpc.prototype, 'run').resolves('called');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    appCalls.forEach(([fn, rpc]) => {
+      it(`${fn} should send a request with a valid app name and owner`, async () => {
+        const message = JSON.stringify(validRequest);
+
+        const result = await benchmarkService[fn](message);
+
+        expect(result).to.eql({ status: 'success', data: 'called' });
+        sinon.assert.calledOnceWithExactly(benchmarkStub, rpc, { params: [message] });
+      });
+
+      [
+        ['an invalid app name', { appName: 'my_app' }],
+        ['an invalid owner', { fluxID: 'my-owner' }],
+      ].forEach(([description, change]) => {
+        it(`${fn} should refuse a request with ${description}`, async () => {
+          const message = JSON.stringify({ ...validRequest, ...change });
+
+          const result = await benchmarkService[fn](message);
+
+          expect(result).to.eql(refused);
+          sinon.assert.notCalled(benchmarkStub);
+        });
+      });
+
+      ['not json', 'null', '"myapp"', '[]'].forEach((message) => {
+        it(`${fn} should refuse ${message} as a request`, async () => {
+          const result = await benchmarkService[fn](message);
+
+          expect(result).to.eql(refused);
+          sinon.assert.notCalled(benchmarkStub);
+        });
+      });
+    });
+  });
+
   describe('getStatus tests', () => {
     let benchmarkStub;
 

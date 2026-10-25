@@ -64,7 +64,7 @@ describe('cryptographicKeys tests', () => {
       reloadModule();
 
       try {
-        await cryptographicKeys.getAppPublicKey('1ABC123', 'TestApp', 1000);
+        await cryptographicKeys.getAppPublicKey('1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', 'TestApp', 1000);
         expect.fail('Should have thrown error');
       } catch (error) {
         expect(error.message).to.include('Arcane OS');
@@ -85,7 +85,7 @@ describe('cryptographicKeys tests', () => {
         }),
       });
 
-      const result = await cryptographicKeys.getAppPublicKey('1ABC123', 'TestApp', 1000);
+      const result = await cryptographicKeys.getAppPublicKey('1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', 'TestApp', 1000);
 
       expect(result).to.equal(mockPublicKey);
     });
@@ -100,7 +100,7 @@ describe('cryptographicKeys tests', () => {
       });
 
       try {
-        await cryptographicKeys.getAppPublicKey('1ABC123', 'TestApp', 1000);
+        await cryptographicKeys.getAppPublicKey('1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', 'TestApp', 1000);
         expect.fail('Should have thrown error');
       } catch (error) {
         expect(error.message).to.include('Error getting public key');
@@ -120,7 +120,7 @@ describe('cryptographicKeys tests', () => {
       });
 
       try {
-        await cryptographicKeys.getAppPublicKey('1ABC123', 'TestApp', 1000);
+        await cryptographicKeys.getAppPublicKey('1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', 'TestApp', 1000);
         expect.fail('Should have thrown error');
       } catch (error) {
         expect(error.message).to.include('Error getting public key to encrypt app enterprise content from SAS');
@@ -139,7 +139,7 @@ describe('cryptographicKeys tests', () => {
         }),
       });
 
-      const fluxID = '1ABC123XYZ';
+      const fluxID = '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uCXYZ';
       const appName = 'MyTestApp';
       const blockHeight = 123456;
 
@@ -162,7 +162,7 @@ describe('cryptographicKeys tests', () => {
       });
 
       const appSpec = JSON.stringify({
-        owner: '1ABC123',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
         name: 'TestApp',
       });
 
@@ -195,13 +195,13 @@ describe('cryptographicKeys tests', () => {
       process.env.FLUXOS_PATH = '/some/path';
       reloadModule();
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      sinon.stub(serviceHelper, 'ensureObject').returns({ owner: '1ABC123' }); // Missing name
+      sinon.stub(serviceHelper, 'ensureObject').returns({ owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC' }); // Missing name
       sinon.stub(messageHelper, 'createErrorMessage').callsFake((msg) => ({
         status: 'error',
         data: { message: msg },
       }));
 
-      const appSpec = JSON.stringify({ owner: '1ABC123' });
+      const appSpec = JSON.stringify({ owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC' });
 
       await callGetPublicKey(req, res, appSpec);
 
@@ -215,7 +215,7 @@ describe('cryptographicKeys tests', () => {
       reloadModule();
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
       sinon.stub(serviceHelper, 'ensureObject').returns({
-        owner: '1ABC123',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
         name: 'TestApp',
       });
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({
@@ -228,7 +228,7 @@ describe('cryptographicKeys tests', () => {
       }));
 
       const appSpec = JSON.stringify({
-        owner: '1ABC123',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
         name: 'TestApp',
       });
 
@@ -245,7 +245,7 @@ describe('cryptographicKeys tests', () => {
 
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
       sinon.stub(serviceHelper, 'ensureObject').returns({
-        owner: '1ABC123',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
         name: 'TestApp',
       });
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({
@@ -265,7 +265,7 @@ describe('cryptographicKeys tests', () => {
       }));
 
       const appSpec = JSON.stringify({
-        owner: '1ABC123',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
         name: 'TestApp',
       });
 
@@ -276,6 +276,29 @@ describe('cryptographicKeys tests', () => {
       expect(res.json.firstCall.args[0].data).to.equal(mockPublicKey);
     });
 
+    [
+      ['an invalid app name', { owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', name: 'Test_App' }],
+      ['an invalid owner', { owner: 'my-owner', name: 'TestApp' }],
+    ].forEach(([description, request]) => {
+      it(`should refuse a request with ${description}`, async () => {
+        process.env.FLUXOS_PATH = '/some/path';
+        reloadModule();
+        sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+        sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({
+          status: 'success',
+          data: { synced: true, height: 2000 },
+        });
+        const publicKeyCall = sinon.stub(benchmarkService, 'getPublicKey').resolves({ status: 'success', data: '{}' });
+
+        await callGetPublicKey(req, res, JSON.stringify(request));
+
+        sinon.assert.calledOnce(res.json);
+        expect(res.json.firstCall.args[0].status).to.equal('error');
+        expect(res.json.firstCall.args[0].data.message).to.equal('Invalid app name or owner');
+        sinon.assert.notCalled(publicKeyCall);
+      });
+    });
+
     it('should handle request body in chunks', async () => {
       process.env.FLUXOS_PATH = '/some/path';
       reloadModule();
@@ -283,9 +306,9 @@ describe('cryptographicKeys tests', () => {
 
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
       const ensureObjectStub = sinon.stub(serviceHelper, 'ensureObject');
-      ensureObjectStub.onFirstCall().returns('{"owner":"1ABC123","name":"TestApp"}');
+      ensureObjectStub.onFirstCall().returns('{"owner":"1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC","name":"TestApp"}');
       ensureObjectStub.onSecondCall().returns({
-        owner: '1ABC123',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
         name: 'TestApp',
       });
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({
@@ -305,7 +328,7 @@ describe('cryptographicKeys tests', () => {
       }));
 
       // Send request body in multiple chunks
-      await callGetPublicKey(req, res, ['{"owner":"1ABC', '123","name":"T', 'estApp"}']);
+      await callGetPublicKey(req, res, ['{"owner":"1CbErtneaX2QV', 'yUfwU7JGB7VzvPgrgc3uC","name":"T', 'estApp"}']);
 
       sinon.assert.calledOnce(res.json);
       expect(res.json.firstCall.args[0].status).to.equal('success');
@@ -316,7 +339,7 @@ describe('cryptographicKeys tests', () => {
       reloadModule();
       const verifyStub = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
       sinon.stub(serviceHelper, 'ensureObject').returns({
-        owner: '1ABC123',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
         name: 'TestApp',
       });
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({
@@ -336,7 +359,7 @@ describe('cryptographicKeys tests', () => {
       });
 
       const appSpec = JSON.stringify({
-        owner: '1ABC123',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
         name: 'TestApp',
       });
 
@@ -352,7 +375,7 @@ describe('cryptographicKeys tests', () => {
 
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
       sinon.stub(serviceHelper, 'ensureObject').returns({
-        owner: '1ABC123',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
         name: 'TestApp',
       });
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({
@@ -372,7 +395,7 @@ describe('cryptographicKeys tests', () => {
       });
 
       const appSpec = JSON.stringify({
-        owner: '1ABC123',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
         name: 'TestApp',
       });
 
@@ -389,7 +412,7 @@ describe('cryptographicKeys tests', () => {
 
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
       sinon.stub(serviceHelper, 'ensureObject').returns({
-        owner: '1ABC123',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
         name: 'TestApp',
       });
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({
@@ -406,7 +429,7 @@ describe('cryptographicKeys tests', () => {
       }));
 
       const appSpec = JSON.stringify({
-        owner: '1ABC123',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
         name: 'TestApp',
       });
 

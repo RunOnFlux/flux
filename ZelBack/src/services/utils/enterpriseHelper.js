@@ -146,7 +146,7 @@ async function decryptEnterpriseFromSession(base64Encrypted, appName, daemonHeig
  * @returns {Promise<object>} Decrypted specifications
  */
 async function checkAndDecryptAppSpecs(appSpec, options = {}) {
-  if (!appSpec || appSpec.version < 8 || !appSpec.enterprise) {
+  if (!appSpec || !(appSpec.version >= 8 && appSpec.enterprise)) {
     return appSpec;
   }
 
@@ -158,7 +158,6 @@ async function checkAndDecryptAppSpecs(appSpec, options = {}) {
   const appSpecs = JSON.parse(JSON.stringify(appSpec));
 
   let daemonHeight = options.daemonHeight || null;
-  let appOwner = options.owner || null;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
@@ -169,21 +168,6 @@ async function checkAndDecryptAppSpecs(appSpec, options = {}) {
     },
   };
   let appsQuery = null;
-
-  if (!appOwner) {
-    log.info(`Searching register permanent messages for ${appSpecs.name} to get registration message`);
-    appsQuery = {
-      'appSpecifications.name': appSpecs.name,
-      type: 'fluxappregister',
-    };
-    const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-    if (permanentAppMessage.length > 0) {
-      const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
-      appOwner = lastAppRegistration.owner;
-    } else {
-      appOwner = appSpec.owner;
-    }
-  }
 
   if (!daemonHeight) {
     log.info(`Searching register permanent messages for ${appSpecs.name} to get latest update`);
@@ -281,80 +265,8 @@ async function encryptEnterpriseFromSession(appSpec, daemonHeight, enterpriseKey
   throw new Error('Error encrypting enterprise object.');
 }
 
-/**
- * Encrypts enterprise content with AES
- * @param {object} enterprise - Content to be encrypted
- * @param {string} appName - Application name
- * @param {number} daemonHeight - Daemon block height (optional)
- * @param {string} owner - Application owner (optional)
- * @returns {Promise<string>} Encrypted enterprise content
- */
-async function encryptEnterpriseWithAes(enterprise, appName, daemonHeight = null, owner = null) {
-  let block = daemonHeight;
-  let appOwner = owner;
-
-  if (!isArcane) {
-    throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
-  }
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
-  const projection = {
-    projection: {
-      _id: 0,
-    },
-  };
-  let appsQuery = null;
-
-  if (!appOwner) {
-    log.info(`Searching register permanent messages for ${appName} to get registration message`);
-    appsQuery = {
-      'appSpecifications.name': appName,
-      type: 'fluxappregister',
-    };
-    const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-    const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
-    appOwner = lastAppRegistration.owner;
-  }
-
-  if (!block) {
-    log.info(`Searching register permanent messages for ${appName} to get latest update`);
-    appsQuery = {
-      'appSpecifications.name': appName,
-    };
-    const allPermanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-    const lastUpdate = allPermanentAppMessage[allPermanentAppMessage.length - 1];
-    block = lastUpdate.height;
-  }
-
-  const jsonEnterprise = JSON.stringify(enterprise);
-  const base64JsonEnterprise = Buffer.from(jsonEnterprise).toString('base64');
-
-  const inputData = JSON.stringify({
-    fluxID: appOwner,
-    appName,
-    message: base64JsonEnterprise,
-    blockHeight: block,
-  });
-
-  const dataReturned = await benchmarkService.encryptMessage(inputData);
-  const { status, data } = dataReturned;
-  if (status === 'success') {
-    const dataParsed = JSON.parse(data);
-    const newEnterprise = status === 'success' && dataParsed.status === 'ok' ? dataParsed.message : null;
-    if (newEnterprise) {
-      return newEnterprise;
-    }
-    throw new Error('Error encrypting application specifications.');
-  } else {
-    throw new Error('Error getting encrypted specifications.');
-  }
-}
-
 module.exports = {
   checkAndDecryptAppSpecs,
-  encryptEnterpriseWithAes,
   encryptEnterpriseFromSession,
   decryptEnterpriseFromSession,
   decryptAesKeyWithRsaKey,

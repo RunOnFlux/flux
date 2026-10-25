@@ -1,9 +1,11 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const fluxService = require('../../ZelBack/src/services/fluxService');
 
 describe('messageStore tests', () => {
   let messageStore;
+  let checkAndDecryptStub;
   let dbHelperStub;
   let serviceHelperStub;
   let messageVerifierStub;
@@ -12,6 +14,7 @@ describe('messageStore tests', () => {
 
   beforeEach(() => {
     // Stubs
+    checkAndDecryptStub = sinon.stub().resolves({});
     dbHelperStub = {
       databaseConnection: sinon.stub(),
       findInDatabase: sinon.stub(),
@@ -82,7 +85,7 @@ describe('messageStore tests', () => {
         validateApplicationUpdateCompatibility: sinon.stub().resolves(),
       },
       '../utils/enterpriseHelper': {
-        checkAndDecryptAppSpecs: sinon.stub().resolves({}),
+        checkAndDecryptAppSpecs: checkAndDecryptStub,
       },
       '../utils/appConstants': {
         globalAppsMessages: 'appsMessages',
@@ -211,6 +214,47 @@ describe('messageStore tests', () => {
         expect(err).to.equal(error);
         expect(logStub.error.calledWith(error)).to.be.true;
       }
+    });
+
+    describe('enterprise registration', () => {
+      const enterpriseMessage = (change) => ({
+        type: 'fluxappregister',
+        version: 1,
+        appSpecifications: {
+          name: 'entapp', version: 8, owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', enterprise: 'blob', ...change,
+        },
+        hash: 'hash123',
+        timestamp: Date.now(),
+        signature: 'sig123',
+      });
+
+      beforeEach(() => {
+        sinon.stub(fluxService, 'isSystemSecure').resolves(true);
+        messageVerifierStub.checkAppMessageExistence.resolves(null);
+        messageVerifierStub.checkAppTemporaryMessageExistence.resolves(null);
+        dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+        dbHelperStub.findOneInDatabase.resolves(null);
+      });
+
+      [
+        ['an invalid app name', { name: 'ent_app' }],
+        ['an invalid owner', { owner: 'my-owner' }],
+      ].forEach(([description, change]) => {
+        it(`should refuse a message with ${description} without decrypting it`, async () => {
+          await messageStore.storeAppTemporaryMessage(enterpriseMessage(change)).then(
+            () => expect.fail('should have refused'),
+            (error) => expect(error.message).to.equal('Invalid app name or owner'),
+          );
+          sinon.assert.notCalled(checkAndDecryptStub);
+          sinon.assert.notCalled(dbHelperStub.insertOneToDatabase);
+        });
+      });
+
+      it('should decrypt a message with a valid app name and owner', async () => {
+        // The stubs end the message after the decrypt; only reaching it matters here.
+        await messageStore.storeAppTemporaryMessage(enterpriseMessage({})).catch(() => {});
+        sinon.assert.calledOnce(checkAndDecryptStub);
+      });
     });
 
     it('should not enforce version upgrade policy (enforced at API layer)', async () => {
