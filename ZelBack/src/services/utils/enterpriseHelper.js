@@ -146,7 +146,7 @@ async function decryptEnterpriseFromSession(base64Encrypted, appName, daemonHeig
  * @returns {Promise<object>} Decrypted specifications
  */
 async function checkAndDecryptAppSpecs(appSpec, options = {}) {
-  if (!appSpec || appSpec.version < 8 || !appSpec.enterprise) {
+  if (!appSpec || !(appSpec.version >= 8 && appSpec.enterprise)) {
     return appSpec;
   }
 
