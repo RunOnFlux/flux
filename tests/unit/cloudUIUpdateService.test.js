@@ -108,6 +108,15 @@ describe('cloudUIUpdateService tests', () => {
       expect(result).to.equal(false);
     });
 
+    it('should return false if CloudUI directory only contains the version and tag files', () => {
+      fsStub.existsSync.returns(true);
+      fsStub.readdirSync.returns(['tag', 'version']);
+
+      const result = cloudUIUpdateService.cloudUIExists();
+
+      expect(result).to.equal(false);
+    });
+
     it('should return true if CloudUI directory has content files', () => {
       fsStub.existsSync.returns(true);
       fsStub.readdirSync.returns(['index.html', 'version']);
@@ -163,6 +172,50 @@ describe('cloudUIUpdateService tests', () => {
       fsStub.readFileSync.throws(new Error('Read error'));
 
       const result = cloudUIUpdateService.getLocalVersionHash();
+
+      expect(result).to.equal(null);
+      sinon.assert.calledOnce(logStub.error);
+    });
+  });
+
+  describe('getLocalVersionTag tests', () => {
+    beforeEach(() => {
+      cloudUIUpdateService = loadService();
+    });
+
+    it('should return null if tag file does not exist', () => {
+      fsStub.existsSync.returns(false);
+
+      const result = cloudUIUpdateService.getLocalVersionTag();
+
+      expect(result).to.equal(null);
+      sinon.assert.calledWith(fsStub.existsSync, sinon.match(/[\\/]CloudUI[\\/]tag$/));
+    });
+
+    it('should return trimmed tag from tag file', () => {
+      fsStub.existsSync.returns(true);
+      fsStub.readFileSync.returns('v3.20.22\n');
+
+      const result = cloudUIUpdateService.getLocalVersionTag();
+
+      expect(result).to.equal('v3.20.22');
+      sinon.assert.calledWith(fsStub.readFileSync, sinon.match(/[\\/]CloudUI[\\/]tag$/));
+    });
+
+    it('should return null if tag file is empty', () => {
+      fsStub.existsSync.returns(true);
+      fsStub.readFileSync.returns('\n');
+
+      const result = cloudUIUpdateService.getLocalVersionTag();
+
+      expect(result).to.equal(null);
+    });
+
+    it('should return null and log error if reading fails', () => {
+      fsStub.existsSync.returns(true);
+      fsStub.readFileSync.throws(new Error('Read error'));
+
+      const result = cloudUIUpdateService.getLocalVersionTag();
 
       expect(result).to.equal(null);
       sinon.assert.calledOnce(logStub.error);

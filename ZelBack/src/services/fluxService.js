@@ -1543,6 +1543,11 @@ async function getFluxInfo(req, res) {
       throw versionRes.data;
     }
     info.flux.version = versionRes.data;
+    // The installed UI release; each is null where the update script has not written it.
+    info.flux.cloudUI = {
+      tag: cloudUIUpdateService.getLocalVersionTag(),
+      sha256: cloudUIUpdateService.getLocalVersionHash(),
+    };
     const nodeJsVersionsRes = await getNodeJsVersions();
     if (nodeJsVersionsRes.status === 'error') {
       throw nodeJsVersionsRes.data;

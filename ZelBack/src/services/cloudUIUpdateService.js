@@ -10,16 +10,15 @@ const RELEASE_API = `${config.github.apiBaseUrl}/repos/${REPO}/releases/latest`;
 const PROJECT_ROOT = path.join(__dirname, '..', '..', '..');
 const CLOUDUI_DIR = path.join(PROJECT_ROOT, 'CloudUI');
 const VERSION_FILE = path.join(CLOUDUI_DIR, 'version');
+const TAG_FILE = path.join(CLOUDUI_DIR, 'tag');
+// Written by the update script beside the build's own files.
+const METADATA_FILES = ['version', 'tag'];
 
 // ArcaneOS nodes have watchdog handling CloudUI updates
 const isArcaneOS = Boolean(process.env.FLUXOS_PATH);
 
-// The run in progress, if there is one. The script removes the served directory
-// before it copies the new one into place, so two runs at once means the second
-// one's removal lands inside the first one's copy - and the run that wrote the
-// version file is then not the run that wrote the files beside it. A second
-// caller joins the run already going rather than starting another, which is
-// also the honest answer: the rebuild it asked for is happening.
+// The run in progress, if there is one. A second caller joins it rather than
+// starting another: the rebuild it asked for is already happening.
 let updateInFlight = null;
 
 /**
@@ -32,8 +31,7 @@ function cloudUIExists() {
       return false;
     }
     const files = fs.readdirSync(CLOUDUI_DIR);
-    // Check if there are files (not just version file)
-    return files.length > 1 || (files.length === 1 && files[0] !== 'version');
+    return files.some((file) => !METADATA_FILES.includes(file));
   } catch (error) {
     log.error(`Error checking CloudUI folder: ${error.message}`);
     return false;
@@ -52,6 +50,22 @@ function getLocalVersionHash() {
     return fs.readFileSync(VERSION_FILE, 'utf8').trim();
   } catch (error) {
     log.error(`Error reading local version file: ${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * Gets the release tag of the installed build from the tag file
+ * @returns {string|null}
+ */
+function getLocalVersionTag() {
+  try {
+    if (!fs.existsSync(TAG_FILE)) {
+      return null;
+    }
+    return fs.readFileSync(TAG_FILE, 'utf8').trim() || null;
+  } catch (error) {
+    log.error(`Error reading local tag file: ${error.message}`);
     return null;
   }
 }
@@ -255,9 +269,11 @@ module.exports = {
   runUpdateScript,
   watchdogManagesCloudUI,
   getLocalVersionHash,
+  getLocalVersionTag,
   getRemoteVersionInfo,
   // Exported for testing
   CLOUDUI_DIR,
   VERSION_FILE,
+  TAG_FILE,
   isArcaneOS,
 };

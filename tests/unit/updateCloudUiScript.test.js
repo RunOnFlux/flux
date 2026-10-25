@@ -216,6 +216,7 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
 
       expect(served()).to.equal('v1');
       expect(fs.readFileSync(path.join(cloudUi(), 'version'), 'utf8').trim()).to.equal(release.sha);
+      expect(fs.readFileSync(path.join(cloudUi(), 'tag'), 'utf8').trim()).to.equal('v1');
       expect(fs.existsSync(path.join(cloudUi(), 'stats.html'))).to.equal(false);
       expect(fs.existsSync(path.join(cloudUi(), '_redirects'))).to.equal(false);
       expectOnlyInstalledBuild();
@@ -259,6 +260,7 @@ describe('update-cloudui.sh', function updateCloudUiScript() {
       expect(output).to.include('Linked CloudUI to the new build');
 
       expect(served()).to.equal('v2');
+      expect(fs.readFileSync(path.join(cloudUi(), 'tag'), 'utf8').trim()).to.equal('v2');
       expect(installedBuild()).to.not.equal(first);
       expectOnlyInstalledBuild();
     });
