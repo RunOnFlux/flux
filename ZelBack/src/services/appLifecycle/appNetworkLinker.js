@@ -188,7 +188,9 @@ async function reconnectLinkedApps(appName, attempt = 0) {
     // The owner check ran when the link was installed, but a description-only
     // update changes the link without installing anything.
     if (app.owner !== networkOwner) {
-      log.warn(`reconnectLinkedApps: ${app.name} is not owned by the owner of ${appName}, not connecting it`);
+      log.warn(networkOwner === undefined
+        ? `reconnectLinkedApps: ${appName} is not among the installed apps, so ${app.name} is not connected to it`
+        : `reconnectLinkedApps: ${app.name} is not owned by the owner of ${appName}, not connecting it`);
       // eslint-disable-next-line no-continue
       continue;
     }
