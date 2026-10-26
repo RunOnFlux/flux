@@ -51,6 +51,9 @@ const Checkpoint = Object.freeze({
   // checked that no controller opinion was written since it read the verdict.
   // Keyed by the component identifier.
   RECONCILER_BEFORE_START: 'reconciler:beforeStart',
+  // A reconcile pass has stopped a component whose local appdata is to be
+  // cleared and has not yet cleared it. Keyed by the component identifier.
+  RECONCILER_BEFORE_DATA_CLEAR: 'reconciler:beforeDataClear',
   // An election pass is about to decide a g: component it does not skip. Keyed
   // by the component identifier.
   MASTERSLAVE_BEFORE_DECISION: 'masterSlave:beforeDecision',
