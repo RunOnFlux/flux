@@ -199,7 +199,7 @@ async function verifyLogin(req, res) {
         throw new Error('Signed message is not valid');
       }
 
-      if (+message.substring(0, 13) < (timestamp - 900000) || +message.substring(0, 13) > timestamp) {
+      if (!/^\d{13}$/.test(message.substring(0, 13)) || +message.substring(0, 13) < (timestamp - 900000) || +message.substring(0, 13) > timestamp) {
         throw new Error('Signed message is not valid');
       }
 
