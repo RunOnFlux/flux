@@ -90,7 +90,6 @@ const { bootDelayMultiplier } = config.fluxapps;
 function bootDelay(ms) { return Math.round(ms * bootDelayMultiplier); }
 
 const {
-  portRestoreIntervalMs,
   cpuCheckIntervalMs,
   forceRemovalIntervalMs,
   tempMsgTtlS,
@@ -682,7 +681,6 @@ async function startFluxFunctions() {
       appController.stopAllNonFluxRunningApps();
       // Best effort during boot — the reconciler starts monitoring per app as it settles.
       monitoringOrchestrator.startMonitoringOfApps(null).catch((error) => log.error(error));
-      portManager.restoreAppsPortsSupport();
     }, bootDelay(1 * 60 * 1000));
     // Resolve this node's enterprise identity once, up front. The key comes off disk and
     // policy arrives on an event, so this settles at boot rather than on a timer; the
@@ -718,9 +716,9 @@ async function startFluxFunctions() {
       // read the local app table, so it waits on the same db the sweep beside it waits
       // on.
       imageManager.startComplianceSweeps(appQueryService.installedApps, appUninstaller.removeAppLocally);
-      setInterval(() => {
-        portManager.restorePortsSupport();
-      }, portRestoreIntervalMs);
+      // Detached: from the boot gate settling, once per cycle in this node's
+      // own refresh slot. Nothing waits on it.
+      portManager.refreshPortsInSlot();
       // Detached: one pass per start, once the boot gate has settled and in
       // this node's own slot. Nothing waits on it.
       portManager.removeStaleUpnpMappings();

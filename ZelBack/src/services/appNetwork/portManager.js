@@ -276,13 +276,29 @@ async function restoreFluxPortsSupport() {
   }
 }
 
+// The pass of restoreAppsPortsSupport in progress, if one is: boot starts one
+// without waiting on it, and the refresh may come round while it runs.
+let appsPortsRestore = null;
+
 /**
  * Restores applications' UPnP mappings. An app port's host firewall rule is
  * written at install and re-applied at boot (appStartupManager), and ufw keeps
- * it across restarts.
+ * it across restarts. A call while a pass is in progress joins that pass, so
+ * the router is asked once and each app's failed cycle is counted once.
  * @returns {Promise<void>}
  */
-async function restoreAppsPortsSupport() {
+function restoreAppsPortsSupport() {
+  if (!appsPortsRestore) {
+    appsPortsRestore = restoreAppsPortsPass().finally(() => { appsPortsRestore = null; });
+  }
+  return appsPortsRestore;
+}
+
+/**
+ * One pass of restoreAppsPortsSupport.
+ * @returns {Promise<void>}
+ */
+async function restoreAppsPortsPass() {
   try {
     const currentAppsPorts = await assignedPortsInstalledApps();
     const isUPNP = upnpService.isUPNP();
@@ -383,6 +399,31 @@ async function removeStaleUpnpMappings() {
     log.info(`removeStaleUpnpMappings - ${removed} stale UPnP mapping(s) removed`);
   } catch (error) {
     log.error(`removeStaleUpnpMappings - ${error.message}`);
+  }
+}
+
+/**
+ * Refreshes this node's ports - its own, then every installed app's - once in
+ * each cycle of config.fluxapps.portRestoreIntervalMs, at the start of this
+ * node's refresh slot (upnpService.msUntilRefreshSlot), from the boot gate
+ * settling until shutdown. Never rejects.
+ * @returns {Promise<void>}
+ */
+async function refreshPortsInSlot() {
+  try {
+    const cycleMs = config.fluxapps.portRestoreIntervalMs;
+    await globalState.waitForBootContainerStateSettled();
+    let waitMs = upnpService.msUntilRefreshSlot(listeningApiPort, cycleMs);
+    while (!globalState.shutdownInProgress) {
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(waitMs);
+      // eslint-disable-next-line no-await-in-loop
+      if (!globalState.shutdownInProgress) await restorePortsSupport();
+      // a pass ended at its slot's very start must not run twice in it
+      waitMs = upnpService.msUntilRefreshSlot(listeningApiPort, cycleMs) || cycleMs;
+    }
+  } catch (error) {
+    log.error(`refreshPortsInSlot - ${error.message}`);
   }
 }
 
@@ -1496,6 +1537,7 @@ module.exports = {
   restoreFluxPortsSupport,
   restoreAppsPortsSupport,
   restorePortsSupport,
+  refreshPortsInSlot,
   removeStaleUpnpMappings,
   getAllUsedPorts,
   portsInUse,

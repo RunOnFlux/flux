@@ -730,6 +730,86 @@ describe('portManager tests', () => {
       expect(portManager.upnpMapFailures.has('App1')).to.be.false;
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
     });
+
+    // boot starts a pass without waiting on it, and the refresh may come round
+    // while it runs
+    it('should join a pass in progress, so the router is asked once', async () => {
+      upnpService.isUPNP.returns(true);
+      let answer;
+      const asked = new Promise((resolveAsked) => {
+        upnpService.mapUpnpPort.callsFake(() => new Promise((resolve) => { answer = resolve; resolveAsked(); }));
+      });
+
+      const first = portManager.restoreAppsPortsSupport();
+      await asked;
+      const second = portManager.restoreAppsPortsSupport();
+      answer(MAPPED);
+      await Promise.all([first, second]);
+
+      sinon.assert.calledOnce(upnpService.mapUpnpPort);
+      expect(second).to.equal(first);
+    });
+
+    it('should run a new pass once the one in progress has ended', async () => {
+      upnpService.isUPNP.returns(true);
+
+      await portManager.restoreAppsPortsSupport();
+      await portManager.restoreAppsPortsSupport();
+
+      sinon.assert.calledTwice(upnpService.mapUpnpPort);
+    });
+  });
+
+  describe('refreshPortsInSlot tests', () => {
+    let shuttingDown;
+    let delays;
+
+    beforeEach(() => {
+      shuttingDown = false;
+      delays = [];
+      sinon.stub(globalState, 'waitForBootContainerStateSettled').resolves();
+      sinon.stub(globalState, 'shutdownInProgress').get(() => shuttingDown);
+      sinon.stub(upnpService, 'msUntilRefreshSlot').returns(42000);
+      sinon.stub(upnpService, 'isUPNP').returns(false);
+      // one pass of the node's own ports reads the firewall once
+      sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(false);
+      // shuts down at the third wait, so the test ends after two passes
+      sinon.stub(serviceHelper, 'delay').callsFake(async (ms) => {
+        delays.push(ms);
+        if (delays.length === 3) shuttingDown = true;
+      });
+    });
+
+    it('should wait for the boot gate, then for the slot of the api port it listens on, then refresh', async () => {
+      await portManager.refreshPortsInSlot();
+
+      sinon.assert.callOrder(globalState.waitForBootContainerStateSettled, upnpService.msUntilRefreshSlot, serviceHelper.delay, fluxNetworkHelper.isFirewallActive);
+      // the suite's config listens on 16127
+      sinon.assert.alwaysCalledWithExactly(upnpService.msUntilRefreshSlot, 16127, config.fluxapps.portRestoreIntervalMs);
+    });
+
+    it('should refresh once in each cycle until shutdown', async () => {
+      await portManager.refreshPortsInSlot();
+
+      expect(delays).to.deep.equal([42000, 42000, 42000]);
+      sinon.assert.calledTwice(fluxNetworkHelper.isFirewallActive);
+    });
+
+    it('should wait a whole cycle after a pass that ended at its slot\'s very start', async () => {
+      upnpService.msUntilRefreshSlot.returns(0);
+
+      await portManager.refreshPortsInSlot();
+
+      expect(delays).to.deep.equal([0, config.fluxapps.portRestoreIntervalMs, config.fluxapps.portRestoreIntervalMs]);
+    });
+
+    it('should not refresh when shutdown begins during its wait', async () => {
+      serviceHelper.delay.callsFake(async () => { shuttingDown = true; });
+
+      await portManager.refreshPortsInSlot();
+
+      sinon.assert.notCalled(fluxNetworkHelper.isFirewallActive);
+    });
   });
 
   // The router forwards each port to exactly one node, so an install onto a port

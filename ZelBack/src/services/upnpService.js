@@ -51,7 +51,8 @@ const mappedProtocols = new Map();
 // each is asked again, one at a time, after config.upnp.removalRetryFirstMs,
 // the wait doubling to config.upnp.removalRetryMaxMs, until the router removes
 // it or holds no such entry. A port this node maps again is in use, and its
-// pending removal is dropped.
+// pending removal is dropped - a test mapping's after one more ask, when what
+// maps the port stays (removeHeldTestMappings).
 const pendingRemovals = new Map();
 let pendingRemovalTurn = Promise.resolve();
 
@@ -140,18 +141,35 @@ const NO_PORT_MAPS_AVAILABLE = 728;
 const TEST_MAPPING_DESCRIPTIONS = new Set(['Flux_UPNP_Mapping_Test', 'Flux_Test_App']);
 const TEST_MAPPING_PREFIX = 'Flux_Prelaunch_App_';
 
-// The refusals of a leased test mapping that say nothing of the lease: the port
+// The refusals of a leased mapping that say nothing of the lease: the port
 // held by another machine or another mechanism, and a full table. Every other
 // refusal may be the router's of the lease, and the mapping is asked for once
 // more without one.
 const LEASE_INDEPENDENT_REFUSALS = new Set([718, 728, 729]);
 
-// Whether this node's router keeps a test mapping's lease: null until
-// verifyUPNPsupport has read one back, false once the router has refused a
-// lease or shown a leased mapping as permanent. A test mapping is leased unless
-// it is false: on such a router a test mapping is permanent, and goes only when
-// this node removes it.
-const testMappingLeases = { kept: null };
+// The descriptions of the mappings that stay while what they serve runs: the
+// node's own ports and each app's.
+const LONG_LIVED_DESCRIPTIONS = new Set(['Flux_Backend_API', 'Flux_Backend_API_SSL', 'Flux_Home_UI', 'Flux_Syncthing']);
+const LONG_LIVED_PREFIX = 'Flux_App_';
+
+// What this node has learned of its router's leases since UPnP was last
+// verified, each null until it is known.
+//
+// `kept`: whether the router keeps a mapping's lease - read back from
+// verifyUPNPsupport's test mapping; false once the router has refused a lease or
+// shown a leased mapping as permanent. A test mapping is leased unless it is
+// false: on such a router a test mapping is permanent, and goes only when this
+// node removes it.
+//
+// `renews`: whether adding a held mapping again restarts its lease - learnLeaseRenewal
+// looks the mapping up after its first lease would have ended. Only on such a
+// router are long-lived mappings leased: on one that does not renew, a leased
+// mapping lapses at its first lease's end whatever the refresh asks, and one
+// that does not take an add over a held entry keeps the old lease.
+//
+// `generation` counts verifications, so a renewal test started before the
+// latest one does not record its answer.
+const routerLeases = { kept: null, renews: null, generation: 0 };
 
 const MAPPED = Object.freeze({
   mapped: true, code: null, reason: null, routerWide: false,
@@ -181,16 +199,33 @@ function mapsHere(mapping, port) {
 }
 
 /**
+ * Whether a mapping's description is one of a mapping that stays while what it
+ * serves runs: one of the node's own ports, or an app's.
+ * @param {string} description
+ * @returns {boolean}
+ */
+function isLongLivedDescription(description) {
+  return typeof description === 'string'
+    && ([...LONG_LIVED_DESCRIPTIONS].some((longLived) => sameDescription(description, longLived))
+      || descriptionStartsWith(description, LONG_LIVED_PREFIX));
+}
+
+/**
  * The lease a mapping with `description` is made with: a test mapping's on a
- * router not known to refuse one, and none for every other mapping (some
- * routers force a short one instead; the mappings are refreshed every restore).
+ * router not known to refuse one; a long-lived mapping's only on a router known
+ * to renew a lease when the mapping is added again, as each refresh does; none
+ * for every other mapping (some routers force a short one instead).
  * @param {string} description
  * @returns {number} seconds; 0 for no lease
  */
 function leaseFor(description) {
-  return isTestMappingDescription(description) && testMappingLeases.kept !== false
-    ? config.upnp.testMappingLeaseS
-    : 0;
+  if (isTestMappingDescription(description)) {
+    return routerLeases.kept !== false ? config.upnp.testMappingLeaseS : 0;
+  }
+  if (isLongLivedDescription(description)) {
+    return routerLeases.renews === true ? config.upnp.longLivedLeaseS : 0;
+  }
+  return 0;
 }
 
 /**
@@ -234,8 +269,13 @@ async function mapProtocol(port, protocol, description, { counted = true } = {})
     if (lease > 0 && error instanceof natUpnp.UpnpError && !LEASE_INDEPENDENT_REFUSALS.has(error.code)) {
       try {
         await create(0);
-        testMappingLeases.kept = false;
-        log.info(`UPnP - ${protocol} ${port} refused with a lease (${error.message}) and mapped without one; this router's test mappings are permanent`);
+        if (isTestMappingDescription(description)) {
+          routerLeases.kept = false;
+          log.info(`UPnP - ${protocol} ${port} refused with a lease (${error.message}) and mapped without one; this router's test mappings are permanent`);
+        } else {
+          routerLeases.renews = false;
+          log.info(`UPnP - ${protocol} ${port} refused with a lease (${error.message}) and mapped without one; this router's long-lived mappings are permanent`);
+        }
         return MAPPED;
       } catch (permanentRefusal) {
         error = permanentRefusal;
@@ -344,8 +384,10 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
   // router IP exits on that. A test that fails leaves it held.
   mappedHere.add(+apiport + 3);
   // Asked again of the router on every verify: this test mapping is the one
-  // whose lease is read back.
-  testMappingLeases.kept = null;
+  // whose lease is read back, and learnLeaseRenewal follows it.
+  routerLeases.kept = null;
+  routerLeases.renews = null;
+  routerLeases.generation += 1;
   let testMapping = await mapProtocol(+apiport + 3, 'TCP', 'Flux_UPNP_Mapping_Test', { counted: false });
   // refused for a reason of the router's own, as a full table is: until UPnP is
   // verified the stale mapping cleanup never runs, so the test mappings earlier
@@ -387,9 +429,9 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
     // A router that keeps the mapping and drops its lease - by refusing it
     // (725, which the client answers by asking without one) or by ignoring it -
     // shows the mapping as permanent.
-    if (testMappingLeases.kept === null) {
-      testMappingLeases.kept = mapping.ttl > 0;
-      log.info(`VerifyUPNPsupport - the router ${testMappingLeases.kept ? `keeps a test mapping's lease (${mapping.ttl} s)` : 'holds a leased test mapping as permanent'}`);
+    if (routerLeases.kept === null) {
+      routerLeases.kept = mapping.ttl > 0;
+      log.info(`VerifyUPNPsupport - the router ${routerLeases.kept ? `keeps a test mapping's lease (${mapping.ttl} s)` : 'holds a leased test mapping as permanent'}`);
     }
 
     await serviceHelper.delay(500);
@@ -405,6 +447,70 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
 
   upnpMachine = true;
   return true;
+}
+
+/**
+ * Learns whether the router restarts a mapping's lease when the mapping is added
+ * again, as each refresh adds it: the test port is mapped with
+ * config.upnp.renewalTestLeaseS, added again halfway through that lease with the
+ * same arguments, and looked up 10 s after the first lease would have ended. It
+ * renews when the mapping is still this node's then and shows a lease no longer
+ * than the one asked for - a router that holds every mapping for longer cannot
+ * show whether it renewed. The lease a router shows cannot answer this on its
+ * own: some show the asked lease without counting down whether they renew or
+ * not, and only a mapping outliving its first lease shows that it did.
+ *
+ * Asked only of a router that keeps a lease (routerLeases.kept), after
+ * verifyUPNPsupport. Anything that does not show a renewal - the mapping gone, a
+ * refusal, no answer - records that it does not, which leaves long-lived
+ * mappings permanent. An answer that arrives after UPnP was verified again is
+ * dropped. Never rejects.
+ * @param {number|string} apiport
+ * @returns {Promise<boolean>} whether the router renews
+ */
+async function learnLeaseRenewal(apiport) {
+  const { generation } = routerLeases;
+  const record = (renews, why) => {
+    if (routerLeases.generation !== generation) return false;
+    routerLeases.renews = renews;
+    log.info(`UPnP - the router ${renews ? 'renews' : 'does not renew'} a mapping's lease when it is added again (${why}); long-lived mappings are ${renews ? `leased for ${config.upnp.longLivedLeaseS} s` : 'permanent'}`);
+    return renews;
+  };
+  if (routerLeases.kept !== true) return record(false, 'it keeps no lease');
+  const port = +apiport + 3;
+  const leaseS = config.upnp.renewalTestLeaseS;
+  const create = () => client.createMapping({
+    public: port,
+    private: port,
+    ttl: leaseS,
+    protocol: 'TCP',
+    description: 'Flux_UPNP_Mapping_Test',
+  });
+  // held while the test runs, as verifyUPNPsupport holds it: a cleanup pass
+  // taking it would read as a lapse
+  mappedHere.add(port);
+  let made = false;
+  try {
+    const startMs = monotonicMs();
+    await create();
+    made = true;
+    await serviceHelper.delay(Math.max(0, startMs + (leaseS * 1000) / 2 - monotonicMs()));
+    await create();
+    await serviceHelper.delay(Math.max(0, startMs + (leaseS + 10) * 1000 - monotonicMs()));
+    const mapping = await client.getMapping({ public: port, protocol: 'TCP' });
+    if (!mapsHere(mapping, port)) return record(false, `no mapping ${leaseS + 10} s after a ${leaseS} s lease was renewed halfway`);
+    if (!(mapping.ttl > 0 && mapping.ttl <= leaseS)) return record(false, `it shows a lease of ${mapping.ttl} s for one of ${leaseS} s`);
+    return record(true, `held ${leaseS + 10} s after a ${leaseS} s lease was renewed halfway`);
+  } catch (error) {
+    return record(false, error.message);
+  } finally {
+    if (made) {
+      recordMapped(port, 'TCP', true);
+      await removeMapUpnpPort(port, 'Flux_UPNP_Mapping_Test');
+    } else {
+      mappedHere.delete(port);
+    }
+  }
 }
 
 /**
@@ -482,6 +588,30 @@ async function setupUPNP(apiport = config.server.apiport) {
 }
 
 /**
+ * Removes the test mappings of a port whose removal the router refused and is
+ * still to be asked again, before the port is mapped for something that stays.
+ * Some routers take an add over an entry they hold without changing its lease,
+ * so a mapping made over a leased test mapping would lapse with the test's
+ * lease. Asked once per protocol; one the router refuses again is mapped over.
+ * @param {number} port
+ * @returns {Promise<void>}
+ */
+async function removeHeldTestMappings(port) {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const protocol of ['TCP', 'UDP']) {
+    const pending = pendingRemovals.get(`${port}/${protocol}`);
+    // eslint-disable-next-line no-continue
+    if (!pending || !isTestMappingDescription(pending.description)) continue;
+    // eslint-disable-next-line no-await-in-loop
+    if (await removeProtocol(port, protocol)) {
+      log.info(`UPnP - ${protocol} ${port} (${pending.description}) unmapped before the port is mapped again`);
+    } else {
+      log.warn(`UPnP - ${protocol} ${port} (${pending.description}) still held before the port is mapped again; a router that keeps a held entry's lease drops the new mapping when it ends`);
+    }
+  }
+}
+
+/**
  * Maps a port to this node over each of `protocols` in turn, TCP and then UDP
  * unless given.
  *
@@ -497,6 +627,7 @@ async function mapUpnpPort(port, description, { protocols = ['TCP', 'UDP'] } = {
   // held from before the router has it: the cleanup pass may list it the
   // moment it is there
   mappedHere.add(+port);
+  if (!isTestMappingDescription(description)) await removeHeldTestMappings(+port);
   dropPendingRemovals(+port);
   let result = MAPPED;
   // eslint-disable-next-line no-restricted-syntax
@@ -715,6 +846,22 @@ function cleanupSlotOf(apiport) {
 function msUntilCleanupSlot(apiport, now = Date.now()) {
   const slotStart = cleanupSlotOf(apiport) * CLEANUP_SLOT_MS;
   return (slotStart - (now % CLEANUP_CYCLE_MS) + CLEANUP_CYCLE_MS) % CLEANUP_CYCLE_MS;
+}
+
+/**
+ * Milliseconds until the next start of this node's refresh slot: one of eight
+ * in each cycle of `cycleMs`, half a cycle from its cleanup slot. Siblings
+ * behind one router hold distinct slots, so their refreshes never meet; with
+ * the cleanup's 10-minute cycle, a node's refresh never meets its own cleanup.
+ * @param {number|string} apiport the api port this FluxOS listens on
+ * @param {number} cycleMs the refresh cycle (config.fluxapps.portRestoreIntervalMs)
+ * @param {number} [now] wall-clock ms
+ * @returns {number}
+ */
+function msUntilRefreshSlot(apiport, cycleMs, now = Date.now()) {
+  const slot = (cleanupSlotOf(apiport) + CLEANUP_SLOT_COUNT / 2) % CLEANUP_SLOT_COUNT;
+  const slotStart = slot * (cycleMs / CLEANUP_SLOT_COUNT);
+  return (slotStart - (now % cycleMs) + cycleMs) % cycleMs;
 }
 
 /**
@@ -988,16 +1135,18 @@ async function getGatewayApi(req, res) {
 module.exports = {
   isUPNP,
   verifyUPNPsupport,
+  learnLeaseRenewal,
   setupUPNP,
   mapUpnpPort,
   removeMapUpnpPort,
   routerRefusals,
   corePorts,
   msUntilCleanupSlot,
+  msUntilRefreshSlot,
   removeStaleMappings,
   mappedHere,
   mappedProtocols,
-  testMappingLeases,
+  routerLeases,
   pendingRemovals,
   removalPending,
   routerEvents,

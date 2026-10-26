@@ -141,7 +141,16 @@ module.exports = {
     // protocols, each up to three router requests of the client's 10 s
     // (upnpService.mapProtocol), then the port test's 10 s question to a peer
     // (availabilityChecker.checkMyAppsAvailability) - under 100 s.
-    testMappingLeaseS: 10 * 60,
+    testMappingLeaseS: 3 * 60,
+    // The lease long-lived mappings (the node's own ports, each app's) are made
+    // with on a router that renews a lease when the mapping is added again
+    // (upnpService.learnLeaseRenewal), so the mappings of a node that stops go
+    // when it last refreshed them plus this. Three refreshes
+    // (fluxapps.portRestoreIntervalMs) inside one lease.
+    longLivedLeaseS: 35 * 60,
+    // The lease learnLeaseRenewal tests with: renewed halfway through, looked up
+    // 10 s after it would have ended.
+    renewalTestLeaseS: 60,
   },
   benchmark: {
     host: '127.0.0.1',
