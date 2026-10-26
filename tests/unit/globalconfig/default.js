@@ -70,7 +70,6 @@ module.exports = {
         scannedHeight: 'scannedheight',
         utxoIndex: 'utxoindex',
         addressTransactionIndex: 'addresstransactionindex',
-        fluxTransactions: 'zelnodetransactions',
         appsHashes: 'zelappshashes',
         coinbaseFusionIndex: 'coinbasefusionindex',
       },
