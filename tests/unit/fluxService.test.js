@@ -3094,14 +3094,34 @@ describe('fluxService tests', () => {
       expect(res.statusMessage).to.not.equal('Request must be from an address on the same private network as the host.');
     });
 
-    it('should refuse nothing for being on an app network when docker cannot be asked', async () => {
+    it('should turn a private address away for now, not let it through, when docker cannot be asked', async () => {
       dockerService.getFluxDockerNetworkSubnets.rejects(new Error('docker is down'));
       const res = generateResponse();
       const req = { socket: { remoteAddress: '172.23.5.9' } };
 
       await fluxService.streamChain(req, res);
 
-      expect(res.statusMessage).to.not.equal('Request must be from an address on the same private network as the host.');
+      expect(res.statusMessage).to.equal('Cannot tell yet whether the request comes from an app network, try again shortly.');
+      sinon.assert.calledWithExactly(res.status, 503);
+      expect(fluxService.getStreamLock()).to.equal(false);
+    });
+
+    it('should turn a private address away for now when docker does not answer in time', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        dockerService.getFluxDockerNetworkSubnets.returns(new Promise(() => {}));
+        const res = generateResponse();
+        const req = { socket: { remoteAddress: '10.20.30.40' } };
+
+        const pending = fluxService.streamChain(req, res);
+        await clock.tickAsync(3000);
+        await pending;
+
+        sinon.assert.calledWithExactly(res.status, 503);
+        expect(fluxService.getStreamLock()).to.equal(false);
+      } finally {
+        clock.restore();
+      }
     });
 
     it('should return 500 if any chain folders are missing', async () => {
