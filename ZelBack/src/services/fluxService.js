@@ -1898,15 +1898,24 @@ async function restartFluxOS(req, res) {
 }
 
 /**
- * Whether an address is on a docker network an app container can be on: the
- * default bridge or a flux app network. A container reaching the host arrives on
- * INPUT with its bridge address, which is private, so it must be told apart from
- * a machine on the host's own network.
+ * Whether an address is on one of the docker networks flux puts app containers
+ * on. A container reaching the host arrives on INPUT with its network's
+ * address, which is private, so it must be told apart from a machine on the
+ * host's own network - and by the networks that exist, not by a range: an
+ * owner's LAN may sit in the same range as the app networks.
  * @param {string} ip IPv4 address.
- * @returns {boolean}
+ * @returns {Promise<boolean>}
  */
-function isContainerAddress(ip) {
-  return serviceHelper.ipInSubnet(ip, '172.17.0.0/16') || serviceHelper.ipInSubnet(ip, '172.23.0.0/16');
+async function isContainerAddress(ip) {
+  let subnets;
+  try {
+    subnets = await dockerService.getFluxDockerNetworkSubnets();
+  } catch (error) {
+    // no docker to ask means no container to be one
+    log.warn(`Could not read the flux docker networks: ${error.message}`);
+    return false;
+  }
+  return subnets.some((subnet) => serviceHelper.ipInSubnet(ip, subnet));
 }
 
 /**
@@ -1957,7 +1966,7 @@ async function streamChainPreparation(req, res) {
     // convert from IPv4-mapped IPv6 address format to straight IPv4 (from socket)
     ip = ip.replace(/^.*:/, ''); // this is greedy, so will remove ::ffff:
 
-    if (!serviceHelper.isPrivateAddress(ip) || isContainerAddress(ip)) {
+    if (!serviceHelper.isPrivateAddress(ip) || await isContainerAddress(ip)) {
       safeSetResponseStatus(res, 403, 'Request must be from an address on the same private network as the host.');
       return;
     }
@@ -2135,7 +2144,7 @@ async function streamChain(req, res) {
     // convert from IPv4-mapped IPv6 address format to straight IPv4 (from socket)
     ip = ip.replace(/^.*:/, ''); // this is greedy, so will remove ::ffff:
 
-    if (!serviceHelper.isPrivateAddress(ip) || isContainerAddress(ip)) {
+    if (!serviceHelper.isPrivateAddress(ip) || await isContainerAddress(ip)) {
       safeSetResponseStatus(res, 403, 'Request must be from an address on the same private network as the host.');
       return;
     }

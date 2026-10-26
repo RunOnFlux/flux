@@ -36,6 +36,7 @@ const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonSer
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const dockerService = require('../../ZelBack/src/services/dockerService');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
 const packageJson = require('../../package.json');
 const log = require('../../ZelBack/src/lib/log');
@@ -3011,6 +3012,7 @@ describe('fluxService tests', () => {
 
       daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'buildFluxdClient');
       tarPackStub = sinon.stub(tar, 'create');
+      sinon.stub(dockerService, 'getFluxDockerNetworkSubnets').resolves(['172.23.5.0/24']);
     });
 
     afterEach(() => {
@@ -3070,7 +3072,7 @@ describe('fluxService tests', () => {
       sinon.assert.calledOnce(res.end);
     });
 
-    for (const containerAddress of ['172.17.0.2', '172.23.5.9', '::ffff:172.23.0.3']) {
+    for (const containerAddress of ['172.23.5.9', '::ffff:172.23.5.200']) {
       it(`should return 403 if the request comes from an app container's address ${containerAddress}`, async () => {
         const res = generateResponse();
         const req = { socket: { remoteAddress: containerAddress } };
@@ -3082,6 +3084,25 @@ describe('fluxService tests', () => {
         sinon.assert.calledOnce(res.end);
       });
     }
+
+    it('should not refuse a private address in the range of the app networks that is none of them', async () => {
+      const res = generateResponse();
+      const req = { socket: { remoteAddress: '172.23.200.9' } };
+
+      await fluxService.streamChain(req, res);
+
+      expect(res.statusMessage).to.not.equal('Request must be from an address on the same private network as the host.');
+    });
+
+    it('should refuse nothing for being on an app network when docker cannot be asked', async () => {
+      dockerService.getFluxDockerNetworkSubnets.rejects(new Error('docker is down'));
+      const res = generateResponse();
+      const req = { socket: { remoteAddress: '172.23.5.9' } };
+
+      await fluxService.streamChain(req, res);
+
+      expect(res.statusMessage).to.not.equal('Request must be from an address on the same private network as the host.');
+    });
 
     it('should return 500 if any chain folders are missing', async () => {
       const res = generateResponse();
