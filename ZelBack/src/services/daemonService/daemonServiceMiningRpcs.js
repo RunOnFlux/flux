@@ -123,7 +123,7 @@ async function getNetworkSolPs(req, res) {
 }
 
 /**
- * To prioritise transaction. Transaction ID, priority delta and fee delta required as parameters for RPC call. Only accessible by users.
+ * To prioritise transaction. Transaction ID, priority delta and fee delta required as parameters for RPC call. Only accessible by the node operator and the flux team: it changes what this node's mempool and block producer do.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
@@ -133,7 +133,7 @@ async function prioritiseTransaction(req, res) {
   txid = txid || req.query.txid;
   prioritydelta = prioritydelta || req.query.prioritydelta;
   feedelta = feedelta || req.query.feedelta;
-  const authorized = await verificationHelper.verifyPrivilege(Privilege.USER, authOf(req));
+  const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
   if (authorized !== true) {
     response = messageHelper.errUnauthorizedMessage();
     return res.json(response);
