@@ -9,6 +9,7 @@ const bodyLimit = require('../../ZelBack/src/services/utils/bodyLimit');
 describe('bodyLimit', () => {
   const makeResponse = () => {
     const res = { handlers: {} };
+    res.set = sinon.stub().returns(res);
     res.status = sinon.stub().returns(res);
     res.json = sinon.stub().returns(res);
     res.on = sinon.stub().callsFake((event, handler) => { res.handlers[event] = handler; });
@@ -24,19 +25,29 @@ describe('bodyLimit', () => {
     sinon.assert.notCalled(res.status);
   });
 
-  it('answers 413 once, then destroys the request when the response is done', () => {
-    const req = new EventEmitter();
-    req.destroy = sinon.stub();
-    const res = makeResponse();
-    const body = 'x'.repeat(bodyLimit.MAX_BODY_SIZE + 1);
+  it('answers 413 once, then reads out what is still arriving and destroys the request', () => {
+    const clock = sinon.useFakeTimers();
+    try {
+      const req = new EventEmitter();
+      req.destroy = sinon.stub();
+      req.resume = sinon.stub();
+      const res = makeResponse();
+      const body = 'x'.repeat(bodyLimit.MAX_BODY_SIZE + 1);
 
-    expect(bodyLimit.refuseIfTooLarge(req, res, body)).to.equal(true);
-    expect(bodyLimit.refuseIfTooLarge(req, res, body)).to.equal(true);
+      expect(bodyLimit.refuseIfTooLarge(req, res, body)).to.equal(true);
+      expect(bodyLimit.refuseIfTooLarge(req, res, body)).to.equal(true);
 
-    sinon.assert.calledOnceWithExactly(res.status, 413);
-    sinon.assert.notCalled(req.destroy);
-    res.handlers.finish();
-    sinon.assert.calledOnce(req.destroy);
+      sinon.assert.calledOnceWithExactly(res.status, 413);
+      sinon.assert.calledWithExactly(res.set, 'Connection', 'close');
+      sinon.assert.notCalled(req.destroy);
+      res.handlers.finish();
+      sinon.assert.calledOnce(req.resume);
+      sinon.assert.notCalled(req.destroy);
+      clock.tick(1000);
+      sinon.assert.calledOnce(req.destroy);
+    } finally {
+      clock.restore();
+    }
   });
 
   it('silences the handler\'s own data and end listeners once it has refused', () => {
