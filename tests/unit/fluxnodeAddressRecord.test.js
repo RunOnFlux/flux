@@ -26,7 +26,8 @@ describe('fluxnodeAddressRecord', () => {
     await dbHelper.initiateDB();
     database = dbHelper.databaseConnection().db(config.database.daemon.database);
     records = database.collection(config.database.daemon.collections.fluxnodeAddresses);
-    await records.deleteMany({});
+    // dropped, so the heights it has recorded go with it
+    await fluxnodeAddressRecord.drop(database);
     base += 10_000;
   });
 

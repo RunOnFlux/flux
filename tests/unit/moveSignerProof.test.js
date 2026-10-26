@@ -72,7 +72,8 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
     const appsGlobal = dbHelper.databaseConnection().db(config.database.appsglobal.database);
     events = appsGlobal.collection(config.database.appsglobal.collections.appStateEvents);
     locations = appsGlobal.collection(config.database.appsglobal.collections.appsLocations);
-    await records.deleteMany({});
+    // dropped, so the heights it has recorded go with it
+    await fluxnodeAddressRecord.drop(database);
     await events.deleteMany({ ip: { $in: [OLD, NEW, ELSEWHERE] } });
     await locations.deleteMany({ ip: { $in: [OLD, NEW, ELSEWHERE] } });
     height += 1000;
