@@ -290,7 +290,9 @@ describe('fluxNetworkHelper own standing tests', () => {
         expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(false);
         expect(fluxNetworkHelper.getDosMessage()).to.equal(IP_CHANGES);
 
+        // as the hold's watch does at each new height
         height.returns(3400);
+        await fluxNetworkHelper.enforceIpChangeHold();
         expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(true);
         expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
       } finally {

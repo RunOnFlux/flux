@@ -2171,8 +2171,7 @@ async function recordOwnMove(previousSocket, currentSocket, announce) {
   maxNumberOfIpChanges = ipChangeHeights.length;
   if (!overLimit) return;
   log.error(IP_CHANGES_MESSAGE);
-  ipChangeHold = { fromHeight: height || null };
-  applyIpChangeHold();
+  await enforceIpChangeHold();
   await removeAppsForIpChanges(ipChangeHeights.length);
 }
 
@@ -2590,13 +2589,10 @@ function applyIpChangeHold() {
 }
 
 /**
- * Brings the IP change hold to what this node's own address record holds at
- * the daemon's height, and holds the node by it. The record is kept to that
- * height: a hold, or a change, recorded before this node knew a height is given
- * the first height it knows, and a hold the chain has passed is ended.
+ * One pass of enforceIpChangeHold.
  * @returns {Promise<boolean>} Whether the node is held.
  */
-async function enforceIpChangeHold() {
+async function enforceIpChangeHoldOnce() {
   const record = await ownAddressRecord();
   ipChangeHold = record?.ipChangeHold ?? null;
   const height = daemonServiceMiscRpcs.getCurrentDaemonHeight();
@@ -2623,6 +2619,36 @@ async function enforceIpChangeHold() {
     }
   }
   return applyIpChangeHold();
+}
+
+// The pass of enforceIpChangeHold running, and the one asked for while it runs.
+let ipChangeHoldEnforcing = null;
+let ipChangeHoldEnforceNext = null;
+
+/**
+ * Brings the IP change hold to what this node's own address record holds at
+ * the daemon's height, and holds the node by it: the one place the hold this
+ * node acts on is set or ended. The record is kept to that height: a hold, or a
+ * change, recorded before this node knew a height is given the first height it
+ * knows, and a hold the chain has passed is ended.
+ *
+ * One pass runs at a time. A call while one runs is answered by a pass that
+ * starts after it ends, so the record a writer has just written is read by a
+ * pass that began after the write.
+ * @returns {Promise<boolean>} Whether the node is held.
+ */
+function enforceIpChangeHold() {
+  if (!ipChangeHoldEnforcing) {
+    ipChangeHoldEnforcing = enforceIpChangeHoldOnce().finally(() => { ipChangeHoldEnforcing = null; });
+    return ipChangeHoldEnforcing;
+  }
+  if (!ipChangeHoldEnforceNext) {
+    ipChangeHoldEnforceNext = ipChangeHoldEnforcing.catch(() => {}).then(() => {
+      ipChangeHoldEnforceNext = null;
+      return enforceIpChangeHold();
+    });
+  }
+  return ipChangeHoldEnforceNext;
 }
 
 // Stops the IP change hold's watch of the daemon's height, while it watches.
@@ -2652,7 +2678,7 @@ function startIpChangeHoldWatch() {
  * @returns {Promise<boolean>} Return value is only for testing
  */
 async function checkMyFluxAvailability(retryNumber = 0) {
-  if (applyIpChangeHold()) return false;
+  if (isStickyDosHeldBy(StickyDosOwner.IP_CHANGES)) return false;
 
   if (localSocketAddress === null) return false;
 

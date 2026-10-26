@@ -15,6 +15,7 @@ const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUnins
 const enterpriseHelper = require('../../ZelBack/src/services/utils/enterpriseHelper');
 const { RemovalOutcome } = require('../../ZelBack/src/services/utils/removalOutcome');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const { Collection } = require('mongodb');
 const { requireMongo } = require('./dbTestHelper');
 
 describe('fluxNetworkHelper own address tests', () => {
@@ -577,6 +578,33 @@ describe('fluxNetworkHelper own address tests', () => {
       const { ipChangeHeights, ipChangeHold } = await fullRecord();
       expect(ipChangeHeights).to.deep.equal([HEIGHT - 2399, HEIGHT]);
       expect(ipChangeHold).to.deep.equal({ fromHeight: HEIGHT });
+    });
+
+    // A pass that read the record before the move wrote its hold answers after
+    // it: the pass the move asks for reads the record after the write.
+    it('stays out of service when a pass that read the record before the move wrote its hold answers after it', async () => {
+      configure('198.51.100.57');
+      await records.insertOne({ _id: 'own', socketAddress: '198.51.100.57:16127', movedFrom: null, ipChangeHeights: [HEIGHT - 2399] });
+      let answerStaleRead;
+      const staleReadAnswered = new Promise((resolve) => { answerStaleRead = resolve; });
+      const { findOne } = Collection.prototype;
+      let firstRead = true;
+      sinon.stub(Collection.prototype, 'findOne').callsFake(function read(...args) {
+        const result = findOne.apply(this, args);
+        if (this.collectionName !== config.database.local.collections.ownAddress || !firstRead) return result;
+        firstRead = false;
+        return staleReadAnswered.then(() => result);
+      });
+
+      const stalePass = fluxNetworkHelper.enforceIpChangeHold();
+      const moving = fluxNetworkHelper.handleOwnAddress('198.51.100.58:16127');
+      await new Promise((resolve) => { setTimeout(resolve, 200); });
+      expect((await records.findOne({ _id: 'own' })).ipChangeHold, 'fixture: the hold is written while the earlier pass waits').to.deep.equal({ fromHeight: HEIGHT });
+      answerStaleRead();
+      await Promise.all([stalePass, moving]);
+
+      expect(fluxNetworkHelper.isNodeDos()).to.equal(true);
+      expect(fluxNetworkHelper.getDosMessage()).to.equal(IP_CHANGES);
     });
 
     it('counts no IP change made 2400 blocks before', async () => {
