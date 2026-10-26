@@ -1,0 +1,184 @@
+const { expect } = require('chai');
+const sinon = require('sinon');
+const config = require('config');
+const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const fluxnodeAddressRecord = require('../../ZelBack/src/services/fluxnodeAddressRecord');
+const { requireMongo } = require('./dbTestHelper');
+
+describe('fluxnodeAddressRecord', () => {
+  before(requireMongo);
+
+  const A = { txhash: 'cc'.repeat(32), outidx: '0' };
+  const B = { txhash: 'dd'.repeat(32), outidx: '3' };
+  const idOf = ({ txhash, outidx }) => fluxnodeAddressRecord.collateralOf(txhash, outidx);
+  let database;
+  let records;
+  // each test's blocks sit above every block recorded before it
+  let base = 7_000_000;
+
+  const confirmation = (collateral, ip) => ({
+    version: 5, type: 'Confirming a fluxnode', txhash: collateral.txhash, outidx: collateral.outidx, ip,
+  });
+  const block = (height, txs, confirmations = 1) => fluxnodeAddressRecord.recordBlock({ height, confirmations, tx: txs });
+  const recordOf = (collateral) => records.findOne({ _id: idOf(collateral) });
+
+  beforeEach(async () => {
+    await dbHelper.initiateDB();
+    database = dbHelper.databaseConnection().db(config.database.daemon.database);
+    records = database.collection(config.database.daemon.collections.fluxnodeAddresses);
+    await records.deleteMany({});
+    base += 10_000;
+  });
+
+  afterEach(async () => {
+    sinon.restore();
+    await records.deleteMany({});
+  });
+
+  it('records a node at the address it first confirms at, with no change', async () => {
+    await block(base, [confirmation(A, '203.0.113.1:16137')]);
+
+    const record = await recordOf(A);
+    expect(record).to.include({ ip: '203.0.113.1:16137', height: base, firstHeight: base });
+    expect(record.changes).to.deep.equal([]);
+  });
+
+  it('records a bare ip at the default port', async () => {
+    await block(base, [confirmation(A, '203.0.113.1')]);
+
+    expect((await recordOf(A)).ip).to.equal('203.0.113.1:16127');
+  });
+
+  it('moves a confirmation at the same address to its block, recording no change', async () => {
+    await block(base, [confirmation(A, '203.0.113.1:16127')]);
+    await block(base + 500, [confirmation(A, '203.0.113.1')]);
+
+    const record = await recordOf(A);
+    expect(record).to.include({ ip: '203.0.113.1:16127', height: base + 500 });
+    expect(record.changes).to.deep.equal([]);
+  });
+
+  it('records a confirmation at another address as a change from the one before', async () => {
+    await block(base, [confirmation(A, '203.0.113.1:16127')]);
+    await block(base + 10, [confirmation(A, '203.0.113.2:16127'), confirmation(B, '203.0.113.9:16127')]);
+
+    const record = await recordOf(A);
+    expect(record.ip).to.equal('203.0.113.2:16127');
+    expect(record.changes).to.deep.equal([{ from: '203.0.113.1:16127', to: '203.0.113.2:16127', height: base + 10 }]);
+    expect(await fluxnodeAddressRecord.movedBetween(idOf(A), '203.0.113.1', '203.0.113.2:16127')).to.equal(true);
+    expect(await fluxnodeAddressRecord.movedBetween(idOf(A), '203.0.113.2:16127', '203.0.113.1:16127')).to.equal(false);
+    expect(await fluxnodeAddressRecord.movedBetween(idOf(B), '203.0.113.1:16127', '203.0.113.2:16127')).to.equal(false);
+  });
+
+  it('records a block processed again once', async () => {
+    await block(base, [confirmation(A, '203.0.113.1:16127')]);
+    await block(base + 10, [confirmation(A, '203.0.113.2:16127')]);
+    await block(base + 10, [confirmation(A, '203.0.113.2:16127')]);
+
+    expect((await recordOf(A)).changes).to.have.length(1);
+  });
+
+  it('drops a change 640 blocks after it was made, when the next change is recorded', async () => {
+    await block(base, [confirmation(A, '203.0.113.1:16127')]);
+    await block(base + 10, [confirmation(A, '203.0.113.2:16127')]);
+    await block(base + 300, [confirmation(A, '203.0.113.3:16127')]);
+    await block(base + 650, [confirmation(A, '203.0.113.4:16127')]);
+
+    expect((await recordOf(A)).changes.map((change) => change.height)).to.deep.equal([base + 300, base + 650]);
+  });
+
+  it('drops a node that has not confirmed for 640 blocks', async () => {
+    await block(base, [confirmation(A, '203.0.113.1:16127')]);
+    await block(base + 300, [confirmation(B, '203.0.113.9:16127')]);
+    expect(await recordOf(A), 'still within 640 blocks').to.not.equal(null);
+
+    await block(base + 641, []);
+
+    expect(await recordOf(A)).to.equal(null);
+    expect(await recordOf(B)).to.not.equal(null);
+  });
+
+  it('records nothing from a block deeper than the record reaches', async () => {
+    await block(base, [confirmation(A, '203.0.113.1:16127')], fluxnodeAddressRecord.RECORD_BLOCKS + 1);
+    expect(await recordOf(A)).to.equal(null);
+
+    await block(base + 1, [confirmation(A, '203.0.113.1:16127')], fluxnodeAddressRecord.RECORD_BLOCKS);
+    expect(await recordOf(A)).to.not.equal(null);
+  });
+
+  it('ignores a transaction that is not a fluxnode start or confirmation', async () => {
+    await block(base, [{ version: 4, txid: 'ee'.repeat(32), vout: [] }, { version: 5, txhash: A.txhash, outidx: '0' }]);
+
+    expect(await records.countDocuments({})).to.equal(0);
+  });
+
+  describe('restoreToHeight', () => {
+    it('returns a node to the address it held at the height restored to', async () => {
+      await block(base, [confirmation(A, '203.0.113.1:16127')]);
+      await block(base + 10, [confirmation(A, '203.0.113.2:16127')]);
+      await block(base + 20, [confirmation(A, '203.0.113.3:16127')]);
+
+      await fluxnodeAddressRecord.restoreToHeight(base + 15, database);
+
+      const record = await recordOf(A);
+      expect(record.ip).to.equal('203.0.113.2:16127');
+      expect(record.height).to.equal(base + 15);
+      expect(record.changes.map((change) => change.to)).to.deep.equal(['203.0.113.2:16127']);
+      expect(await fluxnodeAddressRecord.movedBetween(idOf(A), '203.0.113.2:16127', '203.0.113.3:16127')).to.equal(false);
+    });
+
+    it('drops a node first confirmed above the height restored to', async () => {
+      await block(base, [confirmation(A, '203.0.113.1:16127')]);
+      await block(base + 10, [confirmation(B, '203.0.113.9:16127')]);
+
+      await fluxnodeAddressRecord.restoreToHeight(base + 5, database);
+
+      expect(await recordOf(A)).to.not.equal(null);
+      expect(await recordOf(B)).to.equal(null);
+    });
+
+    it('records the blocks processed again after it', async () => {
+      await block(base, [confirmation(A, '203.0.113.1:16127')]);
+      await block(base + 10, [confirmation(A, '203.0.113.2:16127')]);
+      await fluxnodeAddressRecord.restoreToHeight(base + 5, database);
+
+      await block(base + 10, [confirmation(A, '203.0.113.5:16127')]);
+
+      expect((await recordOf(A)).changes).to.deep.equal([{ from: '203.0.113.1:16127', to: '203.0.113.5:16127', height: base + 10 }]);
+    });
+  });
+
+  describe('whenRecorded', () => {
+    it('resolves at once for a block already recorded', async () => {
+      await block(base, []);
+
+      expect(await fluxnodeAddressRecord.whenRecorded(base, 1)).to.equal(true);
+    });
+
+    it('resolves once the block is recorded', async () => {
+      await block(base, []);
+      const reached = fluxnodeAddressRecord.whenRecorded(base + 1, 10_000);
+
+      await block(base + 1, []);
+
+      expect(await reached).to.equal(true);
+    });
+
+    it('resolves false when the block is not recorded in time', async () => {
+      await block(base, []);
+
+      expect(await fluxnodeAddressRecord.whenRecorded(base + 1, 20)).to.equal(false);
+    });
+  });
+
+  it('is dropped whole, and rebuilt from the blocks recorded after', async () => {
+    await block(base, [confirmation(A, '203.0.113.1:16127')]);
+
+    await fluxnodeAddressRecord.drop(database);
+    expect(await records.countDocuments({})).to.equal(0);
+    expect(await fluxnodeAddressRecord.whenRecorded(base, 20), 'nothing is recorded once dropped').to.equal(false);
+
+    await block(base + 1, [confirmation(A, '203.0.113.1:16127')]);
+    expect(await recordOf(A)).to.not.equal(null);
+  });
+});

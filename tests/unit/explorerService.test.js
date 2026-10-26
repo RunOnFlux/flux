@@ -19,6 +19,7 @@ const { requireMongo } = require('./dbTestHelper');
 const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const fluxnodeAddressRecord = require('../../ZelBack/src/services/fluxnodeAddressRecord');
 
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
@@ -1306,6 +1307,71 @@ describe('explorerService tests', () => {
     });
   });
 
+  describe('the fluxnode address record', () => {
+    beforeEach(async () => {
+      sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
+      await dbHelper.initiateDB();
+      globalState.dbReady = true;
+    });
+
+    afterEach(() => {
+      globalState.dbReady = false;
+      explorerService.setBlockProccessingCanContinue(true);
+      sinon.restore();
+    });
+
+    // The node list refreshes on blocksProcessed, so the list never shows a move
+    // its block has not been recorded for.
+    it('records each block before announcing it processed', async () => {
+      const order = [];
+      const block = {
+        tx: [{ version: 5, txhash: 'ff'.repeat(32), outidx: '0', ip: '203.0.113.1:16127' }],
+        height: 3_000_000,
+        confirmations: 1,
+      };
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
+      sinon.stub(daemonServiceBlockchainRpcs, 'getBlock').returns({ status: 'success', data: block });
+      sinon.stub(dbHelper, 'updateOneInDatabase').resolves(true);
+      sinon.stub(registryManager, 'expireGlobalApplications').resolves();
+      sinon.stub(advancedWorkflows, 'checkAndRemoveApplicationInstance');
+      const recorded = sinon.stub(fluxnodeAddressRecord, 'recordBlock').callsFake(async () => { order.push('recorded'); });
+      const announced = () => order.push('announced');
+      explorerService.getBlockEmitter().once('blocksProcessed', announced);
+      explorerService.setBlockProccessingCanContinue(false);
+
+      try {
+        await explorerService.processBlock(block.height, true);
+      } finally {
+        explorerService.getBlockEmitter().off('blocksProcessed', announced);
+      }
+
+      sinon.assert.calledOnceWithExactly(recorded, sinon.match({ height: block.height }));
+      expect(order).to.deep.equal(['recorded', 'announced']);
+    });
+
+    it('is returned to the height a reorg restores, on the maintenance client', async () => {
+      sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves(true);
+      sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
+      const restored = sinon.stub(fluxnodeAddressRecord, 'restoreToHeight').resolves();
+
+      await explorerService.restoreDatabaseToBlockheightState(100000);
+
+      sinon.assert.calledOnceWithExactly(restored, 100000, sinon.match.object);
+      expect(restored.firstCall.args[1].client).to.equal(dbHelper.maintenanceConnection());
+    });
+
+    it('is dropped for a scan from the start of the chain', async () => {
+      sinon.stub(dbHelper, 'dropCollection').resolves(true);
+      sinon.stub(dbHelper, 'ensureIndexes').resolves();
+      const dropped = sinon.stub(fluxnodeAddressRecord, 'drop').resolves();
+
+      await explorerService.resetExplorerCollections();
+
+      sinon.assert.calledOnce(dropped);
+      expect(dropped.firstCall.args[0].client).to.equal(dbHelper.maintenanceConnection());
+    });
+  });
+
   describe('restoreDatabaseToBlockheightState tests', () => {
     let removeDocumentsFromCollectionStub;
     let updateInDatabaseStub;
@@ -2123,7 +2189,9 @@ describe('explorerService tests', () => {
       sinon.stub(dbHelper, 'findInDatabase').resolves([]);
       sinon.stub(dbHelper, 'countInDatabase').resolves(1);
       const createIndexFake = sinon.fake.resolves(true);
-      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]) });
+      const collectionFake = sinon.fake.returns({
+        createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+      });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       fakeDatabase(dbFake);
       getBlockCountStub.returns({
@@ -2151,7 +2219,9 @@ describe('explorerService tests', () => {
       sinon.stub(dbHelper, 'findInDatabase').resolves([]);
       sinon.stub(dbHelper, 'countInDatabase').resolves(1);
       const createIndexFake = sinon.fake.resolves(true);
-      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]) });
+      const collectionFake = sinon.fake.returns({
+        createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+      });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       fakeDatabase(dbFake);
       getBlockCountStub.returns({ status: 'success', data: 200000 });
@@ -2174,7 +2244,9 @@ describe('explorerService tests', () => {
       findInDatabaseStub.returns({ generalScannedHeight: 1000 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);
-      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]) });
+      const collectionFake = sinon.fake.returns({
+        createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+      });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       fakeDatabase(dbFake);
       getBlockCountStub.returns({
@@ -2203,7 +2275,9 @@ describe('explorerService tests', () => {
       findInDatabaseStub.returns({ generalScannedHeight: 1000 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);
-      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]) });
+      const collectionFake = sinon.fake.returns({
+        createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+      });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       fakeDatabase(dbFake);
       getBlockCountStub.returns({
@@ -2232,7 +2306,9 @@ describe('explorerService tests', () => {
       findInDatabaseStub.returns({ generalScannedHeight: 0 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);
-      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]) });
+      const collectionFake = sinon.fake.returns({
+        createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+      });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       fakeDatabase(dbFake);
       getBlockCountStub.returns({
@@ -2346,7 +2422,7 @@ describe('explorerService tests', () => {
       await explorerService.prepareCollections();
 
       expect(dbHelper.maintenanceConnection(), 'no maintenance client, so this proves nothing').to.not.equal(null);
-      expect(ensureIndexes.callCount).to.equal(5);
+      expect(ensureIndexes.callCount).to.equal(6);
       ensureIndexes.getCalls().forEach((call) => expect(call.args[0].client).to.equal(dbHelper.maintenanceConnection()));
     });
 

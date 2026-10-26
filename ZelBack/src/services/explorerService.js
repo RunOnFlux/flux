@@ -21,6 +21,7 @@ const benchmarkService = require('./benchmarkService');
 const fluxNetworkhelper = require('./fluxNetworkHelper');
 const { extractIp } = require('./utils/socketAddressUtils');
 const fluxEventBus = require('./utils/fluxEventBus');
+const fluxnodeAddressRecord = require('./fluxnodeAddressRecord');
 const globalState = require('./utils/globalState');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
 const { Privilege, authOf } = require('./utils/privileges');
@@ -704,6 +705,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
     } else {
       await processStandard(blockDataVerbose, database);
     }
+    await fluxnodeAddressRecord.recordBlock(blockDataVerbose);
     // After fork block, chain runs 4x faster, so multiply periods by 4
     const speedMultiplier = blockHeight >= config.fluxapps.daemonPONFork ? 4 : 1;
     if (blockHeight % (config.fluxapps.expireFluxAppsPeriod * speedMultiplier) === 0) {
@@ -855,6 +857,7 @@ async function prepareCollections() {
   const db = dbHelper.databaseConnection();
   const database = dbHelper.onMaintenanceClient(db.db(config.database.daemon.database));
   const databaseUpdates = dbHelper.onMaintenanceClient(db.db(config.database.chainparams.database));
+  await fluxnodeAddressRecord.ensureIndexes(database);
   await dbHelper.ensureIndexes(database.collection(utxoIndexCollection), [
     {
       key: { txid: 1, vout: 1 }, name: 'query for getting utxo', unique: true, recover: dbHelper.dedupeByKey,
@@ -921,6 +924,7 @@ async function resetExplorerCollections() {
       if (error.message !== 'ns not found') throw error;
     });
   }
+  await fluxnodeAddressRecord.drop(dbHelper.onMaintenanceClient(database));
   await prepareCollections();
   log.info('Preparation done');
 }
@@ -954,6 +958,7 @@ async function restoreDatabaseToBlockheightState(height) {
   await dbHelper.removeDocumentsFromCollection(database, addressTransactionIndexCollection, queryForAddressesDeletion);
   // restore appsHashes collection
   await dbHelper.removeDocumentsFromCollection(database, appsHashesCollection, query);
+  await fluxnodeAddressRecord.restoreToHeight(height, database);
   log.info('Rescanning Blockchain Parameters!');
   const databaseUpdates = dbHelper.onMaintenanceClient(dbopen.db(config.database.chainparams.database));
   await dbHelper.removeDocumentsFromCollection(databaseUpdates, chainParamsMessagesCollection, query);
