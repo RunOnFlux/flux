@@ -58,6 +58,10 @@ describe('a node whose daemon is behind the tip judges its IP changes once it is
   const runsTheApp = async (i) => ((await client(i).getInstalledApps()).data || []).some((app) => app.name === appName);
   let tip;
 
+  // Node i has polled its daemon at `height`: a change it sees from now is
+  // recorded there.
+  const polledAt = (i, height) => client(i).waitForEvent('daemon:polled', (d) => d.height === height, 120000);
+
   // Moves node i's address as a router's change does: benchmark reports the
   // new one while the chain still lists the old.
   async function move(i, to) {
@@ -147,6 +151,7 @@ describe('a node whose daemon is behind the tip judges its IP changes once it is
   it('records a change it sees while its daemon is behind, keeps it through a FluxOS restart, and judges it once the daemon is synced', async function () {
     this.timeout(2 * DETECTION_MS + 4 * STANDS_MS + 600000);
     const base = client(BEHIND).ip.replace(/\.\d+$/, '');
+    await polledAt(BEHIND, tip);
     await move(BEHIND, `${base}.240`);
     expect(await heldForIpChanges(BEHIND), 'fixture: held for one IP change').to.equal(false);
     const [first] = (await record(BEHIND)).ipChangeHeights;
