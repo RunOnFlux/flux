@@ -603,10 +603,12 @@ module.exports = (app) => {
     return explorerService.getAddressFusionCoinbase(req, res);
   }));
 
-  // GET PROTECTED API - User level
+  // GET PROTECTED API - Node operator or flux team level
   app.get('/daemon/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?', asyncRoute((req, res) => {
     return daemonServiceMiningRpcs.prioritiseTransaction(req, res);
   }));
+
+  // GET PROTECTED API - User level
   app.get('/daemon/submitblock/:hexdata?/:jsonparametersobject?', asyncRoute((req, res) => {
     return daemonServiceMiningRpcs.submitBlock(req, res);
   }));

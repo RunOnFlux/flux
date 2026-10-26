@@ -420,7 +420,7 @@ class FluxPeerSocket {
       // Per WS spec, error is always followed by close — no need to remove here
     };
 
-    ws.onmessage = (evt) => {
+    const onFrame = (evt) => {
       if (!evt) return;
 
       // Before the rate limit: a frame we decline to process still proves the peer is there, and
@@ -496,6 +496,16 @@ class FluxPeerSocket {
       // Dispatch to the manager's message handler (gossip pipeline)
       if (manager.messageDispatcher) {
         setImmediate(() => manager.messageDispatcher(msgObj, this).catch((e) => log.error(e)));
+      }
+    };
+
+    // A frame is whatever the peer sent: one that cannot be handled is dropped,
+    // not left to end the process.
+    ws.onmessage = (evt) => {
+      try {
+        onFrame(evt);
+      } catch (error) {
+        log.error(`Frame from ${this.key} could not be handled: ${error.message}`);
       }
     };
   }

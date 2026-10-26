@@ -1564,11 +1564,15 @@ class FluxPeerManager extends EventEmitter {
         existing.inbound.delete(p);
       }
     }
-    const allAdds = [...(addOutbound || []), ...(addInbound || [])].filter((p) => typeof p === 'string');
+    // each is whatever the peer sent: only an array is read as one
+    const allAdds = [
+      ...(Array.isArray(addOutbound) ? addOutbound : []),
+      ...(Array.isArray(addInbound) ? addInbound : []),
+    ].filter((p) => typeof p === 'string');
     if (allAdds.length) {
       this.#notifyListeners({ type: 'add', reporter: peer.key, peers: allAdds });
     }
-    if (rm && rm.length) {
+    if (Array.isArray(rm) && rm.length) {
       this.#notifyListeners({ type: 'remove', reporter: peer.key, peers: rm.filter((p) => typeof p === 'string') });
     }
   }

@@ -845,6 +845,20 @@ describe('appSpecHelpers tests', () => {
       });
     });
 
+    it('should refuse a body that parses to null, as it refuses any body that holds no specification', async () => {
+      // eslint-disable-next-line global-require
+      const { EventEmitter } = require('events');
+      const answer = await new Promise((resolve) => {
+        const req = new EventEmitter();
+        appSpecHelpers.getAppFiatAndFluxPrice(req, { json: (body) => resolve(body) });
+        req.emit('data', 'null');
+        req.emit('end');
+      });
+
+      expect(answer.status).to.equal('error');
+      expect(answer.data.message).to.equal('Invalid application specification provided.');
+    });
+
     it('should quote a g: app the same as the same app without g:', async () => {
       const synced = await quote(buildSpec('g:/data'));
       const plain = await quote(buildSpec('/data'));
