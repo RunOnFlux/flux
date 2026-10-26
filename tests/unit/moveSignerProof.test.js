@@ -196,6 +196,20 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
     });
   });
 
+  it('is dropped when the move names an address the list shows another node holding', async () => {
+    listedAt.withArgs(OLD).resolves({ ip: OLD, pubkey: pubKey });
+    listedAt.withArgs(NEW).resolves({ ip: NEW, pubkey: 'theothernodeskey' });
+
+    expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.NODE_NOT_FOUND);
+  });
+
+  it('is accepted when the move names an address the list shows the same node holding', async () => {
+    listedAt.withArgs(OLD).resolves({ ip: OLD, pubkey: pubKey });
+    listedAt.withArgs(NEW).resolves({ ip: NEW, pubkey: pubKey });
+
+    expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.OK);
+  });
+
   it('needs no proof for a move whose node is still listed at the address it left', async () => {
     listedAt.withArgs(OLD).resolves({ ip: OLD, pubkey: pubKey });
 
