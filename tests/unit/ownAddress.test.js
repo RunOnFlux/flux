@@ -546,26 +546,23 @@ describe('fluxNetworkHelper own address tests', () => {
     const fullRecord = () => records.findOne({ _id: 'own' });
     let height;
 
-    beforeEach(() => {
-      height = sinon.stub(daemonServiceMiscRpcs, 'getCurrentDaemonHeight').returns(HEIGHT);
-      fluxNetworkHelper.setIpChangeHold(null);
-      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
-      fluxNetworkHelper.setDosMessage(null);
-      fluxNetworkHelper.setDosStateValue(0);
-    });
-
-    afterEach(() => {
-      fluxNetworkHelper.setIpChangeHold(null);
-      fluxNetworkHelper.setDosMessage(null);
-      fluxNetworkHelper.setDosStateValue(0);
-    });
-
     // what a FluxOS restart leaves of the hold: only what the record holds
     const restart = () => {
       fluxNetworkHelper.setIpChangeHold(null);
+      fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.IP_CHANGES);
       fluxNetworkHelper.setDosMessage(null);
       fluxNetworkHelper.setDosStateValue(0);
     };
+
+    beforeEach(() => {
+      height = sinon.stub(daemonServiceMiscRpcs, 'getCurrentDaemonHeight').returns(HEIGHT);
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      restart();
+    });
+
+    afterEach(() => {
+      restart();
+    });
 
     it('takes a node out of service and removes its apps for its second IP change within 2400 blocks', async () => {
       configure('198.51.100.57');
@@ -613,12 +610,11 @@ describe('fluxNetworkHelper own address tests', () => {
       height.returns(HEIGHT + 2399);
       expect(await fluxNetworkHelper.enforceIpChangeHold()).to.equal(true);
       expect(fluxNetworkHelper.getDosMessage()).to.equal(IP_CHANGES);
-      expect(fluxNetworkHelper.getDosStateValue()).to.be.above(10);
+      expect(fluxNetworkHelper.isNodeDos(), 'out of service, so no app is placed on it').to.equal(true);
 
-      restart();
       height.returns(HEIGHT + 2400);
-      fluxNetworkHelper.setDosMessage(IP_CHANGES);
       expect(await fluxNetworkHelper.enforceIpChangeHold()).to.equal(false);
+      expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
       clock.restore();
       expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
       expect((await fullRecord()).ipChangeHold).to.equal(null);

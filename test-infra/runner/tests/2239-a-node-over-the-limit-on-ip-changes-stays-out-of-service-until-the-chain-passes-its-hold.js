@@ -36,8 +36,16 @@ describe('a node over the limit on IP changes stays out of service until the cha
   const client = (i) => env.clients[i];
   const socketOf = (ip) => `${ip}:${API_PORT}`;
   const record = () => dbClient(SUBJECT + 1).ownAddressRecord();
-  const dosMessage = async () => (await client(SUBJECT).getDOSState()).data?.dosMessage ?? null;
-  const held = async () => (await dosMessage()) === IP_CHANGES;
+  // What the node reports of its DOS. Held means out of service at 100, where no
+  // app is placed on it, for this reason.
+  const dos = async () => {
+    const { data } = await client(SUBJECT).getDOSState();
+    return { dosState: data?.dosState ?? null, dosMessage: data?.dosMessage ?? null };
+  };
+  const held = async () => {
+    const { dosState, dosMessage } = await dos();
+    return dosState >= 100 && dosMessage === IP_CHANGES;
+  };
 
   // Moves the subject's address as a router's change does, and has benchmark
   // report the new one while the chain still lists the old. The stub knows the
@@ -58,7 +66,7 @@ describe('a node over the limit on IP changes stays out of service until the cha
     const until = Date.now() + STANDS_MS;
     while (Date.now() < until) {
       // eslint-disable-next-line no-await-in-loop
-      expect(await dosMessage(), label).to.equal(IP_CHANGES);
+      expect(await dos(), label).to.deep.equal({ dosState: 100, dosMessage: IP_CHANGES });
       // eslint-disable-next-line no-await-in-loop
       await new Promise((resolve) => { setTimeout(resolve, 5000); });
     }

@@ -101,6 +101,7 @@ const StickyDosOwner = Object.freeze({
   MONGODB_FLOOR: 'mongodbFloor',
   CGROUP_FLOOR: 'cgroupFloor',
   HOST_STALL: 'hostStall',
+  IP_CHANGES: 'ipChanges',
 });
 
 // Declares the node unfit for the apps it already runs, and is not moved by the
@@ -2571,20 +2572,20 @@ function onPeerConnected() {
 let ipChangeHold = null;
 
 /**
- * Holds this node out of service while its IP change hold stands: until the
- * chain is IP_CHANGE_WINDOW_BLOCKS past the height it started at, and while no
- * height is known, or none was when it started. Ends that DOS otherwise.
+ * Holds this node out of service, a sticky DOS of its own owner, while its IP
+ * change hold stands: until the chain is IP_CHANGE_WINDOW_BLOCKS past the height
+ * it started at, and while no height is known, or none was when it started.
+ * Releases that owner's DOS otherwise.
  * @returns {boolean} Whether the node is held.
  */
 function applyIpChangeHold() {
   const height = daemonServiceMiscRpcs.getCurrentDaemonHeight();
   const fromHeight = ipChangeHold?.fromHeight ?? null;
   if (ipChangeHold && (!height || fromHeight === null || height - fromHeight < IP_CHANGE_WINDOW_BLOCKS)) {
-    dosState = Math.max(dosState, 11);
-    setDosMessage(IP_CHANGES_MESSAGE);
+    setStickyDos(StickyDosOwner.IP_CHANGES, IP_CHANGES_MESSAGE);
     return true;
   }
-  releaseDosOwnedBy((message) => message === IP_CHANGES_MESSAGE);
+  clearStickyDos(StickyDosOwner.IP_CHANGES);
   return false;
 }
 

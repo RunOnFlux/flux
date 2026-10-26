@@ -294,6 +294,7 @@ describe('fluxNetworkHelper own standing tests', () => {
         expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(true);
         expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
       } finally {
+        fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.IP_CHANGES);
         await records.deleteMany({});
       }
     });

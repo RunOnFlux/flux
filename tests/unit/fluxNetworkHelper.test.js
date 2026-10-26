@@ -2300,6 +2300,18 @@ describe('fluxNetworkHelper tests', () => {
     let getFluxNodeStatusStub;
     let deterministicFluxnodeListResponse;
 
+    // Each case starts with no address of this node's own recorded and no IP
+    // change hold: a move a case handles is counted in that record, and a later
+    // case would otherwise inherit every earlier case's moves.
+    before(requireMongo);
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      await dbHelper.databaseConnection().db(config.database.local.database)
+        .collection(config.database.local.collections.ownAddress).deleteMany({});
+      fluxNetworkHelper.setIpChangeHold(null);
+      fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.IP_CHANGES);
+    });
+
     beforeEach(() => {
       // A move it handles ends in a geolocation update, which reads this node's
       // stored geolocation into memory for every later test to see.
