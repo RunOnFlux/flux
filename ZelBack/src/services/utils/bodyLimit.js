@@ -6,6 +6,9 @@ const messageHelper = require('../messageHelper');
 // as one string outgrows the longest string the runtime can hold.
 const MAX_BODY_SIZE = 10 * 1024 * 1024;
 
+// How long a refused request's socket is kept to read the rest of what is being sent.
+const BODY_DRAIN_MS = 1000;
+
 const refusedRequests = new WeakSet();
 
 /**
@@ -33,8 +36,14 @@ function refuseIfTooLarge(req, res, body) {
     if (res.headersSent) {
       req.destroy();
     } else {
+      res.set('Connection', 'close');
       res.status(413).json(messageHelper.createErrorMessage('Request body too large'));
-      res.on('finish', () => req.destroy());
+      // what the client is still sending is read and dropped for a moment, so that the
+      // refusal arrives before the reset that destroying a busy socket sends
+      res.on('finish', () => {
+        req.resume();
+        setTimeout(() => req.destroy(), BODY_DRAIN_MS).unref();
+      });
     }
   }
   return true;
