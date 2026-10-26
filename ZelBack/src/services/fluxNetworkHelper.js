@@ -2130,7 +2130,7 @@ async function writeOwnAddressRecord(socketAddress) {
   noteOwnAddress(socketAddress, null);
   await ownAddressCollection().updateOne(
     { _id: OWN_ADDRESS_RECORD_ID },
-    { $set: { socketAddress, movedFrom: null, movedAt: null, recordedAt: new Date() } },
+    { $set: { socketAddress, movedFrom: null, movedAt: null, recordedAt: new Date() }, $unset: { recentIpChanges: '' } },
     { upsert: true },
   );
 }
@@ -2176,6 +2176,8 @@ async function recordOwnMove(previousSocket, currentSocket, announce) {
         settledAt: null,
         recordedAt: new Date(),
       },
+      // what the record held of IP changes before they were counted in blocks
+      $unset: { recentIpChanges: '' },
     },
     { upsert: true },
   );

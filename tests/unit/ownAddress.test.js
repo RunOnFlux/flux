@@ -716,14 +716,16 @@ describe('fluxNetworkHelper own address tests', () => {
       expect(record.ipChangeHold).to.equal(undefined);
     });
 
-    it('counts no IP change recorded as a time', async () => {
+    it('counts no IP change recorded as a time, and drops that record of it', async () => {
       configure('198.51.100.64');
       await records.insertOne({ _id: 'own', socketAddress: '198.51.100.64:16127', movedFrom: null, recentIpChanges: [Date.now() - 60 * 1000] });
 
       await fluxNetworkHelper.handleOwnAddress('198.51.100.65:16127');
 
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
-      expect((await fullRecord()).ipChangeHeights).to.deep.equal([HEIGHT]);
+      const record = await fullRecord();
+      expect(record.ipChangeHeights).to.deep.equal([HEIGHT]);
+      expect(record).to.not.have.property('recentIpChanges');
     });
 
     it('holds the node out of service across a restart until the chain is 2400 blocks past its hold, whatever the clock says', async () => {
