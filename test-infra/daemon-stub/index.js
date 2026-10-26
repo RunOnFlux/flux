@@ -101,6 +101,11 @@ function nodeBySourceIp(sourceIp) {
       return deterministicNodeList.find((n) => n.ip.split(':')[0] === realIp) || null;
     }
   }
+  // Nor is it anyone else once it is told a further move: until its container
+  // moves again it still arrives from the address it was moved to before.
+  for (const [realIp, former] of formerReportedAddresses) {
+    if (former.has(clean)) return deterministicNodeList.find((n) => n.ip.split(':')[0] === realIp) || null;
+  }
   // A machine running on another node's collateral is answered as that node: its
   // collateral, its status and its list entry are the ones the chain holds.
   const alias = collateralAliases.get(clean);
@@ -142,6 +147,20 @@ function aliasedOwnAddress(sourceIp, node) {
 // all of them, and a per-RPC dial is how a suite comes to move an answer the
 // product never reads.
 const reportedAddresses = new Map(); // real ip -> { reported, scope }
+// The addresses each node was reported at before the one it is reported at now:
+// real ip -> Set of ips.
+const formerReportedAddresses = new Map();
+
+// Reports the node at real ip `key` at `override`, keeping the address it was
+// reported at before as one of its own.
+function reportAddress(key, override) {
+  const before = reportedAddresses.get(key);
+  if (before && before.reported !== override.reported) {
+    if (!formerReportedAddresses.has(key)) formerReportedAddresses.set(key, new Set());
+    formerReportedAddresses.get(key).add(String(before.reported).split(':')[0]);
+  }
+  reportedAddresses.set(key, override);
+}
 
 // Two facts, and a real address change separates them for as long as it takes the
 // chain to catch up: where the network says the node lives, and what benchmark's
@@ -678,8 +697,11 @@ function mineConfirmations() {
   // eslint-disable-next-line no-restricted-syntax
   for (const [realIp, address] of pendingConfirmations) {
     const node = deterministicNodeList.find((n) => n.ip.split(':')[0] === realIp);
-    if (node && address !== node.ip) reportedAddresses.set(realIp, { reported: address, scope: 'all' });
-    else if (node && reportedAddresses.get(realIp)?.scope === 'all') reportedAddresses.delete(realIp);
+    if (node && address !== node.ip) reportAddress(realIp, { reported: address, scope: 'all' });
+    else if (node && reportedAddresses.get(realIp)?.scope === 'all') {
+      reportedAddresses.delete(realIp);
+      formerReportedAddresses.delete(realIp);
+    }
   }
   const confirming = deterministicNodeList.filter((node) => pendingConfirmations.has(realIpOf(node))
     || currentHeight >= (confirmationDue.get(realIpOf(node)) ?? scheduledFrom(node, currentHeight)));
@@ -918,8 +940,12 @@ control.post('/node-address/:ip', (req, res) => {
   if (!reported) {
     // A move the chain made is undone the way it was made: by a confirmation
     // the next block mines.
-    if (reportedAddresses.get(key)?.scope === 'all') pendingConfirmations.set(key, node.ip);
-    else reportedAddresses.delete(key);
+    if (reportedAddresses.get(key)?.scope === 'all') {
+      pendingConfirmations.set(key, node.ip);
+    } else {
+      reportedAddresses.delete(key);
+      formerReportedAddresses.delete(key);
+    }
     return res.json({ node: key, reported: node.ip, scope: null });
   }
   if (!['all', 'benchmark', 'publicip'].includes(scope)) {
@@ -934,10 +960,10 @@ control.post('/node-address/:ip', (req, res) => {
   // Under `all` the node notices at once, as benchmark does, and the chain moves
   // its list entry when the next block mines the confirmation it sends there.
   if (scope === 'all') {
-    if (reportedAddresses.get(key)?.scope !== 'all') reportedAddresses.set(key, { reported: full, scope: 'benchmark' });
+    if (reportedAddresses.get(key)?.scope !== 'all') reportAddress(key, { reported: full, scope: 'benchmark' });
     pendingConfirmations.set(key, full);
   } else {
-    reportedAddresses.set(key, { reported: full, scope });
+    reportAddress(key, { reported: full, scope });
   }
   return res.json({ node: key, reported: full, scope });
 });
@@ -1206,6 +1232,7 @@ control.post('/reset', (req, res) => {
   nodeStatusOverrides.clear();
   daemonsBehind.clear();
   reportedAddresses.clear();
+  formerReportedAddresses.clear();
   pendingConfirmations.clear();
   confirmationIntervals.clear();
   confirmationDue.clear();
