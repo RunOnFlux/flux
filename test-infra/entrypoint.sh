@@ -36,13 +36,13 @@ if [ -n "$FLUX_E2E_DEFAULT_ROUTE" ]; then
 fi
 
 # App installs mount each app's FLUXFSVOL via `mount -o loop`. Loop devices are a
-# shared host-kernel resource (not namespaced); the kernel default pool (max_loop,
-# typically 8) is small and on-demand creation races under concurrent installs, so a
-# fleet installing at once (e.g. instances == nodeCount) exhausts it and installs
-# fail with "failed to setup loop device". Pre-create a generous pool so each
-# concurrent mount finds a free device. /dev is shared across the privileged nodes,
-# so this is idempotent fleet-wide (existing devices are skipped).
-for i in $(seq 0 63); do
+# shared host-kernel resource (not namespaced): the kernel hands out the lowest free
+# number box-wide, across every fleet running on it, and a node can open only the
+# device files its own /dev holds - the kernel's on-demand creation does not reach
+# it. A number past this pool fails the mount with "failed to setup loop device", so
+# the pool covers every volume the box's concurrent fleets mount at once, with room
+# over: 256. Existing devices are skipped, so this is idempotent.
+for i in $(seq 0 255); do
   [ -e "/dev/loop$i" ] || mknod -m660 "/dev/loop$i" b 7 "$i" 2>/dev/null || true
 done
 
