@@ -319,7 +319,7 @@ async function getAppFiatAndFluxPrice(req, res) {
 
       appSpecification = serviceHelper.ensureObject(appSpecification);
 
-      if (!appSpecification) {
+      if (!appSpecification || !Object.keys(appSpecification).length) {
         throw new Error('Invalid application specification provided.');
       }
 
