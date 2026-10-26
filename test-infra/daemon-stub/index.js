@@ -176,12 +176,20 @@ function overrideFor(node) {
   return reportedAddresses.get(node.ip.split(':')[0]) || null;
 }
 
-// The address the network believes this node has. Unmoved under `publicip` and
-// `benchmark`.
+// Where the chain lists the node at real ip `key`, or null where it lists it at
+// its own address: an `all` override's address, or the one a mined confirmation
+// listed it at while benchmark reports another. What benchmark reports never
+// moves it; only a mined confirmation does.
+function listedAddressFor(key) {
+  const o = reportedAddresses.get(key);
+  if (!o) return null;
+  return o.scope === 'all' ? o.reported : (o.listed ?? null);
+}
+
+// The address the network believes this node has.
 function reportedAddressOf(node) {
   if (!node) return null;
-  const o = overrideFor(node);
-  return o && o.scope === 'all' ? o.reported : node.ip;
+  return listedAddressFor(node.ip.split(':')[0]) ?? node.ip;
 }
 
 // The address benchmark tells the node it has. Moves under `benchmark` and `all`.
@@ -231,9 +239,9 @@ function publishedNodeList(sourceIp) {
 
 function publishReported(list) {
   return list.map((n) => {
-    const o = reportedAddresses.get(n.ip.split(':')[0]);
+    const listedAt = listedAddressFor(n.ip.split(':')[0]);
     const entry = withLastConfirmed(n);
-    return o && o.scope === 'all' ? { ...entry, ip: o.reported } : entry;
+    return listedAt ? { ...entry, ip: listedAt } : entry;
   });
 }
 
@@ -697,10 +705,21 @@ function mineConfirmations() {
   // eslint-disable-next-line no-restricted-syntax
   for (const [realIp, address] of pendingConfirmations) {
     const node = deterministicNodeList.find((n) => n.ip.split(':')[0] === realIp);
-    if (node && address !== node.ip) reportAddress(realIp, { reported: address, scope: 'all' });
-    else if (node && reportedAddresses.get(realIp)?.scope === 'all') {
+    const current = reportedAddresses.get(realIp);
+    // Benchmark reporting another address than the one mined leaves it there:
+    // the confirmation moves the list entry alone.
+    const benchmarkElsewhere = current && current.scope !== 'all' && current.reported !== address;
+    if (!node) {
+      // not listed: nothing to move
+    } else if (address !== node.ip) {
+      if (benchmarkElsewhere) reportedAddresses.set(realIp, { ...current, listed: address });
+      else reportAddress(realIp, { reported: address, scope: 'all' });
+    } else if (current?.scope === 'all' || current?.reported === node.ip) {
       reportedAddresses.delete(realIp);
       formerReportedAddresses.delete(realIp);
+    } else if (current) {
+      const { listed, ...benchmarkOnly } = current;
+      reportedAddresses.set(realIp, benchmarkOnly);
     }
   }
   const confirming = deterministicNodeList.filter((node) => pendingConfirmations.has(realIpOf(node))
@@ -938,9 +957,11 @@ control.post('/node-address/:ip', (req, res) => {
 
   const { reported, scope = 'all' } = req.body || {};
   if (!reported) {
-    // A move the chain made is undone the way it was made: by a confirmation
-    // the next block mines.
-    if (reportedAddresses.get(key)?.scope === 'all') {
+    // Benchmark is back at once; a move the chain made is undone the way it
+    // was made, by a confirmation the next block mines.
+    const listed = listedAddressFor(key);
+    if (listed) {
+      reportAddress(key, { reported: node.ip, scope: 'benchmark', listed });
       pendingConfirmations.set(key, node.ip);
     } else {
       reportedAddresses.delete(key);
@@ -959,11 +980,15 @@ control.post('/node-address/:ip', (req, res) => {
   const full = value.includes(':') || !realPort ? value : `${value}:${realPort}`;
   // Under `all` the node notices at once, as benchmark does, and the chain moves
   // its list entry when the next block mines the confirmation it sends there.
+  // What benchmark reports never moves the list entry: the address the chain
+  // lists the node at stays until a block mines a confirmation elsewhere.
+  const listed = listedAddressFor(key);
+  const keepListed = listed ? { listed } : {};
   if (scope === 'all') {
-    if (reportedAddresses.get(key)?.scope !== 'all') reportAddress(key, { reported: full, scope: 'benchmark' });
+    if (reportedAddresses.get(key)?.scope !== 'all') reportAddress(key, { reported: full, scope: 'benchmark', ...keepListed });
     pendingConfirmations.set(key, full);
   } else {
-    reportAddress(key, { reported: full, scope });
+    reportAddress(key, { reported: full, scope, ...keepListed });
   }
   return res.json({ node: key, reported: full, scope });
 });
