@@ -1868,17 +1868,25 @@ function isCommunicationEstablished(req, res) {
 const IP_CHANGE_WINDOW_BLOCKS = 2400;
 const IP_CHANGES_ALLOWED = 1;
 
+// A chain fact since the PON fork.
+const BLOCK_MS = 30 * 1000;
+
 /**
- * The chain's height as this node's daemon holds it: the daemon's height while
- * it is synced to the chain's tip, 0 - unknown - otherwise. A daemon behind the
- * tip, catching up or re-syncing, reports a height below the heights this
- * node's IP changes were recorded at, and would read every one of them as
- * recent.
+ * The chain's height now, from this node's daemon: while the daemon is synced to
+ * the chain's tip, the height it last reported and a block for every BLOCK_MS
+ * since it reported it; 0 - unknown - otherwise. The daemon is still taken as
+ * synced for a while after its last answer, and the chain moves on meanwhile. A
+ * daemon behind the tip, catching up or re-syncing, reports a height below the
+ * heights this node's IP changes were recorded at, and would read every one of
+ * them as recent.
  * @returns {number}
  */
 function chainHeight() {
   const { synced, height } = daemonServiceMiscRpcs.isDaemonSynced().data;
-  return synced && height > 0 ? height : 0;
+  if (!synced || !(height > 0)) return 0;
+  const reportedAt = daemonServiceMiscRpcs.getLastSuccessfulRpcCall();
+  if (!reportedAt) return height;
+  return height + Math.max(0, Math.floor((Date.now() - reportedAt) / BLOCK_MS));
 }
 
 /**

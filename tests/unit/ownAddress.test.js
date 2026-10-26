@@ -546,9 +546,13 @@ describe('fluxNetworkHelper own address tests', () => {
     const IP_CHANGES = 'IP changes over the limit allowed, one in 20 hours';
     const fullRecord = () => records.findOne({ _id: 'own' });
     let synced;
-    // The chain height the daemon holds: a daemon synced to the tip at `at`, or,
-    // at 0, one that is not.
-    const chainAt = (at) => synced.returns({ data: { synced: at > 0, height: at, header: at } });
+    let reportedAt;
+    // The chain height the daemon holds: a daemon synced to the tip at `at` that
+    // has just reported it, or, at 0, one that is not synced.
+    const chainAt = (at) => {
+      synced.returns({ data: { synced: at > 0, height: at, header: at } });
+      reportedAt.returns(Date.now());
+    };
 
     // what a FluxOS restart leaves of the hold: only what the record holds
     const restart = () => {
@@ -560,6 +564,7 @@ describe('fluxNetworkHelper own address tests', () => {
 
     beforeEach(() => {
       synced = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
+      reportedAt = sinon.stub(daemonServiceMiscRpcs, 'getLastSuccessfulRpcCall');
       chainAt(HEIGHT);
       sinon.stub(appUninstaller, 'removeAppLocally').resolves();
       restart();
@@ -688,6 +693,21 @@ describe('fluxNetworkHelper own address tests', () => {
         expect(await fluxNetworkHelper.enforceIpChangeHold()).to.equal(true);
         sinon.assert.calledOnceWithMatch(appUninstaller.removeAppLocally, 'kept');
       });
+    });
+
+    // The daemon is still taken as synced for a while after its last answer, and
+    // the chain moves on meanwhile: ten blocks in five minutes.
+    it('counts the blocks since the daemon last answered, so a change just out of the window stays out', async () => {
+      configure('198.51.100.92');
+      await records.insertOne({ _id: 'own', socketAddress: '198.51.100.92:16127', movedFrom: null, ipChangeHeights: [HEIGHT - 2405] });
+      synced.returns({ data: { synced: true, height: HEIGHT - 10, header: HEIGHT - 10 } });
+      reportedAt.returns(Date.now() - 5 * 60 * 1000);
+
+      await fluxNetworkHelper.handleOwnAddress('198.51.100.93:16127');
+
+      expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      expect((await fullRecord()).ipChangeHeights).to.deep.equal([HEIGHT]);
     });
 
     it('removes its apps once however many passes see it over the limit at once', async () => {
