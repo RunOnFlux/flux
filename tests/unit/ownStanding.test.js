@@ -284,14 +284,15 @@ describe('fluxNetworkHelper own standing tests', () => {
       const records = dbHelper.databaseConnection().db(config.database.local.database).collection(config.database.local.collections.ownAddress);
       await records.deleteMany({});
       await records.insertOne({ _id: 'own', socketAddress: OWN, movedFrom: null, ipChangeHold: { fromHeight: 1000 } });
-      const height = sinon.stub(daemonServiceMiscRpcs, 'getCurrentDaemonHeight').returns(3399);
+      const chainAt = (at) => daemonServiceMiscRpcs.isDaemonSynced.returns({ data: { synced: true, height: at, header: at } });
+      chainAt(3399);
       try {
         await fluxNetworkHelper.enforceIpChangeHold();
         expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(false);
         expect(fluxNetworkHelper.getDosMessage()).to.equal(IP_CHANGES);
 
         // as the hold's watch does at each new height
-        height.returns(3400);
+        chainAt(3400);
         await fluxNetworkHelper.enforceIpChangeHold();
         expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(true);
         expect(fluxNetworkHelper.getDosMessage()).to.equal(null);

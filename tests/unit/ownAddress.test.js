@@ -545,7 +545,10 @@ describe('fluxNetworkHelper own address tests', () => {
     const HEIGHT = 50000;
     const IP_CHANGES = 'IP changes over the limit allowed, one in 20 hours';
     const fullRecord = () => records.findOne({ _id: 'own' });
-    let height;
+    let synced;
+    // The chain height the daemon holds: a daemon synced to the tip at `at`, or,
+    // at 0, one that is not.
+    const chainAt = (at) => synced.returns({ data: { synced: at > 0, height: at, header: at } });
 
     // what a FluxOS restart leaves of the hold: only what the record holds
     const restart = () => {
@@ -556,7 +559,8 @@ describe('fluxNetworkHelper own address tests', () => {
     };
 
     beforeEach(() => {
-      height = sinon.stub(daemonServiceMiscRpcs, 'getCurrentDaemonHeight').returns(HEIGHT);
+      synced = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
+      chainAt(HEIGHT);
       sinon.stub(appUninstaller, 'removeAppLocally').resolves();
       restart();
     });
@@ -580,9 +584,9 @@ describe('fluxNetworkHelper own address tests', () => {
       expect(ipChangeHold).to.deep.equal({ fromHeight: HEIGHT });
     });
 
-    // A pass that read the record before the move wrote its hold answers after
+    // A pass that read the record before the move wrote its change answers after
     // it: the pass the move asks for reads the record after the write.
-    it('stays out of service when a pass that read the record before the move wrote its hold answers after it', async () => {
+    it('is out of service when a pass that read the record before the move wrote its change answers after it', async () => {
       configure('198.51.100.57');
       await records.insertOne({ _id: 'own', socketAddress: '198.51.100.57:16127', movedFrom: null, ipChangeHeights: [HEIGHT - 2399] });
       let answerStaleRead;
@@ -599,12 +603,104 @@ describe('fluxNetworkHelper own address tests', () => {
       const stalePass = fluxNetworkHelper.enforceIpChangeHold();
       const moving = fluxNetworkHelper.handleOwnAddress('198.51.100.58:16127');
       await new Promise((resolve) => { setTimeout(resolve, 200); });
-      expect((await records.findOne({ _id: 'own' })).ipChangeHold, 'fixture: the hold is written while the earlier pass waits').to.deep.equal({ fromHeight: HEIGHT });
+      expect((await records.findOne({ _id: 'own' })).ipChangeHeights, 'fixture: the change is written while the earlier pass waits').to.deep.equal([HEIGHT - 2399, HEIGHT]);
       answerStaleRead();
       await Promise.all([stalePass, moving]);
 
       expect(fluxNetworkHelper.isNodeDos()).to.equal(true);
       expect(fluxNetworkHelper.getDosMessage()).to.equal(IP_CHANGES);
+    });
+
+    describe('a daemon not synced to the chain\'s tip', () => {
+      // a daemon behind the tip: its own height, below the chain's
+      const behind = (at) => synced.returns({ data: { synced: false, height: at, header: HEIGHT } });
+
+      beforeEach(() => {
+        appQueryService.installedApps.resolves({ status: 'success', data: [{ name: 'kept', version: 4 }] });
+      });
+
+      it('records a change it sees without a height, and judges nothing until the daemon is synced', async () => {
+        configure('198.51.100.80');
+        await records.insertOne({ _id: 'own', socketAddress: '198.51.100.80:16127', movedFrom: null, ipChangeHeights: [HEIGHT - 100] });
+        behind(HEIGHT - 50);
+
+        await fluxNetworkHelper.handleOwnAddress('198.51.100.81:16127');
+
+        expect((await fullRecord()).ipChangeHeights).to.deep.equal([HEIGHT - 100, null]);
+        expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
+        sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      });
+
+      it('judges the change once the daemon is synced: out of service, its apps removed once', async () => {
+        configure('198.51.100.82');
+        await records.insertOne({ _id: 'own', socketAddress: '198.51.100.82:16127', movedFrom: null, ipChangeHeights: [HEIGHT - 100] });
+        behind(HEIGHT - 50);
+        await fluxNetworkHelper.handleOwnAddress('198.51.100.83:16127');
+
+        chainAt(HEIGHT);
+        expect(await fluxNetworkHelper.enforceIpChangeHold()).to.equal(true);
+        await fluxNetworkHelper.enforceIpChangeHold();
+        chainAt(HEIGHT + 1);
+        await fluxNetworkHelper.enforceIpChangeHold();
+
+        expect(fluxNetworkHelper.isNodeDos()).to.equal(true);
+        const { ipChangeHeights, ipChangeHold } = await fullRecord();
+        expect(ipChangeHeights).to.deep.equal([HEIGHT - 100, HEIGHT]);
+        expect(ipChangeHold).to.deep.equal({ fromHeight: HEIGHT });
+        sinon.assert.calledOnceWithMatch(appUninstaller.removeAppLocally, 'kept');
+      });
+
+      // A daemon re-syncing from far behind holds a height below the one every
+      // change was recorded at, so each would read as recent.
+      it('counts no old change while the daemon re-syncs from far behind, nor once it is synced', async () => {
+        configure('198.51.100.84');
+        await records.insertOne({ _id: 'own', socketAddress: '198.51.100.84:16127', movedFrom: null, ipChangeHeights: [HEIGHT - 2400] });
+        behind(100);
+
+        await fluxNetworkHelper.handleOwnAddress('198.51.100.85:16127');
+        expect(await fluxNetworkHelper.enforceIpChangeHold(), 'while re-syncing').to.equal(false);
+
+        chainAt(HEIGHT);
+        expect(await fluxNetworkHelper.enforceIpChangeHold(), 'once synced').to.equal(false);
+        expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
+        expect((await fullRecord()).ipChangeHeights).to.deep.equal([HEIGHT]);
+        sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      });
+
+      it('stays out of service while its daemon falls behind during a hold', async () => {
+        await records.insertOne({ _id: 'own', socketAddress: '198.51.100.86:16127', movedFrom: '198.51.100.87:16127', ipChangeHold: { fromHeight: HEIGHT - 2399 } });
+        expect(await fluxNetworkHelper.enforceIpChangeHold(), 'fixture: held at the tip').to.equal(true);
+
+        behind(HEIGHT + 5000);
+        expect(await fluxNetworkHelper.enforceIpChangeHold()).to.equal(true);
+        expect(fluxNetworkHelper.isNodeDos()).to.equal(true);
+        expect((await fullRecord()).ipChangeHold).to.deep.equal({ fromHeight: HEIGHT - 2399 });
+      });
+
+      it('judges, after a restart, a change recorded without a height before it', async () => {
+        configure('198.51.100.88');
+        await records.insertOne({ _id: 'own', socketAddress: '198.51.100.88:16127', movedFrom: null, ipChangeHeights: [HEIGHT - 100] });
+        behind(HEIGHT - 50);
+        await fluxNetworkHelper.handleOwnAddress('198.51.100.89:16127');
+
+        restart();
+        chainAt(HEIGHT);
+        expect(await fluxNetworkHelper.enforceIpChangeHold()).to.equal(true);
+        sinon.assert.calledOnceWithMatch(appUninstaller.removeAppLocally, 'kept');
+      });
+    });
+
+    it('removes its apps once however many passes see it over the limit at once', async () => {
+      // over the limit with no hold yet: the record a change seen while the
+      // daemon was behind leaves once the daemon is synced
+      await records.insertOne({ _id: 'own', socketAddress: '198.51.100.90:16127', movedFrom: '198.51.100.91:16127', ipChangeHeights: [HEIGHT - 10, null] });
+      appQueryService.installedApps.resolves({ status: 'success', data: [{ name: 'once', version: 4 }] });
+
+      await Promise.all([fluxNetworkHelper.enforceIpChangeHold(), fluxNetworkHelper.enforceIpChangeHold(), fluxNetworkHelper.enforceIpChangeHold()]);
+      await fluxNetworkHelper.enforceIpChangeHold();
+
+      expect(fluxNetworkHelper.isNodeDos()).to.equal(true);
+      sinon.assert.calledOnceWithMatch(appUninstaller.removeAppLocally, 'once');
     });
 
     it('counts no IP change made 2400 blocks before', async () => {
@@ -635,12 +731,12 @@ describe('fluxNetworkHelper own address tests', () => {
       const clock = sinon.useFakeTimers({ now: Date.now() + 21 * 60 * 60 * 1000, toFake: ['Date', 'hrtime'] });
 
       restart();
-      height.returns(HEIGHT + 2399);
+      chainAt(HEIGHT + 2399);
       expect(await fluxNetworkHelper.enforceIpChangeHold()).to.equal(true);
       expect(fluxNetworkHelper.getDosMessage()).to.equal(IP_CHANGES);
       expect(fluxNetworkHelper.isNodeDos(), 'out of service, so no app is placed on it').to.equal(true);
 
-      height.returns(HEIGHT + 2400);
+      chainAt(HEIGHT + 2400);
       expect(await fluxNetworkHelper.enforceIpChangeHold()).to.equal(false);
       expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
       clock.restore();
@@ -651,15 +747,15 @@ describe('fluxNetworkHelper own address tests', () => {
     it('keeps a hold while no height is known, and starts one recorded before a height was known at the first height known', async () => {
       await records.insertOne({ _id: 'own', socketAddress: '198.51.100.68:16127', movedFrom: null, ipChangeHold: { fromHeight: null } });
 
-      height.returns(0);
+      chainAt(0);
       expect(await fluxNetworkHelper.enforceIpChangeHold()).to.equal(true);
       expect((await fullRecord()).ipChangeHold).to.deep.equal({ fromHeight: null });
 
-      height.returns(HEIGHT);
+      chainAt(HEIGHT);
       expect(await fluxNetworkHelper.enforceIpChangeHold()).to.equal(true);
       expect((await fullRecord()).ipChangeHold).to.deep.equal({ fromHeight: HEIGHT });
 
-      height.returns(HEIGHT + 2400);
+      chainAt(HEIGHT + 2400);
       expect(await fluxNetworkHelper.enforceIpChangeHold()).to.equal(false);
     });
 
@@ -686,7 +782,7 @@ describe('fluxNetworkHelper own address tests', () => {
         await reportHeight(HEIGHT + 1);
         expect(fluxNetworkHelper.getDosMessage(), 'held again at a reported height').to.equal(IP_CHANGES);
 
-        height.returns(HEIGHT + 2400);
+        chainAt(HEIGHT + 2400);
         await reportHeight(HEIGHT + 2400);
         expect(fluxNetworkHelper.getDosMessage(), 'released once the chain passed the hold').to.equal(null);
       } finally {

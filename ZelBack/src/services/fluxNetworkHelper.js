@@ -1869,16 +1869,27 @@ const IP_CHANGE_WINDOW_BLOCKS = 2400;
 const IP_CHANGES_ALLOWED = 1;
 
 /**
+ * The chain's height as this node's daemon holds it: the daemon's height while
+ * it is synced to the chain's tip, 0 - unknown - otherwise. A daemon behind the
+ * tip, catching up or re-syncing, reports a height below the heights this
+ * node's IP changes were recorded at, and would read every one of them as
+ * recent.
+ * @returns {number}
+ */
+function chainHeight() {
+  const { synced, height } = daemonServiceMiscRpcs.isDaemonSynced().data;
+  return synced && height > 0 ? height : 0;
+}
+
+/**
  * The IP changes of `ipChangeHeights` inside the window at `height`, each the
- * height it was made at. A change recorded as null was made before this node
- * knew a height and is taken as made at `height`; while no height is known,
- * every change counts.
+ * height it was made at. A change recorded as null was made while this node
+ * knew no chain height and is taken as made at `height`.
  * @param {Array<number|null>} ipChangeHeights
- * @param {number} height The daemon's height, 0 while unknown.
- * @returns {Array<number|null>}
+ * @param {number} height The chain's height.
+ * @returns {number[]}
  */
 function ipChangesInWindow(ipChangeHeights, height) {
-  if (!height) return [...ipChangeHeights];
   return ipChangeHeights.map((at) => at ?? height).filter((at) => height - at < IP_CHANGE_WINDOW_BLOCKS);
 }
 
@@ -2141,10 +2152,12 @@ async function recordOwnMove(previousSocket, currentSocket, announce) {
   if (record?.movedFrom && socketAddressesMatch(record.socketAddress, currentSocket)) return;
   const movedAt = Date.now();
   const ipChanged = !ipsMatch(previousSocket, currentSocket);
-  const height = daemonServiceMiscRpcs.getCurrentDaemonHeight();
-  const ipChangeHeights = ipChangesInWindow(record?.ipChangeHeights ?? [], height);
+  // A change made while no chain height is known is recorded without one, and
+  // nothing is pruned: the window is judged once the height is known.
+  const height = chainHeight();
+  const recorded = record?.ipChangeHeights ?? [];
+  const ipChangeHeights = height ? ipChangesInWindow(recorded, height) : [...recorded];
   if (ipChanged) ipChangeHeights.push(height || null);
-  const overLimit = ipChanged && ipChangeHeights.length > IP_CHANGES_ALLOWED;
   noteOwnAddress(currentSocket, previousSocket);
   await ownAddressCollection().updateOne(
     { _id: OWN_ADDRESS_RECORD_ID },
@@ -2156,7 +2169,6 @@ async function recordOwnMove(previousSocket, currentSocket, announce) {
         ipChanged,
         announce,
         ipChangeHeights,
-        ...(overLimit ? { ipChangeHold: { fromHeight: height || null } } : {}),
         appsHandledAt: null,
         announcedAt: null,
         geolocatedAt: null,
@@ -2167,12 +2179,7 @@ async function recordOwnMove(previousSocket, currentSocket, announce) {
     },
     { upsert: true },
   );
-  if (!ipChanged) return;
-  maxNumberOfIpChanges = ipChangeHeights.length;
-  if (!overLimit) return;
-  log.error(IP_CHANGES_MESSAGE);
-  await enforceIpChangeHold();
-  await removeAppsForIpChanges(ipChangeHeights.length);
+  if (ipChanged) await enforceIpChangeHold();
 }
 
 /**
@@ -2578,7 +2585,7 @@ let ipChangeHold = null;
  * @returns {boolean} Whether the node is held.
  */
 function applyIpChangeHold() {
-  const height = daemonServiceMiscRpcs.getCurrentDaemonHeight();
+  const height = chainHeight();
   const fromHeight = ipChangeHold?.fromHeight ?? null;
   if (ipChangeHold && (!height || fromHeight === null || height - fromHeight < IP_CHANGE_WINDOW_BLOCKS)) {
     setStickyDos(StickyDosOwner.IP_CHANGES, IP_CHANGES_MESSAGE);
@@ -2589,36 +2596,54 @@ function applyIpChangeHold() {
 }
 
 /**
- * One pass of enforceIpChangeHold.
+ * One pass of enforceIpChangeHold. At a chain height, it judges the IP changes
+ * the record holds inside the window: over the limit with no hold standing, it
+ * starts one at the height of the newest change and removes every installed
+ * app. Passes run one at a time and a started hold is in the record before the
+ * next pass reads it, so the apps are removed once.
  * @returns {Promise<boolean>} Whether the node is held.
  */
 async function enforceIpChangeHoldOnce() {
   const record = await ownAddressRecord();
-  ipChangeHold = record?.ipChangeHold ?? null;
-  const height = daemonServiceMiscRpcs.getCurrentDaemonHeight();
+  const height = chainHeight();
+  let hold = record?.ipChangeHold ?? null;
+  let started = false;
   if (record && height) {
     const records = ownAddressCollection();
-    if (record.ipChangeHeights?.includes(null)) {
+    const recorded = record.ipChangeHeights ?? [];
+    const inWindow = ipChangesInWindow(recorded, height);
+    if (recorded.includes(null)) {
       await records.updateOne(
-        { _id: OWN_ADDRESS_RECORD_ID, ipChangeHeights: record.ipChangeHeights },
-        { $set: { ipChangeHeights: ipChangesInWindow(record.ipChangeHeights, height) } },
+        { _id: OWN_ADDRESS_RECORD_ID, ipChangeHeights: recorded },
+        { $set: { ipChangeHeights: inWindow } },
       );
     }
-    if (ipChangeHold && ipChangeHold.fromHeight === null) {
+    maxNumberOfIpChanges = inWindow.length;
+    if (!hold && inWindow.length > IP_CHANGES_ALLOWED) {
+      hold = { fromHeight: Math.max(...inWindow) };
+      await records.updateOne({ _id: OWN_ADDRESS_RECORD_ID }, { $set: { ipChangeHold: hold } });
+      started = true;
+    } else if (hold && hold.fromHeight === null) {
       await records.updateOne(
         { _id: OWN_ADDRESS_RECORD_ID, ipChangeHold: { fromHeight: null } },
         { $set: { ipChangeHold: { fromHeight: height } } },
       );
-      ipChangeHold = { fromHeight: height };
-    } else if (ipChangeHold && height - ipChangeHold.fromHeight >= IP_CHANGE_WINDOW_BLOCKS) {
+      hold = { fromHeight: height };
+    } else if (hold && height - hold.fromHeight >= IP_CHANGE_WINDOW_BLOCKS) {
       await records.updateOne(
-        { _id: OWN_ADDRESS_RECORD_ID, ipChangeHold: { fromHeight: ipChangeHold.fromHeight } },
+        { _id: OWN_ADDRESS_RECORD_ID, ipChangeHold: { fromHeight: hold.fromHeight } },
         { $set: { ipChangeHold: null } },
       );
-      ipChangeHold = null;
+      hold = null;
     }
   }
-  return applyIpChangeHold();
+  ipChangeHold = hold;
+  const held = applyIpChangeHold();
+  if (started) {
+    log.error(IP_CHANGES_MESSAGE);
+    await removeAppsForIpChanges(maxNumberOfIpChanges);
+  }
+  return held;
 }
 
 // The pass of enforceIpChangeHold running, and the one asked for while it runs.
