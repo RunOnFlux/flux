@@ -158,6 +158,27 @@ export async function queueAppTx(appHash) {
   return post('/queue-app-tx', { appHash });
 }
 
+// -- A node's daemon behind the chain's tip --
+
+/**
+ * Have a node's daemon be behind the chain's tip, as one catching up or
+ * re-syncing is: its block count and its blockchain info's blocks are `height`,
+ * while its headers stay at the chain's tip, so FluxOS reads it as not synced.
+ * Every other node's daemon follows the tip as before. The chain moves on with
+ * the ticker or setHeight; `height` stays where it was put.
+ *
+ * @param {string} node Where the node really is.
+ * @param {number} height The height its daemon holds.
+ */
+export async function setDaemonBehind(node, height) {
+  return post(`/daemon-behind/${String(node).split(':')[0]}`, { height });
+}
+
+/** Have a node's daemon follow the chain's tip again. */
+export async function clearDaemonBehind(node) {
+  return post(`/daemon-behind/${String(node).split(':')[0]}`, {});
+}
+
 // -- Where the network believes a node is --
 
 /**

@@ -245,18 +245,32 @@ function blockAddressDeltas({ addresses = [], start = 0, end = Infinity }) {
   return deltas;
 }
 
+// Nodes whose daemon is behind the chain's tip, as one catching up or
+// re-syncing is: real ip -> the height it holds as its own.
+const daemonsBehind = new Map();
+
+// The height the daemon serving `sourceIp` holds: its own while it is behind,
+// the chain's tip otherwise.
+function localHeightFor(sourceIp) {
+  const node = sourceIp ? nodeBySourceIp(sourceIp) : null;
+  const behind = node ? daemonsBehind.get(node.ip.split(':')[0]) : undefined;
+  return behind === undefined ? currentHeight : Math.min(behind, currentHeight);
+}
+
 const rpcHandlers = {
-  getblockchaininfo: () => ({
+  // headers is the chain's tip whatever the daemon holds: a daemon behind it
+  // knows the headers before it has the blocks.
+  getblockchaininfo: (params, sourceIp) => ({
     chain: 'main',
-    blocks: currentHeight,
+    blocks: localHeightFor(sourceIp),
     headers: currentHeight,
-    bestblockhash: `000000000000stub${currentHeight}`,
+    bestblockhash: `000000000000stub${localHeightFor(sourceIp)}`,
     difficulty: 1000,
     verificationprogress: 1,
     chainwork: '0000000000000000000000000000000000000000000000000000000000000001',
   }),
 
-  getblockcount: () => currentHeight,
+  getblockcount: (params, sourceIp) => localHeightFor(sourceIp),
 
   getinfo: () => ({
     version: DAEMON_VERSION,
@@ -290,7 +304,7 @@ const rpcHandlers = {
     { height: currentHeight, hash: `000000000000stub${currentHeight}`, branchlen: 0, status: 'active' },
   ],
 
-  getbestblockhash: () => `000000000000stub${currentHeight}`,
+  getbestblockhash: (params, sourceIp) => `000000000000stub${localHeightFor(sourceIp)}`,
 
   getblockhash: (params) => {
     const height = params[0];
@@ -1178,8 +1192,19 @@ control.post('/confirmation-schedule/:ip', (req, res) => {
   return res.json({ node: key, intervalBlocks, nextHeight: confirmationDue.get(key) });
 });
 
+// Have a node's daemon hold `height` as its own, behind the chain's tip, or, with
+// no height, follow the tip again. `:ip` is where the node really is.
+control.post('/daemon-behind/:ip', (req, res) => {
+  const key = String(req.params.ip).split(':')[0];
+  const { height } = req.body || {};
+  if (height === undefined || height === null) daemonsBehind.delete(key);
+  else daemonsBehind.set(key, Number(height));
+  res.json({ node: key, height: daemonsBehind.get(key) ?? null, tip: currentHeight });
+});
+
 control.post('/reset', (req, res) => {
   nodeStatusOverrides.clear();
+  daemonsBehind.clear();
   reportedAddresses.clear();
   pendingConfirmations.clear();
   confirmationIntervals.clear();
