@@ -211,10 +211,10 @@ function publishedNodeList(sourceIp) {
 }
 
 function publishReported(list) {
-  if (!reportedAddresses.size) return list;
   return list.map((n) => {
     const o = reportedAddresses.get(n.ip.split(':')[0]);
-    return o && o.scope === 'all' ? { ...n, ip: o.reported } : n;
+    const entry = withLastConfirmed(n);
+    return o && o.scope === 'all' ? { ...entry, ip: o.reported } : entry;
   });
 }
 
@@ -303,7 +303,10 @@ const rpcHandlers = {
     const asNum = Number(hashOrHeight);
 
     const pending = pendingBlocks.find((b) => b.height === asNum || b.height === hashOrHeight || b.hash === hashOrHeight);
-    if (pending) return pending;
+    if (pending) {
+      const confirmations = verbosity === 2 ? (fluxnodeTxsByHeight.get(pending.height) || []) : [];
+      return confirmations.length ? { ...pending, tx: [...(pending.tx || []), ...confirmations] } : pending;
+    }
 
     const height = !Number.isNaN(asNum) ? asNum : currentHeight;
     const block = {
@@ -322,7 +325,7 @@ const rpcHandlers = {
     };
 
     if (verbosity === 2) {
-      block.tx = [];
+      block.tx = fluxnodeTxsByHeight.get(height) || [];
     }
 
     return block;
@@ -359,7 +362,7 @@ const rpcHandlers = {
       network: '',
       added_height: node ? node.added_height : currentHeight - 1000,
       confirmed_height: node ? node.confirmed_height : currentHeight - 500,
-      last_confirmed_height: node ? node.last_confirmed_height : currentHeight - 10,
+      last_confirmed_height: node ? withLastConfirmed(node).last_confirmed_height : currentHeight - 10,
       last_paid_height: node ? node.last_paid_height : currentHeight - 100,
       tier: node ? node.tier : 'CUMULUS',
       payment_address: node ? node.payment_address : 'stub-payment-address',
@@ -597,18 +600,51 @@ benchd.listen(BENCHD_PORT, () => console.log(`Fluxbenchd stub listening on port 
 
 // Confirmations sent since the last block: real ip -> the address each carries.
 const pendingConfirmations = new Map();
+// The fluxnode confirmations each built block carries, by height, and the block
+// each node last confirmed in (real ip -> height).
+const fluxnodeTxsByHeight = new Map();
+const lastConfirmedHeights = new Map();
+const FLUXNODE_TXS_KEPT = 1000;
 
 // Mine the confirmations sent since the last block. One carrying an address
 // other than the node's own moves its list entry and status there, as a node's
 // IP-change confirmation does on chain; one carrying the address it already
-// has changes nothing.
+// has moves an entry an earlier one moved back.
+//
+// Every listed node confirms in every block, at the address the block leaves it
+// at, so a FluxOS explorer that starts at any block holds every node's address
+// from it - fluxd's confirmation interval compressed to one block.
 function mineConfirmations() {
   // eslint-disable-next-line no-restricted-syntax
   for (const [realIp, address] of pendingConfirmations) {
     const node = deterministicNodeList.find((n) => n.ip.split(':')[0] === realIp);
     if (node && address !== node.ip) reportedAddresses.set(realIp, { reported: address, scope: 'all' });
+    else if (node && reportedAddresses.get(realIp)?.scope === 'all') reportedAddresses.delete(realIp);
   }
   pendingConfirmations.clear();
+  fluxnodeTxsByHeight.set(currentHeight, deterministicNodeList.map((node) => {
+    lastConfirmedHeights.set(node.ip.split(':')[0], currentHeight);
+    return {
+      txid: `stubconfirm${currentHeight}${node.txhash}`,
+      version: 5,
+      type: 'Confirming a fluxnode',
+      collateral: node.collateral,
+      txhash: node.txhash,
+      outidx: node.outidx,
+      ip: reportedAddressOf(node),
+      update_type: 1,
+      vin: [],
+      vout: [],
+    };
+  }));
+  fluxnodeTxsByHeight.delete(currentHeight - FLUXNODE_TXS_KEPT);
+}
+
+// A list entry as fluxd reports it, last_confirmed_height the block that last
+// confirmed the node.
+function withLastConfirmed(node) {
+  const height = lastConfirmedHeights.get(node.ip.split(':')[0]);
+  return height === undefined ? node : { ...node, last_confirmed_height: height };
 }
 
 // -- Block ticker --
@@ -828,7 +864,10 @@ control.post('/node-address/:ip', (req, res) => {
 
   const { reported, scope = 'all' } = req.body || {};
   if (!reported) {
-    reportedAddresses.delete(key);
+    // A move the chain made is undone the way it was made: by a confirmation
+    // the next block mines.
+    if (reportedAddresses.get(key)?.scope === 'all') pendingConfirmations.set(key, node.ip);
+    else reportedAddresses.delete(key);
     return res.json({ node: key, reported: node.ip, scope: null });
   }
   if (!['all', 'benchmark', 'publicip'].includes(scope)) {
@@ -840,7 +879,14 @@ control.post('/node-address/:ip', (req, res) => {
   const value = String(reported);
   const realPort = node.ip.split(':')[1];
   const full = value.includes(':') || !realPort ? value : `${value}:${realPort}`;
-  reportedAddresses.set(key, { reported: full, scope });
+  // Under `all` the node notices at once, as benchmark does, and the chain moves
+  // its list entry when the next block mines the confirmation it sends there.
+  if (scope === 'all') {
+    if (reportedAddresses.get(key)?.scope !== 'all') reportedAddresses.set(key, { reported: full, scope: 'benchmark' });
+    pendingConfirmations.set(key, full);
+  } else {
+    reportedAddresses.set(key, { reported: full, scope });
+  }
   return res.json({ node: key, reported: full, scope });
 });
 
