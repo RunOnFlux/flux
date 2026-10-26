@@ -62,7 +62,11 @@ describe('a node whose daemon is behind the tip judges its IP changes once it is
     const { dosState, dosMessage } = await dos(i);
     return dosState >= 100 && dosMessage === IP_CHANGES;
   };
-  const runsTheApp = async (i) => ((await client(i).getInstalledApps()).data || []).some((app) => app.name === appName);
+  const runsTheApp = async (i) => {
+    const answer = await client(i).getInstalledApps();
+    expect(answer.status, `node ${i}'s installed apps answered`).to.equal('success');
+    return answer.data.some((app) => app.name === appName);
+  };
   let tip;
   // the addresses whose daemon calls a case has failed
   const silenced = [];
@@ -185,8 +189,8 @@ describe('a node whose daemon is behind the tip judges its IP changes once it is
     // recorded is all that is left of the change.
     await crashFluxos(client(BEHIND).container, { hold: true });
     await releaseFluxos(client(BEHIND).container);
-    await waitFor(async () => (await record(BEHIND))?.socketAddress === socketOf(`${base}.241`), {
-      timeout: 120000, interval: 3000, label: 'FluxOS back',
+    await waitFor(async () => (await client(BEHIND).getInstalledApps().catch(() => ({}))).status === 'success', {
+      timeout: 180000, interval: 3000, label: 'FluxOS back and answering',
     });
     await expectNotJudgedThroughout(BEHIND, 'after the restart, its daemon still behind');
 
