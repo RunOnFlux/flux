@@ -1,0 +1,111 @@
+const { EventEmitter } = require('node:events');
+const { expect } = require('chai');
+const express = require('express');
+const request = require('supertest');
+const sinon = require('sinon');
+
+const bodyLimit = require('../../ZelBack/src/services/utils/bodyLimit');
+
+describe('bodyLimit', () => {
+  const makeResponse = () => {
+    const res = { handlers: {} };
+    res.status = sinon.stub().returns(res);
+    res.json = sinon.stub().returns(res);
+    res.on = sinon.stub().callsFake((event, handler) => { res.handlers[event] = handler; });
+    return res;
+  };
+
+  it('lets a body up to the limit through', () => {
+    const res = makeResponse();
+
+    const refused = bodyLimit.refuseIfTooLarge(new EventEmitter(), res, 'x'.repeat(bodyLimit.MAX_BODY_SIZE));
+
+    expect(refused).to.equal(false);
+    sinon.assert.notCalled(res.status);
+  });
+
+  it('answers 413 once, then destroys the request when the response is done', () => {
+    const req = new EventEmitter();
+    req.destroy = sinon.stub();
+    const res = makeResponse();
+    const body = 'x'.repeat(bodyLimit.MAX_BODY_SIZE + 1);
+
+    expect(bodyLimit.refuseIfTooLarge(req, res, body)).to.equal(true);
+    expect(bodyLimit.refuseIfTooLarge(req, res, body)).to.equal(true);
+
+    sinon.assert.calledOnceWithExactly(res.status, 413);
+    sinon.assert.notCalled(req.destroy);
+    res.handlers.finish();
+    sinon.assert.calledOnce(req.destroy);
+  });
+
+  it('silences the handler\'s own data and end listeners once it has refused', () => {
+    const req = new EventEmitter();
+    req.destroy = sinon.stub();
+    const seen = [];
+    req.on('data', (data) => seen.push(`data:${data}`));
+    req.on('end', () => seen.push('end'));
+    req.on('close', () => seen.push('close'));
+
+    bodyLimit.refuseIfTooLarge(req, makeResponse(), 'x'.repeat(bodyLimit.MAX_BODY_SIZE + 1));
+    req.emit('data', 'more');
+    req.emit('end');
+    req.emit('close');
+
+    expect(seen).to.eql(['close']);
+  });
+
+  // A handler that reads its own body, as the ones this guards do, and answers
+  // when the body ends. A body over the limit must be answered once, by the guard.
+  describe('in a handler that reads its own body', () => {
+    let app;
+    let handled;
+    let failures;
+    let onUncaught;
+
+    beforeEach(() => {
+      handled = 0;
+      failures = [];
+      onUncaught = (error) => failures.push(error);
+      process.on('uncaughtException', onUncaught);
+      process.on('unhandledRejection', onUncaught);
+      app = express();
+      app.post('/echo', async (req, res) => {
+        let body = '';
+        req.on('data', (data) => {
+          body += data;
+          bodyLimit.refuseIfTooLarge(req, res, body);
+        });
+        req.on('end', async () => {
+          handled += 1;
+          res.json({ length: body.length });
+        });
+      });
+    });
+
+    afterEach(() => {
+      process.off('uncaughtException', onUncaught);
+      process.off('unhandledRejection', onUncaught);
+    });
+
+    it('answers a body over the limit with 413, without running the handler or raising', async () => {
+      const response = await request(app)
+        .post('/echo')
+        .set('Content-Type', 'text/plain')
+        .send('x'.repeat(bodyLimit.MAX_BODY_SIZE + 1024 * 1024))
+        .catch((error) => error.response || { status: 'reset' });
+      await new Promise((resolve) => { setTimeout(resolve, 50); });
+
+      expect(response.status === 413 || response.status === 'reset').to.equal(true);
+      expect(handled).to.equal(0);
+      expect(failures).to.eql([]);
+    });
+
+    it('answers a body within the limit as the handler does', async () => {
+      const response = await request(app).post('/echo').set('Content-Type', 'text/plain').send('hello');
+
+      expect(response.status).to.equal(200);
+      expect(response.body).to.eql({ length: 5 });
+    });
+  });
+});

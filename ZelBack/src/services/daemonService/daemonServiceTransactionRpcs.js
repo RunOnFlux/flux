@@ -2,6 +2,7 @@ const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
 const daemonServiceBlockchainRpcs = require('./daemonServiceBlockchainRpcs');
+const bodyLimit = require('../utils/bodyLimit');
 
 let response = messageHelper.createErrorMessage();
 
@@ -56,6 +57,7 @@ async function createRawTransactionPost(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);
@@ -119,6 +121,7 @@ async function decodeRawTransactionPost(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);
@@ -165,6 +168,7 @@ async function decodeScriptPost(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);
@@ -239,6 +243,7 @@ async function sendRawTransactionPost(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);
