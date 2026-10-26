@@ -728,7 +728,9 @@ app.get('/repos/:owner/:repo', (req, res) => {
 // router's does: a port another machine holds (718), and a new entry once it holds as many as
 // its capacity (728). A mapping made with a lease is held for that long and then goes, and a
 // lookup or a listing shows the seconds it has left; a mapping with none is held until it is
-// removed.
+// removed. Adding a held mapping again restarts its lease, unless the gateway is set to keep a
+// held entry as it is (as FRITZ!OS 8 and miniupnpd 1.x do); a gateway can also show every
+// lease as it was asked for, never counting down (as libupnp and TP-Link SMB do).
 const UPNP_SERVICE = 'urn:schemas-upnp-org:service:WANIPConnection:1';
 
 // Drops the entries of a gateway whose lease has ended.
@@ -739,8 +741,9 @@ function expireLeases(gateway) {
 }
 
 // The lease an entry has left, in whole seconds as a router reports it: 0 for one held
-// until it is removed.
-function leaseLeft(entry) {
+// until it is removed. A gateway that shows leases as asked shows the asked lease.
+function leaseLeft(gateway, entry) {
+  if (gateway.staticLeases) return entry.leaseDuration;
   return entry.expiresAt ? Math.max(1, Math.ceil((entry.expiresAt - Date.now()) / 1000)) : 0;
 }
 
@@ -829,6 +832,11 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
       }
       const kept = gateway.dropsLeases ? 0 : lease;
       const description = arg('NewPortMappingDescription');
+      // a gateway that keeps a held entry as it is answers the add and changes nothing
+      if (held && gateway.keepsHeld) {
+        soapReply(res, action, {});
+        return;
+      }
       gateway.mappings = gateway.mappings.filter((m) => !sameEntry(m));
       gateway.mappings.push({
         externalPort: Number(arg('NewExternalPort')),
@@ -886,7 +894,7 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
         NewInternalClient: entry.internalClient,
         NewEnabled: 1,
         NewPortMappingDescription: entry.description,
-        NewLeaseDuration: leaseLeft(entry),
+        NewLeaseDuration: leaseLeft(gateway, entry),
       });
       return;
     }
@@ -904,7 +912,7 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
         NewInternalClient: entry.internalClient,
         NewEnabled: 1,
         NewPortMappingDescription: entry.description,
-        NewLeaseDuration: leaseLeft(entry),
+        NewLeaseDuration: leaseLeft(gateway, entry),
       });
       return;
     }
@@ -1167,7 +1175,9 @@ control.post('/upnp-gateway/:ip/capacity', (req, res) => {
 
 // Set how a node's gateway treats a mapping asked for with a lease from now on: refused
 // with `fault` (725 is a router that keeps permanent mappings only; null takes it), or taken
-// and held as permanent when `drops`. Keeps its table and the requests it has seen.
+// and held as permanent when `drops`; a held entry added again left as it is when
+// `keepsHeld`; every lease shown as asked when `staticLeases`. Keeps its table and the
+// requests it has seen.
 control.post('/upnp-gateway/:ip/leases', (req, res) => {
   const gateway = state.upnpGateways[req.params.ip];
   if (!gateway) {
@@ -1176,6 +1186,8 @@ control.post('/upnp-gateway/:ip/leases', (req, res) => {
   }
   gateway.leaseFault = req.body?.fault ?? null;
   gateway.dropsLeases = req.body?.drops === true;
+  gateway.keepsHeld = req.body?.keepsHeld === true;
+  gateway.staticLeases = req.body?.staticLeases === true;
   res.json({ ok: true });
 });
 

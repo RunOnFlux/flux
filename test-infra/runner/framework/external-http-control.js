@@ -276,9 +276,17 @@ export async function setUpnpCapacity(ip, capacity) {
  * @param {number|null} [opts.fault] - the fault it refuses a leased mapping with; 725 is a
  *   router that keeps permanent mappings only. Null takes it.
  * @param {boolean} [opts.drops] - take a leased mapping and hold it as permanent
+ * @param {boolean} [opts.keepsHeld] - answer an add of a held entry and leave the entry as it
+ *   is: its lease is not restarted or changed
+ * @param {boolean} [opts.staticLeases] - show every entry's lease as it was asked for, never
+ *   counting down
  */
-export async function setUpnpLeases(ip, { fault = null, drops = false } = {}) {
-  const res = await post(`/upnp-gateway/${ip}/leases`, { fault, drops });
+export async function setUpnpLeases(ip, {
+  fault = null, drops = false, keepsHeld = false, staticLeases = false,
+} = {}) {
+  const res = await post(`/upnp-gateway/${ip}/leases`, {
+    fault, drops, keepsHeld, staticLeases,
+  });
   if (!res.ok) throw new Error(`setUpnpLeases: ${JSON.stringify(res)}`);
 }
 

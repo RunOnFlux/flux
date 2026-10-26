@@ -117,7 +117,9 @@ describe('a test mapping the node never heard back about ends with its lease', f
     expect(check?.lease, 'the UPnP check\'s mapping').to.equal(LEASE_S);
     const tests = adds(state.requests, 'Flux_Test_App');
     expect(tests.map((r) => r.lease), 'the leases of the port test\'s mappings').to.deep.equal(tests.map(() => LEASE_S));
-    expect(state.mappings.some((m) => m.externalPort === 16127 && m.leaseDuration === 0), 'the node\'s api port mapped with no lease').to.equal(true);
+    // made before the node has learned whether its router renews a lease
+    const [api] = state.requests.filter((r) => r.action === 'AddPortMapping' && r.port === 16127 && Date.parse(r.at) >= startedAt);
+    expect(api?.lease, 'the node\'s api port first mapped with no lease').to.equal(0);
   });
 
   it('leaves a test mapping the router answered too late for to its lease, which ends it', async function () {
