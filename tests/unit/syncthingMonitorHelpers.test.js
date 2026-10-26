@@ -278,6 +278,36 @@ describe('syncthingMonitorHelpers tests', () => {
     });
   });
 
+  describe('isSyncthingDeviceId', () => {
+    // syncthing's documentation example, and a mainnet node's
+    const DOCS_EXAMPLE = 'MFZWI3D-BONSGYC-YLTMRWG-C43ENR5-QXGZDMM-FZWI3DP-BONSGYY-LTMRWAD';
+    const MAINNET = 'OD2POVH-2QWEHYY-AKI6AU2-ZUEQLXY-MTGOIG7-PE57QHU-INYFY5C-QTNOPQ5';
+    const withoutCheckCharacters = (id) => [...id.replace(/-/g, '')].filter((c, i) => i % 14 !== 13).join('');
+
+    it('accepts a device ID as syncthing writes one', () => {
+      expect(helpers.isSyncthingDeviceId(DOCS_EXAMPLE)).to.equal(true);
+      expect(helpers.isSyncthingDeviceId(MAINNET)).to.equal(true);
+    });
+
+    it('accepts one without dashes, in lower case, or without its check characters', () => {
+      expect(helpers.isSyncthingDeviceId(MAINNET.replace(/-/g, ''))).to.equal(true);
+      expect(helpers.isSyncthingDeviceId(MAINNET.toLowerCase())).to.equal(true);
+      expect(helpers.isSyncthingDeviceId(withoutCheckCharacters(MAINNET))).to.equal(true);
+    });
+
+    it('refuses one whose check character does not match its group', () => {
+      [3, 10, 20, 40].forEach((at) => {
+        const changed = `${MAINNET.slice(0, at)}${MAINNET[at] === 'A' ? 'B' : 'A'}${MAINNET.slice(at + 1)}`;
+        expect(helpers.isSyncthingDeviceId(changed), `changed at ${at}`).to.equal(false);
+      });
+    });
+
+    it('refuses anything else', () => {
+      ['PEERSTUB-DEVICE-0000001', '', MAINNET.slice(0, -1), `${MAINNET}A`, MAINNET.replace('O', '0'), null, undefined, 42, {}]
+        .forEach((value) => expect(helpers.isSyncthingDeviceId(value), JSON.stringify(value)).to.equal(false));
+    });
+  });
+
   describe('getDeviceID', () => {
     it('should return device ID on successful response', async () => {
       const axiosStub = sandbox.stub(axios, 'get').resolves({
@@ -342,31 +372,31 @@ describe('syncthingMonitorHelpers tests', () => {
     // The palworld case once the partner has called in: HK's calls to UAE reach
     // its neighbour, but UAE asking HK who it is told HK which device UAE is.
     it('takes the device a partner proved by calling in, when this node\'s own call was answered by another node', async () => {
-      const cache = new Map([['10.0.0.1:16127', 'DEVICE-OF-A-NEIGHBOUR']]);
+      const cache = new Map([['10.0.0.1:16127', 'NEIGHBO-URAAAAG-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA']]);
       verifyPeer.resolves({ verdict: IdentityVerdict.MISROUTED, answeredAs: '10.0.0.9:16147' });
-      introducedPeer.withArgs('10.0.0.1:16127').returns({ socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: 'INTRODUCED-DEVICE' });
+      introducedPeer.withArgs('10.0.0.1:16127').returns({ socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: 'INTRODU-CEDAAAS-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' });
 
-      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', cache)).to.equal('INTRODUCED-DEVICE');
-      expect(cache.get('10.0.0.1:16127')).to.equal('INTRODUCED-DEVICE');
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', cache)).to.equal('INTRODU-CEDAAAS-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA');
+      expect(cache.get('10.0.0.1:16127')).to.equal('INTRODU-CEDAAAS-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA');
       counted('introduced');
     });
 
     it('prefers a partner\'s introduction over an unsigned answer', async () => {
-      introducedPeer.withArgs('10.0.0.1:16127').returns({ socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: 'INTRODUCED-DEVICE' });
-      const unsigned = sandbox.stub(axios, 'get').resolves({ data: { status: 'success', data: 'UNSIGNED-DEVICE' } });
+      introducedPeer.withArgs('10.0.0.1:16127').returns({ socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: 'INTRODU-CEDAAAS-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' });
+      const unsigned = sandbox.stub(axios, 'get').resolves({ data: { status: 'success', data: 'UNSIGNE-DAAAAAG-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' } });
 
-      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map())).to.equal('INTRODUCED-DEVICE');
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map())).to.equal('INTRODU-CEDAAAS-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA');
       sinon.assert.notCalled(unsigned);
     });
 
     it('takes what a peer signs when asked over an older introduction', async () => {
       verifyPeer.resolves({
         verdict: IdentityVerdict.VERIFIED,
-        identity: { socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: 'SIGNED-DEVICE-ID' },
+        identity: { socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: 'SIGNEDA-AAAAAAU-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' },
       });
-      introducedPeer.returns({ socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: 'INTRODUCED-DEVICE' });
+      introducedPeer.returns({ socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: 'INTRODU-CEDAAAS-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' });
 
-      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map())).to.equal('SIGNED-DEVICE-ID');
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map())).to.equal('SIGNEDA-AAAAAAU-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA');
     });
 
     it('ignores an introduction that names no device', async () => {
@@ -377,31 +407,71 @@ describe('syncthingMonitorHelpers tests', () => {
     });
 
     it('takes the device a verified peer signs, over whatever was held for its address', async () => {
-      const cache = new Map([['10.0.0.1:16127', 'DEVICE-OF-A-NEIGHBOUR']]);
+      const cache = new Map([['10.0.0.1:16127', 'NEIGHBO-URAAAAG-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA']]);
       verifyPeer.resolves({
         verdict: IdentityVerdict.VERIFIED,
-        identity: { socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: 'SIGNED-DEVICE-ID' },
+        identity: { socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: 'SIGNEDA-AAAAAAU-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' },
       });
       const unsigned = sandbox.stub(axios, 'get');
 
       const result = await helpers.getDeviceIDCached('10.0.0.1:16127', cache);
 
-      expect(result).to.equal('SIGNED-DEVICE-ID');
-      expect(cache.get('10.0.0.1:16127')).to.equal('SIGNED-DEVICE-ID');
+      expect(result).to.equal('SIGNEDA-AAAAAAU-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA');
+      expect(cache.get('10.0.0.1:16127')).to.equal('SIGNEDA-AAAAAAU-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA');
       sinon.assert.notCalled(unsigned);
       counted('verified');
     });
 
     it('keeps what it held while a verified peer\'s syncthing has not answered yet', async () => {
-      const cache = new Map([['10.0.0.1:16127', 'HELD-DEVICE-ID']]);
+      const cache = new Map([['10.0.0.1:16127', 'HELDAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA']]);
       verifyPeer.resolves({
         verdict: IdentityVerdict.VERIFIED,
         identity: { socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: null },
       });
 
-      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', cache)).to.equal('HELD-DEVICE-ID');
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', cache)).to.equal('HELDAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA');
       counted('verifiedNoDevice');
       expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map())).to.equal(null);
+    });
+
+    describe('a peer that gives something other than a device ID', () => {
+      const CONFIGURED = 'CONFIGU-REDAAAW-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA';
+      const MALFORMED = 'PEERSTUB-DEVICE-0000001';
+
+      it('configures no device for an unsigned answer, keeping the one syncthing has configured', async () => {
+        const cache = new Map();
+        sandbox.stub(axios, 'get').resolves({ data: { status: 'success', data: MALFORMED } });
+
+        expect(await helpers.getDeviceIDCached('10.0.0.1:16127', cache, CONFIGURED)).to.equal(CONFIGURED);
+        expect(cache.has('10.0.0.1:16127')).to.equal(false);
+        counted('malformed');
+      });
+
+      it('configures no device for one a verified peer signs', async () => {
+        verifyPeer.resolves({
+          verdict: IdentityVerdict.VERIFIED,
+          identity: { socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: MALFORMED },
+        });
+
+        expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map())).to.equal(null);
+        counted('malformed');
+      });
+
+      it('configures no device for one a partner introduced', async () => {
+        verifyPeer.resolves({ verdict: IdentityVerdict.MISROUTED, answeredAs: '10.0.0.9:16147' });
+        introducedPeer.returns({ socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: MALFORMED });
+
+        expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map(), CONFIGURED)).to.equal(CONFIGURED);
+        counted('malformed');
+      });
+
+      it('drops a held one, so the next pass asks again', async () => {
+        const cache = new Map([['10.0.0.1:16127', MALFORMED]]);
+
+        expect(await helpers.getDeviceIDCached('10.0.0.1:16127', cache)).to.equal(null);
+        expect(cache.has('10.0.0.1:16127')).to.equal(false);
+        counted('malformed');
+      });
     });
 
     // A listed holder whose FluxOS has stopped answering, asked by a node whose
@@ -410,7 +480,7 @@ describe('syncthingMonitorHelpers tests', () => {
       const cache = new Map();
       sandbox.stub(axios, 'get').rejects(new Error('connect ETIMEDOUT'));
 
-      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', cache, 'CONFIGURED-DEVICE')).to.equal('CONFIGURED-DEVICE');
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', cache, 'CONFIGU-REDAAAW-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA')).to.equal('CONFIGU-REDAAAW-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA');
       expect(cache.has('10.0.0.1:16127'), 'a configured device is asked again on the next pass').to.equal(false);
       counted('configured');
     });
@@ -421,30 +491,30 @@ describe('syncthingMonitorHelpers tests', () => {
         identity: { socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: null },
       });
 
-      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map(), 'CONFIGURED-DEVICE')).to.equal('CONFIGURED-DEVICE');
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map(), 'CONFIGU-REDAAAW-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA')).to.equal('CONFIGU-REDAAAW-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA');
       counted('configured');
     });
 
     it('takes a peer\'s unsigned answer over the device configured under its address', async () => {
-      sandbox.stub(axios, 'get').resolves({ data: { status: 'success', data: 'ANSWERED-DEVICE' } });
+      sandbox.stub(axios, 'get').resolves({ data: { status: 'success', data: 'ANSWERE-DAAAAAW-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' } });
 
-      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map(), 'CONFIGURED-DEVICE')).to.equal('ANSWERED-DEVICE');
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map(), 'CONFIGU-REDAAAW-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA')).to.equal('ANSWERE-DAAAAAW-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA');
       counted('unsigned');
     });
 
     it('configures no device for an address another node answered, whatever is configured under it', async () => {
       verifyPeer.resolves({ verdict: IdentityVerdict.MISROUTED, answeredAs: '10.0.0.9:16147' });
 
-      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map(), 'CONFIGURED-DEVICE')).to.equal(null);
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map(), 'CONFIGU-REDAAAW-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA')).to.equal(null);
       counted('withheld');
     });
 
     // The palworld case: HK held its neighbour's device under UAE's name for five
     // days, and the folder never synced.
     it('configures no device for an address another node answered, and forgets the one it held', async () => {
-      const cache = new Map([['10.0.0.1:16127', 'DEVICE-OF-A-NEIGHBOUR']]);
+      const cache = new Map([['10.0.0.1:16127', 'NEIGHBO-URAAAAG-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA']]);
       verifyPeer.resolves({ verdict: IdentityVerdict.MISROUTED, answeredAs: '10.0.0.9:16147' });
-      const unsigned = sandbox.stub(axios, 'get').resolves({ data: { status: 'success', data: 'DEVICE-OF-A-NEIGHBOUR' } });
+      const unsigned = sandbox.stub(axios, 'get').resolves({ data: { status: 'success', data: 'NEIGHBO-URAAAAG-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' } });
 
       const result = await helpers.getDeviceIDCached('10.0.0.1:16127', cache);
 
@@ -455,32 +525,32 @@ describe('syncthingMonitorHelpers tests', () => {
     });
 
     it('uses what it held when the peer cannot be reached', async () => {
-      const cache = new Map([['10.0.0.1:16127', 'HELD-DEVICE-ID']]);
+      const cache = new Map([['10.0.0.1:16127', 'HELDAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA']]);
       verifyPeer.resolves({ verdict: IdentityVerdict.UNREACHABLE, reason: 'timeout' });
 
-      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', cache)).to.equal('HELD-DEVICE-ID');
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', cache)).to.equal('HELDAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA');
       counted('held');
     });
 
     it('should return cached value if available', async () => {
       const cache = new Map();
-      cache.set('10.0.0.1:16127', 'CACHED-DEVICE-ID');
+      cache.set('10.0.0.1:16127', 'CACHEDA-AAAAAAE-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA');
 
       const result = await helpers.getDeviceIDCached('10.0.0.1:16127', cache);
 
-      expect(result).to.equal('CACHED-DEVICE-ID');
+      expect(result).to.equal('CACHEDA-AAAAAAE-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA');
     });
 
     it('should fetch and cache if not available', async () => {
       const cache = new Map();
       sandbox.stub(axios, 'get').resolves({
-        data: { status: 'success', data: 'NEW-DEVICE-ID' },
+        data: { status: 'success', data: 'NEWDEVI-CEAAAAQ-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' },
       });
 
       const result = await helpers.getDeviceIDCached('10.0.0.1:16127', cache);
 
-      expect(result).to.equal('NEW-DEVICE-ID');
-      expect(cache.get('10.0.0.1:16127')).to.equal('NEW-DEVICE-ID');
+      expect(result).to.equal('NEWDEVI-CEAAAAQ-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA');
+      expect(cache.get('10.0.0.1:16127')).to.equal('NEWDEVI-CEAAAAQ-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA');
       counted('unsigned');
     });
 
@@ -502,24 +572,24 @@ describe('syncthingMonitorHelpers tests', () => {
       sandbox.stub(peerIdentityService, 'introducedPeer').returns(null);
       sandbox.stub(peerIdentityService, 'verifyPeer').resolves({
         verdict: IdentityVerdict.VERIFIED,
-        identity: { socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: 'REAL-DEVICE' },
+        identity: { socketAddress: '10.0.0.1:16127', pubKey: 'PUB', deviceId: 'REALAAA-AAAAAAR-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' },
       });
     });
 
     it('configures the signed device for a peer whose name syncthing holds under another device', async () => {
       const devicesConfiguration = [];
       const devicesIds = [];
-      const allDevices = [{ name: '10.0.0.1:16127', deviceID: 'DEVICE-OF-A-NEIGHBOUR' }];
+      const allDevices = [{ name: '10.0.0.1:16127', deviceID: 'NEIGHBO-URAAAAG-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' }];
 
       const devices = await helpers.buildDeviceConfiguration(
-        [{ ip: '10.0.0.1:16127' }], LOCAL, 'MY-DEVICE', new Map(), devicesConfiguration, devicesIds, allDevices,
+        [{ ip: '10.0.0.1:16127' }], LOCAL, 'MYDEVIC-EAAAAAJ-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA', new Map(), devicesConfiguration, devicesIds, allDevices,
       );
 
-      expect(devices).to.deep.equal([{ deviceID: 'MY-DEVICE' }, { deviceID: 'REAL-DEVICE' }]);
-      expect(devicesConfiguration.map((d) => [d.name, d.deviceID])).to.deep.equal([['10.0.0.1:16127', 'REAL-DEVICE']]);
+      expect(devices).to.deep.equal([{ deviceID: 'MYDEVIC-EAAAAAJ-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' }, { deviceID: 'REALAAA-AAAAAAR-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' }]);
+      expect(devicesConfiguration.map((d) => [d.name, d.deviceID])).to.deep.equal([['10.0.0.1:16127', 'REALAAA-AAAAAAR-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA']]);
       // The stale entry is not among the devices in use, so the sweep of unused
       // devices removes it.
-      expect(devicesIds).to.deep.equal(['REAL-DEVICE']);
+      expect(devicesIds).to.deep.equal(['REALAAA-AAAAAAR-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA']);
     });
 
     describe('a listed peer that gives no device', () => {
@@ -530,27 +600,27 @@ describe('syncthingMonitorHelpers tests', () => {
 
       it('stays in the folder on the device configured under its address', async () => {
         const devicesIds = [];
-        const allDevices = [{ name: '10.0.0.1:16127', deviceID: 'CONFIGURED-DEVICE' }];
+        const allDevices = [{ name: '10.0.0.1:16127', deviceID: 'CONFIGU-REDAAAW-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' }];
 
         const devices = await helpers.buildDeviceConfiguration(
-          [{ ip: '10.0.0.1:16127' }], LOCAL, 'MY-DEVICE', new Map(), [], devicesIds, allDevices,
+          [{ ip: '10.0.0.1:16127' }], LOCAL, 'MYDEVIC-EAAAAAJ-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA', new Map(), [], devicesIds, allDevices,
         );
 
-        expect(devices).to.deep.equal([{ deviceID: 'MY-DEVICE' }, { deviceID: 'CONFIGURED-DEVICE' }]);
-        expect(devicesIds, 'the sweep of unused devices would remove it').to.deep.equal(['CONFIGURED-DEVICE']);
+        expect(devices).to.deep.equal([{ deviceID: 'MYDEVIC-EAAAAAJ-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' }, { deviceID: 'CONFIGU-REDAAAW-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' }]);
+        expect(devicesIds, 'the sweep of unused devices would remove it').to.deep.equal(['CONFIGU-REDAAAW-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA']);
       });
 
       it('leaves the folder while more than one device is configured under its address', async () => {
         const allDevices = [
-          { name: '10.0.0.1:16127', deviceID: 'CONFIGURED-DEVICE' },
-          { name: '10.0.0.1:16127', deviceID: 'DEVICE-OF-A-NEIGHBOUR' },
+          { name: '10.0.0.1:16127', deviceID: 'CONFIGU-REDAAAW-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' },
+          { name: '10.0.0.1:16127', deviceID: 'NEIGHBO-URAAAAG-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' },
         ];
 
         const devices = await helpers.buildDeviceConfiguration(
-          [{ ip: '10.0.0.1:16127' }], LOCAL, 'MY-DEVICE', new Map(), [], [], allDevices,
+          [{ ip: '10.0.0.1:16127' }], LOCAL, 'MYDEVIC-EAAAAAJ-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA', new Map(), [], [], allDevices,
         );
 
-        expect(devices).to.deep.equal([{ deviceID: 'MY-DEVICE' }]);
+        expect(devices).to.deep.equal([{ deviceID: 'MYDEVIC-EAAAAAJ-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' }]);
       });
     });
 
@@ -558,10 +628,10 @@ describe('syncthingMonitorHelpers tests', () => {
       const devicesConfiguration = [];
 
       await helpers.buildDeviceConfiguration(
-        [{ ip: '10.0.0.1:16127' }], LOCAL, 'MY-DEVICE', new Map(), devicesConfiguration, [], [],
+        [{ ip: '10.0.0.1:16127' }], LOCAL, 'MYDEVIC-EAAAAAJ-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA', new Map(), devicesConfiguration, [], [],
       );
 
-      expect(devicesConfiguration.map((d) => d.deviceID)).to.deep.equal(['REAL-DEVICE']);
+      expect(devicesConfiguration.map((d) => d.deviceID)).to.deep.equal(['REALAAA-AAAAAAR-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA']);
       expect(devicesConfiguration[0].autoAcceptFolders, 'an auto-accepted folder takes syncthing\'s default type, sendreceive').to.equal(false);
     });
 
@@ -569,7 +639,7 @@ describe('syncthingMonitorHelpers tests', () => {
       const devicesConfiguration = [];
 
       await helpers.buildDeviceConfiguration(
-        [{ ip: '10.0.0.1:16127' }], LOCAL, 'MY-DEVICE', new Map(), devicesConfiguration, [], [],
+        [{ ip: '10.0.0.1:16127' }], LOCAL, 'MYDEVIC-EAAAAAJ-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA', new Map(), devicesConfiguration, [], [],
       );
 
       expect(devicesConfiguration[0].addresses).to.deep.equal(['tcp://10.0.0.1:16129']);
@@ -577,10 +647,10 @@ describe('syncthingMonitorHelpers tests', () => {
 
     it('adds nothing for a peer syncthing already holds as that device', async () => {
       const devicesConfiguration = [];
-      const allDevices = [{ name: '10.0.0.1:16127', deviceID: 'REAL-DEVICE' }];
+      const allDevices = [{ name: '10.0.0.1:16127', deviceID: 'REALAAA-AAAAAAR-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' }];
 
       await helpers.buildDeviceConfiguration(
-        [{ ip: '10.0.0.1:16127' }], LOCAL, 'MY-DEVICE', new Map(), devicesConfiguration, [], allDevices,
+        [{ ip: '10.0.0.1:16127' }], LOCAL, 'MYDEVIC-EAAAAAJ-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA', new Map(), devicesConfiguration, [], allDevices,
       );
 
       expect(devicesConfiguration).to.deep.equal([]);
@@ -591,10 +661,10 @@ describe('syncthingMonitorHelpers tests', () => {
       const devicesConfiguration = [];
 
       const devices = await helpers.buildDeviceConfiguration(
-        [{ ip: '10.0.0.1:16127' }], LOCAL, 'MY-DEVICE', new Map(), devicesConfiguration, [], [],
+        [{ ip: '10.0.0.1:16127' }], LOCAL, 'MYDEVIC-EAAAAAJ-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA', new Map(), devicesConfiguration, [], [],
       );
 
-      expect(devices).to.deep.equal([{ deviceID: 'MY-DEVICE' }]);
+      expect(devices).to.deep.equal([{ deviceID: 'MYDEVIC-EAAAAAJ-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' }]);
       expect(devicesConfiguration).to.deep.equal([]);
     });
   });
