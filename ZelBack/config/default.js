@@ -149,7 +149,8 @@ module.exports = {
     // (fluxapps.portRestoreIntervalMs) inside one lease.
     longLivedLeaseS: 35 * 60,
     // The lease learnLeaseRenewal tests with: renewed halfway through, looked up
-    // 10 s after it would have ended.
+    // 10 s after it would have ended - before the renewed lease ends only while
+    // half of this is longer than those 10 s.
     renewalTestLeaseS: 60,
   },
   benchmark: {

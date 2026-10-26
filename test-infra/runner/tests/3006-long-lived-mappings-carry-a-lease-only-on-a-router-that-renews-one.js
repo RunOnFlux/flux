@@ -27,7 +27,13 @@ const subnet = getSubnetConfig();
 const API_PORT = 16127;
 const TEST_PORT = API_PORT + 3;
 const APP_PORT = 31006;
-const RENEWAL_TEST_LEASE_S = 10;
+const RENEWAL_TEST_LEASE_S = 30;
+// The renewal test adds its mapping again halfway through the lease and looks it up 10 s
+// after the first lease would have ended, which is before a renewed lease ends only when
+// half the lease is longer than those 10 s.
+if (RENEWAL_TEST_LEASE_S / 2 <= 10) {
+  throw new Error('3006: a renewed lease must outlast the renewal test\'s lookup');
+}
 const LONG_LEASE_S = 35 * 60;
 // A restarted node has bootSyncTimeoutMs to sync its app state before it removes every app
 // it holds; the shared fleet's 30 s would decide that race for the harness, so it is
