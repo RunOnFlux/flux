@@ -46,6 +46,9 @@ const LOCKED = { stopped: true, startRequested: false, force: false };
 const START_REQUESTED = { stopped: true, startRequested: true, force: false };
 const START_REQUESTED_AS_PRIMARY = { ...START_REQUESTED, asPrimary: true };
 
+// The block a give-up pass runs on, and the production period between passes.
+const GIVE_UP_PASS = { height: 3000000, period: 44 };
+
 describe('advancedWorkflows tests', () => {
   afterEach(() => {
     sinon.restore();
@@ -2587,7 +2590,7 @@ describe('advancedWorkflows tests', () => {
       fluxNetworkHelperStub.resolves('192.168.1.5:16127');
       registryManagerStub.resolves([{ name: appName, ip: '192.168.1.5:16127', runningSince: '2026-01-01T00:00:00.000Z' }]);
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
       sinon.assert.calledWith(stopStub, identifier);
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
 
@@ -2637,7 +2640,7 @@ describe('advancedWorkflows tests', () => {
       fluxNetworkHelperStub.resolves('192.168.1.5:16127');
       registryManagerStub.resolves([{ name: appName, ip: '192.168.1.5:16127', runningSince: '2026-01-01T00:00:00.000Z' }]);
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
       sinon.assert.calledWith(stopStub, identifier);
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
 
@@ -8009,7 +8012,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
   beforeEach(() => {
     sinon.stub(generalService, 'checkSynced').resolves(true);
     sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(LOCAL);
-    sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+    sinon.stub(appUninstaller, 'removeAppLocally').resolves(RemovalOutcome.REMOVED);
     sinon.stub(registryManager, 'appLocation');
     sinon.stub(registryManager, 'getApplicationGlobalSpecifications').resolves({ name: 'a', version: 8 });
     sinon.stub(evacuationSafety, 'canSafelyRemoveApp').resolves({ safe: true, reason: 'peer holds it' });
@@ -8323,7 +8326,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
 
       for (let pass = 0; pass < 12; pass += 1) {
         // eslint-disable-next-line no-await-in-loop
-        await advancedWorkflows.checkAndRemoveApplicationInstance();
+        await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
       }
 
       const escalations = logWarn.getCalls()
@@ -8345,7 +8348,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
 
       for (let pass = 0; pass < 12; pass += 1) {
         // eslint-disable-next-line no-await-in-loop
-        await advancedWorkflows.checkAndRemoveApplicationInstance();
+        await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
       }
 
       const escalations = logWarn.getCalls()
@@ -8367,7 +8370,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
       evacuationSafety.canSafelyRemoveApp.resolves({ safe: false, reason: 'no connected peer holds it' });
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       sinon.assert.calledWith(evacuationSafety.canSafelyRemoveApp, 'appone');
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
@@ -8376,7 +8379,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
     it('performs a surplus removal that is safe', async () => {
       registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       sinon.assert.calledWith(appUninstaller.removeAppLocally, 'appone');
     });
@@ -8388,7 +8391,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       // leaves mid-write.
       registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       const { isElectedPrimary } = evacuationSafety.canSafelyRemoveApp.firstCall.args[1];
       expect(isElectedPrimary).to.be.a('function');
@@ -8402,7 +8405,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
     it('gives the safety gate the walk that finds a connected peer holding the data', async () => {
       registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       const { findSyncedPeer } = evacuationSafety.canSafelyRemoveApp.firstCall.args[1];
       expect(findSyncedPeer).to.equal(syncthingFolderStateMachine.findSyncedPeer);
@@ -8419,7 +8422,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       });
       registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       const { isComponentRunningLocally } = evacuationSafety.canSafelyRemoveApp.firstCall.args[1];
       expect(await isComponentRunningLocally('server_appone')).to.equal(true);
@@ -8438,7 +8441,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
         { name: '9.9.9.9:16127', deviceID: 'DEV-STAYING' },
       ]);
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       const { shuttingDownDevices } = evacuationSafety.canSafelyRemoveApp.firstCall.args[1];
       expect([...(await shuttingDownDevices())]).to.deep.equal(['DEV-LEAVING']);
@@ -8452,7 +8455,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       sinon.stub(appQueryService, 'listRunningApps').resolves({ status: 'error', data: 'docker down' });
       registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       const { isComponentRunningLocally } = evacuationSafety.canSafelyRemoveApp.firstCall.args[1];
       expect(await isComponentRunningLocally('anything_atall')).to.equal(true);
@@ -8476,7 +8479,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
 
         for (let pass = 0; pass < 12; pass += 1) {
           // eslint-disable-next-line no-await-in-loop
-          await advancedWorkflows.checkAndRemoveApplicationInstance();
+          await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
         }
 
         const escalations = logWarn.getCalls()
@@ -8503,7 +8506,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
 
         for (let pass = 0; pass < 40; pass += 1) {
           // eslint-disable-next-line no-await-in-loop
-          await advancedWorkflows.checkAndRemoveApplicationInstance();
+          await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
         }
 
         sinon.assert.notCalled(appUninstaller.removeAppLocally);
@@ -8518,17 +8521,17 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
         });
         for (let pass = 0; pass < 11; pass += 1) {
           // eslint-disable-next-line no-await-in-loop
-          await advancedWorkflows.checkAndRemoveApplicationInstance();
+          await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
         }
 
         // One clean pass, then refusals resume: the run is broken, so the next
         // escalation is a fresh twelve rather than the very next pass.
         evacuationSafety.canSafelyRemoveApp.resolves({ safe: true, code: 'STATELESS', reason: 'peer holds it' });
-        await advancedWorkflows.checkAndRemoveApplicationInstance();
+        await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
         evacuationSafety.canSafelyRemoveApp.resolves({
           safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds it',
         });
-        await advancedWorkflows.checkAndRemoveApplicationInstance();
+        await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
         expect(logWarn.getCalls().map((c) => String(c.args[0])).filter((m) => m.includes('passes running')))
           .to.have.lengthOf(0);
@@ -8544,27 +8547,22 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
           safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds it',
         });
 
-        await advancedWorkflows.checkAndRemoveApplicationInstance();
+        await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
         sinon.assert.notCalled(residentialNodeDosService.forgetAppObservation);
       });
     });
 
     it('does not start a pass that removeAppLocally would refuse', async () => {
-      // removeAppLocally refuses when another removal holds the lock, and it
-      // refuses by RETURNING - no throw, no status. So the pass logged "locally
-      // removed", called noteEvacuated, burned the whole departure interval and
-      // discarded the queue wait, for a removal that never happened. They do
-      // collide: explorerService invokes this pass without awaiting it, and two
-      // blocks later awaits expireGlobalApplications, which holds the lock
-      // through a real uninstall.
+      // removeAppLocally refuses while another removal holds the node, so a
+      // pass that would be refused does not start its probes.
       const globalState = require('../../ZelBack/src/services/utils/globalState');
       const previous = globalState.removalInProgress;
       globalState.removalInProgress = true;
       registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
 
       try {
-        await advancedWorkflows.checkAndRemoveApplicationInstance();
+        await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
       } finally {
         globalState.removalInProgress = previous;
       }
@@ -8580,7 +8578,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
 
       try {
-        await advancedWorkflows.checkAndRemoveApplicationInstance();
+        await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
       } finally {
         globalState.installationInProgress = previous;
       }
@@ -8588,12 +8586,57 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
     });
 
+    it('does not record a departure for a removal that was refused', async () => {
+      // A removal or install can take the node while the pass is deciding, and
+      // removeAppLocally then answers BUSY having removed nothing. Recording it
+      // would spend the departure interval on an app this node still holds.
+      const logWarn = sinon.stub(log, 'warn');
+      residentialNodeDosService.isEvacuating.returns(true);
+      registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
+      appUninstaller.removeAppLocally.resolves(RemovalOutcome.BUSY);
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledWith(appUninstaller.removeAppLocally, 'appone');
+      sinon.assert.notCalled(residentialNodeDosService.noteEvacuated);
+      expect(logWarn.getCalls().map((c) => String(c.args[0])).filter((m) => m.includes('locally removed'))).to.be.empty;
+    });
+
+    it('runs one pass at a time', async () => {
+      // The scanner starts the pass without awaiting it, so the next one can be
+      // due while this one is still deciding. Two passes deciding against the
+      // same installed-app list would make two departures.
+      residentialNodeDosService.isEvacuating.returns(true);
+      registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
+      let answerSafety;
+      let reachedSafety;
+      const deciding = new Promise((resolve) => { reachedSafety = resolve; });
+      evacuationSafety.canSafelyRemoveApp.onFirstCall().callsFake(function heldSafetyAnswer() {
+        reachedSafety();
+        return new Promise((resolve) => { answerSafety = resolve; });
+      });
+
+      const first = advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+      await deciding;
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance({ ...GIVE_UP_PASS, height: GIVE_UP_PASS.height + 1 });
+      sinon.assert.calledOnce(evacuationSafety.canSafelyRemoveApp);
+
+      answerSafety({ safe: true, reason: 'peer holds it' });
+      await first;
+      sinon.assert.calledOnce(appUninstaller.removeAppLocally);
+
+      // and the lock is released for the next pass
+      await advancedWorkflows.checkAndRemoveApplicationInstance({ ...GIVE_UP_PASS, height: GIVE_UP_PASS.height + 2 });
+      sinon.assert.calledTwice(evacuationSafety.canSafelyRemoveApp);
+    });
+
     it('refuses an evacuation removal that is not safe, and restarts its observation', async () => {
       residentialNodeDosService.isEvacuating.returns(true);
       registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
       evacuationSafety.canSafelyRemoveApp.resolves({ safe: false, reason: 'no connected peer holds it' });
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
       sinon.assert.calledWith(residentialNodeDosService.forgetAppObservation, 'appone');
@@ -8603,7 +8646,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       residentialNodeDosService.isEvacuating.returns(true);
       registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       sinon.assert.calledWith(appUninstaller.removeAppLocally, 'appone');
       sinon.assert.calledWith(residentialNodeDosService.noteEvacuated, 'appone');
@@ -8612,7 +8655,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
     it('does not record an evacuation when the removal was a surplus', async () => {
       registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       sinon.assert.notCalled(residentialNodeDosService.noteEvacuated);
     });
@@ -8639,7 +8682,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
     });
 
     it('stops the component instead of removing the app', async () => {
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       sinon.assert.calledOnceWithExactly(stopStub, 'server_appone', 'stopped', 'standing down to hand the app back');
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
@@ -8651,7 +8694,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
     it('stops it through the reconciler, never by stopping the container itself', async () => {
       const directStop = sinon.stub(dockerService, 'appDockerStop').resolves();
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       sinon.assert.calledOnce(stopStub);
       sinon.assert.notCalled(directStop);
@@ -8662,7 +8705,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       // noteEvacuated starts the 6h gap before the next app may go. Spending it
       // on a pass that removed nothing would leave the node stood down and then
       // idle for hours before it could finish leaving.
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       sinon.assert.notCalled(residentialNodeDosService.noteEvacuated);
     });
@@ -8670,7 +8713,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
     it('is one action per pass, like a removal', async () => {
       dbHelper.findInDatabase.resolves(installed('appone', 'apptwo', 'appthree'));
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       sinon.assert.calledOnce(stopStub);
     });
@@ -8684,7 +8727,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
         locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL),
       );
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       sinon.assert.notCalled(stopStub);
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
@@ -8704,10 +8747,12 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
         safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds it',
       });
 
-      // The pass that stands down, then the cap's worth of passes that cannot.
-      for (let i = 0; i < 8; i += 1) {
+      // The pass that stands down, then a pass every period until the cap's
+      // blocks have passed.
+      const { height, period } = GIVE_UP_PASS;
+      for (let i = 0; i <= 7; i += 1) {
         // eslint-disable-next-line no-await-in-loop
-        await advancedWorkflows.checkAndRemoveApplicationInstance();
+        await advancedWorkflows.checkAndRemoveApplicationInstance({ height: height + i * period, period });
       }
 
       const gaveUp = logWarn.getCalls()
@@ -8718,9 +8763,11 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
     });
 
-    it('holds the stand-down while it is still within the cap', async () => {
-      // Mutation guard for the test above: if the cap were off by enough to fire
-      // immediately, that test would still pass and this one would not.
+    it('holds the stand-down for the cap\'s blocks, however many passes run in them', async () => {
+      // A late pass can land a block before an on-time one, so passes are not
+      // evenly spaced; the wait is the cap's blocks, not a count of passes. Also
+      // the mutation guard for the test above: a cap that fired early would
+      // still pass that test and not this one.
       const logWarn = sinon.stub(log, 'warn');
       evacuationSafety.canSafelyRemoveApp.onFirstCall().resolves({
         safe: false, code: 'STAND_DOWN_REQUIRED', reason: 'stop first', standDown: ['server_appone'],
@@ -8729,10 +8776,13 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
         safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds it',
       });
 
-      for (let i = 0; i < 3; i += 1) {
+      const { height, period } = GIVE_UP_PASS;
+      await advancedWorkflows.checkAndRemoveApplicationInstance({ height, period });
+      for (let i = 1; i <= 10; i += 1) {
         // eslint-disable-next-line no-await-in-loop
-        await advancedWorkflows.checkAndRemoveApplicationInstance();
+        await advancedWorkflows.checkAndRemoveApplicationInstance({ height: height + i, period });
       }
+      await advancedWorkflows.checkAndRemoveApplicationInstance({ height: height + 6 * period, period });
 
       const gaveUp = logWarn.getCalls()
         .map((c) => String(c.args[0]))
@@ -8745,8 +8795,8 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       // unelectable for something it is running - the worst of both states.
       stopStub.rejects(new Error('lock store unreadable'));
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       sinon.assert.calledTwice(stopStub);
     });
@@ -8766,8 +8816,8 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       actualStub.resolves({ reachable: true, indeterminate: false, running: true });
       const logWarn = sinon.stub(log, 'warn');
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       // Unmarked, so the next pass tries the stop again.
       sinon.assert.calledTwice(stopStub);
@@ -8786,7 +8836,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       residentialNodeDosService.isEvacuating.returns(true);
       registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       sinon.assert.calledOnce(appUninstaller.removeAppLocally);
     });
@@ -8796,7 +8846,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       residentialNodeDosService.isEvacuating.returns(true);
       registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
     });
@@ -8805,7 +8855,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       generalService.checkSynced.resolves(false);
       residentialNodeDosService.isEvacuating.returns(true);
 
-      await advancedWorkflows.checkAndRemoveApplicationInstance();
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
     });

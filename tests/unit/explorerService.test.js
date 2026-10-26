@@ -1109,7 +1109,7 @@ describe('explorerService tests', () => {
       await explorerService.processBlock(blockHeight, isInsightExplorer);
 
       sinon.assert.notCalled(expireGlobalApplicationsStub);
-      sinon.assert.calledOnce(checkAndRemoveApplicationInstanceStub);
+      sinon.assert.calledOnceWithExactly(checkAndRemoveApplicationInstanceStub, { height: blockHeight, period: config.fluxapps.removeFluxAppsPeriod });
       sinon.assert.notCalled(restorePortsSupportStub);
       sinon.assert.calledOnceWithMatch(
         dbStubUpdate,

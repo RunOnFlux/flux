@@ -677,8 +677,9 @@ async function processBlock(blockHeight, isInsightExplorer) {
         if (blockWorkDue('expireGlobalApplications', blockHeight, 2 * speedMultiplier)) {
           await registryManager.expireGlobalApplications();
         }
-        if (blockWorkDue('checkAndRemoveApplicationInstance', blockHeight, config.fluxapps.removeFluxAppsPeriod * speedMultiplier)) {
-          advancedWorkflows.checkAndRemoveApplicationInstance();
+        const giveUpPeriod = config.fluxapps.removeFluxAppsPeriod * speedMultiplier;
+        if (blockWorkDue('checkAndRemoveApplicationInstance', blockHeight, giveUpPeriod)) {
+          advancedWorkflows.checkAndRemoveApplicationInstance({ height: blockHeight, period: giveUpPeriod });
         }
         if (blockWorkDue('reinstallOldApplications', blockHeight, updateFluxAppsPeriod * speedMultiplier)) {
           advancedWorkflows.reinstallOldApplications();

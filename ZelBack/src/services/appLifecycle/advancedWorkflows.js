@@ -60,6 +60,7 @@ const folderStates = require('../appMonitoring/folderStates');
 const appNetworkLinker = require('./appNetworkLinker');
 const { Privilege, authOf } = require('../utils/privileges');
 const { AsyncLock } = require('../utils/asyncLock');
+const { RemovalOutcome } = require('../utils/removalOutcome');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -72,6 +73,12 @@ const isArcane = Boolean(process.env.FLUXOS_PATH);
 // the opposite requirement - it is worthless anywhere but the first line - so
 // the two are separate mechanisms rather than one flag doing both jobs badly.
 const reinstallPassLock = new AsyncLock();
+
+// Held for the whole give-up pass. The block scanner starts the pass without
+// awaiting it, so a pass still running when the next one is due would otherwise
+// run beside it, both deciding against the same installed-app list: two
+// departures, or a second removal refused by the first's lock.
+const giveUpPassLock = new AsyncLock();
 
 // Master/slave app tracking
 const mastersRunningGSyncthingApps = new Map();
@@ -103,7 +110,7 @@ const giveUpRefusals = new Map();
 const REFUSALS_BEFORE_ESCALATING = 12;
 
 // Components this node has stopped in order to hand their app back, mapped to
-// the number of give-up passes since. An evacuating node that is the elected
+// the block height of the pass that stopped them. An evacuating node that is the elected
 // primary cannot leave while it is the one writing to the volume, so it stops
 // writing and asks again next pass, by which time the ordinary election has
 // given the role to a peer.
@@ -116,13 +123,14 @@ const REFUSALS_BEFORE_ESCALATING = 12;
 // mechanism: no new wire state, no negotiation, just this node declining to
 // stand for an office it is trying to leave.
 const standingDown = new Map();
-// Give-up passes a stood-down component may wait before this node gives up on
-// leaving and becomes electable again. The alternative to a cap is an app that
+// Give-up periods a stood-down component may wait before this node gives up on
+// leaving and becomes electable again. Counted in blocks from the height it
+// stood down at, so passes run close together do not shorten the wait. The alternative to a cap is an app that
 // is stopped here AND not running anywhere else, which is worse than the
 // stuck-but-serving state the stand-down exists to fix. On expiry the entry is
 // simply dropped: masterSlaveApps then clears this node's stale primary record
 // and the normal paths restart the component wherever it belongs.
-const STAND_DOWN_PASSES_BEFORE_GIVING_UP = 6;
+const STAND_DOWN_PERIODS_BEFORE_GIVING_UP = 6;
 // Ten election cycles. Derived from the election's own cadence rather than
 // written as its own number, so it stays in the same proportion to the pass
 // that refreshes it at every scale - the harness compresses masterSlaveApps by
@@ -3939,15 +3947,25 @@ async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, 
  * is not read here, or anywhere else - it paced a serviceHelper.delay() inside
  * a loop that removed several apps in one pass, and that sleep held the whole
  * pass open: everything behind it waited, and every decision after it was made
- * against an installed-app list read minutes earlier. The pass is fired
- * unawaited from the block handler and guards nothing itself, so a pass long
- * enough to outlive its own interval could also overlap the next one.
+ * against an installed-app list read minutes earlier. One pass runs at a
+ * time: a pass started while another is running returns at once, and the
+ * scanner asks again on a later block.
+ * @param {object} pass
+ * @param {number} pass.height the block this pass runs on
+ * @param {number} pass.period blocks between passes
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function checkAndRemoveApplicationInstance() {
+async function checkAndRemoveApplicationInstance({ height, period }) {
+  if (giveUpPassLock.locked) {
+    log.info('Give-up-an-app pass skipped: another give-up pass is running');
+    fluxEventBus.publish('giveUp:passSkipped', { height });
+    return;
+  }
+  giveUpPassLock.register();
   // To check if more than allowed instances of application are running
   // check if synced
   try {
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.GIVEUP_BEFORE_PASS);
     const synced = await generalService.checkSynced();
     if (synced !== true) {
       log.info('Application duplication removal paused. Not yet synced');
@@ -3976,22 +3994,11 @@ async function checkAndRemoveApplicationInstance() {
       return;
     }
 
-    // removeAppLocally refuses when another removal or install holds the lock,
-    // and it refuses by returning - no throw, no status, nothing the caller can
-    // read. So a pass that ran into one logged "locally removed", called
-    // noteEvacuated, burned the whole departure interval and discarded the
-    // app's queue wait, for a removal that never happened.
-    //
-    // They do collide: explorerService invokes this pass WITHOUT awaiting it,
-    // so it outlives the block that started it, and two blocks later the same
-    // scanner awaits expireGlobalApplications, which holds removalInProgress
-    // through a real uninstall.
-    //
-    // Checked here rather than by making removeAppLocally report back: the file
-    // it lives in is untouched by this branch, every force=false caller shares
-    // the same refusal, and a pass that knows it would be refused has no reason
-    // to start. The same guard reinstallOldApplications and softRemoveAppLocally
-    // already use.
+    // removeAppLocally refuses while another removal or install holds the node,
+    // so a pass that knows it would be refused has no reason to start. The same
+    // guard reinstallOldApplications and softRemoveAppLocally use. A removal or
+    // install can still begin while the pass is deciding; the removal's outcome
+    // below is what decides whether this pass removed anything.
     if (globalState.removalInProgress) {
       log.info('Give-up-an-app pass skipped: another removal is in progress');
       return;
@@ -4033,28 +4040,25 @@ async function checkAndRemoveApplicationInstance() {
     for (const name of giveUpRefusals.keys()) {
       if (!heldNames.has(name)) giveUpRefusals.delete(name);
     }
-    // Stood-down components age on the pass that would have removed them, so the
-    // cap is counted in the thing that re-asks the question. Two ways out: the
-    // app left by any route, or this node waited out the cap without being able
-    // to leave. The second matters more than it looks - a component stopped here
-    // and running nowhere is a worse state than the one the stand-down exists to
-    // fix, so the node gives up leaving and stands for election again rather
-    // than holding a stopped app indefinitely.
+    // Stood-down components are released by the pass that would have removed
+    // them. Two ways out: the app left by any route, or the cap's blocks have
+    // passed since this node stood down without it being able to leave. The
+    // second matters more than it looks - a component stopped here and running
+    // nowhere is a worse state than the one the stand-down exists to fix, so the
+    // node gives up leaving and stands for election again rather than holding a
+    // stopped app indefinitely.
     // eslint-disable-next-line no-restricted-syntax
-    for (const [identifier, passes] of standingDown) {
+    for (const [identifier, stoodDownAt] of standingDown) {
       const owner = identifier.includes('_') ? identifier.slice(identifier.indexOf('_') + 1) : identifier;
       if (!heldNames.has(owner)) {
         standingDown.delete(identifier);
         // eslint-disable-next-line no-continue
         continue;
       }
-      if (passes >= STAND_DOWN_PASSES_BEFORE_GIVING_UP) {
+      if (height - stoodDownAt > STAND_DOWN_PERIODS_BEFORE_GIVING_UP * period) {
         standingDown.delete(identifier);
-        log.warn(`${identifier} stood down ${passes} passes without being able to leave; standing for election again`);
-        // eslint-disable-next-line no-continue
-        continue;
+        log.warn(`${identifier} stood down ${height - stoodDownAt} blocks without being able to leave; standing for election again`);
       }
-      standingDown.set(identifier, passes + 1);
     }
 
     // eslint-disable-next-line no-restricted-syntax
@@ -4138,7 +4142,7 @@ async function checkAndRemoveApplicationInstance() {
           // component from here on leaves it alone (masterSlaveApps), and unmarked
           // unless it is confirmed stopped: a component this node still runs is
           // one it must stay electable for, and the next pass tries again.
-          standingDown.set(identifier, 0);
+          standingDown.set(identifier, height);
           try {
             // The stop is the reconciler's, the container's only actuator, and
             // returns once its pass has run. The folder keeps sending until the
@@ -4198,7 +4202,11 @@ async function checkAndRemoveApplicationInstance() {
 
       log.warn(`REMOVAL REASON: ${decision.reason} - ${installedApp.name} ${decision.detail}. Safe: ${safety.reason}`);
       // eslint-disable-next-line no-await-in-loop
-      await appUninstaller.removeAppLocally(installedApp.name, null, false, true, true);
+      const outcome = await appUninstaller.removeAppLocally(installedApp.name, null, false, true, true);
+      if (outcome !== RemovalOutcome.REMOVED) {
+        log.warn(`Application ${installedApp.name} not removed (${outcome}); the next pass asks again`);
+        return;
+      }
       log.warn(`Application ${installedApp.name} locally removed`);
       if (decision.reason === 'EVACUATION') {
         residentialNodeDosService.noteEvacuated(installedApp.name);
@@ -4209,6 +4217,8 @@ async function checkAndRemoveApplicationInstance() {
     }
   } catch (error) {
     log.error(error);
+  } finally {
+    giveUpPassLock.disable();
   }
 }
 
