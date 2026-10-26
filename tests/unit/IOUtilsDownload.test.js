@@ -180,6 +180,37 @@ describe('IOUtils downloadFileFromUrl', () => {
     expect(fs.readFileSync(elsewhere, 'utf8')).to.equal('untouched');
   });
 
+  it('asks once, not once per attempt, when the destination is a link', async () => {
+    handler = (req, res) => serve(req, res);
+    fs.writeFileSync(path.join(dir, 'elsewhere'), 'untouched');
+    fs.symlinkSync(path.join(dir, 'elsewhere'), path.join(dir, 'backup_comp.tar.gz'));
+
+    const result = await IOUtils.downloadFileFromUrl(baseUrl, dir, 'COMP', true, fast);
+
+    expect(result).to.equal(false);
+    expect(requests).to.have.length(1);
+    expect(fs.readFileSync(path.join(dir, 'elsewhere'), 'utf8')).to.equal('untouched');
+    // the link is not a file this download made, and stays
+    expect(fs.lstatSync(path.join(dir, 'backup_comp.tar.gz')).isSymbolicLink()).to.equal(true);
+  });
+
+  it('removes nothing through a directory that has become a link when beforeOpen refuses', async () => {
+    handler = (req, res) => serve(req, res);
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), 'fluxdl-target-'));
+    fs.writeFileSync(path.join(target, 'backup_comp.tar.gz'), 'someone else\'s file');
+    const linked = path.join(dir, 'remote');
+    fs.symlinkSync(target, linked);
+
+    const result = await IOUtils.downloadFileFromUrl(baseUrl, linked, 'COMP', true, {
+      ...fast,
+      beforeOpen: async () => { throw new Error('Refused'); },
+    });
+
+    expect(result).to.equal(false);
+    expect(fs.readFileSync(path.join(target, 'backup_comp.tar.gz'), 'utf8')).to.equal('someone else\'s file');
+    fs.rmSync(target, { recursive: true, force: true });
+  });
+
   it('stops without asking again when beforeOpen refuses, and writes nothing', async () => {
     handler = (req, res) => serve(req, res);
     let calls = 0;

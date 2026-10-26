@@ -3200,16 +3200,22 @@ async function appendRestoreTask(req, res) {
         // eslint-disable-next-line no-await-in-loop
         await sendChunk(res, `Downloading ${target.url}...\n`);
         // eslint-disable-next-line no-await-in-loop
+        let refusal = null;
         const downloadStatus = await IOUtils.downloadFileFromUrl(
           target.url,
           `${target.mount}/backup/remote`,
           target.name,
           true,
-          // the owner's server answers when it likes, and the volume is theirs to change until it does
-          { beforeOpen: () => requirePlainDirectories(target.mount, ['appdata', 'backup', 'backup/remote']) },
+          {
+            // the owner's server answers when it likes, and the volume is theirs to change until it does
+            beforeOpen: () => requirePlainDirectories(target.mount, ['appdata', 'backup', 'backup/remote']).catch((error) => {
+              refusal = error;
+              throw error;
+            }),
+          },
         );
         if (downloadStatus !== true) {
-          throw new Error(`Error: Failed to download ${target.url}...`);
+          throw refusal || new Error(`Error: Failed to download ${target.url}...`);
         }
         // This copy is ours, so this task is the one that removes it
         target.downloaded = true;
@@ -3277,6 +3283,12 @@ async function appendRestoreTask(req, res) {
     for (const target of targets) {
       // eslint-disable-next-line no-await-in-loop
       await sendChunk(res, `Restoring ${target.name.toLowerCase()}...\n`);
+      // Nothing is destroyed yet: what the clear and the unpack work on is checked first,
+      // and again once the clear is done
+      // eslint-disable-next-line no-await-in-loop
+      await requirePlainDirectories(target.mount, ['appdata', 'backup', `backup/${type}`]);
+      // eslint-disable-next-line no-await-in-loop
+      await requireRegularFile(target.archivePath);
       // from here the directory is neither copy. A clearing that reports
       // failure may still have removed most of it, so the mark goes on first.
       swapInFlight = target;

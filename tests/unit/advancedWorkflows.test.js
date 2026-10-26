@@ -6015,6 +6015,72 @@ describe('advancedWorkflows tests', () => {
       expect(globalState.backupInProgress).to.not.include(appname);
     });
 
+    describe('a volume that holds a link where a directory or the archive should be', () => {
+      /* eslint-disable global-require */
+      const nodeFs = require('node:fs');
+      const nodeOs = require('node:os');
+      const nodePath = require('node:path');
+      /* eslint-enable global-require */
+      let tmp;
+
+      beforeEach(() => {
+        tmp = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'backuplinks-'));
+        nodeFs.mkdirSync(nodePath.join(tmp, 'elsewhere'));
+        nodeFs.mkdirSync(nodePath.join(tmp, 'appdata'));
+        IOUtils.getVolumeInfo.resolves({ error: null, mounts: [{ mount: tmp }] });
+        sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+          status: { isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000 },
+          reason: 'ok',
+        });
+      });
+
+      afterEach(() => {
+        nodeFs.rmSync(tmp, { recursive: true, force: true });
+      });
+
+      it('writes the archive through a plain volume', async () => {
+        const result = await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+        expect(result).to.equal(true);
+        sinon.assert.calledOnce(IOUtils.createTarGz);
+      });
+
+      it('refuses when backup/local is a link', async () => {
+        nodeFs.mkdirSync(nodePath.join(tmp, 'backup'));
+        nodeFs.symlinkSync(nodePath.join(tmp, 'elsewhere'), nodePath.join(tmp, 'backup', 'local'));
+
+        const result = await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.notCalled(IOUtils.createTarGz);
+        expect(globalState.backupInProgress).to.not.include(appname);
+      });
+
+      it('refuses when appdata is a link', async () => {
+        nodeFs.rmSync(nodePath.join(tmp, 'appdata'), { recursive: true });
+        nodeFs.symlinkSync(nodePath.join(tmp, 'elsewhere'), nodePath.join(tmp, 'appdata'));
+
+        const result = await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.notCalled(IOUtils.createTarGz);
+      });
+
+      it('refuses when the archive it would replace is a link', async () => {
+        nodeFs.mkdirSync(nodePath.join(tmp, 'backup', 'local'), { recursive: true });
+        nodeFs.symlinkSync(
+          nodePath.join(tmp, 'elsewhere', 'target'),
+          nodePath.join(tmp, 'backup', 'local', 'backup_palworld.tar.gz'),
+        );
+
+        const result = await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.notCalled(IOUtils.createTarGz);
+        sinon.assert.notCalled(IOUtils.removeFile);
+      });
+    });
+
     it('lets only one of two concurrent backups of the same app proceed', async () => {
       // Between the old check and its later claim sat auth, a spec fetch and a
       // sync probe per component; two requests could both pass the emptied
@@ -6167,6 +6233,110 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(log, 'info');
       sinon.stub(log, 'warn');
       sinon.stub(log, 'error');
+    });
+
+    // The volume is the owner's to fill, links included. Backup and restore act on it
+    // with the node's privileges, so a link where a directory or an archive should be
+    // is refused rather than followed.
+    describe('a volume that holds a link where a directory should be', () => {
+      /* eslint-disable global-require */
+      const nodeFs = require('node:fs');
+      const nodeOs = require('node:os');
+      const nodePath = require('node:path');
+      /* eslint-enable global-require */
+      let tmp;
+
+      const said = (res) => res.write.getCalls().map((c) => c.args[0]).join(' ');
+
+      beforeEach(() => {
+        tmp = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'restorelinks-'));
+        nodeFs.mkdirSync(nodePath.join(tmp, 'elsewhere'));
+        IOUtils.getVolumeInfo.resolves({ error: null, mounts: [{ mount: tmp, available: 100 * 1024 * 1024 * 1024 }] });
+      });
+
+      afterEach(() => {
+        nodeFs.rmSync(tmp, { recursive: true, force: true });
+      });
+
+      it('refuses when appdata is a link, before anything is cleared or unpacked', async () => {
+        nodeFs.symlinkSync(nodePath.join(tmp, 'elsewhere'), nodePath.join(tmp, 'appdata'));
+        const res = makeRes();
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq({ type: 'upload' }), res);
+
+        expect(result).to.equal(false);
+        expect(said(res)).to.include('appdata in the volume is not a plain directory');
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+        sinon.assert.notCalled(IOUtils.untarFile);
+      });
+
+      it('refuses when backup/remote is a link, before it is cleared or written to', async () => {
+        nodeFs.mkdirSync(nodePath.join(tmp, 'backup'));
+        nodeFs.symlinkSync(nodePath.join(tmp, 'elsewhere'), nodePath.join(tmp, 'backup', 'remote'));
+        const res = makeRes();
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        expect(result).to.equal(false);
+        expect(said(res)).to.include('backup/remote in the volume is not a plain directory');
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+        sinon.assert.notCalled(IOUtils.downloadFileFromUrl);
+        sinon.assert.notCalled(IOUtils.untarFile);
+      });
+
+      it('refuses when the archive is a link', async () => {
+        nodeFs.mkdirSync(nodePath.join(tmp, 'backup', 'upload'), { recursive: true });
+        nodeFs.writeFileSync(nodePath.join(tmp, 'elsewhere', 'other.tar.gz'), 'x');
+        nodeFs.symlinkSync(
+          nodePath.join(tmp, 'elsewhere', 'other.tar.gz'),
+          nodePath.join(tmp, 'backup', 'upload', 'backup_palworld.tar.gz'),
+        );
+        const res = makeRes();
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq({ type: 'upload' }), res);
+
+        expect(result).to.equal(false);
+        expect(said(res)).to.include('the backup archive is not a regular file');
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+        sinon.assert.notCalled(IOUtils.untarFile);
+      });
+
+      it('says why when backup/remote turns into a link while the download waits for the server', async () => {
+        nodeFs.mkdirSync(nodePath.join(tmp, 'backup', 'remote'), { recursive: true });
+        IOUtils.downloadFileFromUrl.callsFake(async (url, dir, name, rename, options) => {
+          nodeFs.rmSync(nodePath.join(tmp, 'backup', 'remote'), { recursive: true });
+          nodeFs.symlinkSync(nodePath.join(tmp, 'elsewhere'), nodePath.join(tmp, 'backup', 'remote'));
+          await options.beforeOpen();
+          return true;
+        });
+        const res = makeRes();
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        expect(result).to.equal(false);
+        expect(said(res)).to.include('backup/remote in the volume is not a plain directory');
+        sinon.assert.notCalled(IOUtils.untarFile);
+      });
+
+      it('refuses, and holds the app stopped, when appdata turns into a link while it is being cleared', async () => {
+        nodeFs.mkdirSync(nodePath.join(tmp, 'appdata'));
+        nodeFs.mkdirSync(nodePath.join(tmp, 'backup', 'upload'), { recursive: true });
+        nodeFs.writeFileSync(nodePath.join(tmp, 'backup', 'upload', 'backup_palworld.tar.gz'), 'x');
+        IOUtils.removeDirectory.callsFake(async () => {
+          nodeFs.rmSync(nodePath.join(tmp, 'appdata'), { recursive: true });
+          nodeFs.symlinkSync(nodePath.join(tmp, 'elsewhere'), nodePath.join(tmp, 'appdata'));
+          return true;
+        });
+        const res = makeRes();
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq({ type: 'upload' }), res);
+
+        expect(result).to.equal(false);
+        expect(said(res)).to.include('appdata in the volume is not a plain directory');
+        sinon.assert.notCalled(IOUtils.untarFile);
+        // the clear had begun: it is handled as any failure after it
+        sinon.assert.calledWith(appReconciler.setControllerDesired, folderId, 'stopped', 'restore did not complete');
+      });
     });
 
     describe('input validation', () => {
