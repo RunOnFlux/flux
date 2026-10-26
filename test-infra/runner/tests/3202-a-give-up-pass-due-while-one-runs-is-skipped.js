@@ -66,7 +66,12 @@ describe('a give-up pass due while one is running is skipped', function () {
 
     const afterFirst = node.getLastEventId();
     secondDue = await advanceToNextPass(node, afterFirst, 'the next give-up pass falls due');
-    skipped = (await node.waitForEvent('giveUp:passSkipped', (d) => d.height === secondDue, 60000, { afterId: afterFirst })).data;
+    // Skipped, or run beside the held pass and paused at the same checkpoint.
+    await waitFor(
+      () => eventsAfter(node, afterFirst, 'giveUp:passSkipped').length > 0 || heldPasses(node, afterFirst).length > 0,
+      { timeout: 60000, interval: 1000, label: 'the pass due while one runs is skipped or starts' },
+    );
+    skipped = eventsAfter(node, afterFirst, 'giveUp:passSkipped').map((e) => e.data);
     heldWhileFirstRan = heldPasses(node, from);
 
     // Released, the held pass finishes. Held again, the next pass due must reach the checkpoint:
@@ -86,8 +91,8 @@ describe('a give-up pass due while one is running is skipped', function () {
 
   it('the pass due while one was running was skipped, not run beside it', function () {
     expect(secondDue, JSON.stringify({ firstDue, secondDue })).to.be.above(firstDue);
-    expect(skipped).to.deep.equal({ height: secondDue });
-    expect(heldWhileFirstRan, JSON.stringify(heldWhileFirstRan)).to.have.lengthOf(1);
+    expect(heldWhileFirstRan, 'passes paused inside the pass at once').to.have.lengthOf(1);
+    expect(skipped).to.deep.equal([{ height: secondDue }]);
   });
 
   it('once the running pass finished, the next pass due ran', function () {
