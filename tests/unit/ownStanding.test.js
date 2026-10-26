@@ -284,6 +284,8 @@ describe('fluxNetworkHelper own standing tests', () => {
       const records = dbHelper.databaseConnection().db(config.database.local.database).collection(config.database.local.collections.ownAddress);
       await records.deleteMany({});
       await records.insertOne({ _id: 'own', socketAddress: OWN, movedFrom: null, ipChangeHold: { fromHeight: 1000 } });
+      // a daemon synced at `at` that has just reported it
+      sinon.stub(daemonServiceMiscRpcs, 'getLastSuccessfulRpcCall').callsFake(() => Date.now());
       const chainAt = (at) => daemonServiceMiscRpcs.isDaemonSynced.returns({ data: { synced: true, height: at, header: at } });
       chainAt(3399);
       try {
