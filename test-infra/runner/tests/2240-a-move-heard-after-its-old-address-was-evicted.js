@@ -18,8 +18,11 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // its peers hear the move. Each peer's node status check then finds nothing
 // listed at the address it left, nothing answering there, and evicts it: the
 // rows there go. The move, made before that eviction, is still the node's own:
-// the apprunning it signed from the address it left is in its peers' app state
-// events, so they hold the move with the time the node recorded.
+// the chain moved the node from the address it left, so its peers hold the move
+// with the time the node recorded.
+//
+// The node notices its new address first and the chain lists it there after,
+// as on mainnet, where the chain lists a node only once it has confirmed there.
 //
 // Node 0 moves; nodes 1 and 2 hear it.
 const MOVER = 0;
@@ -100,7 +103,7 @@ describe('a move heard after its old address was evicted', function () {
     const heldAnchor = node.getLastEventId();
 
     // The stub is told first: it knows the node by its listed address.
-    await setNodeAddress(fromIp, toIp, { scope: 'all' });
+    await setNodeAddress(fromIp, toIp, { scope: 'benchmark' });
     moved = fromIp;
     await moveNodeAddress(node.container, toIp, fromIp);
     await node.followTo(toIp);
@@ -108,6 +111,7 @@ describe('a move heard after its old address was evicted', function () {
     await node.waitForEvent('checkpoint:held', (d) => d.name === BEFORE_RECONCILE && d.key === newSocket, DETECTION_MS, { afterId: heldAnchor });
     const recorded = await dbClient(MOVER + 1).ownAddressRecord();
     expect([recorded?.movedFrom, recorded?.socketAddress], 'fixture: the node recorded its move').to.deep.equal([oldSocket, newSocket]);
+    await setNodeAddress(fromIp, toIp, { scope: 'all' });
 
     // eslint-disable-next-line no-restricted-syntax
     for (const j of peers) {
