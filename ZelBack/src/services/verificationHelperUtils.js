@@ -120,7 +120,7 @@ async function verifyUserSession(zelidauth) {
     const timestamp = Date.now();
     const message = auth.loginPhrase;
     const maxHours = 16 * 60 * 60 * 1000;
-    if (Number(message.substring(0, 13)) < (timestamp - maxHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
+    if (!/^\d{13}$/.test(message.substring(0, 13)) || Number(message.substring(0, 13)) < (timestamp - maxHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
       return false;
     }
   }
@@ -234,7 +234,7 @@ async function verifyAppOwnerSession(zelidauth, appName) {
     const timestamp = Date.now();
     const message = auth.loginPhrase;
     const twoHours = 2 * 60 * 60 * 1000;
-    if (Number(message.substring(0, 13)) < (timestamp - twoHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
+    if (!/^\d{13}$/.test(message.substring(0, 13)) || Number(message.substring(0, 13)) < (timestamp - twoHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
       return false;
     }
   }
@@ -307,7 +307,7 @@ async function verifyAppOwnerOrFluxTeamSession(zelidauth, appName) {
     const timestamp = Date.now();
     const message = auth.loginPhrase;
     const maxHours = 2 * 60 * 60 * 1000;
-    if (Number(message.substring(0, 13)) < (timestamp - maxHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
+    if (!/^\d{13}$/.test(message.substring(0, 13)) || Number(message.substring(0, 13)) < (timestamp - maxHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
       return false;
     }
   }

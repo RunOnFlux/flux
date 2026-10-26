@@ -310,6 +310,21 @@ describe('verificationHelperUtils tests', () => {
       expect(isLoggedUser).to.be.true;
     });
 
+    it('should return false if the message does not start with a 13 digit timestamp, however validly it is signed', async () => {
+      const headers = {
+        zelidauth: {
+          zelid: rndZelid,
+          loginPhrase: 'abcdefghijklmcl4joxxaevbx93gwhegqj1fqsubhb9tsg9s3hjkbuk8',
+          signature: '',
+        },
+      };
+      headers.zelidauth.signature = signMessage(headers.zelidauth.loginPhrase, rndPrivKey);
+
+      const isLoggedUser = await verificationHelperUtils.verifyUserSession(headers.zelidauth);
+
+      expect(isLoggedUser).to.be.false;
+    });
+
     it('should return false if signature is older than 16 hours', async () => {
       const headers = {
         zelidauth: {
