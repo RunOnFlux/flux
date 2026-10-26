@@ -91,16 +91,15 @@ describe('a fresh install takes no data until its folder is cleared', function (
     await installOnNodes(env, app, [A]);
     await client(A).waitForEvent('checkpoint:held', (d) => d.name === BEFORE_DATA_CLEAR && d.key === identifier, 300000, { afterId: from });
 
-    let watchedMs = 0;
+    // What arrives is the claim: a copy landing now is cleared with the rest.
     const heldFrom = Date.now();
     await waitHolding(async () => {
-      const config = await getFolderConfig(client(A), folder);
-      expect(config, 'fixture: syncthing was given the folder').to.not.equal(null);
-      expect(config.paused, 'the folder while its clear is owed').to.equal(true);
       expect(await filesOn(A), 'what reached the folder while its clear is owed').to.deep.equal([]);
-      watchedMs = Date.now() - heldFrom;
-      return watchedMs >= HELD_MS;
+      return Date.now() - heldFrom >= HELD_MS;
     }, { timeout: HELD_MS + 120000, interval: 2000, label: `the clear held for ${HELD_MS / 1000}s` });
+    const config = await getFolderConfig(client(A), folder);
+    expect(config, 'fixture: syncthing was given the folder').to.not.equal(null);
+    expect(config.paused, 'the folder while its clear is owed').to.equal(true);
   });
 
   it('takes the primary\'s file once the clear is done, and keeps it', async function () {
