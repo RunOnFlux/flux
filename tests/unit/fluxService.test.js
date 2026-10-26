@@ -3070,6 +3070,19 @@ describe('fluxService tests', () => {
       sinon.assert.calledOnce(res.end);
     });
 
+    for (const containerAddress of ['172.17.0.2', '172.23.5.9', '::ffff:172.23.0.3']) {
+      it(`should return 403 if the request comes from an app container's address ${containerAddress}`, async () => {
+        const res = generateResponse();
+        const req = { socket: { remoteAddress: containerAddress } };
+
+        await fluxService.streamChain(req, res);
+
+        expect(res.statusMessage).to.equal('Request must be from an address on the same private network as the host.');
+        sinon.assert.calledWithExactly(res.status, 403);
+        sinon.assert.calledOnce(res.end);
+      });
+    }
+
     it('should return 500 if any chain folders are missing', async () => {
       const res = generateResponse();
       const req = { socket: { remoteAddress: '10.20.30.40' } };

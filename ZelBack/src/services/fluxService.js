@@ -1898,6 +1898,18 @@ async function restartFluxOS(req, res) {
 }
 
 /**
+ * Whether an address is on a docker network an app container can be on: the
+ * default bridge or a flux app network. A container reaching the host arrives on
+ * INPUT with its bridge address, which is private, so it must be told apart from
+ * a machine on the host's own network.
+ * @param {string} ip IPv4 address.
+ * @returns {boolean}
+ */
+function isContainerAddress(ip) {
+  return serviceHelper.ipInSubnet(ip, '172.17.0.0/16') || serviceHelper.ipInSubnet(ip, '172.23.0.0/16');
+}
+
+/**
  * Helper function to safely set response status
  * @param {Response} res HTTP response
  * @param {number} status HTTP status code
@@ -1945,7 +1957,7 @@ async function streamChainPreparation(req, res) {
     // convert from IPv4-mapped IPv6 address format to straight IPv4 (from socket)
     ip = ip.replace(/^.*:/, ''); // this is greedy, so will remove ::ffff:
 
-    if (!serviceHelper.isPrivateAddress(ip)) {
+    if (!serviceHelper.isPrivateAddress(ip) || isContainerAddress(ip)) {
       safeSetResponseStatus(res, 403, 'Request must be from an address on the same private network as the host.');
       return;
     }
@@ -2123,7 +2135,7 @@ async function streamChain(req, res) {
     // convert from IPv4-mapped IPv6 address format to straight IPv4 (from socket)
     ip = ip.replace(/^.*:/, ''); // this is greedy, so will remove ::ffff:
 
-    if (!serviceHelper.isPrivateAddress(ip)) {
+    if (!serviceHelper.isPrivateAddress(ip) || isContainerAddress(ip)) {
       safeSetResponseStatus(res, 403, 'Request must be from an address on the same private network as the host.');
       return;
     }
