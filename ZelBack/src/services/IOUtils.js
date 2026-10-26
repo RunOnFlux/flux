@@ -440,6 +440,17 @@ function idleGuard(idleMs) {
  * @param {string} filepath
  * @returns {Promise<number>}
  */
+/**
+ * Removes a partial download, and only a regular file: a path that has turned
+ * into a link is not a file this download made.
+ * @param {string} filepath Where the download was written.
+ * @returns {Promise<void>}
+ */
+async function removePartial(filepath) {
+  const stats = await fs.lstat(filepath).catch(() => null);
+  if (stats && stats.isFile()) await fs.rm(filepath, { force: true });
+}
+
 async function sizeOnDisk(filepath) {
   try {
     const stats = await fs.stat(filepath);
@@ -477,6 +488,7 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
     beforeOpen = null,
   } = options;
   let filepath = null;
+  let refused = false;
   // The validator of the copy on disk, sent back as If-Range so a file that
   // changed between attempts is sent whole instead of spliced onto the old one.
   let validator = null;
@@ -519,6 +531,7 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
         } catch (error) {
           // a refusal is final: asking the server again would not change it
           error.refused = true;
+          response.data.destroy();
           throw error;
         }
       }
@@ -545,7 +558,7 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
         response.data.destroy();
         // a 206 for some other range would come back the same way every time
         // eslint-disable-next-line no-await-in-loop
-        if (response.status === 206) await fs.rm(filepath, { force: true });
+        if (response.status === 206) await removePartial(filepath);
         throw new Error(`unexpected status ${response.status} for a download from ${offset} bytes`);
       }
       if (offset > 0) {
@@ -572,11 +585,14 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
       // prefix of it), so the next attempt starts over from nothing.
       if (status === 416 && filepath) {
         // eslint-disable-next-line no-await-in-loop
-        await fs.rm(filepath, { force: true });
+        await removePartial(filepath);
       }
       // Any other 4xx is the server's final answer (gone, forbidden), not a
       // network failure, and asking again only keeps the app stopped longer.
-      const final = err?.refused || (status >= 400 && status < 500 && ![408, 416, 429].includes(status));
+      // A link (or a directory) where the file goes is as final: the next attempt finds the same.
+      const refusal = err?.refused || ['ELOOP', 'EISDIR', 'ENOTDIR'].includes(err?.code);
+      if (err?.refused) refused = true;
+      const final = refusal || (status >= 400 && status < 500 && ![408, 416, 429].includes(status));
       if (final) break;
       if (attempt < maxAttempts) {
         // eslint-disable-next-line no-await-in-loop
@@ -586,7 +602,8 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
   }
   // A partial archive is no use to anyone, and on a game server it can be
   // gigabytes of the app's own volume until the next restore clears it.
-  if (filepath) await fs.rm(filepath, { force: true }).catch(() => {});
+  // (not after a refusal: the path is the one the refusal was about, and leaves it be)
+  if (filepath && !refused) await removePartial(filepath).catch(() => {});
   return false;
 }
 
