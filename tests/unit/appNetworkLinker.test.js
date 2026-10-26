@@ -175,6 +175,18 @@ describe('appNetworkLinker tests', () => {
       expect(dockerServiceStub.appDockerNetworkConnect.calledWith('fluxweb_appC')).to.equal(false);
     });
 
+    it('does not reconnect an app owned by someone other than the owner of the given app', async () => {
+      dbHelperStub.findInDatabase.resolves([
+        { name: 'appA', owner: 'owner1' },
+        { name: 'appB', owner: 'owner2', description: 'networkWith:[appA]' },
+      ]);
+      dockerServiceStub.getAppContainerNames.withArgs('appB').resolves(['fluxweb_appB']);
+
+      await appNetworkLinker.reconnectLinkedApps('appA');
+
+      sinon.assert.notCalled(dockerServiceStub.appDockerNetworkConnect);
+    });
+
     it('does not throw when the database read fails, and reconnects once a later read succeeds', async () => {
       const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
       dbHelperStub.findInDatabase.rejects(new Error('db down'));
@@ -211,6 +223,22 @@ describe('appNetworkLinker tests', () => {
       });
 
       expect(result).to.eql({ linkedAppName: 'appA', collectorComponentName: 'logsink' });
+    });
+
+    it('skips a linked app another owner holds', async () => {
+      registryManagerStub.getApplicationSpecifications.withArgs('appA').resolves({
+        name: 'appA',
+        owner: 'owner1',
+        compose: [{ name: 'logsink', environmentParameters: ['LOG=COLLECT'] }],
+      });
+
+      const result = await appNetworkLinker.findLinkedAppLogCollector({
+        name: 'appB',
+        owner: 'owner2',
+        description: 'networkWith:[appA]',
+      });
+
+      expect(result).to.equal(null);
     });
 
     it('accepts the legacy enviromentParameters (typo) field', async () => {
@@ -275,14 +303,38 @@ describe('appNetworkLinker tests', () => {
   describe('reconcileAllAppNetworkLinks', () => {
     it('connects every linked app to each of its linked app networks', async () => {
       dbHelperStub.findInDatabase.resolves([
-        { name: 'appB', description: 'networkWith:[appA]' },
-        { name: 'appC', description: 'plain' },
+        { name: 'appA', owner: 'owner1' },
+        { name: 'appB', owner: 'owner1', description: 'networkWith:[appA]' },
+        { name: 'appC', owner: 'owner1', description: 'plain' },
       ]);
       dockerServiceStub.getAppContainerNames.withArgs('appB').resolves(['fluxweb_appB']);
 
       await appNetworkLinker.reconcileAllAppNetworkLinks();
 
       sinon.assert.calledWith(dockerServiceStub.appDockerNetworkConnect, 'fluxweb_appB', 'fluxDockerNetwork_appA');
+    });
+
+    it('does not connect an app to the network of an app another owner holds', async () => {
+      dbHelperStub.findInDatabase.resolves([
+        { name: 'appA', owner: 'owner1' },
+        { name: 'appB', owner: 'owner2', description: 'networkWith:[appA]' },
+      ]);
+      dockerServiceStub.getAppContainerNames.withArgs('appB').resolves(['fluxweb_appB']);
+
+      await appNetworkLinker.reconcileAllAppNetworkLinks();
+
+      sinon.assert.notCalled(dockerServiceStub.appDockerNetworkConnect);
+    });
+
+    it('does not connect an app to the network of an app that is not installed', async () => {
+      dbHelperStub.findInDatabase.resolves([
+        { name: 'appB', owner: 'owner1', description: 'networkWith:[appA]' },
+      ]);
+      dockerServiceStub.getAppContainerNames.withArgs('appB').resolves(['fluxweb_appB']);
+
+      await appNetworkLinker.reconcileAllAppNetworkLinks();
+
+      sinon.assert.notCalled(dockerServiceStub.appDockerNetworkConnect);
     });
 
     it('does not throw when the database read fails, and retries with a growing delay until a read succeeds', async () => {
@@ -295,7 +347,7 @@ describe('appNetworkLinker tests', () => {
       await clock.tickAsync(30 * 1000);
       expect(dbHelperStub.findInDatabase.callCount, 'the second retry waits 60 s').to.equal(2);
 
-      dbHelperStub.findInDatabase.resolves([{ name: 'appB', description: 'networkWith:[appA]' }]);
+      dbHelperStub.findInDatabase.resolves([{ name: 'appA' }, { name: 'appB', description: 'networkWith:[appA]' }]);
       dockerServiceStub.getAppContainerNames.withArgs('appB').resolves(['fluxweb_appB']);
       await clock.tickAsync(30 * 1000);
 
