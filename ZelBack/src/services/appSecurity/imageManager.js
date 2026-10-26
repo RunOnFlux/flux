@@ -13,6 +13,7 @@ const { supportedArchitectures, globalAppsMessages, globalAppsInformation } = re
 const fluxCaching = require('../utils/cacheManager').default;
 const { Privilege, authOf } = require('../utils/privileges');
 const { RemovalOutcome } = require('../utils/removalOutcome');
+const bodyLimit = require('../utils/bodyLimit');
 
 /**
  * Classify error type and determine appropriate cache TTL
@@ -461,6 +462,7 @@ async function checkDockerAccessibility(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     try {

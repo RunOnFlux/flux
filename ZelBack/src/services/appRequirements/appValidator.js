@@ -20,6 +20,7 @@ const { verifyAppNameAndOwner } = require('../utils/appIdentity');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
 const enterpriseConfig = require('../utils/enterpriseConfig');
 const portManager = require('../appNetwork/portManager');
+const bodyLimit = require('../utils/bodyLimit');
 
 /**
  * Verify type correctness of application specification
@@ -1488,6 +1489,7 @@ async function verifyAppRegistrationParameters(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     try {
@@ -1647,6 +1649,7 @@ async function verifyAppUpdateApi(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     try {

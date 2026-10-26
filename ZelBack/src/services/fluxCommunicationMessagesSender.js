@@ -11,6 +11,7 @@ const { serialiseAndSignFluxBroadcast, getFluxMessageSignature } = require('./ut
 const fluxEventBus = require('./utils/fluxEventBus');
 const globalState = require('./utils/globalState');
 const { Privilege, authOf } = require('./utils/privileges');
+const bodyLimit = require('./utils/bodyLimit');
 
 const myMessageCache = cacheManager.tempMessageCache;
 
@@ -374,6 +375,7 @@ async function broadcastMessageFromUserPost(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     try {

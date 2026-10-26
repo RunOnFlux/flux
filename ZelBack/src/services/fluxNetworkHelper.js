@@ -32,6 +32,7 @@ const { UDP_PROBE_MAGIC, UDP_PROBE_BYTES } = require('./utils/fluxUdpTestServer'
 const {
   normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch, parseSocketAddress, ipsMatch,
 } = require('./utils/socketAddressUtils');
+const bodyLimit = require('./utils/bodyLimit');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -705,6 +706,7 @@ async function checkAppAvailability(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     try {

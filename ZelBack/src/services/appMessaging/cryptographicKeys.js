@@ -7,6 +7,7 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const log = require('../../lib/log');
 const { Privilege, authOf } = require('../utils/privileges');
 const { verifyAppNameAndOwner } = require('../utils/appIdentity');
+const bodyLimit = require('../utils/bodyLimit');
 
 // Check if running on Arcane OS
 const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -53,6 +54,7 @@ async function getPublicKey(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     try {
