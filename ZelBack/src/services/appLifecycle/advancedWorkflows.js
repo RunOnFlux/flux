@@ -41,6 +41,7 @@ const { compareInstanceSeniority } = require('../utils/instanceOrdering');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { verifyEncryptedSpec } = require('../utils/enterpriseSpec');
 const volumeService = require('../utils/volumeService');
+const { requirePlainDirectories, requireRegularFile } = require('../utils/plainPaths');
 const mountParser = require('../utils/mountParser');
 const appReconciler = require('../appMonitoring/appReconciler');
 const syncthingFolderWrites = require('../appMonitoring/syncthingFolderWrites');
@@ -68,6 +69,7 @@ const { AsyncLock } = require('../utils/asyncLock');
 const unpaidAdmission = require('../appMessaging/unpaidAdmission');
 const admissionQuorum = require('../appMessaging/admissionQuorum');
 const { RemovalOutcome } = require('../utils/removalOutcome');
+const bodyLimit = require('../utils/bodyLimit');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -2931,6 +2933,10 @@ async function appendBackupTask(req, res) {
           const targetPath = `${mounts[0].mount}/appdata`;
           const tarGzPath = `${mounts[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`;
           // eslint-disable-next-line no-await-in-loop
+          await requirePlainDirectories(mounts[0].mount, ['appdata', 'backup', 'backup/local']);
+          // eslint-disable-next-line no-await-in-loop
+          await requireRegularFile(tarGzPath);
+          // eslint-disable-next-line no-await-in-loop
           const existStatus = await IOUtils.checkFileExists(`${mounts[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
           if (existStatus === true) {
             // eslint-disable-next-line no-await-in-loop
@@ -2940,6 +2946,10 @@ async function appendBackupTask(req, res) {
           }
           // eslint-disable-next-line no-await-in-loop
           await sendChunk(res, `Creating backup archive for ${component.component.toLowerCase()}...\n`);
+          // eslint-disable-next-line no-await-in-loop
+          await requirePlainDirectories(mounts[0].mount, ['appdata', 'backup', 'backup/local']);
+          // eslint-disable-next-line no-await-in-loop
+          await requireRegularFile(tarGzPath);
           // eslint-disable-next-line no-await-in-loop
           const tarStatus = await IOUtils.createTarGz(targetPath, tarGzPath);
           if (tarStatus.status === false) {
@@ -3177,6 +3187,8 @@ async function appendRestoreTask(req, res) {
       target.mount = mounts[0].mount;
       target.appDataPath = `${mounts[0].mount}/appdata`;
       target.archivePath = `${mounts[0].mount}/backup/${type}/backup_${target.name.toLowerCase()}.tar.gz`;
+      // eslint-disable-next-line no-await-in-loop
+      await requirePlainDirectories(target.mount, ['appdata', 'backup', `backup/${type}`]);
     }
 
     if (type === 'remote') {
@@ -3186,11 +3198,20 @@ async function appendRestoreTask(req, res) {
           throw new Error(`Refused: no url given for ${target.name}`);
         }
         // eslint-disable-next-line no-await-in-loop
+        await requirePlainDirectories(target.mount, ['appdata', 'backup', 'backup/remote']);
+        // eslint-disable-next-line no-await-in-loop
         await IOUtils.removeDirectory(`${target.mount}/backup/remote`, true);
         // eslint-disable-next-line no-await-in-loop
         await sendChunk(res, `Downloading ${target.url}...\n`);
         // eslint-disable-next-line no-await-in-loop
-        const downloadStatus = await IOUtils.downloadFileFromUrl(target.url, `${target.mount}/backup/remote`, target.name, true);
+        const downloadStatus = await IOUtils.downloadFileFromUrl(
+          target.url,
+          `${target.mount}/backup/remote`,
+          target.name,
+          true,
+          // the owner's server answers when it likes, and the volume is theirs to change until it does
+          { beforeOpen: () => requirePlainDirectories(target.mount, ['appdata', 'backup', 'backup/remote']) },
+        );
         if (downloadStatus !== true) {
           throw new Error(`Error: Failed to download ${target.url}...`);
         }
@@ -3215,6 +3236,8 @@ async function appendRestoreTask(req, res) {
     // check below needs, and the compressed size cannot supply it.
     // eslint-disable-next-line no-restricted-syntax
     for (const target of targets) {
+      // eslint-disable-next-line no-await-in-loop
+      await requireRegularFile(target.archivePath);
       // eslint-disable-next-line no-await-in-loop
       await sendChunk(res, `Checking archive for ${target.name.toLowerCase()}...\n`);
       // eslint-disable-next-line no-await-in-loop
@@ -3266,6 +3289,12 @@ async function appendRestoreTask(req, res) {
       if (cleared !== true) {
         throw new Error(`Error: could not clear ${target.name.toLowerCase()} appdata before unpacking`);
       }
+      // Clearing takes as long as the data is large, and the volume is the owner's to
+      // change meanwhile: what the unpack reads and writes is checked once the clear is done
+      // eslint-disable-next-line no-await-in-loop
+      await requirePlainDirectories(target.mount, ['appdata', 'backup', `backup/${type}`]);
+      // eslint-disable-next-line no-await-in-loop
+      await requireRegularFile(target.archivePath);
       // eslint-disable-next-line no-await-in-loop
       const tarStatus = await IOUtils.untarFile(target.appDataPath, target.archivePath);
       if (tarStatus.status === false) {
@@ -3695,6 +3724,7 @@ async function updateAppGlobalyApi(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     try {

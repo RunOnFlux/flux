@@ -466,6 +466,7 @@ async function sizeOnDisk(filepath) {
  * @param {number} [options.idleTimeoutMs] - Silence allowed before an attempt is abandoned.
  * @param {number} [options.maxAttempts] - Attempts before giving up.
  * @param {number} [options.retryDelayMs] - Pause between attempts.
+ * @param {function(): Promise<void>} [options.beforeOpen] - Called before each attempt opens its file; a rejection ends the download.
  * @returns {Promise<boolean>} - True if the file is downloaded and saved successfully, false on failure.
  */
 async function downloadFileFromUrl(url, localpath, component, rename = false, options = {}) {
@@ -473,6 +474,7 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
     idleTimeoutMs = DOWNLOAD_IDLE_TIMEOUT_MS,
     maxAttempts = DOWNLOAD_MAX_ATTEMPTS,
     retryDelayMs = 5 * 1000,
+    beforeOpen = null,
   } = options;
   let filepath = null;
   // The validator of the copy on disk, sent back as If-Range so a file that
@@ -509,10 +511,20 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
           const fileName = path.basename(parsedUrl.pathname) || 'download';
           filepath = `${localpath}/${fileName}`;
         }
-        // Create directory if it doesn't exist
-        // eslint-disable-next-line no-await-in-loop
-        await fs.mkdir(path.dirname(filepath), { recursive: true });
       }
+      if (beforeOpen) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await beforeOpen();
+        } catch (error) {
+          // a refusal is final: asking the server again would not change it
+          error.refused = true;
+          throw error;
+        }
+      }
+      // Create directory if it doesn't exist
+      // eslint-disable-next-line no-await-in-loop
+      await fs.mkdir(path.dirname(filepath), { recursive: true });
 
       // A server that ignores the range answers 200 with the whole file, and a
       // 206 for some other range cannot be appended - both start over.
@@ -540,7 +552,9 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
         log.info(`downloadFileFromUrl - ${url} attempt ${attempt}, ${resumed ? `resuming at ${offset} bytes` : 'range refused, starting over'}`);
       }
 
-      const writer = fs2.createWriteStream(filepath, { flags: resumed ? 'a' : 'w' });
+      // A link at the destination is followed by neither a fresh write nor an append
+      const { O_WRONLY, O_CREAT, O_APPEND, O_TRUNC, O_NOFOLLOW } = fs2.constants;
+      const writer = fs2.createWriteStream(filepath, { flags: O_WRONLY | O_CREAT | O_NOFOLLOW | (resumed ? O_APPEND : O_TRUNC) });
       // eslint-disable-next-line no-await-in-loop
       await pipeline(response.data, idleGuard(idleTimeoutMs), writer);
 
@@ -562,7 +576,7 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
       }
       // Any other 4xx is the server's final answer (gone, forbidden), not a
       // network failure, and asking again only keeps the app stopped longer.
-      const final = status >= 400 && status < 500 && ![408, 416, 429].includes(status);
+      const final = err?.refused || (status >= 400 && status < 500 && ![408, 416, 429].includes(status));
       if (final) break;
       if (attempt < maxAttempts) {
         // eslint-disable-next-line no-await-in-loop

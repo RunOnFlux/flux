@@ -168,6 +168,50 @@ describe('IOUtils downloadFileFromUrl', () => {
     expect(fs.existsSync(path.join(dir, 'backup_comp.tar.gz'))).to.equal(false);
   });
 
+  it('does not write through a link at the destination', async () => {
+    handler = (req, res) => serve(req, res);
+    const elsewhere = path.join(dir, 'elsewhere');
+    fs.writeFileSync(elsewhere, 'untouched');
+    fs.symlinkSync(elsewhere, path.join(dir, 'backup_comp.tar.gz'));
+
+    const result = await IOUtils.downloadFileFromUrl(baseUrl, dir, 'COMP', true, { ...fast, maxAttempts: 1 });
+
+    expect(result).to.equal(false);
+    expect(fs.readFileSync(elsewhere, 'utf8')).to.equal('untouched');
+  });
+
+  it('stops without asking again when beforeOpen refuses, and writes nothing', async () => {
+    handler = (req, res) => serve(req, res);
+    let calls = 0;
+    const beforeOpen = async () => {
+      calls += 1;
+      throw new Error('Refused');
+    };
+
+    const result = await IOUtils.downloadFileFromUrl(baseUrl, dir, 'COMP', true, { ...fast, beforeOpen });
+
+    expect(result).to.equal(false);
+    expect(calls).to.equal(1);
+    expect(requests).to.have.length(1);
+    expect(fs.existsSync(path.join(dir, 'backup_comp.tar.gz'))).to.equal(false);
+  });
+
+  it('calls beforeOpen once the server has answered and before the file is opened', async () => {
+    handler = (req, res) => serve(req, res);
+    let requestsSeen;
+    let fileExisted;
+    const beforeOpen = async () => {
+      requestsSeen = requests.length;
+      fileExisted = fs.existsSync(path.join(dir, 'backup_comp.tar.gz'));
+    };
+
+    await IOUtils.downloadFileFromUrl(baseUrl, dir, 'COMP', true, { ...fast, beforeOpen });
+
+    expect(requestsSeen).to.equal(1);
+    expect(fileExisted).to.equal(false);
+    expect(saved().equals(body)).to.equal(true);
+  });
+
   it('removes the partial archive when every attempt fails', async () => {
     handler = (req, res) => serve(req, res, { stallAt: 1000, honourRange: false });
 
