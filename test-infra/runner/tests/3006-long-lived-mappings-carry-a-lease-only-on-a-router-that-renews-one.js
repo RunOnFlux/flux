@@ -52,6 +52,9 @@ describe('long-lived mappings carry a lease only on a router that renews one', f
   const appName = `e2eleases${Date.now()}`;
   const since = (requests) => requests.filter((r) => Date.parse(r.at) >= startedAt);
   const adds = (requests, port) => since(requests).filter((r) => r.action === 'AddPortMapping' && r.port === port);
+  // the api port (TCP) and both protocols of the app's port refreshed with `lease`
+  const refreshedWith = (requests, lease) => adds(requests, API_PORT).some((r) => r.lease === lease)
+    && ['TCP', 'UDP'].every((protocol) => adds(requests, APP_PORT).some((r) => r.protocol === protocol && r.lease === lease));
   const renewalTestAdds = (requests) => since(requests)
     .filter((r) => r.action === 'AddPortMapping' && r.port === TEST_PORT && r.lease === RENEWAL_TEST_LEASE_S);
   const renewalTestLookup = (requests) => since(requests)
@@ -146,8 +149,7 @@ describe('long-lived mappings carry a lease only on a router that renews one', f
     this.timeout(ANSWERED_AND_REFRESHED_MS + 60000);
     await restartOnRouter(null);
 
-    const state = await gatewayOnce((s) => adds(s.requests, API_PORT).some((r) => r.lease === LONG_LEASE_S)
-      && adds(s.requests, APP_PORT).some((r) => r.lease === LONG_LEASE_S), 'its api port and its app\'s refreshed with the long lease');
+    const state = await gatewayOnce((s) => refreshedWith(s.requests, LONG_LEASE_S), 'its api port and its app\'s refreshed with the long lease');
 
     expect(renewalTestAdds(state.requests).length, 'the renewal test: a mapping and its refresh').to.equal(2);
     expect(renewalTestLookup(state.requests), 'the renewal test: the lookup after the first lease').to.not.equal(undefined);
@@ -161,8 +163,7 @@ describe('long-lived mappings carry a lease only on a router that renews one', f
     this.timeout(ANSWERED_AND_REFRESHED_MS + 60000);
     await restartOnRouter({ staticLeases: true });
 
-    const state = await gatewayOnce((s) => adds(s.requests, API_PORT).some((r) => r.lease === LONG_LEASE_S)
-      && adds(s.requests, APP_PORT).some((r) => r.lease === LONG_LEASE_S), 'its api port and its app\'s refreshed with the long lease');
+    const state = await gatewayOnce((s) => refreshedWith(s.requests, LONG_LEASE_S), 'its api port and its app\'s refreshed with the long lease');
 
     expect(renewalTestAdds(state.requests).length, 'the renewal test: a mapping and its refresh').to.equal(2);
     heldWith(state, LONG_LEASE_S);
