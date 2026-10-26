@@ -610,6 +610,60 @@ async function processStandard(blockDataVerbose, database) {
  * @param {boolean} isInsightExplorer True if node is insight explorer based.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
+/**
+ * Schedules the multiport bench for the multiple of `period` at or below this tip block.
+ *
+ * Every node behind the same ip benchmarks at the same instant, so nodes sharing one
+ * machine or connection are measured together; the network is spread out (grouped by
+ * ip) over 4 hours so the speedtest servers are not hit at once.
+ *
+ * The instant is the due block's time plus a delay seeded by the ip and the due
+ * block's height: the same on every node behind that ip, whenever each processed the
+ * block. A node that reaches the tip after that instant has passed skips this bench
+ * rather than run it alone.
+ *
+ * Mainnet block times, which the instant relies on:
+ *
+ * | a block's time                          | written by its producer, the same on every node  |
+ * | consecutive block times                 | 6 to 120 s apart, 30 s typical, never decreasing |
+ * | a node receives a block, after its time | 1.4 s typical, 2.6 s at p99, under 10 s          |
+ *
+ * @param {{height: number, time: number}} tipBlock the block being processed at the tip
+ * @param {number} period blocks between benches
+ * @returns {Promise<void>}
+ */
+async function scheduleUpnpBench(tipBlock, period) {
+  try {
+    const maxBenchDelay = 4 * 3_600_000;
+    const dueHeight = Math.floor(tipBlock.height / period) * period;
+    const dueBlockTime = dueHeight === tipBlock.height
+      ? tipBlock.time
+      : (await getVerboseBlock(dueHeight, 1)).time;
+    const socketAddress = await fluxNetworkhelper.getLocalSocketAddress();
+
+    // socketAddress can be null. If it is, we just use an empty string. This
+    // has the effect of creating an initializer of just the block number. If
+    // this happens, every node on the network that uses the block number will
+    // run the bench at the same time. However this is an extreme edge case, as
+    // all nodes should just return the ip.
+    const localIp = socketAddress ? extractIp(socketAddress) : '';
+    // This is: string + number = string
+    const initializer = localIp + dueHeight;
+    const benchAtMs = dueBlockTime * 1000 + serviceHelper.randomDelayMs(maxBenchDelay, { initializer });
+    const benchDelayMs = benchAtMs - Date.now();
+
+    if (benchDelayMs < 0 && dueHeight !== tipBlock.height) {
+      log.info(`Random seed: ${initializer}. Multiport bench skipped: its start passed ${Math.round(-benchDelayMs / 1000)}s ago, before this node reached the tip`);
+      return;
+    }
+    const startInMs = Math.max(benchDelayMs, 0);
+    log.info(`Random seed: ${initializer}. Starting multiport bench in: ${Math.round(startInMs / 10) / 100}s`);
+    setTimeout(benchmarkService.executeUpnpBench, startInMs);
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 async function processBlock(blockHeight, isInsightExplorer) {
   try {
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
@@ -694,31 +748,9 @@ async function processBlock(blockHeight, isInsightExplorer) {
           }
         }
       }
-      if (blockWorkDue('benchUpnp', blockDataVerbose.height, config.fluxapps.benchUpnpPeriod * speedMultiplier)) {
-        try {
-          // every node behind the same ip will benchmark at the same time. I.e.
-          // we spread the network out (grouped by ip) over 4 hours so we don't
-          // absolutely hammer the speedtest servers at the same time.
-          const maxBenchDelay = 4 * 3_600_000;
-          const socketAddress = await fluxNetworkhelper.getLocalSocketAddress();
-
-          // socketAddress can be null. If it is, we just use an empty string. This
-          // has the effect of creating an initializer of just the block number. If
-          // this happens, every node on the network that uses the block number will
-          // run the bench at the same time. However this is an extreme edge case, as
-          // all nodes should just return the ip.
-          const localIp = socketAddress ? extractIp(socketAddress) : '';
-          // This is: string + number = string
-          const initializer = localIp + blockDataVerbose.height;
-          const benchDelayMs = serviceHelper.randomDelayMs(maxBenchDelay, { initializer });
-          const benchDelayS = Math.round((benchDelayMs / 1000) * 100) / 100;
-
-          log.info(`Random seed: ${initializer}. Starting multiport bench in: ${benchDelayS}s`);
-
-          setTimeout(benchmarkService.executeUpnpBench, benchDelayMs);
-        } catch (error) {
-          log.error(error);
-        }
+      const benchPeriod = config.fluxapps.benchUpnpPeriod * speedMultiplier;
+      if (blockWorkDue('benchUpnp', blockDataVerbose.height, benchPeriod)) {
+        await scheduleUpnpBench(blockDataVerbose, benchPeriod);
       }
       await insertAndRequestAppHashes(appsTransactions, database, true);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
@@ -2064,6 +2096,7 @@ module.exports = {
   keepEarliestPayment,
   initiateBlockProcessor,
   processBlock,
+  scheduleUpnpBench,
   reindexExplorer,
   rescanExplorer,
   stopBlockProcessing,

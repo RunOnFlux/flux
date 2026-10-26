@@ -18,6 +18,8 @@ const log = require('../../ZelBack/src/lib/log');
 const { requireMongo } = require('./dbTestHelper');
 const { UNPOSITIONED } = require('../../ZelBack/src/services/migrations/paymentPositions');
 const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
+const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
+const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
@@ -889,6 +891,72 @@ describe('explorerService tests', () => {
       );
       sinon.assert.notCalled(removeStub);
       sinon.assert.calledWithMatch(logErrorSpy, 'Hash This string is exactly 64 characters long. Including this string already exists. Not adding at height 829000');
+    });
+  });
+
+  describe('scheduleUpnpBench tests', () => {
+    const PERIOD = 6480;
+    const DUE = PERIOD * 470;
+    const DUE_TIME = 1793000000;
+    const IP = '203.0.113.7';
+    const ROLL = serviceHelper.randomDelayMs(4 * 3_600_000, { initializer: IP + DUE });
+    const BENCH_AT = DUE_TIME * 1000 + ROLL;
+    let clock;
+    let bench;
+    let benchedAt;
+
+    beforeEach(() => {
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(`${IP}:16137`);
+      benchedAt = null;
+      bench = sinon.stub(benchmarkService, 'executeUpnpBench').callsFake(function recordBenchedAt() { benchedAt = Date.now(); });
+      sinon.stub(daemonServiceBlockchainRpcs, 'getBlock')
+        .withArgs(sinon.match({ params: { hashheight: DUE } }))
+        .resolves({ status: 'success', data: { height: DUE, time: DUE_TIME } });
+    });
+
+    afterEach(() => {
+      clock?.restore();
+      sinon.restore();
+    });
+
+    function at(nowMs) {
+      clock = sinon.useFakeTimers({ now: nowMs, toFake: ['setTimeout', 'Date'] });
+    }
+
+    it('starts a node that processed the due block and one that caught up past it at the same instant', async () => {
+      // The roll this ip gets is past the late node's catch-up, so both are still waiting for it.
+      expect(ROLL).to.be.above(200000);
+
+      at(DUE_TIME * 1000 + 1400);
+      await explorerService.scheduleUpnpBench({ height: DUE, time: DUE_TIME }, PERIOD);
+      await clock.tickAsync(5 * 3_600_000);
+      const onTime = benchedAt;
+      clock.restore();
+
+      at(DUE_TIME * 1000 + 120000);
+      await explorerService.scheduleUpnpBench({ height: DUE + 4, time: DUE_TIME + 118 }, PERIOD);
+      await clock.tickAsync(5 * 3_600_000);
+
+      expect(onTime).to.equal(BENCH_AT);
+      expect(benchedAt).to.equal(BENCH_AT);
+    });
+
+    it('skips the bench on a node that caught up after its start had passed', async () => {
+      at(BENCH_AT + 60000);
+      await explorerService.scheduleUpnpBench({ height: DUE + 300, time: DUE_TIME + 9000 }, PERIOD);
+      await clock.tickAsync(5 * 3_600_000);
+
+      sinon.assert.notCalled(bench);
+    });
+
+    it('starts the bench at once on a node that processed the due block after its start', async () => {
+      // A roll shorter than the block took to arrive: the node is on the due block, so it is
+      // not running alone, and starts now.
+      at(BENCH_AT + 5000);
+      await explorerService.scheduleUpnpBench({ height: DUE, time: DUE_TIME }, PERIOD);
+      await clock.tickAsync(1000);
+
+      sinon.assert.calledOnce(bench);
     });
   });
 
