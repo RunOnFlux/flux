@@ -1,3 +1,4 @@
+const { EventEmitter } = require('events');
 const chai = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire');
@@ -10,7 +11,7 @@ describe('cloudUIUpdateService tests', () => {
   let cloudUIUpdateService;
   let fsStub;
   let axiosStub;
-  let execFileStub;
+  let spawnStub;
   let logStub;
 
   beforeEach(() => {
@@ -24,7 +25,7 @@ describe('cloudUIUpdateService tests', () => {
       get: sinon.stub(),
     };
 
-    execFileStub = sinon.stub();
+    spawnStub = sinon.stub();
 
     logStub = {
       info: sinon.stub(),
@@ -36,6 +37,24 @@ describe('cloudUIUpdateService tests', () => {
   afterEach(() => {
     sinon.restore();
   });
+
+  // A child process as spawn returns it. It writes its output and closes on the next
+  // turn, or when finish() is called if it is told to wait.
+  function fakeChild({
+    code = 0, signal = null, stdout = '', stderr = '', wait = false,
+  } = {}) {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.finish = (exitCode = code, exitSignal = signal) => {
+      if (stdout) child.stdout.emit('data', stdout);
+      if (stderr) child.stderr.emit('data', stderr);
+      child.emit('close', exitCode, exitSignal);
+    };
+    if (!wait) setImmediate(() => child.finish());
+
+    return child;
+  }
 
   function loadService(envOverrides = {}) {
     // Both halves of the original state, because the variable being ABSENT is
@@ -57,7 +76,7 @@ describe('cloudUIUpdateService tests', () => {
       {
         fs: fsStub,
         axios: axiosStub,
-        child_process: { execFile: execFileStub },
+        child_process: { spawn: spawnStub },
         // Deliberately NOT the production value: asserting against
         // config.github.apiBaseUrl would pass whether the service read config or kept
         // the hardcoded https://api.github.com, because they are the same string.
@@ -102,6 +121,15 @@ describe('cloudUIUpdateService tests', () => {
     it('should return false if CloudUI directory only contains version file', () => {
       fsStub.existsSync.returns(true);
       fsStub.readdirSync.returns(['version']);
+
+      const result = cloudUIUpdateService.cloudUIExists();
+
+      expect(result).to.equal(false);
+    });
+
+    it('should return false if CloudUI directory only contains the version and tag files', () => {
+      fsStub.existsSync.returns(true);
+      fsStub.readdirSync.returns(['tag', 'version']);
 
       const result = cloudUIUpdateService.cloudUIExists();
 
@@ -163,6 +191,50 @@ describe('cloudUIUpdateService tests', () => {
       fsStub.readFileSync.throws(new Error('Read error'));
 
       const result = cloudUIUpdateService.getLocalVersionHash();
+
+      expect(result).to.equal(null);
+      sinon.assert.calledOnce(logStub.error);
+    });
+  });
+
+  describe('getLocalVersionTag tests', () => {
+    beforeEach(() => {
+      cloudUIUpdateService = loadService();
+    });
+
+    it('should return null if tag file does not exist', () => {
+      fsStub.existsSync.returns(false);
+
+      const result = cloudUIUpdateService.getLocalVersionTag();
+
+      expect(result).to.equal(null);
+      sinon.assert.calledWith(fsStub.existsSync, sinon.match(/[\\/]CloudUI[\\/]tag$/));
+    });
+
+    it('should return trimmed tag from tag file', () => {
+      fsStub.existsSync.returns(true);
+      fsStub.readFileSync.returns('v3.20.22\n');
+
+      const result = cloudUIUpdateService.getLocalVersionTag();
+
+      expect(result).to.equal('v3.20.22');
+      sinon.assert.calledWith(fsStub.readFileSync, sinon.match(/[\\/]CloudUI[\\/]tag$/));
+    });
+
+    it('should return null if tag file is empty', () => {
+      fsStub.existsSync.returns(true);
+      fsStub.readFileSync.returns('\n');
+
+      const result = cloudUIUpdateService.getLocalVersionTag();
+
+      expect(result).to.equal(null);
+    });
+
+    it('should return null and log error if reading fails', () => {
+      fsStub.existsSync.returns(true);
+      fsStub.readFileSync.throws(new Error('Read error'));
+
+      const result = cloudUIUpdateService.getLocalVersionTag();
 
       expect(result).to.equal(null);
       sinon.assert.calledOnce(logStub.error);
@@ -283,8 +355,11 @@ describe('cloudUIUpdateService tests', () => {
     it('runs one script for two overlapping callers', async () => {
       const service = loadService();
       let finish;
-      execFileStub.callsFake((file, args, opts, callback) => {
-        finish = () => callback(null, 'done', '');
+      spawnStub.callsFake(() => {
+        const child = fakeChild({ stdout: 'done', wait: true });
+        finish = () => child.finish();
+
+        return child;
       });
 
       const first = service.runUpdateScript();
@@ -293,29 +368,58 @@ describe('cloudUIUpdateService tests', () => {
 
       expect(await first).to.equal(true);
       expect(await second, 'the second caller got its own answer').to.equal(true);
-      sinon.assert.calledOnce(execFileStub);
+      sinon.assert.calledOnce(spawnStub);
     });
 
     it('runs again once the one in flight has finished', async () => {
       const service = loadService();
-      execFileStub.callsFake((file, args, opts, callback) => callback(null, 'done', ''));
+      spawnStub.callsFake(() => fakeChild({ stdout: 'done' }));
 
       await service.runUpdateScript();
       await service.runUpdateScript();
 
-      sinon.assert.calledTwice(execFileStub);
+      sinon.assert.calledTwice(spawnStub);
     });
 
     // A failed run must not leave the guard set, or nothing can rebuild until
     // the process restarts.
     it('releases the guard when the script fails', async () => {
       const service = loadService();
-      execFileStub.callsFake((file, args, opts, callback) => callback(new Error('boom'), '', 'stderr'));
+      spawnStub.callsFake(() => fakeChild({ code: 1, stderr: 'stderr' }));
 
       expect(await service.runUpdateScript()).to.equal(false);
       expect(await service.runUpdateScript()).to.equal(false);
 
-      sinon.assert.calledTwice(execFileStub);
+      sinon.assert.calledTwice(spawnStub);
+    });
+
+    it('gives the script no time limit', async () => {
+      const service = loadService();
+      spawnStub.callsFake(() => fakeChild());
+
+      await service.runUpdateScript();
+
+      expect(spawnStub.firstCall.args[2].timeout).to.equal(undefined);
+    });
+
+    it('fails a script that a signal ends, and says which', async () => {
+      const service = loadService();
+      spawnStub.callsFake(() => fakeChild({ code: null, signal: 'SIGTERM' }));
+
+      expect(await service.runUpdateScript()).to.equal(false);
+
+      sinon.assert.calledWith(logStub.error, 'CloudUI update script killed by SIGTERM');
+    });
+
+    it('logs the end of the output and keeps no more than the end of it', async () => {
+      const service = loadService();
+      spawnStub.callsFake(() => fakeChild({ stdout: `${'x'.repeat(100000)}\nfirst\nlast` }));
+
+      expect(await service.runUpdateScript()).to.equal(true);
+
+      const logged = logStub.info.args.map(([line]) => line).find((line) => line.startsWith('CloudUI update output:'));
+      expect(logged).to.match(/first\nlast$/);
+      expect(logged.length).to.be.below(5000);
     });
 
     it('names the watchdog as the owner of CloudUI on ArcaneOS alone', () => {
@@ -332,17 +436,15 @@ describe('cloudUIUpdateService tests', () => {
 
       it('should run update script if CloudUI folder does not exist', async () => {
         fsStub.existsSync.returns(false);
-        execFileStub.callsFake((file, args, opts, callback) => {
-          callback(null, 'success', '');
-        });
+        spawnStub.callsFake(() => fakeChild({ stdout: 'success' }));
 
         await cloudUIUpdateService.checkAndUpdateCloudUI();
 
-        sinon.assert.calledOnce(execFileStub);
+        sinon.assert.calledOnce(spawnStub);
         sinon.assert.calledWith(logStub.info, 'CloudUI: Folder missing or empty, installing...');
         // The endpoint comes from config and is passed to the script. A script left to
         // decide for itself reaches the public internet, which is what this prevents.
-        const [file, args] = execFileStub.firstCall.args;
+        const [file, args] = spawnStub.firstCall.args;
         expect(file).to.equal('npm');
         expect(args).to.eql(['run', 'update:cloudui', '--', STUB_API_BASE]);
       });
@@ -354,13 +456,11 @@ describe('cloudUIUpdateService tests', () => {
         // Second call for getLocalVersionHash (version file doesn't exist)
         fsStub.existsSync.onCall(1).returns(false);
 
-        execFileStub.callsFake((file, args, opts, callback) => {
-          callback(null, 'success', '');
-        });
+        spawnStub.callsFake(() => fakeChild({ stdout: 'success' }));
 
         await cloudUIUpdateService.checkAndUpdateCloudUI();
 
-        sinon.assert.calledOnce(execFileStub);
+        sinon.assert.calledOnce(spawnStub);
         sinon.assert.calledWith(logStub.info, 'CloudUI: No version file found, updating...');
       });
 
@@ -372,7 +472,7 @@ describe('cloudUIUpdateService tests', () => {
 
         await cloudUIUpdateService.checkAndUpdateCloudUI();
 
-        sinon.assert.notCalled(execFileStub);
+        sinon.assert.notCalled(spawnStub);
         sinon.assert.calledWith(logStub.info, 'CloudUI: Could not fetch remote version info, skipping update check');
       });
 
@@ -398,7 +498,7 @@ describe('cloudUIUpdateService tests', () => {
 
         await cloudUIUpdateService.checkAndUpdateCloudUI();
 
-        sinon.assert.notCalled(execFileStub);
+        sinon.assert.notCalled(spawnStub);
         sinon.assert.calledWith(logStub.info, 'CloudUI: Already up to date');
       });
 
@@ -424,23 +524,22 @@ describe('cloudUIUpdateService tests', () => {
         };
         axiosStub.get.resolves(mockRelease);
 
-        execFileStub.callsFake((file, args, opts, callback) => {
+        spawnStub.callsFake(() => {
           // After update, return new hash
           fsStub.readFileSync.returns(remoteHash);
-          callback(null, 'Updated successfully', '');
+
+          return fakeChild({ stdout: 'Updated successfully' });
         });
 
         await cloudUIUpdateService.checkAndUpdateCloudUI();
 
-        sinon.assert.calledOnce(execFileStub);
+        sinon.assert.calledOnce(spawnStub);
         sinon.assert.calledWith(logStub.info, 'CloudUI: New version detected, updating...');
       });
 
       it('should log error if update script fails', async () => {
         fsStub.existsSync.returns(false);
-        execFileStub.callsFake((file, args, opts, callback) => {
-          callback(new Error('Script failed'), '', 'error output');
-        });
+        spawnStub.callsFake(() => fakeChild({ code: 1, stderr: 'error output' }));
 
         await cloudUIUpdateService.checkAndUpdateCloudUI();
 
@@ -463,7 +562,7 @@ describe('cloudUIUpdateService tests', () => {
           },
         });
         // the spawn itself throws, before any callback
-        execFileStub.callsFake(() => {
+        spawnStub.callsFake(() => {
           throw new Error('Unexpected exec error');
         });
 
@@ -473,13 +572,34 @@ describe('cloudUIUpdateService tests', () => {
       });
     });
 
+    describe('startCloudUIUpdateCheck', () => {
+      it('returns while the update it started is still running', async () => {
+        cloudUIUpdateService = loadService({ FLUXOS_PATH: '' });
+        fsStub.existsSync.returns(false);
+        let child;
+        spawnStub.callsFake(() => {
+          child = fakeChild({ wait: true });
+
+          return child;
+        });
+
+        expect(cloudUIUpdateService.startCloudUIUpdateCheck()).to.equal(undefined);
+        sinon.assert.calledOnce(spawnStub);
+        sinon.assert.neverCalledWith(logStub.info, 'CloudUI: Installation completed successfully');
+
+        child.finish();
+        await new Promise((resolve) => { setImmediate(resolve); });
+        sinon.assert.calledWith(logStub.info, 'CloudUI: Installation completed successfully');
+      });
+    });
+
     describe('on ArcaneOS', () => {
       it('should skip update check on ArcaneOS', async () => {
         cloudUIUpdateService = loadService({ FLUXOS_PATH: '/opt/fluxos' });
 
         await cloudUIUpdateService.checkAndUpdateCloudUI();
 
-        sinon.assert.notCalled(execFileStub);
+        sinon.assert.notCalled(spawnStub);
         sinon.assert.notCalled(axiosStub.get);
         sinon.assert.calledWith(logStub.info, 'CloudUI: Running on ArcaneOS, skipping update check (handled by watchdog)');
       });

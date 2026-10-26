@@ -11,22 +11,36 @@
 #        or: bash scripts/update-cloudui.sh <api-base-url>
 #
 # Output:
-# - CloudUI/ folder with the latest frontend build
+# - CloudUI, a symlink to the installed build in .cloudui/
 # - CloudUI/version file containing the SHA256 hash of the installed version
 #   (used by external projects to verify nodes have the latest version)
+# - CloudUI/tag file containing the release tag of the installed version
+#
+# Installing never leaves CloudUI missing or partly written: each build is unpacked into
+# its own folder under .cloudui/, and CloudUI is switched to it by renaming a new symlink
+# over the old one, which is atomic. A CloudUI that is still a real folder is swapped for
+# the symlink with `mv --exchange` where mv has it; where it does not, the folder is moved
+# aside and the symlink renamed into its place, so CloudUI is absent between those two
+# renames, once.
+#
+# Everything a run creates lives in .cloudui/, and every run removes all of it except the
+# installed build when it exits. A run that is killed outright leaves its files for the
+# next run to remove.
 #
 # Requirements:
 # - curl
 # - sha256sum or shasum (for checksum verification)
+# - GNU coreutils (mv -T) and flock (Linux)
 # - Standard tools: grep, sed, awk (no jq needed)
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-TEMP_DIR=$(mktemp -d)
 REPO="RunOnFlux/fluxos-frontend"
 CLOUDUI_DIR="$PROJECT_ROOT/CloudUI"
+STORE_NAME=".cloudui"
+STORE_DIR="$PROJECT_ROOT/$STORE_NAME"
 
 # The API host is supplied by the caller, which reads it from ZelBack's config. It is
 # deliberately NOT defaulted and NOT read from the environment: config is the single source
@@ -62,19 +76,73 @@ else
     exit 1
 fi
 
-# Cleanup function
-cleanup() {
-    echo ""
-    echo "Cleaning up temporary files..."
-    rm -rf "$TEMP_DIR"
+if ! command -v flock &> /dev/null; then
+    echo "Error: flock is required but not installed."
+    exit 1
+fi
+
+# Removes everything in .cloudui/ except the lock and the build CloudUI points to.
+remove_unused_builds() {
+    local installed=""
+    if [ -L "$CLOUDUI_DIR" ]; then
+        installed="$PROJECT_ROOT/$(readlink "$CLOUDUI_DIR")"
+    fi
+    local entry
+    for entry in "$STORE_DIR"/*; do
+        if [ ! -e "$entry" ] && [ ! -L "$entry" ]; then
+            continue
+        fi
+        if [ "$entry" != "$installed" ]; then
+            rm -rf "$entry"
+        fi
+    done
 }
 
-# Set trap to cleanup on exit
+# A service manager stopping the run signals every process in it until no new ones appear,
+# which includes the processes the cleanup starts, so the cleanup ignores those signals and
+# they inherit that. The reader of the run's output may have stopped with the service, so
+# the cleanup also ignores SIGPIPE and removes before it logs.
+cleanup() {
+    trap '' TERM INT HUP PIPE
+    remove_unused_builds
+    echo ""
+    echo "Removed temporary files."
+}
+
+# One run at a time: a run removes every build but the installed one, which includes any
+# build another run is still unpacking.
+mkdir -p "$STORE_DIR"
+exec 9>"$STORE_DIR/.lock"
+flock 9
+
 trap cleanup EXIT
 
+# Stop signals are caught rather than left fatal: a service manager sends SIGTERM more than
+# once, and bash dies on a second fatal signal before its EXIT trap runs. SIGPIPE is caught
+# too, because the reader of the run's output may have stopped with the service, and bash
+# reports a download it saw killed; a failed write then ends the run through the EXIT trap.
+# The commands the script runs start with these signals at their defaults.
+stop_on_signal() {
+    trap '' TERM INT HUP
+    exit "$1"
+}
+trap 'stop_on_signal 143' TERM
+trap 'stop_on_signal 130' INT
+trap 'stop_on_signal 129' HUP
+trap ':' PIPE
+
+TEMP_DIR=$(mktemp -d "$STORE_DIR/work.XXXXXX")
+RUN_ID="${TEMP_DIR##*.}"
+
+# A transfer that stays under 1 KB/s for two minutes, or a connection that does not open
+# within 30 seconds, fails the run. A slow transfer that keeps moving runs to the end.
+CURL_LIMITS=(--connect-timeout 30 --speed-limit 1024 --speed-time 120)
+
+# Each curl closes the lock descriptor, so a download that outlives a killed run does not
+# hold the lock against the next one.
 echo "1. Fetching latest release information..."
 RELEASE_JSON="$TEMP_DIR/release.json"
-curl -s "$RELEASE_API" -o "$RELEASE_JSON"
+curl -s "${CURL_LIMITS[@]}" "$RELEASE_API" -o "$RELEASE_JSON" 9>&-
 
 # Check if we got a valid response
 if ! grep -q '"tag_name"' "$RELEASE_JSON"; then
@@ -134,7 +202,7 @@ fi
 echo "   Expected SHA256: $EXPECTED_SHA256"
 
 TARBALL="$TEMP_DIR/dist.tar.gz"
-curl -L -o "$TARBALL" "$DOWNLOAD_URL"
+curl -L "${CURL_LIMITS[@]}" -o "$TARBALL" "$DOWNLOAD_URL" 9>&-
 
 echo ""
 echo "3. Verifying SHA256 checksum..."
@@ -171,23 +239,34 @@ FILE_COUNT=$(ls "$EXTRACT_DIR" | wc -l)
 echo "   Files: $FILE_COUNT"
 
 echo ""
-echo "5. Removing old CloudUI folder..."
-rm -rf "$CLOUDUI_DIR"
+echo "5. Removing unnecessary files..."
+rm -f "$EXTRACT_DIR/stats.html" 2>/dev/null || true
+rm -f "$EXTRACT_DIR/_redirects" 2>/dev/null || true
 
 echo ""
-echo "6. Installing new CloudUI..."
-mkdir -p "$CLOUDUI_DIR"
-cp -r "$EXTRACT_DIR"/* "$CLOUDUI_DIR/"
-
-echo ""
-echo "7. Removing unnecessary files..."
-rm -f "$CLOUDUI_DIR/stats.html" 2>/dev/null || true
-rm -f "$CLOUDUI_DIR/_redirects" 2>/dev/null || true
-
-echo ""
-echo "8. Creating version file..."
-echo "$EXPECTED_SHA256" > "$CLOUDUI_DIR/version"
+echo "6. Creating version and tag files..."
+echo "$EXPECTED_SHA256" > "$EXTRACT_DIR/version"
+echo "$TAG_NAME" > "$EXTRACT_DIR/tag"
 echo "   Version file created with SHA256: $EXPECTED_SHA256"
+echo "   Tag file created with tag: $TAG_NAME"
+
+echo ""
+echo "7. Installing new CloudUI..."
+BUILD_NAME="build.$RUN_ID"
+mv -T "$EXTRACT_DIR" "$STORE_DIR/$BUILD_NAME"
+NEW_LINK="$STORE_DIR/link.$RUN_ID"
+ln -s "$STORE_NAME/$BUILD_NAME" "$NEW_LINK"
+if [ -L "$CLOUDUI_DIR" ] || [ ! -e "$CLOUDUI_DIR" ]; then
+    mv -T "$NEW_LINK" "$CLOUDUI_DIR"
+    echo "   Linked CloudUI to the new build"
+elif mv -T --exchange "$NEW_LINK" "$CLOUDUI_DIR" 2>/dev/null; then
+    echo "   Swapped the CloudUI folder for a link to the new build"
+else
+    mv -T "$CLOUDUI_DIR" "$STORE_DIR/previous.$RUN_ID"
+    mv -T "$NEW_LINK" "$CLOUDUI_DIR"
+    echo "   Moved the CloudUI folder aside and linked the new build in its place"
+fi
+echo "   CloudUI -> $STORE_NAME/$BUILD_NAME"
 
 echo ""
 echo "=========================================="

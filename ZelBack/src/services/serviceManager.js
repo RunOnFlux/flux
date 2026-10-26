@@ -306,7 +306,7 @@ async function startFluxFunctions() {
 
     // Check and update CloudUI if needed (for legacy nodes without watchdog)
     log.info('Checking CloudUI installation...');
-    await cloudUIUpdateService.checkAndUpdateCloudUI();
+    cloudUIUpdateService.startCloudUIUpdateCheck();
     // User configured UPnP node with routerIP, UPnP has already been verified and setup
     if (userconfig.initial.routerIP) {
       setInterval(() => {

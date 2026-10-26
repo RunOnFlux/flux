@@ -1,7 +1,7 @@
 const config = require('config');
 const fs = require('fs');
 const path = require('path');
-const { execFile } = require('child_process');
+const { spawn } = require('child_process');
 const axios = require('axios');
 const log = require('../lib/log');
 
@@ -10,16 +10,19 @@ const RELEASE_API = `${config.github.apiBaseUrl}/repos/${REPO}/releases/latest`;
 const PROJECT_ROOT = path.join(__dirname, '..', '..', '..');
 const CLOUDUI_DIR = path.join(PROJECT_ROOT, 'CloudUI');
 const VERSION_FILE = path.join(CLOUDUI_DIR, 'version');
+const TAG_FILE = path.join(CLOUDUI_DIR, 'tag');
+// Written by the update script beside the build's own files.
+const METADATA_FILES = ['version', 'tag'];
+
+// The part of the script's output kept for the log: a download's progress meter runs for
+// as long as the download does.
+const MAX_OUTPUT_CHARS = 4000;
 
 // ArcaneOS nodes have watchdog handling CloudUI updates
 const isArcaneOS = Boolean(process.env.FLUXOS_PATH);
 
-// The run in progress, if there is one. The script removes the served directory
-// before it copies the new one into place, so two runs at once means the second
-// one's removal lands inside the first one's copy - and the run that wrote the
-// version file is then not the run that wrote the files beside it. A second
-// caller joins the run already going rather than starting another, which is
-// also the honest answer: the rebuild it asked for is happening.
+// The run in progress, if there is one. A second caller joins it rather than
+// starting another: the rebuild it asked for is already happening.
 let updateInFlight = null;
 
 /**
@@ -32,8 +35,7 @@ function cloudUIExists() {
       return false;
     }
     const files = fs.readdirSync(CLOUDUI_DIR);
-    // Check if there are files (not just version file)
-    return files.length > 1 || (files.length === 1 && files[0] !== 'version');
+    return files.some((file) => !METADATA_FILES.includes(file));
   } catch (error) {
     log.error(`Error checking CloudUI folder: ${error.message}`);
     return false;
@@ -52,6 +54,22 @@ function getLocalVersionHash() {
     return fs.readFileSync(VERSION_FILE, 'utf8').trim();
   } catch (error) {
     log.error(`Error reading local version file: ${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * Gets the release tag of the installed build from the tag file
+ * @returns {string|null}
+ */
+function getLocalVersionTag() {
+  try {
+    if (!fs.existsSync(TAG_FILE)) {
+      return null;
+    }
+    return fs.readFileSync(TAG_FILE, 'utf8').trim() || null;
+  } catch (error) {
+    log.error(`Error reading local tag file: ${error.message}`);
     return null;
   }
 }
@@ -140,6 +158,9 @@ function runUpdateScript() {
 /**
  * Runs the update:cloudui script, unconditionally. Reached only through
  * runUpdateScript, which is what keeps two of them from overlapping.
+ *
+ * There is no time limit: the script gives up on a download that stops moving, and a
+ * slow one takes as long as it takes.
  * @returns {Promise<boolean>}
  */
 function startUpdateScript() {
@@ -150,24 +171,30 @@ function startUpdateScript() {
     // source of truth for every endpoint a node reaches, so a hardcoded URL in the script,
     // or one taken from the environment, would sit outside it and be unreachable by the
     // harness.
-    execFile('npm', ['run', 'update:cloudui', '--', config.github.apiBaseUrl], { cwd: PROJECT_ROOT, timeout: 300000 }, (error, stdout, stderr) => {
-      if (error) {
-        log.error(`CloudUI update script error: ${error.message}`);
-        if (stderr) {
-          log.error(`CloudUI update stderr: ${stderr}`);
-        }
-        resolve(false);
+    const child = spawn('npm', ['run', 'update:cloudui', '--', config.github.apiBaseUrl], {
+      cwd: PROJECT_ROOT,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let output = '';
+    const keep = (chunk) => { output = (output + chunk).slice(-MAX_OUTPUT_CHARS); };
+    child.stdout.on('data', keep);
+    child.stderr.on('data', keep);
+
+    child.on('error', (error) => {
+      log.error(`CloudUI update script error: ${error.message}`);
+      resolve(false);
+    });
+    child.on('close', (code, signal) => {
+      const lastLines = output.trim().split('\n').slice(-5).join('\n');
+      if (code === 0) {
+        log.info('CloudUI: Update script completed');
+        if (lastLines) log.info(`CloudUI update output:\n${lastLines}`);
+        resolve(true);
         return;
       }
-
-      log.info('CloudUI: Update script completed');
-      if (stdout) {
-        // Log last few lines of output
-        const lines = stdout.trim().split('\n');
-        const lastLines = lines.slice(-5).join('\n');
-        log.info(`CloudUI update output:\n${lastLines}`);
-      }
-      resolve(true);
+      log.error(`CloudUI update script ${signal ? `killed by ${signal}` : `exited with code ${code}`}`);
+      if (lastLines) log.error(`CloudUI update output:\n${lastLines}`);
+      resolve(false);
     });
   });
 }
@@ -249,15 +276,26 @@ async function checkAndUpdateCloudUI() {
   }
 }
 
+/**
+ * Starts the update check in the background and returns at once, so a slow download
+ * holds up nothing that starts after it. The check logs its own outcome.
+ */
+function startCloudUIUpdateCheck() {
+  checkAndUpdateCloudUI();
+}
+
 module.exports = {
   checkAndUpdateCloudUI,
+  startCloudUIUpdateCheck,
   cloudUIExists,
   runUpdateScript,
   watchdogManagesCloudUI,
   getLocalVersionHash,
+  getLocalVersionTag,
   getRemoteVersionInfo,
   // Exported for testing
   CLOUDUI_DIR,
   VERSION_FILE,
+  TAG_FILE,
   isArcaneOS,
 };

@@ -376,8 +376,10 @@ tests/images/.package_hash
 dev/
 CLAUDE.md
 
-# CloudUI - Pre-built frontend (downloaded via npm run update:cloudui)
-CloudUI/
+# CloudUI - Pre-built frontend (downloaded via npm run update:cloudui): a symlink to
+# the installed build in .cloudui/
+CloudUI
+.cloudui/
 
 # compiled test-app fixture binary (built via test-infra/test-app/build.sh)
 test-infra/test-app/test-app
