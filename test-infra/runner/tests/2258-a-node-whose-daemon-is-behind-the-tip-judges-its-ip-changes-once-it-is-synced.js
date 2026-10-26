@@ -58,9 +58,17 @@ describe('a node whose daemon is behind the tip judges its IP changes once it is
   const runsTheApp = async (i) => ((await client(i).getInstalledApps()).data || []).some((app) => app.name === appName);
   let tip;
 
-  // Node i has polled its daemon at `height`: a change it sees from now is
-  // recorded there.
-  const polledAt = (i, height) => client(i).waitForEvent('daemon:polled', (d) => d.height === height, 120000);
+  // Node i has polled its daemon at `height`: what it judges from now is judged
+  // there. A node that has just moved can fail to reach its daemon for a while,
+  // and judges by its last poll until it does.
+  const polledAt = (i, height, afterId = 0) => client(i).waitForEvent('daemon:polled', (d) => d.height === height, 120000, { afterId });
+  // Puts node i's daemon behind at `height` and waits for the node to have
+  // polled it there.
+  async function putBehind(i, height) {
+    const anchor = client(i).getLastEventId();
+    await setDaemonBehind(listed[i], height);
+    await polledAt(i, height, anchor);
+  }
 
   // Moves node i's address as a router's change does: benchmark reports the
   // new one while the chain still lists the old.
@@ -157,7 +165,7 @@ describe('a node whose daemon is behind the tip judges its IP changes once it is
     const [first] = (await record(BEHIND)).ipChangeHeights;
     expect(first, 'fixture: the first change has the chain\'s height').to.equal(tip);
 
-    await setDaemonBehind(listed[BEHIND], tip - 100);
+    await putBehind(BEHIND, tip - 100);
     await move(BEHIND, `${base}.241`);
     expect((await record(BEHIND)).ipChangeHeights, 'the change seen while behind').to.deep.equal([tip, null]);
     await expectNotJudgedThroughout(BEHIND, 'while its daemon is behind');
@@ -186,8 +194,10 @@ describe('a node whose daemon is behind the tip judges its IP changes once it is
     expect(ipChangeHold?.fromHeight, 'fixture: the hold the first case started').to.be.a('number');
 
     // The chain passes the hold while the node's daemon is still short of it.
+    const anchor = client(BEHIND).getLastEventId();
     await setDaemonBehind(listed[BEHIND], ipChangeHold.fromHeight + 10);
     await setHeight(ipChangeHold.fromHeight + WINDOW_BLOCKS);
+    await polledAt(BEHIND, ipChangeHold.fromHeight + 10, anchor);
     await expectHeldThroughout(BEHIND, 'held while its daemon is behind the end of the hold');
 
     await clearDaemonBehind(listed[BEHIND]);
@@ -208,7 +218,7 @@ describe('a node whose daemon is behind the tip judges its IP changes once it is
     // The first change leaves the window, and the daemon re-syncs from far below
     // the height it was recorded at.
     ({ currentHeight: tip } = await setHeight(first + WINDOW_BLOCKS));
-    await setDaemonBehind(listed[RESYNCING], 100);
+    await putBehind(RESYNCING, 100);
     await move(RESYNCING, `${base}.243`);
     await expectNotJudgedThroughout(RESYNCING, 'while its daemon re-syncs');
 
