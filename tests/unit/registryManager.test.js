@@ -191,6 +191,60 @@ describe('registryManager tests', () => {
     });
   });
 
+  describe('an app name given as a pattern', () => {
+    const owner = '196GJWyLxzAw3MirTT7Bqs2iGpUQio29GH';
+    const collection = config.database.appsglobal.collections.appsInformation;
+
+    beforeEach(async () => {
+      try {
+        await database.collection(collection).drop();
+      } catch (err) {
+        // Collection doesn't exist
+      }
+      await dbHelper.insertOneToDatabase(database, collection, { name: 'VictimApp', owner, version: 3 });
+      await dbHelper.insertOneToDatabase(database, collection, { name: 'Fluxvictim', owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', version: 3 });
+    });
+
+    it('is a name, not a pattern, to getApplicationSpecifications', async () => {
+      expect(await registryManager.getApplicationSpecifications('VictimApp$|_MyOwnApp')).to.equal(undefined);
+      expect(await registryManager.getApplicationSpecifications('.*')).to.equal(undefined);
+    });
+
+    it('is a name, not a pattern, to getApplicationOwner', async () => {
+      expect(await registryManager.getApplicationOwner('VictimApp$|_MyOwnApp')).to.equal(null);
+      expect(await registryManager.getApplicationOwner('.*')).to.equal(null);
+    });
+
+    it('does not resolve a legacy container identifier to the owner of a case variant of it', async () => {
+      expect(await registryManager.getApplicationOwner('fluxvictim')).to.equal(null);
+      expect(await registryManager.getApplicationOwner('Fluxvictim')).to.equal('1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC');
+      // not a container identifier: no docker name is built from it as it is
+      expect(await registryManager.getApplicationOwner('FLUXVICTIM')).to.equal('1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC');
+    });
+  });
+
+  describe('availableApps tests', () => {
+    it('answers a public listing without an enterprise app\'s compose and contacts', async () => {
+      const collection = config.database.appsglobal.collections.appsInformation;
+      try {
+        await database.collection(collection).drop();
+      } catch (err) {
+        // Collection doesn't exist
+      }
+      await dbHelper.insertOneToDatabase(database, collection, {
+        name: 'EntListed', version: 8, enterprise: 'blob', compose: [{ name: 'web' }], contacts: ['a@b.c'], owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+      });
+      const res = { json: sinon.fake((param) => param) };
+
+      await registryManager.availableApps(null, res);
+
+      const listed = res.json.firstCall.args[0].data.find((app) => app.name === 'EntListed');
+      expect(listed.compose).to.eql([]);
+      expect(listed.contacts).to.eql([]);
+      expect(listed.enterprise).to.equal('blob');
+    });
+  });
+
   describe('getAppHashes tests', () => {
     it('should return app hashes without requiring parameters', async () => {
       const res = {

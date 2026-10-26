@@ -100,6 +100,7 @@ describe('appQueryService tests', () => {
 
     enterpriseHelperStub = {
       checkAndDecryptAppSpecs: sinon.stub().returnsArg(0), // Return app as-is by default
+      withoutEnterpriseSecrets: require('../../ZelBack/src/services/utils/enterpriseHelper').withoutEnterpriseSecrets,
     };
 
     appSpecHelpersStub = {
@@ -376,6 +377,26 @@ describe('appQueryService tests', () => {
       expect(result.status).to.equal('error');
       expect(messageHelperStub.createErrorMessage.calledOnce).to.be.true;
       expect(logStub.error.calledWith(error)).to.be.true;
+    });
+
+    it('should answer a listing without an enterprise app\'s compose and contacts', async () => {
+      const mockApps = [
+        {
+          name: 'ent', version: 8, enterprise: 'blob', compose: [{ name: 'web' }], contacts: ['a@b.c'],
+        },
+        { name: 'plain', version: 4, compose: [{ name: 'web' }] },
+      ];
+      const res = { json: sinon.stub() };
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('appsDatabase') });
+      dbHelperStub.findInDatabase.resolves(mockApps);
+      messageHelperStub.createDataMessage.callsFake((data) => ({ status: 'success', data }));
+
+      await appQueryService.installedApps({ params: {}, query: {} }, res);
+
+      const { data } = res.json.firstCall.args[0];
+      expect(data[0].compose).to.eql([]);
+      expect(data[0].contacts).to.eql([]);
+      expect(data[1].compose).to.eql([{ name: 'web' }]);
     });
 
     it('should return apps data with response passed', async () => {

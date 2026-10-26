@@ -265,7 +265,20 @@ async function encryptEnterpriseFromSession(appSpec, daemonHeight, enterpriseKey
   throw new Error('Error encrypting enterprise object.');
 }
 
+/**
+ * The apps as a public listing may show them: an enterprise app's compose and
+ * contacts are its owner's, so they are blanked whatever a row holds.
+ * @param {object[]} apps App specifications.
+ * @returns {object[]}
+ */
+function withoutEnterpriseSecrets(apps) {
+  return apps.map((app) => (
+    app && app.version >= 8 && app.enterprise ? { ...app, compose: [], contacts: [] } : app
+  ));
+}
+
 module.exports = {
+  withoutEnterpriseSecrets,
   checkAndDecryptAppSpecs,
   encryptEnterpriseFromSession,
   decryptEnterpriseFromSession,
