@@ -9,7 +9,7 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const globalState = require('../utils/globalState');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
 // Removed appsService to avoid circular dependency - will use dynamic require where needed
-const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession } = require('../utils/enterpriseHelper');
+const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession, withoutEnterpriseSecrets } = require('../utils/enterpriseHelper');
 const { verifyEncryptedSpec } = require('../utils/enterpriseSpec');
 const { specificationFormatter, updateToLatestAppSpecifications } = require('../utils/appUtilities');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
@@ -37,6 +37,17 @@ const localRemovalQueue = require('../appLifecycle/localRemovalQueue');
 const {
   extractIp, ipsMatch, normalizeSocketAddress,
 } = require('../utils/socketAddressUtils');
+const bodyLimit = require('../utils/bodyLimit');
+
+/**
+ * A case-insensitive query on exactly this app name. The name is escaped: it
+ * comes from a request parameter, and an unescaped one is a pattern, not a name.
+ * @param {string} appName App name.
+ * @returns {RegExp}
+ */
+function appNameRegex(appName) {
+  return new RegExp(`^${String(appName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+}
 
 // The most moves followed from one address. A node announces each move it makes,
 // so a real chain is one or two long; the bound only ends a chain that loops.
@@ -157,7 +168,7 @@ async function appLocation(appname) {
   const database = dbopen.db(config.database.appsglobal.database);
   let query = {};
   if (appname) {
-    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
+    query = { name: appNameRegex(appname) }; // case insensitive
   }
   const projection = {
     projection: {
@@ -691,7 +702,7 @@ async function appInstallingLocation(appname) {
   const database = dbopen.db(config.database.appsglobal.database);
   let query = {};
   if (appname) {
-    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
+    query = { name: appNameRegex(appname) }; // case insensitive
   }
   const projection = {
     projection: {
@@ -744,7 +755,7 @@ async function appInstallingErrorsLocation(appname) {
   const database = dbopen.db(config.database.appsglobal.database);
   let query = {};
   if (appname) {
-    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
+    query = { name: appNameRegex(appname) }; // case insensitive
   }
   const projection = {
     projection: {
@@ -875,7 +886,11 @@ async function storeAppInstallingMessage(message) {
 async function getApplicationOwner(appName) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
-  const query = { name: new RegExp(`^${appName}$`, 'i') };
+  // A name that starts like a legacy container identifier is matched exactly: a
+  // case variant of it would otherwise resolve to the owner of a different app
+  // than the container the identifier names.
+  const identifierShaped = /^(flux|zel)/.test(appName);
+  const query = { name: identifierShaped ? appName : appNameRegex(appName) };
   const projection = {
     projection: {
       _id: 0,
@@ -889,7 +904,9 @@ async function getApplicationOwner(appName) {
   }
   // eslint-disable-next-line no-use-before-define
   const allApps = await availableApps();
-  const appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
+  const appInfo = allApps.find((app) => (identifierShaped
+    ? app.name === appName
+    : app.name.toLowerCase() === appName.toLowerCase()));
   if (appInfo) {
     return appInfo.owner;
   }
@@ -978,7 +995,7 @@ async function getApplicationGlobalSpecifications(appName) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
-  const query = { name: new RegExp(`^${appName}$`, 'i') };
+  const query = { name: appNameRegex(appName) };
   const projection = {
     projection: {
       _id: 0,
@@ -1006,7 +1023,7 @@ async function getApplicationLocalSpecifications(appName) {
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appslocal.database);
 
-  const query = { name: new RegExp(`^${appName}$`, 'i') };
+  const query = { name: appNameRegex(appName) };
   const projection = { projection: { _id: 0 } };
 
   const appInfo = await dbHelper.findOneInDatabase(database, localAppsInformation, query, projection);
@@ -1050,7 +1067,7 @@ async function getApplicationSpecifications(appName) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
-  const query = { name: new RegExp(`^${appName}$`, 'i') };
+  const query = { name: appNameRegex(appName) };
   const projection = {
     projection: {
       _id: 0,
@@ -1452,7 +1469,7 @@ async function availableApps(_req, res) {
     const allApps = [...globalApps, ...localApps];
 
     if (res) {
-      const resultsResponse = messageHelper.createDataMessage(allApps);
+      const resultsResponse = messageHelper.createDataMessage(withoutEnterpriseSecrets(allApps));
       return res.json(resultsResponse);
     }
     return allApps;
@@ -1479,7 +1496,7 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
   const dbopen = dbHelper.databaseConnection();
 
   const appsDatabase = dbopen.db(config.database.appsglobal.database);
-  const appsQuery = { name: new RegExp(`^${appSpecFormatted.name}$`, 'i') }; // case insensitive
+  const appsQuery = { name: appNameRegex(appSpecFormatted.name) }; // case insensitive
   const appsProjection = {
     projection: {
       _id: 0,
@@ -2014,6 +2031,7 @@ async function registerAppGlobalyApi(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     try {
