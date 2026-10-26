@@ -6,7 +6,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { crashFluxos, moveNodeAddress, releaseFluxos } from '../framework/container.js';
 import {
-  advanceBlock, clearDaemonBehind, clearNodeAddress, setDaemonBehind, setHeight, setNodeAddress, stopTicker,
+  advanceBlock, clearDaemonBehind, clearNodeAddress, clearRpcFailures, failRpc, setDaemonBehind, setHeight, setNodeAddress, stopTicker,
 } from '../framework/daemon-control.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
@@ -24,12 +24,19 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // sees while its daemon is behind is recorded and judged once the daemon has
 // caught up.
 //
+// The daemon is still taken as synced for a while after it stops answering, and
+// the chain moves on meanwhile: the height the node judges by is the last one
+// its daemon reported and a block for every 30 s since.
+//
 // Node 0 changes its IP inside the window while its daemon is behind; node 1
 // changes its IP once its earlier change has left the window, while its daemon
-// re-syncs from far behind; node 2 is a bystander.
+// re-syncs from far behind; node 2 changes its IP while its daemon has stopped
+// answering, as its earlier change leaves the window.
 
 const BEHIND = 0;
 const RESYNCING = 1;
+const SILENT = 2;
+const BLOCK_MS = 30 * 1000;
 const API_PORT = 16127;
 const WINDOW_BLOCKS = 2400;
 const IP_CHANGES = 'IP changes over the limit allowed, one in 20 hours';
@@ -57,6 +64,8 @@ describe('a node whose daemon is behind the tip judges its IP changes once it is
   };
   const runsTheApp = async (i) => ((await client(i).getInstalledApps()).data || []).some((app) => app.name === appName);
   let tip;
+  // the addresses whose daemon calls a case has failed
+  const silenced = [];
 
   // Node i has polled its daemon at `height`: what it judges from now is judged
   // there. A node that has just moved can fail to reach its daemon for a while,
@@ -143,16 +152,18 @@ describe('a node whose daemon is behind the tip judges its IP changes once it is
     ({ currentHeight: tip } = await advanceBlock());
     listed[BEHIND] = client(BEHIND).ip;
     listed[RESYNCING] = client(RESYNCING).ip;
+    listed[SILENT] = client(SILENT).ip;
   });
 
   after(async function () {
     this.timeout(60000);
-    await Promise.all([BEHIND, RESYNCING].map(async (i) => {
+    await Promise.all([BEHIND, RESYNCING, SILENT].map(async (i) => {
       if (listed[i]) {
         await clearDaemonBehind(listed[i]).catch(() => {});
         await clearNodeAddress(listed[i]).catch(() => {});
       }
     }));
+    await Promise.all(silenced.map((ip) => clearRpcFailures(ip).catch(() => {})));
     await env?.teardown();
   });
 
@@ -229,5 +240,38 @@ describe('a node whose daemon is behind the tip judges its IP changes once it is
     });
     await expectNotJudgedThroughout(RESYNCING, 'once its daemon is synced');
     expect((await record(RESYNCING)).ipChangeHeights, 'the changes inside the window').to.have.lengthOf(1);
+  });
+  it('judges a change made while its daemon is not answering at the height the chain has moved on to', async function () {
+    this.timeout(2 * DETECTION_MS + 2 * STANDS_MS + 600000);
+    const base = client(SILENT).ip.replace(/\.\d+$/, '');
+    ({ currentHeight: tip } = await advanceBlock());
+    await polledAt(SILENT, tip);
+    await move(SILENT, `${base}.244`);
+    const [first] = (await record(SILENT)).ipChangeHeights;
+    expect(first, 'fixture: the first change has the chain\'s height').to.equal(tip);
+
+    // Two blocks short of the window's end, then the daemon stops answering for
+    // two blocks' time while the chain reaches it.
+    const anchor = client(SILENT).getLastEventId();
+    await setHeight(first + WINDOW_BLOCKS - 2);
+    await polledAt(SILENT, first + WINDOW_BLOCKS - 2, anchor);
+    const from = client(SILENT).ip;
+    const to = `${base}.245`;
+    await Promise.all([from, to].map((ip) => { silenced.push(ip); return failRpc(ip, 'getblockchaininfo', { times: 100000 }); }));
+    await new Promise((resolve) => { setTimeout(resolve, 2 * BLOCK_MS + 1000); });
+    await setHeight(first + WINDOW_BLOCKS);
+    await move(SILENT, to);
+
+    const [second] = (await record(SILENT)).ipChangeHeights.slice(-1);
+    expect(second, 'the height the change is judged at').to.be.at.least(first + WINDOW_BLOCKS);
+    const until = Date.now() + STANDS_MS;
+    while (Date.now() < until) {
+      // eslint-disable-next-line no-await-in-loop
+      expect(await heldForIpChanges(SILENT), 'held for its IP changes').to.equal(false);
+      // eslint-disable-next-line no-await-in-loop
+      expect((await record(SILENT))?.ipChangeHold ?? null, 'the hold its record holds').to.equal(null);
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((resolve) => { setTimeout(resolve, 5000); });
+    }
   });
 });
