@@ -37,6 +37,16 @@ let currentHeight = Number(process.env.INITIAL_HEIGHT);
 let deterministicNodeList = [];
 let originalNodeList = [];
 let pendingBlocks = [];
+// height -> block time, epoch seconds. A block's time is fixed when it is mined,
+// or when it is first asked about if it predates this stub, and every later read
+// returns the same value - as the chain does, where every node reads one header
+// time for a block whenever it fetches it.
+const blockTimes = new Map();
+
+function blockTimeOf(height) {
+  if (!blockTimes.has(height)) blockTimes.set(height, Math.floor(Date.now() / 1000));
+  return blockTimes.get(height);
+}
 
 const nodeStatusOverrides = new Map();
 const rpcFailures = new Map();
@@ -304,7 +314,7 @@ const rpcHandlers = {
       version: 4,
       merkleroot: '0000000000000000000000000000000000000000000000000000000000000000',
       tx: [],
-      time: Math.floor(Date.now() / 1000),
+      time: blockTimeOf(height),
       nonce: 0,
       difficulty: 1000,
       previousblockhash: height > 0 ? `000000000000stub${height - 1}` : undefined,
@@ -326,7 +336,7 @@ const rpcHandlers = {
       height: currentHeight,
       version: 4,
       previousblockhash: `000000000000stub${currentHeight - 1}`,
-      time: Math.floor(Date.now() / 1000),
+      time: blockTimeOf(currentHeight),
     };
   },
 
@@ -609,6 +619,7 @@ let tickerHandle = null;
 
 function tickBlock() {
   currentHeight += 1;
+  blockTimeOf(currentHeight);
   mineConfirmations();
   const txs = [];
   while (pendingAppTxQueue.length > 0) {
@@ -624,7 +635,7 @@ function tickBlock() {
       version: 4,
       merkleroot: '0000000000000000000000000000000000000000000000000000000000000000',
       tx: txs,
-      time: Math.floor(Date.now() / 1000),
+      time: blockTimeOf(currentHeight),
       nonce: 0,
       difficulty: 1000,
       previousblockhash: `000000000000stub${currentHeight - 1}`,
@@ -710,6 +721,7 @@ function buildAppRegistrationTx(appHash, height) {
 control.post('/advance-block', (req, res) => {
   const { block, appHash } = req.body;
   currentHeight += 1;
+  blockTimeOf(currentHeight);
   mineConfirmations();
   const txs = [];
   if (appHash) {
@@ -721,6 +733,7 @@ control.post('/advance-block', (req, res) => {
   if (block) {
     block.height = block.height || currentHeight;
     block.hash = block.hash || `000000000000stub${currentHeight}`;
+    block.time = block.time ?? blockTimeOf(block.height);
     // Computed live, the way a synthesized block computes it at the top of this
     // file. Stamping 1 at push time made a block carrying transactions read as
     // the chain tip no matter how far behind the node was, while an empty block
@@ -738,7 +751,7 @@ control.post('/advance-block', (req, res) => {
       version: 4,
       merkleroot: '0000000000000000000000000000000000000000000000000000000000000000',
       tx: txs,
-      time: Math.floor(Date.now() / 1000),
+      time: blockTimeOf(currentHeight),
       nonce: 0,
       difficulty: 1000,
       previousblockhash: `000000000000stub${currentHeight - 1}`,
