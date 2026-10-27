@@ -6,6 +6,7 @@ const chaiAsPromised = require('chai-as-promised');
 const Dockerode = require('dockerode');
 const sinon = require('sinon');
 const path = require('path');
+const fs = require('fs');
 const { PassThrough } = require('stream');
 const dockerService = require('../../ZelBack/src/services/dockerService');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
@@ -1490,19 +1491,38 @@ describe('dockerService tests', () => {
   describe('appDockerStart tests', () => {
     const appName = 'website';
     let dockerStub;
+    let inspectStub;
     let getContainerSpy;
     let listContainersStub;
 
     beforeEach(() => {
       dockerStub = sinon.stub(Dockerode.Container.prototype, 'start').returns(Promise.resolve('started'));
+      inspectStub = sinon.stub(Dockerode.Container.prototype, 'inspect').resolves({ Mounts: [], Config: { Labels: {} } });
       getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
       listContainersStub = stubContainerListing();
     });
 
     afterEach(() => {
       dockerStub.restore();
+      inspectStub.restore();
       getContainerSpy.restore();
       listContainersStub.restore();
+    });
+
+    it('starts nothing whose bind source under the apps folder has become a link', async () => {
+      const apps = `${process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux')}/ZelApps/`;
+      fs.mkdirSync(apps, { recursive: true });
+      const dir = fs.mkdtempSync(`${apps}fluxlinktest-`);
+      try {
+        fs.mkdirSync(path.join(dir, 'real'));
+        fs.symlinkSync(path.join(dir, 'real'), path.join(dir, 'appdata'));
+        inspectStub.resolves({ Mounts: [{ Type: 'bind', Source: path.join(dir, 'appdata'), Destination: '/data' }], Config: { Labels: {} } });
+
+        await expect(dockerService.appDockerStart(appName)).to.eventually.be.rejectedWith('is not a plain directory or file');
+        sinon.assert.notCalled(dockerStub);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
     });
 
     it('should call a docker start command', async () => {

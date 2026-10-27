@@ -37,10 +37,12 @@ const {
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { compareInstanceSeniority } = require('../utils/instanceOrdering');
-const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+const { checkAndDecryptAppSpecs, withoutEnterpriseSecrets } = require('../utils/enterpriseHelper');
 const { verifyAppNameAndOwner } = require('../utils/appIdentity');
 const volumeService = require('../utils/volumeService');
 const { requirePlainDirectories, requireRegularFile } = require('../utils/plainPaths');
+const { isInForce } = require('../utils/appMessageChain');
+const { sameSigningIdentity } = require('../signatureVerifier');
 const mountParser = require('../utils/mountParser');
 const appReconciler = require('../appMonitoring/appReconciler');
 const syncthingFolderWrites = require('../appMonitoring/syncthingFolderWrites');
@@ -4424,6 +4426,26 @@ async function reinstallOldApplications() {
           }
           globalState.reinstallationOfOldAppsInProgress = true;
 
+          // A DIFFERENT OWNER ON A NAME WHOSE INSTALLED TERM HAD ENDED is a new
+          // registration of a released name, not the old app updated. The expiry
+          // sweep removes the install when it runs; a node that was catching up
+          // skipped it, and the comparison below leaves owner out, so this would
+          // rewrite the record in place and hand the old owner's files and data
+          // to the new registrant. An update that transfers an app lands inside
+          // the term it renews, and keeps the data as it always has.
+          if (!sameSigningIdentity(installedApp.owner, appSpecifications.owner)
+              && Number.isFinite(installedApp.height) && Number.isFinite(appSpecifications.height)
+              && !isInForce(installedApp.height, installedApp.expire, appSpecifications.height)) {
+            log.warn(`REMOVAL REASON: ${installedApp.name} was registered again by another owner after its term ended - removing the previous owner's install and data`);
+            // eslint-disable-next-line global-require
+            const appUninstallerForOwner = require('./appUninstaller');
+            // No announcement: the network already holds the new registration.
+            // eslint-disable-next-line no-await-in-loop
+            await appUninstallerForOwner.removeAppLocally(installedApp.name, null, true, false, false);
+            // eslint-disable-next-line no-continue
+            continue;
+          }
+
           // Check if this is an enterprise app on non-arcane node FIRST
           // CRITICAL: Must check BEFORE updating local database or attempting redeployment
           // If we update the local DB with enterprise specs, we lose the container/port info needed for cleanup
@@ -4482,7 +4504,10 @@ async function reinstallOldApplications() {
               upsert: true,
             };
             // eslint-disable-next-line no-await-in-loop
-            await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: appSpecifications }, options);
+            // An enterprise row keeps its compose and contacts blank, as the install
+            // writes it: they were decrypted for the comparison above and are not for
+            // the table, which the public listings read.
+            await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: withoutEnterpriseSecrets([appSpecifications])[0] }, options);
             log.info(`Application ${installedApp.name} Database updated`);
             // OWNER IS DELETED FROM THE COMPARISON ABOVE, so an owner transfer reaches
             // this branch: the same components under a different owner, written without
@@ -4565,7 +4590,7 @@ async function reinstallOldApplications() {
               dbHelper.databaseConnection().db(config.database.appslocal.database),
               localAppsInformation,
               { name: appSpecifications.name },
-              { $set: appSpecifications },
+              { $set: withoutEnterpriseSecrets([appSpecifications])[0] },
               { upsert: true },
             );
 

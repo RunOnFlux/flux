@@ -7808,6 +7808,37 @@ describe('advancedWorkflows tests', () => {
       expect([...requestComplianceSweep.firstCall.args[0]]).to.deep.equal(['myapp']);
     });
 
+    // A released name registered again by someone else must not inherit the
+    // previous owner's install: the expiry sweep removes it, and a node that was
+    // catching up skipped that sweep.
+    it('removes, with its data, an install whose name was registered again by another owner after its term ended', async () => {
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves('removed');
+      const requestComplianceSweep = sinon.stub(imageManager, 'requestComplianceSweep').resolves();
+      dbHelper.findInDatabase.resolves([{ ...installedApp, height: 100, expire: 1000 }]);
+      dbHelper.findOneInDatabase.resolves({
+        ...installedApp, hash: 'newhash', owner: '1NSJC2wKfKjbTuy8dbwmWSpJim7XzaAAoT', height: 5000,
+      });
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      sinon.assert.calledOnceWithExactly(removeAppLocally, 'myapp', null, true, false, false);
+      sinon.assert.notCalled(dbHelper.updateOneInDatabase);
+      sinon.assert.notCalled(requestComplianceSweep);
+    });
+
+    it('keeps the install of an owner transfer that lands inside the term it renews', async () => {
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves('removed');
+      dbHelper.findInDatabase.resolves([{ ...installedApp, height: 100, expire: 1000 }]);
+      dbHelper.findOneInDatabase.resolves({
+        ...installedApp, hash: 'newhash', owner: '1NSJC2wKfKjbTuy8dbwmWSpJim7XzaAAoT', height: 500,
+      });
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      sinon.assert.notCalled(removeAppLocally);
+      sinon.assert.calledOnce(dbHelper.updateOneInDatabase);
+    });
+
     // The canary for it: an application this pass redeploys is judged by the installer
     // that rebuilds it, so asking for it again buys a walk of the whole app table.
     it('does not ask the sweep about an application it redeployed', async () => {
