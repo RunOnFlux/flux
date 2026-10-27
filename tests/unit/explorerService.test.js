@@ -16,7 +16,6 @@ const { MongoNetworkTimeoutError } = require('mongodb');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 const log = require('../../ZelBack/src/lib/log');
 const { requireMongo } = require('./dbTestHelper');
-const { UNPOSITIONED } = require('../../ZelBack/src/services/migrations/paymentPositions');
 const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
@@ -2035,6 +2034,14 @@ describe('explorerService tests', () => {
     let logErrorSpy;
     let logInfoSpy;
 
+    // The explorer's collections are prepared on the maintenance client, which
+    // initiateDB connects to the real mongo; a test that fakes the database keeps
+    // that work on the fake too.
+    const fakeDatabase = (dbFake) => {
+      fakeDatabase(dbFake);
+      sinon.stub(dbHelper, 'onMaintenanceClient').callsFake((database) => database);
+    };
+
     beforeEach(async () => {
       findInDatabaseStub = sinon.stub(dbHelper, 'findOneInDatabase');
       dropCollectionStub = sinon.stub(dbHelper, 'dropCollection');
@@ -2126,7 +2133,7 @@ describe('explorerService tests', () => {
       const createIndexFake = sinon.fake.resolves(true);
       const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]) });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
-      sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
+      fakeDatabase(dbFake);
       getBlockCountStub.returns({
         status: 'success',
         data: 200000,
@@ -2143,6 +2150,7 @@ describe('explorerService tests', () => {
       sinon.assert.calledWithMatch(logInfoSpy, 'Bootstrap: Using address-index fast path');
       sinon.assert.calledWithMatch(logInfoSpy, 'Bootstrap complete');
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparation done');
+      sinon.assert.called(createIndexFake);
     });
 
     it('should fall back to block-by-block scan when bootstrap fails', async () => {
@@ -2153,7 +2161,7 @@ describe('explorerService tests', () => {
       const createIndexFake = sinon.fake.resolves(true);
       const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]) });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
-      sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
+      fakeDatabase(dbFake);
       getBlockCountStub.returns({ status: 'success', data: 200000 });
       sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
       sinon.stub(daemonServiceUtils, 'executeCall').resolves({ status: 'error', data: { message: 'RPC unavailable' } });
@@ -2176,7 +2184,7 @@ describe('explorerService tests', () => {
       const createIndexFake = sinon.fake.resolves(true);
       const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]) });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
-      sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
+      fakeDatabase(dbFake);
       getBlockCountStub.returns({
         status: 'success',
         data: 200000,
@@ -2205,7 +2213,7 @@ describe('explorerService tests', () => {
       const createIndexFake = sinon.fake.resolves(true);
       const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]) });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
-      sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
+      fakeDatabase(dbFake);
       getBlockCountStub.returns({
         status: 'success',
         data: 200000,
@@ -2234,7 +2242,7 @@ describe('explorerService tests', () => {
       const createIndexFake = sinon.fake.resolves(true);
       const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]) });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
-      sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
+      fakeDatabase(dbFake);
       getBlockCountStub.returns({
         status: 'success',
         data: 200000,
@@ -2361,17 +2369,13 @@ describe('explorerService tests', () => {
       expect(unique.key).to.deep.equal({ hash: 1 });
     });
 
-    it('lets the boot backfill read only the payment records without a position', async () => {
-      await hashes.insertMany([
-        ...Array.from({ length: 50 }, (_, i) => ({ hash: `placed${i}`, txid: `placed${i}`, height: i, txIndex: 0 })),
-        { hash: 'unplaced', txid: 'unplaced', height: 60 },
-      ]);
+    it('indexes the payment records by position, which the boot backfill reads the ones without through', async () => {
+      const ensureIndexes = sinon.stub(dbHelper, 'ensureIndexes').resolves();
 
       await explorerService.prepareCollections();
 
-      const { executionStats } = await hashes.find(UNPOSITIONED).explain('executionStats');
-      expect(executionStats.nReturned).to.equal(1);
-      expect(executionStats.totalDocsExamined, 'the backfill read records that have a position').to.equal(1);
+      const call = ensureIndexes.getCalls().find((c) => c.args[0].collectionName === appsHashes);
+      expect(call.args[1].map((spec) => spec.key)).to.deep.include({ txIndex: 1 });
     });
 
     it('starts no scan from zero until its collections hold their indexes', async () => {

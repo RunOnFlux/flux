@@ -430,6 +430,12 @@ export function dbClient(nodeNum) {
       return explorerDb.collection('zelappshashes').indexes();
     },
 
+    async explainAppHashes(query) {
+      const explorerDb = await db('explorer');
+      const { executionStats } = await explorerDb.collection('zelappshashes').find(query).explain('executionStats');
+      return executionStats;
+    },
+
     async dropAppHashIndex(name) {
       const explorerDb = await db('explorer');
       await explorerDb.collection('zelappshashes').dropIndex(name);
