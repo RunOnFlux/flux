@@ -373,6 +373,95 @@ describe('registryManager tests', () => {
     });
   });
 
+  describe('signedHoldersOf', () => {
+    const events = config.database.appsglobal.collections.appStateEvents;
+    const AT = 1700000000000;
+    const LIFE = 7500 * 1000;
+    const running = (key, ip, at, apps = ['TestApp']) => ({
+      ip, type: 'apprunning', dedupKey: 'v2', broadcastedAt: new Date(at), expireAt: new Date(at + LIFE),
+      data: { ip, broadcastedAt: at, apps: apps.map((name) => ({ name, hash: 'h' })) },
+      envelope: { pubKey: key },
+    });
+    const holderKeys = async () => (await registryManager.signedHoldersOf('TestApp', AT)).map((holder) => holder.key).sort();
+
+    beforeEach(async () => {
+      try {
+        await database.collection(events).drop();
+      } catch (err) {
+        // Collection doesn't exist
+      }
+    });
+
+    it('counts each key whose standing announcement names the app', async () => {
+      await database.collection(events).insertMany([
+        running('key-a', '1.1.1.1:16127', AT - 1000),
+        running('key-b', '2.2.2.2:16127', AT - 1000),
+        running('key-c', '3.3.3.3:16127', AT - 1000, ['OtherApp']),
+      ]);
+
+      expect(await holderKeys()).to.eql(['key-a', 'key-b']);
+    });
+
+    it('ignores an eviction, which no holder signed', async () => {
+      await database.collection(events).insertMany([
+        running('key-a', '1.1.1.1:16127', AT - 1000),
+        {
+          ip: '1.1.1.1:16127', type: 'evicted', dedupKey: 'evicted', createdAt: new Date(AT - 500), expireAt: new Date(AT + LIFE),
+        },
+      ]);
+
+      expect(await holderKeys()).to.eql(['key-a']);
+    });
+
+    it('counts a key once across an address move, by its newest announcement', async () => {
+      await database.collection(events).insertMany([
+        running('key-a', '1.1.1.1:16127', AT - 5000),
+        running('key-a', '1.1.1.1:16137', AT - 1000),
+      ]);
+
+      const holders = await registryManager.signedHoldersOf('TestApp', AT);
+
+      expect(holders.map((holder) => [holder.key, holder.ip])).to.eql([['key-a', '1.1.1.1:16137']]);
+    });
+
+    it('drops a key whose newest announcement no longer names the app', async () => {
+      await database.collection(events).insertMany([
+        running('key-a', '1.1.1.1:16127', AT - 5000),
+        running('key-a', '1.1.1.1:16137', AT - 1000, ['OtherApp']),
+      ]);
+
+      expect(await holderKeys()).to.eql([]);
+    });
+
+    it('drops a key that signed a removal of the app or a SIGTERM since its announcement', async () => {
+      await database.collection(events).insertMany([
+        running('key-a', '1.1.1.1:16127', AT - 5000),
+        running('key-b', '2.2.2.2:16127', AT - 5000),
+        running('key-c', '3.3.3.3:16127', AT - 5000),
+        {
+          ip: '1.1.1.1:16127', type: 'appremoved', dedupKey: 'appremoved:TestApp', broadcastedAt: new Date(AT - 1000), expireAt: new Date(AT + LIFE), data: { appName: 'TestApp' }, envelope: { pubKey: 'key-a' },
+        },
+        {
+          ip: '2.2.2.2:16127', type: 'sigterm', dedupKey: 'sigterm', broadcastedAt: new Date(AT - 1000), expireAt: new Date(AT + LIFE), data: {}, envelope: { pubKey: 'key-b' },
+        },
+        {
+          ip: '3.3.3.3:16127', type: 'appremoved', dedupKey: 'appremoved:TestApp', broadcastedAt: new Date(AT - 9000), expireAt: new Date(AT + LIFE), data: { appName: 'TestApp' }, envelope: { pubKey: 'key-c' },
+        },
+      ]);
+
+      expect(await holderKeys()).to.eql(['key-c']);
+    });
+
+    it('counts only records standing at the instant judged', async () => {
+      await database.collection(events).insertMany([
+        running('key-a', '1.1.1.1:16127', AT - LIFE),
+        running('key-b', '2.2.2.2:16127', AT - LIFE + 1),
+      ]);
+
+      expect(await holderKeys()).to.eql(['key-b']);
+    });
+  });
+
   describe('appsListedAt', () => {
     const locations = config.database.appsglobal.collections.appsLocations;
     const runs = (name, ip) => database.collection(locations).insertOne({

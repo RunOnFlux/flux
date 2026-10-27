@@ -605,6 +605,17 @@ async function processStandard(blockDataVerbose, database) {
 }
 
 /**
+ * The time of a block at or below the tip, from the tip itself when it is that block.
+ * @param {{height: number, time: number}} tipBlock the block being processed at the tip
+ * @param {number} height
+ * @returns {Promise<number>} epoch seconds
+ */
+async function blockTimeAt(tipBlock, height) {
+  if (height === tipBlock.height) return tipBlock.time;
+  return (await getVerboseBlock(height, 1)).time;
+}
+
+/**
  * To process block data for entry to Insight database.
  * @param {number} blockHeight Block height.
  * @param {boolean} isInsightExplorer True if node is insight explorer based.
@@ -636,9 +647,7 @@ async function scheduleUpnpBench(tipBlock, period) {
   try {
     const maxBenchDelay = 4 * 3_600_000;
     const dueHeight = Math.floor(tipBlock.height / period) * period;
-    const dueBlockTime = dueHeight === tipBlock.height
-      ? tipBlock.time
-      : (await getVerboseBlock(dueHeight, 1)).time;
+    const dueBlockTime = await blockTimeAt(tipBlock, dueHeight);
     const socketAddress = await fluxNetworkhelper.getLocalSocketAddress();
 
     // socketAddress can be null. If it is, we just use an empty string. This
@@ -733,7 +742,20 @@ async function processBlock(blockHeight, isInsightExplorer) {
         }
         const giveUpPeriod = config.fluxapps.removeFluxAppsPeriod * speedMultiplier;
         if (blockWorkDue('checkAndRemoveApplicationInstance', blockHeight, giveUpPeriod)) {
-          advancedWorkflows.checkAndRemoveApplicationInstance({ height: blockHeight, period: giveUpPeriod });
+          // Judged at the times of the blocks the pass and the one before it
+          // fell due on, which every node reads the same however late it runs.
+          const dueHeight = Math.floor(blockHeight / giveUpPeriod) * giveUpPeriod;
+          try {
+            const [time, previousTime] = await Promise.all([
+              blockTimeAt(blockDataVerbose, dueHeight),
+              blockTimeAt(blockDataVerbose, dueHeight - giveUpPeriod),
+            ]);
+            advancedWorkflows.checkAndRemoveApplicationInstance({
+              height: blockHeight, period: giveUpPeriod, time, previousTime,
+            });
+          } catch (error) {
+            log.error(`Give-up-an-app pass for ${dueHeight} not run: its block times could not be read: ${error?.message ?? error}`);
+          }
         }
         if (blockWorkDue('reinstallOldApplications', blockHeight, updateFluxAppsPeriod * speedMultiplier)) {
           advancedWorkflows.reinstallOldApplications();

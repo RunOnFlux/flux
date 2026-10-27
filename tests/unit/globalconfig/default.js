@@ -398,8 +398,7 @@ module.exports = {
     residentialCheckIntervalMs: 21600000,
     residentialSettleMs: 86400000,
     residentialEvacuationIntervalMs: 21600000,
-    residentialQueueBaseMs: 1800000,
-    residentialQueueStepMs: 2400000, // 40m - must exceed the 22m give-up pass, see ZelBack/config/default.js
+    residentialTurnMs: 3600000, // 60m - must hold two 22m give-up passes, see ZelBack/config/default.js
     nodeMonitorDosRecoveryDelayMs: 600000,
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,

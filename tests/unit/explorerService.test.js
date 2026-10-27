@@ -1163,6 +1163,7 @@ describe('explorerService tests', () => {
           ],
           height: 900009,
           confirmations: 1,
+          time: 1700000000,
         },
       });
       // The block before it is processed at the tip first, so this one is judged on whether it
@@ -1177,7 +1178,10 @@ describe('explorerService tests', () => {
       await explorerService.processBlock(blockHeight, isInsightExplorer);
 
       sinon.assert.notCalled(expireGlobalApplicationsStub);
-      sinon.assert.calledOnceWithExactly(checkAndRemoveApplicationInstanceStub, { height: blockHeight, period: config.fluxapps.removeFluxAppsPeriod });
+      // Every height answers with this block here, so the pass before reads the same time.
+      sinon.assert.calledOnceWithExactly(checkAndRemoveApplicationInstanceStub, {
+        height: blockHeight, period: config.fluxapps.removeFluxAppsPeriod, time: 1700000000, previousTime: 1700000000,
+      });
       sinon.assert.notCalled(restorePortsSupportStub);
       sinon.assert.calledOnceWithMatch(
         dbStubUpdate,
@@ -1284,6 +1288,30 @@ describe('explorerService tests', () => {
       sinon.assert.calledOnce(checkAndRemoveApplicationInstanceStub);
       await processAt(multiple + 4, 1);
       sinon.assert.calledOnce(checkAndRemoveApplicationInstanceStub);
+    });
+
+    it('judges a give-up pass run late at the times of the blocks it and the pass before fell due on', async () => {
+      const isInsightExplorer = true;
+      explorerService.setBlockProccessingCanContinue(false);
+      daemonServiceMiscRpcsStub.returns({ data: { synced: true } });
+      const period = config.fluxapps.removeFluxAppsPeriod;
+      const multiple = Math.ceil(900100 / period) * period;
+      const tip = multiple + 3;
+      const timeOf = (height) => 1700000000 + (height * 30);
+      daemonServiceBlockchainRpcsStub.callsFake(async (req) => {
+        const height = Number(req.params.hashheight);
+        return {
+          status: 'success', data: { tx: [], height, confirmations: height === tip ? 1 : 2, time: timeOf(height) },
+        };
+      });
+      await explorerService.processBlock(multiple - 3, isInsightExplorer);
+      checkAndRemoveApplicationInstanceStub.resetHistory();
+
+      await explorerService.processBlock(tip, isInsightExplorer);
+
+      sinon.assert.calledOnceWithExactly(checkAndRemoveApplicationInstanceStub, {
+        height: tip, period, time: timeOf(multiple), previousTime: timeOf(multiple - period),
+      });
     });
   });
 

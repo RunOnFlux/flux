@@ -63,6 +63,9 @@ const Checkpoint = Object.freeze({
   EXPLORER_BEFORE_BLOCK: 'explorer:beforeBlock',
   // A give-up pass holds the pass lock and has not yet read anything.
   GIVEUP_BEFORE_PASS: 'giveUp:beforePass',
+  // A give-up pass has decided to hand an app back and has not yet checked the
+  // chain height or started the removal. Keyed by the app name.
+  GIVEUP_BEFORE_REMOVAL: 'giveUp:beforeRemoval',
   // A start decision is about to ask a peer what it holds. Keyed by the peer's
   // socket address.
   MASTERSLAVE_BEFORE_PEER_PROBE: 'masterSlave:beforePeerProbe',

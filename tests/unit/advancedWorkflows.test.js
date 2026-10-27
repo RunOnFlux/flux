@@ -37,6 +37,7 @@ const volumeService = require('../../ZelBack/src/services/utils/volumeService');
 const dockerServiceModule = require('../../ZelBack/src/services/dockerService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
 
@@ -47,7 +48,11 @@ const START_REQUESTED = { stopped: true, startRequested: true, force: false };
 const START_REQUESTED_AS_PRIMARY = { ...START_REQUESTED, asPrimary: true };
 
 // The block a give-up pass runs on, and the production period between passes.
-const GIVE_UP_PASS = { height: 3000000, period: 44 };
+// A pass on a multiple of its period, judged at its due block's time and the
+// time of the pass before it.
+const GIVE_UP_PASS = {
+  height: 3000008, period: 44, time: 1700000000, previousTime: 1700000000 - 1320,
+};
 
 describe('advancedWorkflows tests', () => {
   afterEach(() => {
@@ -2577,7 +2582,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appQueryService, 'listRunningApps').resolves({ status: 'success', data: [{ Names: [`/flux${identifier}`] }] });
       sinon.stub(residentialNodeDosService, 'isEvacuating').returns(true);
       sinon.stub(residentialNodeDosService, 'mayEvacuateApp').returns({ ok: true, reason: 'ready' });
-      sinon.stub(residentialNodeDosService, 'forgetAppObservation');
+      sinon.stub(registryManager, 'signedHoldersOf').resolves([]);
       sinon.stub(residentialNodeDosService, 'noteEvacuated');
       sinon.stub(evacuationSafety, 'canSafelyRemoveApp').resolves({
         safe: false, code: 'STAND_DOWN_REQUIRED', reason: 'stop the component first', standDown: [identifier],
@@ -2627,7 +2632,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appQueryService, 'listRunningApps').resolves({ status: 'success', data: [{ Names: [`/flux${identifier}`] }] });
       sinon.stub(residentialNodeDosService, 'isEvacuating').returns(true);
       sinon.stub(residentialNodeDosService, 'mayEvacuateApp').returns({ ok: true, reason: 'ready' });
-      sinon.stub(residentialNodeDosService, 'forgetAppObservation');
+      sinon.stub(registryManager, 'signedHoldersOf').resolves([]);
       sinon.stub(residentialNodeDosService, 'noteEvacuated');
       sinon.stub(evacuationSafety, 'canSafelyRemoveApp').resolves({
         safe: false, code: 'STAND_DOWN_REQUIRED', reason: 'stop the component first', standDown: [identifier],
@@ -8000,6 +8005,10 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
   const residentialNodeDosService = require('../../ZelBack/src/services/residentialNodeDosService');
 
   const LOCAL = '1.2.3.4:16127';
+  const OWN_KEY = 'key-own';
+  const HOLDERS = [OWN_KEY, 'key-b', 'key-c'].map((key) => ({ key, ip: `${key}:16127`, expireAt: new Date(4e12) }));
+  // What a give-up pass judges an evacuation turn on, for a direct call.
+  const TURN = { holders: HOLDERS, ownKey: OWN_KEY, pass: { timeMs: 1700000000000, previousTimeMs: 1700000000000 - 1320000 } };
 
   function locations(...ips) {
     return ips.map((ip, index) => ({ ip, runningSince: new Date(1700000000000 + index) }));
@@ -8019,7 +8028,11 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
     sinon.stub(residentialNodeDosService, 'isEvacuating').returns(false);
     sinon.stub(residentialNodeDosService, 'mayEvacuateApp').returns({ ok: true, reason: 'ready' });
     sinon.stub(residentialNodeDosService, 'noteEvacuated');
-    sinon.stub(residentialNodeDosService, 'forgetAppObservation');
+    sinon.stub(registryManager, 'signedHoldersOf').resolves(HOLDERS);
+    sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').resolves(OWN_KEY);
+    // The chain still below the pass after next, so a decided removal goes ahead.
+    sinon.stub(daemonServiceUtils, 'executeCall')
+      .withArgs('getBlockCount').resolves({ status: 'success', data: GIVE_UP_PASS.height + 1 });
     // Every peer here predates the identity endpoint, and is read unsigned.
     sinon.stub(peerIdentityService, 'askSigned').resolves({
       verdict: peerIdentityService.IdentityVerdict.UNVERIFIABLE, status: 404, data: null, mayReadUnsigned: true,
@@ -8076,6 +8089,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
         { name: 'a', instances: 2 },
         locations(LOCAL, '5.6.7.8:16127'),
         LOCAL,
+        { turn: TURN },
       );
 
       expect(decision.giveUp).to.equal(true);
@@ -8090,6 +8104,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
         { name: 'a', instances: 2 },
         locations(LOCAL, '5.6.7.8:16127'),
         LOCAL,
+        { turn: TURN },
       );
 
       expect(decision.giveUp).to.equal(false);
@@ -8139,7 +8154,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
         withWriter,
         locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL),
         LOCAL,
-        { isComponentRunningLocally: sinon.stub().resolves(true), liveness: {} },
+        { isComponentRunningLocally: sinon.stub().resolves(true), liveness: {}, turn: TURN },
       );
 
       expect(decision.reason).to.equal('EVACUATION');
@@ -8537,20 +8552,6 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
           .to.have.lengthOf(0);
       });
 
-      it('does not restart the evacuation window on a surplus refusal', async () => {
-        dbHelper.findInDatabase.resolves(installed('surplusonlyapp'));
-        // forgetAppObservation clears the mark mayEvacuateApp paces on, and
-        // only the evacuation path sets one. Calling it here cleared something
-        // nothing had written.
-        registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
-        evacuationSafety.canSafelyRemoveApp.resolves({
-          safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds it',
-        });
-
-        await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
-
-        sinon.assert.notCalled(residentialNodeDosService.forgetAppObservation);
-      });
     });
 
     it('does not start a pass that removeAppLocally would refuse', async () => {
@@ -8631,7 +8632,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       sinon.assert.calledTwice(evacuationSafety.canSafelyRemoveApp);
     });
 
-    it('refuses an evacuation removal that is not safe, and restarts its observation', async () => {
+    it('refuses an evacuation removal that is not safe', async () => {
       residentialNodeDosService.isEvacuating.returns(true);
       registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
       evacuationSafety.canSafelyRemoveApp.resolves({ safe: false, reason: 'no connected peer holds it' });
@@ -8639,7 +8640,6 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
-      sinon.assert.calledWith(residentialNodeDosService.forgetAppObservation, 'appone');
     });
 
     it('performs an evacuation removal that is safe and records it', async () => {
@@ -8650,6 +8650,56 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
 
       sinon.assert.calledWith(appUninstaller.removeAppLocally, 'appone');
       sinon.assert.calledWith(residentialNodeDosService.noteEvacuated, 'appone');
+    });
+
+    it('judges the evacuation turn on the signed holders, its own key and the due blocks\' times', async () => {
+      residentialNodeDosService.isEvacuating.returns(true);
+      registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledWith(registryManager.signedHoldersOf, 'appone', GIVE_UP_PASS.time * 1000);
+      sinon.assert.calledWith(residentialNodeDosService.mayEvacuateApp, HOLDERS, OWN_KEY, 3, {
+        timeMs: GIVE_UP_PASS.time * 1000, previousTimeMs: GIVE_UP_PASS.previousTime * 1000,
+      });
+    });
+
+    it('does not hand back once the chain has reached the pass after next', async () => {
+      // The next holder to own a turn acts no sooner than that pass, so a
+      // removal starting then could meet its decision.
+      residentialNodeDosService.isEvacuating.returns(true);
+      registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
+      const dueHeight = Math.floor(GIVE_UP_PASS.height / GIVE_UP_PASS.period) * GIVE_UP_PASS.period;
+      daemonServiceUtils.executeCall.withArgs('getBlockCount')
+        .resolves({ status: 'success', data: dueHeight + (2 * GIVE_UP_PASS.period) });
+      const published = sinon.spy(fluxEventBus, 'publish');
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      sinon.assert.calledWith(published, 'giveUp:decisionStale', { appName: 'appone', dueHeight, tip: dueHeight + (2 * GIVE_UP_PASS.period) });
+    });
+
+    it('hands back while the chain is a block short of the pass after next', async () => {
+      residentialNodeDosService.isEvacuating.returns(true);
+      registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
+      const dueHeight = Math.floor(GIVE_UP_PASS.height / GIVE_UP_PASS.period) * GIVE_UP_PASS.period;
+      daemonServiceUtils.executeCall.withArgs('getBlockCount')
+        .resolves({ status: 'success', data: dueHeight + (2 * GIVE_UP_PASS.period) - 1 });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.calledWith(appUninstaller.removeAppLocally, 'appone');
+    });
+
+    it('does not hand back when the chain height cannot be read', async () => {
+      residentialNodeDosService.isEvacuating.returns(true);
+      registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
+      daemonServiceUtils.executeCall.withArgs('getBlockCount').resolves({ status: 'error', data: { message: 'down' } });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
     });
 
     it('does not record an evacuation when the removal was a surplus', async () => {
@@ -8733,7 +8783,22 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
     });
 
-    it('gives up standing down after the cap, rather than holding a stopped app forever', async () => {
+    // A pass at block time `ms`, on a multiple of its period, the pass before it one turn-hour earlier.
+    const passAtMs = (ms) => ({
+      ...GIVE_UP_PASS, time: Math.floor(ms / 1000), previousTime: Math.floor(ms / 1000) - 1320,
+    });
+    const stoodDownTurn = () => residentialNodeDosService.turnOf(GIVE_UP_PASS.time * 1000);
+    const nextOwnedTurn = () => {
+      const keys = HOLDERS.map((holder) => holder.key);
+      let turn = stoodDownTurn() + 1;
+      while (residentialNodeDosService.turnOwner(keys, turn) !== OWN_KEY) turn += 1;
+      return turn;
+    };
+    const releases = (logWarn) => logWarn.getCalls()
+      .map((c) => String(c.args[0]))
+      .filter((line) => line.includes('standing for election again'));
+
+    it('stands for election again once it has owned a whole turn since, rather than holding a stopped app forever', async () => {
       // The state this guards against: stood down, and then unable to leave
       // anyway because the peer that held the folder went away. A component
       // stopped HERE and running NOWHERE is worse than the stuck-but-serving
@@ -8746,28 +8811,19 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       evacuationSafety.canSafelyRemoveApp.resolves({
         safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds it',
       });
+      const { TURN_MS } = residentialNodeDosService;
 
-      // The pass that stands down, then a pass every period until the cap's
-      // blocks have passed.
-      const { height, period } = GIVE_UP_PASS;
-      for (let i = 0; i <= 7; i += 1) {
-        // eslint-disable-next-line no-await-in-loop
-        await advancedWorkflows.checkAndRemoveApplicationInstance({ height: height + i * period, period });
-      }
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+      await advancedWorkflows.checkAndRemoveApplicationInstance(passAtMs((nextOwnedTurn() + 1) * TURN_MS));
 
-      const gaveUp = logWarn.getCalls()
-        .map((c) => String(c.args[0]))
-        .filter((line) => line.includes('standing for election again'));
-      expect(gaveUp).to.have.lengthOf(1);
-      expect(gaveUp[0]).to.include('server_appone');
+      expect(releases(logWarn)).to.have.lengthOf(1);
+      expect(releases(logWarn)[0]).to.include('server_appone');
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
     });
 
-    it('holds the stand-down for the cap\'s blocks, however many passes run in them', async () => {
-      // A late pass can land a block before an on-time one, so passes are not
-      // evenly spaced; the wait is the cap's blocks, not a count of passes. Also
-      // the mutation guard for the test above: a cap that fired early would
-      // still pass that test and not this one.
+    it('holds the stand-down through the next turn it owns, which is the one it leaves in', async () => {
+      // Also the mutation guard for the test above: a release that fired before
+      // the owned turn had ended would still pass that test and not this one.
       const logWarn = sinon.stub(log, 'warn');
       evacuationSafety.canSafelyRemoveApp.onFirstCall().resolves({
         safe: false, code: 'STAND_DOWN_REQUIRED', reason: 'stop first', standDown: ['server_appone'],
@@ -8775,19 +8831,28 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       evacuationSafety.canSafelyRemoveApp.resolves({
         safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds it',
       });
+      const { TURN_MS } = residentialNodeDosService;
+      const owned = nextOwnedTurn();
 
-      const { height, period } = GIVE_UP_PASS;
-      await advancedWorkflows.checkAndRemoveApplicationInstance({ height, period });
-      for (let i = 1; i <= 10; i += 1) {
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+      for (let turn = stoodDownTurn() + 1; turn <= owned; turn += 1) {
         // eslint-disable-next-line no-await-in-loop
-        await advancedWorkflows.checkAndRemoveApplicationInstance({ height: height + i, period });
+        await advancedWorkflows.checkAndRemoveApplicationInstance(passAtMs((turn * TURN_MS) + (TURN_MS - 1000)));
       }
-      await advancedWorkflows.checkAndRemoveApplicationInstance({ height: height + 6 * period, period });
 
-      const gaveUp = logWarn.getCalls()
-        .map((c) => String(c.args[0]))
-        .filter((line) => line.includes('standing for election again'));
-      expect(gaveUp).to.have.lengthOf(0);
+      expect(releases(logWarn)).to.have.lengthOf(0);
+    });
+
+    it('stands for election again once the node stops evacuating', async () => {
+      const logWarn = sinon.stub(log, 'warn');
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+      residentialNodeDosService.isEvacuating.returns(false);
+      evacuationSafety.canSafelyRemoveApp.resolves({ safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds it' });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
+
+      expect(releases(logWarn)).to.have.lengthOf(1);
+      expect(releases(logWarn)[0]).to.include('no longer evacuating');
     });
 
     it('leaves a component it could not stop unmarked, so the next pass retries', async () => {

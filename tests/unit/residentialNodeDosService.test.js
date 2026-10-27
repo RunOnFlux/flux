@@ -26,6 +26,7 @@ describe('residentialNodeDosService tests', () => {
   let installedApps;
 
   const LOCAL = '1.2.3.4:16127';
+  const DAY = 24 * 60 * 60 * 1000;
 
   // A node that has WATCHED the verdict hold for the whole window. The gate
   // counts observed time, not elapsed time, so seeding a start timestamp alone
@@ -598,7 +599,12 @@ describe('residentialNodeDosService tests', () => {
       });
 
       await service.enforceResidentialPolicy(deps);
-      const verdict = service.mayEvacuateApp('someapp', [{ ip: LOCAL, runningSince: new Date(1) }], LOCAL, now);
+      const verdict = service.mayEvacuateApp(
+        [{ key: 'own', expireAt: new Date(now + DAY) }],
+        'own',
+        1,
+        { timeMs: now, previousTimeMs: now },
+      );
 
       expect(verdict.ok).to.equal(false);
       expect(verdict.reason).to.contain('next departure in');
@@ -670,13 +676,6 @@ describe('residentialNodeDosService tests', () => {
       }
 
       expect(markerStore.get('residentialDos').lastEvacuationAt, 'an older departure replaced a newer one').to.equal(2000000);
-    });
-
-    it('gives an empty location list the longest wait, not the shortest', async () => {
-      // `index < 0 ? ordered.length : index` made an EMPTY list position 0 -
-      // the front of the queue - inverting the rule the sibling test asserts. An
-      // empty list is the ordinary result of expired location records.
-      expect(service.queueDelayMs([], LOCAL)).to.be.above(service.QUEUE_BASE_MS);
     });
 
     it('refuses to drain on a settle comparison that is not a number', async () => {
@@ -762,31 +761,6 @@ describe('residentialNodeDosService tests', () => {
     });
   });
 
-  describe('the ticket tolerance the harness models', () => {
-    it('is the same multiple of the step that coupled-knobs derives from', async () => {
-      // Two files have to agree on this or the harness builds fleets the product
-      // does not behave like: coupled-knobs sizes the departure interval to
-      // outlast the tolerance, and sizes it from ITS OWN idea of what the
-      // tolerance is. If that drifts below the real one, a departure stops
-      // reading as a gap and the serialisation this paces silently stops
-      // existing - green, and testing nothing.
-      // eslint-disable-next-line import/extensions
-      const knobs = await import('../../test-infra/runner/framework/coupled-knobs.js');
-
-      expect(service.MAX_TICKET_GAP_MS).to.equal(service.QUEUE_STEP_MS * knobs.TICKET_GAP_STEPS);
-    });
-
-    it('outlasts more than one give-up pass, so a late pass cannot trip it', async () => {
-      // eslint-disable-next-line import/extensions
-      const knobs = await import('../../test-infra/runner/framework/coupled-knobs.js');
-      const passesPerStep = knobs.productionQueueRatio();
-
-      // One step is 1.82 passes. The tolerance has to mean a pass was MISSED
-      // rather than merely slow, so it has to clear two passes with room.
-      expect(passesPerStep * knobs.TICKET_GAP_STEPS).to.be.above(3);
-    });
-  });
-
   describe('what /flux/info reports: dosStaging', () => {
     it('reports nothing on a node that is not being enforced', async () => {
       geolocationServiceStub.getNetworkClassification.returns({ classification: CLASSIFICATION.DATACENTER });
@@ -868,13 +842,24 @@ describe('residentialNodeDosService tests', () => {
   });
 
   describe('pacing: mayEvacuateApp', () => {
-    // Junior first, so the senior LOCAL sits at position 1 - the pacing tests
-    // below are about the interval and the observation window, and they only
-    // say what they mean from a position that is not the front of the queue.
-    const locations = [
-      { ip: '5.6.7.8:16127', runningSince: new Date(2000) },
-      { ip: LOCAL, runningSince: new Date(1000) },
-    ];
+    const OWN = 'key-own';
+    const KEYS = [OWN, 'key-b', 'key-c'];
+    // One give-up pass at production scale: 11 x 4 blocks of 30s.
+    const PASS_MS = 22 * 60 * 1000;
+    // Standing far past any turn the tests judge at.
+    const standing = (key) => ({ key, ip: `${key}:16127`, expireAt: new Date(4e12) });
+    const holders = (keys = KEYS) => keys.map(standing);
+    const ownerOf = (keys, from, key) => {
+      for (let turn = from; ; turn += 1) {
+        if (service.turnOwner(keys, turn) === key) return turn;
+      }
+    };
+    // A pass `offsetMs` into a turn, with the pass before it one pass earlier.
+    const passAt = (turn, offsetMs) => {
+      const timeMs = (turn * service.TURN_MS) + offsetMs;
+      return { timeMs, previousTimeMs: timeMs - PASS_MS };
+    };
+    const START = 500000;
 
     beforeEach(async () => {
       installedApps = [{ name: 'someapp' }];
@@ -886,232 +871,142 @@ describe('residentialNodeDosService tests', () => {
       geolocationServiceStub.getNetworkClassification.returns({ classification: CLASSIFICATION.DATACENTER });
       await service.enforceResidentialPolicy(deps);
 
-      const result = service.mayEvacuateApp('someapp', locations, LOCAL);
+      const turn = ownerOf(KEYS, START, OWN);
+      const result = service.mayEvacuateApp(holders(), OWN, 3, passAt(turn, PASS_MS + 1));
 
       expect(result.ok).to.equal(false);
-      expect(result.reason).to.contain('not evacuating');
+      expect(result.code).to.equal('NOT_EVACUATING');
     });
 
-    // Two locations, so two is full strength for this app.
-    const WHOLE = 2;
-    // Position 1 in the queue order (junior first): base plus one step.
-    const WAIT = () => service.QUEUE_BASE_MS + service.QUEUE_STEP_MS;
+    it('acts on the second pass of a turn it owns', () => {
+      const turn = ownerOf(KEYS, START, OWN);
 
-    // Walk the ticket forward the way the give-up pass does - an evaluation
-    // every half step, which is well inside the gap an observation tolerates.
-    // Written out rather than jumped, because what the ticket measures is an
-    // uninterrupted observation and a single jump is not one.
-    const walk = (name, locs, from, to, min = WHOLE) => {
-      for (let t = from; t < to; t += service.MAX_TICKET_GAP_MS / 2) {
-        service.mayEvacuateApp(name, locs, LOCAL, min, t);
-      }
-      return service.mayEvacuateApp(name, locs, LOCAL, min, to);
-    };
+      const result = service.mayEvacuateApp(holders(), OWN, 3, passAt(turn, PASS_MS + 1));
 
-    it('refuses until the app has been seen whole for its queue turn', () => {
-      const now = Date.now();
-      service.mayEvacuateApp('someapp', locations, LOCAL, WHOLE, now);
-
-      const result = service.mayEvacuateApp('someapp', locations, LOCAL, WHOLE, now + 1000);
-
-      expect(result.ok).to.equal(false);
-      expect(result.reason).to.contain('its turn is in');
+      expect(result).to.include({ ok: true, code: 'READY' });
     });
 
-    it('allows once the queue turn has been served', () => {
-      const now = Date.now();
+    it('does not act on the first pass of a turn it owns', () => {
+      // The pass before fell in the previous turn, so another holder may have
+      // acted on it; this pass is the one that carries that departure to everyone.
+      const turn = ownerOf(KEYS, START, OWN);
 
-      const result = walk('someapp', locations, now, now + WAIT() + 1);
+      const result = service.mayEvacuateApp(holders(), OWN, 3, passAt(turn, PASS_MS - 1));
 
-      expect(result.ok).to.equal(true);
+      expect(result).to.include({ ok: false, code: 'AWAITING_TURN' });
+    });
+
+    it('does not act in a turn another holder owns', () => {
+      const turn = ownerOf(KEYS, START, 'key-b');
+
+      const result = service.mayEvacuateApp(holders(), OWN, 3, passAt(turn, PASS_MS + 1));
+
+      expect(result).to.include({ ok: false, code: 'AWAITING_TURN' });
+    });
+
+    it('does not act while the app is short of its count', () => {
+      const turn = ownerOf(KEYS, START, OWN);
+
+      const result = service.mayEvacuateApp(holders(), OWN, 4, passAt(turn, PASS_MS + 1));
+
+      // The CODE, not the prose: a caller tells "waiting its turn" from "the app
+      // is short" by it. The name appEvacuationSafety uses for the same fact.
+      expect(result).to.include({ ok: false, code: 'BELOW_INSTANCE_COUNT' });
+    });
+
+    it('does not act while the app has a spare copy', () => {
+      // Two holders that each fail to count the other can both own a turn, and
+      // above the count each is still at strength without the other.
+      const turn = ownerOf(KEYS, START, OWN);
+
+      const result = service.mayEvacuateApp(holders(), OWN, 2, passAt(turn, PASS_MS + 1));
+
+      expect(result).to.include({ ok: false, code: 'ABOVE_INSTANCE_COUNT' });
+    });
+
+    it('has no turn without a standing announcement of its own', () => {
+      const others = ['key-b', 'key-c', 'key-d'];
+      const turn = ownerOf([...others, OWN], START, OWN);
+
+      const result = service.mayEvacuateApp(holders(others), OWN, 3, passAt(turn, PASS_MS + 1));
+
+      expect(result).to.include({ ok: false, code: 'NOT_LISTED' });
+    });
+
+    it('does not act when its own announcement lapses within the turn', () => {
+      const turn = ownerOf(KEYS, START, OWN);
+      const pass = passAt(turn, PASS_MS + 1);
+      const lapsing = holders().map((holder) => (holder.key === OWN
+        ? { ...holder, expireAt: new Date(pass.timeMs + service.TURN_MS) }
+        : holder));
+
+      const result = service.mayEvacuateApp(lapsing, OWN, 3, pass);
+
+      expect(result).to.include({ ok: false, code: 'ANNOUNCEMENT_LAPSING' });
+      // and one more millisecond of announcement is enough
+      const lasting = lapsing.map((holder) => (holder.key === OWN
+        ? { ...holder, expireAt: new Date(pass.timeMs + service.TURN_MS + 1) }
+        : holder));
+      expect(service.mayEvacuateApp(lasting, OWN, 3, pass).ok).to.equal(true);
     });
 
     it('paces departures by the evacuation interval', () => {
-      const now = Date.now();
-      const wait = WAIT();
-      expect(walk('someapp', locations, now, now + wait + 1).ok).to.equal(true);
+      const turn = ownerOf(KEYS, START, OWN);
+      const now = 1e9;
+      service.noteEvacuated('someapp', now);
 
-      service.noteEvacuated('someapp', now + wait + 1);
-      const next = service.mayEvacuateApp('other', locations, LOCAL, WHOLE, now + wait + 2);
+      const result = service.mayEvacuateApp(holders(), OWN, 3, passAt(turn, PASS_MS + 1), now + 1);
 
-      expect(next.ok).to.equal(false);
-      expect(next.reason).to.contain('next departure in');
+      expect(result).to.include({ ok: false, code: 'DEPARTURE_INTERVAL' });
     });
+  });
 
-    it("restarts an app's observation when it stops being whole", () => {
-      const now = Date.now();
-      service.mayEvacuateApp('someapp', locations, LOCAL, WHOLE, now);
-      service.forgetAppObservation('someapp');
-      const wait = WAIT();
+  describe('turnOwner', () => {
+    const KEYS = ['key-a', 'key-b', 'key-c', 'key-d', 'key-e'];
 
-      const result = service.mayEvacuateApp('someapp', locations, LOCAL, WHOLE, now + wait + 1);
-
-      expect(result.ok).to.equal(false);
-    });
-
-    it('does not arrive ready the instant its departure interval clears', () => {
-      // The serialisation between two evacuating holders is the ticket, and the
-      // ticket only separates them if it is still binding after a departure.
-      // Both nodes stamp their tickets in the same pass; one leaves; and if the
-      // other's ticket keeps maturing through the six hours it is blocked, then
-      // when the blocks expire together - they are fired from the same block
-      // height - both are ready for the same app in the same pass.
-      const now = Date.now();
-      const wait = WAIT();
-      walk('other', locations, now, now + wait + 1);
-      expect(walk('someapp', locations, now, now + wait + 1).ok).to.equal(true);
-      service.noteEvacuated('someapp', now + wait + 1);
-
-      // The pass goes on running through the block and goes on asking. It is
-      // refused at the interval gate, and being refused there is NOT having
-      // watched the app: the accounting sits below that gate for this reason.
-      const cleared = now + wait + 1 + service.EVACUATION_INTERVAL_MS + 1;
-      for (let t = now + wait + 2; t < cleared; t += service.MAX_TICKET_GAP_MS / 2) {
-        service.mayEvacuateApp('other', locations, LOCAL, WHOLE, t);
+    it('names one holder per turn whatever order the holders arrive in', () => {
+      for (let turn = 0; turn < 200; turn += 1) {
+        const owner = service.turnOwner(KEYS, turn);
+        expect(KEYS).to.include(owner);
+        expect(service.turnOwner([...KEYS].reverse(), turn)).to.equal(owner);
       }
-
-      const result = service.mayEvacuateApp('other', locations, LOCAL, WHOLE, cleared);
-
-      expect(result.ok).to.equal(false);
-      expect(result.reason).to.contain('its turn is in');
     });
 
-    it('counts nothing towards the turn while the app is short', () => {
-      // The clock is named for seeing the app at full strength and used to
-      // start on the first ASK, so an app short for its entire wait served the
-      // full wait anyway and was only caught later, by the safety gate.
-      const now = Date.now();
-      const wait = WAIT();
-      const short = [{ ip: LOCAL, runningSince: new Date(1000) }];
-
-      const during = walk('someapp', short, now, now + wait + 1);
-
-      expect(during.ok).to.equal(false);
-      // The CODE, not the prose. A caller has to tell "waiting its turn" from
-      // "the app is short" - the first is this working, the second is a node
-      // that wants to leave and cannot - and it must not have to match a
-      // sentence to do it. Deliberately the name appEvacuationSafety uses for
-      // the same fact, because it is the same fact asked one layer earlier.
-      expect(during.code).to.equal('BELOW_INSTANCE_COUNT');
-      expect(during.reason).to.contain('below its instance count');
-
-      // And the turn runs from the moment it is whole, not from the first ask.
-      const result = service.mayEvacuateApp('someapp', locations, LOCAL, WHOLE, now + wait + 2);
-
-      expect(result.ok).to.equal(false);
+    it('never gives one turn to two holders that each count the other', () => {
+      // Each node counts its own set of holders. Two that both count a and b,
+      // and differ on any third, cannot see a own a turn and b own it too.
+      for (let turn = 0; turn < 500; turn += 1) {
+        const withC = service.turnOwner(['key-a', 'key-b', 'key-c'], turn);
+        const withD = service.turnOwner(['key-a', 'key-b', 'key-d'], turn);
+        expect(withC === 'key-a' && withD === 'key-b', `turn ${turn}`).to.equal(false);
+        expect(withC === 'key-b' && withD === 'key-a', `turn ${turn}`).to.equal(false);
+      }
     });
 
-    it('restarts the turn when a gap says the node stopped watching', () => {
-      const now = Date.now();
-      const wait = WAIT();
+    it('gives every holder turns', () => {
+      const owned = new Set();
+      for (let turn = 0; turn < 200; turn += 1) owned.add(service.turnOwner(KEYS, turn));
 
-      // Watched without interruption, the turn is served on time.
-      expect(walk('someapp', locations, now, now + wait + 1).ok).to.equal(true);
-
-      service.forgetAppObservation('someapp');
-      service.mayEvacuateApp('someapp', locations, LOCAL, WHOLE, now);
-      // An interruption longer than the tolerance. Expressed against the
-      // tolerance and measured from where watching RESUMED, rather than against
-      // the original stamp: the two are independent knobs, and an arithmetic
-      // that assumes one outlasts the other silently stops testing anything the
-      // moment either moves.
-      const resumed = now + service.MAX_TICKET_GAP_MS + 1;
-
-      // The turn starts again from `resumed`, so time already served is gone.
-      expect(walk('someapp', locations, resumed, resumed + wait - 1).ok).to.equal(false);
-      // ...and a full turn from there does mature.
-      expect(walk('someapp', locations, resumed + wait - 1, resumed + wait + 1).ok).to.equal(true);
+      expect([...owned].sort()).to.eql(KEYS);
     });
 
-    it('is not restarted by an ordinary pass running late', () => {
-      // The tolerance is TWO steps because one is 1.82 passes, so at one step a
-      // single slow pass restarts the ticket. Production hardly notices; the
-      // harness compresses the same ratio to seconds, where a late pass is
-      // ordinary - and on chud the countdown ran 2m, 1m, 0m and jumped back to
-      // 2m, three times over, never maturing.
-      const now = Date.now();
-      const wait = WAIT();
-      const lateButNotMissed = service.QUEUE_STEP_MS + 1000;
+    it('is cut from block time', () => {
+      expect(service.turnOf(5 * service.TURN_MS)).to.equal(5);
+      expect(service.turnOf((6 * service.TURN_MS) - 1)).to.equal(5);
+    });
 
-      expect(lateButNotMissed, 'a late pass must be inside the tolerance')
-        .to.be.below(service.MAX_TICKET_GAP_MS);
+    it('tells a stood-down holder when it has owned a whole turn since', () => {
+      let first = 1000;
+      while (service.turnOwner(KEYS, first) !== 'key-a') first += 1;
+      let next = first + 1;
+      while (service.turnOwner(KEYS, next) !== 'key-a') next += 1;
 
-      service.mayEvacuateApp('someapp', locations, LOCAL, WHOLE, now);
-      service.mayEvacuateApp('someapp', locations, LOCAL, WHOLE, now + lateButNotMissed);
-
-      expect(service.mayEvacuateApp('someapp', locations, LOCAL, WHOLE, now + wait + 1).ok)
-        .to.equal(true);
+      expect(service.ownedTurnSince(KEYS, 'key-a', first, next)).to.equal(false);
+      expect(service.ownedTurnSince(KEYS, 'key-a', first, next + 1)).to.equal(true);
     });
   });
 
-  describe('queueDelayMs is a delay, never a veto', () => {
-    it('gives the junior instance the shortest wait, and still a non-zero one', () => {
-      const locations = [
-        { ip: '5.6.7.8:16127', runningSince: new Date(1000) },
-        { ip: LOCAL, runningSince: new Date(2000) },
-      ];
-
-      expect(service.queueDelayMs(locations, LOCAL)).to.equal(service.QUEUE_BASE_MS);
-    });
-
-    it('makes the senior instance wait longest, whatever order the list arrives in', () => {
-      // The senior instance is the one masterSlaveApps elects primary, and it
-      // is the only instance that cannot simply leave - it has to stand down
-      // and hand the app back first. Ranking the senior end first put exactly
-      // that node at the head of the queue, ahead of every node that could just
-      // go. Locations arrive in broadcast order, so the answer must not depend
-      // on it either.
-      const senior = { ip: LOCAL, runningSince: new Date(1000) };
-      const middle = { ip: '5.6.7.8:16127', runningSince: new Date(2000) };
-      const junior = { ip: '9.9.9.9:16127', runningSince: new Date(3000) };
-
-      [[senior, middle, junior], [junior, senior, middle]].forEach((locations) => {
-        expect(service.queueDelayMs(locations, LOCAL)).to.equal(
-          service.QUEUE_BASE_MS + (2 * service.QUEUE_STEP_MS),
-        );
-        expect(service.queueDelayMs(locations, junior.ip)).to.equal(service.QUEUE_BASE_MS);
-      });
-    });
-
-    it('spaces each subsequent position by one step', () => {
-      const locations = [
-        { ip: '5.6.7.8:16127', runningSince: new Date(1000) },
-        { ip: '9.9.9.9:16127', runningSince: new Date(3000) },
-        { ip: LOCAL, runningSince: new Date(2000) },
-      ];
-
-      expect(service.queueDelayMs(locations, LOCAL)).to.equal(
-        service.QUEUE_BASE_MS + service.QUEUE_STEP_MS,
-      );
-    });
-
-    it('gives an instance it cannot find in the list the longest wait', () => {
-      const locations = [{ ip: '5.6.7.8:16127', runningSince: new Date(1000) }];
-
-      expect(service.queueDelayMs(locations, LOCAL)).to.equal(
-        service.QUEUE_BASE_MS + service.QUEUE_STEP_MS,
-      );
-    });
-  });
-
-  describe('the queue step outlasts the pass that reads it', () => {
-    // mayEvacuateApp is reachable only from the give-up pass
-    // (explorerService.js:651 -> checkAndRemoveApplicationInstance) and
-    // wholeSince is stamped inside that pass, so ticket maturity is quantised
-    // to the pass interval. A step shorter than the pass cannot separate two
-    // points on that grid: adjacent positions mature on the same pass, and the
-    // pass is keyed on block height so every node in the fleet evaluates in the
-    // same instant. Both holders then read the app at full strength, because
-    // fluxappremoved is broadcast only after the volume is already deleted, and
-    // an app at N drops to 1 in a single pass.
-    //
-    // Asserted against PRODUCTION's config, not the copy under
-    // tests/unit/globalconfig and not the harness overlay. The harness
-    // compresses both sides of this inequality, and compressing them by
-    // different factors is what hid the defect - suite 55 separates every
-    // position by about four passes and is structurally incapable of producing
-    // the collision. An environment tuned until it is green cannot test what
-    // was tuned, so the inequality is checked where the fleet reads it.
+  describe('the turn against the passes and announcements that read it', () => {
     const BLOCK_SECONDS = 30; // post-PON; stated in-repo at fluxService.js:1774
     const PON_SPEED_MULTIPLIER = 4; // explorerService.js:610
 
@@ -1127,23 +1022,18 @@ describe('residentialNodeDosService tests', () => {
       return fluxapps.removeFluxAppsPeriod * PON_SPEED_MULTIPLIER * BLOCK_SECONDS * 1000;
     }
 
-    it('spaces adjacent queue positions by more than one give-up pass', () => {
+    it('holds two give-up passes in every turn', () => {
       const { fluxapps } = productionConfig();
 
-      expect(fluxapps.residentialQueueStepMs).to.be.above(passIntervalMs(fluxapps));
+      expect(fluxapps.residentialTurnMs).to.be.at.least(2 * passIntervalMs(fluxapps));
     });
 
-    it('gives every position in an instance list a pass of its own', () => {
+    it('is shorter than what a renewed announcement still has to run', () => {
+      // eslint-disable-next-line global-require
+      const { RUNNING_EXPIRY_MS, ANNOUNCE_INTERVAL_MS } = require('../../ZelBack/src/services/utils/appConstants');
       const { fluxapps } = productionConfig();
-      const pass = passIntervalMs(fluxapps);
-      const passIndex = (position) => Math.ceil(
-        (fluxapps.residentialQueueBaseMs + (position * fluxapps.residentialQueueStepMs)) / pass,
-      );
 
-      // Nine positions covers the largest instance count the fleet runs.
-      const indices = [0, 1, 2, 3, 4, 5, 6, 7, 8].map(passIndex);
-
-      expect(new Set(indices).size).to.equal(indices.length);
+      expect(RUNNING_EXPIRY_MS - ANNOUNCE_INTERVAL_MS).to.be.above(fluxapps.residentialTurnMs);
     });
 
     it('is the same relationship the unit config copy models', () => {
@@ -1153,8 +1043,8 @@ describe('residentialNodeDosService tests', () => {
       const unitCopy = require('config').fluxapps;
 
       expect(unitCopy.removeFluxAppsPeriod).to.equal(production.removeFluxAppsPeriod);
-      expect(unitCopy.residentialQueueBaseMs).to.equal(production.residentialQueueBaseMs);
-      expect(unitCopy.residentialQueueStepMs).to.equal(production.residentialQueueStepMs);
+      expect(unitCopy.residentialTurnMs).to.equal(production.residentialTurnMs);
+      expect(unitCopy.locationTtlS).to.equal(production.locationTtlS);
     });
   });
 

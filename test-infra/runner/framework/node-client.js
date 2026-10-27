@@ -359,6 +359,9 @@ export function nodeClient(nodeNum) {
         'giveUp:safety',
         'giveUp:standDown',
         'giveUp:passSkipped',
+        'giveUp:turn',
+        'giveUp:decisionStale',
+        'giveUp:standDownReleased',
         'residential:decided',
         // spawner:noCandidates USED to be published here and was not subscribed:
         // it fires on every pass of a fleet whose apps are all at their instance

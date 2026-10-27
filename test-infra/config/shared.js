@@ -281,9 +281,9 @@ module.exports = {
     // and a suite needing two firings pays for 88 blocks of chain before it can
     // assert anything. 4 is the lowest value this fleet has held: at 1 a
     // departure was not announced before the next holder decided and two
-    // holders handed the same app back. The coupled values follow through
-    // derivedQueueStepMs and derivedEvacuationIntervalMs, and
-    // assertCoupledRatios refuses a fleet where the ratio no longer holds.
+    // holders handed the same app back. The handback turn follows through
+    // derivedTurnMs, and assertCoupledRatios refuses a fleet where the ratio no
+    // longer holds.
     removeFluxAppsPeriod: 4,
     explorerPollIntervalMs: 833,
     explorerSyncRetryMs: 5000,

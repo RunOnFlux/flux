@@ -687,20 +687,16 @@ module.exports = {
     residentialCheckIntervalMs: 6 * 60 * 60 * 1000, // re-evaluate the verdict
     residentialSettleMs: 24 * 60 * 60 * 1000, // verdict must hold before any app moves
     residentialEvacuationIntervalMs: 6 * 60 * 60 * 1000, // minimum gap between departures
-    residentialQueueBaseMs: 30 * 60 * 1000, // every node waits at least this
-    // Per position in the instance order, and it MUST stay longer than the pass
-    // that reads it. mayEvacuateApp is reached only from the give-up pass at
-    // explorerService.js:651, which runs every removeFluxAppsPeriod (11) x
-    // speedMultiplier (4 post-PON) = 44 blocks = 22 minutes at 30s blocks, and
-    // wholeSince is stamped inside that pass - so maturity is quantised to a
-    // 22-minute grid and a shorter step cannot separate two points on it.
-    // Adjacent positions would mature on the same pass, and the pass is keyed on
-    // block height so every node evaluates in the same instant. Both holders
-    // then read the app at full strength, because fluxappremoved is broadcast
-    // after the volume is already deleted. 40 minutes is 1.8x the pass, so the
-    // chain would have to slow to ~55s blocks before adjacent positions could
-    // meet. Asserted against production's own config in the unit tests.
-    residentialQueueStepMs: 40 * 60 * 1000,
+    // One turn to hand an app back. It MUST hold two give-up passes, because a
+    // holder acts only on the second pass of a turn it owns: the pass runs every
+    // removeFluxAppsPeriod (11) x speedMultiplier (4 post-PON) = 44 blocks = 22
+    // minutes at 30s blocks, and 60 minutes holds two of them until blocks slow
+    // to ~41s. A turn holding one is lost to its owner, who acts in a later one.
+    // It must also stay shorter than the time a holder's announcement still has
+    // to run when it is renewed (locationTtlS less the announce interval, 65
+    // minutes), or no holder's announcement outlasts the turn it would act in.
+    // Asserted against production's own config in the unit tests.
+    residentialTurnMs: 60 * 60 * 1000,
     nodeMonitorDosRecoveryDelayMs: 600000,
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,

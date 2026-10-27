@@ -220,6 +220,9 @@ async function prepareDatabaseSchema() {
     { key: { type: 1, expireAt: 1 }, name: 'events by type and expiry' },
     // the moves that lead to an address
     { key: { 'data.newIP': 1 }, name: 'moves by the address they lead to', partialFilterExpression: { type: 'ipchanged' } },
+    // an app's holders by their signed announcements, and each holder's own events
+    { key: { 'data.apps.name': 1 }, name: 'announcements by the apps they name', partialFilterExpression: { type: 'apprunning' } },
+    { key: { 'envelope.pubKey': 1, type: 1 }, name: 'events by signing key' },
   ]);
   log.info('App state events collection prepared');
   await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), [
