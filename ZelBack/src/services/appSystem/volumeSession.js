@@ -436,6 +436,24 @@ class VolumeSession {
         throw new Error(`Destination ${to.relative} contains source ${from.relative}`);
       }
 
+      // A link published at the volume root could stand in for a name the app
+      // mounts - appdata, a declared mount - and the container would bind what
+      // it points at. Nothing needs a link there, so none is let in. Decided
+      // from where the destination LANDS, as the reserved-name rule in
+      // resolve() is: `ln -s . here` makes `here/appdata` the root. The source
+      // is looked at as itself, operations act on a link rather than through it.
+      // eslint-disable-next-line no-await-in-loop
+      const [realParent, realMount] = await Promise.all([
+        verifyRealPath(path.dirname(to.hostPath), this.#mount),
+        verifyRealPath(this.#mount, this.#mount),
+      ]);
+      if (realParent === realMount) {
+        // eslint-disable-next-line no-await-in-loop
+        const stats = await fs.lstat(from.hostPath);
+        if (stats.isSymbolicLink()) {
+          throw new Error(`${from.relative} is a link and cannot be placed at the root of the volume`);
+        }
+      }
       paired.push({ source: from, destination: to });
     }
     return paired;

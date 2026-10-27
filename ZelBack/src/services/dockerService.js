@@ -16,6 +16,7 @@ const fluxEventBus = require('./utils/fluxEventBus');
 const cpuBurstHelper = require('./utils/cpuBurstHelper');
 const LogFrameDecoder = require('./utils/logFrameDecoder');
 const appSlice = require('./appLifecycle/appSlice');
+const { requirePlainMountSources } = require('./utils/plainPaths');
 
 const globalState = require('./utils/globalState');
 
@@ -1114,6 +1115,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       appSpecifications,
     );
     log.info(`Constructed ${constructedVolumes.length} volume bind(s) for ${identifier}`);
+    await requirePlainMountSources(constructedVolumes.map((volume) => volume.Source));
   } catch (error) {
     log.error(`Failed to construct volumes for ${identifier}: ${error.message}`);
     throw error;
@@ -1415,6 +1417,22 @@ async function appDockerUpdateCpu(idOrName, nanoCpus) {
 }
 
 /**
+ * Refuses to start a container whose bind mounts under the apps folder have
+ * become links since it was created. Docker resolves a bind source when the
+ * container starts, and the entries at the root of an app's volume are the
+ * owner's to replace, so the check made at creation does not hold at start.
+ * @param {object} containerInfo What the container's inspect returned.
+ * @returns {Promise<void>}
+ * @throws {Error} When a mount source under the apps folder is not a plain directory or file.
+ */
+async function requirePlainBindSources(containerInfo) {
+  const sources = (containerInfo.Mounts || [])
+    .filter((mount) => mount.Type === 'bind' && typeof mount.Source === 'string' && mount.Source.startsWith(appsFolder))
+    .map((mount) => mount.Source);
+  await requirePlainMountSources(sources);
+}
+
+/**
  * Starts app's docker.
  *
  * @param {string} idOrName
@@ -1425,6 +1443,8 @@ async function appDockerStart(idOrName) {
   try {
     // container ID or name
     const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+
+    await requirePlainBindSources(await dockerContainer.inspect());
 
     globalState.stoppingContainers.delete(getDockerName(idOrName));
     await dockerContainer.start(); // may throw
@@ -1506,6 +1526,7 @@ async function appDockerRestart(idOrName) {
 
   // Check if container is running
   const containerInfo = await dockerContainer.inspect();
+  await requirePlainBindSources(containerInfo);
   if (!containerInfo.State.Running) {
     // If stopped, start it instead of restarting
     globalState.stoppingContainers.delete(getDockerName(idOrName));

@@ -3,7 +3,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { expect } = require('chai');
 
-const { requirePlainDirectories, requireRegularFile } = require('../../ZelBack/src/services/utils/plainPaths');
+const { requirePlainDirectories, requirePlainMountSources, requireRegularFile } = require('../../ZelBack/src/services/utils/plainPaths');
 
 describe('plainPaths', () => {
   let mount;
@@ -60,6 +60,42 @@ describe('plainPaths', () => {
         error = e;
       }
       expect(error.message).to.equal('Refused: backup/remote in the volume is not a plain directory');
+    });
+  });
+
+  describe('requirePlainMountSources', () => {
+    it('accepts plain directories, a regular file and a source that does not exist', async () => {
+      fs.mkdirSync(path.join(mount, 'appdata'));
+      fs.writeFileSync(path.join(mount, 'config.json'), 'x');
+
+      await requirePlainMountSources([
+        path.join(mount, 'appdata'), path.join(mount, 'config.json'), path.join(mount, 'missing'),
+      ]);
+    });
+
+    it('refuses a link, whatever it points at', async () => {
+      fs.mkdirSync(path.join(mount, 'real'));
+      fs.symlinkSync(path.join(mount, 'real'), path.join(mount, 'appdata'));
+
+      let error;
+      try {
+        await requirePlainMountSources([path.join(mount, 'appdata')]);
+      } catch (e) {
+        error = e;
+      }
+      expect(error.message).to.equal('Refused: mount source appdata is not a plain directory or file');
+    });
+
+    it('refuses a link that dangles', async () => {
+      fs.symlinkSync(path.join(mount, 'nowhere'), path.join(mount, 'logs'));
+
+      let error;
+      try {
+        await requirePlainMountSources([path.join(mount, 'logs')]);
+      } catch (e) {
+        error = e;
+      }
+      expect(error.message).to.equal('Refused: mount source logs is not a plain directory or file');
     });
   });
 

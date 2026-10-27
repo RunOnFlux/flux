@@ -30,6 +30,34 @@ async function requirePlainDirectories(mount, relativePaths) {
 }
 
 /**
+ * Throws unless every host path a container is about to bind-mount is itself a
+ * plain directory or regular file. Docker follows a link at a bind source, and
+ * the entries at the root of an app's volume are the app owner's to rename and
+ * replace, so a link left at `appdata` or at a declared mount name would bind
+ * whatever it points at, read-write, with the node's privileges. A source that
+ * does not exist yet is fine: the volume setup creates it.
+ * @param {string[]} sources Host paths of the mount sources.
+ * @returns {Promise<void>}
+ * @throws {Error} When a source exists and is a link, or neither a directory nor a file.
+ */
+async function requirePlainMountSources(sources) {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const source of sources) {
+    let stats;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      stats = await fs.lstat(source);
+    } catch (error) {
+      if (error.code === 'ENOENT') continue;
+      throw error;
+    }
+    if (!stats.isDirectory() && !stats.isFile()) {
+      throw new Error(`Refused: mount source ${path.basename(source)} is not a plain directory or file`);
+    }
+  }
+}
+
+/**
  * Throws unless a path that exists is a regular file, not a link to something.
  * @param {string} filePath File path.
  * @returns {Promise<void>}
@@ -50,5 +78,6 @@ async function requireRegularFile(filePath) {
 
 module.exports = {
   requirePlainDirectories,
+  requirePlainMountSources,
   requireRegularFile,
 };
