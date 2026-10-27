@@ -902,12 +902,21 @@ describe('explorerService tests', () => {
     const BENCH_AT = DUE_TIME * 1000 + ROLL;
     let clock;
     let bench;
-    let benchedAt;
+    // The delay the bench was started with, read off its timer rather than by running fake time
+    // forward: the unit suite's mongo client keeps its pool with a 100ms timer, and a fake clock
+    // ticked over hours runs that timer for every 100ms of them.
+    let startIn;
 
     beforeEach(() => {
       sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(`${IP}:16137`);
-      benchedAt = null;
-      bench = sinon.stub(benchmarkService, 'executeUpnpBench').callsFake(function recordBenchedAt() { benchedAt = Date.now(); });
+      startIn = null;
+      bench = sinon.stub(benchmarkService, 'executeUpnpBench');
+      const realSetTimeout = global.setTimeout;
+      sinon.stub(global, 'setTimeout').callsFake((fn, ms, ...args) => {
+        if (fn !== bench) return realSetTimeout(fn, ms, ...args);
+        startIn = ms;
+        return null;
+      });
       sinon.stub(daemonServiceBlockchainRpcs, 'getBlock')
         .withArgs(sinon.match({ params: { hashheight: DUE } }))
         .resolves({ status: 'success', data: { height: DUE, time: DUE_TIME } });
@@ -919,7 +928,7 @@ describe('explorerService tests', () => {
     });
 
     function at(nowMs) {
-      clock = sinon.useFakeTimers({ now: nowMs, toFake: ['setTimeout', 'Date'] });
+      clock = sinon.useFakeTimers({ now: nowMs, toFake: ['Date'] });
     }
 
     it('starts a node that processed the due block and one that caught up past it at the same instant', async () => {
@@ -928,23 +937,21 @@ describe('explorerService tests', () => {
 
       at(DUE_TIME * 1000 + 1400);
       await explorerService.scheduleUpnpBench({ height: DUE, time: DUE_TIME }, PERIOD);
-      await clock.tickAsync(5 * 3_600_000);
-      const onTime = benchedAt;
+      const onTime = Date.now() + startIn;
       clock.restore();
 
       at(DUE_TIME * 1000 + 120000);
       await explorerService.scheduleUpnpBench({ height: DUE + 4, time: DUE_TIME + 118 }, PERIOD);
-      await clock.tickAsync(5 * 3_600_000);
 
       expect(onTime).to.equal(BENCH_AT);
-      expect(benchedAt).to.equal(BENCH_AT);
+      expect(Date.now() + startIn).to.equal(BENCH_AT);
     });
 
     it('skips the bench on a node that caught up after its start had passed', async () => {
       at(BENCH_AT + 60000);
       await explorerService.scheduleUpnpBench({ height: DUE + 300, time: DUE_TIME + 9000 }, PERIOD);
-      await clock.tickAsync(5 * 3_600_000);
 
+      expect(startIn, 'the bench was started').to.equal(null);
       sinon.assert.notCalled(bench);
     });
 
@@ -953,9 +960,8 @@ describe('explorerService tests', () => {
       // not running alone, and starts now.
       at(BENCH_AT + 5000);
       await explorerService.scheduleUpnpBench({ height: DUE, time: DUE_TIME }, PERIOD);
-      await clock.tickAsync(1000);
 
-      sinon.assert.calledOnce(bench);
+      expect(startIn).to.equal(0);
     });
   });
 
