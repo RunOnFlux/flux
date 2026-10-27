@@ -47,7 +47,7 @@ let cachedDaemonVersion = null;
 // updateFluxAppsPeriod can be between every 4 to 9 blocks
 let updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
 // When the work below that is paced by the chain is due.
-const cadence = new BlockCadence();
+let cadence = new BlockCadence();
 
 /**
  * Whether work paced by the chain runs at this tip block, published when it does.
@@ -2119,6 +2119,8 @@ module.exports = {
   initiateBlockProcessor,
   processBlock,
   scheduleUpnpBench,
+  // Test seam: each unit test starts from a node that has processed no block.
+  resetBlockCadenceForTests: () => { cadence = new BlockCadence(); },
   reindexExplorer,
   rescanExplorer,
   stopBlockProcessing,

@@ -27,6 +27,10 @@ chai.use(chaiAsPromised);
 const { expect } = chai;
 
 describe('explorerService tests', () => {
+  beforeEach(() => {
+    explorerService.resetBlockCadenceForTests();
+  });
+
   before(requireMongo);
 
   describe('getSenderTransactionFromDaemon tests', () => {
@@ -1171,15 +1175,6 @@ describe('explorerService tests', () => {
           time: 1700000000,
         },
       });
-      // The block before it is processed at the tip first, so this one is judged on whether it
-      // passes a multiple of each period since then.
-      const block = daemonServiceBlockchainRpcsStub();
-      daemonServiceBlockchainRpcsStub.returns({ ...block, data: { ...block.data, height: blockHeight - 1 } });
-      await explorerService.processBlock(blockHeight - 1, isInsightExplorer);
-      daemonServiceBlockchainRpcsStub.returns(block);
-      [expireGlobalApplicationsStub, checkAndRemoveApplicationInstanceStub, restorePortsSupportStub, dbStubUpdate]
-        .forEach((stub) => stub.resetHistory());
-
       await explorerService.processBlock(blockHeight, isInsightExplorer);
 
       sinon.assert.notCalled(expireGlobalApplicationsStub);
@@ -1245,15 +1240,6 @@ describe('explorerService tests', () => {
           confirmations: 1,
         },
       });
-      // The block before it is processed at the tip first, so this one is judged on whether it
-      // passes a multiple of each period since then.
-      const block = daemonServiceBlockchainRpcsStub();
-      daemonServiceBlockchainRpcsStub.returns({ ...block, data: { ...block.data, height: blockHeight - 1 } });
-      await explorerService.processBlock(blockHeight - 1, isInsightExplorer);
-      daemonServiceBlockchainRpcsStub.returns(block);
-      [expireGlobalApplicationsStub, checkAndRemoveApplicationInstanceStub, restorePortsSupportStub, dbStubUpdate]
-        .forEach((stub) => stub.resetHistory());
-
       await explorerService.processBlock(blockHeight, isInsightExplorer);
 
       sinon.assert.notCalled(expireGlobalApplicationsStub);
