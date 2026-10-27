@@ -48,31 +48,6 @@ export const RESIDENTIAL_PACING = (() => {
 })();
 
 /**
- * How long until `node` has owned `count` turns, among holders that are every
- * fleet node, with a departure interval before the first: a node holding several
- * apps the whole fleet holds owns the same turns for all of them and hands back
- * one per turn.
- * @param {number} node 1-based.
- * @param {number} count
- * @param {number} nodeCount The fleet's size.
- * @returns {number} Milliseconds.
- */
-export function ownedTurnsWaitMs(node, count, nodeCount = 5) {
-  const all = Array.from({ length: nodeCount }, (_, i) => i + 1);
-  const { residentialTurnMs, residentialEvacuationIntervalMs } = RESIDENTIAL_PACING;
-  let fromMs = Date.now() + residentialEvacuationIntervalMs;
-  let endMs = fromMs;
-  for (let i = 0; i < count; i += 1) {
-    const { startMs } = nextOwnedTurn({
-      holders: keysOf(all), owners: keysOf([node]), turnMs: residentialTurnMs, fromMs,
-    });
-    endMs = startMs + residentialTurnMs;
-    fromMs = endMs;
-  }
-  return Math.max(0, endMs - Date.now()) + (2 * PASS_MS);
-}
-
-/**
  * How long until one of `nodes` can have handed back an app every fleet node
  * holds: to the end of the second turn one of them owns once a departure
  * interval from now has passed, by the product's own turn rule, plus two passes

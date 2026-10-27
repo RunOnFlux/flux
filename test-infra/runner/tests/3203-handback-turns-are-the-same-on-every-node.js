@@ -20,7 +20,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { apprunningEvent } from '../framework/state-events.js';
 import {
   subnet, TARGET, SECOND_TARGET, PASS_PERIOD_BLOCKS, PASS_MS, RESIDENTIAL_PACING,
-  bootResidentialFleet, seedApp, returnToService, elapseSettleWindow, departureWaitMs, ownedTurnsWaitMs,
+  bootResidentialFleet, seedApp, returnToService, elapseSettleWindow, departureWaitMs,
 } from '../framework/residential-fleet.js';
 import { keysOf, turnOf } from '../framework/handback-turns.js';
 
@@ -67,11 +67,46 @@ describe('handback turns are the same on every node', function () {
     if (env) await env.teardown();
   });
 
+  // First, while node 1 holds this app alone: the first turn it can act in is this app's.
+  it('a removal the chain has outrun since it was decided is not made', async function () {
+    this.timeout(1500000);
+    const one = env.clients[TARGET - 1];
+    const ownKey = keysOf([TARGET])[0];
+    await seedAndEvacuate(env, 'staleapp', [TARGET]);
+    await one.holdCheckpoint('giveUp:beforeRemoval', 'staleapp');
+    const anchor = one.getLastEventId();
+    try {
+      const held = () => eventsOf(one, 'checkpoint:held', (d) => d.name === 'giveUp:beforeRemoval' && d.key === 'staleapp', anchor).length > 0;
+      // The turns node 1 owned and had a second pass in, by its own account of them.
+      const turnsItCouldActIn = () => new Set(turnsOf(one, 'staleapp', anchor)
+        .filter((e) => e.data.owner === ownKey && e.data.previousTurn === e.data.turn)
+        .map((e) => e.data.turn)).size;
+      await driveUntil(one, async () => held() || turnsItCouldActIn() >= 2, { timeoutMs: 1200000 });
+      expect(held(), `no decision in ${turnsItCouldActIn()} turns it could act in`).to.equal(true);
+      // The pass after next: the earliest any other holder could act.
+      const { currentHeight } = await getState();
+      await driveUntil(one, async () => (await getState()).currentHeight >= currentHeight + 2 * PERIOD, { blocks: 3 * PERIOD });
+      await one.releaseCheckpoint('giveUp:beforeRemoval', 'staleapp');
+      const stale = () => eventsOf(one, 'giveUp:decisionStale', (d) => d.appName === 'staleapp', anchor);
+      await waitFor(async () => stale().length > 0 || departuresOf(one, 'staleapp', anchor).length > 0,
+        { timeout: 60000, label: 'the released decision is carried out or dropped' });
+
+      expect(departuresOf(one, 'staleapp', anchor), 'the outrun removal was made').to.have.lengthOf(0);
+      expect(stale()[0].data.tip).to.be.at.least(stale()[0].data.dueHeight + 2 * PERIOD);
+      const installed = await one.get('/apps/installedapps');
+      expect(installed.data.map((a) => a.name)).to.include('staleapp');
+    } finally {
+      await one.releaseCheckpoint('giveUp:beforeRemoval', 'staleapp').catch(() => {});
+      await startTicker();
+    }
+  });
+
   it('a holder that starts counting late never hands an app back on the same pass as one that started on time', async function () {
     this.timeout(900000);
     const [one, three] = [env.clients[TARGET - 1], env.clients[SECOND_TARGET - 1]];
     // Node 3's passes are held, so it judges nothing until node 1 has been counting a turn.
     await three.holdCheckpoint('giveUp:beforePass');
+    try {
     await seedAndEvacuate(env, 'startapp', [TARGET, SECOND_TARGET]);
     const anchor = Math.min(one.getLastEventId(), three.getLastEventId());
 
@@ -97,6 +132,10 @@ describe('handback turns are the same on every node', function () {
     const turn = turnsOf(departed, 'startapp', anchor).filter((e) => e.id < removal.id).pop();
     expect(turn.data.owner, 'handed back in a turn it did not own').to.equal(keysOf([departed === one ? TARGET : SECOND_TARGET])[0]);
     expect(turn.data.previousTurn, 'handed back on the first pass of its turn').to.equal(turn.data.turn);
+    } finally {
+      await three.releaseCheckpoint('giveUp:beforePass').catch(() => {});
+      await startTicker();
+    }
   });
 
   it('a holder restarted mid-queue judges each pass by the same turn as the others', async function () {
@@ -140,6 +179,7 @@ describe('handback turns are the same on every node', function () {
     const due = (Math.floor((currentHeight + 2) / PERIOD) + 1) * PERIOD;
     await driveUntil(one, async () => (await getState()).currentHeight >= due - 1, { blocks: PERIOD * 2 });
     await three.holdCheckpoint('explorer:beforeBlock');
+    try {
     let turnEnd = (turnOf(Date.now(), TURN_MS) + 1) * TURN_MS;
     if (turnEnd - Date.now() < 4000) turnEnd += TURN_MS;
     await sleepUnlessInfraDead(Math.max(0, turnEnd - 3000 - Date.now()));
@@ -158,32 +198,10 @@ describe('handback turns are the same on every node', function () {
     expect(ran, 'the held node did not run the pass late').to.include(due + 2);
     expect(late.data.turn, 'the late node read the turn of the block it reached the tip on').to.equal(onTime.data.turn);
     expect(late.data.owner).to.equal(onTime.data.owner);
-  });
-
-  it('a removal the chain has outrun since it was decided is not made', async function () {
-    this.timeout(900000);
-    const one = env.clients[TARGET - 1];
-    await seedAndEvacuate(env, 'staleapp', [TARGET]);
-    await one.holdCheckpoint('giveUp:beforeRemoval', 'staleapp');
-    const anchor = one.getLastEventId();
-
-    const held = () => eventsOf(one, 'checkpoint:held', (d) => d.name === 'giveUp:beforeRemoval' && d.key === 'staleapp', anchor).length > 0;
-    // Its earlier apps go in the same turns, one per turn.
-    const holding = (await one.get('/apps/installedapps')).data.length;
-    await driveUntil(one, async () => held(), { timeoutMs: ownedTurnsWaitMs(TARGET, holding) });
-    // The pass after next: the earliest any other holder could act.
-    const { currentHeight } = await getState();
-    await driveUntil(one, async () => (await getState()).currentHeight >= currentHeight + 2 * PERIOD, { blocks: 3 * PERIOD });
-    await one.releaseCheckpoint('giveUp:beforeRemoval', 'staleapp');
-    const stale = () => eventsOf(one, 'giveUp:decisionStale', (d) => d.appName === 'staleapp', anchor);
-    await waitFor(async () => stale().length > 0 || departuresOf(one, 'staleapp', anchor).length > 0,
-      { timeout: 60000, label: 'the released decision is carried out or dropped' });
-    await startTicker();
-
-    expect(departuresOf(one, 'staleapp', anchor), 'the outrun removal was made').to.have.lengthOf(0);
-    expect(stale()[0].data.tip).to.be.at.least(stale()[0].data.dueHeight + 2 * PERIOD);
-    const installed = await one.get('/apps/installedapps');
-    expect(installed.data.map((a) => a.name)).to.include('staleapp');
+    } finally {
+      await three.releaseCheckpoint('explorer:beforeBlock').catch(() => {});
+      await startTicker();
+    }
   });
 
   it('an eviction does not take a holder out of the count', async function () {
