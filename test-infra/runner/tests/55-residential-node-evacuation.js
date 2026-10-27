@@ -397,11 +397,14 @@ describe('Residential node evacuation', function () {
     // node simply being slow.
     await setPeerHasData({ folder: 'fluxworldapp_worldapp' });
 
+    // Waited on the removal event: the installed-apps record is dropped last,
+    // well after it, and whenGone below waits for that.
+    const client = env.clients[TARGET - 1];
+    const anchor = client.getLastEventId();
     await stopTicker();
-    await driveUntil(env.clients[TARGET - 1], async () => {
-      const current = await env.clients[TARGET - 1].get('/apps/installedapps');
-      return !current.data.map((a) => a.name).includes('worldapp');
-    }, { timeoutMs: departureWaitMs([TARGET]) });
+    await driveUntil(client, async () => client.getEventBuffer()
+      .some((e) => e.id > anchor && e.event === 'app:removed' && e.data?.name === 'worldapp'),
+    { timeoutMs: departureWaitMs([TARGET]) });
     await startTicker();
 
     await whenGone(env, TARGET, 'worldapp', 120000);

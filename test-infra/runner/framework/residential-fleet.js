@@ -73,10 +73,11 @@ export function ownedTurnsWaitMs(node, count, nodeCount = 5) {
 }
 
 /**
- * How long until one of `nodes` can have handed an app every fleet node holds
- * back: to the end of the first turn one of them owns once a departure interval
- * from now has passed, by the product's own turn rule, plus two passes for a
- * pass that lands late.
+ * How long until one of `nodes` can have handed back an app every fleet node
+ * holds: to the end of the second turn one of them owns once a departure
+ * interval from now has passed, by the product's own turn rule, plus two passes
+ * for a pass that lands late. The second, because the first can go to a pass
+ * the safety gate refuses or to another app the node holds.
  * @param {number[]} nodes 1-based nodes that are evacuating.
  * @param {number} nodeCount The fleet's size; every node holds the app.
  * @returns {number} Milliseconds.
@@ -84,11 +85,17 @@ export function ownedTurnsWaitMs(node, count, nodeCount = 5) {
 export function departureWaitMs(nodes, nodeCount = 5) {
   const all = Array.from({ length: nodeCount }, (_, i) => i + 1);
   const { residentialTurnMs, residentialEvacuationIntervalMs } = RESIDENTIAL_PACING;
-  return untilOwnedTurnEndsMs({
+  const first = nextOwnedTurn({
     holders: keysOf(all),
     owners: keysOf(nodes),
     turnMs: residentialTurnMs,
     fromMs: Date.now() + residentialEvacuationIntervalMs,
+  });
+  return untilOwnedTurnEndsMs({
+    holders: keysOf(all),
+    owners: keysOf(nodes),
+    turnMs: residentialTurnMs,
+    fromMs: first.startMs + residentialTurnMs,
   }) + (2 * PASS_MS);
 }
 

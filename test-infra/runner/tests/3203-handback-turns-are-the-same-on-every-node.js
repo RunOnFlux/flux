@@ -104,9 +104,15 @@ describe('handback turns are the same on every node', function () {
       const byHeight = new Map(turnsOf(one, 'restartapp', anchorOne).map((e) => [e.data.dueHeight, e.data]));
       return turnsOf(three, 'restartapp', anchorThree).map((e) => [byHeight.get(e.data.dueHeight), e.data]).filter(([a]) => a);
     };
-    await driveUntil(one, async () => common().length >= 3, { timeoutMs: 6 * PASS_MS + 120000 });
+    // Three passes both judged, or fewer if a holder leaves first: one that no
+    // longer holds the app judges no more turns of it.
+    const departed = () => departuresOf(one, 'restartapp', anchorOne).length + departuresOf(three, 'restartapp', anchorThree).length > 0;
+    await driveUntil(one, async () => common().length >= 3 || (departed() && common().length >= 1), {
+      timeoutMs: 6 * PASS_MS + 120000,
+    });
     await startTicker();
 
+    expect(common(), 'no pass both nodes judged after the restart').to.not.be.empty;
     for (const [onOne, onThree] of common()) {
       expect(onThree.turn, `turn at ${onThree.dueHeight}`).to.equal(onOne.turn);
       expect(onThree.owner, `owner at ${onThree.dueHeight}`).to.equal(onOne.owner);
