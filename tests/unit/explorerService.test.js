@@ -2038,7 +2038,7 @@ describe('explorerService tests', () => {
     // initiateDB connects to the real mongo; a test that fakes the database keeps
     // that work on the fake too.
     const fakeDatabase = (dbFake) => {
-      fakeDatabase(dbFake);
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
       sinon.stub(dbHelper, 'onMaintenanceClient').callsFake((database) => database);
     };
 
