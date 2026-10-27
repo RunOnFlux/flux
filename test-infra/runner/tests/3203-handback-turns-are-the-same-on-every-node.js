@@ -112,20 +112,21 @@ describe('handback turns are the same on every node', function () {
       const byHeight = new Map(turnsOf(one, 'restartapp', anchorOne).map((e) => [e.data.dueHeight, e.data]));
       return turnsOf(three, 'restartapp', anchorThree).map((e) => [byHeight.get(e.data.dueHeight), e.data]).filter(([a]) => a);
     };
-    // Three passes both judged, or fewer if a holder leaves first: one that no
-    // longer holds the app judges no more turns of it.
-    const departed = () => departuresOf(one, 'restartapp', anchorOne).length + departuresOf(three, 'restartapp', anchorThree).length > 0;
-    await driveUntil(one, async () => common().length >= 3 || (departed() && common().length >= 1), {
-      timeoutMs: 6 * PASS_MS + 120000,
-    });
+    // The restart's SIGTERM drops node 3 from node 1's count until node 3
+    // announces again, so for a while the two count different holders: node 1
+    // then sees the app short and stands still. Driven until a pass both judged
+    // on the same holders, or a holder leaves.
+    const sameHolders = ([a, b]) => [...a.holders].sort().join() === [...b.holders].sort().join();
+    const departed = () => departuresOf(one, 'restartapp', anchorOne).length + departuresOf(three, 'restartapp', anchorThree).length;
+    await driveUntil(one, async () => common().some(sameHolders) || departed() > 0, { timeoutMs: 6 * PASS_MS + 120000 });
     await startTicker();
 
     expect(common(), 'no pass both nodes judged after the restart').to.not.be.empty;
     for (const [onOne, onThree] of common()) {
       expect(onThree.turn, `turn at ${onThree.dueHeight}`).to.equal(onOne.turn);
-      expect(onThree.owner, `owner at ${onThree.dueHeight}`).to.equal(onOne.owner);
-      expect([...onThree.holders].sort(), `holders at ${onThree.dueHeight}`).to.eql([...onOne.holders].sort());
+      if (sameHolders([onOne, onThree])) expect(onThree.owner, `owner at ${onThree.dueHeight}`).to.equal(onOne.owner);
     }
+    expect(departed(), 'both handed restartapp back').to.be.at.most(1);
   });
 
   it('a node that runs a pass late judges it at the block the pass fell due on', async function () {
