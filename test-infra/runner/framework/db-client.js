@@ -230,17 +230,6 @@ export function dbClient(nodeNum) {
       );
     },
 
-    // The node's last departure, as its settle marker records it. The
-    // residential tick reads it back on its next run.
-    async setLastEvacuationAt(ms) {
-      const localDb = await db('local');
-      await localDb.collection('nodestartuptracker').updateOne(
-        { _id: 'residentialDos' },
-        { $set: { lastEvacuationAt: ms } },
-        { upsert: true },
-      );
-    },
-
     async geolocation() {
       const localDb = await db('local');
       return localDb.collection('geolocation').findOne({ _id: 'nodeGeolocation' });

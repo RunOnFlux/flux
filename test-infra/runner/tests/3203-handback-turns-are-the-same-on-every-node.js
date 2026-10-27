@@ -5,7 +5,7 @@
  * number and its signing key; the holders are the ones the app's signed announcements name. A
  * holder acts only on the second pass of a turn it owns, and not once the chain has reached the
  * pass after next. Each test here moves one input a holder could otherwise disagree on - when a
- * departure gap ends, a restart, a late pass, an eviction, an address move, a spare copy, a
+ * holder started counting, a restart, a late pass, an eviction, an address move, a spare copy, a
  * lapsing announcement, a decision the chain outran - and checks the turn did not move with it.
  */
 import { describe, it, before, after } from 'mocha';
@@ -67,26 +67,34 @@ describe('handback turns are the same on every node', function () {
     if (env) await env.teardown();
   });
 
-  it('two holders whose departure gaps end a turn apart never hand one app back on the same pass', async function () {
+  it('a holder that starts counting late never hands an app back on the same pass as one that started on time', async function () {
     this.timeout(900000);
     const [one, three] = [env.clients[TARGET - 1], env.clients[SECOND_TARGET - 1]];
-    await seedAndEvacuate(env, 'gapapp', [TARGET, SECOND_TARGET]);
-    // Node 3's gap since its last departure ends one turn from now; node 1 has none.
-    await dbClient(SECOND_TARGET).setLastEvacuationAt(Date.now() - RESIDENTIAL_PACING.residentialEvacuationIntervalMs + TURN_MS);
+    // Node 3's passes are held, so it judges nothing until node 1 has been counting a turn.
+    await three.holdCheckpoint('giveUp:beforePass');
+    await seedAndEvacuate(env, 'startapp', [TARGET, SECOND_TARGET]);
     const anchor = Math.min(one.getLastEventId(), three.getLastEventId());
 
     const refusedShort = (client) => eventsOf(client, 'giveUp:considered',
-      (d) => d.appName === 'gapapp' && d.giveUp === false && d.code === 'BELOW_INSTANCE_COUNT', anchor).length > 0;
-    const departures = () => departuresOf(one, 'gapapp', anchor).length + departuresOf(three, 'gapapp', anchor).length;
-    await driveUntil(one, async () => departures() >= 2 || ((refusedShort(one) || refusedShort(three)) && departures() === 1), {
-      timeoutMs: departureWaitMs([TARGET, SECOND_TARGET]) + TURN_MS,
-    });
+      (d) => d.appName === 'startapp' && d.giveUp === false && d.code === 'BELOW_INSTANCE_COUNT', anchor).length > 0;
+    const departures = () => departuresOf(one, 'startapp', anchor).length + departuresOf(three, 'startapp', anchor).length;
+    await driveUntil(one, async () => eventsOf(one, 'giveUp:considered', (d) => d.appName === 'startapp', anchor).length > 0,
+      { blocks: PERIOD * 3 });
+    const releaseAt = Date.now() + TURN_MS;
+    let released = false;
+    await driveUntil(one, async () => {
+      if (!released && Date.now() >= releaseAt) {
+        released = true;
+        await three.releaseCheckpoint('giveUp:beforePass');
+      }
+      return released && (departures() >= 2 || ((refusedShort(one) || refusedShort(three)) && departures() === 1));
+    }, { timeoutMs: TURN_MS + departureWaitMs([TARGET, SECOND_TARGET]) });
     await startTicker();
 
-    expect(departures(), 'both holders handed gapapp back').to.equal(1);
-    const [departed] = [one, three].filter((client) => departuresOf(client, 'gapapp', anchor).length);
-    const removal = departuresOf(departed, 'gapapp', anchor)[0];
-    const turn = turnsOf(departed, 'gapapp', anchor).filter((e) => e.id < removal.id).pop();
+    expect(departures(), 'both holders handed startapp back').to.equal(1);
+    const [departed] = [one, three].filter((client) => departuresOf(client, 'startapp', anchor).length);
+    const removal = departuresOf(departed, 'startapp', anchor)[0];
+    const turn = turnsOf(departed, 'startapp', anchor).filter((e) => e.id < removal.id).pop();
     expect(turn.data.owner, 'handed back in a turn it did not own').to.equal(keysOf([departed === one ? TARGET : SECOND_TARGET])[0]);
     expect(turn.data.previousTurn, 'handed back on the first pass of its turn').to.equal(turn.data.turn);
   });
