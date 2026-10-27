@@ -420,6 +420,21 @@ export function dbClient(nodeNum) {
       return explorerDb.collection('zelappshashes').find(query, { projection: { _id: 0 } }).toArray();
     },
 
+    async insertAppHashRecord(record) {
+      const explorerDb = await db('explorer');
+      await explorerDb.collection('zelappshashes').insertOne(record);
+    },
+
+    async appHashIndexes() {
+      const explorerDb = await db('explorer');
+      return explorerDb.collection('zelappshashes').indexes();
+    },
+
+    async dropAppHashIndex(name) {
+      const explorerDb = await db('explorer');
+      await explorerDb.collection('zelappshashes').dropIndex(name);
+    },
+
     async seedAppLocation({ name, ip, hash, broadcastedAt, runningSince }) {
       const globalDb = await db('appsGlobal');
       const ts = broadcastedAt ?? Date.now();

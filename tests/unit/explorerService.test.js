@@ -2302,28 +2302,42 @@ describe('explorerService tests', () => {
       expect(await hashes.countDocuments({ hash: 'paid' })).to.equal(2);
     });
 
-    it('moves the stored message of a hash it kept the earliest payment of onto that payment', async () => {
-      const messages = dbHelper.databaseConnection().db(config.database.appsglobal.database).collection(config.database.appsglobal.collections.appsMessages);
-      await messages.deleteMany({ hash: { $in: ['paid', 'single'] } });
-      await hashes.insertMany([
-        { hash: 'paid', txid: 'first', height: 300, value: 5 },
-        { hash: 'paid', txid: 'later', height: 400, value: 7 },
-        { hash: 'single', txid: 'only', height: 500, value: 9 },
-      ]);
-      await messages.insertMany([
-        { hash: 'paid', txid: 'later', height: 400, valueSat: 7, appSpecifications: { name: 'PaidTwice' } },
-        { hash: 'single', txid: 'only', height: 500, valueSat: 9, appSpecifications: { name: 'PaidOnce' } },
-      ]);
-      try {
-        await explorerService.keepEarliestPayment(hashes);
+    it('moves the stored message of each hash it kept the earliest payment of onto that payment, then removes the rest', async () => {
+      // The grouping and its order are the aggregate's; what is done with the groups is this.
+      const collection = {
+        aggregate: sinon.stub().returns({
+          toArray: sinon.stub().resolves([{
+            _id: 'paid',
+            rows: [
+              { id: 'id-first', txid: 'first', height: 300, value: 5 },
+              { id: 'id-later', txid: 'later', height: 400, value: 7 },
+            ],
+          }]),
+        }),
+        deleteMany: sinon.stub().resolves({ deletedCount: 1 }),
+      };
+      const move = sinon.stub(messageVerifier, 'moveStoredMessagesToPayments').resolves();
 
-        const paid = await messages.findOne({ hash: 'paid' }, { projection: { _id: 0, txid: 1, height: 1, valueSat: 1 } });
-        expect(paid).to.deep.equal({ txid: 'first', height: 300, valueSat: 5 });
-        const single = await messages.findOne({ hash: 'single' }, { projection: { _id: 0, txid: 1, height: 1 } });
-        expect(single, 'a hash with one payment is left as it is').to.deep.equal({ txid: 'only', height: 500 });
-      } finally {
-        await messages.deleteMany({ hash: { $in: ['paid', 'single'] } });
-      }
+      const removed = await explorerService.keepEarliestPayment(collection);
+
+      expect(removed).to.equal(1);
+      sinon.assert.calledOnceWithExactly(move, [{
+        hash: 'paid', txid: 'first', height: 300, value: 5,
+      }]);
+      sinon.assert.calledOnceWithExactly(collection.deleteMany, { _id: { $in: ['id-later'] } });
+      sinon.assert.callOrder(move, collection.deleteMany);
+    });
+
+    it('moves and removes nothing when no hash has more than one payment record', async () => {
+      const collection = {
+        aggregate: sinon.stub().returns({ toArray: sinon.stub().resolves([]) }),
+        deleteMany: sinon.stub().resolves({ deletedCount: 0 }),
+      };
+      const move = sinon.stub(messageVerifier, 'moveStoredMessagesToPayments').resolves();
+
+      expect(await explorerService.keepEarliestPayment(collection)).to.equal(0);
+      sinon.assert.notCalled(move);
+      sinon.assert.notCalled(collection.deleteMany);
     });
 
     it('asserts every index on the maintenance client', async () => {
@@ -2336,18 +2350,15 @@ describe('explorerService tests', () => {
       ensureIndexes.getCalls().forEach((call) => expect(call.args[0].client).to.equal(dbHelper.maintenanceConnection()));
     });
 
-    it('builds the unique hash index over records that hold duplicates, keeping the earliest payment', async () => {
-      // inserted earliest first, so the newest row is the later payment
-      await hashes.insertMany([
-        { hash: 'paid', txid: 'first', height: 300 },
-        { hash: 'paid', txid: 'later', height: 400 },
-      ]);
+    it('builds the unique hash index on the payment records, recovering duplicates by keeping the earliest payment', async () => {
+      const ensureIndexes = sinon.stub(dbHelper, 'ensureIndexes').resolves();
 
       await explorerService.prepareCollections();
 
-      const unique = (await hashes.indexes()).find((index) => index.name === 'query for getting app hash');
-      expect(unique?.unique, 'the unique hash index').to.equal(true);
-      expect((await hashes.find({ hash: 'paid' }).toArray()).map((r) => r.txid)).to.deep.equal(['first']);
+      const call = ensureIndexes.getCalls().find((c) => c.args[0].collectionName === appsHashes);
+      const unique = call.args[1].find((spec) => spec.name === 'query for getting app hash');
+      expect(unique).to.include({ unique: true, recover: explorerService.keepEarliestPayment });
+      expect(unique.key).to.deep.equal({ hash: 1 });
     });
 
     it('lets the boot backfill read only the payment records without a position', async () => {
