@@ -174,11 +174,13 @@ describe('handback turns are the same on every node', function () {
     const { currentHeight } = await getState();
     await driveUntil(one, async () => (await getState()).currentHeight >= currentHeight + 2 * PERIOD, { blocks: 3 * PERIOD });
     await one.releaseCheckpoint('giveUp:beforeRemoval', 'staleapp');
-    const stale = await one.waitForEvent('giveUp:decisionStale', (d) => d.appName === 'staleapp', 60000, { afterId: anchor });
+    const stale = () => eventsOf(one, 'giveUp:decisionStale', (d) => d.appName === 'staleapp', anchor);
+    await waitFor(async () => stale().length > 0 || departuresOf(one, 'staleapp', anchor).length > 0,
+      { timeout: 60000, label: 'the released decision is carried out or dropped' });
     await startTicker();
 
-    expect(stale.data.tip).to.be.at.least(stale.data.dueHeight + 2 * PERIOD);
     expect(departuresOf(one, 'staleapp', anchor), 'the outrun removal was made').to.have.lengthOf(0);
+    expect(stale()[0].data.tip).to.be.at.least(stale()[0].data.dueHeight + 2 * PERIOD);
     const installed = await one.get('/apps/installedapps');
     expect(installed.data.map((a) => a.name)).to.include('staleapp');
   });
