@@ -20,7 +20,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { apprunningEvent } from '../framework/state-events.js';
 import {
   subnet, TARGET, SECOND_TARGET, PASS_PERIOD_BLOCKS, PASS_MS, RESIDENTIAL_PACING,
-  bootResidentialFleet, seedApp, returnToService, elapseSettleWindow, departureWaitMs,
+  bootResidentialFleet, seedApp, returnToService, elapseSettleWindow, departureWaitMs, ownedTurnsWaitMs,
 } from '../framework/residential-fleet.js';
 import { keysOf, turnOf } from '../framework/handback-turns.js';
 
@@ -153,7 +153,9 @@ describe('handback turns are the same on every node', function () {
     const anchor = one.getLastEventId();
 
     const held = () => eventsOf(one, 'checkpoint:held', (d) => d.name === 'giveUp:beforeRemoval' && d.key === 'staleapp', anchor).length > 0;
-    await driveUntil(one, async () => held(), { timeoutMs: departureWaitMs([TARGET]) });
+    // Its earlier apps go in the same turns, one per turn.
+    const holding = (await one.get('/apps/installedapps')).data.length;
+    await driveUntil(one, async () => held(), { timeoutMs: ownedTurnsWaitMs(TARGET, holding) });
     // The pass after next: the earliest any other holder could act.
     const { currentHeight } = await getState();
     await driveUntil(one, async () => (await getState()).currentHeight >= currentHeight + 2 * PERIOD, { blocks: 3 * PERIOD });

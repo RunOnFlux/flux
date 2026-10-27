@@ -17,7 +17,7 @@ import { waitForLocationTable } from './reconciler-suite.js';
 import {
   derivedTurnMs, giveUpPassMs, harnessBlockCostMs, loadSharedConfig,
 } from './coupled-knobs.js';
-import { keysOf, untilOwnedTurnEndsMs } from './handback-turns.js';
+import { keysOf, nextOwnedTurn, untilOwnedTurnEndsMs } from './handback-turns.js';
 
 export const subnet = getSubnetConfig();
 
@@ -41,11 +41,36 @@ const PACING_FLEET = { removeFluxAppsPeriod: PASS_PERIOD_BLOCKS, explorerPollInt
 export const PASS_MS = giveUpPassMs(PACING_FLEET, harnessBlockCostMs(PACING_FLEET));
 // The pacing these fleets run on. test-env asserts it on every node of every
 // fleet before boot. The departure interval only paces one node's own
-// departures; one turn keeps a node to one app per turn.
+// departures: at one pass, a node that owns two turns in a row departs in both.
 export const RESIDENTIAL_PACING = (() => {
   const residentialTurnMs = derivedTurnMs(PACING_FLEET);
-  return { residentialTurnMs, residentialEvacuationIntervalMs: residentialTurnMs };
+  return { residentialTurnMs, residentialEvacuationIntervalMs: Math.ceil(PASS_MS / 1000) * 1000 };
 })();
+
+/**
+ * How long until `node` has owned `count` turns, among holders that are every
+ * fleet node, with a departure interval before the first: a node holding several
+ * apps the whole fleet holds owns the same turns for all of them and hands back
+ * one per turn.
+ * @param {number} node 1-based.
+ * @param {number} count
+ * @param {number} nodeCount The fleet's size.
+ * @returns {number} Milliseconds.
+ */
+export function ownedTurnsWaitMs(node, count, nodeCount = 5) {
+  const all = Array.from({ length: nodeCount }, (_, i) => i + 1);
+  const { residentialTurnMs, residentialEvacuationIntervalMs } = RESIDENTIAL_PACING;
+  let fromMs = Date.now() + residentialEvacuationIntervalMs;
+  let endMs = fromMs;
+  for (let i = 0; i < count; i += 1) {
+    const { startMs } = nextOwnedTurn({
+      holders: keysOf(all), owners: keysOf([node]), turnMs: residentialTurnMs, fromMs,
+    });
+    endMs = startMs + residentialTurnMs;
+    fromMs = endMs;
+  }
+  return Math.max(0, endMs - Date.now()) + (2 * PASS_MS);
+}
 
 /**
  * How long until one of `nodes` can have handed an app every fleet node holds

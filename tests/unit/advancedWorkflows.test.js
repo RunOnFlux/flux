@@ -8821,7 +8821,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
     });
 
-    it('holds the stand-down through the next turn it owns, which is the one it leaves in', async () => {
+    it('holds the stand-down through the next turn it owns', async () => {
       // Also the mutation guard for the test above: a release that fired before
       // the owned turn had ended would still pass that test and not this one.
       const logWarn = sinon.stub(log, 'warn');

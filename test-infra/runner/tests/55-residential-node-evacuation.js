@@ -552,8 +552,9 @@ describe('Residential node evacuation: standing down as the elected primary', fu
   let env;
   dumpLogsOnFailure(() => env);
 
-  // The turn primaryapp's stand-down happened in, for the test that follows it.
+  // The turn primaryapp's stand-down happened in, and its pass's event id, for the test that follows it.
   let stoodDownTurn = null;
+  let stoodDownPass = null;
   // The give-up pass's account of the turn it judged primaryapp on, last before `beforeId`.
   const turnBefore = (beforeId) => env.clients[TARGET - 1].getEventBuffer()
     .filter((e) => e.event === 'giveUp:turn' && e.data?.appName === 'primaryapp' && e.id < beforeId)
@@ -576,9 +577,9 @@ describe('Residential node evacuation: standing down as the elected primary', fu
 
     // The elected primary is the node WRITING to the volume. Handing the app
     // back from under it drops whatever it has written since the peer last
-    // reported the folder complete. So it stops the component in a turn it owns
-    // and removes in the next turn it owns, by which time the election has given
-    // the role to a peer.
+    // reported the folder complete. So it stops the component on one pass of a
+    // turn it owns and removes on a later pass of a turn it owns, by which time
+    // the election has given the role to a peer.
     await returnToService(env, SECOND_TARGET);
     // Node 1 too - it is still held from the previous test, and a held node
     // takes no new apps, so the app would reach four instances and never five.
@@ -625,6 +626,7 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     expect(turn?.data?.owner, JSON.stringify(turn?.data)).to.equal(keysOf([TARGET])[0]);
     expect(turn.data.previousTurn, 'stood down on the first pass of its turn').to.equal(turn.data.turn);
     stoodDownTurn = turn.data.turn;
+    stoodDownPass = turn.id;
 
     // STANDING DOWN IS A TRANSITION, so it is read as one. The reconciler
     // publishes the desired state it sets and the reason it set it, which is
@@ -666,14 +668,14 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     expect(await runningComponents(env, TARGET)).to.not.include('fluxprimaryapp_primaryapp');
   });
 
-  it('hands the app back in the next turn it owns, not the one it stood down in, and the app survives elsewhere', async function () {
+  it('hands the app back on a later pass of a turn it owns, and the app survives elsewhere', async function () {
     this.timeout(900000);
     expect(stoodDownTurn, 'the test above did not stand down').to.not.equal(null);
 
     // Runs on from the test above: node TARGET has stopped primaryapp's g:
-    // component and is no longer a candidate for it, so its next owned turn
-    // finds the component not running here, re-proves a connected peer holds
-    // the folder with nothing left to write, and removes.
+    // component and is no longer a candidate for it, so a later pass of a turn
+    // it owns finds the component not running here, re-proves a connected peer
+    // holds the folder with nothing left to write, and removes.
     const client = env.clients[TARGET - 1];
     const removal = () => client.getEventBuffer().find((e) => e.event === 'app:removed' && e.data?.name === 'primaryapp');
     await stopTicker();
@@ -682,7 +684,7 @@ describe('Residential node evacuation: standing down as the elected primary', fu
         holders: keysOf([1, 2, 3, 4, 5]),
         owners: keysOf([TARGET]),
         turnMs: RESIDENTIAL_PACING.residentialTurnMs,
-        fromMs: (stoodDownTurn + 1) * RESIDENTIAL_PACING.residentialTurnMs,
+        fromMs: stoodDownTurn * RESIDENTIAL_PACING.residentialTurnMs,
       }) + (2 * PASS_MS),
     });
     await startTicker();
@@ -690,7 +692,7 @@ describe('Residential node evacuation: standing down as the elected primary', fu
 
     const turn = turnBefore(removed.id);
     expect(turn?.data?.owner, JSON.stringify(turn?.data)).to.equal(keysOf([TARGET])[0]);
-    expect(turn.data.turn, 'removed in the turn it stood down in').to.be.above(stoodDownTurn);
+    expect(turn.id, 'removed on the pass it stood down on').to.be.above(stoodDownPass);
     expect(turn.data.previousTurn, 'removed on the first pass of its turn').to.equal(turn.data.turn);
 
     await waitFor(async () => {

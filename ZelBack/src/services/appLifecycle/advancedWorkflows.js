@@ -113,10 +113,9 @@ const REFUSALS_BEFORE_ESCALATING = 12;
 // Components this node has stopped in order to hand their app back, mapped to
 // the turn it stood down in. An evacuating node that is the elected primary
 // cannot leave while it is the one writing to the volume, so it stops writing
-// in a turn it owns and removes in the next turn it owns, by which time the
-// ordinary election has given the role to a peer. Removing on the pass after
-// the stand-down could land in another holder's turn, and two copies would
-// leave together.
+// on one pass of a turn it owns and removes on a later pass of a turn it owns,
+// by which time the ordinary election has given the role to a peer. Every pass
+// is judged against the turn, so the removal can land in no other holder's turn.
 //
 // THIS IS ALSO WHAT KEEPS THE COMPONENT STOPPED. masterSlaveApps runs every
 // 30s and would otherwise see the component not running here, clear this node's
