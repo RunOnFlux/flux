@@ -1352,11 +1352,14 @@ async function getApplicationSpecificationAPI(req, res) {
     decrypt = req.query.decrypt || decrypt;
 
     const specifications = await getApplicationSpecifications(appname);
-    const mainAppName = appname.split('_')[1] || appname;
 
     if (!specifications) {
       throw new Error(`Application: ${appname} not found`);
     }
+    // Authorised against the app the lookup RETURNED, never against a name cut
+    // out of the request: the two must be the same app, or the owner of one
+    // reads the other's specification.
+    const mainAppName = specifications.name;
 
     const isEnterprise = Boolean(
       specifications.version >= 8 && specifications.enterprise,
@@ -1484,7 +1487,8 @@ async function updateApplicationSpecificationAPI(req, res) {
       throw new Error('Application not found');
     }
 
-    const mainAppName = appname.split('_')[1] || appname;
+    // The app the lookup returned, as in getApplicationSpecificationAPI.
+    const mainAppName = specifications.name;
 
     const isEnterprise = Boolean(
       specifications.version >= 8 && specifications.enterprise,
@@ -2237,6 +2241,10 @@ async function registerAppGlobalyApi(req, res) {
           if (appComponent.secrets) {
             // eslint-disable-next-line no-await-in-loop
             await imageManager.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+          }
+          if (appComponent.repoauth) {
+            // eslint-disable-next-line no-await-in-loop
+            await imageManager.checkAppRepoauth(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
           }
         }
       }

@@ -488,12 +488,19 @@ function validateFilename(name) {
  * The caller closes the handle. Swapping a PARENT directory stays expressible
  * and is what the containment checks in this module cover; this closes the half
  * of it that a check cannot.
+ *
+ * With `containedIn`, the PARENT half is closed too: once the file is open, where
+ * the descriptor really is (the kernel's own answer, /proc/self/fd) must lie
+ * inside that directory. A parent swapped for a link between a check and this open
+ * opens a file elsewhere, and is refused here because it is the open that is
+ * judged, not the name that was judged earlier.
  * @param {string} filePath - already checked for containment
+ * @param {string} [containedIn] - directory the opened file must really be inside
  * @returns {Promise<{handle: import('node:fs/promises').FileHandle,
  *   stats: import('node:fs').Stats}>} An open handle and what it is.
- * @throws {Error} if the path is not a regular file
+ * @throws {Error} if the path is not a regular file, or opened outside `containedIn`
  */
-async function openNoFollow(filePath) {
+async function openNoFollow(filePath, containedIn = null) {
   let handle;
   try {
     handle = await fs.promises.open(
@@ -521,6 +528,16 @@ async function openNoFollow(filePath) {
       // No path in the message: this reaches an API caller, and the host path
       // is not theirs to learn.
       throw new Error('Only a regular file can be read');
+    }
+    if (containedIn) {
+      const [opened, base] = await Promise.all([
+        fs.promises.realpath(`/proc/self/fd/${handle.fd}`),
+        fs.promises.realpath(containedIn),
+      ]);
+      const within = path.relative(base, opened);
+      if (!within || within.startsWith('..') || path.isAbsolute(within)) {
+        throw new Error('Invalid path: access outside allowed directory denied');
+      }
     }
     return { handle, stats };
   } catch (error) {

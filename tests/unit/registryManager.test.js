@@ -960,6 +960,49 @@ describe('registryManager tests', () => {
     });
   });
 
+  describe('the app a spec request is authorised against', () => {
+    // Authorised against the app the lookup returned, not against a name cut out
+    // of the request: an owner of one app must not be able to read another's by
+    // spelling a name the two lookups read differently.
+    it('asks about the name of the spec it found, whatever spelling the request used', async () => {
+      const collection = config.database.appsglobal.collections.appsInformation;
+      await dbHelper.insertOneToDatabase(database, collection, {
+        name: 'EntSpecOwnerApp',
+        version: 8,
+        enterprise: 'encrypted-blob',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+        compose: [],
+        hash: 'entspecownerhash',
+        height: 100,
+      });
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 1000 } });
+      const verifyPrivilege = sinon.stub().resolves(false);
+      const subject = proxyquire('../../ZelBack/src/services/appDatabase/registryManager', {
+        '../utils/enterpriseHelper': { checkAndDecryptAppSpecs: async (spec) => spec },
+        '../utils/appUtilities': { specificationFormatter: (spec) => spec },
+        '../verificationHelper': { verifyPrivilege },
+      });
+      const req = {
+        params: { appname: 'entspecownerapp', decrypt: 'true' },
+        query: {},
+        headers: { 'enterprise-key': 'session-key' },
+      };
+
+      await subject.getApplicationSpecificationAPI(req, { json: sinon.fake() });
+
+      sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.APP_OWNER, authOf(req), { appName: 'EntSpecOwnerApp' });
+    });
+
+    it('finds nothing for a name that is an alternation of two apps', async () => {
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 1000 } });
+      const res = { json: sinon.fake((param) => param) };
+
+      await registryManager.getApplicationSpecificationAPI({ params: { appname: 'SpecTestApp|Other_Mine' }, query: {} }, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+    });
+  });
+
   describe('getApplicationComponentNamesAPI tests', () => {
     const composedApp = {
       name: 'NamesApp',

@@ -9,6 +9,7 @@ const { appsFolder } = require('./utils/appConstants');
 const fs = require('fs').promises;
 const { sanitizePath, verifyRealPathOfExistingPath } = require('./utils/pathSecurity');
 const { Privilege, authOf } = require('./utils/privileges');
+const { requirePlainDirectories } = require('./utils/plainPaths');
 
 // ToDo: Fix all the string concatenation in this file and use path.join()
 
@@ -338,7 +339,7 @@ async function downloadLocalFile(req, res) {
       await verifyRealPathOfExistingPath(filepath, appVolumeRoot(filepath));
       const fileNameArray = filepath.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];
-      return await sendFile(res, filepath, fileName);
+      return await sendFile(res, filepath, fileName, appVolumeRoot(filepath));
       // eslint-disable-next-line no-else-return
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -376,6 +377,11 @@ async function cleanLocalBackup() {
         // Check if there is a 'local' folder in each subdirectory
         const localFolderPath = path.join(folderPath, 'backup', 'local');
         try {
+          // The volume is the app owner's to fill, links included: a link left at
+          // backup or backup/local would have this reap whatever it points at.
+          // Checked as the entries themselves, and again before each removal.
+          // eslint-disable-next-line no-await-in-loop
+          await requirePlainDirectories(folderPath, ['backup', 'backup/local']);
           // Check if 'local' folder exists
           // eslint-disable-next-line no-await-in-loop
           await fs.access(localFolderPath);
@@ -390,10 +396,13 @@ async function cleanLocalBackup() {
             const filePath = path.join(localFolderPath, file);
             // Get file stats
             // eslint-disable-next-line no-await-in-loop
-            const stats = await fs.stat(filePath);
+            const stats = await fs.lstat(filePath);
             const creationTime = new Date(stats.birthtime);
-            // Check if the file is older than 24 hours
-            if (creationTime < twentyFourHoursAgo) {
+            // Check if the file is older than 24 hours. A link is not a backup
+            // archive and is left alone.
+            if (stats.isFile() && creationTime < twentyFourHoursAgo) {
+              // eslint-disable-next-line no-await-in-loop
+              await requirePlainDirectories(folderPath, ['backup', 'backup/local']);
               // Delete the file
               // eslint-disable-next-line no-await-in-loop
               await fs.unlink(filePath);
@@ -401,7 +410,9 @@ async function cleanLocalBackup() {
             }
           }
         } catch (error) {
-          // 'local' folder doesn't exist in this subdirectory
+          // No 'local' folder in this subdirectory is the ordinary case; anything
+          // else, a refused link included, is worth a line.
+          if (error.code !== 'ENOENT') log.warn(`cleanLocalBackup - skipped ${folder}: ${error.message}`);
         }
       }
     }

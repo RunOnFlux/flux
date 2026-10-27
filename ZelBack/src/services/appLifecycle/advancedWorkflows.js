@@ -4598,7 +4598,7 @@ async function reinstallOldApplications() {
               log.warn(`Beginning Soft Redeployment of ${appSpecifications.name}...`);
               // soft redeployment
               // eslint-disable-next-line no-await-in-loop
-              await appUninstaller.softUninstallApplication(appSpecifications.name, null, appSpecifications, null, true);
+              await appUninstaller.softUninstallApplication(appSpecifications.name, dockerService.getAppIdentifier(appSpecifications.name), appSpecifications, null, stopAppMonitoring);
               // eslint-disable-next-line no-await-in-loop
               await appInstaller.installApplicationSoft(appSpecifications, appSpecifications.name, false, null, appSpecifications);
             } else {
@@ -4606,7 +4606,7 @@ async function reinstallOldApplications() {
               log.warn(`REMOVAL REASON: Hard redeployment - ${appSpecifications.name} HDD changed from ${installedApp.hdd} to ${appSpecifications.hdd}`);
               // hard redeployment
               // eslint-disable-next-line no-await-in-loop
-              await appUninstaller.hardUninstallApplication(appSpecifications.name, null, appSpecifications, null, true);
+              await appUninstaller.hardUninstallApplication(appSpecifications.name, dockerService.getAppIdentifier(appSpecifications.name), appSpecifications, null, stopAppMonitoring);
               // eslint-disable-next-line no-await-in-loop
               await appInstaller.installApplicationHard(appSpecifications, appSpecifications.name, false, null, appSpecifications);
             }

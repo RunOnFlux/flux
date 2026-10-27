@@ -464,6 +464,25 @@ describe('pathSecurity', () => {
       }
     });
 
+    it('refuses a file that really lies outside the directory it must be inside', async () => {
+      // The name was checked earlier; a parent swapped for a link since opens
+      // somebody else's file. What counts is where the open landed.
+      const inside = await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-inside-'));
+      try {
+        await fs.symlink(tempDir, path.join(inside, 'dir'));
+        await expect(openNoFollow(path.join(inside, 'dir', 'real.txt'), inside))
+          .to.be.rejectedWith('access outside allowed directory denied');
+
+        await fs.writeFile(path.join(inside, 'own.txt'), 'x');
+        const { handle } = await openNoFollow(path.join(inside, 'own.txt'), inside);
+        await handle.close();
+      } catch (err) {
+        if (err.code !== 'EPERM' && err.code !== 'EACCES') throw err;
+      } finally {
+        await fs.rm(inside, { recursive: true, force: true });
+      }
+    });
+
     it('refuses a symlink with an actionable message, not an opaque errno', async () => {
       // O_NOFOLLOW fails ELOOP on a symlink at the final component; the download
       // reads on the host, so following it could serve a file outside the

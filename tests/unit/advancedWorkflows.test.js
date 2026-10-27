@@ -7839,6 +7839,25 @@ describe('advancedWorkflows tests', () => {
       sinon.assert.calledOnce(dbHelper.updateOneInDatabase);
     });
 
+    it('hands the uninstall of a v3 app its container identifier and the monitor to stop', async () => {
+      const { stopAppMonitoring } = require('../../ZelBack/src/services/appManagement/appInspector');
+      const dockerService = require('../../ZelBack/src/services/dockerService');
+      const v3 = {
+        version: 3, name: 'myapp', hash: 'oldhash', owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', hdd: 5, repotag: 'nginx:1.0',
+      };
+      dbHelper.findInDatabase.resolves([v3]);
+      dbHelper.findOneInDatabase.resolves({ ...v3, hash: 'newhash', repotag: 'nginx:2.0' });
+      const soft = sinon.stub(appUninstaller, 'softUninstallApplication').resolves();
+      // eslint-disable-next-line global-require
+      sinon.stub(require('../../ZelBack/src/services/appLifecycle/appInstaller'), 'installApplicationSoft').resolves();
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      sinon.assert.calledOnce(soft);
+      expect(soft.firstCall.args[1]).to.equal(dockerService.getAppIdentifier('myapp'));
+      expect(soft.firstCall.args[4]).to.equal(stopAppMonitoring);
+    });
+
     // The canary for it: an application this pass redeploys is judged by the installer
     // that rebuilds it, so asking for it again buys a walk of the whole app table.
     it('does not ask the sweep about an application it redeployed', async () => {
