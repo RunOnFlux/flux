@@ -2191,6 +2191,7 @@ describe('explorerService tests', () => {
       const createIndexFake = sinon.fake.resolves(true);
       const collectionFake = sinon.fake.returns({
         createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+        find: sinon.fake.returns({ toArray: sinon.fake.resolves([]) }),
       });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       fakeDatabase(dbFake);
@@ -2221,6 +2222,7 @@ describe('explorerService tests', () => {
       const createIndexFake = sinon.fake.resolves(true);
       const collectionFake = sinon.fake.returns({
         createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+        find: sinon.fake.returns({ toArray: sinon.fake.resolves([]) }),
       });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       fakeDatabase(dbFake);
@@ -2246,6 +2248,7 @@ describe('explorerService tests', () => {
       const createIndexFake = sinon.fake.resolves(true);
       const collectionFake = sinon.fake.returns({
         createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+        find: sinon.fake.returns({ toArray: sinon.fake.resolves([]) }),
       });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       fakeDatabase(dbFake);
@@ -2277,6 +2280,7 @@ describe('explorerService tests', () => {
       const createIndexFake = sinon.fake.resolves(true);
       const collectionFake = sinon.fake.returns({
         createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+        find: sinon.fake.returns({ toArray: sinon.fake.resolves([]) }),
       });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       fakeDatabase(dbFake);
@@ -2308,6 +2312,7 @@ describe('explorerService tests', () => {
       const createIndexFake = sinon.fake.resolves(true);
       const collectionFake = sinon.fake.returns({
         createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+        find: sinon.fake.returns({ toArray: sinon.fake.resolves([]) }),
       });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       fakeDatabase(dbFake);
