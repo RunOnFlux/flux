@@ -2039,6 +2039,33 @@ describe('dockerService tests', () => {
     });
   });
 
+  // Docker reads a NanoCpus of 0 as no limit, which gives the container every core
+  // on the node.
+  describe('appDockerUpdateCpu tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('updates the container to the limit it is given', async () => {
+      stubContainerListing();
+      const update = sinon.stub(Dockerode.Container.prototype, 'update').resolves();
+
+      await dockerService.appDockerUpdateCpu('website', 80000000);
+
+      sinon.assert.calledOnceWithExactly(update, { NanoCpus: 80000000 });
+    });
+
+    it('refuses a limit of nothing', async () => {
+      stubContainerListing();
+      const update = sinon.stub(Dockerode.Container.prototype, 'update').resolves();
+
+      await expect(dockerService.appDockerUpdateCpu('website', 0))
+        .to.eventually.be.rejectedWith('is not a limit');
+
+      sinon.assert.notCalled(update);
+    });
+  });
+
   describe('appDockerCreate tests', () => {
     let dockerStub;
     const appName = 'fluxwebsite';
@@ -2130,6 +2157,38 @@ describe('dockerService tests', () => {
 
       sinon.assert.notCalled(fetch);
       sinon.assert.notCalled(dockerStub);
+    });
+
+    // A component registered before submissions were held to a minimum cpu can
+    // still carry 0, and docker would run it with every core on the node.
+    it('refuses to create a container without a CPU limit', async () => {
+      const nodeApp = {
+        ...baseNodeApp,
+        cpu: 0,
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await expect(dockerService.appDockerCreate(nodeApp, appName, true))
+        .to.eventually.be.rejectedWith('is not a limit');
+
+      sinon.assert.notCalled(dockerStub);
+    });
+
+    it('creates the container with the limit its cpu gives', async () => {
+      const nodeApp = {
+        ...baseNodeApp,
+        cpu: 0.1,
+        containerPorts: [],
+        ports: [],
+        version: 3,
+      };
+
+      await dockerService.appDockerCreate(nodeApp, appName, true);
+
+      sinon.assert.calledOnce(dockerStub);
+      expect(dockerStub.firstCall.args[0].HostConfig.NanoCPUs).to.equal(100000000);
     });
 
     // The link the door approved is the link the fetch requests. Read by

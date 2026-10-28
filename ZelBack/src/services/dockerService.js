@@ -955,6 +955,23 @@ function componentIdentityLabels(appName, componentName, owner) {
 }
 
 /**
+ * A container's CPU limit as docker's NanoCpus.
+ *
+ * Docker reads a NanoCpus of 0 as no limit, which gives the container every
+ * core on the node, so a limit that is not a positive whole number of nanoCPUs
+ * is refused rather than passed on.
+ * @param {number} nanoCpus
+ * @returns {number} nanoCpus
+ * @throws {Error} If nanoCpus is not a positive integer.
+ */
+function cpuLimit(nanoCpus) {
+  if (!Number.isSafeInteger(nanoCpus) || nanoCpus <= 0) {
+    throw new Error(`A CPU limit of ${nanoCpus} nanoCPUs is not a limit`);
+  }
+  return nanoCpus;
+}
+
+/**
  * Creates an app container.
  *
  * @param {object} appSpecifications
@@ -964,6 +981,7 @@ function componentIdentityLabels(appName, componentName, owner) {
  */
 async function appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs) {
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
+  const nanoCpus = cpuLimit(Math.round(appSpecifications.cpu * 1e9));
   let exposedPorts = {};
   let portBindings = {};
   if (appSpecifications.version === 1) {
@@ -1202,7 +1220,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     ExposedPorts: exposedPorts,
     Labels: containerLabels,
     HostConfig: {
-      NanoCPUs: Math.round(appSpecifications.cpu * 1e9),
+      NanoCPUs: nanoCpus,
       Memory: Math.round(appSpecifications.ram * 1024 * 1024),
       MemorySwap: Math.round((appSpecifications.ram + (config.fluxapps.defaultSwap * 1000)) * 1024 * 1024), // default 2GB swap
       // StorageOpt: { size: '5G' }, // root fs has max default 5G size, v8 is 5G + specified as per config.fluxapps.hddFileSystemMinimum
@@ -1337,12 +1355,13 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
  */
 async function appDockerUpdateCpu(idOrName, nanoCpus) {
   try {
+    const limit = cpuLimit(nanoCpus);
     // Get the Docker container by ID or name
     const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
     // Update the container's CPU resources
     await dockerContainer.update({
-      NanoCpus: nanoCpus,
+      NanoCpus: limit,
     });
 
     return `Flux App ${idOrName} successfully updated with ${nanoCpus / 1e9} CPUs.`;

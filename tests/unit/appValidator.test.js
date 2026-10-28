@@ -743,6 +743,99 @@ describe('appValidator tests', () => {
     });
   });
 
+  describe('component CPU validation', () => {
+    function specsWithComponent(component) {
+      return {
+        name: 'testapp',
+        version: 4,
+        description: 'Test app',
+        owner: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
+        compose: [{
+          name: 'component1',
+          description: 'Component 1',
+          repotag: 'nginx:latest',
+          ports: [],
+          domains: [],
+          environmentParameters: [],
+          commands: [],
+          containerPorts: [],
+          containerData: '/data',
+          cpu: 0.5,
+          ram: 500,
+          hdd: 5,
+          tiered: false,
+          ...component,
+        }],
+        instances: 3,
+      };
+    }
+
+    function tiered(cpus) {
+      return {
+        tiered: true,
+        cpubasic: 0.5,
+        cpusuper: 0.5,
+        cpubamf: 0.5,
+        rambasic: 500,
+        ramsuper: 500,
+        rambamf: 500,
+        hddbasic: 5,
+        hddsuper: 5,
+        hddbamf: 5,
+        ...cpus,
+      };
+    }
+
+    // Docker reads a CPU limit of 0 as no limit, so a component that asks for no
+    // CPU would be given every core on the node it lands on.
+    it('should reject a component with no cpu on a live submission', async () => {
+      try {
+        await appValidator.verifyAppSpecifications(specsWithComponent({ cpu: 0 }), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('component component1 must have cpu of at least 0.1');
+      }
+    });
+
+    it('should reject a component with less than the minimum cpu on a live submission', async () => {
+      try {
+        await appValidator.verifyAppSpecifications(specsWithComponent({ cpu: 0.05 }), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('must have cpu of at least 0.1');
+      }
+    });
+
+    // A tiered component runs on its tier's cpu, so each tier is held to the minimum
+    // on its own.
+    ['cpubasic', 'cpusuper', 'cpubamf'].forEach((field) => {
+      it(`should reject a tiered component whose ${field} is below the minimum on a live submission`, async () => {
+        try {
+          await appValidator.verifyAppSpecifications(specsWithComponent(tiered({ [field]: 0.05 })), 1000, true);
+          expect.fail('Should have thrown error');
+        } catch (error) {
+          expect(error.message).to.include(`must have ${field} of at least 0.1`);
+        }
+      });
+    });
+
+    it('should accept a component at the minimum cpu on a live submission', async () => {
+      await appValidator.verifyAppSpecifications(specsWithComponent({ cpu: 0.1 }), 1000, true);
+    });
+
+    it('should accept a tiered component whose every tier is at the minimum on a live submission', async () => {
+      await appValidator.verifyAppSpecifications(specsWithComponent(tiered({
+        cpu: 0.1, cpubasic: 0.1, cpusuper: 0.1, cpubamf: 0.1,
+      })), 1000, true);
+    });
+
+    // A message already on chain has to reach the verdict it reached when it was
+    // accepted. What it may run with is decided where the container is created.
+    it('should accept a component with no cpu when replaying a message already on chain', async () => {
+      await appValidator.verifyAppSpecifications(specsWithComponent({ cpu: 0 }), 1000);
+    });
+  });
+
   describe('exported functions', () => {
     it('should export validation functions', () => {
       expect(appValidator.verifyAppSpecifications).to.be.a('function');
