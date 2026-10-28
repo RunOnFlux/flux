@@ -2485,6 +2485,7 @@ module.exports = {
   availableApps,
   checkApplicationRegistrationNameConflicts,
   storeAppSpecificationInForce,
+  appMessagesThatCount,
   governingAppMessage,
   isGoverningAppMessage,
   getInstalledApps,

@@ -1573,6 +1573,10 @@ async function verifyAppRegistrationParameters(req, res) {
             // eslint-disable-next-line no-await-in-loop
             await imageManager.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, true);
           }
+          if (appComponent.repoauth) {
+            // eslint-disable-next-line no-await-in-loop
+            await imageManager.checkAppRepoauth(appSpecFormatted.name, appComponent, appSpecFormatted.owner, true);
+          }
         }
       }
 
@@ -1637,6 +1641,10 @@ async function validateAppUpdate(appSpecification) {
       if (appComponent.secrets) {
         // eslint-disable-next-line no-await-in-loop
         await imageManager.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
+      }
+      if (appComponent.repoauth) {
+        // eslint-disable-next-line no-await-in-loop
+        await imageManager.checkAppRepoauth(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
       }
     }
   }
