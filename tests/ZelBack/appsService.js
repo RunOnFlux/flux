@@ -4,7 +4,7 @@ globalThis.userconfig = require('../../config/userconfig');
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
 const chai = require('chai');
 
-const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
+const appValidator = require('../../ZelBack/src/services/appRequirements/appValidator');
 const imageManager = require('../../ZelBack/src/services/appSecurity/imageManager');
 const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
 const generalService = require('../../ZelBack/src/services/generalService');
@@ -60,7 +60,7 @@ describe('checkHWParameters', () => {
       hddsuper: 5,
       hddbamf: 5,
     };
-    expect(hwRequirements.checkHWParameters(fluxAppSpecs)).to.be.equal(true);
+    expect(appValidator.checkHWParameters(fluxAppSpecs)).to.be.equal(true);
   });
 
   it('Verifies HW specs are badly asssigned', () => {
@@ -100,7 +100,7 @@ describe('checkHWParameters', () => {
       hddsuper: 5,
       hddbamf: 5,
     };
-    const specs = function () { hwRequirements.checkHWParameters(fluxAppSpecs); };
+    const specs = function () { appValidator.checkHWParameters(fluxAppSpecs); };
     expect(specs).to.throw();
   });
 
@@ -141,7 +141,7 @@ describe('checkHWParameters', () => {
       hddsuper: 5,
       hddbamf: 21,
     };
-    const hwSpecs = function () { hwRequirements.checkHWParameters(fluxAppSpecs); };
+    const hwSpecs = function () { appValidator.checkHWParameters(fluxAppSpecs); };
     expect(hwSpecs).to.throw();
   });
 

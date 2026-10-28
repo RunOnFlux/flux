@@ -153,7 +153,7 @@ module.exports = {
     zmqport: 16123,
   },
   minimumFluxBenchAllowedVersion: '6.2.0',
-  minimumFluxOSAllowedVersion: '8.18.0',
+  minimumFluxOSAllowedVersion: '8.22.0',
   // The NodeJS this process runs on. Below the floor a node fails whichever
   // paths need what the runtime lacks, one at a time and silently, instead of
   // reporting itself unfit. Unset allows: the check runs bare in
