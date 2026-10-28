@@ -119,6 +119,9 @@ const Checkpoint = Object.freeze({
   // Boot has read the location record of an app it held unconfirmed, and has not
   // yet released the app or acted on the answer. Keyed by app name.
   BOOT_BEFORE_LOCATION_DECISION: 'boot:beforeLocationDecision',
+  // A removal has taken an app's containers and volume down and has not yet
+  // deleted its row. Keyed by app name.
+  REMOVAL_BEFORE_ROW_DELETE: 'removal:beforeRowDelete',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.
