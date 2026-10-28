@@ -250,4 +250,46 @@ describe('IOUtils downloadFileFromUrl', () => {
 
     expect(fs.existsSync(path.join(dir, 'backup_comp.tar.gz'))).to.equal(false);
   });
+
+  it('refuses a destination that really lies outside containedIn, and writes nothing there', async () => {
+    handler = (req, res) => serve(req, res);
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'fluxout-'));
+    const inside = path.join(dir, 'remote');
+    fs.mkdirSync(path.join(dir, 'inner'));
+    fs.symlinkSync(outside, inside);
+    fs.writeFileSync(path.join(outside, 'backup_comp.tar.gz'), 'keep');
+    try {
+      const result = await IOUtils.downloadFileFromUrl(baseUrl, inside, 'COMP', true, { ...fast, containedIn: path.join(dir, 'inner') });
+      expect(result).to.equal(false);
+      expect(fs.readFileSync(path.join(outside, 'backup_comp.tar.gz'), 'utf8')).to.equal('keep');
+      expect(requests.length).to.equal(1);
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('writes when the destination is inside containedIn', async () => {
+    handler = (req, res) => serve(req, res);
+    const inner = path.join(dir, 'inner');
+    fs.mkdirSync(inner);
+    const result = await IOUtils.downloadFileFromUrl(baseUrl, inner, 'COMP', true, { ...fast, containedIn: inner });
+    expect(result).to.equal(true);
+    expect(fs.readFileSync(path.join(inner, 'backup_comp.tar.gz')).equals(body)).to.equal(true);
+  });
+
+  it('refuses a destination reached through a swapped directory when containedIn is the mount above it', async () => {
+    handler = (req, res) => serve(req, res);
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'fluxout-'));
+    const mount = path.join(dir, 'mount');
+    fs.mkdirSync(mount);
+    fs.symlinkSync(outside, path.join(mount, 'remote'));
+    try {
+      const result = await IOUtils.downloadFileFromUrl(baseUrl, path.join(mount, 'remote'), 'COMP', true, { ...fast, containedIn: mount });
+      expect(result).to.equal(false);
+      expect(fs.readdirSync(outside).filter((f) => fs.statSync(path.join(outside, f)).size > 0)).to.deep.equal([]);
+      expect(requests.length).to.equal(1);
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
 });

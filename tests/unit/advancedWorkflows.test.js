@@ -7818,12 +7818,36 @@ describe('advancedWorkflows tests', () => {
       dbHelper.findOneInDatabase.resolves({
         ...installedApp, hash: 'newhash', owner: '1NSJC2wKfKjbTuy8dbwmWSpJim7XzaAAoT', height: 5000,
       });
+      const newOwner = '1NSJC2wKfKjbTuy8dbwmWSpJim7XzaAAoT';
+      sinon.stub(registryManager, 'appMessagesThatCount').resolves([
+        { type: 'fluxappregister', height: 100, appSpecifications: { owner: installedApp.owner, expire: 1000 } },
+        { type: 'fluxappregister', height: 4000, appSpecifications: { owner: newOwner, expire: 1000 } },
+      ]);
 
       await advancedWorkflows.reinstallOldApplications();
 
-      sinon.assert.calledOnceWithExactly(removeAppLocally, 'myapp', null, true, false, false);
+      // announced: peers still list this node for the name
+      sinon.assert.calledOnceWithExactly(removeAppLocally, 'myapp', null, true, false, true);
       sinon.assert.notCalled(dbHelper.updateOneInDatabase);
       sinon.assert.notCalled(requestComplianceSweep);
+    });
+
+    it('keeps the install of a transfer this node missed, updated again after the installed term ended', async () => {
+      const removeAppLocally = sinon.stub(appUninstaller, 'removeAppLocally').resolves('removed');
+      const newOwner = '1NSJC2wKfKjbTuy8dbwmWSpJim7XzaAAoT';
+      dbHelper.findInDatabase.resolves([{ ...installedApp, height: 100, expire: 1000 }]);
+      dbHelper.findOneInDatabase.resolves({
+        ...installedApp, hash: 'newhash', owner: newOwner, height: 5000,
+      });
+      sinon.stub(registryManager, 'appMessagesThatCount').resolves([
+        { type: 'fluxappregister', height: 100, appSpecifications: { owner: installedApp.owner, expire: 100000 } },
+        { type: 'fluxappupdate', height: 500, appSpecifications: { owner: newOwner, expire: 100000 } },
+        { type: 'fluxappupdate', height: 5000, appSpecifications: { owner: newOwner, expire: 100000 } },
+      ]);
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      sinon.assert.notCalled(removeAppLocally);
     });
 
     it('keeps the install of an owner transfer that lands inside the term it renews', async () => {

@@ -2068,7 +2068,11 @@ async function getFluxDockerNetworks() {
  */
 async function getFluxDockerNetworkSubnets() {
   const fluxNetworks = await getFluxDockerNetworks();
-  const subnets = fluxNetworks.map((network) => network.IPAM.Config[0].Subnet);
+  // a network without an address range (empty IPAM config) has nothing to report; it must not
+  // make the whole answer throw, which callers read as "docker did not say"
+  const subnets = fluxNetworks
+    .map((network) => network.IPAM && network.IPAM.Config && network.IPAM.Config[0] && network.IPAM.Config[0].Subnet)
+    .filter(Boolean);
   return subnets;
 }
 

@@ -435,12 +435,6 @@ function idleGuard(idleMs) {
 }
 
 /**
- * The size of a file on disk, or 0 when there is none.
- *
- * @param {string} filepath
- * @returns {Promise<number>}
- */
-/**
  * Removes a partial download, and only a regular file: a path that has turned
  * into a link is not a file this download made.
  * @param {string} filepath Where the download was written.
@@ -451,6 +445,12 @@ async function removePartial(filepath) {
   if (stats && stats.isFile()) await fs.rm(filepath, { force: true });
 }
 
+/**
+ * The size of a file on disk, or 0 when there is none.
+ *
+ * @param {string} filepath
+ * @returns {Promise<number>}
+ */
 async function sizeOnDisk(filepath) {
   try {
     const stats = await fs.stat(filepath);
@@ -478,6 +478,7 @@ async function sizeOnDisk(filepath) {
  * @param {number} [options.maxAttempts] - Attempts before giving up.
  * @param {number} [options.retryDelayMs] - Pause between attempts.
  * @param {function(): Promise<void>} [options.beforeOpen] - Called before each attempt opens its file; a rejection ends the download.
+ * @param {string} [options.containedIn] - Directory the opened file must really be inside, judged from the descriptor; a file elsewhere ends the download.
  * @returns {Promise<boolean>} - True if the file is downloaded and saved successfully, false on failure.
  */
 async function downloadFileFromUrl(url, localpath, component, rename = false, options = {}) {
@@ -486,6 +487,7 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
     maxAttempts = DOWNLOAD_MAX_ATTEMPTS,
     retryDelayMs = 5 * 1000,
     beforeOpen = null,
+    containedIn = null,
   } = options;
   let filepath = null;
   let refused = false;
@@ -565,9 +567,38 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
         log.info(`downloadFileFromUrl - ${url} attempt ${attempt}, ${resumed ? `resuming at ${offset} bytes` : 'range refused, starting over'}`);
       }
 
-      // A link at the destination is followed by neither a fresh write nor an append
-      const { O_WRONLY, O_CREAT, O_APPEND, O_TRUNC, O_NOFOLLOW } = fs2.constants;
-      const writer = fs2.createWriteStream(filepath, { flags: O_WRONLY | O_CREAT | O_NOFOLLOW | (resumed ? O_APPEND : O_TRUNC) });
+      // Opened before anything is written, and judged by where the descriptor really is: O_NOFOLLOW
+      // covers only the last component, so a parent swapped for a link after the checks above would
+      // send the write elsewhere. Nothing is truncated until the descriptor has passed, so a refusal
+      // leaves the file it opened untouched.
+      const { O_WRONLY, O_CREAT, O_APPEND, O_NOFOLLOW, O_NONBLOCK } = fs2.constants;
+      // eslint-disable-next-line no-await-in-loop
+      const handle = await fs.open(filepath, O_WRONLY | O_CREAT | O_NOFOLLOW | O_NONBLOCK | (resumed ? O_APPEND : 0));
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const stats = await handle.stat();
+        if (!stats.isFile()) {
+          throw Object.assign(new Error('Download destination is not a regular file'), { refused: true });
+        }
+        if (containedIn) {
+          // eslint-disable-next-line no-await-in-loop
+          const [opened, base] = await Promise.all([fs.realpath(`/proc/self/fd/${handle.fd}`), fs.realpath(containedIn)]);
+          const within = path.relative(base, opened);
+          if (!within || within.startsWith('..') || path.isAbsolute(within)) {
+            throw Object.assign(new Error('Invalid path: download destination is outside the allowed directory'), { refused: true });
+          }
+        }
+        // eslint-disable-next-line no-await-in-loop
+        if (!resumed) await handle.truncate(0);
+      } catch (error) {
+        response.data.destroy();
+        // eslint-disable-next-line no-await-in-loop
+        await handle.close().catch(() => {});
+        // final, and the path is left be: it may no longer be the one that was checked
+        error.refused = true;
+        throw error;
+      }
+      const writer = handle.createWriteStream({ autoClose: true });
       // eslint-disable-next-line no-await-in-loop
       await pipeline(response.data, idleGuard(idleTimeoutMs), writer);
 

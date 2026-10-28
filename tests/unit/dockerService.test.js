@@ -2557,4 +2557,18 @@ describe('dockerService tests', () => {
       })).to.equal(true);
     });
   });
+
+  describe('getFluxDockerNetworkSubnets', () => {
+    afterEach(() => sinon.restore());
+
+    it('skips a network without an address range instead of throwing', async () => {
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves([
+        { Name: 'fluxDockerNetwork_a', IPAM: { Config: [{ Subnet: '172.23.1.0/24' }] } },
+        { Name: 'fluxDockerNetwork_b', IPAM: { Config: [] } },
+        { Name: 'fluxDockerNetwork_c', IPAM: null },
+        { Name: 'fluxDockerNetwork_d' },
+      ]);
+      expect(await dockerService.getFluxDockerNetworkSubnets()).to.deep.equal(['172.23.1.0/24']);
+    });
+  });
 });

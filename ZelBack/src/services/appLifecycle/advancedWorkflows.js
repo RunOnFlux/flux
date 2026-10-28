@@ -41,7 +41,7 @@ const { checkAndDecryptAppSpecs, withoutEnterpriseSecrets } = require('../utils/
 const { verifyAppNameAndOwner } = require('../utils/appIdentity');
 const volumeService = require('../utils/volumeService');
 const { requirePlainDirectories, requireRegularFile } = require('../utils/plainPaths');
-const { isInForce } = require('../utils/appMessageChain');
+const { isInForce, registeredByAnotherAfterTerm } = require('../utils/appMessageChain');
 const { sameSigningIdentity } = require('../signatureVerifier');
 const mountParser = require('../utils/mountParser');
 const appReconciler = require('../appMonitoring/appReconciler');
@@ -3209,6 +3209,8 @@ async function appendRestoreTask(req, res) {
           target.name,
           true,
           {
+            // the destination is judged again from the open descriptor, which a swapped parent cannot fool
+            containedIn: target.mount,
             // the owner's server answers when it likes, and the volume is theirs to change until it does
             beforeOpen: () => requirePlainDirectories(target.mount, ['appdata', 'backup', 'backup/remote']).catch((error) => {
               refusal = error;
@@ -3640,11 +3642,15 @@ async function updateAppGlobaly(params) {
   if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
     // eslint-disable-next-line no-restricted-syntax
     for (const appComponent of appSpecFormatted.compose) {
+      // eslint-disable-next-line global-require
+      const appSecurity = require('../appSecurity/imageManager');
       if (appComponent.secrets) {
-        // eslint-disable-next-line global-require
-        const appSecurity = require('../appSecurity/imageManager');
         // eslint-disable-next-line no-await-in-loop
         await appSecurity.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
+      }
+      if (appComponent.repoauth) {
+        // eslint-disable-next-line no-await-in-loop
+        await appSecurity.checkAppRepoauth(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
       }
     }
   }
@@ -4433,15 +4439,30 @@ async function reinstallOldApplications() {
           // rewrite the record in place and hand the old owner's files and data
           // to the new registrant. An update that transfers an app lands inside
           // the term it renews, and keeps the data as it always has.
+          //
+          // Heights cannot tell the two apart: a transfer this node missed, followed by
+          // an update after the installed term ended, looks the same. The message log
+          // does: another owner's registration after the installed term is a new tenure, a transfer is
+          // only ever an update.
           if (!sameSigningIdentity(installedApp.owner, appSpecifications.owner)
               && Number.isFinite(installedApp.height) && Number.isFinite(appSpecifications.height)
-              && !isInForce(installedApp.height, installedApp.expire, appSpecifications.height)) {
+              && !isInForce(installedApp.height, installedApp.expire, appSpecifications.height)
+              // eslint-disable-next-line no-await-in-loop
+              && registeredByAnotherAfterTerm(
+                // eslint-disable-next-line no-await-in-loop
+                await registryManagerModule.appMessagesThatCount(installedApp.name),
+                installedApp.height,
+                installedApp.expire,
+                installedApp.owner,
+                sameSigningIdentity,
+              )) {
             log.warn(`REMOVAL REASON: ${installedApp.name} was registered again by another owner after its term ended - removing the previous owner's install and data`);
             // eslint-disable-next-line global-require
             const appUninstallerForOwner = require('./appUninstaller');
-            // No announcement: the network already holds the new registration.
+            // Announced: peers still list this node as a location for the name, and would
+            // route the new registrant's domain here and count this node as an instance.
             // eslint-disable-next-line no-await-in-loop
-            await appUninstallerForOwner.removeAppLocally(installedApp.name, null, true, false, false);
+            await appUninstallerForOwner.removeAppLocally(installedApp.name, null, true, false, true);
             // eslint-disable-next-line no-continue
             continue;
           }
