@@ -15,7 +15,7 @@ import {
 } from './wait.js';
 import { waitForLocationTable } from './reconciler-suite.js';
 import {
-  derivedTurnMs, giveUpPassMs, harnessBlockCostMs, loadSharedConfig,
+  derivedTurnMs, giveUpPassMs, harnessBlockCostMs, loadSharedConfig, PRODUCTION_LOCATION_EXPIRIES,
 } from './coupled-knobs.js';
 import { keysOf, nextOwnedTurn, untilOwnedTurnEndsMs } from './handback-turns.js';
 
@@ -289,6 +289,11 @@ export async function bootResidentialFleet(hookCtx) {
         //
         // So: shorten the poll here so the suite can see the path at all.
         daemonInfoIntervalMs: 1000,
+        // A holder restarted inside a case keeps its app: the harness does not
+        // compress a restart. Turns read signed holders, departures are signed
+        // removals, and a node announces as it starts, so nothing here waits on a
+        // location row expiring.
+        ...PRODUCTION_LOCATION_EXPIRIES,
         residentialCheckIntervalMs: 3000,
         // The give-up pass runs every removeFluxAppsPeriod * 4 blocks, and a
         // block costs one explorerPollIntervalMs. A departure has to be VISIBLE
