@@ -585,6 +585,27 @@ describe('advancedWorkflows tests', () => {
         expect(globalState.softRedeployInProgress).to.be.false;
       }
     });
+
+    // The app's own row still holds the specification being replaced while the
+    // component is reinstalled: counting it would ask the node for room for both.
+    it('checks the specification without counting the app it replaces', async () => {
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves({
+        name: 'myapp',
+        version: 4,
+        compose: [{ name: 'frontend', repotag: 'myapp/frontend:1.0' }],
+      });
+      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(serviceHelper, 'delay').resolves();
+      const checkAppRequirements = sinon.stub(appInstaller, 'checkAppRequirements').rejects(new Error('stop here'));
+
+      const error = await advancedWorkflows.softRedeployComponent('myapp', 'frontend', res).catch((caught) => caught);
+
+      expect(error.message).to.equal('stop here');
+      sinon.assert.calledOnce(checkAppRequirements);
+      expect(checkAppRequirements.firstCall.args[4]).to.deep.equal({ replacing: 'myapp' });
+    });
   });
 
   describe('hardRedeployComponent tests', () => {
@@ -734,6 +755,27 @@ describe('advancedWorkflows tests', () => {
       } catch (error) {
         expect(globalState.hardRedeployInProgress).to.be.false;
       }
+    });
+
+    // The app's own row still holds the specification being replaced while the
+    // component is reinstalled: counting it would ask the node for room for both.
+    it('checks the specification without counting the app it replaces', async () => {
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves({
+        name: 'myapp',
+        version: 4,
+        compose: [{ name: 'frontend', repotag: 'myapp/frontend:1.0' }],
+      });
+      sinon.stub(appUninstaller, 'hardUninstallComponent').resolves();
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(serviceHelper, 'delay').resolves();
+      const checkAppRequirements = sinon.stub(appInstaller, 'checkAppRequirements').rejects(new Error('stop here'));
+
+      const error = await advancedWorkflows.hardRedeployComponent('myapp', 'frontend', res).catch((caught) => caught);
+
+      expect(error.message).to.equal('stop here');
+      sinon.assert.calledOnce(checkAppRequirements);
+      expect(checkAppRequirements.firstCall.args[4]).to.deep.equal({ replacing: 'myapp' });
     });
   });
 
