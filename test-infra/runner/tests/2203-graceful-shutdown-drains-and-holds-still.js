@@ -9,7 +9,7 @@ import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { waitFor, waitForUp } from '../framework/wait.js';
 import {
-  isDaemonUp, isFolderSynced, getFolderConfig, statPath, readPath, startDaemon,
+  isDaemonUp, isFolderSynced, getFolderConfig, statPath, readPath,
 } from '../framework/syncthing-real.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
@@ -27,6 +27,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //
 // While it waits, nothing on the node may start a container again: the stop it
 // has just made is the reason the final save exists.
+//
+// The first holder stays down once it has left. The third node is installed as
+// the new primary's standby, and is the peer its drain cannot reach.
 
 const APP_UID = 1000;
 const SYNCTHING_PORT = 16129;
@@ -42,6 +45,8 @@ describe('a graceful shutdown drains to the standby and holds still', function (
   const root = `/mnt/appdata/flux-apps/${folder}`;
   const HOLDERS = [0, 1];
   const [FIRST, SECOND] = HOLDERS;
+  const THIRD = 2;
+  let app;
   const client = (i) => env.clients[i];
   const running = async (i) => isAppContainerRunning(client(i).container, appName);
 
@@ -62,7 +67,7 @@ describe('a graceful shutdown drains to the standby and holds still', function (
     })));
 
     await pushTestApp(appName, 'v1', 'swdrain', { user: APP_UID });
-    const app = await buildSeedableApp({
+    app = await buildSeedableApp({
       env,
       name: appName,
       instances: HOLDERS.length,
@@ -116,19 +121,16 @@ describe('a graceful shutdown drains to the standby and holds still', function (
 
   it('starts nothing again while it waits for a peer that cannot receive', async function () {
     this.timeout(600000);
-    // The standby took over from the node that left; the node that left comes
-    // back as a standby, so the roles have swapped.
     await waitForUp(client(SECOND), appName, 'the standby takes over', { timeout: 300000, interval: 3000 });
-    await startDaemon(client(FIRST));
-    await releaseFluxos(client(FIRST).container);
-    await waitFor(async () => (await getFolderConfig(client(FIRST), folder))?.type === 'receiveonly'
-      && await isFolderSynced(client(FIRST), folder), {
-      timeout: 300000, interval: 3000, label: 'the old primary is a synced standby again',
+    await installOnNodes(env, app, [THIRD]);
+    await waitFor(async () => (await getFolderConfig(client(THIRD), folder))?.type === 'receiveonly'
+      && await isFolderSynced(client(THIRD), folder), {
+      timeout: 300000, interval: 3000, label: 'the third node is a synced standby',
     });
 
     // The new primary's final save cannot reach anyone, so its drain runs to
     // the deadline - the longest a node holds still.
-    await blockTraffic(client(SECOND).container, [client(FIRST).ip], SYNCTHING_PORT);
+    await blockTraffic(client(SECOND).container, [client(THIRD).ip], SYNCTHING_PORT);
     try {
       const started = Date.now();
       const mark = client(SECOND).getLastEventId();
@@ -155,7 +157,7 @@ describe('a graceful shutdown drains to the standby and holds still', function (
       expect(drained.data, 'the drain reached its deadline with the folder undelivered')
         .to.deep.include({ complete: false, incomplete: [folder] });
     } finally {
-      await unblockTraffic(client(SECOND).container, [client(FIRST).ip], SYNCTHING_PORT);
+      await unblockTraffic(client(SECOND).container, [client(THIRD).ip], SYNCTHING_PORT);
       await releaseFluxos(client(SECOND).container);
     }
   });
