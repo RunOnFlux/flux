@@ -2619,10 +2619,11 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   );
 
   // The observer does not list this address yet - typically a move it has not seen
-  // confirmed - so it has not looked. Like having nobody to ask: nothing is
-  // concluded, dosState is untouched, and the next cycle asks again.
+  // confirmed - so it has not looked: nothing is concluded from it, dosState is
+  // untouched, and the next observer is asked.
   if (resMyAvailability && isNotListedAnswer(resMyAvailability.data)) {
-    log.info(`checkMyFluxAvailability - ${remoteIp}:${remotePort} does not list ${localSocketAddress} yet; skipping this pass`);
+    log.info(`checkMyFluxAvailability - ${remoteIp}:${remotePort} does not list ${localSocketAddress} yet; asking another`);
+    if (retryNumber <= 6) return checkMyFluxAvailability(retryNumber + 1);
     return false;
   }
 

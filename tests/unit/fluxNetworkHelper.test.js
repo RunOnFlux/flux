@@ -1647,7 +1647,7 @@ describe('fluxNetworkHelper tests', () => {
       expect(result).to.be.false;
     });
 
-    it('concludes nothing, without retrying, when the observer does not list this node yet', async () => {
+    it('concludes nothing from observers that do not list this node, asking each in turn', async () => {
       fluxNetworkHelper.resetAvailabilityDos();
       fluxNetworkHelper.setDosMessage(null);
       fluxNetworkHelper.setDosStateValue(0);
@@ -1658,9 +1658,25 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
       expect(result).to.be.false;
-      sinon.assert.calledOnce(axiosGet);
+      expect(axiosGet.callCount, 'the observers asked').to.equal(8);
       expect(fluxNetworkHelper.isNodeDos()).to.be.false;
       expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+    });
+
+    it('asks the next observer after one that does not list this node, and its answer stands', async () => {
+      fluxNetworkHelper.resetAvailabilityDos();
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(0);
+      getRandomExternalObserver.resolves('1.2.3.4:16127');
+      sinon.stub(serviceHelper, 'axiosGet')
+        .onFirstCall().resolves({ data: { status: 'error', data: { message: 'Asking Flux is not available' } } })
+        .onSecondCall().resolves({ data: { status: 'error', data: { message: fluxNetworkHelper.NOT_LISTED_MESSAGE } } })
+        .onThirdCall().resolves({ data: { status: 'success', data: { message: 'Asking Flux is available' } } });
+
+      const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+      expect(result, 'stopped at the observer that does not list this node').to.be.true;
+      expect(fluxNetworkHelper.getDOSState().data.dosState, 'a node another observer reached keeps the points of the answer before').to.equal(0);
     });
 
     it('should return true if axios status response is success', async () => {
