@@ -59,6 +59,19 @@ export const PRODUCTION = Object.freeze({
 });
 
 /**
+ * The location expiries of a fleet whose node is judged across its own restart:
+ * production's. The harness does not compress a restart, and a node measures its
+ * downtime across one, so under the shared compressed windows a restart on a
+ * loaded box outlasts them and the node's own location rows have expired when
+ * its boot reads them. A fleet whose apps must survive a restart, or whose node
+ * must expire its locations exactly when a real node would, runs on these.
+ */
+export const PRODUCTION_LOCATION_EXPIRIES = Object.freeze({
+  sigtermExpiryS: PRODUCTION.sigtermExpiryS,
+  locationTtlS: PRODUCTION.locationTtlS,
+});
+
+/**
  * How many election passes one place of stagger spans in production. A standby
  * reads the order and the peers it probes once a pass, so a stagger of fewer
  * passes than this gives it fewer looks at the candidate ahead than production

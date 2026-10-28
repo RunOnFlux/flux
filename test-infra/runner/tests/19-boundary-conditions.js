@@ -13,7 +13,7 @@ import {
 import { fluxTeamKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
-import { PRODUCTION } from '../framework/coupled-knobs.js';
+import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
 
 // Suite 1: Peer threshold boundaries
 
@@ -203,9 +203,7 @@ describe('Boundary: block timer', function () {
 // a boot only ever adds to it: a pin well inside the window stays inside it for
 // any boot a real node survives, and a pin past it stays past it whatever the
 // boot adds.
-const PRODUCTION_EXPIRIES = {
-  fluxapps: { sigtermExpiryS: PRODUCTION.sigtermExpiryS, locationTtlS: PRODUCTION.locationTtlS },
-};
+const PRODUCTION_EXPIRIES = { fluxapps: PRODUCTION_LOCATION_EXPIRIES };
 
 describe('Boundary: clean shutdown within SIGTERM_EXPIRY', function () {
   let env;

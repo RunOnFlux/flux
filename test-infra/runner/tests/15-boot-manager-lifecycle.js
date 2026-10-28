@@ -9,17 +9,13 @@ import {
 } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
-import { PRODUCTION } from '../framework/coupled-knobs.js';
+import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
 
 const subnet = getSubnetConfig();
 
-// Production's location expiries. Every fleet here is judged on a downtime the
-// node measures across its own boot, which the harness does not compress, and a
-// boot only ever adds to that measurement. At production's windows a node
-// expires its locations here exactly when a real node with the same boot would.
-const PRODUCTION_EXPIRIES = {
-  fluxapps: { sigtermExpiryS: PRODUCTION.sigtermExpiryS, locationTtlS: PRODUCTION.locationTtlS },
-};
+// Every fleet here is judged on a downtime the node measures across its own
+// boot, so a node expires its locations exactly when a real node would.
+const PRODUCTION_EXPIRIES = { fluxapps: PRODUCTION_LOCATION_EXPIRIES };
 
 // Assertion conventions in this suite:
 // - Boot-context FACTS (firstBoot / machineRebooted / cleanShutdown) are
