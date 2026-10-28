@@ -4244,9 +4244,11 @@ async function checkAndRemoveApplicationInstance({
       }
       giveUpRefusals.delete(installedApp.name);
 
-      // The next holder to own a turn acts no sooner than two passes after the
-      // one this decided on. A removal that starts after that point could meet
-      // its decision, so this one is left to a later turn.
+      // The next holder to own a turn decides no sooner than two passes after
+      // the one this decided on. A removal tells the network before it tears
+      // anything down, and one started within a pass of its decision leaves a
+      // whole pass for that to reach every holder first. Later, it is left to a
+      // later turn.
       if (decision.reason === 'EVACUATION') {
         // eslint-disable-next-line no-await-in-loop
         await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.GIVEUP_BEFORE_REMOVAL, installedApp.name);
@@ -4254,7 +4256,7 @@ async function checkAndRemoveApplicationInstance({
         // eslint-disable-next-line no-await-in-loop
         const count = await daemonServiceUtils.executeCall('getBlockCount', [], { useCache: false });
         const tip = count.status === 'success' ? count.data : null;
-        if (tip === null || tip >= dueHeight + 2 * period) {
+        if (tip === null || tip >= dueHeight + period) {
           log.warn(`${installedApp.name} not handed back: the chain is at ${tip ?? 'an unknown height'} and this pass decided on ${dueHeight}; a later turn asks again`);
           fluxEventBus.publish('giveUp:decisionStale', { appName: installedApp.name, dueHeight, tip });
           return;

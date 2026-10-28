@@ -8030,7 +8030,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
     sinon.stub(residentialNodeDosService, 'noteEvacuated');
     sinon.stub(registryManager, 'signedHoldersOf').resolves(HOLDERS);
     sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').resolves(OWN_KEY);
-    // The chain still below the pass after next, so a decided removal goes ahead.
+    // The chain still below the next pass, so a decided removal goes ahead.
     sinon.stub(daemonServiceUtils, 'executeCall')
       .withArgs('getBlockCount').resolves({ status: 'success', data: GIVE_UP_PASS.height + 1 });
     // Every peer here predates the identity endpoint, and is read unsigned.
@@ -8664,28 +8664,28 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       });
     });
 
-    it('does not hand back once the chain has reached the pass after next', async () => {
-      // The next holder to own a turn acts no sooner than that pass, so a
-      // removal starting then could meet its decision.
+    it('does not hand back once the chain has reached the next pass', async () => {
+      // The next holder to own a turn decides no sooner than the pass after
+      // next, and the removal's announcement is given the whole pass before it.
       residentialNodeDosService.isEvacuating.returns(true);
       registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
       const dueHeight = Math.floor(GIVE_UP_PASS.height / GIVE_UP_PASS.period) * GIVE_UP_PASS.period;
       daemonServiceUtils.executeCall.withArgs('getBlockCount')
-        .resolves({ status: 'success', data: dueHeight + (2 * GIVE_UP_PASS.period) });
+        .resolves({ status: 'success', data: dueHeight + GIVE_UP_PASS.period });
       const published = sinon.spy(fluxEventBus, 'publish');
 
       await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
-      sinon.assert.calledWith(published, 'giveUp:decisionStale', { appName: 'appone', dueHeight, tip: dueHeight + (2 * GIVE_UP_PASS.period) });
+      sinon.assert.calledWith(published, 'giveUp:decisionStale', { appName: 'appone', dueHeight, tip: dueHeight + GIVE_UP_PASS.period });
     });
 
-    it('hands back while the chain is a block short of the pass after next', async () => {
+    it('hands back while the chain is a block short of the next pass', async () => {
       residentialNodeDosService.isEvacuating.returns(true);
       registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
       const dueHeight = Math.floor(GIVE_UP_PASS.height / GIVE_UP_PASS.period) * GIVE_UP_PASS.period;
       daemonServiceUtils.executeCall.withArgs('getBlockCount')
-        .resolves({ status: 'success', data: dueHeight + (2 * GIVE_UP_PASS.period) - 1 });
+        .resolves({ status: 'success', data: dueHeight + GIVE_UP_PASS.period - 1 });
 
       await advancedWorkflows.checkAndRemoveApplicationInstance(GIVE_UP_PASS);
 

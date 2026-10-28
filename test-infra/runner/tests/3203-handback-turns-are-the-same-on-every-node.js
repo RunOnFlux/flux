@@ -4,9 +4,10 @@
  * A turn is cut from block time and belongs to the holder with the lowest hash of the turn
  * number and its signing key; the holders are the ones the app's signed announcements name. A
  * holder acts only on the second pass of a turn it owns, and not once the chain has reached the
- * pass after next. Each test here moves one input a holder could otherwise disagree on - when a
- * holder started counting, a restart, a late pass, an eviction, an address move, a spare copy, a
- * lapsing announcement, a decision the chain outran - and checks the turn did not move with it.
+ * next pass; it tells the network before it tears the app down. Each test here moves one input a
+ * holder could otherwise disagree on - when a holder started counting, a restart, a late pass, an
+ * eviction, an address move, a spare copy, a lapsing announcement, a decision the chain outran, a
+ * removal still running - and checks the turn did not move with it.
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
@@ -83,20 +84,49 @@ describe('handback turns are the same on every node', function () {
         .map((e) => e.data.turn)).size;
       await driveUntil(one, async () => held() || turnsItCouldActIn() >= 2, { timeoutMs: 1200000 });
       expect(held(), `no decision in ${turnsItCouldActIn()} turns it could act in`).to.equal(true);
-      // The pass after next: the earliest any other holder could act.
+      // The next pass: the last a removal may start in and still be told before another holder decides.
       const { currentHeight } = await getState();
-      await driveUntil(one, async () => (await getState()).currentHeight >= currentHeight + 2 * PERIOD, { blocks: 3 * PERIOD });
+      await driveUntil(one, async () => (await getState()).currentHeight >= currentHeight + PERIOD, { blocks: 2 * PERIOD });
       await one.releaseCheckpoint('giveUp:beforeRemoval', 'staleapp');
       const stale = () => eventsOf(one, 'giveUp:decisionStale', (d) => d.appName === 'staleapp', anchor);
       await waitFor(async () => stale().length > 0 || departuresOf(one, 'staleapp', anchor).length > 0,
         { timeout: 60000, label: 'the released decision is carried out or dropped' });
 
       expect(departuresOf(one, 'staleapp', anchor), 'the outrun removal was made').to.have.lengthOf(0);
-      expect(stale()[0].data.tip).to.be.at.least(stale()[0].data.dueHeight + 2 * PERIOD);
+      expect(stale()[0].data.tip).to.be.at.least(stale()[0].data.dueHeight + PERIOD);
       const installed = await one.get('/apps/installedapps');
       expect(installed.data.map((a) => a.name)).to.include('staleapp');
     } finally {
       await one.releaseCheckpoint('giveUp:beforeRemoval', 'staleapp').catch(() => {});
+      await startTicker();
+    }
+  });
+
+  it('a holder handing an app back is no holder to the others while its removal runs', async function () {
+    this.timeout(1500000);
+    const nodes = [TARGET, SECOND_TARGET];
+    const clients = nodes.map((node) => env.clients[node - 1]);
+    await seedAndEvacuate(env, 'leaveapp', nodes);
+    // Whichever holder decides first is held with its removal committed and nothing torn down.
+    await Promise.all(clients.map((client) => client.holdCheckpoint('removal:beforeTeardown', 'leaveapp')));
+    const anchors = clients.map((client) => client.getLastEventId());
+    try {
+      const heldOn = () => clients.findIndex((client, i) => eventsOf(client, 'checkpoint:held',
+        (d) => d.name === 'removal:beforeTeardown' && d.key === 'leaveapp', anchors[i]).length > 0);
+      await driveUntil(clients[0], async () => heldOn() >= 0, { timeoutMs: 1200000 });
+      const leaving = heldOn();
+      expect(leaving, 'neither holder decided to hand leaveapp back').to.be.at.least(0);
+      const observer = clients[1 - leaving];
+      const leavingKey = keysOf([nodes[leaving]])[0];
+      const anchor = observer.getLastEventId();
+      await driveUntil(observer, async () => turnsOf(observer, 'leaveapp', anchor).length > 0, { blocks: 2 * PERIOD });
+      await startTicker();
+
+      const [judged] = turnsOf(observer, 'leaveapp', anchor);
+      expect(judged, 'the other holder ran no pass while the removal was held').to.not.equal(undefined);
+      expect(judged.data.holders, 'counted a holder whose removal was under way').to.not.include(leavingKey);
+    } finally {
+      await Promise.all(clients.map((client) => client.releaseCheckpoint('removal:beforeTeardown', 'leaveapp').catch(() => {})));
       await startTicker();
     }
   });

@@ -1145,6 +1145,22 @@ describe('appUninstaller tests', () => {
         expect(globalStateStub.departingApps.has('testapp'), 'left the mark behind, silencing the app for good').to.be.false;
       });
 
+      // A holder that counts this copy while its volume is being deleted could hand
+      // its own back beside it.
+      it('tells the network before it tears the app down', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        getLocalSocketAddressStub.resolves('10.0.0.1:16127');
+        let toldBeforeGone = null;
+        uninstaller.setOnComponentRemoved(() => {
+          toldBeforeGone = broadcastStub.called;
+        });
+
+        await uninstaller.removeAppLocally('testapp', res, true, true, true);
+
+        expect(toldBeforeGone, 'told the network only once the app was gone').to.be.true;
+        sinon.assert.calledOnce(broadcastStub);
+      });
+
       it('does not mark a removal the network is never told about', async () => {
         const uninstaller = buildUninstaller(v2Spec);
         let markedDuring = null;
