@@ -449,24 +449,27 @@ function checkComposeHWParameters(appSpecsComposed) {
 
 /**
  * Get apps resource usage - placeholder for original appsResources function
+ * @param {object} [options] Passed to resourceQueryService.appsResources.
  * @returns {Promise<object>} Resource usage information
  */
-async function appsResources() {
+async function appsResources(options) {
   // Import locally to avoid circular dependency
   // eslint-disable-next-line global-require
   const resourceQueryService = require('../appQuery/resourceQueryService');
-  return resourceQueryService.appsResources();
+  return resourceQueryService.appsResources(options);
 }
 
 /**
  * To check app requirements of HW for a node
  * @param {object} appSpecs App specifications.
+ * @param {object} [options]
+ * @param {string} [options.replacing] Name of an installed app whose resources are not counted.
  * @returns {boolean} True if all checks passed.
  */
-async function checkAppHWRequirements(appSpecs) {
+async function checkAppHWRequirements(appSpecs, options = {}) {
   // appSpecs has hdd, cpu and ram assigned to correct tier
   const tier = await generalService.nodeTier();
-  const resourcesLocked = await appsResources();
+  const resourcesLocked = await appsResources({ excludeApp: options.replacing });
 
   if (resourcesLocked.status !== 'success') {
     throw new Error('Unable to obtain locked system resources by Flux Apps. Aborting.');

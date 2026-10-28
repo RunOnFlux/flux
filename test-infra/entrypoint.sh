@@ -52,6 +52,12 @@ mkdir -p /dat/var/lib/fluxd \
          /dat/usr/lib/fluxwatchdog \
          /mnt/appdata/flux-apps
 
+# A node whose apps folder is reached through a symlink: FLUX_APPS_FOLDER names
+# the link, and this points it at the real folder.
+if [ -n "$FLUX_E2E_APPS_FOLDER_TARGET" ]; then
+  ln -sfn "$FLUX_E2E_APPS_FOLDER_TARGET" "$FLUX_APPS_FOLDER"
+fi
+
 # Mount a filesystem image through a device-mapper device of its own, so a suite
 # can freeze it (every write held) or suspend the device (every read and write
 # held), framework/host-stall.js. Device-mapper names are the host kernel's, so

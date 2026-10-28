@@ -483,16 +483,13 @@ async function imageFsType(volumeFile) {
 }
 
 /**
- * The image behind a volume that is already mounted, read from the kernel.
- *
- * The authority for a node upgrading with its apps up: the loop device names
- * its own backing file, so the path this node used is readable without
- * searching for it and without trusting a filename.
+ * The loop device a mount point resolves through, read from the kernel.
  *
  * @param {string} dirPath The mount point.
- * @returns {Promise<string|null>} Absolute path of the backing image, or null.
+ * @returns {Promise<string|null>} The device's name (e.g. `loop3`), or null when
+ *   nothing is mounted there or the mount is not a loop device.
  */
-async function mountedImagePath(dirPath) {
+async function mountedLoopDevice(dirPath) {
   const mountinfo = await fs.readFile('/proc/self/mountinfo', 'utf8').catch(() => null);
   if (mountinfo === null) return null;
   const target = path.resolve(dirPath);
@@ -511,8 +508,23 @@ async function mountedImagePath(dirPath) {
   const afterSeparator = line.split(' - ')[1];
   const source = afterSeparator ? afterSeparator.split(' ')[1] : null;
   const loop = /^\/dev\/(loop\d+)$/.exec(source || '');
+  return loop ? loop[1] : null;
+}
+
+/**
+ * The image behind a volume that is already mounted, read from the kernel.
+ *
+ * The authority for a node upgrading with its apps up: the loop device names
+ * its own backing file, so the path this node used is readable without
+ * searching for it and without trusting a filename.
+ *
+ * @param {string} dirPath The mount point.
+ * @returns {Promise<string|null>} Absolute path of the backing image, or null.
+ */
+async function mountedImagePath(dirPath) {
+  const loop = await mountedLoopDevice(dirPath);
   if (!loop) return null;
-  const backing = await fs.readFile(`/sys/block/${loop[1]}/loop/backing_file`, 'utf8').catch(() => null);
+  const backing = await fs.readFile(`/sys/block/${loop}/loop/backing_file`, 'utf8').catch(() => null);
   if (!backing) return null;
   // Not unescaped: this is d_path() output from sysfs, which does not mangle
   // anything the way mountinfo escapes space, tab, newline and backslash.
@@ -528,6 +540,47 @@ async function mountedImagePath(dirPath) {
     return null;
   }
   return backingPath;
+}
+
+// Mount points whose loop device the kernel would not switch to direct I/O, so
+// the volume reconciler does not ask again on every pass.
+const directIoRefused = new Set();
+
+/**
+ * Switches the loop device behind a mounted app volume to direct I/O.
+ *
+ * A loop device in buffered mode caches the image file in the host page cache
+ * on top of the cache the filesystem inside it keeps, and both are charged to
+ * the app's memory cgroup. The loop worker allocates that second copy without
+ * being allowed to do I/O, so a container at its memory limit cannot reclaim
+ * it and the kernel kills the app's largest process instead. With direct I/O
+ * the image is read and written past the host cache and only the inner copy
+ * remains.
+ *
+ * The kernel refuses when the host filesystem's direct I/O alignment is larger
+ * than the loop device's block size (ZFS aligns to its record size), and the
+ * volume then stays buffered, as it was mounted.
+ *
+ * @param {string} mountPoint The volume's mount point.
+ * @returns {Promise<boolean>} Whether the loop device now uses direct I/O.
+ */
+async function useDirectIo(mountPoint) {
+  const loop = await mountedLoopDevice(mountPoint);
+  if (!loop) return false;
+  const current = await fs.readFile(`/sys/block/${loop}/loop/dio`, 'utf8').catch(() => null);
+  if (current === null) return false;
+  if (current.trim() === '1') return true;
+  if (directIoRefused.has(mountPoint)) return false;
+  const res = await serviceHelper.runCommand('losetup', {
+    runAsRoot: true, params: ['--direct-io=on', `/dev/${loop}`], logError: false,
+  });
+  if (res.error) {
+    directIoRefused.add(mountPoint);
+    log.info(`useDirectIo - /dev/${loop} at ${mountPoint} stays buffered: ${res.error.message}`);
+    return false;
+  }
+  log.info(`useDirectIo - /dev/${loop} at ${mountPoint} uses direct I/O`);
+  return true;
 }
 
 /**
@@ -785,6 +838,7 @@ async function ensureAppVolumeMounted(identifier) {
         if (!known || stamp) await recordVolumeImage(appId, backing, stamp);
       }
     }
+    await useDirectIo(mountPoint);
     return { mounted: true, alreadyMounted: true };
   }
 
@@ -941,6 +995,7 @@ async function ensureAppVolumeMounted(identifier) {
   }
 
   log.info(`ensureAppVolumeMounted - mounted ${volumeFile} at ${mountPoint}`);
+  await useDirectIo(mountPoint);
   // An image found by the search is recorded now that it is known to mount, so
   // the search runs once for it and the lookup answers ever after.
   // Recorded now that the mount has proved the image real: a first discovery,
@@ -1218,6 +1273,7 @@ module.exports = {
   imageFsType,
   imageFsUuid,
   mountedImagePath,
+  useDirectIo,
   recordNewVolumeImage,
   recordVolumeImage,
   getComponentAppIdsFromVolumeFiles,
