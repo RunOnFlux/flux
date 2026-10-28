@@ -648,6 +648,20 @@ describe('portManager tests', () => {
       await portManager.restoreAppsPortsSupport();
     });
 
+    it('maps nothing of an app whose port was released after the pass read it, and counts no failure', async () => {
+      upnpService.isUPNP.returns(true);
+      upnpService.mapUpnpPort.resolves({
+        mapped: false, code: null, reason: '30001 released since it was read', routerWide: false, released: true,
+      });
+
+      await portManager.restoreAppsPortsSupport();
+
+      sinon.assert.calledOnce(upnpService.mapUpnpPort);
+      expect(upnpService.mapUpnpPort.firstCall.args[2].unlessReleasedSince, 'the pass says when it read the ports').to.be.a('number');
+      sinon.assert.notCalled(serviceHelper.delay);
+      expect(portManager.upnpMapFailures.has('App1')).to.equal(false);
+    });
+
     it('should NOT remove an app on a single UPNP mapping failure', async () => {
       // the incident regression: one failed map used to escalate straight to
       // removeAppLocally(force, sendMessage) - a transient router blip nuked

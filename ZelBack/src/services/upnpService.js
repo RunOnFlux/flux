@@ -46,6 +46,9 @@ const mappedHere = new Set();
 // refuses to map a port another machine holds, so a mapping it took is this
 // node's, and one it refused never is.
 const mappedProtocols = new Map();
+// When removeMapUpnpPort last released each port, on monotonicMs: a refresh
+// that read its ports before then maps none of them again.
+const releasedAt = new Map();
 
 // Removals of this node's own mappings the router refused, by `port/protocol`:
 // each is asked again, one at a time, after config.upnp.removalRetryFirstMs,
@@ -617,13 +620,22 @@ async function removeHeldTestMappings(port) {
  *
  * On a failure the port is no longer held here; a protocol the router took is
  * still recorded, for removeMapUpnpPort to remove.
+ * A refresh passes `unlessReleasedSince`, the monotonicMs at which it read its
+ * ports: a port released since then belongs to an app removed in the meantime,
+ * and is left alone, its pending removals with it.
  * @param {number} port Port number.
  * @param {string} description Port description.
- * @param {{protocols?: string[]}} [options]
- * @returns {Promise<{mapped: boolean, code: number|null, reason: string|null, routerWide: boolean}>}
- *   the first refusal, as mapProtocol gives it; mapped when every protocol is
+ * @param {{protocols?: string[], unlessReleasedSince?: number}} [options]
+ * @returns {Promise<{mapped: boolean, code: number|null, reason: string|null, routerWide: boolean, released?: boolean}>}
+ *   the first refusal, as mapProtocol gives it; mapped when every protocol is;
+ *   released, and nothing asked of the router, for a port released since
  */
-async function mapUpnpPort(port, description, { protocols = ['TCP', 'UDP'] } = {}) {
+async function mapUpnpPort(port, description, { protocols = ['TCP', 'UDP'], unlessReleasedSince = null } = {}) {
+  if (unlessReleasedSince !== null && (releasedAt.get(+port) ?? -Infinity) >= unlessReleasedSince) {
+    return {
+      mapped: false, code: null, reason: `${port} released since it was read`, routerWide: false, released: true,
+    };
+  }
   // held from before the router has it: the cleanup pass may list it the
   // moment it is there
   mappedHere.add(+port);
@@ -752,6 +764,7 @@ function removalPending() {
  * @returns {Promise<boolean>} whether the router removed every one of them now
  */
 async function removeMapUpnpPort(port, description = '') {
+  releasedAt.set(+port, monotonicMs());
   const protocols = mappedProtocols.get(+port) || new Set();
   mappedHere.delete(+port);
   mappedProtocols.delete(+port);

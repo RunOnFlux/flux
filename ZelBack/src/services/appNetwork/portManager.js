@@ -300,6 +300,8 @@ function restoreAppsPortsSupport() {
  */
 async function restoreAppsPortsPass() {
   try {
+    // A port released after this read is an app removed since: it is not mapped again.
+    const readAt = monotonicMs();
     const currentAppsPorts = await assignedPortsInstalledApps();
     const isUPNP = upnpService.isUPNP();
 
@@ -312,25 +314,37 @@ async function restoreAppsPortsPass() {
       // map application ports
       // eslint-disable-next-line no-restricted-syntax
       for (const application of currentAppsPorts) {
+        // eslint-disable-next-line no-await-in-loop
+        await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.PORTS_REFRESH_BEFORE_APP, application.name);
+        const mapOptions = { unlessReleasedSince: readAt };
         let failedPort = null;
+        let released = false;
         // eslint-disable-next-line no-restricted-syntax
         for (const port of application.ports) {
           // eslint-disable-next-line no-await-in-loop
-          let upnpOk = (await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`)).mapped;
-          if (!upnpOk) {
+          let result = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`, mapOptions);
+          if (!result.mapped && !result.released) {
             if (!retryDelayElapsed) {
               // eslint-disable-next-line no-await-in-loop
               await serviceHelper.delay(UPNP_MAP_RETRY_DELAY_MS);
               retryDelayElapsed = true;
             }
             // eslint-disable-next-line no-await-in-loop
-            upnpOk = (await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`)).mapped;
+            result = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`, mapOptions);
           }
-          if (!upnpOk) {
+          if (result.released) {
+            released = true;
+            break;
+          }
+          if (!result.mapped) {
             failedPort = port;
             break;
           }
         }
+
+        // removed since the read: neither mapped nor counted as a failure
+        // eslint-disable-next-line no-continue
+        if (released) continue;
 
         if (failedPort === null) {
           upnpMapFailures.delete(application.name);
