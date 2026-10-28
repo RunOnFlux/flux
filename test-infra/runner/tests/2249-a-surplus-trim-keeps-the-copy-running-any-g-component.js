@@ -6,7 +6,9 @@ import { execInContainer, crashFluxos, releaseFluxos } from '../framework/contai
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer, installOnNodes, electionOrder } from '../framework/reconciler-suite.js';
-import { waitFor, waitHolding, waitForGiveUpConsidered } from '../framework/wait.js';
+import {
+  waitFor, waitHolding, waitForGiveUpConsidered, waitForStartedGiveUpPasses,
+} from '../framework/wait.js';
 import { advanceBlock, driveUntil, startTicker, stopTicker } from '../framework/daemon-control.js';
 import {
   isDaemonUp, isFolderSynced, getFolderConfig, stopDaemon, startDaemon,
@@ -137,7 +139,8 @@ describe('a surplus trim keeps the copy running any g: component', function () {
 
     // The surplus has to survive until the test drives the trim pass, which runs
     // on block heights: every node is brought level with a frozen tip first, so
-    // none processes its way onto one while the fixture is assembling.
+    // none processes its way onto one while the fixture is assembling, and a pass
+    // a holder started on its way up has decided before the stub joins.
     await stopTicker();
     const real = [OLDER, NEWEST, RING];
     const seen = real.map((i) => client(i).getLastEventId());
@@ -145,6 +148,7 @@ describe('a surplus trim keeps the copy running any g: component', function () {
     await Promise.all(real.map((i, k) => client(i).waitForEvent(
       'block:processed', (d) => d.height >= currentHeight, 120000, { afterId: seen[k] },
     )));
+    await waitForStartedGiveUpPasses(HOLDERS.map(client), appName);
 
     const stub = env.stubPeerClients.get(STUB_INDEX);
     await waitFor(async () => (await stub.connectedNodes()) > 0, {

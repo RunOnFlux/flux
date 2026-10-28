@@ -1,5 +1,6 @@
 import { getAppContainerStatus, restartFluxos } from './container.js';
 import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
+import { loadSharedConfig, PON_SPEED_MULTIPLIER } from './coupled-knobs.js';
 // The node's own enum, not a copy of its values: a rename on the product side has to
 // break this import rather than quietly stop matching.
 import installOutcomeModule from '../../../ZelBack/src/services/utils/installOutcome.js';
@@ -346,6 +347,29 @@ export async function waitForImageUpdateRedeployComplete(node, appName, timeout 
  */
 export async function waitForGiveUpConsidered(node, appName, predicate, timeout = 120000, opts) {
   return node.waitForEvent('giveUp:considered', (d) => d.appName === appName && (!predicate || predicate(d)), timeout, opts);
+}
+
+/**
+ * Waits until no give-up pass a holder has already started is still to decide
+ * `appName`. A pass is started, unawaited, by processing a block whose height is
+ * a multiple of removeFluxAppsPeriod * PON_SPEED_MULTIPLIER, and reads the
+ * holders when it reaches the app - so a pass a node started before the tip was
+ * frozen can still decide against a holder added after. For each node, the last
+ * such block it processed is followed by the pass's decision on the app.
+ * @param {object[]} nodes Clients holding the app.
+ * @param {string} appName
+ * @param {number} [timeout]
+ * @returns {Promise<void>}
+ */
+export async function waitForStartedGiveUpPasses(nodes, appName, timeout = 120000) {
+  const period = loadSharedConfig().fluxapps.removeFluxAppsPeriod * PON_SPEED_MULTIPLIER;
+  await Promise.all(nodes.map(async (node) => {
+    const started = node.getEventBuffer()
+      .filter((e) => e.event === 'block:processed' && e.data?.height % period === 0)
+      .pop();
+    if (!started) return;
+    await waitForGiveUpConsidered(node, appName, null, timeout, { afterId: started.id });
+  }));
 }
 
 /**

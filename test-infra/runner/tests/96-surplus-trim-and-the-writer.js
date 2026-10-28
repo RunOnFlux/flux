@@ -12,7 +12,7 @@ import { syncthingSeedIndex, placementOrderWithSeedAt } from '../framework/g-app
 import { setSynced, setPeerHasData, resetSyncState } from '../framework/syncthing-control.js';
 import { electMaster, resetFdm } from '../framework/fdm-control.js';
 import { advanceBlock, driveUntil, startTicker, stopTicker } from '../framework/daemon-control.js';
-import { waitFor, waitForGiveUpConsidered } from '../framework/wait.js';
+import { waitFor, waitForGiveUpConsidered, waitForStartedGiveUpPasses } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // Trimming a surplus copy, when the surplus copy is the one WRITING.
@@ -185,6 +185,8 @@ describe('a surplus copy that is also the writer', function () {
     // reason at the wrong moment. Every node is therefore brought level with
     // the tip first: one driven block, awaited on all of them. After that
     // nothing is left to process, and no pass can fire until a test drives one.
+    // A pass a holder started on its way up is waited out too: it reads the
+    // holders when it reaches the app, which can be after the stub joins.
     await stopTicker();
     const realClients = env.clients.slice(0, REAL_NODES);
     const seenBefore = realClients.map((c) => c.getLastEventId());
@@ -192,6 +194,7 @@ describe('a surplus copy that is also the writer', function () {
     await Promise.all(realClients.map((c, i) => c.waitForEvent(
       'block:processed', (d) => d.height >= currentHeight, 120000, { afterId: seenBefore[i] },
     )));
+    await waitForStartedGiveUpPasses(HOLDERS.map((i) => env.clients[i]), appName);
 
     held = stub.holdApp(appName, {
       hash: app.hash,
