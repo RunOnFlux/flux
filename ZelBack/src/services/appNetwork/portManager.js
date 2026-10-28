@@ -300,8 +300,6 @@ function restoreAppsPortsSupport() {
  */
 async function restoreAppsPortsPass() {
   try {
-    // A port released after this read is an app removed since: it is not mapped again.
-    const readAt = monotonicMs();
     const currentAppsPorts = await assignedPortsInstalledApps();
     const isUPNP = upnpService.isUPNP();
 
@@ -316,7 +314,8 @@ async function restoreAppsPortsPass() {
       for (const application of currentAppsPorts) {
         // eslint-disable-next-line no-await-in-loop
         await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.PORTS_REFRESH_BEFORE_APP, application.name);
-        const mapOptions = { unlessReleasedSince: readAt };
+        // a port released and not mapped since is an app removed or being removed
+        const mapOptions = { refresh: true };
         let failedPort = null;
         let released = false;
         // eslint-disable-next-line no-restricted-syntax
@@ -342,7 +341,7 @@ async function restoreAppsPortsPass() {
           }
         }
 
-        // removed since the read: neither mapped nor counted as a failure
+        // removed or being removed: neither mapped nor counted as a failure
         // eslint-disable-next-line no-continue
         if (released) continue;
 

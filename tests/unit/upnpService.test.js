@@ -1435,6 +1435,7 @@ describe('upnpService tests', () => {
     beforeEach(() => {
       upnpService.mappedHere.clear();
       upnpService.mappedProtocols.clear();
+      upnpService.releasedPorts.clear();
       upnpService.pendingRemovals.forEach((pending) => clearTimeout(pending.timer));
       upnpService.pendingRemovals.clear();
       sinon.stub(serviceHelper, 'delay').resolves();
@@ -1454,33 +1455,27 @@ describe('upnpService tests', () => {
       sinon.restore();
     });
 
-    // the monotonic clock mapUpnpPort and removeMapUpnpPort read, under the fake timers
-    const now = () => Number(process.hrtime.bigint() / 1000000n);
-
-    it('leaves a port released after a refresh read it alone, and its pending removal with it', async () => {
+    it('leaves a port released and not mapped since alone on a refresh, and its pending removal with it', async () => {
       await upnpService.mapUpnpPort(777, 'Flux_App_web');
-      const readAt = now();
-      await clock.tickAsync(1);
       removeMappingStub.rejects(refused());
       await upnpService.removeMapUpnpPort(777, 'Flux_App_web');
       createMappingStub.resetHistory();
 
-      const result = await upnpService.mapUpnpPort(777, 'Flux_App_web', { unlessReleasedSince: readAt });
+      const result = await upnpService.mapUpnpPort(777, 'Flux_App_web', { refresh: true });
 
       expect(result.released).to.equal(true);
       sinon.assert.notCalled(createMappingStub);
       expect([...upnpService.pendingRemovals.keys()].sort()).to.deep.equal(['777/TCP', '777/UDP']);
     });
 
-    it('maps a released port for a refresh that read it after the release', async () => {
+    it('refreshes a released port once it is mapped again', async () => {
       await upnpService.mapUpnpPort(778, 'Flux_App_web');
       removeMappingStub.rejects(refused());
       await upnpService.removeMapUpnpPort(778, 'Flux_App_web');
-      await clock.tickAsync(1);
-      const readAt = now();
+      await upnpService.mapUpnpPort(778, 'Flux_App_web');
       createMappingStub.resetHistory();
 
-      const result = await upnpService.mapUpnpPort(778, 'Flux_App_web', { unlessReleasedSince: readAt });
+      const result = await upnpService.mapUpnpPort(778, 'Flux_App_web', { refresh: true });
 
       expect(result.mapped).to.equal(true);
       sinon.assert.called(createMappingStub);
