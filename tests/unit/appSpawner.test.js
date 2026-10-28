@@ -783,7 +783,7 @@ describe('appSpawner tests', () => {
     function selected() {
       return logStub.info.getCalls()
         .map((c) => c.args[0])
-        .filter((line) => typeof line === 'string' && line.includes('selected to try to spawn'));
+        .filter((line) => typeof line === 'string' && line.includes('selected to try to spawn. Reported'));
     }
 
     afterEach(() => {
@@ -828,7 +828,7 @@ describe('appSpawner tests', () => {
     it('stays queued while its removal runs, and the pass takes the next entry due', async () => {
       const due = Date.now() - 1000;
       buildModule({
-        aggregateResult: [],
+        aggregateResult: [candidate(), candidate({ name: 'stayingapp', hash: 'd'.repeat(64) })],
         checkLater: [
           { timeToCheck: due, appName: removing, hash: 'c'.repeat(64), required: 3 },
           { timeToCheck: due, appName: 'stayingapp', hash: 'd'.repeat(64), required: 3 },
