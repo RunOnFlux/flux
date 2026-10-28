@@ -6,7 +6,7 @@ import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
-import { waitFor, waitForAppInstalled, waitForCandidacy } from '../framework/wait.js';
+import { waitFor, waitForAppInstalled } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { authenticate } from '../auth.js';
@@ -15,20 +15,20 @@ import { fluxTeamKey } from '../framework/keys.js';
 // A node removing an app is not offered it by its own spawner until the removal
 // has finished, and is offered it again from then on.
 //
-// The app is known to one node only, which holds one of its two instances, so it
-// is short throughout and that node's spawner considers it on every pass. The
-// node holds it as one that its spawner has not picked in the last twelve hours:
-// an app installed by its operator, or installed longer ago than that. Its spec is
-// seeded near expiry, which the spawner never picks, the app installed directly,
-// and the spec then given its normal expiry.
+// The app asks for one instance and is known to one node only, which holds it, so
+// its spawner never picks it while the node announces it. Its spec is seeded near
+// expiry, which the spawner never picks, the app installed directly, and the spec
+// given its normal expiry once the node's own location record of it is in place.
 //
-// The removal is held at its checkpoint after the app's containers are gone and
-// before its row is deleted, for as many spawner passes as REMOVING_PASSES: the
-// window in which the spawner sees an app it does not run, and the node still has
-// it installed. Once released, the node installs the app again.
+// A removal stops announcing the app, so the node's location record of it expires
+// while the removal runs, and the app is short from then on. The removal is held
+// at its checkpoint after the app's containers are gone and before its row is
+// deleted, until the spawner has passed over the short app REMOVING_PASSES times:
+// the window in which the spawner sees an app it does not run, and the node still
+// has it installed. Once released, the node installs the app again.
 
 const NODES = 2;
-const INSTANCES = 2;
+const INSTANCES = 1;
 const REMOVER = 0;
 const BEFORE_ROW_DELETE = 'removal:beforeRowDelete';
 const REMOVING_PASSES = 3;
@@ -60,6 +60,8 @@ describe('a node takes an app again once its removal has finished', function () 
   const remover = () => env.clients[REMOVER];
   // Every spawner pass that reaches the candidate filters tallies one verdict
   // for each app the network is short of.
+  const listedHere = async () => ((await remover().getAppLocations(appName))?.data ?? [])
+    .some((location) => location.ip?.startsWith(remover().ip));
   const passes = async () => Object.values((await remover().getTestCounters())?.['spawner:verdict']?.[appName] ?? {})
     .reduce((sum, n) => sum + n, 0);
 
@@ -72,10 +74,8 @@ describe('a node takes an app again once its removal has finished', function () 
       env, name: appName, instances: INSTANCES, compose: [component(appName)], expire: UNPICKED_EXPIRE,
     });
     await installOnNodes(env, app, [REMOVER]);
-    const spawnable = remover().getLastEventId();
+    await waitFor(listedHere, { timeout: 180000, interval: 2000, label: 'the node lists itself as holding the app' });
     await dbClient(REMOVER + 1).replaceGlobalAppSpec({ ...app.spec, expire: SPAWNABLE_EXPIRE });
-    // the spawner reads it, and passes over it while the node runs it
-    await waitForCandidacy(remover(), (d) => d.name === appName && d.stage === 'afterAlreadyHeldOrTried', 120000, { afterId: spawnable });
   });
 
   after(async function () {
@@ -92,9 +92,9 @@ describe('a node takes an app again once its removal has finished', function () 
     const removal = remover().removeAppLocally(appName, auth.zelidauth).catch(() => null);
     await remover().waitForEvent('checkpoint:held', (d) => d.name === BEFORE_ROW_DELETE && d.key === appName, 180000, { afterId: from });
 
-    const passesBefore = await passes();
-    await waitFor(async () => (await passes()) - passesBefore >= REMOVING_PASSES, {
-      timeout: 300000, interval: 2000, label: `${REMOVING_PASSES} spawner passes while the removal is held`,
+    expect(await passes(), 'fixture: the spawner passed over the app before its removal').to.equal(0);
+    await waitFor(async () => (await passes()) >= REMOVING_PASSES, {
+      timeout: 300000, interval: 2000, label: `${REMOVING_PASSES} spawner passes over the short app while the removal is held`,
     });
 
     const released = remover().getLastEventId();
