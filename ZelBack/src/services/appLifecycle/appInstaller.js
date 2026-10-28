@@ -1153,12 +1153,16 @@ async function installAppLocally(req, res) {
  * @param {boolean} skipGeolocation - Whether to skip geolocation checks (useful for testing)
  * @param {boolean} skipStaticIp - Whether to skip static IP checks (useful for testing)
  * @param {boolean} skipHardware - Whether to skip hardware and nodes checks (useful for testing)
+ * @param {object} [options]
+ * @param {string} [options.replacing] - Name of an installed app this one replaces: a redeploy
+ *   checks the new specification against the node without the old one's resources, which its
+ *   database row still holds while its containers are being replaced.
  * @returns {Promise<boolean>} True if requirements are met
  */
-async function checkAppRequirements(appSpecs, skipGeolocation = false, skipStaticIp = false, skipHardware = false) {
+async function checkAppRequirements(appSpecs, skipGeolocation = false, skipStaticIp = false, skipHardware = false, options = {}) {
   // appSpecs has hdd, cpu and ram assigned to correct tier
   if (!skipHardware) {
-    await hwRequirements.checkAppHWRequirements(appSpecs);
+    await hwRequirements.checkAppHWRequirements(appSpecs, { replacing: options.replacing });
   }
 
   if (!skipStaticIp) {

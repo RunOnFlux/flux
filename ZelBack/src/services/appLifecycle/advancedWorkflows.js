@@ -1853,7 +1853,7 @@ async function softRedeployComponent(appName, componentName, res) {
       await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
 
       // Verify requirements
-      await appInstaller.checkAppRequirements(appSpecifications);
+      await appInstaller.checkAppRequirements(appSpecifications, false, false, false, { replacing: appSpecifications.name });
 
       // Register component
       log.warn(`Continuing Soft Redeployment of component ${fullComponentName}...`);
@@ -2012,7 +2012,7 @@ async function hardRedeployComponent(appName, componentName, res) {
       await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
 
       // Verify requirements
-      await appInstaller.checkAppRequirements(appSpecifications);
+      await appInstaller.checkAppRequirements(appSpecifications, false, false, false, { replacing: appSpecifications.name });
 
       // Register component
       log.warn(`Continuing Hard Redeployment of component ${fullComponentName}...`);
@@ -4566,7 +4566,7 @@ async function reinstallOldApplications() {
               const appsQuery = { name: appSpecifications.name };
               log.warn(`Compositions of application ${appSpecifications.name} uninstalled. Continuing with installation...`);
               // eslint-disable-next-line no-await-in-loop
-              await appInstaller.checkAppRequirements(appSpecifications); // entire app
+              await appInstaller.checkAppRequirements(appSpecifications, false, false, false, { replacing: appSpecifications.name }); // entire app
 
               // The app's row becomes the new specification in one write, before any
               // container is created: until it lands the row still holds the old one,
