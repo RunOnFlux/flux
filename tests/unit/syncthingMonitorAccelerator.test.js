@@ -94,6 +94,21 @@ describe('syncthingMonitorAccelerator tests', () => {
     sinon.assert.calledOnce(run);
   });
 
+  it('runs nothing early once a pass has started after the request', () => {
+    accelerator.onResync();
+    clock.tick(DEBOUNCE / 2);
+    accelerator.notePassStarted();
+    accelerator.notePassEnded();
+    clock.tick(MIN_GAP * 3);
+    sinon.assert.notCalled(run);
+  });
+
+  it('runs early on a request no pass has answered', () => {
+    accelerator.onResync();
+    clock.tick(MIN_GAP * 3);
+    sinon.assert.calledOnce(run);
+  });
+
   it('stop() cancels a pending run', () => {
     accelerator.notePassStarted();
     accelerator.notePassEnded();
