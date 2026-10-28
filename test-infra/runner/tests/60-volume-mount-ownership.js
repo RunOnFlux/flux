@@ -99,14 +99,11 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
   const syncIdentifier = `${syncName}_${syncName}`;
   const inertIdentifier = `${inertName}_${inertName}`;
 
-  // Reboots a node straight after it announces the app, and returns once its
-  // boot reconciliation has settled with the app kept. The node's own location
-  // row lasts locationTtlS from its last announcement, and boot reconciliation
-  // removes an app whose row has expired as one that moved elsewhere - so a
-  // reboot begun late in the announce interval can outlast the row.
-  async function rebootAfterAnnouncing(i, name, bootId) {
-    const client = env.clients[i];
-    await client.waitForEvent('app:running', (d) => d.apps.some((a) => a.name === name), 90000, { afterId: client.getLastEventId() });
+  // Reboots a node and returns once its boot reconciliation has settled with
+  // the app kept. Boot reconciliation removes an app whose own location row has
+  // expired, so the fleet runs on production's location expiries, which no
+  // reboot outlasts.
+  async function rebootKeepingTheApp(i, name, bootId) {
     env.setBootId(i, bootId);
     const restarted = await env.restartNode(i);
     // The restart reconnects the stream, which empties the buffer: it holds this
@@ -257,7 +254,7 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
     // the incident state: no remount entry exists anywhere
     await execInContainer(client.container, 'crontab -r 2>/dev/null || true');
 
-    client = await rebootAfterAnnouncing(1, rebootName, `volreboot-${Date.now()}`);
+    client = await rebootKeepingTheApp(1, rebootName, `volreboot-${Date.now()}`);
 
     await waitFor(() => isMountpoint(client.container, dir), { timeout: 150000, interval: 3000, label: 'volume remounted after reboot without crontab' });
     await waitFor(() => isUp(client, rebootName), { timeout: 120000, interval: 3000, label: 'app running after reboot' });
@@ -352,7 +349,7 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
     // the incident state: no remount entry exists anywhere
     await execInContainer(client.container, 'crontab -r 2>/dev/null || true');
 
-    client = await rebootAfterAnnouncing(4, entName, `entreboot-${Date.now()}`);
+    client = await rebootKeepingTheApp(4, entName, `entreboot-${Date.now()}`);
 
     await waitFor(() => isMountpoint(client.container, dir), { timeout: 150000, interval: 3000, label: 'enterprise volume remounted after reboot' });
     await waitFor(() => isUp(client, entName), { timeout: 120000, interval: 3000, label: 'enterprise app running after reboot' });
