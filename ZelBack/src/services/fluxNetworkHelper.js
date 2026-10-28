@@ -2609,7 +2609,8 @@ function applyIpChangeHold() {
  * One pass of enforceIpChangeHold. At a chain height, it judges the IP changes
  * the record holds inside the window: over the limit with no hold standing, it
  * starts one at the height of the newest change and removes every installed
- * app. Passes run one at a time and a started hold is in the record before the
+ * app; over the limit with one standing, a change after the hold's start moves
+ * the start to it, so a node that keeps changing stays held. Passes run one at a time and a started hold is in the record before the
  * next pass reads it, so the apps are removed once.
  * @returns {Promise<boolean>} Whether the node is held.
  */
@@ -2639,6 +2640,13 @@ async function enforceIpChangeHoldOnce() {
         { $set: { ipChangeHold: { fromHeight: height } } },
       );
       hold = { fromHeight: height };
+    } else if (hold && inWindow.length > IP_CHANGES_ALLOWED && Math.max(...inWindow) > hold.fromHeight) {
+      const extended = { fromHeight: Math.max(...inWindow) };
+      await records.updateOne(
+        { _id: OWN_ADDRESS_RECORD_ID, ipChangeHold: { fromHeight: hold.fromHeight } },
+        { $set: { ipChangeHold: extended } },
+      );
+      hold = extended;
     } else if (hold && height - hold.fromHeight >= IP_CHANGE_WINDOW_BLOCKS) {
       await records.updateOne(
         { _id: OWN_ADDRESS_RECORD_ID, ipChangeHold: { fromHeight: hold.fromHeight } },

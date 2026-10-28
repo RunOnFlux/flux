@@ -672,6 +672,24 @@ describe('fluxNetworkHelper own address tests', () => {
         sinon.assert.notCalled(appUninstaller.removeAppLocally);
       });
 
+      it('holds a node that changes again during its hold for the window from that change', async () => {
+        await records.insertOne({
+          _id: 'own', socketAddress: '198.51.100.90:16127', movedFrom: '198.51.100.91:16127', ipChangeHeights: [HEIGHT - 100, HEIGHT, HEIGHT + 1500], ipChangeHold: { fromHeight: HEIGHT },
+        });
+
+        chainAt(HEIGHT + 1500);
+        expect(await fluxNetworkHelper.enforceIpChangeHold()).to.equal(true);
+        expect((await fullRecord()).ipChangeHold).to.deep.equal({ fromHeight: HEIGHT + 1500 });
+
+        chainAt(HEIGHT + 2400);
+        expect(await fluxNetworkHelper.enforceIpChangeHold(), 'released a window after the change that started the hold').to.equal(true);
+        expect(fluxNetworkHelper.isNodeDos()).to.equal(true);
+        sinon.assert.notCalled(appUninstaller.removeAppLocally);
+
+        chainAt(HEIGHT + 3900);
+        expect(await fluxNetworkHelper.enforceIpChangeHold(), 'a canary: the window from the last change ends the hold').to.equal(false);
+      });
+
       it('stays out of service while its daemon falls behind during a hold', async () => {
         await records.insertOne({ _id: 'own', socketAddress: '198.51.100.86:16127', movedFrom: '198.51.100.87:16127', ipChangeHold: { fromHeight: HEIGHT - 2399 } });
         expect(await fluxNetworkHelper.enforceIpChangeHold(), 'fixture: held at the tip').to.equal(true);
