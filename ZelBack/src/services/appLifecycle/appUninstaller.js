@@ -1,5 +1,4 @@
 const util = require('util');
-const path = require('path');
 const systemcrontab = require('crontab');
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
@@ -10,7 +9,7 @@ const globalState = require('../utils/globalState');
 const folderStates = require('../appMonitoring/folderStates');
 const log = require('../../lib/log');
 const {
-  localAppsInformation, globalAppsInformation, globalAppsMessages,
+  localAppsInformation, globalAppsInformation, globalAppsMessages, appsFolder,
 } = require('../utils/appConstants');
 const config = require('config');
 // const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
@@ -45,9 +44,6 @@ class AppNotFoundError extends Error {
   }
 }
 
-const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
-const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
-const appsFolder = `${appsFolderPath}/`;
 const crontabLoad = util.promisify(systemcrontab.load);
 
 // Fired once per component identifier after a successful local removal, beside

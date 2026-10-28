@@ -1,9 +1,29 @@
 const config = require('config');
+const fs = require('fs');
 const path = require('path');
+
+/**
+ * A path with its symlinks resolved, as the kernel names it in the mount
+ * table. Below the deepest ancestor that exists, the path is kept as written.
+ * @param {string} target Path to resolve.
+ * @returns {string} Absolute path.
+ */
+function resolvedPath(target) {
+  const absolute = path.resolve(target);
+  try {
+    return fs.realpathSync(absolute);
+  } catch (error) {
+    const parent = path.dirname(absolute);
+    if (error.code !== 'ENOENT' || parent === absolute) return absolute;
+    return path.join(resolvedPath(parent), path.basename(absolute));
+  }
+}
 
 // Directory paths
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
-const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
+// Resolved: every app volume is mounted under it, and the mount table names a
+// mount point by its real path.
+const appsFolderPath = resolvedPath(process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps'));
 const appsFolder = path.join(appsFolderPath, '/');
 // Backing FLUXFSVOL images live here when the host volume is the root
 // filesystem (the directory ships with the repo - see appvolumes/.gitkeep).
@@ -145,6 +165,7 @@ const HASH_RETRY_BACKOFF = [0, 100, 500, 2500, 12500, 50000, 100000]; // ~0, 50m
 
 module.exports = {
   // Paths
+  resolvedPath,
   fluxDirPath,
   appsFolderPath,
   appsFolder,

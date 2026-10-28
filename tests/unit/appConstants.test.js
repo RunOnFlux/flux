@@ -1,9 +1,11 @@
 // Set NODE_CONFIG_DIR before any requires
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
+const fs = require('fs');
+const os = require('os');
 const { expect } = require('chai');
-// eslint-disable-next-line no-unused-vars
 const path = require('path');
+const { resolvedPath } = require('../../ZelBack/src/services/utils/appConstants');
 
 describe('appConstants tests', () => {
   let originalFluxOSPath;
@@ -411,6 +413,37 @@ describe('appConstants tests', () => {
 
     it('expires an evicted record with the location record that named it', () => {
       expect(appConstants.EVICTED_EXPIRY_MS).to.equal(appConstants.RUNNING_EXPIRY_MS);
+    });
+  });
+
+  describe('resolvedPath', () => {
+    let root;
+
+    beforeEach(() => {
+      root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resolved-path-')));
+      fs.mkdirSync(path.join(root, 'real', 'ZelApps'), { recursive: true });
+      fs.symlinkSync(path.join(root, 'real'), path.join(root, 'link'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+
+    it('resolves a symlinked ancestor to the real directory', () => {
+      expect(resolvedPath(path.join(root, 'link', 'ZelApps'))).to.equal(path.join(root, 'real', 'ZelApps'));
+    });
+
+    it('keeps the part that does not exist yet below the resolved ancestor', () => {
+      expect(resolvedPath(path.join(root, 'link', 'ZelApps', 'app1', 'data')))
+        .to.equal(path.join(root, 'real', 'ZelApps', 'app1', 'data'));
+    });
+
+    it('leaves a path with no symlink in it as written', () => {
+      expect(resolvedPath(path.join(root, 'real', 'ZelApps'))).to.equal(path.join(root, 'real', 'ZelApps'));
+    });
+
+    it('drops a trailing slash, as path.resolve does', () => {
+      expect(resolvedPath(`${path.join(root, 'link', 'ZelApps')}/`)).to.equal(path.join(root, 'real', 'ZelApps'));
     });
   });
 });
