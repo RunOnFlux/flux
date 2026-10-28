@@ -320,12 +320,12 @@ async function verifyBroadcasts(broadcasts, { verifySignatures = verifySignature
 
   const signed = await verifySignatures(unsigned);
 
-  for (let i = 0; i < unsigned.length; i += 1) {
-    const { index, pubKey, proveAt } = unsigned[i];
+  // The moves are judged together, so their waits for the explorer share one
+  // RECORD_WAIT_MS however many a batch carries.
+  await Promise.all(unsigned.map(async ({ index, pubKey, proveAt }, i) => {
     if (!signed[i]) verdicts[index] = { result: VerifyResult.BAD_SIGNATURE };
-    // eslint-disable-next-line no-await-in-loop
     else verdicts[index] = proveAt ? await chainMoveVerdict(proveAt.oldIP, proveAt.newIP, pubKey) : { result: VerifyResult.OK };
-  }
+  }));
   return verdicts;
 }
 

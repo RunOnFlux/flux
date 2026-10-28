@@ -174,6 +174,25 @@ describe('the proof a move\'s signer spoke for the address it left', () => {
       expect(await fluxCommunicationUtils.verifyFluxBroadcast(await move())).to.equal(VerifyResult.UNREADABLE);
     });
 
+    it('waits for the explorer once for a batch of moves, not once for each', async () => {
+      await confirmed(OLD);
+      listed(NEW, height + 5);
+      let waiting = 0;
+      let mostWaiting = 0;
+      sinon.stub(fluxnodeAddressRecord, 'whenRecorded').callsFake(async () => {
+        waiting += 1;
+        mostWaiting = Math.max(mostWaiting, waiting);
+        await new Promise((resolve) => { setTimeout(resolve, 50); });
+        waiting -= 1;
+        return false;
+      });
+
+      const verdicts = await fluxCommunicationUtils.verifyBroadcasts([await move(), await move(), await move()]);
+
+      expect(verdicts.map((verdict) => verdict.result)).to.deep.equal([VerifyResult.UNREADABLE, VerifyResult.UNREADABLE, VerifyResult.UNREADABLE]);
+      expect(mostWaiting, 'the moves waited one after another').to.equal(3);
+    });
+
     it('is unreadable, not dropped, when the record cannot be read', async () => {
       await confirmed(OLD);
       listed(NEW, await confirmed(NEW));
