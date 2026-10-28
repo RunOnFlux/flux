@@ -1439,7 +1439,6 @@ describe('registryManager tests', () => {
       // the node's own index; without it every correction scans the whole collection
       await daemonDb.collection(appsHashes).createIndex({ hash: 1 }, { name: hashIndex, unique: true });
       await database.collection(appsMessages).deleteMany({});
-      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 3000100 } });
       emitSpy = sinon.spy(appSyncEvents, 'emit');
     });
 
@@ -1452,11 +1451,13 @@ describe('registryManager tests', () => {
 
       await registryManager.reconstructAppMessagesHashCollection();
 
-      expect((await daemonDb.collection(appsHashes).findOne({ hash: 'lost' })).message).to.equal(false);
+      const lost = await daemonDb.collection(appsHashes).findOne({ hash: 'lost' });
+      expect(lost.message).to.equal(false);
+      expect(lost, 'looked for with the year it had, not afresh').to.not.have.property('retryFromHeight');
       expect(unresolvedSignals()).to.equal(1);
     });
 
-    it('should not signal when it only marks a held message received, or fills in retry fields', async () => {
+    it('should not signal when it only marks a held message received', async () => {
       await daemonDb.collection(appsHashes).insertMany([
         record('held', { message: false }),
         { hash: 'old', txid: 'txold', height: 3000000, value: 1, message: true },
@@ -1465,8 +1466,8 @@ describe('registryManager tests', () => {
 
       const { changed } = await registryManager.reconstructAppMessagesHashCollection();
 
-      // the canary: the audit did correct both records
-      expect(changed).to.equal(2);
+      // the canary: the audit did correct the held record, and only it
+      expect(changed).to.equal(1);
       expect((await daemonDb.collection(appsHashes).findOne({ hash: 'held' })).message).to.equal(true);
       expect(unresolvedSignals()).to.equal(0);
     });

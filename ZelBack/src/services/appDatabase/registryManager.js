@@ -2034,22 +2034,21 @@ async function reindexGlobalAppsInformation() {
 const HASH_RECONSTRUCTION_BATCH = 5000;
 
 /**
- * Reconstruct app messages hash collection by validating hash records against actual messages.
- * Reads only the fields it compares, and writes its corrections HASH_RECONSTRUCTION_BATCH at a time.
- * @returns {Promise<string>} Success message
+ * Brings each payment record's `message` flag to whether this node stores that message. A record
+ * whose message is gone is looked for afresh, as a payment never looked for. Reads only the
+ * fields it compares, and writes its corrections HASH_RECONSTRUCTION_BATCH at a time.
+ * @returns {Promise<{changed: number}>}
  */
 async function reconstructAppMessagesHashCollection() {
   try {
     const db = dbHelper.databaseConnection();
     const databaseApps = db.db(config.database.appsglobal.database);
     const databaseDaemon = db.db(config.database.daemon.database);
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    const currentHeight = syncStatus.data.height || 0;
 
     const permanentMessages = await dbHelper.findInDatabase(databaseApps, globalAppsMessages, {}, { projection: { _id: 0, hash: 1 } });
     const appHashes = await dbHelper.findInDatabase(databaseDaemon, appsHashesCollection, {}, {
       projection: {
-        _id: 0, hash: 1, txid: 1, height: 1, message: 1, messageNotFound: 1, retryFromHeight: 1,
+        _id: 0, hash: 1, txid: 1, message: 1, messageNotFound: 1,
       },
     });
     const permHashSet = new Set(permanentMessages.map((m) => m.hash));
@@ -2060,28 +2059,17 @@ async function reconstructAppMessagesHashCollection() {
     for (const appHash of appHashes) {
       const filter = { hash: appHash.hash, txid: appHash.txid };
       const hasPermanent = permHashSet.has(appHash.hash);
-      const retryFrom = appHash.retryFromHeight ?? appHash.height;
 
       if (hasPermanent && (!appHash.message || appHash.messageNotFound)) {
-        ops.push({
-          updateOne: {
-            filter,
-            update: {
-              $set: {
-                message: true, messageNotFound: false, syncAttempts: 0, nextRetryHeight: retryFrom, retryFromHeight: retryFrom,
-              },
-            },
-          },
-        });
+        ops.push({ updateOne: { filter, update: { $set: { message: true, messageNotFound: false } } } });
       } else if (!hasPermanent && appHash.message) {
         markedMissing += 1;
         ops.push({
           updateOne: {
             filter,
             update: {
-              $set: {
-                message: false, messageNotFound: false, syncAttempts: 0, nextRetryHeight: currentHeight, retryFromHeight: currentHeight,
-              },
+              $set: { message: false, messageNotFound: false, syncAttempts: 0 },
+              $unset: { nextRetryHeight: '', retryFromHeight: '' },
             },
           },
         });
@@ -2094,13 +2082,6 @@ async function reconstructAppMessagesHashCollection() {
       const result = await databaseDaemon.collection(appsHashesCollection).bulkWrite(ops.slice(i, i + HASH_RECONSTRUCTION_BATCH), { ordered: false });
       changed += result.modifiedCount;
     }
-
-    // Backfill retry fields on hashes that predate the new schema
-    const backfillResult = await databaseDaemon.collection(appsHashesCollection).updateMany(
-      { retryFromHeight: { $exists: false } },
-      [{ $set: { retryFromHeight: '$height', nextRetryHeight: { $ifNull: ['$nextRetryHeight', '$height'] }, syncAttempts: { $ifNull: ['$syncAttempts', 0] } } }],
-    );
-    changed += backfillResult.modifiedCount;
 
     // a message this node no longer holds is fetched from peers on the next block
     if (markedMissing > 0) appSyncEvents.emit(SYNC_EVENTS.HASH_UNRESOLVED);

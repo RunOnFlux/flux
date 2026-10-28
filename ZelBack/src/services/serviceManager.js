@@ -51,6 +51,7 @@ const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const paymentPositions = require('./migrations/paymentPositions');
 const placements = require('./migrations/placements');
+const appMessageHashes = require('./migrations/appMessageHashes');
 const fluxService = require('./fluxService');
 const geolocationService = require('./geolocationService');
 const ipLocationSync = require('./appPlacement/ipLocationSync');
@@ -426,6 +427,9 @@ async function startFluxFunctions() {
       process.exit(1);
     }
     await untilSucceeds('Payment position backfill', () => paymentPositions.backfillPaymentPositions());
+    // Before the hash sync reads the flags and the retry windows.
+    await untilSucceeds('App message flag repair', () => appMessageHashes.repairLostMessageFlags());
+    await untilSucceeds('App message retry windows', () => appMessageHashes.restartRetryWindows());
 
     // Initialize app sync orchestrator and spawner
     const orchestrator = new AppSyncOrchestrator({

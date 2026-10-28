@@ -391,7 +391,7 @@ async function processInsight(blockDataVerbose, database) {
         if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of X flux had to be paid for us bothering checking
           const appTxRecord = {
             txid: tx.txid, height: blockDataVerbose.height, txIndex, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
-            syncAttempts: 0, nextRetryHeight: blockDataVerbose.height, retryFromHeight: blockDataVerbose.height,
+            syncAttempts: 0, nextRetryHeight: blockDataVerbose.height,
           };
           // A hash is paid once: a payment this node already holds stands.
           // eslint-disable-next-line no-await-in-loop
@@ -577,7 +577,7 @@ async function processStandard(blockDataVerbose, database) {
         if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
           const appTxRecord = {
             txid: tx.txid, height: blockDataVerbose.height, txIndex, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
-            syncAttempts: 0, nextRetryHeight: blockDataVerbose.height, retryFromHeight: blockDataVerbose.height,
+            syncAttempts: 0, nextRetryHeight: blockDataVerbose.height,
           };
           // A hash is paid once: a payment this node already holds stands.
           const standing = await standingAppPayment(database, message);
@@ -760,14 +760,6 @@ async function processBlock(blockHeight, isInsightExplorer) {
         if (blockWorkDue('reinstallOldApplications', blockHeight, updateFluxAppsPeriod * speedMultiplier)) {
           advancedWorkflows.reinstallOldApplications();
           updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
-        }
-        if (blockWorkDue('reconstructAppMessagesHashCollection', blockDataVerbose.height, config.fluxapps.reconstructAppMessagesHashPeriod * speedMultiplier)) {
-          try {
-            const reconstructResult = await registryManager.reconstructAppMessagesHashCollection();
-            log.info(`Validation of App Messages Hash Collection — ${reconstructResult.changed} corrected`);
-          } catch (error) {
-            log.error(error);
-          }
         }
       }
       const benchPeriod = config.fluxapps.benchUpnpPeriod * speedMultiplier;
@@ -1162,7 +1154,7 @@ function processBootstrapTx(tx, priceSpecs, seenHashes, hashBatch, txIndex) {
       seenHashes.add(message);
       hashBatch.push({
         txid: tx.txid, height, txIndex, hash: message, value: appValue,
-        message: false, syncAttempts: 0, nextRetryHeight: height, retryFromHeight: height,
+        message: false, syncAttempts: 0, nextRetryHeight: height,
       });
     }
   }
