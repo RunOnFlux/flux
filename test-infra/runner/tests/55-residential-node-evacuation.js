@@ -682,12 +682,14 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     const client = env.clients[TARGET - 1];
     const removal = () => client.getEventBuffer().find((e) => e.event === 'app:removed' && e.data?.name === 'primaryapp');
     await stopTicker();
+    // The pass it stood down on may be the last of its turn, so the budget runs to
+    // the end of the next turn it owns; a later pass of the same turn comes sooner.
     await driveUntil(client, async () => removal() !== undefined, {
       timeoutMs: untilOwnedTurnEndsMs({
         holders: keysOf([1, 2, 3, 4, 5]),
         owners: keysOf([TARGET]),
         turnMs: RESIDENTIAL_PACING.residentialTurnMs,
-        fromMs: stoodDownTurn * RESIDENTIAL_PACING.residentialTurnMs,
+        fromMs: (stoodDownTurn + 1) * RESIDENTIAL_PACING.residentialTurnMs,
       }) + (2 * PASS_MS),
     });
     await startTicker();
