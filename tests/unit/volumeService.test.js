@@ -927,6 +927,90 @@ describe('volumeService tests', () => {
     });
   });
 
+  // A buffered loop device caches the image a second time, charged to the app's
+  // memory cgroup, and the loop worker cannot reclaim that copy at the limit.
+  describe('direct I/O on app volumes', () => {
+    const dir = `${APPS_FOLDER}fluxapp1`;
+    const losetupCalls = () => callsFor('losetup');
+
+    beforeEach(() => {
+      fsStub.promises.readFile.withArgs('/proc/self/mountinfo', 'utf8').resolves(mountinfoWith(dir));
+    });
+
+    it('switches a buffered loop device to direct I/O', async () => {
+      fsStub.promises.readFile.withArgs('/sys/block/loop0/loop/dio', 'utf8').resolves('0\n');
+
+      expect(await volumeService.useDirectIo(dir)).to.be.true;
+
+      expect(losetupCalls()).to.have.length(1);
+      expect(losetupCalls()[0].args[1]).to.include({ runAsRoot: true });
+      expect(losetupCalls()[0].args[1].params).to.deep.equal(['--direct-io=on', '/dev/loop0']);
+    });
+
+    it('leaves a device already using direct I/O alone', async () => {
+      fsStub.promises.readFile.withArgs('/sys/block/loop0/loop/dio', 'utf8').resolves('1\n');
+
+      expect(await volumeService.useDirectIo(dir)).to.be.true;
+
+      expect(losetupCalls()).to.have.length(0);
+    });
+
+    // ZFS aligns direct I/O to its record size, which no loop device's block
+    // size reaches: the kernel refuses and the volume keeps working buffered.
+    it('keeps a volume the kernel will not switch buffered, and does not ask again', async () => {
+      fsStub.promises.readFile.withArgs('/sys/block/loop0/loop/dio', 'utf8').resolves('0\n');
+      dispatchRunCommand({ losetup: async () => ({ error: new Error('set direct io failed: Invalid argument'), stdout: '', stderr: '' }) });
+
+      expect(await volumeService.useDirectIo(dir)).to.be.false;
+      expect(await volumeService.useDirectIo(dir)).to.be.false;
+
+      expect(losetupCalls()).to.have.length(1);
+    });
+
+    it('does nothing for a path that is not a mounted loop device', async () => {
+      fsStub.promises.readFile.withArgs('/proc/self/mountinfo', 'utf8').resolves(mountinfoWith('/elsewhere'));
+
+      expect(await volumeService.useDirectIo(dir)).to.be.false;
+
+      expect(losetupCalls()).to.have.length(0);
+    });
+
+    it('switches a volume it mounts', async () => {
+      dockerServiceStub.getAppIdentifier.returns('fluxapp1');
+      deviceHelperStub.listMountedFilesystems.resolves([{ source: '/dev/sda1', target: '/dat' }]);
+      fsStub.promises.access.rejects(enoent());
+      fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
+      // Not mounted when asked, mounted on loop0 once the mount has run.
+      let mounted = false;
+      fsStub.promises.readFile.withArgs('/proc/self/mountinfo', 'utf8')
+        .callsFake(async () => (mounted ? mountinfoWith(dir) : mountinfoWith('/elsewhere')));
+      fsStub.promises.readFile.withArgs('/sys/block/loop0/loop/dio', 'utf8').resolves('0\n');
+      dispatchRunCommand({
+        mount: async () => { mounted = true; return { error: null, stdout: '', stderr: '' }; },
+        blkid: async () => ({ error: null, stdout: 'uuid\n', stderr: '' }),
+      });
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result).to.include({ mounted: true, alreadyMounted: false });
+      expect(losetupCalls()).to.have.length(1);
+      expect(callsFor('mount')[0].callId).to.be.lessThan(losetupCalls()[0].callId);
+    });
+
+    // A node upgrading with its apps up has every volume mounted buffered. The
+    // reconciler's pass over them is what switches them, without a remount.
+    it('switches a volume that is already mounted', async () => {
+      dockerServiceStub.getAppIdentifier.returns('fluxapp1');
+      appsRuntimeStateStub.getVolumeImage.resolves({ path: '/dat/fluxapp1FLUXFSVOL', fsUuid: 'uuid' });
+      fsStub.promises.readFile.withArgs('/sys/block/loop0/loop/dio', 'utf8').resolves('0\n');
+
+      const result = await volumeService.ensureAppVolumeMounted('app1');
+
+      expect(result).to.deep.equal({ mounted: true, alreadyMounted: true });
+      expect(losetupCalls()).to.have.length(1);
+    });
+  });
+
   describe('ensureAppVolumeMounted tests', () => {
     beforeEach(() => {
       dockerServiceStub.getAppIdentifier.returns('fluxapp1');

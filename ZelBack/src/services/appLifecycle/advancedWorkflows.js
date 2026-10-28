@@ -757,6 +757,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       if (res.flush) res.flush();
     }
     await execAsRoot('mount', ['-o', APP_VOLUME_MOUNT_OPTIONS, volumeFile, appDir]);
+    await volumeService.useDirectIo(appDir);
     const mountingStatus2 = {
       status: 'Volume mounted',
     };
