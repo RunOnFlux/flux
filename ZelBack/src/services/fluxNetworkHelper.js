@@ -172,6 +172,10 @@ let lastKnownSocketAddress = null;
 // from lastKnownSocketAddress, and 'known' with it when the node has an address
 // after having none.
 const localSocketAddressEvents = new EventEmitter();
+// Emits 'held', with the IP changes the window holds, when this process finds
+// the node held by the IP change hold: the pass that starts it, or the first
+// after a restart that finds it standing.
+const ipChangeHoldEvents = new EventEmitter();
 // Open while localSocketAddress holds an address.
 const localSocketAddressGate = new AsyncGate();
 
@@ -1088,6 +1092,24 @@ function offLocalSocketAddressChange(listener) {
 }
 
 /**
+ * @param {function(number): void} listener Called, with the IP changes the
+ *   window holds, each time this process finds the node held by the IP change
+ *   hold. Removing the apps of a held node is the listener's.
+ * @returns {void}
+ */
+function onIpChangeHold(listener) {
+  ipChangeHoldEvents.on('held', listener);
+}
+
+/**
+ * @param {function(number): void} listener
+ * @returns {void}
+ */
+function offIpChangeHold(listener) {
+  ipChangeHoldEvents.off('held', listener);
+}
+
+/**
  * @param {function(string): void} listener Called with the address each time the
  *   node has one after having none.
  * @returns {void}
@@ -1901,30 +1923,6 @@ function ipChangesInWindow(ipChangeHeights, height) {
   return ipChangeHeights.map((at) => at ?? height).filter((at) => height - at < IP_CHANGE_WINDOW_BLOCKS);
 }
 
-/**
- * Removes every installed app of a node whose IP changes are over the limit.
- * @param {number} ipChanges How many IP changes the window holds.
- * @returns {Promise<void>}
- */
-async function removeAppsForIpChanges(ipChanges) {
-  // eslint-disable-next-line global-require
-  const appQueryService = require('./appQuery/appQueryService');
-  // eslint-disable-next-line global-require
-  const appUninstaller = require('./appLifecycle/appUninstaller');
-  let apps = await appQueryService.installedApps();
-  if (apps.status === 'success' && apps.data.length > 0) {
-    apps = apps.data;
-    // eslint-disable-next-line no-restricted-syntax
-    for (const app of apps) {
-      log.warn(`REMOVAL REASON: Too many IP changes - ${app.name} being removed due to ${ipChanges} IP changes in ${IP_CHANGE_WINDOW_BLOCKS} blocks (DoS protection)`);
-      // eslint-disable-next-line no-await-in-loop
-      await appUninstaller.removeAppLocally(app.name, null, true, null, false).catch((error) => log.error(error)); // we will not send appremove messages because they will not be accepted by the other nodes
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(500);
-    }
-  }
-}
-
 function getMaxNumberOfIpChanges() {
   return maxNumberOfIpChanges;
 }
@@ -2608,17 +2606,17 @@ function applyIpChangeHold() {
 /**
  * One pass of enforceIpChangeHold. At a chain height, it judges the IP changes
  * the record holds inside the window: over the limit with no hold standing, it
- * starts one at the height of the newest change and removes every installed
- * app; over the limit with one standing, a change after the hold's start moves
- * the start to it, so a node that keeps changing stays held. Passes run one at a time and a started hold is in the record before the
- * next pass reads it, so the apps are removed once.
+ * starts one at the height of the newest change; over the limit with one
+ * standing, a change after the hold's start moves the start to it, so a node
+ * that keeps changing stays held. A node this process finds newly held is told
+ * to the onIpChangeHold listeners. Passes run one at a time and a started hold
+ * is in the record before the next pass reads it, so it is told once.
  * @returns {Promise<boolean>} Whether the node is held.
  */
 async function enforceIpChangeHoldOnce() {
   const record = await ownAddressRecord();
   const height = chainHeight();
   let hold = record?.ipChangeHold ?? null;
-  let started = false;
   if (record && height) {
     const records = ownAddressCollection();
     const recorded = record.ipChangeHeights ?? [];
@@ -2633,7 +2631,7 @@ async function enforceIpChangeHoldOnce() {
     if (!hold && inWindow.length > IP_CHANGES_ALLOWED) {
       hold = { fromHeight: Math.max(...inWindow) };
       await records.updateOne({ _id: OWN_ADDRESS_RECORD_ID }, { $set: { ipChangeHold: hold } });
-      started = true;
+      log.error(IP_CHANGES_MESSAGE);
     } else if (hold && hold.fromHeight === null) {
       await records.updateOne(
         { _id: OWN_ADDRESS_RECORD_ID, ipChangeHold: { fromHeight: null } },
@@ -2655,12 +2653,10 @@ async function enforceIpChangeHoldOnce() {
       hold = null;
     }
   }
+  const wasHeld = isStickyDosHeldBy(StickyDosOwner.IP_CHANGES);
   ipChangeHold = hold;
   const held = applyIpChangeHold();
-  if (started) {
-    log.error(IP_CHANGES_MESSAGE);
-    await removeAppsForIpChanges(maxNumberOfIpChanges);
-  }
+  if (held && !wasHeld) ipChangeHoldEvents.emit('held', maxNumberOfIpChanges);
   return held;
 }
 
@@ -3973,6 +3969,8 @@ module.exports = {
   waitForLocalSocketAddress,
   onLocalSocketAddressChange,
   offLocalSocketAddressChange,
+  onIpChangeHold,
+  offIpChangeHold,
   onLocalSocketAddressKnown,
   getFluxNodePrivateKey,
   getFluxNodePublicKey,

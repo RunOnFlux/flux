@@ -102,7 +102,7 @@ describe('nodeStatusMonitor tests', () => {
       monitor = proxyquire('../../ZelBack/src/services/appMonitoring/nodeStatusMonitor', {
         '../dbHelper': {},
         '../serviceHelper': { delay: sinon.stub().resolves() },
-        '../fluxNetworkHelper': {},
+        '../fluxNetworkHelper': { onIpChangeHold: (cb) => { listeners.ipChangeHold = cb; } },
         '../fluxCommunicationUtils': {},
         '../appMessaging/messageStore': {},
         '../networkStateService': {},
@@ -138,6 +138,19 @@ describe('nodeStatusMonitor tests', () => {
       await new Promise((resolve) => { setImmediate(resolve); });
 
       sinon.assert.calledWithMatch(logStub.error, /daemon unreachable\) failed/);
+    });
+
+    it('removes every app at once when the node is held for its IP changes', async () => {
+      const installedAppsFn = sinon.stub().resolves({ status: 'success', data: [{ name: 'one' }, { name: 'two' }] });
+      const removeAppLocallyFn = sinon.stub().resolves('removed');
+      monitor.initialize(installedAppsFn, removeAppLocallyFn);
+
+      listeners.ipChangeHold(2);
+      await new Promise((resolve) => { setImmediate(resolve); });
+      await new Promise((resolve) => { setImmediate(resolve); });
+
+      sinon.assert.calledWith(removeAppLocallyFn, 'one');
+      sinon.assert.calledWithMatch(logStub.info, /going to be removed: IP changes over the limit/);
     });
   });
 
@@ -177,7 +190,7 @@ describe('nodeStatusMonitor tests', () => {
         '../dbHelper': {},
         // the spacing between apps passes, and the wait before the next pass never ends
         '../serviceHelper': { delay: sinon.stub().callsFake((ms) => (ms === 0 ? Promise.resolve() : never())) },
-        '../fluxNetworkHelper': { isNodeDos: () => dos },
+        '../fluxNetworkHelper': { isNodeDos: () => dos, onIpChangeHold: sinon.stub() },
         '../fluxCommunicationUtils': {},
         '../appMessaging/messageStore': {},
         '../networkStateService': {},

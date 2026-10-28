@@ -8,15 +8,18 @@ import { crashFluxos, moveNodeAddress, releaseFluxos } from '../framework/contai
 import {
   clearNodeAddress, setHeight, setNodeAddress, stopTicker,
 } from '../framework/daemon-control.js';
-import { waitFor } from '../framework/wait.js';
-import { bootAndPeer } from '../framework/reconciler-suite.js';
+import { waitFor, waitForAppInstalled, waitForAppRemoved } from '../framework/wait.js';
+import { bootAndPeer, seedSpawnerApp, installedInstanceIndices } from '../framework/reconciler-suite.js';
+import { buildSeedableTestApp } from '../framework/seed-helper.js';
+import { pushTestApp } from '../framework/registry-helper.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // A node whose IP changes a second time inside the limit's window is out of
 // service until the chain is 2400 blocks past the change: the hold is the
 // node's own address record and the chain's height, so a FluxOS restart does
-// not end it and nothing but the chain does.
+// not end it and nothing but the chain does. The app it runs is removed as soon
+// as it is held.
 //
 // Node 0 changes its IP twice; node 1 is a bystander.
 
@@ -28,11 +31,16 @@ const DETECTION_MS = 6 * 60 * 1000;
 // Longer than the availability recheck and several daemon polls, so a hold
 // that something ends would be seen ended.
 const STANDS_MS = 60 * 1000;
+// The node status monitor's pass at production's interval, so the app can only
+// leave in time because the hold itself has it removed.
+const NODE_MONITOR_INTERVAL_MS = 20 * 60 * 1000;
+const REMOVED_MS = 2 * 60 * 1000;
 
 describe('a node over the limit on IP changes stays out of service until the chain passes its hold', function () {
   let env;
   dumpLogsOnFailure(() => env);
   let listed;
+  const appName = `e2eipchanges${Date.now()}`;
   const client = (i) => env.clients[i];
   const socketOf = (ip) => `${ip}:${API_PORT}`;
   const record = () => dbClient(SUBJECT + 1).ownAddressRecord();
@@ -78,10 +86,13 @@ describe('a node over the limit on IP changes stays out of service until the cha
       hookCtx: this,
       nodes: 2,
       tickerAutostart: false,
-      configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1 } },
+      configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1, nodeMonitorIntervalMs: NODE_MONITOR_INTERVAL_MS } },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
     listed = client(SUBJECT).ip;
+    await pushTestApp(appName);
+    await seedSpawnerApp(env, await buildSeedableTestApp({ name: appName, instances: 1 }), [SUBJECT]);
+    await waitForAppInstalled(client(SUBJECT), appName, 180000);
   });
 
   after(async function () {
@@ -90,14 +101,17 @@ describe('a node over the limit on IP changes stays out of service until the cha
     await env?.teardown();
   });
 
-  it('is out of service for its second IP change, and still is after FluxOS restarts', async function () {
-    this.timeout(2 * DETECTION_MS + 4 * STANDS_MS + 300000);
+  it('is out of service for its second IP change, its app removed, and still is after FluxOS restarts', async function () {
+    this.timeout(2 * DETECTION_MS + 4 * STANDS_MS + REMOVED_MS + 300000);
     const base = client(SUBJECT).ip.replace(/\.\d+$/, '');
     await move(`${base}.240`);
     expect(await held(), 'held for one IP change').to.equal(false);
+    expect(await installedInstanceIndices(env, appName), 'fixture: the app runs on the node before the second change').to.deep.equal([SUBJECT]);
 
+    const anchor = client(SUBJECT).getLastEventId();
     await move(`${base}.241`);
     await waitFor(held, { timeout: 60000, interval: 2000, label: 'out of service for the second IP change' });
+    await waitForAppRemoved(client(SUBJECT), appName, REMOVED_MS, { afterId: anchor });
 
     // FluxOS restarts in place: a container restart would also put the node
     // back on the address docker gave it.

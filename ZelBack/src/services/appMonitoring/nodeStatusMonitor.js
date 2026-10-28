@@ -236,6 +236,10 @@ function initialize(installedAppsFn, removeAppLocallyFn) {
       removeAllAppsOnSignal(installedAppsFn, removeAppLocallyFn, 'node lost confirmation');
     }
   });
+  fluxNetworkHelper.onIpChangeHold((ipChanges) => {
+    log.info(`monitorNodeStatus - ${ipChanges} IP changes over the limit, triggering app removal`);
+    removeAllAppsOnSignal(installedAppsFn, removeAppLocallyFn, 'IP changes over the limit');
+  });
   nodeConfirmationService.onDaemonStale(() => {
     log.info('monitorNodeStatus - Daemon stale, triggering app removal');
     removeAllAppsOnSignal(installedAppsFn, removeAppLocallyFn, 'daemon unreachable');
