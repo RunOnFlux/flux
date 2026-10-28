@@ -2387,7 +2387,7 @@ describe('dockerService tests', () => {
         testing: 'testing',
       };
 
-      await expect(dockerService.appDockerCreate(nodeApp, appName, true)).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'forEach\')');
+      await expect(dockerService.appDockerCreate(nodeApp, appName, true)).to.eventually.be.rejectedWith('is not a limit');
     });
 
     describe('the app\'s slice', () => {
