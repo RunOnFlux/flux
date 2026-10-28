@@ -5,28 +5,37 @@ import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
-import { bootAndPeer, seedSpawnerApp, installedInstanceIndices } from '../framework/reconciler-suite.js';
-import { waitFor, waitForAppInstalled } from '../framework/wait.js';
+import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
+import { waitFor, waitForAppInstalled, waitForCandidacy } from '../framework/wait.js';
+import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
 
 // A node removing an app is not offered it by its own spawner until the removal
-// has finished, and is offered it again from then on. The app asks for more
-// instances than the fleet has nodes, so it is short throughout and the spawner
-// considers it on every pass.
+// has finished, and is offered it again from then on.
+//
+// The app is known to one node only, which holds one of its two instances, so it
+// is short throughout and that node's spawner considers it on every pass. The
+// node holds it as one that its spawner has not picked in the last twelve hours:
+// an app installed by its operator, or installed longer ago than that. Its spec is
+// seeded near expiry, which the spawner never picks, the app installed directly,
+// and the spec then given its normal expiry.
 //
 // The removal is held at its checkpoint after the app's containers are gone and
 // before its row is deleted, for as many spawner passes as REMOVING_PASSES: the
 // window in which the spawner sees an app it does not run, and the node still has
-// it installed. Once released, the app is installed again by the node that
-// removed it - the only node that can take it.
+// it installed. Once released, the node installs the app again.
 
 const NODES = 2;
-const INSTANCES = 3;
+const INSTANCES = 2;
 const REMOVER = 0;
 const BEFORE_ROW_DELETE = 'removal:beforeRowDelete';
 const REMOVING_PASSES = 3;
+// Below the spawner's allowance of 100 blocks, and with the block ticker off it
+// never expires.
+const UNPICKED_EXPIRE = 50;
+const SPAWNABLE_EXPIRE = 22000;
 
 const component = (name) => ({
   name,
@@ -60,12 +69,13 @@ describe('a node takes an app again once its removal has finished', function () 
     await bootAndPeer(env);
     await pushImage(appName, 'v1');
     const app = await buildSeedableApp({
-      env, name: appName, instances: INSTANCES, compose: [component(appName)],
+      env, name: appName, instances: INSTANCES, compose: [component(appName)], expire: UNPICKED_EXPIRE,
     });
-    await seedSpawnerApp(env, app);
-    await waitFor(async () => (await installedInstanceIndices(env, appName)).length === NODES, {
-      timeout: 600000, interval: 5000, label: 'every node took the app',
-    });
+    await installOnNodes(env, app, [REMOVER]);
+    const spawnable = remover().getLastEventId();
+    await dbClient(REMOVER + 1).replaceGlobalAppSpec({ ...app.spec, expire: SPAWNABLE_EXPIRE });
+    // the spawner reads it, and passes over it while the node runs it
+    await waitForCandidacy(remover(), (d) => d.name === appName && d.stage === 'afterAlreadyHeldOrTried', 120000, { afterId: spawnable });
   });
 
   after(async function () {
