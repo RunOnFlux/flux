@@ -766,7 +766,8 @@ describe('idService tests', () => {
       expect(loginInsert.firstCall.args[2]).to.not.have.property('signature');
       sinon.assert.callOrder(signatureInsert, loginInsert);
       // the database driver keeps its own short timers; a login schedules nothing
-      const minuteOut = Object.values(clock.timers).filter((timer) => timer.delay >= 60000);
+      // The clock holds no timers object until something has been scheduled.
+      const minuteOut = Object.values(clock.timers ?? {}).filter((timer) => timer.delay >= 60000);
       expect(minuteOut).to.have.length(0);
     });
   });
