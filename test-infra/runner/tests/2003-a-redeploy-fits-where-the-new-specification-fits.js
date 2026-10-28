@@ -41,8 +41,11 @@ describe('a redeploy keeps the app on a node with room for its new specification
   let app;
   let containerBefore;
 
+  // The route carries `cache('30 seconds')` keyed on the URL, so a read right
+  // after the redeploy would be handed the answer from before it. The unique
+  // parameter makes each read a fresh one.
   async function localSpec(client) {
-    const res = await client.getInstalledApps();
+    const res = await client.get(`/apps/installedapps?_=${Date.now()}`);
     if (res.status !== 'success') return null;
     return (res.data ?? []).find((a) => a.name === appName) ?? null;
   }
