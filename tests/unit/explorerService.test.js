@@ -2087,6 +2087,8 @@ describe('explorerService tests', () => {
 
   describe('initiateBlockProcessor tests', () => {
     let findInDatabaseStub;
+    let isBuiltStub;
+    let rebuildStub;
     let getBlockCountStub;
     let dropCollectionStub;
     let logErrorSpy;
@@ -2103,6 +2105,8 @@ describe('explorerService tests', () => {
     beforeEach(async () => {
       findInDatabaseStub = sinon.stub(dbHelper, 'findOneInDatabase');
       dropCollectionStub = sinon.stub(dbHelper, 'dropCollection');
+      isBuiltStub = sinon.stub(fluxnodeAddressRecord, 'isBuilt').resolves(true);
+      rebuildStub = sinon.stub(fluxnodeAddressRecord, 'rebuild').resolves();
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
       getBlockCountStub = sinon.stub(daemonServiceBlockchainRpcs, 'getBlockCount');
       sinon.stub(daemonServiceUtils, 'getConfigValue').returns('5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ'); // Valid WIF private key
@@ -2212,6 +2216,52 @@ describe('explorerService tests', () => {
       sinon.assert.calledWithMatch(logInfoSpy, 'Bootstrap complete');
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparation done');
       sinon.assert.called(createIndexFake);
+      sinon.assert.calledWith(rebuildStub, 200000);
+    });
+
+    describe('the fluxnode address record', () => {
+      const atHeight = (scanned) => {
+        findInDatabaseStub.returns({ generalScannedHeight: scanned });
+        sinon.stub(dbHelper, 'findInDatabase').resolves([]);
+        sinon.stub(dbHelper, 'countInDatabase').resolves(1);
+        const collectionFake = sinon.fake.returns({
+          createIndex: sinon.fake.resolves(true), updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+          find: sinon.fake.returns({ toArray: sinon.fake.resolves([]) }),
+        });
+        fakeDatabase(sinon.fake.returns({ collection: collectionFake }));
+        getBlockCountStub.returns({ status: 'success', data: 200000 });
+        sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
+        explorerService.setBlockProccessingCanContinue(false);
+      };
+
+      it('is built from the blocks up to the scanned height when it holds nothing and the explorer is near the tip', async () => {
+        atHeight(199500);
+        isBuiltStub.resolves(false);
+
+        await explorerService.initiateBlockProcessor(false, false, false);
+        await serviceHelper.delay(200);
+
+        sinon.assert.calledOnceWithMatch(rebuildStub, 199500, sinon.match.func);
+      });
+
+      it('is left to the catch-up when the explorer is further behind than the blocks it holds', async () => {
+        atHeight(199000);
+        isBuiltStub.resolves(false);
+
+        await explorerService.initiateBlockProcessor(false, false, false);
+        await serviceHelper.delay(200);
+
+        sinon.assert.notCalled(rebuildStub);
+      });
+
+      it('is not built again once it holds the blocks', async () => {
+        atHeight(199500);
+
+        await explorerService.initiateBlockProcessor(false, false, false);
+        await serviceHelper.delay(200);
+
+        sinon.assert.notCalled(rebuildStub);
+      });
     });
 
     it('should fall back to block-by-block scan when bootstrap fails', async () => {

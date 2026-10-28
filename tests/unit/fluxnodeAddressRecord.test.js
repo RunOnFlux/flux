@@ -1,4 +1,8 @@
-const { expect } = require('chai');
+const chai = require('chai');
+const chaiAsPromised = require('chai-as-promised');
+
+chai.use(chaiAsPromised);
+const { expect } = chai;
 const sinon = require('sinon');
 const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
@@ -111,6 +115,60 @@ describe('fluxnodeAddressRecord', () => {
     await block(base, [{ version: 4, txid: 'ee'.repeat(32), vout: [] }, { version: 5, txhash: A.txhash, outidx: '0' }]);
 
     expect(await records.countDocuments({})).to.equal(0);
+  });
+
+  describe('rebuild', () => {
+    const tip = () => base + 500;
+    // The chain: A confirms at one address, then moves; B confirms once.
+    const chain = (height) => {
+      const txs = [];
+      if (height === base) txs.push(confirmation(A, '203.0.113.1:16127'));
+      if (height === base + 300) txs.push(confirmation(B, '203.0.113.9:16127'));
+      if (height === base + 400) txs.push(confirmation(A, '203.0.113.2:16127'));
+      return { height, confirmations: tip() - height + 1, tx: txs };
+    };
+
+    it('proves a move by a node that last confirmed before the explorer first kept the record', async () => {
+      expect(await fluxnodeAddressRecord.isBuilt(), 'an empty record reads as built').to.equal(false);
+
+      await fluxnodeAddressRecord.rebuild(tip(), async (height) => chain(height), database);
+
+      expect(await fluxnodeAddressRecord.isBuilt()).to.equal(true);
+      expect(await fluxnodeAddressRecord.movedBetween(idOf(A), '203.0.113.1:16127', '203.0.113.2:16127')).to.equal(true);
+      expect((await recordOf(B)).ip).to.equal('203.0.113.9:16127');
+      expect(await fluxnodeAddressRecord.whenRecorded(tip(), 1)).to.equal(true);
+    });
+
+    it('a canary: the same chain recorded from the tip only proves no move', async () => {
+      await block(base + 400, [confirmation(A, '203.0.113.2:16127')]);
+
+      expect(await fluxnodeAddressRecord.movedBetween(idOf(A), '203.0.113.1:16127', '203.0.113.2:16127')).to.equal(false);
+    });
+
+    it('leaves the record as it was when it stops part way, and the next rebuild builds it whole', async () => {
+      await block(base + 450, [confirmation(B, '198.51.100.7:16127')], 51);
+
+      const failing = async (height) => {
+        if (height === base + 350) throw new Error('daemon gone');
+        return chain(height);
+      };
+      await expect(fluxnodeAddressRecord.rebuild(tip(), failing, database)).to.be.rejectedWith('daemon gone');
+
+      expect((await recordOf(B)).ip, 'a reader saw the record part built').to.equal('198.51.100.7:16127');
+      expect(await recordOf(A)).to.equal(null);
+
+      await fluxnodeAddressRecord.rebuild(tip(), async (height) => chain(height), database);
+
+      expect((await recordOf(A)).changes).to.deep.equal([{ from: '203.0.113.1:16127', to: '203.0.113.2:16127', height: base + 400 }]);
+      expect((await recordOf(B)).ip).to.equal('203.0.113.9:16127');
+    });
+
+    it('carries the record\'s indexes', async () => {
+      await fluxnodeAddressRecord.rebuild(tip(), async (height) => chain(height), database);
+
+      const names = (await records.indexes()).map((index) => index.name);
+      expect(names).to.include('records by the block of their last confirmation');
+    });
   });
 
   describe('restoreToHeight', () => {

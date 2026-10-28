@@ -25,9 +25,12 @@ const RECORD_BLOCKS = CONFIRMATION_EXPIRY_BLOCKS + Math.ceil(RUNNING_EXPIRY_MS /
 // (RUNNING_EXPIRY_MS, 7,500 s in production). fluxd allows a change every
 // 5 blocks, so a node holds at most 128.
 
-const collection = () => dbHelper.databaseConnection()
-  .db(config.database.daemon.database)
-  .collection(config.database.daemon.collections.fluxnodeAddresses);
+const RECORD_COLLECTION = config.database.daemon.collections.fluxnodeAddresses;
+// Where a rebuild records its blocks before it replaces the record in one step.
+const REBUILD_COLLECTION = `${RECORD_COLLECTION}_rebuild`;
+
+const daemonDatabase = () => dbHelper.databaseConnection().db(config.database.daemon.database);
+const collection = () => daemonDatabase().collection(RECORD_COLLECTION);
 
 let recordedHeight = 0;
 const waiters = new Set();
@@ -71,19 +74,18 @@ function whenRecorded(height, timeoutMs) {
 }
 
 /**
- * Records the fluxnode starts and confirmations of a block the explorer
- * processes, from RECORD_BLOCKS below the tip. Rejects when the record cannot
- * be written; the explorer then processes the block again.
+ * Writes the fluxnode starts and confirmations of a block within RECORD_BLOCKS
+ * of the tip to `records`.
  * @param {{height: number, confirmations: number, tx?: object[]}} block A verbose block.
- * @returns {Promise<void>}
+ * @param {import('mongodb').Collection} records
+ * @returns {Promise<boolean>} Whether the block is within RECORD_BLOCKS of the tip.
  */
-async function recordBlock(block) {
-  if (block.confirmations > RECORD_BLOCKS) return;
+async function writeBlock(block, records) {
+  if (block.confirmations > RECORD_BLOCKS) return false;
   const confirmed = new Map();
   (block.tx ?? []).forEach((tx) => {
     if (tx.version >= 5 && tx.txhash && tx.ip) confirmed.set(collateralOf(tx.txhash, tx.outidx), normalizeSocketAddress(tx.ip));
   });
-  const records = collection();
   if (confirmed.size) {
     const held = new Map((await records.find({ _id: { $in: [...confirmed.keys()] } }, { projection: { ip: 1 } }).toArray())
       .map((record) => [record._id, record.ip]));
@@ -120,7 +122,18 @@ async function recordBlock(block) {
     await records.bulkWrite(writes, { ordered: true });
   }
   await records.deleteMany({ height: { $lt: block.height - CONFIRMATION_EXPIRY_BLOCKS } });
-  noteRecorded(block.height);
+  return true;
+}
+
+/**
+ * Records the fluxnode starts and confirmations of a block the explorer
+ * processes, from RECORD_BLOCKS below the tip. Rejects when the record cannot
+ * be written; the explorer then processes the block again.
+ * @param {{height: number, confirmations: number, tx?: object[]}} block A verbose block.
+ * @returns {Promise<void>}
+ */
+async function recordBlock(block) {
+  if (await writeBlock(block, collection())) noteRecorded(block.height);
 }
 
 /**
@@ -147,7 +160,7 @@ async function movedBetween(collateral, from, to) {
  * @returns {Promise<void>}
  */
 async function restoreToHeight(height, database) {
-  const records = database.collection(config.database.daemon.collections.fluxnodeAddresses);
+  const records = database.collection(RECORD_COLLECTION);
   await records.deleteMany({ firstHeight: { $gt: height } });
   const changed = await records.find({ 'changes.height': { $gt: height } }, { projection: { changes: 1 } }).toArray();
   if (changed.length) {
@@ -172,19 +185,60 @@ async function restoreToHeight(height, database) {
  * @returns {Promise<void>}
  */
 async function drop(database) {
-  await dbHelper.dropCollection(database, config.database.daemon.collections.fluxnodeAddresses).catch((error) => {
+  await dbHelper.dropCollection(database, RECORD_COLLECTION).catch((error) => {
     if (error.message !== 'ns not found') throw error;
   });
   recordedHeight = 0;
 }
 
 /**
- * Asserts the record's indexes.
+ * Whether the record holds anything: built by a rebuild, or recorded block by
+ * block, oldest first, by an explorer that passed the blocks it covers. Every
+ * listed node confirms within the blocks it covers, so a record that holds
+ * nothing has not been built.
+ * @returns {Promise<boolean>}
+ */
+async function isBuilt() {
+  return (await collection().countDocuments({}, { limit: 1 })) > 0;
+}
+
+/**
+ * Builds the record from the RECORD_BLOCKS blocks up to `height`, oldest first,
+ * for an explorer that reaches the tip without processing them: one already
+ * there when it first keeps the record, or one that bootstrapped to it. Without
+ * them it proves no move by a node that last confirmed before. The blocks are
+ * recorded aside and replace the record in one step, so a reader never sees a
+ * record part built, and a rebuild that stops part way leaves the record as it
+ * was for the next to build again.
+ * @param {number} height The explorer's scanned height.
+ * @param {function(number): Promise<object>} fetchBlock A verbose block at a height.
  * @param {import('mongodb').Db} database The daemon database, on the maintenance client.
  * @returns {Promise<void>}
  */
-async function ensureIndexes(database) {
-  await dbHelper.ensureIndexes(database.collection(config.database.daemon.collections.fluxnodeAddresses), [
+async function rebuild(height, fetchBlock, database) {
+  await dbHelper.dropCollection(database, REBUILD_COLLECTION).catch((error) => {
+    if (error.message !== 'ns not found') throw error;
+  });
+  await database.createCollection(REBUILD_COLLECTION);
+  const staging = database.collection(REBUILD_COLLECTION);
+  for (let blockHeight = Math.max(height - RECORD_BLOCKS + 1, 1); blockHeight <= height; blockHeight += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await writeBlock(await fetchBlock(blockHeight), staging);
+  }
+  // eslint-disable-next-line no-use-before-define
+  await ensureIndexes(database, REBUILD_COLLECTION);
+  await staging.rename(RECORD_COLLECTION, { dropTarget: true });
+  noteRecorded(height);
+}
+
+/**
+ * Asserts the record's indexes.
+ * @param {import('mongodb').Db} database The daemon database, on the maintenance client.
+ * @param {string} [name] The collection: the record unless given.
+ * @returns {Promise<void>}
+ */
+async function ensureIndexes(database, name = RECORD_COLLECTION) {
+  await dbHelper.ensureIndexes(database.collection(name), [
     { key: { height: 1 }, name: 'records by the block of their last confirmation' },
     { key: { firstHeight: 1 }, name: 'records by the block of their first confirmation' },
     { key: { 'changes.height': 1 }, name: 'records by the blocks of their changes' },
@@ -199,5 +253,7 @@ module.exports = {
   movedBetween,
   restoreToHeight,
   drop,
+  isBuilt,
+  rebuild,
   ensureIndexes,
 };

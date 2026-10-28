@@ -1443,6 +1443,12 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
       }
     }
 
+    // An explorer further behind passes the record's blocks in order as it catches up.
+    if (daemonHeight - scannedBlockHeight < fluxnodeAddressRecord.RECORD_BLOCKS && !await fluxnodeAddressRecord.isBuilt()) {
+      log.info(`Building the fluxnode address record from the blocks up to ${scannedBlockHeight}`);
+      await fluxnodeAddressRecord.rebuild(scannedBlockHeight, getVerboseBlock, dbHelper.onMaintenanceClient(database));
+    }
+
     isInInitiationOfBP = false;
 
     if (!explorerReadyEmitted) {
@@ -1464,11 +1470,14 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
       try {
         log.info('Bootstrap: Using address-index fast path');
         await bootstrapAppHashes(daemonHeight);
+        await fluxnodeAddressRecord.rebuild(daemonHeight, getVerboseBlock, dbHelper.onMaintenanceClient(database));
         log.info('Bootstrap complete, entering steady-state block processing');
         processBlock(daemonHeight + 1, isInsightExplorer);
       } catch (error) {
         log.error('Bootstrap failed, falling back to block-by-block scan');
         log.error(error);
+        // A rebuild the failure stopped part way would meet the scan's blocks out of order.
+        await fluxnodeAddressRecord.drop(dbHelper.onMaintenanceClient(database));
         processBlock(config.fluxapps.epochstart, isInsightExplorer);
       }
     } else {
