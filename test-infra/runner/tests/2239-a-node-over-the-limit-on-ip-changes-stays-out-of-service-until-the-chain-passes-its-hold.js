@@ -21,9 +21,11 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // not end it and nothing but the chain does. The app it runs is removed as soon
 // as it is held.
 //
-// Node 0 changes its IP twice; node 1 is a bystander.
+// Node 1 changes its IP twice; nodes 0 and 2 are bystanders. Three nodes give
+// it the two peers it fetches the network policy from, which it needs to
+// install the app.
 
-const SUBJECT = 0;
+const SUBJECT = 1;
 const API_PORT = 16127;
 const WINDOW_BLOCKS = 2400;
 const IP_CHANGES = 'IP changes over the limit allowed, one in 20 hours';
@@ -84,11 +86,11 @@ describe('a node over the limit on IP changes stays out of service until the cha
     this.timeout(600000);
     env = await createTestEnv({
       hookCtx: this,
-      nodes: 2,
+      nodes: 3,
       tickerAutostart: false,
-      configOverrides: { fluxapps: { minOutgoing: 1, minIncoming: 1, nodeMonitorIntervalMs: NODE_MONITOR_INTERVAL_MS } },
+      configOverrides: { fluxapps: { nodeMonitorIntervalMs: NODE_MONITOR_INTERVAL_MS } },
     });
-    await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
+    await bootAndPeer(env);
     listed = client(SUBJECT).ip;
     await pushTestApp(appName);
     await seedSpawnerApp(env, await buildSeedableTestApp({ name: appName, instances: 1 }), [SUBJECT]);
