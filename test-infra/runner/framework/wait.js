@@ -350,8 +350,9 @@ export async function waitForGiveUpConsidered(node, appName, predicate, timeout 
 
 /**
  * This node's verdict on ONE app changing: `{ name, stage, candidate }`, where
- * stage is 'candidate' or the filter that removed it - afterAlreadyHeldOrTried,
- * afterNodePin, afterGeolocation, afterOwnership, afterClaims.
+ * stage is 'candidate' or the filter that removed it - afterBlocklist,
+ * afterDeparting, afterAlreadyHeldOrTried, afterNodePin, afterGeolocation,
+ * afterOwnership, afterClaims.
  *
  * Published on CHANGE only, so it says what happened rather than what is still
  * true. That is what makes eligibility assertable: a node that stood down and is

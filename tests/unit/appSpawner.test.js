@@ -762,6 +762,86 @@ describe('appSpawner tests', () => {
     });
   });
 
+  describe('an app this node is removing', () => {
+    const removing = 'leavingapp';
+
+    function candidate(overrides = {}) {
+      return {
+        name: removing,
+        hash: 'c'.repeat(64),
+        actual: 1,
+        required: 3,
+        nodes: [],
+        geolocation: [],
+        version: 8,
+        enterprise: false,
+        owner: '1LeavingOwner',
+        ...overrides,
+      };
+    }
+
+    function selected() {
+      return logStub.info.getCalls()
+        .map((c) => c.args[0])
+        .filter((line) => typeof line === 'string' && line.includes('selected to try to spawn'));
+    }
+
+    afterEach(() => {
+      globalStateStub.departingApps.leave(removing);
+    });
+
+    it('is not selected while its removal runs, and is not marked as tried', async () => {
+      buildModule({ aggregateResult: [candidate()] });
+      globalStateStub.departingApps.enter(removing);
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(selected(), 'an app was selected mid-removal').to.deep.equal([]);
+      expect(globalStateStub.trySpawningGlobalAppCache.has(candidate().hash), 'the app was marked as tried').to.equal(false);
+      const tally = logStub.info.getCalls()
+        .map((c) => c.args[0])
+        .find((line) => typeof line === 'string' && line.includes('No app currently to be processed'));
+      expect(tally).to.contain('"afterDeparting":0');
+    });
+
+    it('leaves the pass to another candidate', async () => {
+      buildModule({ aggregateResult: [candidate(), candidate({ name: 'stayingapp', hash: 'd'.repeat(64) })] });
+      globalStateStub.departingApps.enter(removing);
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(selected()).to.have.length(1);
+      expect(selected()[0]).to.include('stayingapp');
+    });
+
+    it('is selected once its removal has finished', async () => {
+      buildModule({ aggregateResult: [candidate()] });
+      globalStateStub.departingApps.enter(removing);
+      globalStateStub.departingApps.leave(removing);
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(selected()).to.have.length(1);
+      expect(selected()[0]).to.include(removing);
+    });
+
+    it('stays queued while its removal runs, and the pass takes the next entry due', async () => {
+      const due = Date.now() - 1000;
+      buildModule({
+        aggregateResult: [],
+        checkLater: [
+          { timeToCheck: due, appName: removing, hash: 'c'.repeat(64), required: 3 },
+          { timeToCheck: due, appName: 'stayingapp', hash: 'd'.repeat(64), required: 3 },
+        ],
+      });
+      globalStateStub.departingApps.enter(removing);
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(globalStateStub.appsToBeCheckedLater.map((app) => app.appName)).to.deep.equal([removing]);
+    });
+  });
+
   describe('expiration filter pipeline', () => {
     beforeEach(() => buildModule({ daemonHeight: 2555563 }));
 
