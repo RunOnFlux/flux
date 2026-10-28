@@ -128,6 +128,9 @@ const Checkpoint = Object.freeze({
   // A removal has taken an app's containers and volume down and has not yet
   // deleted its row. Keyed by app name.
   REMOVAL_BEFORE_ROW_DELETE: 'removal:beforeRowDelete',
+  // A port refresh has read the installed apps and not yet mapped this app's
+  // ports. Keyed by app name.
+  PORTS_REFRESH_BEFORE_APP: 'portsRefresh:beforeApp',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.

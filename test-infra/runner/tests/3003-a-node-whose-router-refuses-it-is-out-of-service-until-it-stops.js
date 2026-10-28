@@ -291,4 +291,47 @@ describe('a node whose router refuses it is out of service until it stops', func
     state = await gateway();
     expect(state.mappings.some((m) => m.externalPort === port), 'the mapping removed').to.equal(false);
   });
+
+  // The port refresh reads the installed apps, then maps each one's ports. It is held
+  // at the app after its read, the app is removed while the router refuses the
+  // removal of its mapping, and the refresh is let go: the removed app's port is
+  // not mapped again, and its removal is still asked until the router carries it out.
+  it('maps no port of an app removed while a refresh was on its way to it, and keeps asking the router to remove it', async function () {
+    this.timeout(RELEASED_WITHIN_MS + 600000);
+    const BEFORE_APP = 'portsRefresh:beforeApp';
+    const name = `e2eupnprefresh${Date.now()}`;
+    const app = await buildApp(name);
+    const [port] = app.spec.compose[0].ports;
+    const mark = node.getLastEventId();
+    await seedSpawnerApp(env, app, [NODE]);
+    await waitForAppInstalled(node, name, 240000, { afterId: mark });
+    expect((await gateway()).mappings.some((m) => m.externalPort === port), 'the app\'s port mapped').to.equal(true);
+
+    const holdFrom = node.getLastEventId();
+    await node.holdCheckpoint(BEFORE_APP, name);
+    try {
+      await node.waitForEvent('checkpoint:held', (d) => d.name === BEFORE_APP && d.key === name, 180000, { afterId: holdFrom });
+      await setUpnpRefuseDeletes(nodeIp, Infinity);
+      const auth = await authenticate(node.url, fluxTeamKey());
+      const res = await fetch(`${node.url}/apps/appremove/${name}`, { headers: { zelidauth: auth.zelidauth } });
+      await res.text();
+      await waitForAppRemoved(node, name, 120000);
+    } finally {
+      await node.releaseCheckpoint(BEFORE_APP, name);
+    }
+    const releasedFrom = Date.now();
+    const ofPortSince = (state) => state.requests.filter((r) => r.port === port && Date.parse(r.at) >= releasedFrom);
+
+    let state;
+    await waitFor(async () => {
+      state = await gateway();
+      return ofPortSince(state).filter((r) => r.action === 'DeletePortMapping').length >= 2;
+    }, { timeout: RELEASED_WITHIN_MS, interval: 2000, label: 'the router asked again to remove the removed app\'s mapping' });
+    expect(ofPortSince(state).filter((r) => r.action === 'AddPortMapping'), 'the removed app\'s port mapped again').to.deep.equal([]);
+
+    await setUpnpRefuseDeletes(nodeIp, 0);
+    await waitFor(async () => !(await gateway()).mappings.some((m) => m.externalPort === port), {
+      timeout: RELEASED_WITHIN_MS, interval: 2000, label: 'the router removed the mapping once it would',
+    });
+  });
 });
