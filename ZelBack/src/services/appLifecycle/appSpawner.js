@@ -561,6 +561,14 @@ async function trySpawningGlobalApplication() {
       }
     }
 
+    // Kept through a successful install, and a later removal of the app does not
+    // clear it: for the rest of its twelve hours this node does not take the app
+    // again, and other nodes do. That is what paces an app removed for something
+    // the checks below do not repeat - a storage violation, a container that
+    // cannot be recreated, a port its router will not map - which would
+    // otherwise be installed and removed again on every pass. The removal of a
+    // surplus copy below clears it, since the node takes that app again only
+    // once the network is short of it.
     globalState.trySpawningGlobalAppCache.set(appHash, '');
     log.info(`trySpawningGlobalApplication - App ${appToRun} hash: ${appHash}`);
 
