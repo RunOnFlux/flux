@@ -10,6 +10,7 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
 
 // MUST-PASS data-safety gate (B1). The promotion FSM's isSynced is percentage-
 // based, so an EMPTY global index (globalBytes 0) reads as a vacuous 100% even
@@ -68,7 +69,10 @@ describe('syncthing promotion gate never reverts/promotes against an empty globa
 
   before(async function () {
     this.timeout(420000);
-    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
+    // The node's app must survive its restart, which the harness does not compress.
+    env = await createTestEnv({
+      hookCtx: this, nodes: 10, tickerAutostart: false, configOverrides: { fluxapps: PRODUCTION_LOCATION_EXPIRIES },
+    });
     await bootAndPeer(env);
     await resetSyncState();
 

@@ -8,6 +8,7 @@ import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js'
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
+import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
 
 // R2 regression. A FluxOS *process* restart (`systemctl restart fluxos`) wipes the
 // in-memory controllerDesired map while the inner dockerd and the app containers
@@ -42,7 +43,10 @@ describe('reconciler keeps a running syncthing app up across a FluxOS process re
 
   before(async function () {
     this.timeout(360000);
-    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
+    // The node's app must survive its restart, which the harness does not compress.
+    env = await createTestEnv({
+      hookCtx: this, nodes: 10, tickerAutostart: false, configOverrides: { fluxapps: PRODUCTION_LOCATION_EXPIRIES },
+    });
     await bootAndPeer(env);
     await resetSyncState();
     ({ index: idx, folder, identifier } = await seedSyncthingApp(env, {

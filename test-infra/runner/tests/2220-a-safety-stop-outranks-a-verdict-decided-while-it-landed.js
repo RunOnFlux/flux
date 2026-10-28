@@ -16,6 +16,7 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import { appId, destroyVolume } from '../framework/volume-fixture.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
 
 // A decider that writes a component's controller opinion while another is deciding
 // across awaits decided last, and its decision stands. After a FluxOS restart the
@@ -57,7 +58,10 @@ describe('a safety stop outranks a verdict decided while it landed', function ()
 
   before(async function () {
     this.timeout(360000);
-    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
+    // The node's app must survive its restart, which the harness does not compress.
+    env = await createTestEnv({
+      hookCtx: this, nodes: 10, tickerAutostart: false, configOverrides: { fluxapps: PRODUCTION_LOCATION_EXPIRIES },
+    });
     await bootAndPeer(env);
     await resetFdm();
     await resetSyncState();

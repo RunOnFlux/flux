@@ -5,6 +5,7 @@ import { getAppContainerStatus, crashAppContainer } from '../framework/container
 import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
 import { bootAndPeer, seedSimpleApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
 
 // The crash-recovery backoff escalates along the ladder [0, 30s, 5m, ...] and is
 // DURABLE: restartHistory lives in appsRuntimeState (mongo), so a FluxOS restart
@@ -31,7 +32,10 @@ describe('reconciler backoff escalates and survives a FluxOS restart', function 
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
+    // The node's app must survive its restart, which the harness does not compress.
+    env = await createTestEnv({
+      hookCtx: this, nodes: 10, tickerAutostart: false, configOverrides: { fluxapps: PRODUCTION_LOCATION_EXPIRIES },
+    });
     await bootAndPeer(env);
     ({ index: idx } = await seedSimpleApp(env, appName));
   });

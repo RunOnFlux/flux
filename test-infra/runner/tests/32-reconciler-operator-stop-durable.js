@@ -11,6 +11,7 @@ import { bootAndPeer, seedSimpleApp } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
 
 // An operator appstop is durable: operatorStopped is persisted in appsRuntimeState
 // and is the highest-priority desired-state input, so the reconciler must never
@@ -42,7 +43,10 @@ describe('reconciler honours a durable operator stop', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
+    // The node's app must survive its restart, which the harness does not compress.
+    env = await createTestEnv({
+      hookCtx: this, nodes: 10, tickerAutostart: false, configOverrides: { fluxapps: PRODUCTION_LOCATION_EXPIRIES },
+    });
     await bootAndPeer(env);
     ({ index: idx } = await seedSimpleApp(env, appName));
   });

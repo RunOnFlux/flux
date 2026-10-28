@@ -13,6 +13,7 @@ import { getSubnetConfig, REGISTRY_REPO_HOST } from '../framework/subnet-config.
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
+import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
 
 // FluxOS owns app volume mounting (no @reboot crontab), and an unmounted app
 // dir is inert. These are the incident regressions:
@@ -125,7 +126,10 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
 
   before(async function () {
     this.timeout(480000);
-    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
+    // The node's app must survive its restart, which the harness does not compress.
+    env = await createTestEnv({
+      hookCtx: this, nodes: 10, tickerAutostart: false, configOverrides: { fluxapps: PRODUCTION_LOCATION_EXPIRIES },
+    });
     await bootAndPeer(env);
     await resetSyncState();
 
