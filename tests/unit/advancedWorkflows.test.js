@@ -8877,7 +8877,7 @@ describe('giving up an app: one pass, two reasons, one safety gate', function ()
       //
       // Marking it there excludes this node from the election for a component it
       // is still running - precisely the state the guard's own comment says it
-      // exists to avoid - for up to STAND_DOWN_PASSES_BEFORE_GIVING_UP passes.
+      // exists to avoid - until it has owned a whole turn since.
       actualStub.resolves({ reachable: true, indeterminate: false, running: true });
       const logWarn = sinon.stub(log, 'warn');
 
