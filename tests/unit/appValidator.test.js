@@ -819,6 +819,31 @@ describe('appValidator tests', () => {
       });
     });
 
+    it('should reject a component whose cpu is not a whole number of steps on a live submission', async () => {
+      try {
+        await appValidator.verifyAppSpecifications(specsWithComponent({ cpu: 0.15 }), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('must have cpu in steps of 0.1');
+      }
+    });
+
+    it('should reject a tiered component whose tier cpu is not a whole number of steps on a live submission', async () => {
+      try {
+        await appValidator.verifyAppSpecifications(specsWithComponent(tiered({ cpusuper: 0.25 })), 1000, true);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('must have cpusuper in steps of 0.1');
+      }
+    });
+
+    // Both are whole steps that floating point does not divide exactly.
+    [0.3, 0.7].forEach((cpu) => {
+      it(`should accept a component with cpu ${cpu} on a live submission`, async () => {
+        await appValidator.verifyAppSpecifications(specsWithComponent({ cpu }), 1000, true);
+      });
+    });
+
     it('should accept a component at the minimum cpu on a live submission', async () => {
       await appValidator.verifyAppSpecifications(specsWithComponent({ cpu: 0.1 }), 1000, true);
     });

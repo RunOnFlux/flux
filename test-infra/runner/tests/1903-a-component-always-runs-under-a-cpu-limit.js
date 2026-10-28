@@ -105,6 +105,16 @@ describe('1903 a component always runs under a CPU limit', function suite() {
       expect(res.data?.message ?? '').to.include('must have cpu of at least 0.1');
     });
 
+    it('is refused when a component asks for cpu that is not a whole number of shares', async function test() {
+      this.timeout(60000);
+      const appName = `e2ecpustep${Date.now()}`;
+      const spec = buildAppSpec({ name: appName, compose: composeWith(appName, 0.15), instances: 1 });
+      const res = await registerApp(env.clients[0].url, nodeKey(1), spec);
+
+      expect(res.status, 'a component asking for part of a share was accepted').to.equal('error');
+      expect(res.data?.message ?? '').to.include('must have cpu in steps of 0.1');
+    });
+
     it('runs a component at the smallest share under the limit its cpu names', async function test() {
       this.timeout(300000);
       const appName = `e2ecpumin${Date.now()}`;

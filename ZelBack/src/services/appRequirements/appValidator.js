@@ -1235,27 +1235,36 @@ function verifyStorageLinksOfApp(appSpecifications) {
   });
 }
 
-// The smallest CPU share a component can be given, the same as a v1-3 app's.
+// The smallest CPU share a component can be given, and the step its cpu is
+// counted in, the same as a v1-3 app's.
 const MINIMUM_COMPONENT_CPU = 0.1;
 
 /**
- * Refuses a component that asks for less than the smallest CPU share.
+ * Refuses a component whose cpu is less than the smallest CPU share or is not a
+ * whole number of them.
  *
  * A component runs on its tier's cpu where the spec gives one and on cpu
- * otherwise, so every one of them is held to the minimum.
+ * otherwise, so every one of them is held to the rule.
  *
  * Held to live submissions, for the reason storage links are. What a node will
  * actually run is decided where the container is created, which refuses a
  * component without a CPU limit whatever height its app was registered at.
  * @param {object} appSpecifications - Application specifications to validate.
- * @throws {Error} If a component's cpu or a tier's cpu is below the minimum.
+ * @throws {Error} If a component's cpu or a tier's cpu breaks the rule.
  */
 function verifyComponentCpuOfApp(appSpecifications) {
   appSpecifications.compose.forEach((component) => {
     const fields = component.tiered ? ['cpu', 'cpubasic', 'cpusuper', 'cpubamf'] : ['cpu'];
     fields.forEach((field) => {
-      if (!(component[field] >= MINIMUM_COMPONENT_CPU)) {
+      const cpu = component[field];
+      if (!(cpu >= MINIMUM_COMPONENT_CPU)) {
         throw new Error(`Flux App ${appSpecifications.name} component ${component.name} must have ${field} of at least ${MINIMUM_COMPONENT_CPU}`);
+      }
+      // Compared with the nearest step rather than by remainder: 0.7 * 10 is
+      // 7.000000000000001 in floating point.
+      const steps = cpu / MINIMUM_COMPONENT_CPU;
+      if (Math.abs(steps - Math.round(steps)) > 1e-9) {
+        throw new Error(`Flux App ${appSpecifications.name} component ${component.name} must have ${field} in steps of ${MINIMUM_COMPONENT_CPU}`);
       }
     });
   });
