@@ -27,8 +27,7 @@ describe('coupled harness knobs track production', () => {
     const { fluxapps } = productionConfig();
 
     expect(knobs.PRODUCTION.removeFluxAppsPeriod).to.equal(fluxapps.removeFluxAppsPeriod);
-    expect(knobs.PRODUCTION.residentialQueueBaseMs).to.equal(fluxapps.residentialQueueBaseMs);
-    expect(knobs.PRODUCTION.residentialQueueStepMs).to.equal(fluxapps.residentialQueueStepMs);
+    expect(knobs.PRODUCTION.residentialTurnMs).to.equal(fluxapps.residentialTurnMs);
     expect(knobs.PRODUCTION.peerSetDipWindowMinutes).to.equal(fluxapps.peerSetDipWindowMinutes);
     expect(knobs.PRODUCTION.peerSetDipEvaluateMs).to.equal(fluxapps.peerSetDipEvaluateMs);
   });
@@ -74,130 +73,62 @@ describe('coupled harness knobs track production', () => {
     expect(knobs.peerSetSweepsPerWindow()).to.be.above(1);
   });
 
-  it('derives the ratio production actually runs at', () => {
+  it('derives the passes per turn production actually runs at', () => {
     const { fluxapps } = productionConfig();
     const pass = fluxapps.removeFluxAppsPeriod * knobs.PON_SPEED_MULTIPLIER * knobs.PRODUCTION.blockMs;
 
-    expect(knobs.productionQueueRatio()).to.equal(fluxapps.residentialQueueStepMs / pass);
-    // Above one is the property itself: a step shorter than a pass cannot
-    // separate two positions, whatever else is true.
-    expect(knobs.productionQueueRatio()).to.be.above(1);
+    expect(knobs.productionTurnRatio()).to.equal(fluxapps.residentialTurnMs / pass);
+    // Two is the property: a holder acts on the second pass of its turn.
+    expect(knobs.productionTurnRatio()).to.be.at.least(2);
+  });
+
+  it('holds the announcement cadence the product announces at', () => {
+    const { fluxapps } = productionConfig();
+    const appConstants = proxyquire('../../ZelBack/src/services/utils/appConstants', {
+      config: { fluxapps, database: productionConfig().database },
+    });
+
+    expect(knobs.announcementLeftAtRenewalMs(fluxapps.locationTtlS))
+      .to.equal(appConstants.RUNNING_EXPIRY_MS - appConstants.ANNOUNCE_INTERVAL_MS);
+  });
+
+  it('rejects a turn holding fewer passes than production\'s', () => {
+    const fleet = { removeFluxAppsPeriod: 2, explorerPollIntervalMs: 833, locationTtlS: 63 };
+    const pass = knobs.giveUpPassMs(fleet, knobs.harnessBlockCostMs(fleet));
+
+    expect(() => knobs.assertTurnPacing({ ...fleet, residentialTurnMs: Math.floor(2 * pass) }))
+      .to.throw(/holds too few give-up passes/);
+  });
+
+  it('accepts what the derivation produces for suite 55\'s fleet', () => {
+    const fleet = { removeFluxAppsPeriod: 2, explorerPollIntervalMs: 833, locationTtlS: 63 };
+
+    expect(() => knobs.assertTurnPacing({ ...fleet, residentialTurnMs: knobs.derivedTurnMs(fleet) })).to.not.throw();
   });
 
   it('rejects a fleet where a departure cannot be seen before the next holder decides', () => {
-    // Suite 55's own pacing, with the step pulled down until the two holders'
-    // decisions land inside what a departure costs to become visible. Sat ON the
-    // bound rather than under it: the bound is strict, and a step edited to just
-    // reach it is the one a later change drifts to.
-    const fleet = { removeFluxAppsPeriod: 2, explorerPollIntervalMs: 833 };
-    const pass = knobs.giveUpPassMs(fleet, knobs.harnessBlockCostMs(fleet));
-    const fluxapps = {
-      ...fleet, residentialQueueStepMs: Math.floor(pass) + knobs.DEPARTURE_ANNOUNCE_MS,
-    };
+    // One pass separates two holders acting, so the pass itself has to outlast
+    // what a departure costs to become visible: 1 x 4 blocks at 300ms is a
+    // 1440ms pass.
+    const fleet = { removeFluxAppsPeriod: 1, explorerPollIntervalMs: 300 };
+    expect(knobs.giveUpPassMs(fleet, knobs.harnessBlockCostMs(fleet))).to.be.below(knobs.DEPARTURE_ANNOUNCE_MS);
 
-    expect(() => knobs.assertDepartureIsVisibleInTime(fluxapps))
+    expect(() => knobs.assertTurnPacing({ ...fleet, residentialTurnMs: knobs.derivedTurnMs(fleet) }))
       .to.throw(/cannot be announced before the next holder decides/);
   });
 
-  it('accepts the separation suite 55 actually runs at', () => {
-    const fleet = { removeFluxAppsPeriod: 2, explorerPollIntervalMs: 833 };
+  it('rejects a turn that a renewed announcement does not outlast', () => {
+    // No holder would act: each refuses a turn its own announcement lapses in.
+    const fleet = { removeFluxAppsPeriod: 2, explorerPollIntervalMs: 833, locationTtlS: 63 };
 
-    expect(() => knobs.assertDepartureIsVisibleInTime({
-      ...fleet, residentialQueueStepMs: knobs.derivedQueueStepMs(fleet),
-    })).to.not.throw();
+    expect(() => knobs.assertTurnPacing({
+      ...fleet, residentialTurnMs: knobs.announcementLeftAtRenewalMs(63),
+    })).to.throw(/outlasts a renewed announcement/);
   });
 
-  it('rejects a harness fleet whose step is shorter than its pass', () => {
-    // The state suite 55 shipped in: a step chosen against a 250ms poll, left
-    // behind when the poll moved to 833ms.
-    const fluxapps = {
-      removeFluxAppsPeriod: 4, explorerPollIntervalMs: 833, residentialQueueStepMs: 15000,
-    };
-
-    expect(() => knobs.assertCoupledRatios(fluxapps)).to.throw(/too short/);
-  });
-
-  it('accepts what the derivation produces for that same fleet', () => {
-    const fleet = { removeFluxAppsPeriod: 4, explorerPollIntervalMs: 833 };
-
-    expect(() => knobs.assertCoupledRatios({
-      ...fleet, residentialQueueStepMs: knobs.derivedQueueStepMs(fleet),
-    })).to.not.throw();
-  });
-
-  it('rejects a harness fleet whose departure interval is inside its ticket gap', () => {
-    // The state suite 55 shipped in once the ticket learned to restart: a 4s
-    // interval against a ~29s step. The block stops reading as a gap, tickets
-    // carry straight across it, and the suite goes green on a queue that has
-    // stopped separating anything after the first departure.
-    const fleet = { removeFluxAppsPeriod: 4, explorerPollIntervalMs: 833 };
-    const fluxapps = {
-      ...fleet,
-      residentialQueueStepMs: knobs.derivedQueueStepMs(fleet),
-      residentialEvacuationIntervalMs: 4000,
-    };
-
-    expect(() => knobs.assertCoupledRatios(fluxapps)).to.throw(/does not outlive the queue ticket/);
-  });
-
-  it('accepts the departure interval its own derivation produces', () => {
-    const fleet = { removeFluxAppsPeriod: 4, explorerPollIntervalMs: 833 };
-    const fluxapps = { ...fleet, residentialQueueStepMs: knobs.derivedQueueStepMs(fleet) };
-
-    expect(() => knobs.assertCoupledRatios({
-      ...fluxapps,
-      residentialEvacuationIntervalMs: knobs.derivedEvacuationIntervalMs(fluxapps),
-    })).to.not.throw();
-  });
-
-  it('keeps the departure interval above the step, as production does', () => {
-    const { fluxapps } = productionConfig();
-
-    // 6h against a 40min step. The rule only demands step + a pass; production
-    // clears it by an order of magnitude, and this is what says so out loud.
-    expect(fluxapps.residentialEvacuationIntervalMs)
-      .to.be.above(fluxapps.residentialQueueStepMs);
-    expect(() => knobs.assertDepartureOutlivesTicket({
-      removeFluxAppsPeriod: fluxapps.removeFluxAppsPeriod,
-      explorerPollIntervalMs: fluxapps.explorerPollIntervalMs,
-      residentialQueueStepMs: fluxapps.residentialQueueStepMs,
-      residentialEvacuationIntervalMs: fluxapps.residentialEvacuationIntervalMs,
-    })).to.not.throw();
-  });
-
-  it('sizes a suite\'s departure wait from the pacing, not by hand', () => {
-    // Suite 55 waited four minutes for a departure. That was written against a
-    // four-second interval; the interval is now tens of seconds and a departure
-    // is an interval PLUS a full queue ticket served again, so the typed number
-    // quietly stopped covering one and the suite timed out on a node that was
-    // working correctly.
-    const fleet = { removeFluxAppsPeriod: 4, explorerPollIntervalMs: 833, residentialQueueBaseMs: 1000 };
-    const step = knobs.derivedQueueStepMs(fleet);
-    const withStep = { ...fleet, residentialQueueStepMs: step };
-    const interval = knobs.derivedEvacuationIntervalMs(withStep);
-    const fluxapps = { ...withStep, residentialEvacuationIntervalMs: interval };
-
-    // The worst position on a five-instance app is four steps behind the front.
-    expect(knobs.departureCycleMs(fluxapps, 5)).to.equal(interval + 1000 + (4 * step));
-    // And it must exceed what driveUntil used to default to, which is the whole
-    // reason the waits are derived now.
-    expect(knobs.departureCycleMs(fluxapps, 5)).to.be.above(120000);
-  });
-
-  it('grows a departure wait with the instance count', () => {
-    const fleet = { removeFluxAppsPeriod: 4, explorerPollIntervalMs: 833, residentialQueueBaseMs: 1000 };
-    const step = knobs.derivedQueueStepMs(fleet);
-    const fluxapps = { ...fleet, residentialQueueStepMs: step };
-
-    expect(knobs.departureCycleMs(fluxapps, 5) - knobs.departureCycleMs(fluxapps, 4)).to.equal(step);
-    // A single-instance app has no position to wait behind.
-    expect(knobs.departureCycleMs(fluxapps, 1)).to.equal(knobs.departureCycleMs(fluxapps, 0));
-  });
-
-  it('moves the derived step when the poll moves', () => {
-    // The whole failure in one assertion: a literal does not do this.
-    const slow = knobs.derivedQueueStepMs({ removeFluxAppsPeriod: 4, explorerPollIntervalMs: 833 });
-    const fast = knobs.derivedQueueStepMs({ removeFluxAppsPeriod: 4, explorerPollIntervalMs: 250 });
+  it('moves the derived turn when the poll moves', () => {
+    const slow = knobs.derivedTurnMs({ removeFluxAppsPeriod: 4, explorerPollIntervalMs: 833 });
+    const fast = knobs.derivedTurnMs({ removeFluxAppsPeriod: 4, explorerPollIntervalMs: 250 });
 
     expect(slow).to.be.above(fast);
   });
@@ -272,11 +203,11 @@ describe('coupled harness knobs track production', () => {
     expect(() => knobs.assertStaggerSpansElectionPasses(knobs.loadSharedConfig().fluxapps)).to.not.throw();
   });
 
-  it('leaves a step longer than production needs alone', () => {
+  it('leaves a turn longer than production needs alone', () => {
     // A suite that does not compress this at all is slow, not wrong, and the
     // check must not push anyone toward a tighter number than they wanted.
     const fleet = { removeFluxAppsPeriod: 4, explorerPollIntervalMs: 833 };
 
-    expect(() => knobs.assertCoupledRatios({ ...fleet, residentialQueueStepMs: 40 * 60 * 1000 })).to.not.throw();
+    expect(() => knobs.assertCoupledRatios({ ...fleet, residentialTurnMs: 60 * 60 * 1000 })).to.not.throw();
   });
 });

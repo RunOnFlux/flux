@@ -12,6 +12,7 @@ const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
 const verificationHelper = require('../verificationHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
+const daemonServiceUtils = require('../daemonService/daemonServiceUtils');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const {
   extractIp, extractPort, socketAddressesMatch, ipsMatch,
@@ -60,6 +61,7 @@ const folderStates = require('../appMonitoring/folderStates');
 const appNetworkLinker = require('./appNetworkLinker');
 const { Privilege, authOf } = require('../utils/privileges');
 const { AsyncLock } = require('../utils/asyncLock');
+const { RemovalOutcome } = require('../utils/removalOutcome');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -72,6 +74,12 @@ const isArcane = Boolean(process.env.FLUXOS_PATH);
 // the opposite requirement - it is worthless anywhere but the first line - so
 // the two are separate mechanisms rather than one flag doing both jobs badly.
 const reinstallPassLock = new AsyncLock();
+
+// Held for the whole give-up pass. The block scanner starts the pass without
+// awaiting it, so a pass still running when the next one is due would otherwise
+// run beside it, both deciding against the same installed-app list: two
+// departures, or a second removal refused by the first's lock.
+const giveUpPassLock = new AsyncLock();
 
 // Master/slave app tracking
 const mastersRunningGSyncthingApps = new Map();
@@ -103,10 +111,11 @@ const giveUpRefusals = new Map();
 const REFUSALS_BEFORE_ESCALATING = 12;
 
 // Components this node has stopped in order to hand their app back, mapped to
-// the number of give-up passes since. An evacuating node that is the elected
-// primary cannot leave while it is the one writing to the volume, so it stops
-// writing and asks again next pass, by which time the ordinary election has
-// given the role to a peer.
+// the turn it stood down in. An evacuating node that is the elected primary
+// cannot leave while it is the one writing to the volume, so it stops writing
+// on one pass of a turn it owns and removes on a later pass of a turn it owns,
+// by which time the ordinary election has given the role to a peer. Every pass
+// is judged against the turn, so the removal can land in no other holder's turn.
 //
 // THIS IS ALSO WHAT KEEPS THE COMPONENT STOPPED. masterSlaveApps runs every
 // 30s and would otherwise see the component not running here, clear this node's
@@ -115,14 +124,24 @@ const REFUSALS_BEFORE_ESCALATING = 12;
 // is read there as a "not a candidate right now" filter, which is the whole
 // mechanism: no new wire state, no negotiation, just this node declining to
 // stand for an office it is trying to leave.
-const standingDown = new Map();
-// Give-up passes a stood-down component may wait before this node gives up on
-// leaving and becomes electable again. The alternative to a cap is an app that
-// is stopped here AND not running anywhere else, which is worse than the
-// stuck-but-serving state the stand-down exists to fix. On expiry the entry is
+//
+// A stood-down component is released, and this node becomes electable again,
+// once it has owned a whole turn since standing down without the app leaving,
+// or once the node stops evacuating. The alternative is an app
+// that is stopped here AND not running anywhere else, which is worse than the
+// stuck-but-serving state the stand-down exists to fix. On release the entry is
 // simply dropped: masterSlaveApps then clears this node's stale primary record
 // and the normal paths restart the component wherever it belongs.
-const STAND_DOWN_PASSES_BEFORE_GIVING_UP = 6;
+const standingDown = new Map();
+
+/**
+ * The app a stood-down component identifier belongs to.
+ * @param {string} identifier `component_app`, or the app name for a single-component app.
+ * @returns {string}
+ */
+function standDownOwner(identifier) {
+  return identifier.includes('_') ? identifier.slice(identifier.indexOf('_') + 1) : identifier;
+}
 // Ten election cycles. Derived from the election's own cadence rather than
 // written as its own number, so it stays in the same proportion to the pass
 // that refreshes it at every scale - the harness compresses masterSlaveApps by
@@ -3817,6 +3836,12 @@ function isElectedPrimaryHere(appName, localSocketAddr, now = Date.now()) {
  * @param {Function} [deps.isComponentRunningLocally] Whether a component
  *   identifier is running on this node right now.
  * @param {object} [deps.liveness] Peer folder liveness, for judging a silent peer.
+ * @param {object} [deps.turn] What the evacuation turn is judged on: see
+ *   residentialNodeDosService.mayEvacuateApp.
+ * @param {Array<{key: string, expireAt: Date}>} deps.turn.holders The app's
+ *   holders by their signed announcements.
+ * @param {string} deps.turn.ownKey This node's signing key.
+ * @param {{timeMs: number, previousTimeMs: number}} deps.turn.pass
  * @returns {Promise<{giveUp: boolean, reason: string, detail: string}>}
  */
 async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, deps = {}) {
@@ -3910,7 +3935,7 @@ async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, 
   }
 
   if (residentialNodeDosService.isEvacuating()) {
-    const verdict = residentialNodeDosService.mayEvacuateApp(installedApp.name, runningAppList, localSocketAddr, minInstances);
+    const verdict = residentialNodeDosService.mayEvacuateApp(deps.turn.holders, deps.turn.ownKey, minInstances, deps.turn.pass);
     if (verdict.ok) {
       return {
         giveUp: true,
@@ -3940,15 +3965,29 @@ async function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, 
  * is not read here, or anywhere else - it paced a serviceHelper.delay() inside
  * a loop that removed several apps in one pass, and that sleep held the whole
  * pass open: everything behind it waited, and every decision after it was made
- * against an installed-app list read minutes earlier. The pass is fired
- * unawaited from the block handler and guards nothing itself, so a pass long
- * enough to outlive its own interval could also overlap the next one.
+ * against an installed-app list read minutes earlier. One pass runs at a
+ * time: a pass started while another is running returns at once, and the
+ * scanner asks again on a later block.
+ * @param {object} pass
+ * @param {number} pass.height the block this pass runs on
+ * @param {number} pass.period blocks between passes
+ * @param {number} pass.time the time of the block this pass fell due on, epoch seconds
+ * @param {number} pass.previousTime the time of the block the pass before fell due on, epoch seconds
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function checkAndRemoveApplicationInstance() {
+async function checkAndRemoveApplicationInstance({
+  height, period, time, previousTime,
+}) {
+  if (giveUpPassLock.locked) {
+    log.info('Give-up-an-app pass skipped: another give-up pass is running');
+    fluxEventBus.publish('giveUp:passSkipped', { height });
+    return;
+  }
+  giveUpPassLock.register();
   // To check if more than allowed instances of application are running
   // check if synced
   try {
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.GIVEUP_BEFORE_PASS);
     const synced = await generalService.checkSynced();
     if (synced !== true) {
       log.info('Application duplication removal paused. Not yet synced');
@@ -3977,22 +4016,11 @@ async function checkAndRemoveApplicationInstance() {
       return;
     }
 
-    // removeAppLocally refuses when another removal or install holds the lock,
-    // and it refuses by returning - no throw, no status, nothing the caller can
-    // read. So a pass that ran into one logged "locally removed", called
-    // noteEvacuated, burned the whole departure interval and discarded the
-    // app's queue wait, for a removal that never happened.
-    //
-    // They do collide: explorerService invokes this pass WITHOUT awaiting it,
-    // so it outlives the block that started it, and two blocks later the same
-    // scanner awaits expireGlobalApplications, which holds removalInProgress
-    // through a real uninstall.
-    //
-    // Checked here rather than by making removeAppLocally report back: the file
-    // it lives in is untouched by this branch, every force=false caller shares
-    // the same refusal, and a pass that knows it would be refused has no reason
-    // to start. The same guard reinstallOldApplications and softRemoveAppLocally
-    // already use.
+    // removeAppLocally refuses while another removal or install holds the node,
+    // so a pass that knows it would be refused has no reason to start. The same
+    // guard reinstallOldApplications and softRemoveAppLocally use. A removal or
+    // install can still begin while the pass is deciding; the removal's outcome
+    // below is what decides whether this pass removed anything.
     if (globalState.removalInProgress) {
       log.info('Give-up-an-app pass skipped: another removal is in progress');
       return;
@@ -4034,38 +4062,61 @@ async function checkAndRemoveApplicationInstance() {
     for (const name of giveUpRefusals.keys()) {
       if (!heldNames.has(name)) giveUpRefusals.delete(name);
     }
-    // Stood-down components age on the pass that would have removed them, so the
-    // cap is counted in the thing that re-asks the question. Two ways out: the
-    // app left by any route, or this node waited out the cap without being able
-    // to leave. The second matters more than it looks - a component stopped here
-    // and running nowhere is a worse state than the one the stand-down exists to
-    // fix, so the node gives up leaving and stands for election again rather
-    // than holding a stopped app indefinitely.
+    // A stand-down for an app that left by any route has nothing left to hold,
+    // and one on a node no longer evacuating has nothing left to wait for.
+    const evacuating = residentialNodeDosService.isEvacuating();
     // eslint-disable-next-line no-restricted-syntax
-    for (const [identifier, passes] of standingDown) {
-      const owner = identifier.includes('_') ? identifier.slice(identifier.indexOf('_') + 1) : identifier;
-      if (!heldNames.has(owner)) {
+    for (const identifier of standingDown.keys()) {
+      if (!heldNames.has(standDownOwner(identifier))) {
         standingDown.delete(identifier);
-        // eslint-disable-next-line no-continue
-        continue;
-      }
-      if (passes >= STAND_DOWN_PASSES_BEFORE_GIVING_UP) {
+      } else if (!evacuating) {
         standingDown.delete(identifier);
-        log.warn(`${identifier} stood down ${passes} passes without being able to leave; standing for election again`);
-        // eslint-disable-next-line no-continue
-        continue;
+        log.warn(`${identifier} stood down on a node that is no longer evacuating; standing for election again`);
+        fluxEventBus.publish('giveUp:standDownReleased', { identifier, reason: 'NOT_EVACUATING' });
       }
-      standingDown.set(identifier, passes + 1);
     }
+    const pass = { timeMs: time * 1000, previousTimeMs: previousTime * 1000 };
+    const currentTurn = residentialNodeDosService.turnOf(pass.timeMs);
+    const ownKey = evacuating ? await fluxNetworkHelper.getFluxNodePublicKey() : null;
 
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled) {
       // eslint-disable-next-line no-await-in-loop
       const runningAppList = await registryManager.appLocation(installedApp.name);
       // eslint-disable-next-line no-await-in-loop
+      const holders = evacuating ? await registryManager.signedHoldersOf(installedApp.name, pass.timeMs) : [];
+      // A stood-down component that has owned a whole turn since, without the
+      // app leaving, is released. A component stopped here and running nowhere
+      // is a worse state than the one the stand-down exists to fix, so the node
+      // gives up leaving and stands for election again rather than holding a
+      // stopped app indefinitely.
+      const holderKeys = holders.map((holder) => holder.key);
+      if (evacuating) {
+        // What this node judged the turn on, so nodes judging one pass can be
+        // compared.
+        fluxEventBus.publish('giveUp:turn', {
+          appName: installedApp.name,
+          dueHeight: Math.floor(height / period) * period,
+          turn: currentTurn,
+          previousTurn: residentialNodeDosService.turnOf(pass.previousTimeMs),
+          owner: residentialNodeDosService.turnOwner(holderKeys, currentTurn),
+          holders: holderKeys,
+        });
+      }
+      // eslint-disable-next-line no-restricted-syntax
+      for (const [identifier, stoodDownTurn] of standingDown) {
+        if (standDownOwner(identifier) === installedApp.name
+          && residentialNodeDosService.ownedTurnSince(holderKeys, ownKey, stoodDownTurn, currentTurn)) {
+          standingDown.delete(identifier);
+          log.warn(`${identifier} stood down and owned a turn since without being able to leave; standing for election again`);
+          fluxEventBus.publish('giveUp:standDownReleased', { identifier, reason: 'OWNED_TURN_PASSED' });
+        }
+      }
+      // eslint-disable-next-line no-await-in-loop
       const decision = await reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr, {
         isComponentRunningLocally,
         liveness,
+        turn: { holders, ownKey, pass },
       });
       // Every pass reports what it decided about every app it holds. Without
       // this the pass is invisible: it logs nothing at all when it has nothing
@@ -4087,10 +4138,14 @@ async function checkAndRemoveApplicationInstance() {
           // an app the fleet can never bring back to strength says nothing
           // louder than an info line, forever.
           //
-          // Only this code. Waiting a turn, and pausing between departures, are
-          // this working: counting those would escalate every evacuating node on
-          // its twelfth pass and teach everyone to ignore the warning.
-          if (decision.code === 'BELOW_INSTANCE_COUNT') {
+          // A node with no standing signed announcement of the app is the same:
+          // it has no turn until it announces again.
+          //
+          // Only these codes. Waiting a turn, a spare copy the surplus trim has
+          // not taken yet, and pausing between departures are this working:
+          // counting those would escalate every evacuating node on its twelfth
+          // pass and teach everyone to ignore the warning.
+          if (decision.code === 'BELOW_INSTANCE_COUNT' || decision.code === 'NOT_LISTED') {
             const shortRefusals = (giveUpRefusals.get(installedApp.name) ?? 0) + 1;
             giveUpRefusals.set(installedApp.name, shortRefusals);
             if (shortRefusals % REFUSALS_BEFORE_ESCALATING === 0) {
@@ -4139,7 +4194,7 @@ async function checkAndRemoveApplicationInstance() {
           // component from here on leaves it alone (masterSlaveApps), and unmarked
           // unless it is confirmed stopped: a component this node still runs is
           // one it must stay electable for, and the next pass tries again.
-          standingDown.set(identifier, 0);
+          standingDown.set(identifier, currentTurn);
           try {
             // The stop is the reconciler's, the container's only actuator, and
             // returns once its pass has run. The folder keeps sending until the
@@ -4169,13 +4224,6 @@ async function checkAndRemoveApplicationInstance() {
         return;
       }
       if (!safety.safe) {
-        if (decision.reason === 'EVACUATION') {
-          // The observation window restarts, so the queue wait is served against
-          // an uninterrupted period of the app being whole rather than
-          // accumulated across a gap. Only the evacuation path has a window;
-          // calling this on a surplus refusal cleared a mark nothing had set.
-          residentialNodeDosService.forgetAppObservation(installedApp.name);
-        }
         const refusals = (giveUpRefusals.get(installedApp.name) ?? 0) + 1;
         giveUpRefusals.set(installedApp.name, refusals);
         // No removal follows from this, however long it lasts, and that is
@@ -4197,9 +4245,31 @@ async function checkAndRemoveApplicationInstance() {
       }
       giveUpRefusals.delete(installedApp.name);
 
+      // The next holder to own a turn decides no sooner than two passes after
+      // the one this decided on. A removal tells the network before it tears
+      // anything down, and one started within a pass of its decision leaves a
+      // whole pass for that to reach every holder first. Later, it is left to a
+      // later turn.
+      if (decision.reason === 'EVACUATION') {
+        // eslint-disable-next-line no-await-in-loop
+        await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.GIVEUP_BEFORE_REMOVAL, installedApp.name);
+        const dueHeight = Math.floor(height / period) * period;
+        // eslint-disable-next-line no-await-in-loop
+        const count = await daemonServiceUtils.executeCall('getBlockCount', [], { useCache: false });
+        const tip = count.status === 'success' ? count.data : null;
+        if (tip === null || tip >= dueHeight + period) {
+          log.warn(`${installedApp.name} not handed back: the chain is at ${tip ?? 'an unknown height'} and this pass decided on ${dueHeight}; a later turn asks again`);
+          fluxEventBus.publish('giveUp:decisionStale', { appName: installedApp.name, dueHeight, tip });
+          return;
+        }
+      }
       log.warn(`REMOVAL REASON: ${decision.reason} - ${installedApp.name} ${decision.detail}. Safe: ${safety.reason}`);
       // eslint-disable-next-line no-await-in-loop
-      await appUninstaller.removeAppLocally(installedApp.name, null, false, true, true);
+      const outcome = await appUninstaller.removeAppLocally(installedApp.name, null, false, true, true);
+      if (outcome !== RemovalOutcome.REMOVED) {
+        log.warn(`Application ${installedApp.name} not removed (${outcome}); the next pass asks again`);
+        return;
+      }
       log.warn(`Application ${installedApp.name} locally removed`);
       if (decision.reason === 'EVACUATION') {
         residentialNodeDosService.noteEvacuated(installedApp.name);
@@ -4210,6 +4280,8 @@ async function checkAndRemoveApplicationInstance() {
     }
   } catch (error) {
     log.error(error);
+  } finally {
+    giveUpPassLock.disable();
   }
 }
 

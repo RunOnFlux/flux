@@ -97,7 +97,8 @@ function finishRemoval(appName, force, announce) {
 
 /**
  * Tells the network this node no longer holds the app (fluxappremoved), and drops it
- * from the running apps cache. For an app whose removal from this node is complete.
+ * from the running apps cache. For an app whose removal from this node is complete or
+ * committed.
  * @param {string} appName
  * @returns {Promise<void>}
  */
@@ -1027,6 +1028,16 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
     appSpecifications = specificationFormatter(appSpecifications);
 
+    // Told before the teardown, which can take as long as deleting the volume: a
+    // holder that counts this copy while it is being deleted could hand its own back
+    // beside it. An announcement that fails leaves the app installed, and one whose
+    // teardown then stops part way is finished in the background (finishRemoval).
+    if (sendMessage) {
+      await announceRemoval(appName);
+      announced = true;
+    }
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.REMOVAL_BEFORE_TEARDOWN, appName);
+
     tornDownApp = appName;
     if (appSpecifications.version >= 4 && !isComponent) {
       // it is a composed application
@@ -1061,11 +1072,6 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       // eslint-disable-next-line no-await-in-loop
       await appsRuntimeState.remove(identifier);
       if (onComponentRemoved) onComponentRemoved(identifier);
-    }
-
-    if (sendMessage) {
-      await announceRemoval(appName);
-      announced = true;
     }
 
     if (!isComponent) {

@@ -51,6 +51,7 @@ const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const paymentPositions = require('./migrations/paymentPositions');
 const placements = require('./migrations/placements');
+const appMessageHashes = require('./migrations/appMessageHashes');
 const fluxService = require('./fluxService');
 const geolocationService = require('./geolocationService');
 const ipLocationSync = require('./appPlacement/ipLocationSync');
@@ -220,6 +221,9 @@ async function prepareDatabaseSchema() {
     { key: { type: 1, expireAt: 1 }, name: 'events by type and expiry' },
     // the moves that lead to an address
     { key: { 'data.newIP': 1 }, name: 'moves by the address they lead to', partialFilterExpression: { type: 'ipchanged' } },
+    // an app's holders by their signed announcements, and each holder's own events
+    { key: { 'data.apps.name': 1 }, name: 'announcements by the apps they name', partialFilterExpression: { type: 'apprunning' } },
+    { key: { 'envelope.pubKey': 1, type: 1 }, name: 'events by signing key' },
   ]);
   log.info('App state events collection prepared');
   await dbHelper.ensureIndexes(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), [
@@ -423,6 +427,9 @@ async function startFluxFunctions() {
       process.exit(1);
     }
     await untilSucceeds('Payment position backfill', () => paymentPositions.backfillPaymentPositions());
+    // Before the hash sync reads the flags and the retry windows.
+    await untilSucceeds('App message flag repair', () => appMessageHashes.repairLostMessageFlags());
+    await untilSucceeds('App message retry windows', () => appMessageHashes.restartRetryWindows());
 
     // Initialize app sync orchestrator and spawner
     const orchestrator = new AppSyncOrchestrator({

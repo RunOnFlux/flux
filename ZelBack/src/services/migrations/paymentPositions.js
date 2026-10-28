@@ -5,17 +5,12 @@ const dbHelper = require('../dbHelper');
 const daemonServiceUtils = require('../daemonService/daemonServiceUtils');
 const messageVerifier = require('../appMessaging/messageVerifier');
 const { appPaymentPositions } = require('../appPaymentPositions');
+const { UNPOSITIONED } = require('../utils/unpositionedPayments');
 
 // Records written per round trip: each batch is one bulkWrite, so a fleet's
 // worth of records never rides on a single call.
 const BACKFILL_BATCH = 5000;
 
-// The payment records the backfill reads: those without a position. A record
-// already marked notOnChain is decided: if its transaction is mined later, the
-// explorer records the payment from that block. Read through the collection's
-// txIndex index (explorerService.prepareCollections), so a node whose records all
-// have positions reads none of them.
-const UNPOSITIONED = { txIndex: { $exists: false }, notOnChain: { $ne: true } };
 
 /**
  * Gives every app payment record without a position in its block the position

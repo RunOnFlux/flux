@@ -5,14 +5,9 @@
 // faster - it inverts, and the suite that was written to prove it goes green
 // while proving the opposite.
 //
-// That is not hypothetical here. residentialQueueStepMs was set to 15s against
-// a pass the comment beside it called "about 4s", giving an apparent 3.75x
-// margin. The pass is a function of explorerPollIntervalMs - a block costs one
-// poll - and when that moved 250ms -> 833ms the pass moved with it to ~16s.
-// Nothing re-derived the step, so the harness ended up at 0.94x, BELOW one,
-// while production sits at 1.8x. Two nodes then matured on the same pass and
-// both handed the same app back - the exact defect production's own 15-minute
-// step had, which was a merge blocker on this branch.
+// The give-up pass is a function of explorerPollIntervalMs - a block costs one
+// poll - so a knob written against "the pass" as a literal stops tracking it the
+// moment the poll moves.
 //
 // So the numbers below are derived from production's ratios and checked at
 // fleet boot, for every suite, against whatever that suite overrode.
@@ -45,8 +40,7 @@ export function loadSharedConfig() {
 export const PRODUCTION = Object.freeze({
   blockMs: 30000, // post-PON; stated in-repo at fluxService.js:1774
   removeFluxAppsPeriod: 11,
-  residentialQueueBaseMs: 30 * 60 * 1000,
-  residentialQueueStepMs: 40 * 60 * 1000,
+  residentialTurnMs: 60 * 60 * 1000,
   locationTtlS: 7500,
   sigtermExpiryS: 420,
   // The peer-flap DOS: how far back the tally looks, and how often the sweep
@@ -200,34 +194,17 @@ export function harnessBlockCostMs(fluxapps) {
 }
 
 /**
- * The ratio the queue step has to hold against the pass, taken from production.
+ * How many give-up passes one handback turn spans in production.
  *
- * Above 1 is the property; production's specific margin is what the fleet has
- * been reasoned about, so the harness matches it rather than merely clearing 1.
+ * A holder acts only on the second pass of a turn it owns, so a turn holding
+ * fewer than two is lost to its owner; production's margin over two is what the
+ * fleet has been reasoned about, so the harness matches it.
  * @returns {number}
  */
-export function productionQueueRatio() {
+export function productionTurnRatio() {
   const pass = giveUpPassMs(PRODUCTION, PRODUCTION.blockMs);
-  return PRODUCTION.residentialQueueStepMs / pass;
+  return PRODUCTION.residentialTurnMs / pass;
 }
-
-/**
- * The queue step a suite should use, derived rather than chosen.
- *
- * Call this instead of writing a number: it moves when explorerPollIntervalMs
- * or removeFluxAppsPeriod moves, which is the whole failure this file exists
- * for.
- * @param {{removeFluxAppsPeriod: number, explorerPollIntervalMs: number}} fluxapps
- * @returns {number} residentialQueueStepMs, in milliseconds.
- */
-// How many queue steps a ticket tolerates going unobserved before it starts
-// again. Mirrors MAX_TICKET_GAP_MS in residentialNodeDosService: a gap has to
-// mean a pass was MISSED, and one step is only 1.82 passes - so at one step a
-// single late pass restarts the ticket. Production hardly notices; the harness
-// compresses the same ratio to about 30 seconds, where six fleets booting at
-// once make a late pass ordinary, and the ticket then never matures at all.
-// Absolute jitter does not compress with the clocks.
-export const TICKET_GAP_STEPS = 2;
 
 // WHAT A DEPARTURE COSTS between the holder committing to it and the other
 // holders being able to see it: stopping the container, removing the app, and
@@ -242,75 +219,86 @@ export const TICKET_GAP_STEPS = 2;
 // not a number to widen this constant to. It is an image to replace.
 export const DEPARTURE_ANNOUNCE_MS = 1500;
 
-export function derivedQueueStepMs(fluxapps) {
-  const pass = giveUpPassMs(fluxapps, harnessBlockCostMs(fluxapps));
-  // A FLOOR THE RATIO DOES NOT CARRY, because what separates two departures is
-  // not the difference between two tickets. A ticket that matures waits for its
-  // node's next pass, and the two nodes' passes are on unaligned grids, so up to
-  // one pass of the gap is lost to rounding. ONE MISSED PASS is tolerated on top
-  // of that - six fleets booting at once makes a late one ordinary - and no more,
-  // because each further pass tolerated costs every departure a step and this
-  // suite makes about six of them against the runner's wall clock. What is left
-  // has to outlast DEPARTURE_ANNOUNCE_MS, because the holder behind only stands
-  // down once it can SEE the one ahead go, and until then the clock is the whole
-  // of the property.
-  //
-  // So the floor is exactly rounding plus one miss plus the announce, and the
-  // slack above it is the rounding to a whole second and nothing more. A fleet
-  // that misses two passes in one departure window will collide again, and the
-  // answer to that is a longer pass, not a wider floor.
-  //
-  // Production's ratio carries none of those terms and does not need to: its
-  // announce is seconds against a pass of tens of minutes, so its backstop has
-  // always fired long before the next holder's turn. Compressed to an eight
-  // second pass the two are the same size, the backstop cannot fire in time, and
-  // the ratio alone leaves the gap shorter than the jitter it has to survive.
-  const floor = (2 * pass) + DEPARTURE_ANNOUNCE_MS;
-  return Math.ceil(Math.max(pass * productionQueueRatio(), floor) / 1000) * 1000;
-}
+// appConstants.js: a node announces ANNOUNCES_PER_EXPIRY times per location
+// lifetime, less ANNOUNCE_SLACK. Held here for the same reason PRODUCTION is;
+// tests/unit/coupledKnobs.test.js pins them to the product's.
+export const ANNOUNCES_PER_EXPIRY = 2;
+export const ANNOUNCE_SLACK = 0.04;
 
 /**
- * The departure interval a suite should use, derived rather than chosen.
- *
- * A node inside its departure interval records nothing against its queue
- * tickets, so the block has to read afterwards as a gap the ticket will not
- * carry across - otherwise a departure stops restarting the queue and position
- * separates the first departure and nothing after it. Bounded by what it must
- * OUTLIVE rather than by production's ratio, the same way the boot-drift rule
- * below is: the ticket's tolerance is MAX_TICKET_GAP_MS, which IS the queue
- * step. One extra pass on top, so the restart cannot land ambiguously on the
- * pass grid.
- * @param {{removeFluxAppsPeriod: number, explorerPollIntervalMs: number, residentialQueueStepMs: number}} fluxapps
- * @returns {number} residentialEvacuationIntervalMs, in milliseconds.
+ * How long a holder's announcement still has to run at the moment it is renewed.
+ * @param {number} locationTtlS
+ * @returns {number} Milliseconds.
  */
-export function derivedEvacuationIntervalMs(fluxapps) {
-  const pass = giveUpPassMs(fluxapps, harnessBlockCostMs(fluxapps));
-  const step = fluxapps.residentialQueueStepMs ?? derivedQueueStepMs(fluxapps);
-  return Math.ceil(((step * TICKET_GAP_STEPS) + pass) / 1000) * 1000;
+export function announcementLeftAtRenewalMs(locationTtlS) {
+  const expiryMs = locationTtlS * 1000;
+  const intervalMs = Math.floor((expiryMs * (1 - ANNOUNCE_SLACK)) / ANNOUNCES_PER_EXPIRY / 1000) * 1000;
+  return expiryMs - intervalMs;
 }
 
 /**
- * How long ONE departure takes end to end, for a suite that has to wait for it.
+ * The handback turn a suite should use, derived rather than chosen: production's
+ * passes per turn at this fleet's pass.
+ * @param {{removeFluxAppsPeriod: number, explorerPollIntervalMs: number}} fluxapps
+ * @returns {number} residentialTurnMs, in milliseconds.
+ */
+export function derivedTurnMs(fluxapps) {
+  const pass = giveUpPassMs(fluxapps, harnessBlockCostMs(fluxapps));
+  return Math.ceil((pass * productionTurnRatio()) / 1000) * 1000;
+}
+
+/**
+ * Refuse a fleet whose turn does not hold production's passes, whose pass does
+ * not outlast a departure's announcement, or whose holders' announcements do not
+ * outlast a turn.
  *
- * A departure is not just the removal. The node serves its departure interval,
- * and then serves its queue ticket AGAIN from scratch - the interval reads as a
- * gap and restarts it, which is the point of the interval - and the ticket is
- * base plus position times step, the worst position being one short of the
- * instance count.
- *
- * Derived because it MOVED. Suite 55's waits were four minutes against a
- * four-second interval; the interval is now tens of seconds, and a hand-typed
- * four minutes quietly stopped covering a single departure. A wait is as coupled
- * to the pacing as the step is to the pass, and belongs here for the same reason.
+ *   turn / pass >= production's      a turn holds its owner's second pass
+ *   pass > DEPARTURE_ANNOUNCE_MS     one pass separates two holders acting, so a
+ *                                    departure is visible before the next decides
+ *   turn < announcement left at renewal
+ *                                    a holder refuses a turn its own announcement
+ *                                    lapses inside, so at or above this no holder
+ *                                    ever acts
  * @param {object} fluxapps Effective fluxapps config for the fleet.
- * @param {number} instances How many instances the app under test carries.
- * @returns {number} Milliseconds one departure can take, at the worst position.
+ * @throws {Error} When any of the three does not hold.
  */
-export function departureCycleMs(fluxapps, instances) {
-  const step = fluxapps.residentialQueueStepMs ?? derivedQueueStepMs(fluxapps);
-  const base = fluxapps.residentialQueueBaseMs ?? PRODUCTION.residentialQueueBaseMs;
-  const interval = fluxapps.residentialEvacuationIntervalMs ?? derivedEvacuationIntervalMs(fluxapps);
-  return interval + base + (Math.max(instances - 1, 0) * step);
+export function assertTurnPacing(fluxapps) {
+  const turn = fluxapps.residentialTurnMs;
+  if (!turn) return;
+  const blockCost = harnessBlockCostMs(fluxapps);
+  const pass = giveUpPassMs(fluxapps, blockCost);
+  const required = productionTurnRatio();
+  if (turn / pass < required) {
+    throw new Error(
+      'coupled-knobs: residentialTurnMs holds too few give-up passes.\n'
+      + `  pass    ${Math.round(pass)}ms  (removeFluxAppsPeriod ${fluxapps.removeFluxAppsPeriod}`
+      + ` x ${PON_SPEED_MULTIPLIER} blocks, each costing ${Math.round(blockCost)}ms`
+      + ` at explorerPollIntervalMs ${fluxapps.explorerPollIntervalMs})\n`
+      + `  turn    ${turn}ms  -> ${(turn / pass).toFixed(2)} passes\n`
+      + `  needed  ${Math.round(pass * required)}ms  -> production's ${required.toFixed(2)} passes\n`
+      + '  A holder acts only on the second pass of its turn. Use derivedTurnMs(fluxapps).',
+    );
+  }
+  if (pass <= DEPARTURE_ANNOUNCE_MS) {
+    throw new Error(
+      'coupled-knobs: a departure cannot be announced before the next holder decides.\n'
+      + `  pass    ${Math.round(pass)}ms, a departure costs ${DEPARTURE_ANNOUNCE_MS}ms to become visible\n`
+      + '  One pass separates two holders acting. Raise removeFluxAppsPeriod.\n'
+      + '  If the pacing already clears this and two holders still depart together, the cost\n'
+      + '  is in the IMAGE: a container that ignores SIGTERM pays docker\'s full stop grace\n'
+      + '  (ten seconds, and always, for a PID 1 with no handler) instead of the value above.\n'
+      + '  Seed it with pushTestApp, which installs a handler, rather than pushImage.',
+    );
+  }
+  const ttlS = fluxapps.locationTtlS ?? PRODUCTION.locationTtlS;
+  const left = announcementLeftAtRenewalMs(ttlS);
+  if (turn >= left) {
+    throw new Error(
+      'coupled-knobs: residentialTurnMs outlasts a renewed announcement.\n'
+      + `  turn    ${turn}ms, announcement left at renewal ${left}ms (locationTtlS ${ttlS})\n`
+      + '  A holder refuses a turn its own announcement lapses inside, so no holder would act.',
+    );
+  }
 }
 
 /**
@@ -360,84 +348,6 @@ export function assertSigtermOrdering(fluxapps) {
 }
 
 /**
- * Refuse to boot a fleet whose departure interval is shorter than the gap its
- * queue tickets tolerate.
- *
- * mayEvacuateApp records nothing while the interval gate is refusing, so the
- * block is meant to read afterwards as one long gap and restart every ticket.
- * That is what keeps position binding on the SECOND departure and every one
- * after it. Compress the interval below the step and the block stops looking
- * like a gap: tickets carry straight across it, every app is instantly ready
- * the moment the block clears, and two holders whose blocks expire in the same
- * pass hand back the same app together - the same defect a too-short step
- * causes, through the other door, and just as invisible to a green suite.
- *
- * Production holds 6h against a 40min step, ~9x. The bound here is 1x plus a
- * pass, because this pair is fixed by what it must outlive rather than by a
- * ratio anyone reasoned about.
- * @param {object} fluxapps Effective fluxapps config for the fleet.
- * @throws {Error} When the interval does not outlive the ticket gap.
- */
-export function assertDepartureOutlivesTicket(fluxapps) {
-  const interval = fluxapps.residentialEvacuationIntervalMs;
-  if (!interval) return;
-  const required = derivedEvacuationIntervalMs(fluxapps);
-  if (interval >= required) return;
-  throw new Error(
-    'coupled-knobs: residentialEvacuationIntervalMs does not outlive the queue ticket.\n'
-    + `  interval ${interval}ms\n`
-    + `  step     ${fluxapps.residentialQueueStepMs}ms  x ${TICKET_GAP_STEPS} = the ticket's gap tolerance\n`
-    + `  needed   ${required}ms  -> that tolerance plus one give-up pass\n`
-    + '  Below this a departure no longer restarts the other holders\' tickets, so position\n'
-    + '  separates the first departure and nothing after it. Use\n'
-    + '  derivedEvacuationIntervalMs(fluxapps) rather than a literal.',
-  );
-}
-
-/**
- * Refuse a fleet where the second holder decides before the first is visible.
- *
- * One-at-a-time is a race, not a lock. A node acts on its queue ticket at the
- * next give-up pass, so two adjacent positions decide as little as one step
- * minus one pass apart - the step separates them, the pass grid claws some of
- * it back - and if the first departure has not been announced by then, the
- * second still reads the app as fully stocked and hands it back as well.
- *
- *   step - pass > DEPARTURE_ANNOUNCE_MS
- *
- * Production clears this by three orders of magnitude, which is why the bound
- * was never written down until a compressed fleet failed it.
- *
- * WHAT THIS DOES NOT BUY. It would not have caught the fault that prompted it.
- * The arithmetic passed; the cost was hiding in the image, which ignored SIGTERM
- * and so paid docker's full grace rather than the value above. This keeps the
- * pacing from drifting under the bound - the image is the other half, and no
- * assertion here can see it.
- * @param {object} fluxapps Effective fluxapps config for the fleet.
- * @throws {Error} When the two decisions can land closer than a departure takes.
- */
-export function assertDepartureIsVisibleInTime(fluxapps) {
-  const step = fluxapps.residentialQueueStepMs;
-  if (!step) return;
-  const pass = giveUpPassMs(fluxapps, harnessBlockCostMs(fluxapps));
-  const separation = step - pass;
-  if (separation > DEPARTURE_ANNOUNCE_MS) return;
-  throw new Error(
-    'coupled-knobs: a departure cannot be announced before the next holder decides.\n'
-    + `  step       ${step}ms\n`
-    + `  pass       ${Math.round(pass)}ms\n`
-    + `  separation ${Math.round(separation)}ms  -> the closest two holders' decisions can land\n`
-    + `  needed     > ${DEPARTURE_ANNOUNCE_MS}ms  -> what a departure costs to become visible\n`
-    + '  Below this two holders of one app both hand it back, because the second reads the\n'
-    + '  app as fully stocked. Raise the step with derivedQueueStepMs(fluxapps).\n'
-    + '  If the pacing already clears this and two holders still depart together, the cost\n'
-    + '  is in the IMAGE: a container that ignores SIGTERM pays docker\'s full stop grace\n'
-    + '  (ten seconds, and always, for a PID 1 with no handler) instead of the value above.\n'
-    + '  Seed it with pushTestApp, which installs a handler, rather than pushImage.',
-  );
-}
-
-/**
  * Every coupled-knob rule this harness enforces, in one call.
  * @param {object} fluxapps Effective fluxapps config for the fleet.
  * @throws {Error} When any relationship does not hold.
@@ -446,28 +356,5 @@ export function assertCoupledRatios(fluxapps) {
   if (!fluxapps) return;
   assertSigtermOrdering(fluxapps);
   assertStaggerSpansElectionPasses(fluxapps);
-  if (!fluxapps.residentialQueueStepMs) return;
-  assertDepartureOutlivesTicket(fluxapps);
-  const blockCost = harnessBlockCostMs(fluxapps);
-  const pass = giveUpPassMs(fluxapps, blockCost);
-  const ratio = fluxapps.residentialQueueStepMs / pass;
-  const required = productionQueueRatio();
-  // The ratio first, and the absolute floor after it. A step below the ratio is
-  // also below the floor, and the ratio is the coarser fault with the more
-  // useful message; the floor is what a fleet can still miss while holding
-  // production's shape.
-  if (ratio >= required) {
-    assertDepartureIsVisibleInTime(fluxapps);
-    return;
-  }
-  throw new Error(
-    'coupled-knobs: residentialQueueStepMs is too short for this fleet\'s give-up pass.\n'
-    + `  pass    ${Math.round(pass)}ms  (removeFluxAppsPeriod ${fluxapps.removeFluxAppsPeriod}`
-    + ` x ${PON_SPEED_MULTIPLIER} blocks, each costing ${Math.round(blockCost)}ms`
-    + ` at explorerPollIntervalMs ${fluxapps.explorerPollIntervalMs})\n`
-    + `  step    ${fluxapps.residentialQueueStepMs}ms  -> ratio ${ratio.toFixed(2)}\n`
-    + `  needed  ${Math.round(pass * required)}ms  -> production's ratio ${required.toFixed(2)}\n`
-    + '  Two holders of one app mature on the same pass at this ratio and both hand it\n'
-    + '  back. Use derivedQueueStepMs(fluxapps) rather than a literal.',
-  );
+  assertTurnPacing(fluxapps);
 }

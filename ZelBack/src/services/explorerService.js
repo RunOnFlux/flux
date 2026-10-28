@@ -24,6 +24,7 @@ const fluxEventBus = require('./utils/fluxEventBus');
 const globalState = require('./utils/globalState');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
 const { Privilege, authOf } = require('./utils/privileges');
+const { BlockCadence } = require('./utils/blockCadence');
 
 const coinbaseFusionIndexCollection = config.database.daemon.collections.coinbaseFusionIndex; // fusion
 const utxoIndexCollection = config.database.daemon.collections.utxoIndex;
@@ -45,6 +46,21 @@ let cachedDaemonVersion = null;
 
 // updateFluxAppsPeriod can be between every 4 to 9 blocks
 let updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
+// When the work below that is paced by the chain is due.
+let cadence = new BlockCadence();
+
+/**
+ * Whether work paced by the chain runs at this tip block, published when it does.
+ * @param {string} job
+ * @param {number} height
+ * @param {number} period blocks between runs
+ * @returns {boolean}
+ */
+function blockWorkDue(job, height, period) {
+  if (!cadence.due(job, height, period)) return false;
+  fluxEventBus.publish('blockWork:ran', { job, height });
+  return true;
+}
 
 const blockEmitter = new EventEmitter();
 
@@ -375,7 +391,7 @@ async function processInsight(blockDataVerbose, database) {
         if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of X flux had to be paid for us bothering checking
           const appTxRecord = {
             txid: tx.txid, height: blockDataVerbose.height, txIndex, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
-            syncAttempts: 0, nextRetryHeight: blockDataVerbose.height, retryFromHeight: blockDataVerbose.height,
+            syncAttempts: 0, nextRetryHeight: blockDataVerbose.height,
           };
           // A hash is paid once: a payment this node already holds stands.
           // eslint-disable-next-line no-await-in-loop
@@ -561,7 +577,7 @@ async function processStandard(blockDataVerbose, database) {
         if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
           const appTxRecord = {
             txid: tx.txid, height: blockDataVerbose.height, txIndex, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
-            syncAttempts: 0, nextRetryHeight: blockDataVerbose.height, retryFromHeight: blockDataVerbose.height,
+            syncAttempts: 0, nextRetryHeight: blockDataVerbose.height,
           };
           // A hash is paid once: a payment this node already holds stands.
           const standing = await standingAppPayment(database, message);
@@ -589,11 +605,74 @@ async function processStandard(blockDataVerbose, database) {
 }
 
 /**
+ * The time of a block at or below the tip, from the tip itself when it is that block.
+ * @param {{height: number, time: number}} tipBlock the block being processed at the tip
+ * @param {number} height
+ * @returns {Promise<number>} epoch seconds
+ */
+async function blockTimeAt(tipBlock, height) {
+  if (height === tipBlock.height) return tipBlock.time;
+  return (await getVerboseBlock(height, 1)).time;
+}
+
+/**
  * To process block data for entry to Insight database.
  * @param {number} blockHeight Block height.
  * @param {boolean} isInsightExplorer True if node is insight explorer based.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
+/**
+ * Schedules the multiport bench for the multiple of `period` at or below this tip block.
+ *
+ * Every node behind the same ip benchmarks at the same instant, so nodes sharing one
+ * machine or connection are measured together; the network is spread out (grouped by
+ * ip) over 4 hours so the speedtest servers are not hit at once.
+ *
+ * The instant is the due block's time plus a delay seeded by the ip and the due
+ * block's height: the same on every node behind that ip, whenever each processed the
+ * block. A node that reaches the tip after that instant has passed skips this bench
+ * rather than run it alone.
+ *
+ * Mainnet block times, which the instant relies on:
+ *
+ * | a block's time                          | written by its producer, the same on every node  |
+ * | consecutive block times                 | 6 to 120 s apart, 30 s typical, never decreasing |
+ * | a node receives a block, after its time | 1.4 s typical, 2.6 s at p99, under 10 s          |
+ *
+ * @param {{height: number, time: number}} tipBlock the block being processed at the tip
+ * @param {number} period blocks between benches
+ * @returns {Promise<void>}
+ */
+async function scheduleUpnpBench(tipBlock, period) {
+  try {
+    const maxBenchDelay = 4 * 3_600_000;
+    const dueHeight = Math.floor(tipBlock.height / period) * period;
+    const dueBlockTime = await blockTimeAt(tipBlock, dueHeight);
+    const socketAddress = await fluxNetworkhelper.getLocalSocketAddress();
+
+    // socketAddress can be null. If it is, we just use an empty string. This
+    // has the effect of creating an initializer of just the block number. If
+    // this happens, every node on the network that uses the block number will
+    // run the bench at the same time. However this is an extreme edge case, as
+    // all nodes should just return the ip.
+    const localIp = socketAddress ? extractIp(socketAddress) : '';
+    // This is: string + number = string
+    const initializer = localIp + dueHeight;
+    const benchAtMs = dueBlockTime * 1000 + serviceHelper.randomDelayMs(maxBenchDelay, { initializer });
+    const benchDelayMs = benchAtMs - Date.now();
+
+    if (benchDelayMs < 0 && dueHeight !== tipBlock.height) {
+      log.info(`Random seed: ${initializer}. Multiport bench skipped: its start passed ${Math.round(-benchDelayMs / 1000)}s ago, before this node reached the tip`);
+      return;
+    }
+    const startInMs = Math.max(benchDelayMs, 0);
+    log.info(`Random seed: ${initializer}. Starting multiport bench in: ${Math.round(startInMs / 10) / 100}s`);
+    setTimeout(benchmarkService.executeUpnpBench, startInMs);
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 async function processBlock(blockHeight, isInsightExplorer) {
   try {
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
@@ -604,11 +683,13 @@ async function processBlock(blockHeight, isInsightExplorer) {
       return;
     }
     someBlockIsProcessing = true;
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.EXPLORER_BEFORE_BLOCK);
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.daemon.database);
     // get Block information
     const verbosity = 2;
     const blockDataVerbose = await getVerboseBlock(blockHeight, verbosity);
+    cadence.processed(blockDataVerbose.height);
     if (blockDataVerbose.height % 50 === 0) {
       log.info(`Processing Explorer Block Height: ${blockDataVerbose.height}`);
     }
@@ -648,64 +729,42 @@ async function processBlock(blockHeight, isInsightExplorer) {
     // cache refreshed every daemonInfoIntervalMs, and the branch at the end of
     // this function chains straight into the next block whenever it is behind -
     // so a burst of blocks arriving between two refreshes is processed back to
-    // back and only the LAST of them qualifies. Everything gated below is
-    // skipped for the others, and skipped silently: expiring global app
-    // records, trimming surplus instances, reinstalling outdated apps.
-    //
-    // Post-PON that is a 30s block against a 30s refresh, and the refresh
-    // reschedules only after awaiting its RPC, so it drifts behind the chain and
-    // the bursts recur. v9 removes the race rather than tuning it - fluxd pushes
-    // hashblockheight to chainTipSource, which drives both the cached tip and
-    // this scan, so a block is processed while it is still the tip.
+    // back and only the LAST of them is processed at the tip. The work paced by
+    // the chain below asks the cadence whether it is due, so a period the burst
+    // passed is run once, on that last block.
     isSynced = !(blockDataVerbose.confirmations >= 2);
     if (isSynced) {
       blockEmitter.emit('blocksProcessed', scannedHeight);
 
       if (globalState.dbReady && blockDataVerbose.height >= config.fluxapps.epochstart) {
-        if (blockHeight % (2 * speedMultiplier) === 0) {
+        if (blockWorkDue('expireGlobalApplications', blockHeight, 2 * speedMultiplier)) {
           await registryManager.expireGlobalApplications();
         }
-        if (blockHeight % (config.fluxapps.removeFluxAppsPeriod * speedMultiplier) === 0) {
-          advancedWorkflows.checkAndRemoveApplicationInstance();
+        const giveUpPeriod = config.fluxapps.removeFluxAppsPeriod * speedMultiplier;
+        if (blockWorkDue('checkAndRemoveApplicationInstance', blockHeight, giveUpPeriod)) {
+          // Judged at the times of the blocks the pass and the one before it
+          // fell due on, which every node reads the same however late it runs.
+          const dueHeight = Math.floor(blockHeight / giveUpPeriod) * giveUpPeriod;
+          try {
+            const [time, previousTime] = await Promise.all([
+              blockTimeAt(blockDataVerbose, dueHeight),
+              blockTimeAt(blockDataVerbose, dueHeight - giveUpPeriod),
+            ]);
+            advancedWorkflows.checkAndRemoveApplicationInstance({
+              height: blockHeight, period: giveUpPeriod, time, previousTime,
+            });
+          } catch (error) {
+            log.error(`Give-up-an-app pass for ${dueHeight} not run: its block times could not be read: ${error?.message ?? error}`);
+          }
         }
-        if (blockHeight % (updateFluxAppsPeriod * speedMultiplier) === 0) {
+        if (blockWorkDue('reinstallOldApplications', blockHeight, updateFluxAppsPeriod * speedMultiplier)) {
           advancedWorkflows.reinstallOldApplications();
           updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
         }
-        if (blockDataVerbose.height % (config.fluxapps.reconstructAppMessagesHashPeriod * speedMultiplier) === 0) {
-          try {
-            const reconstructResult = await registryManager.reconstructAppMessagesHashCollection();
-            log.info(`Validation of App Messages Hash Collection — ${reconstructResult.changed} corrected`);
-          } catch (error) {
-            log.error(error);
-          }
-        }
       }
-      if (blockDataVerbose.height % (config.fluxapps.benchUpnpPeriod * speedMultiplier) === 0) {
-        try {
-          // every node behind the same ip will benchmark at the same time. I.e.
-          // we spread the network out (grouped by ip) over 4 hours so we don't
-          // absolutely hammer the speedtest servers at the same time.
-          const maxBenchDelay = 4 * 3_600_000;
-          const socketAddress = await fluxNetworkhelper.getLocalSocketAddress();
-
-          // socketAddress can be null. If it is, we just use an empty string. This
-          // has the effect of creating an initializer of just the block number. If
-          // this happens, every node on the network that uses the block number will
-          // run the bench at the same time. However this is an extreme edge case, as
-          // all nodes should just return the ip.
-          const localIp = socketAddress ? extractIp(socketAddress) : '';
-          // This is: string + number = string
-          const initializer = localIp + blockDataVerbose.height;
-          const benchDelayMs = serviceHelper.randomDelayMs(maxBenchDelay, { initializer });
-          const benchDelayS = Math.round((benchDelayMs / 1000) * 100) / 100;
-
-          log.info(`Random seed: ${initializer}. Starting multiport bench in: ${benchDelayS}s`);
-
-          setTimeout(benchmarkService.executeUpnpBench, benchDelayMs);
-        } catch (error) {
-          log.error(error);
-        }
+      const benchPeriod = config.fluxapps.benchUpnpPeriod * speedMultiplier;
+      if (blockWorkDue('benchUpnp', blockDataVerbose.height, benchPeriod)) {
+        await scheduleUpnpBench(blockDataVerbose, benchPeriod);
       }
       await insertAndRequestAppHashes(appsTransactions, database, true);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
@@ -1095,7 +1154,7 @@ function processBootstrapTx(tx, priceSpecs, seenHashes, hashBatch, txIndex) {
       seenHashes.add(message);
       hashBatch.push({
         txid: tx.txid, height, txIndex, hash: message, value: appValue,
-        message: false, syncAttempts: 0, nextRetryHeight: height, retryFromHeight: height,
+        message: false, syncAttempts: 0, nextRetryHeight: height,
       });
     }
   }
@@ -2051,6 +2110,9 @@ module.exports = {
   keepEarliestPayment,
   initiateBlockProcessor,
   processBlock,
+  scheduleUpnpBench,
+  // Test seam: each unit test starts from a node that has processed no block.
+  resetBlockCadenceForTests: () => { cadence = new BlockCadence(); },
   reindexExplorer,
   rescanExplorer,
   stopBlockProcessing,

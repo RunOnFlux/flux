@@ -476,6 +476,76 @@ function newestShutdownAt(address) {
   };
 }
 
+/**
+ * The holders of an app by their own signed word: each signing key whose newest
+ * standing announcement names the app, and which has signed no removal of the
+ * app and no SIGTERM since. A record stands while its expireAt is after
+ * `atMs`, so nodes judging one instant count the same records whether or not
+ * their own expiry sweep has run.
+ *
+ * Unsigned evictions are not read. They trim the location table, each node on
+ * its own probe and any peer it syncs from, so the table can count an app's
+ * holders differently on two nodes; nothing here can be removed except by the
+ * holder that signed it, or by time.
+ * @param {string} appName Global app name.
+ * @param {number} atMs The instant judged at, epoch ms.
+ * @returns {Promise<Array<{key: string, ip: string, expireAt: Date}>>} One per
+ *   signing key, its newest announcement's address and expiry.
+ */
+async function signedHoldersOf(appName, atMs) {
+  const database = dbHelper.databaseConnection().db(config.database.appsglobal.database);
+  const standing = { $gt: new Date(atMs) };
+  const projection = {
+    _id: 0, ip: 1, type: 1, dedupKey: 1, broadcastedAt: 1, expireAt: 1, 'data.apps.name': 1, 'data.appName': 1, 'envelope.pubKey': 1,
+  };
+  const naming = await dbHelper.findInDatabase(database, globalAppStateEvents, {
+    type: 'apprunning',
+    expireAt: standing,
+    $or: [{ 'data.apps.name': appName }, { dedupKey: `v1:${appName}` }],
+  }, { projection });
+  const keys = [...new Set(naming.map((event) => event.envelope?.pubKey).filter(Boolean))];
+  if (!keys.length) return [];
+
+  // A key's newest announcement decides: one made since, from any address,
+  // that no longer names the app means it no longer holds it.
+  const [announcements, ends] = await Promise.all([
+    dbHelper.findInDatabase(database, globalAppStateEvents, {
+      type: 'apprunning',
+      expireAt: standing,
+      'envelope.pubKey': { $in: keys },
+      dedupKey: { $in: ['v2', `v1:${appName}`] },
+    }, { projection }),
+    dbHelper.findInDatabase(database, globalAppStateEvents, {
+      $or: [
+        { type: 'appremoved', 'data.appName': appName },
+        { type: 'sigterm' },
+      ],
+      expireAt: standing,
+      'envelope.pubKey': { $in: keys },
+    }, { projection }),
+  ]);
+  const newest = new Map();
+  announcements.forEach((event) => {
+    const key = event.envelope.pubKey;
+    const held = newest.get(key);
+    if (!held || event.broadcastedAt > held.broadcastedAt) newest.set(key, event);
+  });
+  const endedAt = new Map();
+  ends.forEach((event) => {
+    const key = event.envelope.pubKey;
+    if (!endedAt.has(key) || event.broadcastedAt > endedAt.get(key)) endedAt.set(key, event.broadcastedAt);
+  });
+
+  const holders = [];
+  newest.forEach((event, key) => {
+    const names = event.dedupKey === 'v2' && (event.data?.apps ?? []).some((app) => app?.name === appName);
+    if (!names && event.dedupKey !== `v1:${appName}`) return;
+    if (endedAt.has(key) && endedAt.get(key) > event.broadcastedAt) return;
+    holders.push({ key, ip: event.ip, expireAt: event.expireAt });
+  });
+  return holders;
+}
+
 // Derives running app locations from the event log. Will replace appLocation() once callers are switched.
 //
 // Performance: shutdown/v1 filtering happens at IP level BEFORE unwinding to individual apps.
@@ -1964,22 +2034,21 @@ async function reindexGlobalAppsInformation() {
 const HASH_RECONSTRUCTION_BATCH = 5000;
 
 /**
- * Reconstruct app messages hash collection by validating hash records against actual messages.
- * Reads only the fields it compares, and writes its corrections HASH_RECONSTRUCTION_BATCH at a time.
- * @returns {Promise<string>} Success message
+ * Brings each payment record's `message` flag to whether this node stores that message. A record
+ * whose message is gone is looked for afresh, as a payment never looked for. Reads only the
+ * fields it compares, and writes its corrections HASH_RECONSTRUCTION_BATCH at a time.
+ * @returns {Promise<{changed: number}>}
  */
 async function reconstructAppMessagesHashCollection() {
   try {
     const db = dbHelper.databaseConnection();
     const databaseApps = db.db(config.database.appsglobal.database);
     const databaseDaemon = db.db(config.database.daemon.database);
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    const currentHeight = syncStatus.data.height || 0;
 
     const permanentMessages = await dbHelper.findInDatabase(databaseApps, globalAppsMessages, {}, { projection: { _id: 0, hash: 1 } });
     const appHashes = await dbHelper.findInDatabase(databaseDaemon, appsHashesCollection, {}, {
       projection: {
-        _id: 0, hash: 1, txid: 1, height: 1, message: 1, messageNotFound: 1, retryFromHeight: 1,
+        _id: 0, hash: 1, txid: 1, message: 1, messageNotFound: 1,
       },
     });
     const permHashSet = new Set(permanentMessages.map((m) => m.hash));
@@ -1990,28 +2059,17 @@ async function reconstructAppMessagesHashCollection() {
     for (const appHash of appHashes) {
       const filter = { hash: appHash.hash, txid: appHash.txid };
       const hasPermanent = permHashSet.has(appHash.hash);
-      const retryFrom = appHash.retryFromHeight ?? appHash.height;
 
       if (hasPermanent && (!appHash.message || appHash.messageNotFound)) {
-        ops.push({
-          updateOne: {
-            filter,
-            update: {
-              $set: {
-                message: true, messageNotFound: false, syncAttempts: 0, nextRetryHeight: retryFrom, retryFromHeight: retryFrom,
-              },
-            },
-          },
-        });
+        ops.push({ updateOne: { filter, update: { $set: { message: true, messageNotFound: false } } } });
       } else if (!hasPermanent && appHash.message) {
         markedMissing += 1;
         ops.push({
           updateOne: {
             filter,
             update: {
-              $set: {
-                message: false, messageNotFound: false, syncAttempts: 0, nextRetryHeight: currentHeight, retryFromHeight: currentHeight,
-              },
+              $set: { message: false, messageNotFound: false, syncAttempts: 0 },
+              $unset: { nextRetryHeight: '', retryFromHeight: '' },
             },
           },
         });
@@ -2024,13 +2082,6 @@ async function reconstructAppMessagesHashCollection() {
       const result = await databaseDaemon.collection(appsHashesCollection).bulkWrite(ops.slice(i, i + HASH_RECONSTRUCTION_BATCH), { ordered: false });
       changed += result.modifiedCount;
     }
-
-    // Backfill retry fields on hashes that predate the new schema
-    const backfillResult = await databaseDaemon.collection(appsHashesCollection).updateMany(
-      { retryFromHeight: { $exists: false } },
-      [{ $set: { retryFromHeight: '$height', nextRetryHeight: { $ifNull: ['$nextRetryHeight', '$height'] }, syncAttempts: { $ifNull: ['$syncAttempts', 0] } } }],
-    );
-    changed += backfillResult.modifiedCount;
 
     // a message this node no longer holds is fetched from peers on the next block
     if (markedMissing > 0) appSyncEvents.emit(SYNC_EVENTS.HASH_UNRESOLVED);
@@ -2534,6 +2585,7 @@ module.exports = {
   followAddressMoves,
   primaryAddressOf,
   appLocationFromEvents,
+  signedHoldersOf,
   appInstallingLocation,
   installingCountsByApp,
   appInstallingErrorsLocation,

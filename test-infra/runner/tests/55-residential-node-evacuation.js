@@ -1,369 +1,24 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
-import { createTestEnv } from '../framework/test-env.js';
 import { dbClient } from '../framework/db-client.js';
-import { pushTestApp } from '../framework/registry-helper.js';
-import { buildSeedableApp } from '../framework/seed-helper.js';
-import { getSubnetConfig, REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import {
-  advanceBlock, advanceBlocks, driveUntil, startTicker, stopTicker, setSystemSecure, clearSystemSecure,
+  advanceBlocks, driveUntil, startTicker, stopTicker, setSystemSecure, clearSystemSecure,
 } from '../framework/daemon-control.js';
 import {
-  waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
-  waitForExplorerReady, waitForOrchestratorStarted, waitForOrchestratorState,
-  waitForPeerThreshold, waitForAppInstalled,
-  waitForSpawnerBlocked, waitFor, waitForGiveUpConsidered, waitForGiveUpSafety,
+  waitForDaemonReady, waitForAppInstalled, waitForSpawnerBlocked, waitFor, waitForGiveUpConsidered, waitForGiveUpSafety,
   waitForResidentialDecision,
 } from '../framework/wait.js';
-import { waitForLocationTable } from '../framework/reconciler-suite.js';
 import { setNoPeerData, setPeerHasData, setSynced } from '../framework/syncthing-control.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { electMaster, startFdmOutage, endFdmOutage } from '../framework/fdm-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { loadSharedConfig } from '../framework/coupled-knobs.js';
 import {
-  derivedQueueStepMs, derivedEvacuationIntervalMs, departureCycleMs, loadSharedConfig,
-} from '../framework/coupled-knobs.js';
-
-const subnet = getSubnetConfig();
-
-// A residential node is one whose network classification reaches RESIDENTIAL on
-// positive evidence with nothing contradicting it. In the harness the only
-// signal available is what the ip-api stub serves - the fleet has no reverse
-// DNS and the stub tiers are not asymmetric enough to count - so `mobile` is the
-// positive signal and every contradiction is turned off.
-// The pacing this fleet runs on, derived once so the two knobs cannot drift
-// apart - the departure interval is a function OF the queue step, and writing
-// either as a literal is what broke this suite before. test-env asserts both
-// relationships on every node of every fleet before boot.
-const SHARED_POLL_MS = loadSharedConfig().fluxapps.explorerPollIntervalMs;
-// THE PASS PERIOD, and everything about this suite's cost hangs off it. The
-// give-up pass runs every `removeFluxAppsPeriod x 4` blocks, a block costs one
-// explorer poll, and the queue step, the ticket tolerance and the departure
-// interval are each derived from that pass in turn - so this number multiplies
-// through every departure the suite makes, about six of them.
-//
-// At 4 it put the pass at ~13s and a departure at ~197s, and the suite spent
-// twenty minutes on departures alone, blew the runner's 1800s wall clock, and
-// starved two unrelated suites off the same box. At 2 the pass is ~7s and a
-// departure ~99s. The lower bound is PROPAGATION, not comfort: the removal
-// broadcast has to reach the other holder before its next pass, and at a
-// 1-block pass (~1s) it measurably did not - the other node evaluated twice
-// more before network:appremoved arrived and both holders left.
-const PASS_PERIOD_BLOCKS = 2;
-const RESIDENTIAL_PACING = (() => {
-  const fleet = {
-    removeFluxAppsPeriod: PASS_PERIOD_BLOCKS,
-    explorerPollIntervalMs: SHARED_POLL_MS,
-  };
-  const residentialQueueStepMs = derivedQueueStepMs(fleet);
-  const residentialEvacuationIntervalMs = derivedEvacuationIntervalMs({ ...fleet, residentialQueueStepMs });
-  return { residentialQueueStepMs, residentialEvacuationIntervalMs };
-})();
-
-// EVERY WAIT THAT HAS TO CONTAIN A DEPARTURE IS DERIVED, not typed. A departure
-// is the departure interval plus a full queue ticket served again from scratch,
-// and this suite's apps run at five instances - so it is far longer than the
-// four minutes driveUntil defaults to, which was written when the interval was
-// four seconds. Two cycles' worth: several of these waits contain a departure
-// AND the pass on which another holder reacts to it.
-const DEPARTURE_WAIT_MS = 2 * departureCycleMs(
-  {
-    ...RESIDENTIAL_PACING,
-    removeFluxAppsPeriod: PASS_PERIOD_BLOCKS,
-    explorerPollIntervalMs: SHARED_POLL_MS,
-    residentialQueueBaseMs: 1000,
-  },
-  5,
-);
-
-const RESIDENTIAL_GEO = {
-  hosting: false,
-  proxy: false,
-  mobile: true,
-  org: 'Some Reseller Ltd',
-  isp: 'Consumer Access Networks',
-  as: 'AS64500 Consumer Access Networks',
-};
-
-// Nothing either way: no hosting flags, no operator that sells hosting, and
-// the fleet has no reverse DNS. The node's own rule reaches UNKNOWN on this,
-// so whatever verdict it ends up with came from the published table.
-const NEUTRAL_GEO = {
-  hosting: false, proxy: false, mobile: false, org: 'Neutral Holdings', isp: 'Metro Fibre', as: 'AS64501 Metro Fibre',
-};
-
-// Hosting evidence the node can see about its OWN address, which is what lets
-// it decline a published residential verdict meant for its neighbours.
-const HOSTING_GEO = {
-  hosting: true, proxy: false, mobile: false, org: 'Reseller', isp: 'Hetzner Online GmbH', as: 'AS24940 Hetzner Online GmbH',
-};
-
-async function bootToReady(env) {
-  await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
-  await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
-  await waitForExplorerReady(env.clients[0]);
-  await waitForOrchestratorStarted(env.clients[0]);
-  await advanceBlock();
-  await waitForBlockProcessed(env.clients[0], () => true, 20000);
-  await env.startDiscovery();
-  await waitForPeerThreshold(env.clients[0], 120000);
-  await startTicker();
-  await waitForOrchestratorState(env.clients[0], 'READY', 120000);
-}
-
-/**
- * Seed a global app the spawner can place. The port is allocated, so seeding a
- * second app on the same fleet cannot collide with the first - see
- * buildSeedableApp, which assigns one where the spec is built.
- */
-async function seedApp(env, appName, { instances = 3, containerData = '/tmp' } = {}) {
-  // A CONTAINER THAT HONOURS docker stop. This suite times one holder's
-  // departure against another holder's next give-up pass, so what the app does
-  // with SIGTERM is part of the arithmetic: /bin/pause installs no handler and
-  // is PID 1, where Linux discards unhandled signals, so docker waits its full
-  // ten-second grace and then kills it. That put the announcement of a
-  // departure a whole grace period after the commitment to it, and the second
-  // holder decided in between. test-app exits on the signal, which is the
-  // behaviour the pacing in coupled-knobs is sized against.
-  await pushTestApp(appName, 'v1');
-  const app = await buildSeedableApp({
-    name: appName,
-    instances,
-    compose: [{
-      name: appName,
-      description: 'test container',
-      repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
-      ports: [],
-      domains: [''],
-      environmentParameters: [],
-      commands: [],
-      containerPorts: [80],
-      containerData,
-      cpu: 0.1,
-      ram: 100,
-      hdd: 1,
-      repoauth: '',
-    }],
-  });
-  for (let i = 1; i <= env.nodeCount; i++) {
-    const dc = dbClient(i);
-    await dc.seedGlobalAppSpec(app.spec);
-    await dc.seedPermanentMessage(app.permanentMessage);
-    await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
-  }
-  return app;
-}
-
-
-/**
- * When this node stopped holding an app, by its own account. Returns the epoch
- * ms at which it was first observed gone, so a caller can measure the gap
- * between two departures.
- */
-async function whenGone(env, nodeIndex, appName, timeout) {
-  await waitFor(async () => {
-    const installed = await env.clients[nodeIndex - 1].get('/apps/installedapps');
-    return !installed.data.map((a) => a.name).includes(appName);
-  }, { timeout, label: `node ${nodeIndex} hands ${appName} back` });
-  return Date.now();
-}
-
-/**
- * Put a node back in service: attested, hold cleared, settling marker torn down.
- *
- * Every test that seeds an app has to do this first, because a held node takes
- * no new apps and an EMPTY node goes straight to DOS without ever starting a
- * settling window. Both are correct, and both silently invalidate a test that
- * assumes otherwise.
- */
-async function returnToService(env, node) {
-  await setSystemSecure(subnet.nodeIp(node), true);
-  await waitFor(async () => (await dbClient(node).residentialMarker()) === null,
-    { timeout: 120000, label: `node ${node} is back in service` });
-}
-
-/** Put the settling window in the past, so evacuation may begin this run. */
-async function elapseSettleWindow(nodeIndex) {
-  await dbClient(nodeIndex).serveSettleWindow();
-}
-
-/**
- * The component names a node is running, read through a path that THROWS on an
- * unreadable answer rather than returning an empty list.
- *
- * The client returns the PARSED BODY, so the list is at res.data. An "X is
- * absent" assertion over a list that comes back empty whenever the read fails
- * cannot fail at all - which is exactly how the stand-down assertion passed
- * while the node was still writing.
- */
-async function runningComponents(env, nodeIndex) {
-  const res = await env.clients[nodeIndex - 1].get('/apps/listrunningapps');
-  const list = res?.status === 'success' ? res.data : null;
-  if (!Array.isArray(list)) throw new Error(`listrunningapps unreadable: ${JSON.stringify(res)?.slice(0, 200)}`);
-  return list.flatMap((a) => a.Names || []).map((n) => n.replace(/^\//, ''));
-}
-
-// Node 1 is the node under test: on a residential connection from the moment
-// it boots, but ATTESTED, so nothing enforces against it and it takes its
-// share of the work. Attestation is then withdrawn, which is the whole point
-// of the staging - a node that already holds customer data and stops being
-// fit to serve.
-//
-// It has to be done in that order. The placement hold lands within seconds of
-// boot, so a node that is residential AND unattested from the start never
-// takes an app at all: it is empty, and an empty target goes straight to DOS
-// because there is no data at stake. Nothing would ever be evacuated.
-// Attestation is also the only input re-read on every tick - geolocation is
-// looked up once and then not again for three days - so it is the only lever
-// that can flip a running node.
-//
-// Every other node is attested and in a data centre.
-const TARGET = 1;
-// .12 - same published organisation as the target, but with nothing of its own
-// to go on, so the table is the only thing that can decide it.
-const TABLE_DECIDED = 3;
-// .14 - same published organisation again, but its own address carries hosting
-// evidence, so it declines the verdict.
-const VETOING = 5;
-// A second residential node, so the serialisation claim has two holders to
-// serialise. Published residential like node 1, and attested until a test
-// withdraws it.
-const SECOND_TARGET = 3;
-
-/**
- * The fleet every test here runs on: node 1 residential and attested, the rest
- * in a data centre, and a published table that decides all of them.
- *
- * A FUNCTION rather than one before() hook, because the suite is split across
- * two fleets. The stand-down tests need a node that holds ONE app; the tests
- * above them leave a node holding seven, and evacuation sheds one per
- * departure interval - see the second describe.
- */
-async function bootResidentialFleet(hookCtx) {
-  const env = await createTestEnv({
-  hookCtx,
-    nodes: 5,
-    tickerAutostart: false,
-    // Seeded through createTestEnv, not POSTed afterwards: a node looks its
-    // address up once during boot, so an override applied after the fleet is
-    // up is never read and the node classifies itself from the stub default.
-    geolocation: { [TARGET]: RESIDENTIAL_GEO, [TABLE_DECIDED]: NEUTRAL_GEO, [VETOING]: HOSTING_GEO },
-    // Two organisations across the fleet's /24, assigned round-robin by last
-    // octet, and the one holding .10/.12/.14 is published residential. This is
-    // the authority the fleet runs on in production - 2,303 of 2,513 hosts are
-    // decided by the table rather than by their own reading - so a suite that
-    // only ever exercised the fallback would be testing the path that decides
-    // almost nothing.
-    locationTable: {
-      domains: 2,
-      subnet: subnet.base,
-      classes: { 0: 'residential', 1: 'hosting' },
-    },
-    configOverrides: {
-      fluxapps: {
-        // Compressed the same way every other suite compresses the interval it
-        // is exercising. The production values are hours; the behaviour under
-        // test is the ordering, not the wall-clock.
-        // A HARNESS WORKAROUND, and deliberately not a fix.
-        //
-        // The node learns the chain height from a cache refreshed on this
-        // interval, and processBlock then chains through every block that
-        // arrived since. Only the LAST of such a burst is still the tip, so
-        // only that one satisfies explorerService's `confirmations < 2` gate
-        // and runs the app maintenance hung off it - including the give-up
-        // pass this suite exercises.
-        //
-        // The harness default is 5000 against a 5000ms block, which is 1:1 -
-        // and so is production, 30s blocks against a 30s poll, post-PON. The
-        // race is real on a live node: blocks periodically arrive two to a
-        // window and the earlier one skips maintenance silently. What the
-        // harness adds is PERMANENCE - a steady two-block burst pins the
-        // surviving block to one parity, and `height % 4 === 0` then never
-        // lands for an entire run, so evacuation could never be observed.
-        //
-        // It is not fixed on this lineage because it cannot be fixed cheaply:
-        // the only chain height a node holds is that same cached value, so
-        // comparing against it is the identical race with an extra step, and
-        // knowing the true tip needs a fresh RPC per block on every node. v9
-        // solves it properly - fluxd's `hashblockheight` is pushed to
-        // chainTipSource, which drives both the cached tip and the explorer
-        // scan, leaving the 30s poll as a fallback only.
-        //
-        // So: shorten the poll here so the suite can see the path at all.
-        daemonInfoIntervalMs: 1000,
-        residentialCheckIntervalMs: 3000,
-        // The give-up pass runs every removeFluxAppsPeriod * 4 blocks, and a
-        // block costs one explorerPollIntervalMs. There is a three-way
-        // relationship here and all three have to hold, or the serialisation
-        // this suite checks cannot happen:
-        //
-        //   propagation  <  pass interval  <  queue step
-        //
-        // A departure has to be VISIBLE to the other holder by its next pass
-        // (propagation < pass), and the two holders' turns have to fall on
-        // different passes (pass < step). Measured: with the pass at 4 blocks
-        // (~1s) the other node evaluated twice more before the
-        // network:appremoved reached it - propagation lost the race, both
-        // holders saw the app at full strength, and both left.
-        //
-        // Set from PASS_PERIOD_BLOCKS at the top of this file, which explains
-        // what it costs and what bounds it from below. What it costs in wall
-        // time is set by explorerPollIntervalMs, not by this number.
-        removeFluxAppsPeriod: PASS_PERIOD_BLOCKS,
-        // Left LONG on purpose, and opened by the test when it is ready. A
-        // short window would let evacuation start while the hold is still
-        // being asserted, and the ordering - hold first, deletes nothing, and
-        // only later gives an app up - is the property under test.
-        residentialSettleMs: 600000,
-        residentialQueueBaseMs: 1000,
-        // Position in the instance order sets a wait of base + position*step,
-        // and the step is what stops two holders of the same app leaving
-        // together: the second's turn has to arrive AFTER the first's
-        // departure is visible to it.
-        //
-        // DERIVED, never written as a literal. The step has to outlast a pass
-        // and the pass is a function of explorerPollIntervalMs - a block costs
-        // one poll - so a literal here silently stops tracking the pass the
-        // moment that knob moves. It did: 15000 was chosen against a pass this
-        // comment called "about 4s", the poll went 250ms -> 833ms, the pass
-        // went with it to ~16s, and the step ended up SHORTER than the pass.
-        // Both holders then matured on the same pass and both handed the same
-        // app back - the mechanism intact, the property compressed out of
-        // existence, which is the defect production's own 15-minute step had.
-        //
-        // coupled-knobs.js carries the derivation and test-env asserts the
-        // resulting ratio against production's on every fleet boot.
-        residentialQueueStepMs: RESIDENTIAL_PACING.residentialQueueStepMs,
-        // DERIVED too, and for a reason the 4000ms literal here could not
-        // survive. A node inside its departure interval records nothing
-        // against its queue tickets, so the block is what restarts them - and
-        // that only works if the block outlasts the gap a ticket tolerates,
-        // which IS the step. At 4000ms against a ~29s step the block stopped
-        // reading as a gap: every ticket carried across it, every app was
-        // instantly ready the moment the interval cleared, and two holders
-        // whose blocks expired in the same pass handed back the same app
-        // together. Production holds 6h against 40min and never meets it.
-        //
-        // It costs the suite real time - one departure per interval, and the
-        // interval is now tens of seconds rather than four. That is the price
-        // of the suite being able to see the property at all.
-        residentialEvacuationIntervalMs: RESIDENTIAL_PACING.residentialEvacuationIntervalMs,
-      },
-    },
-  });
-  await bootToReady(env);
-  // The verdict this suite rests on needs the PUBLISHED table, not only the
-  // node's own evidence: getNetworkClassification returns null while
-  // publishedClassification reports consulted:false, and the two arrive at
-  // different times. The veto test waited for networkEvidence alone and then
-  // asked for a classification, so on the bc5d86154 gate node 5 spent all 24 of
-  // its ticks logging "no network verdict to act on yet" and the test timed out
-  // against classification:null, source:null - a decision that could not be
-  // reached rather than one that went the wrong way. Waited for on every node,
-  // because the table is the authority the whole suite runs on.
-  await Promise.all(env.clients.map((c) => waitForLocationTable(c, { domains: 2 })));
-  return env;
-}
+  subnet, TARGET, TABLE_DECIDED, VETOING, SECOND_TARGET,
+  bootResidentialFleet, seedApp, whenGone, returnToService, elapseSettleWindow, runningComponents,
+  departureWaitMs, RESIDENTIAL_PACING, PASS_MS,
+} from '../framework/residential-fleet.js';
+import { keysOf, turnOwner, untilOwnedTurnEndsMs } from '../framework/handback-turns.js';
 
 describe('Residential node evacuation', function () {
   let env;
@@ -591,7 +246,7 @@ describe('Residential node evacuation', function () {
     await driveUntil(env.clients[TARGET - 1], async () => {
       const buffer = env.clients[TARGET - 1].getEventBuffer();
       return buffer.some((e) => e.event === 'app:removed' && e.data?.name === 'residentapp');
-    }, { timeoutMs: DEPARTURE_WAIT_MS });
+    }, { timeoutMs: departureWaitMs([TARGET]) });
 
     const [removedEvent, dosEvent] = await Promise.all([removal, dosLanded]);
 
@@ -704,9 +359,9 @@ describe('Residential node evacuation', function () {
     await elapseSettleWindow(TARGET);
 
     // Drive the chain so the pass is reached deterministically, and keep
-    // driving until the verdict lands: the queue ticket is WALL-CLOCK, so
-    // driving a fixed few blocks races through the chain in seconds and stops
-    // long before this node's turn comes round.
+    // driving until the verdict lands: turns are cut from block time, so driving
+    // a fixed few blocks races through the chain in seconds and stops long
+    // before this node's turn comes round.
     await stopTicker();
     let safetyVerdict = null;
     const considered = waitForGiveUpConsidered(env.clients[TARGET - 1], 'worldapp',
@@ -716,7 +371,7 @@ describe('Residential node evacuation', function () {
       (d) => d.safe === false, 300000).then((v) => { safetyVerdict = v; return v; });
     refused.catch(() => {});
     await driveUntil(env.clients[TARGET - 1], async () => safetyVerdict !== null,
-      { timeoutMs: DEPARTURE_WAIT_MS });
+      { timeoutMs: departureWaitMs([TARGET]) });
     await startTicker();
 
     // The pass reports on every app it holds, every pass, so this proves the
@@ -742,11 +397,14 @@ describe('Residential node evacuation', function () {
     // node simply being slow.
     await setPeerHasData({ folder: 'fluxworldapp_worldapp' });
 
+    // Waited on the removal event: the installed-apps record is dropped last,
+    // well after it, and whenGone below waits for that.
+    const client = env.clients[TARGET - 1];
+    const anchor = client.getLastEventId();
     await stopTicker();
-    await driveUntil(env.clients[TARGET - 1], async () => {
-      const current = await env.clients[TARGET - 1].get('/apps/installedapps');
-      return !current.data.map((a) => a.name).includes('worldapp');
-    }, { timeoutMs: DEPARTURE_WAIT_MS });
+    await driveUntil(client, async () => client.getEventBuffer()
+      .some((e) => e.id > anchor && e.event === 'app:removed' && e.data?.name === 'worldapp'),
+    { timeoutMs: departureWaitMs([TARGET]) });
     await startTicker();
 
     await whenGone(env, TARGET, 'worldapp', 120000);
@@ -801,23 +459,9 @@ describe('Residential node evacuation', function () {
   });
 });
 
-// A FLEET OF ITS OWN, for the same arithmetic as the describe below.
-//
-// Both of these need a departure to actually happen, and a node sheds ONE app per
-// departure interval while a node inside that interval accrues nothing towards
-// any other app's turn. Left on the shared fleet these sit behind everything the
-// thirteen tests above them left on node 1, and DEPARTURE_WAIT_MS is two cycles.
-//
-// On the 4fc95ac35 gate that was exactly enough to fail: node 1 held clockapp and
-// sharedapp, sharedapp drew eight AWAITING_TURN and node 3 four DEPARTURE_INTERVAL,
-// neither node ever departed, so the app never went short and the
-// BELOW_INSTANCE_COUNT refusal this test waits for on the OTHER node could not be
-// published. One departure interval plus one full ticket against a budget of two
-// cycles is no headroom at all, which is why it passed until something moved.
-//
-// Splitting rather than widening the budget, for the reason the describe below
-// was split: a budget sized for the queue leaves the queue there for whoever adds
-// the next test.
+// A FLEET OF ITS OWN. Both holders here need a departure to actually happen, and a
+// node sheds ONE app per departure interval; on the shared fleet this would sit
+// behind every app the tests above left on node 1.
 describe('Residential node evacuation: one holder at a time', function () {
   let env;
   dumpLogsOnFailure(() => env);
@@ -856,24 +500,12 @@ describe('Residential node evacuation: one holder at a time', function () {
       { timeout: 120000, label: `node ${node} starts its settling window` },
     )));
 
-    // Opened TOGETHER, not one after the other. The queue ticket is
-    // `observed >= base + position*step`, and `observed` starts when a node
-    // first sees the app whole - so it fixes a different DURATION per node, not
-    // a different deadline. Open the two windows a few seconds apart and the
-    // later start with the shorter wait lands on the same instant as the earlier
-    // start with the longer one, both nodes decide in the same pass, and the
-    // ordering the test exists to prove is gone. In production both holders
-    // start observing together, which is what makes position decide.
+    // Opened together, so both nodes are evacuating through the same turns.
     await Promise.all([TARGET, SECOND_TARGET].map((node) => elapseSettleWindow(node)));
 
-    // Whichever goes first, the other must be refused while the app is short.
-    //
-    // Read from the PACING decision, not the safety gate. The strength test sits
-    // in the queue ticket now - an app short of its count accrues nothing
-    // towards its turn - so a short app is refused before the pass ever consults
-    // appEvacuationSafety, and the safety event this used to wait on is never
-    // published. The refusal itself is unchanged, and it carries the same name
-    // for the same fact one layer up.
+    // Whichever goes first, the other must be refused while the app is short -
+    // by the pacing decision, which refuses a short app before the pass ever
+    // consults appEvacuationSafety.
     let refusal = null;
     const refusedForBeingShort = Promise.race([TARGET, SECOND_TARGET].map((node) => waitForGiveUpConsidered(
       env.clients[node - 1], 'sharedapp',
@@ -899,7 +531,7 @@ describe('Residential node evacuation: one holder at a time', function () {
     await stopTicker();
     await driveUntil(env.clients[TARGET - 1],
       async () => refusal !== null || departures() >= 2,
-      { timeoutMs: DEPARTURE_WAIT_MS });
+      { timeoutMs: departureWaitMs([TARGET, SECOND_TARGET]) });
     await startTicker();
 
     expect(departures(), 'both holders handed the same app back, so one-at-a-time did not hold')
@@ -909,99 +541,27 @@ describe('Residential node evacuation: one holder at a time', function () {
     expect(verdict.data.code).to.equal('BELOW_INSTANCE_COUNT');
     expect(verdict.data.detail).to.contain('below its instance count');
   });
-
-  it('serves a fresh queue turn after a departure, not one that matured during it', async function () {
-    this.timeout(900000);
-
-    // The ticket is the only thing separating two holders of one app, and it
-    // separates them only while it is still binding. A node inside its
-    // departure interval cannot act on anything, so time passing there is not
-    // evidence about any app it holds - but the ticket used to keep maturing
-    // through the block anyway, and the node came out of it instantly ready for
-    // everything at once. Two holders whose blocks expire in the same pass -
-    // and the pass is fired from a block height, so the whole fleet runs it
-    // together - then hand back the same app in the same pass, both read it at
-    // full strength, and both delete.
-    //
-    // Written as ONE node's second departure rather than two nodes colliding:
-    // the collision needs both blocks to expire on the same pass, which is a
-    // coincidence to arrange and a tautology to assert. What actually fixes it
-    // is that a departure restarts the queue, and that is directly observable.
-    await returnToService(env, TARGET);
-    await returnToService(env, SECOND_TARGET);
-
-    await seedApp(env, 'firstout', { instances: 5 });
-    await seedApp(env, 'secondout', { instances: 5 });
-    await advanceBlocks(3);
-    await waitFor(async () => {
-      const first = await dbClient(2).getAppLocations('firstout');
-      const second = await dbClient(2).getAppLocations('secondout');
-      return first.length >= 5 && second.length >= 5;
-    }, { timeout: 300000, label: 'both apps reach their instance count across the fleet' });
-
-    await setSystemSecure(subnet.nodeIp(TARGET), false);
-    await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
-      { timeout: 120000, label: 'the settling window starts' });
-    await elapseSettleWindow(TARGET);
-
-    const client = env.clients[TARGET - 1];
-    const seeded = ['firstout', 'secondout'];
-    const wentFirst = (e) => e.event === 'app:removed' && seeded.includes(e.data?.name);
-
-    await stopTicker();
-    await driveUntil(env.clients[TARGET - 1], async () => client.getEventBuffer().some(wentFirst),
-      { timeoutMs: DEPARTURE_WAIT_MS });
-    const gone = client.getEventBuffer().filter(wentFirst).pop();
-    const remaining = gone.data.name === 'firstout' ? 'secondout' : 'firstout';
-
-    // Through the block every pass refuses with 'next departure in'. The first
-    // time it says 'its turn is in' AFTER that departure, the block has cleared
-    // and the ticket has started over - which is the claim. On the accounting
-    // this replaces the ticket had matured inside the block, so the same pass
-    // removed the second app instead and this never arrives.
-    const turnRestarted = (e) => e.event === 'giveUp:considered'
-      && e.data?.appName === remaining
-      && e.data?.giveUp === false
-      && /its turn is in/.test(e.data?.detail || '')
-      && e.id > gone.id;
-
-    await driveUntil(env.clients[TARGET - 1], async () => client.getEventBuffer().some(turnRestarted),
-      { timeoutMs: DEPARTURE_WAIT_MS });
-    await startTicker();
-
-    // One stream, monotonic ids: the second app was still waiting its turn on a
-    // pass that came after the first one left, rather than leaving with it.
-    const verdict = client.getEventBuffer().filter(turnRestarted).pop();
-    expect(verdict, `${remaining} never served a fresh turn after the departure`).to.not.be.undefined;
-    expect(client.getEventBuffer().some(
-      (e) => e.event === 'app:removed' && e.data?.name === remaining && e.id < verdict.id,
-    ), `${remaining} left during the departure interval instead of serving a turn`).to.equal(false);
-  });
 });
 
 // A FLEET OF ITS OWN, and the reason is arithmetic.
 //
 // Every app this suite seeds asks for five instances on a five-node fleet, so
 // each one lands on every node, and nothing removes them between tests. By the
-// end of the describe above, node 1 holds seven apps. Evacuation gives up ONE
-// app per departure interval, and a node inside that interval records nothing
-// against any other app's queue ticket - so every departure restarts the turn
-// of everything still held.
-//
-// The stand-down tests would therefore be queued behind six unrelated apps, at
-// roughly a hundred seconds each. On the 2026-08-31 gate that suite shed six
-// inside the budget and ran out one departure short of the seventh: primaryapp
-// drew ten DEPARTURE_INTERVAL and ten AWAITING_TURN verdicts and never reached
-// the stand-down check at all - no answer rather than a wrong one, and tests 17
-// and 18 never ran.
-//
-// Budgeting for that queue was the wrong fix: it makes one test wait thirteen
-// minutes and leaves the next person to add a test to discover the same thing.
-// These tests need one node that is the elected primary of one app and is
-// draining. A second fleet costs one boot and gives them exactly that.
+// end of the describe above, node 1 holds seven apps, and evacuation gives up ONE
+// app per departure interval - so the stand-down tests would queue behind six
+// unrelated apps. These tests need one node that is the elected primary of one
+// app and is draining. A second fleet costs one boot and gives them exactly that.
 describe('Residential node evacuation: standing down as the elected primary', function () {
   let env;
   dumpLogsOnFailure(() => env);
+
+  // The turn primaryapp's stand-down happened in, and its pass's event id, for the test that follows it.
+  let stoodDownTurn = null;
+  let stoodDownPass = null;
+  // The give-up pass's account of the turn it judged primaryapp on, last before `beforeId`.
+  const turnBefore = (beforeId) => env.clients[TARGET - 1].getEventBuffer()
+    .filter((e) => e.event === 'giveUp:turn' && e.data?.appName === 'primaryapp' && e.id < beforeId)
+    .pop();
 
   before(async function () {
     this.timeout(600000);
@@ -1020,8 +580,9 @@ describe('Residential node evacuation: standing down as the elected primary', fu
 
     // The elected primary is the node WRITING to the volume. Handing the app
     // back from under it drops whatever it has written since the peer last
-    // reported the folder complete. So it stops the component first and asks
-    // again next pass, by which time the election has given the role to a peer.
+    // reported the folder complete. So it stops the component on one pass of a
+    // turn it owns and removes on a later pass of a turn it owns, by which time
+    // the election has given the role to a peer.
     await returnToService(env, SECOND_TARGET);
     // Node 1 too - it is still held from the previous test, and a held node
     // takes no new apps, so the app would reach four instances and never five.
@@ -1054,18 +615,21 @@ describe('Residential node evacuation: standing down as the elected primary', fu
       .then((v) => { standDownVerdict = v; return v; });
     stoodDown.catch(() => {});
 
-    // Two cycles is enough here BECAUSE this fleet is fresh: the node holds
-    // primaryapp and nothing else, so the stand-down is the first thing its
-    // evacuation reaches rather than the seventh. On the shared fleet above it
-    // would need a departure per app held, which is what the split exists to
-    // avoid rather than to budget for.
+    // This fleet is fresh: the node holds primaryapp and nothing else, so the
+    // stand-down is the first thing its evacuation reaches.
     await stopTicker();
     await driveUntil(env.clients[TARGET - 1], async () => standDownVerdict !== null,
-      { timeoutMs: DEPARTURE_WAIT_MS });
+      { timeoutMs: departureWaitMs([TARGET]) });
     await startTicker();
 
     const verdict = await stoodDown;
     expect(verdict.data.code).to.equal('STAND_DOWN_REQUIRED');
+    // In a turn it owns, on that turn's second pass.
+    const turn = turnBefore(verdict.id);
+    expect(turn?.data?.owner, JSON.stringify(turn?.data)).to.equal(keysOf([TARGET])[0]);
+    expect(turn.data.previousTurn, 'stood down on the first pass of its turn').to.equal(turn.data.turn);
+    stoodDownTurn = turn.data.turn;
+    stoodDownPass = turn.id;
 
     // STANDING DOWN IS A TRANSITION, so it is read as one. The reconciler
     // publishes the desired state it sets and the reason it set it, which is
@@ -1107,21 +671,39 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     expect(await runningComponents(env, TARGET)).to.not.include('fluxprimaryapp_primaryapp');
   });
 
-  it('hands the app back on the pass after standing down, and the app survives elsewhere', async function () {
+  it('hands the app back on a later pass of a turn it owns, and the app survives elsewhere', async function () {
     this.timeout(900000);
+    expect(stoodDownTurn, 'the test above did not stand down').to.not.equal(null);
 
     // Runs on from the test above: node TARGET has stopped primaryapp's g:
-    // component and is no longer a candidate for it, so the next pass finds the
-    // component not running here, re-proves a connected peer holds the folder
-    // with nothing left to write, and removes.
+    // component and is no longer a candidate for it, so a later pass of a turn
+    // it owns finds the component not running here, re-proves a connected peer
+    // holds the folder with nothing left to write, and removes.
+    const client = env.clients[TARGET - 1];
+    const removal = () => client.getEventBuffer().find((e) => e.event === 'app:removed' && e.data?.name === 'primaryapp');
+    await stopTicker();
+    await driveUntil(client, async () => removal() !== undefined, {
+      timeoutMs: untilOwnedTurnEndsMs({
+        holders: keysOf([1, 2, 3, 4, 5]),
+        owners: keysOf([TARGET]),
+        turnMs: RESIDENTIAL_PACING.residentialTurnMs,
+        fromMs: stoodDownTurn * RESIDENTIAL_PACING.residentialTurnMs,
+      }) + (2 * PASS_MS),
+    });
+    await startTicker();
+    const removed = removal();
+
+    const turn = turnBefore(removed.id);
+    expect(turn?.data?.owner, JSON.stringify(turn?.data)).to.equal(keysOf([TARGET])[0]);
+    expect(turn.id, 'removed on the pass it stood down on').to.be.above(stoodDownPass);
+    expect(turn.data.previousTurn, 'removed on the first pass of its turn').to.equal(turn.data.turn);
+
     await waitFor(async () => {
       const locations = await dbClient(2).getAppLocations('primaryapp');
       return !locations.map((l) => l.ip.split(':')[0]).includes(subnet.nodeIp(TARGET));
-    }, { timeout: 600000, label: 'the standing-down node hands primaryapp back' });
-
+    }, { timeout: 120000, label: 'the departure reaches the rest of the fleet' });
     const locations = await dbClient(2).getAppLocations('primaryapp');
     expect(locations.length).to.be.greaterThan(0);
-    expect(locations.map((l) => l.ip.split(':')[0])).to.not.include(subnet.nodeIp(TARGET));
   });
 
   it('will not hand back a g: app it is running while no FDM can name the primary', async function () {
@@ -1225,7 +807,7 @@ describe('Residential node evacuation: standing down as the elected primary', fu
       // has its own couplings to check first.
       await stopTicker();
       await driveUntil(env.clients[TARGET - 1], async () => unknownRefusal !== null,
-      { timeoutMs: DEPARTURE_WAIT_MS });
+      { timeoutMs: departureWaitMs([TARGET]) });
       await startTicker();
 
       const verdict = await refused;
@@ -1239,5 +821,98 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     } finally {
       await endFdmOutage();
     }
+  });
+});
+
+// A FLEET OF ITS OWN, so a stood-down app stays on node 1 without delaying the
+// departures the describe above waits for.
+describe('Residential node evacuation: a stand-down that cannot finish', function () {
+  let env;
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(600000);
+    env = await bootResidentialFleet(this);
+  });
+
+  after(async function () {
+    this.timeout(120000);
+    await clearSystemSecure().catch(() => {});
+    await stopTicker().catch(() => {});
+    if (env) await env.teardown();
+  });
+
+  /** Node TARGET, the elected primary of a fresh g: app, drains until it stands down. */
+  async function standDown(appName) {
+    const folder = `flux${appName}_${appName}`;
+    await returnToService(env, TARGET);
+    await electMaster(appName, subnet.nodeIp(TARGET));
+    await seedApp(env, appName, { instances: 5, containerData: 'g:/appdata' });
+    await setSynced({ folder });
+    await setPeerHasData({ folder });
+    await advanceBlocks(3);
+    await waitFor(async () => (await dbClient(2).getAppLocations(appName)).length >= 5,
+      { timeout: 300000, label: `${appName} reaches its instance count across the fleet` });
+    await waitFor(async () => (await runningComponents(env, TARGET)).includes(folder),
+      { timeout: 300000, label: 'the elected primary is running the g: component' });
+
+    await setSystemSecure(subnet.nodeIp(TARGET), false);
+    await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
+      { timeout: 120000, label: 'the settling window starts' });
+    await elapseSettleWindow(TARGET);
+
+    const client = env.clients[TARGET - 1];
+    const anchor = client.getLastEventId();
+    const stoodDown = () => client.getEventBuffer().find((e) => e.id > anchor && e.event === 'giveUp:standDown'
+      && e.data?.appName === appName);
+    await stopTicker();
+    await driveUntil(client, async () => stoodDown() !== undefined, { timeoutMs: departureWaitMs([TARGET]) });
+    return { event: stoodDown(), folder };
+  }
+
+  it('stands for election again once it has owned a turn since without being able to leave', async function () {
+    this.timeout(900000);
+    const client = env.clients[TARGET - 1];
+    const { event, folder } = await standDown('releaseapp');
+    // No peer holds the folder any more, so its next owned turn cannot remove.
+    await setNoPeerData({ folder });
+    const stoodDownTurn = client.getEventBuffer()
+      .filter((e) => e.event === 'giveUp:turn' && e.data?.appName === 'releaseapp' && e.id < event.id).pop().data.turn;
+    const released = () => client.getEventBuffer().find((e) => e.id > event.id && e.event === 'giveUp:standDownReleased'
+      && e.data?.identifier === 'releaseapp_releaseapp');
+
+    await driveUntil(client, async () => released() !== undefined, {
+      timeoutMs: untilOwnedTurnEndsMs({
+        holders: keysOf([1, 2, 3, 4, 5]),
+        owners: keysOf([TARGET]),
+        turnMs: RESIDENTIAL_PACING.residentialTurnMs,
+        fromMs: (stoodDownTurn + 1) * RESIDENTIAL_PACING.residentialTurnMs,
+      }) + RESIDENTIAL_PACING.residentialTurnMs + (2 * PASS_MS),
+    });
+    await startTicker();
+
+    expect(released().data.reason).to.equal('OWNED_TURN_PASSED');
+    // Released in a turn after the one it owned: it had that whole turn to leave in.
+    const at = client.getEventBuffer()
+      .filter((e) => e.event === 'giveUp:turn' && e.data?.appName === 'releaseapp' && e.id < released().id).pop().data.turn;
+    const owned = Array.from({ length: at - stoodDownTurn - 1 }, (_, i) => stoodDownTurn + 1 + i)
+      .filter((turn) => turnOwner(keysOf([1, 2, 3, 4, 5]), turn) === keysOf([TARGET])[0]);
+    expect(owned, 'released before it owned a whole turn').to.not.be.empty;
+    const installed = await client.get('/apps/installedapps');
+    expect(installed.data.map((a) => a.name)).to.include('releaseapp');
+  });
+
+  it('stands for election again once the node stops evacuating', async function () {
+    this.timeout(900000);
+    const client = env.clients[TARGET - 1];
+    const { event } = await standDown('returnapp');
+    await setSystemSecure(subnet.nodeIp(TARGET), true);
+    const released = () => client.getEventBuffer().find((e) => e.id > event.id && e.event === 'giveUp:standDownReleased'
+      && e.data?.identifier === 'returnapp_returnapp');
+
+    await driveUntil(client, async () => released() !== undefined, { timeoutMs: 120000 + (2 * PASS_MS) });
+    await startTicker();
+
+    expect(released().data.reason).to.equal('NOT_EVACUATING');
   });
 });

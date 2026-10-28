@@ -420,6 +420,27 @@ export function dbClient(nodeNum) {
       return explorerDb.collection('zelappshashes').find(query, { projection: { _id: 0 } }).toArray();
     },
 
+    async insertAppHashRecord(record) {
+      const explorerDb = await db('explorer');
+      await explorerDb.collection('zelappshashes').insertOne(record);
+    },
+
+    async appHashIndexes() {
+      const explorerDb = await db('explorer');
+      return explorerDb.collection('zelappshashes').indexes();
+    },
+
+    async explainAppHashes(query) {
+      const explorerDb = await db('explorer');
+      const { executionStats } = await explorerDb.collection('zelappshashes').find(query).explain('executionStats');
+      return executionStats;
+    },
+
+    async dropAppHashIndex(name) {
+      const explorerDb = await db('explorer');
+      await explorerDb.collection('zelappshashes').dropIndex(name);
+    },
+
     async seedAppLocation({ name, ip, hash, broadcastedAt, runningSince }) {
       const globalDb = await db('appsGlobal');
       const ts = broadcastedAt ?? Date.now();
@@ -449,6 +470,11 @@ export function dbClient(nodeNum) {
      * than a rejected message. Ordered, because a suite that seeds two broadcasts
      * from one node is usually proving which of them wins.
      */
+    async updateAppStateEvents(query, set) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('appstateevents').updateMany(query, { $set: set });
+    },
+
     async seedAppStateEvents(events) {
       if (!events.length) return;
       const globalDb = await db('appsGlobal');
