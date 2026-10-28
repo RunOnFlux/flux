@@ -7638,6 +7638,48 @@ describe('advancedWorkflows tests', () => {
       expect(removeAppLocally.called, 'an app was uninstalled with its data because the database did not answer').to.be.false;
     });
 
+    // The uninstall removes the component's image and closes its ports. Given the
+    // new component it removes an image that was never pulled and leaves the old
+    // one on disk, and closes ports the old one did not use.
+    it('uninstalls the component as it is installed, not as it will be', async () => {
+      const softUninstallComponent = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+      sinon.stub(dbHelper, 'replaceOneInDatabase').rejects(new Error('stop here'));
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      sinon.assert.calledOnce(softUninstallComponent);
+      expect(softUninstallComponent.firstCall.args[2]).to.include({ repotag: 'nginx:1.0' });
+    });
+
+    it('hard-uninstalls the component as it is installed when its disk changes', async () => {
+      const hardUninstallComponent = sinon.stub(appUninstaller, 'hardUninstallComponent').resolves();
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+      sinon.stub(dbHelper, 'replaceOneInDatabase').rejects(new Error('stop here'));
+      dbHelper.findOneInDatabase.resolves({ ...newSpec, compose: [{ ...newSpec.compose[0], hdd: 10 }] });
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      sinon.assert.calledOnce(hardUninstallComponent);
+      expect(hardUninstallComponent.firstCall.args[2]).to.include({ repotag: 'nginx:1.0', hdd: 5 });
+    });
+
+    // The app's own row still holds its old specification while its components
+    // are replaced: counting it would ask the node for room for both.
+    it('checks the new specification without counting the app it replaces', async () => {
+      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      const checkAppRequirements = sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+      sinon.stub(dbHelper, 'replaceOneInDatabase').rejects(new Error('stop here'));
+
+      await advancedWorkflows.reinstallOldApplications();
+
+      sinon.assert.calledOnce(checkAppRequirements);
+      expect(checkAppRequirements.firstCall.args[4]).to.deep.equal({ replacing: 'myapp' });
+    });
+
     it('never deletes the app\'s row: the new specification replaces it in one write', async () => {
       sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
       sinon.stub(appUninstaller, 'removeAppLocally').resolves();

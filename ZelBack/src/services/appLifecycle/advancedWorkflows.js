@@ -4541,9 +4541,11 @@ async function reinstallOldApplications() {
                   // soft redeployment
                   const appId = dockerService.getAppIdentifier(`${appComponent.name}_${appSpecifications.name}`);
                   // Bare app name: the callee joins it with the component's own
-                  // name for the monitoring key and for cleanupPorts.
+                  // name for the monitoring key and for cleanupPorts. The installed
+                  // component, not the new one: the uninstall removes its image and
+                  // closes its ports.
                   // eslint-disable-next-line no-await-in-loop
-                  await appUninstaller.softUninstallComponent(appSpecifications.name, appId, appComponent, null, stopAppMonitoring);
+                  await appUninstaller.softUninstallComponent(appSpecifications.name, appId, installedComponent, null, stopAppMonitoring);
                   log.warn(`Application component ${appComponent.name}_${appSpecifications.name} softly removed. Awaiting installation...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
@@ -4554,7 +4556,7 @@ async function reinstallOldApplications() {
                   const appId = dockerService.getAppIdentifier(`${appComponent.name}_${appSpecifications.name}`);
                   // same contract as the soft branch above
                   // eslint-disable-next-line no-await-in-loop
-                  await appUninstaller.hardUninstallComponent(appSpecifications.name, appId, appComponent, null, stopAppMonitoring);
+                  await appUninstaller.hardUninstallComponent(appSpecifications.name, appId, installedComponent, null, stopAppMonitoring);
                   log.warn(`Application component ${appComponent.name}_${appSpecifications.name} removed. Awaiting installation...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
