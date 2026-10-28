@@ -3984,6 +3984,7 @@ async function checkAndRemoveApplicationInstance({
     return;
   }
   giveUpPassLock.register();
+  fluxEventBus.publish('giveUp:passStarted', { height });
   // To check if more than allowed instances of application are running
   // check if synced
   try {
@@ -4282,6 +4283,7 @@ async function checkAndRemoveApplicationInstance({
     log.error(error);
   } finally {
     giveUpPassLock.disable();
+    fluxEventBus.publish('giveUp:passEnded', { height });
   }
 }
 

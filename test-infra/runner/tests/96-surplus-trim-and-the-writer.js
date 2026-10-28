@@ -194,7 +194,7 @@ describe('a surplus copy that is also the writer', function () {
     await Promise.all(realClients.map((c, i) => c.waitForEvent(
       'block:processed', (d) => d.height >= currentHeight, 120000, { afterId: seenBefore[i] },
     )));
-    await waitForStartedGiveUpPasses(HOLDERS.map((i) => env.clients[i]), appName);
+    await waitForStartedGiveUpPasses(HOLDERS.map((i) => env.clients[i]));
 
     held = stub.holdApp(appName, {
       hash: app.hash,

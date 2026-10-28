@@ -148,7 +148,7 @@ describe('a surplus trim keeps the copy running any g: component', function () {
     await Promise.all(real.map((i, k) => client(i).waitForEvent(
       'block:processed', (d) => d.height >= currentHeight, 120000, { afterId: seen[k] },
     )));
-    await waitForStartedGiveUpPasses(HOLDERS.map(client), appName);
+    await waitForStartedGiveUpPasses(HOLDERS.map(client));
 
     const stub = env.stubPeerClients.get(STUB_INDEX);
     await waitFor(async () => (await stub.connectedNodes()) > 0, {
