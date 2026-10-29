@@ -23,8 +23,10 @@ async function drain() {
       queued.delete(name);
       removing = name;
       try {
-        // eslint-disable-next-line no-await-in-loop
-        await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.REMOVAL_QUEUE_BEFORE_REMOVAL, name);
+        if (fluxEventBus.isCheckpointHeld(fluxEventBus.Checkpoint.REMOVAL_QUEUE_BEFORE_REMOVAL, name)) {
+          // eslint-disable-next-line no-await-in-loop
+          await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.REMOVAL_QUEUE_BEFORE_REMOVAL, name);
+        }
         // eslint-disable-next-line no-await-in-loop
         await remover(name);
       } catch (error) {
