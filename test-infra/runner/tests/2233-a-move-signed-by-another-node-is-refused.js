@@ -286,8 +286,12 @@ describe('a move signed by another node is refused', function () {
       // Back to the address it listens on, so the returning node can dial it.
       await clearNodeAddress(stubIp);
       const tip = await mineAndRead(1 + RECORD_BLOCKS + 10, up);
+      const mark = client.getLastEventId();
       await releaseFluxos(client.container);
-      await waitForDaemonReady(client);
+      // The event stream does not outlive FluxOS, so it is opened again on the new process.
+      client.disconnectEventStream();
+      await client.connectEventStream();
+      await waitForDaemonReady(client, 120000, { afterId: mark });
       await waitFor(async () => (await dbClient(down + 1).explorerHeight()) >= tip, {
         timeout: 600000, interval: 5000, label: `the returning node has caught up to block ${tip}`,
       });
