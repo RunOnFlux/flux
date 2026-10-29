@@ -24,11 +24,11 @@ npm run test:zelback:unit:compose
 To run a single test module:
 
 ```bash
-npm run test:zelback:unit:oneoff tests/unit/dockerService.test.js
+npm run test:zelback:unit:compose -- tests/unit/dockerService.test.js
 ```
 
 To filter on specific test(s):
 
 ```bash
-npm run test:zelback:unit:oneoff -- -g 'should remove a network' tests/unit/dockerService.test.js
+npm run test:zelback:unit:compose -- -g 'should remove a network' tests/unit/dockerService.test.js
 ```

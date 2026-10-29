@@ -55,7 +55,6 @@
     "test:zelback": "mocha tests/ZelBack",
     "test:zelback:unit": "env NODE_CONFIG_DIR=$PWD/tests/unit/globalconfig nyc --reporter=lcov mocha \"tests/unit/**/*.test.js\" --exit",
     "test:zelback:unit:compose": "bash tests/images/run-unit.sh",
-    "test:zelback:unit:oneoff": "bash tests/images/run-unit.sh",
     "test:ethereumHelper": "env NODE_CONFIG_DIR=$PWD/tests/unit/globalconfig mocha tests/unit/ethereumHelper.test.js --exit",
     "prebuild": "bash checkNodeV.sh",
     "fluxdev": "nodemon app.js --dev",
