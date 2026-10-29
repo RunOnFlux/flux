@@ -69,6 +69,7 @@ describe('fileSystemManager tests', () => {
       // A copy this node may write to; 'a copy that follows another node' below flips it.
       refuseReadOnlyWrite: sinon.stub().resolves(),
       refuseReadOnlyRemoval: sinon.stub().resolves(),
+      refuseLinkAtRoot: sinon.stub().resolves(),
       parent: sinon.stub().callsFake((p) => {
         const at = p.relative.lastIndexOf('/');
         return volumePath(at === -1 ? '' : p.relative.slice(0, at));
@@ -1070,6 +1071,42 @@ describe('fileSystemManager tests', () => {
 
         expect(executorStub.run.called).to.equal(false);
         expect(res.json.firstCall.args[0].data.code).to.equal(409);
+      });
+    });
+  });
+
+  // Rename, move and copy place their source at the destination, so a link may
+  // not be published at the volume root by them. An archive stores what it is
+  // given and an extraction writes what the archive holds: neither places its
+  // source, so neither asks.
+  describe('a link placed at the volume root', () => {
+    // [handler, set-up, whether it places its source]
+    const cases = [
+      ['renameAppsObject', () => { req.params.oldpath = 'stash/lnk'; req.params.newname = 'appdata2'; }, true],
+      ['moveAppsObject', () => { req.body = { source: 'stash/lnk', destination: 'appdata2' }; }, true],
+      ['copyAppsObject', () => { req.body = { source: 'stash/lnk', destination: 'appdata2' }; }, true],
+      ['compressAppsObject', () => { req.body = { source: ['ordinary.txt', 'evil'], destination: 'listed.zip' }; }, false],
+      ['extractAppsObject', () => { req.body = { source: 'a.tar.gz', destination: 'out' }; }, false],
+    ];
+
+    cases.forEach(([handler, setUp, places]) => {
+      it(`${handler} ${places ? 'asks' : 'does not ask'} whether it would place a link at the root`, async () => {
+        setUp();
+        await fileSystemManager[handler](req, res);
+        await settle();
+
+        expect(sessionStub.refuseLinkAtRoot.called).to.equal(places);
+      });
+    });
+
+    cases.filter(([, , places]) => places).forEach(([handler, setUp]) => {
+      it(`${handler} starts nothing when it would place a link at the root`, async () => {
+        sessionStub.refuseLinkAtRoot.rejects(new Error('stash/lnk is a link and cannot be placed at the root of the volume'));
+        setUp();
+        await fileSystemManager[handler](req, res);
+        await settle();
+
+        expect(executorStub.run.called).to.equal(false);
       });
     });
   });
