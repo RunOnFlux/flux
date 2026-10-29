@@ -95,6 +95,43 @@ describe('daemonConfig tests', () => {
     expect(dc.configDir).to.equal(null);
   });
 
+  describe('fluxd\'s data directory', () => {
+    it('is fluxd\'s default directory when there is no flux.conf', async () => {
+      setPlatform('linux');
+      sinon.stub(fs, 'stat').rejects(new Error('Not found'));
+
+      const dc = new DaemonConfig();
+      await dc.parseConfig();
+
+      expect(dc.dataDir).to.equal('/home/testuser/.flux');
+    });
+
+    it('is the directory flux.conf is in', async () => {
+      setPlatform('linux');
+      sinon.stub(fs, 'stat').callsFake(async (file) => {
+        if (file === '/home/testuser/.zelcash/zelcash.conf') return { found: true };
+        throw new Error('Not found');
+      });
+      sinon.stub(fs, 'readFile').resolves(fluxdConfigs.standard);
+
+      const dc = new DaemonConfig();
+      await dc.parseConfig();
+
+      expect(dc.dataDir).to.equal('/home/testuser/.zelcash');
+    });
+
+    it('is flux.conf\'s datadir when it sets one', async () => {
+      setPlatform('linux');
+      sinon.stub(fs, 'stat').resolves({ found: true });
+      sinon.stub(fs, 'readFile').resolves(`${fluxdConfigs.standard}\ndatadir=/dat/fluxd\n`);
+
+      const dc = new DaemonConfig();
+      await dc.parseConfig();
+
+      expect(dc.dataDir).to.equal('/dat/fluxd');
+    });
+  });
+
   it('should parse a standard fluxd config file correctly', async () => {
     setPlatform('linux');
     sinon.stub(fs, 'stat').resolves({ found: true });

@@ -1741,6 +1741,7 @@ describe('fluxNetworkHelper tests', () => {
       sinon.stub(geolocationService, 'setNodeGeolocation');
       sinon.stub(appQueryService, 'installedApps').resolves({ status: 'success', data: [] });
       sinon.stub(daemonServiceFluxnodeRpcs, 'createConfirmationTransaction').resolves({ status: 'success', data: null });
+      sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus').resolves({ status: 'error', data: { message: 'connect ECONNREFUSED' } });
       // Backup original userconfig
       originalUserConfig = globalThis.userconfig;
       // Mock userconfig with expected test values
@@ -1860,6 +1861,7 @@ describe('fluxNetworkHelper tests', () => {
 
       // Stub the fluxnode confirmation transaction
       sinon.stub(daemonServiceFluxnodeRpcs, 'createConfirmationTransaction').resolves({ status: 'success' });
+      sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus').resolves({ status: 'error', data: { message: 'connect ECONNREFUSED' } });
 
       // Stub serviceHelper.delay
       sinon.stub(serviceHelper, 'delay').resolves();

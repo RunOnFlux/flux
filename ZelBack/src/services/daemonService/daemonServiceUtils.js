@@ -114,7 +114,7 @@ function usesRpcCookie() {
  */
 function rpcCookieFile() {
   if (fluxdReportsItself) return fluxdCredentials.RPC_COOKIE_FILE;
-  const datadir = fluxdConfig.get('datadir') || fluxdConfig.configDir;
+  const datadir = fluxdConfig.dataDir;
   const configured = fluxdConfig.get('rpccookiefile');
   if (!configured) return path.join(datadir, '.cookie');
   return path.isAbsolute(configured) ? configured : path.join(datadir, configured);
