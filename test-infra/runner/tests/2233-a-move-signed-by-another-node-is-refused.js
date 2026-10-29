@@ -9,7 +9,8 @@ import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { waitFor, waitForDaemonReady } from '../framework/wait.js';
 import {
-  advanceBlock, clearNodeAddress, driveUntil, removeFromNodeList, setNodeAddress, startTicker, stopTicker,
+  advanceBlock, clearConfirmationSchedule, clearNodeAddress, driveUntil, removeFromNodeList, setConfirmationSchedule,
+  setNodeAddress, startTicker, stopTicker,
 } from '../framework/daemon-control.js';
 import { bootAndPeer, seedAndInstall } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
@@ -42,9 +43,11 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // A node down for more than the record's blocks keeps none of what it recorded
 // before: one node's FluxOS is held down, the chain moves the stub back to the
 // address it listens on and mines past RECORD_BLOCKS, and the node comes back
-// and catches up. The stub signs that move, more than 640 blocks old: every node
-// refuses it. The chain moves the stub again and the stub signs that move in the
-// next block: every node holds it.
+// and catches up. The stub confirms on fluxd's cadence from the move on, so its
+// first confirmation the returning node records falls within 640 blocks of the
+// tip. The stub signs that move, more than 640 blocks old: every node refuses
+// it. The chain moves the stub again and the stub signs that move in the next
+// block: every node holds it.
 
 const REAL_NODES = 3;
 const STUB_INDEX = 3;
@@ -54,6 +57,8 @@ const LOCATION_TTL_S = 30 * 60;
 // fluxnodeAddressRecord's CONFIRMATION_EXPIRY_BLOCKS and RECORD_BLOCKS.
 const CONFIRMATION_EXPIRY_BLOCKS = 640;
 const RECORD_BLOCKS = 890;
+// Within fluxd's 500-640 blocks between a node's confirmations.
+const STUB_CONFIRMATION_INTERVAL = 600;
 
 describe('a move signed by another node is refused', function () {
   let env;
@@ -289,6 +294,7 @@ describe('a move signed by another node is refused', function () {
     await stopTicker();
     try {
       await crashFluxos(client.container, { hold: true });
+      await setConfirmationSchedule(stubIp, { intervalBlocks: STUB_CONFIRMATION_INTERVAL });
       // Back to the address it listens on, so the returning node can dial it.
       await clearNodeAddress(stubIp);
       const tip = await mineAndRead(1 + RECORD_BLOCKS + 10, up);
@@ -326,6 +332,7 @@ describe('a move signed by another node is refused', function () {
         expect(await held(i, from, stubAddress), `node ${i} held a move the chain made ${RECORD_BLOCKS + 11} blocks ago`).to.equal(false);
       }
     } finally {
+      await clearConfirmationSchedule(stubIp);
       await startTicker();
     }
   });
