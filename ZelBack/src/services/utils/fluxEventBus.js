@@ -122,6 +122,9 @@ const Checkpoint = Object.freeze({
   // A removal has taken an app's containers and volume down and has not yet
   // deleted its row. Keyed by app name.
   REMOVAL_BEFORE_ROW_DELETE: 'removal:beforeRowDelete',
+  // The local removal queue has taken an app as the one it removes next, and has
+  // not started removing it. Keyed by app name.
+  REMOVAL_QUEUE_BEFORE_REMOVAL: 'removalQueue:beforeRemoval',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.
