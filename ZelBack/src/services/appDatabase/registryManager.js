@@ -1854,10 +1854,12 @@ async function expireGlobalApplications() {
         locallyExpired.push(app);
       }
     });
-    // The installed record is only refreshed from a renewal by reinstallOldApplications, every
-    // 16-36 blocks, so for a while after a renewal it still carries the old expiry. Ask the
-    // global spec before uninstalling: removing an app the network has just renewed deletes
-    // its data on this node for nothing.
+    // The installed record is only refreshed from a renewal or a transfer by
+    // reinstallOldApplications, every 16-36 blocks, so for a while after one it still carries
+    // the old expiry and owner. Ask the network before uninstalling: an app it holds in force
+    // under the same tenure is kept for that pass to refresh. Another owner on the name is a new
+    // tenure only when that owner registered it after the installed term (a transfer is an
+    // update, never a registration); that is the case the install is removed for.
     if (locallyExpired.length) {
       const globalSpecs = await dbHelper.findInDatabase(
         databaseApps,
@@ -1869,16 +1871,25 @@ async function expireGlobalApplications() {
           },
         },
       );
-      locallyExpired.forEach((app) => {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const app of locallyExpired) {
         const globalSpec = globalSpecs.find((spec) => spec.name === app.name);
-        // the same owner's app, not a re-registration of its released name by someone else
-        if (globalSpec && signatureVerifier.sameSigningIdentity(globalSpec.owner, app.owner)
-          && appMessageChain.isInForce(globalSpec.height, globalSpec.expire, explorerHeight)) {
-          log.info(`Application ${app.name} is expired locally but renewed on the network, keeping it`);
-          return;
+        const inForce = globalSpec && appMessageChain.isInForce(globalSpec.height, globalSpec.expire, explorerHeight);
+        const sameOwner = inForce && signatureVerifier.sameSigningIdentity(globalSpec.owner, app.owner);
+        const keep = sameOwner || (inForce && !appMessageChain.registeredByAnotherAfterTerm(
+          // eslint-disable-next-line no-await-in-loop
+          await appMessagesThatCount(app.name),
+          app.height,
+          app.expire,
+          app.owner,
+          signatureVerifier.sameSigningIdentity,
+        ));
+        if (keep) {
+          log.info(`Application ${app.name} is expired locally but in force on the network, keeping it`);
+        } else {
+          appsToRemove.push(app);
         }
-        appsToRemove.push(app);
-      });
+      }
     }
     const appsToRemoveNames = appsToRemove.map((app) => app.name);
     appsToRemoveNames.forEach((appName) => {

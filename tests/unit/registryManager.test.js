@@ -1347,13 +1347,67 @@ describe('registryManager tests', () => {
       expect(queued()).to.deep.equal([]);
     });
 
-    it('should still uninstall it when the live spec is a re-registration of its name by someone else', async () => {
-      await database.collection(appsInformation).insertOne({ ...spec('TakenApp', 'newowner', 3007900, 88000), owner: '1Q9sjqQcR2jSFt8pdaF7fhv9ozqD4qLnHu' });
-      installed = [spec('TakenApp', 'old', 3003310, 56)];
+    describe('another owner on the name of an installed app past its term', () => {
+      const { appsMessages } = config.database.appsglobal.collections;
+      const buyer = '1Q9sjqQcR2jSFt8pdaF7fhv9ozqD4qLnHu';
+      const message = (type, hash, height, expire, signedFor) => ({
+        type, hash, height, timestamp: height, appSpecifications: { name: 'TakenApp', version: 3, owner: signedFor, expire },
+      });
 
-      await registryManager.expireGlobalApplications();
+      beforeEach(async () => {
+        await database.collection(appsMessages).deleteMany({});
+        // installed under the first owner, its term ending at 3003366
+        installed = [spec('TakenApp', 'old', 3003310, 56)];
+      });
 
-      expect(queued()).to.deep.equal(['TakenApp']);
+      afterEach(async () => {
+        await database.collection(appsMessages).deleteMany({});
+      });
+
+      it('should uninstall it when the other owner registered the name after the term', async () => {
+        await database.collection(appsMessages).insertMany([
+          message('fluxappregister', 'old', 3003310, 56, owner),
+          message('fluxappregister', 'newowner', 3007900, 88000, buyer),
+        ]);
+        await database.collection(appsInformation).insertOne({ ...spec('TakenApp', 'newowner', 3007900, 88000), owner: buyer });
+
+        await registryManager.expireGlobalApplications();
+
+        expect(queued()).to.deep.equal(['TakenApp']);
+      });
+
+      it('should keep it when the name reached the other owner by a transfer this node has not applied', async () => {
+        await database.collection(appsMessages).insertMany([
+          message('fluxappregister', 'old', 3003310, 56, owner),
+          // the owner's update naming the buyer, inside the installed term
+          message('fluxappupdate', 'sold', 3003350, 56, buyer),
+          // the buyer's update after the installed term ended
+          message('fluxappupdate', 'buyerupdate', 3007900, 88000, buyer),
+        ]);
+        await database.collection(appsInformation).insertOne({ ...spec('TakenApp', 'buyerupdate', 3007900, 88000), owner: buyer });
+
+        await registryManager.expireGlobalApplications();
+
+        expect(queued()).to.deep.equal([]);
+      });
+
+      it('should uninstall it when the other owner\'s spec is itself past its term', async () => {
+        await database.collection(appsMessages).insertMany([
+          message('fluxappregister', 'old', 3003310, 56, owner),
+          message('fluxappupdate', 'sold', 3003350, 56, buyer),
+        ]);
+        // read by the local branch only: the global pass found nothing to expire
+        const realFind = dbHelper.findInDatabase;
+        sinon.stub(dbHelper, 'findInDatabase').callsFake(async (dbase, collection, query, options) => {
+          if (collection === appsInformation && Object.keys(query).length === 0) return [];
+          if (collection === appsInformation) return [{ ...spec('TakenApp', 'sold', 3003350, 56), owner: buyer }];
+          return realFind(dbase, collection, query, options);
+        });
+
+        await registryManager.expireGlobalApplications();
+
+        expect(queued()).to.deep.equal(['TakenApp']);
+      });
     });
 
     it('should not uninstall an app whose installed record is stale but the network renewed', async () => {
