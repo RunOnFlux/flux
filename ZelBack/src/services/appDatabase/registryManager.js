@@ -1886,6 +1886,7 @@ async function expireGlobalApplications() {
         ));
         if (keep) {
           log.info(`Application ${app.name} is expired locally but in force on the network, keeping it`);
+          fluxEventBus.count('expiry:installedApp', app.name, 'kept');
         } else {
           appsToRemove.push(app);
         }
@@ -1895,6 +1896,7 @@ async function expireGlobalApplications() {
     appsToRemoveNames.forEach((appName) => {
       log.warn(`Application ${appName} is expired, removing`);
       log.warn(`REMOVAL REASON: App expired - ${appName} reached expiration date (registryManager)`);
+      fluxEventBus.count('expiry:installedApp', appName, 'removed');
     });
     localRemovalQueue.queueRemovals(appsToRemoveNames);
   } catch (error) {
