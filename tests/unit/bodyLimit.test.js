@@ -1,4 +1,6 @@
 const { EventEmitter } = require('node:events');
+const fs = require('node:fs');
+const path = require('node:path');
 const { expect } = require('chai');
 const express = require('express');
 const request = require('supertest');
@@ -117,6 +119,35 @@ describe('bodyLimit', () => {
 
       expect(response.status).to.equal(200);
       expect(response.body).to.eql({ length: 5 });
+    });
+  });
+
+  // A handler that reads its own body bypasses every parser's limit, so each one
+  // bounds it here. Read from the source, so a new handler that forgets is refused.
+  describe('every handler in ZelBack that reads its own request body', () => {
+    const source = path.join(__dirname, '../../ZelBack/src');
+    const sourceFiles = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) return sourceFiles(full);
+      return entry.name.endsWith('.js') ? [full] : [];
+    });
+    const count = (text, pattern) => (text.match(pattern) || []).length;
+    const files = sourceFiles(source).map((file) => {
+      const text = fs.readFileSync(file, 'utf8');
+      return {
+        file: path.relative(source, file),
+        reads: count(text, /req\.on\(\s*'data'/g),
+        bounded: count(text, /bodyLimit\.refuseIfTooLarge\(/g),
+      };
+    });
+
+    it('is found by the scan', () => {
+      expect(files.filter(({ reads }) => reads > 0).length).to.be.above(10);
+    });
+
+    it('bounds the body with refuseIfTooLarge', () => {
+      const unbounded = files.filter(({ reads, bounded }) => reads > bounded);
+      expect(unbounded).to.eql([]);
     });
   });
 });

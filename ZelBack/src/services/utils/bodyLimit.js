@@ -12,16 +12,17 @@ const BODY_DRAIN_MS = 1000;
 const refusedRequests = new WeakSet();
 
 /**
- * Refuses a request whose body, as collected so far, is over MAX_BODY_SIZE: a
- * 413, then the socket goes. Called from the handler's data listener, after each
+ * Refuses a request whose body, as collected so far, is over the limit: a 413,
+ * then the socket goes. Called from the handler's data listener, after each
  * chunk is added to `body`.
  * @param {object} req Request.
  * @param {object} res Response.
  * @param {string} body The body collected so far.
+ * @param {number} [limit] The most characters this handler takes; MAX_BODY_SIZE by default.
  * @returns {boolean} Whether the request was refused.
  */
-function refuseIfTooLarge(req, res, body) {
-  if (body.length <= MAX_BODY_SIZE) return false;
+function refuseIfTooLarge(req, res, body, limit = MAX_BODY_SIZE) {
+  if (body.length <= limit) return false;
   if (!refusedRequests.has(req)) {
     refusedRequests.add(req);
     // Answered before the socket goes: a write to a destroyed socket is
