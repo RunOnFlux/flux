@@ -15,6 +15,59 @@ const {
 
 const { normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
 
+const DEVICE_ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+/**
+ * The Luhn mod 32 check character syncthing appends to each 13-character group
+ * of a device ID.
+ * @param {string} group
+ * @returns {string}
+ */
+function deviceIdCheckCharacter(group) {
+  let factor = 1;
+  let sum = 0;
+  for (const character of group) {
+    const addend = factor * DEVICE_ID_ALPHABET.indexOf(character);
+    factor = factor === 2 ? 1 : 2;
+    sum += Math.floor(addend / 32) + (addend % 32);
+  }
+  return DEVICE_ID_ALPHABET[(32 - (sum % 32)) % 32];
+}
+
+/**
+ * `value` as syncthing writes a device ID - upper case, each 13-character group
+ * followed by its check character, a dash after every 7 - when it is one as
+ * syncthing reads one: base32, dashes and spaces aside and 0, 1 and 8 read as
+ * O, I and B, either 56 characters whose every 14th is the check character of
+ * the 13 before it, or 52 without them. Syncthing refuses a configuration that
+ * names any other device, and with it every device the same write configures,
+ * and it holds every device under this form, so an ID compared with its
+ * configuration is compared in it.
+ * @param {unknown} value
+ * @returns {string|null} null when `value` is not a device ID
+ */
+function canonicalSyncthingDeviceId(value) {
+  if (typeof value !== 'string') return null;
+  const id = value.replace(/[-\s]/g, '').toUpperCase()
+    .replace(/0/g, 'O').replace(/1/g, 'I').replace(/8/g, 'B');
+  if (![...id].every((character) => DEVICE_ID_ALPHABET.includes(character))) return null;
+  let checked;
+  if (id.length === 52) {
+    checked = [0, 13, 26, 39].map((start) => {
+      const group = id.slice(start, start + 13);
+      return group + deviceIdCheckCharacter(group);
+    }).join('');
+  } else if (id.length === 56) {
+    for (let start = 0; start < 56; start += 14) {
+      if (id[start + 13] !== deviceIdCheckCharacter(id.slice(start, start + 13))) return null;
+    }
+    checked = id;
+  } else {
+    return null;
+  }
+  return checked.match(/.{7}/g).join('-');
+}
+
 /**
  * Helper function to get device ID from remote node with retry capability
  * @param {string} fluxIP - IP address of the remote node
@@ -60,21 +113,37 @@ async function getDeviceID(fluxIP, retries = 0) {
  * its syncthing has not answered it - keeps the device syncthing has configured
  * under `name`, so a holder stays in its folders for as long as it is listed.
  *
+ * A device a peer gives that is not a syncthing device ID is no device: what
+ * was held for `name` is dropped, and the device syncthing has configured under
+ * it stands.
+ *
  * Every call counts where its answer came from under `syncthing:deviceSource`,
  * keyed by `name`: verified, verifiedNoDevice, introduced, withheld, held,
- * unsigned or configured.
+ * unsigned, configured or malformed.
  *
  * @param {string} name - Device name (IP:port)
  * @param {Map} cache - Cache map
  * @param {string|null} [configured] - The device syncthing has configured under
  *   `name`, when exactly one is
- * @returns {Promise<string|null>} Device ID or null
+ * @returns {Promise<string|null>} the device ID as syncthing writes it, or null
  */
 async function getDeviceIDCached(name, cache, configured = null) {
   const { IdentityVerdict } = peerIdentityService;
   const from = (source, deviceID) => {
+    if (deviceID === null || source === 'configured') {
+      fluxEventBus.count('syncthing:deviceSource', name, source);
+      return deviceID;
+    }
+    const canonical = canonicalSyncthingDeviceId(deviceID);
+    if (canonical === null) {
+      cache.delete(name);
+      log.warn(`getDeviceIDCached - ${name} gave ${JSON.stringify(deviceID)} (${source}), which is not a syncthing device ID`);
+      fluxEventBus.count('syncthing:deviceSource', name, 'malformed');
+      return configured;
+    }
+    if (cache.get(name) === deviceID) cache.set(name, canonical);
     fluxEventBus.count('syncthing:deviceSource', name, source);
-    return deviceID;
+    return canonical;
   };
   const result = await peerIdentityService.verifyPeer(name);
 
@@ -403,6 +472,7 @@ function folderNeedsUpdate(existingFolder, newFolder) {
 
 module.exports = {
   OWNED_FOLDER_SETTINGS,
+  canonicalSyncthingDeviceId,
   getDeviceID,
   getDeviceIDCached,
   sortAndFilterLocations,

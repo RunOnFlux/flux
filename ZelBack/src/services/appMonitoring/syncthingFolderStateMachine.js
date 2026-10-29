@@ -848,7 +848,9 @@ async function holderListExcludingDead(appId, allPeersList, localSocketAddr, liv
 }
 
 /**
- * The first peer found already holding a writable copy of this folder, or null.
+ * The peer that keeps this elected node from seeding a folder this pass, or null.
+ * A peer that already holds the writable copy never gets this far: it ends the
+ * cold start, and the election names no seed.
  *
  * Two answers block, for different reasons, and the difference is the whole point
  * of asking:
@@ -892,9 +894,7 @@ async function holderListExcludingDead(appId, allPeersList, localSocketAddr, liv
  * @param {Array} peers App location entries
  * @param {string} localSocketAddr This node's socket address
  * @param {Object} liveness This pass's peer view
- * @returns {Promise<{ip: string, reason: string, holdsWritableCopy?: boolean}|null>}
- *   The blocking peer, or null. holdsWritableCopy marks a peer that has the copy
- *   already, which means the seed is taken rather than undecided.
+ * @returns {Promise<{ip: string, reason: string}|null>} The blocking peer, or null.
  */
 async function findPeerBlockingPromotion(appId, peers, localSocketAddr, liveness) {
   const others = (peers || []).filter((peer) => peer?.ip && !socketAddressesMatch(peer.ip, localSocketAddr));
@@ -904,8 +904,6 @@ async function findPeerBlockingPromotion(appId, peers, localSocketAddr, liveness
     async (peer) => ({ ip: peer.ip, ...await liveness.read(peer.ip) }),
   ));
 
-  const holder = answers.find((answer) => answer.reachable && answer.ready && answer.folders.includes(appId));
-  if (holder) return { ip: holder.ip, reason: 'already holds the writable copy', holdsWritableCopy: true };
   const unready = answers.find((answer) => answer.reachable && answer.answerable && !answer.ready);
   if (unready) return { ip: unready.ip, reason: 'has not determined its folder state yet' };
   // Unlike an old peer, whose silence on this question is its version, a call
@@ -1539,12 +1537,23 @@ async function handleReceiveOnlyTransition(params) {
   // whose image is gone holds nothing.
   const volumeHeldOut = [];
   const volumeGone = [];
+  // Candidates that already hold this folder's writable copy. One is enough to end
+  // the cold start: there is nothing left to seed, so the election names no seed
+  // and this node goes on as a standby, receiveonly until it has synced and then
+  // writable like every other holder. Each node decides from its own view of the
+  // holder list and those views fill in at different moments, so the first-placed
+  // node may already have seeded on a smaller view when this node's view names it.
+  const writableHolders = [];
   await Promise.all(electionList.map(async (peer) => {
     if (socketAddressesMatch(peer.ip, localSocketAddr)) {
       if (ownClaim) claims[peer.ip] = ownClaim;
       return;
     }
     const answer = await liveness.read(peer.ip);
+    if (answer?.reachable && answer.ready && (answer.folders ?? []).includes(appId)) {
+      writableHolders.push(peer.ip);
+      return;
+    }
     const listed = (field) => answer?.ready && [appId, ...electedSiblings].some((folder) => (answer[field] ?? []).includes(folder));
     if (listed('notLookedAt')) {
       notLookedAt.push(peer.ip);
@@ -1598,10 +1607,10 @@ async function handleReceiveOnlyTransition(params) {
     if (!cache.waitingOnVolume) log.info(`handleReceiveOnlyTransition - ${appId}: ${volumeHeldOut.join(', ')} cannot mount a volume that may hold the app's data and no other holder has data; nobody seeds until it mounts`);
   }
   cache.waitingOnVolume = waitingOnVolume;
-  const electedLeader = appWriter
+  const electedLeader = !writableHolders.length && (appWriter
     ? appWriter.here && !aPeerHasData
     : !standDownOnUnknown && !notLookedAt.length && !waitingOnVolume
-      && isDesignatedLeader(candidates, localSocketAddr, aPeerHasData, claims);
+      && isDesignatedLeader(candidates, localSocketAddr, aPeerHasData, claims));
   // The floor holderIsGone asks of a silent holder, asked of this node before
   // its own win can count: a node whose peers have gone quiet is the one that
   // fell over, and a win it confirms in that state seeds the app on a
@@ -1646,23 +1655,8 @@ async function handleReceiveOnlyTransition(params) {
   // alone. Properly closing it needs a consensus-grounded election (a deterministic
   // candidate over the on-chain confirmed node set + a data-aware quorum lease that
   // subsumes the data-version check) - a separate, proposed redesign, out of scope here.
-  // Winning the election is not the same as being the first to win it. Each node
-  // decides from its own view of the holder list, and those views fill in at
-  // different moments: the first-placed node is briefly the only holder it knows
-  // of and seeds on that basis, which is correct - somebody has to seed an empty
-  // folder or the app never starts. A node that can see further then wins the
-  // tiebreak among the holders it can see. So the last check before seeding is
-  // whether somebody already has.
-  //
-  // SEEDING IS OVER once another holder has the writable copy. The election goes
-  // on naming this node for as long as it wins the tiebreak, but there is nothing
-  // left to seed, so it goes on as a standby: receiveonly until it has synced,
-  // then writable, like every other holder.
   const blocker = isLeader ? await findPeerBlockingPromotion(appId, runningAppList, localSocketAddr, liveness) : null;
-  if (blocker?.holdsWritableCopy) {
-    log.info(`handleReceiveOnlyTransition - ${appId} is elected to seed but ${blocker.ip} ${blocker.reason}; going on as a standby`);
-  }
-  if (isLeader && !blocker?.holdsWritableCopy) {
+  if (isLeader) {
     // Marked before the peers are read, so a rival deciding at the same moment
     // sees this node. Every way out below that does not seed goes back to intent.
     markSeed(appId, 'deciding', seedHoldings);
@@ -1779,6 +1773,7 @@ async function handleReceiveOnlyTransition(params) {
     + `elected=${electedLeader} connected=${connected} `
     + `streak=${cache.leaderStreak}/${LEADER_CONFIRM_COUNT} `
     + `peerHasData=${aPeerHasData}`
+    + (writableHolders.length ? ` writableAt=${writableHolders.join(',')}` : '')
     + (electedSiblings.length ? ` appWriter=${appWriter ? (appWriter.here ? 'here' : appWriter.ip) : 'none'}` : '');
   if (reason !== cache.lastNotPromotedReason) {
     log.info(`handleReceiveOnlyTransition - ${appId} not promoted: ${reason}`);

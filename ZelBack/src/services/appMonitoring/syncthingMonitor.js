@@ -422,6 +422,11 @@ async function processContainerData(params) {
     syncthingFolder.type = 'sendreceive';
   }
 
+  // Nothing arrives in a folder whose local appdata is still to be cleared: what
+  // arrived before the clear would be cleared with it, and syncthing would hold
+  // an index of files the disk no longer has. The pass after the clear resumes it.
+  if (appReconciler.dataClearPending(appId)) syncthingFolder.paused = true;
+
   // Add to tracking arrays
   folderIds.push(id);
   foldersConfiguration.push(syncthingFolder);
@@ -1193,6 +1198,10 @@ function syncthingApps(state, installedAppsFn, getGlobalStateFn) {
     onResync: () => accelerator.onResync(),
   });
 
+  // A folder held paused for a clear is resumed by the pass after it.
+  const onDataCleared = () => accelerator.onResync();
+  appReconciler.dataEvents.on('cleared', onDataCleared);
+
   // Return control object for graceful shutdown
   return {
     stop: () => {
@@ -1200,6 +1209,7 @@ function syncthingApps(state, installedAppsFn, getGlobalStateFn) {
         clearInterval(intervalId);
         intervalId = null;
         accelerator.stop();
+        appReconciler.dataEvents.off('cleared', onDataCleared);
         syncthingEventsConsumer.stop();
         log.info('syncthingApps - Monitoring service stopped');
       }

@@ -353,9 +353,11 @@ async function trySpawningGlobalApplication() {
     // Set when the app comes back from a domain-share deferral: the better-placed
     // domains have had their turn and did not take it.
     let shareDeferralServed = false;
-    const { appsToBeCheckedLater, appsSyncthingToBeCheckedLater } = globalState;
-    const appIndex = appsToBeCheckedLater.findIndex((app) => app.timeToCheck <= Date.now());
-    const appSyncthingIndex = appsSyncthingToBeCheckedLater.findIndex((app) => app.timeToCheck <= Date.now());
+    const { appsToBeCheckedLater, appsSyncthingToBeCheckedLater, departingApps } = globalState;
+    // An app this node is removing stays queued until its removal has finished.
+    const isDue = (app) => app.timeToCheck <= Date.now() && !departingApps.has(app.appName);
+    const appIndex = appsToBeCheckedLater.findIndex(isDue);
+    const appSyncthingIndex = appsSyncthingToBeCheckedLater.findIndex(isDue);
     let runningAppList = [];
     let installingAppList = [];
 
@@ -417,6 +419,14 @@ async function trySpawningGlobalApplication() {
       );
       survivors.afterBlocklist = globalAppNamesLocation.length;
       stages.push(['afterBlocklist', nameSet()]);
+
+      // An app this node is removing is not a candidate until the removal has
+      // finished: the installer refuses it until then, and the removal would take
+      // whatever was installed in its place. Dropped before the draw, so the pass
+      // goes to another candidate.
+      globalAppNamesLocation = globalAppNamesLocation.filter((app) => !departingApps.has(app.name));
+      survivors.afterDeparting = globalAppNamesLocation.length;
+      stages.push(['afterDeparting', nameSet()]);
 
       // filter apps that failed to install before
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => !runningApps.data.find((appsRunning) => appsRunning.Names[0].slice(5) === app.name)
@@ -551,6 +561,14 @@ async function trySpawningGlobalApplication() {
       }
     }
 
+    // Kept through a successful install, and a later removal of the app does not
+    // clear it: for the rest of its twelve hours this node does not take the app
+    // again, and other nodes do. That is what paces an app removed for something
+    // the checks below do not repeat - a storage violation, a container that
+    // cannot be recreated, a port its router will not map - which would
+    // otherwise be installed and removed again on every pass. The removal of a
+    // surplus copy below clears it, since the node takes that app again only
+    // once the network is short of it.
     globalState.trySpawningGlobalAppCache.set(appHash, '');
     log.info(`trySpawningGlobalApplication - App ${appToRun} hash: ${appHash}`);
 

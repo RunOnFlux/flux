@@ -2704,6 +2704,14 @@ async function checkDeterministicNodesCollisions() {
         const myCollateral = nodeStatus.data.collateral;
         const myNode = result.find((node) => node.collateral === myCollateral);
         const nodeCollateralDifferentIp = nodeList.find((node) => node.collateral === myCollateral && !socketAddressesMatch(node.ip, localSocketAddr));
+        // A listing elsewhere is judged against this node's address as benchmark
+        // reports it now, not as cached: the list can name a new address of this
+        // node before the cache does. One that has moved on judges nothing here -
+        // the change runs this check again, and the move, from the new address.
+        if (nodeCollateralDifferentIp) {
+          const current = await getLocalSocketAddress({ fresh: true });
+          if (!current || !socketAddressesMatch(current, localSocketAddr)) return;
+        }
         if (result.length > 1) {
           log.warn('Multiple Flux Node instances detected');
           if (myNode) {

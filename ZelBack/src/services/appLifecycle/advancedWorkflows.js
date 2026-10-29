@@ -3984,6 +3984,7 @@ async function checkAndRemoveApplicationInstance({
     return;
   }
   giveUpPassLock.register();
+  fluxEventBus.publish('giveUp:passStarted', { height });
   // To check if more than allowed instances of application are running
   // check if synced
   try {
@@ -4282,6 +4283,7 @@ async function checkAndRemoveApplicationInstance({
     log.error(error);
   } finally {
     giveUpPassLock.disable();
+    fluxEventBus.publish('giveUp:passEnded', { height });
   }
 }
 
@@ -5326,12 +5328,13 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
             // From here the primary is the full address it answers on: FDM's IP
             // after a move is still that node, at its new address. This node's own
             // address is the one it adopted when benchmark still reports one it has
-            // moved away from.
-            localSocketAddr = fluxNetworkHelper.ownAddressFor(localSocketAddr);
+            // moved away from. Taken once FDM's answer is in, so a move recorded
+            // while it was asked counts for both.
             if (ip) {
               // eslint-disable-next-line no-await-in-loop
               ip = await fdmPrimaryAddress(installedApp.name, ip);
             }
+            localSocketAddr = fluxNetworkHelper.ownAddressFor(localSocketAddr);
             // FDM answered and `ip` is either a primary's address or null for
             // none. Both are verdicts, and it is the verdict rather than the
             // table entry that isElectedPrimaryHere reads - a null ip writes

@@ -33,9 +33,8 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //    WHAT THIS LEG CANNOT ASSERT, AND WHY. seedSyncthingApp({ forceNonLeader: true })
 //    installs the app on a peer FIRST and lets it seed, so for the whole of this leg
 //    that peer is up, running, and holding the folder sendreceive. The node under test
-//    therefore wins the election every cycle and is refused by findPeerBlockingPromotion
-//    on the last check before promoting - `already holds the writable copy` - which is
-//    correct and is what decides this leg. It is NOT the empty-global gate: at the merge
+//    is therefore never elected: a peer that already holds the writable copy leaves
+//    nothing to seed - which is correct and is what decides this leg. It is NOT the empty-global gate: at the merge
 //    base the promote guard is `!folderIsEmpty && !(syncStatus && syncStatus.isSynced)`,
 //    and an empty global reads as a vacuous 100%, so that guard lets this node through
 //    too. The `must not promote` half has always been answered by the peer check.

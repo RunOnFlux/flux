@@ -26,7 +26,9 @@ import {
 } from './infra-death.js';
 import { acquireBootLock, releaseBootLock, BOOT_LOCK_MAX_WAIT_MS } from './boot-lock.js';
 import { stubPeerClient } from './stub-peer-helper.js';
-import { derivePeerThresholds, ringArc, dialerCount } from './peer-topology.js';
+import {
+  derivePeerThresholds, deriveReadinessThresholds, carriedPeers, ringArc, dialerCount,
+} from './peer-topology.js';
 import { pushImage, mirrorExecutorImage, executorImageReference } from './registry-helper.js';
 import { MongoClient } from 'mongodb';
 import { authenticate } from '../auth.js';
@@ -1212,9 +1214,9 @@ export async function createTestEnv({
   // towards not firing: a stub that does carry a connection is counted as one.
   // A suite that declares its own appSyncFallbackMinutes is testing this budget
   // and keeps what it asked for.
-  const reachablePeers = nodes <= 1
-    ? 0
-    : Math.min(nodes - 1, 2 * ringArc(dialerCount(nodes, stubPeers.length + deferredNodes)));
+  const reachablePeers = carriedPeers(nodes, stubPeers.length + deferredNodes);
+  // What the fleet runs when no suite sets them - see deriveReadinessThresholds.
+  const readiness = deriveReadinessThresholds(nodes, stubPeers.length + deferredNodes, sharedFluxapps);
   const peerlessOverrides = {};
   for (let index = 0; index < nodes; index += 1) {
     const declaredFallback = nodeConfigOverrides[index]?.fluxapps?.appSyncFallbackMinutes
@@ -1222,7 +1224,7 @@ export async function createTestEnv({
     if (declaredFallback !== undefined) continue;
     const threshold = nodeConfigOverrides[index]?.fluxapps?.appSyncPeerThreshold
       ?? configOverrides?.fluxapps?.appSyncPeerThreshold
-      ?? sharedFluxapps.appSyncPeerThreshold;
+      ?? readiness.appSyncPeerThreshold;
     if (reachablePeers >= threshold) continue;
     peerlessOverrides[index] = mergeConfigs(
       { fluxapps: { appSyncFallbackMinutes: 0 } },
@@ -1259,7 +1261,7 @@ export async function createTestEnv({
     ? 0
     : Math.min(nodes - deferredNodes - 1, 2 * ringArc(dialerCount(nodes, stubPeers.length + deferredNodes)));
   const policyReachable = awaitPolicy && peersAtStart >= (
-    configOverrides?.fluxapps?.appSyncPeerThreshold ?? sharedFluxapps.appSyncPeerThreshold
+    configOverrides?.fluxapps?.appSyncPeerThreshold ?? readiness.appSyncPeerThreshold
   );
 
   const mergedNodeOverrides = { ...nodeConfigOverrides, ...peerlessOverrides, ...syncedOverrides };
@@ -1802,6 +1804,9 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
         // 6/2 or 7/1 is the first shape that changes, so this was a trap set for
         // the next suite written rather than a fault in any existing one.
         ...derivePeerThresholds(nodes, stubPeers.length + deferredNodes),
+        // The readiness thresholds keep production's share of the peers a node
+        // carries, for the same reason - see peer-topology.js.
+        ...deriveReadinessThresholds(nodes, stubPeers.length + deferredNodes, sharedFluxapps),
         // Travels as configuration, like every other override. It used to be an
         // env var the entrypoint sed into shared.js - but the merged config is
         // written by REQUIRING the per-node file, which spreads shared.js at

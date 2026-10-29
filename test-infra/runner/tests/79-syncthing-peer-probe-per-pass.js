@@ -22,9 +22,8 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // detection and error draining stopped for every folder on the node.
 //
 // A dead peer cannot report what it was asked, so the peer here is alive and
-// counting. It holds the lowest address, which makes it the elected holder every
-// folder defers to, so the subject node stays in the deciding state and keeps
-// asking pass after pass. What the arrival times show is the whole point: two
+// counting. It claims the writable copy of every folder, so the subject node is
+// never elected to seed, stays receiveonly, and keeps asking pass after pass. What the arrival times show is the whole point: two
 // arrivals milliseconds apart are one pass asking twice.
 
 // The cadence this suite pins its nodes to, and the window derived from it. The
@@ -62,10 +61,10 @@ describe('syncthing asks a peer once per pass, not once per folder', function ()
   // node's inbound source. The floors are sized to it - all four, because the
   // harness base minUniqueIpsOutgoing of 3 is unreachable on a mesh this size.
   //
-  // The subject holds the lowest address, so it WINS each folder's election and
-  // reaches the "does anyone already hold this?" question - which asks every
-  // other holder, and the stub answers that it does. So the subject never
-  // promotes, stays deciding, and asks again next pass. That is the question
+  // The subject holds the lowest address, so the address order names it for each
+  // folder. Each election asks every other holder what it holds, and the stub
+  // answers that it holds the writable copy - so the subject is not elected, never
+  // promotes, and asks again next pass. That is the question
   // being counted: once per pass with the fix, once per folder without it.
   const stubIndex = 4;
   const subject = 0;
@@ -103,8 +102,8 @@ describe('syncthing asks a peer once per pass, not once per folder', function ()
     await stub.clear();
 
     // Two r: apps on one node, both waiting on sync before they may start. No
-    // forceNonLeader: the subject must WIN its elections here, so that it reaches
-    // the "does anyone already hold this?" question the stub answers.
+    // forceNonLeader: the address order must name the subject here, so that only
+    // the stub's answer keeps it from seeding.
     for (const name of [appOne, appTwo]) {
       // eslint-disable-next-line no-await-in-loop
       await seedSyncthingApp(env, { name, mode: 'r', index: subject });
@@ -114,10 +113,9 @@ describe('syncthing asks a peer once per pass, not once per folder', function ()
       await dbClient(subject + 1).seedAppLocation({ name, ip: stubIp });
     }
 
-    // Claiming both folders is what holds the subject in the deciding state: a
-    // peer that already has the writable copy blocks promotion, so the subject
-    // stays receiveonly and asks again every pass instead of promoting once and
-    // falling silent.
+    // Claiming both folders is what keeps the subject asking: with the writable
+    // copy already held there is nothing to seed, so the subject stays receiveonly
+    // and asks again every pass instead of promoting once and falling silent.
     await stub.setPromotedFolders({ ready: true, folders: heldFolders });
   });
 

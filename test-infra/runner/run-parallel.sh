@@ -170,21 +170,18 @@ if [ -z "${SUITES:-}" ]; then
   SUITES="$heavy $light"
 fi
 
-# A suite that boots a node on another build of FluxOS declares it on a line of its
-# own (`// base-image: FLUX_E2E_BASE_TAG`); the gate refuses before launching anything
-# when a chosen suite declares one and that image is not on this host, rather than
-# letting the suite fail inside the run.
+# A suite that upgrades a node declares the release it starts it on, on its first line
+# (`// upgrades-from: release` or `// upgrades-from: vX.Y.Z`, see
+# framework/upgrade-base.js). Every such image the chosen suites need is built before
+# anything is launched, and the gate refuses when one cannot be, rather than letting
+# the suite fail inside the run.
+chosen_files=()
 for s in $SUITES; do
-  grep -qh '^// base-image: FLUX_E2E_BASE_TAG$' tests/${s}-*.js 2>/dev/null || continue
-  if [ -z "${FLUX_E2E_BASE_TAG:-}" ]; then
-    abort 91 "###ABORT suite $s boots a node on a base image and FLUX_E2E_BASE_TAG is not set." \
-      "Build one: FLUX_E2E_TAG=<tag> ./test-infra/build-release-image.sh <release ref>, then run with FLUX_E2E_BASE_TAG=<tag>."
-  fi
-  if ! docker image inspect "flux-e2e-fluxos-01:${FLUX_E2E_BASE_TAG}" >/dev/null 2>&1; then
-    abort 91 "###ABORT suite $s boots a node on flux-e2e-fluxos-01:${FLUX_E2E_BASE_TAG}, which is not on this host." \
-      "Build it: FLUX_E2E_TAG=${FLUX_E2E_BASE_TAG} ./test-infra/build-release-image.sh <release ref>."
-  fi
+  for f in tests/${s}-*.js; do [ -e "$f" ] && chosen_files+=("$f"); done
 done
+if [ ${#chosen_files[@]} -gt 0 ] && ! ./ensure-upgrade-bases.sh "${chosen_files[@]}" 2>&1 | tee -a "$DLOG"; then
+  abort 91 "###ABORT a suite's upgrade base could not be built - see above."
+fi
 
 free_mb(){ free -m | awk '/^Mem:/{print $7}'; }
 load_1m(){ cut -d' ' -f1 /proc/loadavg | cut -d. -f1; }   # integer part is enough for a gate

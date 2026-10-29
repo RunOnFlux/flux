@@ -1054,6 +1054,8 @@ async function installAppLocally(req, res) {
       // a half-streamed body.
       const heldBy = globalState.operationHolding();
       if (heldBy) {
+        // published as registerAppLocally publishes its own refusals: busy, ask again
+        fluxEventBus.publish('app:installOutcome', { name: appname, outcome: InstallOutcome.BUSY });
         throw new Error(`Another application is undergoing ${heldBy}. Installation not possible.`);
       }
       const allApps = await availableApps();

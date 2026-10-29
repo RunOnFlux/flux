@@ -158,7 +158,7 @@ describe('a stalled host takes the node out of service', function () {
 
     it('held docker in the kernel', async function () {
       const stuck = await stuckThreads(container, 'dockerd');
-      expect(stuck, 'no dockerd thread was held across the freeze, so nothing below was tested').to.not.be.empty;
+      expect(stuck, `no dockerd thread was held across the freeze, so nothing below was tested\n${stuck.readings}`).to.not.be.empty;
     });
 
     it('holds the node back from new placements', async function () {
@@ -192,7 +192,7 @@ describe('a stalled host takes the node out of service', function () {
 
     it('held docker in the kernel', async function () {
       const stuck = await stuckThreads(container, 'dockerd');
-      expect(stuck, 'no dockerd thread was held across the freeze, so nothing below was tested').to.not.be.empty;
+      expect(stuck, `no dockerd thread was held across the freeze, so nothing below was tested\n${stuck.readings}`).to.not.be.empty;
     });
 
     it('takes the node out of service, naming the stall', async function () {
@@ -260,7 +260,7 @@ describe('a stalled host takes the node out of service', function () {
 
     it('held docker in the kernel', async function () {
       const stuck = await stuckThreads(killContainer, 'dockerd');
-      expect(stuck, 'no dockerd thread was held across the freeze, so nothing below was tested').to.not.be.empty;
+      expect(stuck, `no dockerd thread was held across the freeze, so nothing below was tested\n${stuck.readings}`).to.not.be.empty;
     });
 
     it('left docker unable to answer', async function () {
@@ -269,7 +269,7 @@ describe('a stalled host takes the node out of service', function () {
       const answer = await execInContainer(killContainer, 'timeout 5 docker version');
       expect(answer.exitCode, 'docker still answers, so it could still stop the app itself').to.not.equal(0);
       const stuck = await stuckThreads(killContainer, 'dockerd');
-      expect(stuck, 'docker\'s held thread was released by its freeze, so the detector has nothing to read').to.not.be.empty;
+      expect(stuck, `docker's held thread was released by its freeze, so the detector has nothing to read\n${stuck.readings}`).to.not.be.empty;
       expect(await processesThatCanRun(killContainer, appCgroup), 'the app is not running, so there is nothing to kill').to.not.be.empty;
     });
 
@@ -338,7 +338,7 @@ describe('a stalled host takes the node out of service', function () {
 
     it('held docker in the kernel, unable to answer, while every app could run', async function () {
       const stuck = await stuckThreads(manyContainer, 'dockerd');
-      expect(stuck, 'no dockerd thread was held across the freeze, so nothing below was tested').to.not.be.empty;
+      expect(stuck, `no dockerd thread was held across the freeze, so nothing below was tested\n${stuck.readings}`).to.not.be.empty;
       const answer = await execInContainer(manyContainer, 'timeout 5 docker version');
       expect(answer.exitCode, 'docker still answers, so it could still stop the apps itself').to.not.equal(0);
       runningBefore.forEach((running, i) => expect(running, `${names[i]} was not running, so there was nothing to stop`).to.not.be.empty);
@@ -400,7 +400,7 @@ describe('a stalled host takes the node out of service', function () {
 
     it('held docker in the kernel across the restart, the node still in service when FluxOS restarted', async function () {
       const stuck = await stuckThreads(restartContainer, 'dockerd');
-      expect(stuck, 'no dockerd thread was held across the restart, so nothing below was tested').to.not.be.empty;
+      expect(stuck, `no dockerd thread was held across the restart, so nothing below was tested\n${stuck.readings}`).to.not.be.empty;
       expect(inServiceAtRestart, 'fixture: the node was out of service before FluxOS restarted').to.equal(true);
     });
 
@@ -440,7 +440,7 @@ describe('a stalled host takes the node out of service', function () {
 
     it('held docker in the kernel across the restarts, every one of them inside two readings', async function () {
       const stuck = await stuckThreads(loopContainer, 'dockerd');
-      expect(stuck, 'no dockerd thread was held across the restarts, so nothing below was tested').to.not.be.empty;
+      expect(stuck, `no dockerd thread was held across the restarts, so nothing below was tested\n${stuck.readings}`).to.not.be.empty;
       expect(restartsTookMs, 'fixture: the restarts took long enough for the readings alone to count').to.be.below(CRASH_LOOP_READ_INTERVAL_MS * 2);
     });
 

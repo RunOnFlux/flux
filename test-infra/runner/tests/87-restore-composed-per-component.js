@@ -6,7 +6,7 @@ import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
 import {
-  setSynced, resetSyncState, resetFolderWrites, getPauseWrites, getFolderWrites,
+  setSynced, resetSyncState, resetFolderWrites, getPauseWrites, getFolderWrites, getFolderConfig,
 } from '../framework/syncthing-control.js';
 import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
@@ -97,6 +97,11 @@ describe('a restore acts on the components it was asked for, by their own folder
     await Promise.all([compA, compB].map((comp) => waitForReconcileActuated(
       env.clients[0], `${comp}_${appName}`, 'dataCleared', 90000, { afterId: installAfter },
     )));
+    // A folder is held paused until its clear is done and resumed by the next
+    // pass. A restore finding it paused leaves that pause to its owner, so each
+    // case starts from folders that pass has resumed.
+    await waitFor(async () => (await Promise.all([compA, compB].map(async (comp) => (await getFolderConfig(nodeIp, folderOf(comp)))?.paused === false)))
+      .every(Boolean), { timeout: 120000, interval: 1000, label: 'both folders resumed after their clear' });
     for (const comp of [compA, compB]) {
       // eslint-disable-next-line no-await-in-loop
       const r = await execInContainer(env.clients[0].container,

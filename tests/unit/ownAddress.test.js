@@ -664,5 +664,22 @@ describe('fluxNetworkHelper own address tests', () => {
       fluxNetworkHelper.setDosMessage(null);
       fluxNetworkHelper.setDosStateValue(0);
     });
+
+    it('takes a listing at the address benchmark now reports for it as its own, while the address it holds is the one before', async () => {
+      configure('198.51.100.40');
+      await adopt('198.51.100.40:16127');
+      fluxNetworkHelper.setLocalSocketAddress('198.51.100.40:16127');
+      collateralListedAt('198.51.100.41:16127', '198.51.100.41:16127');
+      // this node, answering at its new address
+      serviceHelper.axiosGet.withArgs(sinon.match(/198\.51\.100\.41:16127\/flux\/version/)).resolves({ data: { status: 'success' } });
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      expect(fluxNetworkHelper.getDosStateValue(), 'this node held out of service by its own new address').to.equal(0);
+      expect(fluxNetworkHelper.getKnownLocalSocketAddress(), 'the address it holds').to.equal('198.51.100.41:16127');
+      sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(0);
+    });
   });
 });

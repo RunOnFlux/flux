@@ -18,12 +18,23 @@ import { PRODUCTION } from '../framework/coupled-knobs.js';
 // Suite 1: Peer threshold boundaries
 
 describe('Boundary: peer thresholds', function () {
+  // Declared: the thresholds createTestEnv derives for a three-node fleet are
+  // 1 and 1, which leaves no boundary between them to test.
+  const PEER_THRESHOLD = 2;
+  const DEGRADED_THRESHOLD = 1;
   let env;
   dumpLogsOnFailure(() => env);
 
   before(async function () {
     this.timeout(180000);
-    env = await createTestEnv({ hookCtx: this, nodes: 3, tickerAutostart: false });
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 3,
+      tickerAutostart: false,
+      configOverrides: {
+        fluxapps: { appSyncPeerThreshold: PEER_THRESHOLD, appSyncDegradedThreshold: DEGRADED_THRESHOLD },
+      },
+    });
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
     await env.startDiscovery();
@@ -37,7 +48,7 @@ describe('Boundary: peer thresholds', function () {
   it('should fire peers:thresholdReached at exactly threshold (2)', async function () {
     this.timeout(120000);
     const event = await waitForPeerThreshold(env.clients[0], 90000);
-    expect(event.data.count).to.be.greaterThanOrEqual(2);
+    expect(event.data.count).to.be.greaterThanOrEqual(PEER_THRESHOLD);
   });
 
   it('should NOT fire peers:belowThreshold at exactly degraded threshold (1 peer)', async function () {
@@ -123,13 +134,9 @@ describe('Boundary: block timer', function () {
     this.timeout(180000);
     env = await createTestEnv({
       hookCtx: this,
-      // THREE, AND PEERED, because the budget this block measures now only runs
-      // while the peer threshold is met. On two nodes each one holds a single
-      // peer, short of appSyncPeerThreshold, so the counter never advances and
-      // the 250th block arrives to a node still in SYNCING - which is the
-      // invariant working, not the boundary failing. Two nodes could only ever
-      // measure the old behaviour, where a node with nobody to learn from
-      // reached readiness on elapsed time alone.
+      // PEERED, because the budget this block measures only runs while the node
+      // holds appSyncPeerThreshold peers. A node short of it never advances the
+      // counter, and the 250th block arrives to a node still in SYNCING.
       nodes: 3,
       // Nobody authoritative, so no state sync can complete and the block budget
       // is the only road to READY. Without this the fleet's own answerer would

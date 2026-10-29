@@ -406,27 +406,6 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       }
     }
 
-    if (isUpnp) {
-      // A router refusing either protocol's mapping for a reason of its own is
-      // a router fault, counted as one.
-      const upnpMapResult = await upnpService.mapUpnpPort(dosState.testingPort, 'Flux_Test_App', { protocols: protocols.map((protocol) => protocol.toUpperCase()) });
-      routerRefused = routerRefusedSinceLastPass(dosState);
-      if (routerRefused) countPortFailure(dosState, thresholds.dos, UPNP_DOS_MESSAGE);
-      if (!upnpMapResult.mapped) {
-        log.info(`checkMyAppsAvailability - Testing port ${dosState.testingPort} failed to create UPnP mapping: ${upnpMapResult.reason}`);
-        setNextPort();
-        await handleTestShutdown(dosState.testingPort, testHttpServer, isArcane, {
-          skipFirewall: !firewallActive,
-          skipHttpServer: true,
-          protocols,
-        });
-        const upnpDelay = dosState.portFailureScore >= thresholds.dos ? timeouts.dos : timeouts.error;
-        await waitForNextPass(upnpDelay);
-        setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));
-        return;
-      }
-    }
-
     let error = null;
     let httpListening = false;
     if (tcpTested) {
@@ -449,12 +428,14 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       udpTestServer = new fluxUdpTestServer.FluxUdpTestServer(portTestToken);
       error = await udpTestServer.listen(dosState.testingPort).then(() => null, (err) => err.message);
     }
+    // Listened on before the router is asked to forward the port, so a port this
+    // node cannot open costs the router no mapping.
     if (error) {
       log.warn(`Unable to listen on port: ${dosState.testingPort}. Error: ${error}`);
       setNextPort();
       await handleTestShutdown(dosState.testingPort, testHttpServer, isArcane, {
         skipFirewall: !firewallActive,
-        skipUpnp: !isUpnp,
+        skipUpnp: true,
         skipHttpServer: !httpListening,
         udpTestServer,
         protocols,
@@ -462,6 +443,28 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       await waitForNextPass(timeouts.error);
       setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));
       return;
+    }
+
+    if (isUpnp) {
+      // A router refusing either protocol's mapping for a reason of its own is
+      // a router fault, counted as one.
+      const upnpMapResult = await upnpService.mapUpnpPort(dosState.testingPort, 'Flux_Test_App', { protocols: protocols.map((protocol) => protocol.toUpperCase()) });
+      routerRefused = routerRefusedSinceLastPass(dosState);
+      if (routerRefused) countPortFailure(dosState, thresholds.dos, UPNP_DOS_MESSAGE);
+      if (!upnpMapResult.mapped) {
+        log.info(`checkMyAppsAvailability - Testing port ${dosState.testingPort} failed to create UPnP mapping: ${upnpMapResult.reason}`);
+        setNextPort();
+        await handleTestShutdown(dosState.testingPort, testHttpServer, isArcane, {
+          skipFirewall: !firewallActive,
+          skipHttpServer: !httpListening,
+          udpTestServer,
+          protocols,
+        });
+        const upnpDelay = dosState.portFailureScore >= thresholds.dos ? timeouts.dos : timeouts.error;
+        await waitForNextPass(upnpDelay);
+        setImmediate(() => checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorking, failedNodesTestPortsCache, isArcane));
+        return;
+      }
     }
 
     const timeout = 10_000;

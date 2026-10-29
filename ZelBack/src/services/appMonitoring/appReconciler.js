@@ -1,3 +1,4 @@
+const { EventEmitter } = require('node:events');
 const config = require('config');
 const log = require('../../lib/log');
 const fluxEventBus = require('../utils/fluxEventBus');
@@ -62,6 +63,10 @@ const controllerDesired = {
 // guards). The reconciler actuates the wipe inside its per-key single-flight, so
 // a start can never race it.
 const dataDesired = new Map();
+
+// Emits 'cleared' with a component's identifier once its local appdata has been
+// cleared as dataDesired asked.
+const dataEvents = new EventEmitter();
 
 
 // brief settle between the stop and the rm -rf so the container has fully released
@@ -944,6 +949,7 @@ async function reconcile(rawIdentifier) {
         fluxEventBus.publish('reconciler:actuated', { identifier, action: 'stopped', reason: 'dataClear' });
       }
       await serviceHelper.delay(DATA_CLEAR_SETTLE_MS);
+      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.RECONCILER_BEFORE_DATA_CLEAR, identifier);
       await volumeService.clearAppVolumeData(identifier);
     } catch (err) {
       // A failed stop/wipe is the only actuation path here that would otherwise drop
@@ -958,6 +964,7 @@ async function reconcile(rawIdentifier) {
     }
     dataDesired.delete(identifier);
     log.info(`appReconciler - ${identifier} local appdata cleared`);
+    dataEvents.emit('cleared', identifier);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'dataCleared' });
     // the sync layer flips controllerDesired to 'running' once a synced source is
     // confirmed; re-enqueue so we converge promptly if it already has.
@@ -1567,6 +1574,17 @@ function requestStopAndClearData(rawIdentifier, reason) {
 }
 
 /**
+ * Whether a component's local appdata is still to be cleared, as
+ * requestStopAndClearData asked: nothing may arrive in it until then, or it is
+ * cleared with the rest.
+ * @param {string} rawIdentifier
+ * @returns {boolean}
+ */
+function dataClearPending(rawIdentifier) {
+  return dataDesired.get(canonical(rawIdentifier)) === 'clear';
+}
+
+/**
  * Retract the controller's opinion about whether this component should run,
  * leaving every other desired input standing.
  *
@@ -1739,6 +1757,8 @@ module.exports = {
   setRunningUnlessOperatorStopped,
   committedIdentifiers,
   requestStopAndClearData,
+  dataClearPending,
+  dataEvents,
   waitForBootDrainSettled: () => bootDrainGate.wait(),
   start,
   stop,

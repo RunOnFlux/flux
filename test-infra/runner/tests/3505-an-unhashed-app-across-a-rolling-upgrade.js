@@ -1,5 +1,6 @@
-// base-image: FLUX_E2E_BASE_TAG
+// upgrades-from: v8.21.1
 // weight: medium
+import { fileURLToPath } from 'node:url';
 import {
   describe, it, before, after,
 } from 'mocha';
@@ -12,20 +13,19 @@ import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
 import { socketAddr } from '../framework/state-events.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { upgradeBase } from '../framework/upgrade-base.js';
 
-// A network part way through an upgrade. Node 0 runs the FluxOS the others
-// upgrade from (FLUX_E2E_BASE_TAG), which refuses a whole apprunning message for
-// one entry without a hash; nodes 1 and 2 run this build.
+// A network part way through an upgrade. Node 0 runs the release the others
+// upgrade from, which refuses a whole apprunning message for one entry without a
+// hash; nodes 1 and 2 run this build.
 //
 // An upgraded node holding an app installed without a hash leaves it out of its
 // announcements (app:running.unannounced), so the node not yet upgraded goes on
 // storing the rest (network:apprunning). A node not yet upgraded announces such
 // an app, and the upgraded nodes write its other entries and refuse that one,
 // both of which their network:apprunning says.
-//
-// Without FLUX_E2E_BASE_TAG the suite fails before booting, naming what it needs.
 
-const BASE_TAG = process.env.FLUX_E2E_BASE_TAG;
+const { tag: BASE_TAG } = upgradeBase(fileURLToPath(import.meta.url));
 const NOT_UPGRADED = 0;
 const UPGRADED = [1, 2];
 const bare = (address) => String(address).replace(/:16127$/, '');
@@ -74,16 +74,12 @@ describe('an app installed without a hash, across a rolling upgrade', function (
 
   before(async function () {
     this.timeout(420000);
-    if (!BASE_TAG) {
-      throw new Error('FLUX_E2E_BASE_TAG names the node image of the FluxOS the nodes upgrade from: build it from that tree with FLUX_E2E_TAG=<tag> ./test-infra/build-images.sh fluxos-01');
-    }
     env = await createTestEnv({
       hookCtx: this,
       nodes: 3,
       tickerAutostart: false,
       nodeImageTags: { [NOT_UPGRADED]: BASE_TAG },
     });
-    if (BASE_TAG === env.nodeImageTag(UPGRADED[0])) throw new Error('FLUX_E2E_BASE_TAG must name another build than FLUX_E2E_TAG');
     await bootAndPeer(env);
   });
 

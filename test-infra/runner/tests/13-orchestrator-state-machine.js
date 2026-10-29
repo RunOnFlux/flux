@@ -161,6 +161,9 @@ describe('Orchestrator: SYNCING to READY', function () {
   // stops. The two halves below are the same fleet shape and the opposite
   // claim, plus the case that proves the timer still does its actual job.
   describe('a node short of the peer threshold never reaches READY', function () {
+    // Declared: each node of a two-node fleet holds one peer, and the threshold
+    // createTestEnv derives for that shape is 1, which it meets.
+    const PEER_THRESHOLD = 2;
     let env;
     dumpLogsOnFailure(() => env);
 
@@ -174,7 +177,7 @@ describe('Orchestrator: SYNCING to READY', function () {
         hookCtx: this,
         nodes: 2,
         tickerAutostart: false,
-        configOverrides: { fluxapps: { appSyncFallbackMinutes: 5 } },
+        configOverrides: { fluxapps: { appSyncFallbackMinutes: 5, appSyncPeerThreshold: PEER_THRESHOLD } },
       });
       await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
       await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
@@ -233,7 +236,7 @@ describe('Orchestrator: SYNCING to READY', function () {
       const total = (out?.data?.length ?? 0) + (inb?.data?.length ?? 0);
       expect(total, 'the fleet never peered, so the test proved nothing').to.be.greaterThan(0);
       expect(total, 'the fleet reached the threshold, so the block above was not the case it names')
-        .to.be.lessThan(2);
+        .to.be.lessThan(PEER_THRESHOLD);
     });
   });
 

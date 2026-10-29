@@ -455,9 +455,10 @@ const wsServer = http.createServer(async (req, res) => {
       // /apps/promotedfolders, which is the only version distinction this stub
       // models. Nodes cache the answer to name this peer in queries against
       // their own syncthing, so a stub that 404s here starves that cache and
-      // silently disables every check built on it.
+      // silently disables every check built on it. The answer is a device ID
+      // syncthing accepts: a node writes it into its syncthing configuration.
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'success', data: 'PEERSTUB-DEVICE-0000001' }));
+      res.end(JSON.stringify({ status: 'success', data: 'PEERSTU-BAAAAAT-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA' }));
       return;
     }
     if (req.url === '/apps/promotedfolders') {

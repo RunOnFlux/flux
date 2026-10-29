@@ -349,9 +349,27 @@ export async function waitForGiveUpConsidered(node, appName, predicate, timeout 
 }
 
 /**
+ * Waits until no give-up pass a holder has already started is still running. A
+ * pass reads the holders when it reaches an app, so one a node started before
+ * the tip was frozen can still decide against a holder added after. For each
+ * node, the last giveUp:passStarted is followed by its giveUp:passEnded.
+ * @param {object[]} nodes Clients holding the app.
+ * @param {number} [timeout]
+ * @returns {Promise<void>}
+ */
+export async function waitForStartedGiveUpPasses(nodes, timeout = 120000) {
+  await Promise.all(nodes.map(async (node) => {
+    const started = node.getEventBuffer().filter((e) => e.event === 'giveUp:passStarted').pop();
+    if (!started) return;
+    await node.waitForEvent('giveUp:passEnded', () => true, timeout, { afterId: started.id });
+  }));
+}
+
+/**
  * This node's verdict on ONE app changing: `{ name, stage, candidate }`, where
- * stage is 'candidate' or the filter that removed it - afterAlreadyHeldOrTried,
- * afterNodePin, afterGeolocation, afterOwnership, afterClaims.
+ * stage is 'candidate' or the filter that removed it - afterBlocklist,
+ * afterDeparting, afterAlreadyHeldOrTried, afterNodePin, afterGeolocation,
+ * afterOwnership, afterClaims.
  *
  * Published on CHANGE only, so it says what happened rather than what is still
  * true. That is what makes eligibility assertable: a node that stood down and is

@@ -436,6 +436,24 @@ describe('availabilityChecker tests', () => {
         sinon.assert.notCalled(fluxUdpTestServer.FluxUdpTestServer);
       });
 
+      it('asks the router for no mapping of a port it cannot listen on, and maps the next one', async () => {
+        fluxHttpTestServer.FluxHttpTestServer.prototype.listen.onFirstCall().callsFake(function listenInUse() {
+          this.emit('error', new Error('listen EADDRINUSE: address already in use'));
+          return this;
+        });
+
+        await pass();
+
+        sinon.assert.notCalled(mapUpnpPortStub);
+        sinon.assert.notCalled(removeMapUpnpPortStub);
+        sinon.assert.notCalled(portTestStub);
+
+        await pass();
+
+        sinon.assert.calledOnce(mapUpnpPortStub);
+        expect(mapUpnpPortStub.firstCall.args[2], 'the protocol a pass that did not test leaves').to.deep.equal({ protocols: ['TCP'] });
+      });
+
       it('tests UDP alone on the pass after a TCP pass that passed, and TCP after that', async () => {
         await pass();
         portTestStub.callsFake(async (url, body) => {

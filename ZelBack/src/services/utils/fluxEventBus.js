@@ -51,6 +51,9 @@ const Checkpoint = Object.freeze({
   // checked that no controller opinion was written since it read the verdict.
   // Keyed by the component identifier.
   RECONCILER_BEFORE_START: 'reconciler:beforeStart',
+  // A reconcile pass has stopped a component whose local appdata is to be
+  // cleared and has not yet cleared it. Keyed by the component identifier.
+  RECONCILER_BEFORE_DATA_CLEAR: 'reconciler:beforeDataClear',
   // An election pass is about to decide a g: component it does not skip. Keyed
   // by the component identifier.
   MASTERSLAVE_BEFORE_DECISION: 'masterSlave:beforeDecision',
@@ -116,6 +119,9 @@ const Checkpoint = Object.freeze({
   // Boot has read the location record of an app it held unconfirmed, and has not
   // yet released the app or acted on the answer. Keyed by app name.
   BOOT_BEFORE_LOCATION_DECISION: 'boot:beforeLocationDecision',
+  // A removal has taken an app's containers and volume down and has not yet
+  // deleted its row. Keyed by app name.
+  REMOVAL_BEFORE_ROW_DELETE: 'removal:beforeRowDelete',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.

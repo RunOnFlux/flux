@@ -1151,6 +1151,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         res.write(serviceHelper.ensureString(databaseStatus));
         if (res.flush) res.flush();
       }
+      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.REMOVAL_BEFORE_ROW_DELETE, appName);
       await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
       // The app's volume is gone, and the record of when this node took it with it.
       // A record left behind is never read, as the app is not installed, and boot

@@ -4021,6 +4021,34 @@ describe('advancedWorkflows tests', () => {
         expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
       });
 
+      it('knows itself at the address it moves to while FDM\'s answer is looked up', async () => {
+        const appName = 'movedselfmidpass';
+        const MOVED_TO = '192.168.1.6:16127';
+        sinon.stub(appsRuntimeState, 'operatorStopState').resolves(UNLOCKED);
+        const logInfo = sinon.stub(log, 'info');
+        const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+        registryManagerStub.resolves([
+          { name: appName, ip: MOVED_TO, runningSince: '2026-01-01T00:00:00.000Z' },
+          { name: appName, ip: '192.168.1.90:16127', runningSince: '2026-01-01T00:01:00.000Z' },
+        ]);
+        // The move is recorded while the pass looks up the primary FDM named.
+        let moved = false;
+        ownAddressStub.callsFake((address) => (moved && address === '192.168.1.5:16127' ? MOVED_TO : address));
+        primaryAddressStub.callsFake(async (name, ip) => {
+          moved = true;
+          return ip === '192.168.1.5' ? MOVED_TO : ip;
+        });
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves(fdmNames('192.168.1.5'));
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+        await runPass();
+
+        expect(primaryAddressStub.callCount, 'fixture: the pass resolved the primary FDM named').to.be.at.least(1);
+        expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+      });
+
       // A move applied to the location table, and every listener done with it.
       const applyMove = async (from, to) => {
         addressMoveEvents.emit(ADDRESS_MOVE_EVENTS.APPLIED, { from, to, broadcastedAt: Date.now() });

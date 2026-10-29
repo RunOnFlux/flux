@@ -359,6 +359,8 @@ export function nodeClient(nodeNum) {
         'giveUp:safety',
         'giveUp:standDown',
         'giveUp:passSkipped',
+        'giveUp:passStarted',
+        'giveUp:passEnded',
         'giveUp:turn',
         'giveUp:decisionStale',
         'giveUp:standDownReleased',

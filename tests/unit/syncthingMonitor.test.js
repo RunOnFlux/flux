@@ -1,6 +1,7 @@
 // Set NODE_CONFIG_DIR before any requires
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
+const { EventEmitter } = require('node:events');
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
@@ -61,6 +62,8 @@ const volumeServiceMock = {
 
 const appReconcilerMock = {
   setControllerDesired: sinon.stub(),
+  dataClearPending: sinon.stub().returns(false),
+  dataEvents: new EventEmitter(),
 };
 
 const syncthingMonitorHelpersMock = {
@@ -202,7 +205,13 @@ describe('syncthingMonitor tests', () => {
 
     volumeServiceMock.ensureAppVolumeMounted.reset();
     volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: true, alreadyMounted: true });
+    // what a pass's status log reads for each folder it configured
+    syncthingServiceMock.getDbStatus.reset();
+    syncthingServiceMock.getDbStatus.resolves({ globalBytes: 0, inSyncBytes: 0, state: 'idle' });
     appReconcilerMock.setControllerDesired.reset();
+    appReconcilerMock.dataClearPending.reset();
+    appReconcilerMock.dataClearPending.returns(false);
+    appReconcilerMock.dataEvents.removeAllListeners();
     syncthingFolderStateMachineMock.verifyFolderMountSafety.reset();
     syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: true, isMounted: true, fileCount: 1 });
     syncthingFolderStateMachineMock.verifySendReceiveFolderSafety.reset();
@@ -1793,6 +1802,66 @@ describe('syncthingMonitor tests', () => {
       const siblings = Object.fromEntries(syncthingFolderStateMachineMock.manageFolderSyncState.getCalls()
         .map((call) => [call.args[0].appId, call.args[0].electedSiblings]));
       expect(siblings).to.deep.equal({ db_twin: ['web_twin'], cache_twin: [], web_twin: ['db_twin'] });
+    });
+
+    // What arrives in a folder before its local appdata is cleared is cleared
+    // with it, so the folder is written paused until the clear is done, and the
+    // pass after the clear resumes it.
+    describe('a folder whose local appdata is still to be cleared', () => {
+      const written = () => syncthingServiceMock.adjustConfigFolders.getCalls()
+        .filter((c) => c.args[0] === 'put' || c.args[0] === 'patch')
+        .map((c) => (Array.isArray(c.args[1]) ? c.args[1].find((f) => f.id === 'testapp') : c.args[1]))
+        .filter(Boolean);
+
+      it('writes the folder paused while a clear is owed', async () => {
+        writesAFolder();
+        appReconcilerMock.dataClearPending.callsFake((id) => id === 'testapp');
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        const [folder] = written();
+        expect(folder, 'the folder was not written, so this asserts nothing').to.not.equal(undefined);
+        expect(folder.paused).to.equal(true);
+      });
+
+      it('leaves the pause to the rest of the pass when no clear is owed', async () => {
+        writesAFolder();
+
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+
+        const [folder] = written();
+        expect(folder, 'the folder was not written, so this asserts nothing').to.not.equal(undefined);
+        expect(folder.paused).to.not.equal(true);
+      });
+
+      it('runs a pass soon after a clear is done, not at the next interval', async () => {
+        writesAFolder();
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+        const passes = () => syncthingFolderStateMachineMock.manageFolderSyncState.callCount;
+        const before = passes();
+
+        appReconcilerMock.dataEvents.emit('cleared', 'testapp');
+        await clock.tickAsync(15000);
+
+        expect(passes(), 'a pass between the clear and the 30 s interval').to.be.above(before);
+      });
+
+      it('runs no early pass on a clear once it has stopped', async () => {
+        writesAFolder();
+        monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+        await clock.tickAsync(100);
+        monitorControl.stop();
+        const before = syncthingFolderStateMachineMock.manageFolderSyncState.callCount;
+
+        appReconcilerMock.dataEvents.emit('cleared', 'testapp');
+        await clock.tickAsync(15000);
+
+        expect(syncthingFolderStateMachineMock.manageFolderSyncState.callCount).to.equal(before);
+        monitorControl = null;
+      });
     });
 
     describe('the type of a g: folder', () => {
