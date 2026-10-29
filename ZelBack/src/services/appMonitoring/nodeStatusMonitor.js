@@ -84,8 +84,6 @@ async function removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, reason)
       } else {
         log.warn(`monitorNodeStatus - Application ${installedApp.name} locally removed`);
       }
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(config.fluxapps.nodeMonitorRemovalDelayMs ?? 60000);
     }
   } finally {
     removalInProgress = false;

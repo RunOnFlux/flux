@@ -183,13 +183,13 @@ describe('nodeStatusMonitor tests', () => {
       dockerService = { appDockerStop: sinon.stub().resolves('stopped') };
       monitor = proxyquire('../../ZelBack/src/services/appMonitoring/nodeStatusMonitor', {
         config: {
-          fluxapps: { appRemovalDeadlineMs: DEADLINE, nodeMonitorRemovalDelayMs: 0 },
+          fluxapps: { appRemovalDeadlineMs: DEADLINE },
           hostStall: { stopWindowMs: STOP_WINDOW },
           database: { appsglobal: { collections: {} } },
         },
         '../dbHelper': {},
-        // the spacing between apps passes, and the wait before the next pass never ends
-        '../serviceHelper': { delay: sinon.stub().callsFake((ms) => (ms === 0 ? Promise.resolve() : never())) },
+        // the wait before the next pass never ends
+        '../serviceHelper': { delay: sinon.stub().callsFake(never) },
         '../fluxNetworkHelper': { isNodeDos: () => dos, onIpChangeHold: sinon.stub() },
         '../fluxCommunicationUtils': {},
         '../appMessaging/messageStore': {},
@@ -501,6 +501,16 @@ describe('nodeStatusMonitor tests', () => {
 
       sinon.assert.calledWith(remove, 'next');
       sinon.assert.calledWithMatch(logStub.error, /stuck was not removed within 300s, moving on/);
+    });
+
+    it('starts each DOS removal as soon as the one before it returns', async () => {
+      dos = true;
+      const remove = sinon.stub().resolves('removed');
+
+      monitor.monitorNodeStatus(installed('one', 'two', 'three'), remove);
+      await clock.tickAsync(0);
+
+      expect(remove.getCalls().map((call) => call.args[0])).to.deep.equal(['one', 'two', 'three']);
     });
 
     it('starts no DOS removal while a host stall\'s removal has the node', async () => {

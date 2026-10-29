@@ -678,7 +678,6 @@ module.exports = {
     discoveryConnectionDelayMs: 500,
     connectionBackoffMs: [120000, 300000, 600000, 900000],
     nodeMonitorIntervalMs: 1200000,
-    nodeMonitorRemovalDelayMs: 60000,
     // events per message of an answer to a peer's state sync
     syncAnswerBatchSize: 2000,
     // Residential-node staging. The placement hold is immediate and is not

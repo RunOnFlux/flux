@@ -161,7 +161,6 @@ module.exports = {
     syncResponseThrottleMs: 10000,
     wsHandshakeTimeoutMs: 5000,
     discoveryConnectionDelayMs: 100,
-    nodeMonitorRemovalDelayMs: 1000,
     nodeMonitorDosRecoveryDelayMs: 10000,
     nodeMonitorConfirmationLossDelayMs: 10000,
     nodeMonitorErrorRecoveryDelayMs: 5000,
