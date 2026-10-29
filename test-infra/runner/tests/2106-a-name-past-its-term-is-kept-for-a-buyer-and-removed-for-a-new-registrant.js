@@ -3,18 +3,27 @@
  * another owner by a sale, and removes it with its data, telling the network, when another owner
  * registered the name afresh.
  *
- * Alice registers two apps with a 24-block term in a block at a multiple of the expiry period, and
- * the holder installs both with a file of hers in each volume. Both terms end at block E, which the
- * expiry pass runs on. One app is sold to Bob at E - 1 and updated by Bob at E, so at E its
- * installed record has lapsed while the network holds Bob's spec in force. The other lapses at E,
- * and Bob registers its name again afterwards.
+ * In a block a node processes at the tip, the passes run before the block's own messages are
+ * stored and before its height is recorded: the expiry pass in block h judges terms at h - 1, and
+ * a message paid in block h is seen by the passes of later blocks. The expiry pass runs on
+ * multiples of the expiry period, the reinstall pass on multiples of four times its period, and
+ * a block's expiry pass runs before its reinstall pass.
+ *
+ * Alice registers two apps with a 24-block term in block R, one short of a multiple of the expiry
+ * period, and the holder installs both with a file of hers in each volume. Both terms end at
+ * E = R + 24. One app is sold to Bob in block E - 2 and updated by Bob in block E. The expiry pass
+ * in block E + 1 judges both at E: each installed record has lapsed, and the network holds the
+ * sold one in force under Bob and the other not at all. Neither block between the sale and that
+ * pass runs a reinstall pass, so the holder's record of the sold app is still Alice's when it is
+ * judged. Bob then registers the other name again.
  *
  * The holder's removal queue is held at removalQueue:beforeRemoval for both names, as a node with a
- * queue of removals ahead of them would hold them. The expiry pass at E decides which it queues;
- * the reinstall pass after it decides what the holder does with each install: rebuild the sold app
- * at Bob's spec with Alice's files, remove the registered-again one with its files. A block's expiry
- * pass runs before its reinstall pass and an odd height runs no reinstall pass, so the sale at
- * E - 1 and Bob's update at E reach the expiry pass before the holder's record is refreshed.
+ * queue of removals ahead of them would hold them. The expiry pass decides which it queues; the
+ * reinstall pass after it decides what the holder does with each install: rebuild the sold app at
+ * Bob's spec with Alice's files, remove the registered-again one with its files.
+ *
+ * A node with the name installed refuses another owner's registration of it when a peer relays it,
+ * and takes it from its peers' message log by hash sync.
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
@@ -91,7 +100,7 @@ describe('a name past its installed term is kept for a buyer and removed for a n
 
   let holder;
   let termEnd;
-  let atTermEnd;
+  let beforeDecidingPass;
   let bobUpdate;
 
   const height = async () => (await getState()).currentHeight;
@@ -100,11 +109,12 @@ describe('a name past its installed term is kept for a buyer and removed for a n
     async () => (await globalHashes(name)).every((h) => h === hash),
     { timeout: 60000, interval: 1000, label },
   );
-  // Signed by the key given, relayed to every node; paid in the next block this suite mines.
-  const submit = async (spec, type, ownerKey) => {
+  // Signed by the key given, relayed to the nodes named (every node by default); paid in the next
+  // block this suite mines.
+  const submit = async (spec, type, ownerKey, { indices = liveIndices(env) } = {}) => {
     const result = await registerApp(env.clients[SUBMITTER].url, nodeKey(1), spec, type, { ownerKey });
     expect(result.status, `${type} of ${spec.name}: ${JSON.stringify(result.data)}`).to.equal('success');
-    await waitFor(() => relayedToFleet(env, result.data), { timeout: 30000, interval: 2000, label: `${spec.name} ${type} relayed to every node` });
+    await waitFor(() => relayedToFleet(env, result.data, { indices }), { timeout: 30000, interval: 2000, label: `${spec.name} ${type} relayed to nodes ${indices}` });
     return result.data;
   };
   // The holder's installed record, past the route's 30-second cache.
@@ -123,14 +133,14 @@ describe('a name past its installed term is kept for a buyer and removed for a n
 
     const soldRegistration = await submit(soldSpec, 'fluxappregister', alice);
     const takenRegistration = await submit(takenSpec, 'fluxappregister', alice);
-    await driveFleetUntil(env, async () => (await height()) % EXPIRY_PERIOD === EXPIRY_PERIOD - 1, {
-      blocks: EXPIRY_PERIOD, label: 'the next block is an expiry-pass block',
+    await driveFleetUntil(env, async () => (await height()) % EXPIRY_PERIOD === EXPIRY_PERIOD - 2, {
+      blocks: EXPIRY_PERIOD, label: 'the next block is one short of an expiry-pass block',
     });
     await queueAppTx(soldRegistration);
     await queueAppTx(takenRegistration);
     await mineFleetBlock(env, { label: 'both registrations' });
     const registeredAt = await height();
-    expect(registeredAt % EXPIRY_PERIOD, 'registered on an expiry-pass block').to.equal(0);
+    expect(registeredAt % EXPIRY_PERIOD, 'registered one block short of an expiry-pass block').to.equal(EXPIRY_PERIOD - 1);
     termEnd = registeredAt + TERM;
     await onEveryNode(soldName, soldRegistration, `${soldName} registered on every node`);
     await onEveryNode(takenName, takenRegistration, `${takenName} registered on every node`);
@@ -150,23 +160,27 @@ describe('a name past its installed term is kept for a buyer and removed for a n
       await holder.holdCheckpoint(CHECKPOINT, name);
     }
 
-    await driveFleetUntil(env, async () => (await height()) === termEnd - 2, {
-      blocks: TERM, label: 'two blocks before the terms end',
+    await driveFleetUntil(env, async () => (await height()) === termEnd - 3, {
+      blocks: TERM, label: 'three blocks before the terms end',
     });
-    // Alice's update naming Bob, inside her term.
+    // Alice's update naming Bob, inside her term, paid in block E - 2.
     const sale = await submit({ ...soldSpec, owner: bob.zelid, expire: RENEWED_TERM }, 'fluxappupdate', alice);
     await queueAppTx(sale);
     await mineFleetBlock(env, { label: 'the sale' });
     await onEveryNode(soldName, sale, `${soldName} sold to Bob on every node`);
-    // Bob's own update, in the block Alice's term ends at.
+    await mineFleetBlock(env, { label: 'the block before the terms end' });
+    // Bob's own update, paid in block E, the first block past Alice's term.
     bobUpdate = await submit({
       ...soldSpec, owner: bob.zelid, expire: RENEWED_TERM, description: `${soldSpec.description}, updated by its buyer`,
     }, 'fluxappupdate', bob);
     await queueAppTx(bobUpdate);
-    atTermEnd = holder.getLastEventId();
     await mineFleetBlock(env, { label: 'the block the terms end at' });
-    expect(await height(), 'the terms end on an expiry-pass block').to.equal(termEnd);
+    expect(await height(), 'the block the terms end at').to.equal(termEnd);
     await onEveryNode(soldName, bobUpdate, `${soldName} at Bob's update on every node`);
+    // The expiry pass that judges both apps at E.
+    beforeDecidingPass = holder.getLastEventId();
+    await mineFleetBlock(env, { label: 'the expiry pass that judges the terms' });
+    expect((await height()) % EXPIRY_PERIOD, 'an expiry-pass block').to.equal(0);
   });
 
   after(async function () {
@@ -176,8 +190,8 @@ describe('a name past its installed term is kept for a buyer and removed for a n
 
   it('queues the expired app for removal at the end of its term, and not the sold one', async function () {
     this.timeout(120000);
-    await holder.waitForEvent('checkpoint:held', (d) => d.name === CHECKPOINT && d.key === takenName, 60000, { afterId: atTermEnd });
-    await assertNoEvent(holder, 'checkpoint:held', (d) => d.name === CHECKPOINT && d.key === soldName, 5000, { afterId: atTermEnd });
+    await holder.waitForEvent('checkpoint:held', (d) => d.name === CHECKPOINT && d.key === takenName, 60000, { afterId: beforeDecidingPass });
+    await assertNoEvent(holder, 'checkpoint:held', (d) => d.name === CHECKPOINT && d.key === soldName, 5000, { afterId: beforeDecidingPass });
   });
 
   it('rebuilds the sold app at Bob\'s spec, with Alice\'s files', async function () {
@@ -193,13 +207,16 @@ describe('a name past its installed term is kept for a buyer and removed for a n
     this.timeout(1500000);
     // Canary: Alice's file is on the holder until the removal.
     expect(await exists(holder.container, aliceFilePath(takenName)), 'Alice\'s file before the registration').to.equal(true);
-    const registration = await submit(appSpec(takenName, bob, RENEWED_TERM), 'fluxappregister', bob);
+    // The holder refuses it relayed, with the name installed; it takes it by hash sync.
+    const everyNodeButTheHolder = liveIndices(env).filter((i) => i !== HOLDER);
+    const registration = await submit(appSpec(takenName, bob, RENEWED_TERM), 'fluxappregister', bob, { indices: everyNodeButTheHolder });
     const mark = holder.getLastEventId();
     let removed = false;
     const removal = waitForAppRemoved(holder, takenName, 1500000, { afterId: mark }).then(() => { removed = true; });
     await queueAppTx(registration);
+    // Hash sync runs on a timer, so the budget is time; the drive keeps the chain moving.
     await driveFleetUntil(env, async () => removed, {
-      blocks: REINSTALL_BUDGET, label: `the holder removes ${takenName}`,
+      timeoutMs: 1200000, label: `the holder takes ${takenName}'s registration and removes Alice's install`,
     });
     await removal;
 
