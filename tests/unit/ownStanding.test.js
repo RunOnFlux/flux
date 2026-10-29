@@ -417,6 +417,9 @@ describe('fluxNetworkHelper own standing tests', () => {
     });
 
     it('runs on a change of this node\'s own address', async () => {
+      // The cached address is what benchmark reports, so a node that moved is
+      // one benchmark reports at the new address.
+      benchmarkService.getBenchmarks.resolves({ status: 'success', data: { ipaddress: '129.3.3.4:16127' } });
       fluxNetworkHelper.setLocalSocketAddress('129.3.3.4:16127');
       await clock.tickAsync(0);
 
