@@ -22,6 +22,7 @@ import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes, seedSpecUpdate } from '../framework/reconciler-suite.js';
 import { appOwnerKey, otherOwnerKeys } from '../framework/keys.js';
 import { appId } from '../framework/volume-fixture.js';
+import { PRODUCTION } from '../framework/coupled-knobs.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import installOutcomeModule from '../../../ZelBack/src/services/utils/installOutcome.js';
 
@@ -78,7 +79,16 @@ describe('a network link joins apps of one owner', function () {
 
   before(async function () {
     this.timeout(900000);
-    env = await createTestEnv({ hookCtx: this, nodes: 3, tickerAutostart: false });
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 3,
+      tickerAutostart: false,
+      // The boot test keeps FluxOS down while it stops the apps; the node's location records
+      // outlive that at production's lifetime, as they outlive a reboot.
+      configOverrides: {
+        fluxapps: { sigtermExpiryS: PRODUCTION.sigtermExpiryS, locationTtlS: PRODUCTION.locationTtlS },
+      },
+    });
     await bootAndPeer(env);
     holder = env.clients[HOLDER];
     const everyNode = env.clients.map((_, i) => i);
