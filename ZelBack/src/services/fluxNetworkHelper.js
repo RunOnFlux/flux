@@ -1073,18 +1073,13 @@ function notePublicAddress(note) {
   log.debug(note);
 }
 
-// Whether fluxd decided addresses the last time it answered getnetworkinfo:
-// true with `decided_address`, false without, null before its first answer.
-let fluxdLastDecided = null;
-
 /**
  * Forgets what was last logged about the address source, so the next lookup
- * logs its own, and what fluxd last answered.
+ * logs its own.
  * @returns {void}
  */
 function resetPublicAddressNote() {
   publicAddressNote = null;
-  fluxdLastDecided = null;
 }
 
 /**
@@ -1094,55 +1089,53 @@ function resetPublicAddressNote() {
  * changes: fluxd not answering, fluxd with no decided address, a fluxd that does
  * not decide addresses, an address that is not IPv4, or the address fluxd now
  * reports.
- * @returns {Promise<{address: (string|null), fluxdDecides: boolean}>} The address,
- *   or null when there is none. fluxdDecides is false for a fluxd that answers
- *   without a `decided_address`, which runs beside a FluxBench that still detects
- *   the address itself, and while fluxd does not answer if that is how it last
- *   answered. Otherwise the address is fluxd's alone to give and a null is "not
- *   yet": fluxd has not decided one, or is not answering, as while it restarts.
+ * @returns {Promise<string|null>} The address, or null when fluxd gives none.
  */
 async function getDecidedAddress() {
   const response = await daemonServiceNetworkRpcs.getNetworkInfo();
   if (response?.status !== 'success') {
-    if (fluxdLastDecided === false) {
-      notePublicAddress('Public address: fluxd did not answer getnetworkinfo, asking FluxBench as fluxd does not decide addresses');
-      return { address: null, fluxdDecides: false };
-    }
     notePublicAddress('Public address: fluxd did not answer getnetworkinfo');
-    return { address: null, fluxdDecides: true };
+    return null;
   }
   const decided = response.data?.decided_address;
-  fluxdLastDecided = Boolean(decided);
   if (!decided) {
-    notePublicAddress('Public address: fluxd does not decide addresses, asking FluxBench');
-    return { address: null, fluxdDecides: false };
+    notePublicAddress('Public address: fluxd does not decide addresses');
+    return null;
   }
   const reported = decided.address || '';
   if (!reported) {
     notePublicAddress('Public address: fluxd has not decided an address yet');
-    return { address: null, fluxdDecides: true };
+    return null;
   }
   const address = extractIp(reported);
   if (!net.isIPv4(address || '')) {
     notePublicAddress(`Public address: fluxd's decided address ${reported} is not an IPv4 address`);
-    return { address: null, fluxdDecides: true };
+    return null;
   }
   notePublicAddress(`Public address: fluxd now reports ${address}`);
-  return { address, fluxdDecides: true };
+  return address;
 }
 
+// JSON-RPC "Method not found".
+const RPC_METHOD_NOT_FOUND = -32601;
+
 /**
- * This node's public IP address: fluxd's decided address. FluxBench's public-IP
- * probe is asked only beside a fluxd that does not decide addresses.
+ * This node's public IP address: fluxd's decided address, otherwise FluxBench's
+ * public-IP probe. FluxBench 6.5.0 and later have no probe and are packaged only
+ * with a fluxd that decides addresses, so a FluxBench without one means the
+ * address is fluxd's alone to give, and its absence is "not yet".
  * @returns {Promise<object>} `{status: 'success', data: ip}`; a warning message
- *   while fluxd has no address to give, which is "not yet", never a failure; or,
- *   beside a fluxd that does not decide addresses, FluxBench's own response.
+ *   while fluxd has no address and FluxBench has no probe, which is "not yet",
+ *   never a failure; or otherwise FluxBench's own response.
  */
 async function getPublicIp() {
-  const { address, fluxdDecides } = await getDecidedAddress();
+  const address = await getDecidedAddress();
   if (address) return messageHelper.createDataMessage(address);
-  if (fluxdDecides) return messageHelper.createWarningMessage('fluxd has no address for this node yet');
-  return benchmarkService.getPublicIp();
+  const probed = await benchmarkService.getPublicIp();
+  if (probed?.status === 'error' && probed.data?.code === RPC_METHOD_NOT_FOUND) {
+    return messageHelper.createWarningMessage('fluxd has no address for this node yet');
+  }
+  return probed;
 }
 
 /**
@@ -1169,7 +1162,7 @@ async function getLocalSocketAddress(options = {}) {
   if (!fresh && localSocketAddress && process.hrtime.bigint() < localSocketAddressFreshUntil) {
     return localSocketAddress;
   }
-  const { address: decided } = await getDecidedAddress();
+  const decided = await getDecidedAddress();
   if (decided) {
     setLocalSocketAddress(`${decided}:${userconfig.initial.apiport || config.server.apiport}`);
     return localSocketAddress;
