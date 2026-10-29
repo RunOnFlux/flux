@@ -583,6 +583,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
         }
         log.info(`Database entry validated for ${appSpecifications.name} before Docker container creation`);
       }
+      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.INSTALL_BEFORE_CONTAINERS, appSpecs.name);
 
       if (specificationsToInstall.version >= 4) { // version is undefined for component
         // eslint-disable-next-line no-restricted-syntax
