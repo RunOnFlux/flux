@@ -235,6 +235,7 @@ async function renameAppsObject(req, res) {
     const destination = path.posix.join(path.posix.dirname(oldpath), newname);
 
     const { source, destination: target } = await volume.pair(oldpath, destination);
+    await volume.refuseLinkAtRoot({ source, destination: target });
     await volume.refuseReadOnlyRemoval(source);
     await volume.refuseReadOnlyWrite(target);
 
@@ -738,6 +739,7 @@ async function moveAppsObject(req, res) {
   try {
     const volume = await openVolume(req);
     const { source, destination, noReplace } = await resolveOperands(req, volume);
+    await volume.refuseLinkAtRoot({ source, destination });
     await volume.refuseReadOnlyRemoval(source);
     await volume.refuseReadOnlyWrite(destination);
 
@@ -761,6 +763,7 @@ async function copyAppsObject(req, res) {
   try {
     const volume = await openVolume(req);
     const { source, destination, noReplace } = await resolveOperands(req, volume);
+    await volume.refuseLinkAtRoot({ source, destination });
     await volume.refuseReadOnlyWrite(destination);
 
     // The same measurement serves both the capacity check and the progress
