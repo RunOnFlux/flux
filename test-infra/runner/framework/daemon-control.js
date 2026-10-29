@@ -218,6 +218,23 @@ export async function setBenchmarkUnresolved(node, unresolved = true) {
 }
 
 /**
+ * Give one node its own confirmation schedule: it confirms every
+ * `intervalBlocks` after its last confirmation, the next one due at
+ * `nextHeight` (default: one interval after its last). A confirmation it sends
+ * - an address change - is still mined in the next block.
+ * @param {string} node Where the node really is.
+ * @param {{intervalBlocks: number, nextHeight?: number}} schedule
+ */
+export async function setConfirmationSchedule(node, schedule) {
+  return post(`/confirmation-schedule/${String(node).split(':')[0]}`, schedule);
+}
+
+/** Return a node to the fleet's confirmation interval. */
+export async function clearConfirmationSchedule(node) {
+  return post(`/confirmation-schedule/${String(node).split(':')[0]}`, {});
+}
+
+/**
  * Put a node's address back to where it really is. A list entry the chain moved
  * moves back with the next block.
  */

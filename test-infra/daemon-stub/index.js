@@ -304,7 +304,7 @@ const rpcHandlers = {
 
     const pending = pendingBlocks.find((b) => b.height === asNum || b.height === hashOrHeight || b.hash === hashOrHeight);
     if (pending) {
-      const confirmations = verbosity === 2 ? (fluxnodeTxsByHeight.get(pending.height) || []) : [];
+      const confirmations = verbosity === 2 ? fluxnodeTxsAt(pending.height) : [];
       return confirmations.length ? { ...pending, tx: [...(pending.tx || []), ...confirmations] } : pending;
     }
 
@@ -325,7 +325,7 @@ const rpcHandlers = {
     };
 
     if (verbosity === 2) {
-      block.tx = fluxnodeTxsByHeight.get(height) || [];
+      block.tx = fluxnodeTxsAt(height);
     }
 
     return block;
@@ -606,14 +606,60 @@ const fluxnodeTxsByHeight = new Map();
 const lastConfirmedHeights = new Map();
 const FLUXNODE_TXS_KEPT = 1000;
 
-// Mine the confirmations sent since the last block. One carrying an address
+// HOW OFTEN A NODE CONFIRMS. fluxd has a node confirm 500 to 640 blocks after
+// its last confirmation (FLUXNODE_CONFIRM_UPDATE_MIN_HEIGHT_V3 and
+// _EXPIRATION_HEIGHT_V4); a confirmation carrying a new address is sent at
+// once. Here a node confirms every CONFIRMATION_INTERVAL_BLOCKS (default 1)
+// after its last confirmation, at its own offset in the list, and a
+// confirmation it sends is mined in the next block. A schedule set for one
+// node through /confirmation-schedule replaces the fleet's interval for it.
+const CONFIRMATION_INTERVAL_BLOCKS = Number(process.env.CONFIRMATION_INTERVAL_BLOCKS) || 1;
+const STARTED_AT_HEIGHT = currentHeight;
+// real ip -> interval, for a node given its own schedule
+const confirmationIntervals = new Map();
+// real ip -> the height its next confirmation is due at
+const confirmationDue = new Map();
+
+const realIpOf = (node) => node.ip.split(':')[0];
+const intervalOf = (node) => confirmationIntervals.get(realIpOf(node)) ?? CONFIRMATION_INTERVAL_BLOCKS;
+// The first height at or above `height` at the node's offset in the fleet's interval.
+function scheduledFrom(node, height) {
+  const offset = deterministicNodeList.indexOf(node) % CONFIRMATION_INTERVAL_BLOCKS;
+  return height + ((((offset - height) % CONFIRMATION_INTERVAL_BLOCKS) + CONFIRMATION_INTERVAL_BLOCKS) % CONFIRMATION_INTERVAL_BLOCKS);
+}
+
+function confirmationTx(node, height, ip) {
+  return {
+    txid: `stubconfirm${height}${node.txhash}`,
+    version: 5,
+    type: 'Confirming a fluxnode',
+    collateral: node.collateral,
+    txhash: node.txhash,
+    outidx: node.outidx,
+    ip,
+    update_type: 1,
+    vin: [],
+    vout: [],
+  };
+}
+
+// The confirmations a block carries. A block from before this stub started
+// carries the fleet schedule's, at each node's listed address, so an explorer
+// that starts at the fleet's first block knows every node within one interval;
+// at an interval of one block the first block mined confirms every node.
+function fluxnodeTxsAt(height) {
+  if (fluxnodeTxsByHeight.has(height)) return fluxnodeTxsByHeight.get(height);
+  if (CONFIRMATION_INTERVAL_BLOCKS === 1 || height > STARTED_AT_HEIGHT) return [];
+  return deterministicNodeList
+    .filter((node) => scheduledFrom(node, height) === height)
+    .map((node) => confirmationTx(node, height, node.ip));
+}
+
+// Mine the confirmations due in this block: every node that sent one since the
+// last block, and every node whose interval has run. One carrying an address
 // other than the node's own moves its list entry and status there, as a node's
 // IP-change confirmation does on chain; one carrying the address it already
 // has moves an entry an earlier one moved back.
-//
-// Every listed node confirms in every block, at the address the block leaves it
-// at, so a FluxOS explorer that starts at any block holds every node's address
-// from it - fluxd's confirmation interval compressed to one block.
 function mineConfirmations() {
   // eslint-disable-next-line no-restricted-syntax
   for (const [realIp, address] of pendingConfirmations) {
@@ -621,21 +667,13 @@ function mineConfirmations() {
     if (node && address !== node.ip) reportedAddresses.set(realIp, { reported: address, scope: 'all' });
     else if (node && reportedAddresses.get(realIp)?.scope === 'all') reportedAddresses.delete(realIp);
   }
+  const confirming = deterministicNodeList.filter((node) => pendingConfirmations.has(realIpOf(node))
+    || currentHeight >= (confirmationDue.get(realIpOf(node)) ?? scheduledFrom(node, currentHeight)));
   pendingConfirmations.clear();
-  fluxnodeTxsByHeight.set(currentHeight, deterministicNodeList.map((node) => {
-    lastConfirmedHeights.set(node.ip.split(':')[0], currentHeight);
-    return {
-      txid: `stubconfirm${currentHeight}${node.txhash}`,
-      version: 5,
-      type: 'Confirming a fluxnode',
-      collateral: node.collateral,
-      txhash: node.txhash,
-      outidx: node.outidx,
-      ip: reportedAddressOf(node),
-      update_type: 1,
-      vin: [],
-      vout: [],
-    };
+  fluxnodeTxsByHeight.set(currentHeight, confirming.map((node) => {
+    lastConfirmedHeights.set(realIpOf(node), currentHeight);
+    confirmationDue.set(realIpOf(node), currentHeight + intervalOf(node));
+    return confirmationTx(node, currentHeight, reportedAddressOf(node));
   }));
   fluxnodeTxsByHeight.delete(currentHeight - FLUXNODE_TXS_KEPT);
 }
@@ -1118,10 +1156,34 @@ control.delete('/seed-data', (req, res) => {
 
 // -- Reset all overrides --
 
+// A node's own confirmation schedule: every `intervalBlocks` after its last
+// confirmation, the next one due at `nextHeight` (default: one interval after
+// its last). An empty body returns it to the fleet's interval.
+control.post('/confirmation-schedule/:ip', (req, res) => {
+  const key = String(req.params.ip).split(':')[0];
+  const node = deterministicNodeList.find((n) => realIpOf(n) === key);
+  if (!node) return res.status(404).json({ error: `no node in the list at ${key}` });
+  const { intervalBlocks, nextHeight } = req.body || {};
+  if (intervalBlocks === undefined) {
+    confirmationIntervals.delete(key);
+    confirmationDue.delete(key);
+    return res.json({ node: key, intervalBlocks: CONFIRMATION_INTERVAL_BLOCKS });
+  }
+  if (!Number.isInteger(intervalBlocks) || intervalBlocks < 1) {
+    return res.status(400).json({ error: `intervalBlocks must be a positive integer, got ${intervalBlocks}` });
+  }
+  confirmationIntervals.set(key, intervalBlocks);
+  const last = lastConfirmedHeights.get(key) ?? currentHeight;
+  confirmationDue.set(key, nextHeight ?? last + intervalBlocks);
+  return res.json({ node: key, intervalBlocks, nextHeight: confirmationDue.get(key) });
+});
+
 control.post('/reset', (req, res) => {
   nodeStatusOverrides.clear();
   reportedAddresses.clear();
   pendingConfirmations.clear();
+  confirmationIntervals.clear();
+  confirmationDue.clear();
   hiddenFromPeers.clear();
   unresolvedNodes.clear();
   rpcFailures.clear();
