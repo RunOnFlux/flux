@@ -16,6 +16,7 @@ import {
   advanceBlock, driveUntil, getState, startTicker, stopTicker, clearSystemSecure, setSystemSecure,
 } from '../framework/daemon-control.js';
 import { waitFor } from '../framework/wait.js';
+import { retireApp } from '../framework/reconciler-suite.js';
 import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { apprunningEvent } from '../framework/state-events.js';
@@ -35,13 +36,29 @@ const eventsOf = (client, name, predicate = () => true, afterId = 0) => client.g
 const turnsOf = (client, appName, afterId = 0) => eventsOf(client, 'giveUp:turn', (d) => d.appName === appName, afterId);
 const departuresOf = (client, appName, afterId = 0) => eventsOf(client, 'app:removed', (d) => d.name === appName, afterId);
 
-/** Seed an app every fleet node holds, then start the given nodes evacuating. */
+// The apps seeded on the fleet and not yet retired.
+const seeded = [];
+
+/**
+ * Retire every app an earlier test seeded, so the evacuating nodes hold this
+ * test's app alone, then seed one every fleet node holds and start the given
+ * nodes evacuating. A pass hands back one app, and returning a node to service
+ * lets the spawner refill any app an earlier departure left short, so an app
+ * left on the fleet would be judged ahead of this one.
+ */
 async function seedAndEvacuate(env, appName, nodes) {
+  while (seeded.length) await retireApp(env, seeded.pop());
   await Promise.all(FLEET.map((node) => returnToService(env, node)));
-  await seedApp(env, appName, { instances: FLEET.length });
+  seeded.push(await seedApp(env, appName, { instances: FLEET.length }));
   await startTicker();
   await waitFor(async () => (await dbClient(2).getAppLocations(appName)).length >= FLEET.length,
     { timeout: 300000, label: `${appName} reaches its instance count across the fleet` });
+  // eslint-disable-next-line no-restricted-syntax
+  for (const node of nodes) {
+    // eslint-disable-next-line no-await-in-loop
+    const installed = await env.clients[node - 1].get(`/apps/installedapps?_=${Date.now()}`);
+    expect(installed.data.map((a) => a.name), `fixture: node ${node} holds an app besides ${appName}`).to.eql([appName]);
+  }
   await Promise.all(nodes.map((node) => setSystemSecure(subnet.nodeIp(node), false)));
   await Promise.all(nodes.map((node) => waitFor(
     async () => (await dbClient(node).residentialMarker()) !== null,

@@ -6,9 +6,13 @@
 //   - TARGETED path: installOnNodes — install on specific chosen nodes via the
 //     node's installapplocally endpoint (deterministic, fast, you pick the nodes).
 import { pushImage, pushTestApp } from './registry-helper.js';
-import { startTicker, advanceBlock } from './daemon-control.js';
+import {
+  startTicker, stopTicker, advanceBlock, driveUntil,
+} from './daemon-control.js';
 import { dbClient } from './db-client.js';
-import { buildSeedableApp, buildSeedableSyncthingApp, buildSeedableTestApp } from './seed-helper.js';
+import {
+  buildSeedableApp, buildSeedableSyncthingApp, buildSeedableTestApp, buildSeedableUpdate,
+} from './seed-helper.js';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from './keys.js';
 import {
@@ -111,6 +115,42 @@ export async function seedSpecUpdate(env, updated, indices) {
     await dc.seedPermanentMessage(updated.permanentMessage);
     await dc.seedAppHash(updated.hash, updated.permanentMessage.height, true);
   }));
+}
+
+// expireGlobalApplications runs every 2 blocks x the post-PON speed multiplier
+// (explorerService).
+const EXPIRY_PERIOD_BLOCKS = 2 * 4;
+
+/**
+ * Take an app off the whole fleet the way an app leaves the network: its
+ * owner's specification has run out. An update whose term ended long ago is
+ * seeded on every node, so each node's expiry job deletes the specification and
+ * uninstalls the app, and nothing places it again. Drives the chain with the
+ * ticker stopped, and leaves the ticker running.
+ * @param {object} env
+ * @param {object} app The app as seeded (buildSeedableApp or buildSeedableUpdate).
+ * @param {object} [opts]
+ * @param {number} [opts.timeout] How long every node has to uninstall it once
+ *   its specification is gone.
+ * @returns {Promise<void>} Once no node holds its specification or runs it.
+ */
+export async function retireApp(env, app, { timeout = 120000 } = {}) {
+  const { name } = app.spec;
+  const expired = await buildSeedableUpdate(app, (spec) => { spec.expire = 1; });
+  await seedSpecUpdate(env, expired, env.clients.map((_unused, i) => i));
+  await stopTicker();
+  try {
+    await driveUntil(env.clients[1], async () => (await Promise.all(env.clients
+      .map((_unused, i) => dbClient(i + 1).globalAppSpec(name)))).every((row) => row === null), {
+      blocks: 3 * EXPIRY_PERIOD_BLOCKS, label: `every node expires ${name}`,
+    });
+  } finally {
+    await startTicker();
+  }
+  await waitFor(async () => (await Promise.all(env.clients.map((client) => client.get(`/apps/installedapps?_=${Date.now()}`))))
+    .every((res) => !res.data.map((a) => a.name).includes(name)), {
+    timeout, interval: 2000, label: `every node uninstalls ${name}`,
+  });
 }
 
 // TARGETED deployment: install a pre-built app on exactly the given node indices
