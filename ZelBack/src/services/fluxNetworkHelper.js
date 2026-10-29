@@ -530,12 +530,37 @@ async function forEachLimited(items, limit, task) {
 }
 
 /**
- * To perform a basic check of current FluxOS version.
+ * What a node finds at an address it is asked about. NOT_LISTED is no finding at
+ * all: the address is not on this node's deterministic list, so it was never
+ * probed - an address change this node has not yet seen confirmed reads so.
+ */
+const FluxAvailability = Object.freeze({
+  AVAILABLE: 'available',
+  UNAVAILABLE: 'unavailable',
+  NOT_LISTED: 'notListed',
+});
+
+/** `/flux/checkfluxavailability`'s answer for an address the asked node does not list. */
+const NOT_LISTED_MESSAGE = 'Asking Flux is not listed';
+
+/**
+ * Whether the answer to `/flux/checkfluxavailability` says the asked node does not
+ * list the address, rather than that it found nothing there.
+ * @param {object} answer The response body.
+ * @returns {boolean}
+ */
+function isNotListedAnswer(answer) {
+  return answer?.status === 'error' && answer?.data?.message === NOT_LISTED_MESSAGE;
+}
+
+/**
+ * Whether a Flux node answers at `ip:port`: listed on the deterministic list, its
+ * API on the minimum FluxOS version, its UI and its syncthing port up.
  * @param {string} ip IP address.
  * @param {string} port Port. Defaults to config.server.apiport.
- * @returns {Promise<boolean>} False unless FluxOS version meets or exceeds the minimum allowed version.
+ * @returns {Promise<string>} One of FluxAvailability.
  */
-async function isFluxAvailable(ip, port = config.server.apiport) {
+async function fluxAvailability(ip, port = config.server.apiport) {
   const axiosConfig = {
     timeout: 5000,
   };
@@ -551,14 +576,14 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     const socketAddress = normalizeSocketAddress(`${ip}:${port}`);
     const isConfirmedNode = await fluxCommunicationUtils.socketAddressInFluxList(socketAddress);
     if (!isConfirmedNode) {
-      return false;
+      return FluxAvailability.NOT_LISTED;
     }
     const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${port}/flux/version`, axiosConfig);
-    if (fluxResponse.data.status !== 'success') return false;
+    if (fluxResponse.data.status !== 'success') return FluxAvailability.UNAVAILABLE;
 
     const fluxVersion = fluxResponse.data.data;
     const versionMinOK = serviceHelper.semverAtLeast(fluxVersion, config.minimumFluxOSAllowedVersion);
-    if (!versionMinOK) return false;
+    if (!versionMinOK) return FluxAvailability.UNAVAILABLE;
 
     const homePort = +port - 1;
     // There is a new /health endpoint on the frontend express server. Since we have a catch-all route,
@@ -567,15 +592,25 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     const fluxResponseUi = await serviceHelper.axiosGet(`http://${ip}:${homePort}/health`, axiosConfig);
     const { data: UiPayload = '' } = fluxResponseUi;
     const uiAvailable = UiPayload === 'OK' || UiPayload.includes('<title>');
-    if (!uiAvailable) return false;
+    if (!uiAvailable) return FluxAvailability.UNAVAILABLE;
 
     const syncthingPort = +port + 2;
     const portOpen = await isPortOpen(ip, syncthingPort);
-    return portOpen;
+    return portOpen ? FluxAvailability.AVAILABLE : FluxAvailability.UNAVAILABLE;
   } catch (e) {
     log.error(e);
-    return false;
+    return FluxAvailability.UNAVAILABLE;
   }
+}
+
+/**
+ * To perform a basic check of current FluxOS version.
+ * @param {string} ip IP address.
+ * @param {string} port Port. Defaults to config.server.apiport.
+ * @returns {Promise<boolean>} True when a Flux node answers there (fluxAvailability).
+ */
+async function isFluxAvailable(ip, port = config.server.apiport) {
+  return (await fluxAvailability(ip, port)) === FluxAvailability.AVAILABLE;
 }
 
 /**
@@ -594,12 +629,14 @@ async function checkFluxAvailability(req, res) {
     return res.json(errMessage);
   }
 
-  const available = await isFluxAvailable(ip, port);
+  const availability = await fluxAvailability(ip, port);
 
   let message;
 
-  if (available === true) {
+  if (availability === FluxAvailability.AVAILABLE) {
     message = messageHelper.createSuccessMessage('Asking Flux is available');
+  } else if (availability === FluxAvailability.NOT_LISTED) {
+    message = messageHelper.createErrorMessage(NOT_LISTED_MESSAGE);
   } else {
     message = messageHelper.createErrorMessage('Asking Flux is not available');
   }
@@ -2297,7 +2334,8 @@ async function peersFindAt(socketAddress) {
       log.info(`${peer} reaches a Flux node at ${socketAddress}`);
       return PeerFinding.REACHED;
     }
-    if (status === 'error') foundNothing += 1;
+    // A peer that does not list the address has not looked there.
+    if (status === 'error' && !isNotListedAnswer(answer.data)) foundNothing += 1;
   }
   if (foundNothing >= PEERS_FINDING_NOTHING) return PeerFinding.NOTHING;
   log.info(`too few peers answered whether a Flux node is at ${socketAddress} to say`);
@@ -2579,6 +2617,15 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       return null;
     },
   );
+
+  // The observer does not list this address yet - typically a move it has not seen
+  // confirmed - so it has not looked: nothing is concluded from it, dosState is
+  // untouched, and the next observer is asked.
+  if (resMyAvailability && isNotListedAnswer(resMyAvailability.data)) {
+    log.info(`checkMyFluxAvailability - ${remoteIp}:${remotePort} does not list ${localSocketAddress} yet; asking another`);
+    if (retryNumber <= 6) return checkMyFluxAvailability(retryNumber + 1);
+    return false;
+  }
 
   // Known limitation, replaced in v9: a failed check retries at once against another
   // random node, up to seven times, and each failure adds 2 to dosState, so one bad
@@ -3766,6 +3813,9 @@ function getNumberOfPeers() {
 
 module.exports = {
   isFluxAvailable,
+  fluxAvailability,
+  FluxAvailability,
+  NOT_LISTED_MESSAGE,
   checkFluxAvailability,
   getLocalSocketAddress,
   getKnownLocalSocketAddress,

@@ -466,6 +466,55 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
+  describe('fluxAvailability tests', () => {
+    const versionResponse = { data: { status: 'success', data: '8.2.0' } };
+    Object.setPrototypeOf(versionResponse.data, { // axios on home expects string
+      includes() {
+        return true;
+      },
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('is AVAILABLE when the listed node answers on its api, ui and syncthing ports', async () => {
+      sinon.stub(serviceHelper, 'axiosGet').resolves(versionResponse);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
+      sinon.stub(net.Socket.prototype, 'connect').callsFake((_port, _ip, callback) => {
+        callback();
+      });
+
+      expect(await fluxNetworkHelper.fluxAvailability('127.0.0.1', '16127')).to.equal(fluxNetworkHelper.FluxAvailability.AVAILABLE);
+    });
+
+    it('is NOT_LISTED, without probing, when the address is not on the deterministic list', async () => {
+      const axiosGet = sinon.stub(serviceHelper, 'axiosGet').resolves(versionResponse);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(false);
+
+      expect(await fluxNetworkHelper.fluxAvailability('127.0.0.1', '16127')).to.equal(fluxNetworkHelper.FluxAvailability.NOT_LISTED);
+      sinon.assert.notCalled(axiosGet);
+    });
+
+    it('is UNAVAILABLE when the listed node does not answer', async () => {
+      sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused'));
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
+
+      expect(await fluxNetworkHelper.fluxAvailability('127.0.0.1', '16127')).to.equal(fluxNetworkHelper.FluxAvailability.UNAVAILABLE);
+    });
+
+    it('answers checkfluxavailability for an address it does not list as not listed', async () => {
+      sinon.stub(serviceHelper, 'axiosGet').resolves(versionResponse);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(false);
+      const res = { json: sinon.fake((param) => param) };
+
+      const answer = await fluxNetworkHelper.checkFluxAvailability({ params: { ip: '127.0.0.1', port: '16127' }, query: {} }, res);
+
+      expect(answer.status).to.equal('error');
+      expect(answer.data.message).to.equal(fluxNetworkHelper.NOT_LISTED_MESSAGE);
+    });
+  });
+
   describe('isFluxAvailable tests', () => {
     let stub;
     const ip = '127.0.0.1';
@@ -1596,6 +1645,44 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
       expect(result).to.be.false;
+    });
+
+    it('concludes nothing from observers that do not list this node, asking each in turn', async () => {
+      fluxNetworkHelper.resetAvailabilityDos();
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(0);
+      getRandomExternalObserver.resolves('1.2.3.4:16127');
+      const axiosGet = sinon.stub(serviceHelper, 'axiosGet')
+        .resolves({ data: { status: 'error', data: { message: fluxNetworkHelper.NOT_LISTED_MESSAGE } } });
+
+      const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+      expect(result).to.be.false;
+      expect(axiosGet.callCount, 'the observers asked').to.equal(8);
+      expect(fluxNetworkHelper.isNodeDos()).to.be.false;
+      expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+    });
+
+    // Five observers that do not list this node after one that cannot reach it:
+    // counted as failures, they would take it past 10 and into DOS before the
+    // seventh is asked.
+    it('adds nothing for observers that do not list this node, and the next that does decides', async () => {
+      fluxNetworkHelper.resetAvailabilityDos();
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(0);
+      getRandomExternalObserver.resolves('1.2.3.4:16127');
+      sinon.stub(benchmarkService, 'getPublicIp').resolves({ status: 'success', data: '129.3.3.3' });
+      const notListed = { data: { status: 'error', data: { message: fluxNetworkHelper.NOT_LISTED_MESSAGE } } };
+      const axiosGet = sinon.stub(serviceHelper, 'axiosGet').resolves(notListed);
+      axiosGet.onCall(0).resolves({ data: { status: 'error', data: { message: 'Asking Flux is not available' } } });
+      axiosGet.onCall(6).resolves({ data: { status: 'success', data: { message: 'Asking Flux is available' } } });
+
+      const result = await fluxNetworkHelper.checkMyFluxAvailability();
+
+      expect(axiosGet.callCount, 'the observers asked').to.equal(7);
+      expect(result, 'the observer that reached this node decides').to.be.true;
+      expect(fluxNetworkHelper.isNodeDos(), 'in DOS').to.be.false;
+      expect(fluxNetworkHelper.getDOSState().data.dosState, 'the points of the observer that could not reach it, released').to.equal(0);
     });
 
     it('should return true if axios status response is success', async () => {
@@ -2734,6 +2821,25 @@ describe('fluxNetworkHelper tests', () => {
       expect(axiosGetStub.getCalls().filter((call) => String(call.args[0]).includes('checkfluxavailability')), 'every peer drawn was asked').to.have.lengthOf(COLLISION_PEERS.length);
       sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
       expect(fluxNetworkHelper.getDosStateValue(), 'no collision is claimed on too few answers').to.equal(0);
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(0);
+    });
+
+    it('takes nothing over while the peers asked do not list the other node', async () => {
+      const otherIp = '192.168.1.204:16127';
+      const collateral = 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)';
+      getBenchmarksStub.resolves({ status: 'success', data: { ipaddress: '192.168.1.104:16127' } });
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns([{ ...deterministicFluxnodeListResponse[0], collateral, ip: otherIp }]);
+      getFluxNodeStatusStub.returns({ status: 'success', data: { status: 'CONFIRMED', collateral } });
+      const axiosGetStub = sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused'));
+      axiosGetStub.withArgs(sinon.match(/\/flux\/checkfluxavailability/))
+        .resolves({ data: { status: 'error', data: { message: fluxNetworkHelper.NOT_LISTED_MESSAGE } } });
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      sinon.assert.notCalled(daemonServiceFluxnodeRpcs.createConfirmationTransaction);
+      expect(fluxNetworkHelper.getDosStateValue(), 'a peer that has not looked finds nothing either way').to.equal(0);
       fluxNetworkHelper.setDosMessage(null);
       fluxNetworkHelper.setDosStateValue(0);
     });
