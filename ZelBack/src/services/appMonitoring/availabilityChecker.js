@@ -7,6 +7,7 @@ const generalService = require('../generalService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const upnpService = require('../upnpService');
+const portReconciler = require('../portReconciler');
 const networkStateService = require('../networkStateService');
 const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
 const fluxUdpTestServer = require('../utils/fluxUdpTestServer');
@@ -44,8 +45,8 @@ async function handleTestShutdown(testingPort, testHttpServer, isArcane, options
   }
 
   if (!skipUpnp) {
-    await upnpService
-      .removeMapUpnpPort(testingPort, 'Flux_Test_App')
+    await portReconciler
+      .release(testingPort, 'Flux_Test_App')
       .catch((e) => log.error(e));
   }
 
@@ -347,7 +348,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
 
     // A router that has yet to remove a mapping of this node fails the check,
     // and is given no test mapping until it has.
-    if (isUpnp && upnpService.removalPending()) {
+    if (isUpnp && portReconciler.removalPending()) {
       log.info('checkMyAppsAvailability - the router has yet to remove a mapping of this node; no test mapping until it has');
       countPortFailure(dosState, thresholds.dos, UPNP_DOS_MESSAGE);
       await waitForNextPass(dosState.portFailureScore >= thresholds.dos ? timeouts.dos : timeouts.error);
@@ -448,7 +449,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     if (isUpnp) {
       // A router refusing either protocol's mapping for a reason of its own is
       // a router fault, counted as one.
-      const upnpMapResult = await upnpService.mapUpnpPort(dosState.testingPort, 'Flux_Test_App', { protocols: protocols.map((protocol) => protocol.toUpperCase()) });
+      const upnpMapResult = await portReconciler.want(dosState.testingPort, 'Flux_Test_App', { protocols: protocols.map((protocol) => protocol.toUpperCase()) });
       routerRefused = routerRefusedSinceLastPass(dosState);
       if (routerRefused) countPortFailure(dosState, thresholds.dos, UPNP_DOS_MESSAGE);
       if (!upnpMapResult.mapped) {
@@ -661,7 +662,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     // soon; a refusal during this pass gave no wake, the check not waiting.
     const routerFaulting = routerRefused
       || upnpService.routerRefusals() > dosState.routerRefusalsSeen
-      || upnpService.removalPending();
+      || portReconciler.removalPending();
     if (isUpnp && routerFaulting) {
       waitMs = Math.min(waitMs, dosState.portFailureScore >= thresholds.dos ? timeouts.dos : timeouts.error);
     }

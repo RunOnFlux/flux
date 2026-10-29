@@ -14,6 +14,7 @@ const {
 const config = require('config');
 // const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const upnpService = require('../upnpService');
+const portReconciler = require('../portReconciler');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
 const nodeConfirmationService = require('../nodeConfirmationService');
@@ -717,14 +718,14 @@ async function cleanupPorts(appSpecifications, appName, res, entityName) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
+        await portReconciler.release(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
       }
     }
   } else if (appSpecifications.port) {
     // v1 compatibility
     const isUPNP = upnpService.isUPNP();
     if (isUPNP) {
-      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
+      await portReconciler.release(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
     }
   }
 

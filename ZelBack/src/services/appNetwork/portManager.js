@@ -8,6 +8,7 @@ const networkStateService = require('../networkStateService');
 const verificationHelper = require('../verificationHelper');
 const log = require('../../lib/log');
 const upnpService = require('../upnpService');
+const portReconciler = require('../portReconciler');
 const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
@@ -314,14 +315,13 @@ async function restoreAppsPortsPass() {
       for (const application of currentAppsPorts) {
         // eslint-disable-next-line no-await-in-loop
         await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.PORTS_REFRESH_BEFORE_APP, application.name);
-        // a port released and not mapped since is an app removed or being removed
-        const mapOptions = { refresh: true };
+        // a port released and not wanted since is an app removed or being removed
         let failedPort = null;
         let released = false;
         // eslint-disable-next-line no-restricted-syntax
         for (const port of application.ports) {
           // eslint-disable-next-line no-await-in-loop
-          let result = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`, mapOptions);
+          let result = await portReconciler.keep(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
           if (!result.mapped && !result.released) {
             if (!retryDelayElapsed) {
               // eslint-disable-next-line no-await-in-loop
@@ -329,7 +329,7 @@ async function restoreAppsPortsPass() {
               retryDelayElapsed = true;
             }
             // eslint-disable-next-line no-await-in-loop
-            result = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`, mapOptions);
+            result = await portReconciler.keep(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
           }
           if (result.released) {
             released = true;
@@ -1031,7 +1031,7 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
       }
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
-        const upnpMapResult = await upnpService.mapUpnpPort(portToTest, description);
+        const upnpMapResult = await portReconciler.want(portToTest, description);
         if (!upnpMapResult.mapped) {
           throw new Error(`Failed to create map UPNP port: ${upnpMapResult.reason}`);
         }
@@ -1383,7 +1383,7 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
       }
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.removeMapUpnpPort(portToTest, description);
+        await portReconciler.release(portToTest, description);
       }
     }
     udpTestServers.forEach((udpTestServer) => udpTestServer.close());
@@ -1413,7 +1413,7 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
       }
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.removeMapUpnpPort(portToTest, description).catch((e) => log.error(e));
+        await portReconciler.release(portToTest, description).catch((e) => log.error(e));
       }
     }
     udpTestServers.forEach((udpTestServer) => udpTestServer.close());

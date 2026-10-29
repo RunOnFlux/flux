@@ -79,10 +79,6 @@ describe('fluxNetworkHelper tests', () => {
   // Global beforeEach to mock UPnP service for all tests
   beforeEach(() => {
     sinon.stub(upnpService, 'isUPNP').returns(false);
-    sinon.stub(upnpService, 'removeMapUpnpPort').resolves(true);
-    sinon.stub(upnpService, 'mapUpnpPort').resolves({
-      mapped: true, code: null, reason: null, routerWide: false,
-    });
     // The installed copy of the ufw helper is the one to run (utils/ufwHelper has its own tests).
     sinon.stub(ufwHelper, 'path').resolves(ufwHelper.UFW_HELPER);
   });

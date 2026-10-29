@@ -12,6 +12,7 @@ const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper'
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const upnpService = require('../../ZelBack/src/services/upnpService');
+const portReconciler = require('../../ZelBack/src/services/portReconciler');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const fluxHttpTestServer = require('../../ZelBack/src/services/utils/fluxHttpTestServer');
 const fluxUdpTestServer = require('../../ZelBack/src/services/utils/fluxUdpTestServer');
@@ -353,8 +354,8 @@ describe('availabilityChecker tests', () => {
     describe('a node behind UPnP', () => {
       const UPNP_DOS = 'Not possible to run applications on the node, router returning exceptions when creating UPNP ports mappings';
       let refusals;
-      let mapUpnpPortStub;
-      let removeMapUpnpPortStub;
+      let wantStub;
+      let releaseStub;
       let portTestStub;
 
       const refused = (code, routerWide) => ({
@@ -376,16 +377,16 @@ describe('availabilityChecker tests', () => {
         sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
         // The port under test is drawn at random, so this gate has to be closed
         // too: left real, it refuses whenever the draw lands in upnpBannedPorts
-        // and the run returns before it ever reaches mapUpnpPort.
+        // and the run returns before it ever reaches portReconciler.want.
         sinon.stub(fluxNetworkHelper, 'isPortUPNPBanned').returns(false);
         sinon.stub(networkStateService, 'getRandomExternalObserver').resolves('192.168.1.200:16127');
         sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
         sinon.stub(fluxNetworkHelper, 'allowTestPort').resolves();
         sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves();
         sinon.stub(upnpService, 'routerRefusals').callsFake(() => refusals);
-        sinon.stub(upnpService, 'removalPending').returns(false);
-        mapUpnpPortStub = sinon.stub(upnpService, 'mapUpnpPort').resolves(MAPPED);
-        removeMapUpnpPortStub = sinon.stub(upnpService, 'removeMapUpnpPort').resolves(true);
+        sinon.stub(portReconciler, 'removalPending').returns(false);
+        wantStub = sinon.stub(portReconciler, 'want').resolves(MAPPED);
+        releaseStub = sinon.stub(portReconciler, 'release').resolves(true);
         sinon.stub(fluxHttpTestServer.FluxHttpTestServer.prototype, 'listen').callsFake(function listen() {
           this.emit('listening');
           return this;
@@ -395,7 +396,7 @@ describe('availabilityChecker tests', () => {
       });
 
       // the test mapping refused as `result` gives it, one router-wide refusal counted when it is
-      const testMappingRefused = (result) => mapUpnpPortStub.callsFake(async () => {
+      const testMappingRefused = (result) => wantStub.callsFake(async () => {
         if (result.routerWide) refusals += 1;
         return result;
       });
@@ -431,7 +432,7 @@ describe('availabilityChecker tests', () => {
       it('maps the port under test for one protocol a pass, TCP first', async () => {
         await pass();
 
-        sinon.assert.calledOnceWithExactly(mapUpnpPortStub, mockDosState.testingPort, 'Flux_Test_App', { protocols: ['TCP'] });
+        sinon.assert.calledOnceWithExactly(wantStub, mockDosState.testingPort, 'Flux_Test_App', { protocols: ['TCP'] });
         expect(JSON.parse(portTestStub.firstCall.args[1]).protocols).to.deep.equal(['tcp']);
         sinon.assert.notCalled(fluxUdpTestServer.FluxUdpTestServer);
       });
@@ -444,14 +445,14 @@ describe('availabilityChecker tests', () => {
 
         await pass();
 
-        sinon.assert.notCalled(mapUpnpPortStub);
-        sinon.assert.notCalled(removeMapUpnpPortStub);
+        sinon.assert.notCalled(wantStub);
+        sinon.assert.notCalled(releaseStub);
         sinon.assert.notCalled(portTestStub);
 
         await pass();
 
-        sinon.assert.calledOnce(mapUpnpPortStub);
-        expect(mapUpnpPortStub.firstCall.args[2], 'the protocol a pass that did not test leaves').to.deep.equal({ protocols: ['TCP'] });
+        sinon.assert.calledOnce(wantStub);
+        expect(wantStub.firstCall.args[2], 'the protocol a pass that did not test leaves').to.deep.equal({ protocols: ['TCP'] });
       });
 
       it('tests UDP alone on the pass after a TCP pass that passed, and TCP after that', async () => {
@@ -462,13 +463,13 @@ describe('availabilityChecker tests', () => {
         });
         await pass();
 
-        expect(mapUpnpPortStub.secondCall.args[2]).to.deep.equal({ protocols: ['UDP'] });
+        expect(wantStub.secondCall.args[2]).to.deep.equal({ protocols: ['UDP'] });
         expect(JSON.parse(portTestStub.secondCall.args[1]).protocols).to.deep.equal(['udp']);
         expect(fluxHttpTestServer.FluxHttpTestServer.prototype.listen.callCount, 'a TCP test server on the UDP pass').to.equal(1);
         expect(fluxNetworkHelper.getUdpReachability()).to.deep.equal({ reachable: true });
 
         await pass();
-        expect(mapUpnpPortStub.thirdCall.args[2]).to.deep.equal({ protocols: ['TCP'] });
+        expect(wantStub.thirdCall.args[2]).to.deep.equal({ protocols: ['TCP'] });
       });
 
       // A peer that does not know `protocols` tests TCP, finds it unmapped, and
@@ -524,11 +525,11 @@ describe('availabilityChecker tests', () => {
       });
 
       it('makes no test mapping, opens no port, and counts a failed check while the router has yet to remove a mapping of this node', async () => {
-        upnpService.removalPending.returns(true);
+        portReconciler.removalPending.returns(true);
 
         await pass();
 
-        sinon.assert.notCalled(mapUpnpPortStub);
+        sinon.assert.notCalled(wantStub);
         sinon.assert.notCalled(fluxNetworkHelper.allowTestPort);
         sinon.assert.notCalled(portTestStub);
         expect(mockDosState.portFailureScore).to.equal(4);
@@ -536,7 +537,7 @@ describe('availabilityChecker tests', () => {
       });
 
       it('holds the node out of service once the router has yet to remove a mapping for as many passes as the threshold takes', async () => {
-        upnpService.removalPending.returns(true);
+        portReconciler.removalPending.returns(true);
 
         // eslint-disable-next-line no-restricted-syntax
         for (let i = 0; i < 25; i += 1) {
@@ -551,7 +552,7 @@ describe('availabilityChecker tests', () => {
       });
 
       it('waits no longer than an error\'s wait after a pass that left a removal pending', async () => {
-        upnpService.removalPending.onFirstCall().returns(false).returns(true);
+        portReconciler.removalPending.onFirstCall().returns(false).returns(true);
 
         await pass();
 
@@ -634,7 +635,7 @@ describe('availabilityChecker tests', () => {
 
         await pass();
 
-        sinon.assert.calledOnceWithExactly(removeMapUpnpPortStub, mockDosState.testingPort, 'Flux_Test_App');
+        sinon.assert.calledOnceWithExactly(releaseStub, mockDosState.testingPort, 'Flux_Test_App');
       });
 
       it('opens the port under test to IPv4 only, and deletes only that rule', async () => {
