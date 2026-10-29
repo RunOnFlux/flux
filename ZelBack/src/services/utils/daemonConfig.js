@@ -66,6 +66,16 @@ class DaemonConfig {
     return this.#absConfigPath ? path.dirname(this.#absConfigPath) : null;
   }
 
+  /**
+   * fluxd's data directory: flux.conf's `datadir`, otherwise the directory
+   * flux.conf is in, or fluxd's default directory when there is no flux.conf.
+   * @returns {string}
+   */
+  get dataDir() {
+    const { fluxPath } = DaemonConfig.daemonConfigPaths[this.platform];
+    return this.get('datadir') || this.configDir || path.dirname(path.join(this.baseDir, fluxPath));
+  }
+
   get rpcuser() {
     return this.configElements.rpcuser || null;
   }

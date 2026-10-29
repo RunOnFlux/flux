@@ -1,3 +1,5 @@
+const os = require('node:os');
+const fs = require('node:fs/promises');
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
 const sinon = require('sinon');
@@ -80,7 +82,7 @@ describe('daemonServiceUtils tests', () => {
       class DaemonConfig {
         constructor() { this.configElements = {}; }
 
-        get configDir() { return '/home/node/.flux'; }
+        get dataDir() { return '/home/node/.flux'; }
 
         async parseConfig() {
           state.parsed += 1;
@@ -250,7 +252,6 @@ describe('daemonServiceUtils tests', () => {
         [{ rpccookiefile: '/run/fluxd/rpc.cookie' }, '/run/fluxd/rpc.cookie'],
         [{ rpccookiefile: 'rpc.cookie' }, '/home/node/.flux/rpc.cookie'],
         [{}, '/home/node/.flux/.cookie'],
-        [{ datadir: '/dat/fluxd' }, '/dat/fluxd/.cookie'],
       ].forEach(([extra, expected]) => {
         it(`logs in with the cookie at ${expected}`, async () => {
           const { module, state } = node({ cookies: [cookieA], conf: { zelnodeprivkey: 'filekey', ...extra } });
@@ -270,6 +271,35 @@ describe('daemonServiceUtils tests', () => {
         expect(state.clients.at(-1).auth).to.eql(cookieB);
         expect(state.batches).to.eql([]);
       });
+    });
+
+    it('with no flux.conf, reads the cookie in fluxd\'s default directory and answers fluxd being down as an error', async () => {
+      const hostPlatform = process.platform;
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+      sinon.stub(os, 'homedir').returns('/home/node');
+      sinon.stub(fs, 'stat').rejects(new Error('ENOENT'));
+      const cookiePaths = [];
+      class FluxRpc {
+        // eslint-disable-next-line class-methods-use-this
+        async run() { throw Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }); }
+      }
+      const module = proxyquire('../../ZelBack/src/services/daemonService/daemonServiceUtils', {
+        '../utils/fluxRpc': { FluxRpc },
+        './fluxdCredentials': {
+          loadNodeKey: async () => null,
+          RPC_COOKIE_FILE: '/run/fluxd/rpc.cookie',
+          readRpcCookie: async (file) => { cookiePaths.push(file); return null; },
+        },
+      });
+
+      try {
+        const answer = await module.executeCall('getblockcount', [], { useCache: false });
+        expect(answer.status).to.equal('error');
+        expect(cookiePaths).to.eql(['/home/node/.flux/.cookie']);
+      } finally {
+        Object.defineProperty(process, 'platform', { value: hostPlatform });
+        sinon.restore();
+      }
     });
 
     it('a 401 on a node that reads flux.conf is an error, not a cookie to read', async () => {
