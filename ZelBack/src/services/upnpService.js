@@ -7,6 +7,7 @@ const verificationHelper = require('./verificationHelper');
 // eslint-disable-next-line import/no-extraneous-dependencies
 
 const log = require('../lib/log');
+const fluxEventBus = require('./utils/fluxEventBus');
 const ufw = require('./utils/ufw');
 const fluxadmPort = require('./fluxadmPort');
 const { Privilege, authOf } = require('./utils/privileges');
@@ -477,6 +478,7 @@ async function learnLeaseRenewal(apiport) {
   const record = (renews, why) => {
     if (routerLeases.generation !== generation) return false;
     routerLeases.renews = renews;
+    fluxEventBus.publish('upnp:leaseRenewal', { renews });
     log.info(`UPnP - the router ${renews ? 'renews' : 'does not renew'} a mapping's lease when it is added again (${why}); long-lived mappings are ${renews ? `leased for ${config.upnp.longLivedLeaseS} s` : 'permanent'}`);
     return renews;
   };

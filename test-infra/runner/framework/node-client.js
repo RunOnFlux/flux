@@ -293,6 +293,11 @@ export function nodeClient(nodeNum) {
         'syncthing:ownersByNumber',
         'syncthing:listenerKnown',
         'availability:checked',
+        // Whether startup verified UPnP on the node's router, and whether that router
+        // restarts a lease when a mapping is added again: what the node's own mappings
+        // are made with follows from the two.
+        'upnp:verified',
+        'upnp:leaseRenewal',
         'collision:judged',
         'network:originatorNotListed',
         'syncthing:namesVisible',

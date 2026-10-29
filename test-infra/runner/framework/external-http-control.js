@@ -259,12 +259,15 @@ export async function setUpnpDeleteFault(ip, code) {
 
 /**
  * Set how many mappings a node's gateway holds from now on, keeping its table and the requests
- * it has seen. A new mapping past it is refused with 728, carried as `refused: 728` in its state.
+ * it has seen. A new mapping past it is refused with `fault`, carried as `refused: <fault>` in
+ * its state.
  * @param {string} ip
  * @param {number|null} capacity - null for no limit
+ * @param {object} [opts]
+ * @param {number} [opts.fault] - 728 NoPortMapsAvailable when absent
  */
-export async function setUpnpCapacity(ip, capacity) {
-  const res = await post(`/upnp-gateway/${ip}/capacity`, { capacity });
+export async function setUpnpCapacity(ip, capacity, { fault = null } = {}) {
+  const res = await post(`/upnp-gateway/${ip}/capacity`, { capacity, fault });
   if (!res.ok) throw new Error(`setUpnpCapacity: ${JSON.stringify(res)}`);
 }
 
@@ -280,14 +283,30 @@ export async function setUpnpCapacity(ip, capacity) {
  *   is: its lease is not restarted or changed
  * @param {boolean} [opts.staticLeases] - show every entry's lease as it was asked for, never
  *   counting down
+ * @param {number|null} [opts.minimumLease] - hold a shorter lease for this many seconds
+ * @param {number|null} [opts.permanentAs] - hold a mapping asked for with no lease for this
+ *   many seconds
+ * @param {number|null} [opts.refreshFault] - the fault it refuses an add of a held entry with
  */
 export async function setUpnpLeases(ip, {
   fault = null, drops = false, keepsHeld = false, staticLeases = false,
+  minimumLease = null, permanentAs = null, refreshFault = null,
 } = {}) {
   const res = await post(`/upnp-gateway/${ip}/leases`, {
-    fault, drops, keepsHeld, staticLeases,
+    fault, drops, keepsHeld, staticLeases, minimumLease, permanentAs, refreshFault,
   });
   if (!res.ok) throw new Error(`setUpnpLeases: ${JSON.stringify(res)}`);
+}
+
+/**
+ * Set whether a node's gateway answers a lookup of any port with an empty entry from now on,
+ * whatever it holds, keeping its table and the requests it has seen.
+ * @param {string} ip
+ * @param {boolean} on
+ */
+export async function setUpnpEmptyLookups(ip, on) {
+  const res = await post(`/upnp-gateway/${ip}/empty-lookups`, { on });
+  if (!res.ok) throw new Error(`setUpnpEmptyLookups: ${JSON.stringify(res)}`);
 }
 
 /**

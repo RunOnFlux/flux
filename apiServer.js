@@ -142,6 +142,7 @@ async function loadUpnpIfRequired() {
     let setupUpnp = false;
     if (globalThis.userconfig.initial.apiport) {
       verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
+      fluxEventBus.publish('upnp:verified', { verified: verifyUpnp });
       if (verifyUpnp) {
         setupUpnp = await upnpService.setupUPNP(apiPort);
       }

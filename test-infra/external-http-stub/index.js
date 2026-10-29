@@ -730,7 +730,10 @@ app.get('/repos/:owner/:repo', (req, res) => {
 // lookup or a listing shows the seconds it has left; a mapping with none is held until it is
 // removed. Adding a held mapping again restarts its lease, unless the gateway is set to keep a
 // held entry as it is (as FRITZ!OS 8 and miniupnpd 1.x do); a gateway can also show every
-// lease as it was asked for, never counting down (as libupnp and TP-Link SMB do).
+// lease as it was asked for, never counting down (as libupnp and TP-Link SMB do), hold a lease
+// shorter than its minimum for the minimum, hold a permanent mapping for a lease of its own
+// (IGDv2's one week), refuse an add of a held entry, refuse a full table's add with a fault
+// other than 728, and answer a lookup of any port with an empty entry (as eero does).
 const UPNP_SERVICE = 'urn:schemas-upnp-org:service:WANIPConnection:1';
 
 // Drops the entries of a gateway whose lease has ended.
@@ -813,9 +816,15 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
         soapFault(res, 718, 'ConflictInMappingEntry');
         return;
       }
+      if (held && gateway.refreshFault) {
+        gateway.requests[gateway.requests.length - 1].refused = gateway.refreshFault;
+        soapFault(res, gateway.refreshFault, 'ActionFailed');
+        return;
+      }
       if (!held && gateway.capacity !== null && gateway.mappings.length >= gateway.capacity) {
-        gateway.requests[gateway.requests.length - 1].refused = 728;
-        soapFault(res, 728, 'NoPortMapsAvailable');
+        const fault = gateway.fullFault ?? 728;
+        gateway.requests[gateway.requests.length - 1].refused = fault;
+        soapFault(res, fault, fault === 728 ? 'NoPortMapsAvailable' : 'ActionFailed');
         return;
       }
       const protocolFault = gateway.protocolFaults?.[arg('NewProtocol').toUpperCase()];
@@ -830,7 +839,9 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
         soapFault(res, gateway.leaseFault, gateway.leaseFault === 725 ? 'OnlyPermanentLeasesSupported' : 'ActionFailed');
         return;
       }
-      const kept = gateway.dropsLeases ? 0 : lease;
+      let kept = gateway.dropsLeases ? 0 : lease;
+      if (kept === 0 && gateway.permanentAs) kept = gateway.permanentAs;
+      if (kept > 0 && gateway.minimumLease && kept < gateway.minimumLease) kept = gateway.minimumLease;
       const description = arg('NewPortMappingDescription');
       // a gateway that keeps a held entry as it is answers the add and changes nothing
       if (held && gateway.keepsHeld) {
@@ -879,6 +890,12 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
       return;
     }
     case 'GetSpecificPortMappingEntry': {
+      if (gateway.emptyLookups) {
+        soapReply(res, action, {
+          NewInternalPort: '', NewInternalClient: '', NewEnabled: '', NewPortMappingDescription: '', NewLeaseDuration: '',
+        });
+        return;
+      }
       if (gateway.lookupFault) {
         gateway.requests[gateway.requests.length - 1].refused = gateway.lookupFault;
         soapFault(res, gateway.lookupFault, 'ActionFailed');
@@ -1133,6 +1150,18 @@ control.post('/upnp-gateway/:ip/lookup-fault', (req, res) => {
 // Set the fault a node's gateway answers every removal with from now on, while
 // still carrying it out (null: answer as the spec says), keeping its table and
 // the requests it has seen.
+// Set whether a node's gateway answers a lookup of any port with an empty entry from now on,
+// whatever it holds, keeping its table and the requests it has seen.
+control.post('/upnp-gateway/:ip/empty-lookups', (req, res) => {
+  const gateway = state.upnpGateways[req.params.ip];
+  if (!gateway) {
+    res.status(404).json({ error: 'no gateway for that ip' });
+    return;
+  }
+  gateway.emptyLookups = req.body?.on === true;
+  res.json({ ok: true });
+});
+
 control.post('/upnp-gateway/:ip/delete-fault', (req, res) => {
   const gateway = state.upnpGateways[req.params.ip];
   if (!gateway) {
@@ -1161,8 +1190,9 @@ control.post('/upnp-gateway/:ip/protocol-fault', (req, res) => {
   res.json({ ok: true });
 });
 
-// Set how many mappings a node's gateway holds from now on (null: no limit),
-// keeping its table and the requests it has seen.
+// Set how many mappings a node's gateway holds from now on (null: no limit), and the fault
+// it refuses a new one past it with (728 when absent), keeping its table and the requests it
+// has seen.
 control.post('/upnp-gateway/:ip/capacity', (req, res) => {
   const gateway = state.upnpGateways[req.params.ip];
   if (!gateway) {
@@ -1170,14 +1200,16 @@ control.post('/upnp-gateway/:ip/capacity', (req, res) => {
     return;
   }
   gateway.capacity = req.body?.capacity ?? null;
+  gateway.fullFault = req.body?.fault ?? null;
   res.json({ ok: true });
 });
 
 // Set how a node's gateway treats a mapping asked for with a lease from now on: refused
 // with `fault` (725 is a router that keeps permanent mappings only; null takes it), or taken
 // and held as permanent when `drops`; a held entry added again left as it is when
-// `keepsHeld`; every lease shown as asked when `staticLeases`. Keeps its table and the
-// requests it has seen.
+// `keepsHeld`; every lease shown as asked when `staticLeases`; a lease shorter than
+// `minimumLease` held for it; a mapping asked for with no lease held for `permanentAs`; an add
+// of a held entry refused with `refreshFault`. Keeps its table and the requests it has seen.
 control.post('/upnp-gateway/:ip/leases', (req, res) => {
   const gateway = state.upnpGateways[req.params.ip];
   if (!gateway) {
@@ -1188,6 +1220,9 @@ control.post('/upnp-gateway/:ip/leases', (req, res) => {
   gateway.dropsLeases = req.body?.drops === true;
   gateway.keepsHeld = req.body?.keepsHeld === true;
   gateway.staticLeases = req.body?.staticLeases === true;
+  gateway.minimumLease = req.body?.minimumLease ?? null;
+  gateway.permanentAs = req.body?.permanentAs ?? null;
+  gateway.refreshFault = req.body?.refreshFault ?? null;
   res.json({ ok: true });
 });
 
