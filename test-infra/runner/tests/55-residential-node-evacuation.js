@@ -16,7 +16,7 @@ import { loadSharedConfig } from '../framework/coupled-knobs.js';
 import {
   subnet, TARGET, TABLE_DECIDED, VETOING, SECOND_TARGET,
   bootResidentialFleet, seedApp, whenGone, returnToService, elapseSettleWindow, runningComponents,
-  departureWaitMs, fleetNodes, RESIDENTIAL_PACING, PASS_MS,
+  departureWaitMs, fleetNodes, RESIDENTIAL_PACING, PASS_MS, retireSeededApps, expectHoldsOnly,
 } from '../framework/residential-fleet.js';
 import { keysOf, turnOwner, untilOwnedTurnEndsMs } from '../framework/handback-turns.js';
 
@@ -169,6 +169,7 @@ describe('Residential node evacuation', function () {
     await seedApp(env, 'residentapp', { instances: env.nodeCount });
     await advanceBlocks(3);
     await waitForAppInstalled(env.clients[TARGET - 1], 'residentapp', 240000);
+    await expectHoldsOnly(env, TARGET, 'residentapp');
 
     const installed = await env.clients[TARGET - 1].get('/apps/installedapps');
     expect(installed.data.map((a) => a.name)).to.include('residentapp');
@@ -345,6 +346,7 @@ describe('Residential node evacuation', function () {
     // worldapp mounts s:, so its volume IS the product - the shape of the ten
     // Palworld and Minecraft worlds on the real fleet, which sit at exactly two
     // instances. Nothing reports holding a copy of it.
+    await retireSeededApps(env);
     await seedApp(env, 'worldapp', { instances: env.nodeCount, containerData: 's:/appdata' });
 
     // A synced folder has to be DECLARED before the app can run. The stub's
@@ -363,6 +365,7 @@ describe('Residential node evacuation', function () {
     // about the data check at all.
     await waitFor(async () => (await dbClient(2).getAppLocations('worldapp')).length >= env.nodeCount,
       { timeout: 300000, label: 'worldapp reaches its instance count across the fleet' });
+    await expectHoldsOnly(env, TARGET, 'worldapp');
 
     // Now take the evidence away: the data was there, and no peer can be shown
     // to hold it any more. This is the state the gate exists for.
@@ -442,6 +445,7 @@ describe('Residential node evacuation', function () {
     // What the window counts is time the node OBSERVED the verdict, not time
     // that elapsed, so the total observed is the half that has to survive: a
     // first-seen timestamp surviving a restart proves nothing on its own now.
+    await retireSeededApps(env);
     await returnToService(env, TARGET);
 
     // It has to be HOLDING something. An empty target goes straight to DOS -
@@ -449,6 +453,7 @@ describe('Residential node evacuation', function () {
     await seedApp(env, 'clockapp', { instances: env.nodeCount });
     await advanceBlocks(3);
     await waitForAppInstalled(env.clients[TARGET - 1], 'clockapp', 300000);
+    await expectHoldsOnly(env, TARGET, 'clockapp');
 
     await setSystemSecure(subnet.nodeIp(TARGET), false);
     await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
@@ -510,6 +515,7 @@ describe('Residential node evacuation: one holder at a time', function () {
     await advanceBlocks(3);
     await waitFor(async () => (await dbClient(2).getAppLocations('sharedapp')).length >= env.nodeCount,
       { timeout: 300000, label: 'sharedapp reaches its instance count across the fleet' });
+    await Promise.all([TARGET, SECOND_TARGET].map((node) => expectHoldsOnly(env, node, 'sharedapp')));
 
     await setSystemSecure(subnet.nodeIp(TARGET), false);
     await setSystemSecure(subnet.nodeIp(SECOND_TARGET), false);
@@ -616,6 +622,7 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     await advanceBlocks(3);
     await waitFor(async () => (await dbClient(2).getAppLocations('primaryapp')).length >= env.nodeCount,
       { timeout: 300000, label: 'primaryapp reaches its instance count across the fleet' });
+    await expectHoldsOnly(env, TARGET, 'primaryapp');
     // Only the node running the g: component is the writer, so only it can be
     // asked to stand down.
     await waitFor(async () => (await runningComponents(env, TARGET)).includes('fluxprimaryapp_primaryapp'),
@@ -741,6 +748,7 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     // With the stand-down working the app leaves, nothing considers it again,
     // and the refusal under test is unreachable - the test was passing on the
     // defect. A scenario a test depends on is a scenario it has to build.
+    await retireSeededApps(env);
     await returnToService(env, TARGET);
 
     // Elected before the app is installed, so no other holder starts it first,
@@ -754,6 +762,7 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     await advanceBlocks(3);
     await waitFor(async () => (await dbClient(2).getAppLocations('lockedapp')).length >= env.nodeCount,
       { timeout: 300000, label: 'lockedapp reaches its instance count across the fleet' });
+    await expectHoldsOnly(env, TARGET, 'lockedapp');
 
     // A peer holds the folder in full, so the synced-peer loop PASSES and the
     // pass reaches the election question. That ordering is the safety property
@@ -868,6 +877,7 @@ describe('Residential node evacuation: a stand-down that cannot finish', functio
    */
   async function standDown(test, appName) {
     const folder = `flux${appName}_${appName}`;
+    await retireSeededApps(env);
     await returnToService(env, TARGET);
     await electMaster(appName, subnet.nodeIp(TARGET));
     await seedApp(env, appName, { instances: env.nodeCount, containerData: 'g:/appdata' });
@@ -876,6 +886,7 @@ describe('Residential node evacuation: a stand-down that cannot finish', functio
     await advanceBlocks(3);
     await waitFor(async () => (await dbClient(2).getAppLocations(appName)).length >= env.nodeCount,
       { timeout: 300000, label: `${appName} reaches its instance count across the fleet` });
+    await expectHoldsOnly(env, TARGET, appName);
     await waitFor(async () => (await runningComponents(env, TARGET)).includes(folder),
       { timeout: 300000, label: 'the elected primary is running the g: component' });
 

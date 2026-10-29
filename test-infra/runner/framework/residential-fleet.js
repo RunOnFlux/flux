@@ -12,7 +12,7 @@ import {
   waitForExplorerReady, waitForOrchestratorStarted, waitForOrchestratorState,
   waitForPeerThreshold, waitFor,
 } from './wait.js';
-import { waitForLocationTable } from './reconciler-suite.js';
+import { retireApp, waitForLocationTable } from './reconciler-suite.js';
 import {
   derivedTurnMs, giveUpPassMs, harnessBlockCostMs, loadSharedConfig, PRODUCTION_LOCATION_EXPIRIES,
 } from './coupled-knobs.js';
@@ -156,7 +156,31 @@ export async function seedApp(env, appName, { instances = 3, containerData = '/t
     await dc.seedPermanentMessage(app.permanentMessage);
     await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
   }
+  if (!seededApps.has(env)) seededApps.set(env, []);
+  seededApps.get(env).push(app);
   return app;
+}
+
+// The apps seedApp has seeded on each fleet and not yet retired.
+const seededApps = new WeakMap();
+
+/**
+ * Retire every app seedApp has seeded on this fleet. A pass hands back one app,
+ * and returning a node to service lets the spawner refill any app a departure
+ * left short, so an app left on the fleet can be judged ahead of the next one.
+ */
+export async function retireSeededApps(env) {
+  const apps = seededApps.get(env) ?? [];
+  while (apps.length) await retireApp(env, apps.pop());
+}
+
+/** Refuse a fixture whose node holds anything besides `appName`. */
+export async function expectHoldsOnly(env, node, appName) {
+  const installed = await env.clients[node - 1].get(`/apps/installedapps?_=${Date.now()}`);
+  const names = installed.data.map((a) => a.name);
+  if (names.length !== 1 || names[0] !== appName) {
+    throw new Error(`fixture: node ${node} holds ${JSON.stringify(names)}, not ${appName} alone`);
+  }
 }
 
 
