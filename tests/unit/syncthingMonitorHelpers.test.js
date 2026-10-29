@@ -278,38 +278,40 @@ describe('syncthingMonitorHelpers tests', () => {
     });
   });
 
-  describe('isSyncthingDeviceId', () => {
+  describe('canonicalSyncthingDeviceId', () => {
     // syncthing's documentation example, and a mainnet node's
     const DOCS_EXAMPLE = 'MFZWI3D-BONSGYC-YLTMRWG-C43ENR5-QXGZDMM-FZWI3DP-BONSGYY-LTMRWAD';
     const MAINNET = 'OD2POVH-2QWEHYY-AKI6AU2-ZUEQLXY-MTGOIG7-PE57QHU-INYFY5C-QTNOPQ5';
     const withoutCheckCharacters = (id) => [...id.replace(/-/g, '')].filter((c, i) => i % 14 !== 13).join('');
 
-    it('accepts a device ID as syncthing writes one', () => {
-      expect(helpers.isSyncthingDeviceId(DOCS_EXAMPLE)).to.equal(true);
-      expect(helpers.isSyncthingDeviceId(MAINNET)).to.equal(true);
+    it('gives a device ID as syncthing writes one back as it is', () => {
+      expect(helpers.canonicalSyncthingDeviceId(DOCS_EXAMPLE)).to.equal(DOCS_EXAMPLE);
+      expect(helpers.canonicalSyncthingDeviceId(MAINNET)).to.equal(MAINNET);
     });
 
-    it('accepts one without dashes, in lower case, or without its check characters', () => {
-      expect(helpers.isSyncthingDeviceId(MAINNET.replace(/-/g, ''))).to.equal(true);
-      expect(helpers.isSyncthingDeviceId(MAINNET.toLowerCase())).to.equal(true);
-      expect(helpers.isSyncthingDeviceId(withoutCheckCharacters(MAINNET))).to.equal(true);
+    it('gives one without dashes, in lower case, with spaces, or without its check characters as syncthing writes it', () => {
+      expect(helpers.canonicalSyncthingDeviceId(MAINNET.replace(/-/g, ''))).to.equal(MAINNET);
+      expect(helpers.canonicalSyncthingDeviceId(MAINNET.toLowerCase())).to.equal(MAINNET);
+      expect(helpers.canonicalSyncthingDeviceId(MAINNET.replace(/-/g, ' '))).to.equal(MAINNET);
+      expect(helpers.canonicalSyncthingDeviceId(withoutCheckCharacters(MAINNET))).to.equal(MAINNET);
+      expect(helpers.canonicalSyncthingDeviceId(withoutCheckCharacters(DOCS_EXAMPLE))).to.equal(DOCS_EXAMPLE);
     });
 
-    it('accepts one with 0, 1 and 8 typed for O, I and B', () => {
-      expect(helpers.isSyncthingDeviceId(MAINNET.replace(/O/g, '0').replace(/I/g, '1'))).to.equal(true);
-      expect(helpers.isSyncthingDeviceId(DOCS_EXAMPLE.replace(/B/g, '8'))).to.equal(true);
+    it('gives one with 0, 1 and 8 typed for O, I and B as syncthing writes it', () => {
+      expect(helpers.canonicalSyncthingDeviceId(MAINNET.replace(/O/g, '0').replace(/I/g, '1'))).to.equal(MAINNET);
+      expect(helpers.canonicalSyncthingDeviceId(DOCS_EXAMPLE.replace(/B/g, '8'))).to.equal(DOCS_EXAMPLE);
     });
 
     it('refuses one whose check character does not match its group', () => {
       [3, 10, 20, 40].forEach((at) => {
         const changed = `${MAINNET.slice(0, at)}${MAINNET[at] === 'A' ? 'B' : 'A'}${MAINNET.slice(at + 1)}`;
-        expect(helpers.isSyncthingDeviceId(changed), `changed at ${at}`).to.equal(false);
+        expect(helpers.canonicalSyncthingDeviceId(changed), `changed at ${at}`).to.equal(null);
       });
     });
 
     it('refuses anything else', () => {
       ['PEERSTUB-DEVICE-0000001', '', MAINNET.slice(0, -1), `${MAINNET}A`, MAINNET.replace('2', '9'), null, undefined, 42, {}]
-        .forEach((value) => expect(helpers.isSyncthingDeviceId(value), JSON.stringify(value)).to.equal(false));
+        .forEach((value) => expect(helpers.canonicalSyncthingDeviceId(value), JSON.stringify(value)).to.equal(null));
     });
   });
 
@@ -437,6 +439,22 @@ describe('syncthingMonitorHelpers tests', () => {
       expect(await helpers.getDeviceIDCached('10.0.0.1:16127', cache)).to.equal('HELDAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA');
       counted('verifiedNoDevice');
       expect(await helpers.getDeviceIDCached('10.0.0.1:16127', new Map())).to.equal(null);
+    });
+
+    // syncthing holds every device as it writes the ID, and the monitor compares
+    // the devices it wants with those it holds as strings
+    it('gives a device ID a peer spells another way as syncthing writes it, and holds it so', async () => {
+      const MAINNET = 'OD2POVH-2QWEHYY-AKI6AU2-ZUEQLXY-MTGOIG7-PE57QHU-INYFY5C-QTNOPQ5';
+      const cache = new Map();
+      sandbox.stub(axios, 'get').resolves({ data: { status: 'success', data: MAINNET.toLowerCase().replace(/-/g, '').replace(/o/g, '0') } });
+
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', cache)).to.equal(MAINNET);
+      expect(cache.get('10.0.0.1:16127')).to.equal(MAINNET);
+      counted('unsigned');
+      count.resetHistory();
+
+      expect(await helpers.getDeviceIDCached('10.0.0.1:16127', cache), 'from what it held').to.equal(MAINNET);
+      counted('held');
     });
 
     describe('a peer that gives something other than a device ID', () => {
