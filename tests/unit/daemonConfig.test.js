@@ -23,15 +23,12 @@ describe('daemonConfig tests', () => {
 
   afterEach(() => {
     setPlatform(hostPlatform);
-    process.env.APPDATA = undefined;
     sinon.restore();
   });
 
   it('should instantiate and set correct basedir for each supported platform', () => {
-    process.env.APPDATA = 'C:\testappdata';
-
-    const platforms = ['linux', 'darwin', 'win32'];
-    const basedirs = ['/home/testuser', '/home/testuser/Library/Application Support', 'C:\testappdata'];
+    const platforms = ['linux', 'darwin'];
+    const basedirs = ['/home/testuser', '/home/testuser/Library/Application Support'];
 
     platforms.forEach((platform, index) => {
       setPlatform(platform);
@@ -39,6 +36,11 @@ describe('daemonConfig tests', () => {
       expect(dc.resolveAttempted).to.equal(false);
       expect(dc.baseDir).to.equal(basedirs[index]);
     });
+  });
+
+  it('refuses any other platform', () => {
+    setPlatform('win32');
+    expect(() => new DaemonConfig()).to.throw('Unsupported platform');
   });
 
   it('should instantiate and return null for config params', () => {
