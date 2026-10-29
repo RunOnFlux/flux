@@ -164,6 +164,7 @@ describe('nodeStatusMonitor tests', () => {
     let onTrip;
     let dos;
     let bus;
+    let globalState;
     const never = () => new Promise(() => {});
     const installed = (...names) => sinon.stub().resolves({ status: 'success', data: names.map((name) => ({ name })) });
 
@@ -181,6 +182,7 @@ describe('nodeStatusMonitor tests', () => {
         stillRunnableOutsideSlices: sinon.stub().resolves([]),
       };
       dockerService = { appDockerStop: sinon.stub().resolves('stopped') };
+      globalState = proxyquire('../../ZelBack/src/services/utils/globalState', {});
       monitor = proxyquire('../../ZelBack/src/services/appMonitoring/nodeStatusMonitor', {
         config: {
           fluxapps: { appRemovalDeadlineMs: DEADLINE },
@@ -201,6 +203,7 @@ describe('nodeStatusMonitor tests', () => {
         '../appLifecycle/appKill': appKill,
         '../dockerService': dockerService,
         '../utils/fluxEventBus': bus,
+        '../utils/globalState': globalState,
         '../../lib/log': logStub,
       });
     });
@@ -501,6 +504,60 @@ describe('nodeStatusMonitor tests', () => {
 
       sinon.assert.calledWith(remove, 'next');
       sinon.assert.calledWithMatch(logStub.error, /stuck was not removed within 300s, moving on/);
+    });
+
+    describe('with an install running', () => {
+      const listings = (...lists) => {
+        const stub = sinon.stub();
+        lists.forEach((names, call) => stub.onCall(call).resolves({ status: 'success', data: names.map((name) => ({ name })) }));
+        return stub;
+      };
+      const removedNames = (remove) => remove.getCalls().map((call) => call.args[0]);
+
+      beforeEach(() => {
+        dos = true;
+        globalState.installationInProgress = true;
+        globalState.installingApp = 'newapp';
+      });
+
+      it('removes every other app, and the install\'s app once the install releases the node', async () => {
+        const remove = sinon.stub().resolves('removed');
+
+        monitor.monitorNodeStatus(listings(['oldapp', 'newapp'], ['newapp']), remove);
+        await clock.tickAsync(0);
+        expect(removedNames(remove)).to.deep.equal(['oldapp']);
+
+        globalState.installationInProgress = false;
+        await clock.tickAsync(0);
+
+        expect(removedNames(remove)).to.deep.equal(['oldapp', 'newapp']);
+      });
+
+      it('removes the install\'s app when the install finishes while the other apps are removed', async () => {
+        const remove = sinon.stub().resolves('removed');
+        remove.withArgs('oldapp').callsFake(async () => {
+          globalState.installationInProgress = false;
+          return 'removed';
+        });
+
+        monitor.monitorNodeStatus(listings(['oldapp', 'newapp'], ['newapp']), remove);
+        await clock.tickAsync(0);
+
+        expect(removedNames(remove)).to.deep.equal(['oldapp', 'newapp']);
+      });
+
+      it('leaves nothing to remove when the install took its own app back', async () => {
+        const remove = sinon.stub().resolves('removed');
+        const installedFn = listings(['oldapp', 'newapp'], []);
+
+        monitor.monitorNodeStatus(installedFn, remove);
+        await clock.tickAsync(0);
+        globalState.installationInProgress = false;
+        await clock.tickAsync(0);
+
+        sinon.assert.calledTwice(installedFn);
+        expect(removedNames(remove)).to.deep.equal(['oldapp']);
+      });
     });
 
     it('starts each DOS removal as soon as the one before it returns', async () => {

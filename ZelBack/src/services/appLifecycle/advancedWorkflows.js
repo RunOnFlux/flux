@@ -1069,6 +1069,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       return InstallOutcome.BUSY;
     }
     globalState.installationInProgress = true;
+    globalState.installingApp = appSpecs.name;
     acquired = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {

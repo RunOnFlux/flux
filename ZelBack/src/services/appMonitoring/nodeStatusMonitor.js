@@ -53,25 +53,23 @@ async function removeWithinDeadline(removeAppLocallyFn, name, canBroadcast) {
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
 /**
- * Method responsible to monitor node status and uninstall apps if node is not confirmed
- * @param {Function} installedAppsFn - Function to get installed apps
- * @param {Function} removeAppLocallyFn - Function to remove apps locally
+ * Remove every installed app but `skip`, one after another.
+ * @param {Function} installedAppsFn
+ * @param {Function} removeAppLocallyFn
+ * @param {string} reason
+ * @param {boolean} canBroadcast
+ * @param {string|null} skip
  * @returns {Promise<void>}
  */
-// eslint-disable-next-line consistent-return
-async function removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, reason) {
-  if (removalInProgress) return;
-  removalInProgress = true;
-  try {
-    const installedAppsRes = await installedAppsFn();
-    if (installedAppsRes.status !== 'success') {
-      throw new Error('monitorNodeStatus - Failed to get installed Apps');
-    }
-    const appsInstalled = installedAppsRes.data;
-    const canBroadcast = nodeConfirmationService.canSendMessages();
-    for (const installedApp of appsInstalled) {
-      // a host stall's own removal has the node, and this one gives way to it
-      if (unloadingForHostStall) break;
+async function removeInstalledApps(installedAppsFn, removeAppLocallyFn, reason, canBroadcast, skip) {
+  const installedAppsRes = await installedAppsFn();
+  if (installedAppsRes.status !== 'success') {
+    throw new Error('monitorNodeStatus - Failed to get installed Apps');
+  }
+  for (const installedApp of installedAppsRes.data) {
+    // a host stall's own removal has the node, and this one gives way to it
+    if (unloadingForHostStall) return;
+    if (installedApp.name !== skip) {
       log.info(`monitorNodeStatus - Application ${installedApp.name} going to be removed: ${reason}`);
       log.warn(`monitorNodeStatus - Removing application ${installedApp.name} locally`);
       // One removal that never returns must not hold every other app here.
@@ -85,6 +83,38 @@ async function removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, reason)
         log.warn(`monitorNodeStatus - Application ${installedApp.name} locally removed`);
       }
     }
+  }
+}
+
+/**
+ * Remove every app from a node that is out of service.
+ *
+ * An install cannot be cancelled, and removing its app while it runs leaves the
+ * containers it goes on to create with no record of the app. So the app an
+ * install is running for is left to that install: every other app is removed
+ * first, and once the install has released the node, whatever it left installed
+ * is removed too. The wait has no deadline - an image pull can take most of an
+ * hour - and holds nothing but this removal: every other app is gone before it
+ * starts. This is a stopgap until installs can be cancelled, as v9's are by the
+ * removal of their app.
+ * @param {Function} installedAppsFn - Function to get installed apps
+ * @param {Function} removeAppLocallyFn - Function to remove apps locally
+ * @param {string} reason
+ * @returns {Promise<void>}
+ */
+// eslint-disable-next-line consistent-return
+async function removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, reason) {
+  if (removalInProgress) return;
+  removalInProgress = true;
+  try {
+    const canBroadcast = nodeConfirmationService.canSendMessages();
+    const installRunning = globalState.installationInProgress;
+    const installing = installRunning ? globalState.installingApp : null;
+    await removeInstalledApps(installedAppsFn, removeAppLocallyFn, reason, canBroadcast, installing);
+    if (unloadingForHostStall || !(installRunning || globalState.installationInProgress)) return;
+    log.info(`monitorNodeStatus - waiting for the running install${installing ? ` of ${installing}` : ''} to finish before removing what it installed: ${reason}`);
+    await globalState.whenInstallationReleased();
+    await removeInstalledApps(installedAppsFn, removeAppLocallyFn, reason, canBroadcast, null);
   } finally {
     removalInProgress = false;
   }

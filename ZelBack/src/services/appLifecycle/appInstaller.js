@@ -384,6 +384,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
       return InstallOutcome.BUSY;
     }
     globalState.installationInProgress = true;
+    globalState.installingApp = appSpecs.name;
     acquired = true;
     // A test install holds nothing: it writes the app's row like any other install
     // and throws it away, so the announcement must not read that row as a claim.
