@@ -140,9 +140,17 @@ describe('a network link joins apps of one owner', function () {
 
   it('joins the same owner\'s app, and not another owner\'s, when the node boots with its apps stopped', async function () {
     this.timeout(420000);
-    const left = await execInContainer(holder.container, `docker network disconnect ${network} ${appId(sameOwner)}`);
-    expect(left.exitCode, `disconnecting ${sameOwner}: ${left.output}`).to.equal(0);
-    expect(await isMember(sameOwner), `${sameOwner} after leaving`).to.equal(false);
+    // Neither linking app on the network, whatever the redeploy left: only the boot can join them.
+    for (const name of [sameOwner, otherOwner]) {
+      // eslint-disable-next-line no-await-in-loop
+      if (await isMember(name)) {
+        // eslint-disable-next-line no-await-in-loop
+        const left = await execInContainer(holder.container, `docker network disconnect ${network} ${appId(name)}`);
+        expect(left.exitCode, `disconnecting ${name}: ${left.output}`).to.equal(0);
+      }
+      // eslint-disable-next-line no-await-in-loop
+      expect(await isMember(name), `${name} before the boot`).to.equal(false);
+    }
 
     // What a reboot leaves FluxOS to start on: every app container stopped.
     await crashFluxos(holder.container, { hold: true });
