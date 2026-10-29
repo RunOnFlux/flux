@@ -199,6 +199,16 @@ async function drop(database) {
 }
 
 /**
+ * Marks a built record as holding every block up to the explorer's scanned
+ * height when the explorer starts: each block it processes is recorded before
+ * its scanned height moves past it.
+ * @param {number} scannedHeight
+ */
+function resumeAt(scannedHeight) {
+  noteRecorded(scannedHeight);
+}
+
+/**
  * Whether the record holds anything: built by a rebuild, or recorded block by
  * block, oldest first, by an explorer that passed the blocks it covers. Every
  * listed node confirms within the blocks it covers, so a record that holds
@@ -261,6 +271,7 @@ module.exports = {
   restoreToHeight,
   drop,
   isBuilt,
+  resumeAt,
   rebuild,
   ensureIndexes,
 };

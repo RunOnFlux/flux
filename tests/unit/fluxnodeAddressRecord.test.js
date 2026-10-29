@@ -239,6 +239,16 @@ describe('fluxnodeAddressRecord', () => {
 
       expect(await fluxnodeAddressRecord.whenRecorded(base + 1, 20)).to.equal(false);
     });
+
+    it('resolves for every block up to the height the explorer resumes at, and no further', async () => {
+      const reached = fluxnodeAddressRecord.whenRecorded(base, 10_000);
+
+      fluxnodeAddressRecord.resumeAt(base);
+
+      expect(await reached).to.equal(true);
+      expect(await fluxnodeAddressRecord.whenRecorded(base - 100, 1)).to.equal(true);
+      expect(await fluxnodeAddressRecord.whenRecorded(base + 1, 20)).to.equal(false);
+    });
   });
 
   it('is dropped whole, and rebuilt from the blocks recorded after', async () => {

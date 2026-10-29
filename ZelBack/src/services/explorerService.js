@@ -1444,7 +1444,9 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
     }
 
     // An explorer further behind passes the record's blocks in order as it catches up.
-    if (daemonHeight - scannedBlockHeight < fluxnodeAddressRecord.RECORD_BLOCKS && !await fluxnodeAddressRecord.isBuilt()) {
+    if (await fluxnodeAddressRecord.isBuilt()) {
+      fluxnodeAddressRecord.resumeAt(scannedBlockHeight);
+    } else if (daemonHeight - scannedBlockHeight < fluxnodeAddressRecord.RECORD_BLOCKS) {
       log.info(`Building the fluxnode address record from the blocks up to ${scannedBlockHeight}`);
       await fluxnodeAddressRecord.rebuild(scannedBlockHeight, getVerboseBlock, dbHelper.onMaintenanceClient(database));
     }

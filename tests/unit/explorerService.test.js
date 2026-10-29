@@ -2262,6 +2262,27 @@ describe('explorerService tests', () => {
 
         sinon.assert.notCalled(rebuildStub);
       });
+
+      it('is read as holding every block up to the scanned height once it holds the blocks', async () => {
+        const resumeAtStub = sinon.stub(fluxnodeAddressRecord, 'resumeAt');
+        atHeight(199500);
+
+        await explorerService.initiateBlockProcessor(false, false, false);
+        await serviceHelper.delay(200);
+
+        sinon.assert.calledOnceWithExactly(resumeAtStub, 199500);
+      });
+
+      it('is not read as holding any block while it holds nothing', async () => {
+        const resumeAtStub = sinon.stub(fluxnodeAddressRecord, 'resumeAt');
+        atHeight(199000);
+        isBuiltStub.resolves(false);
+
+        await explorerService.initiateBlockProcessor(false, false, false);
+        await serviceHelper.delay(200);
+
+        sinon.assert.notCalled(resumeAtStub);
+      });
     });
 
     it('should fall back to block-by-block scan when bootstrap fails', async () => {
