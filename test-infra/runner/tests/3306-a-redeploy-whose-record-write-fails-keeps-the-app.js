@@ -6,8 +6,9 @@
  * container. A later pass redeploys it at the new specification from there.
  *
  * The reconciler would recreate the container, and a pass can come before it does: the
- * pass period is drawn again after every pass. The reconciler's recreate is held for
- * the whole drive, so the pass that redeploys the app always finds no container.
+ * pass period is drawn again after every pass. The reconciler's recreate is held, so the
+ * pass that redeploys the app always finds no container. It is released once that pass
+ * has created the new one, before the pass restarts the app through the reconciler.
  *
  * The change arrives as in suite 85: the app's global row is replaced and a new
  * permanent message and hash seeded beside it. The pass runs every 16 to 36 blocks
@@ -107,13 +108,26 @@ describe('a redeploy whose record write fails keeps the app', function () {
   it('comes back at the new specification', async function () {
     // a backstop: the drive is bounded in blocks, and blocks cost what the node takes
     this.timeout(2400000);
-    const replaced = () => waitForComponentRedeployed(holder, appName, appName, false, 0, { afterId: beforeUpdate })
-      .then(() => true, () => false);
+    // The pass whose write is refused takes the container away. With the recreate held,
+    // only a later pass can bring one back, and its restart waits on the component the
+    // held recreate is working on: the hold ends once the container is back.
+    let sawGone = false;
+    const replaced = async () => {
+      if (recreateHeld) {
+        const container = await getAppContainerId(holder.container, appName, appName);
+        if (!container) sawGone = true;
+        if (container && sawGone) {
+          await holder.releaseCheckpoint(BEFORE_RECREATE, identifier);
+          recreateHeld = false;
+        }
+      }
+      return waitForComponentRedeployed(holder, appName, appName, false, 0, { afterId: beforeUpdate })
+        .then(() => true, () => false);
+    };
     await driveUntil(holder, replaced, {
       blocks: PASS_BLOCKS, label: 'the node redeploys the app at the new specification',
     });
-    await holder.releaseCheckpoint(BEFORE_RECREATE, identifier);
-    recreateHeld = false;
+    expect(sawGone, 'fixture: the app\'s container was never seen gone while its recreate was held').to.equal(true);
 
     const installed = await localSpec(holder);
     expect(installed, 'the node no longer holds the app').to.not.equal(null);
