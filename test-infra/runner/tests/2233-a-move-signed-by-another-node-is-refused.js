@@ -9,7 +9,7 @@ import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { waitFor, waitForDaemonReady } from '../framework/wait.js';
 import {
-  advanceBlock, clearNodeAddress, removeFromNodeList, setNodeAddress, startTicker, stopTicker,
+  advanceBlock, clearNodeAddress, driveUntil, removeFromNodeList, setNodeAddress, startTicker, stopTicker,
 } from '../framework/daemon-control.js';
 import { bootAndPeer, seedAndInstall } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
@@ -76,7 +76,13 @@ describe('a move signed by another node is refused', function () {
     await waitFor(async () => (await Promise.all(nodes.map((i) => dbClient(i + 1).explorerHeight()))).every((height) => height >= tip), {
       timeout: 300000, interval: 2000, label: `nodes ${nodes} have processed block ${tip}`,
     });
-    await Promise.all(nodes.map((i, n) => env.clients[i].waitForEvent('networkstate:updated', () => true, 120000, { afterId: anchors[n] })));
+    // A node fetches the list again on a block, at most once every 30 s, so blocks
+    // are mined until each has read one from after them.
+    const read = () => nodes.every((i, n) => env.clients[i].getEventBuffer()
+      .some((e) => e.id > anchors[n] && e.event === 'networkstate:updated'));
+    await driveUntil(env.clients[nodes[0]], async () => read(), {
+      timeoutMs: 120000, label: `nodes ${nodes} read the node list from after block ${tip}`,
+    });
     return tip;
   };
 
