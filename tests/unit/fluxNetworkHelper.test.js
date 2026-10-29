@@ -1663,20 +1663,26 @@ describe('fluxNetworkHelper tests', () => {
       expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
     });
 
-    it('asks the next observer after one that does not list this node, and its answer stands', async () => {
+    // Five observers that do not list this node after one that cannot reach it:
+    // counted as failures, they would take it past 10 and into DOS before the
+    // seventh is asked.
+    it('adds nothing for observers that do not list this node, and the next that does decides', async () => {
       fluxNetworkHelper.resetAvailabilityDos();
       fluxNetworkHelper.setDosMessage(null);
       fluxNetworkHelper.setDosStateValue(0);
       getRandomExternalObserver.resolves('1.2.3.4:16127');
-      sinon.stub(serviceHelper, 'axiosGet')
-        .onFirstCall().resolves({ data: { status: 'error', data: { message: 'Asking Flux is not available' } } })
-        .onSecondCall().resolves({ data: { status: 'error', data: { message: fluxNetworkHelper.NOT_LISTED_MESSAGE } } })
-        .onThirdCall().resolves({ data: { status: 'success', data: { message: 'Asking Flux is available' } } });
+      sinon.stub(benchmarkService, 'getPublicIp').resolves({ status: 'success', data: '129.3.3.3' });
+      const notListed = { data: { status: 'error', data: { message: fluxNetworkHelper.NOT_LISTED_MESSAGE } } };
+      const axiosGet = sinon.stub(serviceHelper, 'axiosGet').resolves(notListed);
+      axiosGet.onCall(0).resolves({ data: { status: 'error', data: { message: 'Asking Flux is not available' } } });
+      axiosGet.onCall(6).resolves({ data: { status: 'success', data: { message: 'Asking Flux is available' } } });
 
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
-      expect(result, 'stopped at the observer that does not list this node').to.be.true;
-      expect(fluxNetworkHelper.getDOSState().data.dosState, 'a node another observer reached keeps the points of the answer before').to.equal(0);
+      expect(axiosGet.callCount, 'the observers asked').to.equal(7);
+      expect(result, 'the observer that reached this node decides').to.be.true;
+      expect(fluxNetworkHelper.isNodeDos(), 'in DOS').to.be.false;
+      expect(fluxNetworkHelper.getDOSState().data.dosState, 'the points of the observer that could not reach it, released').to.equal(0);
     });
 
     it('should return true if axios status response is success', async () => {
