@@ -34,7 +34,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //
 // A restarted node judges a move by the blocks its record held before the
 // restart: the chain moves the stub once more, every node records the block,
-// one restarts with the chain stopped, and the stub signs the move.
+// one restarts with the chain stopped, and the stub signs the move. The stub is
+// listed at a port it does not listen on, so the restarted node cannot dial it;
+// the move reaches it from the nodes that relay it.
 
 const REAL_NODES = 3;
 const STUB_INDEX = 3;
@@ -232,15 +234,19 @@ describe('a move signed by another node is refused', function () {
     await stopTicker();
     try {
       await env.restartNode(restarted);
-      await waitForDaemonReady(env.clients[restarted]);
-      await waitFor(async () => (await stub.connectedNodes()) >= REAL_NODES, {
-        timeout: 180000, interval: 2000, label: 'the restarted node is connected to the stub peer again',
-      });
+      const client = env.clients[restarted];
+      await waitForDaemonReady(client);
+      const otherIps = others.map((i) => env.clients[i].ip);
+      await waitFor(async () => {
+        const [outgoing, incoming] = await Promise.all([client.getPeers(), client.getIncomingPeers()]);
+        const ipOf = (peer) => String(typeof peer === 'string' ? peer : peer?.ip).split(':')[0];
+        return [...(outgoing.data ?? []), ...(incoming.data ?? [])].some((peer) => otherIps.includes(ipOf(peer)));
+      }, { timeout: 180000, interval: 2000, label: 'the restarted node is connected to a node that did not restart' });
 
       const move = await stub.broadcast({
         type: 'fluxipchanged', version: 1, oldIP: from, newIP: to, broadcastedAt: Date.now(),
       });
-      expect(move.sent, 'fixture: the move reached every real node').to.equal(REAL_NODES);
+      expect(move.sent, 'fixture: the move reached every node that did not restart').to.equal(others.length);
 
       await waitFor(async () => (await Promise.all(others.map((i) => held(i, from, to)))).every(Boolean), {
         timeout: 120000, interval: 2000, label: 'every node that did not restart holds the move',
