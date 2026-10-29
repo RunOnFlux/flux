@@ -1,7 +1,8 @@
 /*
  * An app that names another in its description (networkWith:[...]) is joined to that app's
  * private network only when both have one owner: when the named app redeploys and its network's
- * members are reconnected, and when the node boots and reconciles every link.
+ * members are reconnected, and when the node boots onto stopped app containers, as after a
+ * reboot, and reconciles every link.
  *
  * Installing a linked app checks its owner, but a description-only update changes the link without
  * installing anything: the node rewrites its record and redeploys nothing. So the two linking apps
@@ -11,11 +12,13 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { execInContainer } from '../framework/container.js';
+import {
+  execInContainer, crashFluxos, releaseFluxos, stopAppContainer,
+} from '../framework/container.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp, buildSeedableUpdate } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
-import { waitFor, restartFluxosAndAwaitRecovery } from '../framework/wait.js';
+import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes, seedSpecUpdate } from '../framework/reconciler-suite.js';
 import { appOwnerKey, otherOwnerKeys } from '../framework/keys.js';
 import { appId } from '../framework/volume-fixture.js';
@@ -125,13 +128,20 @@ describe('a network link joins apps of one owner', function () {
     expect(await isMember(otherOwner), `${otherOwner} on ${network}`).to.equal(false);
   });
 
-  it('joins the same owner\'s app, and not another owner\'s, when the node boots', async function () {
+  it('joins the same owner\'s app, and not another owner\'s, when the node boots with its apps stopped', async function () {
     this.timeout(420000);
     const left = await execInContainer(holder.container, `docker network disconnect ${network} ${appId(sameOwner)}`);
     expect(left.exitCode, `disconnecting ${sameOwner}: ${left.output}`).to.equal(0);
     expect(await isMember(sameOwner), `${sameOwner} after leaving`).to.equal(false);
 
-    await restartFluxosAndAwaitRecovery(holder);
+    // What a reboot leaves FluxOS to start on: every app container stopped.
+    await crashFluxos(holder.container, { hold: true });
+    for (const name of [networkApp, sameOwner, otherOwner]) {
+      // eslint-disable-next-line no-await-in-loop
+      const stopped = await stopAppContainer(holder.container, name);
+      expect(stopped.exitCode, `stopping ${name}: ${stopped.output}`).to.equal(0);
+    }
+    await releaseFluxos(holder.container);
 
     await waitFor(() => isMember(sameOwner), {
       timeout: 180000, interval: 2000, label: `the boot rejoins ${sameOwner} to ${network}`,
