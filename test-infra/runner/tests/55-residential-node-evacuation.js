@@ -73,19 +73,23 @@ describe('Residential node evacuation: classification', function () {
       return geo?.networkEvidence != null;
     }, { timeout: 90000, label: 'node 3 gathers its evidence' });
 
-    const info = await env.clients[TABLE_DECIDED - 1].get('/flux/info');
-    expect(info.data.flux.dos.dosState).to.be.below(100);
-
     // Its own reading is UNKNOWN - no signal for, none against - so a verdict of
     // RESIDENTIAL can only have come from the table.
-    //
-    // The dosState assertion above is guaranteed by this node's attestation and
-    // establishes nothing on its own; what this test rests on is the evidence
-    // below.
     const geo = await dbClient(TABLE_DECIDED).geolocation();
     expect(geo.networkEvidence.classification).to.equal('UNKNOWN');
     expect(geo.networkEvidence.evidenceFor).to.be.empty;
     expect(geo.networkEvidence.evidenceAgainst).to.be.empty;
+
+    // Attestation alone exempts a node from enforcement, so it is withdrawn and
+    // the verdict is the only thing left deciding. Node 3 is used by no later
+    // test on this fleet, so it stays withdrawn.
+    const client = env.clients[TABLE_DECIDED - 1];
+    const anchor = client.getLastEventId();
+    await setSystemSecure(subnet.nodeIp(TABLE_DECIDED), false);
+    const decision = await waitForResidentialDecision(client, (d) => d.arcaneOs === false, 60000, { afterId: anchor });
+    expect(decision.data.source, 'the verdict did not come from the published table').to.equal('published-table');
+    expect(decision.data.classification).to.equal('RESIDENTIAL');
+    expect(decision.data.enforce, 'a node the table decides residential, withdrawn, is enforced').to.equal(true);
   });
 
   it('declines a published verdict its own address contradicts', async function () {
