@@ -92,6 +92,17 @@ describe('fluxnodeAddressRecord', () => {
     expect((await recordOf(A)).changes.map((change) => change.height)).to.deep.equal([base + 300, base + 650]);
   });
 
+  it('proves a move for 640 blocks after it was made, while the node confirms at its new address', async () => {
+    await block(base, [confirmation(A, '203.0.113.1:16127')]);
+    await block(base + 10, [confirmation(A, '203.0.113.2:16127')]);
+    await block(base + 649, [confirmation(A, '203.0.113.2:16127')]);
+    expect(await fluxnodeAddressRecord.movedBetween(idOf(A), '203.0.113.1:16127', '203.0.113.2:16127'), 'within 640 blocks').to.equal(true);
+
+    await block(base + 650, [confirmation(A, '203.0.113.2:16127')]);
+
+    expect(await fluxnodeAddressRecord.movedBetween(idOf(A), '203.0.113.1:16127', '203.0.113.2:16127')).to.equal(false);
+  });
+
   it('drops a node that has not confirmed for 640 blocks', async () => {
     await block(base, [confirmation(A, '203.0.113.1:16127')]);
     await block(base + 300, [confirmation(B, '203.0.113.9:16127')]);

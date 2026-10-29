@@ -20,10 +20,11 @@ const BLOCK_MS = 30_000;
 // CONFIRMATION_EXPIRY_BLOCKS older, so a record built from this many blocks
 // below the tip proves every move still applied.
 const RECORD_BLOCKS = CONFIRMATION_EXPIRY_BLOCKS + Math.ceil(RUNNING_EXPIRY_MS / BLOCK_MS);
-// A change is dropped CONFIRMATION_EXPIRY_BLOCKS after it was made:
+// A change proves a move for CONFIRMATION_EXPIRY_BLOCKS after it was made:
 // 640 × 30 s = 19,200 s, longer than any move it proves is applied for
-// (RUNNING_EXPIRY_MS, 7,500 s in production). fluxd allows a change every
-// 5 blocks, so a node holds at most 128.
+// (RUNNING_EXPIRY_MS, 7,500 s in production). Recording a change drops the
+// node's changes older than that; fluxd allows a change every 5 blocks, so a
+// node holds at most 128.
 
 const RECORD_COLLECTION = config.database.daemon.collections.fluxnodeAddresses;
 // Where a rebuild records its blocks before it replaces the record in one step.
@@ -137,15 +138,21 @@ async function recordBlock(block) {
 }
 
 /**
- * Whether the chain moved the node with `collateral` from `from` to `to`.
+ * Whether the chain moved the node with `collateral` from `from` to `to`
+ * within the CONFIRMATION_EXPIRY_BLOCKS below the highest block recorded.
  * @param {string} collateral From collateralOf.
  * @param {string} from Socket address.
  * @param {string} to Socket address.
  * @returns {Promise<boolean>} Rejects when the record cannot be read.
  */
 async function movedBetween(collateral, from, to) {
+  const change = {
+    from: normalizeSocketAddress(from),
+    to: normalizeSocketAddress(to),
+    height: { $gt: recordedHeight - CONFIRMATION_EXPIRY_BLOCKS },
+  };
   const record = await collection().findOne(
-    { _id: collateral, changes: { $elemMatch: { from: normalizeSocketAddress(from), to: normalizeSocketAddress(to) } } },
+    { _id: collateral, changes: { $elemMatch: change } },
     { projection: { _id: 1 } },
   );
   return record !== null;
