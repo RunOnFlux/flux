@@ -18,7 +18,8 @@ import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerApp } from '../framework/app-helper.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { waitFor, waitForDaemonReady } from '../framework/wait.js';
-import { getState, mineBlock, stopTicker } from '../framework/daemon-control.js';
+import { mineBlock, stopTicker } from '../framework/daemon-control.js';
+import { fleetAtTip, liveIndices as liveIndicesOf, relayedToFleet } from '../framework/fleet-chain.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -60,25 +61,16 @@ describe('a message paid twice in one block keeps its first payment, on every no
     minimum: `pay-minimum-${stamp}`,
     cheapOnly: `pay-cheap-only-${stamp}`,
   };
-  let live;
   let liveIndices;
   let paidHash;
   let cheapHash;
 
-  const allAtTip = async () => {
-    const { currentHeight } = await getState();
-    const heights = await Promise.all(liveIndices.map((i) => dbClient(i + 1).explorerHeight()));
-    return heights.every((h) => h >= currentHeight);
-  };
+  const allAtTip = () => fleetAtTip(env);
   const onEveryNode = (read) => Promise.all(liveIndices.map((i) => read(dbClient(i + 1))));
-  const relayedEverywhere = async (hash) => {
-    const held = await Promise.all(live.map(async (node) => (await node.getTempMessages(hash)).data?.length > 0));
-    return held.every(Boolean);
-  };
   const submit = async (spec) => {
     const result = await registerApp(env.clients[SUBMITTER].url, nodeKey(1), spec);
     expect(result.status, `registration of ${spec.name}: ${JSON.stringify(result.data)}`).to.equal('success');
-    await waitFor(() => relayedEverywhere(result.data), { timeout: 30000, interval: 2000, label: `${spec.name} relayed to every node` });
+    await waitFor(() => relayedToFleet(env, result.data), { timeout: 30000, interval: 2000, label: `${spec.name} relayed to every node` });
     return result.data;
   };
 
@@ -87,8 +79,7 @@ describe('a message paid twice in one block keeps its first payment, on every no
     env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
     await bootAndPeer(env);
     await stopTicker();
-    live = env.clients.filter(Boolean);
-    liveIndices = env.clients.map((c, i) => (c ? i : null)).filter((i) => i !== null);
+    liveIndices = liveIndicesOf(env);
 
     paidHash = await submit(paidSpec);
     cheapHash = await submit(cheapSpec);
