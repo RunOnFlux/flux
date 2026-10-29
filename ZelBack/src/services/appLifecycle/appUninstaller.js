@@ -805,6 +805,22 @@ async function cleanupPorts(appSpecifications, appName, res, entityName) {
 }
 
 /**
+ * Removes a container a soft uninstall takes down. One that is not there is
+ * already removed: a redeploy stopped part way leaves its app with no container,
+ * and the next one must not fail on it.
+ * @param {string} appId
+ * @returns {Promise<void>}
+ */
+async function removeContainerUnlessGone(appId) {
+  try {
+    await dockerService.appDockerRemove(appId);
+  } catch (error) {
+    if (!dockerService.isContainerNotFound(error)) throw error;
+    log.info(`Container ${appId} is not there; nothing to remove`);
+  }
+}
+
+/**
  * Soft uninstall a component (container and image removal only, keeps data)
  * @param {string} appName - Parent application name
  * @param {string} appId - Component ID
@@ -852,7 +868,7 @@ async function softUninstallComponent(appName, appId, componentSpecifications, r
     if (res.flush) res.flush();
   }
 
-  await dockerService.appDockerRemove(appId);
+  await removeContainerUnlessGone(appId);
 
   log.info(`Flux App component ${componentName} container removed`);
   if (res) {
@@ -938,7 +954,7 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
     if (res.flush) res.flush();
   }
 
-  await dockerService.appDockerRemove(appId);
+  await removeContainerUnlessGone(appId);
 
   log.info(`Flux App ${appName} container removed`);
   if (res) {

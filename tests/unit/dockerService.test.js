@@ -372,6 +372,26 @@ describe('dockerService tests', () => {
     });
   });
 
+  describe('isContainerNotFound tests', () => {
+    it('recognises the lookup finding no container', async () => {
+      sinon.stub(Dockerode.prototype, 'listContainers').resolves([]);
+
+      const error = await dockerService.appDockerRemove('website').then(() => null, (e) => e);
+
+      expect(dockerService.isContainerNotFound(error)).to.equal(true);
+    });
+
+    it('recognises docker answering 404 for a container that went after the lookup', () => {
+      expect(dockerService.isContainerNotFound(Object.assign(new Error('(HTTP code 404) no such container'), { statusCode: 404 }))).to.equal(true);
+    });
+
+    it('does not take another failure for a missing container', () => {
+      expect(dockerService.isContainerNotFound(Object.assign(new Error('(HTTP code 409) conflict'), { statusCode: 409 }))).to.equal(false);
+      expect(dockerService.isContainerNotFound(new Error('connect ECONNREFUSED /var/run/docker.sock'))).to.equal(false);
+      expect(dockerService.isContainerNotFound(undefined)).to.equal(false);
+    });
+  });
+
   describe('classifyContainerNetworkAttachment / isContainerDetachedFromNetwork tests', () => {
     it('reports attached when the managed network carries an IP', () => {
       const attachment = dockerService.classifyContainerNetworkAttachment({
