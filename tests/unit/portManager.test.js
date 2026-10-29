@@ -1354,7 +1354,7 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
 
   // One attempt per drawn peer: the observer is drawn first, so the attempt
   // index advances there and the answer is looked up against it.
-  const withPeers = (answers, peers = PEERS) => {
+  const withPeers = (answers, peers = PEERS, options = undefined) => {
     let attempt = -1;
 
     sinon.stub(networkStateService, 'getRandomExternalObserver').callsFake(async () => {
@@ -1369,7 +1369,7 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
       return answer;
     });
 
-    return portManager.checkInstallingAppPortAvailable([port], 'web');
+    return portManager.checkInstallingAppPortAvailable([port], 'web', options);
   };
 
   // The bug: a verdict and "nobody has decided" were the same value, so a last
@@ -1494,7 +1494,7 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
 
     await withPeers([UNREACHABLE]);
 
-    sinon.assert.calledOnceWithExactly(want, port, 'Flux_App_web');
+    sinon.assert.calledOnceWithExactly(want, port, 'Flux_App_web', { holder: null });
   });
 
   // What a peer that probes UDP answers. `udp` is the port's UDP reply: our
@@ -1518,6 +1518,41 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
 
     expect(result).to.deep.equal({ ok: true, reason: 'proven', port: null });
     sinon.assert.calledOnce(axios.post);
+  });
+
+  it('keeps the mapping of a port it proves for the installation, held for the attempt it was given', async () => {
+    upnpService.isUPNP.returns(true);
+    const holder = {};
+    const want = sinon.stub(portReconciler, 'want').resolves(MAPPED);
+    const release = sinon.stub(portReconciler, 'release').resolves(true);
+
+    const result = await withPeers([answering('ours')], PEERS, { holder });
+
+    expect(result.ok).to.equal(true);
+    sinon.assert.calledOnceWithExactly(want, port, 'Flux_App_web', { holder });
+    sinon.assert.notCalled(release);
+  });
+
+  it('releases the mapping of a port it proves when it is given no attempt to keep it for', async () => {
+    upnpService.isUPNP.returns(true);
+    sinon.stub(portReconciler, 'want').resolves(MAPPED);
+    const release = sinon.stub(portReconciler, 'release').resolves(true);
+
+    await withPeers([answering('ours')]);
+
+    sinon.assert.calledOnceWithExactly(release, port, 'Flux_App_web', { holder: null });
+  });
+
+  it('releases, for the attempt it was given, the mapping of a port it refuses', async () => {
+    upnpService.isUPNP.returns(true);
+    const holder = {};
+    sinon.stub(portReconciler, 'want').resolves(MAPPED);
+    const release = sinon.stub(portReconciler, 'release').resolves(true);
+
+    const result = await withPeers([answering(null), answering(null), UNREACHABLE, UNREACHABLE, UNREACHABLE], PEERS, { holder });
+
+    expect(result.ok).to.equal(false);
+    sinon.assert.calledOnceWithExactly(release, port, 'Flux_App_web', { holder });
   });
 
   it('asks the peer to probe UDP, and opens a UDP test server on every port', async () => {
@@ -1704,6 +1739,34 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
 
     expect(result).to.deep.equal({ ok: false, reason: 'error' });
     sinon.assert.calledOnce(udpServers[0].close);
+  });
+});
+
+describe('releaseTestedPorts', () => {
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  it('releases each tested port under the application\'s own description, for the attempt that held it', async () => {
+    sinon.stub(upnpService, 'isUPNP').returns(true);
+    const release = sinon.stub(portReconciler, 'release').resolves(true);
+    const holder = {};
+
+    await portManager.releaseTestedPorts([31000, 31001], 'web', holder);
+
+    expect(release.args).to.deep.equal([
+      [31000, 'Flux_App_web', { holder }],
+      [31001, 'Flux_App_web', { holder }],
+    ]);
+  });
+
+  it('asks nothing of a node without UPnP', async () => {
+    sinon.stub(upnpService, 'isUPNP').returns(false);
+    const release = sinon.stub(portReconciler, 'release').resolves(true);
+
+    await portManager.releaseTestedPorts([31000], 'web', {});
+
+    sinon.assert.notCalled(release);
   });
 });
 

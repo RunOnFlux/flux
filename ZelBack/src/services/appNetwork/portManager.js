@@ -956,6 +956,24 @@ function everyUdpPortProven(portsToTest, proven) {
 }
 
 /**
+ * Releases the ports checkInstallingAppPortAvailable kept for `holder`, once the
+ * attempt they were tested for has ended: a port the installation has mapped
+ * since is its own, and stays.
+ * @param {number[]} ports
+ * @param {string} appName
+ * @param {object} holder the holder the test was given
+ * @returns {Promise<void>}
+ */
+async function releaseTestedPorts(ports, appName, holder) {
+  if (!upnpService.isUPNP()) return;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const port of ports) {
+    // eslint-disable-next-line no-await-in-loop
+    await portReconciler.release(port, `Flux_App_${appName}`, { holder });
+  }
+}
+
+/**
  * To check if app ports are available publicly before installation.
  *
  * Answers with the decision itself rather than a bare boolean: proceeding
@@ -964,18 +982,21 @@ function everyUdpPortProven(portsToTest, proven) {
  * about the network, and only one of them is evidence. The object returned is
  * the one published to the harness bus, so the two cannot drift.
  *
- * Behind UPnP each port is mapped for the test under the application's own
- * description, the one its installation maps it under: a mapping the router
- * keeps after the test - a removal it refused, an entry it will not rewrite -
- * is then the application's as it installs, or a stale one of an application
- * this node does not hold, for the cleanup.
+ * Behind UPnP each port is wanted for the test under the application's own
+ * description, the one its installation maps it under, and held for `holder`.
+ * A port the test lets the installation go on with stays mapped and held: the
+ * installation takes it over as it maps it, and the caller releases it with
+ * releaseTestedPorts once the attempt ends, which leaves a port the
+ * installation took. A test that refuses, or fails, releases its ports itself.
  *
  * @param {Array} portsToTest Array of ports to test
  * @param {string} appName the application the ports are for
+ * @param {{holder?: object|null}} [options] holder: the attempt the ports are
+ *   held for; with none, the test releases its ports whatever it decides
  * @returns {Promise<{ok: boolean, reason: string, port?: number, peers?: string[],
  *   readings?: object, asked?: string[], silent?: boolean}>}
  */
-async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
+async function checkInstallingAppPortAvailable(portsToTest = [], appName = '', { holder = null } = {}) {
   const description = `Flux_App_${appName}`;
   const beforeAppInstallTestingServers = [];
   const udpTestServers = [];
@@ -1031,7 +1052,7 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
       }
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
-        const upnpMapResult = await portReconciler.want(portToTest, description);
+        const upnpMapResult = await portReconciler.want(portToTest, description, { holder });
         if (!upnpMapResult.mapped) {
           throw new Error(`Failed to create map UPNP port: ${upnpMapResult.reason}`);
         }
@@ -1372,7 +1393,9 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
       fluxEventBus.publish('ports:unproven', decision);
     }
 
-    // stop listening on the port, close the port
+    // stop listening on the port, close the port; a mapping the installation
+    // goes on with stays for it
+    const keepMappings = decision.ok && holder !== null;
     // eslint-disable-next-line no-restricted-syntax
     for (const portToTest of portsToTest) {
       if (firewallActive) {
@@ -1381,9 +1404,9 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
         // eslint-disable-next-line no-await-in-loop
         await fluxNetworkHelper.deleteTestPortRule(portToTest, 'udp');
       }
-      if (isUPNP) {
+      if (isUPNP && !keepMappings) {
         // eslint-disable-next-line no-await-in-loop
-        await portReconciler.release(portToTest, description);
+        await portReconciler.release(portToTest, description, { holder });
       }
     }
     udpTestServers.forEach((udpTestServer) => udpTestServer.close());
@@ -1413,7 +1436,7 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
       }
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
-        await portReconciler.release(portToTest, description).catch((e) => log.error(e));
+        await portReconciler.release(portToTest, description, { holder }).catch((e) => log.error(e));
       }
     }
     udpTestServers.forEach((udpTestServer) => udpTestServer.close());
@@ -1563,6 +1586,7 @@ module.exports = {
   refusedPort,
   siblingHoldingPort,
   checkInstallingAppPortAvailable,
+  releaseTestedPorts,
   callOtherNodeToKeepUpnpPortsOpen,
   failedNodesTestPortsCache,
   upnpMapFailures,

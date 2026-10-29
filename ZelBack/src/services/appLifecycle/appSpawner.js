@@ -156,6 +156,10 @@ async function trySpawningGlobalApplication() {
   }
   let { shortDelayTime, delayTime } = enterpriseNetwork.getSpawnDelays(isEnterprise, 0);
   let appHash = null;
+  // The ports this attempt's port test kept mapped for the installation, and
+  // the holder they are kept for: released when the attempt ends, which leaves
+  // whatever the installation has mapped since.
+  let testedPorts = null;
   try {
     const synced = await generalService.checkSynced();
     if (synced !== true) {
@@ -718,7 +722,8 @@ async function trySpawningGlobalApplication() {
 
     // Note: User-blocked port check happens earlier (line ~353) before Docker Hub calls
     // Check if ports are publicly available - critical for proper Flux network operation
-    const portVerdict = await portManager.checkInstallingAppPortAvailable(appPorts, appSpecifications.name);
+    testedPorts = { ports: appPorts, appName: appSpecifications.name, holder: {} };
+    const portVerdict = await portManager.checkInstallingAppPortAvailable(appPorts, appSpecifications.name, { holder: testedPorts.holder });
     if (portVerdict.ok === false) {
       log.error(`trySpawningGlobalApplication - Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
       // The cause lives in portManager, which says which port and which peers;
@@ -1207,6 +1212,11 @@ async function trySpawningGlobalApplication() {
       globalState.trySpawningGlobalAppCache.set(appHash, '', { ttl: FluxCacheManager.oneHour * 6 });
     }
     return shortDelayTime || 5 * 60 * 1000;
+  } finally {
+    if (testedPorts) {
+      await portManager.releaseTestedPorts(testedPorts.ports, testedPorts.appName, testedPorts.holder)
+        .catch((error) => log.error(error));
+    }
   }
 }
 

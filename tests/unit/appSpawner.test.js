@@ -243,6 +243,7 @@ describe('appSpawner tests', () => {
           ok: opts.portsAvailable ?? true,
           reason: (opts.portsAvailable ?? true) ? 'proven' : 'notOurs',
         }),
+        releaseTestedPorts: opts.releaseTestedPorts ?? sinon.stub().resolves(),
       },
       '../appQuery/resourceQueryService': {
         appsResources: sinon.stub().resolves({ status: 'success', data: { unreadable: opts.unaccounted ?? [] } }),
@@ -1136,7 +1137,53 @@ describe('appSpawner tests', () => {
 
       await appSpawner.trySpawningGlobalApplication();
 
-      sinon.assert.calledOnceWithExactly(portCheck, sinon.match.array, fullSpec.name);
+      sinon.assert.calledOnceWithExactly(portCheck, sinon.match.array, fullSpec.name, { holder: sinon.match.object });
+    });
+
+    it('releases the ports its port test kept, for that test\'s attempt, when the install goes no further', async () => {
+      const portCheck = sinon.stub();
+      const releaseTestedPorts = sinon.stub().resolves();
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: fullSpec,
+        errorCount: 0,
+        portCheck,
+        releaseTestedPorts,
+        installStub: sinon.stub().resolves(InstallOutcome.DECLINED),
+      });
+
+      await appSpawner.trySpawningGlobalApplication();
+
+      sinon.assert.calledOnce(portCheck);
+      sinon.assert.calledOnceWithExactly(releaseTestedPorts, portCheck.firstCall.args[0], fullSpec.name, portCheck.firstCall.args[2].holder);
+    });
+
+    it('releases the ports its port test kept, for that test\'s attempt, after an install too', async () => {
+      const portCheck = sinon.stub();
+      const releaseTestedPorts = sinon.stub().resolves();
+      const installStub = sinon.stub().resolves(InstallOutcome.INSTALLED);
+      buildModule({
+        aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0, portCheck, releaseTestedPorts, installStub,
+      });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      sinon.assert.calledOnce(installStub);
+      sinon.assert.calledOnceWithExactly(releaseTestedPorts, portCheck.firstCall.args[0], fullSpec.name, portCheck.firstCall.args[2].holder);
+      sinon.assert.callOrder(installStub, releaseTestedPorts);
+    });
+
+    it('releases nothing when the attempt stops before its port test', async () => {
+      const portCheck = sinon.stub();
+      const releaseTestedPorts = sinon.stub().resolves();
+      buildModule({
+        aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0, portCheck, releaseTestedPorts, siblingHoldingPort: { port: 31000, address: '192.168.1.2:16137' },
+      });
+
+      await appSpawner.trySpawningGlobalApplication();
+
+      sinon.assert.notCalled(portCheck);
+      sinon.assert.notCalled(releaseTestedPorts);
     });
 
     it('should add to short-term cache when network error count >= 5', async () => {

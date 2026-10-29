@@ -158,7 +158,9 @@ async function removeHeldTestMappings(port) {
 
 /**
  * The turn of want: the port is wanted, then mapped over each protocol in turn.
- * On a failure it is no longer wanted unless a holder holds it, which keeps it
+ * A port wanted with no holder - an installation's - stays so when a holder
+ * wants it too: a test never takes over a port something installed holds. On a
+ * failure the port is no longer wanted unless a holder holds it, which keeps it
  * until its own release; a protocol the router took is still recorded, for a
  * release to remove.
  * @param {number} port
@@ -169,8 +171,10 @@ async function removeHeldTestMappings(port) {
 async function mapPort(port, description, {
   protocols, counted, logged, holder,
 }) {
+  const current = wanted.get(port);
+  const heldFor = current && current.holder === null ? null : holder;
   releasedPorts.delete(port);
-  wanted.set(port, { description, holder });
+  wanted.set(port, { description, holder: heldFor });
   if (!isTestMappingDescription(description)) await removeHeldTestMappings(port);
   dropPendingRemovals(port);
   let result = MAPPED;
@@ -185,7 +189,7 @@ async function mapPort(port, description, {
   }
   if (!result.mapped) {
     if (logged) log.error(`UPnP - ${result.reason}`);
-    if (holder === null) wanted.delete(port);
+    if (heldFor === null) wanted.delete(port);
     return result;
   }
   await serviceHelper.delay(500);

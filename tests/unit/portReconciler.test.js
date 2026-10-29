@@ -1069,6 +1069,30 @@ describe('portReconciler tests', () => {
       expect(portReconciler.holds(31004, later)).to.equal(true);
     });
 
+    it('leaves an installed port to its installation when a test that held it is released', async () => {
+      const attempt = {};
+      await portReconciler.want(31015, 'Flux_App_web', { holder: attempt });
+      await portReconciler.want(31015, 'Flux_App_web');
+      calls = [];
+
+      await portReconciler.release(31015, 'Flux_App_web', { holder: attempt });
+
+      expect(calls).to.deep.equal([]);
+      expect(portReconciler.isWanted(31015)).to.equal(true);
+    });
+
+    it('lets no test take over a port an installation holds', async () => {
+      const attempt = {};
+      await portReconciler.want(31016, 'Flux_App_web');
+      await portReconciler.want(31016, 'Flux_App_web', { holder: attempt });
+      calls = [];
+
+      await portReconciler.release(31016, 'Flux_App_web', { holder: attempt });
+
+      expect(calls).to.deep.equal([]);
+      expect(portReconciler.holds(31016, null)).to.equal(true);
+    });
+
     it('keeps a held port wanted when its map is refused, until its holder releases it', async () => {
       const holder = {};
       createMappingStub.rejects(new natUpnp.UpnpError(728, 'NoPortMapsAvailable', 'AddPortMapping'));
