@@ -43,8 +43,10 @@ describe('a node reaches its outcome behind every surveyed router', function () 
   const nodeIp = subnet.nodeIp(NODE + 1);
 
   const since = (requests, at) => requests.filter((r) => Date.parse(r.at) >= at);
+  // asked for, whether or not the router took it: a router that refuses an add of a held
+  // entry refuses every refresh, and the node keeps the mapping the router still holds
   const apiAdds = (requests, at) => since(requests, at)
-    .filter((r) => r.action === 'AddPortMapping' && r.port === API_PORT && !r.refused);
+    .filter((r) => r.action === 'AddPortMapping' && r.port === API_PORT);
   const renewalTestAdds = (requests, at) => since(requests, at)
     .filter((r) => r.action === 'AddPortMapping' && r.port === TEST_PORT && r.lease === RENEWAL_TEST_LEASE_S);
 
@@ -103,7 +105,7 @@ describe('a node reaches its outcome behind every surveyed router', function () 
           && !state.mappings.some((m) => m.externalPort === TEST_PORT);
       }, { timeout: REFRESHED_MS, interval: 2000, label: 'the api port refreshed after the answer, and the test port free' });
 
-      expect(apiAdds(state.requests, answeredAt).map((r) => r.lease), 'the api port refreshed with').to.include(lease);
+      expect(apiAdds(state.requests, answeredAt).map((r) => r.lease), 'the api port asked for with').to.include(lease);
       const held = state.mappings.find((m) => m.externalPort === API_PORT && m.protocol === 'TCP');
       expect(held, 'the api port held').to.not.equal(undefined);
       if (lease > 0) expect(held.leaseDuration, 'the api port held with the long lease').to.be.at.least(LONG_LEASE_S);
