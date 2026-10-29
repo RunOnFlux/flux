@@ -771,9 +771,13 @@ describe('apiServer initiate readiness', () => {
   let notifyReady;
   let startFluxFunctions;
   let uncaughtBefore;
+  let userconfigBefore;
 
   beforeEach(() => {
     uncaughtBefore = process.listeners('uncaughtException');
+    // UPnP is set up only for a node whose userconfig names its API port.
+    userconfigBefore = globalThis.userconfig;
+    globalThis.userconfig = { initial: { ...userconfigBefore?.initial, apiport: 16127, routerIP: '' } };
     listen = sinon.stub().resolves();
     sinon.stub(fluxServer, 'FluxServer').callsFake(() => ({ listen, app: {}, socketIo: {} }));
     notifyReady = sinon.stub(systemdNotify, 'notifyReady').resolves(true);
@@ -791,6 +795,7 @@ describe('apiServer initiate readiness', () => {
 
   afterEach(() => {
     sinon.restore();
+    globalThis.userconfig = userconfigBefore;
     process.listeners('uncaughtException')
       .filter((listener) => !uncaughtBefore.includes(listener))
       .forEach((listener) => process.removeListener('uncaughtException', listener));
