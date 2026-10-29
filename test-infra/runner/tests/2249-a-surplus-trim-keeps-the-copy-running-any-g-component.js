@@ -182,7 +182,9 @@ describe('a surplus trim keeps the copy running any g: component', function () {
     // The pass runs every removeFluxAppsPeriod * speedMultiplier blocks and this
     // drive spends about one period, so there is one attempt: a block is driven
     // only while the newest copy is answering what the next copy will ask it.
-    await driveUntil(client(OLDER), async () => {
+    // Both holders process each block before the next is sent, so both meet the
+    // pass's height as their tip and decide on the same block.
+    await driveUntil(HOLDERS.map(client), async () => {
       if (!await installedOn(NEWEST)) return true;
       if (!await installedOn(OLDER)) return kept !== null;
       await waitFor(newestAnswersHeld, {

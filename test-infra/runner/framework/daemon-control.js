@@ -87,10 +87,13 @@ export async function advanceBlocks(count) {
  * two unrelated suites ran 3-4x slower in the same gate and hit that wall
  * themselves.
  *
- * @param {object} node The node client to pace against - the one whose
- *   `block:processed` decides when the next block may be sent. A CLIENT, not an
- *   index: the two suites that grew this independently disagreed about whether
- *   the index was 0- or 1-based, which is not a mistake worth leaving available.
+ * @param {object|object[]} node The node client to pace against - the one whose
+ *   `block:processed` decides when the next block may be sent - or several, when
+ *   the condition reads a pass on more than one node: the next block is sent once
+ *   every one has processed the last, so each meets every block as its tip. A
+ *   CLIENT, not an index: the two suites that grew this independently disagreed
+ *   about whether the index was 0- or 1-based, which is not a mistake worth
+ *   leaving available.
  * BUDGETED IN THE UNIT THE CONDITION IS COUNTED IN. A pass that fires on
  * `blockHeight % N === 0` is waiting for BLOCKS, and a wall-clock budget buys a
  * number of them that depends on how busy the box is: 420s buys about 504
@@ -126,6 +129,7 @@ export async function driveUntil(node, condition, {
     // expires first rather than by the one the caller reasoned about.
     throw new Error('driveUntil: exactly one of `blocks` or `timeoutMs` is required');
   }
+  const nodes = Array.isArray(node) ? node : [node];
   const interval = blockIntervalMs ?? loadSharedConfig().fluxapps.explorerPollIntervalMs;
   const deadline = budgetedInBlocks ? Infinity : Date.now() + timeoutMs;
   let blocks = 0;
@@ -133,11 +137,11 @@ export async function driveUntil(node, condition, {
     // eslint-disable-next-line no-await-in-loop
     if (await condition()) return blocks;
     const startedAt = Date.now();
-    const afterId = node.getLastEventId();
+    const afterIds = nodes.map((n) => n.getLastEventId());
     // eslint-disable-next-line no-await-in-loop
     await advanceBlock();
     // eslint-disable-next-line no-await-in-loop
-    await node.waitForEvent('block:processed', () => true, 60000, { afterId });
+    await Promise.all(nodes.map((n, i) => n.waitForEvent('block:processed', () => true, 60000, { afterId: afterIds[i] })));
     blocks += 1;
     const spent = Date.now() - startedAt;
     // eslint-disable-next-line no-await-in-loop
