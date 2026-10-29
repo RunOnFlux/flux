@@ -24,6 +24,9 @@ const isArcane = Boolean(process.env.FLUXOS_PATH);
 
 const docker = new Docker();
 
+// The code of the error getDockerContainerByIdOrName throws for a container that is not there.
+const CONTAINER_NOT_FOUND = 'CONTAINER_NOT_FOUND';
+
 /**
  * Creates a docker container object with a given ID.
  *
@@ -232,10 +235,23 @@ async function getDockerContainerByIdOrName(idOrName) {
   // (reading 'Id')` - a message that describes the mistake rather than the
   // condition, and that callers had to pattern-match on to recognise it.
   if (!myContainer) {
-    throw new Error(`Container ${idOrName} not found`);
+    const error = new Error(`Container ${idOrName} not found`);
+    error.code = CONTAINER_NOT_FOUND;
+    throw error;
   }
   return docker.getContainer(myContainer.Id);
 }
+
+/**
+ * Whether an error says the container is not there: this module's lookup found
+ * none, or docker answered 404 for one that went between the lookup and the call.
+ * @param {Error} error
+ * @returns {boolean}
+ */
+function isContainerNotFound(error) {
+  return error?.code === CONTAINER_NOT_FOUND || error?.statusCode === 404;
+}
+
 /**
  * Returns low-level information about a container.
  *
@@ -2565,6 +2581,7 @@ module.exports = {
   getBaseAppName,
   getDockerContainer,
   getDockerContainerByIdOrName,
+  isContainerNotFound,
   getDockerContainerOnly,
   getFluxDockerNetworkSubnets,
   getFreeFluxAppNetworkOctet,
