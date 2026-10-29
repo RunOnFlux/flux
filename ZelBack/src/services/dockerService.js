@@ -16,6 +16,7 @@ const cpuBurstHelper = require('./utils/cpuBurstHelper');
 const LogFrameDecoder = require('./utils/logFrameDecoder');
 const appSlice = require('./appLifecycle/appSlice');
 const { requirePlainMountSources } = require('./utils/plainPaths');
+const { appsFolder } = require('./utils/appConstants');
 
 const globalState = require('./utils/globalState');
 
