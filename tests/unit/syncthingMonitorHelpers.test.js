@@ -295,6 +295,11 @@ describe('syncthingMonitorHelpers tests', () => {
       expect(helpers.isSyncthingDeviceId(withoutCheckCharacters(MAINNET))).to.equal(true);
     });
 
+    it('accepts one with 0, 1 and 8 typed for O, I and B', () => {
+      expect(helpers.isSyncthingDeviceId(MAINNET.replace(/O/g, '0').replace(/I/g, '1'))).to.equal(true);
+      expect(helpers.isSyncthingDeviceId(DOCS_EXAMPLE.replace(/B/g, '8'))).to.equal(true);
+    });
+
     it('refuses one whose check character does not match its group', () => {
       [3, 10, 20, 40].forEach((at) => {
         const changed = `${MAINNET.slice(0, at)}${MAINNET[at] === 'A' ? 'B' : 'A'}${MAINNET.slice(at + 1)}`;
@@ -303,7 +308,7 @@ describe('syncthingMonitorHelpers tests', () => {
     });
 
     it('refuses anything else', () => {
-      ['PEERSTUB-DEVICE-0000001', '', MAINNET.slice(0, -1), `${MAINNET}A`, MAINNET.replace('O', '0'), null, undefined, 42, {}]
+      ['PEERSTUB-DEVICE-0000001', '', MAINNET.slice(0, -1), `${MAINNET}A`, MAINNET.replace('2', '9'), null, undefined, 42, {}]
         .forEach((value) => expect(helpers.isSyncthingDeviceId(value), JSON.stringify(value)).to.equal(false));
     });
   });

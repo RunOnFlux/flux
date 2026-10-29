@@ -36,16 +36,17 @@ function deviceIdCheckCharacter(group) {
 
 /**
  * Whether `value` is a syncthing device ID as syncthing reads one: base32,
- * dashes and spaces aside, either 56 characters whose every 14th is the check
- * character of the 13 before it, or 52 without them. Syncthing refuses a
- * configuration that names any other device, and with it every device the same
- * write configures.
+ * dashes and spaces aside and 0, 1 and 8 read as O, I and B, either 56
+ * characters whose every 14th is the check character of the 13 before it, or 52
+ * without them. Syncthing refuses a configuration that names any other device,
+ * and with it every device the same write configures.
  * @param {unknown} value
  * @returns {boolean}
  */
 function isSyncthingDeviceId(value) {
   if (typeof value !== 'string') return false;
-  const id = value.replace(/[-\s]/g, '').toUpperCase();
+  const id = value.replace(/[-\s]/g, '').toUpperCase()
+    .replace(/0/g, 'O').replace(/1/g, 'I').replace(/8/g, 'B');
   if (![...id].every((character) => DEVICE_ID_ALPHABET.includes(character))) return false;
   if (id.length === 52) return true;
   if (id.length !== 56) return false;
