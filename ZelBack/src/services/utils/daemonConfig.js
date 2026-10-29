@@ -12,10 +12,6 @@ class DaemonConfig {
       zelPath: 'Zelcash/zelcash.conf',
       fluxPath: 'Flux/flux.conf',
     },
-    win32: {
-      zelDir: 'Zelcash/zelcash.conf',
-      fluxDir: 'Flux/flux.conf',
-    },
   };
 
   #resolveAttempted = false;
@@ -37,9 +33,6 @@ class DaemonConfig {
         break;
       case 'darwin':
         this.baseDir = path.join(os.homedir(), 'Library/Application Support');
-        break;
-      case 'win32':
-        this.baseDir = process.env.APPDATA;
         break;
       default:
         throw new Error('Unsupported platform');
