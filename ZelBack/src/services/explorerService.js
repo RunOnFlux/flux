@@ -1443,15 +1443,10 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
       }
     }
 
-    // An explorer RECORD_BLOCKS or more behind records only the blocks within
-    // RECORD_BLOCKS of the tip as it catches up, in order, from an empty record: a
-    // record from before the blocks it skips would date each node's first
-    // confirmation after them as its change of address.
-    if (daemonHeight - scannedBlockHeight >= fluxnodeAddressRecord.RECORD_BLOCKS) {
-      await fluxnodeAddressRecord.drop(dbHelper.onMaintenanceClient(database));
-    } else if (await fluxnodeAddressRecord.isBuilt()) {
+    // An explorer further behind passes the record's blocks in order as it catches up.
+    if (await fluxnodeAddressRecord.isBuilt()) {
       fluxnodeAddressRecord.resumeAt(scannedBlockHeight);
-    } else {
+    } else if (daemonHeight - scannedBlockHeight < fluxnodeAddressRecord.RECORD_BLOCKS) {
       log.info(`Building the fluxnode address record from the blocks up to ${scannedBlockHeight}`);
       await fluxnodeAddressRecord.rebuild(scannedBlockHeight, getVerboseBlock, dbHelper.onMaintenanceClient(database));
     }

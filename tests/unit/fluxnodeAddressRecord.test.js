@@ -114,6 +114,19 @@ describe('fluxnodeAddressRecord', () => {
     expect(await recordOf(B)).to.not.equal(null);
   });
 
+  it('starts again at the first block it can hold after passing one deeper than it reaches', async () => {
+    await block(base, [confirmation(A, '203.0.113.1:16127')]);
+    await block(base + 10, [confirmation(A, '203.0.113.1:16127')], fluxnodeAddressRecord.RECORD_BLOCKS + 1);
+    expect(await recordOf(A), 'a record from before the skipped block').to.equal(null);
+
+    await block(base + 300, [confirmation(A, '203.0.113.2:16127')]);
+
+    const record = await recordOf(A);
+    expect(record).to.include({ ip: '203.0.113.2:16127', firstHeight: base + 300 });
+    expect(record.changes, 'the first confirmation after the skipped block logged as a change').to.deep.equal([]);
+    expect(await fluxnodeAddressRecord.whenRecorded(base + 300, 1)).to.equal(true);
+  });
+
   it('records nothing from a block deeper than the record reaches', async () => {
     await block(base, [confirmation(A, '203.0.113.1:16127')], fluxnodeAddressRecord.RECORD_BLOCKS + 1);
     expect(await recordOf(A)).to.equal(null);

@@ -128,13 +128,18 @@ async function writeBlock(block, records) {
 
 /**
  * Records the fluxnode starts and confirmations of a block the explorer
- * processes, from RECORD_BLOCKS below the tip. Rejects when the record cannot
- * be written; the explorer then processes the block again.
+ * processes, from RECORD_BLOCKS below the tip. A block deeper than that is
+ * skipped, and a record holding blocks from before it is dropped, so the record
+ * starts again at the first block it can hold: kept, it would log each node's
+ * first confirmation after the skipped blocks as a change of address made
+ * there. Rejects when the record cannot be written; the explorer then
+ * processes the block again.
  * @param {{height: number, confirmations: number, tx?: object[]}} block A verbose block.
  * @returns {Promise<void>}
  */
 async function recordBlock(block) {
   if (await writeBlock(block, collection())) noteRecorded(block.height);
+  else if (recordedHeight > 0) await drop(dbHelper.onMaintenanceClient(daemonDatabase()));
 }
 
 /**

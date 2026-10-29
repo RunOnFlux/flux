@@ -2245,7 +2245,6 @@ describe('explorerService tests', () => {
       });
 
       it('is left to the catch-up when the explorer is further behind than the blocks it holds', async () => {
-        sinon.stub(fluxnodeAddressRecord, 'drop').resolves();
         atHeight(199000);
         isBuiltStub.resolves(false);
 
@@ -2274,32 +2273,9 @@ describe('explorerService tests', () => {
         sinon.assert.calledOnceWithExactly(resumeAtStub, 199500);
       });
 
-      it('is dropped, and left to the catch-up, when the explorer is further behind than the blocks it holds', async () => {
-        const dropStub = sinon.stub(fluxnodeAddressRecord, 'drop').resolves();
-        const resumeAtStub = sinon.stub(fluxnodeAddressRecord, 'resumeAt');
-        atHeight(199000);
-
-        await explorerService.initiateBlockProcessor(false, false, false);
-        await serviceHelper.delay(200);
-
-        sinon.assert.calledOnce(dropStub);
-        sinon.assert.notCalled(resumeAtStub);
-        sinon.assert.notCalled(rebuildStub);
-      });
-
-      it('is kept when the explorer is within the blocks it holds', async () => {
-        const dropStub = sinon.stub(fluxnodeAddressRecord, 'drop').resolves();
-        atHeight(199500);
-
-        await explorerService.initiateBlockProcessor(false, false, false);
-        await serviceHelper.delay(200);
-
-        sinon.assert.notCalled(dropStub);
-      });
-
       it('is not read as holding any block while it holds nothing', async () => {
         const resumeAtStub = sinon.stub(fluxnodeAddressRecord, 'resumeAt');
-        atHeight(199500);
+        atHeight(199000);
         isBuiltStub.resolves(false);
 
         await explorerService.initiateBlockProcessor(false, false, false);
