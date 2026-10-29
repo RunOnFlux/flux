@@ -54,14 +54,21 @@ class RecordingClient extends natUpnp.Client {
   }
 }
 proxyquire(
-  '../../ZelBack/src/services/upnpService',
-  { config, './fluxadmPort': fluxadmPortStub, '@runonflux/nat-upnp': { ...natUpnp, Client: RecordingClient } },
+  '../../ZelBack/src/services/upnpRouter',
+  { '@runonflux/nat-upnp': { ...natUpnp, Client: RecordingClient } },
 );
 
 const GATEWAY_URL = 'http://192.168.1.1:5000/rootDesc.xml';
 const upnpServiceAtGatewayUrl = proxyquire(
   '../../ZelBack/src/services/upnpService',
-  { config: { ...config, upnp: { gatewayUrl: GATEWAY_URL, nodeIp: '192.168.1.10' } }, './fluxadmPort': fluxadmPortStub },
+  {
+    config,
+    './fluxadmPort': fluxadmPortStub,
+    './upnpRouter': proxyquire(
+      '../../ZelBack/src/services/upnpRouter',
+      { config: { upnp: { gatewayUrl: GATEWAY_URL, nodeIp: '192.168.1.10' } } },
+    ),
+  },
 );
 
 describe('upnpService tests', () => {
