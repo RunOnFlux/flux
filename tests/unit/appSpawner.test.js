@@ -1641,6 +1641,44 @@ describe('appSpawner tests', () => {
       expect(withdrawal.name).to.be.a('string');
     });
 
+    it('withdraws its claim when the port check refuses, the last check before the install', async () => {
+      const portCheck = sinon.stub();
+      const { installStub, withdrawalStub } = await runAttempt({ portsAvailable: false, portCheck });
+
+      sinon.assert.calledOnce(portCheck);
+      expect(installStub.called, 'installed on ports the check refused').to.be.false;
+      expect(
+        withdrawalStub.getCalls().filter((c) => c.args[0].withdrawn === true),
+        'a claim held after its ports were refused',
+      ).to.have.lengthOf(1);
+    });
+
+    it('tests no port for an attempt that yields its claim to an earlier claimant', async () => {
+      const portCheck = sinon.stub();
+      const { logged } = await runAttempt({
+        portCheck,
+        placementShare: { domainCount: 3, maxPerDomain: 1 },
+        finalInstallingLocations: [
+          { ip: '192.168.2.2:16127', broadcastedAt: 1000 },
+          { ip: '192.168.1.1:16127', broadcastedAt: 2000 },
+        ],
+      });
+
+      expect(logged('earlier claimants in fault domain'), 'never reached the stand-down').to.be.true;
+      sinon.assert.notCalled(portCheck);
+    });
+
+    it('stands down while the node is already doing something to an app, before it tests a port', async () => {
+      const portCheck = sinon.stub();
+      const { withdrawalStub } = await runAttempt({
+        portCheck,
+        globalStateOverrides: { reinstallationOfOldAppsInProgress: true },
+      });
+
+      expect(withdrawalStub.called, 'never reached the stand-down').to.be.true;
+      sinon.assert.notCalled(portCheck);
+    });
+
     it('does not claim an app the network already has covered', async () => {
       // Running plus installing already meets the requirement, so there is
       // nothing for another claim to add. Claiming anyway costs a broadcast, a

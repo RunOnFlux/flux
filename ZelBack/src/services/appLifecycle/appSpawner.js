@@ -134,6 +134,20 @@ async function spawnLoop() {
  * Try spawning a global application that needs more instances
  * This is the main function that continuously checks for applications that need more instances
  * and attempts to spawn them on this node if it meets the requirements
+ *
+ * An attempt runs its checks in this order and stops at the first that refuses.
+ * The port test is the dearest - a mapping on the router for each port, read by a
+ * peer - and runs last, after everything that can still stand the attempt down:
+ *
+ *   1. image blocklist, committed resources, hardware, ports this node's apps hold
+ *   2. a sibling behind this node's address holding a port
+ *   3. instance count, domain share, reachable syncthing peers, static-IP and
+ *      capacity deferrals, architecture, the image in its registry, instance count
+ *   4. the installing claim, the collision wait and the checks that settle its race
+ *   5. the port test
+ *   6. the install, which keeps the port test's mappings
+ *
+ * A refusal after the claim withdraws it.
  * @returns {Promise<void>}
  */
 async function trySpawningGlobalApplication() {
@@ -720,23 +734,6 @@ async function trySpawningGlobalApplication() {
       return shortDelayTime;
     }
 
-    // Note: User-blocked port check happens earlier (line ~353) before Docker Hub calls
-    // Check if ports are publicly available - critical for proper Flux network operation
-    testedPorts = { ports: appPorts, appName: appSpecifications.name, holder: {} };
-    const portVerdict = await portManager.checkInstallingAppPortAvailable(appPorts, appSpecifications.name, { holder: testedPorts.holder });
-    if (portVerdict.ok === false) {
-      log.error(`trySpawningGlobalApplication - Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
-      // The cause lives in portManager, which says which port and which peers;
-      // this says the spawner deferred, and on which of its verdicts.
-      fluxEventBus.publish('spawner:deferred', {
-        appName: appSpecifications.name,
-        reason: 'ports_not_available',
-        portVerdict: portVerdict.reason,
-        delayMs: shortDelayTime,
-      });
-      return shortDelayTime;
-    }
-
     // double check if app is installed on the number of instances requested
     runningAppList = await registryManager.appLocation(appToRun);
     installingAppList = await registryManager.appInstallingLocation(appToRun);
@@ -1149,6 +1146,24 @@ async function trySpawningGlobalApplication() {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} not installed, this node is undergoing ${heldBy}`);
       await withdrawInstallingClaim(`node is undergoing ${heldBy}`);
       globalState.trySpawningGlobalAppCache.delete(appHash);
+      return shortDelayTime;
+    }
+
+    // The dearest check, so the last: it maps the app's ports on the router and has
+    // a peer read them, and the install keeps the mappings it makes.
+    testedPorts = { ports: appPorts, appName: appSpecifications.name, holder: {} };
+    const portVerdict = await portManager.checkInstallingAppPortAvailable(appPorts, appSpecifications.name, { holder: testedPorts.holder });
+    if (portVerdict.ok === false) {
+      log.error(`trySpawningGlobalApplication - Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
+      await withdrawInstallingClaim('ports not available');
+      // The cause lives in portManager, which says which port and which peers;
+      // this says the spawner deferred, and on which of its verdicts.
+      fluxEventBus.publish('spawner:deferred', {
+        appName: appSpecifications.name,
+        reason: 'ports_not_available',
+        portVerdict: portVerdict.reason,
+        delayMs: shortDelayTime,
+      });
       return shortDelayTime;
     }
 
