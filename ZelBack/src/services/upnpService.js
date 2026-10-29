@@ -11,7 +11,6 @@ const ufw = require('./utils/ufw');
 const fluxadmPort = require('./fluxadmPort');
 const { Privilege, authOf } = require('./utils/privileges');
 const {
-  client,
   routerEvents,
   routerLeases,
   routerRefusals,
@@ -119,8 +118,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
     if (userconfig.initial.routerIP) {
       await adjustFirewallForUPNP();
     }
-    // run test on apiport + 1
-    await client.getPublicIp();
+    await portReconciler.onRouter((client) => client.getPublicIp());
 
     await serviceHelper.delay(500);
   } catch (error) {
@@ -130,7 +128,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
     return false;
   }
   try {
-    await client.getGateway();
+    await portReconciler.onRouter((client) => client.getGateway());
 
     await serviceHelper.delay(500);
   } catch (error) {
@@ -173,7 +171,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
     // here on counts toward the router DOS, which takes the node out of service
     // until a slot frees.
     if (!testMapping.mapped) {
-      const apiMapping = await portReconciler.onRouter(() => client.getMapping({ public: +apiport, protocol: 'TCP' }).catch(() => null));
+      const apiMapping = await portReconciler.onRouter((client) => client.getMapping({ public: +apiport, protocol: 'TCP' }).catch(() => null));
       if (mapsHere(apiMapping, +apiport)) {
         log.warn(`VerifyUPNPsupport - ${testMapping.reason}, but the router maps this node's api port to it`);
         await portReconciler.release(testPort, 'Flux_UPNP_Mapping_Test', { holder });
@@ -188,7 +186,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
     return false;
   }
   try {
-    const mapping = await portReconciler.onRouter(() => client.getMapping({ public: testPort, protocol: 'TCP' }));
+    const mapping = await portReconciler.onRouter((client) => client.getMapping({ public: testPort, protocol: 'TCP' }));
     if (!mapping) throw new Error(`the router holds no mapping for port ${testPort}`);
     // A router that keeps the mapping and drops its lease - by refusing it
     // (725, which the client answers by asking without one) or by ignoring it -
@@ -248,11 +246,11 @@ async function learnLeaseRenewal(apiport) {
   // taking it would read as a lapse. A verify started since takes the port
   // over, and this test then asks the router nothing more.
   const holder = {};
-  const asHolder = (request) => portReconciler.onRouter(() => {
+  const asHolder = (request) => portReconciler.onRouter((client) => {
     if (!portReconciler.holds(port, holder)) throw new Error(`port ${port} taken over by a later verification`);
-    return request();
+    return request(client);
   });
-  const create = () => asHolder(async () => {
+  const create = () => asHolder(async (client) => {
     await client.createMapping({
       public: port,
       private: port,
@@ -269,7 +267,7 @@ async function learnLeaseRenewal(apiport) {
     await serviceHelper.delay(Math.max(0, startMs + (leaseS * 1000) / 2 - monotonicMs()));
     await create();
     await serviceHelper.delay(Math.max(0, startMs + (leaseS + 10) * 1000 - monotonicMs()));
-    const mapping = await asHolder(() => client.getMapping({ public: port, protocol: 'TCP' }));
+    const mapping = await asHolder((client) => client.getMapping({ public: port, protocol: 'TCP' }));
     if (!mapsHere(mapping, port)) return record(false, `no mapping ${leaseS + 10} s after a ${leaseS} s lease was renewed halfway`);
     if (!(mapping.ttl > 0 && mapping.ttl <= leaseS)) return record(false, `it shows a lease of ${mapping.ttl} s for one of ${leaseS} s`);
     return record(true, `held ${leaseS + 10} s after a ${leaseS} s lease was renewed halfway`);
@@ -298,7 +296,7 @@ async function reconcileFluxadmMapping(apiport) {
       logError: false,
       params: ['is-enabled', fluxadmPort.sshdSocket],
     });
-    await portReconciler.onRouter(() => matchFluxadmMapping(port, serviceHelper.ensureString(unitState).trim() === 'enabled'));
+    await portReconciler.onRouter((client) => matchFluxadmMapping(client, port, serviceHelper.ensureString(unitState).trim() === 'enabled'));
   } catch (error) {
     log.error(`fluxadm access - UPnP mapping for port ${port} failed: ${error.message}`);
   }
@@ -307,11 +305,12 @@ async function reconcileFluxadmMapping(apiport) {
 /**
  * The turn of reconcileFluxadmMapping: maps the maintenance sshd's port when
  * its socket is enabled, and otherwise removes a mapping of it this code made.
+ * @param {object} client the router's client
  * @param {number} port
  * @param {boolean} enabled
  * @returns {Promise<void>}
  */
-async function matchFluxadmMapping(port, enabled) {
+async function matchFluxadmMapping(client, port, enabled) {
   if (enabled) {
     await client.createMapping({
       public: port,
@@ -445,14 +444,16 @@ async function removeOwnMappings(select, budgetMs, what) {
   const wholeBudgetMs = Math.floor(budgetMs);
   const deadline = monotonicMs() + wholeBudgetMs;
   const left = () => deadline - monotonicMs();
-  const listingMs = wholeBudgetMs - Math.min(CLEANUP_REMOVAL_RESERVE_MS, Math.floor(wholeBudgetMs / 2));
-  const mappings = await client.getMappings({ local: true, signal: AbortSignal.timeout(listingMs) });
+  const listingDeadline = deadline - Math.min(CLEANUP_REMOVAL_RESERVE_MS, Math.floor(wholeBudgetMs / 2));
+  // the listing's time runs from its turn, and ends where the pass's does
+  const listing = (client) => client.getMappings({ local: true, signal: AbortSignal.timeout(Math.max(0, listingDeadline - monotonicMs())) });
+  const mappings = await portReconciler.onRouter(listing, { upkeep: true });
   const chosen = (await select(mappings)).filter((mapping) => Number.isInteger(mapping.public.port));
   let removed = 0;
   // eslint-disable-next-line no-restricted-syntax
   for (const [index, mapping] of chosen.entries()) {
     // eslint-disable-next-line no-await-in-loop
-    const outcome = await portReconciler.onRouter(() => removeListedMapping(mapping, left, what), { upkeep: true });
+    const outcome = await portReconciler.onRouter((client) => removeListedMapping(client, mapping, left, what), { upkeep: true });
     if (outcome === 'late') {
       log.warn(`UPnP - ${what} cleanup out of time, ${chosen.length - index} left for the next start`);
       break;
@@ -470,13 +471,14 @@ async function removeOwnMappings(select, budgetMs, what) {
  * The turn of one removal of removeOwnMappings. A port wanted here is in use -
  * a test or an install can map it while the pass is still working through the
  * ones before it - and is left alone.
+ * @param {object} client the router's client
  * @param {object} mapping as the listing gives it
  * @param {function(): number} left milliseconds left of the pass's budget
  * @param {string} what the mappings' name in the log
  * @returns {Promise<'late'|'held'|'removed'|'refused'|'stopped'>} out of time;
  *   wanted here; removed; refused with a UPnP error; or any other failure
  */
-async function removeListedMapping(mapping, left, what) {
+async function removeListedMapping(client, mapping, left, what) {
   if (left() <= 0) return 'late';
   const { host, port } = mapping.public;
   if (portReconciler.isWanted(port)) return 'held';
@@ -536,10 +538,11 @@ async function removeLeftoverTestMappings() {
 /**
  * The turn of mapPortApi: maps both protocols of the operator's port, with no
  * lease.
+ * @param {object} client the router's client
  * @param {number} port
  * @returns {Promise<void>}
  */
-async function mapManualEntry(port) {
+async function mapManualEntry(client, port) {
   await client.createMapping({
     public: port,
     private: port,
@@ -559,10 +562,11 @@ async function mapManualEntry(port) {
 
 /**
  * The turn of removeMapPortApi: removes both protocols of the operator's port.
+ * @param {object} client the router's client
  * @param {number} port
  * @returns {Promise<void>}
  */
-async function unmapManualEntry(port) {
+async function unmapManualEntry(client, port) {
   await client.removeMapping({
     public: port,
     protocol: 'TCP',
@@ -588,7 +592,7 @@ async function mapPortApi(req, res) {
         throw new Error('No Port address specified.');
       }
       port = serviceHelper.ensureNumber(port);
-      await portReconciler.onRouter(() => mapManualEntry(port));
+      await portReconciler.onRouter((client) => mapManualEntry(client, port));
       const message = messageHelper.createSuccessMessage('Port mapped');
       res.json(message);
     } else {
@@ -621,7 +625,7 @@ async function removeMapPortApi(req, res) {
         throw new Error('No Port address specified.');
       }
       port = serviceHelper.ensureNumber(port);
-      await portReconciler.onRouter(() => unmapManualEntry(port));
+      await portReconciler.onRouter((client) => unmapManualEntry(client, port));
       const message = messageHelper.createSuccessMessage('Port unmapped');
       res.json(message);
     } else {
@@ -648,7 +652,7 @@ async function getMapApi(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (authorized) {
-      const map = await client.getMappings();
+      const map = await portReconciler.onRouter((client) => client.getMappings());
       const message = messageHelper.createDataMessage(map);
       res.json(message);
     } else {
@@ -675,7 +679,7 @@ async function getIpApi(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (authorized) {
-      const ip = await client.getPublicIp();
+      const ip = await portReconciler.onRouter((client) => client.getPublicIp());
       const message = messageHelper.createDataMessage(ip);
       res.json(message);
     } else {
@@ -694,6 +698,18 @@ async function getIpApi(req, res) {
 }
 
 /**
+ * The turn of getGatewayApi: the router's description and services, and this
+ * node's address on the way to it.
+ * @param {object} client the router's client
+ * @returns {Promise<{gateway: {description: string, services: object[]}, address: string}>}
+ */
+async function describeGateway(client) {
+  const info = await client.getGateway();
+  const { description, services } = info.gateway;
+  return { gateway: { description, services }, address: await info.getLocalAddress() };
+}
+
+/**
  * To show a message with gateway address. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {Promise<object>} res Response.
@@ -702,12 +718,8 @@ async function getGatewayApi(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (authorized) {
-      const info = await client.getGateway();
-      const { description, services } = info.gateway;
-      const message = messageHelper.createDataMessage({
-        gateway: { description, services },
-        address: await info.getLocalAddress(),
-      });
+      const gateway = await portReconciler.onRouter(describeGateway);
+      const message = messageHelper.createDataMessage(gateway);
       res.json(message);
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();

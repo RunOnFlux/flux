@@ -65,9 +65,14 @@ const upnpServiceAtGatewayUrl = proxyquire(
   {
     config,
     './fluxadmPort': fluxadmPortStub,
-    './upnpRouter': proxyquire(
-      '../../ZelBack/src/services/upnpRouter',
-      { config: { upnp: { gatewayUrl: GATEWAY_URL, nodeIp: '192.168.1.10' } } },
+    './portReconciler': proxyquire(
+      '../../ZelBack/src/services/portReconciler',
+      {
+        './upnpRouter': proxyquire(
+          '../../ZelBack/src/services/upnpRouter',
+          { config: { upnp: { gatewayUrl: GATEWAY_URL, nodeIp: '192.168.1.10' } } },
+        ),
+      },
     ),
   },
 );

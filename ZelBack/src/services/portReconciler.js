@@ -2,6 +2,7 @@ const config = require('config');
 const serviceHelper = require('./serviceHelper');
 const log = require('../lib/log');
 const {
+  client,
   routerEvents,
   MAPPED,
   mapProtocol,
@@ -10,10 +11,11 @@ const {
   isTestMappingDescription,
 } = require('./upnpRouter');
 
-// The one owner of this node's UPnP mappings. Every request that changes what
-// the router maps here, and every lookup that decides one, runs as a turn on
-// one lane (onRouter): no other turn reaches the router until it settles, so
-// what a turn reads of this module's state still holds when it acts on it.
+// The one owner of this node's UPnP mappings, and the only way to the router:
+// every request this node makes of it runs as a turn on one lane (onRouter),
+// which alone hands out the client. No other turn reaches the router until it
+// settles, so what a turn reads of this module's state still holds when it
+// acts on it, and the router answers one request of this node at a time.
 
 // Ports wanted mapped to this node, by port: { description, holder }. A port
 // mapped here is in use - a test port mid-test, an app installing - whatever the
@@ -53,7 +55,7 @@ async function runLane() {
     const turn = intentTurns.shift() ?? upkeepTurns.shift();
     try {
       // eslint-disable-next-line no-await-in-loop
-      turn.resolve(await turn.work());
+      turn.resolve(await turn.work(client));
     } catch (error) {
       turn.reject(error);
     }
@@ -62,12 +64,12 @@ async function runLane() {
 }
 
 /**
- * Runs `work` as a turn on the router: nothing else of this node reaches the
- * router until it settles. Upkeep waits behind every turn a caller waits on
- * that has not started. `work` never waits on another turn: that turn would
- * wait on it.
+ * Runs `work` as a turn on the router, handing it the router's client: nothing
+ * else of this node reaches the router until it settles. Upkeep waits behind
+ * every turn a caller waits on that has not started. `work` never waits on
+ * another turn: that turn would wait on it.
  * @template T
- * @param {function(): (T|Promise<T>)} work
+ * @param {function(object): (T|Promise<T>)} work given the router's client
  * @param {{upkeep?: boolean}} [options] upkeep: keeping mappings as they are,
  *   with no caller waiting
  * @returns {Promise<T>} what `work` settles with
