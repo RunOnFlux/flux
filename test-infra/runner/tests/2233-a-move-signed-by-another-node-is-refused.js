@@ -9,10 +9,11 @@ import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { waitFor, waitForDaemonReady } from '../framework/wait.js';
 import {
-  advanceBlock, removeFromNodeList, setNodeAddress, startTicker, stopTicker,
+  advanceBlock, clearNodeAddress, removeFromNodeList, setNodeAddress, startTicker, stopTicker,
 } from '../framework/daemon-control.js';
 import { bootAndPeer, seedAndInstall } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
+import { crashFluxos, releaseFluxos } from '../framework/container.js';
 import { socketAddr } from '../framework/state-events.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -37,14 +38,22 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // one restarts with the chain stopped, and the stub signs the move. The stub is
 // listed at a port it does not listen on, so the restarted node cannot dial it;
 // the move reaches it from the nodes that relay it.
+//
+// A node down for more than the record's blocks keeps none of what it recorded
+// before: one node's FluxOS is held down, the chain moves the stub back to the
+// address it listens on and mines past RECORD_BLOCKS, and the node comes back
+// and catches up. The stub signs that move, more than 640 blocks old: every node
+// refuses it. The chain moves the stub again and the stub signs that move in the
+// next block: every node holds it.
 
 const REAL_NODES = 3;
 const STUB_INDEX = 3;
 // Production's location lifetime, so the holder's row is still standing when
 // the moves are judged.
 const LOCATION_TTL_S = 30 * 60;
-// fluxnodeAddressRecord's CONFIRMATION_EXPIRY_BLOCKS.
+// fluxnodeAddressRecord's CONFIRMATION_EXPIRY_BLOCKS and RECORD_BLOCKS.
 const CONFIRMATION_EXPIRY_BLOCKS = 640;
+const RECORD_BLOCKS = 890;
 
 describe('a move signed by another node is refused', function () {
   let env;
@@ -56,18 +65,19 @@ describe('a move signed by another node is refused', function () {
   const rowsAt = async (i, address) => (await dbClient(i + 1).getAppLocationsByIp(address)).map((row) => row.name);
   const held = async (i, from, to) => (await dbClient(i + 1).getAppStateEvents({ ip: from, type: 'ipchanged' }))
     .some((event) => event.data?.newIP === to);
-  // Mines `count` blocks, and returns once every node has processed them and read a list from after them.
-  const mineAndRead = async (count) => {
-    const anchors = realNodes.map((i) => env.clients[i].getLastEventId());
+  // Mines `count` blocks, and returns once each of `nodes` has processed them and read a list from after them.
+  const mineAndRead = async (count, nodes = realNodes) => {
+    const anchors = nodes.map((i) => env.clients[i].getLastEventId());
     let tip;
     for (let n = 0; n < count; n += 1) {
       // eslint-disable-next-line no-await-in-loop
       ({ currentHeight: tip } = await advanceBlock());
     }
-    await waitFor(async () => (await Promise.all(realNodes.map((i) => dbClient(i + 1).explorerHeight()))).every((height) => height >= tip), {
-      timeout: 300000, interval: 2000, label: `every node has processed block ${tip}`,
+    await waitFor(async () => (await Promise.all(nodes.map((i) => dbClient(i + 1).explorerHeight()))).every((height) => height >= tip), {
+      timeout: 300000, interval: 2000, label: `nodes ${nodes} have processed block ${tip}`,
     });
-    await Promise.all(realNodes.map((i) => env.clients[i].waitForEvent('networkstate:updated', () => true, 120000, { afterId: anchors[i] })));
+    await Promise.all(nodes.map((i, n) => env.clients[i].waitForEvent('networkstate:updated', () => true, 120000, { afterId: anchors[n] })));
+    return tip;
   };
 
   before(async function () {
@@ -254,6 +264,57 @@ describe('a move signed by another node is refused', function () {
       await waitFor(async () => held(restarted, from, to), {
         timeout: 120000, interval: 2000, label: 'the restarted node holds the move',
       });
+    } finally {
+      await startTicker();
+    }
+  });
+
+  it('refuses a move the chain made more than 640 blocks before a node that was down caught up', async function () {
+    this.timeout(1800000);
+    const stubAddress = socketAddr(STUB_INDEX + 1);
+    const stubIp = stubAddress.split(':')[0];
+    const from = `${stubIp}:16197`;
+    const freshTo = `${stubIp}:16227`;
+    // A listed node: the holder left the list in an earlier case.
+    const down = realNodes.find((i) => i !== idx);
+    const up = realNodes.filter((i) => i !== down);
+    const client = env.clients[down];
+
+    await stopTicker();
+    try {
+      await crashFluxos(client.container, { hold: true });
+      // Back to the address it listens on, so the returning node can dial it.
+      await clearNodeAddress(stubIp);
+      const tip = await mineAndRead(1 + RECORD_BLOCKS + 10, up);
+      await releaseFluxos(client.container);
+      await waitForDaemonReady(client);
+      await waitFor(async () => (await dbClient(down + 1).explorerHeight()) >= tip, {
+        timeout: 600000, interval: 5000, label: `the returning node has caught up to block ${tip}`,
+      });
+      await waitFor(async () => (await stub.connectedNodes()) >= REAL_NODES, {
+        timeout: 180000, interval: 2000, label: 'every real node is connected to the stub peer',
+      });
+
+      const stale = await stub.broadcast({
+        type: 'fluxipchanged', version: 1, oldIP: from, newIP: stubAddress, broadcastedAt: Date.now(),
+      });
+      expect(stale.sent, 'fixture: the stale move reached every real node').to.equal(REAL_NODES);
+
+      await setNodeAddress(stubIp, freshTo, { scope: 'all' });
+      await mineAndRead(1);
+      const fresh = await stub.broadcast({
+        type: 'fluxipchanged', version: 1, oldIP: stubAddress, newIP: freshTo, broadcastedAt: Date.now(),
+      });
+      expect(fresh.sent, 'fixture: the fresh move reached every real node').to.equal(REAL_NODES);
+
+      await waitFor(async () => (await Promise.all(realNodes.map((i) => held(i, stubAddress, freshTo)))).every(Boolean), {
+        timeout: 120000, interval: 2000, label: 'every node holds the move the chain made in the last block',
+      });
+      // eslint-disable-next-line no-restricted-syntax
+      for (const i of realNodes) {
+        // eslint-disable-next-line no-await-in-loop
+        expect(await held(i, from, stubAddress), `node ${i} held a move the chain made ${RECORD_BLOCKS + 11} blocks ago`).to.equal(false);
+      }
     } finally {
       await startTicker();
     }
