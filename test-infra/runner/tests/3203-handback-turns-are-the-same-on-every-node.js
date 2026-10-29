@@ -153,7 +153,7 @@ describe('handback turns are the same on every node', function () {
         await three.releaseCheckpoint('giveUp:beforePass');
       }
       return released && (departures() >= 2 || ((refusedShort(one) || refusedShort(three)) && departures() === 1));
-    }, { timeoutMs: TURN_MS + departureWaitMs([TARGET, SECOND_TARGET]) });
+    }, { timeoutMs: TURN_MS + departureWaitMs([TARGET, SECOND_TARGET], FLEET.length) });
     await startTicker();
 
     expect(departures(), 'both holders handed startapp back').to.equal(1);
