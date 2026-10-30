@@ -267,7 +267,7 @@ describe('messageStore tests', () => {
       it('stores the tag and origin beside the message it takes', async () => {
         dbHelperStub.findOneInDatabase.resolves(null);
         const fields = {
-          clientTag: 'a'.repeat(64), clientTagHeight: 3081600, origin: '{"version":1}', originKey: '04aa',
+          clientTag: 'a'.repeat(64), clientTagHeight: 3081600, origin: { version: 1, timestamp: 1, pubKey: '04aa', signature: 'sig' }, originKey: '04aa',
         };
         unpaidAdmissionStub.admitUnpaid.resolves({ fields });
 
@@ -280,7 +280,9 @@ describe('messageStore tests', () => {
       it('queues an update that arrives before its registration with its origin, for the replay to verify', async () => {
         dbHelperStub.findOneInDatabase.resolves(null);
         const update = { ...pending, type: 'fluxappupdate' };
-        const origin = '{"version":1}';
+        const origin = {
+          version: 1, timestamp: 1, pubKey: '04aa', signature: 'sig',
+        };
         unpaidAdmissionStub.admitUnpaid.resolves({ fields: { clientTag: 'a'.repeat(64), origin } });
         const queue = sinon.stub(globalState, 'queuePendingUpdate');
         messageStore = proxyquire('../../ZelBack/src/services/appMessaging/messageStore', {

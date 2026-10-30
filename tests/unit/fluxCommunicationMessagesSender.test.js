@@ -690,7 +690,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       sinon.assert.calledOnceWithExactly(checkAppTemporaryMessageExistenceStub, callMessage.data.hash);
     });
 
-    it('should send the admitting frame of a pending message, and none of the fields stored beside it', async () => {
+    it('should send a pending message\'s client tag and its admitting node\'s signature, and none of the fields stored beside them', async () => {
       const callMessage = {
         timestamp: Date.now(),
         pubKey: '1234asd',
@@ -702,7 +702,9 @@ describe('fluxCommunicationMessagesSender tests', () => {
           version: 1,
         },
       };
-      const origin = JSON.stringify({ version: 1, data: { ...message, clientTag: 'a'.repeat(64), clientTagHeight: 3081600 } });
+      const origin = {
+        version: 1, timestamp: 1793351627000, pubKey: '04aa', signature: 'sig',
+      };
       sinon.stub(messageVerifier, 'checkAppMessageExistence').returns(undefined);
       sinon.stub(messageVerifier, 'checkAppTemporaryMessageExistence').returns({
         ...message, origin, originKey: '04aa', clientTag: 'a'.repeat(64), clientTagHeight: 3081600, receivedAt: new Date(),
@@ -712,7 +714,9 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
       await fluxCommunicationMessagesSender.respondWithAppMessage(callMessage, generateWebsocket());
 
-      sinon.assert.calledOnceWithExactly(myMessageCacheSetStub, callMessage.data.hash, { ...message, origin });
+      sinon.assert.calledOnceWithExactly(myMessageCacheSetStub, callMessage.data.hash, {
+        ...message, clientTag: 'a'.repeat(64), clientTagHeight: 3081600, origin,
+      });
     });
 
     it('should do nothing if the message does not exist', async () => {

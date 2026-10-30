@@ -1,11 +1,11 @@
 // Unpaid app messages as the network carries them: the message itself, the
-// frame of the node that admitted it, the client tag on it, and what a node
+// signature of the node that admitted it, the client tag on it, and what a node
 // stored for it.
 //
-// A message built here is one an owner signed and nobody has paid for. A peer
-// stub broadcasting it is a node admitting it; a frame signed here with a
-// node's key is that node having admitted it, carried as the `origin` of a
-// reply rebuilt from storage.
+// A message built here is one an owner signed and nobody has paid for, with its
+// fields in the order an admitting node signs them. A peer stub broadcasting it
+// is a node admitting it; a signature made here with a node's key is that node
+// having admitted it, carried as the `origin` of a reply rebuilt from storage.
 
 import { randomBytes } from 'node:crypto';
 import { signBtcMessage } from '../auth.js';
@@ -76,6 +76,22 @@ export async function signedFrame(data, key) {
   const signature = await signBtcMessage(`${version}${JSON.stringify(data)}${timestamp}`, key.privkey);
   return {
     version, timestamp, pubKey: key.pubkey, signature, data,
+  };
+}
+
+/**
+ * A node's signature over a message it admits, as a reply carries it: the
+ * frame's signed fields without the message, which the receiver rebuilds.
+ * @param {object} data
+ * @param {{pubkey: string, privkey: string}} key
+ * @returns {Promise<{version: number, timestamp: number, pubKey: string, signature: string}>}
+ */
+export async function admittingSignature(data, key) {
+  const {
+    version, timestamp, pubKey, signature,
+  } = await signedFrame(data, key);
+  return {
+    version, timestamp, pubKey, signature,
   };
 }
 

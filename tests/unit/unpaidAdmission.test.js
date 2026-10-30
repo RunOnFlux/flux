@@ -23,6 +23,7 @@ describe('unpaidAdmission tests', () => {
   let getFluxNodePublicKey;
   let unpaidAdmission;
 
+  // An app message in the order its admitting node signs it.
   const message = (fields = {}) => ({
     type: 'fluxappregister',
     version: 1,
@@ -30,11 +31,14 @@ describe('unpaidAdmission tests', () => {
     hash: 'hash1',
     timestamp: 1793351626510,
     signature: 'ownersig',
+    arcaneSender: true,
     ...fields,
   });
-  const frameOf = (data, pubKey = ENTRY_KEY) => ({
-    version: 1, timestamp: 1793351627000, pubKey, signature: `${pubKey}-sig`, data,
+  const tagged = (fields = {}) => message({ clientTag: TAG, clientTagHeight: TAG_HEIGHT, ...fields });
+  const originBy = (pubKey = ENTRY_KEY, fields = {}) => ({
+    version: 1, timestamp: 1793351627000, pubKey, signature: `${pubKey}-sig`, ...fields,
   });
+  const frameOf = (data, pubKey = ENTRY_KEY) => ({ ...originBy(pubKey), data });
 
   beforeEach(() => {
     // what the temporary store holds per query, and how many of those hashes are paid
@@ -69,33 +73,47 @@ describe('unpaidAdmission tests', () => {
     held.set(JSON.stringify(query), Array.from({ length: count }, (_, i) => ({ hash: `held${i}` })));
   };
 
-  describe('admitUnpaid: a live announcement', () => {
-    it('takes a tagged message under both allowances, with its frame as its origin', async () => {
-      const data = message({ clientTag: TAG, clientTagHeight: TAG_HEIGHT });
-      const frame = frameOf(data);
+  describe('admittedMessage', () => {
+    it('is the fields an admitting node signs, in the order it signs them, and nothing else', () => {
+      const { clientTag, ...rest } = tagged();
 
-      const admission = await unpaidAdmission.admitUnpaid(data, { frame, daemonHeight: TIP });
+      const built = unpaidAdmission.admittedMessage({
+        origin: originBy(), padding: 'x', clientTag, ...rest,
+      });
+
+      expect(Object.keys(built)).to.deep.equal([
+        'type', 'version', 'appSpecifications', 'hash', 'timestamp', 'signature', 'arcaneSender', 'clientTag', 'clientTagHeight',
+      ]);
+      expect(JSON.stringify(built)).to.equal(JSON.stringify(tagged()));
+    });
+  });
+
+  describe('admitUnpaid: a live announcement', () => {
+    it('takes a tagged message under both allowances, keeping its admitting node\'s signature', async () => {
+      const data = tagged();
+
+      const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
 
       expect(admission).to.deep.equal({
         fields: {
-          clientTag: TAG, clientTagHeight: TAG_HEIGHT, origin: JSON.stringify(frame), originKey: ENTRY_KEY,
+          clientTag: TAG, clientTagHeight: TAG_HEIGHT, origin: originBy(), originKey: ENTRY_KEY,
         },
       });
       sinon.assert.notCalled(verifyBroadcasts);
     });
 
-    it('stores only the signed fields of the frame', async () => {
-      const data = message({ clientTag: TAG, clientTagHeight: TAG_HEIGHT });
+    it('keeps the signature and nothing else of the frame', async () => {
+      const data = tagged();
       const frame = { ...frameOf(data), messageHashPresent: 'x' };
 
       const { fields } = await unpaidAdmission.admitUnpaid(data, { frame, daemonHeight: TIP });
 
-      expect(JSON.parse(fields.origin)).to.have.all.keys('version', 'timestamp', 'pubKey', 'signature', 'data');
+      expect(fields.origin).to.have.all.keys('version', 'timestamp', 'pubKey', 'signature');
     });
 
     it('refuses a client that has used its allowance', async () => {
       holding({ clientTag: TAG }, 3);
-      const data = message({ clientTag: TAG, clientTagHeight: TAG_HEIGHT });
+      const data = tagged();
 
       const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
 
@@ -105,7 +123,7 @@ describe('unpaidAdmission tests', () => {
     it('does not count a client\'s paid messages against it', async () => {
       holding({ clientTag: TAG }, 3);
       paid = 1;
-      const data = message({ clientTag: TAG, clientTagHeight: TAG_HEIGHT });
+      const data = tagged();
 
       const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
 
@@ -115,19 +133,45 @@ describe('unpaidAdmission tests', () => {
 
     it('refuses an operator that has used its allowance, whatever tags it gives', async () => {
       holding({ originKey: ENTRY_KEY }, 5);
-      const data = message({ clientTag: OTHER_TAG, clientTagHeight: TAG_HEIGHT });
+      const data = tagged({ clientTag: OTHER_TAG });
 
       const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
 
       expect(admission).to.deep.equal({ refused: 'its admitting operator already has 5 unpaid app messages pending' });
     });
 
-    it('refuses a live frame carrying a field an app message does not have, before storing it as an origin', async () => {
-      const data = message({ clientTag: TAG, clientTagHeight: TAG_HEIGHT, padding: 'x'.repeat(64) });
+    it('refuses a tagged frame carrying a field an app message does not have', async () => {
+      const data = tagged({ padding: 'x'.repeat(64) });
 
       const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
 
-      expect(admission).to.deep.equal({ refused: 'its origin carries fields an app message does not have: padding' });
+      expect(admission).to.deep.equal({ refused: 'it is not in the form its admitting node signs' });
+    });
+
+    it('refuses a tagged frame whose fields are not in the order its admitting node signs them', async () => {
+      const { clientTag, ...rest } = tagged();
+      const data = { clientTag, ...rest };
+
+      const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
+
+      expect(admission).to.deep.equal({ refused: 'it is not in the form its admitting node signs' });
+    });
+
+    it('refuses a tagged frame whose timestamp is not a number', async () => {
+      const data = tagged();
+      const frame = { ...frameOf(data), timestamp: String(1793351627000).repeat(100) };
+
+      const admission = await unpaidAdmission.admitUnpaid(data, { frame, daemonHeight: TIP });
+
+      expect(admission).to.deep.equal({ refused: 'its admitting frame is malformed' });
+    });
+
+    it('refuses a tagged message whose arcaneSender is not a boolean', async () => {
+      const data = tagged({ arcaneSender: 'x'.repeat(64) });
+
+      const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
+
+      expect(admission).to.deep.equal({ refused: 'its arcaneSender is not a boolean' });
     });
 
     it('takes a live untagged frame whatever else it carries, storing no origin', async () => {
@@ -137,8 +181,8 @@ describe('unpaidAdmission tests', () => {
     });
 
     it('refuses a malformed tag and a tag height that is not current', async () => {
-      const malformed = message({ clientTag: 'AB', clientTagHeight: TAG_HEIGHT });
-      const stale = message({ clientTag: TAG, clientTagHeight: TAG_HEIGHT - 240 });
+      const malformed = tagged({ clientTag: 'AB' });
+      const stale = tagged({ clientTagHeight: TAG_HEIGHT - 240 });
 
       expect(await unpaidAdmission.admitUnpaid(malformed, { frame: frameOf(malformed), daemonHeight: TIP }))
         .to.deep.equal({ refused: 'its client tag is malformed' });
@@ -148,11 +192,10 @@ describe('unpaidAdmission tests', () => {
   });
 
   describe('admitUnpaid: a reply rebuilt from storage', () => {
-    it('takes the tag and operator from the origin it carries, not from the reply', async () => {
-      const original = message({ clientTag: TAG, clientTagHeight: TAG_HEIGHT });
-      const origin = JSON.stringify(frameOf(original));
-      // the answering node signs the reply, and could put any tag on it
-      const reply = message({ clientTag: OTHER_TAG, clientTagHeight: TAG_HEIGHT, origin });
+    it('checks the admitting node\'s signature over the message itself, as that node signed it', async () => {
+      const origin = originBy();
+      // the answering node signs the reply frame; the origin is the admitting node's
+      const reply = tagged({ origin });
 
       const admission = await unpaidAdmission.admitUnpaid(reply, { frame: frameOf(reply, RELAY_KEY), daemonHeight: TIP });
 
@@ -161,73 +204,62 @@ describe('unpaidAdmission tests', () => {
           clientTag: TAG, clientTagHeight: TAG_HEIGHT, origin, originKey: ENTRY_KEY,
         },
       });
-      sinon.assert.calledOnceWithExactly(verifyBroadcasts, [JSON.parse(origin)]);
+      sinon.assert.calledOnceWithExactly(verifyBroadcasts, [{ ...origin, data: tagged() }]);
     });
 
-    it('takes an origin carried in a sync batch, which has no frame of its own', async () => {
-      const original = message({ clientTag: TAG, clientTagHeight: TAG_HEIGHT });
-      const origin = JSON.stringify(frameOf(original));
+    it('checks the signature over the fields an admitting node signs, in its order, and no others', async () => {
+      const origin = originBy();
+      const { clientTag, ...rest } = tagged();
+      const reply = { origin, padding: 'x', clientTag, ...rest };
 
-      const admission = await unpaidAdmission.admitUnpaid(message({ origin }), { daemonHeight: TIP });
+      await unpaidAdmission.admitUnpaid(reply, { daemonHeight: TIP });
+
+      const [[{ data }]] = verifyBroadcasts.firstCall.args;
+      expect(JSON.stringify(data)).to.equal(JSON.stringify(tagged()));
+    });
+
+    it('takes a signature carried in a sync batch, which has no frame of its own', async () => {
+      const admission = await unpaidAdmission.admitUnpaid(tagged({ origin: originBy() }), { daemonHeight: TIP });
 
       expect(admission.fields.originKey).to.equal(ENTRY_KEY);
     });
 
-    it('refuses an origin that does not verify', async () => {
+    it('refuses a signature that does not verify over the message - another tag, another message', async () => {
       verifyBroadcasts.resolves([{ result: VerifyResult.BAD_SIGNATURE }]);
-      const origin = JSON.stringify(frameOf(message({ clientTag: TAG, clientTagHeight: TAG_HEIGHT })));
 
-      const admission = await unpaidAdmission.admitUnpaid(message({ origin }), { daemonHeight: TIP });
+      const admission = await unpaidAdmission.admitUnpaid(tagged({ clientTag: OTHER_TAG, origin: originBy() }), { daemonHeight: TIP });
 
       expect(admission).to.deep.equal({ refused: 'its origin does not verify (badSignature)' });
     });
 
-    it('refuses an origin for another message', async () => {
-      const origin = JSON.stringify(frameOf(message({ hash: 'hash2', clientTag: TAG, clientTagHeight: TAG_HEIGHT })));
+    [
+      ['a string', 'x'.repeat(64)],
+      ['a timestamp that is not a number', originBy(ENTRY_KEY, { timestamp: 'x'.repeat(64) })],
+      ['another frame version', originBy(ENTRY_KEY, { version: 2 })],
+      ['an oversized signature', originBy(ENTRY_KEY, { signature: 'x'.repeat(101) })],
+      ['an oversized key', originBy('x'.repeat(131))],
+    ].forEach(([label, origin]) => {
+      it(`refuses an origin that is ${label}, without checking a signature`, async () => {
+        const admission = await unpaidAdmission.admitUnpaid(tagged({ origin }), { daemonHeight: TIP });
 
-      const admission = await unpaidAdmission.admitUnpaid(message({ origin }), { daemonHeight: TIP });
-
-      expect(admission).to.deep.equal({ refused: 'its origin is for another message' });
-      sinon.assert.notCalled(verifyBroadcasts);
-    });
-
-    it('refuses an origin that is not a frame', async () => {
-      expect(await unpaidAdmission.admitUnpaid(message({ origin: '{not json' }), { daemonHeight: TIP }))
-        .to.deep.equal({ refused: 'its origin is not a frame' });
-      expect(await unpaidAdmission.admitUnpaid(message({ origin: { data: {} } }), { daemonHeight: TIP }))
-        .to.deep.equal({ refused: 'its origin is not a frame' });
+        expect(admission).to.deep.equal({ refused: 'its origin is malformed' });
+        sinon.assert.notCalled(verifyBroadcasts);
+      });
     });
 
     it('fails, rather than refusing, when the node list cannot be read', async () => {
       verifyBroadcasts.resolves([{ result: VerifyResult.UNREADABLE, reason: 'db down' }]);
-      const origin = JSON.stringify(frameOf(message({ clientTag: TAG, clientTagHeight: TAG_HEIGHT })));
 
-      await unpaidAdmission.admitUnpaid(message({ origin }), { daemonHeight: TIP }).then(
+      await unpaidAdmission.admitUnpaid(tagged({ origin: originBy() }), { daemonHeight: TIP }).then(
         () => expect.fail('should have failed'),
         (error) => expect(error.message).to.equal('The origin of hash1 could not be verified: db down'),
       );
     });
 
-    it('refuses an origin whose message carries a field an app message does not have', async () => {
-      const origin = JSON.stringify(frameOf(message({ clientTag: TAG, clientTagHeight: TAG_HEIGHT, padding: 'x'.repeat(64) })));
+    it('refuses a tagged message that arrives with neither its admitting frame nor its signature', async () => {
+      const admission = await unpaidAdmission.admitUnpaid(tagged(), { daemonHeight: TIP });
 
-      const admission = await unpaidAdmission.admitUnpaid(message({ origin }), { daemonHeight: TIP });
-
-      expect(admission).to.deep.equal({ refused: 'its origin carries fields an app message does not have: padding' });
-    });
-
-    it('takes an origin carrying every field an admitting node sets', async () => {
-      const origin = JSON.stringify(frameOf(message({ arcaneSender: true, clientTag: TAG, clientTagHeight: TAG_HEIGHT })));
-
-      const admission = await unpaidAdmission.admitUnpaid(message({ origin }), { daemonHeight: TIP });
-
-      expect(admission.refused).to.equal(undefined);
-    });
-
-    it('refuses a tagged message that arrives without the frame that admitted it', async () => {
-      const admission = await unpaidAdmission.admitUnpaid(message({ clientTag: TAG, clientTagHeight: TAG_HEIGHT }), { daemonHeight: TIP });
-
-      expect(admission).to.deep.equal({ refused: 'it carries a client tag without the frame that admitted it' });
+      expect(admission).to.deep.equal({ refused: 'it carries a client tag without the signature of the node that admitted it' });
     });
   });
 
