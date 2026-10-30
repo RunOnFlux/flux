@@ -278,6 +278,11 @@ function blockedReasonFor(entries, subject) {
         return matchedImage(value) ? `Image ${value} is blocked. Application ${subject.name} cannot be spawned.` : null;
       case 'org':
         return matchedNamespace(value) ? `Organisation ${value} is blocked. Application ${subject.name} cannot be spawned.` : null;
+      case 'client':
+        // Who submitted an application is never a reason to refuse it: no stored
+        // record says where it came from. These entries are enforced at the routes
+        // that take app messages (appSecurity/clientBans).
+        return null;
       case 'legacy': {
         // One string against four fields, which is what the flat document means
         // and the reason the typed one exists. Order follows the reader it

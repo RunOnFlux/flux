@@ -931,6 +931,12 @@ describe('imageManager tests', () => {
       name: 'dashboards', owner: '1SomeOwner', hash: 'b'.repeat(64), images: ['grafana/dashboards:latest'],
     };
 
+    it('a client entry refuses no application, whatever it names', () => {
+      const entries = [{ kind: 'client', value: '0.0.0.0/0', expires: '2999-01-01' }];
+      expect(imageManager.blockedReasonFor(entries, namedGrafana)).to.equal(null);
+      expect(imageManager.blockedReasonFor(entries, publishedByGrafana)).to.equal(null);
+    });
+
     it('a name entry blocks the application of that name', () => {
       const reason = imageManager.blockedReasonFor([{ kind: 'name', value: 'grafana' }], namedGrafana);
       expect(reason).to.equal('Application grafana is not allowed to run');
