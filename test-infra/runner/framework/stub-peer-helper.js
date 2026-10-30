@@ -125,6 +125,17 @@ export function stubPeerClient(ip) {
       return res.json();
     },
 
+    // Send text frames exactly as given to every node connected to this peer:
+    // nothing signed, framed or checked, as a peer that gets the protocol wrong.
+    async sendRaw(frames) {
+      const res = await controlFetch(`${controlUrl}/send-raw`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frames }),
+      });
+      return res.json();
+    },
+
     // Answer this node's policy asks with a sequence, the way a real peer does -
     // echoing the id of the ask it settles and marking itself an answer. `null`
     // is a peer that holds no policy, which is an answer rather than silence.

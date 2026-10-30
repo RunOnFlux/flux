@@ -22,9 +22,8 @@ import { bootAndPeer } from '../framework/reconciler-suite.js';
 import {
   waitFor, waitForDaemonReady, waitForBlockProcessed, waitForAppRemoved, waitForAppInstalled, waitForInstallSettled,
 } from '../framework/wait.js';
-import {
-  advanceBlock, getState, queueAppTx, stopTicker,
-} from '../framework/daemon-control.js';
+import { queueAppTx, stopTicker } from '../framework/daemon-control.js';
+import { driveFleetUntil as driveFleet, relayedToFleet } from '../framework/fleet-chain.js';
 import { dbClient } from '../framework/db-client.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -69,29 +68,9 @@ describe('an expired app is renewed by an update, on every node alike', function
   const hashes = async (name) => Promise.all(liveIndices.map((i) => specHash(i, name)));
   const holderIp = (index) => subnet.nodeIp(index + 1);
   const ipOf = (address) => String(address).split(':')[0];
-  const allAtTip = async () => {
-    const { currentHeight } = await getState();
-    const heights = await Promise.all(liveIndices.map((i) => dbClient(i + 1).explorerHeight()));
-    return heights.every((h) => h >= currentHeight);
-  };
-  // Mines one block at a time until the condition holds, each once every node has processed the
-  // one before. Budgeted in blocks, or in time for a wait on a timer.
-  const driveFleetUntil = async (condition, { blocks = Infinity, timeoutMs = Infinity, label }) => {
-    const deadline = Date.now() + timeoutMs;
-    for (let mined = 0; mined < blocks && Date.now() < deadline; mined += 1) {
-      // eslint-disable-next-line no-await-in-loop
-      if (await condition()) return;
-      // eslint-disable-next-line no-await-in-loop
-      await advanceBlock();
-      // eslint-disable-next-line no-await-in-loop
-      await waitFor(allAtTip, { timeout: 150000, interval: 1000, label: `every node processes the block (${label})` });
-    }
-    if (!await condition()) throw new Error(`${label}: not reached within ${blocks} blocks / ${timeoutMs} ms`);
-  };
-  const relayedEverywhere = async (hash) => {
-    const held = await Promise.all(live.map(async (node) => (await node.getTempMessages(hash)).data?.length > 0));
-    return held.every(Boolean);
-  };
+  // Driven and relayed over the nodes running at boot; the joiner learns by hash sync.
+  const driveFleetUntil = (condition, options) => driveFleet(env, condition, { indices: liveIndices, ...options });
+  const relayedEverywhere = (hash) => relayedToFleet(env, hash, { indices: liveIndices });
   // Signed and relayed, then paid in the next block this suite mines.
   const submit = async (spec, type) => {
     const result = await registerApp(submitter.url, nodeKey(1), spec, type);

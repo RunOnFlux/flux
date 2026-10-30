@@ -289,4 +289,48 @@ describe('backupRestoreService tests', () => {
       sinon.assert.calledOnceWithExactly(verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
     });
   });
+
+  describe('cleanLocalBackup', () => {
+    const os = require('os');
+    const path = require('path');
+
+    // The volume is the app owner's to fill: a link left at backup/local would have
+    // the reaper unlink old files wherever it points.
+    it('leaves alone what a link at backup/local points to', async () => {
+      fs.mkdirSync(appsFolder, { recursive: true });
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'reap-outside-'));
+      const volume = fs.mkdtempSync(path.join(appsFolder, 'fluxreaptest-'));
+      try {
+        fs.writeFileSync(path.join(outside, 'node-file.tar.gz'), 'x');
+        fs.mkdirSync(path.join(volume, 'backup'));
+        fs.symlinkSync(outside, path.join(volume, 'backup', 'local'));
+        const later = Date.now() + 3 * 24 * 60 * 60 * 1000;
+        sinon.stub(Date, 'now').returns(later);
+
+        await backupRestoreService.cleanLocalBackup();
+
+        expect(fs.existsSync(path.join(outside, 'node-file.tar.gz'))).to.equal(true);
+      } finally {
+        fs.rmSync(volume, { recursive: true, force: true });
+        fs.rmSync(outside, { recursive: true, force: true });
+      }
+    });
+
+    it('still removes an old archive from a plain backup/local', async () => {
+      fs.mkdirSync(appsFolder, { recursive: true });
+      const volume = fs.mkdtempSync(path.join(appsFolder, 'fluxreaptest-'));
+      try {
+        fs.mkdirSync(path.join(volume, 'backup', 'local'), { recursive: true });
+        fs.writeFileSync(path.join(volume, 'backup', 'local', 'old.tar.gz'), 'x');
+        const later = Date.now() + 3 * 24 * 60 * 60 * 1000;
+        sinon.stub(Date, 'now').returns(later);
+
+        await backupRestoreService.cleanLocalBackup();
+
+        expect(fs.existsSync(path.join(volume, 'backup', 'local', 'old.tar.gz'))).to.equal(false);
+      } finally {
+        fs.rmSync(volume, { recursive: true, force: true });
+      }
+    });
+  });
 });

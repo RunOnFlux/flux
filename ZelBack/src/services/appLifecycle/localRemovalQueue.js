@@ -7,6 +7,7 @@
 
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
+const fluxEventBus = require('../utils/fluxEventBus');
 
 const REMOVAL_SPACING_MS = 5_000;
 
@@ -22,6 +23,10 @@ async function drain() {
       queued.delete(name);
       removing = name;
       try {
+        if (fluxEventBus.isCheckpointHeld(fluxEventBus.Checkpoint.REMOVAL_QUEUE_BEFORE_REMOVAL, name)) {
+          // eslint-disable-next-line no-await-in-loop
+          await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.REMOVAL_QUEUE_BEFORE_REMOVAL, name);
+        }
         // eslint-disable-next-line no-await-in-loop
         await remover(name);
       } catch (error) {

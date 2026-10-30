@@ -157,10 +157,14 @@ describe('serviceHelper tests', () => {
       expect(ensureObjectOutput).to.eql(testArr);
     });
 
-    it('parameter of type null should return null', () => {
+    it('parameter of type null should return empty object', () => {
       const ensureObjectOutput = serviceHelper.ensureObject(null);
 
-      expect(ensureObjectOutput).to.be.null;
+      expect(ensureObjectOutput).to.eql({});
+    });
+
+    it('a string that parses to null should return empty object', () => {
+      expect(serviceHelper.ensureObject('null')).to.eql({});
     });
 
     const otherTypes = [1, true, undefined];

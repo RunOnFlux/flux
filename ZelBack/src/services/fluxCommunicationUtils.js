@@ -167,7 +167,8 @@ async function lastSignerAt(address) {
  * For a move, `addresses` is [the address it left, the address it holds]:
  *
  *   address left     signer at the new address   verdict
- *   listed, signer   -                           OK
+ *   listed, signer   not listed, or signer       OK
+ *   listed, signer   listed, other               NODE_NOT_FOUND
  *   listed, other    -                           PUBKEY_MISMATCH
  *   not listed       listed, signer              SIGNER_AT_NEW_ADDRESS_ONLY
  *   not listed       listed, other               PUBKEY_MISMATCH
@@ -180,7 +181,20 @@ async function lastSignerAt(address) {
 async function listedSignerVerdict(addresses, pubKey) {
   const [first, ...others] = addresses;
   const node = await networkStateService.getFluxnodeBySocketAddress(first);
-  if (node) return node.pubkey === pubKey ? VerifyResult.OK : VerifyResult.PUBKEY_MISMATCH;
+  if (node) {
+    if (node.pubkey !== pubKey) return VerifyResult.PUBKEY_MISMATCH;
+    // A move carries its signer's rows to the address it names, so that address
+    // may not be one the list shows another node holding.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const address of others) {
+      // eslint-disable-next-line no-await-in-loop
+      const listed = await networkStateService.getFluxnodeBySocketAddress(address);
+      // dropped rather than refused: a list that lags can show the address's
+      // previous holder, and the peer that relayed the move is no worse for it
+      if (listed && listed.pubkey !== pubKey) return VerifyResult.NODE_NOT_FOUND;
+    }
+    return VerifyResult.OK;
+  }
   let signerListed = false;
   let otherListed = false;
   // eslint-disable-next-line no-restricted-syntax

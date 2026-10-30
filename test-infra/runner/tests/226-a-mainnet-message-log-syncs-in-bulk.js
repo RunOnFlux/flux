@@ -21,11 +21,8 @@
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { gunzipSync } from 'node:zlib';
 import { createTestEnv } from '../framework/test-env.js';
+import { loadMessageSlice } from '../framework/message-slice.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { waitForDaemonReady, waitForOrchestratorState, waitFor } from '../framework/wait.js';
 import { setSystemSecure, stopTicker } from '../framework/daemon-control.js';
@@ -33,13 +30,10 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
-const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures', 'mainnet-message-slice');
 const JOINER = 3;
 // The chain's speed-up at the PON fork, as appMessageChain.appExpirationHeight counts it.
 const PON_FORK = 2020000;
 const BLOCKS_LASTING = 22000;
-
-const readLines = (file) => gunzipSync(readFileSync(join(FIXTURE, file))).toString().trim().split('\n').map((line) => JSON.parse(line));
 
 function expirationHeight(height, expire) {
   const end = height + (expire || (height >= PON_FORK ? BLOCKS_LASTING * 4 : BLOCKS_LASTING));
@@ -51,9 +45,7 @@ describe('a node that joins takes a slice of the mainnet message log in bulk', f
   let env;
   dumpLogsOnFailure(() => env);
 
-  const manifest = JSON.parse(readFileSync(join(FIXTURE, 'manifest.json'), 'utf-8'));
-  const messages = readLines('messages.json.gz');
-  const records = readLines('hashes.json.gz');
+  const { manifest, messages, records } = loadMessageSlice();
   const recordOf = new Map(records.map((record) => [record.hash, record]));
   // The newest message of each app, at its record's height.
   const newest = new Map();

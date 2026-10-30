@@ -15,12 +15,17 @@ const log = require('../lib/log');
 const cpuBurstHelper = require('./utils/cpuBurstHelper');
 const LogFrameDecoder = require('./utils/logFrameDecoder');
 const appSlice = require('./appLifecycle/appSlice');
+const { requirePlainMountSources } = require('./utils/plainPaths');
+const { appsFolder } = require('./utils/appConstants');
 
 const globalState = require('./utils/globalState');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
 const docker = new Docker();
+
+// The code of the error getDockerContainerByIdOrName throws for a container that is not there.
+const CONTAINER_NOT_FOUND = 'CONTAINER_NOT_FOUND';
 
 /**
  * Creates a docker container object with a given ID.
@@ -230,10 +235,23 @@ async function getDockerContainerByIdOrName(idOrName) {
   // (reading 'Id')` - a message that describes the mistake rather than the
   // condition, and that callers had to pattern-match on to recognise it.
   if (!myContainer) {
-    throw new Error(`Container ${idOrName} not found`);
+    const error = new Error(`Container ${idOrName} not found`);
+    error.code = CONTAINER_NOT_FOUND;
+    throw error;
   }
   return docker.getContainer(myContainer.Id);
 }
+
+/**
+ * Whether an error says the container is not there: this module's lookup found
+ * none, or docker answered 404 for one that went between the lookup and the call.
+ * @param {Error} error
+ * @returns {boolean}
+ */
+function isContainerNotFound(error) {
+  return error?.code === CONTAINER_NOT_FOUND || error?.statusCode === 404;
+}
+
 /**
  * Returns low-level information about a container.
  *
@@ -1047,6 +1065,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       appSpecifications,
     );
     log.info(`Constructed ${constructedVolumes.length} volume bind(s) for ${identifier}`);
+    await requirePlainMountSources(constructedVolumes.map((volume) => volume.Source));
   } catch (error) {
     log.error(`Failed to construct volumes for ${identifier}: ${error.message}`);
     throw error;
@@ -1347,6 +1366,22 @@ async function appDockerUpdateCpu(idOrName, nanoCpus) {
 }
 
 /**
+ * Refuses to start a container whose bind mounts under the apps folder have
+ * become links since it was created. Docker resolves a bind source when the
+ * container starts, and the entries at the root of an app's volume are the
+ * owner's to replace, so the check made at creation does not hold at start.
+ * @param {object} containerInfo What the container's inspect returned.
+ * @returns {Promise<void>}
+ * @throws {Error} When a mount source under the apps folder is not a plain directory or file.
+ */
+async function requirePlainBindSources(containerInfo) {
+  const sources = (containerInfo.Mounts || [])
+    .filter((mount) => mount.Type === 'bind' && typeof mount.Source === 'string' && mount.Source.startsWith(appsFolder))
+    .map((mount) => mount.Source);
+  await requirePlainMountSources(sources);
+}
+
+/**
  * Starts app's docker.
  *
  * @param {string} idOrName
@@ -1357,6 +1392,8 @@ async function appDockerStart(idOrName) {
   try {
     // container ID or name
     const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+
+    await requirePlainBindSources(await dockerContainer.inspect());
 
     globalState.stoppingContainers.delete(getDockerName(idOrName));
     await dockerContainer.start(); // may throw
@@ -1438,6 +1475,7 @@ async function appDockerRestart(idOrName) {
 
   // Check if container is running
   const containerInfo = await dockerContainer.inspect();
+  await requirePlainBindSources(containerInfo);
   if (!containerInfo.State.Running) {
     // If stopped, start it instead of restarting
     globalState.stoppingContainers.delete(getDockerName(idOrName));
@@ -2047,7 +2085,11 @@ async function getFluxDockerNetworks() {
  */
 async function getFluxDockerNetworkSubnets() {
   const fluxNetworks = await getFluxDockerNetworks();
-  const subnets = fluxNetworks.map((network) => network.IPAM.Config[0].Subnet);
+  // a network without an address range (empty IPAM config) has nothing to report; it must not
+  // make the whole answer throw, which callers read as "docker did not say"
+  const subnets = fluxNetworks
+    .map((network) => network.IPAM && network.IPAM.Config && network.IPAM.Config[0] && network.IPAM.Config[0].Subnet)
+    .filter(Boolean);
   return subnets;
 }
 
@@ -2539,6 +2581,7 @@ module.exports = {
   getBaseAppName,
   getDockerContainer,
   getDockerContainerByIdOrName,
+  isContainerNotFound,
   getDockerContainerOnly,
   getFluxDockerNetworkSubnets,
   getFreeFluxAppNetworkOctet,

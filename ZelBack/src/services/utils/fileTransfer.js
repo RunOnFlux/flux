@@ -33,13 +33,14 @@ const { openNoFollow } = require('./pathSecurity');
  * @param {object} res - express response
  * @param {string} filepath - already checked for containment
  * @param {string} filename - what the client is told to call it
+ * @param {string} [containedIn] - directory the opened file must really be inside
  * @returns {Promise<void>}
  */
-async function sendFile(res, filepath, filename) {
+async function sendFile(res, filepath, filename, containedIn = null) {
   // Both from the one open: the handle to send from, and the length as it was
   // at the moment that handle was made. Measuring it again here would be a
   // later answer, and the app is writing to the file the whole time.
-  const { handle, stats } = await openNoFollow(filepath);
+  const { handle, stats } = await openNoFollow(filepath, containedIn);
 
   res.attachment(filename);
   res.setHeader('Content-Length', String(stats.size));

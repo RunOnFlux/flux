@@ -468,6 +468,7 @@ async function recreateMissing(identifier) {
   } else {
     await appTamperingDetectionService.recordEvent(mainAppName, 'container_vanished', `Container ${identifier} missing, not found in Docker`);
   }
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.RECONCILER_BEFORE_RECREATE, identifier);
   try {
     // Created, not started: the pass this enqueues starts it against the desired
     // state as it is then, which a recreate of minutes may have changed.

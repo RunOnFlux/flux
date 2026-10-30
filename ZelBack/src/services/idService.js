@@ -10,6 +10,7 @@ const verificationHelperUtils = require('./verificationHelperUtils');
 const nodeHealthService = require('./nodeHealthService');
 const signatureVerifier = require('./signatureVerifier');
 const { Privilege, authOf } = require('./utils/privileges');
+const bodyLimit = require('./utils/bodyLimit');
 
 /**
  * What /id/checkprivilege answers.
@@ -168,6 +169,7 @@ async function verifyLogin(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     // set once this request has used the phrase, which no other can then use
@@ -197,7 +199,7 @@ async function verifyLogin(req, res) {
         throw new Error('Signed message is not valid');
       }
 
-      if (+message.substring(0, 13) < (timestamp - 900000) || +message.substring(0, 13) > timestamp) {
+      if (!/^\d{13}$/.test(message.substring(0, 13)) || +message.substring(0, 13) < (timestamp - 900000) || +message.substring(0, 13) > timestamp) {
         throw new Error('Signed message is not valid');
       }
 
@@ -309,6 +311,7 @@ async function provideSign(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     try {
@@ -501,6 +504,7 @@ async function logoutSpecificSession(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     try {
@@ -773,6 +777,7 @@ async function checkLoggedUser(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     try {

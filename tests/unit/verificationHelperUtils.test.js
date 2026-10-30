@@ -310,6 +310,21 @@ describe('verificationHelperUtils tests', () => {
       expect(isLoggedUser).to.be.true;
     });
 
+    it('should return false if the message does not start with a 13 digit timestamp, however validly it is signed', async () => {
+      const headers = {
+        zelidauth: {
+          zelid: rndZelid,
+          loginPhrase: 'abcdefghijklmcl4joxxaevbx93gwhegqj1fqsubhb9tsg9s3hjkbuk8',
+          signature: '',
+        },
+      };
+      headers.zelidauth.signature = signMessage(headers.zelidauth.loginPhrase, rndPrivKey);
+
+      const isLoggedUser = await verificationHelperUtils.verifyUserSession(headers.zelidauth);
+
+      expect(isLoggedUser).to.be.false;
+    });
+
     it('should return false if signature is older than 16 hours', async () => {
       const headers = {
         zelidauth: {
@@ -742,6 +757,39 @@ describe('verificationHelperUtils tests', () => {
         'this identity must really be the node operator, or the refusal below proves nothing',
       ).to.be.true;
       expect(await verificationHelperUtils.verifyAppOwnerOrFluxTeamSession(headers.zelidauth, 'PolkadotNode')).to.be.false;
+    });
+
+    describe('an app installed on this node for another owner', () => {
+      const ownerAuth = {
+        zelid: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
+        loginPhrase: '1644935889016mtmbo4uah32tvvwrmzg4j8qzv04ba8g8n56cevn6b',
+        signature: 'H7xcWjpSt8jiAaPbkUsfY3ZutJJmI35MWkGsgWBj/fJHfk7ZKRoggzigdaESLGMDMb2MHlxAapr1sMYDbJkL/H4=',
+      };
+      const teamAuth = {
+        zelid: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
+        loginPhrase: '1623904359736pja76q7y68deb4264olbml6o8gyhot2yvj5oevgv9k2',
+        signature: 'H4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II=',
+      };
+      const installLocally = async (owner) => {
+        const database = dbHelper.databaseConnection().db(config.database.appslocal.database);
+        const collection = config.database.appslocal.collections.appsInformation;
+        await database.collection(collection).deleteMany({});
+        await dbHelper.insertOneToDatabase(database, collection, { name: 'PolkadotNode', owner });
+      };
+
+      // The registry names this identity the owner; the install on this node was
+      // made for someone else, because the name was released and registered again.
+      it('refuses the registry owner, whose files these are not', async () => {
+        await installLocally('1previousOwnerOfThisNameXXXXXXXXXXXX');
+        expect(await verificationHelperUtils.verifyAppOwnerOrFluxTeamSession(ownerAuth, 'PolkadotNode')).to.be.false;
+      });
+
+      it('still admits the owner it was installed for, and the flux team', async () => {
+        await installLocally('1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W');
+        expect(await verificationHelperUtils.verifyAppOwnerOrFluxTeamSession(ownerAuth, 'PolkadotNode')).to.be.true;
+        await installLocally('1previousOwnerOfThisNameXXXXXXXXXXXX');
+        expect(await verificationHelperUtils.verifyAppOwnerOrFluxTeamSession(teamAuth, 'PolkadotNode')).to.be.true;
+      });
     });
 
     it('verifyAppOwnerOrFluxTeamSession: false for a regular user', async () => {

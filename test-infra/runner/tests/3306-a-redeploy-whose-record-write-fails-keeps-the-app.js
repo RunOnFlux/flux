@@ -2,13 +2,17 @@
 /*
  * The periodic reinstall pass redeploys an app whose specification changed, and the
  * database refuses the write of the app's new record. The app keeps its record, at the
- * old specification, so the node still knows it holds the app: the reconciler restores
- * what the pass took down, and a later pass redeploys it at the new specification.
+ * old specification, so the node still knows it holds the app, and is left with no
+ * container. A later pass redeploys it at the new specification from there.
+ *
+ * The reconciler would recreate the container, and a pass can come before it does: the
+ * pass period is drawn again after every pass. The reconciler's recreate is held, so the
+ * pass that redeploys the app always finds no container. It is released once that pass
+ * has created the new one, before the pass restarts the app through the reconciler.
  *
  * The change arrives as in suite 85: the app's global row is replaced and a new
- * permanent message and hash seeded beside it. The pass fires on
- * `blockHeight % (updateFluxAppsPeriod * speedMultiplier) === 0`, every 16 to 36
- * blocks here, so the drive is budgeted in blocks.
+ * permanent message and hash seeded beside it. The pass runs every 16 to 36 blocks
+ * here, so the drive is budgeted in blocks.
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
@@ -26,13 +30,16 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // four passes at the longest period: the one whose write is refused, and others after it
 const PASS_BLOCKS = 144;
 const HOLDER = 0;
+const BEFORE_RECREATE = 'reconciler:beforeRecreate';
 
 describe('a redeploy whose record write fails keeps the app', function () {
   let env;
   dumpLogsOnFailure(() => env);
 
   const appName = `e2eredeployrow${Date.now()}`;
+  const identifier = `${appName}_${appName}`;
   let holder;
+  let recreateHeld = false;
   let app;
   let updated;
   let containerBefore;
@@ -86,23 +93,41 @@ describe('a redeploy whose record write fails keeps the app', function () {
     await seedSpecUpdate(env, updated, [HOLDER]);
     // the only thing advancing the chain from here is the drive below
     await stopTicker();
+    await holder.holdCheckpoint(BEFORE_RECREATE, identifier);
+    recreateHeld = true;
     release = await failWrites(HOLDER + 1, 'localzelapps', 'zelappsinformation', { times: 1 });
   });
 
   after(async function () {
     this.timeout(60000);
     await release?.().catch(() => {});
+    if (recreateHeld) await holder.releaseCheckpoint(BEFORE_RECREATE, identifier).catch(() => {});
     await env?.teardown();
   });
 
   it('comes back at the new specification', async function () {
     // a backstop: the drive is bounded in blocks, and blocks cost what the node takes
     this.timeout(2400000);
-    const replaced = () => waitForComponentRedeployed(holder, appName, appName, false, 0, { afterId: beforeUpdate })
-      .then(() => true, () => false);
+    // The pass whose write is refused takes the container away. With the recreate held,
+    // only a later pass can bring one back, and its restart waits on the component the
+    // held recreate is working on: the hold ends once the container is back.
+    let sawGone = false;
+    const replaced = async () => {
+      if (recreateHeld) {
+        const container = await getAppContainerId(holder.container, appName, appName);
+        if (!container) sawGone = true;
+        if (container && sawGone) {
+          await holder.releaseCheckpoint(BEFORE_RECREATE, identifier);
+          recreateHeld = false;
+        }
+      }
+      return waitForComponentRedeployed(holder, appName, appName, false, 0, { afterId: beforeUpdate })
+        .then(() => true, () => false);
+    };
     await driveUntil(holder, replaced, {
       blocks: PASS_BLOCKS, label: 'the node redeploys the app at the new specification',
     });
+    expect(sawGone, 'fixture: the app\'s container was never seen gone while its recreate was held').to.equal(true);
 
     const installed = await localSpec(holder);
     expect(installed, 'the node no longer holds the app').to.not.equal(null);

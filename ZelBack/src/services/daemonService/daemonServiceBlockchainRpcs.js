@@ -3,6 +3,7 @@ const messageHelper = require('../messageHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
 const verificationHelper = require('../verificationHelper');
 const { Privilege, authOf } = require('../utils/privileges');
+const bodyLimit = require('../utils/bodyLimit');
 
 let response = messageHelper.createErrorMessage();
 
@@ -162,6 +163,7 @@ async function getBlockHashesPost(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);
@@ -420,6 +422,7 @@ async function getSpentInfoPost(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);

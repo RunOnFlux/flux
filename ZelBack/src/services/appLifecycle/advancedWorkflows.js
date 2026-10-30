@@ -37,9 +37,12 @@ const {
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { compareInstanceSeniority } = require('../utils/instanceOrdering');
-const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+const { checkAndDecryptAppSpecs, withoutEnterpriseSecrets } = require('../utils/enterpriseHelper');
 const { verifyAppNameAndOwner } = require('../utils/appIdentity');
 const volumeService = require('../utils/volumeService');
+const { requirePlainDirectories, requireRegularFile } = require('../utils/plainPaths');
+const { isInForce, registeredByAnotherAfterTerm } = require('../utils/appMessageChain');
+const { sameSigningIdentity } = require('../signatureVerifier');
 const mountParser = require('../utils/mountParser');
 const appReconciler = require('../appMonitoring/appReconciler');
 const syncthingFolderWrites = require('../appMonitoring/syncthingFolderWrites');
@@ -62,6 +65,7 @@ const appNetworkLinker = require('./appNetworkLinker');
 const { Privilege, authOf } = require('../utils/privileges');
 const { AsyncLock } = require('../utils/asyncLock');
 const { RemovalOutcome } = require('../utils/removalOutcome');
+const bodyLimit = require('../utils/bodyLimit');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -2927,6 +2931,10 @@ async function appendBackupTask(req, res) {
           const targetPath = `${mounts[0].mount}/appdata`;
           const tarGzPath = `${mounts[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`;
           // eslint-disable-next-line no-await-in-loop
+          await requirePlainDirectories(mounts[0].mount, ['appdata', 'backup', 'backup/local']);
+          // eslint-disable-next-line no-await-in-loop
+          await requireRegularFile(tarGzPath);
+          // eslint-disable-next-line no-await-in-loop
           const existStatus = await IOUtils.checkFileExists(`${mounts[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
           if (existStatus === true) {
             // eslint-disable-next-line no-await-in-loop
@@ -2936,6 +2944,10 @@ async function appendBackupTask(req, res) {
           }
           // eslint-disable-next-line no-await-in-loop
           await sendChunk(res, `Creating backup archive for ${component.component.toLowerCase()}...\n`);
+          // eslint-disable-next-line no-await-in-loop
+          await requirePlainDirectories(mounts[0].mount, ['appdata', 'backup', 'backup/local']);
+          // eslint-disable-next-line no-await-in-loop
+          await requireRegularFile(tarGzPath);
           // eslint-disable-next-line no-await-in-loop
           const tarStatus = await IOUtils.createTarGz(targetPath, tarGzPath);
           if (tarStatus.status === false) {
@@ -3173,6 +3185,8 @@ async function appendRestoreTask(req, res) {
       target.mount = mounts[0].mount;
       target.appDataPath = `${mounts[0].mount}/appdata`;
       target.archivePath = `${mounts[0].mount}/backup/${type}/backup_${target.name.toLowerCase()}.tar.gz`;
+      // eslint-disable-next-line no-await-in-loop
+      await requirePlainDirectories(target.mount, ['appdata', 'backup', `backup/${type}`]);
     }
 
     if (type === 'remote') {
@@ -3182,13 +3196,30 @@ async function appendRestoreTask(req, res) {
           throw new Error(`Refused: no url given for ${target.name}`);
         }
         // eslint-disable-next-line no-await-in-loop
+        await requirePlainDirectories(target.mount, ['appdata', 'backup', 'backup/remote']);
+        // eslint-disable-next-line no-await-in-loop
         await IOUtils.removeDirectory(`${target.mount}/backup/remote`, true);
         // eslint-disable-next-line no-await-in-loop
         await sendChunk(res, `Downloading ${target.url}...\n`);
         // eslint-disable-next-line no-await-in-loop
-        const downloadStatus = await IOUtils.downloadFileFromUrl(target.url, `${target.mount}/backup/remote`, target.name, true);
+        let refusal = null;
+        const downloadStatus = await IOUtils.downloadFileFromUrl(
+          target.url,
+          `${target.mount}/backup/remote`,
+          target.name,
+          true,
+          {
+            // the destination is judged again from the open descriptor, which a swapped parent cannot fool
+            containedIn: target.mount,
+            // the owner's server answers when it likes, and the volume is theirs to change until it does
+            beforeOpen: () => requirePlainDirectories(target.mount, ['appdata', 'backup', 'backup/remote']).catch((error) => {
+              refusal = error;
+              throw error;
+            }),
+          },
+        );
         if (downloadStatus !== true) {
-          throw new Error(`Error: Failed to download ${target.url}...`);
+          throw refusal || new Error(`Error: Failed to download ${target.url}...`);
         }
         // This copy is ours, so this task is the one that removes it
         target.downloaded = true;
@@ -3211,6 +3242,8 @@ async function appendRestoreTask(req, res) {
     // check below needs, and the compressed size cannot supply it.
     // eslint-disable-next-line no-restricted-syntax
     for (const target of targets) {
+      // eslint-disable-next-line no-await-in-loop
+      await requireRegularFile(target.archivePath);
       // eslint-disable-next-line no-await-in-loop
       await sendChunk(res, `Checking archive for ${target.name.toLowerCase()}...\n`);
       // eslint-disable-next-line no-await-in-loop
@@ -3254,6 +3287,12 @@ async function appendRestoreTask(req, res) {
     for (const target of targets) {
       // eslint-disable-next-line no-await-in-loop
       await sendChunk(res, `Restoring ${target.name.toLowerCase()}...\n`);
+      // Nothing is destroyed yet: what the clear and the unpack work on is checked first,
+      // and again once the clear is done
+      // eslint-disable-next-line no-await-in-loop
+      await requirePlainDirectories(target.mount, ['appdata', 'backup', `backup/${type}`]);
+      // eslint-disable-next-line no-await-in-loop
+      await requireRegularFile(target.archivePath);
       // from here the directory is neither copy. A clearing that reports
       // failure may still have removed most of it, so the mark goes on first.
       swapInFlight = target;
@@ -3262,6 +3301,12 @@ async function appendRestoreTask(req, res) {
       if (cleared !== true) {
         throw new Error(`Error: could not clear ${target.name.toLowerCase()} appdata before unpacking`);
       }
+      // Clearing takes as long as the data is large, and the volume is the owner's to
+      // change meanwhile: what the unpack reads and writes is checked once the clear is done
+      // eslint-disable-next-line no-await-in-loop
+      await requirePlainDirectories(target.mount, ['appdata', 'backup', `backup/${type}`]);
+      // eslint-disable-next-line no-await-in-loop
+      await requireRegularFile(target.archivePath);
       // eslint-disable-next-line no-await-in-loop
       const tarStatus = await IOUtils.untarFile(target.appDataPath, target.archivePath);
       if (tarStatus.status === false) {
@@ -3597,11 +3642,15 @@ async function updateAppGlobaly(params) {
   if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
     // eslint-disable-next-line no-restricted-syntax
     for (const appComponent of appSpecFormatted.compose) {
+      // eslint-disable-next-line global-require
+      const appSecurity = require('../appSecurity/imageManager');
       if (appComponent.secrets) {
-        // eslint-disable-next-line global-require
-        const appSecurity = require('../appSecurity/imageManager');
         // eslint-disable-next-line no-await-in-loop
         await appSecurity.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
+      }
+      if (appComponent.repoauth) {
+        // eslint-disable-next-line no-await-in-loop
+        await appSecurity.checkAppRepoauth(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
       }
     }
   }
@@ -3718,6 +3767,7 @@ async function updateAppGlobalyApi(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     try {
@@ -4382,6 +4432,41 @@ async function reinstallOldApplications() {
           }
           globalState.reinstallationOfOldAppsInProgress = true;
 
+          // A DIFFERENT OWNER ON A NAME WHOSE INSTALLED TERM HAD ENDED is a new
+          // registration of a released name, not the old app updated. The expiry
+          // sweep removes the install when it runs; a node that was catching up
+          // skipped it, and the comparison below leaves owner out, so this would
+          // rewrite the record in place and hand the old owner's files and data
+          // to the new registrant. An update that transfers an app lands inside
+          // the term it renews, and keeps the data as it always has.
+          //
+          // Heights cannot tell the two apart: a transfer this node missed, followed by
+          // an update after the installed term ended, looks the same. The message log
+          // does: another owner's registration after the installed term is a new tenure, a transfer is
+          // only ever an update.
+          if (!sameSigningIdentity(installedApp.owner, appSpecifications.owner)
+              && Number.isFinite(installedApp.height) && Number.isFinite(appSpecifications.height)
+              && !isInForce(installedApp.height, installedApp.expire, appSpecifications.height)
+              // eslint-disable-next-line no-await-in-loop
+              && registeredByAnotherAfterTerm(
+                // eslint-disable-next-line no-await-in-loop
+                await registryManagerModule.appMessagesThatCount(installedApp.name),
+                installedApp.height,
+                installedApp.expire,
+                installedApp.owner,
+                sameSigningIdentity,
+              )) {
+            log.warn(`REMOVAL REASON: ${installedApp.name} was registered again by another owner after its term ended - removing the previous owner's install and data`);
+            // eslint-disable-next-line global-require
+            const appUninstallerForOwner = require('./appUninstaller');
+            // Announced: peers still list this node as a location for the name, and would
+            // route the new registrant's domain here and count this node as an instance.
+            // eslint-disable-next-line no-await-in-loop
+            await appUninstallerForOwner.removeAppLocally(installedApp.name, null, true, false, true);
+            // eslint-disable-next-line no-continue
+            continue;
+          }
+
           // Check if this is an enterprise app on non-arcane node FIRST
           // CRITICAL: Must check BEFORE updating local database or attempting redeployment
           // If we update the local DB with enterprise specs, we lose the container/port info needed for cleanup
@@ -4440,7 +4525,10 @@ async function reinstallOldApplications() {
               upsert: true,
             };
             // eslint-disable-next-line no-await-in-loop
-            await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: appSpecifications }, options);
+            // An enterprise row keeps its compose and contacts blank, as the install
+            // writes it: they were decrypted for the comparison above and are not for
+            // the table, which the public listings read.
+            await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: withoutEnterpriseSecrets([appSpecifications])[0] }, options);
             log.info(`Application ${installedApp.name} Database updated`);
             // OWNER IS DELETED FROM THE COMPARISON ABOVE, so an owner transfer reaches
             // this branch: the same components under a different owner, written without
@@ -4523,7 +4611,7 @@ async function reinstallOldApplications() {
               dbHelper.databaseConnection().db(config.database.appslocal.database),
               localAppsInformation,
               { name: appSpecifications.name },
-              { $set: appSpecifications },
+              { $set: withoutEnterpriseSecrets([appSpecifications])[0] },
               { upsert: true },
             );
 
@@ -4531,7 +4619,7 @@ async function reinstallOldApplications() {
               log.warn(`Beginning Soft Redeployment of ${appSpecifications.name}...`);
               // soft redeployment
               // eslint-disable-next-line no-await-in-loop
-              await appUninstaller.softUninstallApplication(appSpecifications.name, null, appSpecifications, null, true);
+              await appUninstaller.softUninstallApplication(appSpecifications.name, dockerService.getAppIdentifier(appSpecifications.name), appSpecifications, null, stopAppMonitoring);
               // eslint-disable-next-line no-await-in-loop
               await appInstaller.installApplicationSoft(appSpecifications, appSpecifications.name, false, null, appSpecifications);
             } else {
@@ -4539,7 +4627,7 @@ async function reinstallOldApplications() {
               log.warn(`REMOVAL REASON: Hard redeployment - ${appSpecifications.name} HDD changed from ${installedApp.hdd} to ${appSpecifications.hdd}`);
               // hard redeployment
               // eslint-disable-next-line no-await-in-loop
-              await appUninstaller.hardUninstallApplication(appSpecifications.name, null, appSpecifications, null, true);
+              await appUninstaller.hardUninstallApplication(appSpecifications.name, dockerService.getAppIdentifier(appSpecifications.name), appSpecifications, null, stopAppMonitoring);
               // eslint-disable-next-line no-await-in-loop
               await appInstaller.installApplicationHard(appSpecifications, appSpecifications.name, false, null, appSpecifications);
             }

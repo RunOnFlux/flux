@@ -172,6 +172,7 @@ async function reconnectLinkedApps(appName, attempt = 0) {
 
   const networkName = `fluxDockerNetwork_${appName}`;
   const lowerAppName = appName.toLowerCase();
+  const networkOwner = (installedApps || []).find((installed) => installed && installed.name === appName)?.owner;
 
   // eslint-disable-next-line no-restricted-syntax
   for (const app of installedApps || []) {
@@ -181,6 +182,15 @@ async function reconnectLinkedApps(appName, attempt = 0) {
     }
     const linkedApps = getLinkedApps(app);
     if (!linkedApps.some((linked) => linked.toLowerCase() === lowerAppName)) {
+      // eslint-disable-next-line no-continue
+      continue;
+    }
+    // The owner check ran when the link was installed, but a description-only
+    // update changes the link without installing anything.
+    if (app.owner !== networkOwner) {
+      log.warn(networkOwner === undefined
+        ? `reconnectLinkedApps: ${appName} is not among the installed apps, so ${app.name} is not connected to it`
+        : `reconnectLinkedApps: ${app.name} is not owned by the owner of ${appName}, not connecting it`);
       // eslint-disable-next-line no-continue
       continue;
     }
@@ -219,6 +229,8 @@ async function reconcileAllAppNetworkLinks(attempt = 0) {
     return;
   }
 
+  const ownerOf = new Map((installedApps || []).filter(Boolean).map((installed) => [installed.name, installed.owner]));
+
   // eslint-disable-next-line no-restricted-syntax
   for (const app of installedApps || []) {
     const linkedApps = getLinkedApps(app);
@@ -231,6 +243,12 @@ async function reconcileAllAppNetworkLinks(attempt = 0) {
       const containerNames = await dockerService.getAppContainerNames(app.name);
       // eslint-disable-next-line no-restricted-syntax
       for (const linkedApp of linkedApps) {
+        // see reconnectLinkedApps: a link is only honoured between one owner's apps
+        if (!ownerOf.has(linkedApp) || ownerOf.get(linkedApp) !== app.owner) {
+          log.warn(`reconcileAllAppNetworkLinks: ${linkedApp} is not an installed app of ${app.name}'s owner, not connecting ${app.name}`);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
         const networkName = `fluxDockerNetwork_${linkedApp}`;
         // eslint-disable-next-line no-restricted-syntax
         for (const containerName of containerNames) {
@@ -277,6 +295,11 @@ async function findLinkedAppLogCollector(fullAppSpecs) {
       linkedSpec = await registryManager.getApplicationSpecifications(linkedAppName);
     } catch (error) {
       log.warn(`findLinkedAppLogCollector: failed to read spec for ${linkedAppName}: ${error.message}`);
+      // eslint-disable-next-line no-continue
+      continue;
+    }
+    // a link is only honoured between one owner's apps
+    if (linkedSpec && linkedSpec.owner !== fullAppSpecs.owner) {
       // eslint-disable-next-line no-continue
       continue;
     }

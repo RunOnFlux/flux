@@ -6,6 +6,7 @@ const chaiAsPromised = require('chai-as-promised');
 const Dockerode = require('dockerode');
 const sinon = require('sinon');
 const path = require('path');
+const fs = require('fs');
 const { PassThrough } = require('stream');
 const dockerService = require('../../ZelBack/src/services/dockerService');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
@@ -368,6 +369,26 @@ describe('dockerService tests', () => {
       sinon.stub(Dockerode.prototype, 'listContainers').resolves([websiteContainer]);
 
       await expect(dockerService.dockerContainerInspect('testing1234')).to.eventually.be.rejectedWith('Container testing1234 not found');
+    });
+  });
+
+  describe('isContainerNotFound tests', () => {
+    it('recognises the lookup finding no container', async () => {
+      sinon.stub(Dockerode.prototype, 'listContainers').resolves([]);
+
+      const error = await dockerService.appDockerRemove('website').then(() => null, (e) => e);
+
+      expect(dockerService.isContainerNotFound(error)).to.equal(true);
+    });
+
+    it('recognises docker answering 404 for a container that went after the lookup', () => {
+      expect(dockerService.isContainerNotFound(Object.assign(new Error('(HTTP code 404) no such container'), { statusCode: 404 }))).to.equal(true);
+    });
+
+    it('does not take another failure for a missing container', () => {
+      expect(dockerService.isContainerNotFound(Object.assign(new Error('(HTTP code 409) conflict'), { statusCode: 409 }))).to.equal(false);
+      expect(dockerService.isContainerNotFound(new Error('connect ECONNREFUSED /var/run/docker.sock'))).to.equal(false);
+      expect(dockerService.isContainerNotFound(undefined)).to.equal(false);
     });
   });
 
@@ -1490,19 +1511,38 @@ describe('dockerService tests', () => {
   describe('appDockerStart tests', () => {
     const appName = 'website';
     let dockerStub;
+    let inspectStub;
     let getContainerSpy;
     let listContainersStub;
 
     beforeEach(() => {
       dockerStub = sinon.stub(Dockerode.Container.prototype, 'start').returns(Promise.resolve('started'));
+      inspectStub = sinon.stub(Dockerode.Container.prototype, 'inspect').resolves({ Mounts: [], Config: { Labels: {} } });
       getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
       listContainersStub = stubContainerListing();
     });
 
     afterEach(() => {
       dockerStub.restore();
+      inspectStub.restore();
       getContainerSpy.restore();
       listContainersStub.restore();
+    });
+
+    it('starts nothing whose bind source under the apps folder has become a link', async () => {
+      const apps = `${process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux')}/ZelApps/`;
+      fs.mkdirSync(apps, { recursive: true });
+      const dir = fs.mkdtempSync(`${apps}fluxlinktest-`);
+      try {
+        fs.mkdirSync(path.join(dir, 'real'));
+        fs.symlinkSync(path.join(dir, 'real'), path.join(dir, 'appdata'));
+        inspectStub.resolves({ Mounts: [{ Type: 'bind', Source: path.join(dir, 'appdata'), Destination: '/data' }], Config: { Labels: {} } });
+
+        await expect(dockerService.appDockerStart(appName)).to.eventually.be.rejectedWith('is not a plain directory or file');
+        sinon.assert.notCalled(dockerStub);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
     });
 
     it('should call a docker start command', async () => {
@@ -2535,6 +2575,20 @@ describe('dockerService tests', () => {
         repo: 'fluxregistry:5000/runonflux/flux-volume-tools',
         tag: 'latest',
       })).to.equal(true);
+    });
+  });
+
+  describe('getFluxDockerNetworkSubnets', () => {
+    afterEach(() => sinon.restore());
+
+    it('skips a network without an address range instead of throwing', async () => {
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves([
+        { Name: 'fluxDockerNetwork_a', IPAM: { Config: [{ Subnet: '172.23.1.0/24' }] } },
+        { Name: 'fluxDockerNetwork_b', IPAM: { Config: [] } },
+        { Name: 'fluxDockerNetwork_c', IPAM: null },
+        { Name: 'fluxDockerNetwork_d' },
+      ]);
+      expect(await dockerService.getFluxDockerNetworkSubnets()).to.deep.equal(['172.23.1.0/24']);
     });
   });
 });

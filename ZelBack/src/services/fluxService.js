@@ -1897,6 +1897,32 @@ async function restartFluxOS(req, res) {
   res.json(response);
 }
 
+// How long docker is given to list the app networks before a request that needs them is turned away.
+const DOCKER_NETWORKS_TIMEOUT_MS = 3 * 1000;
+
+/**
+ * Whether an address is on one of the docker networks flux puts app containers
+ * on. A container reaching the host arrives on INPUT with its network's
+ * address, which is private, so it must be told apart from a machine on the
+ * host's own network - and by the networks that exist, not by a range: an
+ * owner's LAN may sit in the same range as the app networks.
+ * @param {string} ip IPv4 address.
+ * @returns {Promise<boolean>}
+ * @throws {Error} When docker does not say which networks there are.
+ */
+async function isContainerAddress(ip) {
+  let timer;
+  const timedOut = new Promise((resolve, reject) => {
+    timer = setTimeout(() => reject(new Error('docker did not answer')), DOCKER_NETWORKS_TIMEOUT_MS);
+  });
+  try {
+    const subnets = await Promise.race([dockerService.getFluxDockerNetworkSubnets(), timedOut]);
+    return subnets.some((subnet) => serviceHelper.ipInSubnet(ip, subnet));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Helper function to safely set response status
  * @param {Response} res HTTP response
@@ -1945,7 +1971,18 @@ async function streamChainPreparation(req, res) {
     // convert from IPv4-mapped IPv6 address format to straight IPv4 (from socket)
     ip = ip.replace(/^.*:/, ''); // this is greedy, so will remove ::ffff:
 
-    if (!serviceHelper.isPrivateAddress(ip)) {
+    let fromAppNetwork = false;
+    if (serviceHelper.isPrivateAddress(ip)) {
+      try {
+        fromAppNetwork = await isContainerAddress(ip);
+      } catch (error) {
+        // not knowing is not a pass: an app container is exactly what must not get through
+        log.warn(`Could not read the flux docker networks: ${error.message}`);
+        safeSetResponseStatus(res, 503, 'Cannot tell yet whether the request comes from an app network, try again shortly.');
+        return;
+      }
+    }
+    if (!serviceHelper.isPrivateAddress(ip) || fromAppNetwork) {
       safeSetResponseStatus(res, 403, 'Request must be from an address on the same private network as the host.');
       return;
     }
@@ -2123,7 +2160,18 @@ async function streamChain(req, res) {
     // convert from IPv4-mapped IPv6 address format to straight IPv4 (from socket)
     ip = ip.replace(/^.*:/, ''); // this is greedy, so will remove ::ffff:
 
-    if (!serviceHelper.isPrivateAddress(ip)) {
+    let fromAppNetwork = false;
+    if (serviceHelper.isPrivateAddress(ip)) {
+      try {
+        fromAppNetwork = await isContainerAddress(ip);
+      } catch (error) {
+        // not knowing is not a pass: an app container is exactly what must not get through
+        log.warn(`Could not read the flux docker networks: ${error.message}`);
+        safeSetResponseStatus(res, 503, 'Cannot tell yet whether the request comes from an app network, try again shortly.');
+        return;
+      }
+    }
+    if (!serviceHelper.isPrivateAddress(ip) || fromAppNetwork) {
       safeSetResponseStatus(res, 403, 'Request must be from an address on the same private network as the host.');
       return;
     }

@@ -4473,4 +4473,15 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.notCalled(interfaces);
     });
   });
+
+  describe('portAnsweredUdp with a port the socket cannot use', () => {
+    // socket.send throws for these rather than calling back; from a timer that
+    // used to end the process.
+    [80.5, 70000, -1].forEach((port) => {
+      it(`answers undefined for ${port} instead of throwing`, async () => {
+        const answer = await fluxNetworkHelper.portAnsweredUdp('127.0.0.1', port, { schedule: [0, 10], deadline: 200 });
+        expect(answer).to.equal(undefined);
+      });
+    });
+  });
 });

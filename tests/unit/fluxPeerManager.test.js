@@ -569,6 +569,30 @@ describe('FluxPeerSocket tests', () => {
       sinon.assert.calledOnce(manager.messageDispatcher);
     });
 
+    // A frame is whatever the peer sent: whatever it holds, it is dropped, not left to end the process
+    for (const frame of ['null', '[]', '5', '"text"', '{"type":"peerExchange","outbound":5}', '{"type":"peerUpdate","addOutbound":5,"rm":{"length":2}}']) {
+      it(`should not throw for the frame ${frame}`, async () => {
+        const ws = createMockWs();
+        sinon.stub(rateLimit, 'lruRateLimit').returns(true);
+        const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+        peer.source = PEER_SOURCE.RANDOM;
+        peer.remoteCapabilities.add('peerExchange');
+
+        expect(() => ws.onmessage({ data: frame })).to.not.throw();
+        await new Promise(setImmediate);
+      });
+    }
+
+    it('should log and drop a frame whose handling throws', async () => {
+      const ws = createMockWs();
+      sinon.stub(rateLimit, 'lruRateLimit').returns(true);
+      manager.handlePeerExchange = sinon.stub().throws(new Error('boom'));
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.remoteCapabilities.add('peerExchange');
+
+      expect(() => ws.onmessage({ data: JSON.stringify({ type: 'peerExchange' }) })).to.not.throw();
+    });
+
     it('should route sync responses to syncResponseDispatcher', async () => {
       const ws = createMockWs();
       sinon.stub(rateLimit, 'lruRateLimit').returns(true);
@@ -2876,6 +2900,26 @@ describe('FluxPeerManager tests', () => {
         expect(entry.outbound.has('50.0.0.1:16127')).to.be.false;
         expect(entry.inbound.has('50.0.0.2:16127')).to.be.true;
       });
+
+      // A frame is whatever the peer sent: a field that is not a list is read as no entries
+      for (const [name, args] of [
+        ['numbers', [5, 5, 5]],
+        ['objects', [{}, { length: 2 }, { length: 2 }]],
+        ['strings', ['a', 'b', 'c']],
+        ['nulls', [null, null, null]],
+      ]) {
+        it(`should not throw for ${name} where lists are expected`, () => {
+          const ws = createMockWs('44.0.0.1');
+          const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+          manager.handlePeerExchange(peer, ['50.0.0.1:16127'], []);
+          const events = [];
+          manager.onPeerTopologyChange((event) => events.push(event));
+
+          expect(() => manager.handlePeerUpdate(peer, ...args)).to.not.throw();
+          expect(events).to.eql([]);
+          expect(manager.getTopologyEntry(peer.key).outbound.has('50.0.0.1:16127')).to.be.true;
+        });
+      }
 
       it('should ignore update without prior exchange', () => {
         const ws = createMockWs('44.0.0.1');

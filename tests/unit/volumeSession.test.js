@@ -361,6 +361,36 @@ describe('volumeSession tests', () => {
       expect(destination.containerPath).to.equal('/work/b.txt');
     });
 
+    it('pairs a link with a destination at the volume root', async () => {
+      // An archive of a listed link stores the link, and only the archive lands
+      // at the destination.
+      fsStub.lstat.withArgs(`${MOUNT}/stash/lnk`).resolves({ isSymbolicLink: () => true, isDirectory: () => false });
+      const vol = await volumeSession.openVolume(reqFor());
+
+      const { source, destination } = await vol.pair('stash/lnk', 'listed.zip');
+      expect(source.containerPath).to.equal('/work/stash/lnk');
+      expect(destination.containerPath).to.equal('/work/listed.zip');
+    });
+
+    it('refuses a link as the source of something placed at the volume root', async () => {
+      // A link left at appdata, or at a mount name, would be bound by the
+      // container with whatever it points at.
+      fsStub.lstat.withArgs(`${MOUNT}/stash/lnk`).resolves({ isSymbolicLink: () => true, isDirectory: () => false });
+      const vol = await volumeSession.openVolume(reqFor());
+
+      await expect(vol.refuseLinkAtRoot(await vol.pair('stash/lnk', 'appdata'))).to.be.rejectedWith('is a link and cannot be placed at the root of the volume');
+      await expect(vol.refuseLinkAtRoot(await vol.pair('stash/lnk', 'logs'))).to.be.rejectedWith('cannot be placed at the root of the volume');
+    });
+
+    it('lets a link be placed below the root, and a plain entry be placed at it', async () => {
+      fsStub.lstat.withArgs(`${MOUNT}/stash/lnk`).resolves({ isSymbolicLink: () => true, isDirectory: () => false });
+      existsAsFile(`${MOUNT}/a.txt`);
+      const vol = await volumeSession.openVolume(reqFor());
+
+      await vol.refuseLinkAtRoot(await vol.pair('stash/lnk', 'other/copy'));
+      await vol.refuseLinkAtRoot(await vol.pair('a.txt', 'b.txt'));
+    });
+
     it('rejects the volume root as a source', async () => {
       const vol = await volumeSession.openVolume(reqFor());
       await expect(vol.pair('', 'somewhere')).to.be.rejectedWith('Refusing to operate on the volume root');

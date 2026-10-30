@@ -9,7 +9,7 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const globalState = require('../utils/globalState');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
 // Removed appsService to avoid circular dependency - will use dynamic require where needed
-const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession } = require('../utils/enterpriseHelper');
+const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession, withoutEnterpriseSecrets } = require('../utils/enterpriseHelper');
 const { verifyAppNameAndOwner } = require('../utils/appIdentity');
 const { specificationFormatter, updateToLatestAppSpecifications } = require('../utils/appUtilities');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
@@ -31,10 +31,12 @@ const {
   scannedHeightCollection,
 } = require('../utils/appConstants');
 const { Privilege, authOf } = require('../utils/privileges');
+const { appNameRegex } = require('../utils/appIdentity');
 const localRemovalQueue = require('../appLifecycle/localRemovalQueue');
 const {
   extractIp, ipsMatch, normalizeSocketAddress,
 } = require('../utils/socketAddressUtils');
+const bodyLimit = require('../utils/bodyLimit');
 
 // The most moves followed from one address. A node announces each move it makes,
 // so a real chain is one or two long; the bound only ends a chain that loops.
@@ -155,7 +157,7 @@ async function appLocation(appname) {
   const database = dbopen.db(config.database.appsglobal.database);
   let query = {};
   if (appname) {
-    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
+    query = { name: appNameRegex(appname) }; // case insensitive
   }
   const projection = {
     projection: {
@@ -837,7 +839,7 @@ async function appInstallingLocation(appname) {
   const database = dbopen.db(config.database.appsglobal.database);
   let query = {};
   if (appname) {
-    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
+    query = { name: appNameRegex(appname) }; // case insensitive
   }
   const projection = {
     projection: {
@@ -890,7 +892,7 @@ async function appInstallingErrorsLocation(appname) {
   const database = dbopen.db(config.database.appsglobal.database);
   let query = {};
   if (appname) {
-    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
+    query = { name: appNameRegex(appname) }; // case insensitive
   }
   const projection = {
     projection: {
@@ -1021,7 +1023,11 @@ async function storeAppInstallingMessage(message) {
 async function getApplicationOwner(appName) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
-  const query = { name: new RegExp(`^${appName}$`, 'i') };
+  // A name that starts like a legacy container identifier is matched exactly: a
+  // case variant of it would otherwise resolve to the owner of a different app
+  // than the container the identifier names.
+  const identifierShaped = /^(flux|zel)/.test(appName);
+  const query = { name: identifierShaped ? appName : appNameRegex(appName) };
   const projection = {
     projection: {
       _id: 0,
@@ -1035,7 +1041,9 @@ async function getApplicationOwner(appName) {
   }
   // eslint-disable-next-line no-use-before-define
   const allApps = await availableApps();
-  const appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
+  const appInfo = allApps.find((app) => (identifierShaped
+    ? app.name === appName
+    : app.name.toLowerCase() === appName.toLowerCase()));
   if (appInfo) {
     return appInfo.owner;
   }
@@ -1124,7 +1132,7 @@ async function getApplicationGlobalSpecifications(appName) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
-  const query = { name: new RegExp(`^${appName}$`, 'i') };
+  const query = { name: appNameRegex(appName) };
   const projection = {
     projection: {
       _id: 0,
@@ -1152,7 +1160,7 @@ async function getApplicationLocalSpecifications(appName) {
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appslocal.database);
 
-  const query = { name: new RegExp(`^${appName}$`, 'i') };
+  const query = { name: appNameRegex(appName) };
   const projection = { projection: { _id: 0 } };
 
   const appInfo = await dbHelper.findOneInDatabase(database, localAppsInformation, query, projection);
@@ -1196,7 +1204,7 @@ async function getApplicationSpecifications(appName) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
-  const query = { name: new RegExp(`^${appName}$`, 'i') };
+  const query = { name: appNameRegex(appName) };
   const projection = {
     projection: {
       _id: 0,
@@ -1344,11 +1352,14 @@ async function getApplicationSpecificationAPI(req, res) {
     decrypt = req.query.decrypt || decrypt;
 
     const specifications = await getApplicationSpecifications(appname);
-    const mainAppName = appname.split('_')[1] || appname;
 
     if (!specifications) {
       throw new Error(`Application: ${appname} not found`);
     }
+    // Authorised against the app the lookup RETURNED, never against a name cut
+    // out of the request: the two must be the same app, or the owner of one
+    // reads the other's specification.
+    const mainAppName = specifications.name;
 
     const isEnterprise = Boolean(
       specifications.version >= 8 && specifications.enterprise,
@@ -1476,7 +1487,8 @@ async function updateApplicationSpecificationAPI(req, res) {
       throw new Error('Application not found');
     }
 
-    const mainAppName = appname.split('_')[1] || appname;
+    // The app the lookup returned, as in getApplicationSpecificationAPI.
+    const mainAppName = specifications.name;
 
     const isEnterprise = Boolean(
       specifications.version >= 8 && specifications.enterprise,
@@ -1598,7 +1610,7 @@ async function availableApps(_req, res) {
     const allApps = [...globalApps, ...localApps];
 
     if (res) {
-      const resultsResponse = messageHelper.createDataMessage(allApps);
+      const resultsResponse = messageHelper.createDataMessage(withoutEnterpriseSecrets(allApps));
       return res.json(resultsResponse);
     }
     return allApps;
@@ -1624,7 +1636,7 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
   const dbopen = dbHelper.databaseConnection();
 
   const appsDatabase = dbopen.db(config.database.appsglobal.database);
-  const appsQuery = { name: new RegExp(`^${appSpecFormatted.name}$`, 'i') }; // case insensitive
+  const appsQuery = { name: appNameRegex(appSpecFormatted.name) }; // case insensitive
   const appsProjection = {
     projection: {
       _id: 0,
@@ -1842,10 +1854,12 @@ async function expireGlobalApplications() {
         locallyExpired.push(app);
       }
     });
-    // The installed record is only refreshed from a renewal by reinstallOldApplications, every
-    // 16-36 blocks, so for a while after a renewal it still carries the old expiry. Ask the
-    // global spec before uninstalling: removing an app the network has just renewed deletes
-    // its data on this node for nothing.
+    // The installed record is only refreshed from a renewal or a transfer by
+    // reinstallOldApplications, every 16-36 blocks, so for a while after one it still carries
+    // the old expiry and owner. Ask the network before uninstalling: an app it holds in force
+    // under the same tenure is kept for that pass to refresh. Another owner on the name is a new
+    // tenure only when that owner registered it after the installed term (a transfer is an
+    // update, never a registration); that is the case the install is removed for.
     if (locallyExpired.length) {
       const globalSpecs = await dbHelper.findInDatabase(
         databaseApps,
@@ -1857,21 +1871,32 @@ async function expireGlobalApplications() {
           },
         },
       );
-      locallyExpired.forEach((app) => {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const app of locallyExpired) {
         const globalSpec = globalSpecs.find((spec) => spec.name === app.name);
-        // the same owner's app, not a re-registration of its released name by someone else
-        if (globalSpec && signatureVerifier.sameSigningIdentity(globalSpec.owner, app.owner)
-          && appMessageChain.isInForce(globalSpec.height, globalSpec.expire, explorerHeight)) {
-          log.info(`Application ${app.name} is expired locally but renewed on the network, keeping it`);
-          return;
+        const inForce = globalSpec && appMessageChain.isInForce(globalSpec.height, globalSpec.expire, explorerHeight);
+        const sameOwner = inForce && signatureVerifier.sameSigningIdentity(globalSpec.owner, app.owner);
+        const keep = sameOwner || (inForce && !appMessageChain.registeredByAnotherAfterTerm(
+          // eslint-disable-next-line no-await-in-loop
+          await appMessagesThatCount(app.name),
+          app.height,
+          app.expire,
+          app.owner,
+          signatureVerifier.sameSigningIdentity,
+        ));
+        if (keep) {
+          log.info(`Application ${app.name} is expired locally but in force on the network, keeping it`);
+          fluxEventBus.count('expiry:installedApp', app.name, 'kept');
+        } else {
+          appsToRemove.push(app);
         }
-        appsToRemove.push(app);
-      });
+      }
     }
     const appsToRemoveNames = appsToRemove.map((app) => app.name);
     appsToRemoveNames.forEach((appName) => {
       log.warn(`Application ${appName} is expired, removing`);
       log.warn(`REMOVAL REASON: App expired - ${appName} reached expiration date (registryManager)`);
+      fluxEventBus.count('expiry:installedApp', appName, 'removed');
     });
     localRemovalQueue.queueRemovals(appsToRemoveNames);
   } catch (error) {
@@ -2149,6 +2174,7 @@ async function registerAppGlobalyApi(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     try {
@@ -2228,6 +2254,10 @@ async function registerAppGlobalyApi(req, res) {
           if (appComponent.secrets) {
             // eslint-disable-next-line no-await-in-loop
             await imageManager.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+          }
+          if (appComponent.repoauth) {
+            // eslint-disable-next-line no-await-in-loop
+            await imageManager.checkAppRepoauth(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
           }
         }
       }
@@ -2608,6 +2638,7 @@ module.exports = {
   availableApps,
   checkApplicationRegistrationNameConflicts,
   storeAppSpecificationInForce,
+  appMessagesThatCount,
   governingAppMessage,
   isGoverningAppMessage,
   getInstalledApps,

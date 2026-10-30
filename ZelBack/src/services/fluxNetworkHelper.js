@@ -32,6 +32,7 @@ const { UDP_PROBE_MAGIC, UDP_PROBE_BYTES } = require('./utils/fluxUdpTestServer'
 const {
   normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch, parseSocketAddress, ipsMatch,
 } = require('./utils/socketAddressUtils');
+const bodyLimit = require('./utils/bodyLimit');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -505,7 +506,15 @@ async function portAnsweredUdp(ip, port, options = {}) {
     socket.on('error', () => done(undefined));
 
     schedule.forEach((at) => {
-      timers.push(setTimeout(() => socket.send(probe, port, ip, afterSend), at));
+      timers.push(setTimeout(() => {
+        // send() throws, rather than calls back, for a port or address it
+        // cannot use; in a timer that would end the process.
+        try {
+          socket.send(probe, port, ip, afterSend);
+        } catch (error) {
+          afterSend(error);
+        }
+      }, at));
     });
     timers.push(setTimeout(() => done(sent ? null : undefined), deadline));
   });
@@ -742,6 +751,7 @@ async function checkAppAvailability(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     try {
@@ -820,7 +830,9 @@ async function checkAppAvailability(req, res) {
       const testable = ports.filter((port) => {
         const iBP = isPortBanned(+port);
         const portNum = +port;
-        const withinRange = portNum >= minPort && portNum <= maxPort;
+        // A fractional port passes the range test and makes the socket calls
+        // throw; only whole ports are probed.
+        const withinRange = Number.isInteger(portNum) && portNum >= minPort && portNum <= maxPort;
         if (!withinRange || iBP) {
           log.error(`Flux App port ${port} is outside allowed range. minPort: ${minPort}, maxPort: ${maxPort}, isBanned: ${iBP}`);
         }

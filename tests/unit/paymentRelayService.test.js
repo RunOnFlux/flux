@@ -13,6 +13,7 @@ const pending = cacheManager.paymentRelayCache;
 
 const generateResponse = () => {
   const res = { finishHandlers: [] };
+  res.set = sinon.stub().returns(res);
   res.status = sinon.stub().returns(res);
   res.json = sinon.fake((param) => param);
   // The real response is an event emitter, and the refusal path waits on
@@ -280,20 +281,36 @@ describe('paymentRelayService tests', () => {
     // destroying first leaves the caller a connection reset in place of the
     // refusal. The socket goes only once the refusal has been written.
     it('writes the refusal before it takes the socket away', () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      try {
+        const paymentId = issueId();
+        const res = generateResponse();
+        const req = new PassThrough();
+        req.query = { paymentid: paymentId };
+        req.destroy = sinon.fake();
+
+        paymentRelayService.receivePaymentCallback(req, res);
+        req.emit('data', 'a'.repeat(20000));
+
+        sinon.assert.calledWith(res.status, 413);
+        sinon.assert.notCalled(req.destroy);
+
+        res.finish();
+        sinon.assert.notCalled(req.destroy);
+        clock.tick(1000);
+        sinon.assert.calledOnce(req.destroy);
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it('takes a callback just under its limit', async () => {
       const paymentId = issueId();
-      const res = generateResponse();
-      const req = new PassThrough();
-      req.query = { paymentid: paymentId };
-      req.destroy = sinon.fake();
 
-      paymentRelayService.receivePaymentCallback(req, res);
-      req.emit('data', 'a'.repeat(20000));
+      const { body } = await callWithBody(JSON.stringify({ txid: 'abc123', pad: 'p'.repeat(9900) }), { paymentid: paymentId });
 
-      sinon.assert.calledWith(res.status, 413);
-      sinon.assert.notCalled(req.destroy);
-
-      res.finish();
-      sinon.assert.calledOnce(req.destroy);
+      expect(body.status).to.equal('success');
+      expect(pending.get(paymentId)).to.deep.equal({ txid: 'abc123', ip: lastIssuedIp });
     });
 
     it('refuses a body too large to be a callback, and answers 413', async () => {

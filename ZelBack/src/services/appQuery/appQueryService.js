@@ -7,7 +7,7 @@ const registryManager = require('../appDatabase/registryManager');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const appConstants = require('../utils/appConstants');
 const mountParser = require('../utils/mountParser');
-const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+const { checkAndDecryptAppSpecs, withoutEnterpriseSecrets } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const fluxCaching = require('../utils/cacheManager');
 const serviceHelper = require('../serviceHelper');
@@ -182,7 +182,7 @@ async function installedApps(req, res) {
     }
 
     const apps = await installedAppSpecs(appsQuery);
-    const dataResponse = messageHelper.createDataMessage(apps);
+    const dataResponse = messageHelper.createDataMessage(res ? withoutEnterpriseSecrets(apps) : apps);
     return res ? res.json(dataResponse) : dataResponse;
   } catch (error) {
     log.error(error);

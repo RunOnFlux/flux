@@ -435,10 +435,36 @@ class VolumeSession {
       if (holds(to, from)) {
         throw new Error(`Destination ${to.relative} contains source ${from.relative}`);
       }
-
       paired.push({ source: from, destination: to });
     }
     return paired;
+  }
+
+  /**
+   * Refuses a pair that would publish its source, a link, at the volume root.
+   *
+   * For the operations that place the source itself at the destination - rename,
+   * move, copy. A link at the root could stand in for a name the app mounts -
+   * appdata, a declared mount - and the container would bind what it points at.
+   * Nothing needs a link there, so none is let in. Decided from where the
+   * destination LANDS, as the reserved-name rule in resolve() is: `ln -s . here`
+   * makes `here/appdata` the root. The source is looked at as itself, operations
+   * act on a link rather than through it.
+   *
+   * @param {{source: VolumePath, destination: VolumePath}} pair
+   * @returns {Promise<void>}
+   * @throws {Error} When the source is a link and the destination is at the root.
+   */
+  async refuseLinkAtRoot({ source, destination }) {
+    const [realParent, realMount] = await Promise.all([
+      verifyRealPath(path.dirname(destination.hostPath), this.#mount),
+      verifyRealPath(this.#mount, this.#mount),
+    ]);
+    if (realParent !== realMount) return;
+    const stats = await fs.lstat(source.hostPath);
+    if (stats.isSymbolicLink()) {
+      throw new Error(`${source.relative} is a link and cannot be placed at the root of the volume`);
+    }
   }
 
   /**

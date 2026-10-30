@@ -13,6 +13,7 @@ const fluxRpc = require('./utils/fluxRpc');
 const dbHelper = require('./dbHelper');
 const { Privilege, authOf } = require('./utils/privileges');
 const { isValidAppNameAndOwner } = require('./utils/appIdentity');
+const bodyLimit = require('./utils/bodyLimit');
 
 // eslint-disable-next-line no-unused-vars
 const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -258,6 +259,7 @@ async function signFluxTransactionPost(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     const processedBody = serviceHelper.ensureObject(body);

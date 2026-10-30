@@ -435,6 +435,17 @@ function idleGuard(idleMs) {
 }
 
 /**
+ * Removes a partial download, and only a regular file: a path that has turned
+ * into a link is not a file this download made.
+ * @param {string} filepath Where the download was written.
+ * @returns {Promise<void>}
+ */
+async function removePartial(filepath) {
+  const stats = await fs.lstat(filepath).catch(() => null);
+  if (stats && stats.isFile()) await fs.rm(filepath, { force: true });
+}
+
+/**
  * The size of a file on disk, or 0 when there is none.
  *
  * @param {string} filepath
@@ -466,6 +477,8 @@ async function sizeOnDisk(filepath) {
  * @param {number} [options.idleTimeoutMs] - Silence allowed before an attempt is abandoned.
  * @param {number} [options.maxAttempts] - Attempts before giving up.
  * @param {number} [options.retryDelayMs] - Pause between attempts.
+ * @param {function(): Promise<void>} [options.beforeOpen] - Called before each attempt opens its file; a rejection ends the download.
+ * @param {string} [options.containedIn] - Directory the opened file must really be inside, judged from the descriptor; a file elsewhere ends the download.
  * @returns {Promise<boolean>} - True if the file is downloaded and saved successfully, false on failure.
  */
 async function downloadFileFromUrl(url, localpath, component, rename = false, options = {}) {
@@ -473,8 +486,11 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
     idleTimeoutMs = DOWNLOAD_IDLE_TIMEOUT_MS,
     maxAttempts = DOWNLOAD_MAX_ATTEMPTS,
     retryDelayMs = 5 * 1000,
+    beforeOpen = null,
+    containedIn = null,
   } = options;
   let filepath = null;
+  let refused = false;
   // The validator of the copy on disk, sent back as If-Range so a file that
   // changed between attempts is sent whole instead of spliced onto the old one.
   let validator = null;
@@ -509,10 +525,21 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
           const fileName = path.basename(parsedUrl.pathname) || 'download';
           filepath = `${localpath}/${fileName}`;
         }
-        // Create directory if it doesn't exist
-        // eslint-disable-next-line no-await-in-loop
-        await fs.mkdir(path.dirname(filepath), { recursive: true });
       }
+      if (beforeOpen) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await beforeOpen();
+        } catch (error) {
+          // a refusal is final: asking the server again would not change it
+          error.refused = true;
+          response.data.destroy();
+          throw error;
+        }
+      }
+      // Create directory if it doesn't exist
+      // eslint-disable-next-line no-await-in-loop
+      await fs.mkdir(path.dirname(filepath), { recursive: true });
 
       // A server that ignores the range answers 200 with the whole file, and a
       // 206 for some other range cannot be appended - both start over.
@@ -533,14 +560,45 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
         response.data.destroy();
         // a 206 for some other range would come back the same way every time
         // eslint-disable-next-line no-await-in-loop
-        if (response.status === 206) await fs.rm(filepath, { force: true });
+        if (response.status === 206) await removePartial(filepath);
         throw new Error(`unexpected status ${response.status} for a download from ${offset} bytes`);
       }
       if (offset > 0) {
         log.info(`downloadFileFromUrl - ${url} attempt ${attempt}, ${resumed ? `resuming at ${offset} bytes` : 'range refused, starting over'}`);
       }
 
-      const writer = fs2.createWriteStream(filepath, { flags: resumed ? 'a' : 'w' });
+      // Opened before anything is written, and judged by where the descriptor really is: O_NOFOLLOW
+      // covers only the last component, so a parent swapped for a link after the checks above would
+      // send the write elsewhere. Nothing is truncated until the descriptor has passed, so a refusal
+      // leaves the file it opened untouched.
+      const { O_WRONLY, O_CREAT, O_APPEND, O_NOFOLLOW, O_NONBLOCK } = fs2.constants;
+      // eslint-disable-next-line no-await-in-loop
+      const handle = await fs.open(filepath, O_WRONLY | O_CREAT | O_NOFOLLOW | O_NONBLOCK | (resumed ? O_APPEND : 0));
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const stats = await handle.stat();
+        if (!stats.isFile()) {
+          throw Object.assign(new Error('Download destination is not a regular file'), { refused: true });
+        }
+        if (containedIn) {
+          // eslint-disable-next-line no-await-in-loop
+          const [opened, base] = await Promise.all([fs.realpath(`/proc/self/fd/${handle.fd}`), fs.realpath(containedIn)]);
+          const within = path.relative(base, opened);
+          if (!within || within.startsWith('..') || path.isAbsolute(within)) {
+            throw Object.assign(new Error('Invalid path: download destination is outside the allowed directory'), { refused: true });
+          }
+        }
+        // eslint-disable-next-line no-await-in-loop
+        if (!resumed) await handle.truncate(0);
+      } catch (error) {
+        response.data.destroy();
+        // eslint-disable-next-line no-await-in-loop
+        await handle.close().catch(() => {});
+        // final, and the path is left be: it may no longer be the one that was checked
+        error.refused = true;
+        throw error;
+      }
+      const writer = handle.createWriteStream({ autoClose: true });
       // eslint-disable-next-line no-await-in-loop
       await pipeline(response.data, idleGuard(idleTimeoutMs), writer);
 
@@ -558,11 +616,14 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
       // prefix of it), so the next attempt starts over from nothing.
       if (status === 416 && filepath) {
         // eslint-disable-next-line no-await-in-loop
-        await fs.rm(filepath, { force: true });
+        await removePartial(filepath);
       }
       // Any other 4xx is the server's final answer (gone, forbidden), not a
       // network failure, and asking again only keeps the app stopped longer.
-      const final = status >= 400 && status < 500 && ![408, 416, 429].includes(status);
+      // A link (or a directory) where the file goes is as final: the next attempt finds the same.
+      const refusal = err?.refused || ['ELOOP', 'EISDIR', 'ENOTDIR'].includes(err?.code);
+      if (err?.refused) refused = true;
+      const final = refusal || (status >= 400 && status < 500 && ![408, 416, 429].includes(status));
       if (final) break;
       if (attempt < maxAttempts) {
         // eslint-disable-next-line no-await-in-loop
@@ -572,7 +633,8 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, op
   }
   // A partial archive is no use to anyone, and on a game server it can be
   // gigabytes of the app's own volume until the next restore clears it.
-  if (filepath) await fs.rm(filepath, { force: true }).catch(() => {});
+  // (not after a refusal: the path is the one the refusal was about, and leaves it be)
+  if (filepath && !refused) await removePartial(filepath).catch(() => {});
   return false;
 }
 

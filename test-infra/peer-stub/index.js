@@ -596,6 +596,23 @@ const controlServer = http.createServer(async (req, res) => {
       return;
     }
 
+    // Put frames on every node's socket exactly as given - unsigned, unframed,
+    // text the receiver has to cope with whatever it is. What a peer that speaks
+    // the protocol wrongly, or not at all, sends.
+    if (req.method === 'POST' && req.url === '/send-raw') {
+      const { frames } = JSON.parse(await readBody(req));
+      let sent = 0;
+      for (const ws of connectedNodes) {
+        if (ws.readyState === 1) {
+          frames.forEach((frame) => ws.send(frame));
+          sent++;
+        }
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', sent, connected: connectedNodes.size }));
+      return;
+    }
+
     if (req.method === 'POST' && req.url === '/promoted-folders') {
       const body = await readBody(req);
       const wanted = JSON.parse(body);

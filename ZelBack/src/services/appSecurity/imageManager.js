@@ -1,4 +1,5 @@
 const config = require('config');
+const crypto = require('node:crypto');
 const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 const registryCredentialHelper = require('../utils/registryCredentialHelper');
@@ -13,6 +14,7 @@ const { supportedArchitectures, globalAppsMessages, globalAppsInformation } = re
 const fluxCaching = require('../utils/cacheManager').default;
 const { Privilege, authOf } = require('../utils/privileges');
 const { RemovalOutcome } = require('../utils/removalOutcome');
+const bodyLimit = require('../utils/bodyLimit');
 
 /**
  * Classify error type and determine appropriate cache TTL
@@ -320,6 +322,157 @@ function imagesOf(appSpecs) {
   return appSpecs.compose.map((component) => component.repotag).filter((repotag) => repotag);
 }
 
+const PGP_ENCRYPTED_DATA_TAGS = [9, 18, 20];
+
+/**
+ * Reads a stream or a byte array to its end.
+ * @param {Uint8Array|ReadableStream} source
+ * @returns {Promise<Buffer>}
+ */
+async function readAllBytes(source) {
+  if (source instanceof Uint8Array) return Buffer.from(source);
+  const chunks = [];
+  const reader = source.getReader();
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    // eslint-disable-next-line no-await-in-loop
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks);
+}
+
+/**
+ * What identifies an armored PGP message, independent of how it is written down.
+ *
+ * The armor around a message is not part of it: a header line (Comment, Version)
+ * or a missing checksum line changes the text and nothing else, so a copied
+ * blob with either passes a comparison of the text. The encrypted data packet is
+ * what the message IS - it is random per encryption - so that is what is
+ * compared, as a hash. Packets that only wrap the session key for a recipient
+ * are left out, as a copy can add or drop those.
+ *
+ * A value that cannot be read as a PGP message falls back to its text with the
+ * whitespace removed, which is what was compared before.
+ * @param {string} armored
+ * @returns {Promise<string>} '' when there is nothing.
+ */
+async function pgpPayloadFingerprint(armored) {
+  if (!armored || typeof armored !== 'string') return '';
+  const asText = () => `text:${armored.replace(/\s+/g, '').replace(/\\n/g, '').trim()}`;
+  try {
+    // eslint-disable-next-line global-require
+    const openpgp = require('openpgp');
+    const { data } = await openpgp.unarmor(armored);
+    const message = await openpgp.readMessage({ binaryMessage: await readAllBytes(data) });
+    const hash = crypto.createHash('sha256');
+    let found = 0;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const packet of message.packets) {
+      if (PGP_ENCRYPTED_DATA_TAGS.includes(packet.constructor.tag)) {
+        found += 1;
+        hash.update(Buffer.from([packet.constructor.tag]));
+        // eslint-disable-next-line no-await-in-loop
+        hash.update(await readAllBytes(packet.encrypted));
+      }
+    }
+    return found ? `pgp:${hash.digest('hex')}` : asText();
+  } catch (error) {
+    return asText();
+  }
+}
+
+/**
+ * Refuses an encrypted component field that copies one already published.
+ * A PGP message is random per encryption, so two equal ones mean one was copied
+ * from the other: whoever copies it holds what the other owner sealed.
+ * @param {'secrets'|'repoauth'} field - Component field holding the PGP message
+ * @param {string} appName - Application name
+ * @param {object} appComponentSpecs - Component specifications
+ * @param {string} appOwner - Application owner
+ * @param {boolean} registration - Whether this is a registration (true) or update (false)
+ * @param {boolean} ownerMayReuse - Whether an app of the same owner may carry the same message
+ * @returns {Promise<void>}
+ */
+async function checkEncryptedField(field, appName, appComponentSpecs, appOwner, registration, ownerMayReuse) {
+  const cache = new Map();
+  const fingerprintOf = async (armored) => {
+    if (!cache.has(armored)) cache.set(armored, await pgpPayloadFingerprint(armored));
+    return cache.get(armored);
+  };
+  const wanted = await fingerprintOf(appComponentSpecs[field]);
+  if (!wanted) return;
+
+  // Database connection
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const projection = { projection: { _id: 0 } };
+
+  // Query global apps
+  const results = await dbHelper.findInDatabase(database, globalAppsInformation, {}, projection);
+
+  let foundSameAppName = false;
+  let foundDifferentAppName = false;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const app of results) {
+    if (app.version >= 7 && app.nodes.length > 0) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of app.compose) {
+        // eslint-disable-next-line no-await-in-loop
+        if (await fingerprintOf(component[field]) === wanted) {
+          if (ownerMayReuse && app.owner === appOwner) {
+            // eslint-disable-next-line no-continue
+            continue;
+          }
+          if (registration) {
+            throw new Error(
+              `Provided component '${appComponentSpecs.name}' ${field} are not valid (duplicate in app: '${app.name}')`,
+            );
+          } else if (app.name !== appName) {
+            foundDifferentAppName = true;
+          } else {
+            foundSameAppName = true;
+          }
+        }
+      }
+    }
+  }
+
+  if (!registration && foundDifferentAppName && !foundSameAppName) {
+    throw new Error(`Provided component(s) ${field} are not valid (conflict with another app).`);
+  }
+
+  // Query permanent app messages
+  const appsQuery = {
+    $and: [
+      { 'appSpecifications.name': 'encrypted' },
+      { 'appSpecifications.version': 7 },
+      { 'appSpecifications.nodes': { $exists: true, $ne: [] } },
+    ],
+  };
+  log.info(`check ${field} - checking permanentAppMessages`);
+
+  const permanentAppMessages = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+  log.info(`check ${field} - permanentAppMessages found: ${permanentAppMessages.length}`);
+
+  // eslint-disable-next-line no-restricted-syntax
+  for (const message of permanentAppMessages) {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const component of message.appSpecifications.compose) {
+      // eslint-disable-next-line no-await-in-loop
+      if (await fingerprintOf(component[field]) === wanted) {
+        log.info(`check ${field} - found same message, owner: ${message.appSpecifications.owner}`);
+        if (message.appSpecifications.owner !== appOwner) {
+          throw new Error(
+            `Provided component '${appComponentSpecs.name}' ${field} are not valid (owner mismatch: '${message.appSpecifications.owner}').`,
+          );
+        }
+      }
+    }
+  }
+}
+
 /**
  * Check application secrets compliance
  * @param {string} appName - Application name
@@ -331,89 +484,22 @@ function imagesOf(appSpecs) {
 async function checkAppSecrets(appName, appComponentSpecs, appOwner, registration = false) {
   log.info('checkAppSecrets - starting');
   log.info(`checkAppSecrets - appOwner: ${appOwner}`);
-
-  // Normalize PGP secrets for consistent comparison
-  const normalizePGP = (pgpMessage) => {
-    if (!pgpMessage) return '';
-    return pgpMessage.replace(/\s+/g, '').replace(/\\n/g, '').trim();
-  };
-
-  const appComponentSecrets = normalizePGP(appComponentSpecs.secrets);
-
-  // Database connection
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const projection = { projection: { _id: 0 } };
-
-  // Query global apps
-  const results = await dbHelper.findInDatabase(database, globalAppsInformation, {}, projection);
-
-  let foundSecretsWithSameAppName = false;
-  let foundSecretsWithDifferentAppName = false;
-  // eslint-disable-next-line no-restricted-syntax
-  for (const app of results) {
-    if (app.version >= 7 && app.nodes.length > 0) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const component of app.compose) {
-        const normalizedComponentSecret = normalizePGP(component.secrets);
-
-        if (normalizedComponentSecret === appComponentSecrets) {
-          if (registration) {
-            throw new Error(
-              `Provided component '${appComponentSpecs.name}' secrets are not valid (duplicate in app: '${app.name}')`,
-            );
-          } else if (app.name !== appName) {
-            foundSecretsWithDifferentAppName = true;
-          } else {
-            foundSecretsWithSameAppName = true;
-          }
-        }
-      }
-    }
-  }
-
-  if (!registration && foundSecretsWithDifferentAppName && !foundSecretsWithSameAppName) {
-    throw new Error('Provided component(s) secrets are not valid (conflict with another app).');
-  }
-
-  // Query permanent app messages
-  const appsQuery = {
-    $and: [
-      { 'appSpecifications.name': 'encrypted' },
-      { 'appSpecifications.version': 7 },
-      { 'appSpecifications.nodes': { $exists: true, $ne: [] } },
-    ],
-  };
-  log.info('checkAppSecrets - checking permanentAppMessages');
-
-  const permanentAppMessages = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-  log.info(`checkAppSecrets - permanentAppMessages found: ${permanentAppMessages.length}`);
-
-  const processedSecrets = new Set();
-  // eslint-disable-next-line no-restricted-syntax
-  for (const message of permanentAppMessages) {
-    // eslint-disable-next-line no-restricted-syntax
-    for (const component of message.appSpecifications.compose) {
-      const normalizedComponentSecret = normalizePGP(component.secrets);
-      // eslint-disable-next-line no-continue
-      if (processedSecrets.has(normalizedComponentSecret)) continue;
-      processedSecrets.add(normalizedComponentSecret);
-
-      if (normalizedComponentSecret === appComponentSecrets) {
-        log.info('checkAppSecrets - found same secret');
-        log.info(`checkAppSecrets - appOwner: ${appOwner}`);
-        log.info(`checkAppSecrets - message owner: ${message.appSpecifications.owner}`);
-
-        if (message.appSpecifications.owner !== appOwner) {
-          throw new Error(
-            `Provided component '${appComponentSpecs.name}' secrets are not valid (owner mismatch: '${message.appSpecifications.owner}').`,
-          );
-        }
-      }
-    }
-  }
-
+  await checkEncryptedField('secrets', appName, appComponentSpecs, appOwner, registration, false);
   log.info('checkAppSecrets - completed successfully');
+}
+
+/**
+ * Check a component's repository credentials against those already published.
+ * Same test as the secrets, with one difference: an owner's own apps may carry
+ * the same message, which a copy within one owner's apps does not harm.
+ * @param {string} appName - Application name
+ * @param {object} appComponentSpecs - Component specifications
+ * @param {string} appOwner - Application owner
+ * @param {boolean} registration - Whether this is a registration (true) or update (false)
+ * @returns {Promise<void>}
+ */
+async function checkAppRepoauth(appName, appComponentSpecs, appOwner, registration = false) {
+  await checkEncryptedField('repoauth', appName, appComponentSpecs, appOwner, registration, true);
 }
 
 /**
@@ -461,6 +547,7 @@ async function checkDockerAccessibility(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
+    bodyLimit.refuseIfTooLarge(req, res, body);
   });
   req.on('end', async () => {
     try {
@@ -985,6 +1072,7 @@ module.exports = {
   getBlocklist,
   blockedReasonFor,
   checkAppSecrets,
+  checkAppRepoauth,
   checkApplicationImagesCompliance,
   checkDockerAccessibility,
   checkApplicationsCompliance,
