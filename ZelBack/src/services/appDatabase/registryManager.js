@@ -17,6 +17,7 @@ const { withRegistryWrite } = require('./registryWriteLock');
 const appMessageChain = require('../utils/appMessageChain');
 const mountParser = require('../utils/mountParser');
 const signatureVerifier = require('../signatureVerifier');
+const unpaidAdmission = require('../appMessaging/unpaidAdmission');
 const {
   SIGTERM_EXPIRY_MS,
   globalAppsInformation,
@@ -2247,6 +2248,11 @@ async function registerAppGlobalyApi(req, res) {
       // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
       await messageVerifier.verifyAppMessageSignature(messageType, typeVersion, toVerify, timestamp, signature);
 
+      const { clientTag, clientTagHeight } = await unpaidAdmission.tagSubmission(
+        { remoteAddress: req.socket?.remoteAddress, headers: req.headers },
+        daemonHeight,
+      );
+
       if (isEnterprise) {
         appSpecFormatted.contacts = [];
         appSpecFormatted.compose = [];
@@ -2267,6 +2273,8 @@ async function registerAppGlobalyApi(req, res) {
         timestamp,
         signature,
         arcaneSender: isArcane,
+        clientTag,
+        clientTagHeight,
       };
       await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds

@@ -107,6 +107,9 @@ async function respondWithAppMessage(msgObj, peer) {
           // when responding from temp storage. Remove once all nodes have upgraded past
           // the check removal in messageStore.js.
           arcaneSender: appMessage.arcaneSender ?? true,
+          // The frame that admitted an unpaid message, which carries its client tag.
+          // A permanent message has none.
+          ...(appMessage.origin && { origin: appMessage.origin }),
         };
         sendSignedMessage(temporaryAppMessage, peer);
         found += 1;
@@ -466,6 +469,7 @@ async function respondWithTempMessages(peer, sinceTimestamp = 0) {
         timestamp: msg.timestamp,
         signature: msg.signature,
         arcaneSender: msg.arcaneSender,
+        ...(msg.origin && { origin: msg.origin }),
       });
       if (batch.length >= batchSize) {
         log.info(`respondWithTempMessages - Sending chunk of ${batch.length} to ${peer.key}`);
