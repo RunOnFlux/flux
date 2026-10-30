@@ -32,6 +32,7 @@ const appPlacements = require('../../ZelBack/src/services/appManagement/appPlace
 const appRebuild = require('../../ZelBack/src/services/appLifecycle/appRebuild');
 const appNetworkLinker = require('../../ZelBack/src/services/appLifecycle/appNetworkLinker');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+const appControllerModule = require('../../ZelBack/src/services/appManagement/appController');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
 const volumeService = require('../../ZelBack/src/services/utils/volumeService');
 const dockerServiceModule = require('../../ZelBack/src/services/dockerService');
@@ -368,6 +369,29 @@ describe('advancedWorkflows tests', () => {
 
       expect(res.json.calledOnce).to.be.true;
       sinon.assert.calledOnceWithExactly(verificationHelper.verifyPrivilege, Privilege.APP_OWNER_OR_FLUX_TEAM, authOf(req), { appName: 'myapp' });
+    });
+
+    it('hands a global redeploy its share for this node, which runs in process', async () => {
+      req.params = { appname: 'myapp', force: 'true', global: 'true' };
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      const globalCommand = sinon.stub(appControllerModule, 'executeAppGlobalCommand').resolves();
+
+      await advancedWorkflows.redeployAPI(req, res);
+
+      sinon.assert.calledOnceWithExactly(globalCommand, 'myapp', 'redeploy', authOf(req), true, advancedWorkflows.redeployHere);
+    });
+
+    it('refuses the local share of a redeploy for an app with no specification', async () => {
+      sinon.stub(registryManager, 'getApplicationSpecifications').resolves(null);
+
+      let thrown;
+      try {
+        await advancedWorkflows.redeployHere('myapp', false);
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown.message).to.equal('Application not found');
     });
   });
 
@@ -6572,7 +6596,8 @@ describe('advancedWorkflows tests', () => {
 
         await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
 
-        sinon.assert.calledWithExactly(appController.executeAppGlobalCommand, appname, 'apprestart', 'auth', undefined, true);
+        // No share for this node: it is the one that has just restored.
+        sinon.assert.calledWithExactly(appController.executeAppGlobalCommand, appname, 'apprestart', 'auth');
       });
 
       it('leaves an unsynced app alone entirely - no peer holds its data', async () => {

@@ -2188,6 +2188,25 @@ async function redeployComponentAPI(req, res) {
 }
 
 /**
+ * This node's share of a global redeploy.
+ *
+ * @param {string} appname - Application name
+ * @param {boolean} force - Hard redeploy when true, soft when false
+ * @returns {Promise<void>}
+ */
+async function redeployHere(appname, force) {
+  const specifications = await registryManagerModule.getApplicationSpecifications(appname);
+  if (!specifications) {
+    throw new Error('Application not found');
+  }
+  if (force) {
+    await hardRedeploy(specifications, null);
+  } else {
+    await softRedeploy(specifications, null);
+  }
+}
+
+/**
  * Redeploy app via API
  * @param {object} req - Request object
  * @param {object} res - Response object
@@ -2236,7 +2255,7 @@ async function redeployAPI(req, res) {
       // Dynamic require to avoid circular dependency
       // eslint-disable-next-line global-require
       const appController = require('../appManagement/appController');
-      appController.executeAppGlobalCommand(appname, 'redeploy', authOf(req), force); // do not wait
+      appController.executeAppGlobalCommand(appname, 'redeploy', authOf(req), force, redeployHere); // do not wait
       const hardOrSoft = force ? 'hard' : 'soft';
       const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global ${hardOrSoft} redeploy`);
       res.json(appResponse);
@@ -3374,7 +3393,7 @@ async function appendRestoreTask(req, res) {
       await sendChunk(res, 'Restarting other instances...\n');
       // eslint-disable-next-line global-require
       const appController = require('../appManagement/appController');
-      appController.executeAppGlobalCommand(appname, 'apprestart', authOf(req), undefined, true); // do not wait
+      appController.executeAppGlobalCommand(appname, 'apprestart', authOf(req)); // do not wait
     }
 
     await sendChunk(res, 'Finalizing...\n');
@@ -5877,6 +5896,7 @@ module.exports = {
   softRedeployComponent,
   hardRedeployComponent,
   redeployAPI,
+  redeployHere,
   redeployComponentAPI,
   updateAppGlobaly,
   updateAppGlobalyApi,
