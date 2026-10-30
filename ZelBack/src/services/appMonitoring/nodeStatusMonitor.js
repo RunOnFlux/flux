@@ -98,16 +98,29 @@ async function removeInstalledApps(installedAppsFn, removeAppLocallyFn, reason, 
 }
 
 /**
+ * Why this node is out of service now, from the same reads as the monitor's own
+ * pass, or null while it is in service.
+ * @returns {string|null}
+ */
+function outOfService() {
+  if (fluxNetworkHelper.isNodeDos()) return 'DOS state >= 100';
+  if (nodeConfirmationService.isDaemonStale()) return 'daemon unreachable';
+  if (!nodeConfirmationService.isConfirmed()) return 'node not confirmed';
+  return null;
+}
+
+/**
  * Remove every app from a node that is out of service.
  *
  * An install cannot be cancelled, and removing its app while it runs leaves the
  * containers it goes on to create with no record of the app. So the app an
  * install is running for is left to that install: every other app is removed
  * first, and once the install has released the node, whatever it left installed
- * is removed too. The wait has no deadline - an image pull can take most of an
- * hour - and holds nothing but this removal: every other app is gone before it
- * starts. This is a stopgap until installs can be cancelled, as v9's are by the
- * removal of their app.
+ * is removed too if the node is out of service then. The wait has no deadline -
+ * an image pull that keeps moving can take most of an hour, and one that stops
+ * fails after pullStallMs - and holds nothing but this removal: every other app
+ * is gone before it starts. This is a stopgap until installs can be cancelled,
+ * as v9's are by the removal of their app.
  * @param {Function} installedAppsFn - Function to get installed apps
  * @param {Function} removeAppLocallyFn - Function to remove apps locally
  * @param {string} reason
@@ -124,7 +137,13 @@ async function removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, reason)
     if (unloadingForHostStall || !(installRunning || globalState.installationInProgress)) return;
     log.info(`monitorNodeStatus - waiting for the running install${installing ? ` of ${installing}` : ''} to finish before removing what it installed: ${reason}`);
     await globalState.whenInstallationReleased();
-    await removeInstalledApps(installedAppsFn, removeAppLocallyFn, reason, null);
+    // decided by the node's standing now, not by what made it remove the others
+    const stillOut = outOfService();
+    if (!stillOut) {
+      log.info(`monitorNodeStatus - back in service while the install${installing ? ` of ${installing}` : ''} ran, leaving what it installed`);
+      return;
+    }
+    await removeInstalledApps(installedAppsFn, removeAppLocallyFn, stillOut, null);
   } finally {
     removalInProgress = false;
   }

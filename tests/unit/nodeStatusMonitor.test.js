@@ -165,6 +165,7 @@ describe('nodeStatusMonitor tests', () => {
     let dockerService;
     let onTrip;
     let dos;
+    let confirmed;
     let bus;
     let globalState;
     const SPACING = 5000;
@@ -174,6 +175,7 @@ describe('nodeStatusMonitor tests', () => {
     beforeEach(() => {
       clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       dos = false;
+      confirmed = true;
       bus = { publish: sinon.stub() };
       appKill = {
         readContainers: sinon.stub().resolves([]),
@@ -200,7 +202,11 @@ describe('nodeStatusMonitor tests', () => {
         '../appMessaging/messageStore': {},
         '../networkStateService': {},
         '../nodeConfirmationService': {
-          onConfirmationChange: sinon.stub(), onDaemonStale: sinon.stub(), canSendMessages: () => true,
+          onConfirmationChange: sinon.stub(),
+          onDaemonStale: sinon.stub(),
+          canSendMessages: () => true,
+          isDaemonStale: () => false,
+          isConfirmed: () => confirmed,
         },
         '../hostStallService': { onTrip: (listener) => { onTrip = listener; } },
         '../appLifecycle/appKill': appKill,
@@ -534,6 +540,33 @@ describe('nodeStatusMonitor tests', () => {
         await clock.tickAsync(0);
 
         expect(removedNames(remove)).to.deep.equal(['oldapp', 'newapp']);
+      });
+
+      it('leaves the install\'s app when the node is back in service by the time the install finishes', async () => {
+        const remove = sinon.stub().resolves('removed');
+
+        monitor.monitorNodeStatus(listings(['oldapp', 'newapp'], ['newapp']), remove);
+        await clock.tickAsync(0);
+        dos = false;
+        globalState.installationInProgress = false;
+        await clock.tickAsync(0);
+
+        expect(removedNames(remove)).to.deep.equal(['oldapp']);
+        sinon.assert.calledWithMatch(logStub.info, /back in service while the install of newapp ran/);
+      });
+
+      it('removes the install\'s app for whatever keeps the node out of service when the install finishes', async () => {
+        const remove = sinon.stub().resolves('removed');
+
+        monitor.monitorNodeStatus(listings(['oldapp', 'newapp'], ['newapp']), remove);
+        await clock.tickAsync(0);
+        dos = false;
+        confirmed = false;
+        globalState.installationInProgress = false;
+        await clock.tickAsync(0);
+
+        expect(removedNames(remove)).to.deep.equal(['oldapp', 'newapp']);
+        sinon.assert.calledWithMatch(logStub.info, /newapp going to be removed: node not confirmed/);
       });
 
       it('removes the install\'s app when the install finishes while the other apps are removed', async () => {
