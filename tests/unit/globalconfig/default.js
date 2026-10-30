@@ -69,11 +69,8 @@ module.exports = {
       collections: {
         // addreesIndex contains a) balance, b) list of all transacitons, c) list of utxos
         scannedHeight: 'scannedheight',
-        utxoIndex: 'utxoindex',
-        addressTransactionIndex: 'addresstransactionindex',
         fluxnodeAddresses: 'fluxnodeaddresses',
         appsHashes: 'zelappshashes',
-        coinbaseFusionIndex: 'coinbasefusionindex',
       },
     },
     appslocal: {

@@ -439,6 +439,10 @@ async function startFluxFunctions() {
     // App payments are placed in chain order from the daemon's address index: it
     // positions the payments recorded before the scan recorded positions, and a
     // node with no app history yet fetches its payments through it.
+    if (!daemonServiceMiscRpcs.isInsightExplorer()) {
+      log.error('fluxd is running without insightexplorer=1. FluxOS needs the address index it turns on to order app messages and to bootstrap the explorer. Set insightexplorer=1 in flux.conf and reindex the daemon, or reinstall the node. FluxOS is stopping.');
+      process.exit(1);
+    }
     await untilSucceeds('Payment position backfill', () => paymentPositions.backfillPaymentPositions());
     // Before the hash sync reads the flags and the retry windows.
     await untilSucceeds('App message flag repair', () => appMessageHashes.repairLostMessageFlags());

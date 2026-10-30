@@ -27,10 +27,7 @@ module.exports = {
         "database": "node05_zelcashdata",
         "collections": {
             "scannedHeight": "scannedheight",
-            "utxoIndex": "utxoindex",
-            "addressTransactionIndex": "addresstransactionindex",
-            "appsHashes": "zelappshashes",
-            "coinbaseFusionIndex": "coinbasefusionindex"
+            "appsHashes": "zelappshashes"
         }
     },
     "appslocal": {
