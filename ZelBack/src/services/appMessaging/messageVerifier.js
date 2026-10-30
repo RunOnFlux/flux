@@ -669,7 +669,8 @@ async function getAppsTemporaryMessages(req, res) {
     if (hash) {
       query = { hash };
     }
-    const projection = { projection: { _id: 0 } };
+    // Without the admitting frame, which repeats the message it carries.
+    const projection = { projection: { _id: 0, origin: 0 } };
     const results = await dbHelper.findInDatabase(database, globalAppsTempMessages, query, projection);
     const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);

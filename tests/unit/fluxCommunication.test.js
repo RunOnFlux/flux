@@ -1756,7 +1756,8 @@ describe('fluxCommunication tests', () => {
         await waitFor(() => storeAppTemporaryMessageStub.called);
 
         sinon.assert.calledOnceWithExactly(verifyFluxBroadcast, JSON.parse(message), undefined, sinon.match.number);
-        sinon.assert.calledOnceWithExactly(storeAppTemporaryMessageStub, JSON.parse(message).data);
+        // the frame travels with the message: it is the origin of a live announcement
+        sinon.assert.calledOnceWithExactly(storeAppTemporaryMessageStub, JSON.parse(message).data, { frame: JSON.parse(message) });
       });
     }
 

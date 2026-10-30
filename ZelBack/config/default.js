@@ -633,6 +633,12 @@ module.exports = {
     // it. The 24h the code has actually run since is the value.
     installErrorTtlS: 86400,
     tempMsgTtlS: 3600, // collection-level index, serviceManager.js
+    // How many unpaid app messages a node holds, within tempMsgTtlS, from one
+    // client (by its client tag), from one admitting operator (by the key that
+    // signed the frame admitting them), and with no client tag at all.
+    clientTagCap: 10,
+    originKeyCap: 60,
+    untaggedCap: 60,
     hashSyncIntervalMs: 1800000,
     cpuCheckIntervalMs: 900000,
     statsSampleIntervalMs: 60000,

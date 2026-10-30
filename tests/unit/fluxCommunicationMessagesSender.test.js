@@ -690,6 +690,31 @@ describe('fluxCommunicationMessagesSender tests', () => {
       sinon.assert.calledOnceWithExactly(checkAppTemporaryMessageExistenceStub, callMessage.data.hash);
     });
 
+    it('should send the admitting frame of a pending message, and none of the fields stored beside it', async () => {
+      const callMessage = {
+        timestamp: Date.now(),
+        pubKey: '1234asd',
+        signature: 'blabla',
+        version: 1,
+        data: {
+          type: 'fluxapprequest',
+          hash: 'test1',
+          version: 1,
+        },
+      };
+      const origin = JSON.stringify({ version: 1, data: { ...message, clientTag: 'a'.repeat(64), clientTagHeight: 3081600 } });
+      sinon.stub(messageVerifier, 'checkAppMessageExistence').returns(undefined);
+      sinon.stub(messageVerifier, 'checkAppTemporaryMessageExistence').returns({
+        ...message, origin, originKey: '04aa', clientTag: 'a'.repeat(64), clientTagHeight: 3081600, receivedAt: new Date(),
+      });
+      sinon.stub(FluxTTLCache.prototype, 'has').returns(false);
+      const myMessageCacheSetStub = sinon.stub(FluxTTLCache.prototype, 'set').returns(undefined);
+
+      await fluxCommunicationMessagesSender.respondWithAppMessage(callMessage, generateWebsocket());
+
+      sinon.assert.calledOnceWithExactly(myMessageCacheSetStub, callMessage.data.hash, { ...message, origin });
+    });
+
     it('should do nothing if the message does not exist', async () => {
       const callMessage = {
         timestamp: Date.now(),
