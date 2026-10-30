@@ -167,6 +167,7 @@ describe('nodeStatusMonitor tests', () => {
     let dos;
     let bus;
     let globalState;
+    const SPACING = 5000;
     const never = () => new Promise(() => {});
     const installed = (...names) => sinon.stub().resolves({ status: 'success', data: names.map((name) => ({ name })) });
 
@@ -187,13 +188,13 @@ describe('nodeStatusMonitor tests', () => {
       globalState = proxyquire('../../ZelBack/src/services/utils/globalState', {});
       monitor = proxyquire('../../ZelBack/src/services/appMonitoring/nodeStatusMonitor', {
         config: {
-          fluxapps: { appRemovalDeadlineMs: DEADLINE },
+          fluxapps: { appRemovalDeadlineMs: DEADLINE, nodeMonitorRemovalDelayMs: SPACING },
           hostStall: { stopWindowMs: STOP_WINDOW },
           database: { appsglobal: { collections: {} } },
         },
         '../dbHelper': {},
-        // the wait before the next pass never ends
-        '../serviceHelper': { delay: sinon.stub().callsFake(never) },
+        // the spacing between removals runs on the clock, and the wait before the next pass never ends
+        '../serviceHelper': { delay: sinon.stub().callsFake((ms) => (ms === SPACING ? new Promise((resolve) => { setTimeout(resolve, ms); }) : never())) },
         '../fluxNetworkHelper': { isNodeDos: () => dos, onIpChangeHold: sinon.stub() },
         '../fluxCommunicationUtils': {},
         '../appMessaging/messageStore': {},
@@ -502,7 +503,7 @@ describe('nodeStatusMonitor tests', () => {
       remove.withArgs('next').resolves('removed');
 
       monitor.monitorNodeStatus(installed('stuck', 'next'), remove);
-      await clock.tickAsync(DEADLINE);
+      await clock.tickAsync(DEADLINE + SPACING);
 
       sinon.assert.calledWith(remove, 'next');
       sinon.assert.calledWithMatch(logStub.error, /stuck was not removed within 300s, moving on/);
@@ -562,14 +563,20 @@ describe('nodeStatusMonitor tests', () => {
       });
     });
 
-    it('starts each DOS removal as soon as the one before it returns', async () => {
+    it('starts each DOS removal nodeMonitorRemovalDelayMs after the one before it returns', async () => {
       dos = true;
       const remove = sinon.stub().resolves('removed');
+      const removed = () => remove.getCalls().map((call) => call.args[0]);
 
       monitor.monitorNodeStatus(installed('one', 'two', 'three'), remove);
       await clock.tickAsync(0);
-
-      expect(remove.getCalls().map((call) => call.args[0])).to.deep.equal(['one', 'two', 'three']);
+      expect(removed()).to.deep.equal(['one']);
+      await clock.tickAsync(SPACING - 1);
+      expect(removed(), 'the next removal started before the spacing').to.deep.equal(['one']);
+      await clock.tickAsync(1);
+      expect(removed()).to.deep.equal(['one', 'two']);
+      await clock.tickAsync(SPACING);
+      expect(removed()).to.deep.equal(['one', 'two', 'three']);
     });
 
     it('starts no DOS removal while a host stall\'s removal has the node', async () => {

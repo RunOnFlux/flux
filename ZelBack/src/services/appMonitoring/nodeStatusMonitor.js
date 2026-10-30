@@ -64,10 +64,23 @@ async function removeInstalledApps(installedAppsFn, removeAppLocallyFn, reason, 
   if (installedAppsRes.status !== 'success') {
     throw new Error('monitorNodeStatus - Failed to get installed Apps');
   }
+  let removedOne = false;
   for (const installedApp of installedAppsRes.data) {
     // a host stall's own removal has the node, and this one gives way to it
     if (unloadingForHostStall) return;
     if (installedApp.name !== skip) {
+      if (removedOne) {
+        // Each removal sends its own fluxappremoved before its teardown, a teardown
+        // can take under a second, and every node relays each message: unspaced, a
+        // node holding maxAppsPerNode apps sends that many at once. The spacing goes
+        // once the node's apps are named in one message, sent apart from their
+        // teardowns: v9 sends a removal's message before a teardown it can defer,
+        // still one app to a message.
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(config.fluxapps.nodeMonitorRemovalDelayMs);
+        if (unloadingForHostStall) return;
+      }
+      removedOne = true;
       log.info(`monitorNodeStatus - Application ${installedApp.name} going to be removed: ${reason}`);
       log.warn(`monitorNodeStatus - Removing application ${installedApp.name} locally`);
       // One removal that never returns must not hold every other app here.
