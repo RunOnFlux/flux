@@ -226,8 +226,7 @@ async function isBuilt() {
 
 /**
  * Builds the record from the RECORD_BLOCKS blocks up to `height`, oldest first,
- * for an explorer that reaches the tip without processing them: one already
- * there when it first keeps the record, or one that bootstrapped to it. Without
+ * for an explorer already within them when it first keeps the record. Without
  * them it proves no move by a node that last confirmed before. The blocks are
  * recorded aside and replace the record in one step, so a reader never sees a
  * record part built, and a rebuild that stops part way leaves the record as it

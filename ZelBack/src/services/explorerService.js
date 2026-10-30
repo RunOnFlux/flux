@@ -269,6 +269,31 @@ async function getVerboseBlock(heightOrHash, verbosity = 2) {
   throw blockInfo.data;
 }
 
+// fluxd refuses a call outright while its RPC work queue is full, so the
+// record's rebuild asks for a block again before it gives up.
+const REBUILD_FETCH_ATTEMPTS = 5;
+const REBUILD_FETCH_RETRY_MS = 2_000;
+
+/**
+ * A verbose block for the fluxnode address record's rebuild.
+ * @param {number} height
+ * @returns {Promise<object>} Rejects once every attempt has failed.
+ */
+async function getVerboseBlockForRebuild(height) {
+  let block = null;
+  for (let attempt = 1; !block; attempt += 1) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      block = await getVerboseBlock(height);
+    } catch (error) {
+      if (attempt === REBUILD_FETCH_ATTEMPTS) throw error;
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(REBUILD_FETCH_RETRY_MS);
+    }
+  }
+  return block;
+}
+
 /**
  * To decode a message from Unicode values to text characters.
  * @param {string} asm UTF-16 value.
@@ -1448,7 +1473,12 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
       fluxnodeAddressRecord.resumeAt(scannedBlockHeight);
     } else if (daemonHeight - scannedBlockHeight < fluxnodeAddressRecord.RECORD_BLOCKS) {
       log.info(`Building the fluxnode address record from the blocks up to ${scannedBlockHeight}`);
-      await fluxnodeAddressRecord.rebuild(scannedBlockHeight, getVerboseBlock, dbHelper.onMaintenanceClient(database));
+      try {
+        await fluxnodeAddressRecord.rebuild(scannedBlockHeight, getVerboseBlockForRebuild, dbHelper.onMaintenanceClient(database));
+      } catch (error) {
+        // The record then starts at the blocks the explorer processes next.
+        log.error(`The fluxnode address record was not built: ${error?.message ?? error}`);
+      }
     }
 
     isInInitiationOfBP = false;
@@ -1468,18 +1498,18 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
       return;
     }
 
-    if (scannedBlockHeight === 0 && isInsightExplorer) {
+    // The bootstrap stops the record's blocks short of the tip: processing them
+    // records them, with the app payments they carry.
+    const bootstrapHeight = daemonHeight - fluxnodeAddressRecord.RECORD_BLOCKS;
+    if (scannedBlockHeight === 0 && isInsightExplorer && bootstrapHeight >= config.fluxapps.epochstart) {
       try {
         log.info('Bootstrap: Using address-index fast path');
-        await bootstrapAppHashes(daemonHeight);
-        await fluxnodeAddressRecord.rebuild(daemonHeight, getVerboseBlock, dbHelper.onMaintenanceClient(database));
-        log.info('Bootstrap complete, entering steady-state block processing');
-        processBlock(daemonHeight + 1, isInsightExplorer);
+        await bootstrapAppHashes(bootstrapHeight);
+        log.info(`Bootstrap complete, processing the blocks from ${bootstrapHeight + 1}`);
+        processBlock(bootstrapHeight + 1, isInsightExplorer);
       } catch (error) {
         log.error('Bootstrap failed, falling back to block-by-block scan');
         log.error(error);
-        // A rebuild the failure stopped part way would meet the scan's blocks out of order.
-        await fluxnodeAddressRecord.drop(dbHelper.onMaintenanceClient(database));
         processBlock(config.fluxapps.epochstart, isInsightExplorer);
       }
     } else {

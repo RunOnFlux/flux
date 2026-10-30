@@ -2201,7 +2201,7 @@ describe('explorerService tests', () => {
       fakeDatabase(dbFake);
       getBlockCountStub.returns({
         status: 'success',
-        data: 200000,
+        data: 2000000,
       });
       sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
       sinon.stub(daemonServiceUtils, 'executeCall').resolves({ status: 'success', data: [] });
@@ -2216,7 +2216,31 @@ describe('explorerService tests', () => {
       sinon.assert.calledWithMatch(logInfoSpy, 'Bootstrap complete');
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparation done');
       sinon.assert.called(createIndexFake);
-      sinon.assert.calledWith(rebuildStub, 200000);
+      sinon.assert.calledWithMatch(dbHelper.updateOneInDatabase, sinon.match.object, 'scannedheight', sinon.match.object, { $set: { generalScannedHeight: 2000000 - fluxnodeAddressRecord.RECORD_BLOCKS } });
+      sinon.assert.calledWithMatch(daemonServiceBlockchainRpcs.getBlock, { params: { hashheight: 2000000 - fluxnodeAddressRecord.RECORD_BLOCKS + 1 } });
+      sinon.assert.notCalled(rebuildStub);
+    });
+
+    it('scans from epochstart a chain too short to bootstrap below the record\'s blocks', async () => {
+      findInDatabaseStub.returns({ generalScannedHeight: 0 });
+      dropCollectionStub.resolves(true);
+      sinon.stub(dbHelper, 'findInDatabase').resolves([]);
+      sinon.stub(dbHelper, 'countInDatabase').resolves(1);
+      const collectionFake = sinon.fake.returns({
+        createIndex: sinon.fake.resolves(true), updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]), deleteMany: sinon.fake.resolves({ deletedCount: 0 }),
+        find: sinon.fake.returns({ toArray: sinon.fake.resolves([]) }),
+      });
+      fakeDatabase(sinon.fake.returns({ collection: collectionFake }));
+      getBlockCountStub.returns({ status: 'success', data: config.fluxapps.epochstart + fluxnodeAddressRecord.RECORD_BLOCKS - 1 });
+      sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
+      const executeCallStub = sinon.stub(daemonServiceUtils, 'executeCall').resolves({ status: 'success', data: [] });
+      explorerService.setBlockProccessingCanContinue(false);
+
+      await explorerService.initiateBlockProcessor(false, false, false);
+      await serviceHelper.delay(200);
+
+      sinon.assert.notCalled(executeCallStub);
+      sinon.assert.calledWithMatch(daemonServiceBlockchainRpcs.getBlock, { params: { hashheight: config.fluxapps.epochstart } });
     });
 
     describe('the fluxnode address record', () => {
@@ -2273,6 +2297,48 @@ describe('explorerService tests', () => {
         sinon.assert.calledOnceWithExactly(resumeAtStub, 199500);
       });
 
+      it('is left to the blocks the explorer processes when it cannot be built, and the explorer carries on from the scanned height', async () => {
+        atHeight(1999500);
+        getBlockCountStub.returns({ status: 'success', data: 2000000 });
+        isBuiltStub.resolves(false);
+        rebuildStub.rejects(new Error('daemon gone'));
+
+        await explorerService.initiateBlockProcessor(false, false, false);
+        await serviceHelper.delay(200);
+
+        sinon.assert.calledWithMatch(logErrorSpy, 'The fluxnode address record was not built: daemon gone');
+        sinon.assert.calledWithMatch(daemonServiceBlockchainRpcs.getBlock, { params: { hashheight: 1999501 } });
+        sinon.assert.neverCalledWithMatch(daemonServiceBlockchainRpcs.getBlock, { params: { hashheight: config.fluxapps.epochstart } });
+      });
+
+      it('is built from blocks asked for again while fluxd refuses them, up to five times', async () => {
+        atHeight(199500);
+        isBuiltStub.resolves(false);
+        const delayStub = sinon.stub(serviceHelper, 'delay').resolves();
+
+        await explorerService.initiateBlockProcessor(false, false, false);
+        const fetchBlock = rebuildStub.firstCall.args[1];
+        const getBlockStub = daemonServiceBlockchainRpcs.getBlock;
+        const asked = () => getBlockStub.getCalls().filter((call) => call.args[0].params.hashheight === 199000).length;
+        let refusals = 2;
+        getBlockStub.callsFake((req) => {
+          if (req.params.hashheight !== 199000) return { status: 'success', data: { height: req.params.hashheight, confirmations: 1, tx: [] } };
+          if (refusals > 0) {
+            refusals -= 1;
+            return { status: 'error', data: { message: 'Work queue depth exceeded' } };
+          }
+          return { status: 'success', data: { height: 199000, confirmations: 501, tx: [] } };
+        });
+
+        expect((await fetchBlock(199000)).height).to.equal(199000);
+        expect(asked()).to.equal(3);
+        sinon.assert.calledWith(delayStub, 2000);
+
+        refusals = Infinity;
+        await expect(fetchBlock(199000)).to.be.rejected;
+        expect(asked()).to.equal(3 + 5);
+      });
+
       it('is not read as holding any block while it holds nothing', async () => {
         const resumeAtStub = sinon.stub(fluxnodeAddressRecord, 'resumeAt');
         atHeight(199000);
@@ -2297,7 +2363,7 @@ describe('explorerService tests', () => {
       });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       fakeDatabase(dbFake);
-      getBlockCountStub.returns({ status: 'success', data: 200000 });
+      getBlockCountStub.returns({ status: 'success', data: 2000000 });
       sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
       sinon.stub(daemonServiceUtils, 'executeCall').resolves({ status: 'error', data: { message: 'RPC unavailable' } });
       explorerService.setBlockProccessingCanContinue(false);
@@ -2389,7 +2455,7 @@ describe('explorerService tests', () => {
       fakeDatabase(dbFake);
       getBlockCountStub.returns({
         status: 'success',
-        data: 200000,
+        data: 2000000,
       });
       sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
       sinon.stub(daemonServiceUtils, 'executeCall').resolves({ status: 'success', data: [] });
