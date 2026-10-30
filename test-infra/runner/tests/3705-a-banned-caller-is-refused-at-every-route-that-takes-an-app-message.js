@@ -30,6 +30,7 @@ const OTHER = '198.51.100.92';
 const SUBMISSION_POSTS = [
   '/apps/verifyappregistrationspecifications',
   '/apps/verifyappupdatespecifications',
+  '/apps/placementfeasibility',
   '/apps/calculateprice',
   '/apps/calculatefiatandfluxprice',
   '/apps/checkdockerexistance',
@@ -116,6 +117,22 @@ describe('a banned caller is refused at every route that takes an app message', 
 
     const taken = await register(ENTRIES[0], OTHER);
     expect(taken.status, JSON.stringify(taken)).to.equal('success');
+  });
+
+  it('never refuses a trusted balancer that forwards no caller, though a ban covers it', async function () {
+    this.timeout(180000);
+    const gateway = getSubnetConfig().gateway;
+    await publish([ban({ value: `${gateway}/32` })]);
+
+    const viaBalancer = await env.clients[ENTRIES[0]].request('POST', '/apps/calculateprice', {
+      body: {}, headers: { 'Content-Type': 'text/plain' },
+    });
+    expect(viaBalancer.status, JSON.stringify(viaBalancer)).to.not.equal(403);
+    // the canary: the same ban refuses a caller the balancer names inside it
+    const named = await env.clients[ENTRIES[0]].request('POST', '/apps/calculateprice', {
+      body: {}, headers: { 'Content-Type': 'text/plain', 'x-forwarded-for': gateway },
+    });
+    expect(named.status, JSON.stringify(named)).to.equal(403);
   });
 
   it('refuses nothing once the entry has expired', async function () {

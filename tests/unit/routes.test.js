@@ -209,6 +209,7 @@ describe('routes tests', () => {
       '/apps/appupdate',
       '/apps/verifyappregistrationspecifications',
       '/apps/verifyappupdatespecifications',
+      '/apps/placementfeasibility',
       '/apps/calculateprice',
       '/apps/calculatefiatandfluxprice',
       '/apps/getpublickey',
