@@ -6,7 +6,9 @@ const log = require('../../ZelBack/src/lib/log');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const upnpRouter = require('../../ZelBack/src/services/upnpRouter');
 const portReconciler = require('../../ZelBack/src/services/portReconciler');
-const { upnp: { testMappingLeaseS: TEST_LEASE_S } } = require('config');
+const config = require('config');
+
+const { upnp: { testMappingLeaseS: TEST_LEASE_S } } = config;
 
 const { expect } = chai;
 
@@ -31,6 +33,7 @@ describe('portReconciler tests', () => {
 
     beforeEach(() => {
       portReconciler.wanted.clear();
+      portReconciler.wantedMaps.clear();
       upnpRouter.routerLeases.kept = null;
       upnpRouter.routerLeases.renews = null;
       logSpy = sinon.spy(log, 'error');
@@ -442,6 +445,7 @@ describe('portReconciler tests', () => {
 
     beforeEach(() => {
       portReconciler.wanted.clear();
+      portReconciler.wantedMaps.clear();
       portReconciler.mappedProtocols.clear();
       logSpy = sinon.spy(log, 'error');
       sinon.stub(serviceHelper, 'delay').resolves();
@@ -587,6 +591,7 @@ describe('portReconciler tests', () => {
 
     beforeEach(() => {
       portReconciler.wanted.clear();
+      portReconciler.wantedMaps.clear();
       portReconciler.mappedProtocols.clear();
       portReconciler.releasedPorts.clear();
       portReconciler.pendingRemovals.forEach((pending) => clearTimeout(pending.timer));
@@ -626,6 +631,8 @@ describe('portReconciler tests', () => {
       removeMappingStub.rejects(refused());
       await portReconciler.release(778, 'Flux_App_web');
       await portReconciler.want(778, 'Flux_App_web');
+      // mapped more than a refresh cycle ago
+      portReconciler.wantedMaps.delete(778);
       createMappingStub.resetHistory();
 
       const result = await portReconciler.keep(778, 'Flux_App_web');
@@ -966,6 +973,7 @@ describe('portReconciler tests', () => {
 
     beforeEach(() => {
       portReconciler.wanted.clear();
+      portReconciler.wantedMaps.clear();
       portReconciler.mappedProtocols.clear();
       portReconciler.releasedPorts.clear();
       portReconciler.pendingRemovals.forEach((pending) => clearTimeout(pending.timer));
@@ -1000,6 +1008,8 @@ describe('portReconciler tests', () => {
 
     it('removes what a refresh mapped when the port is released while the refresh waits for the router', async () => {
       await portReconciler.want(31000, 'Flux_App_web');
+      // mapped more than a refresh cycle ago
+      portReconciler.wantedMaps.delete(31000);
       calls = [];
       const held = holdNext(createMappingStub, 'map');
 
@@ -1155,6 +1165,91 @@ describe('portReconciler tests', () => {
 
       expect(error.message).to.equal('refused');
       expect((await next).mapped).to.equal(true);
+    });
+  });
+
+  // A refresh does not repeat a mapping want made since the last refresh, and
+  // renews every other.
+  describe('a refresh after want', () => {
+    const CYCLE_MS = config.fluxapps.portRestoreIntervalMs;
+    const LONG_LEASE_S = config.upnp.longLivedLeaseS;
+    let createMappingStub;
+    let clock;
+    const asked = () => createMappingStub.getCalls().map((call) => `${call.args[0].protocol} ${call.args[0].ttl}`);
+
+    beforeEach(() => {
+      portReconciler.wanted.clear();
+      portReconciler.wantedMaps.clear();
+      portReconciler.mappedProtocols.clear();
+      portReconciler.releasedPorts.clear();
+      upnpRouter.routerLeases.kept = true;
+      upnpRouter.routerLeases.renews = null;
+      clock = sinon.useFakeTimers({ toFake: ['hrtime'] });
+      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(log, 'error');
+      createMappingStub = sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
+      sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(null);
+    });
+
+    afterEach(() => {
+      clock.restore();
+      sinon.restore();
+    });
+
+    it('leaves a port want mapped less than a cycle ago as it is', async () => {
+      await portReconciler.want(31020, 'Flux_App_web');
+      createMappingStub.resetHistory();
+      clock.tick(CYCLE_MS - 1);
+
+      const result = await portReconciler.keep(31020, 'Flux_App_web');
+
+      expect(result.mapped).to.equal(true);
+      expect(asked()).to.deep.equal([]);
+    });
+
+    it('maps a port again a cycle after want mapped it', async () => {
+      await portReconciler.want(31021, 'Flux_App_web');
+      createMappingStub.resetHistory();
+      clock.tick(CYCLE_MS);
+
+      await portReconciler.keep(31021, 'Flux_App_web');
+
+      expect(asked()).to.deep.equal(['TCP 0', 'UDP 0']);
+    });
+
+    // mapped permanently before the node learned its router renews a lease, and
+    // given the lease by the next refresh
+    it('maps a port again when the lease it would be given has changed since want mapped it', async () => {
+      await portReconciler.want(31022, 'Flux_App_web');
+      createMappingStub.resetHistory();
+      upnpRouter.routerLeases.renews = true;
+
+      await portReconciler.keep(31022, 'Flux_App_web');
+
+      expect(asked()).to.deep.equal([`TCP ${LONG_LEASE_S}`, `UDP ${LONG_LEASE_S}`]);
+    });
+
+    // refreshes come a cycle apart, so a refresh's own map would read as made
+    // this cycle at the next one, and every renewal would slip a cycle
+    it('renews at every refresh a port its last refresh mapped', async () => {
+      await portReconciler.want(31023, 'Flux_App_web');
+      clock.tick(CYCLE_MS);
+      await portReconciler.keep(31023, 'Flux_App_web');
+      createMappingStub.resetHistory();
+      clock.tick(CYCLE_MS - 1);
+
+      await portReconciler.keep(31023, 'Flux_App_web');
+
+      expect(asked()).to.deep.equal(['TCP 0', 'UDP 0']);
+    });
+
+    it('maps a port again over a protocol want did not map', async () => {
+      await portReconciler.want(31024, 'Flux_App_web', { protocols: ['TCP'] });
+      createMappingStub.resetHistory();
+
+      await portReconciler.keep(31024, 'Flux_App_web');
+
+      expect(asked()).to.deep.equal(['TCP 0', 'UDP 0']);
     });
   });
 });

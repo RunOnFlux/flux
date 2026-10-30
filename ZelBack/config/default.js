@@ -145,8 +145,10 @@ module.exports = {
     // The lease long-lived mappings (the node's own ports, each app's) are made
     // with on a router that renews a lease when the mapping is added again
     // (upnpService.learnLeaseRenewal), so the mappings of a node that stops go
-    // when it last refreshed them plus this. Three refreshes
-    // (fluxapps.portRestoreIntervalMs) inside one lease.
+    // when it last refreshed them plus this. A refresh
+    // (fluxapps.portRestoreIntervalMs) leaves a mapping made since the last one
+    // (portReconciler.wantedMaps), so a renewed mapping has three refreshes
+    // inside its lease and a new one two.
     longLivedLeaseS: 35 * 60,
     // The lease learnLeaseRenewal tests with: renewed halfway through, looked up
     // 10 s after it would have ended - before the renewed lease ends only while

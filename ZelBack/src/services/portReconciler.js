@@ -5,6 +5,7 @@ const {
   client,
   routerEvents,
   MAPPED,
+  leaseFor,
   mapProtocol,
   removeProtocol,
   routerMapsHere,
@@ -29,6 +30,13 @@ const mappedProtocols = new Map();
 // Ports released and not wanted since: the app holding one is removed or being
 // removed, and keep maps none of them again.
 const releasedPorts = new Set();
+// Ports want mapped, by port: { description, lease, atMs }, the lease the router
+// took and when. keep leaves one alone for a refresh cycle
+// (config.fluxapps.portRestoreIntervalMs) while its lease is still the one
+// leaseFor gives, so a refresh never repeats a mapping made since the last one.
+// keep's own maps are never recorded: a refresh renews every mapping it made a
+// cycle earlier.
+const wantedMaps = new Map();
 
 // Removals of this node's own mappings the router refused, by `port/protocol`:
 // each is asked again after config.upnp.removalRetryFirstMs, the wait doubling
@@ -43,6 +51,8 @@ const pendingRemovals = new Map();
 const intentTurns = [];
 const upkeepTurns = [];
 let laneRunning = false;
+
+const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
 /**
  * Runs the waiting turns one at a time until none is left: a turn a caller
@@ -165,16 +175,18 @@ async function removeHeldTestMappings(port) {
  * release to remove.
  * @param {number} port
  * @param {string} description
- * @param {{protocols: string[], counted: boolean, logged: boolean, holder: object|null}} options
+ * @param {{protocols: string[], counted: boolean, logged: boolean, holder: object|null, upkeep: boolean}} options
+ *   upkeep: keep's map, which wantedMaps does not record
  * @returns {Promise<{mapped: boolean, code: number|null, reason: string|null, routerWide: boolean}>}
  */
 async function mapPort(port, description, {
-  protocols, counted, logged, holder,
+  protocols, counted, logged, holder, upkeep,
 }) {
   const current = wanted.get(port);
   const heldFor = current && current.holder === null ? null : holder;
   releasedPorts.delete(port);
   wanted.set(port, { description, holder: heldFor });
+  wantedMaps.delete(port);
   if (!isTestMappingDescription(description)) await removeHeldTestMappings(port);
   dropPendingRemovals(port);
   let result = MAPPED;
@@ -192,13 +204,33 @@ async function mapPort(port, description, {
     if (heldFor === null) wanted.delete(port);
     return result;
   }
+  // leaseFor after the map: a router that refused the lease has the mapping
+  // permanent, and leaseFor gives no lease from then on
+  if (!upkeep) wantedMaps.set(port, { description, lease: leaseFor(description), atMs: monotonicMs() });
   await serviceHelper.delay(500);
   return result;
 }
 
 /**
+ * Whether want mapped a port, over each of `protocols`, less than a refresh
+ * cycle ago and with the lease leaseFor gives it now.
+ * @param {number} port
+ * @param {string} description
+ * @param {string[]} protocols
+ * @returns {boolean}
+ */
+function mappedThisCycle(port, description, protocols) {
+  const made = wantedMaps.get(port);
+  if (!made || made.description !== description || made.lease !== leaseFor(description)) return false;
+  if (monotonicMs() - made.atMs >= config.fluxapps.portRestoreIntervalMs) return false;
+  const mapped = mappedProtocols.get(port);
+  return protocols.every((protocol) => mapped?.has(protocol));
+}
+
+/**
  * The turn of keep: a released port is left alone, its pending removals with
- * it; any other is mapped as want maps it.
+ * it; a port want mapped this refresh cycle is left as it is (mappedThisCycle);
+ * any other is mapped as want maps it.
  * @param {number} port
  * @param {string} description
  * @param {string[]} protocols
@@ -210,8 +242,9 @@ async function keepPort(port, description, protocols) {
       mapped: false, code: null, reason: `${port} released and not mapped since`, routerWide: false, released: true,
     };
   }
+  if (mappedThisCycle(port, description, protocols)) return MAPPED;
   return mapPort(port, description, {
-    protocols, counted: true, logged: true, holder: null,
+    protocols, counted: true, logged: true, holder: null, upkeep: true,
   });
 }
 
@@ -280,6 +313,7 @@ async function releasePort(port, description, holder) {
   if (holder !== null && current && current.holder !== holder) return true;
   releasedPorts.add(port);
   wanted.delete(port);
+  wantedMaps.delete(port);
   const protocols = mappedProtocols.get(port) || new Set();
   mappedProtocols.delete(port);
   let removed = true;
@@ -332,7 +366,7 @@ function want(port, description, {
   protocols = ['TCP', 'UDP'], counted = true, logged = true, holder = null,
 } = {}) {
   return onRouter(() => mapPort(+port, description, {
-    protocols, counted, logged, holder,
+    protocols, counted, logged, holder, upkeep: false,
   }));
 }
 
@@ -415,5 +449,6 @@ module.exports = {
   wanted,
   mappedProtocols,
   releasedPorts,
+  wantedMaps,
   pendingRemovals,
 };

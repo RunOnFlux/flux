@@ -268,6 +268,7 @@ describe('upnpService tests', () => {
 
     it('should hold the test port from the time it is mapped until it is read back, so a cleanup pass cannot take it mid-test', async () => {
       portReconciler.wanted.clear();
+      portReconciler.wantedMaps.clear();
       const heldAt = {};
       sinon.stub(natUpnp.Client.prototype, 'getPublicIp').resolves(true);
       sinon.stub(natUpnp.Client.prototype, 'getGateway').resolves(true);
@@ -355,6 +356,7 @@ describe('upnpService tests', () => {
 
       beforeEach(() => {
         portReconciler.wanted.clear();
+        portReconciler.wantedMaps.clear();
         sinon.stub(serviceHelper, 'delay').resolves();
         sinon.stub(natUpnp.Client.prototype, 'getPublicIp').resolves('1.2.3.4');
         sinon.stub(natUpnp.Client.prototype, 'getGateway').resolves(true);
@@ -952,6 +954,7 @@ describe('upnpService tests', () => {
 
     beforeEach(() => {
       portReconciler.wanted.clear();
+      portReconciler.wantedMaps.clear();
       portReconciler.mappedProtocols.clear();
       upnpService.routerLeases.kept = true;
       upnpService.routerLeases.renews = null;
@@ -1128,6 +1131,7 @@ describe('upnpService tests', () => {
 
     beforeEach(() => {
       portReconciler.wanted.clear();
+      portReconciler.wantedMaps.clear();
       clock = sinon.useFakeTimers();
       // the fake clock does not drive AbortSignal.timeout's own timer
       sinon.stub(AbortSignal, 'timeout').callsFake((ms) => {
