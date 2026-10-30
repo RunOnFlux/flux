@@ -187,6 +187,40 @@ describe('fluxnodeAddressRecord', () => {
       expect((await recordOf(B)).ip).to.equal('203.0.113.9:16127');
     });
 
+    it('builds the record the explorer writes from the same blocks, one at a time', async () => {
+      // A moves twice, the first change old enough to drop by the second; B
+      // confirms once; C misses the confirmations that keep it listed and comes
+      // back as a new node.
+      const C = { txhash: 'ee'.repeat(32), outidx: '1' };
+      const first = tip() - fluxnodeAddressRecord.RECORD_BLOCKS + 1;
+      const events = new Map([
+        [first, [confirmation(A, '203.0.113.1:16127'), confirmation(C, '198.51.100.1:16127')]],
+        [first + 100, [confirmation(A, '203.0.113.2:16127')]],
+        [base + 200, [confirmation(A, '203.0.113.2:16127')]],
+        [base + 300, [confirmation(B, '203.0.113.9:16127'), confirmation(C, '198.51.100.2:16127')]],
+        [base + 400, [confirmation(A, '203.0.113.3:16127')]],
+      ]);
+      const blockAt = (height) => ({ height, confirmations: tip() - height + 1, tx: events.get(height) ?? [] });
+      // The explorer's writes, against a collection held in memory.
+      const held = new Map();
+      const live = {
+        find: ({ _id: { $in: ids } }) => ({ toArray: async () => ids.filter((id) => held.has(id)).map((id) => ({ _id: id, ...held.get(id) })) }),
+        bulkWrite: async (writes) => writes.forEach(({ replaceOne: { filter, replacement } }) => held.set(filter._id, replacement)),
+        deleteMany: async ({ height: { $lt: below } }) => held.forEach((record, id) => { if (record.height < below) held.delete(id); }),
+      };
+      for (let height = first; height <= tip(); height += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await fluxnodeAddressRecord.writeBlock(blockAt(height), live);
+      }
+
+      await fluxnodeAddressRecord.rebuild(tip(), async (height) => blockAt(height), database);
+
+      const rebuilt = await records.find({}).sort({ _id: 1 }).toArray();
+      expect(rebuilt).to.deep.equal([...held].map(([_id, record]) => ({ _id, ...record })).sort((x, y) => x._id.localeCompare(y._id)));
+      expect((await recordOf(A)).changes, 'the change older than a node\'s confirmations was kept').to.deep.equal([{ from: '203.0.113.2:16127', to: '203.0.113.3:16127', height: base + 400 }]);
+      expect((await recordOf(C)).firstHeight, 'a node that left the list kept its old record').to.equal(base + 300);
+    });
+
     it('carries the record\'s indexes', async () => {
       await fluxnodeAddressRecord.rebuild(tip(), async (height) => chain(height), database);
 

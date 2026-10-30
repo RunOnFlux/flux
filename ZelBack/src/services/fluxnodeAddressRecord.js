@@ -75,6 +75,52 @@ function whenRecorded(height, timeoutMs) {
 }
 
 /**
+ * The address each fluxnode start and confirmation in a block confirms its node
+ * at, by collateral.
+ * @param {{tx?: object[]}} block A verbose block.
+ * @returns {Map<string, string>}
+ */
+function confirmationsIn(block) {
+  const confirmed = new Map();
+  (block.tx ?? []).forEach((tx) => {
+    if (tx.version >= 5 && tx.txhash && tx.ip) confirmed.set(collateralOf(tx.txhash, tx.outidx), normalizeSocketAddress(tx.ip));
+  });
+  return confirmed;
+}
+
+/**
+ * A node's record once a block at `height` confirms it at `ip`.
+ * @param {{ip: string, height: number, firstHeight: number, changes: object[]}|undefined} before
+ *   Its record before the block, undefined when it has none.
+ * @param {string} ip
+ * @param {number} height
+ * @returns {{ip: string, height: number, firstHeight: number, changes: object[]}}
+ */
+function confirmedAt(before, ip, height) {
+  if (!before) return { ip, height, firstHeight: height, changes: [] };
+  if (before.ip === ip) return { ...before, height };
+  return {
+    ...before,
+    ip,
+    height,
+    changes: [
+      ...before.changes.filter((change) => change.height > height - CONFIRMATION_EXPIRY_BLOCKS),
+      { from: before.ip, to: ip, height },
+    ],
+  };
+}
+
+/**
+ * The lowest last confirmation a record keeps after a block at `height`: a node
+ * that has not confirmed since has left the node list.
+ * @param {number} height
+ * @returns {number}
+ */
+function keptFrom(height) {
+  return height - CONFIRMATION_EXPIRY_BLOCKS;
+}
+
+/**
  * Writes the fluxnode starts and confirmations of a block within RECORD_BLOCKS
  * of the tip to `records`.
  * @param {{height: number, confirmations: number, tx?: object[]}} block A verbose block.
@@ -83,46 +129,15 @@ function whenRecorded(height, timeoutMs) {
  */
 async function writeBlock(block, records) {
   if (block.confirmations > RECORD_BLOCKS) return false;
-  const confirmed = new Map();
-  (block.tx ?? []).forEach((tx) => {
-    if (tx.version >= 5 && tx.txhash && tx.ip) confirmed.set(collateralOf(tx.txhash, tx.outidx), normalizeSocketAddress(tx.ip));
-  });
+  const confirmed = confirmationsIn(block);
   if (confirmed.size) {
-    const held = new Map((await records.find({ _id: { $in: [...confirmed.keys()] } }, { projection: { ip: 1 } }).toArray())
-      .map((record) => [record._id, record.ip]));
-    const writes = [...confirmed].map(([_id, ip]) => {
-      const before = held.get(_id);
-      if (before === undefined) {
-        return {
-          updateOne: {
-            filter: { _id },
-            update: { $set: { ip, height: block.height }, $setOnInsert: { firstHeight: block.height, changes: [] } },
-            upsert: true,
-          },
-        };
-      }
-      if (before === ip) return { updateOne: { filter: { _id }, update: { $set: { height: block.height } } } };
-      return {
-        updateOne: {
-          filter: { _id },
-          update: [{
-            $set: {
-              ip,
-              height: block.height,
-              changes: {
-                $concatArrays: [
-                  { $filter: { input: '$changes', cond: { $gt: ['$$this.height', block.height - CONFIRMATION_EXPIRY_BLOCKS] } } },
-                  [{ from: before, to: ip, height: block.height }],
-                ],
-              },
-            },
-          }],
-        },
-      };
-    });
-    await records.bulkWrite(writes, { ordered: true });
+    const held = new Map((await records.find({ _id: { $in: [...confirmed.keys()] } }).toArray())
+      .map(({ _id, ...record }) => [_id, record]));
+    await records.bulkWrite([...confirmed].map(([_id, ip]) => ({
+      replaceOne: { filter: { _id }, replacement: confirmedAt(held.get(_id), ip, block.height), upsert: true },
+    })), { ordered: true });
   }
-  await records.deleteMany({ height: { $lt: block.height - CONFIRMATION_EXPIRY_BLOCKS } });
+  await records.deleteMany({ height: { $lt: keptFrom(block.height) } });
   return true;
 }
 
@@ -228,7 +243,8 @@ async function isBuilt() {
  * Builds the record from the RECORD_BLOCKS blocks up to `height`, oldest first,
  * for an explorer already within them when it first keeps the record. Without
  * them it proves no move by a node that last confirmed before. The blocks are
- * recorded aside and replace the record in one step, so a reader never sees a
+ * applied in memory by the rule the explorer's blocks are written by, written
+ * aside in one insert and swapped in in one step, so a reader never sees a
  * record part built, and a rebuild that stops part way leaves the record as it
  * was for the next to build again.
  * @param {number} height The explorer's scanned height.
@@ -237,15 +253,23 @@ async function isBuilt() {
  * @returns {Promise<void>}
  */
 async function rebuild(height, fetchBlock, database) {
+  const built = new Map();
+  for (let blockHeight = Math.max(height - RECORD_BLOCKS + 1, 1); blockHeight <= height; blockHeight += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const block = await fetchBlock(blockHeight);
+    if (block.confirmations <= RECORD_BLOCKS) {
+      confirmationsIn(block).forEach((ip, collateral) => built.set(collateral, confirmedAt(built.get(collateral), ip, block.height)));
+      built.forEach((record, collateral) => {
+        if (record.height < keptFrom(block.height)) built.delete(collateral);
+      });
+    }
+  }
   await dbHelper.dropCollection(database, REBUILD_COLLECTION).catch((error) => {
     if (error.message !== 'ns not found') throw error;
   });
   await database.createCollection(REBUILD_COLLECTION);
   const staging = database.collection(REBUILD_COLLECTION);
-  for (let blockHeight = Math.max(height - RECORD_BLOCKS + 1, 1); blockHeight <= height; blockHeight += 1) {
-    // eslint-disable-next-line no-await-in-loop
-    await writeBlock(await fetchBlock(blockHeight), staging);
-  }
+  if (built.size) await staging.insertMany([...built].map(([_id, record]) => ({ _id, ...record })));
   // eslint-disable-next-line no-use-before-define
   await ensureIndexes(database, REBUILD_COLLECTION);
   await staging.rename(RECORD_COLLECTION, { dropTarget: true });
@@ -278,4 +302,7 @@ module.exports = {
   resumeAt,
   rebuild,
   ensureIndexes,
+
+  // exported for testing
+  writeBlock,
 };
