@@ -27,6 +27,15 @@ const { globalAppsTempMessages, appsHashesCollection } = require('../utils/appCo
 
 const TAG_PATTERN = /^[0-9a-f]{64}$/;
 
+// What the message inside a stored origin may hold. The origin is kept as it was
+// signed and served again with every reply, so a field outside these would be
+// stored and relayed on every node at whatever size its signer chose; with only
+// these, the hash binds the specification and the origin is no larger than the
+// message it carries.
+const ORIGIN_FIELDS = new Set([
+  'type', 'version', 'appSpecifications', 'hash', 'timestamp', 'signature', 'arcaneSender', 'clientTag', 'clientTagHeight',
+]);
+
 /**
  * A frame's signed fields, as they are verified.
  * @param {object} frame
@@ -126,6 +135,8 @@ async function admitUnpaid(message, { frame, daemonHeight }) {
   if (typeof clientTag !== 'string' || !TAG_PATTERN.test(clientTag)) return { refused: 'its client tag is malformed' };
   if (!tagHeightIsCurrent(clientTagHeight, daemonHeight)) return { refused: `its client tag height ${clientTagHeight} is not current` };
   if (!resolved.origin) return { refused: 'it carries a client tag without the frame that admitted it' };
+  const extra = Object.keys(resolved.admitted).filter((field) => !ORIGIN_FIELDS.has(field));
+  if (extra.length) return { refused: `its origin carries fields an app message does not have: ${extra.join(', ')}` };
 
   const over = await overAllowance({ clientTag, originKey: resolved.originKey });
   if (over) return { refused: over };
