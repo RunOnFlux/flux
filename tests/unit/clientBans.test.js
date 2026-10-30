@@ -60,6 +60,15 @@ describe('clientBans tests', () => {
       expect(clientBans.isBannedCaller(caller(BALANCER, { 'x-forwarded-for': STRANGER }))).to.equal(false);
     });
 
+    it('never bans a balancer that forwards no caller, even inside a banned range', () => {
+      document = [entry(`${BALANCER}/32`), entry('1.2.0.0/16')];
+      seq = 11;
+      expect(clientBans.isBannedCaller(caller(BALANCER))).to.equal(false);
+      expect(clientBans.isBannedCaller(caller(BALANCER, { 'x-forwarded-for': 'not-an-address' }))).to.equal(false);
+      // the canary: an address beside it in the same range is banned
+      expect(clientBans.isBannedCaller(caller('1.2.3.5'))).to.equal(true);
+    });
+
     it('judges a caller that is not a balancer by its own address, whatever it forwards', () => {
       expect(clientBans.isBannedCaller(caller(STRANGER, { 'x-forwarded-for': BANNED }))).to.equal(false);
       expect(clientBans.isBannedCaller(caller(BANNED, { 'x-forwarded-for': STRANGER }))).to.equal(true);
