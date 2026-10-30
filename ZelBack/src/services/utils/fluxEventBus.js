@@ -75,6 +75,9 @@ const Checkpoint = Object.freeze({
   // An install holds the node and has the app's record, and has not created any
   // of its containers. Keyed by the app name.
   INSTALL_BEFORE_CONTAINERS: 'install:beforeContainers',
+  // An install has its app's image verified and has not started pulling it.
+  // Keyed by the app name.
+  INSTALL_BEFORE_PULL: 'install:beforePull',
   // A start decision is about to ask a peer what it holds. Keyed by the peer's
   // socket address.
   MASTERSLAVE_BEFORE_PEER_PROBE: 'masterSlave:beforePeerProbe',

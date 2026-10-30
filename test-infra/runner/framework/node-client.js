@@ -220,6 +220,8 @@ export function nodeClient(nodeNum) {
         // of the outcomes it was. Without it a waiter can only time out, or read the
         // wording of the response stream.
         'app:installOutcome',
+        'image:pullStalled',
+        'image:pullDownloading',
         'app:removed',
         'app:rebuilt',
         'app:softRedeployed',

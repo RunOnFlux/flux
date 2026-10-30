@@ -12,6 +12,7 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const { extractIp } = require('./utils/socketAddressUtils');
 const { isFluxStorageUrl, storageLinkOf } = require('./utils/fluxStorage');
 const log = require('../lib/log');
+const fluxEventBus = require('./utils/fluxEventBus');
 const cpuBurstHelper = require('./utils/cpuBurstHelper');
 const LogFrameDecoder = require('./utils/logFrameDecoder');
 const appSlice = require('./appLifecycle/appSlice');
@@ -286,17 +287,47 @@ async function dockerContainerChanges(idOrName) {
  * @param {function} callback Callback.
  */
 function dockerPullStream(pullConfig, res, callback) {
-  const { repoTag, provider, authToken } = pullConfig;
-  let pullOptions;
+  const { repoTag, provider, authToken, stallMs } = pullConfig;
+  const pullOptions = {};
+
+  // A pull that stops moving is a dead transfer (a registry that accepts and never
+  // answers): the pull fails and the transfer is aborted. Moving is a layer's
+  // status or byte count changing - docker's containerd image store re-reads
+  // every download's offset every 100 ms and reports it whether or not it moved,
+  // so a report that repeats the last one for its layer is not progress. Total
+  // pull time is not bounded: a large image that keeps moving is work, and docker
+  // resumes completed layers but not a partial one, so a wall clock could fail a
+  // large layer every time.
+  const stallWindowMs = stallMs ?? config.fluxapps.pullStallMs;
+  const stallController = new AbortController();
+  let stallTimer = null;
+  let settled = false;
+  let downloading = false;
+  // What each layer last reported, by its id.
+  const lastReported = new Map();
+  const done = (error, data) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(stallTimer);
+    callback(error, data);
+  };
+  const armStallTimer = () => {
+    clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => {
+      // Reported first: an error the abort surfaces afterwards lands on a settled callback.
+      done(new Error(`Pull of ${repoTag} stalled: no progress for ${Math.round(stallWindowMs / 1000)}s`));
+      stallController.abort();
+      fluxEventBus.publish('image:pullStalled', { repoTag });
+    }, stallWindowMs);
+    if (stallTimer.unref) stallTimer.unref();
+  };
 
   // fix this auth token stuff upstream
   if (authToken) {
     if (authToken.includes(':')) { // specified by username:token
-      pullOptions = {
-        authconfig: {
-          username: authToken.split(':')[0],
-          password: authToken.split(':')[1],
-        },
+      pullOptions.authconfig = {
+        username: authToken.split(':')[0],
+        password: authToken.split(':')[1],
       };
       if (provider) {
         pullOptions.authconfig.serveraddress = provider;
@@ -305,15 +336,33 @@ function dockerPullStream(pullConfig, res, callback) {
       throw new Error('Invalid login credentials for docker provided');
     }
   }
+  // docker-modem sets the signal on the request, so aborting it ends the transfer.
+  pullOptions.abortSignal = stallController.signal;
+
+  armStallTimer();
   docker.pull(repoTag, pullOptions, (err, mystream) => {
     function onFinished(error, output) {
       if (error) {
-        callback(err);
-      } else {
-        callback(null, output);
+        done(error);
+        return;
       }
+      // docker reports a registry or blob failure as an {error} event in the
+      // stream and then ends it cleanly; followProgress fails only on the socket.
+      const errorEvent = Array.isArray(output) ? output.find((e) => e && e.error) : null;
+      if (errorEvent) done(new Error(errorEvent.errorDetail?.message || errorEvent.error));
+      else done(null, output);
     }
     function onProgress(event) {
+      const layer = event?.id ?? '';
+      const reported = `${event?.status}:${event?.progressDetail?.current ?? ''}`;
+      if (lastReported.get(layer) !== reported) {
+        lastReported.set(layer, reported);
+        armStallTimer();
+      }
+      if (!downloading && event?.status === 'Downloading') {
+        downloading = true;
+        fluxEventBus.publish('image:pullDownloading', { repoTag });
+      }
       if (res) {
         res.write(serviceHelper.ensureString(event));
         if (res.flush) res.flush();
@@ -321,7 +370,7 @@ function dockerPullStream(pullConfig, res, callback) {
       log.info(event);
     }
     if (err) {
-      callback(err);
+      done(err);
     } else {
       docker.modem.followProgress(mystream, onFinished, onProgress);
     }

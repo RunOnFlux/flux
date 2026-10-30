@@ -232,6 +232,7 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
   // if dockerhub, this is now registry-1.docker.io instead of hub.docker.com
   pullConfig.provider = imgVerifier.provider;
 
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.INSTALL_BEFORE_PULL, appName);
   // eslint-disable-next-line no-unused-vars
   await dockerService.pullImage(pullConfig, res);
 

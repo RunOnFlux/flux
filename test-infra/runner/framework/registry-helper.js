@@ -144,14 +144,16 @@ const TEST_APP_BIN = join(__dirname, '..', '..', 'test-app', 'test-app');
 // containers a suite needs tools inside (docker exec /bin/busybox ...).
 export const BUSYBOX_BIN = join(__dirname, '..', '..', 'busybox-fixture', 'busybox');
 
-function buildBinaryLayerTar(binPath, binName, markerContent) {
+function buildBinaryLayerTar(binPath, binName, markerContent, padBytes = 0) {
   if (!existsSync(binPath)) {
     throw new Error(`fixture binary not found at ${binPath}. Build it once (see the matching test-infra/<fixture>/build.sh)`);
   }
   const binEntry = tarEntry(`bin/${binName}`, readFileSync(binPath));
   const markerEntry = tarEntry('marker', Buffer.from(markerContent), '0100644');
+  // random, so the layer keeps its size compressed
+  const padEntries = padBytes > 0 ? [tarEntry('pad', crypto.randomBytes(padBytes), '0100644')] : [];
   const eof = Buffer.alloc(1024);
-  return zlib.gzipSync(Buffer.concat([binEntry, markerEntry, eof]));
+  return zlib.gzipSync(Buffer.concat([binEntry, markerEntry, ...padEntries, eof]));
 }
 
 // Push the configurable test-app image (entrypoint /bin/test-app). Exit behaviour
@@ -162,8 +164,11 @@ function buildBinaryLayerTar(binPath, binName, markerContent) {
 // `user` sets the image's User ("10000", "10000:10000"), which is what the
 // container runs as: an application image that does not run as root, as most
 // published ones do not. Unset, the container runs as root.
-export async function pushTestApp(repo, tag = 'v1', markerContent = 'testapp', { user } = {}) {
-  const gzippedLayer = buildBinaryLayerTar(TEST_APP_BIN, 'test-app', markerContent);
+//
+// `padBytes` adds that many bytes to the image's one layer, so a node's pull of
+// it takes as long as a suite needs it to under a slowed link (shapeTraffic).
+export async function pushTestApp(repo, tag = 'v1', markerContent = 'testapp', { user, padBytes = 0 } = {}) {
+  const gzippedLayer = buildBinaryLayerTar(TEST_APP_BIN, 'test-app', markerContent, padBytes);
   const layerDigest = await uploadBlob(repo, gzippedLayer);
 
   const uncompressedLayer = zlib.gunzipSync(gzippedLayer);
