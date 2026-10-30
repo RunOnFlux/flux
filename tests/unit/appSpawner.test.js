@@ -210,7 +210,7 @@ describe('appSpawner tests', () => {
         )),
         getApplicationGlobalSpecifications: sinon.stub().resolves(opts.appSpec || null),
         expireGlobalApplications: sinon.stub().resolves(),
-        storeAppInstallingMessage: sinon.stub().resolves(),
+        storeAppInstallingMessage: opts.claimStub ?? sinon.stub().resolves(),
         getRunningAppIpList: sinon.stub().resolves([]),
         countAppInstallingErrors: sinon.stub().resolves(opts.errorCount ?? 0),
       },
@@ -238,7 +238,7 @@ describe('appSpawner tests', () => {
       },
       '../appNetwork/portManager': {
         ensureApplicationPortsNotUsed: sinon.stub().resolves(),
-        siblingHoldingPort: sinon.stub().resolves(opts.siblingHoldingPort ?? null),
+        siblingHoldingPort: (opts.siblingCheck ?? sinon.stub()).resolves(opts.siblingHoldingPort ?? null),
         checkInstallingAppPortAvailable: (opts.portCheck ?? sinon.stub()).resolves({
           ok: opts.portsAvailable ?? true,
           reason: (opts.portsAvailable ?? true) ? 'proven' : 'notOurs',
@@ -1058,6 +1058,57 @@ describe('appSpawner tests', () => {
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
 
       expect(logStub.error.args.some((a) => a[0]?.includes?.('is held by the Flux node at'))).to.be.false;
+    });
+
+    // The ask is a signed request to every node at this address, so it waits
+    // for the local checks: an app whose instances are already covered is
+    // turned away without a sibling hearing about it.
+    it('asks no sibling about an app whose instances are already covered', async () => {
+      const siblingCheck = sinon.stub();
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: fullSpec,
+        errorCount: 0,
+        siblingCheck,
+        recheckAppLocations: [{ ip: '1.1.1.1:16127' }, { ip: '2.2.2.2:16127' }, { ip: '3.3.3.3:16127' }],
+      });
+
+      const delay = await appSpawner.trySpawningGlobalApplication();
+
+      expect(delay).to.equal(60000);
+      sinon.assert.notCalled(siblingCheck);
+    });
+
+    // And it comes before the claim, so a sibling's refusal leaves nothing on
+    // the network to withdraw.
+    it('makes no installing claim when a sibling holds the port', async () => {
+      const claimStub = sinon.stub().resolves();
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: fullSpec,
+        errorCount: 0,
+        claimStub,
+        siblingHoldingPort: { address: '86.9.47.94:16137', port: 31000 },
+      });
+
+      await appSpawner.trySpawningGlobalApplication();
+
+      sinon.assert.notCalled(claimStub);
+    });
+
+    // The control for both: with nothing to turn it away, the attempt asks the
+    // siblings and then claims, so the two stubs above are the ones the spawner
+    // calls.
+    it('asks the siblings, then claims, when nothing turns the app away', async () => {
+      const siblingCheck = sinon.stub();
+      const claimStub = sinon.stub().resolves();
+      buildModule({
+        aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0, siblingCheck, claimStub,
+      });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      sinon.assert.callOrder(siblingCheck, claimStub);
     });
 
     // A node whose calls to other nodes are redirected cannot ask a synced app's
