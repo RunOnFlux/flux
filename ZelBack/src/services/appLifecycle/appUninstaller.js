@@ -1437,6 +1437,17 @@ async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring)
 }
 
 /**
+ * This node's share of a global removal: the removal the route makes when it
+ * is sent neither force nor global.
+ *
+ * @param {string} appname - Application name
+ * @returns {Promise<string>} The removal outcome
+ */
+function removeHere(appname) {
+  return removeAppLocally(appname, null, false, true, true);
+}
+
+/**
  * API endpoint for removing application locally
  * @param {object} req - Request object
  * @param {object} res - Response object
@@ -1482,7 +1493,7 @@ async function removeAppLocallyApi(req, res) {
     if (global) {
       // eslint-disable-next-line global-require
       const appController = require('../appManagement/appController');
-      appController.executeAppGlobalCommand(appname, 'appremove', authOf(req)); // do not wait
+      appController.executeAppGlobalCommand(appname, 'appremove', authOf(req), undefined, removeHere); // do not wait
       const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global reinstallation`);
       return res.json(appResponse);
     }
@@ -1515,5 +1526,6 @@ module.exports = {
   removeAppLocally,
   softRemoveAppLocally,
   removeAppLocallyApi,
+  removeHere,
   setOnComponentRemoved,
 };
