@@ -182,8 +182,15 @@ describe('registry rebuild: who holds a name', () => {
     daemonDb = client.db(`${prefix}_daemon`);
   });
 
+  // Each case starts from empty collections; the databases and their indexes are
+  // made once, by the first rebuild, and dropped after the last case.
   beforeEach(async () => {
-    await Promise.all([globalDb.dropDatabase(), localDb.dropDatabase(), daemonDb.dropDatabase()]);
+    await Promise.all([
+      globalDb.collection(MESSAGES).deleteMany({}),
+      globalDb.collection(INFO).deleteMany({}),
+      localDb.collection(LOCAL_INFO).deleteMany({}),
+      daemonDb.collection('zelappshashes').deleteMany({}),
+    ]);
   });
 
   after(async () => {

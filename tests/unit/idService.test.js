@@ -13,7 +13,6 @@ const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const { requireMongo } = require('./dbTestHelper');
-const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
 const dockerService = require('../../ZelBack/src/services/dockerService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
@@ -38,10 +37,13 @@ const idService = proxyquire(
 chai.use(chaiAsPromised);
 const { expect } = chai;
 
+// `answered` settles with the body of the response's first json.
 const generateResponse = () => {
   const res = { test: 'testing' };
+  let answer;
+  res.answered = new Promise((resolve) => { answer = resolve; });
   res.status = sinon.stub().returns(res);
-  res.json = sinon.fake((param) => `Response: ${param}`);
+  res.json = sinon.fake((param) => { answer(param); return `Response: ${param}`; });
   res.download = sinon.fake(() => 'File downloaded');
   return res;
 };
@@ -595,7 +597,7 @@ describe('idService tests', () => {
       };
 
       await idService.verifyLogin(mockStream, res);
-      await serviceHelper.delay(100);
+      await res.answered;
 
       sinon.assert.calledOnceWithExactly(res.json, expectedError);
     });
@@ -626,7 +628,7 @@ describe('idService tests', () => {
       };
 
       await idService.verifyLogin(mockStream, res);
-      await serviceHelper.delay(100);
+      await res.answered;
 
       sinon.assert.calledOnceWithExactly(res.json, expectedError);
     });
@@ -658,7 +660,7 @@ describe('idService tests', () => {
       };
 
       await idService.verifyLogin(mockStream, res);
-      await serviceHelper.delay(100);
+      await res.answered;
 
       sinon.assert.calledOnceWithExactly(res.json, expectedError);
     });
@@ -694,7 +696,7 @@ describe('idService tests', () => {
       };
 
       await idService.verifyLogin(mockStream, res);
-      await serviceHelper.delay(100);
+      await res.answered;
 
       sinon.assert.calledOnceWithMatch(res.json, expectedError);
     });
@@ -712,7 +714,7 @@ describe('idService tests', () => {
       mockStream.end();
       const res = generateResponse();
       await idService.verifyLogin(mockStream, res);
-      await serviceHelper.delay(100);
+      await res.answered;
       return { res, insertStub };
     };
 
@@ -746,7 +748,7 @@ describe('idService tests', () => {
       const res = generateResponse();
 
       await idService.verifyLogin(mockStream, res);
-      await serviceHelper.delay(100);
+      await res.answered;
 
       const signatureInsert = insertStub.withArgs(sinon.match.any, 'loginsignatures');
       const loginInsert = insertStub.withArgs(sinon.match.any, 'loggedusers');
@@ -759,7 +761,8 @@ describe('idService tests', () => {
       expect(loginInsert.firstCall.args[2]).to.not.have.property('signature');
       sinon.assert.callOrder(signatureInsert, loginInsert);
       // the database driver keeps its own short timers; a login schedules nothing
-      const minuteOut = Object.values(clock.timers).filter((timer) => timer.delay >= 60000);
+      // no table at all is no timer at all
+      const minuteOut = Object.values(clock.timers ?? {}).filter((timer) => timer.delay >= 60000);
       expect(minuteOut).to.have.length(0);
     });
   });
@@ -972,7 +975,7 @@ describe('idService tests', () => {
       };
 
       await idService.provideSign(mockStream, res);
-      await serviceHelper.delay(100);
+      await res.answered;
 
       sinon.assert.calledOnceWithMatch(res.json, expectedError);
     });
@@ -1172,9 +1175,12 @@ describe('idService tests', () => {
   });
 
   describe('wsRespondLoginPhrase tests', () => {
+    // `sent` settles once the websocket has been sent its answer
     const generateWebsocket = () => {
       const ws = {};
-      ws.send = sinon.stub().returns('okay');
+      let send;
+      ws.sent = new Promise((resolve) => { send = resolve; });
+      ws.send = sinon.stub().callsFake(() => { send(); return 'okay'; });
       ws.close = sinon.stub().returns('okay');
       return ws;
     };
@@ -1220,7 +1226,7 @@ describe('idService tests', () => {
       };
 
       await idService.wsRespondLoginPhrase(ws, req);
-      await serviceHelper.delay(150);
+      await ws.sent;
 
       sinon.assert.calledOnceWithExactly(ws.send, 'status=success&data%5Bmessage%5D=Successfully%20logged%20in&data%5Bzelid%5D=1zasdfg&data%5BloginPhrase%5D=12333345656&data%5Bsignature%5D=signature1&data%5Bprivilage%5D=user&data%5BcreatedAt%5D=168450311&data%5BexpireAt%5D=168460311');
     });
@@ -1241,7 +1247,7 @@ describe('idService tests', () => {
       };
 
       await idService.wsRespondLoginPhrase(ws, req);
-      await serviceHelper.delay(150);
+      await ws.sent;
 
       sinon.assert.calledOnceWithExactly(
         ws.send,
@@ -1260,7 +1266,7 @@ describe('idService tests', () => {
       const ws = generateWebsocket();
 
       await idService.wsRespondLoginPhrase(ws, '12333345656');
-      await serviceHelper.delay(150);
+      await ws.sent;
 
       sinon.assert.calledOnceWithExactly(
         ws.send,
@@ -1279,7 +1285,7 @@ describe('idService tests', () => {
       };
 
       await idService.wsRespondLoginPhrase(ws, req);
-      await serviceHelper.delay(150);
+      await ws.sent;
 
       sinon.assert.calledOnceWithExactly(
         ws.send,
@@ -1297,7 +1303,12 @@ describe('idService tests', () => {
     // the phrase's record: absent, or as issued, or marked used
     let phraseRecord;
 
-    const page = () => ({ send: sinon.stub(), close: sinon.stub() });
+    // `told` settles once the page has been sent its answer
+    const page = () => {
+      let tell;
+      const told = new Promise((resolve) => { tell = resolve; });
+      return { told, send: sinon.stub().callsFake(() => tell()), close: sinon.stub() };
+    };
     const sentMessage = (ws) => qs.parse(ws.send.firstCall.args[0]);
     async function login() {
       const stream = new PassThrough();
@@ -1305,7 +1316,7 @@ describe('idService tests', () => {
       stream.end();
       const res = generateResponse();
       await idService.verifyLogin(stream, res);
-      await serviceHelper.delay(50);
+      await res.answered;
       return res;
     }
 
@@ -1349,9 +1360,11 @@ describe('idService tests', () => {
 
     it('is told the login when it connects after the phrase is used and before the login is written', async () => {
       let writeLogin;
-      insert.withArgs(sinon.match.any, 'loggedusers').callsFake(() => new Promise((resolve) => { writeLogin = resolve; }));
+      let writing;
+      const reachedWrite = new Promise((resolve) => { writing = resolve; });
+      insert.withArgs(sinon.match.any, 'loggedusers').callsFake(() => new Promise((resolve) => { writeLogin = resolve; writing(); }));
       const loggingIn = login();
-      await serviceHelper.delay(20);
+      await reachedWrite;
       expect(phraseRecord.usedAt, 'the phrase was not used, so this proves nothing').to.be.a('date');
 
       const ws = page();
@@ -1417,9 +1430,11 @@ describe('idService tests', () => {
     // login using it is uncounted.
     it('waits, and is told the login, when it reads the phrase used while the login that used it is still being written', async () => {
       let writeLogin;
-      insert.withArgs(sinon.match.any, 'loggedusers').callsFake(() => new Promise((resolve) => { writeLogin = resolve; }));
+      let writing;
+      const reachedWrite = new Promise((resolve) => { writing = resolve; });
+      insert.withArgs(sinon.match.any, 'loggedusers').callsFake(() => new Promise((resolve) => { writeLogin = resolve; writing(); }));
       const loggingIn = login();
-      await serviceHelper.delay(20);
+      await reachedWrite;
       expect(phraseRecord.usedAt, 'the phrase was not used, so this proves nothing').to.be.a('date');
 
       const ws = page();
@@ -1433,14 +1448,17 @@ describe('idService tests', () => {
 
     it('waits while the phrase is being marked used, and is told the login', async () => {
       let markUsed;
+      let marking;
+      const reachedMark = new Promise((resolve) => { marking = resolve; });
       claim.callsFake(() => new Promise((resolve) => {
         markUsed = () => {
           phraseRecord = { ...phraseRecord, usedAt: new Date() };
           resolve(phraseRecord);
         };
+        marking();
       }));
       const loggingIn = login();
-      await serviceHelper.delay(20);
+      await reachedMark;
       expect(markUsed, 'no login was marking the phrase, so this proves nothing').to.be.a('function');
       // the mark has landed in the database, and the login has not yet heard so
       phraseRecord = { ...phraseRecord, usedAt: new Date() };
@@ -1569,9 +1587,12 @@ describe('idService tests', () => {
       stream.push(JSON.stringify({ zelid, signature: '1234356asdf', message: phrase }));
       stream.end();
       const res = generateResponse();
+      // verifyLogin answers from the stream's end, after it has returned
+      const answered = new Promise((resolve) => {
+        res.json = sinon.fake((body) => { resolve(body); return res; });
+      });
       await idService.verifyLogin(stream, res);
-      await serviceHelper.delay(100);
-      return res.json.firstCall.args[0];
+      return answered;
     }
 
     beforeEach(async () => {
@@ -1622,9 +1643,12 @@ describe('idService tests', () => {
   });
 
   describe('wsRespondSignature tests', () => {
+    // `sent` settles once the websocket has been sent its answer
     const generateWebsocket = () => {
       const ws = {};
-      ws.send = sinon.stub().returns('okay');
+      let send;
+      ws.sent = new Promise((resolve) => { send = resolve; });
+      ws.send = sinon.stub().callsFake(() => { send(); return 'okay'; });
       ws.close = sinon.stub().returns('okay');
       return ws;
     };
@@ -1664,7 +1688,7 @@ describe('idService tests', () => {
       };
 
       await idService.wsRespondSignature(ws, req);
-      await serviceHelper.delay(150);
+      await ws.sent;
 
       sinon.assert.calledOnceWithExactly(ws.send, 'status=success&data=found');
     });
@@ -1714,7 +1738,7 @@ describe('idService tests', () => {
       mockStream.end();
 
       await idService.checkLoggedUser(mockStream, res);
-      await serviceHelper.delay(150);
+      await res.answered;
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -1737,7 +1761,7 @@ describe('idService tests', () => {
       mockStream.end();
 
       await idService.checkLoggedUser(mockStream, res);
-      await serviceHelper.delay(150);
+      await res.answered;
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -1760,7 +1784,7 @@ describe('idService tests', () => {
       mockStream.end();
 
       await idService.checkLoggedUser(mockStream, res);
-      await serviceHelper.delay(150);
+      await res.answered;
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -1785,7 +1809,7 @@ describe('idService tests', () => {
       mockStream.end();
 
       await idService.checkLoggedUser(mockStream, res);
-      await serviceHelper.delay(150);
+      await res.answered;
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -1807,7 +1831,7 @@ describe('idService tests', () => {
       mockStream.end();
 
       await idService.checkLoggedUser(mockStream, res);
-      await serviceHelper.delay(150);
+      await res.answered;
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -1830,7 +1854,7 @@ describe('idService tests', () => {
       mockStream.end();
 
       await idService.checkLoggedUser(mockStream, res);
-      await serviceHelper.delay(150);
+      await res.answered;
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -1851,7 +1875,7 @@ describe('idService tests', () => {
       mockStream.end();
 
       await idService.checkLoggedUser(mockStream, res);
-      await serviceHelper.delay(150);
+      await res.answered;
 
       // 'none' is the only value that makes the frontend drop zelidauth, and a
       // thrown error is exactly when the session should end. `name` is what
@@ -1877,7 +1901,7 @@ describe('idService tests', () => {
       mockStream.end();
 
       await idService.checkLoggedUser(mockStream, res);
-      await serviceHelper.delay(150);
+      await res.answered;
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
