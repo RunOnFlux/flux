@@ -76,6 +76,7 @@ const nodeConfirmationService = require('./nodeConfirmationService');
 const appTamperingDetectionService = require('./appTamperingDetectionService');
 const appsRuntimeState = require('./appManagement/appsRuntimeState');
 const appPlacements = require('./appManagement/appPlacements');
+const upnpMappingRecord = require('./upnpMappingRecord');
 const imageUpdateService = require('./imageUpdateService');
 const { version: fluxVersion } = require('../../../package.json');
 // const throughputLogger = require('./utils/throughputLogger');
@@ -170,6 +171,8 @@ async function prepareDatabaseSchema() {
   await appsRuntimeState.prepareCollection();
   // appPlacements (localzelapps): one record per app
   await appPlacements.prepareCollection();
+  // the UPnP mappings this node made at boot, before the database was connected
+  await upnpMappingRecord.writeWaiting();
   // The explorer's collections: their indexes are the explorer's to declare.
   await explorerService.prepareCollections();
   log.info('Local database prepared');

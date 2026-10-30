@@ -61,6 +61,7 @@ module.exports = {
         benchmark: 'benchmark',
         nodeStartupTracker: 'nodestartuptracker',
         ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
+        upnpMappings: 'upnpmappings', // every UPnP mapping this node asked its router for and has not seen removed
       },
     },
     daemon: {
@@ -109,6 +110,7 @@ module.exports = {
   upnp: {
     gatewayUrl: '',
     nodeIp: '',
+    cleanupCycleMs: 10 * 60 * 1000,
     removalRetryFirstMs: 30 * 1000,
     removalRetryMaxMs: 60 * 1000,
     testMappingLeaseS: 3 * 60,

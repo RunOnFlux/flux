@@ -6,6 +6,7 @@ const log = require('../../ZelBack/src/lib/log');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const upnpRouter = require('../../ZelBack/src/services/upnpRouter');
 const portReconciler = require('../../ZelBack/src/services/portReconciler');
+const upnpMappingRecord = require('../../ZelBack/src/services/upnpMappingRecord');
 const config = require('config');
 
 const { upnp: { testMappingLeaseS: TEST_LEASE_S } } = config;
@@ -13,6 +14,17 @@ const { upnp: { testMappingLeaseS: TEST_LEASE_S } } = config;
 const { expect } = chai;
 
 describe('portReconciler tests', () => {
+  // the record of this node's mappings, kept by the router's client on every add
+  // and removal, is upnpMappingRecord's own to test
+  beforeEach(() => {
+    sinon.stub(upnpMappingRecord, 'mapping').resolves();
+    sinon.stub(upnpMappingRecord, 'removed').resolves();
+  });
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
   describe('want tests', () => {
     let logSpy;
     let createMappingStub;

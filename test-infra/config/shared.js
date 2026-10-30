@@ -14,8 +14,11 @@ module.exports = {
   // it cannot be a shared constant, and no mapping is ever made because verification fails.
   // A removal the router refuses is asked again after 2s, the wait doubling to 8s, so a
   // suite sees several asks in seconds rather than the half hour production allows.
+  // The stale-mapping cleanup comes round within 60s of a start rather than 10 min. Its slot is
+  // also its budget (7.5s): half for the listing, the rest for removals that each take a 500ms
+  // pause, which does not compress - 3001's four left-over test mappings take 2s of it.
   upnp: {
-    gatewayUrl: 'http://31.200.0.6:3000/upnp/device.xml', nodeIp: '', removalRetryFirstMs: 2000, removalRetryMaxMs: 8000,
+    gatewayUrl: 'http://31.200.0.6:3000/upnp/device.xml', nodeIp: '', removalRetryFirstMs: 2000, removalRetryMaxMs: 8000, cleanupCycleMs: 60000,
   },
   // Empty disables analytics. The app default is the live cloudaudit endpoint, which
   // the fleet must never report suite activity to.

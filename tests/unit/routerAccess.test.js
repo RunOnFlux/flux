@@ -64,6 +64,13 @@ function routerAccess() {
           && routerBindings.has(node.object.name) && ROUTER_CALLS.has(node.property.name)) {
         taken.push(node.property.name);
       }
+      // a class extending nat-upnp's Client builds a router client too
+      if ((node.type === 'ClassDeclaration' || node.type === 'ClassExpression') && node.id && node.superClass
+          && ((node.superClass.type === 'MemberExpression' && node.superClass.object.type === 'Identifier'
+            && natUpnpBindings.has(node.superClass.object.name) && node.superClass.property.name === 'Client')
+            || (node.superClass.type === 'Identifier' && clientClasses.has(node.superClass.name)))) {
+        clientClasses.add(node.id.name);
+      }
       if (node.type === 'NewExpression'
           && ((node.callee.type === 'MemberExpression' && node.callee.object.type === 'Identifier'
             && natUpnpBindings.has(node.callee.object.name) && node.callee.property.name === 'Client')

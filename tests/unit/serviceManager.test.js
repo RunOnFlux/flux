@@ -10,6 +10,11 @@ const { untilSucceeds } = require('../../ZelBack/src/services/utils/untilSucceed
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const appTamperingDetectionService = require('../../ZelBack/src/services/appTamperingDetectionService');
+const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
+const appPlacements = require('../../ZelBack/src/services/appManagement/appPlacements');
+const explorerService = require('../../ZelBack/src/services/explorerService');
+const upnpMappingRecord = require('../../ZelBack/src/services/upnpMappingRecord');
 
 describe('untilSucceeds', () => {
   afterEach(() => sinon.restore());
@@ -38,6 +43,25 @@ describe('serviceManager prepareDatabaseSchema', () => {
 
     await expect(prepareDatabaseSchema()).to.be.rejectedWith('connection timed out');
     expect(unset.firstCall.args[0].client, 'the schema runs on the maintenance client').to.equal('maintenance');
+  });
+
+  it('writes the UPnP mappings the node recorded before its database was connected, as it prepares the local database', async () => {
+    const collection = {};
+    sinon.stub(dbHelper, 'maintenanceConnection').returns({ db: () => ({ collection: () => collection }) });
+    sinon.stub(dbHelper, 'updateInDatabase').resolves();
+    sinon.stub(dbHelper, 'dropCollection').resolves();
+    sinon.stub(dbHelper, 'ensureIndexes').resolves();
+    sinon.stub(appTamperingDetectionService, 'prepareIncidentRollup').resolves();
+    sinon.stub(appTamperingDetectionService, 'checkNodeReboot').resolves();
+    sinon.stub(appsRuntimeState, 'prepareCollection').resolves();
+    sinon.stub(appPlacements, 'prepareCollection').resolves();
+    const written = sinon.stub(upnpMappingRecord, 'writeWaiting').resolves();
+    // the step after the record's, to end the preparation there
+    sinon.stub(explorerService, 'prepareCollections').rejects(new Error('stop here'));
+
+    await expect(prepareDatabaseSchema()).to.be.rejectedWith('stop here');
+
+    sinon.assert.calledOnce(written);
   });
 });
 

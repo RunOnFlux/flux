@@ -20,6 +20,7 @@ const {
   isTestMappingDescription,
 } = require('./upnpRouter');
 const portReconciler = require('./portReconciler');
+const upnpMappingRecord = require('./upnpMappingRecord');
 
 const FLUXADM_MAPPING_DESCRIPTION = 'Flux_Fluxadm_SSH';
 
@@ -40,12 +41,12 @@ const OWNED_MAPPING_DESCRIPTIONS = new Set([
 ]);
 const OWNED_MAPPING_PREFIXES = ['Flux_App_', 'Flux_Prelaunch_App_'];
 
-// The cleanup pass runs in a wall-clock slot of its own, laid out as #1710 laid
-// out its refresh: a 10-minute cycle of eight 75-second slots, the slot chosen
-// by the api port's tens digit. Nodes behind one public address have distinct
-// api ports (16127, 16137 ... 16197), so siblings behind one router never list
-// its table at the same time.
-const CLEANUP_CYCLE_MS = 10 * 60 * 1000;
+// The cleanup pass runs in a wall-clock slot of its own: a cycle of
+// config.upnp.cleanupCycleMs (production 10 minutes) of eight slots, the slot
+// chosen by the api port's tens digit. Nodes behind one public address have
+// distinct api ports (16127, 16137 ... 16197), so siblings behind one router
+// never list its table at the same time.
+const CLEANUP_CYCLE_MS = config.upnp.cleanupCycleMs;
 const CLEANUP_SLOT_COUNT = 8;
 const CLEANUP_SLOT_MS = CLEANUP_CYCLE_MS / CLEANUP_SLOT_COUNT;
 // The listing has to finish this long before the slot ends, so that what it
@@ -58,6 +59,9 @@ const CLEANUP_REMOVAL_RESERVE_MS = 15 * 1000;
 // request at a time, and six listings at once took 23 to 38 s each where one
 // alone took 0.2 s.
 const BOOT_LISTING_STAGGER_MS = 5 * 1000;
+// A table the end of which is not found by this many entries is a router that
+// answers every index, not a table.
+const LISTING_CAP = 10000;
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
@@ -422,11 +426,68 @@ function msUntilRefreshSlot(apiport, cycleMs, now = Date.now()) {
 }
 
 /**
+ * The router's table, read one entry per turn on the lane (portReconciler.onRouter),
+ * so a request waiting for the router waits behind one entry's request and never
+ * a whole table's.
+ *
+ * Read from the last entry down to index 0. A router lists its table by
+ * position, and a position moves when the table changes during the read. A
+ * removal, by anyone, moves only the entries after it, which a read from the end
+ * has already passed; so does an add on a router that puts a new mapping after
+ * every other, as 803 of the 875 measured in a survey of the fleet's routers do.
+ * On a router that puts it at the front or in the middle, another machine's add
+ * during the read can hide one entry. An entry read twice is listed once.
+ *
+ * The end is found first: the first index with no entry, by doubling and then
+ * halving.
+ * @param {{upkeep: boolean, deadline?: number|null}} options upkeep: whether the
+ *   turns are upkeep; deadline: the monotonic ms the whole read ends by
+ * @returns {Promise<object[]>} the entries, in table order
+ */
+async function listTable({ upkeep, deadline = null }) {
+  const at = (index) => portReconciler.onRouter((client) => {
+    if (deadline === null) return client.getMappingAt({ index });
+    const left = Math.floor(deadline - monotonicMs());
+    if (left <= 0) throw new Error('out of time reading the router\'s table');
+    return client.getMappingAt({ index, signal: AbortSignal.timeout(left) });
+  }, { upkeep });
+  const entries = [];
+  if (await at(0)) {
+    // held: an index known to hold an entry; empty: one known to hold none
+    let held = 0;
+    let empty = 1;
+    // eslint-disable-next-line no-await-in-loop
+    while (await at(empty)) {
+      held = empty;
+      empty = empty * 2 + 1;
+      if (empty > LISTING_CAP) throw new Error(`the router's table passed ${LISTING_CAP} entries without an end`);
+    }
+    while (empty - held > 1) {
+      const middle = Math.floor((held + empty) / 2);
+      // eslint-disable-next-line no-await-in-loop
+      if (await at(middle)) held = middle;
+      else empty = middle;
+    }
+    const seen = new Set();
+    for (let index = empty - 1; index >= 0; index -= 1) {
+      // eslint-disable-next-line no-await-in-loop
+      const entry = await at(index);
+      const key = entry && `${entry.public.port}/${entry.protocol}`;
+      if (entry && !seen.has(key)) {
+        seen.add(key);
+        entries.unshift(entry);
+      }
+    }
+  }
+  return entries;
+}
+
+/**
  * Removes the router's mappings to this node that `select` picks from them.
  *
- * One listing, of the mappings to this node's own address only - several
- * nodes behind one router is an ordinary setup. A port wanted here when its
- * removal's turn comes (portReconciler.isWanted) is never removed.
+ * One listing (listTable), of the mappings to this node's own address only -
+ * several nodes behind one router is an ordinary setup. A port wanted here when
+ * its removal's turn comes (portReconciler.isWanted) is never removed.
  *
  * Everything - the listing and each removal - happens within `budgetMs`. The
  * listing has to finish early enough to leave time for removals, or nothing is
@@ -437,17 +498,15 @@ function msUntilRefreshSlot(apiport, cycleMs, now = Date.now()) {
  * @param {function(object[]): (object[]|Promise<object[]>)} select the mappings to remove, from the listing
  * @param {number} budgetMs
  * @param {string} what the mappings' name in the log
- * @returns {Promise<number>} how many mappings were removed
+ * @returns {Promise<{removed: number, finished: boolean}>} how many mappings were
+ *   removed, and whether every one selected was asked for
  */
 async function removeOwnMappings(select, budgetMs, what) {
   // AbortSignal.timeout takes whole milliseconds only
-  const wholeBudgetMs = Math.floor(budgetMs);
-  const deadline = monotonicMs() + wholeBudgetMs;
+  const deadline = monotonicMs() + Math.floor(budgetMs);
   const left = () => deadline - monotonicMs();
-  const listingDeadline = deadline - Math.min(CLEANUP_REMOVAL_RESERVE_MS, Math.floor(wholeBudgetMs / 2));
-  // the listing's time runs from its turn, and ends where the pass's does
-  const listing = (client) => client.getMappings({ local: true, signal: AbortSignal.timeout(Math.max(0, listingDeadline - monotonicMs())) });
-  const mappings = await portReconciler.onRouter(listing, { upkeep: true });
+  const listingDeadline = deadline - Math.min(CLEANUP_REMOVAL_RESERVE_MS, Math.floor(budgetMs / 2));
+  const mappings = (await listTable({ upkeep: true, deadline: listingDeadline })).filter((mapping) => mapping.local === true);
   const chosen = (await select(mappings)).filter((mapping) => Number.isInteger(mapping.public.port));
   let removed = 0;
   // eslint-disable-next-line no-restricted-syntax
@@ -456,13 +515,50 @@ async function removeOwnMappings(select, budgetMs, what) {
     const outcome = await portReconciler.onRouter((client) => removeListedMapping(client, mapping, left, what), { upkeep: true });
     if (outcome === 'late') {
       log.warn(`UPnP - ${what} cleanup out of time, ${chosen.length - index} left for the next start`);
-      break;
+      return { removed, finished: false };
     }
     if (outcome === 'removed') removed += 1;
     if (outcome === 'stopped') {
       log.warn(`UPnP - ${what} cleanup stopped, ${chosen.length - index - 1} left for the next start`);
-      break;
+      return { removed, finished: false };
     }
+  }
+  return { removed, finished: true };
+}
+
+/**
+ * Removes the mappings upnpMappingRecord holds that `select` picks and nothing
+ * here holds, one removal per turn, each by its port and protocol. A position in
+ * the router's table plays no part, so nothing another machine does to the table
+ * hides one. The router's answer ends the record (upnpRouter's client): removed,
+ * no such entry, or refused as not this node's, which a router in secure mode
+ * answers for another machine's mapping. Any other answer keeps the record for
+ * the next start.
+ * @param {function(): Promise<Iterable<number>>} heldPorts every port something on this node holds
+ * @param {function(object): boolean} select the records to remove
+ * @param {string} what the mappings' name in the log
+ * @returns {Promise<number>} how many mappings the router removed
+ */
+async function removeRecordedMappings(heldPorts, select, what) {
+  const keep = new Set([...await heldPorts()].map(Number));
+  const records = (await upnpMappingRecord.all()).filter((record) => !keep.has(record.port) && select(record));
+  let removed = 0;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const record of records) {
+    // eslint-disable-next-line no-await-in-loop
+    const outcome = await portReconciler.onRouter(async (client) => {
+      if (portReconciler.isWanted(record.port)) return 'held';
+      try {
+        await client.removeMapping({ public: record.port, protocol: record.protocol });
+      } catch (error) {
+        log.warn(`UPnP - ${what} ${record.protocol} ${record.port} (${record.description}) not removed: ${error.message}`);
+        return 'refused';
+      }
+      log.info(`UPnP - ${what} removed: ${record.protocol} ${record.port} (${record.description})`);
+      await serviceHelper.delay(500);
+      return 'removed';
+    }, { upkeep: true });
+    if (outcome === 'removed') removed += 1;
   }
   return removed;
 }
@@ -500,39 +596,58 @@ async function removeListedMapping(client, mapping, left, what) {
  * Removes the router's mappings to this node that this code made and nothing
  * here holds any more: an app removed while the router was unreachable, a
  * FluxOS that died between mapping and unmapping, a node reinstalled on the
- * same address without the apps it ran, an api port that moved. They are made
- * with an indefinite lease (or the router's longest, a week under IGDv2), so
- * nothing else ever takes them, and home routers hold only so many.
+ * same address without the apps it ran, an api port that moved. On a router
+ * that does not renew a lease they are permanent, and home routers hold only so
+ * many.
  *
- * Only those with a description this code gives, on a port nothing here
- * holds. What is held is asked for only after the router has been listed: an
- * app's record is written before its ports are mapped, so every mapping the
- * listing holds already has its app in the answer.
+ * The mappings upnpMappingRecord holds with a description this code gives are
+ * removed first, each by its port (removeRecordedMappings). Until the record covers everything this node holds
+ * on its router (upnpMappingRecord.complete), the router's table is listed as
+ * well, for mappings made before the record existed or after it was lost: only
+ * those with a description this code gives, on a port nothing here holds. What
+ * is held is asked for only after the router has been listed: an app's record
+ * is written before its ports are mapped, so every mapping the listing holds
+ * already has its app in the answer. A listing whose every selected removal was
+ * asked for completes the record.
  * @param {function(): Promise<Iterable<number>>} heldPorts every port something on this node holds
  * @param {number} budgetMs
  * @returns {Promise<number>} how many mappings were removed
  */
 async function removeStaleMappings(heldPorts, budgetMs) {
-  return removeOwnMappings(async (mappings) => {
+  const deadline = monotonicMs() + budgetMs;
+  let removed = await removeRecordedMappings(heldPorts, (record) => isOwnedMappingDescription(record.description), 'stale mapping');
+  if (await upnpMappingRecord.complete()) return removed;
+  const listed = await removeOwnMappings(async (mappings) => {
     const keep = new Set([...await heldPorts()].map(Number));
     return mappings.filter((mapping) => !keep.has(mapping.public.port)
       && isOwnedMappingDescription(mapping.description));
-  }, budgetMs, 'stale mapping');
+  }, Math.max(0, Math.floor(deadline - monotonicMs())), 'stale mapping');
+  removed += listed.removed;
+  if (listed.finished) await upnpMappingRecord.markComplete();
+  return removed;
 }
 
 /**
  * Removes the router's test mappings to this node: a port test's, an app's
  * prelaunch test's and verifyUPNPsupport's. A test removes its mapping before
  * it ends, so while UPnP is being verified at the start of FluxOS every one the
- * router holds was left by an earlier run.
+ * router holds was left by an earlier run. Those upnpMappingRecord holds are
+ * removed by their port; the table is listed as well only while the record does
+ * not cover everything this node holds on its router.
  * @returns {Promise<number>} how many mappings were removed
  */
 async function removeLeftoverTestMappings() {
-  return removeOwnMappings(
+  const deadline = monotonicMs() + CLEANUP_SLOT_MS;
+  const what = 'left-over test mapping';
+  let removed = await removeRecordedMappings(async () => [], (record) => isTestMappingDescription(record.description), what);
+  if (await upnpMappingRecord.complete()) return removed;
+  const listed = await removeOwnMappings(
     (mappings) => mappings.filter((mapping) => isTestMappingDescription(mapping.description)),
-    CLEANUP_SLOT_MS,
-    'left-over test mapping',
+    Math.max(0, Math.floor(deadline - monotonicMs())),
+    what,
   );
+  removed += listed.removed;
+  return removed;
 }
 
 /**
@@ -652,7 +767,7 @@ async function getMapApi(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege(Privilege.NODE_OPERATOR_OR_FLUX_TEAM, authOf(req));
     if (authorized) {
-      const map = await portReconciler.onRouter((client) => client.getMappings());
+      const map = await listTable({ upkeep: false });
       const message = messageHelper.createDataMessage(map);
       res.json(message);
     } else {

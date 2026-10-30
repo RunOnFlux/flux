@@ -2,14 +2,49 @@ const { EventEmitter } = require('node:events');
 const config = require('config');
 const natUpnp = require('@runonflux/nat-upnp');
 const log = require('../lib/log');
+const upnpMappingRecord = require('./upnpMappingRecord');
+
+// A removal's answers that end a mapping's record besides success: no such
+// entry, and the router refusing to remove a mapping that is not this node's.
+const RECORD_ENDING_FAULTS = new Set([606, 714]);
+
+const portOf = (value) => (typeof value === 'object' && value !== null ? value.port : value);
+
+/**
+ * The router's client, keeping upnpMappingRecord: an add is recorded before it
+ * is sent, and a removal ends the record once the router holds no mapping of
+ * this node's on the port.
+ */
+class RecordingClient extends natUpnp.Client {
+  async createMapping(options) {
+    await upnpMappingRecord.mapping(+portOf(options.public), options.protocol || 'TCP', options.description || '');
+    return super.createMapping(options);
+  }
+
+  async removeMapping(options) {
+    const port = +portOf(options.public);
+    const protocol = options.protocol || 'TCP';
+    let answer;
+    try {
+      answer = await super.removeMapping(options);
+    } catch (error) {
+      if (error instanceof natUpnp.UpnpError && RECORD_ENDING_FAULTS.has(error.code)) {
+        await upnpMappingRecord.removed(port, protocol);
+      }
+      throw error;
+    }
+    await upnpMappingRecord.removed(port, protocol);
+    return answer;
+  }
+}
 
 // config.upnp.gatewayUrl names the router's device description, used in place
 // of discovering the router; the node's address is then config.upnp.nodeIp.
 // A discovered router is kept between calls, and found again when it stops
 // answering where it was.
 const client = config.upnp.gatewayUrl
-  ? new natUpnp.Client({ url: config.upnp.gatewayUrl, localAddress: config.upnp.nodeIp || '127.0.0.1' })
-  : new natUpnp.Client({ cacheGateway: true });
+  ? new RecordingClient({ url: config.upnp.gatewayUrl, localAddress: config.upnp.nodeIp || '127.0.0.1' })
+  : new RecordingClient({ cacheGateway: true });
 
 // Emits 'removalPending' when a removal becomes pending with none pending
 // before, 'removalsClear' when the last pending removal goes, and

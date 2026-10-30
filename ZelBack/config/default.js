@@ -83,6 +83,7 @@ module.exports = {
         ipRanges: 'ipranges', // the IP location baseline, one document per allocated range, rebuilt and swapped in whole
         nodeLocations: 'nodelocations', // per-node view derived from the baseline, invalidated when a new baseline lands
         ownAddress: 'ownaddress', // the address this node last adopted as its own, and the one it moved from
+        upnpMappings: 'upnpmappings', // every UPnP mapping this node asked its router for and has not seen removed
       },
     },
     daemon: {
@@ -131,6 +132,10 @@ module.exports = {
   upnp: {
     gatewayUrl: '',
     nodeIp: '',
+    // The stale-mapping cleanup's wall-clock cycle, eight slots long: a node runs
+    // its cleanup once per start, in the slot its api port's tens digit names, and
+    // the slot is the pass's whole budget (upnpService.removeStaleMappings).
+    cleanupCycleMs: 10 * 60 * 1000,
     // a removal of this node's own mapping the router refuses is asked again
     // after this long, the wait doubling up to removalRetryMaxMs
     removalRetryFirstMs: 30 * 1000,

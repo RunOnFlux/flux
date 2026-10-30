@@ -246,6 +246,18 @@ export async function setUpnpLookupFault(ip, code) {
 }
 
 /**
+ * Set the fault a node's gateway answers every GetGenericPortMappingEntry with from now on: a
+ * router that will not list its table (401, 602 and 606 are the faults that say so). Keeps its
+ * table and the requests it has seen; each such answer carries `refused: <code>`.
+ * @param {string} ip
+ * @param {number|null} code - null answers as the spec says
+ */
+export async function setUpnpListFault(ip, code) {
+  const res = await post(`/upnp-gateway/${ip}/list-fault`, { code });
+  if (!res.ok) throw new Error(`setUpnpListFault: ${JSON.stringify(res)}`);
+}
+
+/**
  * Set the fault a node's gateway answers every removal with from now on, while still carrying
  * it out, and the same fault for a removal of an entry it does not hold, where the spec says
  * 714. Keeps its table and the requests it has seen; each such answer carries `refused: <code>`.

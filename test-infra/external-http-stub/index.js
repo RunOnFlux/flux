@@ -916,6 +916,11 @@ app.post('/upnp/control', express.text({ type: '*/*' }), (req, res) => {
       return;
     }
     case 'GetGenericPortMappingEntry': {
+      if (gateway.listFault) {
+        gateway.requests[gateway.requests.length - 1].refused = gateway.listFault;
+        soapFault(res, gateway.listFault, 'ActionFailed');
+        return;
+      }
       const entry = gateway.mappings[Number(arg('NewPortMappingIndex'))];
       if (!entry) {
         soapFault(res, 713, 'SpecifiedArrayIndexInvalid');
@@ -1144,6 +1149,19 @@ control.post('/upnp-gateway/:ip/lookup-fault', (req, res) => {
     return;
   }
   gateway.lookupFault = req.body?.code ?? null;
+  res.json({ ok: true });
+});
+
+// Set the fault a node's gateway answers every entry of a listing with from now
+// on (null: answer as the spec says), keeping its table and the requests it has
+// seen: a router that will not list its table.
+control.post('/upnp-gateway/:ip/list-fault', (req, res) => {
+  const gateway = state.upnpGateways[req.params.ip];
+  if (!gateway) {
+    res.status(404).json({ error: 'no gateway for that ip' });
+    return;
+  }
+  gateway.listFault = req.body?.code ?? null;
   res.json({ ok: true });
 });
 
