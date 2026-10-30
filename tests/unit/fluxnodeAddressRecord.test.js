@@ -239,6 +239,44 @@ describe('fluxnodeAddressRecord', () => {
       expect((await recordOf(C)).firstHeight, 'a node that left the list kept its old record').to.equal(base + 300);
     });
 
+    it('keeps the blocks below the tip when the tip moves on while it builds, as the explorer would', async () => {
+      // The tip moves on ADVANCE blocks before the rebuild fetches its first block:
+      // the oldest ADVANCE blocks are by then more than RECORD_BLOCKS deep.
+      const ADVANCE = 5;
+      const first = tip() - fluxnodeAddressRecord.RECORD_BLOCKS + 1;
+      const C = { txhash: 'ee'.repeat(32), outidx: '1' };
+      // D confirms in a skipped block and again, elsewhere, inside the blocks kept:
+      // the move between them was made before those blocks, so it is no longer applied.
+      const D = { txhash: 'ff'.repeat(32), outidx: '2' };
+      const events = new Map([
+        [first + 1, [confirmation(C, '198.51.100.1:16127')]],
+        [first + 2, [confirmation(D, '192.0.2.1:16127')]],
+        [first + 602, [confirmation(D, '192.0.2.2:16127')]],
+        // within CONFIRMATION_EXPIRY_BLOCKS of A's move, so A stays listed between them
+        [base - 200, [confirmation(A, '203.0.113.1:16127')]],
+        [base + 400, [confirmation(A, '203.0.113.2:16127')]],
+      ]);
+      const blockAt = (height) => ({ height, confirmations: tip() + ADVANCE - height + 1, tx: events.get(height) ?? [] });
+      const held = new Map();
+      const live = {
+        find: ({ _id: { $in: ids } }) => ({ toArray: async () => ids.filter((id) => held.has(id)).map((id) => ({ _id: id, ...held.get(id) })) }),
+        bulkWrite: async (writes) => writes.forEach(({ replaceOne: { filter, replacement } }) => held.set(filter._id, replacement)),
+        deleteMany: async ({ height: { $lt: below } }) => held.forEach((record, id) => { if (record.height < below) held.delete(id); }),
+      };
+      for (let height = first; height <= tip(); height += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await fluxnodeAddressRecord.writeBlock(blockAt(height), live);
+      }
+
+      await fluxnodeAddressRecord.rebuild(tip(), async (height) => blockAt(height), database);
+
+      const rebuilt = await records.find({}).sort({ _id: 1 }).toArray();
+      expect(rebuilt).to.deep.equal([...held].map(([_id, record]) => ({ _id, ...record })).sort((x, y) => x._id.localeCompare(y._id)));
+      expect(await recordOf(C), 'a confirmation more than RECORD_BLOCKS below the tip was kept').to.equal(null);
+      expect((await recordOf(D)).changes, 'a move made before the blocks kept was recorded').to.deep.equal([]);
+      expect(await fluxnodeAddressRecord.movedBetween(idOf(A), '203.0.113.1:16127', '203.0.113.2:16127')).to.equal(true);
+    });
+
     it('carries the record\'s indexes', async () => {
       await fluxnodeAddressRecord.rebuild(tip(), async (height) => chain(height), database);
 
