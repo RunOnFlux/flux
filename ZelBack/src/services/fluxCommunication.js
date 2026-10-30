@@ -72,7 +72,7 @@ async function handleAppMessages(message, fromIP, port) {
     // check if we have it in database and if not add
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
-    const rebroadcastToPeers = await messageStore.storeAppTemporaryMessage(message.data);
+    const rebroadcastToPeers = await messageStore.storeAppTemporaryMessage(message.data, { frame: message });
     if (rebroadcastToPeers === true) {
       fluxEventBus.publish('network:appmessage', { hash: message.data.hash, type: message.data.type, name: message.data.appSpecifications?.name });
       announceToPeers(message, `${fromIP}:${port}`);
