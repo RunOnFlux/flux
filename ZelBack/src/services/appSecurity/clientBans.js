@@ -3,7 +3,7 @@
 const net = require('net');
 const messageHelper = require('../messageHelper');
 const policyStore = require('../policyStore');
-const { resolveClientIp } = require('../utils/ingressCapture');
+const { isTrustedBalancer, resolveClientIp } = require('../utils/ingressCapture');
 
 // The addresses whose app messages no node takes: the `client` entries of the
 // network blocklist. A caller in one of their ranges is refused at every route
@@ -56,14 +56,17 @@ function rangesInForce() {
 
 /**
  * Whether the caller of a request is in a banned range. Behind a balancer in
- * `fdmAddresses` the caller is the address it forwarded.
+ * `fdmAddresses` the caller is the address it forwarded; a balancer itself is
+ * never banned.
  * @param {{remoteAddress?: string, headers?: object}} client The request's socket peer and headers
  * @returns {boolean}
  */
 function isBannedCaller({ remoteAddress, headers }) {
   const lists = rangesInForce();
   if (!lists) return false;
-  const { ip } = resolveClientIp(remoteAddress, headers);
+  const { ip, source } = resolveClientIp(remoteAddress, headers);
+  // A balancer that forwarded no caller is not the caller, and is never banned.
+  if (source === 'socket' && isTrustedBalancer(ip)) return false;
   const family = ip ? net.isIP(ip) : 0;
   if (!family) return false;
   return lists[family].check(ip, family === 4 ? 'ipv4' : 'ipv6');

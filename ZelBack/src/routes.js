@@ -556,7 +556,7 @@ module.exports = (app) => {
   app.post('/apps/verifyappupdatespecifications', refuseBannedCaller, asyncRoute((req, res) => { // returns formatted app specifications
     return appValidator.verifyAppUpdateApi(req, res);
   }));
-  app.post('/apps/placementfeasibility', asyncRoute((req, res) => { // fault domains and per-domain instance share for a prospective spec
+  app.post('/apps/placementfeasibility', refuseBannedCaller, asyncRoute((req, res) => { // fault domains and per-domain instance share for a prospective spec
     return placementFeasibility.placementFeasibilityAPI(req, res);
   }));
   app.get('/apps/placementlocations', rejectQueryParameters, cache('30 seconds'), asyncRoute((req, res) => { // node, fault-domain and tier counts per continent/country
