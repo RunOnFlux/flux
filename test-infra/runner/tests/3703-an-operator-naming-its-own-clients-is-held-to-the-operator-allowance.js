@@ -17,7 +17,7 @@ import { nodeKey } from '../framework/keys.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import {
-  currentTagHeight, freshClientTag, pendingMessage, signedFrame, admissionOf, pendingMessageOn,
+  currentTagHeight, freshClientTag, pendingMessage, admittingSignature, admissionOf, pendingMessageOn,
 } from '../framework/unpaid-messages.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -96,10 +96,10 @@ describe('an operator naming its own clients is held to the operator allowance',
     this.timeout(60000);
     const app = await unpaidApp();
     const admitted = { clientTag: freshClientTag(), clientTagHeight: await currentTagHeight() };
-    const origin = await signedFrame(pendingMessage(app, admitted), nodeKey(OTHER_ADMITTER + 1));
+    const origin = await admittingSignature(pendingMessage(app, admitted), nodeKey(OTHER_ADMITTER + 1));
     const mark = env.clients[OBSERVER].getLastEventId();
 
-    await stub.broadcast(pendingMessage(app, { ...admitted, origin: JSON.stringify(origin) }));
+    await stub.broadcast(pendingMessage(app, { ...admitted, origin }));
 
     const decision = await admissionOf(env.clients[OBSERVER], app.hash, mark);
     expect(decision, JSON.stringify(decision)).to.include({ taken: true, originKey: nodeKey(OTHER_ADMITTER + 1).pubkey });

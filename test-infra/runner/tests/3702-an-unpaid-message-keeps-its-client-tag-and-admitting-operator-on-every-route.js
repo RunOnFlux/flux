@@ -6,16 +6,17 @@
  * A registration enters through node 1's door, which tags its client. Every node
  * then holds it with that tag and node 1's key as the admitting operator,
  * including node 1, which takes its own message from a peer's reply. A node
- * started later takes it through temp sync, which carries the admitting frame,
- * and holds the same two values.
+ * started later takes it through temp sync, which carries the admitting node's
+ * signature, and holds the same two values.
  *
  * The stub peer is a listed node that relays. It sends messages with an
- * `origin`: a frame signed with node 2's key, as node 2 having admitted the
- * message. A reply putting another tag on top is stored with the tag the origin
- * signed. An origin for another message, one whose signature does not cover what
- * it carries, one signed by a key that is no node's, and one whose message holds
- * a field an app message does not have are each refused, as are a malformed tag
- * and a tag height two epochs old.
+ * `origin`: node 2's signature over the message, as node 2 having admitted it.
+ * The receiver rebuilds the signed message from the one it holds, so a relay
+ * carrying the tag node 2 signed is taken under node 2's key, and a relay putting
+ * another tag on the message is refused. A signature over another message, one
+ * by a key that is no node's, and one whose timestamp is not a number are each
+ * refused; so are a live frame carrying a field an app message does not have, a
+ * malformed tag and a tag height two epochs old.
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
@@ -26,7 +27,7 @@ import { buildSeedableApp } from '../framework/seed-helper.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import {
-  TAG_EPOCH_BLOCKS, currentTagHeight, freshClientTag, pendingMessage, signedFrame, pendingMessageOn, admissionOf,
+  TAG_EPOCH_BLOCKS, currentTagHeight, freshClientTag, pendingMessage, admittingSignature, pendingMessageOn, admissionOf,
 } from '../framework/unpaid-messages.js';
 import { waitFor, waitForOrchestratorState } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -62,10 +63,10 @@ describe('an unpaid app message keeps its client tag and admitting operator on e
     return buildSeedableApp({ env, name: `e2eorigin${appCount}x${stamp}`, instances: 1 });
   };
 
-  // The stub relays a message whose origin is node 2 admitting `admitted`.
+  // The stub relays a message carrying node 2's signature over `admitted`.
   const relayWithOrigin = async (app, admitted, onTop = {}) => {
-    const origin = await signedFrame(pendingMessage(app, admitted), nodeKey(ADMITTER + 1));
-    return stub.broadcast(pendingMessage(app, { ...admitted, ...onTop, origin: JSON.stringify(origin) }));
+    const origin = await admittingSignature(pendingMessage(app, admitted), nodeKey(ADMITTER + 1));
+    return stub.broadcast(pendingMessage(app, { ...admitted, ...onTop, origin }));
   };
 
   before(async function () {
@@ -112,11 +113,11 @@ describe('an unpaid app message keeps its client tag and admitting operator on e
     expect(docs.map((doc) => doc.originKey)).to.deep.equal(REAL.map(() => entryKey));
   });
 
-  it('serves the tag and the admitting operator, and not the admitting frame, on /apps/temporarymessages', async () => {
+  it('holds the admitting node\'s signature and not a second copy of the message', async () => {
     const doc = await pendingMessageOn(env.clients[0], registered);
 
     expect(doc).to.include.keys('clientTag', 'clientTagHeight', 'originKey');
-    expect(doc).to.not.have.property('origin');
+    expect(doc.origin).to.have.all.keys('version', 'timestamp', 'pubKey', 'signature');
   });
 
   it('a node that joins later takes it through temp sync with the same tag and admitting operator', async function () {
@@ -133,14 +134,13 @@ describe('an unpaid app message keeps its client tag and admitting operator on e
     expect(doc.originKey).to.equal(entryKey);
   });
 
-  it('a relayed message carrying another tag is held with the tag its origin signed', async function () {
+  it('a relay carrying the tag its origin signed is held under the admitting operator', async function () {
     this.timeout(120000);
     const app = await unpaidApp();
     const signedTag = freshClientTag();
-    const clientTagHeight = await currentTagHeight();
     const mark = env.clients[ENTRY].getLastEventId();
 
-    await relayWithOrigin(app, { clientTag: signedTag, clientTagHeight }, { clientTag: freshClientTag() });
+    await relayWithOrigin(app, { clientTag: signedTag, clientTagHeight: await currentTagHeight() });
 
     const decision = await admissionOf(env.clients[ENTRY], app.hash, mark);
     expect(decision, JSON.stringify(decision)).to.include({ taken: true, clientTag: signedTag, originKey: admitterKey });
@@ -150,23 +150,27 @@ describe('an unpaid app message keeps its client tag and admitting operator on e
   });
 
   const refusals = [
-    ['an origin for another message', async (app, other, clientTagHeight) => {
-      const origin = await signedFrame(pendingMessage(other, { clientTag: freshClientTag(), clientTagHeight }), nodeKey(ADMITTER + 1));
-      return pendingMessage(app, { origin: JSON.stringify(origin) });
-    }, 'its origin is for another message'],
-    ['an origin whose signature does not cover the tag it carries', async (app, other, clientTagHeight) => {
-      const origin = await signedFrame(pendingMessage(app, { clientTag: freshClientTag(), clientTagHeight }), nodeKey(ADMITTER + 1));
-      origin.data.clientTag = freshClientTag();
-      return pendingMessage(app, { origin: JSON.stringify(origin) });
+    ['a relay putting another tag on the message than its origin signed', async (app, other, clientTagHeight) => {
+      const origin = await admittingSignature(pendingMessage(app, { clientTag: freshClientTag(), clientTagHeight }), nodeKey(ADMITTER + 1));
+      return pendingMessage(app, { clientTag: freshClientTag(), clientTagHeight, origin });
     }, 'its origin does not verify (badSignature)'],
-    ['an origin signed by a key that is no node\'s', async (app, other, clientTagHeight) => {
-      const origin = await signedFrame(pendingMessage(app, { clientTag: freshClientTag(), clientTagHeight }), owner);
-      return pendingMessage(app, { origin: JSON.stringify(origin) });
+    ['a signature over another message', async (app, other, clientTagHeight) => {
+      const clientTag = freshClientTag();
+      const origin = await admittingSignature(pendingMessage(other, { clientTag, clientTagHeight }), nodeKey(ADMITTER + 1));
+      return pendingMessage(app, { clientTag, clientTagHeight, origin });
+    }, 'its origin does not verify (badSignature)'],
+    ['a signature by a key that is no node\'s', async (app, other, clientTagHeight) => {
+      const clientTag = freshClientTag();
+      const origin = await admittingSignature(pendingMessage(app, { clientTag, clientTagHeight }), owner);
+      return pendingMessage(app, { clientTag, clientTagHeight, origin });
     }, 'its origin does not verify (nodeNotFound)'],
-    ['an origin whose message carries a field an app message does not have', async (app, other, clientTagHeight) => {
-      const origin = await signedFrame(pendingMessage(app, { clientTag: freshClientTag(), clientTagHeight, padding: 'x'.repeat(4096) }), nodeKey(ADMITTER + 1));
-      return pendingMessage(app, { origin: JSON.stringify(origin) });
-    }, 'its origin carries fields an app message does not have: padding'],
+    ['a signature whose timestamp is not a number', async (app, other, clientTagHeight) => {
+      const clientTag = freshClientTag();
+      const origin = await admittingSignature(pendingMessage(app, { clientTag, clientTagHeight }), nodeKey(ADMITTER + 1));
+      return pendingMessage(app, { clientTag, clientTagHeight, origin: { ...origin, timestamp: 'x'.repeat(4096) } });
+    }, 'its origin is malformed'],
+    ['a live frame carrying a field an app message does not have', async (app, other, clientTagHeight) => pendingMessage(app, { clientTag: freshClientTag(), clientTagHeight, padding: 'x'.repeat(4096) }),
+      'it is not in the form its admitting node signs'],
     ['a malformed client tag', async (app, other, clientTagHeight) => pendingMessage(app, { clientTag: 'not-a-tag', clientTagHeight }),
       'its client tag is malformed'],
     ['a client tag height two epochs old', async (app, other, clientTagHeight) => pendingMessage(app, { clientTag: freshClientTag(), clientTagHeight: clientTagHeight - 2 * TAG_EPOCH_BLOCKS }),
