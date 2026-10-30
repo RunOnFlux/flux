@@ -9,7 +9,10 @@ import { bootAndPeer, installOnNodes, electionOrder } from '../framework/reconci
 import {
   waitFor, waitHolding, waitForGiveUpConsidered, waitForStartedGiveUpPasses,
 } from '../framework/wait.js';
-import { advanceBlock, driveUntil, startTicker, stopTicker } from '../framework/daemon-control.js';
+import {
+  advanceBlock, driveUntil, getState, startTicker, stopTicker,
+} from '../framework/daemon-control.js';
+import { loadSharedConfig } from '../framework/coupled-knobs.js';
 import {
   isDaemonUp, isFolderSynced, getFolderConfig, stopDaemon, startDaemon,
 } from '../framework/syncthing-real.js';
@@ -170,28 +173,40 @@ describe('a surplus trim keeps the copy running any g: component', function () {
 
   it('keeps the newest copy, which runs the second g: component with the first stopped, and trims the next copy instead', async function () {
     this.timeout(900000);
-    let kept = null;
-    const keeping = waitForGiveUpConsidered(
-      client(NEWEST), appName,
-      (d) => d.giveUp === false && d.reason === 'SURPLUS',
-      600000,
-      { afterId: client(NEWEST).getLastEventId() },
-    ).then((entry) => { kept = entry.data; return entry; });
-    keeping.catch(() => {});
+    // Each holder judges the pass's block on its own, and the next copy's trim
+    // reaches the newest as soon as it is made. The newest therefore decides
+    // first, with all three copies there: the next copy's explorer is held before
+    // the pass's block until the newest copy has declined to stand aside.
+    // The stub's tip: the drive has both holders process each block it mines.
+    const { fluxapps } = loadSharedConfig();
+    const tip = async () => (await getState()).currentHeight;
+    const startedAt = await tip();
+    const period = fluxapps.removeFluxAppsPeriod * (startedAt >= fluxapps.daemonPONFork ? 4 : 1);
+    const passHeight = (Math.floor(startedAt / period) + 1) * period;
+    await driveUntil(HOLDERS.map(client), async () => (await tip()) === passHeight - 1, {
+      blocks: period, label: 'both holders are a block below the trim pass',
+    });
 
-    // The pass runs every removeFluxAppsPeriod * speedMultiplier blocks and this
-    // drive spends about one period, so there is one attempt: a block is driven
-    // only while the newest copy is answering what the next copy will ask it.
-    // Both holders process each block before the next is sent, so both meet the
-    // pass's height as their tip and decide on the same block.
-    await driveUntil(HOLDERS.map(client), async () => {
-      if (!await installedOn(NEWEST)) return true;
-      if (!await installedOn(OLDER)) return kept !== null;
-      await waitFor(newestAnswersHeld, {
-        timeout: 120000, interval: 3000, label: 'the newest copy still answers heldcomponents before another block is driven',
-      });
-      return false;
-    }, { timeoutMs: 600000, label: 'a copy is trimmed and the newest has declined to stand aside' });
+    const seenOlder = client(OLDER).getLastEventId();
+    const seenNewest = client(NEWEST).getLastEventId();
+    await client(OLDER).holdCheckpoint('explorer:beforeBlock');
+    await waitFor(newestAnswersHeld, {
+      timeout: 120000, interval: 3000, label: 'the newest copy answers heldcomponents before the pass\'s block',
+    });
+    await advanceBlock();
+    await client(OLDER).waitForEvent('checkpoint:held', (d) => d.name === 'explorer:beforeBlock', 60000, { afterId: seenOlder });
+    const kept = (await waitForGiveUpConsidered(
+      client(NEWEST), appName, (d) => d.giveUp === false && d.reason === 'SURPLUS', 120000, { afterId: seenNewest },
+    )).data;
+    expect(await installedOn(OLDER), 'the next copy had not trimmed when the newest decided').to.equal(true);
+
+    await client(OLDER).releaseCheckpoint('explorer:beforeBlock');
+    await waitForGiveUpConsidered(
+      client(OLDER), appName, (d) => d.giveUp === true && d.reason === 'SURPLUS', 120000, { afterId: seenOlder },
+    );
+    await waitFor(async () => !await installedOn(OLDER), {
+      timeout: 180000, interval: 3000, label: 'the next copy has removed itself',
+    });
     await startTicker();
 
     expect(await installedOn(NEWEST), 'the newest copy, which runs web, is still installed').to.equal(true);
