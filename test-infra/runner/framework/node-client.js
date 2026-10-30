@@ -293,6 +293,8 @@ export function nodeClient(nodeNum) {
         'syncthing:ownersByNumber',
         'syncthing:listenerKnown',
         'availability:checked',
+        // what an availability pass's test mapping came to: { port, mapped, reason }
+        'availability:testMapping',
         // Whether startup verified UPnP on the node's router, and whether that router
         // restarts a lease when a mapping is added again: what the node's own mappings
         // are made with follows from the two.

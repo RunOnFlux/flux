@@ -860,6 +860,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
 
   // Setup firewall and UPnP ports (fail fast before downloading images)
   await setupApplicationPorts(appSpecifications, appName, isComponent, res, test);
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.INSTALL_AFTER_PORTS, appName);
 
   // Verify and pull Docker image
   await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs);

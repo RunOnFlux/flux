@@ -131,6 +131,12 @@ const Checkpoint = Object.freeze({
   // A port refresh has read the installed apps and not yet mapped this app's
   // ports. Keyed by app name.
   PORTS_REFRESH_BEFORE_APP: 'portsRefresh:beforeApp',
+  // An availability pass listens on its test port, found nothing of this node's
+  // on it, and has not yet asked the router to map it. Keyed by the port.
+  AVAILABILITY_BEFORE_TEST_MAPPING: 'availability:beforeTestMapping',
+  // A hard install has mapped a component's ports and has not yet pulled its
+  // image or created its container. Keyed by the app's name.
+  INSTALL_AFTER_PORTS: 'install:afterPorts',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.

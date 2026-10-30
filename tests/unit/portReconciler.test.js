@@ -1103,16 +1103,29 @@ describe('portReconciler tests', () => {
       expect(portReconciler.isWanted(31015)).to.equal(true);
     });
 
-    it('lets no test take over a port an installation holds', async () => {
+    it('lets no test take over a port an installation holds, and asks the router nothing for it', async () => {
       const attempt = {};
       await portReconciler.want(31016, 'Flux_App_web');
-      await portReconciler.want(31016, 'Flux_App_web', { holder: attempt });
       calls = [];
 
-      await portReconciler.release(31016, 'Flux_App_web', { holder: attempt });
+      const result = await portReconciler.want(31016, 'Flux_Test_App', { holder: attempt });
+      await portReconciler.release(31016, 'Flux_Test_App', { holder: attempt });
 
+      expect(result).to.deep.include({ mapped: false, reason: '31016 held by an installation' });
       expect(calls).to.deep.equal([]);
       expect(portReconciler.holds(31016, null)).to.equal(true);
+    });
+
+    it('leaves a test\'s port to an installation that maps it while the test holds it', async () => {
+      const attempt = {};
+      await portReconciler.want(31017, 'Flux_Test_App', { holder: attempt });
+      await portReconciler.want(31017, 'Flux_App_web');
+      calls = [];
+
+      await portReconciler.release(31017, 'Flux_Test_App', { holder: attempt });
+
+      expect(calls).to.deep.equal([]);
+      expect(portReconciler.holds(31017, null)).to.equal(true);
     });
 
     it('keeps a held port wanted when its map is refused, until its holder releases it', async () => {

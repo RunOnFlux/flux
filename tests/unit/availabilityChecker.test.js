@@ -385,6 +385,7 @@ describe('availabilityChecker tests', () => {
         sinon.stub(fluxNetworkHelper, 'deleteTestPortRule').resolves();
         sinon.stub(upnpService, 'routerRefusals').callsFake(() => refusals);
         sinon.stub(portReconciler, 'removalPending').returns(false);
+        sinon.stub(portReconciler, 'isWanted').returns(false);
         wantStub = sinon.stub(portReconciler, 'want').resolves(MAPPED);
         releaseStub = sinon.stub(portReconciler, 'release').resolves(true);
         sinon.stub(fluxHttpTestServer.FluxHttpTestServer.prototype, 'listen').callsFake(function listen() {
@@ -432,9 +433,28 @@ describe('availabilityChecker tests', () => {
       it('maps the port under test for one protocol a pass, TCP first', async () => {
         await pass();
 
-        sinon.assert.calledOnceWithExactly(wantStub, mockDosState.testingPort, 'Flux_Test_App', { protocols: ['TCP'] });
+        sinon.assert.calledOnceWithExactly(wantStub, mockDosState.testingPort, 'Flux_Test_App', { protocols: ['TCP'], holder: sinon.match.object });
         expect(JSON.parse(portTestStub.firstCall.args[1]).protocols).to.deep.equal(['tcp']);
         sinon.assert.notCalled(fluxUdpTestServer.FluxUdpTestServer);
+      });
+
+      // as a test, so a port an install maps meanwhile stays the install's
+      it('maps and releases the port under test as the pass\'s own holder', async () => {
+        await pass();
+
+        const { holder } = wantStub.firstCall.args[2];
+        expect(holder).to.be.an('object');
+        sinon.assert.calledOnceWithExactly(releaseStub, mockDosState.testingPort, 'Flux_Test_App', { holder: sinon.match.same(holder) });
+      });
+
+      it('skips a port this node maps on its router now, as it skips an installed app\'s', async () => {
+        portReconciler.isWanted.returns(true);
+
+        await pass();
+
+        sinon.assert.calledWith(portReconciler.isWanted, mockDosState.testingPort);
+        sinon.assert.notCalled(wantStub);
+        sinon.assert.notCalled(portTestStub);
       });
 
       it('asks the router for no mapping of a port it cannot listen on, and maps the next one', async () => {
@@ -452,7 +472,7 @@ describe('availabilityChecker tests', () => {
         await pass();
 
         sinon.assert.calledOnce(wantStub);
-        expect(wantStub.firstCall.args[2], 'the protocol a pass that did not test leaves').to.deep.equal({ protocols: ['TCP'] });
+        expect(wantStub.firstCall.args[2].protocols, 'the protocol a pass that did not test leaves').to.deep.equal(['TCP']);
       });
 
       it('tests UDP alone on the pass after a TCP pass that passed, and TCP after that', async () => {
@@ -463,13 +483,13 @@ describe('availabilityChecker tests', () => {
         });
         await pass();
 
-        expect(wantStub.secondCall.args[2]).to.deep.equal({ protocols: ['UDP'] });
+        expect(wantStub.secondCall.args[2].protocols).to.deep.equal(['UDP']);
         expect(JSON.parse(portTestStub.secondCall.args[1]).protocols).to.deep.equal(['udp']);
         expect(fluxHttpTestServer.FluxHttpTestServer.prototype.listen.callCount, 'a TCP test server on the UDP pass').to.equal(1);
         expect(fluxNetworkHelper.getUdpReachability()).to.deep.equal({ reachable: true });
 
         await pass();
-        expect(wantStub.thirdCall.args[2]).to.deep.equal({ protocols: ['TCP'] });
+        expect(wantStub.thirdCall.args[2].protocols).to.deep.equal(['TCP']);
       });
 
       // A peer that does not know `protocols` tests TCP, finds it unmapped, and
@@ -635,7 +655,7 @@ describe('availabilityChecker tests', () => {
 
         await pass();
 
-        sinon.assert.calledOnceWithExactly(releaseStub, mockDosState.testingPort, 'Flux_Test_App');
+        sinon.assert.calledOnceWithExactly(releaseStub, mockDosState.testingPort, 'Flux_Test_App', { holder: sinon.match.same(wantStub.firstCall.args[2].holder) });
       });
 
       it('opens the port under test to IPv4 only, and deletes only that rule', async () => {

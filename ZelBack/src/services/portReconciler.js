@@ -168,9 +168,10 @@ async function removeHeldTestMappings(port) {
 
 /**
  * The turn of want: the port is wanted, then mapped over each protocol in turn.
- * A port wanted with no holder - an installation's - stays so when a holder
- * wants it too: a test never takes over a port something installed holds. On a
- * failure the port is no longer wanted unless a holder holds it, which keeps it
+ * A port wanted with no holder - an installation's - is never asked of the
+ * router for a holder: a test's add would put the test's description and lease
+ * on the installation's mapping, so the test is answered not mapped and the
+ * port stays the installation's. On a failure the port is no longer wanted unless a holder holds it, which keeps it
  * until its own release; a protocol the router took is still recorded, for a
  * release to remove.
  * @param {number} port
@@ -183,6 +184,11 @@ async function mapPort(port, description, {
   protocols, counted, logged, holder, upkeep,
 }) {
   const current = wanted.get(port);
+  if (holder && current && current.holder === null) {
+    return {
+      mapped: false, code: null, reason: `${port} held by an installation`, routerWide: false,
+    };
+  }
   const heldFor = current && current.holder === null ? null : holder;
   releasedPorts.delete(port);
   wanted.set(port, { description, holder: heldFor });
