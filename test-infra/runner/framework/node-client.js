@@ -342,6 +342,8 @@ export function nodeClient(nodeNum) {
         'network:appremoved',
         'network:appmessage',
         'network:appmessageRefused',
+        // whether a node took an unpaid app message, and why not
+        'appmessage:admission',
         'network:ipchanged',
         'network:sigterm',
         'shutdown:started',
