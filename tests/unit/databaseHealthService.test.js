@@ -6,6 +6,7 @@ const { MongoClient } = require('mongodb');
 const log = require('../../ZelBack/src/lib/log');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const databaseHealthService = require('../../ZelBack/src/services/databaseHealthService');
+const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const { requireMongo } = require('./dbTestHelper');
 
 const { suspectWindowMs } = config.database;
@@ -124,27 +125,33 @@ describe('databaseHealthService tests', () => {
   });
 
   describe('against the driver', () => {
-    let real;
+    // The fixture is written and dropped through the suite's own client; only
+    // the reads under test go through the watched one, whose round trips run
+    // out after 100 ms.
+    let fixture;
+    let watched;
 
     before(requireMongo);
 
     beforeEach(async () => {
       clock.restore();
       databaseHealthService.stop();
-      real = new MongoClient(`mongodb://${config.database.url}:${config.database.port}`, { socketTimeoutMS: 100 });
-      await real.connect();
-      databaseHealthService.watch(real, 'probe');
+      fixture = dbHelper.databaseConnection().db(config.database.local.database).collection('databasehealthprobe');
+      await fixture.insertOne({ probe: 1 });
+      watched = new MongoClient(`mongodb://${config.database.url}:${config.database.port}`, { socketTimeoutMS: 100 });
+      await watched.connect();
+      databaseHealthService.watch(watched, 'probe');
     });
 
     afterEach(async () => {
-      await real.close();
+      await watched.close();
+      await fixture.drop();
     });
 
     it('counts one stuck read as two round trips, so two stuck reads hold the node', async function stuckReads() {
       this.timeout(10000);
       const ranOut = sinon.spy(log, 'warn');
-      const collection = real.db(config.database.local.database).collection('databasehealthprobe');
-      await collection.insertOne({ probe: 1 });
+      const collection = watched.db(config.database.local.database).collection('databasehealthprobe');
       const stuckRead = () => collection.findOne({ $where: 'sleep(400) || true' }).catch((error) => error);
 
       const first = await stuckRead();
@@ -156,9 +163,6 @@ describe('databaseHealthService tests', () => {
       await stuckRead();
 
       expect(fluxNetworkHelper.isPlacementHeld()).to.equal(true);
-      // the server's own sleeps end before the collection is dropped
-      await new Promise((resolve) => { setTimeout(resolve, 450); });
-      await collection.drop();
     });
   });
 });
