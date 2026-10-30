@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
+const axios = require('axios');
 const config = require('config');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
@@ -13,6 +14,8 @@ const globalState = require('../../ZelBack/src/services/utils/globalState');
 const bootGateAtStart = globalState.bootContainerStateSettled;
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const log = require('../../ZelBack/src/lib/log');
 const { requireMongo } = require('./dbTestHelper');
 
 describe('appController tests', () => {
@@ -1317,55 +1320,137 @@ describe('appController tests', () => {
   });
 
   describe('executeAppGlobalCommand tests', () => {
+    const thisNode = '192.168.1.3:16127';
+    const otherNode = '192.168.1.2:16127';
+
     beforeEach(() => {
-      const locations = [
-        { ip: '192.168.1.1:16127', name: 'TestApp' },
-        { ip: '192.168.1.2:16127', name: 'TestApp' },
-      ];
-      sinon.stub(dbHelper, 'findInDatabase').resolves(locations);
-      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.3:16127');
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(thisNode);
+      sinon.stub(serviceHelper, 'delay').resolves();
     });
 
-    it('should execute command on all app instances', async () => {
-      // eslint-disable-next-line global-require
-      const axios = require('axios');
+    it('sends the command to every instance that is not this node', async () => {
+      sinon.stub(dbHelper, 'findInDatabase').resolves([
+        { ip: '192.168.1.1:16127', name: 'TestApp' },
+        { ip: otherNode, name: 'TestApp' },
+      ]);
       const axiosStub = sinon.stub(axios, 'get').resolves({ status: 200 });
 
       await appController.executeAppGlobalCommand('TestApp', 'appstart', 'test-auth');
 
       sinon.assert.calledTwice(axiosStub);
+      sinon.assert.calledWith(axiosStub, 'http://192.168.1.1:16127/apps/appstart/TestApp');
+      sinon.assert.calledWith(axiosStub, `http://${otherNode}/apps/appstart/TestApp`);
     });
 
-    it('should skip own IP when bypassMyIp is true', async () => {
-      sinon.restore();
-      const locations = [
-        { ip: '192.168.1.3:16127', name: 'TestApp' },
-        { ip: '192.168.1.2:16127', name: 'TestApp' },
-      ];
-      sinon.stub(dbHelper, 'findInDatabase').resolves(locations);
-      // eslint-disable-next-line global-require, no-shadow
-      const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
-      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.3:16127');
+    it('runs the share for this node in process and sends this node no request', async () => {
+      sinon.stub(dbHelper, 'findInDatabase').resolves([
+        { ip: thisNode, name: 'TestApp' },
+        { ip: otherNode, name: 'TestApp' },
+      ]);
+      const axiosStub = sinon.stub(axios, 'get').resolves({ status: 200 });
+      const runHere = sinon.stub().resolves();
 
-      // eslint-disable-next-line global-require
-      const axios = require('axios');
+      await appController.executeAppGlobalCommand('TestApp', 'redeploy', 'test-auth', true, runHere);
+
+      sinon.assert.calledOnceWithExactly(runHere, 'TestApp', true);
+      sinon.assert.calledOnce(axiosStub);
+      sinon.assert.calledWith(axiosStub, `http://${otherNode}/apps/redeploy/TestApp/true`);
+    });
+
+    it('leaves this node out when the caller gives no share for it', async () => {
+      sinon.stub(dbHelper, 'findInDatabase').resolves([
+        { ip: thisNode, name: 'TestApp' },
+        { ip: otherNode, name: 'TestApp' },
+      ]);
       const axiosStub = sinon.stub(axios, 'get').resolves({ status: 200 });
 
-      await appController.executeAppGlobalCommand('TestApp', 'appstart', 'test-auth', null, true);
+      await appController.executeAppGlobalCommand('TestApp', 'apprestart', 'test-auth');
 
-      // Should only call once, skipping own IP
       sinon.assert.calledOnce(axiosStub);
+      sinon.assert.calledWith(axiosStub, `http://${otherNode}/apps/apprestart/TestApp`);
+    });
+
+    it('logs a failure of the share for this node and still sends the others', async () => {
+      sinon.stub(dbHelper, 'findInDatabase').resolves([
+        { ip: thisNode, name: 'TestApp' },
+        { ip: otherNode, name: 'TestApp' },
+      ]);
+      const axiosStub = sinon.stub(axios, 'get').resolves({ status: 200 });
+      const failure = new Error('not installed here');
+      const runHere = sinon.stub().rejects(failure);
+      const errorStub = sinon.stub(log, 'error');
+
+      await appController.executeAppGlobalCommand('TestApp', 'appstop', 'test-auth', undefined, runHere);
+
+      sinon.assert.calledWith(axiosStub, `http://${otherNode}/apps/appstop/TestApp`);
+      sinon.assert.calledWith(errorStub, failure);
+    });
+
+    // The route's global branch hands this node's share to the fan-out. With
+    // this node listed after another instance, the share has run once its
+    // effect lands, by which point the other instance has been sent its request.
+    describe('the share each route runs on this node', () => {
+      let axiosStub;
+
+      beforeEach(() => {
+        sinon.stub(dbHelper, 'findInDatabase').resolves([
+          { ip: otherNode, name: 'TestApp' },
+          { ip: thisNode, name: 'TestApp' },
+        ]);
+        axiosStub = sinon.stub(axios, 'get').resolves({ status: 200 });
+        verificationHelperStub.resolves(true);
+        stubInstalledApp({ name: 'TestApp', version: 3 });
+        if (!appReconciler.applyIntent.restore) {
+          sinon.stub(appReconciler, 'applyIntent').callsFake(async (id, mutate) => {
+            await mutate();
+            return true;
+          });
+        }
+        if (!appsRuntimeState.setOperatorStopped.restore) sinon.stub(appsRuntimeState, 'setOperatorStopped');
+        if (!appsRuntimeState.requestRestart.restore) sinon.stub(appsRuntimeState, 'requestRestart');
+      });
+
+      // Settles when the stub is first called: the last write of the share.
+      function reaching(stub) {
+        return new Promise((resolve) => {
+          stub.callsFake(async () => resolve());
+        });
+      }
+
+      const globalReq = () => ({ params: { appname: 'TestApp', global: 'true' }, query: {}, headers: { zelidauth: 'test-auth' } });
+      const res = () => ({ json: sinon.fake((param) => param) });
+
+      it('a global start clears the operator lock here', async () => {
+        const reached = reaching(appsRuntimeState.setOperatorStopped);
+        await appController.appStart(globalReq(), res());
+        await reached;
+
+        sinon.assert.calledWith(appsRuntimeState.setOperatorStopped, 'TestApp', false);
+        sinon.assert.notCalled(appsRuntimeState.requestRestart);
+        sinon.assert.calledOnceWithExactly(axiosStub, `http://${otherNode}/apps/appstart/TestApp`, sinon.match.object);
+      });
+
+      it('a global stop takes the operator lock here', async () => {
+        const reached = reaching(appsRuntimeState.setOperatorStopped);
+        await appController.appStop(globalReq(), res());
+        await reached;
+
+        sinon.assert.calledWith(appsRuntimeState.setOperatorStopped, 'TestApp', true);
+        sinon.assert.calledOnceWithExactly(axiosStub, `http://${otherNode}/apps/appstop/TestApp`, sinon.match.object);
+      });
+
+      it('a global restart raises the restart generation here', async () => {
+        const reached = reaching(appsRuntimeState.requestRestart);
+        await appController.appRestart(globalReq(), res());
+        await reached;
+        sinon.assert.calledWith(appsRuntimeState.setOperatorStopped, 'TestApp', false);
+        sinon.assert.calledOnceWithExactly(appsRuntimeState.requestRestart, 'TestApp');
+        sinon.assert.calledOnceWithExactly(axiosStub, `http://${otherNode}/apps/apprestart/TestApp`, sinon.match.object);
+      });
     });
   });
 
   describe('deliverGlobalCommand tests', () => {
-    // eslint-disable-next-line global-require
-    const axios = require('axios');
-    // eslint-disable-next-line global-require
-    const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-    // eslint-disable-next-line global-require
-    const log = require('../../ZelBack/src/lib/log');
-
     afterEach(() => sinon.restore());
 
     const boot503 = () => ({ response: { status: 503, headers: { 'retry-after': '15' } } });

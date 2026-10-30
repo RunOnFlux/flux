@@ -6,6 +6,7 @@ const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileg
 const { RemovalOutcome } = require('../../ZelBack/src/services/utils/removalOutcome');
 const { folderStates: folderStateMap } = require('../../ZelBack/src/services/utils/globalState');
 const { isContainerNotFound } = require('../../ZelBack/src/services/dockerService');
+const appController = require('../../ZelBack/src/services/appManagement/appController');
 
 describe('appUninstaller tests', () => {
   // The placement record is its own module with its own tests; here it is the
@@ -191,6 +192,17 @@ describe('appUninstaller tests', () => {
   });
 
   describe('removeAppLocallyApi', () => {
+    it('hands a global removal its share for this node, which runs in process', async () => {
+      const req = { params: { appname: 'testapp', global: true }, query: {} };
+      const res = { json: sinon.stub() };
+      verificationHelperStub.verifyPrivilege.resolves(true);
+      const globalCommand = sinon.stub(appController, 'executeAppGlobalCommand').resolves();
+
+      await appUninstaller.removeAppLocallyApi(req, res);
+
+      sinon.assert.calledOnceWithExactly(globalCommand, 'testapp', 'appremove', authOf(req), undefined, appUninstaller.removeHere);
+    });
+
     it('should reject unauthorized users', async () => {
       const req = {
         params: { appname: 'testapp' },
