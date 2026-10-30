@@ -187,6 +187,24 @@ describe('fluxnodeAddressRecord', () => {
       expect((await recordOf(B)).ip).to.equal('203.0.113.9:16127');
     });
 
+    it('answers a move that asks while it builds, once the record is built', async () => {
+      let release;
+      const held = new Promise((resolve) => { release = resolve; });
+      const building = fluxnodeAddressRecord.rebuild(tip(), async (height) => {
+        if (height === base) await held;
+        return chain(height);
+      }, database);
+
+      const asked = fluxnodeAddressRecord.whenRecorded(tip(), 5000);
+      const early = await Promise.race([asked, new Promise((resolve) => { setTimeout(() => resolve('waiting'), 100); })]);
+      expect(early, 'answered before the record held its blocks').to.equal('waiting');
+
+      release();
+      await building;
+      expect(await asked).to.equal(true);
+      expect(await fluxnodeAddressRecord.movedBetween(idOf(A), '203.0.113.1:16127', '203.0.113.2:16127')).to.equal(true);
+    });
+
     it('builds the record the explorer writes from the same blocks, one at a time', async () => {
       // A moves twice, the first change old enough to drop by the second; B
       // confirms once; C misses the confirmations that keep it listed and comes
