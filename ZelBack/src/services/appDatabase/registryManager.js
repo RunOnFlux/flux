@@ -2265,7 +2265,8 @@ async function registerAppGlobalyApi(req, res) {
       const messageHASH = await generalService.messageHash(message);
 
       // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
-      const temporaryAppMessage = { // specification of temp message
+      // As every node rebuilds it to check this node's signature on it.
+      const temporaryAppMessage = unpaidAdmission.admittedMessage({
         type: messageType,
         version: typeVersion,
         appSpecifications: appSpecFormatted,
@@ -2275,7 +2276,7 @@ async function registerAppGlobalyApi(req, res) {
         arcaneSender: isArcane,
         clientTag,
         clientTagHeight,
-      };
+      });
       await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
       await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing

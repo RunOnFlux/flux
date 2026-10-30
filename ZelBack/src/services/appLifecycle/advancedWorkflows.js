@@ -3666,7 +3666,8 @@ async function updateAppGlobaly(params) {
   const message = cleanMessageType + cleanTypeVersion + JSON.stringify(appSpecFormatted) + cleanTimestamp + cleanSignature;
   const messageHASH = await generalService.messageHash(message);
 
-  const temporaryAppMessage = {
+  // As every node rebuilds it to check this node's signature on it.
+  const temporaryAppMessage = unpaidAdmission.admittedMessage({
     type: cleanMessageType,
     version: cleanTypeVersion,
     appSpecifications: appSpecFormatted,
@@ -3676,7 +3677,7 @@ async function updateAppGlobaly(params) {
     arcaneSender: isArcane,
     clientTag,
     clientTagHeight,
-  };
+  });
 
   // eslint-disable-next-line global-require
   const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
