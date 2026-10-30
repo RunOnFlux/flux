@@ -31,10 +31,7 @@ function databaseConfig(prefix) {
       database: `${prefix}zelcashdata`,
       collections: {
         scannedHeight: 'scannedheight',
-        utxoIndex: 'utxoindex',
-        addressTransactionIndex: 'addresstransactionindex',
         appsHashes: 'zelappshashes',
-        coinbaseFusionIndex: 'coinbasefusionindex',
       },
     },
     appslocal: {
