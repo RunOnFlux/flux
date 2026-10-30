@@ -323,7 +323,6 @@ module.exports = {
     tempMsgTtlS: 3600,
     clientTagCap: 10,
     originKeyCap: 60,
-    untaggedCap: 60,
     hashSyncIntervalMs: 1800000,
     cpuCheckIntervalMs: 900000,
     statsSampleIntervalMs: 60000,

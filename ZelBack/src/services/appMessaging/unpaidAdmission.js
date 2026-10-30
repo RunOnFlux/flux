@@ -17,8 +17,10 @@ const { globalAppsTempMessages, appsHashesCollection } = require('../utils/appCo
 // signed, and the operator is known by that signature.
 //
 // A message without a tag was admitted or rebuilt by a release that does not
-// make them. Those share one allowance, and carry no origin: a rebuilt reply is
-// signed by whoever answered, not by whoever admitted.
+// make them. It is taken without a count, and carries no origin: a rebuilt reply
+// is signed by whoever answered, not by whoever admitted. An allowance shared by
+// those releases' messages is one an attacker submitting through them could use
+// up for every other client of them.
 //
 // Only unpaid messages are counted or refused. A hash with a payment on chain is
 // taken whatever it carries, and is left out of every count.
@@ -119,13 +121,7 @@ async function admitUnpaid(message, { frame, daemonHeight }) {
   if (resolved.refused) return { refused: resolved.refused };
 
   const { clientTag, clientTagHeight } = resolved.admitted;
-  if (clientTag === undefined) {
-    const { untaggedCap } = config.fluxapps;
-    if (await unpaidCount({ clientTag: null }) >= untaggedCap) {
-      return { refused: `${untaggedCap} unpaid app messages without a client tag are already pending` };
-    }
-    return { fields: {} };
-  }
+  if (clientTag === undefined) return { fields: {} };
 
   if (typeof clientTag !== 'string' || !TAG_PATTERN.test(clientTag)) return { refused: 'its client tag is malformed' };
   if (!tagHeightIsCurrent(clientTagHeight, daemonHeight)) return { refused: `its client tag height ${clientTagHeight} is not current` };

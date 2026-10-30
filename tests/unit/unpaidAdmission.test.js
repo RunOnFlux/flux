@@ -51,7 +51,7 @@ describe('unpaidAdmission tests', () => {
     unpaidAdmission = proxyquire('../../ZelBack/src/services/appMessaging/unpaidAdmission', {
       config: {
         database: { appsglobal: { database: 'appsglobal' }, daemon: { database: 'daemon' } },
-        fluxapps: { clientTagCap: 3, originKeyCap: 5, untaggedCap: 4 },
+        fluxapps: { clientTagCap: 3, originKeyCap: 5 },
       },
       '../dbHelper': dbHelper,
       '../fluxCommunicationUtils': { verifyBroadcasts, VerifyResult },
@@ -202,23 +202,23 @@ describe('unpaidAdmission tests', () => {
   });
 
   describe('admitUnpaid: a message without a tag', () => {
-    it('takes it within the shared allowance, storing nothing beside it', async () => {
-      holding({ clientTag: null }, 3);
+    it('takes it without counting anything, and stores nothing beside it', async () => {
+      // its frame may be an old node's rebuilt reply, which names whoever answered
       const data = message();
 
       const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data, RELAY_KEY), daemonHeight: TIP });
 
-      // its frame may be an old node's rebuilt reply, which names whoever answered
       expect(admission).to.deep.equal({ fields: {} });
+      sinon.assert.notCalled(dbHelper.findInDatabase);
     });
 
-    it('refuses it once the shared allowance is used', async () => {
-      holding({ clientTag: null }, 4);
+    it('takes it from an operator that has used its allowance for tagged messages', async () => {
+      holding({ originKey: ENTRY_KEY }, 5);
       const data = message();
 
       const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
 
-      expect(admission).to.deep.equal({ refused: '4 unpaid app messages without a client tag are already pending' });
+      expect(admission).to.deep.equal({ fields: {} });
     });
   });
 
