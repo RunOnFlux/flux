@@ -730,7 +730,7 @@ describe('appStartupManager tests', () => {
         await boot;
         expect(globalStateStub.bootContainerStateSettled, 'fixture: boot moved past the removal').to.equal(true);
 
-        const outcome = await nodeStatusMonitor.removeWithinDeadline(appUninstallerStub.removeAppLocally, 'stuck', true);
+        const outcome = await nodeStatusMonitor.removeWithinDeadline(appUninstallerStub.removeAppLocally, 'stuck');
         expect(outcome).to.equal(nodeStatusMonitor.STILL_REMOVING);
         sinon.assert.calledOnce(appUninstallerStub.removeAppLocally);
       } finally {

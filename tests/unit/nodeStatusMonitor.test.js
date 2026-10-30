@@ -149,7 +149,9 @@ describe('nodeStatusMonitor tests', () => {
       await new Promise((resolve) => { setImmediate(resolve); });
       await new Promise((resolve) => { setImmediate(resolve); });
 
-      sinon.assert.calledWith(removeAppLocallyFn, 'one');
+      // each removal is a hand-back the network should hear of; whether it can is the announcement's to read
+      sinon.assert.calledWithExactly(removeAppLocallyFn, 'one', null, true, false, true);
+      sinon.assert.calledWith(removeAppLocallyFn, 'two');
       sinon.assert.calledWithMatch(logStub.info, /going to be removed: IP changes over the limit/);
     });
   });

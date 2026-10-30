@@ -389,7 +389,7 @@ async function removeAllApps(reason) {
       log.warn(`REMOVAL REASON: ${reason} - removing ${app.name}`);
       // One removal that never returns must not hold boot, or every app after it.
       // eslint-disable-next-line no-await-in-loop
-      const outcome = await nodeStatusMonitor.removeWithinDeadline(appUninstaller.removeAppLocally, app.name, true);
+      const outcome = await nodeStatusMonitor.removeWithinDeadline(appUninstaller.removeAppLocally, app.name);
       if (outcome === TIMED_OUT) log.error(`appStartupManager - ${app.name} was not removed within ${config.fluxapps.appRemovalDeadlineMs / 1000}s, moving on`);
       else if (outcome === nodeStatusMonitor.STILL_REMOVING) log.warn(`appStartupManager - ${app.name} is still being removed, moving on`);
     }

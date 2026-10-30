@@ -37,14 +37,13 @@ const removalsRunning = new Set();
  * removal boot stopped waiting for is one the monitor does not start again.
  * @param {Function} removeAppLocallyFn
  * @param {string} name
- * @param {boolean} canBroadcast
  * @returns {Promise<string>} The removal's outcome, TIMED_OUT, or STILL_REMOVING.
  */
-async function removeWithinDeadline(removeAppLocallyFn, name, canBroadcast) {
+async function removeWithinDeadline(removeAppLocallyFn, name) {
   if (removalsRunning.has(name)) return STILL_REMOVING;
   removalsRunning.add(name);
   const removal = Promise.resolve()
-    .then(() => removeAppLocallyFn(name, null, true, false, canBroadcast))
+    .then(() => removeAppLocallyFn(name, null, true, false, true))
     .finally(() => removalsRunning.delete(name));
   return withinDeadline(removal, REMOVAL_DEADLINE_MS);
 }
@@ -57,11 +56,10 @@ const globalAppsLocations = config.database.appsglobal.collections.appsLocations
  * @param {Function} installedAppsFn
  * @param {Function} removeAppLocallyFn
  * @param {string} reason
- * @param {boolean} canBroadcast
  * @param {string|null} skip
  * @returns {Promise<void>}
  */
-async function removeInstalledApps(installedAppsFn, removeAppLocallyFn, reason, canBroadcast, skip) {
+async function removeInstalledApps(installedAppsFn, removeAppLocallyFn, reason, skip) {
   const installedAppsRes = await installedAppsFn();
   if (installedAppsRes.status !== 'success') {
     throw new Error('monitorNodeStatus - Failed to get installed Apps');
@@ -74,7 +72,7 @@ async function removeInstalledApps(installedAppsFn, removeAppLocallyFn, reason, 
       log.warn(`monitorNodeStatus - Removing application ${installedApp.name} locally`);
       // One removal that never returns must not hold every other app here.
       // eslint-disable-next-line no-await-in-loop
-      const outcome = await removeWithinDeadline(removeAppLocallyFn, installedApp.name, canBroadcast);
+      const outcome = await removeWithinDeadline(removeAppLocallyFn, installedApp.name);
       if (outcome === TIMED_OUT) {
         log.error(`monitorNodeStatus - Application ${installedApp.name} was not removed within ${REMOVAL_DEADLINE_MS / 1000}s, moving on`);
       } else if (outcome === STILL_REMOVING) {
@@ -107,14 +105,13 @@ async function removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, reason)
   if (removalInProgress) return;
   removalInProgress = true;
   try {
-    const canBroadcast = nodeConfirmationService.canSendMessages();
     const installRunning = globalState.installationInProgress;
     const installing = installRunning ? globalState.installingApp : null;
-    await removeInstalledApps(installedAppsFn, removeAppLocallyFn, reason, canBroadcast, installing);
+    await removeInstalledApps(installedAppsFn, removeAppLocallyFn, reason, installing);
     if (unloadingForHostStall || !(installRunning || globalState.installationInProgress)) return;
     log.info(`monitorNodeStatus - waiting for the running install${installing ? ` of ${installing}` : ''} to finish before removing what it installed: ${reason}`);
     await globalState.whenInstallationReleased();
-    await removeInstalledApps(installedAppsFn, removeAppLocallyFn, reason, canBroadcast, null);
+    await removeInstalledApps(installedAppsFn, removeAppLocallyFn, reason, null);
   } finally {
     removalInProgress = false;
   }
@@ -226,12 +223,11 @@ async function unloadForHostStall(installedAppsFn, removeAppLocallyFn) {
       ...(outsideSlices ? { outsideSlices } : {}),
     });
 
-    const canBroadcast = nodeConfirmationService.canSendMessages();
     // eslint-disable-next-line no-restricted-syntax
     for (const name of names) {
       log.warn(`monitorNodeStatus - Application ${name} going to be removed: host stall`);
       // eslint-disable-next-line no-await-in-loop
-      const outcome = await removeWithinDeadline(removeAppLocallyFn, name, canBroadcast)
+      const outcome = await removeWithinDeadline(removeAppLocallyFn, name)
         .catch(() => RemovalOutcome.FAILED);
       const { killed, runnable } = stopped.get(name);
       if (runnable?.length === 0 && outcome !== RemovalOutcome.REMOVED && outcome !== RemovalOutcome.NOT_INSTALLED) {

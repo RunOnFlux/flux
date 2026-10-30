@@ -16,6 +16,7 @@ const config = require('config');
 const upnpService = require('../upnpService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
+const nodeConfirmationService = require('../nodeConfirmationService');
 const { availableApps } = require('../appDatabase/registryManager');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
@@ -98,7 +99,8 @@ function finishRemoval(appName, force, announce) {
 /**
  * Tells the network this node no longer holds the app (fluxappremoved), and drops it
  * from the running apps cache. For an app whose removal from this node is complete or
- * committed.
+ * committed. Sends nothing while peers would not accept this node's messages
+ * (nodeConfirmationService.canSendMessages).
  * @param {string} appName
  * @returns {Promise<void>}
  */
@@ -114,6 +116,12 @@ async function announceRemoval(appName) {
   const ip = await fluxNetworkHelper.getLocalSocketAddress();
   if (!ip) {
     log.warn(`${appName} removed without announcing it - this node's own address is unknown, so peers hold its location row until it expires`);
+    return;
+  }
+  // Read as the message would go out: whether this node can be heard changes
+  // while a removal waits its turn.
+  if (!nodeConfirmationService.canSendMessages()) {
+    log.warn(`${appName} removed without announcing it - peers do not accept this node's messages, so they hold its location row until it expires`);
     return;
   }
   const appRemovedMessage = {
