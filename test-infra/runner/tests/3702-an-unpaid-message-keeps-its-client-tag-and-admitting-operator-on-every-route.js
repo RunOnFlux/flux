@@ -74,6 +74,9 @@ describe('an unpaid app message keeps its client tag and admitting operator on e
       nodes: NODES,
       stubPeers: [STUB],
       deferredNodes: 1,
+      // Every real node answers a state sync, so the late node's temp sync is
+      // answered whichever of them it peers with.
+      syncedNodes: REAL,
       configOverrides: { fdmAddresses: [getSubnetConfig().gateway] },
     });
     await bootAndPeer(env);
