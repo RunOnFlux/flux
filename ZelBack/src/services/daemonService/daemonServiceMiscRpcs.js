@@ -35,8 +35,9 @@ configManager.on('configReloaded', (newConfig) => {
 });
 
 /**
- * To check if Insight Explorer is activated in the daemon configuration file.
- * @returns {boolean} True if the daemon is configured with Insight Explorer on.
+ * Whether the daemon configuration file turns on Insight Explorer, which is what
+ * gives fluxd its address index (getaddressdeltas, getaddresstxids, getaddressutxos).
+ * @returns {boolean}
  */
 function isInsightExplorer() {
   if (isDaemonInsightExplorer != null) {
@@ -51,15 +52,6 @@ function isInsightExplorer() {
   return false;
 }
 
-/**
- * Whether the daemon configuration file turns on the address index, which
- * answers getaddressdeltas and getaddresstxids.
- * @returns {boolean}
- */
-function isAddressIndex() {
-  const value = daemonServiceUtils.getConfigValue('addressindex');
-  return value === 1 || value === '1';
-}
 
 // == NON Daemon ==
 /**
@@ -215,7 +207,6 @@ function setLastSuccessfulRpcCall(newValue) {
 }
 
 module.exports = {
-  isAddressIndex,
   isInsightExplorer,
   // == NON Daemon ==
   isDaemonSynced,
