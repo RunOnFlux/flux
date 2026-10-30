@@ -13,8 +13,9 @@
  * `origin`: a frame signed with node 2's key, as node 2 having admitted the
  * message. A reply putting another tag on top is stored with the tag the origin
  * signed. An origin for another message, one whose signature does not cover what
- * it carries, and one signed by a key that is no node's are each refused, as are
- * a malformed tag and a tag height two epochs old.
+ * it carries, one signed by a key that is no node's, and one whose message holds
+ * a field an app message does not have are each refused, as are a malformed tag
+ * and a tag height two epochs old.
  */
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
@@ -162,6 +163,10 @@ describe('an unpaid app message keeps its client tag and admitting operator on e
       const origin = await signedFrame(pendingMessage(app, { clientTag: freshClientTag(), clientTagHeight }), owner);
       return pendingMessage(app, { origin: JSON.stringify(origin) });
     }, 'its origin does not verify (nodeNotFound)'],
+    ['an origin whose message carries a field an app message does not have', async (app, other, clientTagHeight) => {
+      const origin = await signedFrame(pendingMessage(app, { clientTag: freshClientTag(), clientTagHeight, padding: 'x'.repeat(4096) }), nodeKey(ADMITTER + 1));
+      return pendingMessage(app, { origin: JSON.stringify(origin) });
+    }, 'its origin carries fields an app message does not have: padding'],
     ['a malformed client tag', async (app, other, clientTagHeight) => pendingMessage(app, { clientTag: 'not-a-tag', clientTagHeight }),
       'its client tag is malformed'],
     ['a client tag height two epochs old', async (app, other, clientTagHeight) => pendingMessage(app, { clientTag: freshClientTag(), clientTagHeight: clientTagHeight - 2 * TAG_EPOCH_BLOCKS }),

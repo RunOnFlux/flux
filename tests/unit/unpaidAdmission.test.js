@@ -122,6 +122,20 @@ describe('unpaidAdmission tests', () => {
       expect(admission).to.deep.equal({ refused: 'its admitting operator already has 5 unpaid app messages pending' });
     });
 
+    it('refuses a live frame carrying a field an app message does not have, before storing it as an origin', async () => {
+      const data = message({ clientTag: TAG, clientTagHeight: TAG_HEIGHT, padding: 'x'.repeat(64) });
+
+      const admission = await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP });
+
+      expect(admission).to.deep.equal({ refused: 'its origin carries fields an app message does not have: padding' });
+    });
+
+    it('takes a live untagged frame whatever else it carries, storing no origin', async () => {
+      const data = message({ padding: 'x'.repeat(64) });
+
+      expect(await unpaidAdmission.admitUnpaid(data, { frame: frameOf(data), daemonHeight: TIP })).to.deep.equal({ fields: {} });
+    });
+
     it('refuses a malformed tag and a tag height that is not current', async () => {
       const malformed = message({ clientTag: 'AB', clientTagHeight: TAG_HEIGHT });
       const stale = message({ clientTag: TAG, clientTagHeight: TAG_HEIGHT - 240 });
@@ -192,6 +206,22 @@ describe('unpaidAdmission tests', () => {
         () => expect.fail('should have failed'),
         (error) => expect(error.message).to.equal('The origin of hash1 could not be verified: db down'),
       );
+    });
+
+    it('refuses an origin whose message carries a field an app message does not have', async () => {
+      const origin = JSON.stringify(frameOf(message({ clientTag: TAG, clientTagHeight: TAG_HEIGHT, padding: 'x'.repeat(64) })));
+
+      const admission = await unpaidAdmission.admitUnpaid(message({ origin }), { daemonHeight: TIP });
+
+      expect(admission).to.deep.equal({ refused: 'its origin carries fields an app message does not have: padding' });
+    });
+
+    it('takes an origin carrying every field an admitting node sets', async () => {
+      const origin = JSON.stringify(frameOf(message({ arcaneSender: true, clientTag: TAG, clientTagHeight: TAG_HEIGHT })));
+
+      const admission = await unpaidAdmission.admitUnpaid(message({ origin }), { daemonHeight: TIP });
+
+      expect(admission.refused).to.equal(undefined);
     });
 
     it('refuses a tagged message that arrives without the frame that admitted it', async () => {
