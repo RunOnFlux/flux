@@ -26,13 +26,14 @@ const { startAppMonitoring } = require('../appManagement/appInspector');
 const imageVerifier = require('../utils/imageVerifier');
 const registryCredentialHelper = require('../utils/registryCredentialHelper');
 const upnpService = require('../upnpService');
+const portClaims = require('../appNetwork/portClaims');
 const globalState = require('../utils/globalState');
 const folderStates = require('../appMonitoring/folderStates');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const mountParser = require('../utils/mountParser');
 const { ensureStignoreCovers } = require('../appSystem/syncthingIgnorePolicy');
-const { findCommonArchitectures } = require('../utils/appUtilities');
+const { findCommonArchitectures, getAppPorts } = require('../utils/appUtilities');
 const log = require('../../lib/log');
 const { localAppsInformation } = require('../utils/appConstants');
 const appPlacements = require('../appManagement/appPlacements');
@@ -354,6 +355,9 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
   // announcement is built from that table, so the row is the claim, and the
   // teardown below has one to take back only once it exists.
   let claimed = false;
+  // This install's claim on the host ports it starts containers on, held until
+  // the install ends.
+  let portClaim = null;
   try {
     if (globalState.removalInProgress) {
       const rStatus = messageHelper.createWarningMessage('Another application is undergoing removal. Installation not possible.');
@@ -390,6 +394,18 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
     // A test install holds nothing: it writes the app's row like any other install
     // and throws it away, so the announcement must not read that row as a claim.
     if (test) globalState.testInstallingApps.add(appSpecs.name);
+    const hostPorts = componentSpecs ? (componentSpecs.ports ?? []).map(Number) : getAppPorts(appSpecs);
+    const ports = await portClaims.claimForInstall(hostPorts, appSpecs.name, portClaims.InstallStep.INSTALL);
+    if (!ports.claim) {
+      const rStatus = messageHelper.createWarningMessage(`Port ${ports.heldBy.ports.find((port) => hostPorts.includes(port))} of Flux App ${appSpecs.name} is held by an installation of ${ports.heldBy.owner}. Installation not possible`);
+      log.error(rStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(rStatus));
+        if (res.flush) res.flush();
+      }
+      return InstallOutcome.BUSY;
+    }
+    portClaim = ports.claim;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
       const rStatus = messageHelper.createErrorMessage('Failed to get Node Tier');
@@ -688,6 +704,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
     // costs the node every install, redeploy, spawn and reinstall pass it is offered
     // until FluxOS restarts.
     if (acquired) globalState.installationInProgress = false;
+    portClaims.release(portClaim);
     // The mark is bound to the hold: it is set under the hold with nothing awaited
     // in between, so a call that took the hold has a mark to take back. The
     // teardown is bound to the row: a call that never wrote one created nothing,
