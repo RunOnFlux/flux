@@ -45,13 +45,16 @@ async function run(container, command, what) {
 }
 
 /**
- * Takes a component's volume away for good: unmounted, its directory no longer
- * immutable, and its image removed, so nothing on the node can mount it again.
+ * Takes a component's volume away for good: its image removed, then unmounted,
+ * and its directory no longer immutable, so nothing on the node can mount it
+ * again. The image goes first: the mount keeps the deleted image until it is
+ * unmounted, so there is no moment at which the volume is unmounted and its
+ * image still there for the node to mount again.
  * @param {string} folderId The component's identifier, flux<component>_<app>.
  */
 export async function destroyFolderVolume(container, folderId) {
   const root = folderRoot(folderId);
-  await run(container, `umount -l ${sq(root)} && chattr -i ${sq(root)} && rm -f ${sq(folderImage(folderId))}`, `destroy the volume of ${folderId}`);
+  await run(container, `rm -f ${sq(folderImage(folderId))} && umount -l ${sq(root)} && chattr -i ${sq(root)}`, `destroy the volume of ${folderId}`);
 }
 
 const folderImageHeader = (folderId) => `${folderImage(folderId)}.header`;
