@@ -156,6 +156,9 @@ class FluxPeerSocket {
     this.lastTransmissionDelay = null;
     this.badMessageTimestamps = [];
     this.remoteCapabilities = new Set();
+    // This connection's Arcane link handshake (services/arcaneLink.js): null
+    // until it opens, and never carried to another connection.
+    this.link = null;
     this.remoteClockOffsetMs = null;
     this.remoteVersion = null;
     this.remoteFluxUptime = null;
@@ -516,6 +519,10 @@ const FLUX_CAPABILITIES = Object.freeze([
   // participant, it is not a participant: asking it spends a window waiting for a reply
   // that cannot come, and announcing to it logs an unrecognised type on its side.
   'policyBundle',
+  // This build authenticates links between Arcane nodes (services/arcaneLink.js).
+  // Only an Arcane node claims it: a legacy node's fluxbench cannot derive the
+  // link secret.
+  ...(process.env.FLUXOS_PATH ? ['arcaneLink'] : []),
 ]);
 
 module.exports = { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES };

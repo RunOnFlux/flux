@@ -13,6 +13,7 @@ const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSend
 const policyStore = require('./policyStore');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
+const arcaneLink = require('./arcaneLink');
 const messageHelper = require('./messageHelper');
 const { peerManager, PEER_SOURCE, CLOSE_CODES } = require('./utils/peerState');
 const { RUNNING_EXPIRY_MS } = require('./utils/appConstants');
@@ -1190,6 +1191,11 @@ register('fluxpolicyseq', (msg, peer) => policyStore.notePeerSeq(
 register('fluxpolicy', (msg, peer) => policyStore.offerBundle(
   msg.data.bundle, peer.key, msg.data.correlationId,
 ), ROUTE.GOSSIP, INTENT.ANSWER);
+
+// The Arcane link handshake: point to point, both directions, never relayed.
+register(arcaneLink.NONCE_TYPE, (msg, peer) => arcaneLink.handleNonce(msg, peer).catch((error) => log.error(error)), ROUTE.GOSSIP, INTENT.VARIES);
+register(arcaneLink.CONFIRM_TYPE, (msg, peer) => arcaneLink.handleConfirm(msg, peer), ROUTE.GOSSIP, INTENT.VARIES);
+peerManager.on('peerConnected', (key) => arcaneLink.startLink(key).catch((error) => log.error(error)));
 
 // Answers to a sync this node asked for, which is why they are ordered.
 register('fluxapptempsync', handleTempSyncResponse, ROUTE.ORDERED, INTENT.ANSWER);
