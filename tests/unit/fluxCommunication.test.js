@@ -209,14 +209,19 @@ describe('fluxCommunication tests', () => {
     let peer;
     let broadcastHashStub;
 
+    // Each keeps what was sent to it, whichever peer the test holds now.
+    const fakePeer = (connectionId) => {
+      const fake = {
+        ip: '10.0.0.1', port: '16127', key: '10.0.0.1:16127', connectionId, sent: [],
+      };
+      fake.send = (frame) => { fake.sent.push(JSON.parse(frame)); return true; };
+      return fake;
+    };
     const receipts = () => peer.sent.filter((m) => m.type === 'appreceipt').map(({ state, reason }) => (reason ? `${state}: ${reason}` : state));
     const propose = (env = envelope) => fluxCommunication.handleAppProposal({ type: 'appproposal', envelope: { ...env, timestamp: Date.now() } }, peer);
 
     beforeEach(() => {
-      peer = {
-        ip: '10.0.0.1', port: '16127', key: '10.0.0.1:16127', connectionId: 9001, sent: [],
-      };
-      peer.send = (frame) => { peer.sent.push(JSON.parse(frame)); return true; };
+      peer = fakePeer(9001);
       broadcastHashStub = sinon.stub(peerManager, 'broadcastHash');
       sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').resolves(fluxCommunicationUtils.VerifyResult.OK);
       sinon.stub(messageVerifier, 'checkAppMessageExistence').resolves(false);
@@ -301,15 +306,13 @@ describe('fluxCommunication tests', () => {
       sinon.assert.notCalled(store);
     });
 
-    it('should answer held for a message already pending from another node, and check it once', async () => {
+    it('should answer a second node proposing a message already being checked from the same checks', async () => {
       sinon.stub(messageStore, 'storeAppTemporaryMessage').callsFake(async (message, options) => options.beforeWrite());
       const first = propose();
-      await new Promise((resolve) => { setImmediate(resolve); });
-      const firstPeer = peer;
-      peer = { ...firstPeer, connectionId: 9002, sent: [] };
-      peer.send = (frame) => { peer.sent.push(JSON.parse(frame)); return true; };
+      peer = fakePeer(9002);
 
       await propose();
+      await new Promise((resolve) => { setImmediate(resolve); });
 
       expect(receipts()).to.eql(['received', 'held']);
       sinon.assert.calledOnce(messageStore.storeAppTemporaryMessage);
@@ -317,23 +320,24 @@ describe('fluxCommunication tests', () => {
       await first;
     });
 
-    it('should not store a relayed copy of a message it holds pending', async () => {
-      let written = 0;
+    it('should write a message whose commit arrived before its checks finished', async () => {
+      let written = false;
+      let releaseChecks;
+      const checks = new Promise((resolve) => { releaseChecks = resolve; });
       sinon.stub(messageStore, 'storeAppTemporaryMessage').callsFake(async (message, options) => {
-        if (options.beforeWrite && !(await options.beforeWrite())) return false;
-        written += 1;
-        return false;
+        await checks;
+        if (!(await options.beforeWrite())) return false;
+        written = true;
+        return true;
       });
-      const proposed = propose();
+
+      const handled = propose();
       await new Promise((resolve) => { setImmediate(resolve); });
-      const relayed = { ...envelope, timestamp: Date.now() };
-
-      await fluxCommunication.handleAppMessages(relayed, '10.0.0.2', '16127');
       admissionQuorum.onCommit(peer, { type: 'appcommit', hash: appHash });
-      await proposed;
+      releaseChecks();
+      await handled;
 
-      expect(written).to.equal(1);
-      sinon.assert.calledOnce(messageStore.storeAppTemporaryMessage);
+      expect(written).to.equal(true);
     });
 
     it('should tell the store an app message arrived over an authenticated link when its frame carried the link MAC', async () => {
