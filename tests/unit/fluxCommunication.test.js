@@ -1,4 +1,5 @@
 /* eslint-disable no-underscore-dangle */
+const EventEmitter = require('node:events');
 const sinon = require('sinon');
 const objectHash = require('object-hash');
 const WebSocket = require('ws');
@@ -27,7 +28,7 @@ const networkStateService = require('../../ZelBack/src/services/networkStateServ
 const verifyPool = require('../../ZelBack/src/services/utils/verifyPool');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
-const { PEER_SOURCE } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
+const { PEER_SOURCE, FluxPeerSocket } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
 const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
@@ -249,6 +250,7 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledOnceWithExactly(broadcastHashStub, objectHash(envelope.data), peer.key);
       expect(cacheManager.announcementSeen.has(objectHash(envelope.data))).to.equal(true);
       expect(messageStore.storeAppTemporaryMessage.firstCall.args[1].frame.pubKey).to.equal('entryKey');
+      expect(messageStore.storeAppTemporaryMessage.firstCall.args[1].authenticated).to.equal(true);
     });
 
     it('should refuse, with why, a message admission does not take', async () => {
@@ -332,6 +334,28 @@ describe('fluxCommunication tests', () => {
 
       expect(written).to.equal(1);
       sinon.assert.calledOnce(messageStore.storeAppTemporaryMessage);
+    });
+
+    it('should tell the store an app message arrived over an authenticated link when its frame carried the link MAC', async () => {
+      // A frame through a real socket pair whose link has authenticated.
+      sinon.stub(rateLimit, 'lruRateLimit').returns(true);
+      const keyAtoB = Buffer.alloc(32, 1);
+      const keyBtoA = Buffer.alloc(32, 2);
+      const fakeWs = () => Object.assign(new EventEmitter(), { readyState: WebSocket.OPEN, send: sinon.stub() });
+      let delivered;
+      const manager = { messageDispatcher: async (msgObj) => { delivered = msgObj; } };
+      const sender = new FluxPeerSocket(fakeWs(), '10.0.0.2', '16127', manager);
+      const receiver = new FluxPeerSocket(fakeWs(), '10.0.0.1', '16127', manager);
+      sender.link = { authenticated: true, sendKey: keyAtoB, recvKey: keyBtoA };
+      receiver.link = { authenticated: true, sendKey: keyBtoA, recvKey: keyAtoB };
+      sender.send(JSON.stringify({ ...envelope, timestamp: Date.now() }));
+      receiver.ws.onmessage({ data: sender.ws.send.firstCall.args[0] });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      const store = sinon.stub(messageStore, 'storeAppTemporaryMessage').resolves(false);
+
+      await fluxCommunication.handleAppMessages(delivered, '10.0.0.2', '16127');
+
+      expect(store.firstCall.args[1].authenticated).to.equal(true);
     });
 
     it('should ignore a proposal that is not an app message', async () => {
@@ -1907,7 +1931,7 @@ describe('fluxCommunication tests', () => {
 
         sinon.assert.calledOnceWithExactly(verifyFluxBroadcast, JSON.parse(message), undefined, sinon.match.number);
         // the frame travels with the message: it is the origin of a live announcement
-        sinon.assert.calledOnceWithExactly(storeAppTemporaryMessageStub, JSON.parse(message).data, { frame: JSON.parse(message) });
+        sinon.assert.calledOnceWithExactly(storeAppTemporaryMessageStub, JSON.parse(message).data, { frame: JSON.parse(message), authenticated: false });
       });
     }
 
@@ -2948,6 +2972,14 @@ describe('fluxCommunication tests', () => {
           expect(writeFailures, 'a message the peer got wrong ended the request').to.deep.equal([]);
           expect(completions).to.deep.equal([{ syncType: 'apptemp', peerKey: PEER }]);
           sinon.assert.calledTwice(messageStore.storeAppTemporaryMessage);
+        });
+
+        it('tells the store a sync answer that carried no link MAC did not arrive over an authenticated link', async () => {
+          sinon.stub(messageStore, 'storeAppTemporaryMessage').resolves(true);
+
+          await respond('handleTempSyncResponse', 'fluxapptempsync', [temp()], true);
+
+          expect(messageStore.storeAppTemporaryMessage.firstCall.args[1]).to.include({ authenticated: false });
         });
       });
 

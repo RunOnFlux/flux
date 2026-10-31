@@ -13,6 +13,7 @@ describe('messageStore tests', () => {
     '../utils/appConstants': { globalAppsTempMessages: 'appsTempMessages' },
   });
   let messageStore;
+  let messageStoreStubs;
   let checkAndDecryptStub;
   let dbHelperStub;
   let serviceHelperStub;
@@ -76,7 +77,7 @@ describe('messageStore tests', () => {
     };
 
     // Proxy require
-    messageStore = proxyquire('../../ZelBack/src/services/appMessaging/messageStore', {
+    messageStoreStubs = {
       config: configStub,
       '../dbHelper': dbHelperStub,
       '../serviceHelper': serviceHelperStub,
@@ -121,7 +122,8 @@ describe('messageStore tests', () => {
       '../utils/appSpecHelpers': {
         specificationFormatter: sinon.stub().returnsArg(0),
       },
-    });
+    };
+    messageStore = proxyquire('../../ZelBack/src/services/appMessaging/messageStore', messageStoreStubs);
   });
 
   afterEach(() => {
@@ -249,6 +251,64 @@ describe('messageStore tests', () => {
         messageVerifierStub.checkAndRequestApp = sinon.stub().resolves(true);
         dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
         dbHelperStub.insertOneToDatabase.resolves();
+      });
+
+      describe('on an Arcane node', () => {
+        const event = () => fluxEventBusPublished.find(([name]) => name === 'appmessage:admission')?.[1];
+        let fluxEventBusPublished;
+
+        beforeEach(() => {
+          const before = process.env.FLUXOS_PATH;
+          process.env.FLUXOS_PATH = '/flux';
+          fluxEventBusPublished = [];
+          messageStore = proxyquire('../../ZelBack/src/services/appMessaging/messageStore', {
+            ...messageStoreStubs,
+            '../utils/fluxEventBus': { publish: (...args) => fluxEventBusPublished.push(args) },
+          });
+          if (before === undefined) delete process.env.FLUXOS_PATH;
+          else process.env.FLUXOS_PATH = before;
+        });
+
+        it('refuses an unpaid message that did not arrive over an authenticated link, and says why', async () => {
+          dbHelperStub.findOneInDatabase.resolves(null);
+          const onRefusal = sinon.stub();
+
+          const result = await messageStore.storeAppTemporaryMessage(pending, { onRefusal });
+
+          expect(result).to.equal(false);
+          sinon.assert.notCalled(unpaidAdmissionStub.admitUnpaid);
+          sinon.assert.notCalled(dbHelperStub.insertOneToDatabase);
+          sinon.assert.calledOnceWithExactly(onRefusal, 'it did not arrive over an authenticated Arcane link');
+          expect(event()).to.include({ hash: 'hash123', taken: false, reason: 'it did not arrive over an authenticated Arcane link' });
+        });
+
+        it('admits an unpaid message that arrived over an authenticated link', async () => {
+          dbHelperStub.findOneInDatabase.resolves(null);
+
+          const result = await messageStore.storeAppTemporaryMessage(pending, { authenticated: true });
+
+          expect(result).to.equal(true);
+          sinon.assert.calledOnce(unpaidAdmissionStub.admitUnpaid);
+          expect(event()).to.include({ taken: true });
+        });
+
+        it('takes a paid message from any link', async () => {
+          dbHelperStub.findOneInDatabase.resolves({ height: 900, txid: 't', value: 1 });
+
+          await messageStore.storeAppTemporaryMessage(pending);
+
+          sinon.assert.notCalled(unpaidAdmissionStub.admitUnpaid);
+          sinon.assert.calledOnce(dbHelperStub.insertOneToDatabase);
+        });
+      });
+
+      it('takes an unpaid message from any link on a node that is not Arcane', async () => {
+        dbHelperStub.findOneInDatabase.resolves(null);
+
+        const result = await messageStore.storeAppTemporaryMessage(pending);
+
+        expect(result).to.equal(true);
+        sinon.assert.calledOnce(unpaidAdmissionStub.admitUnpaid);
       });
 
       it('asks about an unpaid message with the frame it arrived in, before verifying it', async () => {
