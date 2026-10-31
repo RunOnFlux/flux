@@ -49,6 +49,7 @@ const SHUTDOWN_BUDGET_MS = PM2_KILL_TIMEOUT_MS - SHUTDOWN_EXIT_MS;
 const SHUTDOWN_PAUSE_MS = 3000;
 const verifyPool = require('./ZelBack/src/services/utils/verifyPool');
 const portFile = require('./ZelBack/src/services/utils/portFile');
+const fluxdCredentials = require('./ZelBack/src/services/daemonService/fluxdCredentials');
 
 const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = +apiPort + 1;
@@ -193,6 +194,13 @@ async function configReload() {
 async function initiate() {
   if (!config.server.allowedPorts.includes(+apiPort)) {
     await logErrorAndExit(`Flux port ${apiPort} is not supported. Shutting down.`, { exitCode: systemdNotify.EXIT_CONFIG });
+  }
+  // The node key credential decides how FluxOS reaches fluxd; one that exists but
+  // cannot be used stops FluxOS before it serves anything.
+  try {
+    await fluxdCredentials.loadNodeKey();
+  } catch (error) {
+    await logErrorAndExit(`${error.message}. Shutting down.`, { exitCode: systemdNotify.EXIT_CONFIG });
   }
 
   process.on('uncaughtException', (err) => {

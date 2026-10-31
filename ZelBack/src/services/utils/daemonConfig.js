@@ -12,10 +12,6 @@ class DaemonConfig {
       zelPath: 'Zelcash/zelcash.conf',
       fluxPath: 'Flux/flux.conf',
     },
-    win32: {
-      zelDir: 'Zelcash/zelcash.conf',
-      fluxDir: 'Flux/flux.conf',
-    },
   };
 
   #resolveAttempted = false;
@@ -37,9 +33,6 @@ class DaemonConfig {
         break;
       case 'darwin':
         this.baseDir = path.join(os.homedir(), 'Library/Application Support');
-        break;
-      case 'win32':
-        this.baseDir = process.env.APPDATA;
         break;
       default:
         throw new Error('Unsupported platform');
@@ -64,6 +57,16 @@ class DaemonConfig {
 
   get configDir() {
     return this.#absConfigPath ? path.dirname(this.#absConfigPath) : null;
+  }
+
+  /**
+   * fluxd's data directory: flux.conf's `datadir`, otherwise the directory
+   * flux.conf is in, or fluxd's default directory when there is no flux.conf.
+   * @returns {string}
+   */
+  get dataDir() {
+    const { fluxPath } = DaemonConfig.daemonConfigPaths[this.platform];
+    return this.get('datadir') || this.configDir || path.dirname(path.join(this.baseDir, fluxPath));
   }
 
   get rpcuser() {
