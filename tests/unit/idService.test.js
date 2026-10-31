@@ -38,6 +38,13 @@ const idService = proxyquire(
 chai.use(chaiAsPromised);
 const { expect } = chai;
 
+// Resolves with the response's answer once the handler gives it: a handler that
+// reads its body from a stream answers after it returns.
+const answerOf = (res) => new Promise((resolve) => {
+  // eslint-disable-next-line no-param-reassign
+  res.json = sinon.fake(resolve);
+});
+
 const generateResponse = () => {
   const res = { test: 'testing' };
   res.status = sinon.stub().returns(res);
@@ -594,8 +601,11 @@ describe('idService tests', () => {
         },
       };
 
+      const answered = answerOf(res);
+
       await idService.verifyLogin(mockStream, res);
-      await serviceHelper.delay(100);
+
+      await answered;
 
       sinon.assert.calledOnceWithExactly(res.json, expectedError);
     });
@@ -625,8 +635,11 @@ describe('idService tests', () => {
         },
       };
 
+      const answered = answerOf(res);
+
       await idService.verifyLogin(mockStream, res);
-      await serviceHelper.delay(100);
+
+      await answered;
 
       sinon.assert.calledOnceWithExactly(res.json, expectedError);
     });
@@ -657,8 +670,11 @@ describe('idService tests', () => {
         },
       };
 
+      const answered = answerOf(res);
+
       await idService.verifyLogin(mockStream, res);
-      await serviceHelper.delay(100);
+
+      await answered;
 
       sinon.assert.calledOnceWithExactly(res.json, expectedError);
     });
@@ -693,8 +709,11 @@ describe('idService tests', () => {
         },
       };
 
+      const answered = answerOf(res);
+
       await idService.verifyLogin(mockStream, res);
-      await serviceHelper.delay(100);
+
+      await answered;
 
       sinon.assert.calledOnceWithMatch(res.json, expectedError);
     });
@@ -711,8 +730,9 @@ describe('idService tests', () => {
       mockStream.push(JSON.stringify({ zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg', signature: '1234356asdf', message }));
       mockStream.end();
       const res = generateResponse();
+      const answered = answerOf(res);
       await idService.verifyLogin(mockStream, res);
-      await serviceHelper.delay(100);
+      await answered;
       return { res, insertStub };
     };
 
@@ -745,8 +765,11 @@ describe('idService tests', () => {
       mockStream.end();
       const res = generateResponse();
 
+      const answered = answerOf(res);
+
       await idService.verifyLogin(mockStream, res);
-      await serviceHelper.delay(100);
+
+      await answered;
 
       const signatureInsert = insertStub.withArgs(sinon.match.any, 'loginsignatures');
       const loginInsert = insertStub.withArgs(sinon.match.any, 'loggedusers');
@@ -758,8 +781,9 @@ describe('idService tests', () => {
       sinon.assert.calledOnce(loginInsert);
       expect(loginInsert.firstCall.args[2]).to.not.have.property('signature');
       sinon.assert.callOrder(signatureInsert, loginInsert);
-      // the database driver keeps its own short timers; a login schedules nothing
-      const minuteOut = Object.values(clock.timers).filter((timer) => timer.delay >= 60000);
+      // the database driver keeps its own short timers; a login schedules nothing.
+      // The fake clock holds no timers object until something is scheduled.
+      const minuteOut = Object.values(clock.timers ?? {}).filter((timer) => timer.delay >= 60000);
       expect(minuteOut).to.have.length(0);
     });
   });
@@ -971,8 +995,11 @@ describe('idService tests', () => {
         },
       };
 
+      const answered = answerOf(res);
+
       await idService.provideSign(mockStream, res);
-      await serviceHelper.delay(100);
+
+      await answered;
 
       sinon.assert.calledOnceWithMatch(res.json, expectedError);
     });
@@ -1569,9 +1596,10 @@ describe('idService tests', () => {
       stream.push(JSON.stringify({ zelid, signature: '1234356asdf', message: phrase }));
       stream.end();
       const res = generateResponse();
+      // verifyLogin reads the body from the stream and answers once it has it
+      const answered = new Promise((resolve) => { res.json = sinon.fake(resolve); });
       await idService.verifyLogin(stream, res);
-      await serviceHelper.delay(100);
-      return res.json.firstCall.args[0];
+      return answered;
     }
 
     beforeEach(async () => {
