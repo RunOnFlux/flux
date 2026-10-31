@@ -2,44 +2,30 @@
 
 const crypto = require('crypto');
 const net = require('net');
-const { promisify } = require('util');
 const daemonServiceUtils = require('../daemonService/daemonServiceUtils');
+const benchmarkService = require('../benchmarkService');
 const { resolveClientIp } = require('./ingressCapture');
-const { AsyncLock } = require('./asyncLock');
 
 // The tag an entry node puts on an unpaid app message for the client that sent
 // it. Every node counts unpaid messages per tag, so one client is held to the
 // same allowance whichever nodes it submits through.
 //
-// The tag is scrypt over the client's address, salted with the hash of a recent
-// block. Nobody can build a table for a salt before its block exists, and
-// scrypt makes searching the address space for one salt cost decades of CPU.
-// Receivers never compute a tag; they compare them.
+// The tag is an HMAC of the client's address under an epoch key: fluxbench's
+// node-auth encryption of the hash of a recent block, which every Arcane node
+// computes alike and no other can. Only Arcane nodes admit unpaid messages, so
+// only they ever compute a tag; without the key, a tag tells nobody whether a
+// guessed address made it. Receivers never compute a tag; they compare them.
 
-// The salt is the block at the newest multiple of TAG_EPOCH_BLOCKS that is at
-// least TAG_DEPTH_BLOCKS deep, so it changes hourly and a one-block reorg at the
-// tip does not change it.
+// The key's block is the newest multiple of TAG_EPOCH_BLOCKS that is at least
+// TAG_DEPTH_BLOCKS deep, so it changes hourly and a one-block reorg at the tip
+// does not change it.
 const TAG_EPOCH_BLOCKS = 120;
 const TAG_DEPTH_BLOCKS = 10;
 
-// About 0.35 s and 128 MB per tag.
-const SCRYPT_OPTIONS = Object.freeze({
-  N: 2 ** 17, r: 8, p: 1, maxmem: 256 * 1024 * 1024,
-});
-const TAG_BYTES = 32;
-
-// One scrypt runs at a time, because each holds 128 MB. Callers past
-// MAX_WAITING are refused rather than queued without bound.
-const MAX_WAITING = 20;
-
-const scrypt = promisify(crypto.scrypt);
-
-const scryptLock = new AsyncLock();
-
-// Tags for the current salt, keyed by address prefix. Cleared when the salt
-// height moves.
-const tags = new Map();
-let tagsHeight = null;
+// The epoch key for each height asked for, one fluxbench call per height.
+// Cleared when the height moves.
+const epochKeys = new Map();
+let epochKeysHeight = null;
 
 /**
  * The salt height for a tip.
@@ -90,20 +76,34 @@ async function blockHashAt(height) {
   return response.data;
 }
 
-async function computeTag(prefix, height) {
-  const salt = await blockHashAt(height);
-  if (scryptLock.waiterCount >= MAX_WAITING) throw new Error('This node is busy admitting other app messages. Try again shortly.');
-  await scryptLock.enable();
-  try {
-    const key = await scrypt(prefix, salt, TAG_BYTES, SCRYPT_OPTIONS);
-    return key.toString('hex');
-  } finally {
-    scryptLock.disable();
+function epochKeyAt(height) {
+  if (epochKeysHeight !== height) {
+    epochKeys.clear();
+    epochKeysHeight = height;
   }
+  let key = epochKeys.get(height);
+  if (!key) {
+    key = (async () => {
+      const blockHash = await blockHashAt(height);
+      const encrypted = await benchmarkService.nodeAuthEncrypt(`fluxclienttag|${blockHash}`);
+      if (!encrypted) throw new Error('This node cannot tag clients now. Try another node.');
+      return encrypted;
+    })();
+    epochKeys.set(height, key);
+    // A key that could not be made is asked for again by the next request.
+    key.catch(() => { if (epochKeys.get(height) === key) epochKeys.delete(height); });
+  }
+  return key;
+}
+
+async function computeTag(prefix, height) {
+  const key = await epochKeyAt(height);
+  return crypto.createHmac('sha256', key).update(prefix).digest('hex');
 }
 
 /**
- * The tag for the client of a request, and the salt height it was made with.
+ * The tag for the client of a request, and the height of the block its epoch
+ * key was made from.
  * @param {{remoteAddress?: string, headers?: object}} client The request's socket
  *   peer and headers.
  * @param {number} tip This node's daemon height.
@@ -115,15 +115,7 @@ async function clientTagFor({ remoteAddress, headers }, tip) {
   if (!prefix) throw new Error('Unable to determine the address this request came from');
 
   const height = tagHeightFor(tip);
-  if (tagsHeight !== height) {
-    tags.clear();
-    tagsHeight = height;
-  }
-  let clientTag = tags.get(prefix);
-  if (!clientTag) {
-    clientTag = await computeTag(prefix, height);
-    if (tagsHeight === height) tags.set(prefix, clientTag);
-  }
+  const clientTag = await computeTag(prefix, height);
   return { clientTag, clientTagHeight: height };
 }
 
