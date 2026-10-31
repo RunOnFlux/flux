@@ -21,6 +21,7 @@ const benchmarkService = require('./benchmarkService');
 const fluxNetworkhelper = require('./fluxNetworkHelper');
 const { extractIp } = require('./utils/socketAddressUtils');
 const fluxEventBus = require('./utils/fluxEventBus');
+const fluxnodeAddressRecord = require('./fluxnodeAddressRecord');
 const globalState = require('./utils/globalState');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
 const { Privilege, authOf } = require('./utils/privileges');
@@ -266,6 +267,31 @@ async function getVerboseBlock(heightOrHash, verbosity = 2) {
     return blockInfo.data;
   }
   throw blockInfo.data;
+}
+
+// fluxd refuses a call outright while its RPC work queue is full, so the
+// record's rebuild asks for a block again before it gives up.
+const REBUILD_FETCH_ATTEMPTS = 5;
+const REBUILD_FETCH_RETRY_MS = 2_000;
+
+/**
+ * A verbose block for the fluxnode address record's rebuild.
+ * @param {number} height
+ * @returns {Promise<object>} Rejects once every attempt has failed.
+ */
+async function getVerboseBlockForRebuild(height) {
+  let block = null;
+  for (let attempt = 1; !block; attempt += 1) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      block = await getVerboseBlock(height);
+    } catch (error) {
+      if (attempt === REBUILD_FETCH_ATTEMPTS) throw error;
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(REBUILD_FETCH_RETRY_MS);
+    }
+  }
+  return block;
 }
 
 /**
@@ -704,6 +730,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
     } else {
       await processStandard(blockDataVerbose, database);
     }
+    await fluxnodeAddressRecord.recordBlock(blockDataVerbose);
     // After fork block, chain runs 4x faster, so multiply periods by 4
     const speedMultiplier = blockHeight >= config.fluxapps.daemonPONFork ? 4 : 1;
     if (blockHeight % (config.fluxapps.expireFluxAppsPeriod * speedMultiplier) === 0) {
@@ -855,6 +882,7 @@ async function prepareCollections() {
   const db = dbHelper.databaseConnection();
   const database = dbHelper.onMaintenanceClient(db.db(config.database.daemon.database));
   const databaseUpdates = dbHelper.onMaintenanceClient(db.db(config.database.chainparams.database));
+  await fluxnodeAddressRecord.ensureIndexes(database);
   await dbHelper.ensureIndexes(database.collection(utxoIndexCollection), [
     {
       key: { txid: 1, vout: 1 }, name: 'query for getting utxo', unique: true, recover: dbHelper.dedupeByKey,
@@ -921,6 +949,7 @@ async function resetExplorerCollections() {
       if (error.message !== 'ns not found') throw error;
     });
   }
+  await fluxnodeAddressRecord.drop(dbHelper.onMaintenanceClient(database));
   await prepareCollections();
   log.info('Preparation done');
 }
@@ -954,6 +983,7 @@ async function restoreDatabaseToBlockheightState(height) {
   await dbHelper.removeDocumentsFromCollection(database, addressTransactionIndexCollection, queryForAddressesDeletion);
   // restore appsHashes collection
   await dbHelper.removeDocumentsFromCollection(database, appsHashesCollection, query);
+  await fluxnodeAddressRecord.restoreToHeight(height, database);
   log.info('Rescanning Blockchain Parameters!');
   const databaseUpdates = dbHelper.onMaintenanceClient(dbopen.db(config.database.chainparams.database));
   await dbHelper.removeDocumentsFromCollection(databaseUpdates, chainParamsMessagesCollection, query);
@@ -1438,6 +1468,19 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
       }
     }
 
+    // An explorer further behind passes the record's blocks in order as it catches up.
+    if (await fluxnodeAddressRecord.isBuilt()) {
+      fluxnodeAddressRecord.resumeAt(scannedBlockHeight);
+    } else if (daemonHeight - scannedBlockHeight < fluxnodeAddressRecord.RECORD_BLOCKS) {
+      log.info(`Building the fluxnode address record from the blocks up to ${scannedBlockHeight}`);
+      try {
+        await fluxnodeAddressRecord.rebuild(scannedBlockHeight, getVerboseBlockForRebuild, dbHelper.onMaintenanceClient(database));
+      } catch (error) {
+        // The record then starts at the blocks the explorer processes next.
+        log.error(`The fluxnode address record was not built: ${error?.message ?? error}`);
+      }
+    }
+
     isInInitiationOfBP = false;
 
     if (!explorerReadyEmitted) {
@@ -1455,12 +1498,15 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore) {
       return;
     }
 
-    if (scannedBlockHeight === 0 && isInsightExplorer) {
+    // The bootstrap stops the record's blocks short of the tip: processing them
+    // records them, with the app payments they carry.
+    const bootstrapHeight = daemonHeight - fluxnodeAddressRecord.RECORD_BLOCKS;
+    if (scannedBlockHeight === 0 && isInsightExplorer && bootstrapHeight >= config.fluxapps.epochstart) {
       try {
         log.info('Bootstrap: Using address-index fast path');
-        await bootstrapAppHashes(daemonHeight);
-        log.info('Bootstrap complete, entering steady-state block processing');
-        processBlock(daemonHeight + 1, isInsightExplorer);
+        await bootstrapAppHashes(bootstrapHeight);
+        log.info(`Bootstrap complete, processing the blocks from ${bootstrapHeight + 1}`);
+        processBlock(bootstrapHeight + 1, isInsightExplorer);
       } catch (error) {
         log.error('Bootstrap failed, falling back to block-by-block scan');
         log.error(error);

@@ -85,7 +85,6 @@ globalState.initializeCaches(cacheManager);
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;
-const fluxTransactionCollection = config.database.daemon.collections.fluxTransactions;
 
 const { bootDelayMultiplier } = config.fluxapps;
 function bootDelay(ms) { return Math.round(ms * bootDelayMultiplier); }
@@ -337,7 +336,6 @@ async function startFluxFunctions() {
     fluxadmService.start();
     log.info('Fluxadm access service initiated');
     await untilSucceeds('Database schema preparation', prepareDatabaseSchema);
-    const db = dbHelper.databaseConnection();
 
     // The location table this node already holds, brought back as soon as the
     // database is up. Detached and best-effort - every consumer degrades safely
@@ -656,14 +654,6 @@ async function startFluxFunctions() {
       log.error(`Watchdog service error: ${error.message}`);
     });
     log.info('Watchdog service check initiated');
-    const explorerDatabase = db.db(config.database.daemon.database);
-    await dbHelper.dropCollection(explorerDatabase, fluxTransactionCollection).catch((error) => {
-      if (error.message !== 'ns not found') {
-        log.error(error);
-      }
-    });
-    log.info('Mongodb zelnodetransactions dropped');
-
     networkStateService.start(
       { stateEmitter: explorerService.getBlockEmitter() },
     );

@@ -171,8 +171,10 @@ export async function queueAppTx(appHash) {
  *
  * A bare address keeps the node's own api port.
  *
- * `scope: 'all'` (default) moves every answer at once - an address change already
- * settled. `scope: 'benchmark'` also moves what benchmark tells the node about itself,
+ * `scope: 'all'` (default) is an address change the chain makes: benchmark moves at
+ * once, and the node's status and list entry move with the next block, which
+ * carries the node's confirmation at the new address, as fluxd's does.
+ * `scope: 'benchmark'` also moves what benchmark tells the node about itself,
  * leaving its status and list entry: the node has noticed, the chain has not.
  * `scope: 'publicip'` moves only benchmark's public-IP probe, leaving the
  * node listed and reporting itself where it was: the state a node is in the moment
@@ -215,7 +217,27 @@ export async function setBenchmarkUnresolved(node, unresolved = true) {
   return post(`/benchmark-unresolved/${String(node).split(':')[0]}`, { unresolved });
 }
 
-/** Put a node's address back to where it really is. */
+/**
+ * Give one node its own confirmation schedule: it confirms every
+ * `intervalBlocks` after its last confirmation, the next one due at
+ * `nextHeight` (default: one interval after its last). A confirmation it sends
+ * - an address change - is still mined in the next block.
+ * @param {string} node Where the node really is.
+ * @param {{intervalBlocks: number, nextHeight?: number}} schedule
+ */
+export async function setConfirmationSchedule(node, schedule) {
+  return post(`/confirmation-schedule/${String(node).split(':')[0]}`, schedule);
+}
+
+/** Return a node to the fleet's confirmation interval. */
+export async function clearConfirmationSchedule(node) {
+  return post(`/confirmation-schedule/${String(node).split(':')[0]}`, {});
+}
+
+/**
+ * Put a node's address back to where it really is. A list entry the chain moved
+ * moves back with the next block.
+ */
 export async function clearNodeAddress(node) {
   return post(`/node-address/${String(node).split(':')[0]}`, {});
 }

@@ -18,7 +18,8 @@ module.exports = {
             "nodeStartupTracker": "nodestartuptracker",
             "policyDocuments": "policydocuments",
             "ipRanges": "ipranges",
-            "nodeLocations": "nodelocations"
+            "nodeLocations": "nodelocations",
+            "ownAddress": "ownaddress"
         }
     },
     "daemon": {
@@ -27,7 +28,6 @@ module.exports = {
             "scannedHeight": "scannedheight",
             "utxoIndex": "utxoindex",
             "addressTransactionIndex": "addresstransactionindex",
-            "fluxTransactions": "zelnodetransactions",
             "appsHashes": "zelappshashes",
             "coinbaseFusionIndex": "coinbasefusionindex"
         }
