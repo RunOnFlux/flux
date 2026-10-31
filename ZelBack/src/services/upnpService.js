@@ -62,6 +62,9 @@ const BOOT_LISTING_STAGGER_MS = 5 * 1000;
 // A table the end of which is not found by this many entries is a router that
 // answers every index, not a table.
 const LISTING_CAP = 10000;
+// Runs of the lease renewal test whose requests the router took too late to show
+// either way, after which the node is taken to stall too often to learn it.
+const RENEWAL_TEST_RUNS = 3;
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
@@ -229,8 +232,11 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
  * Asked only of a router that keeps a lease (routerLeases.kept), after
  * verifyUPNPsupport. Anything that does not show a renewal - the mapping gone, a
  * refusal, no answer - records that it does not, which leaves long-lived
- * mappings permanent. An answer that arrives after UPnP was verified again is
- * dropped. Never rejects.
+ * mappings permanent. A run whose requests the router took too late to show
+ * either way - a node stalled past the margins - is run again, up to
+ * RENEWAL_TEST_RUNS runs; a node late in every one is logged as stalling and
+ * records that the router does not renew. An answer that
+ * arrives after UPnP was verified again is dropped. Never rejects.
  * @param {number|string} apiport
  * @returns {Promise<boolean>} whether the router renews
  */
@@ -254,7 +260,15 @@ async function learnLeaseRenewal(apiport) {
     if (!portReconciler.holds(port, holder)) throw new Error(`port ${port} taken over by a later verification`);
     return request(client);
   });
-  const create = () => asHolder(async (client) => {
+  const leaseMs = leaseS * 1000;
+  // Each request's send and answer on the monotonic clock: the router took it
+  // between the two.
+  const timed = async (request) => {
+    const sentMs = monotonicMs();
+    const answer = await asHolder(request);
+    return { answer, sentMs, answeredMs: monotonicMs() };
+  };
+  const create = () => timed(async (client) => {
     await client.createMapping({
       public: port,
       private: port,
@@ -264,17 +278,37 @@ async function learnLeaseRenewal(apiport) {
     });
     portReconciler.recordMapped(port, 'TCP', true);
   });
+  // One run of the test: the answer, or null when the requests landed too late
+  // to show either way. The first lease ends no earlier than the first add was
+  // sent plus the lease and no later than it was answered plus the lease; a
+  // renewed lease ends no earlier than the second add was sent plus the lease.
+  const attempt = async () => {
+    const first = await create();
+    await serviceHelper.delay(Math.max(0, first.answeredMs + leaseMs / 2 - monotonicMs()));
+    const second = await create();
+    // a second add the router took after the first lease could have ended is a new mapping, not a renewal
+    if (second.answeredMs >= first.sentMs + leaseMs) return null;
+    await serviceHelper.delay(Math.max(0, first.answeredMs + leaseMs + 10000 - monotonicMs()));
+    const lookup = await timed((client) => client.getMapping({ public: port, protocol: 'TCP' }));
+    const mapping = lookup.answer;
+    if (!mapsHere(mapping, port)) {
+      // a lookup the router took after the renewed lease could have ended shows nothing
+      if (lookup.answeredMs >= second.sentMs + leaseMs) return null;
+      return [false, `no mapping ${leaseS + 10} s after a ${leaseS} s lease was renewed halfway`];
+    }
+    if (!(mapping.ttl > 0 && mapping.ttl <= leaseS)) return [false, `it shows a lease of ${mapping.ttl} s for one of ${leaseS} s`];
+    return [true, `held ${leaseS + 10} s after a ${leaseS} s lease was renewed halfway`];
+  };
   await portReconciler.hold(port, 'Flux_UPNP_Mapping_Test', holder);
   try {
-    const startMs = monotonicMs();
-    await create();
-    await serviceHelper.delay(Math.max(0, startMs + (leaseS * 1000) / 2 - monotonicMs()));
-    await create();
-    await serviceHelper.delay(Math.max(0, startMs + (leaseS + 10) * 1000 - monotonicMs()));
-    const mapping = await asHolder((client) => client.getMapping({ public: port, protocol: 'TCP' }));
-    if (!mapsHere(mapping, port)) return record(false, `no mapping ${leaseS + 10} s after a ${leaseS} s lease was renewed halfway`);
-    if (!(mapping.ttl > 0 && mapping.ttl <= leaseS)) return record(false, `it shows a lease of ${mapping.ttl} s for one of ${leaseS} s`);
-    return record(true, `held ${leaseS + 10} s after a ${leaseS} s lease was renewed halfway`);
+    for (let run = 1; run <= RENEWAL_TEST_RUNS; run += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      const answer = await attempt();
+      if (answer !== null) return record(...answer);
+      if (run < RENEWAL_TEST_RUNS) log.info('UPnP - the lease renewal test is run again: the router took its requests too late to show whether it renews');
+    }
+    log.error(`UPnP - the router took the requests of each of ${RENEWAL_TEST_RUNS} lease renewal tests too late to show whether it renews: this node stalls for longer than the test's margins`);
+    return record(false, `${RENEWAL_TEST_RUNS} runs answered too late to show either way`);
   } catch (error) {
     return record(false, error.message);
   } finally {

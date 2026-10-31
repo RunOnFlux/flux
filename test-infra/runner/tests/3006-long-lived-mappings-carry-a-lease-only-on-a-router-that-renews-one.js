@@ -18,8 +18,9 @@ const subnet = getSubnetConfig();
 // A node learns at start, after mapping its own ports, whether its router restarts a
 // mapping's lease when the mapping is added again: it maps its test port for
 // renewalTestLeaseS, adds it again halfway through, and looks it up 10 s after the first
-// lease would have ended. On a router that renews - whether its lease counts down or is shown
-// as asked - its own ports and its apps' are refreshed with longLivedLeaseS. On a router that
+// lease would have ended; a run the router answered too late to show either way is run
+// again. On a router that renews - whether its lease counts down or is shown as asked - its
+// own ports and its apps' are refreshed with longLivedLeaseS. On a router that
 // keeps a held entry as it is, or refuses a lease, they stay permanent. Until the answer,
 // they are permanent everywhere; an app's ports are first mapped at boot, once its firewall
 // ports are open.
@@ -59,7 +60,13 @@ describe('long-lived mappings carry a lease only on a router that renews one', f
     .filter((r) => r.action === 'AddPortMapping' && r.port === TEST_PORT && r.lease === RENEWAL_TEST_LEASE_S);
   const renewalTestLookup = (requests) => since(requests)
     .find((r) => r.action === 'GetSpecificPortMappingEntry' && r.port === TEST_PORT
-      && renewalTestAdds(requests).length === 2 && Date.parse(r.at) > Date.parse(renewalTestAdds(requests)[1].at));
+      && renewalTestAdds(requests).length >= 2 && Date.parse(r.at) > Date.parse(renewalTestAdds(requests)[1].at));
+  // A mapping and its renewal for each run of the renewal test: a node that stalled past the
+  // test's margins runs it again.
+  const renewalTestRuns = (requests) => {
+    const count = renewalTestAdds(requests).length;
+    return count % 2 === 0 ? count / 2 : NaN;
+  };
 
   // A clean table behind the router as `leases` sets it, and FluxOS started again on it.
   const restartOnRouter = async (leases) => {
@@ -151,7 +158,7 @@ describe('long-lived mappings carry a lease only on a router that renews one', f
 
     const state = await gatewayOnce((s) => refreshedWith(s.requests, LONG_LEASE_S), 'its api port and its app\'s refreshed with the long lease');
 
-    expect(renewalTestAdds(state.requests).length, 'the renewal test: a mapping and its refresh').to.equal(2);
+    expect(renewalTestRuns(state.requests), 'the renewal test: a mapping and its refresh, each run').to.be.at.least(1);
     expect(renewalTestLookup(state.requests), 'the renewal test: the lookup after the first lease').to.not.equal(undefined);
     // mapped at boot before the answer, and refreshed with the lease after it
     expect(adds(state.requests, API_PORT)[0].lease, 'the api port first mapped with no lease').to.equal(0);
@@ -165,7 +172,7 @@ describe('long-lived mappings carry a lease only on a router that renews one', f
 
     const state = await gatewayOnce((s) => refreshedWith(s.requests, LONG_LEASE_S), 'its api port and its app\'s refreshed with the long lease');
 
-    expect(renewalTestAdds(state.requests).length, 'the renewal test: a mapping and its refresh').to.equal(2);
+    expect(renewalTestRuns(state.requests), 'the renewal test: a mapping and its refresh, each run').to.be.at.least(1);
     heldWith(state, LONG_LEASE_S);
   });
 

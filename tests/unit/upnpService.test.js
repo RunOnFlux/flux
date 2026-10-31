@@ -1070,6 +1070,63 @@ describe('upnpService tests', () => {
       sinon.assert.notCalled(getMappingStub);
     });
 
+    // a request the router answers `ms` from now
+    const answeredIn = (ms, answer) => () => new Promise((resolve) => { setTimeout(() => resolve(answer), ms); });
+
+    it('should run the test again when the router answers its lookup after the renewed lease could have ended', async () => {
+      // sent at 70 s, answered at 90 s: the add sent at 30 s leased the mapping to 90 s at the earliest
+      getMappingStub.onFirstCall().callsFake(answeredIn(20_000, null));
+      getMappingStub.onSecondCall().resolves(held(58));
+
+      const promise = upnpService.learnLeaseRenewal(APIPORT);
+      await clock.tickAsync(90_000);
+      sinon.assert.calledThrice(createMappingStub);
+      expect(upnpService.routerLeases.renews).to.equal(null);
+      await clock.tickAsync(75_000);
+
+      expect(await promise).to.equal(true);
+      sinon.assert.callCount(createMappingStub, 4);
+      sinon.assert.calledTwice(getMappingStub);
+    });
+
+    it('should know the router does not renew when it answers its lookup, finding nothing, before the renewed lease could have ended', async () => {
+      getMappingStub.callsFake(answeredIn(19_999, null));
+
+      const promise = upnpService.learnLeaseRenewal(APIPORT);
+      await clock.tickAsync(95_000);
+
+      expect(await promise).to.equal(false);
+      sinon.assert.calledTwice(createMappingStub);
+    });
+
+    it('should run the test again, looking nothing up, when the router answers the second add after the first lease could have ended', async () => {
+      // sent at 30 s, answered at 60 s: a router that does not renew could have let the first lease end and taken it as a new mapping
+      createMappingStub.onSecondCall().callsFake(answeredIn(30_000));
+
+      const promise = upnpService.learnLeaseRenewal(APIPORT);
+      await clock.tickAsync(60_000);
+      sinon.assert.notCalled(getMappingStub);
+      await clock.tickAsync(75_000);
+
+      expect(await promise).to.equal(true);
+      sinon.assert.callCount(createMappingStub, 4);
+      sinon.assert.calledOnce(getMappingStub);
+    });
+
+    it('should know the router does not renew, and log the node as stalling, when three runs are each answered too late', async () => {
+      // each run: adds at 0 s and 30 s, an empty lookup sent at 70 s answered at 90 s
+      getMappingStub.callsFake(answeredIn(20_000, null));
+
+      const promise = upnpService.learnLeaseRenewal(APIPORT);
+      await clock.tickAsync(3 * 90_000 + 5_000);
+
+      sinon.assert.callCount(createMappingStub, 6);
+      sinon.assert.calledThrice(getMappingStub);
+      expect(await promise).to.equal(false);
+      expect(upnpService.routerLeases.renews).to.equal(false);
+      sinon.assert.calledWithMatch(log.error, /too late to show whether it renews: this node stalls/);
+    });
+
     it('should ask the router nothing more once a later verification takes the port over, and leave the port to it', async () => {
       const later = {};
       const promise = upnpService.learnLeaseRenewal(APIPORT);
