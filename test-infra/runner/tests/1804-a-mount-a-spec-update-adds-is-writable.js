@@ -129,6 +129,7 @@ describe('a mount directory a specification update adds is writable by the app\'
     // Budgeted in blocks, as suite 85 is: 108 covers three firings of the pass
     // at its longest period.
     this.timeout(1500000);
+    const mark = holder.getLastEventId();
     await driveUntil(
       holder,
       async () => (await localSpec(holder))?.hash === updated.hash,
@@ -140,6 +141,14 @@ describe('a mount directory a specification update adds is writable by the app\'
       const containerAfter = await getAppContainerId(holder.container, appName, appName);
       return Boolean(containerAfter) && containerAfter !== containerBefore;
     }, { timeout: 120000, interval: 2000, label: 'the component is replaced at the new specification' });
+    // The redeploy ends by asking for the app to be restarted, which the reconciler
+    // carries out on its next pass: until then the container is about to stop.
+    await holder.waitForEvent(
+      'reconciler:actuated',
+      (d) => d.identifier === `${appName}_${appName}` && d.action === 'restarted',
+      120000,
+      { afterId: mark },
+    );
 
     const kept = await sh(`cat ${marker}`);
     expect(kept.stdout.trim(), 'what the app wrote before the update is still on its volume').to.equal('kept');
