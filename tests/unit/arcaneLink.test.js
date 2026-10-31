@@ -232,6 +232,64 @@ describe('arcaneLink tests', () => {
       expect(b.mod.isAuthenticated(peers.bPeer)).to.equal(false);
     });
 
+    it('should tell its peer when its own fluxbench fails, so the peer settles at once, unauthenticated and not backed off', async () => {
+      const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA', encrypt: async () => null });
+      const b = makeNode({ ip: '10.0.0.2', pubKey: 'keyB' });
+      const peers = connect(a, b);
+
+      a.mod.startLink(peers.aPeer);
+      const settled = b.mod.startLink(peers.bPeer);
+      await settled;
+
+      expect(peers.bPeer.link.failed).to.equal(b.mod.FAILURE.PEER_GAVE_UP);
+      // b holds nothing against a's IP: its next link to a handshakes
+      b.peers.delete(peers.bPeer.key);
+      const healed = makeNode({ ip: '10.0.0.1', pubKey: 'keyA' });
+      const again = connect(healed, b);
+      await handshake(healed, b, again);
+      expect(b.mod.isAuthenticated(again.bPeer)).to.equal(true);
+    });
+
+    it('should tell its peer when the peer\'s confirm does not prove the secret', async () => {
+      const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA' });
+      const legacy = makeNode({
+        ip: '10.0.0.9', pubKey: 'keyL', encrypt: async (text) => crypto.createHmac('sha256', 'guess').update(text).digest('base64'),
+      });
+      const peers = connect(a, legacy);
+      const sentByA = [];
+      const deliver = a.routes.get(peers.aPeer);
+      a.routes.set(peers.aPeer, (msg) => { sentByA.push(msg.data); deliver(msg); });
+
+      await handshake(a, legacy, peers);
+
+      expect(peers.aPeer.link.failed).to.equal(a.mod.FAILURE.CONFIRM);
+      expect(sentByA.filter((data) => data.type === a.mod.CONFIRM_TYPE && data.mac === null)).to.have.length(1);
+    });
+
+    it('should stop treating a link as authenticated when its peer gives up after it had', async () => {
+      const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA' });
+      const b = makeNode({ ip: '10.0.0.2', pubKey: 'keyB' });
+      const peers = connect(a, b);
+      await handshake(a, b, peers);
+      expect(a.mod.isAuthenticated(peers.aPeer)).to.equal(true);
+
+      a.mod.handleConfirm({ pubKey: 'keyB', data: { type: a.mod.CONFIRM_TYPE, mac: null } }, peers.aPeer);
+
+      expect(a.mod.isAuthenticated(peers.aPeer)).to.equal(false);
+      expect(peers.aPeer.link.failed).to.equal(a.mod.FAILURE.PEER_GAVE_UP);
+    });
+
+    it('should take a give-up only from the key the peer\'s nonce came under', async () => {
+      const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA' });
+      const b = makeNode({ ip: '10.0.0.2', pubKey: 'keyB' });
+      const peers = connect(a, b);
+      await handshake(a, b, peers);
+
+      a.mod.handleConfirm({ pubKey: 'keyX', data: { type: a.mod.CONFIRM_TYPE, mac: null } }, peers.aPeer);
+
+      expect(a.mod.isAuthenticated(peers.aPeer)).to.equal(true);
+    });
+
     it('should open no handshake on a node that is not Arcane', async () => {
       const legacy = makeNode({ ip: '10.0.0.9', pubKey: 'keyL', arcane: false });
       const peer = makePeer('10.0.0.1');
