@@ -2711,12 +2711,21 @@ function startIpChangeHoldWatch() {
   };
 }
 
+// Observers a pass may find silent before a silent one counts against this node.
+// An observer that does not answer says nothing about whether it can reach us:
+// it may be down itself, so the pass does not ask it again. Silence from several
+// distinct observers is this node's own network failing, and from the next one
+// on it counts.
+const SILENT_OBSERVERS_UNCOUNTED = 2;
+
 /**
  * To check user's FluxNode availability.
  * @param {number} retryNumber Number of retries.
+ * @param {string[]} silent The observers this pass asked that did not answer, none
+ *   of which it asks again.
  * @returns {Promise<boolean>} Return value is only for testing
  */
-async function checkMyFluxAvailability(retryNumber = 0) {
+async function checkMyFluxAvailability(retryNumber = 0, silent = []) {
   if (isStickyDosHeldBy(StickyDosOwner.IP_CHANGES)) return false;
 
   if (localSocketAddress === null) return false;
@@ -2733,11 +2742,12 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   // on exactly the shared-address topology this release is about.
   const randomSocketAddress = await networkStateService.getRandomExternalObserver(
     localSocketAddress,
+    { exclude: silent },
   );
 
-  // Nobody outside this address to ask, so nothing is learned and nothing is
-  // concluded - dosState is deliberately untouched here, unlike every failure
-  // path below it. The next cycle asks again.
+  // Nobody outside this address left to ask, so nothing more is learned and
+  // nothing is concluded - dosState is deliberately untouched here, unlike every
+  // failure path below it. The next cycle asks again.
   if (!randomSocketAddress) {
     log.warn('checkMyFluxAvailability - no Flux node outside this address could be asked; skipping this pass');
     return false;
@@ -2770,15 +2780,19 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   // untouched, and the next observer is asked.
   if (resMyAvailability && isNotListedAnswer(resMyAvailability.data)) {
     log.info(`checkMyFluxAvailability - ${remoteIp}:${remotePort} does not list ${localSocketAddress} yet; asking another`);
-    if (retryNumber <= 6) return checkMyFluxAvailability(retryNumber + 1);
+    if (retryNumber <= 6) return checkMyFluxAvailability(retryNumber + 1, silent);
     return false;
   }
 
-  // Known limitation, replaced in v9: a failed check retries at once against another
-  // random node, up to seven times, and each failure adds 2 to dosState, so one bad
-  // moment on the network can put the node in DOS within seconds. The re-check a
-  // failure schedules clears it.
+  // A failed check asks another observer at once, up to seven times, and each
+  // failure that counts adds 2 to dosState. The re-check a failure schedules
+  // clears it.
   if (!resMyAvailability) {
+    const silentObservers = [...silent, randomSocketAddress];
+    if (silentObservers.length <= SILENT_OBSERVERS_UNCOUNTED) {
+      if (retryNumber <= 6) return checkMyFluxAvailability(retryNumber + 1, silentObservers);
+      return false;
+    }
     unreachablePoints += 2;
     if (effectiveDosState() > 10) {
       holdAvailabilityDos(UNREACHABLE_MESSAGE);
@@ -2786,8 +2800,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       return false;
     }
     if (retryNumber <= 6) {
-      const newRetryIndex = retryNumber + 1;
-      return checkMyFluxAvailability(newRetryIndex);
+      return checkMyFluxAvailability(retryNumber + 1, silentObservers);
     }
     return false;
   }
@@ -2831,8 +2844,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       return false;
     }
     if (retryNumber <= 6) {
-      const newRetryIndex = retryNumber + 1;
-      return checkMyFluxAvailability(newRetryIndex);
+      return checkMyFluxAvailability(retryNumber + 1, silent);
     }
     return false;
   }
