@@ -65,7 +65,7 @@ describe('a start the reconciler does not make records no attempt', function () 
   });
 
   after(async function () {
-    this.timeout(30000);
+    this.timeout(60000);
     await resetFdm().catch(() => {});
     await env?.teardown();
   });
