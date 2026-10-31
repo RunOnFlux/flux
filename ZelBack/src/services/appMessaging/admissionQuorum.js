@@ -184,7 +184,9 @@ async function admitOnce(message, { daemonHeight }) {
   const signed = await serialiseAndSignFluxBroadcast(message);
   if (!signed) throw new Error('This Flux node cannot sign app messages now. Try another node.');
   const envelope = JSON.parse(signed);
-  const admission = await unpaidAdmission.admitUnpaid(message, { frame: envelope, daemonHeight });
+  // Asked of the frame's own message: admission takes a frame as the admitting
+  // node's only when it carries that message.
+  const admission = await unpaidAdmission.admitUnpaid(envelope.data, { frame: envelope, daemonHeight });
   if (admission.refused) throw new Error(`The network will not take this app message: ${admission.refused}`);
 
   const outcome = await runRound(message.hash, envelope);
