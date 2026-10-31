@@ -162,9 +162,8 @@ export const PRODUCTION_ADMISSION_QUORUM = 3;
  * The admission quorum a fleet of this shape can meet. A node admits an unpaid
  * app message only while it holds admissionQuorum authenticated links on distinct
  * IPs, and only an Arcane node authenticates, so the quorum is what the node that
- * fares worst can count: its two arcs, less every slot in them that nothing
- * answers on (a stub, a deferred node - as expectedPeerTotal counts them), less
- * every legacy node, since one may sit in any arc. A fleet that carries
+ * fares worst can count: reachablePeers, less every legacy node, since one may
+ * sit in any arc. A fleet that carries
  * production's quorum keeps it; a smaller one gets what it carries, and a node
  * with no Arcane peer admits on its own. Injected as the fleet's config like the
  * thresholds above; a suite TESTING the quorum sets its own and that wins.
@@ -174,9 +173,27 @@ export const PRODUCTION_ADMISSION_QUORUM = 3;
  * @returns {number}
  */
 export function deriveAdmissionQuorum(nodeCount, absentCount, legacyCount) {
-  const dialers = dialerCount(nodeCount, absentCount);
-  const reachable = Math.max(0, Math.min(dialers - 1, (2 * ringArc(dialers)) - absentCount));
+  const reachable = reachablePeers(dialerCount(nodeCount, absentCount), absentCount);
   return Math.min(PRODUCTION_ADMISSION_QUORUM, Math.max(0, reachable - legacyCount));
+}
+
+/**
+ * The peers the worst-placed node of a ring can hold once it has closed: its two
+ * arcs, less any slot in one that nothing answers on. A stub or a deferred node
+ * answers neither a dial nor an addoutgoingpeer request, so the nodes whose arcs
+ * reach it are short by one and no waiting changes that. It is the nodes at the
+ * START of the list that pay, because index 0's backward arc is the one that
+ * wraps onto the absent end of the ring.
+ *
+ * Conservative on both counts: ringArc is the disjoint arc, so a suite that
+ * overrode minOutgoing higher only ever holds MORE than this, and the
+ * subtraction assumes every absent slot lands inside the arc.
+ * @param {number} dialers
+ * @param {number} absentCount Stubs and deferred nodes.
+ * @returns {number}
+ */
+export function reachablePeers(dialers, absentCount = 0) {
+  return Math.max(0, Math.min(dialers - 1, (2 * ringArc(dialers)) - absentCount));
 }
 
 /**
@@ -189,17 +206,7 @@ export function deriveAdmissionQuorum(nodeCount, absentCount, legacyCount) {
  * @param {number} dialers
  */
 export function expectedPeerTotal(outboundTarget, inboundTarget, dialers, stubCount = 0) {
-  const arc = ringArc(dialers);
-  // What a node can actually hold: its two arcs, less any stub that falls inside
-  // one. A stub answers neither a dial nor an addoutgoingpeer request, so the
-  // nodes whose arcs reach it are short by one and no waiting changes that. It
-  // is the nodes at the START of the list that pay, because index 0's backward
-  // arc is the one that wraps onto the stub's end of the ring.
-  //
-  // Conservative on both counts: ringArc is the disjoint arc, so a suite that
-  // overrode minOutgoing higher only ever holds MORE than this expects, and the
-  // stub subtraction assumes every stub lands inside the arc.
-  const reachable = Math.max(1, Math.min(dialers - 1, (2 * arc) - stubCount));
+  const reachable = Math.max(1, reachablePeers(dialers, stubCount));
   // The suite's own ask is the target when the fleet can carry it. When it
   // cannot, the fleet's shape is the binding constraint and no request changes
   // it - so take what is reachable rather than waiting out the budget proving
