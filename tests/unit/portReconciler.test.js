@@ -1417,4 +1417,52 @@ describe('portReconciler tests', () => {
       expect(asked()).to.deep.equal(['TCP 0', 'UDP 0']);
     });
   });
+  // Boot wants an installed app's port before its reconcile can remove the app,
+  // and maps it later only while it is still wanted.
+  describe('declare tests', () => {
+    let createMappingStub;
+
+    beforeEach(() => {
+      portReconciler.wanted.clear();
+      portReconciler.wantedMaps.clear();
+      portReconciler.mappedProtocols.clear();
+      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(log, 'error');
+      sinon.stub(log, 'info');
+      createMappingStub = sinon.stub(natUpnp.Client.prototype, 'createMapping').resolves();
+      sinon.stub(natUpnp.Client.prototype, 'removeMapping').resolves();
+      sinon.stub(natUpnp.Client.prototype, 'getMapping').resolves(null);
+    });
+
+    afterEach(() => {
+      portReconciler.pendingRemovals.forEach((pending) => clearTimeout(pending.timer));
+      portReconciler.pendingRemovals.clear();
+    });
+
+    it('wants a port for an installation, asking the router nothing', async () => {
+      await portReconciler.declare(31000, 'Flux_App_web');
+
+      expect(portReconciler.wanted.get(31000)).to.deep.equal({ description: 'Flux_App_web', holder: null });
+      sinon.assert.notCalled(createMappingStub);
+    });
+
+    it('lets keep map a declared port, as it was declared', async () => {
+      await portReconciler.declare(31000, 'Flux_App_web');
+
+      expect((await portReconciler.keep(31000)).mapped).to.equal(true);
+      expect(createMappingStub.getCalls().map((call) => `${call.args[0].public}/${call.args[0].protocol} ${call.args[0].description}`))
+        .to.deep.equal(['31000/TCP Flux_App_web', '31000/UDP Flux_App_web']);
+    });
+
+    it('leaves a declared port released before its keep unmapped', async () => {
+      await portReconciler.declare(31000, 'Flux_App_web');
+      await portReconciler.release(31000, 'Flux_App_web');
+
+      const result = await portReconciler.keep(31000);
+
+      expect(result.released).to.equal(true);
+      sinon.assert.notCalled(createMappingStub);
+      expect(portReconciler.isWanted(31000)).to.equal(false);
+    });
+  });
 });

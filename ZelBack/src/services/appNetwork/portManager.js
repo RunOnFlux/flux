@@ -449,23 +449,45 @@ async function refreshPortsInSlot() {
 }
 
 /**
+ * Maps the ports boot declared, one after another, each while it is still
+ * wanted at its turn.
+ * @param {Array<{port: number, description: string}>} declared
+ * @returns {Promise<void>}
+ */
+async function mapDeclaredPorts(declared) {
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.BOOT_AFTER_PORTS_DECLARED, 'boot');
+  // eslint-disable-next-line no-restricted-syntax
+  for (const { port, description } of declared) {
+    // eslint-disable-next-line no-await-in-loop
+    await portReconciler.keep(port).catch((error) => log.error(`declareInstalledAppsPorts - ${port} (${description}) not mapped: ${error.message}`));
+  }
+}
+
+/**
  * Wants every installed app's ports mapped, once at boot: what the refresh
- * renews from then on (restoreAppsPortsSupport). An install wants its own
- * ports, and a removal releases them.
+ * renews from then on (restoreAppsPortsSupport). Resolves once each port is
+ * wanted; the mappings follow in the background (portReconciler.keep), each
+ * only while its port is still wanted at its turn, so a removal that releases a
+ * port meanwhile leaves it unmapped. An install wants its own ports, and a
+ * removal releases them.
  * @returns {Promise<void>}
  */
 async function declareInstalledAppsPorts() {
   try {
     if (!upnpService.isUPNP()) return;
     const installedApps = await assignedPortsInstalledApps();
+    const declared = [];
     // eslint-disable-next-line no-restricted-syntax
     for (const application of installedApps) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of application.ports) {
+        const entry = { port: serviceHelper.ensureNumber(port), description: `${APP_DESCRIPTION_PREFIX}${application.name}` };
         // eslint-disable-next-line no-await-in-loop
-        await portReconciler.want(serviceHelper.ensureNumber(port), `${APP_DESCRIPTION_PREFIX}${application.name}`);
+        await portReconciler.declare(entry.port, entry.description);
+        declared.push(entry);
       }
     }
+    mapDeclaredPorts(declared);
   } catch (error) {
     log.error(`declareInstalledAppsPorts - ${error.message}`);
   }

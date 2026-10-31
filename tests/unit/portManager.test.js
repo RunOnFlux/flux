@@ -780,16 +780,34 @@ describe('portManager tests', () => {
         { name: 'App2', version: 3, ports: [30002] },
       ]);
       sinon.stub(upnpService, 'isUPNP').returns(true);
+      sinon.stub(portReconciler, 'declare').resolves();
+      sinon.stub(portReconciler, 'keep').resolves(MAPPED);
       sinon.stub(portReconciler, 'want').resolves(MAPPED);
     });
 
-    it('wants every installed app\'s ports, described as the app\'s', async () => {
+    it('wants every installed app\'s ports, described as the app\'s, before it resolves', async () => {
       await portManager.declareInstalledAppsPorts();
 
-      expect(portReconciler.want.getCalls().map((call) => call.args).sort()).to.deep.equal([
+      expect(portReconciler.declare.getCalls().map((call) => call.args).sort()).to.deep.equal([
         [30001, 'Flux_App_App1'],
         [30002, 'Flux_App_App2'],
       ]);
+      sinon.assert.notCalled(portReconciler.want);
+    });
+
+    it('maps the ports it wanted after it resolves, each while still wanted, without waiting on them', async () => {
+      let answer;
+      portReconciler.keep.returns(new Promise((resolve) => { answer = resolve; }));
+
+      await portManager.declareInstalledAppsPorts();
+      sinon.assert.calledTwice(portReconciler.declare);
+      await new Promise((resolve) => { setImmediate(resolve); });
+
+      expect(portReconciler.keep.getCalls().map((call) => call.args[0]), 'one at a time').to.have.length(1);
+      sinon.assert.callOrder(portReconciler.declare, portReconciler.keep);
+      answer(MAPPED);
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(portReconciler.keep.getCalls().map((call) => call.args[0]).sort()).to.deep.equal([30001, 30002]);
     });
 
     it('wants nothing on a node that does not map through UPnP', async () => {
@@ -797,6 +815,8 @@ describe('portManager tests', () => {
 
       await portManager.declareInstalledAppsPorts();
 
+      sinon.assert.notCalled(portReconciler.declare);
+      sinon.assert.notCalled(portReconciler.keep);
       sinon.assert.notCalled(portReconciler.want);
     });
   });

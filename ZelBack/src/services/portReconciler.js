@@ -376,6 +376,20 @@ function holdPort(port, description, holder) {
 }
 
 /**
+ * Wants a port mapped to this node for an installation, asking the router
+ * nothing: keep maps it while it is still wanted at its turn. A port a test
+ * holds is the installation's from then on.
+ * @param {number|string} port
+ * @param {string} description
+ * @returns {Promise<void>}
+ */
+function declare(port, description) {
+  return onRouter(() => {
+    wanted.set(+port, { description, holder: null });
+  });
+}
+
+/**
  * Wants a port mapped to this node and maps it, over each of `protocols` in
  * turn, TCP and then UDP unless given.
  * @param {number|string} port
@@ -474,6 +488,7 @@ function removalPending() {
 module.exports = {
   onRouter,
   want,
+  declare,
   keep,
   release,
   hold,

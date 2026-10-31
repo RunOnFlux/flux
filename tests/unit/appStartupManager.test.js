@@ -994,7 +994,7 @@ describe('appStartupManager tests', () => {
       portManagerStub.appsWithPorts.resolves({ apps: [{ name: 'web', ports: [31000] }], unreadable: [] });
     });
 
-    it('starts mapping the apps\' ports once their firewall ports are open, before the apps are reconciled', async () => {
+    it('wants the apps\' ports once their firewall ports are open, before the apps are reconciled', async () => {
       await appStartupManager.manageAppsOnBoot(KEEP);
 
       sinon.assert.calledOnceWithExactly(portManagerStub.declareInstalledAppsPorts);
@@ -1003,13 +1003,17 @@ describe('appStartupManager tests', () => {
       expect(portManagerStub.declareInstalledAppsPorts.firstCall.calledBefore(reconcileStart), 'before the reconcile').to.equal(true);
     });
 
-    it('reconciles the apps without waiting for their mappings', async () => {
-      portManagerStub.declareInstalledAppsPorts.returns(new Promise(() => {}));
+    it('reconciles the apps only once their ports are wanted', async () => {
+      let declared;
+      portManagerStub.declareInstalledAppsPorts.returns(new Promise((resolve) => { declared = resolve; }));
 
-      await appStartupManager.manageAppsOnBoot(KEEP);
+      const booting = appStartupManager.manageAppsOnBoot(KEEP);
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(logStub.info.calledWithMatch(/Starting boot reconciliation/), 'not before the ports are wanted').to.equal(false);
+      declared();
+      await booting;
 
       expect(logStub.info.calledWithMatch(/Starting boot reconciliation/), 'reconciled').to.equal(true);
-      expect(globalStateStub.bootContainerStateSettled).to.equal(true);
     });
 
     it('maps nothing when the apps are all being removed', async () => {

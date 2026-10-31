@@ -472,9 +472,10 @@ async function manageAppsOnBoot(bootContext) {
 
     log.info('appStartupManager - Daemon, DB, and node confirmed, reconciling apps');
     await openInstalledAppPorts();
-    // Detached: the apps start without waiting on their UPnP mappings, which a
-    // router slow to answer or refusing one would hold up.
-    portManager.declareInstalledAppsPorts();
+    // Every installed app's ports are wanted before the reconcile can remove an
+    // app, whose removal then releases them; the apps start without waiting on
+    // the mappings, which follow in the background.
+    await portManager.declareInstalledAppsPorts();
     await reconcileAppsOnBoot();
   } finally {
     globalState.bootContainerStateSettled = true;

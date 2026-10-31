@@ -137,6 +137,9 @@ const Checkpoint = Object.freeze({
   // A hard install has mapped a component's ports and has not yet pulled its
   // image or created its container. Keyed by the app's name.
   INSTALL_AFTER_PORTS: 'install:afterPorts',
+  // Boot has wanted every installed app's ports and has not yet mapped any of
+  // them. Keyed 'boot'.
+  BOOT_AFTER_PORTS_DECLARED: 'boot:afterPortsDeclared',
 });
 const CHECKPOINT_NAMES = new Set(Object.values(Checkpoint));
 // Holds a key for every key of its checkpoint.
