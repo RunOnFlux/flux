@@ -154,19 +154,22 @@ export function deriveReadinessThresholds(nodeCount, stubCount, shared) {
   };
 }
 
-// Production's admissionQuorum (ZelBack/config/default.js); tests/unit/peerTopology.test.js
-// holds the two together.
+// Production's admissionQuorum and admissionLinkTarget (ZelBack/config/default.js);
+// tests/unit/peerTopology.test.js holds them together.
 export const PRODUCTION_ADMISSION_QUORUM = 3;
+export const PRODUCTION_ADMISSION_LINK_TARGET = 5;
 
 /**
  * The admission quorum a fleet of this shape can meet. A node admits an unpaid
  * app message only while it holds admissionQuorum authenticated links on distinct
  * IPs, and only an Arcane node authenticates, so the quorum is what the node that
  * fares worst can count: reachablePeers, less every legacy node, since one may
- * sit in any arc. A fleet that carries
- * production's quorum keeps it; a smaller one gets what it carries, and a node
- * with no Arcane peer admits on its own. Injected as the fleet's config like the
- * thresholds above; a suite TESTING the quorum sets its own and that wins.
+ * sit in any arc, less the margin production keeps above its quorum
+ * (admissionLinkTarget - admissionQuorum), so a peer or two can be away and a
+ * registration still goes through. A fleet that carries production's links keeps
+ * production's quorum; a smaller one gets what it carries past the margin, and a
+ * node with nothing past it admits on its own. Injected as the fleet's config like
+ * the thresholds above; a suite TESTING the quorum sets its own and that wins.
  * @param {number} nodeCount
  * @param {number} absentCount Stubs and deferred nodes.
  * @param {number} legacyCount
@@ -174,7 +177,8 @@ export const PRODUCTION_ADMISSION_QUORUM = 3;
  */
 export function deriveAdmissionQuorum(nodeCount, absentCount, legacyCount) {
   const reachable = reachablePeers(dialerCount(nodeCount, absentCount), absentCount);
-  return Math.min(PRODUCTION_ADMISSION_QUORUM, Math.max(0, reachable - legacyCount));
+  const margin = PRODUCTION_ADMISSION_LINK_TARGET - PRODUCTION_ADMISSION_QUORUM;
+  return Math.min(PRODUCTION_ADMISSION_QUORUM, Math.max(0, reachable - legacyCount - margin));
 }
 
 /**

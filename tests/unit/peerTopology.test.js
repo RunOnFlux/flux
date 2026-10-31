@@ -24,6 +24,7 @@ describe('harness peer topology', () => {
     expect(topology.PRODUCTION_READINESS.peerThreshold).to.equal(fluxapps.appSyncPeerThreshold);
     expect(topology.PRODUCTION_READINESS.degradedThreshold).to.equal(fluxapps.appSyncDegradedThreshold);
     expect(topology.PRODUCTION_ADMISSION_QUORUM).to.equal(fluxapps.admissionQuorum);
+    expect(topology.PRODUCTION_ADMISSION_LINK_TARGET).to.equal(fluxapps.admissionLinkTarget);
   });
 
   it('counts the peers the worst-placed node of a ring can hold', () => {
@@ -39,33 +40,21 @@ describe('harness peer topology', () => {
   it('waits on the same count the admission quorum is drawn from', () => {
     // 4 nodes, 1 deferred: 3 dialers, the worst-placed node holds 1
     expect(topology.expectedPeerTotal(4, 2, 3, 1)).to.equal(topology.reachablePeers(3, 1));
-    expect(topology.deriveAdmissionQuorum(4, 1, 0)).to.equal(topology.reachablePeers(3, 1));
+    expect(topology.deriveAdmissionQuorum(9, 0, 0)).to.equal(Math.min(3, topology.reachablePeers(9) - 2));
   });
 
-  it('asks a fleet for the admission quorum its Arcane peers can meet', () => {
-    // what the worst-placed node carries, capped at production's 3
+  it('asks a fleet for the admission quorum its Arcane peers meet with production\'s margin to spare', () => {
+    // reachable peers, less legacy nodes, less the margin of 2, capped at 3
     expect(topology.deriveAdmissionQuorum(1, 0, 0)).to.equal(0);
-    expect(topology.deriveAdmissionQuorum(2, 0, 0)).to.equal(1);
-    expect(topology.deriveAdmissionQuorum(3, 0, 0)).to.equal(2);
-    expect(topology.deriveAdmissionQuorum(5, 0, 0)).to.equal(3);
+    expect(topology.deriveAdmissionQuorum(3, 0, 0)).to.equal(0);
+    expect(topology.deriveAdmissionQuorum(4, 0, 0)).to.equal(0);
+    expect(topology.deriveAdmissionQuorum(5, 0, 0)).to.equal(2);
     expect(topology.deriveAdmissionQuorum(9, 0, 0)).to.equal(3);
-    // every legacy node is taken off what a node carries
-    expect(topology.deriveAdmissionQuorum(5, 0, 2)).to.equal(2);
-    expect(topology.deriveAdmissionQuorum(3, 0, 3)).to.equal(0);
+    expect(topology.deriveAdmissionQuorum(9, 0, 4)).to.equal(2);
     // a deferred node or a stub holds a ring slot nothing answers on
-    expect(topology.deriveAdmissionQuorum(4, 1, 0)).to.equal(1);
-    expect(topology.deriveAdmissionQuorum(5, 2, 0)).to.equal(0);
     expect(topology.deriveAdmissionQuorum(10, 1, 0)).to.equal(3);
-  });
-
-  it('counts the peers a node carries once its ring has closed', () => {
-    expect(topology.carriedPeers(1)).to.equal(0);
-    expect(topology.carriedPeers(2)).to.equal(1);
-    expect(topology.carriedPeers(3)).to.equal(2);
-    expect(topology.carriedPeers(5)).to.equal(4);
-    expect(topology.carriedPeers(9)).to.equal(8);
-    // a stub dials nothing, so it narrows the arc the dialers form
-    expect(topology.carriedPeers(5, 2)).to.equal(2);
+    expect(topology.deriveAdmissionQuorum(11, 2, 0)).to.equal(3);
+    expect(topology.deriveAdmissionQuorum(6, 1, 0)).to.equal(1);
   });
 
   describe('readiness thresholds', () => {
