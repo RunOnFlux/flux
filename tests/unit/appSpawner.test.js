@@ -1128,6 +1128,22 @@ describe('appSpawner tests', () => {
       sinon.assert.notCalled(installStub);
     });
 
+    it('stands down without blaming the network when another installation on this node holds a port', async () => {
+      const installStub = sinon.stub().resolves(InstallOutcome.INSTALLED);
+      const portCheck = sinon.stub();
+      buildModule({
+        aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0, installStub, portCheck,
+      });
+      portCheck.resolves({ ok: false, reason: 'portClaimed', port: 31001 });
+
+      const delay = await appSpawner.trySpawningGlobalApplication();
+
+      expect(delay).to.equal(60000);
+      sinon.assert.notCalled(installStub);
+      sinon.assert.calledWithMatch(logStub.info, /port 31001 of .* is held by another installation on this node/);
+      sinon.assert.neverCalledWithMatch(logStub.error, /not available publicly/);
+    });
+
     it('should test the ports for the application it is spawning, by name', async () => {
       const portCheck = sinon.stub();
       buildModule({

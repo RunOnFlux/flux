@@ -12,6 +12,7 @@ const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
 const fluxUdpTestServer = require('../utils/fluxUdpTestServer');
+const portClaims = require('./portClaims');
 const { localAppsInformation, globalAppsInformation } = require('../utils/appConstants');
 const appUtilities = require('../utils/appUtilities');
 const { Privilege, authOf } = require('../utils/privileges');
@@ -931,6 +932,9 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
   const isUPNP = upnpService.isUPNP();
   // null until something decides; see the loop below.
   let decision = null;
+  // The ports this test listens on, claimed for the app's installation until the
+  // test has stopped listening.
+  let portClaim = null;
 
   try {
     const localSocketAddress = await fluxNetworkHelper.getLocalSocketAddress();
@@ -965,6 +969,13 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
         return { ok: false, reason: 'portUpnpBanned' };
       }
     }
+    const ports = await portClaims.claimForInstall(portsToTest, appName, portClaims.InstallStep.PORT_TEST);
+    if (!ports.claim) {
+      const port = ports.heldBy.ports.find((held) => portsToTest.map(Number).includes(held));
+      log.info(`checkInstallingAppPortAvailable - port ${port} is held by an installation of ${ports.heldBy.owner}`);
+      return { ok: false, reason: 'portClaimed', port };
+    }
+    portClaim = ports.claim;
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
     // eslint-disable-next-line no-restricted-syntax
     for (const portToTest of portsToTest) {
@@ -1016,6 +1027,7 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
       // eslint-disable-next-line no-await-in-loop
       await udpTestServer.listen(portToTest);
     }
+    await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.INSTALL_PORT_TEST_LISTENING, appName);
 
     await serviceHelper.delay(config.fluxapps.portTestPropagationDelayMs);
     const timeout = config.fluxapps.portTestPeerTimeoutMs;
@@ -1381,6 +1393,8 @@ async function checkInstallingAppPortAvailable(portsToTest = [], appName = '') {
     );
     log.error(error);
     return { ok: false, reason: 'error' };
+  } finally {
+    portClaims.release(portClaim);
   }
 }
 

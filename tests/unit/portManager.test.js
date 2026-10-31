@@ -18,6 +18,7 @@ const { requireMongo } = require('./dbTestHelper');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
+const portClaims = require('../../ZelBack/src/services/appNetwork/portClaims');
 
 // what upnpService.mapUpnpPort answers for a port mapped, and for one the router refused
 const MAPPED = {
@@ -1610,6 +1611,70 @@ describe('checkInstallingAppPortAvailable decides on every way of running out', 
 
     expect(result).to.deep.equal({ ok: false, reason: 'error' });
     sinon.assert.calledOnce(udpServers[0].close);
+  });
+
+  describe('its claim on the ports', () => {
+    afterEach(() => {
+      expect(portClaims.claimedPorts(), 'a claim outlived the test').to.deep.equal([]);
+      expect(portClaims.waiting(), 'a caller is still waiting').to.equal(0);
+    });
+
+    it('holds the app\'s ports as its installation while it listens and asks, and releases them once its servers have closed', async () => {
+      let heldWhileAsking = null;
+      const answers = [(t) => ({ data: { status: 'success', data: { answered: { [port]: `X-Flux-Port-Test: ${t}` } } } })];
+      const result = withPeers(answers);
+      axios.post.callsFake(async () => {
+        heldWhileAsking = portClaims.holderOf([port]);
+        return answers[0](token);
+      });
+
+      await result;
+
+      expect(heldWhileAsking).to.include({ kind: portClaims.ClaimKind.INSTALL, owner: 'web' });
+    });
+
+    it('releases the ports when the test fails part way', async () => {
+      fluxUdpTestServer.FluxUdpTestServer.callsFake(() => {
+        const server = { listen: sinon.stub().rejects(new Error('EADDRINUSE')), allow: sinon.stub(), close: sinon.stub() };
+        udpServers.push(server);
+        return server;
+      });
+
+      const result = await withPeers([UNREACHABLE]);
+
+      expect(result).to.deep.equal({ ok: false, reason: 'error' });
+    });
+
+    it('tests nothing on a port another installation holds, and says which port', async () => {
+      const other = portClaims.claim([port], portClaims.ClaimKind.INSTALL, 'web');
+      try {
+        const result = await withPeers([UNREACHABLE]);
+
+        expect(result).to.deep.equal({ ok: false, reason: 'portClaimed', port });
+        sinon.assert.notCalled(fluxHttpTestServer.FluxHttpTestServer);
+        sinon.assert.notCalled(axios.post);
+        expect(portClaims.holderOf([port]), 'the other installation\'s claim').to.equal(other);
+      } finally {
+        portClaims.release(other);
+      }
+    });
+
+    it('waits for the availability check to release a port, and then tests it', async () => {
+      const check = portClaims.claim([port], portClaims.ClaimKind.CHECK, 'availabilityCheck');
+      let settled = false;
+      const result = withPeers([UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE, UNREACHABLE]).then((verdict) => {
+        settled = true;
+        return verdict;
+      });
+
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(settled, 'tested while the check listened').to.equal(false);
+      sinon.assert.notCalled(fluxHttpTestServer.FluxHttpTestServer);
+
+      portClaims.release(check);
+      expect((await result).reason).to.equal('noneAnswered');
+      sinon.assert.called(fluxHttpTestServer.FluxHttpTestServer);
+    });
   });
 });
 
