@@ -211,7 +211,15 @@ async function handleLinkNonce(ws, msg) {
 
 function handleLinkConfirm(ws, msg) {
   const link = links.get(ws);
-  if (!link || link.authenticated) return;
+  if (!link) return;
+  // The node's handshake failed: it takes nothing MAC'd on this link.
+  if (msg.data.mac === null) {
+    if (link.authenticated) linksAuthenticated -= 1;
+    link.authenticated = false;
+    link.gaveUp = true;
+    return;
+  }
+  if (link.authenticated || link.gaveUp) return;
   if (!link.recvKey) {
     link.peerConfirm = msg;
     return;
