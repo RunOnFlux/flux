@@ -67,7 +67,7 @@ describe('an unpaid app message enters the network only through a quorum of auth
   let relayed = 0;
   const relayedMessage = async () => {
     relayed += 1;
-    const app = buildSeedableApp({ env, name: `e2equorumrelay${relayed}x${stamp}`, instances: 1 });
+    const app = await buildSeedableApp({ env, name: `e2equorumrelay${relayed}x${stamp}`, instances: 1 });
     const fields = { clientTag: freshClientTag(), clientTagHeight: await currentTagHeight() };
     const origin = await admittingSignature(pendingMessage(app, fields), nodeKey(ADMITTER + 1));
     return pendingMessage(app, { ...fields, origin });
