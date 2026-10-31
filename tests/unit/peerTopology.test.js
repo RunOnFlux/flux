@@ -26,6 +26,22 @@ describe('harness peer topology', () => {
     expect(topology.PRODUCTION_ADMISSION_QUORUM).to.equal(fluxapps.admissionQuorum);
   });
 
+  it('counts the peers the worst-placed node of a ring can hold', () => {
+    expect(topology.reachablePeers(1)).to.equal(0);
+    expect(topology.reachablePeers(3)).to.equal(2);
+    expect(topology.reachablePeers(9)).to.equal(8);
+    // a stub or a deferred node is a slot in an arc that nothing answers on
+    expect(topology.reachablePeers(3, 1)).to.equal(1);
+    expect(topology.reachablePeers(9, 2)).to.equal(6);
+    expect(topology.reachablePeers(3, 3)).to.equal(0);
+  });
+
+  it('waits on the same count the admission quorum is drawn from', () => {
+    // 4 nodes, 1 deferred: 3 dialers, the worst-placed node holds 1
+    expect(topology.expectedPeerTotal(4, 2, 3, 1)).to.equal(topology.reachablePeers(3, 1));
+    expect(topology.deriveAdmissionQuorum(4, 1, 0)).to.equal(topology.reachablePeers(3, 1));
+  });
+
   it('asks a fleet for the admission quorum its Arcane peers can meet', () => {
     // what the worst-placed node carries, capped at production's 3
     expect(topology.deriveAdmissionQuorum(1, 0, 0)).to.equal(0);
