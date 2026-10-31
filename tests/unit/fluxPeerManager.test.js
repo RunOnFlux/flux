@@ -5,7 +5,9 @@ const WebSocket = require('ws');
 
 const { expect } = chai;
 
-const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
+const {
+  FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION, arrivedAuthenticated,
+} = require('../../ZelBack/src/services/utils/FluxPeerSocket');
 const { FluxPeerManager, peerManager } = require('../../ZelBack/src/services/utils/FluxPeerManager');
 const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
@@ -674,6 +676,116 @@ describe('FluxPeerSocket tests', () => {
       await ws.onmessage(undefined);
 
       sinon.assert.notCalled(manager.messageDispatcher);
+    });
+  });
+
+  describe('link MAC', () => {
+    const keyAtoB = Buffer.alloc(32, 1);
+    const keyBtoA = Buffer.alloc(32, 2);
+
+    function linkedPair({ aAuthenticated = true, bAuthenticated = true } = {}) {
+      sinon.stub(rateLimit, 'lruRateLimit').returns(true);
+      const a = new FluxPeerSocket(createMockWs('10.0.0.2'), '10.0.0.2', '16127', manager);
+      const b = new FluxPeerSocket(createMockWs('10.0.0.1'), '10.0.0.1', '16127', manager);
+      a.link = { authenticated: aAuthenticated, failed: null, sendKey: keyAtoB, recvKey: keyBtoA };
+      b.link = { authenticated: bAuthenticated, failed: null, sendKey: keyBtoA, recvKey: keyAtoB };
+      return { a, b };
+    }
+
+    async function deliver(socket, frame) {
+      socket.ws.onmessage({ data: frame });
+      await new Promise(setImmediate);
+      return manager.messageDispatcher.lastCall?.args[0];
+    }
+
+    const frame = JSON.stringify({ version: 1, data: { type: 'fluxappregister' } });
+
+    it('should MAC a text frame on an authenticated link and mark what arrives under it', async () => {
+      const { a, b } = linkedPair();
+      a.send(frame);
+      const sent = a.ws.send.firstCall.args[0];
+      expect(sent[0]).to.equal('M');
+
+      const msgObj = await deliver(b, sent);
+
+      expect(msgObj.data.type).to.equal('fluxappregister');
+      expect(arrivedAuthenticated(msgObj)).to.equal(true);
+    });
+
+    it('should MAC the transmission timestamp with the frame', async () => {
+      const { a, b } = linkedPair();
+      a.remoteCapabilities = new Set(['transmissionTimestamps']);
+      const sending = a.sendAsync(frame);
+      a.ws.send.firstCall.args[1]();
+      expect(await sending).to.equal(true);
+      const sent = a.ws.send.firstCall.args[0];
+      expect(sent.substring(66, 67)).to.equal('T');
+
+      const msgObj = await deliver(b, sent);
+
+      expect(arrivedAuthenticated(msgObj)).to.equal(true);
+      expect(b.lastTransmissionDelay).to.be.a('number');
+    });
+
+    it('should drop a frame whose content was changed after the MAC', async () => {
+      const { a, b } = linkedPair();
+      a.send(frame);
+      const sent = a.ws.send.firstCall.args[0].replace('fluxappregister', 'fluxappupdate');
+
+      await deliver(b, sent);
+
+      sinon.assert.notCalled(manager.messageDispatcher);
+    });
+
+    it('should drop a frame sent back to the socket that made it', async () => {
+      const { a } = linkedPair();
+      a.send(frame);
+
+      await deliver(a, a.ws.send.firstCall.args[0]);
+
+      sinon.assert.notCalled(manager.messageDispatcher);
+    });
+
+    it('should drop a MAC\'d frame on a link that has no keys, or whose handshake failed', async () => {
+      const { a, b } = linkedPair();
+      a.send(frame);
+      const sent = a.ws.send.firstCall.args[0];
+      const keyless = new FluxPeerSocket(createMockWs('10.0.0.1'), '10.0.0.1', '16127', manager);
+      b.link.failed = 'confirm';
+
+      await deliver(keyless, sent);
+      await deliver(b, sent);
+
+      sinon.assert.notCalled(manager.messageDispatcher);
+    });
+
+    it('should take a valid MAC before this end has read the peer\'s confirm', async () => {
+      const { a, b } = linkedPair({ bAuthenticated: false });
+      a.send(frame);
+
+      const msgObj = await deliver(b, a.ws.send.firstCall.args[0]);
+
+      expect(arrivedAuthenticated(msgObj)).to.equal(true);
+    });
+
+    it('should send plain frames and leave them unmarked on a link that has not authenticated', async () => {
+      const { a, b } = linkedPair({ aAuthenticated: false });
+      a.send(frame);
+      const sent = a.ws.send.firstCall.args[0];
+      expect(sent).to.equal(frame);
+
+      const msgObj = await deliver(b, sent);
+
+      expect(arrivedAuthenticated(msgObj)).to.equal(false);
+    });
+
+    it('should send a binary frame as it is', () => {
+      const { a } = linkedPair();
+      const buf = Buffer.from([1, 2, 3]);
+
+      a.send(buf);
+
+      expect(a.ws.send.firstCall.args[0]).to.equal(buf);
     });
   });
 

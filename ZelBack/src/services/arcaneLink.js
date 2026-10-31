@@ -18,6 +18,9 @@
 //   3. each side sends `fluxlinkconfirm` {mac}, a MAC under its own direction's
 //      key, and the link is authenticated when the peer's checks out.
 //
+// From then on FluxPeerSocket MACs every text frame on the link under the
+// sender's key, and marks what arrives under a valid one (arrivedAuthenticated).
+//
 // The secret never leaves the node, and nothing is cached: a new socket derives
 // afresh, so no address can carry another connection's trust.
 
@@ -269,29 +272,6 @@ function isAuthenticated(peer) {
   return Boolean(peer?.link?.authenticated);
 }
 
-/**
- * The MAC this node puts on `text` sent over an authenticated link.
- * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer
- * @param {string} text
- * @returns {string|null} Hex, or null when the link is not authenticated.
- */
-function macFor(peer, text) {
-  if (!isAuthenticated(peer)) return null;
-  return hmac(peer.link.sendKey, text).toString('hex');
-}
-
-/**
- * Whether `mac` is the peer's MAC on `text` over an authenticated link.
- * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer
- * @param {string} text
- * @param {string} mac
- * @returns {boolean}
- */
-function verifyFrom(peer, text, mac) {
-  if (!isAuthenticated(peer) || typeof mac !== 'string' || !HEX_32_BYTES.test(mac)) return false;
-  return crypto.timingSafeEqual(Buffer.from(mac, 'hex'), hmac(peer.link.recvKey, text));
-}
-
 /** Test seam: forget every per-IP budget and the call queue. */
 function resetState() {
   handshakesByIp.clear();
@@ -308,7 +288,5 @@ module.exports = {
   handleNonce,
   handleConfirm,
   isAuthenticated,
-  macFor,
-  verifyFrom,
   resetState,
 };

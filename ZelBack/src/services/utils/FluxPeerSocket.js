@@ -1,3 +1,4 @@
+const crypto = require('node:crypto');
 const config = require('config');
 const { performance } = require('perf_hooks');
 const WebSocket = require('ws');
@@ -27,6 +28,28 @@ function getFluxNetworkHelper() {
  */
 function monotonicMs() {
   return performance.now();
+}
+
+/**
+ * The messages that arrived in a frame carrying a valid link MAC, which only the
+ * other end of an authenticated Arcane link (services/arcaneLink.js) can make.
+ */
+const arrivedOverAuthenticatedLink = new WeakSet();
+
+/**
+ * Whether a parsed message arrived in a frame carrying a valid link MAC.
+ * @param {object} msgObj As handed to the dispatchers.
+ * @returns {boolean}
+ */
+function arrivedAuthenticated(msgObj) {
+  return typeof msgObj === 'object' && msgObj !== null && arrivedOverAuthenticatedLink.has(msgObj);
+}
+
+// `M<64 hex>|`: a link MAC over the rest of the frame.
+const LINK_MAC_PREFIX_LENGTH = 66;
+
+function linkMac(key, text) {
+  return crypto.createHmac('sha256', key).update(text).digest('hex');
 }
 
 // These number the PEER sockets. The browser routes on the same server carry
@@ -249,12 +272,7 @@ class FluxPeerSocket {
   send(data) {
     try {
       if (this.ws.readyState !== WebSocket.OPEN) return false;
-      let payload;
-      if (this.remoteCapabilities.has('transmissionTimestamps') && typeof data === 'string') {
-        payload = `T${Date.now()}|${data}`;
-      } else {
-        payload = data;
-      }
+      const payload = this.#frame(data);
       this.ws.send(payload);
       this.messagesSent += 1;
       this.bytesSent += Buffer.byteLength(payload, 'utf8');
@@ -276,12 +294,7 @@ class FluxPeerSocket {
     return new Promise((resolve) => {
       try {
         if (this.ws.readyState !== WebSocket.OPEN) { resolve(false); return; }
-        let payload;
-        if (this.remoteCapabilities.has('transmissionTimestamps') && typeof data === 'string') {
-          payload = `T${Date.now()}|${data}`;
-        } else {
-          payload = data;
-        }
+        const payload = this.#frame(data);
         this.ws.send(payload, (err) => {
           if (err) { resolve(false); return; }
           this.messagesSent += 1;
@@ -293,6 +306,42 @@ class FluxPeerSocket {
         resolve(false);
       }
     });
+  }
+
+  /**
+   * A text frame as it goes on the wire: the transmission timestamp when the
+   * peer takes one, and on an authenticated link a MAC over all of it under
+   * this direction's key. Binary frames go as they are.
+   * @param {string|Buffer} data
+   * @returns {string|Buffer}
+   */
+  #frame(data) {
+    if (typeof data !== 'string') return data;
+    const timed = this.remoteCapabilities.has('transmissionTimestamps') ? `T${Date.now()}|${data}` : data;
+    if (!this.link?.authenticated) return timed;
+    return `M${linkMac(this.link.sendKey, timed)}|${timed}`;
+  }
+
+  /**
+   * The frame under a link MAC prefix, when the MAC is the peer's.
+   *
+   * Checked once this node has derived the link's keys, before it has necessarily
+   * read the peer's confirm: the peer MACs only after accepting this node's
+   * confirm, which it sent once it had the keys, and a valid MAC proves what the
+   * confirm proves.
+   * @param {string} raw A frame beginning with `M`.
+   * @returns {string|null} The rest of the frame, or null when the MAC is not
+   *   this link's.
+   */
+  #openLinkFrame(raw) {
+    const { link } = this;
+    if (!link?.recvKey || link.failed) return null;
+    if (raw.length < LINK_MAC_PREFIX_LENGTH || raw[LINK_MAC_PREFIX_LENGTH - 1] !== '|') return null;
+    const mac = raw.substring(1, LINK_MAC_PREFIX_LENGTH - 1);
+    if (!/^[0-9a-f]{64}$/.test(mac)) return null;
+    const rest = raw.substring(LINK_MAC_PREFIX_LENGTH);
+    const expected = linkMac(link.recvKey, rest);
+    return crypto.timingSafeEqual(Buffer.from(mac, 'hex'), Buffer.from(expected, 'hex')) ? rest : null;
   }
 
   /**
@@ -450,6 +499,15 @@ class FluxPeerSocket {
       //   skew = localOffset - remoteOffset (positive = our clock is ahead)
       //   adjustedDelay = rawDelay - skew
       let rawData = evt.data;
+      let linkVerified = false;
+      if (typeof rawData === 'string' && rawData[0] === 'M') {
+        rawData = this.#openLinkFrame(rawData);
+        if (rawData === null) {
+          log.warn(`Dropping a frame from ${this.direction} peer ${this.key}: its link MAC does not verify`);
+          return;
+        }
+        linkVerified = true;
+      }
       if (typeof rawData === 'string' && rawData.length > 2 && rawData[0] === 'T') {
         const pipeIdx = rawData.indexOf('|');
         if (pipeIdx > 1 && pipeIdx < 16) { // timestamp is 13-14 digits
@@ -468,6 +526,7 @@ class FluxPeerSocket {
       }
 
       const msgObj = serviceHelper.ensureObject(rawData);
+      if (linkVerified && typeof msgObj === 'object' && msgObj !== null) arrivedOverAuthenticatedLink.add(msgObj);
 
       // Handle peer-level protocol messages (not broadcast)
       if (msgObj.type === 'nak') {
@@ -525,4 +584,6 @@ const FLUX_CAPABILITIES = Object.freeze([
   ...(process.env.FLUXOS_PATH ? ['arcaneLink'] : []),
 ]);
 
-module.exports = { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES };
+module.exports = {
+  FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES, arrivedAuthenticated,
+};

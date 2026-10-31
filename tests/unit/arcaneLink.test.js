@@ -151,17 +151,17 @@ describe('arcaneLink tests', () => {
       expect(b.mod.isAuthenticated(peers.bPeer)).to.equal(true);
     });
 
-    it('should verify a MAC the other end made, and refuse one sent back to its maker', async () => {
+    it('should give each direction one key, held by its sender and its receiver alone', async () => {
       const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA' });
       const b = makeNode({ ip: '10.0.0.2', pubKey: 'keyB' });
       const peers = connect(a, b);
       await handshake(a, b, peers);
 
-      const mac = a.mod.macFor(peers.aPeer, 'held|abc');
-
-      expect(b.mod.verifyFrom(peers.bPeer, 'held|abc', mac)).to.equal(true);
-      expect(b.mod.verifyFrom(peers.bPeer, 'held|abd', mac)).to.equal(false);
-      expect(a.mod.verifyFrom(peers.aPeer, 'held|abc', mac)).to.equal(false);
+      const aLink = peers.aPeer.link;
+      const bLink = peers.bPeer.link;
+      expect(aLink.sendKey.equals(bLink.recvKey)).to.equal(true);
+      expect(bLink.sendKey.equals(aLink.recvKey)).to.equal(true);
+      expect(aLink.sendKey.equals(aLink.recvKey)).to.equal(false);
     });
 
     it('should authenticate when the peer\'s confirm arrives before this node has derived its keys', async () => {
@@ -180,12 +180,6 @@ describe('arcaneLink tests', () => {
 
       expect(a.mod.isAuthenticated(peers.aPeer)).to.equal(true);
       expect(b.mod.isAuthenticated(peers.bPeer)).to.equal(true);
-    });
-
-    it('should make no MAC on an unauthenticated link', () => {
-      const a = makeNode({ ip: '10.0.0.1', pubKey: 'keyA' });
-      expect(a.mod.macFor(makePeer('10.0.0.2'), 'x')).to.equal(null);
-      expect(a.mod.verifyFrom(makePeer('10.0.0.2'), 'x', '00'.repeat(32))).to.equal(false);
     });
   });
 
