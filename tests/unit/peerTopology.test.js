@@ -23,6 +23,19 @@ describe('harness peer topology', () => {
 
     expect(topology.PRODUCTION_READINESS.peerThreshold).to.equal(fluxapps.appSyncPeerThreshold);
     expect(topology.PRODUCTION_READINESS.degradedThreshold).to.equal(fluxapps.appSyncDegradedThreshold);
+    expect(topology.PRODUCTION_ADMISSION_QUORUM).to.equal(fluxapps.admissionQuorum);
+  });
+
+  it('asks a fleet for the admission quorum its Arcane peers can meet', () => {
+    // what each node carries (carriedPeers above), capped at production's 3
+    expect(topology.deriveAdmissionQuorum(1, 0, 0)).to.equal(0);
+    expect(topology.deriveAdmissionQuorum(2, 0, 0)).to.equal(1);
+    expect(topology.deriveAdmissionQuorum(3, 0, 0)).to.equal(2);
+    expect(topology.deriveAdmissionQuorum(5, 0, 0)).to.equal(3);
+    expect(topology.deriveAdmissionQuorum(9, 0, 0)).to.equal(3);
+    // every legacy node is taken off what a node carries
+    expect(topology.deriveAdmissionQuorum(5, 0, 2)).to.equal(2);
+    expect(topology.deriveAdmissionQuorum(3, 0, 3)).to.equal(0);
   });
 
   it('counts the peers a node carries once its ring has closed', () => {
