@@ -51,6 +51,8 @@ const FAILURE = Object.freeze({
   FLUXBENCH: 'fluxbench',
   // The peer did not prove the secret.
   CONFIRM: 'confirm',
+  // The peer's own handshake failed, and it said so.
+  PEER_GAVE_UP: 'peerGaveUp',
 });
 
 // The failures that are the peer's doing, and so back its IP off.
@@ -124,6 +126,30 @@ function fail(peer, link, reason) {
   if (BACKS_OFF.has(reason)) backOff(peer.ip, Date.now());
   log.warn(`arcaneLink - link with ${peer.key} not authenticated: ${reason}`);
   fluxEventBus.publish('peers:linkFailed', { ip: peer.ip, port: peer.port, reason });
+  // A handshake settles at both ends together: a confirm with no MAC tells the
+  // peer this end will not authenticate, so it settles now rather than at its
+  // deadline. Unsent when this node cannot sign, or when the peer gave up first.
+  if (reason !== FAILURE.NO_KEY && reason !== FAILURE.PEER_GAVE_UP) {
+    sendSignedMessage({ type: CONFIRM_TYPE, version: 1, mac: null }, peer).catch((error) => log.error(error));
+  }
+}
+
+/**
+ * The peer's handshake failed. A link not yet authenticated settles
+ * unauthenticated; one that had authenticated stops being so, since its peer no
+ * longer takes what is MAC'd on it.
+ * @param {object} peer
+ * @param {object} link
+ */
+function peerGaveUp(peer, link) {
+  if (!link.authenticated) {
+    fail(peer, link, FAILURE.PEER_GAVE_UP);
+    return;
+  }
+  link.authenticated = false;
+  link.failed = FAILURE.PEER_GAVE_UP;
+  log.warn(`arcaneLink - link with ${peer.key} no longer authenticated: ${FAILURE.PEER_GAVE_UP}`);
+  fluxEventBus.publish('peers:linkFailed', { ip: peer.ip, port: peer.port, reason: FAILURE.PEER_GAVE_UP });
 }
 
 function checkConfirm(peer, link) {
@@ -227,13 +253,19 @@ async function handleNonce(msg, peer) {
 }
 
 /**
- * A peer's proof that it derived the secret. One per socket.
+ * A peer's proof that it derived the secret, one per socket; or, with no MAC,
+ * its word that its own handshake failed.
  * @param {object} msg Verified envelope.
  * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer
  */
 function handleConfirm(msg, peer) {
   const { link } = peer;
-  if (!link || link.peerConfirm || link.failed) return;
+  if (!link || link.failed) return;
+  if (msg.data?.mac === null) {
+    if (msg.pubKey === link.peerPubKey) peerGaveUp(peer, link);
+    return;
+  }
+  if (link.peerConfirm) return;
   link.peerConfirm = { mac: msg.data?.mac, pubKey: msg.pubKey };
   if (link.recvKey) checkConfirm(peer, link);
 }
