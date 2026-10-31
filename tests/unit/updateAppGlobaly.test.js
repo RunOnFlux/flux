@@ -7,6 +7,9 @@ const appValidator = require('../../ZelBack/src/services/appRequirements/appVali
 const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
 const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advancedWorkflows');
 const { requireMongo } = require('./dbTestHelper');
+const EventEmitter = require('node:events');
+const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 
 // The submission path up to the owner's signature: which app an update is judged against, and
 // whose signature it needs.
@@ -130,5 +133,33 @@ describe('updateAppGlobaly tests', () => {
       sinon.assert.notCalled(appValidator.verifyAppSpecifications);
       expect(signatureCheck.called).to.equal(false);
     });
+  });
+});
+
+describe('updateAppGlobalyApi tests', () => {
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  it('should refuse at the door with 503 below the quorum of authenticated links', async () => {
+    sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+    sinon.stub(peerManager, 'outboundCount').get(() => 100);
+    sinon.stub(peerManager, 'inboundCount').get(() => 100);
+    sinon.stub(peerManager, 'authenticatedIpCount').returns(2);
+    let statusCode = 200;
+
+    const response = await new Promise((resolve) => {
+      const req = new EventEmitter();
+      const res = {
+        json: resolve,
+        status(code) { statusCode = code; return this; },
+      };
+      advancedWorkflows.updateAppGlobalyApi(req, res);
+      req.emit('data', JSON.stringify({ type: 'fluxappupdate', version: 1 }));
+      req.emit('end');
+    });
+
+    expect(response.data.name).to.equal('AdmissionUnavailable');
+    expect(statusCode).to.equal(503);
   });
 });

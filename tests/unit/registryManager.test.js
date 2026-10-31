@@ -2172,9 +2172,14 @@ describe('registryManager registerAppGlobalyApi tests', () => {
     enterprise: 'blob',
   };
 
+  let statusCode;
   const register = (appSpecification) => new Promise((resolve) => {
     const req = new EventEmitter();
-    const res = { json: (response) => resolve(response) };
+    statusCode = 200;
+    const res = {
+      json: (response) => resolve(response),
+      status(code) { statusCode = code; return this; },
+    };
     registryManager.registerAppGlobalyApi(req, res);
     req.emit('data', JSON.stringify({
       appSpecification, timestamp: Date.now(), signature: 'sig', type: 'fluxappregister', version: 1,
@@ -2216,5 +2221,12 @@ describe('registryManager registerAppGlobalyApi tests', () => {
     const response = await register({ ...spec, name: 'register_test' });
     expect(response.status).to.equal('error');
     expect(response.data.name).to.equal('AdmissionUnavailable');
+    expect(statusCode).to.equal(503);
+  });
+
+  it('should answer any other refusal with the v1 status', async () => {
+    const response = await register({ ...spec, name: 'register_test' });
+    expect(response.data.message).to.equal('Invalid app name or owner');
+    expect(statusCode).to.equal(200);
   });
 });
