@@ -14,6 +14,7 @@ import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, seedAndInstall } from '../framework/reconciler-suite.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
 
 const subnet = getSubnetConfig();
 
@@ -70,7 +71,10 @@ describe('a node whose api port changes keeps its apps', function () {
       nodes: 3,
       tickerAutostart: false,
       configOverrides: {
-        fluxapps: { minOutgoing: 1, minIncoming: 1, locationTtlS: LOCATION_TTL_S },
+        // its app must also survive its restart, which the harness does not compress
+        fluxapps: {
+          minOutgoing: 1, minIncoming: 1, ...PRODUCTION_LOCATION_EXPIRIES, locationTtlS: LOCATION_TTL_S,
+        },
         system: { bootSyncTimeoutMs: BOOT_SYNC_TIMEOUT_MS },
       },
     });

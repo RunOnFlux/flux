@@ -48,7 +48,7 @@ describe('fluxNetworkHelper own standing tests', () => {
   beforeEach(() => {
     clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     fluxNetworkHelper.setStoredFluxBenchAllowed('6.2.0');
-    fluxNetworkHelper.setDosTooManyIpChanges(false);
+    fluxNetworkHelper.setIpChangeHold(null);
     fluxNetworkHelper.setDosMessage(null);
     fluxNetworkHelper.setDosStateValue(0);
     fluxNetworkHelper.resetAvailabilityDos();
@@ -278,21 +278,30 @@ describe('fluxNetworkHelper own standing tests', () => {
       expect(dos().dosState, 'two asks that found it unreachable').to.equal(4);
     });
 
-    it('holds the node out of service for 20 hours after its IP changed over the limit, then ends that DOS', async () => {
+    it('holds the node out of service while its record holds an IP change hold, then ends that DOS once the chain passes it', async () => {
       const IP_CHANGES = 'IP changes over the limit allowed, one in 20 hours';
-      clock.restore();
-      clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'hrtime'] });
-      fluxNetworkHelper.setDosTooManyIpChanges(true);
+      await dbHelper.initiateDB();
+      const records = dbHelper.databaseConnection().db(config.database.local.database).collection(config.database.local.collections.ownAddress);
+      await records.deleteMany({});
+      await records.insertOne({ _id: 'own', socketAddress: OWN, movedFrom: null, ipChangeHold: { fromHeight: 1000 } });
+      // a daemon synced at `at` that has just reported it
+      sinon.stub(daemonServiceMiscRpcs, 'getLastSuccessfulRpcCall').callsFake(() => Date.now());
+      const chainAt = (at) => daemonServiceMiscRpcs.isDaemonSynced.returns({ data: { synced: true, height: at, header: at } });
+      chainAt(3399);
+      try {
+        await fluxNetworkHelper.enforceIpChangeHold();
+        expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(false);
+        expect(fluxNetworkHelper.getDosMessage()).to.equal(IP_CHANGES);
 
-      expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(false);
-      expect(fluxNetworkHelper.getDosMessage()).to.equal(IP_CHANGES);
-      clock.tick(20 * 60 * 60 * 1000 - 1);
-      expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(false);
-      expect(fluxNetworkHelper.getDosMessage()).to.equal(IP_CHANGES);
-
-      clock.tick(1);
-      expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(true);
-      expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+        // as the hold's watch does at each new height
+        chainAt(3400);
+        await fluxNetworkHelper.enforceIpChangeHold();
+        expect(await fluxNetworkHelper.checkMyFluxAvailability()).to.equal(true);
+        expect(fluxNetworkHelper.getDosMessage()).to.equal(null);
+      } finally {
+        fluxNetworkHelper.clearStickyDos(fluxNetworkHelper.StickyDosOwner.IP_CHANGES);
+        await records.deleteMany({});
+      }
     });
 
     it('ends no DOS of another check\'s once reachable', async () => {

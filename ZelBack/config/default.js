@@ -678,7 +678,10 @@ module.exports = {
     discoveryConnectionDelayMs: 500,
     connectionBackoffMs: [120000, 300000, 600000, 900000],
     nodeMonitorIntervalMs: 1200000,
-    nodeMonitorRemovalDelayMs: 60000,
+    // how long an image pull's progress may stay silent before the pull fails and its transfer is aborted
+    pullStallMs: 90000,
+    // between a node's removals of its own apps when it goes out of service (nodeStatusMonitor)
+    nodeMonitorRemovalDelayMs: 5000,
     // events per message of an answer to a peer's state sync
     syncAnswerBatchSize: 2000,
     // Residential-node staging. The placement hold is immediate and is not

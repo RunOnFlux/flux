@@ -1069,6 +1069,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       return InstallOutcome.BUSY;
     }
     globalState.installationInProgress = true;
+    globalState.installingApp = appSpecs.name;
     acquired = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
@@ -3480,14 +3481,6 @@ async function validateApplicationUpdateCompatibility(specifications, previousAp
 }
 
 /**
- * Set installation progress state
- * @param {boolean} state - Installation progress state
- */
-function setInstallationInProgress(state) {
-  globalState.installationInProgress = state;
-}
-
-/**
  * Set removal progress state
  * @param {boolean} state - Removal progress state
  */
@@ -3530,13 +3523,6 @@ function setRemovalInProgressToTrue() {
  */
 function installationInProgressReset() {
   globalState.installationInProgress = false;
-}
-
-/**
- * Set installation in progress to true
- */
-function setInstallationInProgressTrue() {
-  globalState.installationInProgress = true;
 }
 
 /**
@@ -5796,14 +5782,12 @@ module.exports = {
   appendBackupTask,
   appendRestoreTask,
   validateApplicationUpdateCompatibility,
-  setInstallationInProgress,
   setRemovalInProgress,
   getInstallationInProgress,
   getRemovalInProgress,
   removalInProgressReset,
   setRemovalInProgressToTrue,
   installationInProgressReset,
-  setInstallationInProgressTrue,
   checkAndRemoveApplicationInstance,
   reasonToGiveUpApp,
   isElectedPrimaryHere,

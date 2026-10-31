@@ -2537,4 +2537,104 @@ describe('dockerService tests', () => {
       })).to.equal(true);
     });
   });
+
+  describe('dockerPullStream', () => {
+    const modemProto = Object.getPrototypeOf(new Dockerode().modem);
+    let clock;
+    let pullStub;
+    let onFinished;
+    let onProgress;
+
+    beforeEach(() => {
+      clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      pullStub = sinon.stub(Dockerode.prototype, 'pull').callsFake((repoTag, opts, cb) => cb(null, 'STREAM'));
+      // the stream is driven by hand
+      sinon.stub(modemProto, 'followProgress').callsFake((stream, finished, progress) => {
+        onFinished = finished;
+        onProgress = progress;
+      });
+      sinon.stub(log, 'info');
+    });
+
+    afterEach(() => {
+      clock.restore();
+      sinon.restore();
+    });
+
+    it('fails a pull whose progress stays silent for the stall window, and aborts its transfer', () => {
+      const cb = sinon.stub();
+      dockerService.dockerPullStream({ repoTag: 'nginx:latest', stallMs: 50 }, null, cb);
+      clock.tick(49);
+      sinon.assert.notCalled(cb);
+      clock.tick(1);
+
+      sinon.assert.calledOnce(cb);
+      expect(cb.firstCall.args[0].message).to.include('stalled: no progress for');
+      expect(pullStub.firstCall.args[1].abortSignal.aborted, 'the dead transfer is aborted').to.equal(true);
+      // the error the abort surfaces afterwards does not answer a second time
+      onFinished(new Error('aborted'));
+      sinon.assert.calledOnce(cb);
+    });
+
+    it('lets a pull whose layers keep moving run for as long as it takes', () => {
+      const cb = sinon.stub();
+      dockerService.dockerPullStream({ repoTag: 'nginx:latest', stallMs: 50 }, null, cb);
+      for (let i = 1; i <= 5; i += 1) {
+        clock.tick(40);
+        onProgress({ status: 'Downloading', id: 'layer1', progressDetail: { current: i * 1024, total: 8192 } });
+      }
+      clock.tick(40);
+      sinon.assert.notCalled(cb);
+
+      onFinished(null, [{ status: 'Downloaded newer image' }]);
+      sinon.assert.calledOnceWithExactly(cb, null, [{ status: 'Downloaded newer image' }]);
+    });
+
+    it('fails a pull whose layer keeps reporting the same byte count', () => {
+      const cb = sinon.stub();
+      dockerService.dockerPullStream({ repoTag: 'nginx:latest', stallMs: 50 }, null, cb);
+      onProgress({ status: 'Downloading', id: 'layer1', progressDetail: { current: 1048576, total: 8411477 } });
+      for (let i = 0; i < 10; i += 1) {
+        clock.tick(10);
+        onProgress({ status: 'Downloading', id: 'layer1', progressDetail: { current: 1048576, total: 8411477 } });
+      }
+
+      sinon.assert.calledOnce(cb);
+      expect(cb.firstCall.args[0].message).to.include('stalled: no progress for');
+    });
+
+    it('counts a layer moving to its next step as progress', () => {
+      const cb = sinon.stub();
+      dockerService.dockerPullStream({ repoTag: 'nginx:latest', stallMs: 50 }, null, cb);
+      clock.tick(40);
+      onProgress({ status: 'Downloading', id: 'layer1', progressDetail: { current: 8192, total: 8192 } });
+      clock.tick(40);
+      onProgress({ status: 'Download complete', id: 'layer1' });
+      clock.tick(40);
+      onProgress({ status: 'Extracting', id: 'layer1', progressDetail: { current: 4096, total: 8192 } });
+      clock.tick(40);
+
+      sinon.assert.notCalled(cb);
+    });
+
+    it('fails the pull with the stream\'s own error', () => {
+      const cb = sinon.stub();
+      dockerService.dockerPullStream({ repoTag: 'nginx:latest' }, null, cb);
+
+      onFinished(new Error('socket hang up'));
+
+      sinon.assert.calledOnce(cb);
+      expect(cb.firstCall.args[0]?.message).to.equal('socket hang up');
+    });
+
+    it('fails the pull on an {error} event in a stream that ended cleanly', () => {
+      const cb = sinon.stub();
+      dockerService.dockerPullStream({ repoTag: 'nginx:latest' }, null, cb);
+
+      onFinished(null, [{ status: 'Downloading', id: 'layer1' }, { errorDetail: { message: 'unexpected EOF' }, error: 'unexpected EOF' }]);
+
+      sinon.assert.calledOnce(cb);
+      expect(cb.firstCall.args[0]?.message).to.equal('unexpected EOF');
+    });
+  });
 });

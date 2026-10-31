@@ -20,7 +20,7 @@ import {
 } from '../framework/reconciler-suite.js';
 import { syncthingSeedIndex, placementOrderWithSeedAt } from '../framework/g-app-placement.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
-import { loadSharedConfig } from '../framework/coupled-knobs.js';
+import { loadSharedConfig, PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
 
 // MUST-PASS gate. Primary election when the election order DISAGREES with the
 // syncthing seed order - the one arrangement the other g: suites cannot make.
@@ -132,7 +132,10 @@ describe('primary election under a divergent placement order', function () {
 
   before(async function () {
     this.timeout(900000);
-    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
+    // The node's app must survive its restart, which the harness does not compress.
+    env = await createTestEnv({
+      hookCtx: this, nodes: 10, tickerAutostart: false, configOverrides: { fluxapps: PRODUCTION_LOCATION_EXPIRIES },
+    });
     await bootAndPeer(env);
     await resetFdm(); // no FDM primary by default: these are the self-selection paths
     await resetSyncState();

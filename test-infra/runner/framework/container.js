@@ -408,6 +408,22 @@ function trafficRules(peerIp, port) {
   ]);
 }
 
+// Slows the traffic a node receives from an address to `rateKbit`: packets
+// over the rate are dropped on arrival, and TCP backs off to it. For a transfer
+// that must still be running when a suite acts on it. One shaping per node;
+// clearTrafficShaping undoes it.
+export async function shapeTraffic(container, { from, rateKbit, iface = 'eth0' }) {
+  const r = await execInContainer(container, `tc qdisc add dev ${iface} handle ffff: ingress && `
+    + `tc filter add dev ${iface} parent ffff: protocol ip prio 1 u32 match ip src ${from}/32 `
+    + `police rate ${rateKbit}kbit burst 32k drop flowid :1`);
+  if (r.exitCode !== 0) throw new Error(`shapeTraffic: could not shape ${from} on ${iface}: ${r.output}`);
+}
+
+// Undo shapeTraffic. Tolerates a node with nothing shaped.
+export async function clearTrafficShaping(container, { iface = 'eth0' } = {}) {
+  await execInContainer(container, `tc qdisc del dev ${iface} ingress 2>/dev/null; true`);
+}
+
 export async function blockTraffic(container, peerIps, port) {
   for (const peerIp of peerIps) {
     for (const rule of trafficRules(peerIp, port)) {

@@ -148,6 +148,49 @@ describe('globalState tests', () => {
     });
   });
 
+  describe('whenInstallationReleased', () => {
+    const settled = async (promise) => {
+      let done = false;
+      promise.then(() => { done = true; });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      return done;
+    };
+
+    it('resolves at once when no install holds the node', async () => {
+      expect(await settled(globalState.whenInstallationReleased())).to.equal(true);
+    });
+
+    it('resolves every waiter when the install releases the node, and not before', async () => {
+      globalState.installationInProgress = true;
+      const first = globalState.whenInstallationReleased();
+      const second = globalState.whenInstallationReleased();
+      expect(await settled(first)).to.equal(false);
+
+      globalState.installationInProgress = false;
+
+      expect(await settled(first)).to.equal(true);
+      expect(await settled(second)).to.equal(true);
+    });
+
+    it('is released by the reset helper too', async () => {
+      globalState.setInstallationInProgressTrue();
+      const waiting = globalState.whenInstallationReleased();
+
+      globalState.installationInProgressReset();
+
+      expect(await settled(waiting)).to.equal(true);
+    });
+
+    it('forgets the app the install was for once it releases the node', () => {
+      globalState.installationInProgress = true;
+      globalState.installingApp = 'newapp';
+
+      globalState.installationInProgress = false;
+
+      expect(globalState.installingApp).to.equal(null);
+    });
+  });
+
   // The restore claim. Two restores of one app run the same archive into the same
   // appdata, so this pair is what makes an app's restore exclusive - and the
   // boolean is the whole of it: the caller learns from the return value alone

@@ -21,7 +21,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { apprunningEvent } from '../framework/state-events.js';
 import {
   subnet, TARGET, SECOND_TARGET, PASS_PERIOD_BLOCKS, PASS_MS, RESIDENTIAL_PACING,
-  bootResidentialFleet, seedApp, returnToService, elapseSettleWindow, departureWaitMs,
+  bootResidentialFleet, seedApp, returnToService, elapseSettleWindow, departureWaitMs, retireSeededApps, expectHoldsOnly,
 } from '../framework/residential-fleet.js';
 import { keysOf, turnOf } from '../framework/handback-turns.js';
 
@@ -35,13 +35,19 @@ const eventsOf = (client, name, predicate = () => true, afterId = 0) => client.g
 const turnsOf = (client, appName, afterId = 0) => eventsOf(client, 'giveUp:turn', (d) => d.appName === appName, afterId);
 const departuresOf = (client, appName, afterId = 0) => eventsOf(client, 'app:removed', (d) => d.name === appName, afterId);
 
-/** Seed an app every fleet node holds, then start the given nodes evacuating. */
+/**
+ * Retire every app an earlier test seeded, so the evacuating nodes hold this
+ * test's app alone, then seed one every fleet node holds and start the given
+ * nodes evacuating.
+ */
 async function seedAndEvacuate(env, appName, nodes) {
+  await retireSeededApps(env);
   await Promise.all(FLEET.map((node) => returnToService(env, node)));
   await seedApp(env, appName, { instances: FLEET.length });
   await startTicker();
   await waitFor(async () => (await dbClient(2).getAppLocations(appName)).length >= FLEET.length,
     { timeout: 300000, label: `${appName} reaches its instance count across the fleet` });
+  await Promise.all(nodes.map((node) => expectHoldsOnly(env, node, appName)));
   await Promise.all(nodes.map((node) => setSystemSecure(subnet.nodeIp(node), false)));
   await Promise.all(nodes.map((node) => waitFor(
     async () => (await dbClient(node).residentialMarker()) !== null,
@@ -153,7 +159,7 @@ describe('handback turns are the same on every node', function () {
         await three.releaseCheckpoint('giveUp:beforePass');
       }
       return released && (departures() >= 2 || ((refusedShort(one) || refusedShort(three)) && departures() === 1));
-    }, { timeoutMs: TURN_MS + departureWaitMs([TARGET, SECOND_TARGET]) });
+    }, { timeoutMs: TURN_MS + departureWaitMs([TARGET, SECOND_TARGET], FLEET.length) });
     await startTicker();
 
     expect(departures(), 'both holders handed startapp back').to.equal(1);

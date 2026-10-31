@@ -1,7 +1,6 @@
-// The residential evacuation fleet: five nodes, node 1 residential and
-// attested, the rest in a data centre, and a published location table that
-// decides all of them - with the pacing and helpers the suites that drain it
-// share.
+// The residential evacuation fleet: node 1 residential and attested, the rest
+// in a data centre, and a published location table that decides all of them -
+// with the pacing and helpers the suites that drain it share.
 import { createTestEnv } from './test-env.js';
 import { dbClient } from './db-client.js';
 import { pushTestApp } from './registry-helper.js';
@@ -13,9 +12,9 @@ import {
   waitForExplorerReady, waitForOrchestratorStarted, waitForOrchestratorState,
   waitForPeerThreshold, waitFor,
 } from './wait.js';
-import { waitForLocationTable } from './reconciler-suite.js';
+import { retireApp, waitForLocationTable } from './reconciler-suite.js';
 import {
-  derivedTurnMs, giveUpPassMs, harnessBlockCostMs, loadSharedConfig,
+  derivedTurnMs, giveUpPassMs, harnessBlockCostMs, loadSharedConfig, PRODUCTION_LOCATION_EXPIRIES,
 } from './coupled-knobs.js';
 import { keysOf, nextOwnedTurn, untilOwnedTurnEndsMs } from './handback-turns.js';
 
@@ -47,17 +46,25 @@ export const RESIDENTIAL_PACING = (() => {
   return { residentialTurnMs, residentialEvacuationIntervalMs: Math.ceil(PASS_MS / 1000) * 1000 };
 })();
 
+/** The fleet's nodes, 1-based: every app these fleets seed is held by all of them. */
+export function fleetNodes(env) {
+  return Array.from({ length: env.nodeCount }, (_, i) => i + 1);
+}
+
 /**
  * How long until one of `nodes` can have handed back an app every fleet node
  * holds: to the end of the second turn one of them owns once a departure
  * interval from now has passed, by the product's own turn rule, plus two passes
  * for a pass that lands late. The second, because the first can go to a pass
  * the safety gate refuses or to another app the node holds.
+ *
+ * A node owns about one turn in as many as the app has holders, with no bound on
+ * the gap, so a wait on a departure takes this as its only budget.
  * @param {number[]} nodes 1-based nodes that are evacuating.
  * @param {number} nodeCount The fleet's size; every node holds the app.
  * @returns {number} Milliseconds.
  */
-export function departureWaitMs(nodes, nodeCount = 5) {
+export function departureWaitMs(nodes, nodeCount) {
   const all = Array.from({ length: nodeCount }, (_, i) => i + 1);
   const { residentialTurnMs, residentialEvacuationIntervalMs } = RESIDENTIAL_PACING;
   const first = nextOwnedTurn({
@@ -149,7 +156,31 @@ export async function seedApp(env, appName, { instances = 3, containerData = '/t
     await dc.seedPermanentMessage(app.permanentMessage);
     await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
   }
+  if (!seededApps.has(env)) seededApps.set(env, []);
+  seededApps.get(env).push(app);
   return app;
+}
+
+// The apps seedApp has seeded on each fleet and not yet retired.
+const seededApps = new WeakMap();
+
+/**
+ * Retire every app seedApp has seeded on this fleet. A pass hands back one app,
+ * and returning a node to service lets the spawner refill any app a departure
+ * left short, so an app left on the fleet can be judged ahead of the next one.
+ */
+export async function retireSeededApps(env) {
+  const apps = seededApps.get(env) ?? [];
+  while (apps.length) await retireApp(env, apps.pop());
+}
+
+/** Refuse a fixture whose node holds anything besides `appName`. */
+export async function expectHoldsOnly(env, node, appName) {
+  const installed = await env.clients[node - 1].get(`/apps/installedapps?_=${Date.now()}`);
+  const names = installed.data.map((a) => a.name);
+  if (names.length !== 1 || names[0] !== appName) {
+    throw new Error(`fixture: node ${node} holds ${JSON.stringify(names)}, not ${appName} alone`);
+  }
 }
 
 
@@ -229,23 +260,28 @@ export const VETOING = 5;
 export const SECOND_TARGET = 3;
 
 /**
- * The fleet every test here runs on: node 1 residential and attested, the rest
- * in a data centre, and a published table that decides all of them.
+ * A fleet with node 1 residential and attested, the rest in a data centre, and a
+ * published table that decides all of them.
  *
- * A FUNCTION rather than one before() hook, because the suite is split across
- * two fleets. The stand-down tests need a node that holds ONE app; the tests
- * above them leave a node holding seven, and evacuation sheds one per
- * departure interval - see the second describe.
+ * Sized by the suite: every app is seeded on every node, so the fleet's size is
+ * each app's holder count, and a node owns about one handback turn in that many.
+ * Five is the smallest fleet holding the three published-residential nodes the
+ * classification cases read (1, 3 and 5); three holds node 1, SECOND_TARGET and a
+ * data-centre node.
+ * @param {object} hookCtx The before() hook's context.
+ * @param {object} [opts]
+ * @param {number} [opts.nodes] Fleet size.
  */
-export async function bootResidentialFleet(hookCtx) {
+export async function bootResidentialFleet(hookCtx, { nodes = 5 } = {}) {
+  const geolocation = { [TARGET]: RESIDENTIAL_GEO, [TABLE_DECIDED]: NEUTRAL_GEO, [VETOING]: HOSTING_GEO };
   const env = await createTestEnv({
-  hookCtx,
-    nodes: 5,
+    hookCtx,
+    nodes,
     tickerAutostart: false,
     // Seeded through createTestEnv, not POSTed afterwards: a node looks its
     // address up once during boot, so an override applied after the fleet is
     // up is never read and the node classifies itself from the stub default.
-    geolocation: { [TARGET]: RESIDENTIAL_GEO, [TABLE_DECIDED]: NEUTRAL_GEO, [VETOING]: HOSTING_GEO },
+    geolocation: Object.fromEntries(Object.entries(geolocation).filter(([node]) => Number(node) <= nodes)),
     // Two organisations across the fleet's /24, assigned round-robin by last
     // octet, and the one holding .10/.12/.14 is published residential. This is
     // the authority the fleet runs on in production - 2,303 of 2,513 hosts are
@@ -289,6 +325,11 @@ export async function bootResidentialFleet(hookCtx) {
         //
         // So: shorten the poll here so the suite can see the path at all.
         daemonInfoIntervalMs: 1000,
+        // A holder restarted inside a case keeps its app: the harness does not
+        // compress a restart. Turns read signed holders, departures are signed
+        // removals, and a node announces as it starts, so nothing here waits on a
+        // location row expiring.
+        ...PRODUCTION_LOCATION_EXPIRIES,
         residentialCheckIntervalMs: 3000,
         // The give-up pass runs every removeFluxAppsPeriod * 4 blocks, and a
         // block costs one explorerPollIntervalMs. A departure has to be VISIBLE

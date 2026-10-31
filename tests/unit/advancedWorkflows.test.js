@@ -59,28 +59,25 @@ describe('advancedWorkflows tests', () => {
     sinon.restore();
   });
 
-  describe('setInstallationInProgress and getInstallationInProgress tests', () => {
-    it('should set installation in progress', () => {
-      advancedWorkflows.setInstallationInProgressTrue();
+  describe('getInstallationInProgress and installationInProgressReset tests', () => {
+    // eslint-disable-next-line global-require
+    const globalState = require('../../ZelBack/src/services/utils/globalState');
 
-      const inProgress = advancedWorkflows.getInstallationInProgress();
-      expect(inProgress).to.be.true;
+    afterEach(() => {
+      globalState.installationInProgress = false;
     });
 
-    it('should reset installation in progress', () => {
-      advancedWorkflows.setInstallationInProgressTrue();
+    it('reads whether an install holds the node', () => {
+      globalState.installationInProgress = true;
+
+      expect(advancedWorkflows.getInstallationInProgress()).to.equal(true);
+    });
+
+    it('releases the node', () => {
+      globalState.installationInProgress = true;
       advancedWorkflows.installationInProgressReset();
 
-      const inProgress = advancedWorkflows.getInstallationInProgress();
-      expect(inProgress).to.be.false;
-    });
-
-    it('should set specific app installation in progress', () => {
-      advancedWorkflows.setInstallationInProgress('TestApp', true);
-
-      const inProgress = advancedWorkflows.getInstallationInProgress();
-      // When setting specific app, function returns the app name, not just true
-      expect(inProgress).to.equal('TestApp');
+      expect(advancedWorkflows.getInstallationInProgress()).to.equal(false);
     });
   });
 

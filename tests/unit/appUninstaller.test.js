@@ -63,6 +63,7 @@ describe('appUninstaller tests', () => {
   let announceCycle;
   let getLocalSocketAddressStub;
   let broadcastStub;
+  let canSendMessagesStub;
   let runCommandStub;
 
   beforeEach(() => {
@@ -623,6 +624,7 @@ describe('appUninstaller tests', () => {
       announceCycle = realAnnounceCycle;
       getLocalSocketAddressStub = sinon.stub().resolves(null);
       broadcastStub = sinon.stub().resolves();
+      canSendMessagesStub = sinon.stub().returns(true);
       globalStateStub = {
         departingApps,
         unconfirmedApps,
@@ -714,6 +716,7 @@ describe('appUninstaller tests', () => {
           broadcastMessageToIncoming: sinon.stub().resolves(),
           broadcastMessageToAll: broadcastStub,
         },
+        '../nodeConfirmationService': { canSendMessages: canSendMessagesStub },
         '../appDatabase/registryManager': {
           availableApps: sinon.stub().resolves([]),
         },
@@ -1281,6 +1284,34 @@ describe('appUninstaller tests', () => {
         // The canary: without this the assertion above passes for a removal that
         // never got as far as the wait.
         expect(getLocalSocketAddressStub.called, 'the removal never reached its broadcast').to.be.true;
+      });
+
+      it('tells the network nothing while peers would not accept this node\'s messages', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        getLocalSocketAddressStub.resolves('10.0.0.1:16127');
+        canSendMessagesStub.returns(false);
+
+        await uninstaller.removeAppLocally('testapp', res, true, true, true);
+
+        sinon.assert.called(canSendMessagesStub);
+        sinon.assert.notCalled(broadcastStub);
+      });
+
+      // Whether the node can be heard is read as the message goes out, not when
+      // the removal starts: a removal can wait for a cycle, and the answer changes.
+      it('tells the network once this node can be heard by the time the message goes out', async () => {
+        const uninstaller = buildUninstaller(v2Spec);
+        getLocalSocketAddressStub.resolves('10.0.0.1:16127');
+        canSendMessagesStub.returns(false);
+        await announceCycle.enable();
+
+        const removal = uninstaller.removeAppLocally('testapp', res, true, true, true);
+        await new Promise((resolve) => { setTimeout(resolve, 50); });
+        canSendMessagesStub.returns(true);
+        announceCycle.disable();
+        await removal;
+
+        sinon.assert.calledOnceWithMatch(broadcastStub, { type: 'fluxappremoved', appName: 'testapp' });
       });
 
       // A redeploy tells the network nothing, so it contradicts no announcement and

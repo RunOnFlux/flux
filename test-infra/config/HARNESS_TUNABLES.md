@@ -89,7 +89,7 @@ loses the property, so the factor is pinned by a unit test.
 | `fluxapps.nodeMonitorDosRecoveryDelayMs` | 600000 | 10000 | 60.0x |
 | `fluxapps.nodeMonitorErrorRecoveryDelayMs` | 120000 | 5000 | 24.0x |
 | `fluxapps.nodeMonitorIntervalMs` | 1200000 | 10000 | 120.0x |
-| `fluxapps.nodeMonitorRemovalDelayMs` | 60000 | 1000 | 60.0x |
+| `fluxapps.nodeMonitorRemovalDelayMs` | 5000 | 1000 | 5.0x |
 | `fluxapps.portRestoreIntervalMs` | 600000 | 30000 | 20.0x |
 | `fluxapps.portTestBindDelayMs` | 5000 | 100 | 50.0x |
 | `fluxapps.portTestMaxAttempts` | 5 | 2 | 2.5x |

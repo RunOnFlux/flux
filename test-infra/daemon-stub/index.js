@@ -101,6 +101,11 @@ function nodeBySourceIp(sourceIp) {
       return deterministicNodeList.find((n) => n.ip.split(':')[0] === realIp) || null;
     }
   }
+  // Nor is it anyone else once it is told a further move: until its container
+  // moves again it still arrives from the address it was moved to before.
+  for (const [realIp, former] of formerReportedAddresses) {
+    if (former.has(clean)) return deterministicNodeList.find((n) => n.ip.split(':')[0] === realIp) || null;
+  }
   // A machine running on another node's collateral is answered as that node: its
   // collateral, its status and its list entry are the ones the chain holds.
   const alias = collateralAliases.get(clean);
@@ -142,6 +147,20 @@ function aliasedOwnAddress(sourceIp, node) {
 // all of them, and a per-RPC dial is how a suite comes to move an answer the
 // product never reads.
 const reportedAddresses = new Map(); // real ip -> { reported, scope }
+// The addresses each node was reported at before the one it is reported at now:
+// real ip -> Set of ips.
+const formerReportedAddresses = new Map();
+
+// Reports the node at real ip `key` at `override`, keeping the address it was
+// reported at before as one of its own.
+function reportAddress(key, override) {
+  const before = reportedAddresses.get(key);
+  if (before && before.reported !== override.reported) {
+    if (!formerReportedAddresses.has(key)) formerReportedAddresses.set(key, new Set());
+    formerReportedAddresses.get(key).add(String(before.reported).split(':')[0]);
+  }
+  reportedAddresses.set(key, override);
+}
 
 // Two facts, and a real address change separates them for as long as it takes the
 // chain to catch up: where the network says the node lives, and what benchmark's
@@ -157,12 +176,20 @@ function overrideFor(node) {
   return reportedAddresses.get(node.ip.split(':')[0]) || null;
 }
 
-// The address the network believes this node has. Unmoved under `publicip` and
-// `benchmark`.
+// Where the chain lists the node at real ip `key`, or null where it lists it at
+// its own address: an `all` override's address, or the one a mined confirmation
+// listed it at while benchmark reports another. What benchmark reports never
+// moves it; only a mined confirmation does.
+function listedAddressFor(key) {
+  const o = reportedAddresses.get(key);
+  if (!o) return null;
+  return o.scope === 'all' ? o.reported : (o.listed ?? null);
+}
+
+// The address the network believes this node has.
 function reportedAddressOf(node) {
   if (!node) return null;
-  const o = overrideFor(node);
-  return o && o.scope === 'all' ? o.reported : node.ip;
+  return listedAddressFor(node.ip.split(':')[0]) ?? node.ip;
 }
 
 // The address benchmark tells the node it has. Moves under `benchmark` and `all`.
@@ -212,9 +239,9 @@ function publishedNodeList(sourceIp) {
 
 function publishReported(list) {
   return list.map((n) => {
-    const o = reportedAddresses.get(n.ip.split(':')[0]);
+    const listedAt = listedAddressFor(n.ip.split(':')[0]);
     const entry = withLastConfirmed(n);
-    return o && o.scope === 'all' ? { ...entry, ip: o.reported } : entry;
+    return listedAt ? { ...entry, ip: listedAt } : entry;
   });
 }
 
@@ -245,18 +272,32 @@ function blockAddressDeltas({ addresses = [], start = 0, end = Infinity }) {
   return deltas;
 }
 
+// Nodes whose daemon is behind the chain's tip, as one catching up or
+// re-syncing is: real ip -> the height it holds as its own.
+const daemonsBehind = new Map();
+
+// The height the daemon serving `sourceIp` holds: its own while it is behind,
+// the chain's tip otherwise.
+function localHeightFor(sourceIp) {
+  const node = sourceIp ? nodeBySourceIp(sourceIp) : null;
+  const behind = node ? daemonsBehind.get(node.ip.split(':')[0]) : undefined;
+  return behind === undefined ? currentHeight : Math.min(behind, currentHeight);
+}
+
 const rpcHandlers = {
-  getblockchaininfo: () => ({
+  // headers is the chain's tip whatever the daemon holds: a daemon behind it
+  // knows the headers before it has the blocks.
+  getblockchaininfo: (params, sourceIp) => ({
     chain: 'main',
-    blocks: currentHeight,
+    blocks: localHeightFor(sourceIp),
     headers: currentHeight,
-    bestblockhash: `000000000000stub${currentHeight}`,
+    bestblockhash: `000000000000stub${localHeightFor(sourceIp)}`,
     difficulty: 1000,
     verificationprogress: 1,
     chainwork: '0000000000000000000000000000000000000000000000000000000000000001',
   }),
 
-  getblockcount: () => currentHeight,
+  getblockcount: (params, sourceIp) => localHeightFor(sourceIp),
 
   getinfo: () => ({
     version: DAEMON_VERSION,
@@ -290,7 +331,7 @@ const rpcHandlers = {
     { height: currentHeight, hash: `000000000000stub${currentHeight}`, branchlen: 0, status: 'active' },
   ],
 
-  getbestblockhash: () => `000000000000stub${currentHeight}`,
+  getbestblockhash: (params, sourceIp) => `000000000000stub${localHeightFor(sourceIp)}`,
 
   getblockhash: (params) => {
     const height = params[0];
@@ -664,8 +705,22 @@ function mineConfirmations() {
   // eslint-disable-next-line no-restricted-syntax
   for (const [realIp, address] of pendingConfirmations) {
     const node = deterministicNodeList.find((n) => n.ip.split(':')[0] === realIp);
-    if (node && address !== node.ip) reportedAddresses.set(realIp, { reported: address, scope: 'all' });
-    else if (node && reportedAddresses.get(realIp)?.scope === 'all') reportedAddresses.delete(realIp);
+    const current = reportedAddresses.get(realIp);
+    // Benchmark reporting another address than the one mined leaves it there:
+    // the confirmation moves the list entry alone.
+    const benchmarkElsewhere = current && current.scope !== 'all' && current.reported !== address;
+    if (!node) {
+      // not listed: nothing to move
+    } else if (address !== node.ip) {
+      if (benchmarkElsewhere) reportedAddresses.set(realIp, { ...current, listed: address });
+      else reportAddress(realIp, { reported: address, scope: 'all' });
+    } else if (current?.scope === 'all' || current?.reported === node.ip) {
+      reportedAddresses.delete(realIp);
+      formerReportedAddresses.delete(realIp);
+    } else if (current) {
+      const { listed, ...benchmarkOnly } = current;
+      reportedAddresses.set(realIp, benchmarkOnly);
+    }
   }
   const confirming = deterministicNodeList.filter((node) => pendingConfirmations.has(realIpOf(node))
     || currentHeight >= (confirmationDue.get(realIpOf(node)) ?? scheduledFrom(node, currentHeight)));
@@ -902,10 +957,16 @@ control.post('/node-address/:ip', (req, res) => {
 
   const { reported, scope = 'all' } = req.body || {};
   if (!reported) {
-    // A move the chain made is undone the way it was made: by a confirmation
-    // the next block mines.
-    if (reportedAddresses.get(key)?.scope === 'all') pendingConfirmations.set(key, node.ip);
-    else reportedAddresses.delete(key);
+    // Benchmark is back at once; a move the chain made is undone the way it
+    // was made, by a confirmation the next block mines.
+    const listed = listedAddressFor(key);
+    if (listed) {
+      reportAddress(key, { reported: node.ip, scope: 'benchmark', listed });
+      pendingConfirmations.set(key, node.ip);
+    } else {
+      reportedAddresses.delete(key);
+      formerReportedAddresses.delete(key);
+    }
     return res.json({ node: key, reported: node.ip, scope: null });
   }
   if (!['all', 'benchmark', 'publicip'].includes(scope)) {
@@ -919,11 +980,15 @@ control.post('/node-address/:ip', (req, res) => {
   const full = value.includes(':') || !realPort ? value : `${value}:${realPort}`;
   // Under `all` the node notices at once, as benchmark does, and the chain moves
   // its list entry when the next block mines the confirmation it sends there.
+  // What benchmark reports never moves the list entry: the address the chain
+  // lists the node at stays until a block mines a confirmation elsewhere.
+  const listed = listedAddressFor(key);
+  const keepListed = listed ? { listed } : {};
   if (scope === 'all') {
-    if (reportedAddresses.get(key)?.scope !== 'all') reportedAddresses.set(key, { reported: full, scope: 'benchmark' });
+    if (reportedAddresses.get(key)?.scope !== 'all') reportAddress(key, { reported: full, scope: 'benchmark', ...keepListed });
     pendingConfirmations.set(key, full);
   } else {
-    reportedAddresses.set(key, { reported: full, scope });
+    reportAddress(key, { reported: full, scope, ...keepListed });
   }
   return res.json({ node: key, reported: full, scope });
 });
@@ -1178,9 +1243,21 @@ control.post('/confirmation-schedule/:ip', (req, res) => {
   return res.json({ node: key, intervalBlocks, nextHeight: confirmationDue.get(key) });
 });
 
+// Have a node's daemon hold `height` as its own, behind the chain's tip, or, with
+// no height, follow the tip again. `:ip` is where the node really is.
+control.post('/daemon-behind/:ip', (req, res) => {
+  const key = String(req.params.ip).split(':')[0];
+  const { height } = req.body || {};
+  if (height === undefined || height === null) daemonsBehind.delete(key);
+  else daemonsBehind.set(key, Number(height));
+  res.json({ node: key, height: daemonsBehind.get(key) ?? null, tip: currentHeight });
+});
+
 control.post('/reset', (req, res) => {
   nodeStatusOverrides.clear();
+  daemonsBehind.clear();
   reportedAddresses.clear();
+  formerReportedAddresses.clear();
   pendingConfirmations.clear();
   confirmationIntervals.clear();
   confirmationDue.clear();

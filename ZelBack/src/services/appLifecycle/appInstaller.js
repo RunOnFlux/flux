@@ -232,6 +232,7 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
   // if dockerhub, this is now registry-1.docker.io instead of hub.docker.com
   pullConfig.provider = imgVerifier.provider;
 
+  await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.INSTALL_BEFORE_PULL, appName);
   // eslint-disable-next-line no-unused-vars
   await dockerService.pullImage(pullConfig, res);
 
@@ -384,6 +385,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
       return InstallOutcome.BUSY;
     }
     globalState.installationInProgress = true;
+    globalState.installingApp = appSpecs.name;
     acquired = true;
     // A test install holds nothing: it writes the app's row like any other install
     // and throws it away, so the announcement must not read that row as a claim.
@@ -582,6 +584,7 @@ async function attemptRegisterAppLocally(appSpecs, componentSpecs, res, test = f
         }
         log.info(`Database entry validated for ${appSpecifications.name} before Docker container creation`);
       }
+      await fluxEventBus.checkpoint(fluxEventBus.Checkpoint.INSTALL_BEFORE_CONTAINERS, appSpecs.name);
 
       if (specificationsToInstall.version >= 4) { // version is undefined for component
         // eslint-disable-next-line no-restricted-syntax

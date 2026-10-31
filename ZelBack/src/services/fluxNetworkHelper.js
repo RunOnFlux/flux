@@ -101,6 +101,7 @@ const StickyDosOwner = Object.freeze({
   MONGODB_FLOOR: 'mongodbFloor',
   CGROUP_FLOOR: 'cgroupFloor',
   HOST_STALL: 'hostStall',
+  IP_CHANGES: 'ipChanges',
 });
 
 // Declares the node unfit for the apps it already runs, and is not moved by the
@@ -144,8 +145,6 @@ const PlacementHoldOwner = Object.freeze({
 const placementHolds = new Map();
 
 let storedFluxBenchAllowed = null;
-// When this node last changed its IP over the limit (monotonic ms), or null.
-let tooManyIpChangesAt = null;
 let maxNumberOfIpChanges = 0;
 const { lruRateLimit } = require('./utils/rateLimit');
 const { AsyncGate } = require('./utils/asyncGate');
@@ -173,6 +172,10 @@ let lastKnownSocketAddress = null;
 // from lastKnownSocketAddress, and 'known' with it when the node has an address
 // after having none.
 const localSocketAddressEvents = new EventEmitter();
+// Emits 'held', with the IP changes the window holds, when this process finds
+// the node held by the IP change hold: the pass that starts it, or the first
+// after a restart that finds it standing.
+const ipChangeHoldEvents = new EventEmitter();
 // Open while localSocketAddress holds an address.
 const localSocketAddressGate = new AsyncGate();
 
@@ -1089,6 +1092,24 @@ function offLocalSocketAddressChange(listener) {
 }
 
 /**
+ * @param {function(number): void} listener Called, with the IP changes the
+ *   window holds, each time this process finds the node held by the IP change
+ *   hold. Removing the apps of a held node is the listener's.
+ * @returns {void}
+ */
+function onIpChangeHold(listener) {
+  ipChangeHoldEvents.on('held', listener);
+}
+
+/**
+ * @param {function(number): void} listener
+ * @returns {void}
+ */
+function offIpChangeHold(listener) {
+  ipChangeHoldEvents.off('held', listener);
+}
+
+/**
  * @param {function(string): void} listener Called with the address each time the
  *   node has one after having none.
  * @returns {void}
@@ -1862,40 +1883,44 @@ function isCommunicationEstablished(req, res) {
   return res ? res.json(message) : message;
 }
 
-// How far back the limit on IP changes counts, and how many changes it allows
-// in that time.
-const IP_CHANGE_WINDOW_MS = 20 * 60 * 60 * 1000;
+// How far back the limit on IP changes counts, in blocks, and how many changes
+// it allows in that time. Counted in blocks, the window is the chain's: neither
+// a restart nor the node's clock moves it. 2400 blocks is 20 hours of 30 s
+// blocks.
+const IP_CHANGE_WINDOW_BLOCKS = 2400;
 const IP_CHANGES_ALLOWED = 1;
 
+// A chain fact since the PON fork.
+const BLOCK_MS = 30 * 1000;
+
 /**
- * Applies the limit on IP changes to the changes this node made within
- * IP_CHANGE_WINDOW_MS, as its own address record holds them: over it, every
- * installed app is removed and the node is out of service for
- * IP_CHANGES_HOLD_MS.
- * @param {number[]} recentIpChanges When each change was made (ms).
- * @returns {Promise<boolean>} Whether the changes are over the limit.
+ * The chain's height now, from this node's daemon: while the daemon is synced to
+ * the chain's tip, the height it last reported and a block for every BLOCK_MS
+ * since it reported it; 0 - unknown - otherwise. The daemon is still taken as
+ * synced for a while after its last answer, and the chain moves on meanwhile. A
+ * daemon behind the tip, catching up or re-syncing, reports a height below the
+ * heights this node's IP changes were recorded at, and would read every one of
+ * them as recent.
+ * @returns {number}
  */
-async function applyIpChangeLimit(recentIpChanges) {
-  maxNumberOfIpChanges = recentIpChanges.length;
-  if (recentIpChanges.length <= IP_CHANGES_ALLOWED) return false;
-  // eslint-disable-next-line global-require
-  const appQueryService = require('./appQuery/appQueryService');
-  // eslint-disable-next-line global-require
-  const appUninstaller = require('./appLifecycle/appUninstaller');
-  let apps = await appQueryService.installedApps();
-  if (apps.status === 'success' && apps.data.length > 0) {
-    apps = apps.data;
-    // eslint-disable-next-line no-restricted-syntax
-    for (const app of apps) {
-      log.warn(`REMOVAL REASON: Too many IP changes - ${app.name} being removed due to ${recentIpChanges.length} IP changes in ${IP_CHANGE_WINDOW_MS}ms (DoS protection)`);
-      // eslint-disable-next-line no-await-in-loop
-      await appUninstaller.removeAppLocally(app.name, null, true, null, false).catch((error) => log.error(error)); // we will not send appremove messages because they will not be accepted by the other nodes
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(500);
-    }
-  }
-  tooManyIpChangesAt = monotonicMs();
-  return true;
+function chainHeight() {
+  const { synced, height } = daemonServiceMiscRpcs.isDaemonSynced().data;
+  if (!synced || !(height > 0)) return 0;
+  const reportedAt = daemonServiceMiscRpcs.getLastSuccessfulRpcCall();
+  if (!reportedAt) return height;
+  return height + Math.max(0, Math.floor((Date.now() - reportedAt) / BLOCK_MS));
+}
+
+/**
+ * The IP changes of `ipChangeHeights` inside the window at `height`, each the
+ * height it was made at. A change recorded as null was made while this node
+ * knew no chain height and is taken as made at `height`.
+ * @param {Array<number|null>} ipChangeHeights
+ * @param {number} height The chain's height.
+ * @returns {number[]}
+ */
+function ipChangesInWindow(ipChangeHeights, height) {
+  return ipChangeHeights.map((at) => at ?? height).filter((at) => height - at < IP_CHANGE_WINDOW_BLOCKS);
 }
 
 function getMaxNumberOfIpChanges() {
@@ -2055,8 +2080,10 @@ function ownAddressCollection() {
  * `socketAddress` is the address it adopted. When a move took it there,
  * `movedFrom` is where it moved from and `movedAt` when (ms), `ipChanged`
  * whether the IP changed or only the port, and `announce` whether the move is
- * told to the network. `recentIpChanges` holds when each IP change of the last
- * IP_CHANGE_WINDOW_MS was made. The rest records which of the move's steps that
+ * told to the network. `ipChangeHeights` holds the block height of each IP
+ * change inside IP_CHANGE_WINDOW_BLOCKS, null for one made before this node knew
+ * a height, and `ipChangeHold` the hold a change over the limit started:
+ * `{ fromHeight }`, null when none stands. The rest records which of the move's steps that
  * cannot be read back from the node itself are done, each by the `movedAt` of
  * the move it was done for: `appsHandledAt`, `announcedAt`, `geolocatedAt`,
  * `confirmationAcceptedAt`, and `settledAt` once the move is wholly in place.
@@ -2109,7 +2136,7 @@ async function writeOwnAddressRecord(socketAddress) {
   noteOwnAddress(socketAddress, null);
   await ownAddressCollection().updateOne(
     { _id: OWN_ADDRESS_RECORD_ID },
-    { $set: { socketAddress, movedFrom: null, movedAt: null, recordedAt: new Date() } },
+    { $set: { socketAddress, movedFrom: null, movedAt: null, recordedAt: new Date() }, $unset: { recentIpChanges: '' } },
     { upsert: true },
   );
 }
@@ -2131,8 +2158,12 @@ async function recordOwnMove(previousSocket, currentSocket, announce) {
   if (record?.movedFrom && socketAddressesMatch(record.socketAddress, currentSocket)) return;
   const movedAt = Date.now();
   const ipChanged = !ipsMatch(previousSocket, currentSocket);
-  const recentIpChanges = (record?.recentIpChanges ?? []).filter((at) => movedAt - at < IP_CHANGE_WINDOW_MS);
-  if (ipChanged) recentIpChanges.push(movedAt);
+  // A change made while no chain height is known is recorded without one, and
+  // nothing is pruned: the window is judged once the height is known.
+  const height = chainHeight();
+  const recorded = record?.ipChangeHeights ?? [];
+  const ipChangeHeights = height ? ipChangesInWindow(recorded, height) : [...recorded];
+  if (ipChanged) ipChangeHeights.push(height || null);
   noteOwnAddress(currentSocket, previousSocket);
   await ownAddressCollection().updateOne(
     { _id: OWN_ADDRESS_RECORD_ID },
@@ -2143,7 +2174,7 @@ async function recordOwnMove(previousSocket, currentSocket, announce) {
         movedAt,
         ipChanged,
         announce,
-        recentIpChanges,
+        ipChangeHeights,
         appsHandledAt: null,
         announcedAt: null,
         geolocatedAt: null,
@@ -2151,18 +2182,12 @@ async function recordOwnMove(previousSocket, currentSocket, announce) {
         settledAt: null,
         recordedAt: new Date(),
       },
+      // what the record held of IP changes before they were counted in blocks
+      $unset: { recentIpChanges: '' },
     },
     { upsert: true },
   );
-  if (!ipChanged) return;
-  const overLimit = await applyIpChangeLimit(recentIpChanges);
-  const measuredUptime = fluxUptime();
-  if (overLimit && measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) {
-    log.info('IP changes over the limit allowed, one in 20 hours');
-    dosState += 11;
-    setDosMessage(IP_CHANGES_MESSAGE);
-    log.error(dosMessage);
-  }
+  if (ipChanged) await enforceIpChangeHold();
 }
 
 /**
@@ -2457,9 +2482,6 @@ const IP_DETECTION_FAILED_MESSAGE = 'Flux IP detection failed';
 const IP_CHANGES_MESSAGE = 'IP changes over the limit allowed, one in 20 hours';
 const FLUXBENCH_VERSION_MESSAGE_PREFIX = 'Fluxbench Version Error.';
 const COLLISION_MESSAGE_PREFIXES = ['Flux collision detection.', 'Flux earlier collision detection'];
-// How long a node that changed its IP over the limit stays out of service.
-const IP_CHANGES_HOLD_MS = 20 * 60 * 60 * 1000;
-
 function monotonicMs() {
   return Number(process.hrtime.bigint() / 1000000n);
 }
@@ -2559,18 +2581,143 @@ function onPeerConnected() {
   releaseShortfall();
 }
 
+// The IP change hold this node's own address record holds, `{ fromHeight }`,
+// as last read or written: null when none stands.
+let ipChangeHold = null;
+
+/**
+ * Holds this node out of service, a sticky DOS of its own owner, while its IP
+ * change hold stands: until the chain is IP_CHANGE_WINDOW_BLOCKS past the height
+ * it started at, and while no height is known, or none was when it started.
+ * Releases that owner's DOS otherwise.
+ * @returns {boolean} Whether the node is held.
+ */
+function applyIpChangeHold() {
+  const height = chainHeight();
+  const fromHeight = ipChangeHold?.fromHeight ?? null;
+  if (ipChangeHold && (!height || fromHeight === null || height - fromHeight < IP_CHANGE_WINDOW_BLOCKS)) {
+    setStickyDos(StickyDosOwner.IP_CHANGES, IP_CHANGES_MESSAGE);
+    return true;
+  }
+  clearStickyDos(StickyDosOwner.IP_CHANGES);
+  return false;
+}
+
+/**
+ * One pass of enforceIpChangeHold. At a chain height, it judges the IP changes
+ * the record holds inside the window: over the limit with no hold standing, it
+ * starts one at the height of the newest change; over the limit with one
+ * standing, a change after the hold's start moves the start to it, so a node
+ * that keeps changing stays held. A node this process finds newly held is told
+ * to the onIpChangeHold listeners. Passes run one at a time and a started hold
+ * is in the record before the next pass reads it, so it is told once.
+ * @returns {Promise<boolean>} Whether the node is held.
+ */
+async function enforceIpChangeHoldOnce() {
+  const record = await ownAddressRecord();
+  const height = chainHeight();
+  let hold = record?.ipChangeHold ?? null;
+  if (record && height) {
+    const records = ownAddressCollection();
+    const recorded = record.ipChangeHeights ?? [];
+    const inWindow = ipChangesInWindow(recorded, height);
+    if (recorded.includes(null)) {
+      await records.updateOne(
+        { _id: OWN_ADDRESS_RECORD_ID, ipChangeHeights: recorded },
+        { $set: { ipChangeHeights: inWindow } },
+      );
+    }
+    maxNumberOfIpChanges = inWindow.length;
+    if (!hold && inWindow.length > IP_CHANGES_ALLOWED) {
+      hold = { fromHeight: Math.max(...inWindow) };
+      await records.updateOne({ _id: OWN_ADDRESS_RECORD_ID }, { $set: { ipChangeHold: hold } });
+      log.error(IP_CHANGES_MESSAGE);
+    } else if (hold && hold.fromHeight === null) {
+      await records.updateOne(
+        { _id: OWN_ADDRESS_RECORD_ID, ipChangeHold: { fromHeight: null } },
+        { $set: { ipChangeHold: { fromHeight: height } } },
+      );
+      hold = { fromHeight: height };
+    } else if (hold && inWindow.length > IP_CHANGES_ALLOWED && Math.max(...inWindow) > hold.fromHeight) {
+      const extended = { fromHeight: Math.max(...inWindow) };
+      await records.updateOne(
+        { _id: OWN_ADDRESS_RECORD_ID, ipChangeHold: { fromHeight: hold.fromHeight } },
+        { $set: { ipChangeHold: extended } },
+      );
+      hold = extended;
+    } else if (hold && height - hold.fromHeight >= IP_CHANGE_WINDOW_BLOCKS) {
+      await records.updateOne(
+        { _id: OWN_ADDRESS_RECORD_ID, ipChangeHold: { fromHeight: hold.fromHeight } },
+        { $set: { ipChangeHold: null } },
+      );
+      hold = null;
+    }
+  }
+  const wasHeld = isStickyDosHeldBy(StickyDosOwner.IP_CHANGES);
+  ipChangeHold = hold;
+  const held = applyIpChangeHold();
+  if (held && !wasHeld) ipChangeHoldEvents.emit('held', maxNumberOfIpChanges);
+  return held;
+}
+
+// The pass of enforceIpChangeHold running, and the one asked for while it runs.
+let ipChangeHoldEnforcing = null;
+let ipChangeHoldEnforceNext = null;
+
+/**
+ * Brings the IP change hold to what this node's own address record holds at
+ * the daemon's height, and holds the node by it: the one place the hold this
+ * node acts on is set or ended. The record is kept to that height: a hold, or a
+ * change, recorded before this node knew a height is given the first height it
+ * knows, and a hold the chain has passed is ended.
+ *
+ * One pass runs at a time. A call while one runs is answered by a pass that
+ * starts after it ends, so the record a writer has just written is read by a
+ * pass that began after the write.
+ * @returns {Promise<boolean>} Whether the node is held.
+ */
+function enforceIpChangeHold() {
+  if (!ipChangeHoldEnforcing) {
+    ipChangeHoldEnforcing = enforceIpChangeHoldOnce().finally(() => { ipChangeHoldEnforcing = null; });
+    return ipChangeHoldEnforcing;
+  }
+  if (!ipChangeHoldEnforceNext) {
+    ipChangeHoldEnforceNext = ipChangeHoldEnforcing.catch(() => {}).then(() => {
+      ipChangeHoldEnforceNext = null;
+      return enforceIpChangeHold();
+    });
+  }
+  return ipChangeHoldEnforceNext;
+}
+
+// Stops the IP change hold's watch of the daemon's height, while it watches.
+let stopIpChangeHoldWatch = null;
+
+/**
+ * Enforces the IP change hold this node's own address record holds, now and at
+ * each height the daemon reports from here on. Watches once however often it
+ * is called.
+ * @returns {function(): void} Stops the watch.
+ */
+function startIpChangeHoldWatch() {
+  if (!stopIpChangeHoldWatch) {
+    const enforce = () => enforceIpChangeHold().catch((error) => log.error(`IP change hold - ${error.message}`));
+    stopIpChangeHoldWatch = daemonServiceMiscRpcs.onDaemonHeight(enforce);
+    enforce();
+  }
+  return () => {
+    if (stopIpChangeHoldWatch) stopIpChangeHoldWatch();
+    stopIpChangeHoldWatch = null;
+  };
+}
+
 /**
  * To check user's FluxNode availability.
  * @param {number} retryNumber Number of retries.
  * @returns {Promise<boolean>} Return value is only for testing
  */
 async function checkMyFluxAvailability(retryNumber = 0) {
-  if (tooManyIpChangesAt !== null && monotonicMs() - tooManyIpChangesAt < IP_CHANGES_HOLD_MS) {
-    dosState += 11;
-    setDosMessage(IP_CHANGES_MESSAGE);
-    return false;
-  }
-  releaseDosOwnedBy((message) => message === IP_CHANGES_MESSAGE);
+  if (isStickyDosHeldBy(StickyDosOwner.IP_CHANGES)) return false;
 
   if (localSocketAddress === null) return false;
 
@@ -3093,12 +3240,12 @@ function stopOwnStandingWatch() {
   peerShortfallSeenAt = null;
 }
 
-function setSyncthingListenerKnown(value) {
-  syncthingListenerKnown = value;
+function setIpChangeHold(value) {
+  ipChangeHold = value;
 }
 
-function setDosTooManyIpChanges(value) {
-  tooManyIpChangesAt = value ? monotonicMs() : null;
+function setSyncthingListenerKnown(value) {
+  syncthingListenerKnown = value;
 }
 
 /**
@@ -3822,6 +3969,8 @@ module.exports = {
   waitForLocalSocketAddress,
   onLocalSocketAddressChange,
   offLocalSocketAddressChange,
+  onIpChangeHold,
+  offIpChangeHold,
   onLocalSocketAddressKnown,
   getFluxNodePrivateKey,
   getFluxNodePublicKey,
@@ -3864,8 +4013,10 @@ module.exports = {
   leaveConfiguredAddress,
   ownAddressRecord,
   startOwnAddressWatch,
+  startIpChangeHoldWatch,
   setSyncthingListenerKnown,
-  setDosTooManyIpChanges,
+  enforceIpChangeHold,
+  setIpChangeHold,
   setOnAddressChanged,
   setOnOwnAddressMoved,
   setInstalledAppsListedAt,

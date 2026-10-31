@@ -34,6 +34,7 @@ import { waitFor, waitForAppInstalled, waitForAppRemoved, waitForBootSettled } f
 import { dumpLogsOnFailure, startCapture, stopCapture } from '../framework/log-on-failure.js';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from '../framework/keys.js';
+import { PRODUCTION_LOCATION_EXPIRIES } from '../framework/coupled-knobs.js';
 
 const NODE = 0;
 const OUTSIDE = 1;
@@ -213,8 +214,9 @@ describe('2502 app containers are kept off private networks and off each other\'
   ];
 
   before(async function hook() {
+    // The node's app must survive its restart, which the harness does not compress.
     env = await createTestEnv({
-      hookCtx: this, nodes: 3, firewall: [NODE], tickerAutostart: false,
+      hookCtx: this, nodes: 3, firewall: [NODE], tickerAutostart: false, configOverrides: { fluxapps: PRODUCTION_LOCATION_EXPIRIES },
     });
     node = env.clients[NODE];
     outside = env.clients[OUTSIDE];

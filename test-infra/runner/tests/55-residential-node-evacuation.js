@@ -5,7 +5,7 @@ import {
   advanceBlocks, driveUntil, startTicker, stopTicker, setSystemSecure, clearSystemSecure,
 } from '../framework/daemon-control.js';
 import {
-  waitForDaemonReady, waitForAppInstalled, waitForSpawnerBlocked, waitFor, waitForGiveUpConsidered, waitForGiveUpSafety,
+  waitForDaemonReady, waitForAppInstalled, waitForSpawnerBlocked, waitFor,
   waitForResidentialDecision,
 } from '../framework/wait.js';
 import { setNoPeerData, setPeerHasData, setSynced } from '../framework/syncthing-control.js';
@@ -16,11 +16,11 @@ import { loadSharedConfig } from '../framework/coupled-knobs.js';
 import {
   subnet, TARGET, TABLE_DECIDED, VETOING, SECOND_TARGET,
   bootResidentialFleet, seedApp, whenGone, returnToService, elapseSettleWindow, runningComponents,
-  departureWaitMs, RESIDENTIAL_PACING, PASS_MS,
+  departureWaitMs, fleetNodes, RESIDENTIAL_PACING, PASS_MS, retireSeededApps, expectHoldsOnly,
 } from '../framework/residential-fleet.js';
 import { keysOf, turnOwner, untilOwnedTurnEndsMs } from '../framework/handback-turns.js';
 
-describe('Residential node evacuation', function () {
+describe('Residential node evacuation: classification', function () {
   let env;
   dumpLogsOnFailure(() => env);
 
@@ -73,21 +73,23 @@ describe('Residential node evacuation', function () {
       return geo?.networkEvidence != null;
     }, { timeout: 90000, label: 'node 3 gathers its evidence' });
 
-    const info = await env.clients[TABLE_DECIDED - 1].get('/flux/info');
-    expect(info.data.flux.dos.dosState).to.be.below(100);
-
     // Its own reading is UNKNOWN - no signal for, none against - so a verdict of
     // RESIDENTIAL can only have come from the table.
-    //
-    // The dosState assertion above is guaranteed by this node's attestation and
-    // establishes nothing on its own; what this test rests on is the evidence
-    // below. Withdrawing the attestation to make the verdict decide, as the
-    // veto test does, is not available here: node 3 is SECOND_TARGET for the
-    // later drain tests and has to arrive at them attested.
     const geo = await dbClient(TABLE_DECIDED).geolocation();
     expect(geo.networkEvidence.classification).to.equal('UNKNOWN');
     expect(geo.networkEvidence.evidenceFor).to.be.empty;
     expect(geo.networkEvidence.evidenceAgainst).to.be.empty;
+
+    // Attestation alone exempts a node from enforcement, so it is withdrawn and
+    // the verdict is the only thing left deciding. Node 3 is used by no later
+    // test on this fleet, so it stays withdrawn.
+    const client = env.clients[TABLE_DECIDED - 1];
+    const anchor = client.getLastEventId();
+    await setSystemSecure(subnet.nodeIp(TABLE_DECIDED), false);
+    const decision = await waitForResidentialDecision(client, (d) => d.arcaneOs === false, 60000, { afterId: anchor });
+    expect(decision.data.source, 'the verdict did not come from the published table').to.equal('published-table');
+    expect(decision.data.classification).to.equal('RESIDENTIAL');
+    expect(decision.data.enforce, 'a node the table decides residential, withdrawn, is enforced').to.equal(true);
   });
 
   it('declines a published verdict its own address contradicts', async function () {
@@ -131,6 +133,25 @@ describe('Residential node evacuation', function () {
     const after = await env.clients[VETOING - 1].get('/flux/info');
     expect(after.data.flux.dos.dosState).to.be.below(100);
   });
+});
+
+// A FLEET OF ITS OWN, of three: node 1 draining, a data-centre node, and node 3.
+// Every app is held by every node, so node 1 owns about one handback turn in three.
+describe('Residential node evacuation', function () {
+  let env;
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(600000);
+    env = await bootResidentialFleet(this, { nodes: 3 });
+  });
+
+  after(async function () {
+    this.timeout(120000);
+    await clearSystemSecure().catch(() => {});
+    await stopTicker().catch(() => {});
+    if (env) await env.teardown();
+  });
 
   it('leaves a residential node alone while it is still attested', async function () {
     this.timeout(300000);
@@ -145,9 +166,10 @@ describe('Residential node evacuation', function () {
     // operator running ArcaneOS reads it and asks what is wrong with their node.
     expect(info.data.flux.dosStaging).to.equal(null);
 
-    await seedApp(env, 'residentapp', { instances: 5 });
+    await seedApp(env, 'residentapp', { instances: env.nodeCount });
     await advanceBlocks(3);
     await waitForAppInstalled(env.clients[TARGET - 1], 'residentapp', 240000);
+    await expectHoldsOnly(env, TARGET, 'residentapp');
 
     const installed = await env.clients[TARGET - 1].get('/apps/installedapps');
     expect(installed.data.map((a) => a.name)).to.include('residentapp');
@@ -226,29 +248,25 @@ describe('Residential node evacuation', function () {
     // comparing their ids is a fact about what happened rather than a race
     // between two reads of two different sources.
     //
-    // Both waits are armed BEFORE the pass runs, because both events are the
-    // subject: the claim is that one precedes the other, so neither may be
-    // sampled from a buffer read at a moment of this test's choosing. An
-    // earlier form read the buffer as soon as app:removed landed and found no
-    // DOS at all - DOS follows the departure by about two seconds, so it had
-    // not happened yet. Awaiting both is what makes the comparison meaningful
-    // rather than a race against whichever arrived first.
-    const removal = env.clients[TARGET - 1].waitForEvent(
-      'app:removed', (d) => d.name === 'residentapp', 300000,
-    );
-    const dosLanded = env.clients[TARGET - 1].waitForEvent(
-      'dos:changed', (d) => d.dosState >= 100, 300000,
-    );
+    // Both are read from one anchor taken before the pass runs, because both
+    // events are the subject: the claim is that one precedes the other. The
+    // removal ends the drive; DOS follows it by about two seconds and is waited
+    // for from the same anchor, so a DOS that landed first is found as surely as
+    // one that lands after.
+    const client = env.clients[TARGET - 1];
+    const anchor = client.getLastEventId();
+    const removed = () => client.getEventBuffer()
+      .find((e) => e.id > anchor && e.event === 'app:removed' && e.data?.name === 'residentapp');
 
     // Only the removal needs blocks. DOS is applied by the residential tick on
     // its own residentialCheckIntervalMs timer, so it arrives with the chain
     // stopped - which is also why it cannot be driven for.
-    await driveUntil(env.clients[TARGET - 1], async () => {
-      const buffer = env.clients[TARGET - 1].getEventBuffer();
-      return buffer.some((e) => e.event === 'app:removed' && e.data?.name === 'residentapp');
-    }, { timeoutMs: departureWaitMs([TARGET]) });
+    const budgetMs = departureWaitMs([TARGET], env.nodeCount);
+    this.timeout(budgetMs + 300000);
+    await driveUntil(client, async () => removed() !== undefined, { timeoutMs: budgetMs });
 
-    const [removedEvent, dosEvent] = await Promise.all([removal, dosLanded]);
+    const removedEvent = removed();
+    const dosEvent = await client.waitForEvent('dos:changed', (d) => d.dosState >= 100, 120000, { afterId: anchor });
 
     // One stream, monotonic ids, so this is an ordering fact rather than two
     // polls of two sources that disagree about what happened first.
@@ -272,13 +290,11 @@ describe('Residential node evacuation', function () {
     // that was the last copy.
     //
     // The replacement itself is not asserted here and cannot be on this fleet:
-    // the app asks for five instances and all five nodes already ran it, so
-    // there is no node left that is both short of it and not held. Refilling a
-    // deficit is appSpawner's existing 120s loop, unchanged by this branch.
-    // Wait for what is actually being asserted - the departure reaching the
-    // rest of the fleet. Waiting on a COUNT was meaningless here: the app was
-    // already at five instances including the one leaving, so `>= 4` was
-    // satisfied before anything had happened.
+    // the app asks for an instance on every node and every node already runs
+    // it, so there is no node left that is both short of it and not held.
+    // Refilling a deficit is appSpawner's 120s loop. Waited for is the departure
+    // reaching the rest of the fleet: a count one short of the fleet holds
+    // before anything has happened, because the leaving node is counted in it.
     const targetIp = subnet.nodeIp(TARGET);
     await waitFor(async () => {
       const current = await dbClient(2).getAppLocations('residentapp');
@@ -286,7 +302,7 @@ describe('Residential node evacuation', function () {
     }, { timeout: 240000, label: 'the departure reaches the other nodes' });
 
     const locations = await dbClient(2).getAppLocations('residentapp');
-    expect(locations.length).to.be.at.least(4);
+    expect(locations.length).to.be.at.least(env.nodeCount - 1);
   });
 
   it('goes into DOS only once it holds nothing', async function () {
@@ -330,7 +346,8 @@ describe('Residential node evacuation', function () {
     // worldapp mounts s:, so its volume IS the product - the shape of the ten
     // Palworld and Minecraft worlds on the real fleet, which sit at exactly two
     // instances. Nothing reports holding a copy of it.
-    await seedApp(env, 'worldapp', { instances: 5, containerData: 's:/appdata' });
+    await retireSeededApps(env);
+    await seedApp(env, 'worldapp', { instances: env.nodeCount, containerData: 's:/appdata' });
 
     // A synced folder has to be DECLARED before the app can run. The stub's
     // default for a folder nobody has spoken about is "no evidence", and a
@@ -346,8 +363,9 @@ describe('Residential node evacuation', function () {
     // app that is already short - that is the serialisation gate, and it fires
     // BEFORE the data check, so a test that starts too early proves nothing
     // about the data check at all.
-    await waitFor(async () => (await dbClient(2).getAppLocations('worldapp')).length >= 5,
+    await waitFor(async () => (await dbClient(2).getAppLocations('worldapp')).length >= env.nodeCount,
       { timeout: 300000, label: 'worldapp reaches its instance count across the fleet' });
+    await expectHoldsOnly(env, TARGET, 'worldapp');
 
     // Now take the evidence away: the data was there, and no peer can be shown
     // to hold it any more. This is the state the gate exists for.
@@ -363,25 +381,26 @@ describe('Residential node evacuation', function () {
     // a fixed few blocks races through the chain in seconds and stops long
     // before this node's turn comes round.
     await stopTicker();
-    let safetyVerdict = null;
-    const considered = waitForGiveUpConsidered(env.clients[TARGET - 1], 'worldapp',
-      (d) => d.giveUp === true && d.reason === 'EVACUATION', 300000);
-    considered.catch(() => {});
-    const refused = waitForGiveUpSafety(env.clients[TARGET - 1], 'worldapp',
-      (d) => d.safe === false, 300000).then((v) => { safetyVerdict = v; return v; });
-    refused.catch(() => {});
-    await driveUntil(env.clients[TARGET - 1], async () => safetyVerdict !== null,
-      { timeoutMs: departureWaitMs([TARGET]) });
+    const client = env.clients[TARGET - 1];
+    const anchor = client.getLastEventId();
+    const since = (name, predicate) => client.getEventBuffer()
+      .filter((e) => e.id > anchor && e.event === name && e.data?.appName === 'worldapp' && predicate(e.data));
+    const refusals = () => since('giveUp:safety', (d) => d.safe === false);
+    const budgetMs = departureWaitMs([TARGET], env.nodeCount);
+    this.timeout(budgetMs + 120000);
+    await driveUntil(client, async () => refusals().length > 0, { timeoutMs: budgetMs });
     await startTicker();
+    const [verdict] = refusals();
 
     // The pass reports on every app it holds, every pass, so this proves the
     // pass RAN and wanted this app - not merely that nothing happened.
-    await considered;
+    const considered = since('giveUp:considered', (d) => d.giveUp === true && d.reason === 'EVACUATION')
+      .filter((e) => e.id < verdict.id);
+    expect(considered, 'no pass wanted worldapp before the gate refused it').to.not.be.empty;
 
     // And the gate is what stopped it. Before this, every removal path decided
     // on an instance count alone, and a count cannot tell a redundant copy from
     // the last one holding the data.
-    const verdict = await refused;
     expect(verdict.data.detail).to.contain('fluxworldapp_worldapp');
 
     const installed = await env.clients[TARGET - 1].get('/apps/installedapps');
@@ -402,9 +421,11 @@ describe('Residential node evacuation', function () {
     const client = env.clients[TARGET - 1];
     const anchor = client.getLastEventId();
     await stopTicker();
+    const budgetMs = departureWaitMs([TARGET], env.nodeCount);
+    this.timeout(budgetMs + 180000);
     await driveUntil(client, async () => client.getEventBuffer()
       .some((e) => e.id > anchor && e.event === 'app:removed' && e.data?.name === 'worldapp'),
-    { timeoutMs: departureWaitMs([TARGET]) });
+    { timeoutMs: budgetMs });
     await startTicker();
 
     await whenGone(env, TARGET, 'worldapp', 120000);
@@ -424,13 +445,15 @@ describe('Residential node evacuation', function () {
     // What the window counts is time the node OBSERVED the verdict, not time
     // that elapsed, so the total observed is the half that has to survive: a
     // first-seen timestamp surviving a restart proves nothing on its own now.
+    await retireSeededApps(env);
     await returnToService(env, TARGET);
 
     // It has to be HOLDING something. An empty target goes straight to DOS -
     // there is no data at stake - and never starts a settling window at all.
-    await seedApp(env, 'clockapp', { instances: 5 });
+    await seedApp(env, 'clockapp', { instances: env.nodeCount });
     await advanceBlocks(3);
     await waitForAppInstalled(env.clients[TARGET - 1], 'clockapp', 300000);
+    await expectHoldsOnly(env, TARGET, 'clockapp');
 
     await setSystemSecure(subnet.nodeIp(TARGET), false);
     await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
@@ -468,7 +491,7 @@ describe('Residential node evacuation: one holder at a time', function () {
 
   before(async function () {
     this.timeout(600000);
-    env = await bootResidentialFleet(this);
+    env = await bootResidentialFleet(this, { nodes: 3 });
   });
 
   after(async function () {
@@ -488,10 +511,11 @@ describe('Residential node evacuation: one holder at a time', function () {
     // attestation puts it in the same position.
     await returnToService(env, TARGET);
 
-    await seedApp(env, 'sharedapp', { instances: 5 });
+    await seedApp(env, 'sharedapp', { instances: env.nodeCount });
     await advanceBlocks(3);
-    await waitFor(async () => (await dbClient(2).getAppLocations('sharedapp')).length >= 5,
+    await waitFor(async () => (await dbClient(2).getAppLocations('sharedapp')).length >= env.nodeCount,
       { timeout: 300000, label: 'sharedapp reaches its instance count across the fleet' });
+    await Promise.all([TARGET, SECOND_TARGET].map((node) => expectHoldsOnly(env, node, 'sharedapp')));
 
     await setSystemSecure(subnet.nodeIp(TARGET), false);
     await setSystemSecure(subnet.nodeIp(SECOND_TARGET), false);
@@ -506,12 +530,10 @@ describe('Residential node evacuation: one holder at a time', function () {
     // Whichever goes first, the other must be refused while the app is short -
     // by the pacing decision, which refuses a short app before the pass ever
     // consults appEvacuationSafety.
-    let refusal = null;
-    const refusedForBeingShort = Promise.race([TARGET, SECOND_TARGET].map((node) => waitForGiveUpConsidered(
-      env.clients[node - 1], 'sharedapp',
-      (d) => d.giveUp === false && d.code === 'BELOW_INSTANCE_COUNT', 600000,
-    ))).then((v) => { refusal = v; return v; });
-    refusedForBeingShort.catch(() => {});
+    const anchors = new Map([TARGET, SECOND_TARGET].map((node) => [node, env.clients[node - 1].getLastEventId()]));
+    const refusals = () => [TARGET, SECOND_TARGET].flatMap((node) => env.clients[node - 1].getEventBuffer()
+      .filter((e) => e.id > anchors.get(node) && e.event === 'giveUp:considered' && e.data?.appName === 'sharedapp'
+        && e.data?.giveUp === false && e.data?.code === 'BELOW_INSTANCE_COUNT'));
 
     // Keep driving UNTIL the refusal arrives, not just until the first
     // departure. The give-up pass only runs on a block, so stopping the chain
@@ -529,15 +551,18 @@ describe('Residential node evacuation: one holder at a time', function () {
       .reduce((a, b) => a + b, 0);
 
     await stopTicker();
+    const budgetMs = departureWaitMs([TARGET, SECOND_TARGET], env.nodeCount);
+    this.timeout(budgetMs + 120000);
     await driveUntil(env.clients[TARGET - 1],
-      async () => refusal !== null || departures() >= 2,
-      { timeoutMs: departureWaitMs([TARGET, SECOND_TARGET]) });
+      async () => refusals().length > 0 || departures() >= 2,
+      { timeoutMs: budgetMs });
     await startTicker();
 
     expect(departures(), 'both holders handed the same app back, so one-at-a-time did not hold')
       .to.be.lessThan(2);
 
-    const verdict = await refusedForBeingShort;
+    const [verdict] = refusals();
+    expect(verdict, 'neither holder was refused while the app was short').to.not.equal(undefined);
     expect(verdict.data.code).to.equal('BELOW_INSTANCE_COUNT');
     expect(verdict.data.detail).to.contain('below its instance count');
   });
@@ -545,12 +570,10 @@ describe('Residential node evacuation: one holder at a time', function () {
 
 // A FLEET OF ITS OWN, and the reason is arithmetic.
 //
-// Every app this suite seeds asks for five instances on a five-node fleet, so
-// each one lands on every node, and nothing removes them between tests. By the
-// end of the describe above, node 1 holds seven apps, and evacuation gives up ONE
-// app per departure interval - so the stand-down tests would queue behind six
-// unrelated apps. These tests need one node that is the elected primary of one
-// app and is draining. A second fleet costs one boot and gives them exactly that.
+// These tests need one node that is the elected primary of one app and is
+// draining. Every app this suite seeds lands on every node, and evacuation gives
+// up ONE app per departure interval, so on a fleet where node 1 holds other apps
+// the stand-down would queue behind them.
 describe('Residential node evacuation: standing down as the elected primary', function () {
   let env;
   dumpLogsOnFailure(() => env);
@@ -565,7 +588,7 @@ describe('Residential node evacuation: standing down as the elected primary', fu
 
   before(async function () {
     this.timeout(600000);
-    env = await bootResidentialFleet(this);
+    env = await bootResidentialFleet(this, { nodes: 3 });
   });
 
   after(async function () {
@@ -584,8 +607,8 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     // turn it owns and removes on a later pass of a turn it owns, by which time
     // the election has given the role to a peer.
     await returnToService(env, SECOND_TARGET);
-    // Node 1 too - it is still held from the previous test, and a held node
-    // takes no new apps, so the app would reach four instances and never five.
+    // Node 1 too: a held node takes no new apps, so the app would never reach
+    // an instance on every node.
     await returnToService(env, TARGET);
 
     // FDM names node 1 the primary before the app is installed, so no other
@@ -593,12 +616,13 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     // peer is already running.
     await electMaster('primaryapp', subnet.nodeIp(TARGET));
 
-    await seedApp(env, 'primaryapp', { instances: 5, containerData: 'g:/appdata' });
+    await seedApp(env, 'primaryapp', { instances: env.nodeCount, containerData: 'g:/appdata' });
     await setSynced({ folder: 'fluxprimaryapp_primaryapp' });
     await setPeerHasData({ folder: 'fluxprimaryapp_primaryapp' });
     await advanceBlocks(3);
-    await waitFor(async () => (await dbClient(2).getAppLocations('primaryapp')).length >= 5,
+    await waitFor(async () => (await dbClient(2).getAppLocations('primaryapp')).length >= env.nodeCount,
       { timeout: 300000, label: 'primaryapp reaches its instance count across the fleet' });
+    await expectHoldsOnly(env, TARGET, 'primaryapp');
     // Only the node running the g: component is the writer, so only it can be
     // asked to stand down.
     await waitFor(async () => (await runningComponents(env, TARGET)).includes('fluxprimaryapp_primaryapp'),
@@ -609,20 +633,20 @@ describe('Residential node evacuation: standing down as the elected primary', fu
       { timeout: 120000, label: 'the settling window starts' });
     await elapseSettleWindow(TARGET);
 
-    let standDownVerdict = null;
-    const stoodDown = waitForGiveUpSafety(env.clients[TARGET - 1], 'primaryapp',
-      (d) => d.safe === false && d.code === 'STAND_DOWN_REQUIRED', 600000)
-      .then((v) => { standDownVerdict = v; return v; });
-    stoodDown.catch(() => {});
+    const client = env.clients[TARGET - 1];
+    const anchor = client.getLastEventId();
+    const stoodDown = () => client.getEventBuffer().find((e) => e.id > anchor && e.event === 'giveUp:safety'
+      && e.data?.appName === 'primaryapp' && e.data?.safe === false && e.data?.code === 'STAND_DOWN_REQUIRED');
 
     // This fleet is fresh: the node holds primaryapp and nothing else, so the
     // stand-down is the first thing its evacuation reaches.
     await stopTicker();
-    await driveUntil(env.clients[TARGET - 1], async () => standDownVerdict !== null,
-      { timeoutMs: departureWaitMs([TARGET]) });
+    const budgetMs = departureWaitMs([TARGET], env.nodeCount);
+    this.timeout(budgetMs + 600000);
+    await driveUntil(client, async () => stoodDown() !== undefined, { timeoutMs: budgetMs });
     await startTicker();
 
-    const verdict = await stoodDown;
+    const verdict = stoodDown();
     expect(verdict.data.code).to.equal('STAND_DOWN_REQUIRED');
     // In a turn it owns, on that turn's second pass.
     const turn = turnBefore(verdict.id);
@@ -682,14 +706,16 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     const client = env.clients[TARGET - 1];
     const removal = () => client.getEventBuffer().find((e) => e.event === 'app:removed' && e.data?.name === 'primaryapp');
     await stopTicker();
-    await driveUntil(client, async () => removal() !== undefined, {
-      timeoutMs: untilOwnedTurnEndsMs({
-        holders: keysOf([1, 2, 3, 4, 5]),
-        owners: keysOf([TARGET]),
-        turnMs: RESIDENTIAL_PACING.residentialTurnMs,
-        fromMs: stoodDownTurn * RESIDENTIAL_PACING.residentialTurnMs,
-      }) + (2 * PASS_MS),
-    });
+    // The pass it stood down on may be the last of its turn, so the budget runs to
+    // the end of the next turn it owns; a later pass of the same turn comes sooner.
+    const budgetMs = untilOwnedTurnEndsMs({
+      holders: keysOf(fleetNodes(env)),
+      owners: keysOf([TARGET]),
+      turnMs: RESIDENTIAL_PACING.residentialTurnMs,
+      fromMs: (stoodDownTurn + 1) * RESIDENTIAL_PACING.residentialTurnMs,
+    }) + (2 * PASS_MS);
+    this.timeout(budgetMs + 180000);
+    await driveUntil(client, async () => removal() !== undefined, { timeoutMs: budgetMs });
     await startTicker();
     const removed = removal();
 
@@ -722,6 +748,7 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     // With the stand-down working the app leaves, nothing considers it again,
     // and the refusal under test is unreachable - the test was passing on the
     // defect. A scenario a test depends on is a scenario it has to build.
+    await retireSeededApps(env);
     await returnToService(env, TARGET);
 
     // Elected before the app is installed, so no other holder starts it first,
@@ -729,12 +756,13 @@ describe('Residential node evacuation: standing down as the elected primary', fu
     // going STALE, not one that never existed.
     await electMaster('lockedapp', subnet.nodeIp(TARGET));
 
-    await seedApp(env, 'lockedapp', { instances: 5, containerData: 'g:/appdata' });
+    await seedApp(env, 'lockedapp', { instances: env.nodeCount, containerData: 'g:/appdata' });
     await setSynced({ folder: 'fluxlockedapp_lockedapp' });
     await setPeerHasData({ folder: 'fluxlockedapp_lockedapp' });
     await advanceBlocks(3);
-    await waitFor(async () => (await dbClient(2).getAppLocations('lockedapp')).length >= 5,
+    await waitFor(async () => (await dbClient(2).getAppLocations('lockedapp')).length >= env.nodeCount,
       { timeout: 300000, label: 'lockedapp reaches its instance count across the fleet' });
+    await expectHoldsOnly(env, TARGET, 'lockedapp');
 
     // A peer holds the folder in full, so the synced-peer loop PASSES and the
     // pass reaches the election question. That ordering is the safety property
@@ -787,11 +815,10 @@ describe('Residential node evacuation: standing down as the elected primary', fu
         { timeout: 120000, label: 'the settling window starts' });
       await elapseSettleWindow(TARGET);
 
-      let unknownRefusal = null;
-      const refused = waitForGiveUpSafety(env.clients[TARGET - 1], 'lockedapp',
-        (d) => d.safe === false && d.code === 'ELECTION_UNKNOWN', 600000)
-        .then((v) => { unknownRefusal = v; return v; });
-      refused.catch(() => {});
+      const client = env.clients[TARGET - 1];
+      const anchor = client.getLastEventId();
+      const unknownRefusal = () => client.getEventBuffer().find((e) => e.id > anchor && e.event === 'giveUp:safety'
+        && e.data?.appName === 'lockedapp' && e.data?.safe === false && e.data?.code === 'ELECTION_UNKNOWN');
 
       // Driven from the start rather than after a sleep. The verdict has to age
       // past PRIMARY_ELECTION_STALE_MS before the gate reports ELECTION_UNKNOWN,
@@ -806,11 +833,12 @@ describe('Residential node evacuation: standing down as the elected primary', fu
       // shortening it means compressing masterSlaveIntervalMs further, which
       // has its own couplings to check first.
       await stopTicker();
-      await driveUntil(env.clients[TARGET - 1], async () => unknownRefusal !== null,
-      { timeoutMs: departureWaitMs([TARGET]) });
+      const budgetMs = departureWaitMs([TARGET], env.nodeCount);
+      this.timeout(budgetMs + 120000);
+      await driveUntil(client, async () => unknownRefusal() !== undefined, { timeoutMs: budgetMs });
       await startTicker();
 
-      const verdict = await refused;
+      const verdict = unknownRefusal();
 
       expect(verdict.data.code).to.equal('ELECTION_UNKNOWN');
       expect(verdict.data.detail).to.contain('cannot say who is primary');
@@ -832,7 +860,7 @@ describe('Residential node evacuation: a stand-down that cannot finish', functio
 
   before(async function () {
     this.timeout(600000);
-    env = await bootResidentialFleet(this);
+    env = await bootResidentialFleet(this, { nodes: 3 });
   });
 
   after(async function () {
@@ -842,17 +870,23 @@ describe('Residential node evacuation: a stand-down that cannot finish', functio
     if (env) await env.teardown();
   });
 
-  /** Node TARGET, the elected primary of a fresh g: app, drains until it stands down. */
-  async function standDown(appName) {
+  /**
+   * Node TARGET, the elected primary of a fresh g: app, drains until it stands down.
+   * @param {object} test The running test's context, given the drive's budget.
+   * @param {string} appName
+   */
+  async function standDown(test, appName) {
     const folder = `flux${appName}_${appName}`;
+    await retireSeededApps(env);
     await returnToService(env, TARGET);
     await electMaster(appName, subnet.nodeIp(TARGET));
-    await seedApp(env, appName, { instances: 5, containerData: 'g:/appdata' });
+    await seedApp(env, appName, { instances: env.nodeCount, containerData: 'g:/appdata' });
     await setSynced({ folder });
     await setPeerHasData({ folder });
     await advanceBlocks(3);
-    await waitFor(async () => (await dbClient(2).getAppLocations(appName)).length >= 5,
+    await waitFor(async () => (await dbClient(2).getAppLocations(appName)).length >= env.nodeCount,
       { timeout: 300000, label: `${appName} reaches its instance count across the fleet` });
+    await expectHoldsOnly(env, TARGET, appName);
     await waitFor(async () => (await runningComponents(env, TARGET)).includes(folder),
       { timeout: 300000, label: 'the elected primary is running the g: component' });
 
@@ -866,14 +900,16 @@ describe('Residential node evacuation: a stand-down that cannot finish', functio
     const stoodDown = () => client.getEventBuffer().find((e) => e.id > anchor && e.event === 'giveUp:standDown'
       && e.data?.appName === appName);
     await stopTicker();
-    await driveUntil(client, async () => stoodDown() !== undefined, { timeoutMs: departureWaitMs([TARGET]) });
+    const budgetMs = departureWaitMs([TARGET], env.nodeCount);
+    test.timeout(budgetMs + 120000);
+    await driveUntil(client, async () => stoodDown() !== undefined, { timeoutMs: budgetMs });
     return { event: stoodDown(), folder };
   }
 
   it('stands for election again once it has owned a turn since without being able to leave', async function () {
     this.timeout(900000);
     const client = env.clients[TARGET - 1];
-    const { event, folder } = await standDown('releaseapp');
+    const { event, folder } = await standDown(this, 'releaseapp');
     // No peer holds the folder any more, so its next owned turn cannot remove.
     await setNoPeerData({ folder });
     const stoodDownTurn = client.getEventBuffer()
@@ -881,14 +917,14 @@ describe('Residential node evacuation: a stand-down that cannot finish', functio
     const released = () => client.getEventBuffer().find((e) => e.id > event.id && e.event === 'giveUp:standDownReleased'
       && e.data?.identifier === 'releaseapp_releaseapp');
 
-    await driveUntil(client, async () => released() !== undefined, {
-      timeoutMs: untilOwnedTurnEndsMs({
-        holders: keysOf([1, 2, 3, 4, 5]),
-        owners: keysOf([TARGET]),
-        turnMs: RESIDENTIAL_PACING.residentialTurnMs,
-        fromMs: (stoodDownTurn + 1) * RESIDENTIAL_PACING.residentialTurnMs,
-      }) + RESIDENTIAL_PACING.residentialTurnMs + (2 * PASS_MS),
-    });
+    const budgetMs = untilOwnedTurnEndsMs({
+      holders: keysOf(fleetNodes(env)),
+      owners: keysOf([TARGET]),
+      turnMs: RESIDENTIAL_PACING.residentialTurnMs,
+      fromMs: (stoodDownTurn + 1) * RESIDENTIAL_PACING.residentialTurnMs,
+    }) + RESIDENTIAL_PACING.residentialTurnMs + (2 * PASS_MS);
+    this.timeout(budgetMs + 120000);
+    await driveUntil(client, async () => released() !== undefined, { timeoutMs: budgetMs });
     await startTicker();
 
     expect(released().data.reason).to.equal('OWNED_TURN_PASSED');
@@ -896,7 +932,7 @@ describe('Residential node evacuation: a stand-down that cannot finish', functio
     const at = client.getEventBuffer()
       .filter((e) => e.event === 'giveUp:turn' && e.data?.appName === 'releaseapp' && e.id < released().id).pop().data.turn;
     const owned = Array.from({ length: at - stoodDownTurn - 1 }, (_, i) => stoodDownTurn + 1 + i)
-      .filter((turn) => turnOwner(keysOf([1, 2, 3, 4, 5]), turn) === keysOf([TARGET])[0]);
+      .filter((turn) => turnOwner(keysOf(fleetNodes(env)), turn) === keysOf([TARGET])[0]);
     expect(owned, 'released before it owned a whole turn').to.not.be.empty;
     const installed = await client.get('/apps/installedapps');
     expect(installed.data.map((a) => a.name)).to.include('releaseapp');
@@ -905,7 +941,7 @@ describe('Residential node evacuation: a stand-down that cannot finish', functio
   it('stands for election again once the node stops evacuating', async function () {
     this.timeout(900000);
     const client = env.clients[TARGET - 1];
-    const { event } = await standDown('returnapp');
+    const { event } = await standDown(this, 'returnapp');
     await setSystemSecure(subnet.nodeIp(TARGET), true);
     const released = () => client.getEventBuffer().find((e) => e.id > event.id && e.event === 'giveUp:standDownReleased'
       && e.data?.identifier === 'returnapp_returnapp');
