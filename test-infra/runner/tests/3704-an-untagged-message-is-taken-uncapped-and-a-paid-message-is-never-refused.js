@@ -64,6 +64,8 @@ describe('an untagged unpaid message is taken uncapped, and a paid message is ne
       hookCtx: this,
       nodes: NODES,
       stubPeers: [STUB],
+      // Relays as an Arcane peer, over links it has authenticated.
+      arcaneStubPeers: [STUB],
       configOverrides: { fluxapps: { clientTagCap: CLIENT_TAG_CAP, originKeyCap: ORIGIN_KEY_CAP } },
     });
     await bootAndPeer(env);
