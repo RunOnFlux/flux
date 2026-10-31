@@ -693,6 +693,9 @@ module.exports = {
     // peer holds a proposed message for admissionHoldMs awaiting the commit, and
     // at most admissionHoldMax at once.
     admissionQuorum: 3,
+    // The authenticated links on distinct IPs a node keeps: the quorum and a margin of
+    // two, so a peer or two can be away and the node still admits.
+    admissionLinkTarget: 5,
     admissionTimeoutMs: 2000,
     admissionHoldMs: 8000,
     admissionHoldMax: 500,
