@@ -675,6 +675,17 @@ module.exports = {
     // counted.
     clientTagCap: 10,
     originKeyCap: 60,
+    // Authenticated Arcane links (services/arcaneLink.js). Each handshake costs one
+    // node-auth fluxbench call, so: at most linkHandshakesPerIp per peer IP in
+    // linkHandshakeWindowMs, none from an IP for linkHandshakeBackoffMs after one
+    // of its links failed to prove the secret, at most nodeAuthCallsConcurrent
+    // calls at once with nodeAuthCallsQueued waiting, and the rest dropped (the
+    // link stays unauthenticated).
+    linkHandshakesPerIp: 6,
+    linkHandshakeWindowMs: 600000,
+    linkHandshakeBackoffMs: 600000,
+    nodeAuthCallsConcurrent: 2,
+    nodeAuthCallsQueued: 32,
     hashSyncIntervalMs: 1800000,
     cpuCheckIntervalMs: 900000,
     statsSampleIntervalMs: 60000,

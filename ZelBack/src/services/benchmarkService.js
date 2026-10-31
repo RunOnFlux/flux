@@ -336,6 +336,37 @@ async function encryptMessage(message) {
 }
 
 /**
+ * fluxbench's encryption of `text` under the node-auth identity: the same bytes
+ * on every Arcane node and unobtainable anywhere else. A legacy node's fluxbench
+ * refuses the identity.
+ *
+ * Called with executeCall, not executeAppCall: the identity is not an app name
+ * and owner (ARCANEOS_SYSTEM carries an underscore, ARCANEOS_NODE_AUTH is not an
+ * address). The result never leaves this node. `blockHeight` does not change the
+ * output.
+ * @param {string} text
+ * @returns {Promise<string|null>} The base64 ciphertext, or null when fluxbench
+ *   refused or did not answer.
+ */
+async function nodeAuthEncrypt(text) {
+  const payload = JSON.stringify({
+    fluxID: 'ARCANEOS_NODE_AUTH', appName: 'ARCANEOS_SYSTEM', message: text, blockHeight: 0,
+  });
+  const response = await executeCall('encryptmessage', [payload]);
+  if (response.status !== 'success') return null;
+  let result = response.data;
+  if (typeof result === 'string') {
+    try {
+      result = JSON.parse(result);
+    } catch {
+      return null;
+    }
+  }
+  if (result?.status !== 'ok' || typeof result.message !== 'string' || !result.message) return null;
+  return result.message;
+}
+
+/**
  * Ask FLuxBench to get public key to encrypt enterprise content
  * @param {string} message JSON object with the app and its owner.
  */
@@ -499,4 +530,5 @@ module.exports = {
   getPublicKey,
   decryptRSAMessage,
   encryptMessage,
+  nodeAuthEncrypt,
 };
