@@ -1107,6 +1107,151 @@ describe('system Services tests', () => {
       sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '--no-install-recommends', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'update'] });
     });
   });
+  describe('ensureFluxdRunDirectory tests', () => {
+    const RULE = '/etc/tmpfiles.d/fluxd.conf';
+    let runCommandStub;
+    let readFileStub;
+    let writeFileStub;
+    let errorStub;
+
+    beforeEach(() => {
+      sinon.stub(daemonServiceUtils, 'ensureConfigLoaded').resolves();
+      sinon.stub(daemonServiceUtils, 'getFluxdDir').returns('/home/operator/.flux');
+      sinon.stub(fs, 'stat').resolves({ uid: 1001, gid: 1002 });
+      readFileStub = sinon.stub(fs, 'readFile').rejects(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+      sinon.stub(fs, 'mkdtemp').resolves('/tmp/fluxd-tmpfiles-x');
+      writeFileStub = sinon.stub(fs, 'writeFile').resolves();
+      sinon.stub(fs, 'rm').resolves();
+      runCommandStub = sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+      errorStub = sinon.stub(log, 'error');
+      sinon.stub(log, 'info');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('installs a rule owned by the owner of fluxd\'s data directory, and applies it', async () => {
+      expect(await systemService.ensureFluxdRunDirectory()).to.equal(true);
+
+      sinon.assert.calledWithExactly(fs.stat, '/home/operator/.flux');
+      sinon.assert.calledOnceWithExactly(writeFileStub, '/tmp/fluxd-tmpfiles-x/fluxd.conf', 'd /run/fluxd 0755 1001 1002 -\n');
+      expect(runCommandStub.args).to.deep.equal([
+        ['install', { runAsRoot: true, params: ['-m', '0644', '-o', 'root', '-g', 'root', '/tmp/fluxd-tmpfiles-x/fluxd.conf', RULE] }],
+        ['systemd-tmpfiles', { runAsRoot: true, params: ['--create', RULE] }],
+      ]);
+      sinon.assert.calledWith(fs.rm, '/tmp/fluxd-tmpfiles-x', { recursive: true, force: true });
+      sinon.assert.notCalled(errorStub);
+    });
+
+    it('leaves a rule that is already right and applies it', async () => {
+      readFileStub.resolves('d /run/fluxd 0755 1001 1002 -\n');
+
+      expect(await systemService.ensureFluxdRunDirectory()).to.equal(true);
+
+      sinon.assert.notCalled(writeFileStub);
+      expect(runCommandStub.args).to.deep.equal([
+        ['systemd-tmpfiles', { runAsRoot: true, params: ['--create', RULE] }],
+      ]);
+    });
+
+    it('rewrites the rule when the data directory has a new owner', async () => {
+      readFileStub.resolves('d /run/fluxd 0755 1000 1000 -\n');
+
+      expect(await systemService.ensureFluxdRunDirectory()).to.equal(true);
+
+      sinon.assert.calledOnceWithExactly(writeFileStub, '/tmp/fluxd-tmpfiles-x/fluxd.conf', 'd /run/fluxd 0755 1001 1002 -\n');
+      expect(runCommandStub.args.map(([command]) => command)).to.deep.equal(['install', 'systemd-tmpfiles']);
+    });
+
+    it('applies nothing when the rule cannot be installed', async () => {
+      runCommandStub.resolves({ error: new Error('sudo: a password is required') });
+
+      expect(await systemService.ensureFluxdRunDirectory()).to.equal(false);
+
+      sinon.assert.calledOnce(runCommandStub);
+      sinon.assert.calledOnce(errorStub);
+      sinon.assert.calledWith(fs.rm, '/tmp/fluxd-tmpfiles-x', { recursive: true, force: true });
+    });
+
+    it('reports a rule systemd-tmpfiles cannot apply', async () => {
+      readFileStub.resolves('d /run/fluxd 0755 1001 1002 -\n');
+      runCommandStub.resolves({ error: new Error('Failed to parse') });
+
+      expect(await systemService.ensureFluxdRunDirectory()).to.equal(false);
+
+      sinon.assert.calledOnce(errorStub);
+    });
+
+    it('does nothing while fluxd\'s data directory is unknown', async () => {
+      daemonServiceUtils.getFluxdDir.returns(undefined);
+
+      expect(await systemService.ensureFluxdRunDirectory()).to.equal(false);
+
+      sinon.assert.notCalled(runCommandStub);
+      sinon.assert.calledOnce(errorStub);
+    });
+
+    it('does not reject when the data directory cannot be read', async () => {
+      fs.stat.rejects(new Error('ENOENT: no such file or directory'));
+
+      expect(await systemService.ensureFluxdRunDirectory()).to.equal(false);
+
+      sinon.assert.notCalled(runCommandStub);
+      sinon.assert.calledOnce(errorStub);
+    });
+  });
+
+  describe('monitorSystem tests', () => {
+    let runCommandStub;
+
+    beforeEach(() => {
+      sinon.stub(daemonServiceUtils, 'ensureConfigLoaded').resolves();
+      sinon.stub(daemonServiceUtils, 'getFluxdDir').returns('/home/operator/.flux');
+      sinon.stub(fs, 'stat').resolves({ uid: 1001, gid: 1002 });
+      sinon.stub(fs, 'readFile').rejects(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+      sinon.stub(fs, 'mkdtemp').resolves('/tmp/fluxd-tmpfiles-x');
+      sinon.stub(fs, 'writeFile').resolves();
+      sinon.stub(fs, 'rm').resolves();
+      sinon.stub(axios, 'get').resolves({ data: { data: {} } });
+      sinon.stub(log, 'info');
+      sinon.stub(log, 'error');
+      // Every package installed and current, systemd-timesyncd already replaced by chrony.
+      runCommandStub = sinon.stub(serviceHelper, 'runCommand').callsFake(async (command, { params = [] } = {}) => {
+        if (command === 'dpkg-query') return { error: null, stdout: "'99.0.0|install ok installed'" };
+        if (command === 'systemctl' && params[0] === 'is-active') return { error: new Error('inactive'), stdout: '' };
+        return { error: null, stdout: '' };
+      });
+    });
+
+    afterEach(() => {
+      systemService.resetTimers();
+      sinon.restore();
+    });
+
+    it('applies the /run/fluxd tmpfiles rule on a legacy node', async () => {
+      await systemService.monitorSystem();
+
+      sinon.assert.calledWith(runCommandStub, 'systemd-tmpfiles', { runAsRoot: true, params: ['--create', '/etc/tmpfiles.d/fluxd.conf'] });
+    });
+
+    it('does nothing on ArcaneOS, whose fluxd unit makes /run/fluxd', async () => {
+      const saved = process.env.FLUXOS_PATH;
+      process.env.FLUXOS_PATH = '/usr/lib/fluxos';
+      let arcaneSystemService;
+      try {
+        arcaneSystemService = proxyquire('../../ZelBack/src/services/systemService', {});
+      } finally {
+        if (saved === undefined) delete process.env.FLUXOS_PATH;
+        else process.env.FLUXOS_PATH = saved;
+      }
+
+      await arcaneSystemService.monitorSystem();
+
+      sinon.assert.notCalled(runCommandStub);
+    });
+  });
+
   describe('enableFluxdZmq tests', () => {
     let statStub;
     let errorSpy;

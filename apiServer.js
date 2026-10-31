@@ -48,15 +48,26 @@ const SHUTDOWN_BUDGET_MS = PM2_KILL_TIMEOUT_MS - SHUTDOWN_EXIT_MS;
 // How much of SHUTDOWN_EXIT_MS pausing the folders may take.
 const SHUTDOWN_PAUSE_MS = 3000;
 const verifyPool = require('./ZelBack/src/services/utils/verifyPool');
+const portFile = require('./ZelBack/src/services/utils/portFile');
 
 const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = +apiPort + 1;
 
 let requestHistory = null;
 let axiosDefaultsSet = false;
+let listeningPorts = { apiPort: null, apiPortHttps: null };
 
 function getrequestHistory() {
   return requestHistory;
+}
+
+/**
+ * The ports the API's HTTP and HTTPS servers are listening on, as their sockets
+ * report them; null for a server not yet listening.
+ * @returns {{apiPort: number|null, apiPortHttps: number|null}}
+ */
+function getListeningPorts() {
+  return { ...listeningPorts };
 }
 
 function setAxiosDefaults(socketIoServers) {
@@ -234,6 +245,7 @@ async function initiate() {
     return '';
   }
 
+  listeningPorts = { apiPort: httpServer.port, apiPortHttps: httpsServer.port };
   log.info(`Flux listening on port ${apiPort}!`);
   log.info(`Flux https listening on port ${apiPortHttps}!`);
   // Ready means the API answers. Mongo, Docker and fluxd come up behind this,
@@ -398,6 +410,8 @@ async function pauseFoldersForShutdown() {
 async function shutDown() {
   const deadline = performance.now() + SHUTDOWN_BUDGET_MS;
   log.info('SIGTERM received, checking if system is shutting down...');
+  // First, so that every way out of this stop has removed it.
+  portFile.removePortFile();
 
   // Small delay to allow systemd to update its state before we check
   await serviceHelper.delay(100);
@@ -515,6 +529,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  getListeningPorts,
   getrequestHistory,
   handleSigterm,
   initiate,

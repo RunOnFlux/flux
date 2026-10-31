@@ -130,6 +130,15 @@ class FluxServer {
     return this.server instanceof nodeHttps.Server;
   }
 
+  /**
+   * The port the server is listening on, as the socket reports it; null
+   * until it listens.
+   * @returns {number|null}
+   */
+  get port() {
+    return this.server.address()?.port ?? null;
+  }
+
   async listen(port) {
     return new Promise((resolve, reject) => {
       this.server

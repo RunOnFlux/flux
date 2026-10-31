@@ -5,6 +5,7 @@ const fs = require('fs').promises;
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
+const daemonServiceNetworkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceNetworkRpcs');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
@@ -59,6 +60,8 @@ describe('fluxNetworkHelper own standing tests', () => {
     sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus').resolves({ status: 'error' });
     sinon.stub(daemonServiceFluxnodeRpcs, 'createConfirmationTransaction').resolves({ status: 'success' });
     sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
+    // fluxd has decided no address, so the node's address is benchmark's.
+    sinon.stub(daemonServiceNetworkRpcs, 'getNetworkInfo').resolves({ status: 'success', data: { connections: 8 } });
     sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(false);
     sinon.stub(fluxCommunicationUtils, 'getNodeCount').resolves(0);
     sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').resolves([listing(OWN)]);

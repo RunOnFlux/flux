@@ -151,6 +151,7 @@ describe('appSpawner tests', () => {
         }),
       },
       '../fluxNetworkHelper': {
+        getLocalSocketAddress: sinon.stub().resolves('192.168.1.1:16127'),
         isPortOpen: sinon.stub().resolves(true),
         isNodeDos: sinon.stub().returns(false),
         isPlacementHeld: sinon.stub().returns(Boolean(opts.placementHold)),
@@ -413,7 +414,7 @@ describe('appSpawner tests', () => {
   });
 
   describe('enterprise node-IP targeting filter', () => {
-    const MY_IP = '192.168.1.1'; // matches the benchmark stub ipaddress
+    const MY_IP = '192.168.1.1'; // matches the stubbed getLocalSocketAddress
 
     function makeApp(overrides = {}) {
       return {

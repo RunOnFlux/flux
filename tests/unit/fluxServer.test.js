@@ -127,6 +127,15 @@ describe('FluxServer tests', () => {
     }
   });
 
+  it('reports the port its socket is listening on, and null before it listens', () => {
+    const server = new fluxServer.FluxServer();
+    createHttpServer.address = sinon.stub().returns(null);
+    expect(server.port).to.equal(null);
+    createHttpServer.address.returns({ address: '::', family: 'IPv6', port: 16137 });
+    expect(server.port).to.equal(16137);
+    delete createHttpServer.address;
+  });
+
   it('should use existing express app and skip middlewares / routes if expressApp option present', () => {
     const routeBuilder = sinon.stub();
     const testMiddleware = noop;

@@ -8,7 +8,7 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const geolocationService = require('../geolocationService');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const log = require('../../lib/log');
-const { normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
+const { extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
 const { collateralOutpoint, nodesNameThisNode } = require('../utils/nodePinning');
 const { compareInstallingClaims, compareInstanceSeniority, describeRanking } = require('../utils/instanceOrdering');
 
@@ -208,12 +208,8 @@ async function trySpawningGlobalApplication() {
       log.info('FluxBench status Error. Global applications will not be installed');
       return installDelay;
     }
-    // get my external IP and check that it is longer than 5 in length.
-    let localSocketAddr = null;
-    if (benchmarkResponse.data.ipaddress) {
-      log.info(`Gathered IP ${benchmarkResponse.data.ipaddress}`);
-      localSocketAddr = benchmarkResponse.data.ipaddress.length > 5 ? normalizeSocketAddress(benchmarkResponse.data.ipaddress) : null;
-    }
+    const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+    if (localSocketAddr) log.info(`Gathered IP ${localSocketAddr}`);
     if (localSocketAddr === null) {
       throw new Error('Unable to detect Flux IP address');
     }
