@@ -1152,6 +1152,17 @@ async function trySpawningGlobalApplication() {
     // a peer read them, and the install keeps the mappings it makes.
     testedPorts = { ports: appPorts, appName: appSpecifications.name, holder: {} };
     const portVerdict = await portManager.checkInstallingAppPortAvailable(appPorts, appSpecifications.name, { holder: testedPorts.holder });
+    if (portVerdict.ok === false && portVerdict.reason === 'portClaimed') {
+      log.info(`trySpawningGlobalApplication - port ${portVerdict.port} of ${appSpecifications.name} is held by another installation on this node`);
+      await withdrawInstallingClaim('port claimed');
+      fluxEventBus.publish('spawner:deferred', {
+        appName: appSpecifications.name,
+        reason: 'port_claimed',
+        port: portVerdict.port,
+        delayMs: shortDelayTime,
+      });
+      return shortDelayTime;
+    }
     if (portVerdict.ok === false) {
       log.error(`trySpawningGlobalApplication - Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
       await withdrawInstallingClaim('ports not available');
