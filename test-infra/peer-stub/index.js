@@ -364,7 +364,9 @@ wss.on('headers', (headers) => {
 
 wss.on('connection', (ws, req) => {
   connectionsReceived++;
-  if (ARCANE_LINK) {
+  // Only a node that speaks the link protocol opens a handshake.
+  const nodeCapabilities = String(req.headers['x-flux-capabilities'] || '').split(',').map((c) => c.trim());
+  if (ARCANE_LINK && nodeCapabilities.includes(linkCrypto.CAPABILITY)) {
     links.set(ws, {
       localNonce: crypto.randomBytes(32).toString('hex'),
       localPubKey: PUBLIC_KEY,
@@ -653,6 +655,8 @@ const controlServer = http.createServer(async (req, res) => {
         connectionsOpen: connectedNodes.size,
         linksAuthenticated,
         linksAuthenticatedOpen: [...connectedNodes].filter((ws) => links.get(ws)?.authenticated).length,
+        // the open connections whose node speaks the link protocol
+        linksOpen: [...connectedNodes].filter((ws) => links.has(ws)).length,
         requestsReceived,
         messagesServed,
         unverifiableResponsesSent,

@@ -414,11 +414,12 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
     { timeout: 60000, interval: 1000, label: `authenticated links for the admission quorum on ${admitting.length} Arcane nodes` },
   );
   // A stub that speaks as an Arcane node relays as one only over a link it has
-  // authenticated, so a suite sending through it waits until every link it holds has.
+  // authenticated, so a suite sending through it waits until every link it holds
+  // with a node that speaks the protocol has.
   await waitFor(
     async () => {
       const stats = await Promise.all((env.arcaneStubPeers ?? []).map((index) => env.stubPeerClients.get(index).getStats()));
-      return stats.every((s) => s.connectionsOpen > 0 && s.linksAuthenticatedOpen === s.connectionsOpen);
+      return stats.every((s) => s.linksOpen > 0 && s.linksAuthenticatedOpen === s.linksOpen);
     },
     { timeout: 60000, interval: 1000, label: 'every link of every Arcane stub peer authenticated' },
   );
