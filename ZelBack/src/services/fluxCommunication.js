@@ -6,6 +6,8 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 const messageStore = require('./appMessaging/messageStore');
+const messageVerifier = require('./appMessaging/messageVerifier');
+const admissionQuorum = require('./appMessaging/admissionQuorum');
 const { appRunningEntries } = require('./utils/appRunningEntries');
 const verificationHelper = require('./verificationHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
@@ -42,6 +44,7 @@ const { announcementSeen, announcementStore, wsPeerCache } = cacheManager;
 const testListCache = new LRUCache(LRUTest); */
 
 const { FluxPeerManager, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES } = require('./utils/FluxPeerManager');
+const { arrivedAuthenticated } = require('./utils/FluxPeerSocket');
 const { NAK_REASON, buildSyncSignatureMessage } = require('./utils/peerCodec');
 const { networkHealthMonitor } = require('./utils/NetworkHealthMonitor');
 const verifyPool = require('./utils/verifyPool');
@@ -70,6 +73,7 @@ const SYNC_EVENTS_PER_SLICE = 250;
  */
 async function handleAppMessages(message, fromIP, port) {
   try {
+    if (admissionQuorum.takeRelay(message.data?.hash, arrivedAuthenticated(message))) return;
     // check if we have it in database and if not add
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
@@ -80,6 +84,78 @@ async function handleAppMessages(message, fromIP, port) {
     }
   } catch (error) {
     log.error(error);
+  }
+}
+
+const APP_MESSAGE_TYPES = new Set(['zelappregister', 'zelappupdate', 'fluxappregister', 'fluxappupdate']);
+
+/**
+ * An unpaid app message an authenticated peer proposes (admissionQuorum): check
+ * it as any network message is checked, hold it pending, and write and relay it
+ * only on that peer's commit.
+ * @param {object} msg The proposal: {type, envelope}.
+ * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer
+ */
+async function handleAppProposal(msg, peer) {
+  const { envelope } = msg;
+  const appHash = envelope?.data?.hash;
+  if (!admissionQuorum.isMessageHash(appHash) || !APP_MESSAGE_TYPES.has(envelope.data.type)) return;
+  const { RECEIPT_STATE } = admissionQuorum;
+  admissionQuorum.sendReceipt(peer, appHash, RECEIPT_STATE.RECEIVED);
+  if (admissionQuorum.joinHold(appHash, peer)) return;
+  const refuse = (reason) => admissionQuorum.sendReceipt(peer, appHash, RECEIPT_STATE.REFUSED, reason);
+
+  const verdict = await fluxCommunicationUtils.verifyFluxBroadcast(envelope);
+  if (verdict !== fluxCommunicationUtils.VerifyResult.OK) {
+    refuse(`its envelope does not verify: ${verdict}`);
+    return;
+  }
+  if (!fluxCommunicationUtils.verifyTimestampInFluxBroadcast(envelope, Date.now())) {
+    refuse('its envelope is outside the broadcast window');
+    return;
+  }
+  if (await messageVerifier.checkAppMessageExistence(appHash) || await messageVerifier.checkAppTemporaryMessageExistence(appHash)) {
+    admissionQuorum.sendReceipt(peer, appHash, RECEIPT_STATE.HELD);
+    return;
+  }
+
+  let refusal = null;
+  let held = false;
+  try {
+    const stored = await messageStore.storeAppTemporaryMessage(envelope.data, {
+      frame: envelope,
+      beforeWrite: () => {
+        held = true;
+        return admissionQuorum.hold(appHash, peer);
+      },
+      onRefusal: (reason) => { refusal = reason; },
+    });
+    if (stored === true) {
+      fluxEventBus.publish('network:appmessage', { hash: appHash, type: envelope.data.type, name: envelope.data.appSpecifications?.name });
+      announcementSeen.set(hash(envelope.data), true);
+      announceToPeers(envelope, peer.key);
+    } else if (!held) {
+      refuse(refusal ?? (stored instanceof Error ? stored.message : 'not taken'));
+    }
+  } catch (error) {
+    if (held) log.error(error);
+    else refuse(error.message);
+  }
+}
+
+/**
+ * The admission protocol's messages, which arrive only in frames carrying a
+ * valid link MAC.
+ * @param {object} msg
+ * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer
+ */
+function dispatchLinkMessage(msg, peer) {
+  if (msg.type === admissionQuorum.PROPOSAL) {
+    handleAppProposal(msg, peer).catch((error) => log.error(error));
+  } else if (msg.type === admissionQuorum.RECEIPT) {
+    admissionQuorum.onReceipt(peer, msg);
+  } else if (msg.type === admissionQuorum.COMMIT) {
+    admissionQuorum.onCommit(peer, msg);
   }
 }
 
@@ -1201,6 +1277,7 @@ register('fluxappinstallingsync', handleAppInstallingSyncResponse, ROUTE.ORDERED
 register('fluxappinstallingerrorssync', handleAppInstallingErrorsSyncResponse, ROUTE.ORDERED, INTENT.ANSWER);
 
 peerManager.messageDispatcher = dispatchFluxMessage;
+peerManager.linkMessageDispatcher = dispatchLinkMessage;
 peerManager.syncResponseDispatcher = dispatchSyncResponse;
 async function verifySyncRequest(peer, decoded) {
   const { requestTimestamp, pubkey, signature, sinceTimestamp } = decoded;
@@ -2208,6 +2285,8 @@ function logSocketsEvery(intervalMs) {
 }
 
 module.exports = {
+  handleAppProposal,
+  dispatchLinkMessage,
   connectedPeers,
   removePeer,
   removeIncomingPeer,

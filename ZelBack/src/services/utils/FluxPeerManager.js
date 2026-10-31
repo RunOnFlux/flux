@@ -141,6 +141,14 @@ class FluxPeerManager extends EventEmitter {
     this.syncResponseDispatcher = null;
 
     /**
+     * Link message dispatch callback - set by fluxCommunication.js. Takes the
+     * admission protocol's messages, which arrive only in a frame carrying a
+     * valid link MAC.
+     * @type {function(object, FluxPeerSocket)|null}
+     */
+    this.linkMessageDispatcher = null;
+
+    /**
      * Number of flux nodes in the network — set by fluxDiscovery.
      * @type {number}
      */
@@ -763,6 +771,38 @@ class FluxPeerManager extends EventEmitter {
       capable.push(peer);
     }
     return capable;
+  }
+
+  /**
+   * The peers whose link has authenticated as Arcane (services/arcaneLink.js).
+   * @returns {FluxPeerSocket[]}
+   */
+  getAuthenticatedPeers() {
+    const authenticated = [];
+    for (const peer of this.#peers.values()) {
+      if (peer.link?.authenticated) authenticated.push(peer);
+    }
+    return authenticated;
+  }
+
+  /**
+   * The peers whose link has not authenticated.
+   * @returns {FluxPeerSocket[]}
+   */
+  getUnauthenticatedPeers() {
+    const unauthenticated = [];
+    for (const peer of this.#peers.values()) {
+      if (!peer.link?.authenticated) unauthenticated.push(peer);
+    }
+    return unauthenticated;
+  }
+
+  /**
+   * How many distinct IPs this node holds an authenticated link to.
+   * @returns {number}
+   */
+  authenticatedIpCount() {
+    return new Set(this.getAuthenticatedPeers().map((peer) => peer.ip)).size;
   }
 
   /**
@@ -1832,7 +1872,12 @@ const peerManager = new FluxPeerManager();
 // knows itself by - harness-only, see fluxEventBus.js.
 fluxEventBus.snapshot('peers', () => {
   const describe = (peer) => ({
-    ip: peer.ip, port: String(peer.port), source: peer.source, alive: peer.isAlive, connectedAt: peer.connectedAt,
+    ip: peer.ip,
+    port: String(peer.port),
+    source: peer.source,
+    alive: peer.isAlive,
+    connectedAt: peer.connectedAt,
+    authenticated: Boolean(peer.link?.authenticated),
   });
   return {
     self: peerManager.getOwnSocketAddress(),

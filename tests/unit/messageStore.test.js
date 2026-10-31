@@ -5,6 +5,13 @@ const fluxService = require('../../ZelBack/src/services/fluxService');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 
 describe('messageStore tests', () => {
+  // The pending-message writer, on the same database stub as messageStore.
+  const temporaryMessageRecordOn = (dbHelper, config, log) => proxyquire('../../ZelBack/src/services/appMessaging/temporaryMessageRecord', {
+    config,
+    '../dbHelper': dbHelper,
+    '../../lib/log': log,
+    '../utils/appConstants': { globalAppsTempMessages: 'appsTempMessages' },
+  });
   let messageStore;
   let checkAndDecryptStub;
   let dbHelperStub;
@@ -75,6 +82,7 @@ describe('messageStore tests', () => {
       '../serviceHelper': serviceHelperStub,
       './messageVerifier': messageVerifierStub,
       './unpaidAdmission': unpaidAdmissionStub,
+      './temporaryMessageRecord': temporaryMessageRecordOn(dbHelperStub, configStub, logStub),
       '../../lib/log': logStub,
       '../daemonService/daemonServiceMiscRpcs': {
         isDaemonSynced: sinon.stub().returns({ data: { height: 1000 } }),
@@ -291,6 +299,7 @@ describe('messageStore tests', () => {
           '../serviceHelper': serviceHelperStub,
           './messageVerifier': messageVerifierStub,
           './unpaidAdmission': unpaidAdmissionStub,
+          './temporaryMessageRecord': temporaryMessageRecordOn(dbHelperStub, configStub, logStub),
           '../../lib/log': logStub,
           '../daemonService/daemonServiceMiscRpcs': {
             isDaemonSynced: sinon.stub().returns({ data: { height: 1000 } }),
@@ -393,6 +402,7 @@ describe('messageStore tests', () => {
         '../serviceHelper': serviceHelperStub,
         './messageVerifier': messageVerifierStub,
         './unpaidAdmission': unpaidAdmissionStub,
+        './temporaryMessageRecord': temporaryMessageRecordOn(dbHelperStub, configStub, logStub),
         '../../lib/log': logStub,
         '../daemonService/daemonServiceMiscRpcs': {
           isDaemonSynced: sinon.stub().returns({ data: { height: 1000 } }),
@@ -461,6 +471,7 @@ describe('messageStore tests', () => {
           '../serviceHelper': serviceHelperStub,
           './messageVerifier': messageVerifierStub,
           './unpaidAdmission': unpaidAdmissionStub,
+          './temporaryMessageRecord': temporaryMessageRecordOn(dbHelperStub, configStub, logStub),
           '../../lib/log': logStub,
           '../daemonService/daemonServiceMiscRpcs': {
             isDaemonSynced: sinon.stub().returns({ data: { height: 3008000 } }),

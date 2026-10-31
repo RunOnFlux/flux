@@ -2186,6 +2186,7 @@ describe('registryManager registerAppGlobalyApi tests', () => {
     sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
     sinon.stub(peerManager, 'outboundCount').get(() => 100);
     sinon.stub(peerManager, 'inboundCount').get(() => 100);
+    sinon.stub(peerManager, 'authenticatedIpCount').returns(3);
     sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 2500000 } });
   });
 
@@ -2208,5 +2209,12 @@ describe('registryManager registerAppGlobalyApi tests', () => {
     // Off ArcaneOS the decrypt refuses, which shows the spec reached it.
     const response = await register(spec);
     expect(response.data.message).to.equal('Application Specifications can only be validated on a node running Arcane OS.');
+  });
+
+  it('should refuse at the door, before any check, below the quorum of authenticated links', async () => {
+    peerManager.authenticatedIpCount.returns(2);
+    const response = await register({ ...spec, name: 'register_test' });
+    expect(response.status).to.equal('error');
+    expect(response.data.name).to.equal('AdmissionUnavailable');
   });
 });

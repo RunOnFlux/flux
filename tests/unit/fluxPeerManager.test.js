@@ -779,6 +779,23 @@ describe('FluxPeerSocket tests', () => {
       expect(arrivedAuthenticated(msgObj)).to.equal(false);
     });
 
+    it('should hand the admission messages over only from a MAC\'d frame', async () => {
+      const { a, b } = linkedPair({ aAuthenticated: false });
+      manager.linkMessageDispatcher = sinon.stub();
+      const receipt = JSON.stringify({ type: 'appreceipt', hash: 'h', state: 'held' });
+
+      a.send(receipt);
+      await deliver(b, a.ws.send.firstCall.args[0]);
+      sinon.assert.notCalled(manager.linkMessageDispatcher);
+
+      a.link.authenticated = true;
+      a.send(receipt);
+      await deliver(b, a.ws.send.secondCall.args[0]);
+      sinon.assert.calledOnce(manager.linkMessageDispatcher);
+      expect(manager.linkMessageDispatcher.firstCall.args[1]).to.equal(b);
+      sinon.assert.notCalled(manager.messageDispatcher);
+    });
+
     it('should send a binary frame as it is', () => {
       const { a } = linkedPair();
       const buf = Buffer.from([1, 2, 3]);
