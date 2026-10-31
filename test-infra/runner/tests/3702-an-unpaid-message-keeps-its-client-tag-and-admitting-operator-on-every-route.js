@@ -75,6 +75,8 @@ describe('an unpaid app message keeps its client tag and admitting operator on e
       hookCtx: this,
       nodes: NODES,
       stubPeers: [STUB],
+      // Relays as an Arcane peer, over links it has authenticated.
+      arcaneStubPeers: [STUB],
       deferredNodes: 1,
       // Every real node answers a state sync, so the late node's temp sync is
       // answered whichever of them it peers with.

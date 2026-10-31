@@ -997,7 +997,7 @@ export const SYNCTHING_FAULT = Object.freeze({ PORT_TAKEN: 'portTaken', NOT_STAR
 // nothing else should.
 export async function createTestEnv({
   hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], unprivilegedNodes = [], stubPeers = [], syncedNodes = null, silentSyncPeers = [],
-  unverifiableSyncPeers = [], policyUnawarePeers = [], stubPeeredWith = null,
+  unverifiableSyncPeers = [], policyUnawarePeers = [], arcaneStubPeers = [], stubPeeredWith = null,
   configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true,
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
   // How many blocks after its last confirmation each node confirms again: 1, or
@@ -1208,6 +1208,14 @@ export async function createTestEnv({
       throw new Error(`createTestEnv: policyUnawarePeers index ${index} is not one of stubPeers [${stubPeers.join(', ')}]`);
     }
   }
+  // A stub that speaks as an Arcane node: it advertises arcaneLink, authenticates
+  // its links and MACs what it sends, so what it relays is taken as from any
+  // Arcane peer. Every other stub stays unauthenticated, as a legacy node is.
+  for (const index of arcaneStubPeers) {
+    if (!stubPeers.includes(index)) {
+      throw new Error(`createTestEnv: arcaneStubPeers index ${index} is not one of stubPeers [${stubPeers.join(', ')}]`);
+    }
+  }
   const syncedOverrides = {};
   for (const index of establishedNodes) {
     syncedOverrides[index] = mergeConfigs(
@@ -1324,6 +1332,7 @@ export async function createTestEnv({
   const networkName = await createNetwork();
   const env = makeEnvShell(networkName);
   env.rejoinOnRestart = rejoinOnRestart;
+  env.arcaneStubPeers = arcaneStubPeers;
   activeEnvs.add(env);
   // A previous env's death must not fail this one's waits.
   clearInfraDeath();
@@ -1333,7 +1342,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, firewall, collateralOf, syncthingFaults, configuredIp, nodeImageTags, freezableDockerRoot, symlinkedAppsFolder, confirmationIntervalBlocks, credentialNodes, fluxosHeldNodes);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, mergedNodeOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded, aptBadSource, geolocation, locationTable, staticIp, policy, policySeeds, policyReachable, pm2Nodes, pausedSyncthingNodes, { ...sharedKeys, ...collateralOf }, networkShapes, globalIpv6, dnsRecords, firewall, collateralOf, syncthingFaults, configuredIp, nodeImageTags, freezableDockerRoot, symlinkedAppsFolder, arcaneStubPeers, confirmationIntervalBlocks, credentialNodes, fluxosHeldNodes);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -1362,7 +1371,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], symlinkedAppsFolder = [], confirmationIntervalBlocks = 1, credentialNodes = [], fluxosHeldNodes = []) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNodes, stubPeers, silentSyncPeers, unverifiableSyncPeers, policyUnawarePeers, stubPeerings, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true, aptBadSource = false, geolocation, locationTable, staticIp = true, policy = null, policySeeds = null, policyReachable = false, pm2Nodes = {}, pausedSyncthingNodes = [], sharedKeys = {}, networkShapes = {}, globalIpv6 = [], dnsRecords = [], firewall = false, collateralOf = {}, syncthingFaults = {}, configuredIp = {}, nodeImageTags = {}, freezableDockerRoot = [], symlinkedAppsFolder = [], arcaneStubPeers = [], confirmationIntervalBlocks = 1, credentialNodes = [], fluxosHeldNodes = []) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -1959,6 +1968,9 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, unprivilegedNod
         SILENT_APP_STATE_SYNC: String(silentSyncPeers.includes(stubIdx)),
         UNVERIFIABLE_APP_STATE_SYNC: String(unverifiableSyncPeers.includes(stubIdx)),
         POLICY_UNAWARE: String(policyUnawarePeers.includes(stubIdx)),
+        ARCANE_LINK: String(arcaneStubPeers.includes(stubIdx)),
+        // Where the stub asks for the node-auth encryption, as FluxOS asks.
+        BENCH_URL: `http://${DAEMON_IP}:16224/`,
         // Every stub asks, for the nodes it is declared a peer of. It repeats
         // on an interval, so a node held back at boot is asked once it starts.
         DIAL_TARGETS: (stubPeerings.get(stubIdx) ?? [])

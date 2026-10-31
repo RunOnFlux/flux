@@ -3,6 +3,9 @@ const net = require('net');
 const { WebSocketServer } = require('ws');
 const { signAsync } = require('@noble/secp256k1');
 const { sha256 } = require('@noble/hashes/sha2');
+const crypto = require('crypto');
+// FluxOS's own, as the node image ships it (see Dockerfile).
+const linkCrypto = require('./linkCrypto');
 
 if (process.env.FLUX_TEST_HARNESS !== 'true') {
   console.error('FLUX_TEST_HARNESS=true is required. This stub must only run inside the test harness.');
@@ -24,6 +27,11 @@ const UNVERIFIABLE_APP_STATE_SYNC = process.env.UNVERIFIABLE_APP_STATE_SYNC === 
 const POLICY_UNAWARE = process.env.POLICY_UNAWARE === 'true';
 const DIAL_TARGETS = (process.env.DIAL_TARGETS || '').split(',').filter(Boolean);
 const { PRIVATE_KEY, PUBLIC_KEY, NODE_IP } = process.env;
+// Speak as an Arcane node: advertise arcaneLink, authenticate each link and MAC
+// what is sent on it. BENCH_URL is the fluxbench this stub asks for the
+// node-auth encryption, as FluxOS asks its own.
+const ARCANE_LINK = process.env.ARCANE_LINK === 'true';
+const { BENCH_URL } = process.env;
 
 if (!PRIVATE_KEY || !PUBLIC_KEY) {
   console.error('PRIVATE_KEY and PUBLIC_KEY env vars are required');
@@ -105,6 +113,9 @@ let portProbeAnswersForeign = false;
 // broadcast or a message a real node would never send gets a real peer sending
 // it, signed and over the wire, instead of a row written behind the node's back.
 const connectedNodes = new Set();
+// Per socket: the link handshake's state, while ARCANE_LINK.
+const links = new WeakMap();
+let linksAuthenticated = 0;
 let broadcastsSent = 0;
 
 function hash256(data) {
@@ -165,6 +176,52 @@ async function serialiseUnverifiableSyncResponse(type) {
   return JSON.stringify({ version, timestamp, pubKey: PUBLIC_KEY, signature, data });
 }
 
+// Every text frame this stub sends goes through here: on an authenticated link
+// it carries the link MAC, as a node's would.
+function sendTo(ws, frame) {
+  const link = links.get(ws);
+  ws.send(link?.authenticated ? linkCrypto.sealFrame(link.sendKey, frame) : frame);
+}
+
+async function nodeAuthEncrypt(text) {
+  const res = await fetch(BENCH_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '1.0', id: 'link', method: 'encryptmessage', params: [linkCrypto.nodeAuthRequest(text)],
+    }),
+  });
+  const { result } = await res.json();
+  return JSON.parse(result).message;
+}
+
+// The node's nonce: answer with this stub's own, derive the link's keys and send
+// the confirm. The node opens the handshake as soon as it connects.
+async function handleLinkNonce(ws, msg) {
+  const link = links.get(ws);
+  if (!link || link.peerNonce || !linkCrypto.isHex32(msg.data.nonce)) return;
+  link.peerNonce = msg.data.nonce;
+  link.peerPubKey = msg.pubKey;
+  ws.send(await serialiseAndSignBroadcast({ type: linkCrypto.NONCE_TYPE, version: 1, nonce: link.localNonce }));
+  const secret = await nodeAuthEncrypt(linkCrypto.transcript(link));
+  Object.assign(link, linkCrypto.directionKeys(secret, link.localNonce, link.peerNonce));
+  ws.send(await serialiseAndSignBroadcast({ type: linkCrypto.CONFIRM_TYPE, version: 1, mac: linkCrypto.confirmMac(link.sendKey) }));
+  if (link.peerConfirm) handleLinkConfirm(ws, link.peerConfirm);
+}
+
+function handleLinkConfirm(ws, msg) {
+  const link = links.get(ws);
+  if (!link || link.authenticated) return;
+  if (!link.recvKey) {
+    link.peerConfirm = msg;
+    return;
+  }
+  if (msg.pubKey === link.peerPubKey && linkCrypto.confirmVerifies(link.recvKey, msg.data.mac)) {
+    link.authenticated = true;
+    linksAuthenticated += 1;
+  }
+}
+
 async function handleSyncRequest(ws, rawData) {
   const responseType = SYNC_REQUEST_RESPONSES[rawData[0]];
   if (!responseType) return;
@@ -172,14 +229,22 @@ async function handleSyncRequest(ws, rawData) {
   // throw here would take the stub down with an unhandled rejection.
   try {
     const frame = await serialiseUnverifiableSyncResponse(responseType);
-    ws.send(frame);
+    sendTo(ws, frame);
     unverifiableResponsesSent++;
   } catch (e) {
     console.error('Error answering sync request:', e.message);
   }
 }
 
-async function handleMessage(ws, rawData) {
+async function handleMessage(ws, received) {
+  let rawData = received;
+  // A frame under a link MAC is taken only when the MAC is the node's.
+  if (rawData[0] === 0x4d) {
+    const link = links.get(ws);
+    const opened = link?.recvKey ? linkCrypto.openFrame(link.recvKey, rawData.toString()) : null;
+    if (opened === null) return;
+    rawData = Buffer.from(opened);
+  }
   // Binary frames are the peer protocol's own encoding - hash traffic and the
   // app-state sync requests. This stub speaks the second only when asked to,
   // and a JSON parse error per incoming request is noise rather than a finding.
@@ -190,6 +255,15 @@ async function handleMessage(ws, rawData) {
   try {
     const msg = JSON.parse(rawData);
     const { data } = msg;
+
+    if (ARCANE_LINK && data?.type === linkCrypto.NONCE_TYPE) {
+      await handleLinkNonce(ws, msg);
+      return;
+    }
+    if (ARCANE_LINK && data?.type === linkCrypto.CONFIRM_TYPE) {
+      handleLinkConfirm(ws, msg);
+      return;
+    }
 
     // A node telling its peers what it adopted. Counted and not answered: an announcement
     // asks for nothing.
@@ -203,7 +277,7 @@ async function handleMessage(ws, rawData) {
       // so its filter does not read an identical reply from another peer as a repeat of
       // this one. A real peer does both; a stub that did neither could not show the
       // difference between the two.
-      ws.send(await serialiseAndSignBroadcast({
+      sendTo(ws, await serialiseAndSignBroadcast({
         type: 'fluxpolicyseq',
         version: 1,
         seq: policyAnswer.seq,
@@ -229,7 +303,7 @@ async function handleMessage(ws, rawData) {
       const stored = messages.get(hash);
       if (stored) {
         const response = await serialiseAndSignBroadcast(stored);
-        ws.send(response);
+        sendTo(ws, response);
         messagesServed++;
         served++;
       }
@@ -273,14 +347,29 @@ wss.on('headers', (headers) => {
     'peerExchange',
     ...(answersAppStateSync ? ['appStateSync'] : []),
     ...(POLICY_UNAWARE ? [] : ['policyBundle']),
+    ...(ARCANE_LINK ? [linkCrypto.CAPABILITY] : []),
   ].join(',');
   headers.push(`X-Flux-Capabilities: ${capabilities}`);
   headers.push('X-Flux-Version: 8.0.0');
   headers.push('X-Flux-Uptime: 1000');
 });
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
   connectionsReceived++;
+  if (ARCANE_LINK) {
+    links.set(ws, {
+      localNonce: crypto.randomBytes(32).toString('hex'),
+      localPubKey: PUBLIC_KEY,
+      localIp: NODE_IP,
+      peerIp: (req.socket.remoteAddress || '').replace('::ffff:', ''),
+      peerNonce: null,
+      peerPubKey: null,
+      peerConfirm: null,
+      sendKey: null,
+      recvKey: null,
+      authenticated: false,
+    });
+  }
   connectedNodes.add(ws);
   ws.on('close', () => connectedNodes.delete(ws));
   ws.on('message', (data) => handleMessage(ws, data));
@@ -553,6 +642,9 @@ const controlServer = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         connectionsReceived,
+        connectionsOpen: connectedNodes.size,
+        linksAuthenticated,
+        linksAuthenticatedOpen: [...connectedNodes].filter((ws) => links.get(ws)?.authenticated).length,
         requestsReceived,
         messagesServed,
         unverifiableResponsesSent,
@@ -588,7 +680,7 @@ const controlServer = http.createServer(async (req, res) => {
       const wire = await serialiseAndSignBroadcast(data);
       let sent = 0;
       for (const ws of connectedNodes) {
-        if (ws.readyState === 1) { ws.send(wire); sent++; }
+        if (ws.readyState === 1) { sendTo(ws, wire); sent++; }
       }
       broadcastsSent += sent;
       res.writeHead(200, { 'Content-Type': 'application/json' });

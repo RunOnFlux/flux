@@ -56,6 +56,8 @@ describe('an operator naming its own clients is held to the operator allowance',
       hookCtx: this,
       nodes: NODES,
       stubPeers: [STUB],
+      // Relays as an Arcane peer, over links it has authenticated.
+      arcaneStubPeers: [STUB],
       configOverrides: { fluxapps: { originKeyCap: ORIGIN_KEY_CAP } },
     });
     await bootAndPeer(env);
